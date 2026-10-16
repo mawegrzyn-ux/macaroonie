@@ -37,7 +37,7 @@
 // Pure: no I/O, no clock. Times come from events (received_at, set by the
 // sequencer, else client_at) or from the `now` the screen passes in.
 
-import { modifierText } from './pricing.js'
+import { modifierText, groupModifiers } from './pricing.js'
 import { isId } from './ids.js'
 
 export const KITCHEN_DEVICE_EVENTS = [
@@ -119,6 +119,16 @@ function onlineOrderProblem(o) {
     if (i.revenue_stream_id != null && !isUuid(i.revenue_stream_id)) return 'item.revenue_stream_id'
     if (i.options != null && !(Array.isArray(i.options) && i.options.every(x => x && isText(x.label || '', 120)))) return 'item.options'
     if (!optText(i.note, 300)) return 'item.note'
+    // A combo's picks (shared/combos.js): each goes to its own stations.
+    if (i.parts != null) {
+      if (!Array.isArray(i.parts) || i.parts.length > 60) return 'item.parts'
+      for (const pt of i.parts) {
+        if (!pt || !isText(pt.name || '', 200) || !pt.name) return 'item.parts name'
+        if (pt.item_id != null && !isUuid(pt.item_id)) return 'item.parts item_id'
+        if (pt.section_id != null && !isUuid(pt.section_id)) return 'item.parts section_id'
+        if (pt.options != null && !(Array.isArray(pt.options) && pt.options.every(x => x && isText(x.label || '', 120)))) return 'item.parts options'
+      }
+    }
   }
   return null
 }
@@ -354,7 +364,7 @@ export function flowWarnings(stations, links) {
 const eventTime = e => e.received_at || e.client_at || null
 
 function kitchenMods(mods = []) {
-  return (mods || []).map(m => ({
+  return groupModifiers(mods).map(m => ({
     text: modifierText(m),
     label: m.label || '',
     kind: m.prefix === 'no' ? 'remove' : m.base ? 'base' : 'add',
@@ -397,9 +407,13 @@ function itemFromLine(line, check, cfg, at, held, type) {
   let parts = null
   let route
   if (line.combo && line.combo.length) {
+    // Each pick goes where that dish goes; a typed-in choice (no dish)
+    // goes where the combo itself goes.
     parts = line.combo.map(p => ({
       item_id: p.item_id || null, name: p.kitchen_name || p.name, mods: kitchenMods(p.modifiers),
-      route: itemRoute({ item_id: p.item_id, section_id: p.section_id, revenue_stream_id: rs, order_type_id: type }, cfg),
+      route: itemRoute(p.item_id
+        ? { item_id: p.item_id, section_id: p.section_id, revenue_stream_id: rs, order_type_id: type }
+        : { item_id: line.item_id, section_id: line.section_id, revenue_stream_id: rs, order_type_id: type }, cfg),
     }))
     route = mergeRoutes(parts.map(p => p.route))
   } else {
@@ -418,12 +432,20 @@ function itemFromLine(line, check, cfg, at, held, type) {
 }
 
 function itemFromOnline(i, cfg, at, fireAt, type) {
+  const onlineMods = opts => (opts || []).map(o => ({ text: o.label, label: o.label, kind: o.mode === 'base' ? 'base' : 'add', depth: 0 }))
+  const rs = i.revenue_stream_id || null
+  const own = { item_id: i.item_id, section_id: i.section_id, revenue_stream_id: rs, order_type_id: type }
+  // A combo's picks, each to its own stations (a typed-in choice goes with the combo).
+  const parts = Array.isArray(i.parts) && i.parts.length ? i.parts.map(p => ({
+    item_id: p.item_id || null, name: p.kitchen_name || p.name, mods: onlineMods(p.options),
+    route: itemRoute(p.item_id ? { item_id: p.item_id, section_id: p.section_id || null, revenue_stream_id: rs, order_type_id: type } : own, cfg),
+  })) : null
   return {
     id: String(i.id), item_id: i.item_id || null, name: i.name, qty: i.qty,
-    mods: (i.options || []).map(o => ({ text: o.label, label: o.label, kind: o.mode === 'base' ? 'base' : 'add', depth: 0 })),
-    parts: null, note: i.note || null, allergies: [], seat: null,
+    mods: onlineMods(i.options),
+    parts, note: i.note || null, allergies: [], seat: null,
     course_id: null, course: null, course_sort: null,
-    route: itemRoute({ item_id: i.item_id, section_id: i.section_id, revenue_stream_id: i.revenue_stream_id || null, order_type_id: type }, cfg),
+    route: parts ? mergeRoutes(parts.map(p => p.route)) : itemRoute(own, cfg),
     sent_at: at, fired_at: fireAt ? null : at, fire_at: fireAt || null, since: fireAt ? null : at,
     done: {}, reset: {}, voided_at: null, void_reason: null, void_seen: {}, remakes: 0, added: false,
   }

@@ -10,12 +10,15 @@
 //   unit_price  the dish price, or the chosen base options (Chicken £12.50)
 //   modifiers   [{ group_id, group, option_id, label, prefix, price, base, depth }]
 //               price = per unit, already 0 for "No" / "Light"
-//   combo       [{ slot_id, slot, item_id, name, kitchen_name, section_id,
-//                  course_id, upcharge, modifiers }]   meal deals
+//   combo       [{ step_id, step, option_id, item_id, name, kitchen_name,
+//                  section_id, course_id, upcharge, modifiers, extras, custom }]
+//               a combo's picks (shared/combos.js); a typed-in choice has
+//               item_id null and goes to the kitchen like the combo itself
 // line gross = (unit_price + modifier prices + combo upcharges and their
 // modifier prices) x qty.
 
 import { itemChoices, vatIncluded } from '../orderPricing.js'
+import { isCombo, priceCombo } from '../combos.js'
 import { taxFor } from '../tax.js'
 
 export { vatIncluded }
@@ -58,6 +61,8 @@ export function groupChoice(g, { nested = false } = {}) {
     mode: nested ? 'extra' : (g.price_mode === 'extra' || g.mode === 'extra' ? 'extra' : 'base'),
     min: Math.max(0, Math.min(max, Number(g.min_select ?? g.min ?? 0))),
     max,
+    repeat: !!(g.allow_repeat ?? g.repeat),
+    on_request: false,
     prefixes: !!(g.pos_prefixes ?? g.prefixes),
     options: (g.options || []).map(o => ({
       id: o.option_id ?? o.id, label: o.label, price_pence: o.price_pence ?? null,
@@ -77,6 +82,8 @@ export function posChoices(item, groupsById = {}) {
     const lib = groupsById[c.key]
     return {
       ...c,
+      repeat: !!(c.repeat || lib?.allow_repeat),
+      on_request: c.min === 0 && !!(c.on_request || lib?.on_request),
       prefixes: !!lib?.pos_prefixes,
       options: c.options.map(o => ({
         ...o,
@@ -105,6 +112,7 @@ export function priceChoices(choices, picked = {}, groupsById = {}, depth = 0) {
       return { ok: false, error: c.min === 1 ? 'Choose ' + (c.key === 'variants' ? 'an option' : c.name.toLowerCase()) : 'Choose at least ' + c.min + ' for ' + c.name }
     }
     if (counted.length > c.max) return { ok: false, error: 'Choose up to ' + c.max + ' for ' + c.name }
+    if (!c.repeat && new Set(entries.map(e => e.id)).size !== entries.length) return { ok: false, error: c.name + ': choose each option once' }
     for (const e of entries) {
       const o = c.options.find(x => x.id === e.id)
       if (!o) return { ok: false, error: 'An option is no longer available' }
@@ -133,51 +141,65 @@ export function priceChoices(choices, picked = {}, groupsById = {}, depth = 0) {
   return { ok: true, base, extras, modifiers }
 }
 
-/** The text of a modifier on a ticket or bill: "No onion", "Extra cheese". */
+/** The text of a modifier on a ticket or bill: "No onion", "Extra cheese", "2 x Cheese". */
 export function modifierText(m) {
   const prefix = PREFIXES.find(p => p.key === m.prefix)
-  return (prefix ? prefix.label + ' ' : '') + m.label
+  return (m.count > 1 ? m.count + ' x ' : '') + (prefix ? prefix.label + ' ' : '') + m.label
+}
+
+/**
+ * Modifiers for showing: the same option picked more than once in a row (a
+ * group that allows repeats: Cheese, Cheese) becomes one entry with a count
+ * and the summed price ("2 x Cheese +£2.00"). Lines keep one modifier per
+ * pick; group only where they are shown or printed.
+ */
+export function groupModifiers(mods = []) {
+  const out = []
+  for (const m of mods || []) {
+    const last = out[out.length - 1]
+    if (last && m.option_id && last.option_id === m.option_id && last.group_id === m.group_id
+      && (last.prefix || null) === (m.prefix || null) && (last.depth || 0) === (m.depth || 0) && !!last.base === !!m.base) {
+      last.count = (last.count || 1) + 1
+      last.price = (Number(last.price) || 0) + (Number(m.price) || 0)
+      continue
+    }
+    out.push({ ...m })
+  }
+  return out
 }
 
 /**
  * Build the priced part of a line from a menu item and a selection.
- * item: the config item ({ id, price_pence, kind, choices?, combo_slots? }),
- * selection: { choices, combo: { [slotId]: [{ item_id, choices }] } },
- * itemsById / groupsById: from the config.
+ * item: the config item ({ id, price_pence, kind, combo?, choices? }),
+ * selection: { choices, combo: { [stepId]: [{ option_id, item_id, choices }] } },
+ * ctx: { itemsById, groupsById, sectionItems, soldOut(itemId) } from the config.
+ * A combo's price may be 0; its picks follow shared/combos.js.
  * Returns { ok, unit_price, modifiers, combo } or { ok: false, error }.
  */
-export function priceItem(item, selection = {}, { itemsById = {}, groupsById = {} } = {}) {
+export function priceItem(item, selection = {}, { itemsById = {}, groupsById = {}, sectionItems = {}, soldOut = null } = {}) {
   const choices = item.pos_choices || posChoices(item, groupsById)
   const priced = priceChoices(choices, selection.choices || {}, groupsById)
   if (!priced.ok) return priced
-  const unit = priced.base ?? item.price_pence ?? null
-  if (unit == null) return { ok: false, error: 'This item has no price' }
-
+  let unit = priced.base ?? item.price_pence ?? null
   let combo = null
-  if (item.kind === 'combo') {
-    combo = []
-    for (const slot of item.combo_slots || []) {
-      const picks = (selection.combo && selection.combo[slot.id]) || []
-      if (picks.length < slot.min) return { ok: false, error: 'Choose ' + (slot.min > 1 ? slot.min + ' for ' : '') + slot.name.toLowerCase() }
-      if (picks.length > slot.max) return { ok: false, error: 'Choose up to ' + slot.max + ' for ' + slot.name.toLowerCase() }
-      for (const p of picks) {
-        const opt = (slot.options || []).find(o => o.item_id === p.item_id)
-        const part = itemsById[p.item_id]
-        if (!opt || !part) return { ok: false, error: slot.name + ': that choice is no longer available' }
-        const partChoices = part.pos_choices || posChoices(part, groupsById)
-        // A part's base options don't change the deal's price; its extras do.
-        const pp = priceChoices(partChoices, p.choices || {}, groupsById)
-        if (!pp.ok) return { ok: false, error: part.name + ': ' + pp.error }
-        combo.push({
-          slot_id: slot.id, slot: slot.name, item_id: part.id, name: part.name,
-          kitchen_name: part.kitchen_name || null, section_id: part.section_id ?? null,
-          course_id: part.course_id ?? null, upcharge: Number(opt.upcharge_pence) || 0,
-          modifiers: pp.modifiers.map(m => (m.base ? m : { ...m })),
-          extras: pp.extras,
-        })
+  if (isCombo(item)) {
+    unit = unit ?? 0
+    const pc = priceCombo(item, selection, { itemsById, sectionItems, soldOut }, (part, picked) => {
+      const pp = priceChoices(part.pos_choices || posChoices(part, groupsById), picked || {}, groupsById)
+      return pp.ok ? { ok: true, extras: pp.extras, detail: pp.modifiers } : pp
+    })
+    if (!pc.ok) return pc
+    combo = pc.parts.map(p => {
+      const part = p.item_id ? itemsById[p.item_id] : null
+      return {
+        step_id: p.step_id, step: p.step, option_id: p.option_id, item_id: p.item_id,
+        name: p.name, kitchen_name: p.kitchen_name || part?.kitchen_name || null,
+        section_id: p.section_id ?? null, course_id: part?.course_id ?? null,
+        upcharge: p.upcharge, modifiers: p.detail || [], extras: p.extras, custom: p.custom || undefined,
       }
-    }
+    })
   }
+  if (unit == null) return { ok: false, error: 'This item has no price' }
   return { ok: true, unit_price: unit, modifiers: priced.modifiers, combo }
 }
 
@@ -264,7 +286,7 @@ export function checkTotals(check) {
       off += x
     }
     promotions += off
-    if (off > 0) discounts.push({ id: p.promotion_id, name: p.name, promotion: true, scope: 'check', amount: off })
+    if (off > 0) discounts.push({ id: p.promotion_id, name: p.kind === 'combo' && p.count > 1 ? p.name + ' x ' + p.count : p.name, promotion: true, combo: p.kind === 'combo' || undefined, scope: 'check', amount: off })
   }
 
   for (const d of all.filter(d => d.scope !== 'line')) {

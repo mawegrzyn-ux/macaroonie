@@ -14,6 +14,7 @@ import { env } from '../config/env.js'
 import { sendEmail, emailCredentials } from '../services/emailSvc.js'
 import { guestManageOrigin } from './emailWorker.js'
 import { formatPence } from '../../../shared/orderPricing.js'
+import { countParts } from '../../../shared/combos.js'
 
 const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
@@ -28,8 +29,13 @@ function itemsTable(order, items, promotions = []) {
   const money = p => formatPence(p, order.currency)
   const rows = items.map(i => {
     const opts = (i.options || []).map(o => esc(o.label)).join(', ')
+    // A combo's picks, one per line under it (migration 171).
+    const parts = countParts(i.parts).map(({ part: p, count }) => {
+      const po = (p.options || []).map(o => esc(o.label)).join(', ')
+      return `<div style="color:#6b7280;font-size:13px;padding-left:12px;">${count > 1 ? count + ' x ' : ''}${esc(p.name)}${po ? ' (' + po + ')' : ''}</div>`
+    }).join('')
     return `<tr>
-      <td style="padding:6px 0;vertical-align:top;">${i.qty} &times; ${esc(i.name)}${opts ? `<div style="color:#6b7280;font-size:13px;">${opts}</div>` : ''}${i.note ? `<div style="color:#6b7280;font-size:13px;">Note: ${esc(i.note)}</div>` : ''}</td>
+      <td style="padding:6px 0;vertical-align:top;">${i.qty} &times; ${esc(i.name)}${opts ? `<div style="color:#6b7280;font-size:13px;">${opts}</div>` : ''}${parts}${i.note ? `<div style="color:#6b7280;font-size:13px;">Note: ${esc(i.note)}</div>` : ''}</td>
       <td style="padding:6px 0;text-align:right;vertical-align:top;white-space:nowrap;">${money(i.line_total_pence)}</td>
     </tr>`
   }).join('')

@@ -16,6 +16,7 @@ import { useApi } from '@/lib/api'
 import { ImageIcon, Clock, MapPin, Phone, BookOpen, AlertTriangle, Loader2, Calendar, ShoppingBag, BadgePercent } from 'lucide-react'
 import { promoSummary, promoTerms, promoLink, promoRunning } from '@shared/promotions.js'
 import { isRemovable, menuTags, allergenKey } from '@shared/menuTags.js'
+import { comboMenuPrice } from '@shared/orderPricing.js'
 import { useBlockAvailability } from './BlockInserter'
 import { InlineText } from './InlineText'
 import { innerContainerStyle } from '../boxedLayout'
@@ -843,13 +844,16 @@ export function MenuInlineCanvas({ data, onChange }) {
                     </h3>
                   )}
                   {(s.items || []).map(item => {
-                    const groups = (item.variant_groups || [])
+                    // Same as menu_inline.eta: a combo shows its description and price only.
+                    const combo = item.kind === 'combo' ? comboMenuPrice(item, menu) : null
+                    const groups = combo ? [] : (item.variant_groups || [])
                       .map(g => hideUnpriced ? { ...g, options: (g.options || []).filter(v => !isUnpriced(v.price_pence)) } : g)
                       .filter(g => !hideUnpriced || (g.options && g.options.length))
-                    const adhoc  = hideUnpriced
+                    const adhoc  = combo ? [] : hideUnpriced
                       ? (item.variants || []).filter(v => !isUnpriced(v.price_pence))
                       : (item.variants || [])
                     const hasVar = adhoc.length > 0 || groups.some(g => g.options?.length)
+                    const price = combo ? combo.pence : item.price_pence
                     return (
                     <div key={item.id} style={{ padding: '10px 0', borderBottom: '1px dotted var(--c-border)' }}>
                       <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
@@ -883,11 +887,11 @@ export function MenuInlineCanvas({ data, onChange }) {
                             )
                           })}
                         </div>
-                        {((!hidePrices && item.price_pence != null && !hasVar) || item.calories != null) && (
+                        {((!hidePrices && price != null && !hasVar) || item.calories != null) && (
                           <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                            {!hidePrices && item.price_pence != null && !hasVar && (
+                            {!hidePrices && price != null && !hasVar && (
                               <span style={{ fontFamily: 'var(--f-heading)', color: 'var(--c-primary)', fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>
-                                {formatPrice(item.price_pence)}
+                                {(combo?.from ? 'from ' : '') + formatPrice(price)}
                               </span>
                             )}
                             {item.calories != null && (

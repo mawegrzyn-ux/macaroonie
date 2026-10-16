@@ -14,7 +14,7 @@ import { BarChart3, Loader2, ChevronLeft, AlertTriangle, CheckCircle2, Download,
 import { useApi } from '@/lib/api'
 import { cn, openPicker } from '@/lib/utils'
 import { usePermission } from '@/hooks/usePermission'
-import { checkTotals, modifierText } from '@shared/pos/pricing.js'
+import { checkTotals, modifierText, groupModifiers } from '@shared/pos/pricing.js'
 import { TENDERS } from '@shared/pos/checks.js'
 import { PageHeader, VenueSelect, usePosVenue, ErrorNote, Btn, Segmented, money, inputCls } from '@/components/pos/shared'
 
@@ -283,7 +283,7 @@ function CheckDetail({ checkId, onBack, staffNames }) {
             {c.lines.map(l => (
               <li key={l.id} className={cn('py-1.5', l.status === 'voided' && 'text-muted-foreground line-through')}>
                 <div className="flex justify-between gap-2"><span>{l.qty} × {l.name}</span><span className="tabular-nums">{money(l.qty * l.unit_price)}</span></div>
-                {!!l.modifiers?.length && <p className="text-xs text-muted-foreground">{l.modifiers.map(modifierText).filter(Boolean).join(', ')}</p>}
+                {!!l.modifiers?.length && <p className="text-xs text-muted-foreground">{groupModifiers(l.modifiers).map(modifierText).filter(Boolean).join(', ')}</p>}
                 {l.note && <p className="text-xs text-muted-foreground">Note: {l.note}</p>}
               </li>
             ))}

@@ -27,7 +27,7 @@ import { sql, withTenant } from '../config/db.js'
 import { httpError } from '../middleware/error.js'
 import { getGateway, checkoutGateways } from '../services/paymentGateways/index.js'
 import {
-  loadSettings, loadOrderingMenu, loadPrivacy, publicItem, computeSlots, orderingDates, itemOffAt,
+  loadSettings, loadOrderingMenu, loadPrivacy, publicItem, computeSlots, orderingDates, itemOffAt, basketCombos,
   createOrder, startPayment, applyPaymentResult, loadPublicOrderByToken, publicOrder, localParts,
 } from '../services/orderSvc.js'
 import { priceBasket } from '../../../shared/orderPricing.js'
@@ -38,7 +38,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // shared/orderPricing.js imports ./promotions.js, which imports
 // ./menuSchedule.js: all three are served side by side under /order-api,
 // with ./menuTags.js (the allergen notice's key, migration 147).
-const SHARED_JS = Object.fromEntries(['orderPricing', 'promotions', 'menuSchedule', 'menuTags'].map(n =>
+const SHARED_JS = Object.fromEntries(['orderPricing', 'promotions', 'menuSchedule', 'menuTags', 'combos'].map(n =>
   [n, readFileSync(path.join(__dirname, '../../../shared/' + n + '.js'), 'utf8')]))
 
 const uuid = z.string().uuid()
@@ -47,6 +47,12 @@ const LineBody = z.object({
   item_id: uuid,
   qty:     z.number().int().min(1).max(99),
   choices: z.record(z.array(z.string().max(160)).max(20)).default({}),
+  // A combo's picks (shared/combos.js): { stepId: [{ option_id, item_id, choices }] }
+  combo:   z.record(z.array(z.object({
+    option_id: z.string().max(80),
+    item_id:   z.string().uuid().nullable().optional(),
+    choices:   z.record(z.array(z.string().max(160)).max(20)).default({}),
+  })).max(20)).optional(),
   note:    z.string().max(300).nullable().optional(),
 })
 
@@ -126,6 +132,7 @@ export default async function orderApiRoutes(app) {
   app.get('/promotions.js', serveJs('promotions'))
   app.get('/menuSchedule.js', serveJs('menuSchedule'))
   app.get('/menuTags.js', serveJs('menuTags'))
+  app.get('/combos.js', serveJs('combos'))
 
   app.get('/venues/:venueId', async (req) => {
     const { venue, settings } = await requireOrderingVenue(req.params.venueId)
@@ -155,6 +162,10 @@ export default async function orderApiRoutes(app) {
         payment_methods: gateways.map(g => ({ key: g.key, label: g.label, online: !!g.online })),
       },
       menus: menu.menus.map(m => ({ ...m, sections: m.sections.map(s => ({ ...s, items: s.items.map(publicItem) })) })),
+      // Combos' dishes (orderable alone or not) and sections' dishes, for
+      // the combo steps (shared/combos.js).
+      combo_parts: Object.fromEntries(Object.entries(menu.partsById).filter(([id]) => menu.comboPartIds.has(id)).map(([id, it]) => [id, publicItem(it)])),
+      section_items: menu.sectionItems,
       dietary_tags: menu.dietary_tags,
       allergen_notice: allergenNotice,   // migration 147
       privacy,
@@ -198,14 +209,14 @@ export default async function orderApiRoutes(app) {
     const { venue, settings } = await requireOrderingVenue(req.params.venueId)
     const body = QuoteBody.parse(req.body)
     const at = localParts(new Date(), venue.timezone)
-    const [{ itemsById }, promos] = await withTenant(venue.tenant_id, async tx => [
+    const [menu, promos] = await withTenant(venue.tenant_id, async tx => [
       await loadOrderingMenu(tx, venue, settings),
       await venuePromotions(tx, venue, at.date),
     ])
     const tip = settings.tips_enabled && settings.tip_percents.includes(body.tip_percent) ? body.tip_percent : 0
     const unlocked = body.promo_codes.map(c => findByCode(promos, c)?.id).filter(Boolean)
-    const q = priceBasket(itemsById, body.lines, {
-      tipPercent: tip, promos, promoCtx: { at, venueId: venue.id, unlocked, chosen: body.promo_ids },
+    const q = priceBasket(menu.itemsById, body.lines, {
+      tipPercent: tip, promos, promoCtx: { at, venueId: venue.id, unlocked, chosen: body.promo_ids }, combos: basketCombos(menu),
     })
     return { ...q, min_order_pence: settings.min_order_pence }
   })

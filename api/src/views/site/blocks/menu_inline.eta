@@ -137,15 +137,19 @@ const _showNotice = d.show_allergen_notice !== false && !!_key &&
               </h3>
             <% } %>
             <% _mitems.forEach(function(item){ %>
-              <% const _groups = (item.variant_groups || [])
+              <% const _isCombo = item.kind === 'combo' /* combos (migration 171): the description and the price only */ %>
+              <% const _cp = _isCombo && _sb && _sb.comboMenuPrice ? _sb.comboMenuPrice(item, menu) : null %>
+              <% const _groups = _isCombo ? [] : (item.variant_groups || [])
                    .map(function(g){
                      if (!_hideUnpriced) return g
                      return Object.assign({}, g, { options: (g.options || []).filter(function(v){ return !_isUnpriced(v.price_pence) }) })
                    })
                    .filter(function(g){ return !_hideUnpriced || (g.options && g.options.length) }) %>
-              <% const _adhoc = _hideUnpriced
+              <% const _adhoc = _isCombo ? [] : _hideUnpriced
                    ? (item.variants || []).filter(function(v){ return !_isUnpriced(v.price_pence) })
                    : (item.variants || []) %>
+              <% const _price = _cp ? _cp.pence : item.price_pence %>
+              <% const _priceText = _price == null ? '' : ((_cp && _cp.from ? 'from ' : '') + fmtPrice(_price)) %>
               <% const _hasVar = (_adhoc.length > 0) || _groups.some(function(g){ return g.options && g.options.length }) %>
               <div style="padding:10px 0; border-bottom:1px dotted var(--c-border);">
                 <div style="display:flex; gap:10px; align-items:flex-start;">
@@ -174,11 +178,11 @@ const _showNotice = d.show_allergen_notice !== false && !!_key &&
                           <% } %>
                         <% }) %>
                       </div>
-                      <% if ((!_hidePrices && item.price_pence != null && !_hasVar) || item.calories != null) { %>
+                      <% if ((!_hidePrices && _price != null && !_hasVar) || item.calories != null) { %>
                         <div style="text-align:right; white-space:nowrap;">
-                          <% if (!_hidePrices && item.price_pence != null && !_hasVar) { %>
+                          <% if (!_hidePrices && _price != null && !_hasVar) { %>
                             <span style="font-family:var(--f-heading); color:var(--c-primary); font-weight:500; font-variant-numeric:tabular-nums;">
-                              <%= fmtPrice(item.price_pence) %>
+                              <%= _priceText %>
                             </span>
                           <% } %>
                           <% if (item.calories != null) { %>

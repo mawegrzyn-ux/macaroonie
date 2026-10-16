@@ -3001,6 +3001,65 @@ export default function Help() {
                 ['Allergens', 'One tile per allergen. Tap a tile to step through No, Contains, May contain and Can be removed. All three show the allergen\'s badge on the menu; Can be removed adds a small asterisk, explained by the allergen notice\'s asterisk note.'],
               ]}
             />
+            <H3>Option groups: more than once, and behind a button</H3>
+            <P>
+              On <strong>Menus &rarr; Variant groups</strong>, two settings change how a group is picked
+              on the till and the ordering page. <strong>The same option more than once</strong> lets a
+              guest take an option twice or more (2 x Extra cheese): each tap adds one, a minus takes one
+              off, each one is charged and counts towards &ldquo;at most&rdquo;. <strong>Don&apos;t open
+              it by itself: show a button for it</strong> (only for optional groups, at least 0) keeps the
+              group closed behind a &ldquo;+ Extras&rdquo; button, so guests who don&apos;t want extras
+              aren&apos;t shown them. Tickets, the kitchen screen and receipts show repeats as
+              &ldquo;2 x Cheese&rdquo;.
+            </P>
+            <H3>Combos</H3>
+            <P>
+              A combo is a menu item like any other (in any section, with its own price, description and
+              photo) that is put together in steps: for example Main, Side, Drink, then an optional sauce
+              pot. Open a dish and tap <strong>Combo</strong> at the top of its panel (Dish is the usual).
+              The price is the combo&apos;s own price, and it can be £0 when every choice carries its own
+              price. Tap <strong>Edit steps</strong> to build it:
+            </P>
+            <DataTable
+              head={['Setting', 'What it does']}
+              rows={[
+                ['Step name', 'What the guest is choosing, e.g. "Choose your side". Steps go in order; drag the grip to move one.'],
+                ['How many', 'At least / at most. At least 0 makes the step optional.'],
+                ['The same choice more than once', 'e.g. 2 x Cola. Each one counts towards "at most".'],
+                ['Pick it by itself when there\'s one choice', 'A step with only one choice is filled in for the guest and skipped (its dish\'s own options are still asked).'],
+                ['Don\'t open it: show a button', 'Only for optional steps: the step waits behind a "+ Sauce pot" button.'],
+                ['When it shows', 'Always, or only when something is picked in an earlier step, e.g. Sauce pot only with Fries. Change that pick and the step (and what was chosen in it) goes.'],
+                ['Choices', '+ Dishes picks dishes from this menu; + A whole section offers every dish in a section (dishes added to it later too); + New choice is a choice typed in just for this combo (e.g. Surprise toy), with an optional kitchen name. Each choice can have an extra charge (e.g. Shake +£1.50).'],
+              ]}
+            />
+            <P>
+              A dish picked in a step keeps its own option groups: a burger still asks for its cooking
+              or extras, at the dish&apos;s extra prices. Its size or protein (options that set the
+              dish&apos;s price) don&apos;t change the combo&apos;s price; only extra charges do. A combo
+              can&apos;t be a choice in another combo. Dishes switched off for online ordering can still
+              be a combo&apos;s choice.
+            </P>
+            <P>
+              <strong>Manual or Automatic.</strong> A manual combo is only used when it is chosen: its
+              own button, or <strong>Make it a combo</strong> on a dish already on a till order. An
+              automatic combo also applies by itself when an order has its dishes as separate items, on
+              the till and online, whenever that makes the order cheaper. The items stay as they were
+              entered; the check or basket shows them as &ldquo;In Burger meal&rdquo; and the saving as
+              a line (&ldquo;Burger meal &minus;£3.50&rdquo;). It is checked again whenever the order
+              changes.
+            </P>
+            <P>
+              On the website, printed menus and menu screens a combo shows like a dish: its name,
+              description and price, with <strong>from</strong> when choices can cost more (the panel
+              shows &ldquo;Shown as from £11.00&rdquo;). The steps only appear when ordering, and on a
+              menu screen set to <strong>How to order (steps)</strong>. The panel lists anything that
+              stops a combo working, for example a step with no choices.
+            </P>
+            <InfoBox type="info">
+              Promotions also has a <strong>Meal deal</strong> kind: a set price when a basket happens to
+              hold a starter, a main and a drink, online only. A combo is a menu item of its own with
+              steps, on the till and online; an automatic combo also finds its dishes as separate items.
+            </InfoBox>
             <H3>Allergens and dietary tags</H3>
             <P>
               <strong>Menus &rarr; Allergens &amp; dietary</strong> has two lists.{' '}
@@ -3451,6 +3510,15 @@ export default function Help() {
               Sold out dishes are crossed out with <strong>Sold out</strong> (wording in the board
               settings), or left out if you pick <strong>Leave out</strong> on the block.
             </P>
+            <P>
+              <strong>Combos on a board.</strong> A Menu list or Featured dish block has{' '}
+              <strong>Combos</strong>: <strong>Like the menu</strong> shows a combo as its name,
+              description and price (&ldquo;from £11.00&rdquo; when choices can cost more);{' '}
+              <strong>How to order (steps)</strong> also shows its steps numbered 1, 2, 3, each with
+              its rule (Choose 1, Optional, up to 2), its choices and their extra charges, and
+              &ldquo;With Fries&rdquo; on a step that only shows with an earlier pick, like a
+              how-to-order poster.
+            </P>
 
             <H3>Animation</H3>
             <P>
@@ -3628,6 +3696,17 @@ export default function Help() {
               guests can&apos;t pick them. <strong>Don&apos;t show a price on zero-priced variants</strong>{' '}
               keeps a £0 option but shows no price next to it.
               An option with no price of its own leaves the dish at its own price.
+            </P>
+            <P>
+              <strong>Combos online.</strong> A combo&apos;s card shows its price (&ldquo;from £11.00&rdquo;
+              when choices can cost more). Tapping it goes one step at a time: Step 1 of 4 at the top,
+              Back and Next at the bottom (Next says what&apos;s missing until the step is done), each
+              picked dish&apos;s own options under it, and a last page that lists the whole combo with the
+              quantity, a note and Add. Optional groups set to show a button wait behind &ldquo;+ Extras&rdquo;,
+              and groups that allow more than once have &minus; and + counters. The basket lists each
+              combo&apos;s picks under it, and an automatic combo found among separate dishes shows its saving
+              as a line in the basket. Orders, the confirmation email, the orders board and the kitchen screens
+              show the picks too.
             </P>
             <H3>Privacy at checkout</H3>
             <P>
@@ -3904,7 +3983,7 @@ export default function Help() {
                 ['Add dishes', 'Menus manage', 'Into sections already on the menu or new ones. A dish already in that section is left alone unless you ask to update it.'],
                 ['Change a dish', 'Menus manage', 'Name, description, price, calories, note, online ordering on or off, house favourite, allergens and their level, dietary tags, options and their prices, which section it is in and where.'],
                 ['Change or remove a section', 'Menus manage', 'Title, subtitle, where it shows (everywhere, printed menus only, nowhere), tax rate, position. Removing a section takes its dishes with it; to keep them, hide the section instead.'],
-                ['Remove dishes', 'Menus manage', 'The card warns when a dish is part of a meal deal.'],
+                ['Remove dishes', 'Menus manage', 'The card warns when a combo offers the dish (the combo loses that choice).'],
                 ['Change prices', 'Menus manage', 'Whole menu, a section or named dishes: by a %, by an amount or to one price, with rounding. Option prices go up or down with them (not when you set one price).'],
                 ['Publish a menu', 'Menus manage', 'Now or at a date and time. The card lists every change waiting to go live and warns about price changes and about another publish already scheduled.'],
                 ['Cancel a scheduled publish', 'Menus manage', 'Before it goes live. The draft isn\'t changed.'],
@@ -3925,7 +4004,7 @@ export default function Help() {
               choice and the group itself isn&apos;t changed. A group name you don&apos;t have yet
               makes a new group, and the card says so. The assistant never guesses allergens from a
               dish name: if a photo or list doesn&apos;t show them, it adds the dishes without and
-              tells you. It doesn&apos;t change dish photos, meal deals, print designs, till buttons,
+              tells you. It doesn&apos;t change dish photos, combo steps, print designs, till buttons,
               or the allergen and dietary tag list itself; do those on the Menus pages.
             </InfoBox>
             <H3>Attaching photos, screenshots and files</H3>
@@ -4153,10 +4232,24 @@ export default function Help() {
             <H3>The menu on the till</H3>
             <P>
               The till uses your menus from the Menus page. In a section's panel, <strong>Till</strong> sets its
-              course and button colour. In a dish's panel, <strong>Till</strong> sets a shorter kitchen name, its
-              own course or colour, and whether it's a <strong>Meal deal</strong>: a set price (the dish's price)
-              with slots such as Main, Side and Drink, each a choice of whole sections or single dishes, with
-              optional extra charges (e.g. large drink +£1). Save the menu as usual.
+              course and button colour. In a dish's panel, <strong>Till</strong> sets a shorter kitchen name and
+              its own course or colour. Combos (see Menus &rarr; Combos) show on their button as &ldquo;Combo
+              from £11.00&rdquo;. Save the menu as usual.
+            </P>
+            <P>
+              Tapping a combo opens its steps one under another, with a chip for each at the top (red until
+              it&apos;s done; tap one to jump to it). A step behind a button shows as &ldquo;+ Sauce
+              pot&rdquo;; a step that picks itself shows &ldquo;Included&rdquo;. A dish picked in a step asks
+              its own options under it. Add stays off until every step needed is done, and says what&apos;s
+              missing. On the check the combo shows its picks under it, and kitchen tickets and kitchen
+              screens print the combo&apos;s name with each part under it, each part going to its own
+              station.
+            </P>
+            <P>
+              To turn a dish already on the order into a combo, tap the line and pick the combo under{' '}
+              <strong>Make it a combo</strong> (only before it&apos;s sent): the combo opens with that dish
+              picked, and the dish&apos;s line is replaced. Automatic combos apply by themselves (see Menus
+              &rarr; Combos).
             </P>
             <P>
               On <strong>Menus → Variant groups</strong>, tick <strong>Offer No, Light, Extra and On the side</strong>{' '}
@@ -4170,7 +4263,7 @@ export default function Help() {
             <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
               <li>Sign in with your PIN. The till signs you out after the time set in Receipts and payments. A PIN set or changed in Till setup works straight away; if the till is offline it needs to have been online once since.</li>
               <li><strong>Floor</strong>: tap a table (it asks for covers if set to), or <strong>New tab</strong> for a named tab. Colours show which tables are free, open, waiting for a held course, or billed.</li>
-              <li>Tap dishes. Pick a <strong>seat</strong> and <strong>course</strong> at the bottom of the menu first if you want them. Dishes with choices or meal deals open a window to pick them, add a note or allergies.</li>
+              <li>Tap dishes. Pick a <strong>seat</strong> and <strong>course</strong> at the bottom of the menu first if you want them. Dishes with choices and combos open a window to pick them, add a note or allergies.</li>
               <li><strong>Send</strong> sends new items to the kitchen. If a later course is held, <strong>Fire</strong> sends it when it's time.</li>
               <li>Tap an item on the check to change it: before it's sent you can change or delete it; after, <strong>Void</strong> it with a reason (the kitchen gets a VOID ticket), or <strong>Comp</strong> it.</li>
               <li><strong>More</strong>: guests, move table, name, order type, tent number, server, revenue stream, discount, service charge, offers, split or move items to another check, merge checks, an item not on the menu, print bill, no sale, close an empty check.</li>
@@ -4264,6 +4357,7 @@ export default function Help() {
               <li>Along the top: All orders, one tab per order type, Online, and the stations this screen shows. The green bar shows the average bump time today, the last 10, how many are done, the share on time, Live or Offline, and the time.</li>
               <li><strong>Rush</strong> moves a ticket to the front. <strong>SUM</strong> shows how many of each dish are on order. <strong>Prev</strong> lists the last tickets bumped here: <strong>Bring back</strong> one bumped by mistake. <strong>Remake</strong> puts a dish back on with a reason (for the waste report).</li>
               <li>A dish voided on the till shows crossed out with VOID until the ticket is bumped. Dishes moved to another table or check follow it.</li>
+              <li>A <strong>combo</strong> shows as its name with its parts under it ("› Burger", "› 2 x KETCHUP"). Each part goes to the station that makes it, so the grill sees the burger and the fryer the fries, each under the combo's name; a part typed in just for the combo (a sauce pot, a toy) goes where the combo itself goes.</li>
               <li>The clock button lists orders for later (held courses and online orders with a later collection time). They come on by themselves when it's time.</li>
               <li>The gear button: pick the station, Tickets or On order counts, text size, beep, full screen, and the bump bar keys.</li>
             </ul>

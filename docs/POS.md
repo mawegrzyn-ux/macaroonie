@@ -152,7 +152,7 @@ First event types: `check.opened`, `check.covers_set`, `check.table_moved`,
 | `pos_courses` | tenant: Drinks / Starters / Mains / Desserts, order, fire by default |
 | `menu_sections` + / `menu_items` + | default course / course override |
 | modifiers | extend variant groups: nested groups, "no / extra / light", per-dish prices (exist) |
-| combos | `menu_items.kind = 'combo'` + slots (choose from a section or list, upcharges) |
+| combos | `menu_items.kind = 'combo'` + steps (migration 171, section 8.2) |
 | `pos_events` | the event log (source of truth) |
 | `pos_checks`, `pos_check_lines`, `pos_payments` | projections |
 | `pos_shifts` / `pos_days` | drawer floats, X/Z reports, cash-up into Cash Recon |
@@ -245,7 +245,7 @@ provision in code for the hub"). What exists:
 | Sequencer | the cloud | `services/posSvc.js` runs `createSequencer()` with a Postgres store under a per-venue advisory lock. The hub will run the same sequencer with SQLite. |
 | Till API | `/pos-api` (`routes/posApi.js`) | Pairing, device auth, config snapshot, events in, sync out, presence, reports, print queue (claim / status routes are for the hub). |
 | Admin | `/api/pos` (`routes/posSetup.js`) | Till setup, Floor plan, Till reports pages; Menus / Variant groups / Promotions till fields. |
-| Till app | `pos/` | React PWA served by the API on `pos.<domain>` (`routes/posSite.js`, no nginx change). Local-first: IndexedDB outbox, optimistic apply, socket + polling sync. Table service, tabs, counter mode, courses (hold / fire), modifiers, meal deals, discounts / comps / offers, service charge, split / move / merge, pay (external card, cash, voucher, ...), refunds, reopen, X / Z. |
+| Till app | `pos/` | React PWA served by the API on `pos.<domain>` (`routes/posSite.js`, no nginx change). Local-first: IndexedDB outbox, optimistic apply, socket + polling sync. Table service, tabs, counter mode, courses (hold / fire), modifiers, combos, discounts / comps / offers, service charge, split / move / merge, pay (external card, cash, voucher, ...), refunds, reopen, X / Z. |
 | Cash Recon | `services/reconFill.js` | Z figures fill the Cash Recon day through `recon_map` (shared with Loyverse). |
 | Sold out | `services/soldOut.js` | Hold a dish (or tap a sold out one) on the till: `PUT /pos-api/sold-out/:itemId` (role permission `sold_out`, or a manager's PIN), online only. The same `ordering_item_availability` rows as online ordering; every till, the orders board and the menu screens hear it. `tillConfig().sold_out`. Migration 166. |
 
@@ -298,6 +298,35 @@ ordering, the Deliveroo file, Cash Recon fill through the Z, reports).
 - **Reports**: day figures by revenue stream and by order type; the Z prints both.
 - Not built: tax-inclusive vs exclusive pricing per location (all prices include VAT); a rate
   change on a date (change the % on the day, or publish a menu with another rate).
+
+### 8.2 Combos (migration 171, 16 Oct 2026)
+
+The user's design: a combo is a menu item like any other, built from steps. Each step has a
+min and max (min 0 = optional), may allow the same choice more than once, may pick itself when
+it has one choice, may wait behind a button (optional steps), and may show only after a pick in
+an earlier step. Choices are dishes, whole sections or choices typed in for the combo, each with
+an extra charge. The combo's own price can be £0. Menus, the website and screens show the
+description and the price ("from" when choices can cost more); the till and the ordering page
+go through the steps. Option groups gained "more than once" and "show a button".
+
+Choices made with the user: automatic combos group and reprice (items stay as entered, the
+saving shows as a discount, only when cheaper, re-checked as the check changes); automatic
+combos apply on the till and online; a manual combo starts from its own button or "Make it a
+combo" on a till line; step choices can be dishes, sections or new.
+
+- **Rule**: `shared/combos.js` (steps, conditions, pricing, "from" price, the automatic
+  matcher). The till prices through `priceItem()` → `priceCombo()`; online through
+  `priceLine()` / `priceBasket()`.
+- **Till**: a combo line stores its parts in `line.combo` (each with `item_id`, `section_id`,
+  `course_id`, `upcharge`, `modifiers`); an automatic combo is a `promotions.set` entry with
+  `kind: 'combo'` and `count`, worked out by the till (`autoCombosFor()`) whenever the lines
+  change, so it is in the event log like any offer. "Make it a combo" adds the combo with the
+  dish picked and deletes the original line (only before it's sent).
+- **Kitchen**: each part routes by its own dish (a typed-in part like the combo); tickets and
+  kitchen screens show the combo's name with the parts under it, repeats counted.
+- Not built: a combo inside a combo; per-step prices that depend on another step; combos on
+  GloriaFood or Deliveroo (the Deliveroo file sends a combo's own price; its choices are
+  Deliveroo modifiers set in the Hub).
 
 ---
 
@@ -394,7 +423,7 @@ nothing changes for the devices.
 - Item-level cook times and "start this now" timing across stations (all dishes of an order
   start together; held courses and later online orders wait).
 - No "split one dish into two jobs" (e.g. the burger's bun and meat as separate items on two
-  stations at once): a dish moves through stations one after another, or a meal deal's parts go
+  stations at once): a dish moves through stations one after another, or a combo's parts go
   their own ways.
 - Tested in Chromium on desktop sizes (tablet, TV, portrait) only; not yet on a real Android
   tablet, a TV box, or with a real bump bar. Sound needs one tap on the screen first (browser

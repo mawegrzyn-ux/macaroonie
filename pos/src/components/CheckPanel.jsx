@@ -2,16 +2,17 @@
 // (or seat), what has gone to the kitchen, what is waiting, and the totals.
 
 import { useState } from 'react'
-import { Send, Hourglass, Flame, Ban, Gift, Percent, ChefHat, AlertTriangle } from 'lucide-react'
-import { checkTotals, lineGross, modifierText, isActiveLine } from '@shared/pos/pricing.js'
+import { Send, Hourglass, Flame, Ban, Gift, Percent, ChefHat, AlertTriangle, Layers } from 'lucide-react'
+import { checkTotals, lineGross, modifierText, groupModifiers, isActiveLine } from '@shared/pos/pricing.js'
+import { countParts } from '@shared/combos.js'
 import { cx, money } from './ui.jsx'
 import { groupByCourse, groupBySeat } from '../lib/checkOps.js'
 
-function LineRow({ line, discountOf, onTap }) {
+function LineRow({ line, discountOf, comboOf, onTap }) {
   const voided = line.status === 'voided'
   const gross = lineGross(line)
   const off = discountOf(line.id)
-  const mods = (line.modifiers || [])
+  const mods = groupModifiers(line.modifiers)
   return (
     <button onClick={() => onTap(line)} className={cx('w-full text-left px-3 py-2.5 flex gap-3 items-start touch-manipulation active:bg-page border-b border-line/60', voided && 'opacity-50')}>
       <div className="w-8 shrink-0 font-bold tabular-nums text-right">{line.qty}</div>
@@ -25,9 +26,10 @@ function LineRow({ line, discountOf, onTap }) {
             {mods.map((m, i) => <span key={i} className={cx(m.prefix === 'no' && 'text-bad')}>{i ? ', ' : ''}{modifierText(m)}{m.price ? ' +' + money(m.price) : ''}</span>)}
           </div>
         )}
-        {(line.combo || []).map((c, i) => (
-          <div key={i} className="text-sm text-muted leading-snug">› {c.name}{c.upcharge ? ' +' + money(c.upcharge) : ''}{(c.modifiers || []).length ? ' (' + c.modifiers.map(modifierText).join(', ') + ')' : ''}</div>
+        {countParts(line.combo).map(({ part: c, count }, i) => (
+          <div key={i} className="text-sm text-muted leading-snug pl-3">› {count > 1 ? count + ' x ' : ''}{c.name}{c.upcharge ? ' +' + money(c.upcharge * count) : ''}{(c.modifiers || []).length ? ' (' + groupModifiers(c.modifiers).map(modifierText).join(', ') + ')' : ''}</div>
         ))}
+        {comboOf(line.id) && <div className="text-xs font-bold text-brand mt-0.5">In {comboOf(line.id)}</div>}
         {line.note && <div className="text-sm text-ink italic">“{line.note}”</div>}
         {(line.allergies || []).length > 0 && (
           <div className="text-xs font-bold text-white bg-bad rounded px-1.5 py-0.5 inline-flex items-center gap-1 mt-1"><AlertTriangle size={12} />{line.allergies.join(', ')}</div>
@@ -52,6 +54,9 @@ export default function CheckPanel({ check, config, onLine, footer, header }) {
   const [by, setBy] = useState('course')
   const t = checkTotals(check)
   const offById = Object.fromEntries(t.lines.map(l => [l.id, l.discount]))
+  // Automatic combos (shared/combos.js) found among the dishes: each dish says which.
+  const comboById = {}
+  for (const p of check.promotions || []) if (p.kind === 'combo') for (const id of Object.keys(p.lines || {})) comboById[id] = p.name
   const groups = by === 'seat' ? groupBySeat(check) : groupByCourse(check, config)
   const hasSeats = check.lines.some(l => l.seat)
   const fired = id => check.courses?.[id]?.fired_at
@@ -76,14 +81,14 @@ export default function CheckPanel({ check, config, onLine, footer, header }) {
                 {by === 'course' && fired(g.id) && <span className="text-ok flex items-center gap-1"><Flame size={12} />fired</span>}
               </div>
             )}
-            {g.lines.map(l => <LineRow key={l.id} line={l} discountOf={id => offById[id] || 0} onTap={onLine} />)}
+            {g.lines.map(l => <LineRow key={l.id} line={l} discountOf={id => offById[id] || 0} comboOf={id => comboById[id] || null} onTap={onLine} />)}
           </div>
         ))}
       </div>
       <div className="border-t border-line px-4 py-3 space-y-1 text-[15px] shrink-0">
         <Row label="Subtotal" value={money(t.subtotal)} />
         {t.discounts.filter(d => d.amount > 0).map(d => (
-          <Row key={d.id + d.name} label={<span className="flex items-center gap-1">{d.comp ? <Gift size={14} /> : <Percent size={14} />}{d.name}</span>} value={'−' + money(d.amount)} className="text-ok" />
+          <Row key={d.id + d.name} label={<span className="flex items-center gap-1">{d.comp ? <Gift size={14} /> : d.combo ? <Layers size={14} /> : <Percent size={14} />}{d.name}</span>} value={'−' + money(d.amount)} className="text-ok" />
         ))}
         {t.service_charge > 0 && <Row label={'Service charge' + (check.service_charge?.percent ? ' ' + check.service_charge.percent + '%' : '')} value={money(t.service_charge)} />}
         <Row label={<b>Total</b>} value={<b className="text-xl">{money(t.total)}</b>} />

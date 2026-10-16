@@ -181,6 +181,9 @@ export function eventProblem(e) {
       if (!Array.isArray(p.promotions)) return bad('promotions')
       for (const x of p.promotions) {
         if (!isUuid(x.promotion_id) || !isText(x.name || '', 120)) return bad('promotion')
+        // An automatic combo (shared/combos.js) found among the check's dishes.
+        if (x.kind != null && x.kind !== 'combo') return bad('promotion kind')
+        if (x.count != null && !(Number.isInteger(x.count) && x.count >= 1 && x.count <= 99)) return bad('promotion count')
         if (typeof x.lines !== 'object' || Object.entries(x.lines || {}).some(([k, v]) => !isId(k) || !isPence(v))) return bad('promotion lines')
       }
       return null
@@ -528,7 +531,7 @@ export function applyEvent(checks, e, ctx = {}) {
     }
 
     case 'promotions.set':
-      c.promotions = p.promotions.map(x => ({ promotion_id: x.promotion_id, name: x.name, lines: x.lines }))
+      c.promotions = p.promotions.map(x => ({ promotion_id: x.promotion_id, name: x.name, ...(x.kind === 'combo' ? { kind: 'combo', count: x.count || 1 } : {}), lines: x.lines }))
       break
 
     case 'service_charge.set':

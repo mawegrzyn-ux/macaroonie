@@ -693,3 +693,47 @@ test('sequencer: till events build the kitchen, kitchen events need no staff or 
   const r = await off.submit(kev('kitchen.bumped', { order_id: c, station_id: GRILL }))
   assert.equal(r.code, 'kitchen_off')
 })
+
+test('combos: each station shows the combo name with its own picks; a typed-in pick goes with the combo', () => {
+  const t = till(noExpo)
+  const c = openTable(t)
+  // The combo sits in Drinks, so a typed-in choice (no dish) goes to the bar with it.
+  const meal = lineOf('Burger meal', MEAL, DRINKS, {
+    combo: [
+      { step: 'Main', item_id: BURGER, section_id: FOOD, name: 'Burger', modifiers: [{ label: 'Cheese', price: 100, depth: 0 }], upcharge: 0 },
+      { step: 'Side', item_id: FRIES, section_id: SIDES, name: 'Fries', modifiers: [], upcharge: 0 },
+      { step: 'Drink', item_id: COLA, section_id: DRINKS, name: 'Cola', modifiers: [], upcharge: 0 },
+      { step: 'Toy', item_id: null, section_id: null, name: 'Surprise toy', kitchen_name: 'TOY', modifiers: [], upcharge: 0, custom: true },
+    ],
+  })
+  addAndSend(t, c, [meal])
+  const names = st => t.tickets(st).flatMap(tk => tk.items.map(i => [i.name, i.parts.map(p => p.name)]))
+  assert.deepEqual(names(simple.GRILL), [['Burger meal', ['Burger']]])
+  assert.deepEqual(names(simple.FRYER), [['Burger meal', ['Fries']]])
+  assert.deepEqual(names(simple.BAR), [['Burger meal', ['Cola', 'TOY']]])
+  assert.equal(t.tickets(simple.GRILL)[0].items[0].parts[0].mods[0].text, 'Cheese')
+})
+
+test('combos from online orders: picks go to their own stations', () => {
+  const t = till(noExpo)
+  const orderId = uuid()
+  ok(t.kitchen(kev('kitchen.order_in', { order: {
+    id: onlineOrderId(orderId), order_id: orderId, number: 'W7', guest: 'Sam', type: COL, type_name: 'Collection',
+    promised_at: null, fire_at: null, note: null, allergy: null,
+    items: [{ id: uuid(), item_id: MEAL, section_id: DRINKS, name: 'Burger meal', qty: 1, options: [], parts: [
+      { name: 'Burger', item_id: BURGER, section_id: FOOD, options: [{ label: 'Bacon', mode: 'extra' }] },
+      { name: 'Fries', item_id: FRIES, section_id: SIDES, options: [] },
+      { name: 'Ketchup pot', item_id: null, section_id: null, options: [] },
+    ] }],
+  } })))
+  const parts = st => t.tickets(st).flatMap(tk => tk.items.flatMap(i => i.parts.map(p => p.name)))
+  assert.deepEqual(parts(simple.GRILL), ['Burger'])
+  assert.deepEqual(parts(simple.FRYER), ['Fries'])
+  assert.deepEqual(parts(simple.BAR), ['Ketchup pot'])
+  assert.equal(t.tickets(simple.GRILL)[0].items[0].parts[0].mods[0].text, 'Bacon')
+  // A bad part is refused.
+  const bad = kitchenEventProblem(kev('kitchen.order_in', { order: {
+    id: onlineOrderId(uuid()), order_id: uuid(), number: '1', items: [{ id: 'x', name: 'Meal', qty: 1, parts: [{ name: '' }] }],
+  } }))
+  assert.match(bad, /parts/)
+})

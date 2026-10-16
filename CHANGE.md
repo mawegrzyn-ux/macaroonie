@@ -5,6 +5,17 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-16 — Combos]
+
+- **Combos**: any menu item can be a combo (Dish / Combo at the top of its panel). It has its own price (it can be £0) and **steps**, each with at least / at most (at least 0 = optional), **the same choice more than once**, **pick it by itself when there's one choice**, **show a button** instead of opening an optional step, and **when it shows** (only after a pick in an earlier step, e.g. a sauce pot only with fries). Choices are dishes from the menu, whole sections, or choices typed in just for the combo (with a kitchen name), each with an extra charge. A picked dish still asks its own options at its own extra prices. Drag to order steps and choices; the panel shows "Shown as from £x" and anything that stops the combo working.
+- **Manual or Automatic**: a manual combo is used when chosen (its button, or **Make it a combo** on a till line); an automatic one also applies by itself when an order has its dishes as separate items, on the till and online, whenever that makes the order cheaper. The items stay as entered and the saving shows as a line.
+- **Till**: combos open with a chip per step, steps behind buttons, Included steps and each dish's options under it; Add says what's missing. The check, receipts, kitchen tickets and kitchen screens show the combo with its parts under it, each part going to its own station.
+- **Online ordering**: one step at a time with Back / Next, then a last page with the whole combo; the basket, status page, emails and the orders board list the picks.
+- **Website, printed menus and menu screens** show a combo's description and price, with "from" when choices can cost more. Menu screens' Menu list and Featured dish blocks can instead show **How to order (steps)**.
+- **Option groups** (Menus → Variant groups): **The same option more than once** (2 x Extra cheese, with − and + on the till and online) and **Don't open it by itself: show a button for it** for optional groups. Repeats show as "2 x Cheese" everywhere.
+- The till's meal deals became combos (their slots are steps); nothing to redo.
+- Migration 171.
+
 ## [2026-10-16 — Tax rates, order types and revenue streams]
 
 - New **Menus → Tax rates**: your list of rates (Standard 20% and Zero 0% to start), one marked default, each with its own % at a location if it differs. **Check** shows every dish's rate for each order type at a location and revenue stream, as the till, online ordering and the Deliveroo file work it out.

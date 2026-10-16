@@ -230,10 +230,10 @@ export function OffersModal({ check, config, onClose }) {
   return (
     <Modal title="Offers" onClose={onClose}>
       <div className="space-y-3">
-        <div className="text-sm text-muted">Automatic offers apply by themselves when the bill is printed or paid.</div>
+        <div className="text-sm text-muted">Automatic offers and combos apply by themselves as dishes are added, and again when the bill is printed or paid.</div>
         {(check.promotions || []).map(p => (
           <div key={p.promotion_id} className="rounded-xl bg-ok-soft p-3 font-semibold flex justify-between">
-            <span>{p.name}</span><span>−{money(Object.values(p.lines || {}).reduce((s, x) => s + x, 0))}</span>
+            <span>{p.kind === 'combo' ? 'Combo: ' : ''}{p.name}{p.count > 1 ? ' x ' + p.count : ''}</span><span>−{money(Object.values(p.lines || {}).reduce((s, x) => s + x, 0))}</span>
           </div>
         ))}
         <button className="btn w-full" onClick={() => { refreshPromotions(check.id); onClose() }}>Check automatic offers now</button>

@@ -20,6 +20,7 @@ import {
   stationTickets, recentBumps, laterOrders, onOrderCounts, stationStats, ageTone, clockSince, clockSecs,
   itemState, readyOrders, isOrderLevel, stationSettings,
 } from '@shared/pos/kitchen.js'
+import { countParts } from '@shared/combos.js'
 import {
   useKitchen, useOrders, useCfg, bootKitchen, nowIso, myStations, currentStation, setPrefs, bump, recall, itemDone,
   remake, priority, collected, unlockAudio, chime, loadConfig, toast,
@@ -474,9 +475,9 @@ function ItemRow({ item, order, station, text, names, showNext }) {
         <div className="px-2 pb-0.5 text-[11px] text-white/70 font-semibold" data-testid="kds-next">Then {item.next.map(id => names[id] || 'another station').join(', ')}</div>
       )}
       <Mods mods={item.mods} text={text} depth={1} />
-      {parts && parts.map((p, idx) => (
+      {parts && countParts(parts).map(({ part: p, count }, idx) => (
         <div key={idx}>
-          <div className={cx('pl-5 pr-2 py-0.5 font-semibold', text.mod)}>{p.name}</div>
+          <div className={cx('pl-5 pr-2 py-0.5 font-semibold', text.mod)} data-testid="kds-part">› {count > 1 ? count + ' x ' : ''}{p.name}</div>
           <Mods mods={p.mods} text={text} depth={2} />
         </div>
       ))}

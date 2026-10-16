@@ -4,6 +4,9 @@
 // Till fields (migration 156): pos_prefixes (the till offers No / Light /
 // Extra / On the side for each option) and an option's child_group_id
 // (pick it, then the till asks that group too, e.g. Steak -> Cooking).
+// Migration 171: allow_repeat (the same option more than once, 2 x Extra
+// cheese) and on_request (an optional group waits behind a button on the
+// till and the ordering page instead of opening by itself).
 
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
@@ -13,7 +16,7 @@ import { useApi } from '@/lib/api'
 import { Field, Input, Btn, PriceInput } from './shared'
 
 function emptyGroup() {
-  return { name: '', price_mode: 'base', min_select: 1, max_select: 1, pos_prefixes: false, options: [{ label: '', price_pence: 0, child_group_id: null }] }
+  return { name: '', price_mode: 'base', min_select: 1, max_select: 1, pos_prefixes: false, allow_repeat: false, on_request: false, options: [{ label: '', price_pence: 0, child_group_id: null }] }
 }
 
 export function VariantGroupsManager() {
@@ -35,6 +38,8 @@ export function VariantGroupsManager() {
         min_select: Math.max(0, Number(draft.min_select ?? 1)),
         max_select: Math.max(1, Number(draft.max_select ?? 1)),
         pos_prefixes: !!draft.pos_prefixes,
+        allow_repeat: !!draft.allow_repeat,
+        on_request: !!draft.on_request && Number(draft.min_select ?? 1) === 0,
         sort_order: draft.id ? (groups.find(g => g.id === draft.id)?.sort_order ?? 0) : groups.length,
         options: (draft.options || [])
           .filter(o => o.label.trim())
@@ -73,6 +78,8 @@ export function VariantGroupsManager() {
       min_select: g.min_select ?? 1,
       max_select: g.max_select ?? 1,
       pos_prefixes: !!g.pos_prefixes,
+      allow_repeat: !!g.allow_repeat,
+      on_request: !!g.on_request,
       options: (g.options || []).map(o => ({ ...o })),
     })
   }
@@ -149,6 +156,20 @@ export function VariantGroupsManager() {
             <p className="text-[11px] text-muted-foreground">
               A protein or size choice: dish price, pick 1. Extras: added on top, at least 0, at most as many as allowed.
             </p>
+            <label className="flex items-start gap-2 text-sm min-h-[40px] touch-manipulation">
+              <input type="checkbox" className="mt-1" checked={!!draft.allow_repeat}
+                onChange={e => setDraft(d => ({ ...d, allow_repeat: e.target.checked }))} />
+              <span>The same option more than once
+                <span className="block text-[11px] text-muted-foreground">e.g. 2 x Extra cheese. Each one counts towards "at most" and is charged.</span>
+              </span>
+            </label>
+            <label className={cn('flex items-start gap-2 text-sm min-h-[40px] touch-manipulation', Number(draft.min_select ?? 1) > 0 && 'opacity-50')}>
+              <input type="checkbox" className="mt-1" checked={!!draft.on_request && Number(draft.min_select ?? 1) === 0} disabled={Number(draft.min_select ?? 1) > 0}
+                onChange={e => setDraft(d => ({ ...d, on_request: e.target.checked }))} />
+              <span>Don't open it by itself: show a button for it
+                <span className="block text-[11px] text-muted-foreground">Only for optional groups (at least 0). On the till and the ordering page the group waits behind a "+ {draft.name || 'group'}" button.</span>
+              </span>
+            </label>
           </div>
           <div className="rounded-md border bg-background p-3 space-y-2">
             <p className="text-[10px] uppercase font-semibold text-muted-foreground tracking-wide">Till</p>

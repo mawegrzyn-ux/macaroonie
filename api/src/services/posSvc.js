@@ -169,7 +169,7 @@ export async function tillConfig(tx, tenantId, venueId) {
     tx`SELECT id, name, kind, host, port, columns, backup_printer_id, sort_order FROM pos_printers
         WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND is_active ORDER BY sort_order, name`,
     tx`SELECT printer_id, target_kind, target_id FROM pos_print_routes WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`,
-    tx`SELECT g.id, g.name, g.price_mode, g.min_select, g.max_select, g.pos_prefixes,
+    tx`SELECT g.id, g.name, g.price_mode, g.min_select, g.max_select, g.pos_prefixes, g.allow_repeat, g.on_request,
               COALESCE(json_agg(json_build_object('id', o.id, 'label', o.label, 'price_pence', o.price_pence, 'child_group_id', o.child_group_id)
                 ORDER BY o.sort_order, o.label) FILTER (WHERE o.id IS NOT NULL), '[]') AS options
          FROM menu_variant_groups g
@@ -216,22 +216,10 @@ export async function tillConfig(tx, tenantId, venueId) {
     }
     menus.push({ id: full.id, name: full.name, sections })
   }
-  // Meal deal slots: each slot's choices are its dishes plus every dish of
-  // its sections that the till knows.
+  // Combos (shared/combos.js) find a section option's dishes through this:
+  // every dish of the section the till knows.
   const sectionItems = {}
-  for (const m of menus) for (const s of m.sections) sectionItems[s.id] = [...(sectionItems[s.id] || []), ...s.item_ids]
-  for (const it of Object.values(items)) {
-    if (it.kind !== 'combo') continue
-    it.combo_slots = (it.combo?.slots || []).map(slot => {
-      const ids = [...new Set([...(slot.item_ids || []), ...(slot.section_ids || []).flatMap(sid => sectionItems[sid] || [])])]
-        .filter(id => items[id] && items[id].kind !== 'combo')
-      return {
-        id: slot.id, name: slot.name || 'Choose',
-        min: Math.max(0, Number(slot.min ?? 1)), max: Math.max(1, Number(slot.max ?? 1)),
-        options: ids.map(item_id => ({ item_id, upcharge_pence: Math.max(0, Number(slot.upcharges?.[item_id]) || 0) })),
-      }
-    })
-  }
+  for (const m of menus) for (const s of m.sections) sectionItems[s.id] = [...new Set([...(sectionItems[s.id] || []), ...s.item_ids])]
 
   const tz = venue.timezone || 'Europe/London'
   // Dishes sold out at the venue now (services/soldOut.js), with when they
@@ -254,6 +242,7 @@ export async function tillConfig(tx, tenantId, venueId) {
     staff,
     menus,
     items,
+    section_items: sectionItems,
     groups: Object.fromEntries(groups.map(g => [g.id, g])),
     dietary_tags: (dietary || []).map(t => ({ code: t.code, label: t.label, kind: t.kind, colour: t.colour, glyph: t.glyph })),
     printers,

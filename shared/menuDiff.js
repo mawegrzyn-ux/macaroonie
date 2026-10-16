@@ -30,6 +30,14 @@ const ROW_DROP = new Set(['created_at', 'updated_at'])
 const SORT_DROP = new Set(['sort_order'])
 const VARIANT_DROP = new Set(['id', 'item_id', 'tenant_id', 'created_at', 'updated_at'])
 
+const GROUP_FLAGS = ['allow_repeat', 'on_request']
+
+function dropOff(obj, keys) {
+  const out = { ...obj }
+  for (const k of keys) if (!out[k]) delete out[k]
+  return out
+}
+
 function dropKeys(obj, drop) {
   const out = {}
   for (const [k, v] of Object.entries(obj || {})) if (!drop.has(k)) out[k] = v
@@ -47,6 +55,9 @@ export function releaseContent(full) {
       // One-off options get new ids on every save (upsertMenuTree), so
       // their ids aren't content; label, price and order are.
       ...(i.variants ? { variants: i.variants.map(v => dropKeys(v, VARIANT_DROP)) } : {}),
+      // Group settings added later (migration 171) only count when on, so
+      // versions published before them read the same as the draft.
+      ...(i.variant_groups ? { variant_groups: i.variant_groups.map(g => dropOff(g, GROUP_FLAGS)) } : {}),
     })),
   }))
   menu.callouts = (full.callouts || []).map(c => dropKeys(c, ROW_DROP))
@@ -110,8 +121,8 @@ const DISH_FIELDS = {
   native_name: 'second name', description: 'description', calories: 'calories', notes: 'notes',
   is_featured: 'house favourite', image_url: 'photo', is_orderable: 'online ordering',
   tax: 'tax', min_order_qty: 'minimum quantity',
-  kind: 'meal deal', kitchen_name: 'kitchen name', pos_course_id: 'till course', pos_colour: 'till colour',
-  combo: 'meal deal choices', dietary: 'allergens and dietary', allergen_levels: 'allergen levels',
+  kind: 'combo', kitchen_name: 'kitchen name', pos_course_id: 'till course', pos_colour: 'till colour',
+  combo: 'combo steps', dietary: 'allergens and dietary', allergen_levels: 'allergen levels',
 }
 const VISIBILITY = { show: 'everywhere', website_hidden: 'print only', hidden: 'nowhere' }
 

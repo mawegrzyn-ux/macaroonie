@@ -144,7 +144,7 @@ const firstName = s => String(s || '').trim().split(/\s+/)[0]?.slice(0, 40) || n
 /** The kitchen's copy of an online order (kitchen.order_in payload). */
 async function onlineSnapshot(tx, order) {
   const items = await tx`
-    SELECT id, menu_item_id, name, options, qty, note FROM order_items
+    SELECT id, menu_item_id, name, options, parts, qty, note FROM order_items
      WHERE order_id = ${order.id} AND tenant_id = ${order.tenant_id} ORDER BY sort_order`
   const ids = [...new Set(items.map(i => i.menu_item_id).filter(Boolean))]
   const sections = ids.length
@@ -176,6 +176,12 @@ async function onlineSnapshot(tx, order) {
       revenue_stream_id: order.revenue_stream_id || null,
       name: String(i.name).slice(0, 200), qty: Number(i.qty) || 1,
       options: (Array.isArray(i.options) ? i.options : []).map(o => ({ label: String(o.label || '').slice(0, 120), mode: o.mode || null })),
+      // A combo's picks (migration 171).
+      parts: Array.isArray(i.parts) && i.parts.length ? i.parts.slice(0, 60).map(p => ({
+        name: String(p.name || 'Item').slice(0, 200), kitchen_name: p.kitchen_name ? String(p.kitchen_name).slice(0, 60) : null,
+        item_id: p.item_id || null, section_id: p.section_id || null,
+        options: (Array.isArray(p.options) ? p.options : []).map(o => ({ label: String(o.label || '').slice(0, 120), mode: o.mode || null })),
+      })) : null,
       note: i.note ? String(i.note).slice(0, 300) : null,
     })),
   }

@@ -8,7 +8,7 @@
 
 import { useMemo, useRef, useState } from 'react'
 import { Search, X, PenLine } from 'lucide-react'
-import { fromPrice } from '@shared/orderPricing.js'
+import { fromPrice, priceVaries } from '@shared/orderPricing.js'
 import { cx, money } from './ui.jsx'
 import { tillItem } from '../lib/checkOps.js'
 import { soldOutMap } from '../lib/store.js'
@@ -49,6 +49,8 @@ const SECTION_COLOURS = ['#2f5bd3', '#0f766e', '#b45309', '#7c3aed', '#be123c', 
 
 export default function MenuPanel({ config, menuIds = null, onPick, onHold, seat, setSeat, course, setCourse, covers, onOpenItem }) {
   const soldOut = useMemo(() => soldOutMap(config), [config])
+  // Combos' dishes, for their "from" price (shared/combos.js).
+  const comboRefs = useMemo(() => ({ itemsById: config.items || {}, sectionItems: config.section_items || {} }), [config])
   const menus = useMemo(() => {
     const all = config.menus || []
     const only = menuIds?.length ? all.filter(m => menuIds.includes(m.id)) : all
@@ -114,9 +116,9 @@ export default function MenuPanel({ config, menuIds = null, onPick, onHold, seat
         <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(132px, 1fr))' }}>
           {items.map(it => {
             const t = tillItem(config, it.id)
-            const price = t.kind === 'combo' ? t.price_pence : fromPrice(t, t.pos_choices)
+            const price = fromPrice(t, t.pos_choices, comboRefs)
             const colour = it.colour || (!q ? colourOf(section, sectionIndex) : '#64708a')
-            const priceText = (t.kind === 'combo' ? 'Deal ' : (t.pos_choices?.length ? 'from ' : '')) + (price != null ? money(price) : '')
+            const priceText = (t.kind === 'combo' ? 'Combo ' : '') + (priceVaries(t, t.pos_choices, comboRefs) ? 'from ' : '') + (price != null ? money(price) : '')
             return <DishButton key={it.id} item={it} colour={colour} priceText={priceText} soldOut={soldOut.has(it.id)} onPick={onPick} onHold={onHold} />
           })}
           {!items.length && <div className="text-muted p-4 col-span-full">{q ? 'No dish matches.' : 'This section has no dishes.'}</div>}

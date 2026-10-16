@@ -272,15 +272,17 @@ if (!pages.length) pages.push([])
           </div>
           <% const _printItems = s.items || [] %>
           <% _printItems.forEach(function(item){ %>
-            <% const _groups = (item.variant_groups || [])
+            <% const _cp = item.kind === 'combo' && it.comboMenuPrice ? it.comboMenuPrice(item, m) : null /* combos: description and price only */ %>
+            <% const _groups = _cp ? [] : (item.variant_groups || [])
                  .map(function(g){
                    if (!hideUnpriced) return g
                    return Object.assign({}, g, { options: (g.options || []).filter(function(v){ return !isUnpriced(v.price_pence) }) })
                  })
                  .filter(function(g){ return !hideUnpriced || (g.options && g.options.length) }) %>
-            <% const _adhoc = hideUnpriced
+            <% const _adhoc = _cp ? [] : hideUnpriced
                  ? (item.variants || []).filter(function(v){ return !isUnpriced(v.price_pence) })
                  : (item.variants || []) %>
+            <% const _price = _cp ? _cp.pence : item.price_pence %>
             <% const _hasVar = (_adhoc.length > 0) || _groups.some(function(g){ return g.options && g.options.length }) %>
             <div class="item<%= item.is_featured ? ' featured' : '' %>">
               <div class="item-row" style="align-items:flex-start; gap: 2mm;">
@@ -306,8 +308,8 @@ if (!pages.length) pages.push([])
                     </span>
                   <% } %>
                 </div>
-                <% if (item.price_pence != null && !_hasVar) { %>
-                  <span class="item-price"><%= fmtPrice(item.price_pence) %></span>
+                <% if (_price != null && !_hasVar) { %>
+                  <span class="item-price"><%= (_cp && _cp.from ? 'from ' : '') + fmtPrice(_price) %></span>
                 <% } %>
               </div>
               <% if (item.description) { %><div class="item-desc"><%= item.description %></div><% } %>

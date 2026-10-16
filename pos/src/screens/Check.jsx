@@ -7,7 +7,7 @@ import { ArrowLeft, Send, Printer, CreditCard, MoreHorizontal, Flame, Users, Eye
 import { checkLabel, heldCourses } from '@shared/pos/checks.js'
 import { checkTotals } from '@shared/pos/pricing.js'
 import { useTill, useChecks, dispatch, toast, setPresence, othersOn } from '../lib/store.js'
-import { addItem, needsChoices, streamOf, typeOf, missingDetails, refreshPromotions, sendCheck } from '../lib/checkOps.js'
+import { addItem, needsChoices, streamOf, typeOf, missingDetails, refreshPromotions, sendCheck, comboStartFrom } from '../lib/checkOps.js'
 import { cx, money, elapsed } from '../components/ui.jsx'
 import CheckPanel from '../components/CheckPanel.jsx'
 import MenuPanel from '../components/MenuPanel.jsx'
@@ -35,6 +35,12 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
   useEffect(() => {
     if (check && check.status !== 'open' && modal?.kind !== 'pay') onBack()
   }, [check?.status]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Automatic combos and offers follow the check's dishes as they change.
+  const lineSig = check ? check.lines.map(l => l.id + ':' + l.qty + ':' + l.status + ':' + l.unit_price).join('|') : ''
+  useEffect(() => {
+    if (check && check.status === 'open' && check.lines.length) refreshPromotions(check.id)
+  }, [lineSig]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // A new check whose order type needs a name or tent number asks for it first.
   useEffect(() => {
@@ -72,9 +78,14 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
     const r = addItem(check, item, {}, { seat, course })
     if (!r.ok) toast(r.error, 'bad')
   }
-  const added = (item, o) => {
+  const added = (item, o, replace = null) => {
     const r = addItem(check, item, o.selection, { qty: o.qty, seat: o.seat, course: o.course, note: o.note, allergies: o.allergies, unit_price: o.unit_price })
     if (!r.ok) return toast(r.error, 'bad')
+    // Make it a combo: the dish it started from comes off (it hasn't been sent).
+    if (replace) {
+      const d = dispatch('line.deleted', { line_id: replace }, { check_id: check.id })
+      if (!d.ok) toast(d.error, 'bad')
+    }
     close()
   }
   const send = () => {
@@ -155,10 +166,15 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
           covers={check.covers} onOpenItem={() => setModal({ kind: 'open_item' })} />
       </div>
 
-      {modal?.kind === 'item' && <ItemModal item={modal.item} config={config} defaults={{ seat, course, covers: check.covers }} onClose={close} onAdd={o => added(modal.item, o)} />}
+      {modal?.kind === 'item' && <ItemModal item={modal.item} config={config} defaults={{ seat: modal.seat ?? seat, course: modal.course ?? course, covers: check.covers }}
+        initial={modal.initial || null} title={modal.title || null} onClose={close} onAdd={o => added(modal.item, o, modal.replace || null)} />}
       {modal?.kind === 'line' && (
         <LineModal check={check} line={check.lines.find(l => l.id === modal.line.id) || modal.line} config={config} onClose={close}
-          onDiscount={ids => setModal({ kind: 'discount', lineIds: ids })} onMove={ids => setModal({ kind: 'move', lineIds: ids })} />
+          onDiscount={ids => setModal({ kind: 'discount', lineIds: ids })} onMove={ids => setModal({ kind: 'move', lineIds: ids })}
+          onMakeCombo={(line, combo, start) => setModal({
+            kind: 'item', item: combo, title: line.name + ' as ' + combo.name, replace: line.id, seat: line.seat ?? null, course: line.course_id ?? null,
+            initial: { selection: comboStartFrom(line, start), qty: line.qty },
+          })} />
       )}
       {modal?.kind === 'actions' && <ActionsMenu check={check} config={config} onClose={close} onPick={action} />}
       {modal?.kind === 'send' && <SendModal check={check} config={config} onClose={close} onSent={() => { close(); toast('Sent to the kitchen', 'ok'); if (!counter) onBack() }} />}

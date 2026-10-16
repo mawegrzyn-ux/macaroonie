@@ -33,6 +33,7 @@ const SECTIONS = [
   { id: 'web-ordering', label: 'Web Ordering' },
   { id: 'ai-assistant', label: 'AI Assistant & MCP' },
   { id: 'menus',        label: 'Menus' },
+  { id: 'combos',       label: 'Combos' },
   { id: 'tax',          label: 'Tax, Order Types & Streams' },
   { id: 'screens',      label: 'Menu Screens' },
   { id: 'website-cms',  label: 'Website CMS' },
@@ -2950,7 +2951,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['pos_printers / pos_print_routes', 'Printers (host, port, columns, backup); routes target_kind item | section | revenue_stream | default.'],
                 ['floor_areas', 'name, width x height in units, revenue_stream_id, decor jsonb. tables gains floor_area_id, pos_x/y/w/h, shape, rotation.'],
                 ['cash_staff', 'pos_pin_hash (unique per venue), pos_role_id.'],
-                ['menus', 'menu_items kind (dish | combo), kitchen_name, pos_course_id, pos_colour, combo jsonb { slots: [{ id, name, min, max, item_ids, section_ids, upcharges }] }; menu_sections pos_course_id, pos_colour; menu_variant_groups pos_prefixes; menu_variant_options child_group_id; promotions channels text[] (online | pos).'],
+                ['menus', 'menu_items kind (dish | combo), kitchen_name, pos_course_id, pos_colour, combo jsonb (steps since migration 171, see Combos); menu_sections pos_course_id, pos_colour; menu_variant_groups pos_prefixes; menu_variant_options child_group_id; promotions channels text[] (online | pos).'],
               ]}
             />
             <H3>Sync</H3>
@@ -2988,7 +2989,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <H3>Prices, VAT and offers</H3>
             <P>
               <Mono>shared/pos/pricing.js</Mono>: <Mono>priceItem()</Mono> (unit price + modifiers: prefixes No /
-              Light free, Extra / On the side priced, nested groups always extra; meal deal slot upcharges),{' '}
+              Light free, Extra / On the side priced, nested groups always extra; combos through shared/combos.js),{' '}
               <Mono>posTax(item, check, config)</Mono> (the dish's tax levels resolved by{' '}
               <Mono>taxFor()</Mono> in <Mono>shared/tax.js</Mono> for the venue, the check's order type and
               revenue stream: <Mono>{'{ vat_rate, tax_rate_id }'}</Mono>, stored on each line) and <Mono>checkTotals()</Mono> (line discounts and comps, then promotions, then check
@@ -3026,7 +3027,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['Till setup /pos', 'pages/PosSetup.jsx (?tab=) + components/pos/*Section.jsx; GET /api/pos/venues/:id/setup is the one read (includes till_url = posOrigin(), sections and items for routing, recon_fields).'],
                 ['Floor plan /pos/floor', 'pages/PosFloor.jsx: snap 0.5 unit, pointer drag / resize, explicit Save per area (PUT /api/pos/floor-areas/:id/layout replaces tables on the area + decor).'],
                 ['Till reports /pos/reports', 'pages/PosReports.jsx: days (+ fill-recon, needs cash_recon manage too), checks with events, conflicts, print queue.'],
-                ['Menus, Variant groups, Promotions', 'components/menus/TillFields.jsx (section / dish Till box, comboPayload()); VariantGroupsManager pos_prefixes + child_group_id; Promotions Where (channels).'],
+                ['Menus, Variant groups, Promotions', 'components/menus/TillFields.jsx (section / dish Till box), components/menus/ComboEditor.jsx (Dish / Combo, steps, comboPayload()); VariantGroupsManager pos_prefixes + child_group_id + allow_repeat / on_request; Promotions Where (channels).'],
               ]}
             />
             <H3>Hosting</H3>
@@ -3080,7 +3081,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               type 3, default 4;{' '}
               <Mono>nextStations()</Mono>). When a dish is sent, <Mono>itemRoute()</Mono> works out its whole way
               and stores it on the item as <Mono>{'route: { [node]: [the nodes before it, \'start\' = Orders in] }'}</Mono>{' '}
-              (meal deal parts each get their own way, merged for the item), so a flow change only affects
+              (combo parts each get their own way, merged for the item), so a flow change only affects
               dishes sent after it. Stations left out of the config (switched off or deleted) are passed
               straight through; links to them are ignored, so the next most specific link applies.
             </P>
@@ -3702,7 +3703,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               exported from <Mono>routes/menus.js</Mono>: it turns <Mono>loadMenuFull()</Mono> output
               back into the PATCH body with every menu, section, dish and footer-note field and their
               ids, so an untouched save changes nothing (tested by a round trip) and print designs,
-              meal deals and till fields keep pointing at the same rows. <Mono>/duplicate</Mono> uses
+              combos and till fields keep pointing at the same rows. <Mono>/duplicate</Mono> uses
               it too (with fresh ids). A tool edits that body and <Mono>saveBody()</Mono> renumbers{' '}
               <Mono>sort_order</Mono> by position and PATCHes. <Mono>describe()</Mono> and{' '}
               <Mono>run()</Mono> share one plan function each (<Mono>planCreate</Mono>,{' '}
@@ -3714,14 +3715,14 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               head={['Tool', 'Route(s)', 'Notes']}
               rows={[
                 ['list_menus', 'GET /menus?status=1 + SQL counts', 'Venue, shown_to_guests, publish (live / draft changes not published / never published, scheduled publish), sections, dishes'],
-                ['get_menu', 'GET /menus/:id[?version=live], /menus/variant-groups', 'The draft unless version live (404 text when never published); dishes with price or option prices (the dish\'s own, from loadMenuFull options[]), allergens with level, dietary, calories, online off, meal deal; descriptions with details or one section; lists tags and option groups; publish status'],
+                ['get_menu', 'GET /menus/:id[?version=live], /menus/variant-groups', 'The draft unless version live (404 text when never published); dishes with price or option prices (the dish\'s own, from loadMenuFull options[]), allergens with level, dietary, calories, online off, a combo\'s steps; descriptions with details or one section; lists tags and option groups; publish status'],
                 ['find_dishes', 'GET /menus, /menus/:id?version=live, /menus/dietary/all', 'search words, has (all tags), free_from (allergens; removable listed as ask_for_it_without, may_contain blocks); live versions shown to guests unless include_unpublished (adds hidden menus, and drafts of menus never published, marked not_published) or version draft; 60 shown'],
                 ['create_menu', 'POST /menus, PATCH /menus/:id (DELETE on failure)', 'Sections and up to 400 dishes in one call; unpublished unless published: true'],
                 ['update_menu', 'PATCH /menus/:id', 'Name, venue / all venues, published, tagline, service times, intro'],
                 ['duplicate_menu', 'POST /menus/:id/duplicate (+ PATCH to rename)', 'Copy is unpublished; designs remapped by the route'],
                 ['add_dishes', 'PATCH /menus/:id', 'Existing or new sections; same-name dish in that section skipped unless update_existing'],
                 ['update_dish', 'PATCH /menus/:id', 'Fields, allergens / add / remove (with level), dietary the same, options / remove_options, move_to_section, position, after_dish. Name the section when the dish is in several (409 otherwise). Warns on allergen changes and on a price change over 50%'],
-                ['remove_dishes', 'PATCH /menus/:id', 'Destructive; warns when a meal deal offers a removed dish'],
+                ['remove_dishes', 'PATCH /menus/:id', 'Destructive; warns when a combo offers a removed dish (it loses that choice)'],
                 ['update_section', 'PATCH /menus/:id', 'Title, subtitle, visibility, VAT takeaway / eat in, position or after_section'],
                 ['remove_section', 'PATCH /menus/:id', 'Destructive; its dishes go too'],
                 ['change_prices', 'PATCH /menus/:id', 'Whole menu, sections or dishes; percent / amount / set; round_to 1/5/10/50/100p up, nearest or down; include_options (default on) writes per-dish option overrides'],
@@ -3738,7 +3739,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               them) at run time, named in the card&apos;s warnings. Allergens and dietary tags are
               matched to the tenant&apos;s tags by label, code or common names (soy, shellfish, dairy,
               wheat ...); an unknown tag is left off and listed on the card, never created. Prices
-              in and out are pounds. Not covered: dish photos, meal deal contents, print designs and
+              in and out are pounds. Not covered: dish photos, combo steps, print designs and
               print options, till fields, deleting a menu, the tag list.
             </P>
             <H3>Confirm cards (chats)</H3>
@@ -4234,6 +4235,83 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               and the real One Thai Ware export (round trip, Windows-1252, xlsx in and out, permissions),
               and the page in Chromium at 1280, 1015 and 390 px (match, skip, keep, typed prices, code
               map, save, download and reload).
+            </P>
+          </section>
+
+          {/* ── COMBOS ─────────────────────────────────────── */}
+          <section id="combos" data-doc="">
+            <H2>Combos</H2>
+            <P>
+              Migration 171. A combo is a <Mono>menu_items</Mono> row with <Mono>kind = 'combo'</Mono> and a{' '}
+              <Mono>combo</Mono> jsonb: steps with choices, conditions and repeats, used by the till, online
+              ordering, the kitchen, the website, printed menus and menu screens. It replaced the till-only meal
+              deal slots (<Mono>{'{ slots: [...] }'}</Mono>), which the migration turned into steps in the menu
+              tables and in every <Mono>menu_releases</Mono> snapshot (choice ids from{' '}
+              <Mono>md5(slot id + dish / section id)</Mono>, so drafts and releases match; hashes blanked and
+              recomputed at start by <Mono>rehashReleases()</Mono>).
+            </P>
+            <Code>{`menu_items.combo = {
+  mode: 'manual' | 'auto',
+  steps: [{
+    id, name, min, max,          // min 0 = optional; max up to 20
+    repeat,                      // the same choice more than once
+    auto,                        // fill (and skip) a step with one open choice
+    ask: 'always' | 'button',    // 'button' only when min = 0
+    when: null | { step_id, option_ids },   // an EARLIER step; [] = anything picked there
+    options: [{ id, type: 'item' | 'section' | 'custom',
+                item_id, section_id, label, kitchen_name, price_pence }],
+  }],
+}
+selection.combo = { [stepId]: [{ option_id, item_id, choices }] }   // item_id null for a custom choice`}</Code>
+            <H3>One set of rules: shared/combos.js</H3>
+            <DataTable
+              head={['Function', 'What it does']}
+              rows={[
+                ['normaliseCombo(raw), comboOf(item)', 'The stored shape, cleaned; comboOf caches it on the item (non-enumerable _combo).'],
+                ['menuCtx(menu), sectionItemsOf(menus)', 'ctx = { itemsById, sectionItems } that every function below takes to find a step\'s dishes.'],
+                ['stepChoices(step, ctx)', 'A step\'s choices: items, every dish of a section (key option.id + ":" + itemId), custom ones; never a combo or the combo itself; sold out flagged.'],
+                ['resolveSteps(item, picks, ctx)', '{ picks, steps: [{ step, choices, shown, auto }] }: drops picks on steps whose condition no longer holds (in step order), fills single-choice auto steps.'],
+                ['priceCombo(item, selection, ctx, partPrice)', '{ ok, parts, upcharge, extras, picks } or { ok: false, error, step_id }. partPrice(part, choices) is the caller\'s option engine; a part\'s base options never change the deal price, its extras do.'],
+                ['comboFromPrice(item, base, ctx)', '{ pence, varies }: own price + cheapest picks of unconditional required steps; varies when any choice has a charge. Wrapped by fromPrice() / priceVaries() / comboMenuPrice() in shared/orderPricing.js.'],
+                ['comboGuide(item, ctx)', 'The steps in words for a menu screen\'s How to order view.'],
+                ['findAutoCombos(lines, combos, ctx, base)', 'Automatic combos in a set of separate lines: greedy, biggest saving first, only when cheaper than the lines; returns [{ combo_id, name, count, saving, lines: { key: pence } }] with the saving spread by spreadCapped() (never more than a line\'s own price).'],
+                ['combosWithItem(), stepWithItem()', 'Which combos offer a dish and where it goes (the till\'s Make it a combo).'],
+                ['comboProblems(combo, { itemIds, sectionIds })', 'What stops a combo working (the editor\'s amber list).'],
+                ['countParts(parts)', 'For display only: the same pick twice in a step as one entry with a count ("2 x Ketchup pot"). Works on till, online and kitchen part shapes.'],
+              ]}
+            />
+            <H3>Where combos are read</H3>
+            <DataTable
+              head={['Surface', 'How']}
+              rows={[
+                ['Menus API', 'routes/menus.js: ComboBody Zod; cleanCombo() inside upsertMenuTree() drops choices for dishes / sections not on the menu, combos and itself, and conditions on later or unknown steps; remapCombo() on /duplicate; menuSaveBody() carries kind + combo.'],
+                ['Till', 'posSvc tillConfig(): items carry kind + combo, config.section_items. shared/pos/pricing.js priceItem() prices through priceCombo(); line.combo = parts { step_id, step, option_id, item_id, name, kitchen_name, section_id, course_id, upcharge, modifiers, extras, custom }. pos/src/lib/checkOps.js: comboCtx(), autoCombosFor() (refreshed on every line change by Check.jsx), combosForLine() / comboStartFrom() (Make it a combo).'],
+                ['Automatic combos on the till', 'Stored as promotions.set entries { promotion_id: comboItemId, name, kind: "combo", count, lines } (checks.js accepts kind combo and count). checkTotals() names them "X x N" and flags combo: true. promotionsFor() applies combos first, promotions on what is left.'],
+                ['Online ordering', 'orderSvc loadOrderingMenu(): items carry kind, combo, from_pence, from_varies; partsById (every dish of the menus in shown sections, orderable or not) as combo_parts and section_items in GET /order-api/venues/:id; basketCombos(menu) gives priceBasket() its combos. priceBasket() applies automatic combos before promotions (promotions run on line_total minus the combo saving) and returns combos[] + combo_discount_pence. order_items.parts; order_promotions rows with promotion_id NULL and combo_item_id for automatic combos. /order-api/combos.js serves shared/combos.js to the guest page.'],
+                ['Kitchen', 'shared/pos/kitchen.js: a combo line is the header with parts; each part routes by its own dish (a custom part like the combo), the item route is mergeRoutes(parts); stations see only their own parts. kitchenSvc onlineSnapshot() sends parts for online orders. printing.js: parts print on their own printers under the combo\'s name; a custom part prints where the combo does.'],
+                ['Website, print, canvas', 'comboMenuPrice(item, menu) in menu_inline.eta (it.siteBlocks), menu_print.eta, shared/menuLayout.js and MenuInlineCanvas: the description and the price, "from" when it varies; no steps.'],
+                ['Menu screens', 'screenSvc slimItem() keeps kind + combo; shared/screenLayout.js menu and dish blocks take opts.combo_view: "menu" | "steps" (comboStepsHtml(), .sl-steps); combos.js is in PLAYER_LIBS and the player\'s sw.js shell.'],
+                ['AI menu tools', 'get_menu shows a combo\'s steps (comboText()); removing dishes or a section lists the combos that lose those choices (comboRefs()). The tools don\'t edit steps.'],
+              ]}
+            />
+            <H3>Option groups: repeat and on request</H3>
+            <P>
+              <Mono>menu_variant_groups.allow_repeat</Mono> (the same option more than once; max is not capped
+              at the number of options) and <Mono>on_request</Mono> (an optional group waits behind a button;
+              ignored when min &gt; 0). Both reach the till through <Mono>posChoices()</Mono> /{' '}
+              <Mono>groupChoice()</Mono> and online through <Mono>itemChoices()</Mono> as{' '}
+              <Mono>choice.repeat</Mono> / <Mono>choice.on_request</Mono>; <Mono>menuDiff.js</Mono> drops them
+              when false so existing releases don&apos;t read as changed. The till keeps one modifier per pick
+              and groups them for display with <Mono>groupModifiers()</Mono> (shared/pos/pricing.js,{' '}
+              <Mono>modifierText()</Mono> prints &ldquo;2 x Cheese&rdquo;); online orders store a repeated pick
+              once with the count in its label and the summed price (<Mono>priceChoiceSet()</Mono>).
+            </P>
+            <P>
+              Tested: 92 shared unit tests (combos, pricing, auto matching, kitchen, grouping), 30 API checks
+              against Postgres (save, clean, copy, publish, migration, ordering menu, quote, order, print), the
+              admin editor in Chromium at 1280 and 1015 px, the till (steps, repeats, on-request groups, auto
+              combo, Make it a combo, send, kitchen screen), the guest ordering page at 1280 and 390 px, a menu
+              screen board in both views and the website Menu block.
             </P>
           </section>
 
