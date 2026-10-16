@@ -25,6 +25,7 @@ import { dayFigures } from '../../../shared/pos/reports.js'
 import { normalisePermissions, DEFAULT_POS_ROLES } from '../../../shared/pos/permissions.js'
 import { TENDERS } from '../../../shared/pos/checks.js'
 import { venueNow } from '../../../shared/promotions.js'
+import { soldOutRows } from './soldOut.js'
 
 export const DEFAULT_COURSES = [
   { name: 'Drinks', short_name: 'DR', hold_by_default: false },
@@ -229,6 +230,9 @@ export async function tillConfig(tx, tenantId, venueId) {
   }
 
   const tz = venue.timezone || 'Europe/London'
+  // Dishes sold out at the venue now (services/soldOut.js), with when they
+  // come back (null = until someone puts them back).
+  const soldOut = (await soldOutRows(tx, tenantId, venueId)).map(r => ({ item_id: r.item_id, until: r.sold_out_until }))
   const promotions = (await venuePromotions(tx, { id: venueId, tenant_id: tenantId }, venueNow(tz).date, 'pos'))
     .map(p => ({ ...publicPromotion(p, { withCode: true }), max_uses: p.max_uses ?? null }))
 
@@ -249,6 +253,7 @@ export async function tillConfig(tx, tenantId, venueId) {
     printers,
     routes,
     promotions,
+    sold_out: soldOut,
     devices: devices.map(d => ({ id: d.id, name: d.name, short_code: d.short_code, settings: d.settings || {} })),
   }
   config.version = sha256(JSON.stringify(config)).slice(0, 16)

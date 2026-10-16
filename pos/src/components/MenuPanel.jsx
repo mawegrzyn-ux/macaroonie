@@ -2,16 +2,53 @@
 // search box, and the seat / course the next dish goes to. The layout comes
 // from the menu builder for now; a till layout designer (docs/POS.md
 // Phase 7) will be able to arrange the buttons.
+//
+// Holding a dish down (or tapping one that is sold out) calls onHold: the
+// sold out window (CheckActions.jsx SoldOutModal).
 
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { Search, X, PenLine } from 'lucide-react'
 import { fromPrice } from '@shared/orderPricing.js'
 import { cx, money } from './ui.jsx'
 import { tillItem } from '../lib/checkOps.js'
+import { soldOutMap } from '../lib/store.js'
+
+const HOLD_MS = 550
+
+// A dish button: tap picks it, holding it down opens the sold out window.
+function DishButton({ item, colour, priceText, soldOut, onPick, onHold }) {
+  const timer = useRef(null)
+  const held = useRef(false)
+  const start = () => {
+    held.current = false
+    clearTimeout(timer.current)
+    timer.current = setTimeout(() => { held.current = true; onHold?.(item) }, HOLD_MS)
+  }
+  const cancel = () => clearTimeout(timer.current)
+  return (
+    <button
+      onPointerDown={start} onPointerUp={cancel} onPointerLeave={cancel} onPointerCancel={cancel}
+      onContextMenu={e => e.preventDefault()}
+      onClick={() => {
+        if (held.current) { held.current = false; return }
+        if (soldOut && onHold) return onHold(item)
+        onPick(item)
+      }}
+      className={cx('relative rounded-xl border min-h-[84px] p-3 text-left flex flex-col justify-between touch-manipulation active:scale-[0.97] transition-transform overflow-hidden select-none',
+        soldOut ? 'bg-page border-line text-muted' : 'bg-white border-line')}>
+      <span className="absolute left-0 top-0 bottom-0 w-1.5" style={{ background: colour, opacity: soldOut ? 0.35 : 1 }} />
+      <span className={cx('font-semibold leading-tight text-[15px] line-clamp-3 pl-1', soldOut && 'line-through')}>{item.name}</span>
+      <span className="text-sm text-muted pl-1 mt-1 tabular-nums">
+        {soldOut ? <span className="font-bold text-bad uppercase text-xs tracking-wide">Sold out</span> : priceText}
+      </span>
+    </button>
+  )
+}
 
 const SECTION_COLOURS = ['#2f5bd3', '#0f766e', '#b45309', '#7c3aed', '#be123c', '#0369a1', '#4d7c0f', '#a21caf']
 
-export default function MenuPanel({ config, menuIds = null, onPick, seat, setSeat, course, setCourse, covers, onOpenItem }) {
+export default function MenuPanel({ config, menuIds = null, onPick, onHold, seat, setSeat, course, setCourse, covers, onOpenItem }) {
+  const soldOut = useMemo(() => soldOutMap(config), [config])
   const menus = useMemo(() => {
     const all = config.menus || []
     const only = menuIds?.length ? all.filter(m => menuIds.includes(m.id)) : all
@@ -79,16 +116,8 @@ export default function MenuPanel({ config, menuIds = null, onPick, seat, setSea
             const t = tillItem(config, it.id)
             const price = t.kind === 'combo' ? t.price_pence : fromPrice(t, t.pos_choices)
             const colour = it.colour || (!q ? colourOf(section, sectionIndex) : '#64708a')
-            return (
-              <button key={it.id} onClick={() => onPick(it)}
-                className="relative rounded-xl bg-white border border-line min-h-[84px] p-3 text-left flex flex-col justify-between touch-manipulation active:scale-[0.97] transition-transform overflow-hidden">
-                <span className="absolute left-0 top-0 bottom-0 w-1.5" style={{ background: colour }} />
-                <span className="font-semibold leading-tight text-[15px] line-clamp-3 pl-1">{it.name}</span>
-                <span className="text-sm text-muted pl-1 mt-1 tabular-nums">
-                  {t.kind === 'combo' ? 'Deal ' : (t.pos_choices?.length ? 'from ' : '')}{price != null ? money(price) : ''}
-                </span>
-              </button>
-            )
+            const priceText = (t.kind === 'combo' ? 'Deal ' : (t.pos_choices?.length ? 'from ' : '')) + (price != null ? money(price) : '')
+            return <DishButton key={it.id} item={it} colour={colour} priceText={priceText} soldOut={soldOut.has(it.id)} onPick={onPick} onHold={onHold} />
           })}
           {!items.length && <div className="text-muted p-4 col-span-full">{q ? 'No dish matches.' : 'This section has no dishes.'}</div>}
         </div>

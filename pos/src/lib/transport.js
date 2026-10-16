@@ -55,6 +55,7 @@ export function createTransport(device) {
   return {
     get: (p, o) => request('GET', p, undefined, o),
     post: (p, b, o) => request('POST', p, b ?? {}, o),
+    put: (p, b, o) => request('PUT', p, b ?? {}, o),
     socketUrl,
   }
 }

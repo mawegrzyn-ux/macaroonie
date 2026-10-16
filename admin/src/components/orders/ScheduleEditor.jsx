@@ -37,7 +37,7 @@ const WEEK = [1, 2, 3, 4, 5, 6, 0]
  * shared/menuSchedule.js: ordering menus (migration 130) and promotions
  * (migration 131). onChange(null) = always on.
  */
-export function ScheduleEditor({ value, onChange, className = '', alwaysLabel = 'Always available', resetLabel = '{resetLabel}', datesLabel = '{datesLabel}' }) {
+export function ScheduleEditor({ value, onChange, className = '', alwaysLabel = 'Always available', resetLabel = 'Clear times and dates', datesLabel = 'Dates' }) {
   const sched = value || { from: null, until: null, times: [] }
   const [open, setOpen] = useState(false)
   const times = sched.times || []

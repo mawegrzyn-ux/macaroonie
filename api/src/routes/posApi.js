@@ -17,6 +17,8 @@
 //   GET  /days                  recent trading days
 //   POST /presence              { check_id, staff_id } who has which check open (soft lock)
 //   GET  /print-jobs            the venue's print queue
+//   PUT  /sold-out/:itemId      { sold_out: 'today' | 'indefinite' | false, staff_id, approved_by? }
+//                               (role permission sold_out; services/soldOut.js, online only)
 //   POST /print-jobs/claim      a hub (later) takes queued jobs for its printers
 //   POST /print-jobs/:id/status { status: 'printed' | 'failed', error }
 //
@@ -30,9 +32,11 @@ import { sql, withTenant } from '../config/db.js'
 import { httpError } from '../middleware/error.js'
 import { broadcast } from '../config/ws.js'
 import {
-  tillConfig, sequencer, sha256, normaliseCode, newDeviceSecret, loadDayChecks, fillReconFromDay, dayReport,
+  tillConfig, sequencer, sha256, normaliseCode, newDeviceSecret, loadDayChecks, fillReconFromDay, dayReport, loadTillStaff,
 } from '../services/posSvc.js'
 import { dayFigures } from '../../../shared/pos/reports.js'
+import { permissionProblem } from '../../../shared/pos/permissions.js'
+import { setSoldOut, soldOutItemIds, announceSoldOut } from '../services/soldOut.js'
 
 const UUID = z.string().uuid()
 const CHECK_ID = z.string().regex(/^[0-9A-HJKMNP-TV-Z]{26}$/)
@@ -157,6 +161,31 @@ export default async function posApiRoutes(app) {
       if (req.query.version && req.query.version === config.version) return { unchanged: true, version: config.version }
       const [own] = await sql`SELECT name, short_code, settings FROM pos_devices WHERE id = ${d.id} AND tenant_id = ${d.tenant_id}`
       return { ...config, device: { id: d.id, name: own?.name, short_code: own?.short_code, settings: own?.settings || {} } }
+    })
+
+    // Sold out: the signed-in person's role needs sold_out (or approved_by
+    // names someone whose role has it). Online only: it changes what the
+    // website, the orders board and the menu screens show straight away.
+    scoped.put('/sold-out/:itemId', async req => {
+      const d = req.posDevice
+      if (!UUID.safeParse(req.params.itemId).success) throw httpError(404, 'Dish not found')
+      const b = z.object({
+        sold_out: z.union([z.literal('today'), z.literal('indefinite'), z.literal(false)]),
+        staff_id: UUID,
+        approved_by: UUID.nullable().optional(),
+      }).parse(req.body)
+      const { venue, res, ids } = await withTenant(d.tenant_id, async tx => {
+        const staff = await loadTillStaff(tx, d.tenant_id, d.venue_id, { signIn: true })
+        const problem = permissionProblem(Object.fromEntries(staff.map(s => [s.id, s])),
+          { staff_id: b.staff_id, approved_by: b.approved_by || null }, 'sold_out')
+        if (problem) throw httpError(403, problem)
+        const [venue] = await tx`SELECT id, tenant_id, timezone FROM venues WHERE id = ${d.venue_id} AND tenant_id = ${d.tenant_id}`
+        if (!venue) throw httpError(404, 'Venue not found')
+        const res = await setSoldOut(tx, venue, req.params.itemId, b.sold_out)
+        return { venue, res, ids: await soldOutItemIds(tx, d.tenant_id, venue.id) }
+      })
+      announceSoldOut(venue.id, req.params.itemId, res, ids)
+      return res
     })
 
     scoped.get('/sync', async req => {

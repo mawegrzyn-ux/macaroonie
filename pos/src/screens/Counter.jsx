@@ -10,6 +10,7 @@ import MenuPanel from '../components/MenuPanel.jsx'
 import ItemModal from '../components/ItemModal.jsx'
 import CheckScreen from './Check.jsx'
 import { CheckRow } from './Floor.jsx'
+import { SoldOutModal } from '../components/CheckActions.jsx'
 
 export default function Counter() {
   const { config } = useTill()
@@ -19,6 +20,7 @@ export default function Counter() {
   const [item, setItem] = useState(null)
   const [seat, setSeat] = useState(null)
   const [course, setCourse] = useState(null)
+  const [soldOutItem, setSoldOutItem] = useState(null)
 
   if (current && checks[current]?.status === 'open') {
     return <CheckScreen checkId={current} counter onBack={() => setCurrent(null)} onOpen={setCurrent} />
@@ -56,9 +58,12 @@ export default function Counter() {
       <div className="flex-1 min-w-0">
         <MenuPanel config={config} menuIds={rcOf(config, rcId)?.menu_ids} seat={seat} setSeat={setSeat} course={course} setCourse={setCourse}
           onPick={it => (needsChoices(config, it) ? setItem(it) : start(it, { seat, course }))}
+          onHold={it => setSoldOutItem(it)}
           onOpenItem={() => toast('Start the order with a dish first, then add an item not on the menu from More', 'info')} />
       </div>
       {item && <ItemModal item={item} config={config} defaults={{ seat, course }} onClose={() => setItem(null)} onAdd={o => start(item, o)} />}
+      {soldOutItem && <SoldOutModal item={soldOutItem} config={config} onClose={() => setSoldOutItem(null)}
+        onAdd={it => (needsChoices(config, it) ? setItem(it) : start(it, { seat, course }))} />}
     </div>
   )
 }
