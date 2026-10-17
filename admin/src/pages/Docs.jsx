@@ -3309,6 +3309,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['PATCH / DELETE /api/pos/kds-flows/:id', 'Rename ({ name }, 422 when taken); delete (422 for the flow in use: put another in use first; takes the till lock so it can\'t race a switch).'],
                 ['PUT /api/pos/venues/:id/kds-flows/order, .../kds-flows/active', 'order: { ids } sort order (keeps the flow in use in use, writing its id down if it was only "the first"); active: { flow_id } switchFlow() with the person\'s email as switched_by. Both pos_setup manage; both broadcast pos.config.'],
                 ['GET /api/pos/venues/:id/kitchen-report[.csv]?from=&to=', 'Per station: tickets, items, average, median, p90, max, on time (within target_mins), late; by hour; remakes. CSV: every bump and remake (pos_reports view).'],
+                ['POST /api/pos/venues/:id/kitchen-test', 'A signed link to the kitchen test bench (pos_setup view): { token, url } (8 hours). See The kitchen test bench below.'],
+                ['GET /pos-api/kitchen-test?token=', 'The bench\'s data (kitchenTestData()): stations, courses, order types, flows with their links, kitchen screens, tables, revenue streams, the live menus\' dishes (no prices) and expires_at. 401 for a bad, run out or other-kind link; 404 when the link\'s venue isn\'t its tenant\'s. Reads only.'],
                 ['GET /screen-api/orders', 'boardFor(): { preparing, ready } for every counter and online order, and boards: { [board station name, lower case]: { preparing, ready } } per order ready board, for the Order status block (opts.board picks one by name; screens with one get needs_orders in their config, poll every 15 s and refetch on kitchen.board).'],
               ]}
             />
@@ -3407,6 +3409,46 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>sl-och-in</Mono> and numbers going out in their old place with <Mono>sl-och-out</Mono>, a
               negative animation-delay keeping a redraw mid-animation in step, then draws plain once it is over.
               The designer's Play shows an example change.
+            </P>
+            <H3>The kitchen test bench</H3>
+            <P>
+              Till setup → Kitchen screens → Test the kitchen (<Mono>TestCard</Mono> in{' '}
+              <Mono>KitchenSection.jsx</Mono>, a <Mono>div role=&quot;button&quot;</Mono> so it works in the View
+              only fieldset) calls <Mono>POST /api/pos/venues/:venueId/kitchen-test</Mono> (pos_setup view) for a
+              signed link and opens <Mono>pos.&lt;domain&gt;/?kitchen_test=&lt;token&gt;</Mono> in a new window
+              (opened blank before the request, so pop-up blockers allow it). Links come from{' '}
+              <Mono>services/previewLinks.js</Mono> (<Mono>makeLink(kind, data, hours)</Mono> /{' '}
+              <Mono>readLink(kind, token)</Mono>, HMAC-SHA256 with the sealed <Mono>kiosk_preview_key</Mono> in{' '}
+              <Mono>platform_secrets</Mono>), shared with kiosk previews; a link carries its kind, so a kiosk
+              preview link never opens the bench and back. Kitchen links last 8 hours.{' '}
+              <Mono>GET /pos-api/kitchen-test?token=</Mono> (rate limited, no device) returns{' '}
+              <Mono>kitchenTestData()</Mono> (<Mono>services/kitchenSvc.js</Mono>): the kitchen screen config
+              (stations, courses, order types), every flow with its links, the venue&apos;s kitchen screens,
+              tables, revenue streams and the live menus&apos; dishes (no prices). It only reads.
+            </P>
+            <P>
+              The page (<Mono>pos/src/kitchen/Bench.jsx</Mono>) runs a pretend kitchen in the browser:{' '}
+              <Mono>createBench(data)</Mono> in <Mono>shared/pos/kitchenBench.js</Mono> stands in for the
+              sequencer and <Mono>/pos-api</Mono> with the same rules (<Mono>kitchenForCheckEvent()</Mono> for
+              test till orders as <Mono>lines.sent</Mono> / <Mono>course.fired</Mono> / <Mono>line.voided</Mono>,{' '}
+              <Mono>applyKitchenEvent()</Mono> for <Mono>kitchen.order_in</Mono> online orders and the
+              screens&apos; taps), its own sequence numbers, sync with reset after Clear all, an activity log, and
+              its own flow in use (<Mono>switchFlow()</Mono>, refusing screens with{' '}
+              <Mono>can_switch_flow: false</Mono>). Test orders are made with <Mono>sendOrder(spec)</Mono> or
+              made up by <Mono>randomSpec()</Mono>; a combo&apos;s parts come from{' '}
+              <Mono>randomComboParts()</Mono> (<Mono>resolveSteps()</Mono>). Each screen is the real kitchen app
+              in a same-origin frame (<Mono>?kitchen_test=&amp;screen=&lt;id&gt;</Mono>,{' '}
+              <Mono>BenchScreen.jsx</Mono>), scaled with a CSS transform from a fixed size (tablet 1280 x 800,
+              TV 1920 x 1080, upright 800 x 1280). It gets <Mono>window.parent.kdsBench.connect(screenId)</Mono>:
+              a transport answering <Mono>GET /pos-api/config</Mono>, <Mono>GET /pos-api/kitchen/sync</Mono>,{' '}
+              <Mono>POST /pos-api/events</Mono> and <Mono>PUT /pos-api/kitchen/flow</Mono> from the bench, and{' '}
+              <Mono>subscribe()</Mono> in place of the socket (<Mono>pos.seq</Mono>, <Mono>pos.config</Mono>).{' '}
+              <Mono>bootKitchen(device, benchLink)</Mono> in <Mono>pos/src/kitchen/store.js</Mono> switches the
+              store to bench mode: no IndexedDB (<Mono>keep</Mono>), its choices in <Mono>sessionStorage</Mono>{' '}
+              (<Mono>maca_kds_bench_&lt;id&gt;</Mono>), no forgetting the device on a 401, so a test never
+              touches a real kitchen screen&apos;s data on the same browser. Online / Offline per screen makes its
+              transport throw an offline error and fires <Mono>offline</Mono> / <Mono>online</Mono> in its
+              frame, so taps wait in the screen&apos;s outbox as they would on Wi-Fi.
             </P>
           </section>
 

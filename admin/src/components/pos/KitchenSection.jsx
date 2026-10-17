@@ -15,7 +15,7 @@
 
 import { useEffect, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Loader2, KeyRound, Pencil, ChefHat, Trash2, Search, X } from 'lucide-react'
+import { Plus, Loader2, KeyRound, Pencil, ChefHat, Trash2, Search, X, MonitorPlay } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import {
@@ -439,11 +439,57 @@ function OnlineCard({ venueId, setup }) {
   )
 }
 
+// ── The kitchen test bench ───────────────────────────────────────
+
+// Every kitchen screen of the venue on one page in a new window (the till
+// app's /?kitchen_test=, pos/src/kitchen/Bench.jsx), with test orders that
+// never reach the real screens. View is enough, so the button isn't a
+// <button>: Till setup is a disabled fieldset for View users.
+function TestCard({ venueId }) {
+  const api = useApi()
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState(null)
+  const [link, setLink] = useState(null)
+  async function open() {
+    if (busy) return
+    setBusy(true)
+    setError(null)
+    // Opened straight away, so the browser doesn't block it as a pop-up; the
+    // address follows once the link is made.
+    const win = window.open('', '_blank')
+    try {
+      const res = await api.post(`/pos/venues/${venueId}/kitchen-test`, {})
+      if (win && !win.closed) { win.location.href = res.url; setLink(null) } else setLink(res.url)
+    } catch (e) {
+      if (win && !win.closed) win.close()
+      setError(e.message || 'The test page couldn\'t be opened')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <Section title="Test the kitchen"
+      hint="Every kitchen screen of this venue side by side, scaled down. Send test orders, bump them on the screens, switch the kitchen flow and watch where each dish goes. Test orders stay on that page: the real kitchen screens, the till and the reports never see them.">
+      <div className="flex flex-wrap items-center gap-3">
+        <div role="button" tabIndex={0} aria-disabled={busy || undefined} data-testid="kitchen-test-open"
+          onClick={open} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open() } }}
+          className="inline-flex items-center gap-2 h-11 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-semibold cursor-pointer select-none touch-manipulation">
+          {busy ? <Loader2 size={16} className="animate-spin" /> : <MonitorPlay size={16} />} Open the kitchen test
+        </div>
+        {link && <a href={link} target="_blank" rel="noreferrer" className="text-sm font-medium underline">Your browser blocked the new window: open it here</a>}
+      </div>
+      <p className="text-xs text-muted-foreground">Opens in a new window. Changes made here afterwards show there after Reload setup.</p>
+      <ErrorNote error={error} />
+    </Section>
+  )
+}
+
 export default function KitchenSection({ venueId, setup, canManage = true }) {
   // { kind } = a new station of that kind, a station row = edit it
   const [editing, setEditing] = useState(null)
   return (
     <>
+      <TestCard venueId={venueId} />
       <KitchenFlow venueId={venueId} setup={setup} canManage={canManage} onStation={setEditing} />
       <StationsCard venueId={venueId} setup={setup} onEdit={setEditing} />
       <ScreensCard venueId={venueId} setup={setup} />

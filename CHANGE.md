@@ -5,6 +5,14 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-17 — Test the kitchen: every kitchen screen on one page]
+
+- **Try your kitchen flow before service**: Till setup → Kitchen screens → **Test the kitchen** opens a new window with every kitchen screen of the venue side by side, scaled down. They are the real kitchen screens working on pretend orders: nothing reaches the kitchen, the tills, the online orders board or the reports.
+- **Send test orders**: build one (dishes, till or online, order type, revenue stream, table or counter, later courses held until you fire them), send a made-up one, or five at once. Then tap and bump on the screens as in the kitchen.
+- **See where every dish is**: the Orders list shows each dish's way through the stations (done, there now, still to come), the order ready boards' numbers, and lets you void a dish. Activity lists every tap and which screen made it.
+- **Switch the flow, take a screen offline**: try another kitchen flow (new orders go the new way), see a screen's taps wait while it's offline and go when it's back, show screens as set up or one per station, as a tablet, TV or upright screen, one bigger.
+- View on Till setup is enough to open it. No migration.
+
 ## [2026-10-17 — Fix: custom domains taken offline after the last update]
 
 - **Custom domains (e.g. onethai.com) came back with a certificate warning** after the previous update. The server job that keeps custom domains switched on reads the saved domains from the database; the tighter database protection in that update hid them from it, so it took every custom domain off the server and deleted its certificate. The job now reads them the way the app's own background jobs do, and it no longer changes anything when it can't see any websites at all.

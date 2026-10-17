@@ -44,15 +44,16 @@ function useWidth() {
 }
 
 /** Keep the screen on while the kitchen screen is open. */
-function useWakeLock() {
+function useWakeLock(on = true) {
   useEffect(() => {
+    if (!on) return undefined
     let lock = null
     const get = async () => { try { lock = await navigator.wakeLock?.request('screen') } catch { lock = null } }
     get()
     const onVis = () => { if (!document.hidden) get() }
     document.addEventListener('visibilitychange', onVis)
     return () => { document.removeEventListener('visibilitychange', onVis); try { lock?.release() } catch { /* ignore */ } }
-  }, [])
+  }, [on])
 }
 
 const TEXT = {
@@ -77,9 +78,11 @@ const TYPE_COLOURS = ['bg-[#9be7a1] text-black', 'bg-[#25a7a7] text-white', 'bg-
 
 const REMAKE_REASONS = ['Dropped', 'Wrong dish', 'Undercooked', 'Cold', 'Sent back', 'Other']
 
-export default function KitchenApp({ device }) {
-  useEffect(() => { bootKitchen(device) }, [device])
-  useWakeLock()
+// bench: the kitchen test bench's link when this screen runs inside it
+// (Bench.jsx): its orders come from the bench's pretend kitchen.
+export default function KitchenApp({ device, bench = null }) {
+  useEffect(() => { bootKitchen(device, bench) }, [device, bench])
+  useWakeLock(!bench)
   const s = useKitchen()
   useEffect(() => {
     const unlock = () => unlockAudio()

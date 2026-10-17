@@ -451,6 +451,18 @@ nothing changes for the devices.
   tablet, a TV box, or with a real bump bar. Sound needs one tap on the screen first (browser
   autoplay rule).
 
+### 9.4 The kitchen test bench (17 Oct 2026)
+
+Till setup > Kitchen screens > Test the kitchen opens every kitchen screen of a venue on one
+page, scaled down, with a pretend kitchen in the browser (`shared/pos/kitchenBench.js`,
+`pos/src/kitchen/Bench.jsx`). The screens are the real kitchen app in frames; the bench answers
+their `/pos-api` calls and pushes with the same rules the sequencer runs, so a flow can be tried
+with test orders (till or online, tables, counter, held courses, combos, made-up rushes),
+bumps, recalls, remakes, flow switches and a screen going offline, and nothing reaches the
+real screens, the tills, the reports or the database. The admin gets a signed, read-only link
+(8 hours) to the venue's setup. Not built: playing back a real service, speeding the clock up,
+till screens on the bench, or GloriaFood orders as a source.
+
 
 ## 10. Self-order kiosks (migration 172, 17 Oct 2026)
 

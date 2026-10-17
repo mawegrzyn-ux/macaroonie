@@ -16,8 +16,6 @@
 //
 // Every query filters tenant_id itself.
 
-import crypto from 'node:crypto'
-import { sql } from '../config/db.js'
 import { httpError } from '../middleware/error.js'
 import { ensureSettings, settingsView, ownVenue, tillMenuData, sha256 } from './posSvc.js'
 import { venuePromotions, publicPromotion } from './promoSvc.js'
@@ -27,7 +25,7 @@ import { loadAllergenNotice } from '../routes/menus.js'
 import { normaliseDesign, LANG_CODES } from '../../../shared/kiosk.js'
 import { menuTags } from '../../../shared/menuTags.js'
 import { venueNow } from '../../../shared/promotions.js'
-import { seal, unseal } from './vault.js'
+import { makeLink, readLink } from './previewLinks.js'
 
 // The device id a preview runs as (never a real device).
 export const PREVIEW_DEVICE_ID = '00000000-0000-4000-8000-00000000000a'
@@ -128,46 +126,19 @@ export async function kioskConfig(tx, tenantId, venueId, device, { designOverrid
   return config
 }
 
-// ── Preview links ────────────────────────────────────────────────
+// ── Preview links (services/previewLinks.js) ─────────────────────
 
-const PREVIEW_SECRET = 'kiosk_preview_key'
 const PREVIEW_HOURS = 12
-let secretCache = null
-
-/** The key preview links are signed with: made once, kept in platform_secrets (sealed, migration 179). */
-async function previewSecret() {
-  if (secretCache) return secretCache
-  const [row] = await sql`SELECT value FROM platform_secrets WHERE name = ${PREVIEW_SECRET}`
-  if (row) return (secretCache = unseal(row.value))
-  const value = crypto.randomBytes(32).toString('base64url')
-  await sql`
-    INSERT INTO platform_secrets (name, value, hint, updated_by)
-    VALUES (${PREVIEW_SECRET}, ${seal(value)}, 'kiosk previews', 'system')
-    ON CONFLICT (name) DO NOTHING`
-  const [again] = await sql`SELECT value FROM platform_secrets WHERE name = ${PREVIEW_SECRET}`
-  return (secretCache = unseal(again.value))
-}
-
-const sign = (secret, payload) => crypto.createHmac('sha256', secret).update(payload).digest('base64url')
 
 /** A link token for previewing a design at a venue (with one of its revenue streams). */
-export async function previewToken({ tenantId, venueId, designId, streamId = null }) {
-  const payload = Buffer.from(JSON.stringify({
-    t: tenantId, v: venueId, d: designId, s: streamId, e: Date.now() + PREVIEW_HOURS * 3600_000,
-  })).toString('base64url')
-  return payload + '.' + sign(await previewSecret(), payload)
+export function previewToken({ tenantId, venueId, designId, streamId = null }) {
+  return makeLink('kiosk', { t: tenantId, v: venueId, d: designId, s: streamId }, PREVIEW_HOURS)
 }
 
 /** { tenantId, venueId, designId, streamId } for a valid, unexpired token, else null. */
 export async function readPreviewToken(token) {
-  const m = /^([A-Za-z0-9_-]{20,600})\.([A-Za-z0-9_-]{40,60})$/.exec(String(token || ''))
-  if (!m) return null
-  const want = sign(await previewSecret(), m[1])
-  if (want.length !== m[2].length || !crypto.timingSafeEqual(Buffer.from(want), Buffer.from(m[2]))) return null
-  let p
-  try { p = JSON.parse(Buffer.from(m[1], 'base64url').toString('utf8')) } catch { return null }
-  if (!p || !(p.e > Date.now())) return null
-  return { tenantId: p.t, venueId: p.v, designId: p.d, streamId: p.s || null }
+  const p = await readLink('kiosk', token)
+  return p ? { tenantId: p.t, venueId: p.v, designId: p.d, streamId: p.s || null } : null
 }
 
 /** The preview's device: not paired, test card reader, the stream and design the editor picked. */

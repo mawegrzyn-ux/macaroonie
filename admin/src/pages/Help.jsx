@@ -4662,6 +4662,23 @@ export default function Help() {
               Set a USB or Bluetooth bump bar to send those keys.
             </InfoBox>
 
+            <H3>Testing the kitchen</H3>
+            <P>
+              Try a kitchen flow before service without touching the real screens. In Till setup → Kitchen
+              screens, <strong>Test the kitchen</strong> → <strong>Open the kitchen test</strong> opens a new window
+              with every kitchen screen of the venue side by side, scaled down. They are the real kitchen screen,
+              working on pretend orders: nothing you do there reaches the kitchen screens, the tills, the online
+              orders board or the reports, and nothing is saved.
+            </P>
+            <ul className="list-disc ml-5 space-y-2 text-sm text-muted-foreground mb-4">
+              <li><strong>Test order</strong>: pick dishes, where it comes from (the till or online), the order type, the revenue stream, and a table or the counter. With dishes in different courses, <strong>Hold later courses</strong> keeps them back until you press <strong>Fire</strong> on the order. A combo's choices are picked at random.</li>
+              <li><strong>Made-up order</strong> sends one order made up from your menus; <strong>Rush: 5 orders</strong> sends five at once. <strong>Clear all</strong> takes every test order off.</li>
+              <li>Tap and bump on the screens as you would in the kitchen. The <strong>Orders</strong> list on the right shows where each dish is on its way (green done, amber there now, grey still to come), the order ready boards' numbers, and an X to void a dish. <strong>Activity</strong> lists every tap, which screen made it, and anything refused.</li>
+              <li><strong>Kitchen flow</strong> switches the flow for the test (also from a screen's flow button): orders sent after it go the new way, orders already there keep theirs. It doesn't change the flow in use in the real kitchen.</li>
+              <li><strong>Screens</strong>: <strong>As set up</strong> shows your kitchen screens with their stations; <strong>One per station</strong> shows one screen for each station. <strong>Size</strong> (tablet, TV, upright), <strong>Across</strong> (screens per row) and the arrows button (one screen bigger) change the view. <strong>Online / Offline</strong> on a screen pretends its Wi-Fi went: its taps wait and go when it's back.</li>
+              <li>Changes made in Till setup while the test is open show after <strong>Reload setup</strong> (which also clears the test orders). The link works for 8 hours; open it again from Till setup after that. View on Till setup is enough.</li>
+            </ul>
+
             <H3>Order ready board</H3>
             <P>
               To show guests their order numbers, add an <strong>Order status</strong> block to a board on the{' '}
