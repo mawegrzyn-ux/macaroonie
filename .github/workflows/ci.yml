@@ -34,19 +34,22 @@ jobs:
       STRIPE_SECRET_KEY: sk_test_ci
       STRIPE_WEBHOOK_SECRET: whsec_ci
       NODE_ENV: production
+      # The default (/home/ubuntu/app/uploads) is the server's; the runner
+      # can't write there.
+      UPLOAD_DIR: /tmp/macaroonie-uploads
 
     steps:
       - uses: actions/checkout@v4
 
+      # No npm cache and no `npm ci`: package-lock.json isn't in the repo
+      # (.gitignore), so install the way the deploy does.
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: api/package-lock.json
 
       - name: Install API dependencies
         working-directory: api
-        run: npm ci --no-audit --no-fund
+        run: npm install --no-audit --no-fund
 
       # Every migration from 001 on an empty Postgres 16 (no pg_cron): a new
       # environment or a rebuild from empty must work.
