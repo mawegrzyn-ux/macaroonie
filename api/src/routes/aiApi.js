@@ -18,7 +18,7 @@ import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { sql } from '../config/db.js'
 import { httpError } from '../middleware/error.js'
 import { ToolError } from '../ai/context.js'
-import { getAiSettings, chatConfigured, chatTokensLeft } from '../ai/settings.js'
+import { getAiSettings, chatConfigured, chatUnitsLeft } from '../ai/settings.js'
 import {
   createConversation, loadConversation, runTurn, confirmAction, cancelAction, displayItems, chatContext,
 } from '../ai/chat.js'
@@ -84,7 +84,7 @@ export default async function aiApiRoutes(app) {
     const body = ChatBody.parse(req.body)
     const tenant = await chatTenant(body.tenant_id)
     if (!tenant?.enabled) throw httpError(403, 'Chat isn\'t available on this site.')
-    if (await chatTokensLeft(tenant.id) <= 0) throw httpError(429, 'Chat is resting for now. Please use the booking form instead.')
+    if (await chatUnitsLeft(tenant.id) <= 0) throw httpError(429, 'Chat is resting for now. Please use the booking form instead.')
 
     let conv, guestKey = body.guest_key
     if (body.conversation_id) {

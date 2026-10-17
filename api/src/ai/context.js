@@ -147,21 +147,51 @@ export function usageMonth(d = new Date()) {
   return d.toISOString().slice(0, 8) + '01'
 }
 
-/** Add to this month's usage for a tenant + channel. */
-export async function addUsage(tenantId, channel, { requests = 1, input = 0, output = 0, cacheRead = 0, cacheWrite = 0 } = {}) {
+export function usageDay(d = new Date()) {
+  return d.toISOString().slice(0, 10)
+}
+
+// Usage is counted in units: tokens weighted by what Anthropic charges for
+// them, as input-token equivalents. Output costs 5x input, cache writes
+// (5-minute) 1.25x, cache reads 0.1x (less on the models listed in
+// CACHE_READ_WEIGHT), so a long chat re-reading its cached history counts
+// for what it costs, not its raw size. The monthly allowance
+// (ai_settings.monthly_token_limit) and each person's daily share are in units.
+const CACHE_READ_WEIGHT = { 'claude-opus-5-5': 0.05, 'claude-fable-5-1': 0.025, 'claude-mythos-5-1': 0.025 }
+export function usageUnits({ input = 0, output = 0, cacheRead = 0, cacheWrite = 0 }, model = null) {
+  return Math.round(input + output * 5 + cacheWrite * 1.25 + cacheRead * (CACHE_READ_WEIGHT[model] ?? 0.1))
+}
+
+/** Add to this month's usage for a tenant + channel, and to the person's day
+ *  (staff only: `person` = { sub, email }). `model` is the one that answered. */
+export async function addUsage(tenantId, channel, { requests = 1, input = 0, output = 0, cacheRead = 0, cacheWrite = 0, model = null, person = null } = {}) {
   if (!tenantId) return
   const month = usageMonth()
+  const units = usageUnits({ input, output, cacheRead, cacheWrite }, model)
   try {
-    await withTenant(tenantId, tx => tx`
-      INSERT INTO ai_usage (tenant_id, month, channel, requests, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens)
-      VALUES (${tenantId}, ${month}, ${channel}, ${requests}, ${input}, ${output}, ${cacheRead}, ${cacheWrite})
-      ON CONFLICT (tenant_id, month, channel) DO UPDATE SET
-        requests           = ai_usage.requests           + EXCLUDED.requests,
-        input_tokens       = ai_usage.input_tokens       + EXCLUDED.input_tokens,
-        output_tokens      = ai_usage.output_tokens      + EXCLUDED.output_tokens,
-        cache_read_tokens  = ai_usage.cache_read_tokens  + EXCLUDED.cache_read_tokens,
-        cache_write_tokens = ai_usage.cache_write_tokens + EXCLUDED.cache_write_tokens,
-        updated_at         = now()
-    `)
+    await withTenant(tenantId, async tx => {
+      await tx`
+        INSERT INTO ai_usage (tenant_id, month, channel, requests, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, units)
+        VALUES (${tenantId}, ${month}, ${channel}, ${requests}, ${input}, ${output}, ${cacheRead}, ${cacheWrite}, ${units})
+        ON CONFLICT (tenant_id, month, channel) DO UPDATE SET
+          requests           = ai_usage.requests           + EXCLUDED.requests,
+          input_tokens       = ai_usage.input_tokens       + EXCLUDED.input_tokens,
+          output_tokens      = ai_usage.output_tokens      + EXCLUDED.output_tokens,
+          cache_read_tokens  = ai_usage.cache_read_tokens  + EXCLUDED.cache_read_tokens,
+          cache_write_tokens = ai_usage.cache_write_tokens + EXCLUDED.cache_write_tokens,
+          units              = ai_usage.units              + EXCLUDED.units,
+          updated_at         = now()
+      `
+      if (!person?.sub) return
+      await tx`
+        INSERT INTO ai_usage_people (tenant_id, day, user_sub, user_email, requests, units)
+        VALUES (${tenantId}, ${usageDay()}, ${person.sub}, ${person.email ?? null}, ${requests}, ${units})
+        ON CONFLICT (tenant_id, day, user_sub) DO UPDATE SET
+          requests   = ai_usage_people.requests + EXCLUDED.requests,
+          units      = ai_usage_people.units + EXCLUDED.units,
+          user_email = COALESCE(EXCLUDED.user_email, ai_usage_people.user_email),
+          updated_at = now()
+      `
+    })
   } catch { /* usage counting never fails a request */ }
 }

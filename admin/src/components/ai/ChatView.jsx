@@ -59,7 +59,9 @@ export default function ChatView({ conversationId, onConversationId, className }
   const items = conversationId ? (conv?.items ?? []) : []
 
   function apply(res) {
-    qc.setQueryData(['ai-conversation', res.conversation_id], old => ({ ...(old || {}), id: res.conversation_id, title: res.title ?? old?.title, items: res.items }))
+    qc.setQueryData(['ai-conversation', res.conversation_id], old => ({
+      ...(old || {}), id: res.conversation_id, title: res.title ?? old?.title, closed: res.closed ?? old?.closed, items: res.items,
+    }))
     if (res.conversation_id !== conversationId) onConversationId?.(res.conversation_id)
     qc.invalidateQueries({ queryKey: ['ai-conversations'] })
     qc.invalidateQueries({ queryKey: ['ai-status'] })
@@ -126,6 +128,9 @@ export default function ChatView({ conversationId, onConversationId, className }
 
   const shown = items.filter(i => i.type !== 'note')
   const empty = !shown.length && !pending
+  // A guest's details were erased from this chat (customer anonymise): it
+  // can be read, not continued.
+  const closed = !!conv?.closed
 
   return (
     <div className={cn('relative flex flex-col min-h-0 h-full', className)} {...dropProps}>
@@ -169,46 +174,58 @@ export default function ChatView({ conversationId, onConversationId, className }
         )}
       </div>
 
-      <div className="border-t bg-background">
-        <PendingFiles files={att.files} onRemove={att.remove} />
-        {att.notice && <p className="px-3 pt-1 text-xs text-amber-700">{att.notice}</p>}
-        <form
-          className="p-2 sm:p-3 flex items-end gap-1.5 sm:gap-2"
-          onSubmit={e => { e.preventDefault(); submit() }}
-        >
-          <input ref={fileInput} type="file" multiple accept={ACCEPT} className="hidden"
-            onChange={e => { att.add(e.target.files); e.target.value = '' }} />
-          <input ref={camInput} type="file" accept="image/*" capture="environment" className="hidden"
-            onChange={e => { att.add(e.target.files); e.target.value = '' }} />
-          <button type="button" onClick={() => fileInput.current?.click()} disabled={send.isPending}
-            className="w-12 h-12 shrink-0 rounded-md border flex items-center justify-center text-muted-foreground hover:text-foreground disabled:opacity-40 touch-manipulation"
-            aria-label="Attach a photo, screenshot or file" title="Attach a photo, screenshot or file">
-            <Paperclip className="w-4 h-4" />
+      {closed ? (
+        <div className="border-t bg-background p-3 flex flex-wrap items-center gap-3">
+          <p className="flex-1 min-w-[200px] text-sm text-muted-foreground">
+            A guest&apos;s details were erased from this chat, so it can&apos;t carry on.
+          </p>
+          <button type="button" onClick={() => onConversationId?.(null)}
+            className="min-h-[48px] px-4 rounded-md bg-primary text-primary-foreground text-sm font-medium touch-manipulation">
+            Start a new chat
           </button>
-          {IS_TOUCH && (
-            <button type="button" onClick={() => camInput.current?.click()} disabled={send.isPending}
+        </div>
+      ) : (
+        <div className="border-t bg-background">
+          <PendingFiles files={att.files} onRemove={att.remove} />
+          {att.notice && <p className="px-3 pt-1 text-xs text-amber-700">{att.notice}</p>}
+          <form
+            className="p-2 sm:p-3 flex items-end gap-1.5 sm:gap-2"
+            onSubmit={e => { e.preventDefault(); submit() }}
+          >
+            <input ref={fileInput} type="file" multiple accept={ACCEPT} className="hidden"
+              onChange={e => { att.add(e.target.files); e.target.value = '' }} />
+            <input ref={camInput} type="file" accept="image/*" capture="environment" className="hidden"
+              onChange={e => { att.add(e.target.files); e.target.value = '' }} />
+            <button type="button" onClick={() => fileInput.current?.click()} disabled={send.isPending}
               className="w-12 h-12 shrink-0 rounded-md border flex items-center justify-center text-muted-foreground hover:text-foreground disabled:opacity-40 touch-manipulation"
-              aria-label="Take a photo">
-              <Camera className="w-4 h-4" />
+              aria-label="Attach a photo, screenshot or file" title="Attach a photo, screenshot or file">
+              <Paperclip className="w-4 h-4" />
             </button>
-          )}
-          <textarea
-            value={draft}
-            onChange={e => setDraft(e.target.value)}
-            onPaste={onPaste}
-            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() } }}
-            rows={Math.min(5, Math.max(1, draft.split('\n').length))}
-            maxLength={2000}
-            placeholder={att.files.length ? 'Add a message...' : 'Ask ' + ASSISTANT_NAME + '...'}
-            className="flex-1 min-w-0 resize-none rounded-md border bg-background px-3 py-2.5 text-sm min-h-[48px] focus:outline-none focus:ring-2 focus:ring-ring"
-          />
-          <button type="submit" disabled={!canSend}
-            className="w-12 h-12 shrink-0 rounded-md bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40 touch-manipulation"
-            aria-label="Send">
-            {send.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-          </button>
-        </form>
-      </div>
+            {IS_TOUCH && (
+              <button type="button" onClick={() => camInput.current?.click()} disabled={send.isPending}
+                className="w-12 h-12 shrink-0 rounded-md border flex items-center justify-center text-muted-foreground hover:text-foreground disabled:opacity-40 touch-manipulation"
+                aria-label="Take a photo">
+                <Camera className="w-4 h-4" />
+              </button>
+            )}
+            <textarea
+              value={draft}
+              onChange={e => setDraft(e.target.value)}
+              onPaste={onPaste}
+              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() } }}
+              rows={Math.min(5, Math.max(1, draft.split('\n').length))}
+              maxLength={2000}
+              placeholder={att.files.length ? 'Add a message...' : 'Ask ' + ASSISTANT_NAME + '...'}
+              className="flex-1 min-w-0 resize-none rounded-md border bg-background px-3 py-2.5 text-sm min-h-[48px] focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+            <button type="submit" disabled={!canSend}
+              className="w-12 h-12 shrink-0 rounded-md bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40 touch-manipulation"
+              aria-label="Send">
+              {send.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+            </button>
+          </form>
+        </div>
+      )}
     </div>
   )
 }

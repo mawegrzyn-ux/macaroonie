@@ -13,6 +13,7 @@
 // midnight ("today"). Rows past their time are ignored, not deleted.
 
 import { broadcast } from '../config/ws.js'
+import { httpError } from '../middleware/error.js'
 import { localParts, addDays } from './orderSvc.js'
 
 export const SOLD_OUT_MODES = ['today', 'indefinite', false]
@@ -46,6 +47,16 @@ export async function setSoldOut(tx, venue, itemId, mode) {
               WHERE tenant_id = ${venue.tenant_id} AND venue_id = ${venue.id} AND item_id = ${itemId}`
     return { sold_out: false, sold_out_until: null }
   }
+  // Only the tenant's own dishes: in a menu's draft, or still on a published
+  // version (a dish taken out of the draft stays on the till until publish).
+  const [dish] = await tx`
+    SELECT 1 FROM menu_items WHERE id = ${itemId} AND tenant_id = ${venue.tenant_id}
+    UNION ALL
+    SELECT 1 FROM menu_releases
+     WHERE tenant_id = ${venue.tenant_id} AND cancelled_at IS NULL AND snapshot::text LIKE ${'%"' + itemId + '"%'}
+    LIMIT 1
+  `
+  if (!dish) throw httpError(404, 'Dish not found')
   let until = null
   if (mode === 'today') {
     const today = localParts(new Date(), venue.timezone || 'Europe/London').date

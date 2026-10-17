@@ -5,6 +5,20 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-17 — Pepper: longer jobs, fair use, privacy; fresh-database builds]
+
+- **Long Pepper jobs no longer show an error after a minute.** The server now gives Pepper's chat 5 minutes to answer (other pages keep 1 minute). A job that runs past about four minutes stops between steps and asks you to say "carry on". Installed by the deploy.
+- **Big menus from a photo** go in batches of up to 50 dishes: a card that makes the menu with its first sections, then a card per next section or two, all in one reply; press them in order. Price lists read from a PDF or photo go up to 100 products a card. Before, a large menu was cut off half way.
+- **One message at a time per chat**, however many servers answer: a second message, or a card's button pressed while Pepper is still working, says to wait instead of mixing the two up (which could break the chat for good).
+- **Usage counts what replies cost**: what Pepper writes counts five times and the earlier part of a chat it reads again a tenth or less, so long chats no longer eat the allowance by their size. The monthly allowance and the Platform page are in these units.
+- **Fair use and privacy** (Pepper → Settings, owners and admins): each person's **daily share** of the month's allowance (10%, 25% or 50%, or no limit; 25% to start) so one busy day can't stop Pepper for everyone, and **how long chats are kept** (30, 90 or 180 days, or a year; 90 to start). **Who uses it this month** lists each person's use and today against their share; others see their own line.
+- **Guests' details in chats**: anonymising a customer now also removes their name, email and phone from Pepper's chats, the website chat and Pepper's Activity, and closes the chats they were removed from (read only, with a Start a new chat button). Activity details are cleared after a year; unsent uploads and used guest codes after a day.
+- **Cash Recon**: a submitted day's expenses can no longer be changed or deleted (adding was already blocked) until the day is unsubmitted.
+- **Issue log**: platform admins see the restaurant group they are in, with an **All restaurant groups** button for every group's issues.
+- Fixed: marking a dish sold out accepted any id (now only your own dishes, draft or live); a malformed id in an address gave a 500 instead of "not found"; refused requests filled the error log (now one warning line each); Pepper could place a supplier order for a later delivery day than its card showed when a cutoff passed in between.
+- **Migrations build on an empty database again** (three old migrations stopped a new environment; pg_cron is now optional), checked by a new CI workflow on every pull request with the shared unit tests.
+- Migration 174.
+
 ## [2026-10-17 — Pepper, the assistant for every area]
 
 - The staff AI assistant is now **Pepper**: **Ask Pepper** in the sidebar, the **Pepper** page, Pepper in the phone app and on the Overview shortcuts. The website chat and guests' AI apps keep a neutral name.

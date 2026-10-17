@@ -18,7 +18,7 @@ import { env } from '../config/env.js'
 import { httpError } from '../middleware/error.js'
 import { activeKey } from '../ai/apiKey.js'
 import { addUsage } from '../ai/context.js'
-import { chatTokensLeft } from '../ai/settings.js'
+import { chatUnitsLeft, personUnitsLeft } from '../ai/settings.js'
 import { translationSources as buildSources, KIOSK_LANGUAGES, KEY_PATTERN } from '../../../shared/kiosk.js'
 import { noticeOf, menuTags } from '../../../shared/menuTags.js'
 
@@ -115,12 +115,15 @@ async function anthropic() {
 /**
  * Suggested translations for these words: items [{ key, text, context }],
  * from the source language to `lang`. Counts towards the tenant's monthly AI
- * allowance (Platform page). Returns { key: text } for the keys asked only.
+ * allowance (Platform page) and the asking person's daily share of it
+ * (`person` = { sub, email }). Returns { key: text } for the keys asked only.
  */
-export async function aiTranslate(tenantId, { lang, source = 'en', items }) {
+export async function aiTranslate(tenantId, { lang, source = 'en', items, person = null }) {
   checkLang(lang)
   if (!items.length) return {}
-  if ((await chatTokensLeft(tenantId)) <= 0) throw httpError(429, 'This month\'s AI allowance is used up.')
+  if ((await chatUnitsLeft(tenantId)) <= 0) throw httpError(429, 'This month\'s AI allowance is used up.')
+  const mine = person?.sub ? await personUnitsLeft(tenantId, person.sub) : null
+  if (mine !== null && mine <= 0) throw httpError(429, 'You\'ve used your share of the AI allowance for today. It starts again tomorrow.')
   const target = KIOSK_LANGUAGES.find(l => l.code === lang)
   const from = KIOSK_LANGUAGES.find(l => l.code === source) || KIOSK_LANGUAGES[0]
   const api = await anthropic()
@@ -144,7 +147,10 @@ export async function aiTranslate(tenantId, { lang, source = 'en', items }) {
     throw httpError(502, 'Claude couldn\'t translate just now: try again in a moment.')
   }
   const u = res.usage || {}
-  addUsage(tenantId, 'staff_chat', { input: u.input_tokens || 0, output: u.output_tokens || 0, cacheRead: u.cache_read_input_tokens || 0, cacheWrite: u.cache_creation_input_tokens || 0 })
+  addUsage(tenantId, 'staff_chat', {
+    input: u.input_tokens || 0, output: u.output_tokens || 0, cacheRead: u.cache_read_input_tokens || 0,
+    cacheWrite: u.cache_creation_input_tokens || 0, model: res.model, person,
+  })
   const textBlock = (res.content || []).find(b => b.type === 'text')
   let parsed = null
   try { parsed = JSON.parse(textBlock?.text || '') } catch { parsed = null }

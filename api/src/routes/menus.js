@@ -1702,7 +1702,9 @@ export default async function menusRoutes(app) {
       return { todo: sources.filter(s => (wanted ? wanted.has(s.key) : !have.has(s.key) && !s.key.startsWith('ui:')) && !skip.has(s.key)) }
     })
     const batch = todo.slice(0, AI_BATCH)
-    const texts = await aiTranslate(req.tenantId, { lang: body.lang, source: body.source, items: batch })
+    const texts = await aiTranslate(req.tenantId, {
+      lang: body.lang, source: body.source, items: batch, person: { sub: req.user?.sub, email: req.user?.email },
+    })
     return { texts, left: Math.max(0, todo.length - batch.length) }
   })
 

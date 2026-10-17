@@ -69,7 +69,7 @@ export default async function issueLogRoutes(app) {
 
   // ── GET /issues ───────────────────────────────────────────
   app.get('/', { preHandler: PERM.view }, async (req) => {
-    const { status, category, priority, limit = '50', offset = '0' } = req.query
+    const { status, category, priority, limit = '50', offset = '0', scope } = req.query
     const lim = parseIntParam(limit, 50)
     const off = parseIntParam(offset, 0)
 
@@ -77,8 +77,10 @@ export default async function issueLogRoutes(app) {
     const cFilter = category ? sql`AND i.category = ${category}` : sql``
     const pFilter = priority ? sql`AND i.priority = ${priority}` : sql``
 
-    if (req.isPlatformAdmin) {
-      /* platform admin: see all issues across tenants */
+    // A platform admin sees every tenant's issues when asking for them
+    // (?scope=all, the page's "All restaurant groups") or outside a tenant;
+    // inside a tenant's view, that tenant's only, like everyone else.
+    if (req.isPlatformAdmin && (scope === 'all' || !req.tenantId)) {
       return sql`
         SELECT i.*, t.name AS tenant_name
           FROM issue_log i

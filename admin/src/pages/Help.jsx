@@ -1107,6 +1107,11 @@ export default function Help() {
               allergy information are removed, and they come off the newsletter. The export includes
               their online orders and what they agreed to at checkout.
             </P>
+            <P>
+              It covers Pepper too: their name, email and phone are taken out of Pepper&apos;s chats,
+              the website chat and Pepper&apos;s Activity, and a chat they were in is closed (see
+              Pepper → Guests&apos; details in Pepper&apos;s chats).
+            </P>
 
             <H3>Newsletter</H3>
             <P>
@@ -1157,6 +1162,11 @@ export default function Help() {
               of Total Expenses and the variance, because that money never came out of
               the till. The day summary and the week grid list card-paid expenses separately as
               "Paid by card (not in recon)" so you can still see what was spent.
+            </P>
+            <P>
+              Once a day is submitted its expenses are locked like the rest of its figures: they
+              can&apos;t be added, changed or deleted (on the page, the phone or by Pepper) until an
+              owner or admin unsubmits the day. A receipt photo can still be attached.
             </P>
             <H3>Week view / spreadsheet view</H3>
             <P>
@@ -3896,6 +3906,14 @@ export default function Help() {
               them. Earlier chats are under <strong>Earlier chats</strong> (the clock button in the
               panel); delete one with the bin button.
             </P>
+            <P>
+              A chat takes one message at a time. While Pepper is working on one, a second message
+              gets <em>"Still working on your last message"</em>, and pressing a card&apos;s button
+              asks you to press it again in a moment; wait for the answer, then carry on. A long job
+              (a whole menu from a photo, a big price list) can take a few minutes. If it runs past
+              about four, Pepper stops between steps and asks you to say <em>carry on</em>, and picks
+              up where it left off.
+            </P>
             <H3>What Pepper can do</H3>
             <DataTable
               head={['Area', 'Ask things like', 'Follows your permission for']}
@@ -4032,6 +4050,13 @@ export default function Help() {
             <P>
               Changes made by chat are saved to the draft, the same as on the Menus page: Pepper
               says so and offers to publish. It only publishes when you ask.
+            </P>
+            <P>
+              A long menu goes in batches of up to 50 dishes: Pepper shows a card that makes the
+              menu with its first sections, then a card for each next section or two, all in one
+              reply. Press them in order, starting with <strong>Create menu</strong>; a card pressed
+              before the menu exists says so and changes nothing. A price list read from a PDF or
+              photo goes the same way, up to 100 products a card.
             </P>
             <InfoBox type="info">
               Options use your option groups (Menus → Variant groups): a dish gets its own price per
@@ -4219,6 +4244,37 @@ export default function Help() {
               through Pepper, the website chat and AI apps: what, by whom and where; a booking made
               past the usual limits is marked.
             </P>
+            <P>
+              Usage counts what each reply costs, not just its length: what Pepper writes counts five
+              times, and the earlier part of a chat it reads again counts a tenth or less. So a long
+              chat costs much less than its size suggests. <strong>Who uses it this month</strong>{' '}
+              shows each person&apos;s replies, their part of the month&apos;s allowance, and how much
+              of today&apos;s share they have used.
+            </P>
+            <DataTable
+              head={['Fair use and privacy', 'What it does']}
+              rows={[
+                ['Each person\'s daily share', 'How much of the month\'s allowance one person can use in a day (10%, 25% or 50%, or no daily limit; 25% to start). Someone who reaches it gets a message saying so and can use Pepper again the next day; everyone else carries on.'],
+                ['Keep chats for', 'Chats nobody has used for this long (30, 90 or 180 days, or a year; 90 to start) are deleted with their attached files. Chats can hold guests\' names and phone numbers, so keep them no longer than you need.'],
+              ]}
+            />
+            <P>
+              The card has its own Save. The details in Activity are cleared after a year; the line
+              saying what was done stays.
+            </P>
+            <H3>Guests&apos; details in Pepper&apos;s chats</H3>
+            <P>
+              When you anonymise a customer (Customers page, or by asking Pepper), their name, email
+              and phone are also removed from Pepper&apos;s chats, the website chat and the Activity
+              details, written as [removed]. A chat they were removed from is closed: you can still
+              read it, but not carry on in it. It shows <em>A guest&apos;s details were erased from this
+              chat</em> and a <strong>Start a new chat</strong> button, and the chat list marks it.
+            </P>
+            <InfoBox type="info">
+              Their details are found as written on their customer record, bookings and orders. A
+              first name on its own, or a phone number written another way, isn&apos;t found, so
+              don&apos;t keep guests&apos; details in chats longer than you need them.
+            </InfoBox>
             <P>
               Pepper has its own switch on the Access page (Modules tab), and its own line in each
               role: None hides it, View lets someone chat with it. Switching it off stops Pepper and
@@ -5186,6 +5242,11 @@ export default function Help() {
               The Issue Log (<strong>sidebar nav</strong>) is your ITIL-style incident and service request
               tracker. Use it to report bugs, outages, change requests, or service needs. Platform admin
               can acknowledge, update, and resolve issues, and can promote them to the development backlog.
+            </P>
+            <P>
+              Everyone sees the issues of the restaurant group they are in. A platform admin sees the
+              same, plus an <strong>All restaurant groups</strong> button that lists every group&apos;s
+              issues with the group&apos;s name on each.
             </P>
             <H3>Priority matrix</H3>
             <P>

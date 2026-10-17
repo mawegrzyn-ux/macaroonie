@@ -107,7 +107,7 @@ CREATE TRIGGER trg_fs_hold_capture_times_updated_at
 -- `hold_type` also drops — same as fs_temp_logs never denormalising
 -- fs_equipment.equipment_type, it's read via a join to fs_hold_stations
 -- instead, so a station's type can never drift out of sync with its logs.
-TRUNCATE fs_hold_checks;
+TRUNCATE fs_hold_checks CASCADE;
 
 ALTER TABLE fs_hold_checks
   DROP COLUMN item_name,

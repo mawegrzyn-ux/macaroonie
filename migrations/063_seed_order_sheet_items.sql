@@ -13,13 +13,10 @@
 -- 1. Clear all templates + items (removes 062's generic placeholders too).
 --    runSeeds() recreates the 3 supplier templates after migrations finish.
 -- TRUNCATE bypasses RLS; DELETE is silently blocked when app.tenant_id is unset.
-TRUNCATE order_sheet_order_items;
-TRUNCATE order_sheets;
-TRUNCATE order_sheet_suggested_qty;
-TRUNCATE order_sheet_items;
-TRUNCATE order_sheet_template_venues;
-TRUNCATE order_sheet_templates;
-TRUNCATE order_sheet_categories;
+-- One statement with CASCADE (see 062).
+TRUNCATE order_sheet_order_items, order_sheets, order_sheet_suggested_qty,
+         order_sheet_items, order_sheet_template_venues, order_sheet_templates,
+         order_sheet_categories CASCADE;
 
 INSERT INTO order_sheet_categories (tenant_id, name, sort_order)
 SELECT t.id, c.name, c.so

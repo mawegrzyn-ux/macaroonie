@@ -52,6 +52,12 @@ import { menuSaveBody } from '../../routes/menus.js'
 import { stepRule } from '../../../../shared/combos.js'
 import { pickByName, DateStr, TimeStr, localParts, whenText, zonedInstant } from './util.js'
 
+// Dishes per create_menu / add_dishes call. A whole menu read from a photo is
+// one tool input the model writes in a single reply (chat.js MAX_TOKENS), so
+// a big menu goes in batches: create_menu with the first sections, then
+// add_dishes for the rest (see loadForAdd()).
+const BATCH_DISHES = 50
+
 const Name = z.string().min(1).max(200)
 const Price = z.number().min(0).max(10000).describe('Pounds, e.g. 12.5')
 const Level = z.enum(['contains', 'may_contain', 'removable'])
@@ -766,10 +772,12 @@ export const menuTools = [
     title: 'Create a menu',
     description:
       'Makes a new menu, for one venue or all venues, optionally with its sections and dishes in the same call: use ' +
-      'this to build a menu from a photo, PDF or list the staff member gives you (up to 400 dishes). Dishes take a ' +
-      'price, or options (an option group with a price per choice), allergens with their level, dietary tags, ' +
-      'calories and a description. The new menu is a draft: not live anywhere until published with publish_menu. ' +
-      'shown_to_guests (default off) is whether it shows to guests once published.',
+      'this to build a menu from a photo, PDF or list the staff member gives you. Up to ' + BATCH_DISHES + ' dishes ' +
+      'per call: for a bigger menu put the first sections here, then call add_dishes for the rest straight away, a ' +
+      'section or two per call (it works on the new menu before its card is confirmed; the cards run in order). ' +
+      'Dishes take a price, or options (an option group with a price per choice), allergens with their level, ' +
+      'dietary tags, calories and a description. The new menu is a draft: not live anywhere until published with ' +
+      'publish_menu. shown_to_guests (default off) is whether it shows to guests once published.',
     input: z.object({
       name:          z.string().min(1).max(120),
       venue:         z.string().max(200).optional().describe('Venue name or id; leave out for all venues'),
@@ -890,7 +898,9 @@ export const menuTools = [
     description:
       'Adds dishes to a menu, in sections already on it or new ones (a section with no dishes just adds the section). ' +
       'Each dish: name, price or options (option group + a price per choice), allergens with level, dietary tags, ' +
-      'calories, description. A dish with the same name already in that section is left alone unless update_existing.',
+      'calories, description. Up to ' + BATCH_DISHES + ' dishes per call. A dish with the same name already in that ' +
+      'section is left alone unless update_existing. menu can be one you are creating in this chat with ' +
+      'create_menu (its exact name) while its card still waits: this card then runs after that one.',
     input: z.object({
       menu:            z.string().min(1).max(200),
       sections:        z.array(SectionIn).min(1).max(40),
@@ -899,11 +909,12 @@ export const menuTools = [
     confirm: true,
     async describe(ctx, input) {
       await requireEdit(ctx)
-      const p = await planAdd(ctx, input)
+      const p = await planAdd(ctx, input, { forCard: true })
       if (!p.add.added && !p.add.updated && !p.add.newSections) throw new ToolError('Nothing to add: every dish is already on the menu.', 422)
       return {
-        title: 'Add to ' + menuLabel(p.menu) + '?',
+        title: 'Add to ' + menuLabel(p.menu) + (p.waitsFor ? ' (new menu)' : '') + '?',
         lines: cut([
+          ...(p.waitsFor ? ['Confirm "' + p.waitsFor + '" first: this adds to that menu'] : []),
           [p.add.added && plural(p.add.added, 'new dish', 'new dishes'), p.add.updated && plural(p.add.updated, 'dish', 'dishes') + ' changed',
             p.add.newSections && plural(p.add.newSections, 'new section')].filter(Boolean).join(', '),
           ...p.add.lines,
@@ -1272,10 +1283,13 @@ async function planCreate(ctx, input) {
   const book = groupBook(groups)
   const unknown = []
   const total = (input.sections || []).reduce((n, s) => n + s.dishes.length, 0)
-  if (total > 400) throw new ToolError('That is ' + total + ' dishes: send up to 400, then add the rest with add_dishes.', 422)
+  if (total > BATCH_DISHES) {
+    throw new ToolError('That is ' + total + ' dishes: put up to ' + BATCH_DISHES + ' in create_menu, then add the rest with add_dishes, ' +
+      'a section or two per call (you can call it straight away; the cards run in order).', 422)
+  }
   const add = input.sections?.length ? planAddSections(body, input.sections, { tags, book, unknown }) : null
   const warnings = add ? addWarnings({ unknown, book, groups, skippedNames: add.skippedNames, body }) : []
-  return { meta, venue, body, book, add, warnings }
+  return { meta, venue, body, book, add, warnings, tags, groups }
 }
 
 async function planUpdateMenu(ctx, input) {
@@ -1307,14 +1321,53 @@ async function planUpdateMenu(ctx, input) {
   return { menu, body, lines }
 }
 
-async function planAdd(ctx, input) {
-  const { menu, body, tags, groups } = await loadForEdit(ctx, input.menu)
+async function planAdd(ctx, input, { forCard = false } = {}) {
   const total = input.sections.reduce((n, s) => n + s.dishes.length, 0)
-  if (total > 400) throw new ToolError('That is ' + total + ' dishes: send up to 400 at a time.', 422)
-  const book = groupBook(groups)
+  if (total > BATCH_DISHES) {
+    throw new ToolError('That is ' + total + ' dishes: send up to ' + BATCH_DISHES + ' per call (a section or two), then the rest in another add_dishes.', 422)
+  }
+  const { menu, body, tags, groups, book: newBook, waitsFor } = await loadForAdd(ctx, input.menu, forCard)
+  const book = newBook ?? groupBook(groups)
   const unknown = []
   const add = planAddSections(body, input.sections, { tags, book, unknown, updateExisting: !!input.update_existing })
-  return { menu, body, book, add, warnings: addWarnings({ unknown, book, groups, skippedNames: add.skippedNames, body: { sections: body.sections.filter(s => input.sections.some(x => sameName(x.section, s.title))) } }) }
+  return { menu, body, book, add, waitsFor, warnings: addWarnings({ unknown, book, groups, skippedNames: add.skippedNames, body: { sections: body.sections.filter(s => input.sections.some(x => sameName(x.section, s.title))) } }) }
+}
+
+/** The menu add_dishes works on. A menu this chat is creating only exists
+ *  once its create_menu card is confirmed: the add card can be shown before
+ *  then, planned against the menu as that card makes it, but only runs after
+ *  it. Matched by exact name, so the dishes never land in another menu whose
+ *  name merely starts the same (when the create card was cancelled). */
+async function loadForAdd(ctx, menuText, forCard) {
+  const menus = await loadMenus(ctx)
+  if (!menus.some(m => m.id === menuText || sameName(m.name, menuText))) {
+    const create = await createCardFor(ctx, menuText)
+    if (create && create.status !== 'done') {
+      const waiting = create.status === 'pending' && !create.decided_at && new Date(create.expires_at).getTime() > Date.now()
+      if (!waiting) {
+        throw new ToolError('The menu ' + create.input.name + ' was never made: its card was ' +
+          (create.status === 'pending' ? 'not confirmed in time' : create.status) + '. Make it again with create_menu.', 409)
+      }
+      if (!forCard) throw new ToolError('Confirm "' + create.card.title + '" first: the menu doesn\'t exist yet.', 409)
+      const p = await planCreate(ctx, create.input)
+      return {
+        menu: { id: null, name: p.meta.name, venue_name: p.venue?.name ?? null },
+        body: p.body, tags: p.tags, groups: p.groups, book: p.book, waitsFor: create.card.title,
+      }
+    }
+  }
+  return loadForEdit(ctx, menuText)
+}
+
+/** This chat's latest create_menu card for a menu called `name`, if any. */
+async function createCardFor(ctx, name) {
+  if (!ctx.conversationId) return null
+  const rows = await withTenant(ctx.tenantId, tx => tx`
+    SELECT status, decided_at, expires_at, input, card FROM ai_pending_actions
+     WHERE conversation_id = ${ctx.conversationId} AND tenant_id = ${ctx.tenantId} AND tool = 'create_menu'
+     ORDER BY created_at DESC
+  `)
+  return rows.find(r => sameName(r.input?.name, name)) ?? null
 }
 
 async function planUpdateDish(ctx, input) {

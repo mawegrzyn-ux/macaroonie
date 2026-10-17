@@ -307,8 +307,9 @@ export const venueTools = [
     },
     async run(ctx, input) {
       await requireStaffPermission(ctx, 'customers', 'manage')
-      return audited(ctx, 'anonymise_customer', input, async () => {
-        const c = await pickCustomer(ctx, input.customer)
+      const c = await pickCustomer(ctx, input.customer)
+      // Audited by id: the erasure has just removed their name from the audit.
+      return audited(ctx, 'anonymise_customer', { customer_id: c.id }, async () => {
         await callApi(ctx, 'POST', '/api/customers/' + c.id + '/anonymise', { body: {} })
         return { customer_id: c.id, message: 'Anonymised.' }
       })

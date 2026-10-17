@@ -243,6 +243,22 @@ async function assertVenueOwnership(tx, tenantId, venueId) {
   return venue
 }
 
+/** The expense, if it is this venue's and its day isn't submitted (a
+ *  submitted day's figures only change after an unsubmit). */
+async function assertExpenseOpen(tx, tenantId, venueId, expenseId, verb) {
+  const [expense] = await tx`
+    SELECT e.id, e.receipt_url, r.status
+      FROM cash_expenses e
+      JOIN cash_daily_reports r ON r.id = e.report_id AND r.tenant_id = e.tenant_id
+     WHERE e.id        = ${expenseId}
+       AND e.tenant_id = ${tenantId}
+       AND r.venue_id  = ${venueId}
+  `
+  if (!expense) throw httpError(404, 'Expense not found')
+  if (expense.status === 'submitted') throw httpError(422, 'Cannot ' + verb + ' an expense on a submitted report — unsubmit first')
+  return expense
+}
+
 /**
  * Load a daily report header plus all its child entries.
  * Must be called from inside a withTenant callback.
@@ -1434,6 +1450,7 @@ export default async function cashReconRoutes(app) {
 
     const [row] = await withTenant(req.tenantId, async tx => {
       await assertVenueOwnership(tx, req.tenantId, venueId)
+      await assertExpenseOpen(tx, req.tenantId, venueId, expenseId, 'change')
 
       const result = await tx`
         UPDATE cash_expenses
@@ -1470,15 +1487,7 @@ export default async function cashReconRoutes(app) {
     await withTenant(req.tenantId, async tx => {
       await assertVenueOwnership(tx, req.tenantId, venueId)
 
-      const [expense] = await tx`
-        SELECT e.id, e.receipt_url
-          FROM cash_expenses e
-          JOIN cash_daily_reports r ON r.id = e.report_id
-         WHERE e.id        = ${expenseId}
-           AND e.tenant_id = ${req.tenantId}
-           AND r.venue_id  = ${venueId}
-      `
-      if (!expense) throw httpError(404, 'Expense not found')
+      const expense = await assertExpenseOpen(tx, req.tenantId, venueId, expenseId, 'delete')
       if (expense.receipt_url) throw httpError(422, 'Cannot delete an expense with a receipt — delete the receipt first')
 
       await tx`
