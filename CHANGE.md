@@ -5,6 +5,23 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-17 — Pepper, the assistant for every area]
+
+- The staff AI assistant is now **Pepper**: **Ask Pepper** in the sidebar, the **Pepper** page, Pepper in the phone app and on the Overview shortcuts. The website chat and guests' AI apps keep a neutral name.
+- Pepper now works in **every area**, with each person's own permissions, in the chat and through the staff connector for AI apps (Claude, Cursor and others):
+  - **Staff and the rota**: who's working, a week's rota, put people on or off, sick or on time off (several people and days at once), copy a week, staff details, leaving dates and periods off the rota, pay and tips for a week, pay adjustments, fill Cash Recon wages, move or adjust tips, tip pot amounts.
+  - **Cash up**: a day or a week with its variance (the page's own figure), enter figures, add an expense, submit a day, see and mark wages paid, fill from Loyverse or GloriaFood.
+  - **Online orders**: the day's orders, accept / preparing / ready / collected / turn down / cancel / retime / paid at the counter (GloriaFood orders too), refunds, pause, the report; **sold out** for the tills, online ordering and menu screens at once.
+  - **Till and kitchen**: a trading day's figures, its checks, kitchen speed.
+  - **Customers**: find, details with bookings, change, newsletter unsubscribe, GDPR anonymise.
+  - **Opening times and setup**: booking times, close for dates (with how many bookings are already in them), reopen, tables, booking rules.
+  - **Website and more**: publish status and publish, the emergency banner, promotions on or off, reviews (approve, feature, reply), menu screens (status, reload), booking emails sent, report an issue, list issues, request a feature.
+  - **Finding a page**: Pepper replies with a link to the page that does the job, only pages the person can open.
+- Every change still shows a card first with what will happen and nothing changes until Confirm; every change is listed under Pepper → Activity.
+- Pepper has its own switch on Access → Modules (it was part of Bookings).
+- Fixed (security): on the online orders board, another restaurant group could open an order's details, its report, change its status or refund it by its id; and the schedule, venue settings and test data routes took a venue id from another restaurant group (close weekdays, add sittings, change booking rules, add tables, read the schedule). Both now check the order or venue is the caller's.
+- Migration 173.
+
 ## [2026-10-17 — Self-order kiosks]
 
 - New **self-order kiosks**: a big touch screen guests order on by themselves, upright or wide, in Chrome. A start screen with your pictures and videos, flags for nine languages, Staying or going? with your order types, and an allergen lookup; a menu with sections down the side, a home page of banners and featured tiles, and dish cards; each dish and combo built step by step with its allergens; an order page with "Anything else?", a name or table number when the revenue stream asks, and pay by card or at the counter; then the order number. "Still there?" after a while with no taps, a reach button for guests who can't reach the top of the screen, sold out dishes greyed out at once.

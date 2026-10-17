@@ -1,30 +1,35 @@
 // src/components/ai/ChatView.jsx
 //
-// The staff AI assistant chat (migration 148), shared by the assistant
-// drawer (AssistantDrawer.jsx, opened from the sidebar), the AI assistant
-// page (/ai) and the phone app (/mobile/assistant). Talks to /api/ai:
+// Pepper, the staff AI assistant chat (migration 148), shared by the
+// assistant drawer (AssistantDrawer.jsx, opened from the sidebar's Ask
+// Pepper), the Pepper page (/ai) and the phone app (/mobile/assistant).
+// Talks to /api/ai:
 // POST /chat runs a turn and returns the whole conversation as display
 // items; a proposed change comes back as an `action` card, and nothing
 // changes until the person presses its Confirm button
 // (POST /actions/:id/confirm). Outcome notes for the model are not shown:
 // the card itself shows the result. Photos, screenshots, PDFs and text files
 // can go with a message (attach button, camera on touch devices, paste, or
-// drop onto the chat): see ./attachments.jsx.
+// drop onto the chat): see ./attachments.jsx. Links Pepper gives to pages of
+// the app ([Rota](/rota), from its open_page tool) open in the app; other
+// links show as plain text.
 import { useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Send, Loader2, Check, X, Sparkles, Search, CircleAlert, Paperclip, Camera, Upload } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { useAttachments, PendingFiles, MessageFiles, ACCEPT } from './attachments'
+import { ASSISTANT_NAME } from '@shared/assistant.js'
 
 const IS_TOUCH = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0
 
 const SUGGESTIONS = [
   'What is booked for tonight?',
-  'Is there a table for 4 on Friday at 7pm?',
+  'Who is working today?',
   'Which H&S checks are still to do today?',
-  'Walk-in fridge is 4 degrees for the morning check',
-  'Which supplier deliveries are due today?',
+  'How did yesterday\'s cash up balance?',
+  'Mark the Pad Thai sold out for today',
   'Which dishes are free from peanuts?',
 ]
 
@@ -138,8 +143,8 @@ export default function ChatView({ conversationId, onConversationId, className }
         {empty && !isLoading && (
           <div className="text-center py-6">
             <Sparkles className="w-8 h-8 mx-auto text-primary mb-2" />
-            <p className="font-medium">Ask about bookings, H&S, purchasing and menus</p>
-            <p className="text-sm text-muted-foreground mb-4">Bookings, checklists, food safety checks, the action log, supplier orders, prices and price lists, and menus: dishes, prices and allergens. Attach a photo, screenshot, PDF or CSV to work from. You confirm every change.</p>
+            <p className="font-medium">Ask {ASSISTANT_NAME}</p>
+            <p className="text-sm text-muted-foreground mb-4">Bookings, customers, the rota and staff, cash up and wages, online orders, sold out and the till, H&S checks, menus, purchasing and the website. Attach a photo, screenshot, PDF or CSV to work from. You confirm every change.</p>
             <div className="flex flex-col gap-2 max-w-sm mx-auto">
               {SUGGESTIONS.map(s => (
                 <button key={s} type="button" onClick={() => submit(s)}
@@ -194,7 +199,7 @@ export default function ChatView({ conversationId, onConversationId, className }
             onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() } }}
             rows={Math.min(5, Math.max(1, draft.split('\n').length))}
             maxLength={2000}
-            placeholder={att.files.length ? 'Add a message...' : 'Ask about bookings, H&S, orders, menus...'}
+            placeholder={att.files.length ? 'Add a message...' : 'Ask ' + ASSISTANT_NAME + '...'}
             className="flex-1 min-w-0 resize-none rounded-md border bg-background px-3 py-2.5 text-sm min-h-[48px] focus:outline-none focus:ring-2 focus:ring-ring"
           />
           <button type="submit" disabled={!canSend}
@@ -291,7 +296,9 @@ function ActionCard({ card, decide }) {
   )
 }
 
-/** Paragraphs, "- " / "1. " lists and **bold**; everything else plain text. */
+/** Paragraphs, "- " / "1. " lists, **bold** and [links](/page); everything
+ *  else plain text. Only links to a page of the app (a path starting with
+ *  one /) are clickable: Pepper's open_page links. */
 export function RichText({ text }) {
   const blocks = String(text || '').split(/\n{2,}/)
   return (
@@ -313,9 +320,19 @@ export function RichText({ text }) {
   )
 }
 
+const LINK_RE = /(\[[^\]\n]{1,120}\]\([^)\s]{1,300}\))/g
+
 function Inline({ text }) {
-  const parts = String(text).split(/(\*\*[^*]+\*\*)/g)
-  return parts.map((p, i) => p.startsWith('**') && p.endsWith('**') && p.length > 4
-    ? <strong key={i}>{p.slice(2, -2)}</strong>
-    : <span key={i}>{p}</span>)
+  return String(text).split(LINK_RE).flatMap((chunk, i) => {
+    const link = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(chunk)
+    if (link) {
+      const [, label, href] = link
+      return /^\/(?!\/)/.test(href)
+        ? [<Link key={'l' + i} to={href} className="text-primary underline underline-offset-2 font-medium">{label}</Link>]
+        : [<span key={'l' + i}>{label} ({href})</span>]
+    }
+    return chunk.split(/(\*\*[^*]+\*\*)/g).map((p, j) => p.startsWith('**') && p.endsWith('**') && p.length > 4
+      ? <strong key={i + '-' + j}>{p.slice(2, -2)}</strong>
+      : <span key={i + '-' + j}>{p}</span>)
+  })
 }

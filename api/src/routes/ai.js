@@ -42,6 +42,7 @@ import {
   createConversation, loadConversation, runTurn, confirmAction, cancelAction, displayItems, chatContext,
 } from '../ai/chat.js'
 import { staffInstructions } from '../ai/prompts.js'
+import { ASSISTANT_NAME } from '../../../shared/assistant.js'
 import { saveUpload, loadOwnAttachment, deleteUnsent, MAX_BYTES, MAX_PER_MESSAGE } from '../ai/attachments.js'
 
 const ChatBody = z.object({
@@ -75,10 +76,10 @@ function mcpOrigin() {
 }
 
 async function staffChatAllowed(req) {
-  if (!(await chatConfigured())) throw httpError(503, 'The AI assistant isn\'t set up on this server yet.')
+  if (!(await chatConfigured())) throw httpError(503, ASSISTANT_NAME + ' isn\'t set up on this server yet.')
   const settings = await getAiSettings(req.tenantId)
-  if (!settings.staff_enabled) throw httpError(403, 'The AI assistant is switched off for this restaurant group.')
-  if (await permissionLevel(req, 'ai_assistant') === 'none') throw httpError(403, 'You don\'t have access to the AI assistant.')
+  if (!settings.staff_enabled) throw httpError(403, ASSISTANT_NAME + ' is switched off for this restaurant group.')
+  if (await permissionLevel(req, 'ai_assistant') === 'none') throw httpError(403, 'You don\'t have access to ' + ASSISTANT_NAME + '.')
 }
 
 /** The caller's own staff chat. */

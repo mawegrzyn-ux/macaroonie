@@ -33,7 +33,7 @@ const SECTIONS = [
   { id: 'tax',                 label: 'Tax, Order Types & Streams' },
   { id: 'screens',             label: 'Menu Screens' },
   { id: 'online-orders',       label: 'Online Orders' },
-  { id: 'ai-assistant',        label: 'AI Assistant' },
+  { id: 'ai-assistant',        label: 'Pepper (AI assistant)' },
   { id: 'purchasing',          label: 'Purchasing' },
   { id: 'till',                label: 'Till (POS)' },
   { id: 'kitchen',             label: 'Kitchen screens' },
@@ -2916,9 +2916,9 @@ export default function Help() {
               drag a photo from your computer straight onto the box.
             </P>
             <P>
-              Owners and admins can also build and change menus by chat: attach a photo or PDF of a
-              menu to <strong>Ask AI</strong> and ask it to make the menu, or ask it to change a
-              price, add an allergen or put a section up 5%. See <strong>AI Assistant → Menus by
+              Anyone who can manage Menus can also build and change menus by chat: attach a photo or
+              PDF of a menu to <strong>Ask Pepper</strong> and ask it to make the menu, or ask it to
+              change a price, add an allergen or put a section up 5%. See <strong>Pepper → Menus by
               chat</strong>.
             </P>
             <H3>Publishing menu changes</H3>
@@ -3848,43 +3848,81 @@ export default function Help() {
             </P>
           </section>
 
-          {/* ── AI ASSISTANT ──────────────────────────────── */}
+          {/* ── PEPPER (AI ASSISTANT) ─────────────────────── */}
           <section id="ai-assistant" data-help="">
-            <H2>AI Assistant</H2>
+            <H2>Pepper (AI assistant)</H2>
             <P>
-              The AI assistant looks up, makes and changes bookings by chat, helps staff keep up
-              with health & safety (checklists, food safety checks and the H&S action log), and
-              handles purchasing (the inventory, supplier prices, order lists and supplier orders)
-              and menus (sections, dishes, prices, options and allergens). There are four ways in:
+              Pepper is Macaroonie's assistant for staff. Ask it questions and give it jobs in your
+              own words, about any part of the app: what's booked tonight, who's working, which
+              H&S checks are still to do, how yesterday's cash up came out, which online orders are
+              waiting, a dish that has sold out, a supplier order or a menu price. It works with your
+              own permissions and never changes anything until you press Confirm on the card it
+              shows. There are four ways in:
             </P>
             <DataTable
               head={['Where', 'Who', 'What it can do']}
               rows={[
-                ['Ask AI (sidebar), the AI assistant page, and AI assistant in the phone app', 'Staff', 'Find bookings, check tables, book, move, change status, update guest details, add staff notes; see what H&S is done and still due, tick checklists, log fridge, hold, cooking and delivery checks, add corrective actions, keep the action log; look up and change the inventory, supplier prices, suppliers and order lists, import price lists, fill and place orders, send, change and cancel purchase orders, book deliveries in; look up menus and allergens, build a menu from a photo or list, add and change dishes, sections and prices'],
-                ['Your own AI app (Claude, Cursor and others) through the staff connector', 'Staff', 'The same as Ask AI, with your own permissions'],
+                ['Ask Pepper (sidebar), the Pepper page, and Pepper in the phone app', 'Staff', 'Everything in "What Pepper can do" below, in the areas your role can see'],
+                ['Your own AI app (Claude, Cursor and others) through the staff connector', 'Staff', 'The same as Ask Pepper, with your own permissions'],
                 ['The AI chat block on your website', 'Guests', 'Answer questions, book a table, change or cancel a booking'],
                 ['Guests\' own AI apps through Macaroonie\'s public connector', 'Guests', 'Find your restaurants, book, change or cancel'],
               ]}
             />
-            <H3>Asking the assistant</H3>
             <P>
-              Press <strong>Ask AI</strong> in the sidebar (on a tablet it is the sparkle button under
-              the menu button) to open the chat on the right of any page, or open the{' '}
-              <strong>AI assistant</strong> page. Ask in your own words, for example
-              {' '}<em>"What's booked tonight?"</em>, <em>"Is there a table for 4 on Friday at 7?"</em> or
-              {' '}<em>"Move the Smith booking to 8pm"</em>.
+              The two guest chats aren't called Pepper: they speak for your restaurant, and they can
+              only book, change and cancel tables.
+            </P>
+            <H3>Asking Pepper</H3>
+            <P>
+              Press <strong>Ask Pepper</strong> in the sidebar (on a tablet it is the sparkle button
+              under the menu button) to open the chat on the right of any page, or open the{' '}
+              <strong>Pepper</strong> page. Ask in your own words, for example
+              {' '}<em>"What's booked tonight?"</em>, <em>"Who's working tomorrow?"</em> or
+              {' '}<em>"Move the Smith booking to 8pm"</em>. Venues, people, dishes, suppliers and the
+              rest can be named the way you'd say them; if a name could mean more than one, Pepper
+              asks which.
             </P>
             <P>
-              The assistant never changes anything on its own. When it wants to make a booking or a
-              change it shows a card with the exact details and a <strong>Confirm</strong> button.
-              Nothing happens until you press it; press <strong>Cancel</strong> if it's wrong. Each
-              card works once and expires after 30 minutes.
+              Pepper never changes anything on its own. When it wants to make a change it shows a
+              card with the exact details and a button that says what it does (such as{' '}
+              <strong>Save rota</strong> or <strong>Refund</strong>). Nothing happens until you press
+              it; press <strong>Cancel</strong> if it's wrong. Each card works once and expires after
+              30 minutes. When something is best done on a page (a full report, setting something
+              up, dragging on the timeline), Pepper gives you a link to that page.
+            </P>
+            <P>
+              What it can do follows your role: if you can only view the rota, it can tell you who is
+              working but can't change the rota, and it shows pay and tips only if your role can see
+              them. Earlier chats are under <strong>Earlier chats</strong> (the clock button in the
+              panel); delete one with the bin button.
+            </P>
+            <H3>What Pepper can do</H3>
+            <DataTable
+              head={['Area', 'Ask things like', 'Follows your permission for']}
+              rows={[
+                ['Bookings', '"Is there a table for 4 on Friday at 7?", "Book a table for 2 at 7 tonight for Sam Jones", "Mark the Patel booking arrived"', 'Bookings'],
+                ['Customers', '"What\'s Jane Smith\'s phone number?", "Take her off the newsletter", "This guest asked us to delete their details"', 'Customers'],
+                ['Opening times, closures, tables, booking rules', '"When can people book on Sunday?", "Close Ware on 25 and 26 December", "Let people book up to 60 days ahead"', 'Schedule, Tables, Rules'],
+                ['Health & safety', '"Which checks are still to do today?", "Walk-in fridge is 4 degrees", "Tick everything on the opening checklist"', 'Checklists, Food safety, H&S action log'],
+                ['Staff and the rota', '"Who\'s working tomorrow?", "Put Jo on Tuesday lunch", "Sam is off sick on Friday", "Copy last week\'s rota", "Jo\'s last day is 30 November"', 'Staff, Rota, Rota pay, Rota tips'],
+                ['Cash up and wages', '"How did yesterday\'s cash up come out?", "The card machine was £1,240", "Add £12 for milk", "Mark Jo\'s wages paid", "Fill this week from Loyverse"', 'Cash reconciliation'],
+                ['Online orders and sold out', '"Any orders waiting?", "Accept 12, ready in 20 minutes", "Refund order 7", "Pause online orders", "Pad Thai is sold out"', 'Online orders'],
+                ['Till and kitchen', '"What did the till take yesterday?", "Any checks still open?", "How fast was the kitchen on Saturday?"', 'Till reports'],
+                ['Menus', '"Which dishes are free from peanuts?", "Pad Thai is £11.75 now", "Publish the menu on Monday at 9am"', 'Menus'],
+                ['Purchasing', '"Order 3 boxes of tomatoes and fill the rest to par", "Which deliveries are due today?"', 'Purchasing, Purchasing setup'],
+                ['Website and marketing', '"Is the website up to date?", "Publish the website", "Put a banner up: closed today", "Switch off the lunch deal", "Any new reviews?", "Which menu screens are offline?"', 'Website, Promotions, Menu screens, Emails'],
+                ['Support', '"Log an issue: the card machine keeps disconnecting", "Ask for a feature: split bills by seat"', 'Issue log, Feature requests'],
+                ['Finding a page', '"Where do I change the opening times?"', 'The pages you can open'],
+              ]}
+            />
+            <P>
+              The parts below go into each area in more detail.
             </P>
             <H3>Booking past the usual limits</H3>
             <P>
               Each venue has a usual party size (Rules page) and each booking time can have a covers
-              limit (Schedule page). When a booking is outside these, the assistant says which limit
-              is in the way and asks before going ahead. Say yes and it shows a card headed{' '}
+              limit (Schedule page). When a booking is outside these, Pepper says which limit is in
+              the way and asks before going ahead. Say yes and it shows a card headed{' '}
               <strong>Book past the usual limits?</strong> with the limits listed in an amber box;
               press <strong>Book anyway</strong> (or <strong>Move anyway</strong>) to go ahead. It
               puts the booking on the smallest free table that fits. If no table fits (a party bigger
@@ -3903,7 +3941,7 @@ export default function Help() {
               <em>"Tick lights and fire exits on the opening checklist"</em> or{' '}
               <em>"Add to the action log: the kitchen tap is dripping, high priority"</em>. Fridges,
               hold stations, check times, dishes and tasks can be named the way you'd say them; if a
-              name could mean more than one, the assistant asks which.
+              name could mean more than one, Pepper asks which.
             </P>
             <DataTable
               head={['You can', 'Notes']}
@@ -3919,14 +3957,9 @@ export default function Help() {
             />
             <P>
               As with bookings, every change shows a card first. A reading out of range shows an{' '}
-              <strong>Out of range</strong> box on the card; the assistant then asks what was done
-              about it so you can add the corrective action. What it can do follows your permissions
-              for Checklists, Food safety and the H&S action log.
-            </P>
-            <P>
-              What it can do follows your role: if you can only view bookings, it can look things up
-              but not change them. Earlier chats are under <strong>Earlier chats</strong> (the clock
-              button in the panel); delete one with the bin button.
+              <strong>Out of range</strong> box on the card; Pepper then asks what was done about it
+              so you can add the corrective action. What it can do follows your permissions for
+              Checklists, Food safety and the H&S action log.
             </P>
             <H3>Purchasing by chat</H3>
             <P>
@@ -3936,7 +3969,7 @@ export default function Help() {
               <em>"Which deliveries are due today?"</em> or{' '}
               <em>"The Fresh Co delivery came, one box of tomatoes short, chilled at 4 degrees"</em>.
               Items, suppliers and order lists can be named the way you'd say them; if a name could
-              mean more than one, the assistant asks which.
+              mean more than one, Pepper asks which.
             </P>
             <DataTable
               head={['You can', 'Who', 'Notes']}
@@ -3946,7 +3979,7 @@ export default function Help() {
                 ['Add or change supplier prices', 'Purchasing setup', 'Price per pack, pack, VAT, supplier code, minimum and steps, a venue\'s own price, and which supplier an item is ordered from (for every venue or one).'],
                 ['Add or change suppliers', 'Purchasing setup', 'Contact details, how orders reach them, cutoff, delivery days, minimum order, delivery charge, and one venue\'s own account number, days or cutoff.'],
                 ['Make and change order lists, set pars', 'Purchasing setup', 'Pars are in packs unless you give kg, litres or each.'],
-                ['Import a price list', 'Purchasing setup', 'Attach a CSV with the import headings, or a PDF, photo or email of the supplier\'s list: the assistant reads the products out of it. The card shows what would be added and changed, and any rows it would skip, before anything is saved.'],
+                ['Import a price list', 'Purchasing setup', 'Attach a CSV with the import headings, or a PDF, photo or email of the supplier\'s list: Pepper reads the products out of it. The card shows what would be added and changed, and any rows it would skip, before anything is saved.'],
                 ['See and fill in an order', 'Purchasing', 'The venue\'s draft for a list: quantities, pars, last ordered, other suppliers. Quantities are packs (cases, bags), as on the Purchasing page. Nothing is sent until you place it.'],
                 ['Place an order', 'Purchasing', 'The card lists each supplier with its delivery date, how the order gets to them and the lines, and warns about rounded-up quantities, a missed cutoff or a small order.'],
                 ['Send, change or cancel a purchase order', 'Purchasing', 'Email it, or mark it sent by printout, PDF, Excel or phone. Quantities can change while it is waiting to be sent; the date and notes until it is received.'],
@@ -3959,8 +3992,8 @@ export default function Help() {
               but no prices, in the chat and on the cards.
             </P>
             <InfoBox type="info">
-              The assistant doesn't delete items, prices, suppliers or lists: it switches them off,
-              the same as the pages do. Check a price list import card carefully before pressing
+              Pepper doesn't delete items, prices, suppliers or lists: it switches them off, the
+              same as the pages do. Check a price list import card carefully before pressing
               Import: it can change many prices at once.
             </InfoBox>
             <H3>Menus by chat</H3>
@@ -3972,7 +4005,7 @@ export default function Help() {
               <em>"Put all the starters up 5%, rounded up to 5p"</em> and then{' '}
               <em>"Publish it on Monday at 9am"</em>. Menus, sections, dishes,
               option groups and allergens can be named the way you'd say them; if a name could
-              mean more than one, the assistant asks which.
+              mean more than one, Pepper asks which.
             </P>
             <DataTable
               head={['You can', 'Who', 'Notes']}
@@ -3997,22 +4030,131 @@ export default function Help() {
               so read them through before pressing Save.
             </P>
             <P>
-              Changes made by chat are saved to the draft, the same as on the Menus page: the
-              assistant says so and offers to publish. It only publishes when you ask.
+              Changes made by chat are saved to the draft, the same as on the Menus page: Pepper
+              says so and offers to publish. It only publishes when you ask.
             </P>
             <InfoBox type="info">
               Options use your option groups (Menus → Variant groups): a dish gets its own price per
               choice and the group itself isn&apos;t changed. A group name you don&apos;t have yet
-              makes a new group, and the card says so. The assistant never guesses allergens from a
-              dish name: if a photo or list doesn&apos;t show them, it adds the dishes without and
-              tells you. It doesn&apos;t change dish photos, combo steps, print designs, till buttons,
-              or the allergen and dietary tag list itself; do those on the Menus pages.
+              makes a new group, and the card says so. Pepper never guesses allergens from a dish
+              name: if a photo or list doesn&apos;t show them, it adds the dishes without and tells
+              you. It doesn&apos;t change dish photos, combo steps, print designs, till buttons, or
+              the allergen and dietary tag list itself; do those on the Menus pages.
             </InfoBox>
+            <H3>The rota and staff by chat</H3>
+            <P>
+              Ask things like <em>"Who's on tonight?"</em>, <em>"Put Jo and Sam on Saturday
+              dinner"</em>, <em>"Sam is off sick tomorrow"</em>, <em>"Copy last week's rota onto
+              next week"</em>, <em>"What's the wage bill this week?"</em> or <em>"Move £10 of tips
+              from Jo to Sam"</em>.
+            </P>
+            <DataTable
+              head={['You can', 'Who', 'Notes']}
+              rows={[
+                ['See who is working', 'Rota view', 'A day or a whole week: shifts or times, hours, who is sick or on time off, who is away (left, or off the rota for a period), and closed days.'],
+                ['Change the rota', 'Rota manage', 'Put people on or take them off, or mark them sick, on paid or unpaid time off, or absent, for any days of one week. On a shift rota name the shift; on an hourly rota give the times. Someone who has left, or is off the rota for a period, can\'t be put on.'],
+                ['Copy a week', 'Rota manage', 'Last week onto this week unless you say otherwise. It replaces everything on the week it copies onto; sickness and time off aren\'t copied.'],
+                ['See pay and tips', 'Rota pay view, Rota tips view', 'Hours and pay per person, adjustments, bank and cash; each tip pot, points, shares and what carries to next week. The figures are the Rota page\'s own.'],
+                ['Add a pay adjustment', 'Rota pay manage', 'Extra pay, a deduction, or a cash advance (it comes off next week\'s pay by itself).'],
+                ['Fill Cash Recon wages from the rota', 'Rota pay manage', 'The same as the button on the Rota page.'],
+                ['Move or adjust tips', 'Rota tips manage', 'Move points or tips from one person to others, or give a bonus or take some off (with a note). Enter a week\'s amounts for tip pot lines, such as the cash tips counted.'],
+                ['See, add or change staff', 'Staff view, Staff manage', 'Role, hourly or fixed pay, rate, cash or bank. Set a leaving date, or a period off the rota (a long holiday, long sickness): their rota entries in it come off, and the card says how many.'],
+              ]}
+            />
+            <InfoBox type="info">
+              Paid holiday goes on the rota as paid time off (PTO). A period off the rota (on the
+              Staff page) isn&apos;t paid.
+            </InfoBox>
+            <H3>Cash up and wages by chat</H3>
+            <P>
+              Ask things like <em>"How did yesterday's cash up come out?"</em>, <em>"Is this week
+              balanced?"</em>, <em>"Card machine £1,240, cash £310 for today"</em>,{' '}
+              <em>"Add a £12 expense for milk, paid by card"</em>, <em>"Submit Monday"</em>,{' '}
+              <em>"Pay everyone their cash wages today"</em> or <em>"Fill this week from Loyverse"</em>.
+            </P>
+            <DataTable
+              head={['You can', 'Who', 'Notes']}
+              rows={[
+                ['See a day or a week', 'Cash reconciliation view', 'Income, takings, service charge, expenses, wages paid from the till and the variance (negative means short), plus what isn\'t entered yet. The variance is the same figure as on the Cash Recon page.'],
+                ['Enter figures', 'Cash reconciliation manage', 'Income sources, payment channels and service charge sources by name. Only what you say changes; income is split into net and VAT as on the page.'],
+                ['Add an expense', 'Cash reconciliation manage', 'Gross amount, VAT, category, and whether it was paid by card (then it isn\'t counted as cash out of the till).'],
+                ['Submit a day', 'Cash reconciliation manage', 'The card shows the totals and the variance first. A submitted day can only be unsubmitted on the Cash Recon page, by an owner or admin.'],
+                ['See and pay wages', 'Cash reconciliation view, manage to pay', 'Each person\'s cash due and paid. Marking wages paid records the cash handed out and the day it came out of the till.'],
+                ['Fill from Loyverse or GloriaFood', 'Cash reconciliation manage', 'Up to 14 days, through the venue\'s field mapping (Cash Recon settings). Submitted days are left alone; the card shows each day\'s figures first.'],
+              ]}
+            />
+            <H3>Online orders, sold out, till and kitchen by chat</H3>
+            <P>
+              Ask things like <em>"Any online orders waiting?"</em>, <em>"Accept 12, ready in 20
+              minutes"</em>, <em>"Order 14 is ready"</em>, <em>"Refund £3.50 on order 7"</em>,{' '}
+              <em>"Stop online orders for now"</em>, <em>"The Pad Thai is sold out"</em>,{' '}
+              <em>"What did the till take yesterday?"</em> or <em>"How fast was the kitchen on
+              Saturday?"</em>.
+            </P>
+            <DataTable
+              head={['You can', 'Who', 'Notes']}
+              rows={[
+                ['See the day\'s online orders', 'Online orders view', 'Open orders first, with dishes, collection time and whether it is paid; GloriaFood orders too when they show on the board.'],
+                ['Move an order on', 'Online orders manage', 'Accept (with the minutes it takes), preparing, ready, collected, a new collection time, or paid at the counter. An order is its number that day ("12", "GF 3"), or the guest\'s name.'],
+                ['Turn down, cancel or refund', 'Online orders manage', 'A reason is needed and the guest is told; a paid order is refunded. A refund can be all that is left or an amount.'],
+                ['Pause online orders', 'Online orders manage', 'With an optional message for guests; start again the same way.'],
+                ['See the report', 'Online orders view', 'Orders, sales, tips, discounts, VAT, refunds, by day and payment, top dishes and promotions used.'],
+                ['Sold out', 'Online orders view, manage to change', 'What is sold out and until when; mark a dish sold out for today or until it is put back, or back on. The tills, online ordering, the orders board and the menu screens all show it straight away.'],
+                ['Till and kitchen figures', 'Till reports view', 'A trading day\'s figures (live while it is open, else its Z report), the day\'s checks, and kitchen speed by station.'],
+              ]}
+            />
+            <H3>Customers, opening times, tables and rules by chat</H3>
+            <P>
+              Ask things like <em>"Find Jane Smith"</em>, <em>"Change her phone number to 07700
+              900123"</em>, <em>"Close Hertford on Boxing Day"</em>, <em>"What are the booking
+              times on Sunday?"</em> or <em>"Hold online bookings for 10 minutes"</em>.
+            </P>
+            <DataTable
+              head={['You can', 'Who', 'Notes']}
+              rows={[
+                ['Find and see customers', 'Customers view', 'Contact details, visits, newsletter, staff notes, their next and past bookings.'],
+                ['Change a customer', 'Customers manage', 'Name, email, phone or staff notes; take them off the newsletter (only the guest can sign up again).'],
+                ['Anonymise a customer', 'Customers manage', 'For a request to delete someone\'s details (GDPR). Their details on the profile, bookings and online orders are replaced; it can\'t be undone, and the card says so.'],
+                ['See and change opening times', 'Schedule view, manage to change', 'Each weekday\'s booking times and coming closures. Close a venue for dates (Christmas, a private event): the card says how many bookings are already in them, and they stay. Remove a closure to reopen.'],
+                ['See tables and booking rules', 'Tables view, Rules view', 'Tables by section with their covers and combinations; party sizes, how far ahead, when online bookings close, booking length and the rest.'],
+                ['Change booking rules', 'Rules manage', 'Only what you say changes; the card shows each rule before and after.'],
+              ]}
+            />
+            <P>
+              Changing a sitting&apos;s times or covers, tables and combinations is done on the
+              Schedule and Tables pages; Pepper gives you the link.
+            </P>
+            <H3>Website, promotions, reviews, screens and support by chat</H3>
+            <P>
+              Ask things like <em>"Is the website up to date?"</em>, <em>"Publish the
+              website"</em>, <em>"Put a banner up saying we're closed today"</em>,{' '}
+              <em>"Switch off the lunch deal"</em>, <em>"Any new reviews?"</em>,{' '}
+              <em>"Which menu screens are offline?"</em>, <em>"Did the confirmation email reach
+              Jane?"</em> or <em>"Log an issue: the card machine keeps disconnecting"</em>.
+            </P>
+            <DataTable
+              head={['You can', 'Who', 'Notes']}
+              rows={[
+                ['Website status and publishing', 'Website view, manage to publish', 'Whether it is live, when it was last published and what is waiting to go live. Publishing puts every saved change live now.'],
+                ['Emergency banner', 'Website manage', 'On every page straight away (no publish needed), with how urgent it is and an optional link; or off.'],
+                ['Promotions', 'Promotions view, manage to switch', 'What each gives, when, uses and discount given; turn one on or off.'],
+                ['Reviews', 'Website view, manage to change', 'Recent reviews with the average; approve one for the website, hide it, feature it, or save a reply.'],
+                ['Menu screens', 'Menu screens view, manage to reload', 'Which screens are online and what they show; reload one that looks stuck.'],
+                ['Booking emails', 'Emails view', 'Recent confirmations, reminders, changes and cancellations: sent, failed (and why) or waiting.'],
+                ['Report an issue or ask for a feature', 'Issue log, Feature requests', 'Logs it for the platform team: an issue with its impact and urgency, or a feature request others can vote for. Pepper can also list your logged issues.'],
+              ]}
+            />
+            <H3>Finding a page</H3>
+            <P>
+              Ask <em>"Where do I change the opening times?"</em> or <em>"Take me to the rota"</em>{' '}
+              and Pepper replies with a link to the page; tap it to go there. It only offers pages
+              you can open.
+            </P>
             <H3>Attaching photos, screenshots and files</H3>
             <P>
-              You can give the assistant something to read: a photo of a delivery note or a
-              thermometer, a screenshot of a booking request email, a supplier's price list, a PDF,
-              or a text or CSV file. Press
+              You can give Pepper something to read: a photo of a delivery note or a thermometer, a
+              screenshot of a booking request email, a supplier's price list, a PDF, or a text or CSV
+              file. Press
               the paperclip next to the message box and pick the files, paste a screenshot straight
               into the message box, or drag files onto the chat. On a tablet or phone the camera
               button takes a photo there and then. Then say what you want, for example{' '}
@@ -4030,8 +4172,8 @@ export default function Help() {
               ]}
             />
             <P>
-              The assistant tells you what it read before it acts on it, and asks if something is
-              unclear or cut off. Every change still shows a card to confirm, so check the details on
+              Pepper tells you what it read before it acts on it, and asks if something is unclear
+              or cut off. Every change still shows a card to confirm, so check the details on
               the card against the paper. Sent files show in the chat: tap a picture to see it full
               size, or a PDF or text file to open it. Only you can see the files you send.
             </P>
@@ -4043,15 +4185,21 @@ export default function Help() {
             </InfoBox>
             <H3>Using your own AI app</H3>
             <P>
-              On the AI assistant page, open <strong>Connect</strong>. Type a name and press{' '}
+              On the Pepper page, open <strong>Connect</strong>. Type a name and press{' '}
               <strong>Make token</strong>, then copy the token: it is shown once. In your AI app,
               add a custom MCP connector with the address shown and send the token as the header
               {' '}<Mono>Authorization: Bearer mcp_...</Mono>. Revoke a token with its bin button when
               you no longer need it.
             </P>
+            <P>
+              Your AI app then has every one of Pepper&apos;s tools, with your permissions. There are
+              no Pepper cards there: most apps ask you before running a tool that changes something,
+              so read what it is about to do before you allow it, and don&apos;t set the app to allow
+              changes without asking.
+            </P>
             <H3>The chat on your website</H3>
             <P>
-              Switch on <strong>Chat on your website</strong> under AI assistant → Settings, then add
+              Switch on <strong>Chat on your website</strong> under Pepper → Settings, then add
               the <strong>AI chat</strong> block in the website builder: in the page, or as a chat
               button in the corner of the screen. Guests can ask questions and book. A booking only
               goes through when the guest presses Confirm on the card in the chat.
@@ -4063,11 +4211,19 @@ export default function Help() {
             </P>
             <H3>Settings, usage and activity</H3>
             <P>
-              Owners and admins see <strong>Settings</strong> and <strong>Activity</strong> on the AI
-              assistant page. Settings has three switches (staff assistant, guests' AI apps, website
-              chat) with one Save, and this month's usage. The chats share a monthly allowance; when
-              it is used up they pause until the next month, and the AI app connectors keep working.
-              Activity lists every booking and H&S change made through AI, by whom and where; a booking made past the usual limits is marked.
+              People who can manage Pepper (owners and admins, unless your roles say otherwise) see{' '}
+              <strong>Settings</strong> and <strong>Activity</strong> on the Pepper page. Settings has
+              three switches (Pepper for staff, guests' AI apps, website chat) with one Save, and this
+              month's usage. The chats share a monthly allowance; when it is used up they pause until
+              the next month, and the AI app connectors keep working. Activity lists every change made
+              through Pepper, the website chat and AI apps: what, by whom and where; a booking made
+              past the usual limits is marked.
+            </P>
+            <P>
+              Pepper has its own switch on the Access page (Modules tab), and its own line in each
+              role: None hides it, View lets someone chat with it. Switching it off stops Pepper and
+              the staff connector; the website chat and guests&apos; AI apps have their own switches
+              in Settings.
             </P>
             <H3>Turning the chats on (platform admins)</H3>
             <P>
@@ -4193,8 +4349,8 @@ export default function Help() {
               Food safety, so it doesn't need typing in twice. <strong>Correct the delivery</strong> updates it.
             </P>
             <InfoBox type="info">
-              All of this can also be done by chat with the AI assistant (Ask AI): ordering, booking deliveries
-              in, changing prices and importing a supplier's price list from a PDF or photo. See AI Assistant →
+              All of this can also be done by chat with Pepper (Ask Pepper): ordering, booking deliveries
+              in, changing prices and importing a supplier's price list from a PDF or photo. See Pepper →
               Purchasing by chat.
             </InfoBox>
           </section>
@@ -4455,8 +4611,8 @@ export default function Help() {
               allergens, the allergen notice, words typed in kiosk designs, the kiosk's own words) next to its
               translation in the language you pick. Type and press <strong>Save</strong>; empty a box to take a
               translation off. The kiosk's own words and the 14 allergens already come in every language (shown
-              faintly in the box); type only to change them. <strong>Suggest the missing ones</strong> asks the
-              AI assistant for a first draft of everything missing: suggestions are marked <strong>Check</strong>,
+              faintly in the box); type only to change them. <strong>Suggest the missing ones</strong> asks
+              the AI for a first draft of everything missing: suggestions are marked <strong>Check</strong>,
               and nothing is kept until you Save.
             </P>
             <P>
@@ -4818,6 +4974,7 @@ export default function Help() {
                 ['Booking emails', 'Email templates, sender settings, sent log', 'If you want to handle confirmation emails entirely outside Macaroonie.'],
                 ['Website CMS', 'Per-venue marketing sites, brand defaults', 'If your tenants don\'t need branded subsites.'],
                 ['Cash reconciliation', 'Daily close-out, weekly grid, SC sources', 'If you don\'t track end-of-day cash through Macaroonie.'],
+                ['Pepper (AI assistant)', 'Ask Pepper, the Pepper page, the phone app\'s Pepper, the staff connector for AI apps', 'If staff shouldn\'t use AI at all. The website chat and guests\' AI apps have their own switches on the Pepper page.'],
               ]}
             />
             <P>

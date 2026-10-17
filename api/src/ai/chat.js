@@ -13,6 +13,14 @@
 //      conversation as a note the model reads on the next turn
 //   3. repeat until the model stops calling tools (at most MAX_STEPS)
 //
+// Pepper (the staff chat) has well over a hundred tools, so only CORE_TOOLS
+// are sent in full; the rest are sent with defer_loading and the model finds
+// them with the tool search tool (tool_search_tool_bm25). The search runs on
+// Anthropic's side: its server_tool_use and tool_search_tool_result blocks
+// come back in the reply and are stored and replayed with it like any other
+// block (they need no tool_result from us). The guest chat's few tools are
+// all sent in full.
+//
 // Messages are stored exactly as the API returned them and only ever
 // appended, with the conversation's own system prompt, so each request
 // replays the conversation unchanged (thinking blocks stay valid, the
@@ -27,14 +35,14 @@ import Anthropic from '@anthropic-ai/sdk'
 import { sql, withTenant } from '../config/db.js'
 import { env } from '../config/env.js'
 import { ToolError, makeContext, addUsage } from './context.js'
-import { toolsFor, findTool, jsonSchemaOf, parseInput, errorText } from './tools/index.js'
+import { toolsFor, findTool, jsonSchemaOf, parseInput, errorText, CORE_TOOLS } from './tools/index.js'
 import { chatTokensLeft } from './settings.js'
 import { activeKey } from './apiKey.js'
 import {
   claimAttachments, releaseAttachments, attachmentBlocks, loadAttachmentData, withFileData, attachmentItems,
 } from './attachments.js'
 
-const MAX_STEPS      = 8
+const MAX_STEPS      = 12
 const MAX_TOKENS     = 16000
 const ACTION_MINUTES = 30
 const MAX_MESSAGES   = 300   // stored rows per conversation; then start a new one
@@ -145,8 +153,15 @@ function storableContent(content) {
 
 // ── The loop ─────────────────────────────────────────────
 
-function toolDefs(ctx) {
-  return toolsFor(ctx).map(t => ({ name: t.name, description: t.description, input_schema: jsonSchemaOf(t) }))
+// The tool search tool (Anthropic's BM25 search over the deferred tools'
+// names, descriptions and inputs).
+const TOOL_SEARCH = { type: 'tool_search_tool_bm25_20251119', name: 'tool_search_tool_bm25' }
+
+export function toolDefs(ctx) {
+  const tools = toolsFor(ctx)
+  const defs = tools.map(t => ({ name: t.name, description: t.description, input_schema: jsonSchemaOf(t) }))
+  if (ctx.channel !== 'staff_chat') return defs
+  return [TOOL_SEARCH, ...defs.map(d => (CORE_TOOLS.has(d.name) ? d : { ...d, defer_loading: true }))]
 }
 
 async function recordUsage(conv, usage) {
@@ -257,6 +272,9 @@ export async function runTurn(ctx, conv, text, { attachments = [] } = {}) {
       if (!content.length) return { reply: null, stopReason: response.stop_reason }
       await appendMessage(conv, 'assistant', content)
 
+      // A long server-side step (a tool search) can pause the turn: send the
+      // conversation back as it is and the model carries on.
+      if (response.stop_reason === 'pause_turn') continue
       const toolUses = content.filter(b => b.type === 'tool_use')
       if (!toolUses.length) {
         return { reply: textOf(content), stopReason: response.stop_reason }
@@ -396,13 +414,24 @@ const TOOL_LABELS = {
   check_availability: 'Checked availability', hold_table: 'Held a table', release_hold: 'Released the table',
   request_booking_code: 'Emailed a code', verify_booking_code: 'Checked the code',
   get_booking: 'Looked up the booking', list_venues: 'Looked up venues', find_bookings: 'Searched bookings',
-  day_overview: 'Looked at the day', find_customer: 'Searched customers',
+  day_overview: 'Looked at the day',
   hs_status: 'Looked at H&S for the day', food_safety_day: 'Looked at the food safety log',
   checklists_due: 'Looked at the checklists', get_checklist: 'Opened the checklist',
   list_hs_actions: 'Looked at the action log',
   find_inventory_items: 'Searched the inventory', list_suppliers: 'Looked up suppliers',
   order_lists: 'Looked at the order lists', order_form: 'Opened the order', purchase_orders: 'Looked up supplier orders',
   list_menus: 'Looked at the menus', get_menu: 'Opened the menu', find_dishes: 'Searched the menus',
+  open_page: 'Found the page',
+  list_staff: 'Looked at the staff', whos_working: 'Looked at who is working', rota_week: 'Looked at the rota',
+  rota_pay: 'Looked at rota pay', rota_tips: 'Looked at the tips',
+  cash_day: 'Looked at the cash up', cash_week: 'Looked at the cash week', wages_week: 'Looked at the wages',
+  online_orders: 'Looked at the online orders', online_orders_report: 'Looked at the online orders report',
+  sold_out: 'Looked at what is sold out', till_day: 'Looked at the till figures', till_checks: 'Looked at the till checks',
+  kitchen_report: 'Looked at kitchen speed',
+  find_customers: 'Searched customers', customer_details: 'Opened the customer',
+  opening_times: 'Looked at the opening times', list_tables: 'Looked at the tables', booking_rules: 'Looked at the booking rules',
+  website_status: 'Looked at the website', list_promotions: 'Looked at the promotions', list_reviews: 'Looked at the reviews',
+  screens_status: 'Looked at the menu screens', email_log: 'Looked at the booking emails', list_issues: 'Looked at the issue log',
 }
 
 /** The conversation as display items: user / assistant text, a short line

@@ -12,6 +12,19 @@
 
 const round2 = n => Math.round(n * 100) / 100
 
+/** An income amount (gross, pounds) split into net and VAT like the day
+ *  view: { gross, vat, net }. source: { vat_rate, vat_inclusive }. */
+export function splitIncome(amount, source) {
+  const gross = round2(Number(amount) || 0)
+  const rate = Number(source?.vat_rate || 0) / 100
+  let vat = 0, net = gross
+  if (rate > 0) {
+    if (source?.vat_inclusive) { net = gross / (1 + rate); vat = gross - net }
+    else vat = gross * rate
+  }
+  return { gross, vat: round2(vat), net: round2(net) }
+}
+
 const STAMPS = {
   loyverse:   ['loyverse_filled_at', 'loyverse_filled_by'],
   pos:        ['pos_filled_at', 'pos_filled_by'],
@@ -39,19 +52,14 @@ export async function fillReconDay(tx, { tenantId, venueId, date, fields, source
   for (const f of fields) {
     const amount = round2(Number(f.amount) || 0)
     if (f.group === 'income') {
-      const rate = Number(f.source?.vat_rate || 0) / 100
-      let vat = 0, net = amount
-      if (rate > 0) {
-        if (f.source?.vat_inclusive) { net = amount / (1 + rate); vat = amount - net }
-        else vat = amount * rate
-      }
+      const { vat, net } = splitIncome(amount, f.source)
       const [old] = await tx`
         DELETE FROM cash_income_entries
          WHERE tenant_id = ${tenantId} AND report_id = ${report.id} AND source_id = ${f.id}
         RETURNING notes`
       await tx`
         INSERT INTO cash_income_entries (tenant_id, report_id, source_id, gross_amount, vat_amount, net_amount, notes)
-        VALUES (${tenantId}, ${report.id}, ${f.id}, ${amount}, ${round2(vat)}, ${round2(net)}, ${old?.notes ?? null})`
+        VALUES (${tenantId}, ${report.id}, ${f.id}, ${amount}, ${vat}, ${net}, ${old?.notes ?? null})`
     } else if (f.group === 'takings') {
       const [old] = await tx`
         DELETE FROM cash_takings_entries

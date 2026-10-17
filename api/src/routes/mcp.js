@@ -10,11 +10,12 @@
 //                                   default on). Changes need the emailed code.
 //   POST /mcp/staff/:tenantSlug     staff connector for one tenant. Bearer
 //                                   token: a personal access token made on the
-//                                   AI assistant page (mcp_...), or an Auth0
+//                                   Pepper page (mcp_...), or an Auth0
 //                                   access token for a member of the tenant.
 //                                   Needs the ai_assistant module and
 //                                   ai_settings.staff_enabled; each tool then
-//                                   checks the person's Bookings permission.
+//                                   checks the person's permission for its area
+//                                   (Pepper's tools, src/ai/tools).
 //   GET  /.well-known/oauth-protected-resource/mcp/staff/:tenantSlug
 //                                   OAuth protected-resource metadata pointing
 //                                   at Auth0, for clients that log in with OAuth.
@@ -31,6 +32,7 @@ import { makeContext, addUsage, ToolError } from '../ai/context.js'
 import { audienceTools, jsonSchemaOf, parseInput, errorText } from '../ai/tools/index.js'
 import { getAiSettings } from '../ai/settings.js'
 import { guestInstructions, staffInstructions } from '../ai/prompts.js'
+import { ASSISTANT_NAME } from '../../../shared/assistant.js'
 
 const VERSION = '1.0.0'
 
@@ -164,9 +166,9 @@ export default async function mcpRoutes(app) {
       return reply.code(403).send({ error: 'This login or access token isn\'t for this restaurant group' })
     }
     const settings = await getAiSettings(tenant.id)
-    if (!settings.staff_enabled) return reply.code(403).send({ error: 'The AI assistant is switched off for this restaurant group' })
+    if (!settings.staff_enabled) return reply.code(403).send({ error: ASSISTANT_NAME + ' is switched off for this restaurant group' })
     if (await permissionLevel(req, 'ai_assistant') === 'none') {
-      return reply.code(403).send({ error: 'You don\'t have access to the AI assistant' })
+      return reply.code(403).send({ error: 'You don\'t have access to ' + ASSISTANT_NAME })
     }
 
     const principal = { sub: req.user.sub, email: req.user.email, isPlatformAdmin: !!req.isPlatformAdmin }
@@ -193,6 +195,6 @@ export default async function mcpRoutes(app) {
     authorization_servers:    ['https://' + env.AUTH0_DOMAIN + '/'],
     bearer_methods_supported: ['header'],
     scopes_supported:         ['openid', 'profile', 'email'],
-    resource_name:            'Macaroonie staff assistant',
+    resource_name:            ASSISTANT_NAME + ' (Macaroonie staff assistant)',
   }))
 }

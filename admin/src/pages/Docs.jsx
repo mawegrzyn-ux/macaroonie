@@ -32,7 +32,7 @@ const SECTIONS = [
   { id: 'kds', label: 'Kitchen screens (KDS)' },
   { id: 'kiosks', label: 'Self-order kiosks' },
   { id: 'web-ordering', label: 'Web Ordering' },
-  { id: 'ai-assistant', label: 'AI Assistant & MCP' },
+  { id: 'ai-assistant', label: 'Pepper (AI assistant) & MCP' },
   { id: 'menus',        label: 'Menus' },
   { id: 'combos',       label: 'Combos' },
   { id: 'tax',          label: 'Tax, Order Types & Streams' },
@@ -408,6 +408,21 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               RLS failures are <strong>silent</strong>. The query returns 0 rows, not an error.
               Always use <Mono>withTenant()</Mono> for any query touching tenant data.
             </InfoBox>
+            <H3>RLS is not enough: filter tenant_id yourself</H3>
+            <P>
+              The app's database role owns the tables, and a table owner isn't held to RLS unless the
+              table has <Mono>FORCE ROW LEVEL SECURITY</Mono>. So on the live database{' '}
+              <Mono>withTenant()</Mono> sets the context but doesn't stop a query from reading or
+              changing another tenant's rows. Every query must say{' '}
+              <Mono>tenant_id = $&#123;req.tenantId&#125;</Mono> itself, and a row loaded by an id from
+              the request must be checked to be the caller's. Routes whose URL carries a venue id
+              (<Mono>/api/venues/:id/...</Mono>: schedules, venue settings, test data) register{' '}
+              <Mono>requireOwnVenue(param)</Mono> from <Mono>middleware/venue.js</Mono> after{' '}
+              <Mono>requireAuth</Mono>: it answers 404 unless the venue is the caller's tenant's. The
+              online-order service (<Mono>orderSvc.js</Mono>: <Mono>loadAdminOrder()</Mono>, status,
+              payment, refund and collection-time changes) filters by tenant on every read and write.
+              Test any route you touch with a second tenant's rows in the database.
+            </P>
             <H3>withTx() vs withTenant()</H3>
             <P>
               <Mono>withTx(fn)</Mono> opens a plain transaction without setting tenant context. Use it only
@@ -674,6 +689,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['email_templates', 'email_templates'],
                 ['website',         'website'],
                 ['cash_recon',      'cash_recon'],
+                ['pepper',          'ai_assistant (was in bookings until migration 173; Pepper covers every area, so it has its own switch)'],
                 ['(core, no group)', 'dashboard, team, settings, documentation — always-on'],
               ]}
             />
@@ -3657,15 +3673,21 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
           </section>
 
           <section id="ai-assistant" data-doc="">
-            <H2>AI Assistant &amp; MCP</H2>
+            <H2>Pepper (AI assistant) &amp; MCP</H2>
             <P>
-              Booking by chat (migration 148). One tool layer, <Mono>api/src/ai/tools</Mono>, serves
+              Booking by chat started with migration 148; the staff side is now{' '}
+              <strong>Pepper</strong>, with tools for every area of the app (migration 173 renamed
+              the nav link and moved the module into its own group). The name is one constant,{' '}
+              <Mono>ASSISTANT_NAME</Mono> in <Mono>shared/assistant.js</Mono>, used by the staff
+              prompt, the MCP server metadata and messages, and the admin (sidebar button, drawer,
+              Pepper page, phone tile, shortcut). The guest chat and guest connector stay neutral
+              ("the booking assistant on the website of ..."). One tool layer, <Mono>api/src/ai/tools</Mono>, serves
               four front ends, each a <Mono>channel</Mono>:
             </P>
             <DataTable
               head={['Channel', 'Entry point', 'Who / scope', 'Model']}
               rows={[
-                ['staff_chat', 'POST /api/ai/chat (Ask AI drawer, /ai page, /mobile/assistant)', 'A logged-in staff member, their tenant', 'Ours (Claude, platform pays)'],
+                ['staff_chat', 'POST /api/ai/chat (Ask Pepper drawer, /ai page, /mobile/assistant)', 'A logged-in staff member, their tenant', 'Ours (Claude, platform pays)'],
                 ['staff_mcp', 'POST /mcp/staff/:tenantSlug (routes/mcp.js)', 'Bearer access token (mcp_...) or Auth0 JWT, one tenant', 'The client\'s own AI app'],
                 ['guest_chat', 'POST /ai-api/chat (website ai_chat block, routes/aiApi.js)', 'A guest on one tenant\'s site', 'Ours'],
                 ['guest_mcp', 'POST /mcp (routes/mcp.js)', 'Anyone, every tenant with guest_mcp_enabled', 'The guest\'s own AI app'],
@@ -3678,7 +3700,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               request_booking_code, verify_booking_code, get_booking, change_booking, cancel_booking.{' '}
               <Mono>tools/staff.js</Mono>: list_venues, find_bookings, get_booking, day_overview,
               check_availability, create_booking, change_booking, set_booking_status,
-              update_guest_details, add_booking_note, find_customer.{' '}
+              update_guest_details, add_booking_note.{' '}
               <Mono>tools/hs.js</Mono> (staff, health &amp; safety): hs_status, food_safety_day,
               log_temperature, log_hold_check, log_cooking_check, log_delivery, add_corrective_action,
               checklists_due, get_checklist, tick_checklist, list_hs_actions, add_hs_action,
@@ -3686,10 +3708,35 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               change tools, below. <Mono>tools/menus.js</Mono> (staff, menus): 3 reads and 9 change
               tools, below. <Mono>pickByName()</Mono> (id, exact, starts with, contains, every
               word; ambiguous asks, at most 20 choices listed) is in <Mono>tools/util.js</Mono>, shared by
-              the H&amp;S and purchasing tools. A tool is{' '}
-              <Mono>{'{ name, description, input (Zod), run(ctx, input), readOnly, confirm, destructive, describe() }'}</Mono>{' '}
+              the staff tools. The other areas are in <Mono>tools/rota.js</Mono>,{' '}
+              <Mono>cash.js</Mono>, <Mono>orders.js</Mono>, <Mono>venue.js</Mono>,{' '}
+              <Mono>site.js</Mono> and <Mono>general.js</Mono> (below). A tool is{' '}
+              <Mono>{'{ name, section, title, description, input (Zod), run(ctx, input), readOnly, confirm, destructive, describe() }'}</Mono>{' '}
               (<Mono>tools/index.js</Mono>); the Zod schema goes to the model and MCP clients as JSON
               Schema via zod-to-json-schema.
+            </P>
+            <P>
+              <Mono>section</Mono> is the area (<Mono>SECTIONS</Mono> in <Mono>tools/index.js</Mono>:
+              general, bookings, customers, venue, hs, rota, cash, orders, till, menus, purchasing,
+              website, support). The older files don&apos;t set it; <Mono>withSection()</Mono> tags
+              their tools by file. The registry throws at start-up on a staff tool without a known
+              section, two staff tools with one name, or a missing core tool, so a mistake fails the
+              deploy instead of a chat. <Mono>CORE_TOOLS</Mono> (list_venues, find_bookings,
+              day_overview, check_availability, hs_status, whos_working, open_page) are loaded in
+              every staff chat request; the rest are found with tool search (The chat loop, below).
+              Over MCP every tool is listed in full.
+            </P>
+            <P>
+              Helpers in <Mono>tools/util.js</Mono> for the newer tools: <Mono>VenueText</Mono> +{' '}
+              <Mono>venueFor()</Mono> (a venue by name or id, or the only venue; several and none
+              named is a 422 listing them), <Mono>venueToday()</Mono>, <Mono>addDays()</Mono>,{' '}
+              <Mono>mondayOf()</Mono>, <Mono>shortDate()</Mono> ("Fri 12 Oct"),{' '}
+              <Mono>money()</Mono> / <Mono>pence()</Mono>, <Mono>plural()</Mono> and{' '}
+              <Mono>audited(ctx, tool, input, fn)</Mono> (runs a change and writes its{' '}
+              <Mono>ai_actions</Mono> row, failure included). <Mono>requireStaffPermission()</Mono>{' '}
+              (<Mono>context.js</Mono>) words a refusal per module (<Mono>DENIED</Mono>, falling back
+              to the module label from <Mono>config/modules.js</Mono>), e.g. "You don&apos;t have
+              permission to see rota pay".
             </P>
             <P>
               Staff tools never write bookings with their own SQL when an admin route does the job:
@@ -3877,6 +3924,57 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               in and out are pounds. Not covered: dish photos, combo steps, print designs and
               print options, till fields, deleting a menu, the tag list.
             </P>
+            <H3>Staff: the rest of Pepper (rota, cash, orders, till, customers, venue, website)</H3>
+            <P>
+              Same rules as the other staff tools: <Mono>requireStaffPermission(ctx, module, level)</Mono>{' '}
+              with the page&apos;s own module, every read and change through the admin route with{' '}
+              <Mono>callApi()</Mono> (so the route&apos;s gates, figures and redaction apply), confirm
+              tools for every change with <Mono>describe()</Mono> and <Mono>run()</Mono> sharing one
+              plan function (re-planned at run time, so a change made on the page between the card
+              and Confirm is seen), and an <Mono>ai_actions</Mono> row per change through{' '}
+              <Mono>audited()</Mono>. Venues are named (<Mono>venueFor()</Mono>); dates default to
+              today at the venue. Figures (pay, tips, variance, till totals) are always the
+              route&apos;s own: the tools never add them up.
+            </P>
+            <DataTable
+              head={['Tool', 'Permission', 'Route(s)', 'Notes']}
+              rows={[
+                ['list_staff / whos_working / rota_week', 'staff view / rota view', 'GET /api/rota/venues/:v/staff, /weeks/:monday', 'Working, sick or off, away (off_days), closed days; rota_week also lists removed and away staff'],
+                ['set_rota', 'rota manage', 'GET then PUT /api/rota/venues/:v/weeks/:monday/entries', 'rotaPlan(): one week, many changes; people from staff + removed_staff + away_staff; refused on off days with the reason; day_parts takes a shift (the only active one when there is one), hourly takes periods (a shift name gives its times; an overlapping period replaces the old one); status off without shift/times clears the day; an absence status without them marks the day\'s entries. Sends the whole week (the PUT replaces it) and removed_staff_ids only when someone is put back on'],
+                ['copy_rota_week', 'rota manage', 'POST .../weeks/:to/copy { from_week }', 'Default last week onto this week; card counts entries replaced'],
+                ['rota_pay / rota_tips', 'rota_pay view / rota_tips view', 'GET .../weeks/:monday/pay', 'The redacted pay payload (redactWeek()); a refusal says if the other half is visible'],
+                ['add_pay_adjustment / fill_wages_from_rota', 'rota_pay manage', 'POST .../pay-adjustments, .../fill-wages', 'Card warns when the week\'s wages were already filled (SQL with a tenant filter)'],
+                ['adjust_tips / set_tip_pot_amounts', 'rota_tips manage', 'POST .../tip-moves, PUT .../pot-lines', 'move / add / remove in points or £; a total split equally to 2dp (remainder to the first person) or per person; pot lines named "Line" or "Pot: Line"'],
+                ['add_staff_member / update_staff_member / set_staff_leaving / add_time_off / remove_time_off', 'staff manage', 'POST, PATCH .../staff[/:id], PUT .../leaving, POST / DELETE .../off-periods', 'Leaving and off periods dry-run first so the card counts the rota entries that come off'],
+                ['cash_day / cash_week / wages_week', 'cash_recon view', 'GET /api/venues/:v/cash-recon/config, /daily/:date, /week/:monday, /week-detail/:monday, /wages/:monday', 'Variance from the /week route only (the same figure as the page); fields not entered listed'],
+                ['record_cash_day', 'cash_recon manage', 'GET then PUT .../daily/:date', 'recordPlan() rebuilds the whole-day body: existing entries kept, every expense with vat_amount and paid_by_card, notes only when given (the PUT keeps the note when the key is absent); income split with splitIncome() from services/reconFill.js, the same split Loyverse / GloriaFood fills use'],
+                ['add_expense / submit_cash_day', 'cash_recon manage', 'POST .../expenses, POST .../daily/:date/submit', 'A submitted day refuses a new expense (card and route); the submit card shows the totals and variance'],
+                ['mark_wages_paid', 'cash_recon manage', 'GET then PUT .../wages/:monday', 'wagesPlan() rebuilds the whole-week body, changing only cash_amount and paid_date; header notes kept'],
+                ['fill_cash_from_till', 'cash_recon manage', 'POST /api/loyverse|gloriafood/venues/:v/preview, /apply', 'Up to 14 days; submitted days skipped; card per day plus payments not mapped'],
+                ['online_orders / online_orders_report', 'web_orders view', 'GET /api/orders?venue_id&date, /api/orders/report', 'findOrder(): the day\'s number ("12", "#12", "GF 3"), the guest\'s name, or an id'],
+                ['update_online_order', 'web_orders manage', 'POST /api/orders/:id/status | /promised | /mark-paid, /api/orders/gloriafood/:id/status', 'accept (prep_minutes), preparing, ready, collected, reject / cancel (reason; a paid order is refunded by the route), retime, paid_cash, paid_card'],
+                ['refund_online_order / pause_online_orders', 'web_orders manage', 'POST /api/orders/:id/refund, /api/orders/pause/:v', ''],
+                ['sold_out / set_sold_out', 'web_orders view / manage', 'loadMenuVersions(..., publishedOnly) + soldOutRows(); PUT /api/orders/availability/:v/:itemId', 'Dishes by name on the live menus; every item id with that name is marked (today | indefinite | back on)'],
+                ['till_day / till_checks / kitchen_report', 'pos_reports view', 'GET /api/pos/venues/:v/days, /days/:id, /checks, /kitchen-report', 'Default the latest trading day; live X while open, else the Z'],
+                ['find_customers / customer_details', 'customers view', 'GET /api/customers?q=, /api/customers/:id', 'find_customers adds each customer\'s next booking (one SQL query, tenant filter)'],
+                ['update_customer / unsubscribe_customer / anonymise_customer', 'customers manage', 'PATCH /api/customers/:id, POST .../unsubscribe, .../anonymise', 'anonymise is destructive (MCP destructiveHint); the card says it can\'t be undone'],
+                ['opening_times / close_dates / remove_closure', 'schedule view / manage', 'GET /api/venues/:v/schedule, /schedule/exceptions, /schedule/overrides; POST / DELETE /schedule/exceptions', 'A closure is an exception with is_closed and priority 10; the card counts bookings already in the dates (they stay)'],
+                ['list_tables', 'tables view', 'GET /api/venues/:v/tables, /combinations', ''],
+                ['booking_rules / update_booking_rules', 'rules view / manage', 'GET, POST, PATCH /api/venues/:v/rules', 'PATCH when the venue has rules, else POST the defaults merged with the change (then PATCH the table-joining flags the POST doesn\'t take); hold_minutes → hold_ttl_secs'],
+                ['website_status / publish_website / set_website_banner', 'website view / manage', 'GET /api/website/tenant-site[/publish-status], POST .../publish, PATCH /api/website/tenant-site', 'The banner needs no publish; turning it on with no text reuses the last text'],
+                ['list_promotions / switch_promotion', 'promotions view / manage', 'GET /api/promotions, PATCH /api/promotions/:id/active', 'Described with promoSummary() / promoTerms() / promoRunning() from shared/promotions.js'],
+                ['list_reviews / moderate_review', 'website view / manage', 'GET /api/reviews, /reviews/stats, PATCH /api/reviews/:id', 'A review by id, reviewer name or words from it'],
+                ['screens_status / reload_screen', 'screens view / manage', 'GET /api/screens/screens, POST .../:id/reload', ''],
+                ['email_log', 'email_templates view', 'GET /api/email-templates/log?limit=200', 'search by guest name or email; only_failed'],
+                ['report_issue / list_issues / request_feature', 'issue_log manage / view, feature_requests manage', 'POST, GET /api/issues, POST /api/feature-requests', 'list_issues keeps only this tenant\'s rows (the route lists every tenant for platform admins)'],
+                ['open_page', 'the page\'s own module, view', 'ROUTE_CATALOG (routes/nav.js) + ALSO synonyms', 'Scored match (exact, starts with, word, synonym); only pages the person can view; staff_chat gets a markdown link [Label](/route) that ChatView renders as an in-app Link (only paths starting with one /), MCP gets the full address on officeOrigin(); several matches return choices'],
+              ]}
+            />
+            <P>
+              Every change tool has a chat label (<Mono>TOOL_LABELS</Mono> in <Mono>chat.js</Mono> for
+              reads, the card title for changes) and an Activity label and detail
+              (<Mono>AiAssistant.jsx</Mono>: <Mono>TOOL_LABELS</Mono>, <Mono>changeDetail()</Mono>).
+            </P>
             <H3>Confirm cards (chats)</H3>
             <P>
               A tool with <Mono>confirm: true</Mono> does not run when the model calls it in a chat:{' '}
@@ -3906,16 +4004,36 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>AI_MODEL</Mono> (default in <Mono>config/env.js</Mono>), <Mono>output_config.effort</Mono>{' '}
               (<Mono>AI_EFFORT</Mono>, default medium), adaptive thinking (the default), top-level{' '}
               <Mono>cache_control</Mono>, and server-side fallbacks (<Mono>fallbacks: 'default'</Mono>,
-              beta <Mono>server-side-fallback-2026-07-01</Mono>). Up to 8 model calls per turn.
+              beta <Mono>server-side-fallback-2026-07-01</Mono>). Up to 12 model calls per turn
+              (<Mono>MAX_STEPS</Mono>).
               Messages are stored exactly as returned and only appended, with the system prompt the
               conversation started with (<Mono>ai_conversations.system_prompt</Mono>), so every
               request replays the history unchanged: thinking blocks stay valid and the prompt cache
               hits. Back-to-back user rows (a confirm note, then the next message) are merged when
               sent. A refusal stores nothing. Every response's usage goes to <Mono>ai_usage</Mono>.
             </P>
+            <P>
+              <strong>Tool search (staff chat).</strong> Pepper has well over 100 tools; sending them
+              all in full every request would cost tokens and blur the model&apos;s choice.{' '}
+              <Mono>toolDefs(ctx)</Mono> in <Mono>chat.js</Mono> sends, for{' '}
+              <Mono>staff_chat</Mono> only, the server-side search tool{' '}
+              <Mono>{'{ type: \'tool_search_tool_bm25_20251119\', name: \'tool_search_tool_bm25\' }'}</Mono>{' '}
+              first, the <Mono>CORE_TOOLS</Mono> in full, and every other tool with{' '}
+              <Mono>defer_loading: true</Mono> (name and description indexed, schema loaded only when
+              a search returns it). No beta header is needed. The response then holds{' '}
+              <Mono>server_tool_use</Mono> (id <Mono>srvtoolu_...</Mono>) and{' '}
+              <Mono>tool_search_tool_result</Mono> blocks: they are stored and replayed unchanged like
+              everything else, and get no <Mono>tool_result</Mono> from us (the API answered them
+              itself). A response with <Mono>stop_reason: 'pause_turn'</Mono> (a long server-side
+              step paused) is sent back as it is to carry on. The staff prompt lists every area with
+              its tool names, so searches hit; the guest chat sends its few tools in full. Not yet
+              checked against the live API: an old conversation whose stored blocks name a tool a
+              later deploy removed or changed (the tool list is part of what replayed thinking is
+              checked against).
+            </P>
             <H3>Attached files (migration 150)</H3>
             <P>
-              Staff chats only (Ask AI, /ai, /mobile/assistant); the website chat and MCP don't take
+              Staff chats only (Ask Pepper, /ai, /mobile/assistant); the website chat and MCP don't take
               files. <Mono>src/ai/attachments.js</Mono> is the one place that handles them:
             </P>
             <DataTable
@@ -3950,7 +4068,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['ai_usage', 'Per tenant, month (first day, UTC), channel: requests and input / output / cache read / cache write tokens. The limit counts all four token kinds of staff_chat + guest_chat; MCP channels count calls only.'],
                 ['ai_conversations / ai_messages', 'Chats. channel staff_chat (user_sub) or guest_chat (guest_key, a random secret the browser keeps). Messages: seq, role, content jsonb (API content blocks).'],
                 ['ai_pending_actions', 'Confirm cards: tool_use_id, tool, input, card {title, lines, confirmLabel, destructive}, status pending | done | cancelled | failed, result, expires_at, decided_at (claim).'],
-                ['ai_actions', 'Audit log of changes through AI (all channels): bookings, and the staff H&S tools (booking_id null): tool, input, ok, result, booking_id, actor. Shown on /ai Activity.'],
+                ['ai_actions', 'Audit log of every change through AI (all channels): tool, input, ok, result, booking_id (null for anything but bookings), actor. Shown on /ai Activity.'],
                 ['ai_booking_codes / ai_booking_grants', 'Emailed codes and access keys (hashes only).'],
                 ['ai_access_tokens', 'Staff MCP tokens: sha256 of mcp_ + 40 hex, prefix, user_id, revoked_at. No RLS (read during auth before any tenant context); every query filters tenant_id.'],
                 ['bookings.source', 'Which AI channel made the booking (NULL = not AI).'],
@@ -3962,7 +4080,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <DataTable
               head={['Route', 'Notes']}
               rows={[
-                ['GET /api/ai/status', 'configured, enabled, permission, can_chat, tokens_left. Drives the Ask AI button.'],
+                ['GET /api/ai/status', 'configured, enabled, permission, can_chat, tokens_left. Drives the Ask Pepper button.'],
                 ['GET/DELETE /api/ai/conversations[/:id], POST /api/ai/chat', 'The caller\'s own chats (user_sub). chat { conversation_id?, message, attachments? } returns the whole conversation as display items.'],
                 ['POST /api/ai/attachments, GET/DELETE /api/ai/attachments/:id', 'Upload one file (multipart field file) -> { id, name, kind, media_type, bytes }; the file itself, uploader only; remove an unsent upload. See Attached files above.'],
                 ['POST /api/ai/actions/:id/confirm | cancel', 'Confirm cards.'],
@@ -3979,9 +4097,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <H3>Admin and site</H3>
             <P>
               <Mono>components/ai/ChatView.jsx</Mono> (chat, cards, <Mono>useAiStatus()</Mono>),{' '}
-              <Mono>AssistantDrawer.jsx</Mono> (Ask AI panel from the sidebar, earlier chats,{' '}
-              <Mono>maca_ai_conversation</Mono>), <Mono>pages/AiAssistant.jsx</Mono> (/ai: Chat,
-              Connect, Settings, Activity), <Mono>pages/mobile/MobileAssistant.jsx</Mono>,{' '}
+              <Mono>AssistantDrawer.jsx</Mono> (Ask Pepper panel from the sidebar, earlier chats,{' '}
+              <Mono>maca_ai_conversation</Mono>), <Mono>pages/AiAssistant.jsx</Mono> (/ai, the
+              Pepper page: Chat, Connect, Settings, Activity), <Mono>pages/mobile/MobileAssistant.jsx</Mono>,{' '}
               <Mono>components/platform/AiLimitsPanel.jsx</Mono> with <Mono>AiKeyCard.jsx</Mono>. Website block{' '}
               <Mono>ai_chat</Mono>: <Mono>views/site/blocks/ai_chat.eta</Mono> (vanilla JS, hides
               itself unless /ai-api status is enabled, <Mono>maca_ai_chat_[tenantId]</Mono>), editor{' '}

@@ -9,6 +9,7 @@ import { Plus, History, Sparkles } from 'lucide-react'
 import ChatView, { useAiStatus } from '@/components/ai/ChatView'
 import { ConversationList, useRememberedConversation } from '@/components/ai/AssistantDrawer'
 import { cn } from '@/lib/utils'
+import { ASSISTANT_NAME } from '@shared/assistant.js'
 
 export default function MobileAssistant() {
   const { data: status } = useAiStatus()
@@ -19,11 +20,11 @@ export default function MobileAssistant() {
     return (
       <div className="p-6 text-center space-y-2">
         <Sparkles className="w-8 h-8 mx-auto text-muted-foreground" />
-        <p className="font-medium">The assistant isn't available</p>
+        <p className="font-medium">{ASSISTANT_NAME} isn't available</p>
         <p className="text-sm text-muted-foreground">
           {!status.configured ? 'The AI chat isn\'t set up on this server yet.'
             : !status.enabled ? 'An owner has switched the staff assistant off.'
-            : 'You don\'t have access to the AI assistant. Ask an owner.'}
+            : 'You don\'t have access to ' + ASSISTANT_NAME + '. Ask an owner.'}
         </p>
       </div>
     )

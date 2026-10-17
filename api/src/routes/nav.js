@@ -25,7 +25,7 @@ import { seedDefaultNav } from '../config/defaultNav.js'
 // set, is just a suggestion pre-fill; the admin can still leave it unset
 // or pick a different one (e.g. to gate an item more/less strictly than
 // its page's own default guard).
-const ROUTE_CATALOG = [
+export const ROUTE_CATALOG = [
   { route: '/', label: 'Overview', icon: 'LayoutDashboard', module: 'dashboard' },
   { route: '/dashboards', label: 'Dashboards', icon: 'LayoutTemplate', module: 'custom_dashboard' },
   { route: '/timeline', label: 'Timeline', icon: 'CalendarDays', module: 'bookings' },
@@ -72,7 +72,7 @@ const ROUTE_CATALOG = [
   { route: '/team', label: 'Team', icon: 'Users', module: 'team' },
   { route: '/access', label: 'Access', icon: 'Shield', module: 'team' },
   { route: '/settings', label: 'Settings', icon: 'SlidersHorizontal', module: 'settings' },
-  { route: '/ai', label: 'AI assistant', icon: 'Sparkles', module: 'ai_assistant' },
+  { route: '/ai', label: 'Pepper', icon: 'Sparkles', module: 'ai_assistant' },
   { route: '/widget-test', label: 'Widget test', icon: 'LayoutTemplate', module: 'widget_test' },
   { route: '/test-data', label: 'Test data', icon: 'FlaskConical', module: 'test_data' },
   { route: '/legacy-import', label: 'Legacy import', icon: 'FileSpreadsheet', module: 'test_data' },

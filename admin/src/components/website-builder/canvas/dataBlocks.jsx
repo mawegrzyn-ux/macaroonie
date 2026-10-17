@@ -1021,7 +1021,7 @@ export function AiChatCanvas({ data, onChange }) {
       <div style={innerContainerStyle(data.container, data.boxed_step)}>
         {off && (
           <p style={{ fontSize: 13, background: '#fffbeb', border: '1px solid #fcd34d', color: '#92400e', borderRadius: 8, padding: '6px 10px', margin: '0 0 12px' }}>
-            Hidden on the live site: {ai.chat_configured ? 'Chat on your website is switched off (AI assistant page).' : 'the AI chat isn\'t set up on the server yet.'}
+            Hidden on the live site: {ai.chat_configured ? 'Chat on your website is switched off (Pepper page, Settings).' : 'the AI chat isn\'t set up on the server yet.'}
           </p>
         )}
         {launcher ? (

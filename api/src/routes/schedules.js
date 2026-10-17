@@ -25,6 +25,7 @@
 import { z } from 'zod'
 import { withTenant } from '../config/db.js'
 import { requireAuth, requirePermission } from '../middleware/auth.js'
+import { requireOwnVenue } from '../middleware/venue.js'
 import { httpError } from '../middleware/error.js'
 
 // Changes need Schedule manage; reads stay open (the timeline and booking
@@ -76,6 +77,8 @@ const ExceptionDayTemplateBody = z.object({
 
 export default async function schedulesRoutes(app) {
   app.addHook('preHandler', requireAuth)
+  // The venue in the URL must be the caller's tenant's (middleware/venue.js).
+  app.addHook('preHandler', requireOwnVenue('venueId'))
 
   // ── GET full schedule for a venue ────────────────────────
   // Returns all 7 day templates + their sittings + caps in one shot.

@@ -15,6 +15,7 @@ import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import ChatView, { useAiStatus } from '@/components/ai/ChatView'
 import { ConversationList, useRememberedConversation } from '@/components/ai/AssistantDrawer'
+import { ASSISTANT_NAME } from '@shared/assistant.js'
 
 export default function AiAssistant() {
   const api = useApi()
@@ -32,8 +33,8 @@ export default function AiAssistant() {
     <div className="flex flex-col h-full overflow-hidden">
       <div className="flex items-center justify-between gap-3 px-4 sm:px-6 h-14 border-b shrink-0 bg-background max-lg:notouch:pl-14">
         <div className="min-w-0">
-          <h1 className="font-semibold flex items-center gap-2"><Sparkles className="w-4 h-4" /> AI assistant</h1>
-          <p className="text-xs text-muted-foreground truncate">Bookings and H&amp;S by chat, here and in AI apps</p>
+          <h1 className="font-semibold flex items-center gap-2"><Sparkles className="w-4 h-4" /> {ASSISTANT_NAME}</h1>
+          <p className="text-xs text-muted-foreground truncate">Your assistant for every part of the app, here, on your phone and in AI apps</p>
         </div>
         <div className="flex items-center gap-1 rounded-md border p-0.5 overflow-x-auto">
           {tabs.map(([k, label]) => (
@@ -86,7 +87,7 @@ function ChatTab({ status }) {
               ? 'The AI chat isn\'t set up on this server yet.'
               : !status.enabled
                 ? 'An owner has switched the staff assistant off in Settings.'
-                : 'You don\'t have access to the AI assistant. Ask an owner.'}
+                : 'You don\'t have access to ' + ASSISTANT_NAME + '. Ask an owner.'}
           </p>
         </div>
       </div>
@@ -152,17 +153,17 @@ function ConnectTab({ info }) {
       <Card title="Your own AI app">
         <p className="text-sm text-muted-foreground">
           Connect the AI app you already use (Claude, Cursor and other apps that take an MCP server) to this restaurant
-          group's bookings, checklists, food safety logs, purchasing and menus. It can do what this assistant does, with your own permissions.
+          group: bookings, customers, the rota and staff, cash up, orders and the till, H&amp;S, menus, purchasing and the website. It can do what {ASSISTANT_NAME} does, with your own permissions.
         </p>
         <CopyField label="MCP server address" value={info.staff_mcp_url} />
         <ol className="list-decimal pl-5 text-sm space-y-1">
           <li>Make an access token below. Copy it: it is shown once.</li>
           <li>In your AI app, add a custom MCP connector with the address above, and send the token as a header:
             <code className="text-xs bg-muted/60 rounded px-1 ml-1">Authorization: Bearer mcp_...</code></li>
-          <li>Ask it about bookings, H&S checks, supplier orders, prices or menus. Changes are made as you, and listed in Activity.</li>
+          <li>Ask it about anything you can do in this app, from tonight's bookings to the rota and cash up. Changes are made as you, and listed in Activity.</li>
         </ol>
         {!info.settings.staff_enabled && (
-          <p className="text-sm text-amber-700 flex items-center gap-2"><CircleAlert className="w-4 h-4" /> The staff assistant is switched off, so this connector is off too.</p>
+          <p className="text-sm text-amber-700 flex items-center gap-2"><CircleAlert className="w-4 h-4" /> {ASSISTANT_NAME} is switched off, so this connector is off too.</p>
         )}
       </Card>
       <TokensCard />
@@ -262,7 +263,7 @@ function Switch({ checked, onChange, label }) {
 }
 
 const SWITCHES = [
-  ['staff_enabled', 'Staff assistant', 'The Ask AI chat in this app and the staff connector for AI apps.'],
+  ['staff_enabled', ASSISTANT_NAME + ' (staff assistant)', 'Ask ' + ASSISTANT_NAME + ' in this app and on the phone, and the staff connector for AI apps.'],
   ['guest_mcp_enabled', 'Guests book through their AI apps', 'Your restaurants can be found and booked through Macaroonie\'s public connector.'],
   ['guest_chat_enabled', 'Chat on your website', 'The AI chat block on your website answers guests and takes bookings. Add the block in the website builder.'],
 ]
@@ -349,7 +350,7 @@ function Stat({ label, value }) {
 
 // ── Activity ────────────────────────────────────────────
 
-const CHANNEL_LABELS = { staff_chat: 'Assistant', staff_mcp: 'Staff AI app', guest_chat: 'Website chat', guest_mcp: 'Guest AI app' }
+const CHANNEL_LABELS = { staff_chat: ASSISTANT_NAME, staff_mcp: 'Staff AI app', guest_chat: 'Website chat', guest_mcp: 'Guest AI app' }
 const TOOL_LABELS = {
   create_booking: 'Made a booking', confirm_booking: 'Made a booking', change_booking: 'Moved a booking',
   cancel_booking: 'Cancelled a booking', set_booking_status: 'Changed status', update_guest_details: 'Updated guest details',
@@ -369,6 +370,18 @@ const TOOL_LABELS = {
   add_dishes: 'Added dishes', update_dish: 'Changed a dish', remove_dishes: 'Removed dishes',
   update_section: 'Changed a menu section', remove_section: 'Removed a menu section', change_prices: 'Changed menu prices',
   publish_menu: 'Published a menu', cancel_menu_publish: 'Cancelled a menu publish',
+  set_rota: 'Changed the rota', copy_rota_week: 'Copied a rota week', add_pay_adjustment: 'Added a pay adjustment',
+  fill_wages_from_rota: 'Filled wages from the rota', adjust_tips: 'Moved or adjusted tips', set_tip_pot_amounts: 'Entered tip amounts',
+  add_staff_member: 'Added a staff member', update_staff_member: 'Changed a staff member', set_staff_leaving: 'Set a leaving date',
+  add_time_off: 'Took someone off the rota', remove_time_off: 'Removed time off the rota',
+  record_cash_day: 'Entered Cash Recon figures', add_expense: 'Added an expense', submit_cash_day: 'Submitted a cash day',
+  mark_wages_paid: 'Marked wages paid', fill_cash_from_till: 'Filled Cash Recon from a till system',
+  update_online_order: 'Moved an online order', refund_online_order: 'Refunded an online order',
+  pause_online_orders: 'Paused or restarted online orders', set_sold_out: 'Changed sold out dishes',
+  update_customer: 'Changed a customer', unsubscribe_customer: 'Unsubscribed a customer', anonymise_customer: 'Anonymised a customer',
+  close_dates: 'Closed for dates', remove_closure: 'Removed a closure', update_booking_rules: 'Changed booking rules',
+  publish_website: 'Published the website', set_website_banner: 'Changed the website banner', switch_promotion: 'Turned a promotion on or off',
+  moderate_review: 'Changed a review', reload_screen: 'Reloaded a menu screen', report_issue: 'Logged an issue', request_feature: 'Requested a feature',
 }
 
 /** What an H&S, purchasing or menu change was about, from its stored result. */
@@ -411,6 +424,27 @@ function changeDetail(r) {
     case 'change_prices':         return [x.menu, x.prices_changed != null ? x.prices_changed + ' dishes' : null].filter(Boolean).join(', ')
     case 'publish_menu':          return [x.menu, x.goes_live === 'now' ? 'live now' : x.goes_live ? 'from ' + x.goes_live : null].filter(Boolean).join(', ')
     case 'cancel_menu_publish':   return [x.menu, x.cancelled].filter(Boolean).join(', ')
+    case 'set_rota':              return [x.venue, x.week].filter(Boolean).join(', ')
+    case 'copy_rota_week':        return [x.venue, x.week].filter(Boolean).join(', ')
+    case 'add_pay_adjustment':    return [x.person, x.week].filter(Boolean).join(', ')
+    case 'fill_wages_from_rota':  return [x.venue, x.week].filter(Boolean).join(', ')
+    case 'add_staff_member':
+    case 'update_staff_member':
+    case 'set_staff_leaving':
+    case 'add_time_off':
+    case 'remove_time_off':       return x.name
+    case 'record_cash_day':
+    case 'submit_cash_day':       return [x.venue, x.date].filter(Boolean).join(', ')
+    case 'add_expense':           return [x.date, x.amount].filter(Boolean).join(', ')
+    case 'update_online_order':
+    case 'refund_online_order':   return x.order
+    case 'set_sold_out':          return (x.dishes || []).join(', ') || null
+    case 'update_customer':
+    case 'unsubscribe_customer':  return x.name
+    case 'close_dates':           return [x.venue, x.closed].filter(Boolean).join(', ')
+    case 'remove_closure':        return x.removed
+    case 'switch_promotion':      return x.promotion
+    case 'reload_screen':         return x.screen
     default:                      return null
   }
 }

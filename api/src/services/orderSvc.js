@@ -825,7 +825,7 @@ async function refundDuplicate(tenantId, { payment, order }) {
 export async function changeStatus(tenantId, orderId, to, { actor, reason = null, prepMinutes = null } = {}) {
   let from
   const res = await withTenant(tenantId, async tx => {
-    const [o] = await tx`SELECT ${ORDER_COLS} FROM orders WHERE id = ${orderId} FOR UPDATE`
+    const [o] = await tx`SELECT ${ORDER_COLS} FROM orders WHERE id = ${orderId} AND tenant_id = ${tenantId} FOR UPDATE`
     if (!o) throw httpError(404, 'Order not found')
     from = o.status
     if (!(TRANSITIONS[o.status] || []).includes(to)) {
@@ -867,7 +867,7 @@ export async function changePromisedTime(tenantId, orderId, { promisedAt, actor 
   const o = await withTenant(tenantId, async tx => {
     const [u] = await tx`
       UPDATE orders SET promised_at = ${promisedAt}
-       WHERE id = ${orderId} AND status IN ('placed', 'accepted', 'preparing', 'ready')
+       WHERE id = ${orderId} AND tenant_id = ${tenantId} AND status IN ('placed', 'accepted', 'preparing', 'ready')
        RETURNING ${ORDER_COLS}
     `
     if (!u) throw httpError(409, 'This order can no longer be retimed')
@@ -882,7 +882,7 @@ export async function changePromisedTime(tenantId, orderId, { promisedAt, actor 
 export async function markPaid(tenantId, orderId, { method, actor }) {
   if (!COUNTER_METHODS[method]) throw httpError(400, 'Unknown payment method')
   const o = await withTenant(tenantId, async tx => {
-    const [cur] = await tx`SELECT ${ORDER_COLS} FROM orders WHERE id = ${orderId} FOR UPDATE`
+    const [cur] = await tx`SELECT ${ORDER_COLS} FROM orders WHERE id = ${orderId} AND tenant_id = ${tenantId} FOR UPDATE`
     if (!cur) throw httpError(404, 'Order not found')
     const due = cur.total_pence - cur.paid_pence
     if (due <= 0) throw httpError(409, 'This order is already paid')
@@ -909,7 +909,7 @@ export async function markPaid(tenantId, orderId, { method, actor }) {
 // refunded by staff at the counter.
 export async function refundOrder(tenantId, orderId, { amountPence = null, reason = null, actor, notifyGuest = true }) {
   const plan = await withTenant(tenantId, async tx => {
-    const [o] = await tx`SELECT ${ORDER_COLS} FROM orders WHERE id = ${orderId}`
+    const [o] = await tx`SELECT ${ORDER_COLS} FROM orders WHERE id = ${orderId} AND tenant_id = ${tenantId}`
     if (!o) throw httpError(404, 'Order not found')
     const refundable = o.paid_pence - o.refunded_pence
     if (refundable <= 0) throw httpError(409, 'Nothing left to refund')
@@ -957,7 +957,7 @@ export async function refundOrder(tenantId, orderId, { amountPence = null, reaso
       UPDATE orders
          SET refunded_pence = refunded_pence + ${total},
              payment_status = CASE WHEN refunded_pence + ${total} >= paid_pence THEN 'refunded' ELSE 'partially_refunded' END
-       WHERE id = ${orderId}
+       WHERE id = ${orderId} AND tenant_id = ${tenantId}
        RETURNING ${ORDER_COLS}
     `
     await addEvent(tx, u, 'refund', { detail: { amount_pence: total, reason, payments: done.map(d => ({ id: d.payment.id, gateway: d.payment.gateway, amount_pence: d.amount, ref: d.ref })) }, actor })
@@ -999,9 +999,10 @@ export async function expireStaleOrders(log) {
 
 // ── Loading for the admin and the guest ───────────────────────
 
-export async function loadAdminOrder(tx, id) {
+export async function loadAdminOrder(tx, id, tenantId) {
   const o = await loadOrderRow(tx, id)
-  if (!o) return null
+  // RLS isn't relied on (see CLAUDE.md): the order must be the caller's tenant's.
+  if (!o || o.tenant_id !== tenantId) return null
   const [items, events, payments, promos] = await Promise.all([
     loadItems(tx, id),
     tx`SELECT * FROM order_events WHERE order_id = ${id} ORDER BY created_at`,
