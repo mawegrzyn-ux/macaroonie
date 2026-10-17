@@ -9,6 +9,12 @@
 // sequencer (cloud now, venue hub later: lib/transport.js tries the hub
 // first) accepts or refuses it. Another screen's tap reaches this one through
 // the socket (pos.seq with kinds ['kitchen']) or the poll.
+//
+// Bench mode (the kitchen test bench, Bench.jsx): the screen runs inside the
+// bench page and talks to the bench's pretend kitchen instead of the server
+// (bench.transport, bench.subscribe in place of the socket). Nothing is kept
+// on the device: no IndexedDB, and its choices (station, filter) only last
+// for the browser tab, so a test never touches a real kitchen screen's data.
 
 import { useSyncExternalStore } from 'react'
 import { applyKitchenEvent, stationSettings, nodeState, STALE_HOURS } from '@shared/pos/kitchen.js'
@@ -20,6 +26,16 @@ const CONFIG_KEY = 'kds_config'
 const SNAPSHOT_KEY = 'kds_snapshot'
 const OUTBOX_KEY = 'kds_outbox'
 const PREFS_KEY = 'maca_kds_prefs'
+
+let bench = null
+let prefsKey = PREFS_KEY
+// The device's own storage, left alone in bench mode.
+const keep = {
+  get: k => (bench ? Promise.resolve(null) : idb.get(k)),
+  set: (k, v) => (bench ? Promise.resolve() : idb.set(k, v)),
+  del: k => (bench ? Promise.resolve() : idb.del(k)),
+}
+const prefsStore = () => (bench ? sessionStorage : localStorage)
 
 let state = {
   phase: 'loading',       // 'loading' | 'ready'
@@ -52,11 +68,11 @@ export function useKitchen() { return useSyncExternalStore(subscribe, getState) 
 export const nowIso = () => new Date(Date.now() + (state.offset || 0)).toISOString()
 
 function loadPrefs() {
-  try { return { ...(JSON.parse(localStorage.getItem(PREFS_KEY)) || {}) } } catch { return {} }
+  try { return { ...(JSON.parse(prefsStore().getItem(prefsKey)) || {}) } } catch { return {} }
 }
 export function setPrefs(patch) {
   const prefs = { ...state.prefs, ...patch }
-  try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)) } catch { /* private mode */ }
+  try { prefsStore().setItem(prefsKey, JSON.stringify(prefs)) } catch { /* private mode */ }
   setState({ prefs })
 }
 
@@ -120,10 +136,21 @@ export function useOrders() {
 
 // ── Start ────────────────────────────────────────────────────────
 
-export async function bootKitchen(device) {
-  api = createTransport(device)
-  const [config, snapshot, outbox] = await Promise.all([idb.get(CONFIG_KEY), idb.get(SNAPSHOT_KEY), idb.get(OUTBOX_KEY)])
+/**
+ * Start the screen. benchLink (bench mode only): { transport, subscribe }
+ * from the kitchen test bench.
+ */
+export async function bootKitchen(device, benchLink = null) {
+  if (benchLink) {
+    bench = benchLink
+    prefsKey = 'maca_kds_bench_' + device.id
+    api = benchLink.transport
+  } else {
+    api = createTransport(device)
+  }
+  const [config, snapshot, outbox] = await Promise.all([keep.get(CONFIG_KEY), keep.get(SNAPSHOT_KEY), keep.get(OUTBOX_KEY)])
   setState({
+    prefs: bench ? loadPrefs() : state.prefs,
     device, config: config || null,
     confirmed: snapshot?.orders || {}, seq: snapshot?.seq || 0, offset: snapshot?.offset || 0,
     outbox: outbox || [], phase: 'ready',
@@ -138,7 +165,7 @@ export async function loadConfig() {
     const res = await api.get('/pos-api/config' + (v ? '?version=' + encodeURIComponent(v) : ''))
     if (!res.unchanged) {
       const before = state.config
-      await idb.set(CONFIG_KEY, res)
+      await keep.set(CONFIG_KEY, res)
       setState({ config: res, online: true })
       flowNotice(before, res)
     } else setState({ online: true })
@@ -201,8 +228,9 @@ function handleError(err) {
 
 async function forget(message) {
   toast(message, 'bad', 10000)
+  if (bench) return
   stopSync()
-  await Promise.all([idb.del('device'), idb.del(CONFIG_KEY), idb.del(SNAPSHOT_KEY)])
+  await Promise.all([keep.del('device'), keep.del(CONFIG_KEY), keep.del(SNAPSHOT_KEY)])
   setTimeout(() => location.reload(), 3000)
 }
 
@@ -222,7 +250,7 @@ export function kitchen(type, payload) {
   if (!r.ok) return { ok: false, error: r.error, code: r.code }
   const outbox = [...state.outbox, e]
   setState({ outbox })
-  idb.set(OUTBOX_KEY, outbox)
+  keep.set(OUTBOX_KEY, outbox)
   scheduleFlush(0)
   return { ok: true }
 }
@@ -266,7 +294,7 @@ export async function flush() {
     }
     const outbox = state.outbox.filter(e => !answered.has(e.id))
     setState({ confirmed, outbox, online: true })
-    await idb.set(OUTBOX_KEY, outbox)
+    await keep.set(OUTBOX_KEY, outbox)
     await pull()
   } catch (err) {
     handleError(err)
@@ -335,10 +363,22 @@ export async function pull() {
 let snapTimer = null
 function saveSnapshot() {
   clearTimeout(snapTimer)
-  snapTimer = setTimeout(() => idb.set(SNAPSHOT_KEY, { seq: state.seq, orders: state.confirmed, offset: state.offset }), 600)
+  snapTimer = setTimeout(() => keep.set(SNAPSHOT_KEY, { seq: state.seq, orders: state.confirmed, offset: state.offset }), 600)
+}
+
+function onMessage(m) {
+  if (m.type === 'pos.seq' && m.from !== state.device?.id && (!m.kinds || m.kinds.includes('kitchen'))) pull()
+  else if (m.type === 'pos.config') loadConfig()
+  else if (m.type === 'pos.revoked' && m.device_id === state.device?.id) forget('This screen was removed in Till setup.')
 }
 
 function connectSocket() {
+  if (bench) {
+    // The bench tells its screens about changes straight away.
+    bench.subscribe(onMessage)
+    setState({ socket: 'open' })
+    return
+  }
   const url = api.socketUrl()
   if (!url || socket) return
   try { socket = new WebSocket(url) } catch { socket = null; return }
@@ -347,9 +387,7 @@ function connectSocket() {
   socket.onmessage = msg => {
     let m
     try { m = JSON.parse(msg.data) } catch { return }
-    if (m.type === 'pos.seq' && m.from !== state.device?.id && (!m.kinds || m.kinds.includes('kitchen'))) pull()
-    else if (m.type === 'pos.config') loadConfig()
-    else if (m.type === 'pos.revoked' && m.device_id === state.device?.id) forget('This screen was removed in Till setup.')
+    onMessage(m)
   }
   socket.onclose = () => {
     socket = null

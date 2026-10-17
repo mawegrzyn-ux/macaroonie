@@ -2562,6 +2562,22 @@ export default function Help() {
               defaults</strong> is always available if you mess something up.
             </InfoBox>
 
+            <H3>Colours on blocks and in the other builders</H3>
+            <P>
+              A block&apos;s colour (a heading, the footer, a promo, the basket, the reservations
+              widget&apos;s buttons) offers the seven theme colours first. A theme colour follows the
+              theme: change Primary on the Theme page and every block using Primary changes with it.
+              The last swatch, the rainbow, is a <strong>custom colour</strong>: tap it for your
+              device&apos;s colour picker, or type a code like #336699 in the box that appears. A
+              custom colour stays as it is when the theme changes. Tap a theme swatch to go back to
+              the theme.
+            </P>
+            <P>
+              The menu screen designer, the kiosk designer, menu tag colours and the booking email
+              editor&apos;s text colour show the same theme colours as swatches, then a custom colour.
+              The kiosk designer also has a <strong>Website colours</strong> set to start from.
+            </P>
+
             <H3>Boxed inset (margins) — customisable per step</H3>
             <P>
               The <strong>Layout</strong> card (Brand &amp; theme, tenant-wide — applies to every
@@ -3506,6 +3522,19 @@ export default function Help() {
               background, colours, fonts and price style. Save when you&apos;re done.
             </P>
             <P>
+              <strong>Grid</strong>: the grid button at the top (next to the zoom buttons) shows lines
+              over the board where blocks snap, with every fifth line darker. Zoomed out, the lines
+              are drawn every few snap steps so they don&apos;t run together. The snap step is in the
+              board panel under Snap. Your choice is remembered on this device.
+            </P>
+            <P>
+              <strong>Colours</strong>: every colour shows your website&apos;s theme colours first
+              (Website → Brand &amp; theme): tap one to use it. To use any other colour, tap the
+              square below them for your device&apos;s colour picker, or type a code like
+              #f5b301. A ticked swatch means that theme colour is in use; a ring round the square
+              means a custom colour.
+            </P>
+            <P>
               <strong>Photos and videos from your computer</strong>: drag them straight onto the board.
               Dropped on a picture (or video) block, they replace its picture; dropped anywhere else,
               they become a new block there, the photo&apos;s own shape. They go into Media too, and the
@@ -3986,6 +4015,12 @@ export default function Help() {
               <em>Not sending</em>); tap it again to start. The label follows you as you move
               between pages with the panel open. The Pepper page and the phone app don&apos;t send a
               page.
+            </P>
+            <P>
+              Every message also tells Pepper today&apos;s date and the time at your venues, wherever you
+              ask from (the panel, the Pepper page or the phone), so &quot;today&quot;, &quot;tonight&quot; and
+              &quot;Saturday&quot; mean the right day. If Pepper ever answers about the wrong day, tell it the
+              date and it will look again.
             </P>
             <H3>Your day in one go</H3>
             <P>
@@ -4589,6 +4624,22 @@ export default function Help() {
               for a manager to sort out and mark dealt with.
             </P>
 
+            <H3>Updates to the till app</H3>
+            <P>
+              Tills, kitchen screens and kiosks keep a copy of the app so they open without the internet. When
+              we release a new version, each device fetches it in the background (within 30 minutes, or as soon
+              as its screen comes back on) and switches to it at a quiet moment: a till when nobody is signed
+              in, a kiosk when it&apos;s back on its start screen with nothing in the basket, a kitchen screen
+              when nobody has touched it for 30 seconds. Nothing waiting to be sent is lost. To switch at once,
+              close the app and open it again.
+            </P>
+            <P>
+              If a kiosk or kitchen screen ever shows the till&apos;s <strong>Type your PIN</strong> screen
+              after pairing, it was still running an older copy of the app (a device that had opened the till
+              address before kiosks arrived did this once): reload the page and it opens as it should. The app
+              now checks with the server what each device is, so this can&apos;t happen again.
+            </P>
+
             <H3>End of day</H3>
             <P>
               <strong>Reports</strong> on the till shows today's figures so far (X report). <strong>Close the day (Z)</strong>{' '}
@@ -4662,6 +4713,23 @@ export default function Help() {
               Set a USB or Bluetooth bump bar to send those keys.
             </InfoBox>
 
+            <H3>Testing the kitchen</H3>
+            <P>
+              Try a kitchen flow before service without touching the real screens. In Till setup → Kitchen
+              screens, <strong>Test the kitchen</strong> → <strong>Open the kitchen test</strong> opens a new window
+              with every kitchen screen of the venue side by side, scaled down. They are the real kitchen screen,
+              working on pretend orders: nothing you do there reaches the kitchen screens, the tills, the online
+              orders board or the reports, and nothing is saved.
+            </P>
+            <ul className="list-disc ml-5 space-y-2 text-sm text-muted-foreground mb-4">
+              <li><strong>Test order</strong>: pick dishes, where it comes from (the till or online), the order type, the revenue stream, and a table or the counter. With dishes in different courses, <strong>Hold later courses</strong> keeps them back until you press <strong>Fire</strong> on the order. A combo's choices are picked at random.</li>
+              <li><strong>Made-up order</strong> sends one order made up from your menus; <strong>Rush: 5 orders</strong> sends five at once. <strong>Clear all</strong> takes every test order off.</li>
+              <li>Tap and bump on the screens as you would in the kitchen. The <strong>Orders</strong> list on the right shows where each dish is on its way (green done, amber there now, grey still to come), the order ready boards' numbers, and an X to void a dish. <strong>Activity</strong> lists every tap, which screen made it, and anything refused.</li>
+              <li><strong>Kitchen flow</strong> switches the flow for the test (also from a screen's flow button): orders sent after it go the new way, orders already there keep theirs. It doesn't change the flow in use in the real kitchen.</li>
+              <li><strong>Screens</strong>: <strong>As set up</strong> shows your kitchen screens with their stations; <strong>One per station</strong> shows one screen for each station. <strong>Size</strong> (tablet, TV, upright), <strong>Across</strong> (screens per row) and the arrows button (one screen bigger) change the view. <strong>Online / Offline</strong> on a screen pretends its Wi-Fi went: its taps wait and go when it's back.</li>
+              <li>Changes made in Till setup while the test is open show after <strong>Reload setup</strong> (which also clears the test orders). The link works for 8 hours; open it again from Till setup after that. View on Till setup is enough.</li>
+            </ul>
+
             <H3>Order ready board</H3>
             <P>
               To show guests their order numbers, add an <strong>Order status</strong> block to a board on the{' '}
@@ -4712,7 +4780,7 @@ export default function Help() {
             <DataTable
               head={['Card', 'What you set']}
               rows={[
-                ['Brand', 'Logo, colours (start from a set: Fresh, Red and gold, Night, Ocean, Plain, then change any), the fonts for headings and text, headings in capitals, rounded corners. Colours that are hard to read together are pointed out.'],
+                ['Brand', 'Logo, colours (start from a set: Website colours (your website theme\'s), Fresh, Red and gold, Night, Ocean, Plain, then change any: each colour offers the website\'s colours as swatches, or a custom one), the fonts for headings and text, headings in capitals, rounded corners. Colours that are hard to read together are pointed out.'],
                 ['Start screen', 'Pictures apart from the buttons or behind them; pictures and videos taking turns (drag to order, up to 8); the headline and the question; each order type\'s words, icon or picture; the Allergens button.'],
                 ['Languages', 'The language your menu is written in, and the languages guests can pick (flags on the start screen).'],
                 ['Menu', 'A home page with banners and featured tiles (each can open a section or a dish); sections down the side with pictures or words only; dishes per row; descriptions, calories, dietary badges and quick add; sections left off the kiosk.'],

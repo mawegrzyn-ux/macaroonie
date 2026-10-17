@@ -92,6 +92,13 @@ function resolveWidgetDefaults(widgetSettings, themeColours) {
   for (const k of colourFields) {
     out[k] = resolveRoleHex(ws[k], themeColours)
   }
+  /* The confirmation page's buttons too (a role name reached the page as
+     '#primary', so the button lost its colour). */
+  if (Array.isArray(ws.confirmation_ctas)) {
+    out.confirmation_ctas = ws.confirmation_ctas.map(c => (c && typeof c === 'object')
+      ? { ...c, bg: resolveRoleHex(c.bg, themeColours), fg: resolveRoleHex(c.fg, themeColours) }
+      : c)
+  }
   return out
 }
 

@@ -22,6 +22,7 @@ import { soldOutMap as sharedSoldOutMap } from '@shared/pos/offers.js'
 import * as idb from './idb.js'
 import { createTransport, OfflineError } from './transport.js'
 import { printTickets } from './print.js'
+import { checkForUpdate } from './appUpdate.js'
 
 const OUTBOX_KEY = 'outbox'
 // v170: checks gained order types and revenue streams (migration 170); an older snapshot is dropped and pulled again.
@@ -134,12 +135,10 @@ export function printConfig(config = state.config, device = state.device) {
 export async function boot() {
   const device = await idb.get(DEVICE_KEY)
   if (!device?.id) { setState({ phase: 'pair' }); return }
-  // Paired as a kitchen screen: the kitchen app (src/kitchen) takes over;
-  // as a self-order kiosk, the kiosk app (src/kiosk).
-  if (device.kind === 'kds') { setState({ device, phase: 'kitchen' }); return }
-  if (device.kind === 'kiosk') { setState({ device, phase: 'kiosk' }); return }
+  if (openOtherApp(device)) return
   api = createTransport(device)
   const [config, snapshot, outbox] = await Promise.all([idb.get(CONFIG_KEY), idb.get(SNAPSHOT_KEY), idb.get(OUTBOX_KEY)])
+  if (config?.device?.kind && config.device.kind !== (device.kind || 'terminal')) { await relabel(device, config.device.kind); return }
   setState({
     device, config: config || null,
     confirmed: snapshot?.checks || {}, seq: snapshot?.seq || 0, day: snapshot?.day || null,
@@ -147,12 +146,44 @@ export async function boot() {
     phase: config ? 'ready' : 'loading',
   })
   await loadConfig()
+  if (OTHER_APPS.includes(state.phase)) return
   if (!state.config) {
     setState({ phase: 'ready' })   // shows the "can't reach" screen
     return
   }
   setState({ phase: 'ready' })
   startSync()
+}
+
+const OTHER_APPS = ['kitchen', 'kiosk', 'update']
+
+/**
+ * A device paired as a kitchen screen runs the kitchen app (src/kitchen), a
+ * self-order kiosk the kiosk app (src/kiosk). A kind this copy of the app
+ * doesn't know waits for a newer copy (lib/appUpdate.js): never run it as a till.
+ */
+function openOtherApp(device) {
+  if (device.kind === 'kds') { setState({ device, phase: 'kitchen' }); return true }
+  if (device.kind === 'kiosk') { setState({ device, phase: 'kiosk' }); return true }
+  if (device.kind && device.kind !== 'terminal') {
+    setState({ device, phase: 'update' })
+    checkForUpdate()
+    return true
+  }
+  return false
+}
+
+/**
+ * The server knows this device as another kind than the one saved here (an
+ * older copy of the app saved a kiosk as a till): save the right kind and
+ * open its app. The till's copy of the config was that device's config.
+ */
+async function relabel(device, kind) {
+  stopSync()
+  const fixed = { ...device, kind }
+  await Promise.all([idb.set(DEVICE_KEY, fixed), idb.del(CONFIG_KEY), idb.del(SNAPSHOT_KEY)])
+  setState({ config: null, staff: null })
+  openOtherApp(fixed)
 }
 
 export async function pair(code) {
@@ -175,6 +206,8 @@ export async function loadConfig() {
   try {
     const v = state.config?.version
     const res = await api.get('/pos-api/config' + (v ? '?version=' + encodeURIComponent(v) : ''))
+    const kind = res.device?.kind
+    if (kind && state.device && kind !== (state.device.kind || 'terminal')) { await relabel(state.device, kind); return }
     if (!res.unchanged) {
       await idb.set(CONFIG_KEY, res)
       setState({ config: res, online: true })
@@ -226,7 +259,7 @@ export async function staffForPin(pin) {
   if (!state.config || !/^[0-9]{4,6}$/.test(pin)) return null
   const find = async cfg => {
     const hash = await hashPin(pin, cfg.pin_salt)
-    return cfg.staff.find(s => s.pin_hash && s.pin_hash === hash) || null
+    return (cfg.staff || []).find(s => s.pin_hash && s.pin_hash === hash) || null
   }
   const found = await find(state.config)
   if (found || state.online === false || Date.now() - lastPinRefresh < 5000) return found

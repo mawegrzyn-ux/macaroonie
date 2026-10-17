@@ -9,6 +9,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { ColourPicker } from '@/components/ColourPicker'
 import { SCREEN_LAYOUT_CSS, boardContext, renderBoardHtml, screenFontsUrl, boardFonts } from '@shared/screenLayout.js'
 
 export const errorText = e => e?.body?.error || e?.message || 'Something went wrong'
@@ -117,30 +118,9 @@ export const FITS = [
 ]
 
 /** Colour picker with a hex box; `optional` adds "Board colour" (null). */
+/** A board colour: the website theme's colours, then a custom one. */
 export function ColourField({ label, value, onChange, optional = false, placeholder = 'Board colour' }) {
-  const [text, setText] = useState(value || '')
-  useEffect(() => setText(value || ''), [value])
-  const hex = /^#[0-9a-f]{6}$/i.test(value || '') ? value : '#000000'
-  return (
-    <div>
-      {label && <p className="text-[11px] text-muted-foreground mb-0.5">{label}</p>}
-      <div className="flex items-center gap-1.5">
-        <input type="color" value={hex} onChange={e => onChange(e.target.value)} aria-label={label}
-          className="w-11 h-10 rounded-md border bg-background p-1 touch-manipulation shrink-0" />
-        <input value={text} placeholder={optional ? placeholder : '#000000'} aria-label={(label || 'Colour') + ' code'}
-          onChange={e => {
-            const t = e.target.value.trim()
-            setText(t)
-            if (/^#[0-9a-f]{6}$/i.test(t)) onChange(t)
-            else if (!t && optional) onChange(null)
-          }}
-          className="flex-1 min-w-0 h-10 rounded-md border bg-background px-2 text-sm font-mono touch-manipulation" />
-        {optional && value && (
-          <button type="button" onClick={() => onChange(null)} className="h-10 px-2 text-xs rounded-md border hover:bg-muted touch-manipulation shrink-0">Reset</button>
-        )}
-      </div>
-    </div>
-  )
+  return <ColourPicker label={label} value={value} onChange={onChange} optional={optional} placeholder={placeholder} />
 }
 
 /** Whole-number box that keeps what was typed while focused. */

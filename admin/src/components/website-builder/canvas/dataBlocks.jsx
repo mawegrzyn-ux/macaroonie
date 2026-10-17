@@ -20,6 +20,7 @@ import { comboMenuPrice } from '@shared/orderPricing.js'
 import { useBlockAvailability } from './BlockInserter'
 import { InlineText } from './InlineText'
 import { innerContainerStyle } from '../boxedLayout'
+import { inkOn } from '@/components/ColourPicker'
 
 // ── Shared helpers ────────────────────────────────────────
 
@@ -697,7 +698,8 @@ export function PromoCtaCanvas({ data, onChange }) {
       </section>
     )
   }
-  const lightBg = ['background', 'surface', 'border'].includes(data.bg)
+  // Same rule as promo_cta.eta: a light theme role, or a light custom colour.
+  const lightBg = ['background', 'surface', 'border'].includes(data.bg) || (/^#[0-9a-fA-F]{6}$/.test(data.bg || '') && inkOn(data.bg) === '#000000')
   const bg = promoColour(data.bg || 'primary', 'var(--c-primary)')
   const fg = promoColour(data.fg, lightBg ? 'var(--c-text)' : '#fff')
   const card = data.style === 'card'

@@ -11,7 +11,9 @@ const { as, sql, ok, closeApp } = await import('./support/app.mjs')
 const { resetAndSeed, A, B } = await import('./support/seed.mjs')
 const { searchHelp, helpPassages } = await import('../src/ai/helpIndex.js')
 const { helpSlug } = await import('../../shared/help.js')
-const { longDate } = await import('../src/ai/tools/util.js')
+const { longDate, localParts } = await import('../src/ai/tools/util.js')
+// The app's first hidden line on every staff message (contextNote() in ai/chat.js).
+const NOW_LINE = /^\[Now: [A-Z][a-z]+day,? \d{1,2} [A-Z][a-z]+ \d{4} \(\d{4}-\d{2}-\d{2}\), \d{2}:\d{2}\.\]$/
 
 const text = s => [{ type: 'text', text: s }]
 let ids, owner, venue, venueB
@@ -152,13 +154,15 @@ test('the page goes to the model as a line before the message, hidden from the c
   assert.equal(res.status, 200, res.body)
   const sent = lastUser().content
   assert.deepEqual(sent.map(b => b.type), ['text', 'text'])
-  assert.equal(sent[0].text, '[Sent from the Rota page (/rota), showing venue Ware (venue_id ' + venue.id +
+  const [nowLine, pageLine] = sent[0].text.split('\n')
+  assert.match(nowLine, NOW_LINE)
+  assert.equal(pageLine, '[Sent from the Rota page (/rota), showing venue Ware (venue_id ' + venue.id +
     '), the week starting ' + longDate('2026-10-19') + ' (2026-10-19).]')
-  assert.equal(sent[0]._page, undefined, 'our marker is not sent')
+  assert.equal(sent[0]._context, undefined, 'our marker is not sent')
   assert.equal(sent[1].text, 'Who is on this week?')
   const out = res.json
   const stored = await storedLast(out.conversation_id)
-  assert.equal(stored[0]._page, true)
+  assert.equal(stored[0]._context, true)
   assert.deepEqual(out.items.filter(i => i.type === 'user').map(i => i.text), ['Who is on this week?'])
   const conv = await ok(owner.get('/api/ai/conversations/' + out.conversation_id))
   assert.ok(!conv.items.some(i => /Sent from/.test(i.text || '')))
@@ -168,11 +172,11 @@ test('the page goes to the model as a line before the message, hidden from the c
 test('a day page, a subpage and the longest matching route', async () => {
   claude.script.push(() => ({ stop_reason: 'end_turn', content: text('Ok.') }))
   await ok(owner.post('/api/ai/chat', { message: 'What is missing?', page: { path: '/food-safety', venue_id: venue.id, date: '2026-10-19' } }))
-  assert.equal(lastUser().content[0].text, '[Sent from the Food safety page (/food-safety), showing venue Ware (venue_id ' + venue.id +
+  assert.equal(lastUser().content[0].text.split('\n')[1], '[Sent from the Food safety page (/food-safety), showing venue Ware (venue_id ' + venue.id +
     '), ' + longDate('2026-10-19') + ' (2026-10-19).]')
   claude.script.push(() => ({ stop_reason: 'end_turn', content: text('Ok.') }))
   await ok(owner.post('/api/ai/chat', { message: 'Explain this', page: { path: '/rota/setup' } }))
-  assert.equal(lastUser().content[0].text, '[Sent from the Rota setup page (/rota/setup).]')
+  assert.equal(lastUser().content[0].text.split('\n')[1], '[Sent from the Rota setup page (/rota/setup).]')
 })
 
 test('another tenant\'s venue id is refused; a page with nothing known adds no line', async () => {
@@ -183,7 +187,10 @@ test('another tenant\'s venue id is refused; a page with nothing known adds no l
   assert.equal(claude.requests.length, before)
   claude.script.push(() => ({ stop_reason: 'end_turn', content: text('Ok.') }))
   await ok(owner.post('/api/ai/chat', { message: 'Hello there', page: { path: '/nowhere-known' } }))
-  assert.deepEqual(lastUser().content.map(b => b.text), ['Hello there'])
+  const texts = lastUser().content.map(b => b.text)
+  assert.equal(texts.length, 2)
+  assert.match(texts[0], NOW_LINE, 'only the date line, no page line')
+  assert.equal(texts[1], 'Hello there')
 })
 
 test('pageNote never names another tenant\'s venue', async () => {
@@ -208,4 +215,42 @@ test('the page line is only in the staff chat\'s instructions', async () => {
   const system = claude.requests[claude.requests.length - 1].body.system
   const all = (Array.isArray(system) ? system.map(b => b.text).join('\n') : system)
   assert.match(all, /The page they are on/)
+})
+
+// ── Today's date ────────────────────────────────────────
+
+test('every staff message starts with the date and time now at the venue, hidden from the chat', async () => {
+  const before = localParts(new Date(), 'Europe/London')
+  claude.script.push(() => ({ stop_reason: 'end_turn', content: text('Nothing booked.') }))
+  const res = await owner.post('/api/ai/chat', { message: 'Anything on today?' })
+  assert.equal(res.status, 200, res.body)
+  const after = localParts(new Date(), 'Europe/London')
+  const sent = lastUser().content
+  const expected = p => '[Now: ' + longDate(p.date) + ' (' + p.date + '), ' + p.time + '.]'
+  assert.ok([expected(before), expected(after)].includes(sent[0].text), sent[0].text)
+  assert.equal(sent[1].text, 'Anything on today?')
+  const conv = await ok(owner.get('/api/ai/conversations/' + res.json.conversation_id))
+  assert.ok(!conv.items.some(i => /\[Now:/.test(i.text || '')), 'not shown in the chat')
+  assert.equal(conv.title, 'Anything on today?')
+  const system = claude.requests[claude.requests.length - 1].body.system
+  const all = Array.isArray(system) ? system.map(b => b.text).join('\n') : system
+  assert.match(all, /never guess a date/)
+  assert.ok(!/\[Now: [A-Z]/.test(all), 'the system prompt holds no date (it is cached and replayed)')
+})
+
+test('day_overview without a date is today at the venue', async () => {
+  const today = localParts(new Date(), 'Europe/London').date
+  const { json } = await callTool('day_overview', { venue_id: venue.id })
+  assert.equal(json.date, today)
+  assert.equal(json.day, longDate(today))
+})
+
+test('venues in different time zones each get their own date', async () => {
+  const { nowNote } = await import('../src/ai/chat.js')
+  // 23:30 UTC on 17 Oct 2026: already Sunday in London (summer time), still Saturday in New York.
+  const at = new Date('2026-10-17T23:30:00Z')
+  assert.equal(await nowNote(ids.b, at), '[Now: ' + longDate('2026-10-18') + ' (2026-10-18), 00:30.]')
+  await ok(as(B.owner, ids.b).post('/api/venues', { name: 'Brooklyn', slug: 'brooklyn', timezone: 'America/New_York' }))
+  assert.equal(await nowNote(ids.b, at),
+    '[Now: ' + longDate('2026-10-17') + ' (2026-10-17), 19:30 at Brooklyn; ' + longDate('2026-10-18') + ' (2026-10-18), 00:30 at Elsewhere.]')
 })

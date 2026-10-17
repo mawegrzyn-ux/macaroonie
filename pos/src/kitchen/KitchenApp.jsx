@@ -29,6 +29,7 @@ import {
   useKitchen, useOrders, useCfg, bootKitchen, nowIso, myStations, currentStation, setPrefs, bump, recall, itemDone,
   remake, priority, collected, unlockAudio, chime, loadConfig, toast, activeFlow, switchFlow,
 } from './store.js'
+import { whenSafeToReload, idleFor } from '../lib/appUpdate.js'
 
 const cx = (...p) => p.filter(Boolean).join(' ')
 
@@ -44,15 +45,16 @@ function useWidth() {
 }
 
 /** Keep the screen on while the kitchen screen is open. */
-function useWakeLock() {
+function useWakeLock(on = true) {
   useEffect(() => {
+    if (!on) return undefined
     let lock = null
     const get = async () => { try { lock = await navigator.wakeLock?.request('screen') } catch { lock = null } }
     get()
     const onVis = () => { if (!document.hidden) get() }
     document.addEventListener('visibilitychange', onVis)
     return () => { document.removeEventListener('visibilitychange', onVis); try { lock?.release() } catch { /* ignore */ } }
-  }, [])
+  }, [on])
 }
 
 const TEXT = {
@@ -77,9 +79,14 @@ const TYPE_COLOURS = ['bg-[#9be7a1] text-black', 'bg-[#25a7a7] text-white', 'bg-
 
 const REMAKE_REASONS = ['Dropped', 'Wrong dish', 'Undercooked', 'Cold', 'Sent back', 'Other']
 
-export default function KitchenApp({ device }) {
-  useEffect(() => { bootKitchen(device) }, [device])
-  useWakeLock()
+// bench: the kitchen test bench's link when this screen runs inside it
+// (Bench.jsx): its orders come from the bench's pretend kitchen.
+export default function KitchenApp({ device, bench = null }) {
+  useEffect(() => { bootKitchen(device, bench) }, [device, bench])
+  useWakeLock(!bench)
+  // A new copy of the app (lib/appUpdate.js) goes in once nobody has touched
+  // the screen for 30 seconds; taps not sent yet stay in the outbox.
+  useEffect(() => (bench ? undefined : whenSafeToReload(() => idleFor(30000))), [bench])
   const s = useKitchen()
   useEffect(() => {
     const unlock = () => unlockAudio()

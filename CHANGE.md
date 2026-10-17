@@ -5,6 +5,30 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-17 — Screen designer grid; theme colours and custom colours in every builder]
+
+- **The screen designer's grid button now shows the grid.** The lines were drawn so thin they disappeared at the zoom the designer opens at. They now show at any zoom (spaced out when zoomed out, every fifth line darker), the button looks pressed while the grid is on, and your choice is remembered on the device.
+- **Colours offer your website's theme colours, plus a custom colour.** The screen designer (board and block colours), the kiosk designer, menu tag colours and the booking email editor's text colour show your website's theme colours as swatches to tap, then a custom colour (your device's colour picker or a typed code like #f5b301). The kiosk designer also has a **Website colours** set to start from.
+- **The website builder's colours get a custom colour too**: after the seven theme colours, the rainbow swatch picks any colour. Theme colours still follow the theme; a custom colour stays as chosen.
+- **Fixes**: the website footer ignored anything but a theme colour; a promo block on a light custom background now uses dark text; the reservations widget's confirmation buttons set in Reservations widget settings lost their colour. No migration.
+
+## [2026-10-17 — Fix: Pepper answering about the wrong day]
+
+- **Pepper said "the app's clock says today is Saturday 10 October" and gave last Saturday's orders.** The app's clock was right: Pepper had no way of knowing the date unless it looked the venues up first, so for one question it guessed a date and then blamed the clock. Every message to Pepper now tells it today's date and the time at your venues (each venue's own when they are in different time zones), and the day overview it uses for bookings looks at today unless asked for another day. No migration.
+
+## [2026-10-17 — Fix: a kiosk asking for a PIN after pairing; tills update themselves]
+
+- **A kiosk paired on a device that had opened the till address before kiosks arrived showed the till's PIN screen**, and typing a PIN gave "Cannot read properties of undefined". That device was still running the older copy of the till app it kept for working offline, which didn't know kiosks. Reloading the page fixes such a device. The app now also asks the server what each device is (till, kitchen screen or kiosk) and opens the right screens even if an older copy saved it wrongly.
+- **Tills, kitchen screens and kiosks pick up new versions by themselves**: each fetches a new version in the background and switches to it at a quiet moment (a till when nobody is signed in, a kiosk back on its start screen, a kitchen screen nobody has touched for 30 seconds). Before, a device kept the old version until someone closed and reopened it. No migration.
+
+## [2026-10-17 — Test the kitchen: every kitchen screen on one page]
+
+- **Try your kitchen flow before service**: Till setup → Kitchen screens → **Test the kitchen** opens a new window with every kitchen screen of the venue side by side, scaled down. They are the real kitchen screens working on pretend orders: nothing reaches the kitchen, the tills, the online orders board or the reports.
+- **Send test orders**: build one (dishes, till or online, order type, revenue stream, table or counter, later courses held until you fire them), send a made-up one, or five at once. Then tap and bump on the screens as in the kitchen.
+- **See where every dish is**: the Orders list shows each dish's way through the stations (done, there now, still to come), the order ready boards' numbers, and lets you void a dish. Activity lists every tap and which screen made it.
+- **Switch the flow, take a screen offline**: try another kitchen flow (new orders go the new way), see a screen's taps wait while it's offline and go when it's back, show screens as set up or one per station, as a tablet, TV or upright screen, one bigger.
+- View on Till setup is enough to open it. No migration.
+
 ## [2026-10-17 — Fix: custom domains taken offline after the last update]
 
 - **Custom domains (e.g. onethai.com) came back with a certificate warning** after the previous update. The server job that keeps custom domains switched on reads the saved domains from the database; the tighter database protection in that update hid them from it, so it took every custom domain off the server and deleted its certificate. The job now reads them the way the app's own background jobs do, and it no longer changes anything when it can't see any websites at all.

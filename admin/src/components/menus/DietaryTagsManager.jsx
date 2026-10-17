@@ -20,6 +20,7 @@ import { cn } from '@/lib/utils'
 import { Modal, SortableRows } from '@/components/staff/shared'
 import { STANDARD_ALLERGENS, noticeOf } from '@shared/menuTags.js'
 import { Card, Field, Input, TextArea, Btn } from './shared'
+import { Swatch, useThemeColours } from '@/components/ColourPicker'
 
 const EMPTY = { code: '', label: '', glyph: '', colour: '#7a1a26', show_on_menu: true }
 const SWATCHES = ['#7a1a26', '#b91c1c', '#c2410c', '#a16207', '#4d7c0f', '#15803d', '#0f766e', '#1d4ed8', '#6d28d9', '#374151']
@@ -309,6 +310,7 @@ export function TagChip({ tag, size = 'w-7 h-7', star = false }) {
 function TagModal({ tag, kind: newKind, tags, onClose }) {
   const api = useApi()
   const qc  = useQueryClient()
+  const theme = useThemeColours()
   const isNew = !tag
   const [form, setForm] = useState(isNew
     ? { ...EMPTY, kind: newKind }
@@ -397,6 +399,14 @@ function TagModal({ tag, kind: newKind, tags, onClose }) {
         </Field>
       </div>
       <Field label="Colour">
+        {theme.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1 mb-2" role="group" aria-label="Website colours">
+            {theme.map(s => (
+              <Swatch key={s.key} hex={s.hex} label={'Website ' + s.label.toLowerCase()} size="lg"
+                active={form.colour?.toLowerCase() === s.hex} onClick={() => set('colour', s.hex)} />
+            ))}
+          </div>
+        )}
         <div className="flex flex-wrap items-center gap-2">
           {SWATCHES.map(c => (
             <button key={c} type="button" onClick={() => set('colour', c)} title={c}
@@ -404,7 +414,7 @@ function TagModal({ tag, kind: newKind, tags, onClose }) {
               style={{ background: c }} />
           ))}
           <input type="color" value={form.colour} onChange={e => set('colour', e.target.value)}
-            className="w-11 h-9 border rounded cursor-pointer" title="Pick any colour" />
+            className="w-11 h-9 border rounded cursor-pointer" title="Custom colour" aria-label="Custom colour" />
         </div>
       </Field>
       <Field label="On menus">

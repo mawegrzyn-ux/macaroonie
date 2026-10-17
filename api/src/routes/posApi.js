@@ -8,6 +8,7 @@
 //
 //   POST /pair                  { code } -> { device_id, secret, ... }   (no auth)
 //   GET  /kiosk-preview?token=  a kiosk design's preview config (the signed link is the key, services/kioskSvc.js)
+//   GET  /kitchen-test?token=   the kitchen test bench's data (signed link, services/kitchenSvc.js kitchenTestData())
 //   GET  /me                    this till and its venue
 //   GET  /config?version=       everything the till needs offline (unchanged: true when version matches);
 //                               a kitchen screen (kind 'kds') gets the kitchen's config instead, a
@@ -48,7 +49,7 @@ import { KITCHEN_SERVER_EVENTS } from '../../../shared/pos/kitchen.js'
 import { CHECK_EVENTS } from '../../../shared/pos/checks.js'
 import { kioskConfig, readPreviewToken, previewDevice } from '../services/kioskSvc.js'
 import { setSoldOut, soldOutItemIds, announceSoldOut } from '../services/soldOut.js'
-import { kdsConfig, kitchenSync, onlineMoves, switchFlow } from '../services/kitchenSvc.js'
+import { kdsConfig, kitchenSync, onlineMoves, switchFlow, readKitchenTestToken, kitchenTestData } from '../services/kitchenSvc.js'
 import { changeStatus } from '../services/orderSvc.js'
 
 const UUID = z.string().uuid()
@@ -179,6 +180,17 @@ export default async function posApiRoutes(app) {
       if (!d) throw httpError(404, 'Kiosk design not found')
       return kioskConfig(tx, p.tenantId, p.venueId, device, { preview: true })
     })
+  })
+
+  // The kitchen test bench (Till setup > Kitchen screens > Test the kitchen):
+  // the link the admin made is the key (8 hours). It only reads the venue's
+  // kitchen setup and dishes; the bench runs its pretend kitchen in the
+  // browser, so test orders never reach the real screens or the reports.
+  app.get('/kitchen-test', { config: { rateLimit: { max: 60, timeWindow: '1 minute' } } }, async req => {
+    const p = await readKitchenTestToken(req.query.token)
+    if (!p) throw httpError(401, 'This test link has run out: open Test the kitchen again from Till setup')
+    const data = await withTenant(p.tenantId, tx => kitchenTestData(tx, p.tenantId, p.venueId))
+    return { ...data, expires_at: p.expiresAt }
   })
 
   app.register(async scoped => {

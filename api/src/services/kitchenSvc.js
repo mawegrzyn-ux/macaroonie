@@ -26,6 +26,9 @@
 //   announceKitchen()       tell the venue's screens to sync
 //   boardFor()              order ready board numbers for a venue (all
 //                           counter / online orders, and per board station)
+//   kitchenTestToken() / readKitchenTestToken() / kitchenTestData()
+//                           the kitchen test bench's signed link and what it
+//                           works from (pos/src/kitchen/Bench.jsx)
 //
 // Every query filters tenant_id itself.
 
@@ -36,6 +39,7 @@ import { ulid } from '../../../shared/pos/ids.js'
 import { onlineOrderId, gloriaFoodOrderId, stationSettings, boardNumbers, STALE_HOURS, BUMP_KINDS } from '../../../shared/pos/kitchen.js'
 import { typeLabel as gfTypeLabel, TYPE_LABELS as GF_TYPE_LABELS } from '../../../shared/gloriafood.js'
 import { createHash } from 'node:crypto'
+import { makeLink, readLink } from './previewLinks.js'
 
 const by = (rows, f = r => r) => Object.fromEntries(rows.map(r => [r.id, f(r)]))
 
@@ -203,6 +207,69 @@ export async function kdsConfig(tx, tenantId, venueId) {
   }
   config.version = createHash('sha256').update(JSON.stringify(config)).digest('hex').slice(0, 16)
   return config
+}
+
+// ── The kitchen test bench ───────────────────────────────────────
+//
+// Till setup > Kitchen screens > Test the kitchen opens a page on the till
+// app (pos/src/kitchen/Bench.jsx) with every kitchen screen of a venue side
+// by side. The bench runs its own pretend kitchen in the browser with the
+// shared rules (shared/pos/kitchen.js): test orders never reach the real
+// screens, the sequencer or the reports. The signed link is the key (no
+// pairing), and only reads.
+
+const BENCH_HOURS = 8
+
+export function kitchenTestToken({ tenantId, venueId }) {
+  return makeLink('kitchen_test', { t: tenantId, v: venueId }, BENCH_HOURS)
+}
+
+export async function readKitchenTestToken(token) {
+  const p = await readLink('kitchen_test', token)
+  return p ? { tenantId: p.t, venueId: p.v, expiresAt: p.expires_at } : null
+}
+
+/**
+ * What the bench works from: the kitchen screen's config (stations, order
+ * types, courses), every flow with its links, the venue's kitchen screens,
+ * tables, revenue streams and the live menus' dishes (names and where they
+ * sit, no prices).
+ */
+export async function kitchenTestData(tx, tenantId, venueId) {
+  const { tillMenuData } = await import('./posSvc.js')
+  const { loadStreams } = await import('./taxSvc.js')
+  const base = await kdsConfig(tx, tenantId, venueId)
+  if (!base.venue?.id) throw httpError(404, 'Venue not found')
+  const stations = await loadStations(tx, tenantId, venueId)
+  const flows = await loadFlows(tx, tenantId, venueId)
+  const links = await Promise.all(flows.map(f => loadFlow(tx, tenantId, f.id, stations)))
+  const [screens, tables, streams] = await Promise.all([
+    tx`SELECT id, name, short_code, settings FROM pos_devices
+        WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND kind = 'kds' AND revoked_at IS NULL
+        ORDER BY created_at`,
+    tx`SELECT id, label FROM tables WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND NOT is_unallocated ORDER BY sort_order, label`,
+    loadStreams(tx, tenantId, venueId, { activeOnly: true }),
+  ])
+  const { menus, items, section_items } = await tillMenuData(tx, tenantId, venueId, streams, { allStreams: streams })
+  const dish = it => ({
+    id: it.id, name: it.name, kitchen_name: it.kitchen_name, section_id: it.section_id,
+    course_id: it.course_id, kind: it.kind, combo: it.combo,
+  })
+  return {
+    venue: base.venue,
+    settings: base.settings,
+    stations: base.stations,
+    courses: base.courses,
+    order_types: base.order_types,
+    flows: flows.map((f, i) => ({ id: f.id, name: f.name, station_ids: base.flows[i]?.station_ids || [], links: links[i] })),
+    active_flow_id: base.active_flow_id,
+    screens: screens.map(s => ({ id: s.id, name: s.name, short_code: s.short_code, settings: s.settings || {} })),
+    tables: tables.map(t => ({ id: t.id, label: t.label })),
+    streams: streams.map(r => ({ id: r.id, name: r.name })),
+    menus: menus.map(m => ({ id: m.id, name: m.name, sections: m.sections.map(s => ({ id: s.id, title: s.title, item_ids: s.item_ids })) })),
+    items: Object.fromEntries(Object.values(items).map(it => [it.id, dish(it)])),
+    section_items,
+  }
 }
 
 /**

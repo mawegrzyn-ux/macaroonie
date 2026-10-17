@@ -3130,6 +3130,31 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               clear message without it, <Mono>PinPad</Mono> shows any error instead of hanging on "Checking", and{' '}
               <Mono>routes/posSite.js</Mono> sends the pos host from http:// (X-Forwarded-Proto) to https://.
             </P>
+            <H3>Device kinds and app updates</H3>
+            <P>
+              One app at <Mono>pos.&lt;domain&gt;</Mono> serves tills, kitchen screens and kiosks;{' '}
+              <Mono>boot()</Mono> in <Mono>pos/src/lib/store.js</Mono> picks by the saved device's kind
+              (<Mono>openOtherApp()</Mono>: <Mono>kds</Mono> the kitchen app, <Mono>kiosk</Mono> the kiosk app, any
+              other kind but <Mono>terminal</Mono> the "Getting the latest app" screen, never the till). The server
+              has the last word: every <Mono>/pos-api/config</Mono> reply carries <Mono>device.kind</Mono>, and when it
+              (or a cached config's) differs from the saved kind, <Mono>relabel()</Mono> saves the right kind, drops the
+              till's cached config and opens that app. A copy of the app from before kiosks (17 Oct 2026) ran a newly
+              paired kiosk as a till: its PIN screen failed with "Cannot read properties of undefined (reading
+              'find')" because a kiosk's config has no staff (<Mono>staffForPin()</Mono> now reads{' '}
+              <Mono>cfg.staff || []</Mono>).
+            </P>
+            <P>
+              The service worker (<Mono>vite-plugin-pwa</Mono>, <Mono>pos/vite.config.js</Mono>, autoUpdate +
+              skipWaiting) keeps the app on the device, so a device runs the copy it started with until the page
+              loads again. <Mono>pos/src/lib/appUpdate.js</Mono> registers <Mono>/sw.js</Mono> itself (the plugin's{' '}
+              <Mono>injectRegister</Mono> is off), asks for a new copy every 30 minutes and when the page becomes
+              visible, and after a <Mono>controllerchange</Mono> (not the first one on a device) reloads when the
+              screen on show says it's safe: <Mono>whenSafeToReload(fn)</Mono>, last registered wins. The till: pair,
+              update, or nobody signed in and 10 s without a touch (<Mono>idleFor()</Mono>); the kiosk: start screen,
+              empty basket, no dish open, 10 s; a kitchen screen: 30 s without a touch. Unsent events stay in
+              IndexedDB. Kiosk design previews and the kitchen test bench never register or reload
+              (<Mono>pos/src/main.jsx</Mono>).
+            </P>
             <H3>Prices, VAT and offers</H3>
             <P>
               <Mono>shared/pos/pricing.js</Mono>: <Mono>priceItem()</Mono> (unit price + modifiers: prefixes No /
@@ -3309,6 +3334,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['PATCH / DELETE /api/pos/kds-flows/:id', 'Rename ({ name }, 422 when taken); delete (422 for the flow in use: put another in use first; takes the till lock so it can\'t race a switch).'],
                 ['PUT /api/pos/venues/:id/kds-flows/order, .../kds-flows/active', 'order: { ids } sort order (keeps the flow in use in use, writing its id down if it was only "the first"); active: { flow_id } switchFlow() with the person\'s email as switched_by. Both pos_setup manage; both broadcast pos.config.'],
                 ['GET /api/pos/venues/:id/kitchen-report[.csv]?from=&to=', 'Per station: tickets, items, average, median, p90, max, on time (within target_mins), late; by hour; remakes. CSV: every bump and remake (pos_reports view).'],
+                ['POST /api/pos/venues/:id/kitchen-test', 'A signed link to the kitchen test bench (pos_setup view): { token, url } (8 hours). See The kitchen test bench below.'],
+                ['GET /pos-api/kitchen-test?token=', 'The bench\'s data (kitchenTestData()): stations, courses, order types, flows with their links, kitchen screens, tables, revenue streams, the live menus\' dishes (no prices) and expires_at. 401 for a bad, run out or other-kind link; 404 when the link\'s venue isn\'t its tenant\'s. Reads only.'],
                 ['GET /screen-api/orders', 'boardFor(): { preparing, ready } for every counter and online order, and boards: { [board station name, lower case]: { preparing, ready } } per order ready board, for the Order status block (opts.board picks one by name; screens with one get needs_orders in their config, poll every 15 s and refetch on kitchen.board).'],
               ]}
             />
@@ -3407,6 +3434,46 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>sl-och-in</Mono> and numbers going out in their old place with <Mono>sl-och-out</Mono>, a
               negative animation-delay keeping a redraw mid-animation in step, then draws plain once it is over.
               The designer's Play shows an example change.
+            </P>
+            <H3>The kitchen test bench</H3>
+            <P>
+              Till setup → Kitchen screens → Test the kitchen (<Mono>TestCard</Mono> in{' '}
+              <Mono>KitchenSection.jsx</Mono>, a <Mono>div role=&quot;button&quot;</Mono> so it works in the View
+              only fieldset) calls <Mono>POST /api/pos/venues/:venueId/kitchen-test</Mono> (pos_setup view) for a
+              signed link and opens <Mono>pos.&lt;domain&gt;/?kitchen_test=&lt;token&gt;</Mono> in a new window
+              (opened blank before the request, so pop-up blockers allow it). Links come from{' '}
+              <Mono>services/previewLinks.js</Mono> (<Mono>makeLink(kind, data, hours)</Mono> /{' '}
+              <Mono>readLink(kind, token)</Mono>, HMAC-SHA256 with the sealed <Mono>kiosk_preview_key</Mono> in{' '}
+              <Mono>platform_secrets</Mono>), shared with kiosk previews; a link carries its kind, so a kiosk
+              preview link never opens the bench and back. Kitchen links last 8 hours.{' '}
+              <Mono>GET /pos-api/kitchen-test?token=</Mono> (rate limited, no device) returns{' '}
+              <Mono>kitchenTestData()</Mono> (<Mono>services/kitchenSvc.js</Mono>): the kitchen screen config
+              (stations, courses, order types), every flow with its links, the venue&apos;s kitchen screens,
+              tables, revenue streams and the live menus&apos; dishes (no prices). It only reads.
+            </P>
+            <P>
+              The page (<Mono>pos/src/kitchen/Bench.jsx</Mono>) runs a pretend kitchen in the browser:{' '}
+              <Mono>createBench(data)</Mono> in <Mono>shared/pos/kitchenBench.js</Mono> stands in for the
+              sequencer and <Mono>/pos-api</Mono> with the same rules (<Mono>kitchenForCheckEvent()</Mono> for
+              test till orders as <Mono>lines.sent</Mono> / <Mono>course.fired</Mono> / <Mono>line.voided</Mono>,{' '}
+              <Mono>applyKitchenEvent()</Mono> for <Mono>kitchen.order_in</Mono> online orders and the
+              screens&apos; taps), its own sequence numbers, sync with reset after Clear all, an activity log, and
+              its own flow in use (<Mono>switchFlow()</Mono>, refusing screens with{' '}
+              <Mono>can_switch_flow: false</Mono>). Test orders are made with <Mono>sendOrder(spec)</Mono> or
+              made up by <Mono>randomSpec()</Mono>; a combo&apos;s parts come from{' '}
+              <Mono>randomComboParts()</Mono> (<Mono>resolveSteps()</Mono>). Each screen is the real kitchen app
+              in a same-origin frame (<Mono>?kitchen_test=&amp;screen=&lt;id&gt;</Mono>,{' '}
+              <Mono>BenchScreen.jsx</Mono>), scaled with a CSS transform from a fixed size (tablet 1280 x 800,
+              TV 1920 x 1080, upright 800 x 1280). It gets <Mono>window.parent.kdsBench.connect(screenId)</Mono>:
+              a transport answering <Mono>GET /pos-api/config</Mono>, <Mono>GET /pos-api/kitchen/sync</Mono>,{' '}
+              <Mono>POST /pos-api/events</Mono> and <Mono>PUT /pos-api/kitchen/flow</Mono> from the bench, and{' '}
+              <Mono>subscribe()</Mono> in place of the socket (<Mono>pos.seq</Mono>, <Mono>pos.config</Mono>).{' '}
+              <Mono>bootKitchen(device, benchLink)</Mono> in <Mono>pos/src/kitchen/store.js</Mono> switches the
+              store to bench mode: no IndexedDB (<Mono>keep</Mono>), its choices in <Mono>sessionStorage</Mono>{' '}
+              (<Mono>maca_kds_bench_&lt;id&gt;</Mono>), no forgetting the device on a 401, so a test never
+              touches a real kitchen screen&apos;s data on the same browser. Online / Offline per screen makes its
+              transport throw an offline error and fires <Mono>offline</Mono> / <Mono>online</Mono> in its
+              frame, so taps wait in the screen&apos;s outbox as they would on Wi-Fi.
             </P>
           </section>
 
@@ -4202,11 +4269,23 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               with each message (not from /ai or /mobile) and shows it as a chip the person can turn
               off. <Mono>pageNote()</Mono> in <Mono>ai/chat.js</Mono> names the page from{' '}
               <Mono>ROUTE_CATALOG</Mono> (longest matching route) and the venue from the
-              tenant&apos;s own venues, and the turn stores it as a text block with{' '}
-              <Mono>_page: true</Mono> before the message: sent to the model (marker stripped by{' '}
-              <Mono>clean()</Mono>), left out of the display items and the chat title. The staff
-              chat&apos;s instructions say how to use it. Another tenant&apos;s venue id in{' '}
+              tenant&apos;s own venues. Another tenant&apos;s venue id in{' '}
               <Mono>page</Mono> is refused by <Mono>refuseOtherTenantsVenues</Mono> like any body.
+            </P>
+            <P>
+              The date line: every staff chat message, from any screen, starts with{' '}
+              <Mono>nowNote()</Mono>: <Mono>{'[Now: <weekday day month year> (YYYY-MM-DD), HH:MM.]'}</Mono>{' '}
+              at the tenant&apos;s active venues (one line per time zone, with the venue names when there
+              are several). The model has no clock: without it, a tool that needs a date (then{' '}
+              <Mono>day_overview</Mono>, whose date is now optional and defaults to today at the venue)
+              got a guessed one, and the model blamed &quot;the app&apos;s clock&quot; (17 Oct 2026).{' '}
+              <Mono>contextNote()</Mono> joins the date line and the page line into one text block with{' '}
+              <Mono>_context: true</Mono> before the message (older messages carry{' '}
+              <Mono>_page: true</Mono>): sent to the model (marker stripped by <Mono>clean()</Mono>),
+              left out of the display items and the chat title. The staff chat&apos;s instructions say
+              how to use both lines. The date never goes into the system prompt, which is stored once
+              per chat and replayed with the cache. MCP clients get no line (their own app knows the
+              date); their tools default to today where a date is optional.
             </P>
             <P>
               Every change tool has a chat label (<Mono>TOOL_LABELS</Mono> in <Mono>chat.js</Mono> for
@@ -5193,6 +5272,26 @@ selection.combo = { [stepId]: [{ option_id, item_id, choices }] }   // item_id n
               <Mono>announceSoldOut()</Mono>, or tills and screens keep showing the dish until their
               next config refresh (up to 10 minutes on a till, a minute on a screen).
             </InfoBox>
+
+            <H3>Designer grid and colours</H3>
+            <P>
+              <Mono>GridLines</Mono> in <Mono>ScreenDesigner.jsx</Mono> draws the snap grid as an SVG
+              beside the board, in screen pixels (one line every <Mono>grid</Mono> board px, times the
+              smallest whole number that keeps lines 10 px apart at the current zoom; every fifth line
+              darker; <Mono>z-index</Mono> 3, under the wall guides and the selection, no pointer
+              events). It used to be a 1px CSS gradient inside the scaled board, which shrank to a
+              fraction of a pixel at the usual 20-50% zoom and never showed. On / off is
+              per device (<Mono>localStorage maca_screen_grid</Mono>).
+            </P>
+            <P>
+              Board and block colours are <Mono>ColourField</Mono> (<Mono>components/screens/shared.jsx</Mono>),
+              now a wrapper of the shared <Mono>ColourPicker</Mono> (<Mono>components/ColourPicker.jsx</Mono>):
+              the website theme&apos;s colours from <Mono>GET /api/me</Mono>&apos;s{' '}
+              <Mono>site_theme</Mono> (<Mono>useThemeColours()</Mono>, one swatch per distinct colour),
+              then a custom colour (native colour input + typed <Mono>#rrggbb</Mono>). Boards store
+              colour codes, so a theme pick is copied as its code: changing the website theme later
+              doesn&apos;t change a board.
+            </P>
           </section>
 
           <section id="website-cms" data-doc="">
@@ -5462,6 +5561,31 @@ GET /robots.txt`}</Code>
             <InfoBox type="warn">
               Switching driver mid-flight <strong>orphans existing upload URLs</strong>.
               Migrate files between backends first if needed.
+            </InfoBox>
+
+            <H3>Block colours: theme roles or a custom code</H3>
+            <P>
+              <Mono>ThemeColourPicker</Mono> (<Mono>components/website-builder/ThemeColourPicker.jsx</Mono>)
+              stores a theme role name (<Mono>primary</Mono>, <Mono>accent</Mono>, <Mono>background</Mono>,{' '}
+              <Mono>surface</Mono>, <Mono>text</Mono>, <Mono>muted</Mono>, <Mono>border</Mono>) for a
+              swatch, or <Mono>#rrggbb</Mono> for its custom colour (the rainbow swatch, with a code box
+              while one is in use; <Mono>allowCustom</Mono> turns it off). Every reader resolves both: a
+              role to <Mono>var(--c-*)</Mono> (background is <Mono>--c-bg</Mono>), a code as it is.
+              Readers: <Mono>shared/headingBlock.js</Mono> <Mono>roleColour()</Mono>,{' '}
+              <Mono>tabs.eta</Mono> / <Mono>tabColour()</Mono>, <Mono>ai_chat.eta</Mono>,{' '}
+              <Mono>promo_cta.eta</Mono> / <Mono>promoColour()</Mono> (dark text on a light custom
+              background too), <Mono>online_ordering.eta</Mono> <Mono>_colour()</Mono>,{' '}
+              <Mono>ordering.eta</Mono> <Mono>boxColour()</Mono>, <Mono>scrolling_text.eta</Mono>,{' '}
+              <Mono>footer.eta</Mono> (custom codes since this change; the canvas in{' '}
+              <Mono>siteBlocks.jsx</Mono> too) and the reservations widget (<Mono>resolveRoleHex()</Mono>,
+              in the block and in <Mono>resolveWidgetDefaults()</Mono> in <Mono>siteRenderer.js</Mono>,
+              which now also resolves the tenant default confirmation buttons; a role there used to
+              reach the page as <Mono>#primary</Mono>).
+            </P>
+            <InfoBox type="warn">
+              A new block colour field that uses <Mono>ThemeColourPicker</Mono> must accept both
+              shapes in its SSR partial and its canvas (or pass <Mono>allowCustom={'{false}'}</Mono>):
+              a reader that only maps role names silently drops a custom colour on the live site.
             </InfoBox>
 
             <H3>Heading block (heading)</H3>

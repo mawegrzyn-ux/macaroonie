@@ -256,7 +256,14 @@ Changes from sections 2-3, while there is no hub:
   (outbox), but two tills don't see each other until it's back; clashes are refused and listed
   (Till reports → Refused changes). The hub removes that gap.
 - **Pairing is by one-time code**, not an Auth0 login: Till setup → Add a till shows a code
-  that `POST /pos-api/pair` swaps for a device secret.
+  that `POST /pos-api/pair` swaps for a device secret. The code decides the kind (till, kitchen
+  screen, kiosk); the app opens the matching screens, and the kind in every config reply wins over
+  the one saved on the device (`relabel()` in `pos/src/lib/store.js`).
+- **App updates**: the service worker keeps the app on the device, so after a deploy a device
+  runs the copy it started with. `pos/src/lib/appUpdate.js` checks for a new copy every 30
+  minutes and when the screen comes back, and reloads at a quiet moment (a till with nobody
+  signed in, a kiosk on its start screen, a kitchen screen nobody has touched for 30 s). A copy
+  from before kiosks ran a newly paired kiosk as a till (17 Oct 2026); that can't recur.
 - **Printing**: bills and receipts print from the till's browser (hidden iframe + print dialog,
   `pos/src/lib/print.js`); kitchen tickets are queued in `pos_print_jobs` and can optionally
   print from the till's browser too (Till → settings). The hub will claim the queue and print
@@ -450,6 +457,18 @@ nothing changes for the devices.
 - Tested in Chromium on desktop sizes (tablet, TV, portrait) only; not yet on a real Android
   tablet, a TV box, or with a real bump bar. Sound needs one tap on the screen first (browser
   autoplay rule).
+
+### 9.4 The kitchen test bench (17 Oct 2026)
+
+Till setup > Kitchen screens > Test the kitchen opens every kitchen screen of a venue on one
+page, scaled down, with a pretend kitchen in the browser (`shared/pos/kitchenBench.js`,
+`pos/src/kitchen/Bench.jsx`). The screens are the real kitchen app in frames; the bench answers
+their `/pos-api` calls and pushes with the same rules the sequencer runs, so a flow can be tried
+with test orders (till or online, tables, counter, held courses, combos, made-up rushes),
+bumps, recalls, remakes, flow switches and a screen going offline, and nothing reaches the
+real screens, the tills, the reports or the database. The admin gets a signed, read-only link
+(8 hours) to the venue's setup. Not built: playing back a real service, speeding the clock up,
+till screens on the bench, or GloriaFood orders as a source.
 
 
 ## 10. Self-order kiosks (migration 172, 17 Oct 2026)

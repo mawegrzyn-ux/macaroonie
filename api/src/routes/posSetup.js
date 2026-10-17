@@ -38,6 +38,7 @@
 //   PUT    /kds-flows/:id                         a flow's links + where the designer draws each box
 //   PUT    /venues/:venueId/kds-flows/order       the flows' order (the kitchen screen's flow list)
 //   PUT    /venues/:venueId/kds-flows/active      put a flow in use (also from a kitchen screen: PUT /pos-api/kitchen/flow)
+//   POST   /venues/:venueId/kitchen-test          a signed link to the kitchen test bench (every screen on one page)
 //   GET    /venues/:venueId/kitchen-report?from=&to=   speed of service per station, by hour, remakes
 //   GET    /venues/:venueId/kitchen-report.csv?from=&to=  every bump and remake, for spreadsheets / BI
 //   (kitchen screens themselves are devices: POST /venues/:venueId/devices with kind 'kds')
@@ -57,7 +58,7 @@ import {
 import { reconFields } from '../services/reconFill.js'
 import { stationSettings, flowProblems, flowWarnings, STATION_KINDS, FLOW_TARGET_KINDS } from '../../../shared/pos/kitchen.js'
 import { posOrigin } from '../services/platformHost.js'
-import { ensureFlows, activeFlowOf, switchFlow, gloriaFoodTypes, GF_TYPES } from '../services/kitchenSvc.js'
+import { ensureFlows, activeFlowOf, switchFlow, gloriaFoodTypes, GF_TYPES, kitchenTestToken } from '../services/kitchenSvc.js'
 import { checkDesign, previewToken } from '../services/kioskSvc.js'
 import { normaliseDesign } from '../../../shared/kiosk.js'
 import { DEFAULT_POS_ROLES, PERMISSION_KEYS, normalisePermissions } from '../../../shared/pos/permissions.js'
@@ -844,6 +845,16 @@ export default async function posSetupRoutes(app) {
     })
     const token = await previewToken({ tenantId: req.tenantId, venueId: body.venue_id, designId: id, streamId: body.revenue_stream_id || null })
     return { token, url: posOrigin() + '/?kiosk_preview=' + encodeURIComponent(token) }
+  })
+
+  // A link to the kitchen test bench: every kitchen screen of the venue on
+  // one page, with a pretend kitchen the test orders go through (nothing
+  // reaches the real screens). View is enough: the bench changes nothing.
+  app.post('/venues/:venueId/kitchen-test', { preHandler: canSetupView }, async req => {
+    const venueId = UUID.parse(req.params.venueId)
+    await withTenant(req.tenantId, tx => ownVenue(tx, req.tenantId, venueId))
+    const token = await kitchenTestToken({ tenantId: req.tenantId, venueId })
+    return { token, url: posOrigin() + '/?kitchen_test=' + encodeURIComponent(token) }
   })
 
   // ── Kitchen screens: stations and routing ───────────────────────

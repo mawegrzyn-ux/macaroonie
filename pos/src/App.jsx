@@ -1,11 +1,13 @@
 // The till app (docs/POS.md): pair, sign in with a PIN, then the floor, a
 // check, counter service, closed checks, reports and till settings. A device
 // paired as a kitchen screen opens the kitchen screen instead, one paired as
-// a self-order kiosk the kiosk (and ?kiosk_preview= the kiosk design preview).
+// a self-order kiosk the kiosk (and ?kiosk_preview= the kiosk design preview,
+// ?kitchen_test= the kitchen test bench).
 
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { LayoutGrid, ShoppingBag, Receipt, BarChart3, Settings, Lock, RefreshCw, WifiOff } from 'lucide-react'
-import { useTill, boot, signOut, touch, loadConfig } from './lib/store.js'
+import { useTill, boot, signOut, touch, loadConfig, getState } from './lib/store.js'
+import { whenSafeToReload, idleFor } from './lib/appUpdate.js'
 import { ApprovalProvider, Toasts, cx, useTick } from './components/ui.jsx'
 import StatusDot from './components/StatusDot.jsx'
 import Pair from './screens/Pair.jsx'
@@ -23,10 +25,24 @@ const KitchenApp = lazy(() => import('./kitchen/KitchenApp.jsx'))
 // A self-order kiosk (and the kiosk design editor's preview) runs the kiosk
 // app (src/kiosk), loaded only there.
 const KioskApp = lazy(() => import('./kiosk/KioskApp.jsx'))
-const PREVIEW = new URLSearchParams(location.search).get('kiosk_preview')
+// The kitchen test bench (Till setup > Kitchen screens > Test the kitchen):
+// ?kitchen_test= opens the bench, &screen= one of its scaled-down screens.
+const Bench = lazy(() => import('./kitchen/Bench.jsx'))
+const BenchScreen = lazy(() => import('./kitchen/BenchScreen.jsx'))
+const QUERY = new URLSearchParams(location.search)
+const PREVIEW = QUERY.get('kiosk_preview')
+const KITCHEN_TEST = QUERY.get('kitchen_test')
+const BENCH_SCREEN = QUERY.get('screen')
 
 export default function App() {
   if (PREVIEW) return <Suspense fallback={<div className="h-full bg-black" />}><KioskApp previewToken={PREVIEW} /></Suspense>
+  if (KITCHEN_TEST) {
+    return (
+      <Suspense fallback={<div className="h-full bg-black" />}>
+        {BENCH_SCREEN ? <BenchScreen screenId={BENCH_SCREEN} /> : <Bench token={KITCHEN_TEST} />}
+      </Suspense>
+    )
+  }
   return <TillApp />
 }
 
@@ -37,11 +53,19 @@ function TillApp() {
     window.addEventListener('pointerdown', onDown)
     return () => window.removeEventListener('pointerdown', onDown)
   }, [])
+  // A new copy of the app goes in (lib/appUpdate.js) while nobody is signed
+  // in and nobody is typing a PIN. The kitchen and kiosk apps set their own.
+  useEffect(() => whenSafeToReload(() => {
+    const t = getState()
+    if (t.phase === 'pair' || t.phase === 'update') return true
+    return !t.staff && idleFor(10000)
+  }), [])
   const s = useTill()
   let body
   if (s.phase === 'kitchen') return <Suspense fallback={<div className="h-full bg-black" />}><KitchenApp device={s.device} /></Suspense>
   if (s.phase === 'kiosk') return <Suspense fallback={<div className="h-full bg-black" />}><KioskApp device={s.device} /></Suspense>
-  if (s.phase === 'pair') body = <Pair />
+  if (s.phase === 'update') body = <NeedsUpdate />
+  else if (s.phase === 'pair') body = <Pair />
   else if (s.phase === 'loading') body = <Splash />
   else if (!s.config) body = <NoConfig />
   else if (!s.staff) body = <Login />
@@ -53,6 +77,23 @@ function Splash() {
   return (
     <div className="h-full flex items-center justify-center">
       <img src="/till-icon.svg" alt="" className="w-16 h-16 animate-pulse" />
+    </div>
+  )
+}
+
+// Paired as a kind of device this copy of the app doesn't know yet: it reloads
+// by itself once the newer copy has arrived (lib/appUpdate.js).
+function NeedsUpdate() {
+  return (
+    <div className="h-full flex items-center justify-center p-6">
+      <div className="card p-8 max-w-md text-center space-y-4">
+        <RefreshCw className="mx-auto text-muted animate-spin" size={40} />
+        <div className="text-xl font-bold">Getting the latest app</div>
+        <div className="text-muted">This device was set up as something this copy of the app doesn't know yet. It opens by itself once the update has arrived.</div>
+        <button className="btn btn-primary w-full" onClick={() => location.reload()}>
+          <RefreshCw size={18} /> Reload now
+        </button>
+      </div>
     </div>
   )
 }

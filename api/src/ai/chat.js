@@ -52,7 +52,7 @@ import { ToolError, makeContext, addUsage } from './context.js'
 import { toolsFor, findTool, jsonSchemaOf, parseInput, errorText, CORE_TOOLS } from './tools/index.js'
 import { chatUnitsLeft, personUnitsLeft } from './settings.js'
 import { activeKey } from './apiKey.js'
-import { longDate } from './tools/util.js'
+import { longDate, localParts } from './tools/util.js'
 import { ROUTE_CATALOG } from '../routes/nav.js'
 import {
   claimAttachments, releaseAttachments, attachmentBlocks, loadAttachmentData, withFileData, attachmentItems,
@@ -257,13 +257,14 @@ async function appendMessage(conv, role, content) {
 
 // Our own markers on stored user blocks (never sent to the API):
 //   _note: 'action'   the outcome of a Confirm / Cancel press
-//   _page             which page the message was sent from (pageNote()): sent
-//                     to the model, not shown in the chat
+//   _context          the app's lines before a message (contextNote(): the date
+//                     and time now, the page it was sent from): sent to the
+//                     model, not shown in the chat (_page on older messages)
 //   _attachment       an attached file: its data is filled in from `files`
 const clean = (block, files) => {
   if (!block || typeof block !== 'object') return block
   if (block._attachment) return withFileData(block, files)
-  const { _note, _page, ...rest } = block
+  const { _note, _page, _context, ...rest } = block
   return rest
 }
 
@@ -296,6 +297,38 @@ export async function pageNote(tenantId, page) {
   if (!best && !bits.length) return null
   return '[Sent from ' + (best ? 'the ' + best.label + ' page (' + path + ')' : 'the page ' + path) +
     (bits.length ? ', showing ' + bits.join(', ') : '') + '.]'
+}
+
+/**
+ * The date and time now at the tenant's venues, as a line for the model:
+ * it has no clock of its own, and "today", "tonight" or "Saturday" can only
+ * be worked out from this (without it the model guessed a date and blamed
+ * "the app's clock"). Venues in one time zone share one date; venues in
+ * several zones each get theirs. It goes with each message, never into the
+ * system prompt, which is stored once and replayed with the cache.
+ */
+export async function nowNote(tenantId, now = new Date()) {
+  const venues = await withTenant(tenantId, tx => tx`
+    SELECT name, timezone FROM venues WHERE tenant_id = ${tenantId} AND is_active = true ORDER BY name
+  `)
+  const zones = new Map()
+  for (const v of venues) {
+    const tz = v.timezone || 'UTC'
+    if (!zones.has(tz)) zones.set(tz, [])
+    zones.get(tz).push(v.name)
+  }
+  if (!zones.size) zones.set('Europe/London', [])
+  const parts = [...zones].map(([tz, names]) => {
+    const p = localParts(now, tz)
+    return longDate(p.date) + ' (' + p.date + '), ' + p.time + (zones.size > 1 ? ' at ' + names.join(', ') : '')
+  })
+  return '[Now: ' + parts.join('; ') + '.]'
+}
+
+/** The app's hidden lines before a staff message: now, then the page. */
+export async function contextNote(tenantId, page) {
+  const [now, from] = await Promise.all([nowNote(tenantId), pageNote(tenantId, page)])
+  return [now, from].filter(Boolean).join('\n')
 }
 
 /** The stored history as API messages: our markers stripped, attached files'
@@ -452,10 +485,10 @@ async function turn(ctx, conv, text, attachments, emit, page) {
   if (n >= MAX_MESSAGES) throw new ToolError('This conversation is getting long. Start a new one.', 422)
   const files = await claimAttachments(conv, ctx.principal?.sub, attachments)
   if (!files.length && !text) throw new ToolError('Type a message or attach a file.', 422)
-  const note = conv.channel === 'staff_chat' ? await pageNote(conv.tenant_id, page) : null
+  const note = conv.channel === 'staff_chat' ? await contextNote(conv.tenant_id, page) : null
   const userContent = [
     ...attachmentBlocks(files),
-    ...(note ? [{ type: 'text', text: note, _page: true }] : []),
+    ...(note ? [{ type: 'text', text: note, _context: true }] : []),
     ...(text ? [{ type: 'text', text }] : []),
   ]
   const userSeq = await appendMessage(conv, 'user', userContent)
@@ -720,7 +753,7 @@ export async function displayItems(conv) {
       let shownFiles = false
       for (const b of blocks) {
         if (b.type !== 'text') continue
-        if (b._page) continue
+        if (b._context || b._page) continue
         if (b._note) { items.push({ type: 'note', text: b.text.replace(/^\[|\]$/g, '') }); continue }
         items.push({ type: 'user', text: b.text, ...(files.length && !shownFiles ? { attachments: files } : {}) })
         shownFiles = true

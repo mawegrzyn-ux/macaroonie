@@ -145,7 +145,8 @@ export function FooterCanvas({ data, onChange, config }) {
     primary: '--c-primary', accent: '--c-accent', background: '--c-bg',
     surface: '--c-surface', text: '--c-text', muted: '--c-muted', border: '--c-border',
   }
-  const footerBg = ROLE_VAR[data.bg_colour] ? `var(${ROLE_VAR[data.bg_colour]})` : 'var(--c-bg, #faf6ef)'
+  const footerBg = /^#[0-9a-fA-F]{6}$/.test(data.bg_colour || '') ? data.bg_colour
+    : ROLE_VAR[data.bg_colour] ? `var(${ROLE_VAR[data.bg_colour]})` : 'var(--c-bg, #faf6ef)'
 
   return (
     <footer style={{
