@@ -78,6 +78,7 @@ export const DEFAULT_NAV_TREE = [
           { label: 'Allergen matrix', icon: 'Grid3x3', route: '/menus/allergens', module: 'menus' },
           { label: 'Tax rates', icon: 'Percent', route: '/menus/tax', module: 'menus' },
           { label: 'Deliveroo menu', icon: 'Bike', route: '/menus/deliveroo', module: 'menus' },
+          { label: 'Translations', icon: 'Languages', route: '/menus/translations', module: 'menus' },
         ],
       },
       { label: 'Screens', icon: 'Monitor', route: '/screens', module: 'screens' },

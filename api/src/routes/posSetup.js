@@ -11,8 +11,12 @@
 //   PUT    /venues/:venueId/routes                the whole printer routing list
 //   POST   /venues/:venueId/devices               add a till: returns a one-time pairing code
 //   POST   /devices/:id/pairing-code              a new code (pairs again, the old secret stops working)
-//   PATCH  /devices/:id                           name, settings (mode, revenue stream, receipt printer, floor area)
+//   PATCH  /devices/:id                           name, settings (mode, revenue stream, receipt printer, floor area;
+//                                                 a kiosk's design and card reader)
 //   DELETE /devices/:id                           revoke
+//   Self-order kiosks (docs/POS.md section 10; shared/kiosk.js; the kiosks themselves are devices of kind 'kiosk'):
+//   GET    /kiosk-designs  POST /kiosk-designs  PUT/DELETE /kiosk-designs/:id   tenant-wide designs
+//   POST   /kiosk-designs/:id/preview             { venue_id, revenue_stream_id } -> a signed preview link
 //   POST   /venues/:venueId/floor-areas           + PATCH/DELETE /floor-areas/:id
 //   PUT    /floor-areas/:id/layout                tables' positions + decor in one save
 //   PUT    /venues/:venueId/staff/:staffId/pos    PIN (or null to remove) and POS role
@@ -49,6 +53,8 @@ import {
 import { reconFields } from '../services/reconFill.js'
 import { stationSettings, flowProblems, flowWarnings, STATION_KINDS, FLOW_TARGET_KINDS } from '../../../shared/pos/kitchen.js'
 import { posOrigin } from '../services/platformHost.js'
+import { checkDesign, previewToken } from '../services/kioskSvc.js'
+import { normaliseDesign } from '../../../shared/kiosk.js'
 import { DEFAULT_POS_ROLES, PERMISSION_KEYS, normalisePermissions } from '../../../shared/pos/permissions.js'
 import { hashPin, PIN_PATTERN, weakPin } from '../../../shared/pos/pin.js'
 import { TENDER_KEYS } from '../../../shared/pos/checks.js'
@@ -67,6 +73,12 @@ const canReportsManage = requirePermission('pos_reports', 'manage')
 /** Tell the venue's tills their config changed (they download it again). */
 function configChanged(venueId) {
   broadcast('pos:' + venueId, { type: 'pos.config' })
+}
+
+/** A kiosk design changed: every venue with a kiosk downloads its config again. */
+async function kiosksChanged(tx, tenantId) {
+  const rows = await tx`SELECT DISTINCT venue_id FROM pos_devices WHERE tenant_id = ${tenantId} AND kind = 'kiosk' AND revoked_at IS NULL`
+  for (const r of rows) configChanged(r.venue_id)
 }
 
 const SettingsBody = z.object({
@@ -142,12 +154,22 @@ const DeviceSettings = z.object({
   columns:            z.number().int().min(3).max(10).optional(),
   text_size:          z.enum(['normal', 'large', 'xl']).optional(),
   sound:              z.boolean().optional(),
+  // Self-order kiosks (kind 'kiosk', shared/kiosk.js): its design (null = the
+  // tenant's first) and its card reader ('test' takes no money; real
+  // terminals come as adapters later, docs/POS.md section 10).
+  design_id:          UUID.nullable().optional(),
+  card_reader:        z.enum(['none', 'test']).optional(),
 }).default({})
 
 const DeviceBody = z.object({
   name:     z.string().trim().min(1).max(60),
-  kind:     z.enum(['terminal', 'hub', 'kds']).default('terminal'),
+  kind:     z.enum(['terminal', 'hub', 'kds', 'kiosk']).default('terminal'),
   settings: DeviceSettings,
+})
+
+const KioskDesignBody = z.object({
+  name:     z.string().trim().min(1).max(80),
+  settings: z.record(z.any()).default({}),
 })
 
 const SummaryMember = z.object({
@@ -299,7 +321,7 @@ function deviceView(d) {
 async function nextShortCode(tx, tenantId, venueId, kind) {
   const rows = await tx`SELECT short_code FROM pos_devices WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`
   const used = new Set(rows.map(r => r.short_code))
-  const prefix = kind === 'hub' ? 'H' : kind === 'kds' ? 'K' : 'T'
+  const prefix = kind === 'hub' ? 'H' : kind === 'kds' ? 'K' : kind === 'kiosk' ? 'KS' : 'T'
   for (let n = 1; n < 1000; n++) if (!used.has(prefix + n)) return prefix + n
   return prefix + rows.length + 1
 }
@@ -331,7 +353,7 @@ export default async function posSetupRoutes(app) {
       const venue = await ownVenue(tx, tenantId, venueId)
       const settings = await ensureSettings(tx, tenantId, venueId)
       await ensureTaxDefaults(tx, tenantId)
-      const [streams, orderTypes, printers, routes, devices, areas, tables, staff, roles, courses, menus, kdsStations, kdsLinks] = await Promise.all([
+      const [streams, orderTypes, printers, routes, devices, areas, tables, staff, roles, courses, menus, kdsStations, kdsLinks, kioskDesigns] = await Promise.all([
         loadStreams(tx, tenantId, venueId),
         loadOrderTypes(tx, tenantId),
         tx`SELECT id, name, kind, host, port, columns, backup_printer_id, sort_order, is_active
@@ -354,6 +376,7 @@ export default async function posSetupRoutes(app) {
         tx`SELECT id, name, kind, colour, settings, sort_order, is_active FROM kds_stations
             WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} ORDER BY sort_order, name`,
         loadFlowLinks(tx, tenantId, venueId),
+        tx`SELECT id, name, settings, updated_at FROM kiosk_designs WHERE tenant_id = ${tenantId} ORDER BY created_at`,
       ])
       // Sections and dishes, for printer routing.
       const menuIds = menus.map(m => m.id)
@@ -375,6 +398,7 @@ export default async function posSetupRoutes(app) {
         courses, menus, sections, items,
         kds_stations: kdsStations.map(s => ({ ...s, settings: stationSettings(s) })),
         kds_flow: { links: kdsLinks, layout: settings.kds_flow_layout || {} },
+        kiosk_designs: kioskDesigns.map(d => ({ id: d.id, name: d.name, settings: normaliseDesign(d.settings), updated_at: d.updated_at })),
         recon_fields: await reconFields(tx, tenantId, venueId),
         till_url: posOrigin(),
       }
@@ -624,6 +648,7 @@ export default async function posSetupRoutes(app) {
       const found = await tx`SELECT id FROM kds_stations WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND kind <> 'board' AND id = ANY(${ids}::uuid[])`
       if (found.length !== ids.length) throw httpError(422, 'Kitchen station not found (an order ready board isn\'t shown on a kitchen screen)')
     }
+    if (s.design_id) await checkDesign(tx, tenantId, s.design_id)
   }
 
   app.post('/venues/:venueId/devices', { preHandler: canSetup }, async (req, reply) => {
@@ -683,6 +708,79 @@ export default async function posSetupRoutes(app) {
     })
     broadcast('pos:' + d.venue_id, { type: 'pos.revoked', device_id: id })
     return { ok: true }
+  })
+
+  // ── Self-order kiosk designs (tenant-wide; shared/kiosk.js) ─────
+  // A design is how kiosks look and behave; each kiosk picks one in its
+  // settings (design_id; none = the tenant's first). Saved settings are
+  // always normalised, so kiosks never get a value they don't know.
+  app.get('/kiosk-designs', { preHandler: canSetupView }, async req => {
+    const rows = await withTenant(req.tenantId, tx => tx`
+      SELECT id, name, settings, created_at, updated_at FROM kiosk_designs WHERE tenant_id = ${req.tenantId} ORDER BY created_at`)
+    return rows.map(d => ({ ...d, settings: normaliseDesign(d.settings) }))
+  })
+
+  app.post('/kiosk-designs', { preHandler: canSetup }, async (req, reply) => {
+    const body = KioskDesignBody.extend({ copy_from: UUID.nullable().optional() }).parse(req.body)
+    const row = await withTenant(req.tenantId, async tx => {
+      const from = body.copy_from ? await checkDesign(tx, req.tenantId, body.copy_from) : null
+      const [{ n }] = await tx`SELECT count(*)::int AS n FROM kiosk_designs WHERE tenant_id = ${req.tenantId}`
+      if (n >= 50) throw httpError(422, 'A restaurant can have up to 50 kiosk designs')
+      const [d] = await tx`
+        INSERT INTO kiosk_designs (tenant_id, name, settings, created_by)
+        VALUES (${req.tenantId}, ${body.name}, ${tx.json(normaliseDesign(from ? from.settings : body.settings))}, ${by(req)})
+        RETURNING id, name, settings, created_at, updated_at`
+      return d
+    })
+    return reply.code(201).send(row)
+  })
+
+  app.put('/kiosk-designs/:id', { preHandler: canSetup }, async req => {
+    const id = UUID.parse(req.params.id)
+    const body = KioskDesignBody.parse(req.body)
+    return withTenant(req.tenantId, async tx => {
+      await checkDesign(tx, req.tenantId, id)
+      const [d] = await tx`
+        UPDATE kiosk_designs SET name = ${body.name}, settings = ${tx.json(normaliseDesign(body.settings))}, updated_at = now()
+         WHERE id = ${id} AND tenant_id = ${req.tenantId}
+         RETURNING id, name, settings, created_at, updated_at`
+      await kiosksChanged(tx, req.tenantId)
+      return d
+    })
+  })
+
+  app.delete('/kiosk-designs/:id', { preHandler: canSetup }, async req => {
+    const id = UUID.parse(req.params.id)
+    return withTenant(req.tenantId, async tx => {
+      await checkDesign(tx, req.tenantId, id)
+      const using = await tx`
+        SELECT name FROM pos_devices
+         WHERE tenant_id = ${req.tenantId} AND kind = 'kiosk' AND revoked_at IS NULL AND settings->>'design_id' = ${id}`
+      if (using.length) {
+        throw httpError(422, (using.length === 1 ? using[0].name + ' uses' : using.map(u => u.name).join(', ') + ' use')
+          + ' this design: pick another design for ' + (using.length === 1 ? 'it' : 'them') + ' first')
+      }
+      await tx`DELETE FROM kiosk_designs WHERE id = ${id} AND tenant_id = ${req.tenantId}`
+      await kiosksChanged(tx, req.tenantId)
+      return { ok: true }
+    })
+  })
+
+  // A link to the kiosk app showing this design at a venue, for the
+  // editor's live preview (the app takes unsaved changes by postMessage).
+  app.post('/kiosk-designs/:id/preview', { preHandler: canSetupView }, async req => {
+    const id = UUID.parse(req.params.id)
+    const body = z.object({ venue_id: UUID, revenue_stream_id: UUID.nullable().optional() }).parse(req.body || {})
+    await withTenant(req.tenantId, async tx => {
+      await checkDesign(tx, req.tenantId, id)
+      await ownVenue(tx, req.tenantId, body.venue_id)
+      if (body.revenue_stream_id) {
+        const [r] = await tx`SELECT id FROM pos_revenue_streams WHERE id = ${body.revenue_stream_id} AND tenant_id = ${req.tenantId} AND venue_id = ${body.venue_id}`
+        if (!r) throw httpError(422, 'Revenue stream not found')
+      }
+    })
+    const token = await previewToken({ tenantId: req.tenantId, venueId: body.venue_id, designId: id, streamId: body.revenue_stream_id || null })
+    return { token, url: posOrigin() + '/?kiosk_preview=' + encodeURIComponent(token) }
   })
 
   // ── Kitchen screens: stations and routing ───────────────────────
@@ -1148,8 +1246,10 @@ export default async function posSetupRoutes(app) {
     return withTenant(req.tenantId, async tx => {
       await ownVenue(tx, req.tenantId, venueId)
       const day = await dayReport(tx, req.tenantId, venueId, dayId)
-      const [staff, streams, types, rates] = await Promise.all([
+      // A kiosk's orders name the kiosk as their server (shared/kiosk.js kioskStaff()).
+      const [staff, kiosks, streams, types, rates] = await Promise.all([
         tx`SELECT id, name FROM cash_staff WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}`,
+        tx`SELECT id, name FROM pos_devices WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId} AND kind = 'kiosk'`,
         tx`SELECT id, name FROM pos_revenue_streams WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}`,
         tx`SELECT id, name FROM order_types WHERE tenant_id = ${req.tenantId}`,
         tx`SELECT id, name FROM tax_rates WHERE tenant_id = ${req.tenantId}`,
@@ -1157,7 +1257,7 @@ export default async function posSetupRoutes(app) {
       const names = rows => Object.fromEntries(rows.map(r => [r.id, r.name]))
       return {
         ...day,
-        names: { staff: names(staff), revenue_streams: names(streams), order_types: names(types), tax_rates: names(rates) },
+        names: { staff: names([...kiosks, ...staff]), revenue_streams: names(streams), order_types: names(types), tax_rates: names(rates) },
       }
     })
   })
@@ -1181,11 +1281,12 @@ export default async function posSetupRoutes(app) {
       await ownVenue(tx, req.tenantId, venueId)
       return tx`
         SELECT c.id, c.number, c.order_no, c.mode, c.table_id, t.label AS table_label, c.tab_name, c.covers,
-               c.server_id, s.name AS server_name, c.revenue_stream_id, c.order_type_id, o.name AS order_type_name, c.tent, c.status, c.opened_at, c.closed_at,
+               c.server_id, COALESCE(s.name, k.name) AS server_name, c.revenue_stream_id, c.order_type_id, o.name AS order_type_name, c.tent, c.status, c.opened_at, c.closed_at,
                c.subtotal, c.discount, c.service_charge, c.total, c.paid, c.tips, c.refunded, c.day_id
           FROM pos_checks c
           LEFT JOIN tables t ON t.id = c.table_id AND t.tenant_id = c.tenant_id
           LEFT JOIN cash_staff s ON s.id = c.server_id AND s.tenant_id = c.tenant_id
+          LEFT JOIN pos_devices k ON k.id = c.server_id AND k.tenant_id = c.tenant_id AND k.kind = 'kiosk'
           LEFT JOIN order_types o ON o.id = c.order_type_id AND o.tenant_id = c.tenant_id
          WHERE c.tenant_id = ${req.tenantId} AND c.venue_id = ${venueId}
            ${q.day_id ? tx`AND c.day_id = ${q.day_id}` : tx``}
@@ -1202,9 +1303,10 @@ export default async function posSetupRoutes(app) {
       if (!c) throw httpError(404, 'Check not found')
       const events = await tx`
         SELECT e.id, e.seq, e.type, e.payload, e.assigned, e.client_at, e.created_at, e.device_id, e.staff_id, e.approved_by,
-               s.name AS staff_name, a.name AS approver_name
+               COALESCE(s.name, k.name) AS staff_name, a.name AS approver_name
           FROM pos_events e
           LEFT JOIN cash_staff s ON s.id = e.staff_id AND s.tenant_id = e.tenant_id
+          LEFT JOIN pos_devices k ON k.id = e.staff_id AND k.tenant_id = e.tenant_id AND k.kind = 'kiosk'
           LEFT JOIN cash_staff a ON a.id = e.approved_by AND a.tenant_id = e.tenant_id
          WHERE e.tenant_id = ${req.tenantId}
            AND (e.check_id = ${id} OR e.payload->>'to_check_id' = ${id} OR e.payload->>'into_check_id' = ${id})
@@ -1228,11 +1330,12 @@ export default async function posSetupRoutes(app) {
     return withTenant(req.tenantId, async tx => {
       await ownVenue(tx, req.tenantId, venueId)
       return tx`
-        SELECT r.id, r.check_id, r.device_id, r.staff_id, s.name AS staff_name, r.type, r.payload, r.client_at,
+        SELECT r.id, r.check_id, r.device_id, r.staff_id, COALESCE(s.name, k.name) AS staff_name, r.type, r.payload, r.client_at,
                r.error, r.code, r.created_at, r.resolved_at, r.resolved_by, r.resolution,
                c.number AS check_number, c.status AS check_status
           FROM pos_event_rejections r
           LEFT JOIN cash_staff s ON s.id = r.staff_id AND s.tenant_id = r.tenant_id
+          LEFT JOIN pos_devices k ON k.id = r.staff_id AND k.tenant_id = r.tenant_id AND k.kind = 'kiosk'
           LEFT JOIN pos_checks c ON c.id = r.check_id AND c.tenant_id = r.tenant_id
          WHERE r.tenant_id = ${req.tenantId} AND r.venue_id = ${venueId}
            AND r.type NOT LIKE 'kitchen.%'

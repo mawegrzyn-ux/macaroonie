@@ -30,6 +30,7 @@ const SECTIONS = [
   { id: 'purchasing', label: 'Purchasing' },
   { id: 'pos', label: 'Till (POS)' },
   { id: 'kds', label: 'Kitchen screens (KDS)' },
+  { id: 'kiosks', label: 'Self-order kiosks' },
   { id: 'web-ordering', label: 'Web Ordering' },
   { id: 'ai-assistant', label: 'AI Assistant & MCP' },
   { id: 'menus',        label: 'Menus' },
@@ -3211,6 +3212,140 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>sl-och-in</Mono> and numbers going out in their old place with <Mono>sl-och-out</Mono>, a
               negative animation-delay keeping a redraw mid-animation in step, then draws plain once it is over.
               The designer's Play shows an example change.
+            </P>
+          </section>
+
+          {/* ── SELF-ORDER KIOSKS ────────────────────────────── */}
+          <section id="kiosks" data-doc="">
+            <H2>Self-order kiosks</H2>
+            <P>
+              Migration 172. Design in <Mono>docs/POS.md</Mono> section 10. A kiosk is a till device of kind{' '}
+              <Mono>kiosk</Mono> (<Mono>pos_devices</Mono>, short code KS1, KS2 ...), paired with a one-time code
+              like a till. The same app at <Mono>pos.&lt;domain&gt;</Mono> boots{' '}
+              <Mono>pos/src/kiosk/KioskApp.jsx</Mono> (lazy) when the device's kind is <Mono>kiosk</Mono>, or with{' '}
+              <Mono>?kiosk_preview=&lt;signed link&gt;</Mono> for the design editor's preview. A kiosk order is a
+              counter check made from the till's own events, so it reaches the Counter list, the kitchen, Till
+              reports and Cash Recon with no special case; the kiosk is its server (<Mono>server_id</Mono> = the
+              device id).
+            </P>
+            <H3>Orders: the till's events, the kiosk rules</H3>
+            <P>
+              <Mono>shared/kiosk.js</Mono> is the one place for what the kiosk app, the API and the admin share.{' '}
+              <Mono>kioskOrder(config, basket, opts)</Mono> turns a basket into events, checked with{' '}
+              <Mono>replay()</Mono> (the sequencer's rules): <Mono>check.opened</Mono> (counter, the kiosk's
+              stream, the order type, <Mono>tab_name</Mono>, <Mono>tent</Mono>, <Mono>provisional_no</Mono>), one{' '}
+              <Mono>line.added</Mono> per entry (<Mono>kioskLine()</Mono>: <Mono>priceItem()</Mono> and{' '}
+              <Mono>posTax()</Mono>), <Mono>promotions.set</Mono> when <Mono>checkOffers()</Mono>{' '}
+              (<Mono>shared/pos/offers.js</Mono>: automatic combos and automatic till promotions) finds any, then
+              for a card payment <Mono>payment.added</Mono> (<Mono>card_external</Mono>, the whole total),{' '}
+              <Mono>lines.sent</Mono> and <Mono>check.closed</Mono>; for pay at the counter{' '}
+              <Mono>lines.sent</Mono> only when <Mono>checkout.send_counter</Mono> is on (else staff send it when
+              they take payment).
+            </P>
+            <P>
+              The sequencer knows each kiosk as <Mono>kioskStaff(device)</Mono>{' '}
+              (<Mono>{'{ kiosk: true, permissions: {} }'}</Mono>, in <Mono>staffById</Mono> next to the staff,{' '}
+              <Mono>services/posSvc.js</Mono>). <Mono>kioskProblem()</Mono> in <Mono>shared/pos/checks.js</Mono>{' '}
+              refuses (code <Mono>kiosk</Mono>) anything but <Mono>KIOSK_EVENTS</Mono>, approvals, events sent by
+              another device in the kiosk's name, table orders, other servers' checks, lines not from the menu
+              (price override, open item) and payments other than <Mono>card_external</Mono> without tip or
+              tendered cash.
+            </P>
+            <H3>API</H3>
+            <DataTable
+              head={['Route', 'What it does']}
+              rows={[
+                ['GET /pos-api/config (kiosk)', 'kioskConfig() in services/kioskSvc.js: venue, settings, the kiosk\'s stream and its order types (ask_name / ask_tent), all order types, tax rates, menus / items / section_items (tillMenuData guest view), option groups with their kiosk fields, guest-visible dietary tags, the allergen notice, automatic till promotions, sold out, the design (normalised), translations for the design\'s languages, the device. No staff, no PINs. version = a hash of it.'],
+                ['Kiosk device routes', 'A kiosk may only call GET /pos-api/me, GET /pos-api/config and POST /pos-api/events (KIOSK_ROUTES); anything else is 403 code kiosk.'],
+                ['GET /pos-api/kiosk-preview?token=', 'The preview\'s config: kioskConfig() with previewDevice() (the editor\'s stream and design, the test card reader). The token is the key: readPreviewToken(), HMAC with platform_secrets kiosk_preview_key, 12 hours.'],
+                ['GET /api/pos/kiosk-designs', 'pos_setup view. Normalised settings.'],
+                ['POST /api/pos/kiosk-designs', 'pos_setup manage. { name, settings, copy_from? } (copy_from: another design of the tenant). Up to 50 per tenant.'],
+                ['PUT /api/pos/kiosk-designs/:id', 'pos_setup manage. { name, settings }, stored as normaliseDesign(settings). Broadcasts pos.config to every venue with a kiosk (kiosksChanged()).'],
+                ['DELETE /api/pos/kiosk-designs/:id', 'pos_setup manage. Refused (422, names the kiosks) while a kiosk picks it.'],
+                ['POST /api/pos/kiosk-designs/:id/preview', 'pos_setup view. { venue_id, revenue_stream_id? } (both the tenant\'s, the stream at that venue) -> { token, url } (posOrigin() + ?kiosk_preview=).'],
+                ['GET /api/menus/translations?lang=', 'menus view. lang optional (the first kiosk language besides the menu\'s own). -> { lang, source, designs, languages [{ code, name, on_a_kiosk }], sources [{ key, group, context, text }], texts, builtin (the kiosk\'s own words and standard allergen names in that language), ai }.'],
+                ['PUT /api/menus/translations', 'menus manage. { lang, texts: { key: text | \'\' } }: upserts, \'\' deletes; keys must match KEY_PATTERN. -> { saved, removed }.'],
+                ['POST /api/menus/translations/ai', 'menus manage. { lang, source, keys?, skip? } -> { texts, left }: Claude\'s suggestions for words without a translation, AI_BATCH (120) a call, structured output (json_schema), counted in the tenant\'s monthly AI allowance. Nothing is saved.'],
+              ]}
+            />
+            <P>
+              <Mono>routes/posSite.js</Mono> lets a <Mono>?kiosk_preview=</Mono> page be framed by the platform's
+              own hosts (<Mono>frame-ancestors</Mono>, no <Mono>X-Frame-Options</Mono>); the app's service worker
+              leaves those pages to the network. Media changes need Website, Menus, Menu screens or Till setup
+              manage (<Mono>routes/media.js</Mono>); kiosk pictures use scope <Mono>kiosk</Mono>. Till reports'
+              checks list, check history, refused changes and day names show the kiosk's name (a{' '}
+              <Mono>pos_devices</Mono> join on the server / staff id).
+            </P>
+            <H3>Designs</H3>
+            <P>
+              <Mono>normaliseDesign()</Mono> fills every default and checks every value (unknown keys dropped,
+              colours hex, numbers clamped, ids checked); the API stores only its output and the kiosk and the
+              editor run it again. Empty words mean the kiosk's own words (<Mono>shared/kioskText.js</Mono>{' '}
+              <Mono>UI_TEXT</Mono>, 103 words in 9 languages); typed words are translated under{' '}
+              <Mono>{"TK.design(id, path)"}</Mono>. <Mono>designProblems(design, kiosk?)</Mono> lists what stops a
+              design taking orders (no way to pay; a kiosk without a card reader and no pay at the counter).
+            </P>
+            <DataTable
+              head={['Part', 'Fields']}
+              rows={[
+                ['brand', 'logo_url, colors { background, surface, text, muted, primary, primary_text, accent, accent_text }, font_heading / font_body (System or KIOSK_FONTS: the website fonts plus Oswald, Bebas Neue, Anton, Barlow Condensed, Archivo Black), radius 0-32, heading_case upper | normal'],
+                ['start', 'layout split | full, media [{ id, type image | video, url }] (8), media_secs 3-30, headline, question, type_cards { [orderTypeId]: { label, icon eat_in | take_away | delivery | none, image_url } }, show_allergens'],
+                ['languages', 'source, enabled (KIOSK_LANGUAGES: en es ca fr de it pt nl pl; the source always on)'],
+                ['menu', 'home, banners [{ id, image_url, title, link { kind none | item | section, id } }] (10), banner_secs 3-20, featured [{ id, image_url, title, subtitle, size normal | wide, link }] (12), rail images | text, columns auto | 2-4, show_calories, show_descriptions, show_tags, quick_add, hidden_section_ids'],
+                ['options', 'display grid | list | slider | wheel (where a group or step has none), level_icon flame | star | dot'],
+                ['checkout', 'pay_card, pay_counter, send_counter, counter_note, upsell, upsell_title, upsell_item_ids (8), receipt off | ask | always, thanks'],
+                ['behaviour', 'idle_secs 20-600, warn_secs 5-60, done_secs 5-120, reach'],
+              ]}
+            />
+            <H3>Menus</H3>
+            <P>
+              <Mono>menu_variant_groups</Mono> gains <Mono>kiosk_display</Mono> (NULL = the design's),{' '}
+              <Mono>scale_low</Mono> / <Mono>scale_high</Mono>; <Mono>menu_variant_options</Mono> gains{' '}
+              <Mono>image_url</Mono>, <Mono>description</Mono>, <Mono>level</Mono> (0-5). Like the rest of the
+              group library they change straight away, not per publish. An option's <Mono>sort_order</Mono> in
+              the group body is now optional (left out = its place in the list; a default of 0 had sorted new
+              groups by name). A combo step has <Mono>display</Mono>; a typed-in choice has{' '}
+              <Mono>image_url</Mono> and <Mono>description</Mono> (<Mono>normaliseCombo()</Mono>,{' '}
+              <Mono>stepChoices()</Mono> passes them, and a dish choice its own photo and description).{' '}
+              <Mono>comboItemIds()</Mono> lists every dish a combo can hold: the kiosk shows a combo's allergens as
+              the strongest level of each over all of them ("Depends on what you choose"), and the order page the
+              allergens of what was picked.
+            </P>
+            <P>
+              <Mono>menu_translations</Mono> (tenant, lang, key, text) holds the menu's words in other languages.
+              Keys come from <Mono>TK</Mono> (item / variant / section / group / option / combo step and choice /
+              order type / tag / notice / design / ui) and point at stable ids, so a translation follows its dish
+              through edits and publishes. <Mono>translationSources()</Mono> lists every word a kiosk can show
+              (from the drafts, so a new dish can be translated before it is published).
+            </P>
+            <H3>The kiosk app (pos/src/kiosk)</H3>
+            <DataTable
+              head={['File', 'What it does']}
+              rows={[
+                ['store.js', 'State; bootKiosk() (IndexedDB kiosk_config, kiosk_outbox), bootPreview() (listens for kiosk.design, kiosk.restart, kiosk.show { screen: menu } from the parent window, then posts kiosk.ready); loadConfig() with version; socket (pos.config reloads, pos.revoked forgets); placeOrder(); the outbox for card orders paid but not sent (sent again until accepted; the guest gets the provisional number short_code-NNNN); textsFor() (translations, then UI_TEXT, money with narrowSymbol); allergen levels (itemLevels(): a combo is the union of its dishes).'],
+                ['KioskApp.jsx', 'The design as CSS variables (--k-*), fonts, the idle warning and restart, reach, wake lock (not in the preview), screens.'],
+                ['Start / Menu / Builder / OptionGroup / Checkout / Allergens', 'Start screen; menu with rail, home page and dish cards; the dish and combo builder (the Add / Continue button points at the first choice still missing); one option group in its display; basket, upsell, name and table number (keyboard / number pad), pay, test card reader, order number; allergen lookup.'],
+                ['displays.jsx', 'GridDisplay, ListDisplay, SliderDisplay (sorted by level when a scale shows), WheelDisplay (up to 16 on the wheel, the rest in a grid below); the same props, so any group or step can use any.'],
+                ['parts.jsx / kiosk.css', 'Sheets (close on a click of the backdrop), number pad, level marks, photos; :where(.k-root) button keeps button colour inheritance at the lowest weight.'],
+              ]}
+            />
+            <P>
+              A pay-at-counter order whose reply is lost keeps its events: Try again sends the very same ones,
+              the server skips event ids it already has and returns the order number for the duplicate, so the
+              till never gets the order twice.
+            </P>
+            <H3>Admin</H3>
+            <P>
+              Till setup → Kiosks: <Mono>components/pos/KiosksSection.jsx</Mono> (kiosks with their design,
+              stream, card reader, receipt printer and problems; designs with copy / delete;{' '}
+              <Mono>kioskDesign()</Mono>). Design editor: <Mono>pages/KioskDesigner.jsx</Mono>{' '}
+              (<Mono>/pos/kiosk-designs/:id</Mono>): panels over the raw draft (text) and the normalised design
+              (everything else), the preview frame at 1080 x 1920 or 1920 x 1080 scaled to fit, the design posted
+              to the frame's own origin after <Mono>kiosk.ready</Mono>, Save / Discard / leave confirm, view only.
+              Translations: <Mono>pages/MenuTranslations.jsx</Mono> (<Mono>/menus/translations</Mono>, nav link
+              from migration 172). Option groups: <Mono>components/menus/VariantGroupsManager.jsx</Mono>; combo
+              steps: <Mono>components/menus/ComboEditor.jsx</Mono>; pictures in those rows:{' '}
+              <Mono>components/media/PicturePick.jsx</Mono> (pick from Media or drop a file).
             </P>
           </section>
 

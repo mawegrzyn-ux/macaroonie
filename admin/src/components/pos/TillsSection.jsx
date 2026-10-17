@@ -131,9 +131,10 @@ export default function TillsSection({ venueId, setup }) {
     onSuccess: out => { qc.invalidateQueries({ queryKey: ['pos-setup', venueId] }); setPairing(out) },
   })
   const rcName = id => setup.revenue_streams.find(r => r.id === id)?.name
-  // Kitchen screens are listed on their own tab (KitchenSection).
-  const live = setup.devices.filter(d => !d.revoked_at && d.kind !== 'kds')
-  const removed = setup.devices.filter(d => d.revoked_at && d.kind !== 'kds')
+  // Kitchen screens and kiosks are listed on their own tabs.
+  const isTill = d => d.kind !== 'kds' && d.kind !== 'kiosk'
+  const live = setup.devices.filter(d => !d.revoked_at && isTill(d))
+  const removed = setup.devices.filter(d => d.revoked_at && isTill(d))
 
   return (
     <Section title="Tills" hint="Each tablet or PC that runs the till. A till keeps working without the internet and catches up when it's back."

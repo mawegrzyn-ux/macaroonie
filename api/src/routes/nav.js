@@ -59,6 +59,7 @@ const ROUTE_CATALOG = [
   { route: '/menus/allergens', label: 'Allergen matrix', icon: 'Grid3x3', module: 'menus' },
   { route: '/menus/tax', label: 'Tax rates', icon: 'Percent', module: 'menus' },
   { route: '/menus/deliveroo', label: 'Deliveroo menu', icon: 'Bike', module: 'menus' },
+  { route: '/menus/translations', label: 'Menu translations (kiosks)', icon: 'Languages', module: 'menus' },
   { route: '/screens', label: 'Screens', icon: 'Monitor', module: 'screens' },
   { route: '/media', label: 'Media', icon: 'FolderOpen', module: 'website' },
   { route: '/reviews', label: 'Reviews', icon: 'MessageSquare', module: 'website' },

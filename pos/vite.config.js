@@ -33,8 +33,26 @@ export default defineConfig({
         // The whole app is cached so the till opens with the internet down.
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
         navigateFallback: '/index.html',
-        navigateFallbackDenylist: [/^\/pos-api/, /^\/ws/, /^\/uploads/],
-        runtimeCaching: [{ urlPattern: /\/pos-api\//, handler: 'NetworkOnly' }],
+        // A kiosk design preview (shown inside the admin) comes from the
+        // server, which lets the admin frame it (api/src/routes/posSite.js).
+        navigateFallbackDenylist: [/^\/pos-api/, /^\/ws/, /^\/uploads/, /[?&]kiosk_preview=/],
+        runtimeCaching: [
+          { urlPattern: /\/pos-api\//, handler: 'NetworkOnly' },
+          // Kiosks: dish photos and the design's fonts stay on the device, so
+          // the menu shows at once and still shows when the internet drops.
+          {
+            // Same-origin only (uploads under /uploads/): an opaque cross-origin
+            // response takes megabytes of the device's storage quota each.
+            urlPattern: ({ request, url }) => request.destination === 'image' && url.origin === self.location.origin,
+            handler: 'StaleWhileRevalidate',
+            options: { cacheName: 'kiosk-images', expiration: { maxEntries: 600, maxAgeSeconds: 30 * 24 * 3600 } },
+          },
+          {
+            urlPattern: /^https:\/\/fonts\.(googleapis|gstatic)\.com\//,
+            handler: 'CacheFirst',
+            options: { cacheName: 'kiosk-fonts', expiration: { maxEntries: 40, maxAgeSeconds: 365 * 24 * 3600 } },
+          },
+        ],
       },
       devOptions: { enabled: false },
     }),

@@ -16,6 +16,11 @@
 //                     reorder.
 //   comboPayload()    the combo as the menu save sends it
 //
+// Kiosks (migration 172): each step can say how a kiosk shows its choices
+// (grid / list / slider / spin wheel, empty = the kiosk design's choice), and
+// a typed-in choice can have a picture and a line of words (a dish shows its
+// own photo and description).
+//
 // Edits change the menu draft; the menu's Save button saves them.
 
 import { useMemo, useState } from 'react'
@@ -30,7 +35,9 @@ import { restrictToVerticalAxis, restrictToParentElement } from '@dnd-kit/modifi
 import { CSS } from '@dnd-kit/utilities'
 import { AlertTriangle, ChevronDown, ChevronRight, GripVertical, Plus, Search, Trash2, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { normaliseCombo, comboFromPrice, comboProblems, sectionItemsOf, stepRule, stepChoices } from '@shared/combos.js'
+import { normaliseCombo, comboFromPrice, comboProblems, sectionItemsOf, stepRule, stepChoices, STEP_DISPLAYS } from '@shared/combos.js'
+import { DISPLAY_LABELS } from '@shared/kiosk.js'
+import { PicturePick } from '@/components/media/PicturePick'
 import { Field, Input, PriceInput, formatPrice } from './shared'
 
 const newId = () => (crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
@@ -38,7 +45,7 @@ const newId = () => (crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4x
   return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16)
 }))
 
-const emptyStep = (n) => ({ id: newId(), name: '', min: 1, max: 1, repeat: false, auto: true, ask: 'always', when: null, options: [] })
+const emptyStep = (n) => ({ id: newId(), name: '', min: 1, max: 1, repeat: false, auto: true, ask: 'always', when: null, display: null, options: [] })
 
 /** The combo as the menu save sends it (null for a dish). */
 export function comboPayload(item) {
@@ -54,12 +61,15 @@ export function comboPayload(item) {
         min, max, repeat: !!s.repeat, auto: s.auto !== false,
         ask: min === 0 && s.ask === 'button' ? 'button' : 'always',
         when: s.when && s.when.step_id ? { step_id: s.when.step_id, option_ids: s.when.option_ids || [] } : null,
+        display: STEP_DISPLAYS.includes(s.display) ? s.display : null,
         options: (s.options || []).filter(o => (o.type === 'custom' ? (o.label || '').trim() : o.item_id || o.section_id)).map(o => ({
           id: o.id, type: o.type,
           item_id: o.type === 'item' ? o.item_id : null,
           section_id: o.type === 'section' ? o.section_id : null,
           label: o.type === 'custom' ? o.label.trim() : null,
           kitchen_name: o.type === 'custom' ? ((o.kitchen_name || '').trim() || null) : null,
+          image_url: o.type === 'custom' ? (o.image_url || null) : null,
+          description: o.type === 'custom' ? ((o.description || '').trim() || null) : null,
           price_pence: Math.max(0, Number(o.price_pence) || 0),
         })),
       }
@@ -331,6 +341,18 @@ function StepCard({ step, index, steps, itemIndex, readOnly, handle, open, onTog
                 label="Don't open it: show a button" hint={'"+ ' + (step.name || 'step') + '" opens it'} />
             )}
           </div>
+          <Field label="On a kiosk, the choices show as">
+            <div className="flex flex-wrap gap-1.5" role="group" aria-label="How a kiosk shows the choices">
+              {[[null, 'As the kiosk design says'], ...STEP_DISPLAYS.map(k => [k, DISPLAY_LABELS[k]])].map(([k, l]) => (
+                <button key={k || 'design'} type="button" aria-pressed={(step.display || null) === k} data-testid="combo-step-display" data-display={k || ''}
+                  onClick={() => onChange({ display: k })}
+                  className={cn('text-xs rounded-md border px-3 min-h-[40px] touch-manipulation',
+                    (step.display || null) === k ? 'bg-primary text-primary-foreground border-primary' : 'bg-background')}>
+                  {l}
+                </button>
+              ))}
+            </div>
+          </Field>
           {earlier.length > 0 && (
             <Field label="When it shows">
               <select value={step.when?.step_id || ''} aria-label="When it shows"
@@ -371,9 +393,17 @@ function StepCard({ step, index, steps, itemIndex, readOnly, handle, open, onTog
                           {!readOnly && <Grip handle={h} label={'Drag to move ' + optionLabel(o, itemIndex)} />}
                           <div className="flex-1 min-w-0 py-1.5 space-y-1">
                             {o.type === 'custom' ? (
-                              <div className="grid grid-cols-2 gap-1.5">
-                                <Input value={o.label || ''} maxLength={80} onChange={e => setOption(j, { label: e.target.value })} placeholder="Name, e.g. Surprise toy" aria-label="Choice name" />
-                                <Input value={o.kitchen_name || ''} maxLength={60} onChange={e => setOption(j, { kitchen_name: e.target.value })} placeholder="Kitchen name (optional)" aria-label="Kitchen name" />
+                              <div className="flex items-start gap-2">
+                                <PicturePick url={o.image_url || null} onChange={url => setOption(j, { image_url: url })} scope="menu:item"
+                                  size="sm" disabled={readOnly} label="choice picture" />
+                                <div className="flex-1 min-w-0 space-y-1.5">
+                                  <div className="grid grid-cols-2 gap-1.5">
+                                    <Input value={o.label || ''} maxLength={80} onChange={e => setOption(j, { label: e.target.value })} placeholder="Name, e.g. Surprise toy" aria-label="Choice name" />
+                                    <Input value={o.kitchen_name || ''} maxLength={60} onChange={e => setOption(j, { kitchen_name: e.target.value })} placeholder="Kitchen name (optional)" aria-label="Kitchen name" />
+                                  </div>
+                                  <Input value={o.description || ''} maxLength={300} onChange={e => setOption(j, { description: e.target.value })}
+                                    placeholder="Words on the kiosk (optional)" aria-label="Words for this choice on the kiosk" />
+                                </div>
                               </div>
                             ) : (
                               <p className={cn('text-sm truncate min-h-[36px] flex items-center', o.type === 'item' && !itemIndex.itemsById[o.item_id] && 'text-amber-700')}>

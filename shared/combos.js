@@ -21,11 +21,14 @@
 //       ask,              // 'always' | 'button': an optional step waits behind a button
 //       when,             // null, or { step_id, option_ids }: shown only when that
 //                         // earlier step has one of these picked (empty = anything)
+//       display,          // kiosks (migration 172): 'grid' | 'list' | 'slider' |
+//                         // 'wheel', null = the kiosk design's default
 //       options: [{
 //         id, type: 'item' | 'section' | 'custom',
 //         item_id,        // type item: a menu item
 //         section_id,     // type section: every item of that section
 //         label, kitchen_name,   // type custom: typed in for this combo
+//         image_url, description, // type custom: shown on kiosks (a dish shows its own)
 //         price_pence,    // extra charge for this choice (0 = included)
 //       }],
 //     }] }
@@ -43,6 +46,8 @@
 export const COMBO_MODES = ['manual', 'auto']
 export const STEP_ASK = ['always', 'button']
 export const OPTION_TYPES = ['item', 'section', 'custom']
+// How a kiosk shows a step's choices or an option group (shared/kiosk.js).
+export const STEP_DISPLAYS = ['grid', 'list', 'slider', 'wheel']
 export const MAX_STEPS = 12
 export const MAX_PICKS = 20
 
@@ -65,6 +70,7 @@ export function normaliseCombo(raw) {
       auto: s.auto !== false,
       ask: s.ask === 'button' && min === 0 ? 'button' : 'always',
       when,
+      display: STEP_DISPLAYS.includes(s.display) ? s.display : null,
       options: asList(s.options).map((o, j) => ({
         id: String(o.id || 'opt-' + i + '-' + j),
         type: OPTION_TYPES.includes(o.type) ? o.type : 'item',
@@ -72,6 +78,8 @@ export function normaliseCombo(raw) {
         section_id: o.section_id || null,
         label: o.label ? String(o.label) : null,
         kitchen_name: o.kitchen_name ? String(o.kitchen_name) : null,
+        image_url: o.image_url ? String(o.image_url).slice(0, 2000) : null,
+        description: o.description ? String(o.description).slice(0, 300) : null,
         price_pence: pence(o.price_pence),
       })).filter(o => (o.type === 'item' ? o.item_id : o.type === 'section' ? o.section_id : o.label)),
     }
@@ -120,7 +128,8 @@ export function menuCtx(menu) {
 
 /**
  * The choices a step offers, one per pickable thing:
- *   [{ key, option_id, item_id, section_id, label, kitchen_name, price_pence, item, sold_out }]
+ *   [{ key, option_id, item_id, section_id, label, kitchen_name, price_pence,
+ *      image_url, description, item, sold_out }]
  * ctx: { itemsById, sectionItems, soldOut(itemId), selfId }. A dish that
  * isn't in itemsById (not on this till / not offered) is left out, and so
  * are combos (a combo can't be part of a combo).
@@ -138,15 +147,33 @@ export function stepChoices(step, ctx = {}) {
     out.push({
       key, option_id: o.id, item_id: id, section_id: it.section_id ?? null,
       label: it.name, kitchen_name: it.kitchen_name || null, price_pence: o.price_pence,
+      image_url: it.image_url || null, description: it.description || null,
       item: it, sold_out: !!(it.sold_out || (ctx.soldOut && ctx.soldOut(id))),
     })
   }
   for (const o of step.options) {
     if (o.type === 'item') addItem(o, o.item_id)
     else if (o.type === 'section') for (const id of asList(ctx.sectionItems?.[o.section_id])) addItem(o, id)
-    else out.push({ key: o.id, option_id: o.id, item_id: null, section_id: null, label: o.label, kitchen_name: o.kitchen_name || null, price_pence: o.price_pence, item: null, sold_out: false })
+    else {
+      out.push({
+        key: o.id, option_id: o.id, item_id: null, section_id: null, label: o.label, kitchen_name: o.kitchen_name || null,
+        price_pence: o.price_pence, image_url: o.image_url || null, description: o.description || null, item: null, sold_out: false,
+      })
+    }
   }
   return out
+}
+
+/**
+ * Every dish a combo can hold, over all its steps whatever is picked (sold
+ * out ones too): what an allergen list must cover for the combo.
+ */
+export function comboItemIds(item, ctx = {}) {
+  const combo = comboOf(item)
+  if (!combo) return []
+  const ids = new Set()
+  for (const step of combo.steps) for (const c of stepChoices(step, { ...ctx, soldOut: null, selfId: item.id })) if (c.item_id) ids.add(c.item_id)
+  return [...ids]
 }
 
 const choiceFor = (choices, e) => choices.find(c => c.option_id === e.option_id && (c.item_id || null) === (e.item_id || null))

@@ -37,6 +37,7 @@ const SECTIONS = [
   { id: 'purchasing',          label: 'Purchasing' },
   { id: 'till',                label: 'Till (POS)' },
   { id: 'kitchen',             label: 'Kitchen screens' },
+  { id: 'kiosks',              label: 'Self-order kiosks' },
   { id: 'emails',              label: 'Booking Emails' },
   { id: 'team',                label: 'Team Management' },
   { id: 'access',              label: 'Modules & Roles' },
@@ -4379,6 +4380,88 @@ export default function Help() {
               <li><strong>Layout</strong>: Preparing and Ready side by side, or one above the other, with Ready first if you like. Colours for the titles, the ready box and number, and the preparing number and box.</li>
               <li><strong>When a number changes</strong>: float over (from Preparing to Ready), fade out and in, pop out and in, or zoom out and in, taking the time you set. Press Play in the designer to see it.</li>
             </ul>
+          </section>
+
+          {/* ── SELF-ORDER KIOSKS ───────────────────────────── */}
+          <section id="kiosks" data-help="">
+            <H2>Self-order kiosks</H2>
+            <P>
+              A kiosk is a big touch screen guests order on by themselves: they pick staying or going, choose
+              dishes and their options, see the allergens, and pay by card or at the counter. The order goes to
+              the kitchen, the tills' <strong>Counter</strong> list, Till reports and Cash Recon like any counter
+              order, with the kiosk named as who took it. Use an upright or wide touch screen running Chrome
+              (an Android kiosk or a Windows touch PC).
+            </P>
+            <InfoBox type="info">
+              Card payments use a <strong>test card reader</strong> for now: the kiosk shows Approve and Decline
+              buttons and no money is taken. Real card terminals connect here later. Until then, let guests pay
+              at the counter (or offer both while you try it out).
+            </InfoBox>
+
+            <H3>Setting up (Till setup → Kiosks)</H3>
+            <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
+              <li><strong>Kiosk designs</strong>: <strong>New design</strong> opens the design editor (below). Designs are shared by every venue. A kiosk uses the design picked for it, or the first design. <strong>Copy</strong> makes a copy to try changes on; a design a kiosk uses can't be deleted.</li>
+              <li><strong>Add a kiosk</strong>: its name, its <strong>revenue stream</strong> (the stream's order types are the kiosk's Staying or going? buttons, and the stream decides whether it asks for a name or a table number), its design, the card reader and the receipt printer.</li>
+              <li>On the screen, open the till address in Chrome and type the pairing code: it opens as a kiosk. For a screen guests can't leave, run Chrome in kiosk mode or use a kiosk browser (such as Fully Kiosk). <strong>Pair again</strong> moves the kiosk to another screen; the old one stops.</li>
+            </ol>
+
+            <H3>The design editor</H3>
+            <P>
+              Settings are on the left in cards you open and close; on the right is the kiosk itself, showing
+              your changes as you make them. Use it like the kiosk: nothing you order there is sent.{' '}
+              <strong>Start screen</strong> and <strong>Menu</strong> jump to those screens, <strong>Upright</strong>{' '}
+              and <strong>Wide</strong> turn the screen, and the list next to them picks the revenue stream it
+              orders as. Nothing is kept until <strong>Save</strong>; <strong>Discard</strong> goes back to the
+              last save, and leaving with changes not saved asks first. On a phone, Settings and Preview take
+              turns.
+            </P>
+            <DataTable
+              head={['Card', 'What you set']}
+              rows={[
+                ['Brand', 'Logo, colours (start from a set: Fresh, Red and gold, Night, Ocean, Plain, then change any), the fonts for headings and text, headings in capitals, rounded corners. Colours that are hard to read together are pointed out.'],
+                ['Start screen', 'Pictures apart from the buttons or behind them; pictures and videos taking turns (drag to order, up to 8); the headline and the question; each order type\'s words, icon or picture; the Allergens button.'],
+                ['Languages', 'The language your menu is written in, and the languages guests can pick (flags on the start screen).'],
+                ['Menu', 'A home page with banners and featured tiles (each can open a section or a dish); sections down the side with pictures or words only; dishes per row; descriptions, calories, dietary badges and quick add; sections left off the kiosk.'],
+                ['Choices', 'How choices show where an option group or combo step doesn\'t pick its own: grid, list, slider or spin wheel. The marks for levels: flames, stars or dots.'],
+                ['Paying', 'By card, at the counter (and whether the kitchen starts on a pay-at-counter order straight away or once it\'s paid), the note on the order number screen, "Anything else?" dishes before paying, receipts, the heading over the order number.'],
+                ['Timing and access', 'When the kiosk starts again if nobody taps, how long "Still there?" waits, how long the order number shows, and the reach button.'],
+              ]}
+            />
+            <InfoBox type="tip">
+              Words you leave empty use the kiosk's own words, which come in all nine languages. Words you type
+              show as typed: translate them on <strong>Menus → Translations</strong>.
+            </InfoBox>
+
+            <H3>How choices show (Menus)</H3>
+            <ul className="list-disc ml-5 space-y-2 text-sm text-muted-foreground mb-4">
+              <li><strong>Menus → Variant groups</strong>, open a group, <strong>Self-order kiosk</strong>: how its options show (grid, list, slider, spin wheel, or as the design says) and the words at the two ends of a scale (No spice ... Very spicy).</li>
+              <li>Each option can have a <strong>picture</strong> (tap the square, or drop a picture on it), a <strong>line of words</strong> under its name, and a <strong>level</strong> from 0 to 5 (shown as flames, and as the slider's scale). Drag options by their grip to change their order.</li>
+              <li>A combo's steps (<strong>Edit steps</strong>) each have <strong>On a kiosk, the choices show as</strong>. A new choice typed in for a combo can have a picture and words too; a dish shows its own photo and description.</li>
+            </ul>
+
+            <H3>What guests see</H3>
+            <ul className="list-disc ml-5 space-y-2 text-sm text-muted-foreground mb-4">
+              <li>The start screen: flags for the languages, Staying or going? (or Start your order with one order type), and Allergens to look dishes up first.</li>
+              <li>The menu: sections down the side, the home page, dishes as cards. A dish with nothing to choose can be added with its + straight away.</li>
+              <li>A dish: its choices shown the way you set; the Add button points at anything still to choose. A combo goes step by step, with its allergens shown for what was picked.</li>
+              <li>The order page: change or take off dishes, "Anything else?", then the name or table number if the stream asks, then pay. The order number shows at the end (with a receipt to print if you allow it).</li>
+              <li>Nobody tapping for a while: "Still there?", then the kiosk starts again. The reach button brings everything down to the lower half of the screen. A dish marked sold out on the till greys out on the kiosk straight away.</li>
+              <li>Without the internet the kiosk stops taking new orders. A card order already paid when the internet goes is kept on the kiosk and sent when it's back; the guest gets the kiosk's own number (KS1-0012) to show at the counter.</li>
+            </ul>
+
+            <H3>Translations (Menus → Translations)</H3>
+            <P>
+              Every word a kiosk can show is listed by group (sections, dishes, combos, options, order types,
+              allergens, the allergen notice, words typed in kiosk designs, the kiosk's own words) next to its
+              translation in the language you pick. Type and press <strong>Save</strong>; empty a box to take a
+              translation off. The kiosk's own words and the 14 allergens already come in every language (shown
+              faintly in the box); type only to change them. <strong>Suggest the missing ones</strong> asks the
+              AI assistant for a first draft of everything missing: suggestions are marked <strong>Check</strong>,
+              and nothing is kept until you Save.
+            </P>
+            <P>
+              Kiosk orders show in Till reports with the kiosk's name as the server.
+            </P>
           </section>
 
           {/* ── BOOKING EMAILS ──────────────────────────────── */}

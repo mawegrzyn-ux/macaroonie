@@ -19,7 +19,7 @@ export default function Reports() {
   const [cash, setCash] = useState('')
   const [lastZ, setLastZ] = useState(null)
   const names = useMemo(() => ({
-    staff: Object.fromEntries((config.staff || []).map(s => [s.id, s.name])),
+    staff: Object.fromEntries([...(config.devices || []).filter(d => d.kind === 'kiosk'), ...(config.staff || [])].map(s => [s.id, s.name])),
     revenue_streams: Object.fromEntries((config.revenue_streams || []).map(r => [r.id, r.name])),
     order_types: Object.fromEntries((config.order_types || []).map(r => [r.id, r.name])),
   }), [config])

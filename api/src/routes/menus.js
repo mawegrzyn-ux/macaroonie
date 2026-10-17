@@ -36,6 +36,9 @@ import { ALLERGEN_LEVELS, allergenKey, menuTags, noticeOf } from '../../../share
 import { cleanTax } from '../../../shared/tax.js'
 import { comboMenuPrice } from '../../../shared/orderPricing.js'
 import { taxLookups, checkTaxSetting } from '../services/taxSvc.js'
+import { translationSources, saveTranslations, aiTranslate, checkLang, AI_BATCH } from '../services/translationSvc.js'
+import { chatConfigured } from '../ai/apiKey.js'
+import { KIOSK_LANGUAGES, ALLERGEN_NAMES, TK, normaliseDesign, uiText } from '../../../shared/kiosk.js'
 
 // Changes need Menus manage. Reads stay open to every member of the tenant:
 // the website builder, ordering setup, Deliveroo and dashboards read menus.
@@ -71,6 +74,9 @@ const ComboOption = z.object({
   section_id:   z.string().uuid().nullable().optional(),
   label:        z.string().max(80).nullable().optional(),
   kitchen_name: z.string().max(60).nullable().optional(),
+  // Kiosks (migration 172): a typed-in choice's photo and words (a dish shows its own).
+  image_url:    z.string().max(2000).nullable().optional(),
+  description:  z.string().max(300).nullable().optional(),
   price_pence:  z.number().int().min(0).max(100000).default(0),
 }).refine(o => (o.type === 'item' ? !!o.item_id : o.type === 'section' ? !!o.section_id : !!(o.label || '').trim()),
   { message: 'A combo choice needs a dish, a section or a name' })
@@ -83,6 +89,8 @@ const ComboStep = z.object({
   auto:    z.boolean().default(true),
   ask:     z.enum(['always', 'button']).default('always'),
   when:    z.object({ step_id: z.string().uuid(), option_ids: z.array(z.string().uuid()).max(100).default([]) }).nullable().default(null),
+  // Kiosks (migration 172): how the step's choices show; null = the design's default.
+  display: z.enum(['grid', 'list', 'slider', 'wheel']).nullable().optional(),
   options: z.array(ComboOption).max(200).default([]),
 })
 const ComboBody = z.object({
@@ -290,9 +298,16 @@ const VariantOptionBody = z.object({
   id:          z.string().uuid().optional(),
   label:       z.string().min(1).max(60),
   price_pence: z.number().int().min(0).default(0),
-  sort_order:  z.number().int().default(0),
+  // Left out: the option's place in the list sent (a default of 0 made every
+  // option 0, so a new group's options came back sorted by name).
+  sort_order:  z.number().int().optional(),
   // Till (migration 156): choosing this option asks another group (Steak -> Cooking).
   child_group_id: z.string().uuid().nullable().optional(),
+  // Kiosks (migration 172): a photo, a line of words and a level (0-5) on
+  // the group's scale (heat: No spice ... Very spicy).
+  image_url:      z.string().max(2000).nullable().optional(),
+  description:    z.string().max(300).nullable().optional(),
+  level:          z.number().int().min(0).max(5).nullable().optional(),
 })
 
 const VariantGroupBody = z.object({
@@ -309,6 +324,11 @@ const VariantGroupBody = z.object({
   // optional group waits behind a button instead of opening by itself.
   allow_repeat: z.boolean().default(false),
   on_request:   z.boolean().default(false),
+  // Kiosks (migration 172): how the options show (null = the design's
+  // default) and the words at the two ends of a scale (options' level).
+  kiosk_display: z.enum(['grid', 'list', 'slider', 'wheel']).nullable().optional(),
+  scale_low:     z.string().trim().max(40).nullable().optional(),
+  scale_high:    z.string().trim().max(40).nullable().optional(),
   options:    z.array(VariantOptionBody).default([]),
 })
 
@@ -373,6 +393,7 @@ async function loadVariantGroups(tx, tenantId) {
              'id', o.id, 'label', o.label,
              'price_pence', o.price_pence, 'sort_order', o.sort_order,
              'child_group_id', o.child_group_id
+             , 'image_url', o.image_url, 'description', o.description, 'level', o.level
            ) ORDER BY o.sort_order, o.label) FILTER (WHERE o.id IS NOT NULL), '[]'::json) AS options
       FROM menu_variant_groups g
       LEFT JOIN menu_variant_options o ON o.group_id = g.id
@@ -1520,18 +1541,21 @@ export default async function menusRoutes(app) {
     const body = VariantGroupBody.parse(req.body)
     const row = await withTenant(req.tenantId, async tx => {
       const [g] = await tx`
-        INSERT INTO menu_variant_groups (tenant_id, name, sort_order, price_mode, min_select, max_select, pos_prefixes, allow_repeat, on_request)
+        INSERT INTO menu_variant_groups (tenant_id, name, sort_order, price_mode, min_select, max_select, pos_prefixes, allow_repeat, on_request,
+                                         kiosk_display, scale_low, scale_high)
         VALUES (${req.tenantId}, ${body.name}, ${body.sort_order}, ${body.price_mode},
                 ${Math.min(body.min_select, body.max_select)}, ${body.max_select}, ${body.pos_prefixes},
-                ${body.allow_repeat}, ${body.on_request})
+                ${body.allow_repeat}, ${body.on_request},
+                ${body.kiosk_display ?? null}, ${body.scale_low || null}, ${body.scale_high || null})
         RETURNING *
       `
       const options = []
       for (const [i, o] of (body.options || []).entries()) {
         const [opt] = await tx`
-          INSERT INTO menu_variant_options (group_id, tenant_id, label, price_pence, sort_order, child_group_id)
+          INSERT INTO menu_variant_options (group_id, tenant_id, label, price_pence, sort_order, child_group_id, image_url, description, level)
           VALUES (${g.id}, ${req.tenantId}, ${o.label}, ${o.price_pence}, ${o.sort_order ?? i},
-                  ${await childGroup(tx, req.tenantId, o.child_group_id, g.id)})
+                  ${await childGroup(tx, req.tenantId, o.child_group_id, g.id)},
+                  ${o.image_url || null}, ${o.description || null}, ${o.level ?? null})
           RETURNING *
         `
         options.push(opt)
@@ -1551,6 +1575,7 @@ export default async function menusRoutes(app) {
                min_select = ${Math.min(body.min_select, body.max_select)}, max_select = ${body.max_select},
                pos_prefixes = ${body.pos_prefixes},
                allow_repeat = ${body.allow_repeat}, on_request = ${body.on_request},
+               kiosk_display = ${body.kiosk_display ?? null}, scale_low = ${body.scale_low || null}, scale_high = ${body.scale_high || null},
                updated_at = now()
          WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
          RETURNING *
@@ -1564,16 +1589,18 @@ export default async function menusRoutes(app) {
           const [opt] = await tx`
             UPDATE menu_variant_options
                SET label = ${o.label}, price_pence = ${o.price_pence}, sort_order = ${i},
-                   child_group_id = ${await childGroup(tx, req.tenantId, o.child_group_id, g.id)}
+                   child_group_id = ${await childGroup(tx, req.tenantId, o.child_group_id, g.id)},
+                   image_url = ${o.image_url || null}, description = ${o.description || null}, level = ${o.level ?? null}
              WHERE id = ${o.id} AND group_id = ${g.id} AND tenant_id = ${req.tenantId}
              RETURNING *
           `
           if (opt) { keepIds.push(opt.id); options.push(opt) }
         } else {
           const [opt] = await tx`
-            INSERT INTO menu_variant_options (group_id, tenant_id, label, price_pence, sort_order, child_group_id)
+            INSERT INTO menu_variant_options (group_id, tenant_id, label, price_pence, sort_order, child_group_id, image_url, description, level)
             VALUES (${g.id}, ${req.tenantId}, ${o.label}, ${o.price_pence}, ${i},
-                    ${await childGroup(tx, req.tenantId, o.child_group_id, g.id)})
+                    ${await childGroup(tx, req.tenantId, o.child_group_id, g.id)},
+                    ${o.image_url || null}, ${o.description || null}, ${o.level ?? null})
             RETURNING *
           `
           keepIds.push(opt.id)
@@ -1600,6 +1627,83 @@ export default async function menusRoutes(app) {
     `)
     if (!row) throw httpError(404, 'Variant group not found')
     return { ok: true }
+  })
+
+  // ════════════════════════════════════════════════════════════
+  //   TRANSLATIONS — the menu's words in other languages for kiosks
+  //   (migration 172, services/translationSvc.js, shared/kiosk.js TK)
+  // ════════════════════════════════════════════════════════════
+
+  // Every word a kiosk can show, the language's translations, and whether
+  // Claude can suggest the missing ones. builtin: the words a kiosk already
+  // has in this language without a translation (its own words, the 14
+  // allergens' names), shown on the page as hints. source: the language the
+  // menu is written in (the first kiosk design's; English with none). No
+  // lang: the first language a kiosk offers besides the menu's own, else the
+  // first other language.
+  app.get('/translations', { preHandler: requirePermission('menus', 'view') }, async (req) => {
+    return withTenant(req.tenantId, async tx => {
+      const designs = await tx`SELECT settings FROM kiosk_designs WHERE tenant_id = ${req.tenantId} ORDER BY created_at`
+      const normal = designs.map(d => normaliseDesign(d.settings))
+      const source = normal[0]?.languages.source || 'en'
+      const used = new Set(normal.flatMap(d => d.languages.enabled))
+      const others = KIOSK_LANGUAGES.map(l => l.code).filter(c => c !== source)
+      const lang = req.query.lang ? checkLang(String(req.query.lang)) : (others.find(c => used.has(c)) || others[0])
+      const [sources, rows, standard] = await Promise.all([
+        translationSources(tx, req.tenantId),
+        tx`SELECT key, text, updated_by, updated_at FROM menu_translations WHERE tenant_id = ${req.tenantId} AND lang = ${lang}`,
+        tx`SELECT code, standard_key FROM menu_dietary_tags WHERE tenant_id = ${req.tenantId} AND standard_key IS NOT NULL`,
+      ])
+      const builtin = {}
+      for (const s of sources) {
+        if (s.key.startsWith('ui:')) builtin[s.key] = uiText(lang, s.key.slice(3))
+      }
+      for (const t of standard) {
+        const name = ALLERGEN_NAMES[lang]?.[t.standard_key]
+        if (name) builtin[TK.tag(t.code)] = name
+      }
+      return {
+        lang,
+        source,
+        designs: designs.length,
+        languages: KIOSK_LANGUAGES.map(l => ({ ...l, on_a_kiosk: used.has(l.code) })),
+        sources,
+        texts: Object.fromEntries(rows.map(r => [r.key, r.text])),
+        builtin,
+        ai: await chatConfigured(),
+      }
+    })
+  })
+
+  app.put('/translations', { preHandler: PERM.manage }, async (req) => {
+    const body = z.object({
+      lang:  z.string().regex(/^[a-z]{2}$/),
+      texts: z.record(z.string().max(200), z.string().max(2000)),
+    }).refine(b => Object.keys(b.texts).length <= 5000, { message: 'Too many words in one save' }).parse(req.body)
+    return withTenant(req.tenantId, tx => saveTranslations(tx, req.tenantId, body.lang, body.texts, req.user?.email ?? null))
+  })
+
+  // Claude's suggestions for words without a translation (or the keys given),
+  // AI_BATCH at a time. Nothing is saved: the page shows them to check first.
+  app.post('/translations/ai', { preHandler: PERM.manage }, async (req) => {
+    const body = z.object({
+      lang:   z.string().regex(/^[a-z]{2}$/),
+      source: z.string().regex(/^[a-z]{2}$/).default('en'),
+      keys:   z.array(z.string().max(200)).max(1000).optional(),
+      skip:   z.array(z.string().max(200)).max(5000).default([]),
+    }).parse(req.body)
+    checkLang(body.lang)
+    const { todo } = await withTenant(req.tenantId, async tx => {
+      const sources = await translationSources(tx, req.tenantId)
+      const have = new Set((await tx`SELECT key FROM menu_translations WHERE tenant_id = ${req.tenantId} AND lang = ${body.lang}`).map(r => r.key))
+      const skip = new Set(body.skip)
+      const wanted = body.keys ? new Set(body.keys) : null
+      // Built-in kiosk words come in every language already.
+      return { todo: sources.filter(s => (wanted ? wanted.has(s.key) : !have.has(s.key) && !s.key.startsWith('ui:')) && !skip.has(s.key)) }
+    })
+    const batch = todo.slice(0, AI_BATCH)
+    const texts = await aiTranslate(req.tenantId, { lang: body.lang, source: body.source, items: batch })
+    return { texts, left: Math.max(0, todo.length - batch.length) }
   })
 
   // ════════════════════════════════════════════════════════════

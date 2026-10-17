@@ -4,7 +4,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Plus, Users, Hourglass, ReceiptText } from 'lucide-react'
-import { useTill, useChecks, toast } from '../lib/store.js'
+import { useTill, useChecks, toast, serverName } from '../lib/store.js'
 import { openCheck, defaultStreamId, typeOf } from '../lib/checkOps.js'
 import { checkTotals } from '@shared/pos/pricing.js'
 import { checkLabel, heldCourses } from '@shared/pos/checks.js'
@@ -183,7 +183,7 @@ function TableGrid({ tables, byTable, onTap }) {
 export function CheckRow({ check, config, onClick, active = false }) {
   const t = checkTotals(check)
   const table = check.table_id ? (config.tables || []).find(x => x.id === check.table_id) : null
-  const server = (config.staff || []).find(s => s.id === check.server_id)
+  const server = { name: serverName(config, check.server_id) }
   const held = heldCourses(check).length
   return (
     <button onClick={onClick} className={cx('w-full card p-3 flex items-center gap-3 text-left touch-manipulation active:bg-page', active && 'ring-2 ring-brand')}>

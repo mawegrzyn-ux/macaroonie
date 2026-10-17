@@ -18,6 +18,7 @@ import { permissionProblem } from '@shared/pos/permissions.js'
 import { jobsForEvent, billOps } from '@shared/pos/printing.js'
 import { hashPin } from '@shared/pos/pin.js'
 import { ulid } from '@shared/pos/ids.js'
+import { soldOutMap as sharedSoldOutMap } from '@shared/pos/offers.js'
 import * as idb from './idb.js'
 import { createTransport, OfflineError } from './transport.js'
 import { printTickets } from './print.js'
@@ -33,7 +34,7 @@ const PREFS_KEY = 'maca_till_prefs'
 // ── State ────────────────────────────────────────────────────────
 
 let state = {
-  phase: 'loading',        // 'loading' | 'pair' | 'ready' | 'kitchen' (a kitchen screen: src/kitchen)
+  phase: 'loading',        // 'loading' | 'pair' | 'ready' | 'kitchen' (a kitchen screen: src/kitchen) | 'kiosk' (src/kiosk)
   device: null,            // { id, secret, name, short_code, venue_id, venue_name }
   config: null,
   confirmed: {},
@@ -85,6 +86,13 @@ export function staffById(config = state.config) {
   return Object.fromEntries((config?.staff || []).map(s => [s.id, s]))
 }
 
+/** The name of whoever has a check: a person, or the kiosk that took the order. */
+export function serverName(config, id) {
+  if (!id) return null
+  return (config?.staff || []).find(s => s.id === id)?.name
+    || (config?.devices || []).find(d => d.id === id)?.name || null
+}
+
 let derived = { confirmed: null, outbox: null, config: null, checks: {} }
 /** Every check as the screens should show it. */
 export function currentChecks(s = state) {
@@ -113,7 +121,8 @@ export function printConfig(config = state.config, device = state.device) {
     printers: by(config.printers),
     routes: config.routes || [],
     tables: by(config.tables, t => ({ label: t.label })),
-    staff: by(config.staff, s => ({ name: s.name })),
+    // A kiosk order's server is the kiosk (shared/kiosk.js).
+    staff: { ...by((config.devices || []).filter(d => d.kind === 'kiosk'), d => ({ name: d.name })), ...by(config.staff, s => ({ name: s.name })) },
     courses: by(config.courses),
     order_types: by(config.order_types, t => ({ name: t.name })),
     devices: device ? { [device.id]: { receipt_printer_id: config.device?.settings?.receipt_printer_id || null } } : {},
@@ -125,8 +134,10 @@ export function printConfig(config = state.config, device = state.device) {
 export async function boot() {
   const device = await idb.get(DEVICE_KEY)
   if (!device?.id) { setState({ phase: 'pair' }); return }
-  // Paired as a kitchen screen: the kitchen app (src/kitchen) takes over.
+  // Paired as a kitchen screen: the kitchen app (src/kitchen) takes over;
+  // as a self-order kiosk, the kiosk app (src/kiosk).
   if (device.kind === 'kds') { setState({ device, phase: 'kitchen' }); return }
+  if (device.kind === 'kiosk') { setState({ device, phase: 'kiosk' }); return }
   api = createTransport(device)
   const [config, snapshot, outbox] = await Promise.all([idb.get(CONFIG_KEY), idb.get(SNAPSHOT_KEY), idb.get(OUTBOX_KEY)])
   setState({
@@ -336,12 +347,7 @@ export async function approverFor(pin, key, amount = null) {
 
 /** Dishes sold out now: Map(item id -> until ISO | null). From the config (services/soldOut.js). */
 export function soldOutMap(config = state.config) {
-  const out = new Map()
-  const t = Date.now()
-  for (const s of config?.sold_out || []) {
-    if (!s.until || Date.parse(s.until) > t) out.set(s.item_id, s.until || null)
-  }
-  return out
+  return sharedSoldOutMap(config)
 }
 
 /**

@@ -2,7 +2,8 @@
 
 Status: **Phases 1-5 built cloud-first; the hub and printer trials are parked** (11 Oct 2026).
 Decisions agreed 11 Oct 2026. What runs today, and what's provisioned for the hub, is in
-section 8. Kitchen screens (KDS, 16 Oct 2026): section 9.
+section 8. Kitchen screens (KDS, 16 Oct 2026): section 9. Self-order kiosks (17 Oct 2026):
+section 10.
 
 A restaurant till with table service and counter service, built into Macaroonie:
 table service first, counter mode later. This file is the design; CLAUDE.md links here.
@@ -429,3 +430,60 @@ nothing changes for the devices.
   tablet, a TV box, or with a real bump bar. Sound needs one tap on the screen first (browser
   autoplay rule).
 
+
+## 10. Self-order kiosks (migration 172, 17 Oct 2026)
+
+The user's brief: "a fully fledged kiosk as a PWA, inspired by the screenshots (Wingstop's start
+screen, menu with a category rail, a FLAVOR RULES combo with a step list and a card slider, a heat
+slider from No spice to Very spicy), with a few ways of presenting choices: a simple grid, a list,
+a slider like the screenshot, a spin wheel". Guides read: Wingstop's technology architecture deck
+and the ConnectSmart Kitchen guide.
+
+### 10.1 How it fits
+
+- A kiosk is a till device of kind `kiosk`, paired at the till address with a one-time code. The
+  same PWA boots the kiosk screens (`pos/src/kiosk`) for it. There is no separate kiosk host.
+- Its orders are counter checks made of the till's own events (`kioskOrder()` in
+  `shared/kiosk.js`), sequenced by the same sequencer, so they reach the tills' Counter list, the
+  kitchen (and its flow), Till reports, X / Z and Cash Recon with no special case. The kiosk is the
+  check's server (`kioskStaff()`: `{ kiosk: true }`, no permissions).
+- The kiosk rules (`kioskProblem()` in `shared/pos/checks.js`) keep a kiosk to the events an order
+  needs: open a counter check, add menu dishes, automatic offers, send, take a `card_external`
+  payment, close. Nothing else (no discounts, voids, cash, tips, other checks, approvals).
+- Prices, tax, combos and automatic offers are the till's own (`priceItem()`, `posTax()`,
+  `shared/pos/offers.js`), so the kiosk shows exactly what the till charges.
+- Card payments: a test reader only (Approve / Decline, no money). A real terminal plugs in at the
+  card step: it must give back a reference the `payment.added` event carries.
+- The design (`kiosk_designs`, tenant-wide) sets brand, start screen, languages, menu home page,
+  how choices show, paying and timing; `normaliseDesign()` is the one checker. The editor shows the
+  real kiosk in a frame and posts the unsaved design to it.
+- Choices: an option group or a combo step shows as grid, list, slider (with a level scale such as
+  heat) or spin wheel; the group / step picks, else the design. Options have a picture, a line of
+  words and a level 0-5.
+- Languages: the kiosk's own words come in nine languages (`shared/kioskText.js`); the menu's words
+  are translated on Menus > Translations (`menu_translations`, with an AI first draft).
+
+### 10.2 Offline
+
+- The kiosk keeps its config (IndexedDB) and opens without the internet, but its start screen says
+  ordering is paused until it is back: a pay-at-counter order needs the till to see it, and a card
+  payment needs the order to reach the kitchen.
+- A card payment that went through when the order can't be sent is kept in the kiosk's outbox and
+  sent again until accepted; the guest gets the kiosk's own number (`KS1-0012`) to show at the
+  counter. The check carries it as `provisional_no`.
+- A pay-at-counter order whose reply was lost is sent again with the same events; the server skips
+  event ids it already has and returns the order number, so the till never gets it twice.
+- With the hub (later), kiosks get `device.hub_url` like tills and keep taking orders with the
+  internet down.
+
+### 10.3 Not built yet
+
+- Real card terminals (Dojo, SumUp, Zettle, Stripe Terminal, Adyen) at the kiosk.
+- Receipts go to the kiosk's browser print; the receipt printer picked in Till setup is used once
+  the hub prints.
+- No loyalty, logins, vouchers or promo codes on the kiosk (automatic offers only).
+- No "upsize" or "make it a meal" prompts beyond automatic combos and the "Anything else?" dishes.
+- No age check for age-restricted dishes.
+- The design editor has no undo beyond Discard.
+- Tested in Chromium at kiosk sizes (1080 x 1920 and 1920 x 1080); not yet on a real kiosk screen,
+  with a real card terminal, or with a screen reader.

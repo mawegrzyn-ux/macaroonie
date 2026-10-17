@@ -5,6 +5,20 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-17 — Self-order kiosks]
+
+- New **self-order kiosks**: a big touch screen guests order on by themselves, upright or wide, in Chrome. A start screen with your pictures and videos, flags for nine languages, Staying or going? with your order types, and an allergen lookup; a menu with sections down the side, a home page of banners and featured tiles, and dish cards; each dish and combo built step by step with its allergens; an order page with "Anything else?", a name or table number when the revenue stream asks, and pay by card or at the counter; then the order number. "Still there?" after a while with no taps, a reach button for guests who can't reach the top of the screen, sold out dishes greyed out at once.
+- **Four ways to show choices**: grid, list, a slider with a level scale (No spice ... Very spicy, marked with flames, stars or dots) and a spin wheel. The kiosk design sets the default; each option group and each combo step can pick its own.
+- Kiosk orders are counter orders like the till's: they go to the kitchen and its flow, the tills' Counter list, Till reports (with the kiosk named) and Cash Recon. A kiosk can only place its own orders and take card payments; card payments use a test reader for now (no money taken).
+- **Till setup → Kiosks**: add a kiosk (name, revenue stream, design, card reader, receipt printer) and pair it with a code at the till address. **Kiosk designs**, shared by every venue, are edited on their own page with the kiosk itself beside the settings, showing every change as you make it: brand colours (with ready-made sets and a warning for colours hard to read together), fonts, logo, the start screen, languages, the menu home page, sections left off, choices, paying and timing. Explicit Save.
+- **Menus → Variant groups**: a Self-order kiosk box (how the options show, the words at the two ends of a scale), and on each option a picture (pick one or drop one on it), a line of words and a level from 0 to 5. Options now drag into order.
+- **Combos**: each step can say how a kiosk shows its choices; a choice typed in for a combo can have a picture and words.
+- New **Menus → Translations**: every word a kiosk can show next to its translation in the language you pick, with the kiosk's own words and the 14 allergens already in every language. **Suggest the missing ones** asks the AI assistant for a first draft; suggestions are marked Check and nothing is kept until Save.
+- If the internet goes, a kiosk pauses new orders; a card order already paid is kept and sent when the internet is back, and the guest shows the kiosk's own number at the counter. A pay-at-counter order is never sent twice when its reply is lost.
+- Media uploads are now allowed with Till setup manage (for kiosk pictures).
+- Fixed: a new option group's options came back sorted by name instead of the order they were typed in.
+- Migration 172.
+
 ## [2026-10-16 — Combos]
 
 - **Combos**: any menu item can be a combo (Dish / Combo at the top of its panel). It has its own price (it can be £0) and **steps**, each with at least / at most (at least 0 = optional), **the same choice more than once**, **pick it by itself when there's one choice**, **show a button** instead of opening an optional step, and **when it shows** (only after a pick in an earlier step, e.g. a sauce pot only with fries). Choices are dishes from the menu, whole sections, or choices typed in just for the combo (with a kitchen name), each with an extra charge. A picked dish still asks its own options at its own extra prices. Drag to order steps and choices; the panel shows "Shown as from £x" and anything that stops the combo working.

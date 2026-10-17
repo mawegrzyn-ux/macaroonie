@@ -13,7 +13,7 @@ import { ulid } from '@shared/pos/ids.js'
 import { checkTotals } from '@shared/pos/pricing.js'
 import { heldCourses, checkLabel } from '@shared/pos/checks.js'
 import { Modal, Keypad, ReasonPicker, cx, money, poundsToPence, useApproval } from './ui.jsx'
-import { dispatch, dispatchMany, toast, useChecks, getState, can, soldOutMap, setItemSoldOut } from '../lib/store.js'
+import { dispatch, dispatchMany, toast, useChecks, getState, can, soldOutMap, setItemSoldOut, serverName } from '../lib/store.js'
 import {
   defaultHeld, sendCheck, streamOf, byId, addOpenItem, promotionsFor, refreshPromotions,
   streamTypes, typeOf, promptsFor, rerateLines, defaultTypeId,
@@ -28,7 +28,7 @@ export function ActionsMenu({ check, config, onPick, onClose }) {
     { key: 'name', label: 'Name', icon: StickyNote, hint: check.tab_name || '' },
     { key: 'type', label: 'Order type', icon: ShoppingBag, hint: [typeOf(config, check.order_type_id)?.name, check.tent ? 'Tent ' + check.tent : null].filter(Boolean).join(' · ') },
     (promptsFor(config, check.revenue_stream_id, check.order_type_id).ask_tent !== 'off' || check.tent) && { key: 'tent', label: 'Tent number', icon: Flag, hint: check.tent || 'not set' },
-    { key: 'server', label: 'Server', icon: UserRound, hint: (config.staff || []).find(s => s.id === check.server_id)?.name },
+    { key: 'server', label: 'Server', icon: UserRound, hint: serverName(config, check.server_id) },
     (config.revenue_streams || []).length > 1 && { key: 'stream', label: 'Revenue stream', icon: Building2, hint: streamOf(config, check.revenue_stream_id)?.name },
     held.length > 0 && { key: 'fire', label: 'Fire a course', icon: Flame, hint: held.length + ' waiting' },
     { key: 'discount', label: 'Discount', icon: Percent },

@@ -40,10 +40,10 @@ import { requireAuth, requireAnyPermission } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
 import { getStorage } from '../services/storageSvc.js'
 
-// The media library serves the website and menus: changes need manage on
-// either. Browsing stays open to every member of the tenant.
-// Website, menus and menu screens all build with Media pictures (and videos).
-const PERM = { manage: requireAnyPermission(['website', 'menus', 'screens'], 'manage') }
+// The website, menus, menu screens and kiosk designs (Till setup) all build
+// with Media pictures (and videos): changes need manage on any of them.
+// Browsing stays open to every member of the tenant.
+const PERM = { manage: requireAnyPermission(['website', 'menus', 'screens', 'pos_setup'], 'manage') }
 
 const IMAGE_MIMES = new Set([
   'image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml',

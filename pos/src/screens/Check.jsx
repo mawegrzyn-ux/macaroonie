@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react'
 import { ArrowLeft, Send, Printer, CreditCard, MoreHorizontal, Flame, Users, Eye, Flag } from 'lucide-react'
 import { checkLabel, heldCourses } from '@shared/pos/checks.js'
 import { checkTotals } from '@shared/pos/pricing.js'
-import { useTill, useChecks, dispatch, toast, setPresence, othersOn } from '../lib/store.js'
+import { useTill, useChecks, dispatch, toast, setPresence, othersOn, serverName } from '../lib/store.js'
 import { addItem, needsChoices, streamOf, typeOf, missingDetails, refreshPromotions, sendCheck, comboStartFrom } from '../lib/checkOps.js'
 import { cx, money, elapsed } from '../components/ui.jsx'
 import CheckPanel from '../components/CheckPanel.jsx'
@@ -129,7 +129,7 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
         </div>
         <div className="text-xs text-muted truncate flex items-center gap-2">
           {check.covers ? <span className="flex items-center gap-1"><Users size={12} />{check.covers}</span> : null}
-          <span>{(config.staff || []).find(s => s.id === check.server_id)?.name}</span>
+          <span>{serverName(config, check.server_id)}</span>
           {type && <span className="font-semibold text-ink" data-testid="check-type">{type.name}</span>}
           {check.tent && <span className="font-semibold text-brand flex items-center gap-0.5" data-testid="check-tent"><Flag size={12} />{check.tent}</span>}
           {stream && (config.revenue_streams || []).length > 1 && <span className="font-semibold text-brand">{stream.name}</span>}
