@@ -5,6 +5,11 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-17 — Fix: custom domains taken offline after the last update]
+
+- **Custom domains (e.g. onethai.com) came back with a certificate warning** after the previous update. The server job that keeps custom domains switched on reads the saved domains from the database; the tighter database protection in that update hid them from it, so it took every custom domain off the server and deleted its certificate. The job now reads them the way the app's own background jobs do, and it no longer changes anything when it can't see any websites at all.
+- **Nothing to do in the admin**: once this is deployed, the job switches the domains back on within a minute or two and gets new certificates. The Domain section in Website shows the progress.
+
 ## [2026-10-17 — Pepper: help answers, your day in one go, ask about this page]
 
 - **"How do I...?" answered from the Help guide**: ask Pepper how to do something in the app ("How do I set up tip pots?", "Where do I add a fridge?") and it answers from this app's own Help guide, with a link straight to the part that covers it. If the guide doesn't cover it, Pepper says so instead of guessing.

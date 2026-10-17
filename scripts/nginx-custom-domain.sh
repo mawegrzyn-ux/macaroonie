@@ -96,7 +96,8 @@ check_app() {
   [[ -f "$env_file" ]] || return 0
   db=$(grep -E '^DATABASE_URL=' "$env_file" | head -1 | cut -d= -f2- | tr -d '"'"'") || return 0
   [[ -n "$db" ]] || return 0
-  row=$(psql "$db" -tA -F'|' -c "SELECT custom_domain_verified, is_published FROM tenant_site WHERE lower(custom_domain) = lower('${MAIN}')" 2>/dev/null) || return 0
+  # System mode: tenant_site has forced row-level security (migration 176).
+  row=$(PGOPTIONS="-c app.bypass_rls=on" psql "$db" -tA -F'|' -c "SELECT custom_domain_verified, is_published FROM tenant_site WHERE lower(custom_domain) = lower('${MAIN}')" 2>/dev/null) || return 0
   if [[ -z "$row" ]]; then
     echo "Note: no tenant has ${MAIN} saved in Website > Domain, so the app will answer 'Site not found'."
     echo "      Save exactly ${MAIN} there (the other names here only redirect to it)."

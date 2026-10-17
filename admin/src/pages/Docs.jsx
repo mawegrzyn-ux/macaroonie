@@ -5652,7 +5652,7 @@ GET /robots.txt`}</Code>
             <DataTable
               head={['Each run', 'What happens']}
               rows={[
-                ['Reads', 'SELECT lower(custom_domain), custom_domain_verified FROM tenant_site (psql, api/.env\'s DATABASE_URL). If that fails it exits 1 and changes nothing.'],
+                ['Reads', 'SELECT lower(custom_domain), custom_domain_verified FROM tenant_site (psql, api/.env\'s DATABASE_URL) in system mode (PGOPTIONS -c app.bypass_rls=on, as systemSql: tenant_site has forced row-level security, migration 176, and without it the query sees no rows). If that fails, or tenant_site has no rows at all, it exits 1 and changes nothing.'],
                 ['Removes', 'Every macaroonie-domain-* block whose domain no tenant has saved (any verification state), with its certificate (REMOVE=1 DELETE_CERT=1) and state. The database decides, so a block made by hand for a domain nobody saved goes too.'],
                 ['Switches on', 'Each verified domain without a 443 block: DNS must point only at this server (every A record in what the root resolves to plus APP_PUBLIC_IPS; any AAAA record too). Otherwise state waiting_dns with the reason, checked again every run (no certificate request, so no Let\'s Encrypt attempt). Then the domain script with the domain and its www / bare twin when the twin points here and no other tenant saved it.'],
                 ['Twin later', 'For a domain already on https, the twin is added once its DNS points here. The domain script keeps https on for the main name while it asks for the bigger certificate and if that fails.'],
