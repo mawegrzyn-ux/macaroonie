@@ -29,6 +29,7 @@ import {
   useKitchen, useOrders, useCfg, bootKitchen, nowIso, myStations, currentStation, setPrefs, bump, recall, itemDone,
   remake, priority, collected, unlockAudio, chime, loadConfig, toast, activeFlow, switchFlow,
 } from './store.js'
+import { whenSafeToReload, idleFor } from '../lib/appUpdate.js'
 
 const cx = (...p) => p.filter(Boolean).join(' ')
 
@@ -83,6 +84,9 @@ const REMAKE_REASONS = ['Dropped', 'Wrong dish', 'Undercooked', 'Cold', 'Sent ba
 export default function KitchenApp({ device, bench = null }) {
   useEffect(() => { bootKitchen(device, bench) }, [device, bench])
   useWakeLock(!bench)
+  // A new copy of the app (lib/appUpdate.js) goes in once nobody has touched
+  // the screen for 30 seconds; taps not sent yet stay in the outbox.
+  useEffect(() => (bench ? undefined : whenSafeToReload(() => idleFor(30000))), [bench])
   const s = useKitchen()
   useEffect(() => {
     const unlock = () => unlockAudio()

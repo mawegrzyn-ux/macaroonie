@@ -9,6 +9,9 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      // The app registers the service worker itself (src/lib/appUpdate.js),
+      // so it can reload into a new copy at a quiet moment.
+      injectRegister: false,
       includeAssets: ['till-icon.svg', 'till-apple-touch-icon.png'],
       manifest: {
         name: 'Macaroonie Till',

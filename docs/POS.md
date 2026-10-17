@@ -256,7 +256,14 @@ Changes from sections 2-3, while there is no hub:
   (outbox), but two tills don't see each other until it's back; clashes are refused and listed
   (Till reports → Refused changes). The hub removes that gap.
 - **Pairing is by one-time code**, not an Auth0 login: Till setup → Add a till shows a code
-  that `POST /pos-api/pair` swaps for a device secret.
+  that `POST /pos-api/pair` swaps for a device secret. The code decides the kind (till, kitchen
+  screen, kiosk); the app opens the matching screens, and the kind in every config reply wins over
+  the one saved on the device (`relabel()` in `pos/src/lib/store.js`).
+- **App updates**: the service worker keeps the app on the device, so after a deploy a device
+  runs the copy it started with. `pos/src/lib/appUpdate.js` checks for a new copy every 30
+  minutes and when the screen comes back, and reloads at a quiet moment (a till with nobody
+  signed in, a kiosk on its start screen, a kitchen screen nobody has touched for 30 s). A copy
+  from before kiosks ran a newly paired kiosk as a till (17 Oct 2026); that can't recur.
 - **Printing**: bills and receipts print from the till's browser (hidden iframe + print dialog,
   `pos/src/lib/print.js`); kitchen tickets are queued in `pos_print_jobs` and can optionally
   print from the till's browser too (Till → settings). The hub will claim the queue and print

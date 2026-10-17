@@ -3130,6 +3130,31 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               clear message without it, <Mono>PinPad</Mono> shows any error instead of hanging on "Checking", and{' '}
               <Mono>routes/posSite.js</Mono> sends the pos host from http:// (X-Forwarded-Proto) to https://.
             </P>
+            <H3>Device kinds and app updates</H3>
+            <P>
+              One app at <Mono>pos.&lt;domain&gt;</Mono> serves tills, kitchen screens and kiosks;{' '}
+              <Mono>boot()</Mono> in <Mono>pos/src/lib/store.js</Mono> picks by the saved device's kind
+              (<Mono>openOtherApp()</Mono>: <Mono>kds</Mono> the kitchen app, <Mono>kiosk</Mono> the kiosk app, any
+              other kind but <Mono>terminal</Mono> the "Getting the latest app" screen, never the till). The server
+              has the last word: every <Mono>/pos-api/config</Mono> reply carries <Mono>device.kind</Mono>, and when it
+              (or a cached config's) differs from the saved kind, <Mono>relabel()</Mono> saves the right kind, drops the
+              till's cached config and opens that app. A copy of the app from before kiosks (17 Oct 2026) ran a newly
+              paired kiosk as a till: its PIN screen failed with "Cannot read properties of undefined (reading
+              'find')" because a kiosk's config has no staff (<Mono>staffForPin()</Mono> now reads{' '}
+              <Mono>cfg.staff || []</Mono>).
+            </P>
+            <P>
+              The service worker (<Mono>vite-plugin-pwa</Mono>, <Mono>pos/vite.config.js</Mono>, autoUpdate +
+              skipWaiting) keeps the app on the device, so a device runs the copy it started with until the page
+              loads again. <Mono>pos/src/lib/appUpdate.js</Mono> registers <Mono>/sw.js</Mono> itself (the plugin's{' '}
+              <Mono>injectRegister</Mono> is off), asks for a new copy every 30 minutes and when the page becomes
+              visible, and after a <Mono>controllerchange</Mono> (not the first one on a device) reloads when the
+              screen on show says it's safe: <Mono>whenSafeToReload(fn)</Mono>, last registered wins. The till: pair,
+              update, or nobody signed in and 10 s without a touch (<Mono>idleFor()</Mono>); the kiosk: start screen,
+              empty basket, no dish open, 10 s; a kitchen screen: 30 s without a touch. Unsent events stay in
+              IndexedDB. Kiosk design previews and the kitchen test bench never register or reload
+              (<Mono>pos/src/main.jsx</Mono>).
+            </P>
             <H3>Prices, VAT and offers</H3>
             <P>
               <Mono>shared/pos/pricing.js</Mono>: <Mono>priceItem()</Mono> (unit price + modifiers: prefixes No /

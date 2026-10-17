@@ -4589,6 +4589,22 @@ export default function Help() {
               for a manager to sort out and mark dealt with.
             </P>
 
+            <H3>Updates to the till app</H3>
+            <P>
+              Tills, kitchen screens and kiosks keep a copy of the app so they open without the internet. When
+              we release a new version, each device fetches it in the background (within 30 minutes, or as soon
+              as its screen comes back on) and switches to it at a quiet moment: a till when nobody is signed
+              in, a kiosk when it&apos;s back on its start screen with nothing in the basket, a kitchen screen
+              when nobody has touched it for 30 seconds. Nothing waiting to be sent is lost. To switch at once,
+              close the app and open it again.
+            </P>
+            <P>
+              If a kiosk or kitchen screen ever shows the till&apos;s <strong>Type your PIN</strong> screen
+              after pairing, it was still running an older copy of the app (a device that had opened the till
+              address before kiosks arrived did this once): reload the page and it opens as it should. The app
+              now checks with the server what each device is, so this can&apos;t happen again.
+            </P>
+
             <H3>End of day</H3>
             <P>
               <strong>Reports</strong> on the till shows today's figures so far (X report). <strong>Close the day (Z)</strong>{' '}

@@ -13,6 +13,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { RefreshCw, Wifi, WifiOff, X, Accessibility } from 'lucide-react'
 import { kioskFontsUrl, kioskFontStack } from '@shared/kiosk.js'
 import { useKiosk, bootKiosk, bootPreview, textsFor, restart, loadConfig, setReach, getState } from './store.js'
+import { whenSafeToReload, idleFor } from '../lib/appUpdate.js'
 import Start from './Start.jsx'
 import Menu from './Menu.jsx'
 import Builder from './Builder.jsx'
@@ -137,6 +138,15 @@ export default function KioskApp({ device = null, previewToken = null }) {
     else bootKiosk(device)
   }, [device, previewToken])
   useWakeLock(!!previewToken)
+  // A new copy of the app (lib/appUpdate.js) goes in on the start screen,
+  // with nothing in the basket and nobody touching it.
+  useEffect(() => {
+    if (previewToken) return undefined
+    return whenSafeToReload(() => {
+      const k = getState()
+      return k.screen === 'start' && !k.basket.length && !k.builder && idleFor(10000)
+    })
+  }, [previewToken])
   const s = useKiosk()
   const texts = textsFor(s)
   const design = s.config?.design

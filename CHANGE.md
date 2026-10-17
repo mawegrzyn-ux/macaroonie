@@ -5,6 +5,11 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-17 — Fix: a kiosk asking for a PIN after pairing; tills update themselves]
+
+- **A kiosk paired on a device that had opened the till address before kiosks arrived showed the till's PIN screen**, and typing a PIN gave "Cannot read properties of undefined". That device was still running the older copy of the till app it kept for working offline, which didn't know kiosks. Reloading the page fixes such a device. The app now also asks the server what each device is (till, kitchen screen or kiosk) and opens the right screens even if an older copy saved it wrongly.
+- **Tills, kitchen screens and kiosks pick up new versions by themselves**: each fetches a new version in the background and switches to it at a quiet moment (a till when nobody is signed in, a kiosk back on its start screen, a kitchen screen nobody has touched for 30 seconds). Before, a device kept the old version until someone closed and reopened it. No migration.
+
 ## [2026-10-17 — Test the kitchen: every kitchen screen on one page]
 
 - **Try your kitchen flow before service**: Till setup → Kitchen screens → **Test the kitchen** opens a new window with every kitchen screen of the venue side by side, scaled down. They are the real kitchen screens working on pretend orders: nothing reaches the kitchen, the tills, the online orders board or the reports.
