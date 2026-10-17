@@ -51,11 +51,27 @@ EXTRA_IPS="${APP_PUBLIC_IPS:-$(env_val APP_PUBLIC_IPS)}"
 if [[ -z "$DB" ]]; then echo "No DATABASE_URL (looked in ${ENV_FILE})" >&2; exit 1; fi
 
 # ── The domains tenants have saved ─────────────────────────────────────────
-ROWS=$(PGCONNECT_TIMEOUT=10 psql "$DB" -v ON_ERROR_STOP=1 -tA -F'|' -c \
-  "SELECT lower(custom_domain), custom_domain_verified FROM tenant_site WHERE custom_domain IS NOT NULL AND custom_domain <> ''") || {
+# Every tenant's row, so in system mode (migration 176 forces row-level
+# security: without app.bypass_rls the app's role sees no rows at all, and
+# the removal below would take every domain off). Same switch as systemSql.
+db_query() {
+  PGOPTIONS="${PGOPTIONS:+$PGOPTIONS }-c app.bypass_rls=on" PGCONNECT_TIMEOUT=10 \
+    psql "$DB" -v ON_ERROR_STOP=1 -tA -F'|' -c "$1"
+}
+SITES=$(db_query "SELECT count(*) FROM tenant_site") || {
   echo "Couldn't read tenant_site; nothing changed." >&2
   exit 1
 }
+ROWS=$(db_query "SELECT lower(custom_domain), custom_domain_verified FROM tenant_site WHERE custom_domain IS NOT NULL AND custom_domain <> ''") || {
+  echo "Couldn't read tenant_site; nothing changed." >&2
+  exit 1
+}
+# No website rows at all means the query can't see them (access, an empty or
+# wrong database), not that every tenant left: change nothing.
+if [[ "${SITES//[[:space:]]/}" == "0" ]]; then
+  echo "tenant_site looks empty from here (database access?); nothing changed." >&2
+  exit 1
+fi
 
 declare -A SAVED=()
 WANTED=()
