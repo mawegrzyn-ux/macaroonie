@@ -274,12 +274,13 @@ export const staffTools = [
   {
     name: 'day_overview',
     title: 'Day overview',
-    description: 'A venue\'s day: bookings, covers, a count per status and per hour, and the list of bookings.',
-    input: z.object({ venue_id: z.string().uuid(), date: DateStr }),
+    description: 'A venue\'s day (default today): bookings, covers, a count per status and per hour, and the list of bookings.',
+    input: z.object({ venue_id: z.string().uuid(), date: DateStr.optional() }),
     readOnly: true,
-    async run(ctx, { venue_id, date }) {
+    async run(ctx, { venue_id, date: asked }) {
       await requireStaffPermission(ctx, 'bookings', 'view')
       const venue = await staffVenue(ctx, venue_id)
+      const date = asked || localParts(new Date(), venue.timezone).date
       const rows = await bookingRows(ctx,
         sql`b.venue_id = ${venue.id} AND (b.starts_at AT TIME ZONE v.timezone)::date = ${date}::date`, 300)
       const active = rows.filter(r => r.status !== 'cancelled' && r.status !== 'no_show')

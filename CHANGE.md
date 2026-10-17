@@ -5,6 +5,10 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-17 — Fix: Pepper answering about the wrong day]
+
+- **Pepper said "the app's clock says today is Saturday 10 October" and gave last Saturday's orders.** The app's clock was right: Pepper had no way of knowing the date unless it looked the venues up first, so for one question it guessed a date and then blamed the clock. Every message to Pepper now tells it today's date and the time at your venues (each venue's own when they are in different time zones), and the day overview it uses for bookings looks at today unless asked for another day. No migration.
+
 ## [2026-10-17 — Fix: a kiosk asking for a PIN after pairing; tills update themselves]
 
 - **A kiosk paired on a device that had opened the till address before kiosks arrived showed the till's PIN screen**, and typing a PIN gave "Cannot read properties of undefined". That device was still running the older copy of the till app it kept for working offline, which didn't know kiosks. Reloading the page fixes such a device. The app now also asks the server what each device is (till, kitchen screen or kiosk) and opens the right screens even if an older copy saved it wrongly.

@@ -3987,6 +3987,12 @@ export default function Help() {
               between pages with the panel open. The Pepper page and the phone app don&apos;t send a
               page.
             </P>
+            <P>
+              Every message also tells Pepper today&apos;s date and the time at your venues, wherever you
+              ask from (the panel, the Pepper page or the phone), so &quot;today&quot;, &quot;tonight&quot; and
+              &quot;Saturday&quot; mean the right day. If Pepper ever answers about the wrong day, tell it the
+              date and it will look again.
+            </P>
             <H3>Your day in one go</H3>
             <P>
               Ask <em>"Brief me on today"</em> (or for another day or venue) and Pepper puts the day

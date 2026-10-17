@@ -4269,11 +4269,23 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               with each message (not from /ai or /mobile) and shows it as a chip the person can turn
               off. <Mono>pageNote()</Mono> in <Mono>ai/chat.js</Mono> names the page from{' '}
               <Mono>ROUTE_CATALOG</Mono> (longest matching route) and the venue from the
-              tenant&apos;s own venues, and the turn stores it as a text block with{' '}
-              <Mono>_page: true</Mono> before the message: sent to the model (marker stripped by{' '}
-              <Mono>clean()</Mono>), left out of the display items and the chat title. The staff
-              chat&apos;s instructions say how to use it. Another tenant&apos;s venue id in{' '}
+              tenant&apos;s own venues. Another tenant&apos;s venue id in{' '}
               <Mono>page</Mono> is refused by <Mono>refuseOtherTenantsVenues</Mono> like any body.
+            </P>
+            <P>
+              The date line: every staff chat message, from any screen, starts with{' '}
+              <Mono>nowNote()</Mono>: <Mono>{'[Now: <weekday day month year> (YYYY-MM-DD), HH:MM.]'}</Mono>{' '}
+              at the tenant&apos;s active venues (one line per time zone, with the venue names when there
+              are several). The model has no clock: without it, a tool that needs a date (then{' '}
+              <Mono>day_overview</Mono>, whose date is now optional and defaults to today at the venue)
+              got a guessed one, and the model blamed &quot;the app&apos;s clock&quot; (17 Oct 2026).{' '}
+              <Mono>contextNote()</Mono> joins the date line and the page line into one text block with{' '}
+              <Mono>_context: true</Mono> before the message (older messages carry{' '}
+              <Mono>_page: true</Mono>): sent to the model (marker stripped by <Mono>clean()</Mono>),
+              left out of the display items and the chat title. The staff chat&apos;s instructions say
+              how to use both lines. The date never goes into the system prompt, which is stored once
+              per chat and replayed with the cache. MCP clients get no line (their own app knows the
+              date); their tools default to today where a date is optional.
             </P>
             <P>
               Every change tool has a chat label (<Mono>TOOL_LABELS</Mono> in <Mono>chat.js</Mono> for
