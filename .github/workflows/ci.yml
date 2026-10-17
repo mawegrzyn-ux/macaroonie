@@ -34,6 +34,10 @@ jobs:
       STRIPE_SECRET_KEY: sk_test_ci
       STRIPE_WEBHOOK_SECRET: whsec_ci
       NODE_ENV: production
+      # Production refuses to start without the key that seals stored
+      # integration keys (services/vault.js). A throwaway one: this database
+      # is empty and gone when the job ends.
+      SECRETS_KEY: vUhW9v5ZyUnTlj9XeQ5mgDGTWoA9Y4M4U3ZRAfNgldc=
       # The default (/home/ubuntu/app/uploads) is the server's; the runner
       # can't write there.
       UPLOAD_DIR: /tmp/macaroonie-uploads
