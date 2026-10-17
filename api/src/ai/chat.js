@@ -36,7 +36,7 @@ import { sql, withTenant } from '../config/db.js'
 import { env } from '../config/env.js'
 import { ToolError, makeContext, addUsage } from './context.js'
 import { toolsFor, findTool, jsonSchemaOf, parseInput, errorText, CORE_TOOLS } from './tools/index.js'
-import { chatTokensLeft } from './settings.js'
+import { chatUnitsLeft, personUnitsLeft } from './settings.js'
 import { activeKey } from './apiKey.js'
 import {
   claimAttachments, releaseAttachments, attachmentBlocks, loadAttachmentData, withFileData, attachmentItems,
@@ -46,6 +46,10 @@ const MAX_STEPS      = 12
 const MAX_TOKENS     = 16000
 const ACTION_MINUTES = 30
 const MAX_MESSAGES   = 300   // stored rows per conversation; then start a new one
+
+// A tool call cut off by MAX_TOKENS never ran: say how to fit it.
+const CUT_OFF = 'Not done: your reply was cut off before this call was complete, so it was too big for one reply. ' +
+  'Split it into smaller calls (fewer dishes, rows or changes per call: for a menu, a section or two at a time) and carry on.'
 
 // The key is the one a platform admin saved, else ANTHROPIC_API_KEY
 // (src/ai/apiKey.js); the client is rebuilt when it changes.
@@ -73,9 +77,61 @@ async function createMessage(params) {
   }
 }
 
-// One turn at a time per conversation (a second message while the first is
-// still running would interleave the history).
-const running = new Set()
+// One writer at a time per conversation, across every API process (PM2 runs
+// one per CPU): a turn, a Confirm and a Cancel each hold
+// ai_conversations.running_until while they write to the history. A second
+// message meanwhile would interleave the turns, and a Confirm note landing
+// between a tool call and its result breaks every later request in the chat.
+// The hold is renewed while the turn runs and lapses by itself if the
+// process dies (a restart mid-turn blocks the chat for LOCK_SECONDS at most).
+const LOCK_SECONDS = 90
+const BEAT_MS      = 30_000
+// A turn stops starting new steps after this, so its reply gets back before
+// the proxy gives up on the request (nginx gives /api/ai/ 300 s).
+const TURN_MS      = 240_000
+
+async function holdConversation(conv, busyText) {
+  const until = LOCK_SECONDS + ' seconds'
+  const [row] = await withTenant(conv.tenant_id, tx => tx`
+    UPDATE ai_conversations SET running_until = date_trunc('milliseconds', now() + ${until}::interval)
+     WHERE id = ${conv.id} AND tenant_id = ${conv.tenant_id}
+       AND (running_until IS NULL OR running_until < now())
+    RETURNING running_until
+  `)
+  if (!row) throw new ToolError(busyText, 409)
+  let held = row.running_until
+  let beat = Promise.resolve()
+  const timer = setInterval(() => {
+    beat = beat.then(async () => {
+      const [r] = await withTenant(conv.tenant_id, tx => tx`
+        UPDATE ai_conversations SET running_until = date_trunc('milliseconds', now() + ${until}::interval)
+         WHERE id = ${conv.id} AND running_until = ${held}
+        RETURNING running_until
+      `)
+      if (r) held = r.running_until
+    }).catch(() => {})
+  }, BEAT_MS)
+  timer.unref?.()
+  return async () => {
+    clearInterval(timer)
+    await beat
+    await withTenant(conv.tenant_id, tx => tx`
+      UPDATE ai_conversations SET running_until = NULL WHERE id = ${conv.id} AND running_until = ${held}
+    `).catch(() => {})
+  }
+}
+
+async function withHold(conv, busyText, fn) {
+  const release = await holdConversation(conv, busyText)
+  try {
+    return await fn()
+  } finally {
+    await release()
+  }
+}
+
+const BUSY_TURN = 'Still working on your last message.'
+const BUSY_CARD = 'Still working on the last message: press it again in a moment.'
 
 // ── Storage ──────────────────────────────────────────────
 
@@ -164,7 +220,8 @@ export function toolDefs(ctx) {
   return [TOOL_SEARCH, ...defs.map(d => (CORE_TOOLS.has(d.name) ? d : { ...d, defer_loading: true }))]
 }
 
-async function recordUsage(conv, usage) {
+async function recordUsage(conv, response) {
+  const usage = response.usage
   if (!usage) return
   await addUsage(conv.tenant_id, conv.channel, {
     requests:   1,
@@ -172,6 +229,8 @@ async function recordUsage(conv, usage) {
     output:     usage.output_tokens || 0,
     cacheRead:  usage.cache_read_input_tokens || 0,
     cacheWrite: usage.cache_creation_input_tokens || 0,
+    model:      response.model,
+    person:     conv.channel === 'staff_chat' ? { sub: conv.user_sub, email: conv.user_email } : null,
   })
 }
 
@@ -217,86 +276,100 @@ async function handleToolUse(ctx, conv, block) {
  * for this conversation (makeContext()). Returns { reply, stopReason }.
  */
 export async function runTurn(ctx, conv, text, { attachments = [] } = {}) {
-  if (running.has(conv.id)) throw new ToolError('Still working on your last message.', 409)
-  running.add(conv.id)
-  try {
-    if (await chatTokensLeft(conv.tenant_id) <= 0) {
-      throw new ToolError('The AI assistant has used this month\'s allowance. It will be back next month.', 429)
-    }
-    const [{ n }] = await withTenant(conv.tenant_id, tx => tx`
-      SELECT count(*)::int AS n FROM ai_messages WHERE conversation_id = ${conv.id}
-    `)
-    if (n >= MAX_MESSAGES) throw new ToolError('This conversation is getting long. Start a new one.', 422)
-    const files = await claimAttachments(conv, ctx.principal?.sub, attachments)
-    const userContent = [...attachmentBlocks(files), ...(text ? [{ type: 'text', text }] : [])]
-    if (!userContent.length) throw new ToolError('Type a message or attach a file.', 422)
-    const userSeq = await appendMessage(conv, 'user', userContent)
-    const newTitle = !conv.title
-    if (newTitle) {
-      const title = (text || files.map(f => f.filename).join(', ')).replace(/\s+/g, ' ').trim().slice(0, 80)
-      await withTenant(conv.tenant_id, tx => tx`UPDATE ai_conversations SET title = ${title} WHERE id = ${conv.id}`)
-      conv.title = title
-    }
-    const fileData = await loadAttachmentData(conv)
+  return withHold(conv, BUSY_TURN, () => turn(ctx, conv, text, attachments))
+}
 
-    const tools = toolDefs(ctx)
-    for (let step = 0; step < MAX_STEPS; step++) {
-      const rows = await loadMessages(conv)
-      let response
-      try {
-        response = await createMessage({
-          model:         env.AI_MODEL,
-          max_tokens:    MAX_TOKENS,
-          betas:         ['server-side-fallback-2026-07-01'],
-          fallbacks:     'default',
-          output_config: { effort: env.AI_EFFORT },
-          cache_control: { type: 'ephemeral' },
-          system:        conv.system_prompt,
-          tools,
-          messages:      apiMessages(rows, fileData),
-        })
-      } catch (err) {
-        // The model never read the new message (a file it can't take, a
-        // request over the size limit): take the message back out, so the
-        // conversation isn't left with something every later request trips on.
-        if (step === 0 && (err instanceof Anthropic.BadRequestError || err?.status === 413)) {
-          await withdrawMessage(conv, userSeq, files.map(f => f.id), newTitle)
-          throw new ToolError((files.length
-            ? 'Claude couldn\'t take the attached file' + (files.length > 1 ? 's' : '') + ' (' + apiErrorText(err) + '). Try a smaller file, or a screenshot of the part you need.'
-            : 'Claude couldn\'t take that message (' + apiErrorText(err) + ').'), 422)
-        }
-        throw err
-      }
-      await recordUsage(conv, response.usage)
-
-      if (response.stop_reason === 'refusal') {
-        return { reply: 'Sorry, I can\'t help with that one.', stopReason: 'refusal' }
-      }
-      const content = storableContent(response.content)
-      if (!content.length) return { reply: null, stopReason: response.stop_reason }
-      await appendMessage(conv, 'assistant', content)
-
-      // A long server-side step (a tool search) can pause the turn: send the
-      // conversation back as it is and the model carries on.
-      if (response.stop_reason === 'pause_turn') continue
-      const toolUses = content.filter(b => b.type === 'tool_use')
-      if (!toolUses.length) {
-        return { reply: textOf(content), stopReason: response.stop_reason }
-      }
-      // Every tool_use needs its result in the next user message, even when
-      // the reply was cut off (max_tokens) or we stop here.
-      const results = []
-      for (const b of toolUses) {
-        results.push(response.stop_reason === 'max_tokens'
-          ? { type: 'tool_result', tool_use_id: b.id, is_error: true, content: [{ type: 'text', text: 'Your reply was cut off. Try again with a shorter answer.' }] }
-          : await handleToolUse(ctx, conv, b))
-      }
-      await appendMessage(conv, 'user', results)
-    }
-    return { reply: 'That took more steps than I can do at once. Tell me what to do next.', stopReason: 'max_steps' }
-  } finally {
-    running.delete(conv.id)
+async function turn(ctx, conv, text, attachments) {
+  const started = Date.now()
+  if (conv.closed_at) {
+    throw new ToolError('This chat had a guest\'s details erased from it, so it can\'t carry on. Start a new chat.', 409)
   }
+  if (await chatUnitsLeft(conv.tenant_id) <= 0) {
+    throw new ToolError('The AI assistant has used this month\'s allowance. It will be back next month.', 429)
+  }
+  if (conv.channel === 'staff_chat') {
+    const mine = await personUnitsLeft(conv.tenant_id, conv.user_sub)
+    if (mine !== null && mine <= 0) {
+      throw new ToolError('You\'ve used your share of the AI allowance for today, so the rest of the team still has theirs. ' +
+        'It starts again tomorrow; an owner or admin can change the share in the assistant\'s settings.', 429)
+    }
+  }
+  const [{ n }] = await withTenant(conv.tenant_id, tx => tx`
+    SELECT count(*)::int AS n FROM ai_messages WHERE conversation_id = ${conv.id}
+  `)
+  if (n >= MAX_MESSAGES) throw new ToolError('This conversation is getting long. Start a new one.', 422)
+  const files = await claimAttachments(conv, ctx.principal?.sub, attachments)
+  const userContent = [...attachmentBlocks(files), ...(text ? [{ type: 'text', text }] : [])]
+  if (!userContent.length) throw new ToolError('Type a message or attach a file.', 422)
+  const userSeq = await appendMessage(conv, 'user', userContent)
+  const newTitle = !conv.title
+  if (newTitle) {
+    const title = (text || files.map(f => f.filename).join(', ')).replace(/\s+/g, ' ').trim().slice(0, 80)
+    await withTenant(conv.tenant_id, tx => tx`UPDATE ai_conversations SET title = ${title} WHERE id = ${conv.id}`)
+    conv.title = title
+  }
+  const fileData = await loadAttachmentData(conv)
+
+  const tools = toolDefs(ctx)
+  for (let step = 0; step < MAX_STEPS; step++) {
+    const rows = await loadMessages(conv)
+    let response
+    try {
+      response = await createMessage({
+        model:         env.AI_MODEL,
+        max_tokens:    MAX_TOKENS,
+        betas:         ['server-side-fallback-2026-07-01'],
+        fallbacks:     'default',
+        output_config: { effort: env.AI_EFFORT },
+        cache_control: { type: 'ephemeral' },
+        system:        conv.system_prompt,
+        tools,
+        messages:      apiMessages(rows, fileData),
+      })
+    } catch (err) {
+      // The model never read the new message (a file it can't take, a
+      // request over the size limit): take the message back out, so the
+      // conversation isn't left with something every later request trips on.
+      if (step === 0 && (err instanceof Anthropic.BadRequestError || err?.status === 413)) {
+        await withdrawMessage(conv, userSeq, files.map(f => f.id), newTitle)
+        throw new ToolError((files.length
+          ? 'Claude couldn\'t take the attached file' + (files.length > 1 ? 's' : '') + ' (' + apiErrorText(err) + '). Try a smaller file, or a screenshot of the part you need.'
+          : 'Claude couldn\'t take that message (' + apiErrorText(err) + ').'), 422)
+      }
+      throw err
+    }
+    await recordUsage(conv, response)
+
+    if (response.stop_reason === 'refusal') {
+      return { reply: 'Sorry, I can\'t help with that one.', stopReason: 'refusal' }
+    }
+    const content = storableContent(response.content)
+    if (!content.length) return { reply: null, stopReason: response.stop_reason }
+    await appendMessage(conv, 'assistant', content)
+
+    // A long server-side step (a tool search) can pause the turn: send the
+    // conversation back as it is and the model carries on.
+    if (response.stop_reason === 'pause_turn') continue
+    const toolUses = content.filter(b => b.type === 'tool_use')
+    if (!toolUses.length) {
+      return { reply: textOf(content), stopReason: response.stop_reason }
+    }
+    // Every tool_use needs its result in the next user message, even when
+    // the reply was cut off (max_tokens) or we stop here.
+    const results = []
+    for (const b of toolUses) {
+      results.push(response.stop_reason === 'max_tokens'
+        ? { type: 'tool_result', tool_use_id: b.id, is_error: true, content: [{ type: 'text', text: CUT_OFF }] }
+        : await handleToolUse(ctx, conv, b))
+    }
+    await appendMessage(conv, 'user', results)
+    // Stop between steps (every tool call answered), never after a paused
+    // server step: the next message carries on from here.
+    if (Date.now() - started > TURN_MS) {
+      return { reply: 'This is taking a while, so I\'ve stopped here. Tell me to carry on and I\'ll pick up where I left off.', stopReason: 'time' }
+    }
+  }
+  return { reply: 'That took more steps than I can do at once. Tell me what to do next.', stopReason: 'max_steps' }
 }
 
 const textOf = content => content.filter(b => b.type === 'text').map(b => b.text).join('\n\n').trim()
@@ -341,6 +414,14 @@ async function settle(conv, action, status, result, note) {
 
 /** Runs the card's tool with the stored input. Returns the updated card. */
 export async function confirmAction(ctx, conv, actionId) {
+  return withHold(conv, BUSY_CARD, () => confirmCard(ctx, conv, actionId))
+}
+
+export async function cancelAction(ctx, conv, actionId) {
+  return withHold(conv, BUSY_CARD, () => cancelCard(ctx, conv, actionId))
+}
+
+async function confirmCard(ctx, conv, actionId) {
   const action = await loadAction(conv, actionId)
   if (action.status !== 'pending') throw new ToolError('This card has already been ' + (action.status === 'done' ? 'confirmed' : action.status) + '.', 409)
   const who = ctx.channel === 'guest_chat' ? 'The guest' : 'The staff member'
@@ -367,18 +448,27 @@ export async function confirmAction(ctx, conv, actionId) {
       UPDATE ai_pending_actions SET status = 'failed', result = ${tx.json({ error: message })} WHERE id = ${action.id}
     `)
     await appendMessage(conv, 'user', [{ type: 'text', _note: 'action',
-      text: `[${who} pressed Confirm on "${action.card.title}" but it failed: ${message}]` }])
+      text: `[${who} pressed Confirm on "${await titleNow(conv, action)}" but it failed: ${message}]` }])
     return { ...(await cardView(conv, action.id)), error: message }
   }
   await withTenant(conv.tenant_id, tx => tx`
     UPDATE ai_pending_actions SET status = 'done', result = ${tx.json(result)} WHERE id = ${action.id}
   `)
   await appendMessage(conv, 'user', [{ type: 'text', _note: 'action',
-    text: `[${who} pressed Confirm on "${action.card.title}". Done: ${JSON.stringify(result)}]` }])
+    text: `[${who} pressed Confirm on "${await titleNow(conv, action)}". Done: ${JSON.stringify(result)}]` }])
   return cardView(conv, action.id)
 }
 
-export async function cancelAction(ctx, conv, actionId) {
+/** The card's title after its tool ran: an erasure the tool made (anonymise)
+ *  has redacted the guest's name in it, and the note mustn't put it back. */
+async function titleNow(conv, action) {
+  const [a] = await withTenant(conv.tenant_id, tx => tx`
+    SELECT card FROM ai_pending_actions WHERE id = ${action.id} AND tenant_id = ${conv.tenant_id}
+  `)
+  return a?.card?.title ?? action.card.title
+}
+
+async function cancelCard(ctx, conv, actionId) {
   const action = await loadAction(conv, actionId)
   if (action.status !== 'pending' || action.decided_at) throw new ToolError('This card has already been answered.', 409)
   const who = ctx.channel === 'guest_chat' ? 'The guest' : 'The staff member'

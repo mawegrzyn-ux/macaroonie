@@ -52,12 +52,16 @@ for i, path in enumerate(files):
     text = open(path).read()
     if 'location /api/ {' not in text:
         continue
-    out, pos, n = [], 0, 0
+    out, pos, n, prev_end = [], 0, 0, 0
     for m in API_BLOCK.finditer(text):
         indent, body = m.group(1), m.group(2)
-        # Already there (in front of this block)?
-        before = text[max(0, m.start() - 1200):m.start()]
-        if MARK in before:
+        # Already there? Look at everything since the previous /api/ block
+        # (this server block's locations in front of its /api/ block), not a
+        # fixed number of characters: other scripts insert locations there too
+        # (ensure-nginx-ai-timeout.sh).
+        seen = MARK in text[prev_end:m.start()]
+        prev_end = m.end()
+        if seen:
             continue
         proxy = re.search(r'(?m)^[ \t]*proxy_pass[ \t]+([^;]+);', body)
         if not proxy:

@@ -13,8 +13,10 @@
 //   POST   /actions/:id/confirm        Confirm on a card (runs the change)
 //   POST   /actions/:id/cancel
 //
-//   GET    /settings                   switches, this month's usage, MCP addresses
-//   PATCH  /settings                   switches (ai_assistant manage)
+//   GET    /settings                   switches, this month's usage (units) and each
+//                                      person's (a manager sees everyone), MCP addresses
+//   PATCH  /settings                   switches, daily share per person, how long
+//                                      chats are kept (ai_assistant manage)
 //   GET    /tokens                     access tokens for the staff MCP
 //   POST   /tokens                     { name } -> the token, shown once
 //   DELETE /tokens/:id                 revoke
@@ -36,7 +38,9 @@ import { env } from '../config/env.js'
 import { httpError } from '../middleware/error.js'
 import { requireAuth, requirePermission, requirePlatformAdmin, permissionLevel, newAccessToken } from '../middleware/auth.js'
 import { ToolError, usageMonth } from '../ai/context.js'
-import { getAiSettings, saveAiSettings, monthUsage, chatConfigured, chatTokensLeft } from '../ai/settings.js'
+import {
+  getAiSettings, saveAiSettings, monthUsage, chatConfigured, chatUnitsLeft, personUnitsLeft, dailyShare, peopleUsage,
+} from '../ai/settings.js'
 import { activeKey, keyInfo, checkKey, saveKey, removeKey } from '../ai/apiKey.js'
 import {
   createConversation, loadConversation, runTurn, confirmAction, cancelAction, displayItems, chatContext,
@@ -56,9 +60,11 @@ const ChatBody = z.object({
 const MAX_UPLOAD = Math.max(...Object.values(MAX_BYTES))
 
 const SettingsBody = z.object({
-  guest_mcp_enabled:  z.boolean().optional(),
-  guest_chat_enabled: z.boolean().optional(),
-  staff_enabled:      z.boolean().optional(),
+  guest_mcp_enabled:   z.boolean().optional(),
+  guest_chat_enabled:  z.boolean().optional(),
+  staff_enabled:       z.boolean().optional(),
+  person_daily_pct:    z.number().int().min(1).max(100).nullable().optional(),
+  chat_retention_days: z.union([z.literal(30), z.literal(90), z.literal(180), z.literal(365)]).optional(),
 })
 
 /** ToolError -> httpError, so the admin gets the message. */
@@ -89,6 +95,8 @@ async function ownConversation(req, id) {
   return conv
 }
 
+const closedNow = async (req, conv) => !!(await loadConversation(req.tenantId, conv.id))?.closed_at
+
 async function actionConversation(req, actionId) {
   const [a] = await withTenant(req.tenantId, tx => tx`
     SELECT conversation_id FROM ai_pending_actions WHERE id = ${actionId} AND tenant_id = ${req.tenantId}
@@ -103,21 +111,23 @@ export default async function aiRoutes(app) {
   // ── Chat ────────────────────────────────────────────────
   app.get('/status', async req => {
     const configured = await chatConfigured()
-    if (!req.tenantId) return { configured, enabled: false, permission: 'none', can_chat: false, tokens_left: null }
+    if (!req.tenantId) return { configured, enabled: false, permission: 'none', can_chat: false, units_left: null, share_left: null }
     const settings = await getAiSettings(req.tenantId)
     const level = await permissionLevel(req, 'ai_assistant')
+    const share = level === 'none' ? null : await personUnitsLeft(req.tenantId, req.user.sub)
     return {
       configured,
       enabled:      settings.staff_enabled,
       permission:   level,
       can_chat:     configured && settings.staff_enabled && level !== 'none',
-      tokens_left:  level === 'none' ? null : Math.max(0, await chatTokensLeft(req.tenantId)),
+      units_left:   level === 'none' ? null : Math.max(0, await chatUnitsLeft(req.tenantId)),
+      share_left:   share === null ? null : Math.max(0, share),
     }
   })
 
   app.get('/conversations', async req => {
     return withTenant(req.tenantId, tx => tx`
-      SELECT id, title, created_at, updated_at FROM ai_conversations
+      SELECT id, title, created_at, updated_at, closed_at IS NOT NULL AS closed FROM ai_conversations
        WHERE tenant_id = ${req.tenantId} AND channel = 'staff_chat' AND user_sub = ${req.user.sub}
        ORDER BY updated_at DESC
        LIMIT 30
@@ -126,7 +136,7 @@ export default async function aiRoutes(app) {
 
   app.get('/conversations/:id', async req => {
     const conv = await ownConversation(req, req.params.id)
-    return { id: conv.id, title: conv.title, items: await displayItems(conv) }
+    return { id: conv.id, title: conv.title, closed: !!conv.closed_at, items: await displayItems(conv) }
   })
 
   app.delete('/conversations/:id', async req => {
@@ -198,26 +208,33 @@ export default async function aiRoutes(app) {
     await staffChatAllowed(req)
     const conv = await actionConversation(req, req.params.id)
     await run(() => confirmAction(chatContext(app, conv, { req }), conv, req.params.id))
-    return { conversation_id: conv.id, items: await displayItems(conv) }
+    // An anonymise card closes the chat it ran in (ai/erase.js).
+    return { conversation_id: conv.id, closed: await closedNow(req, conv), items: await displayItems(conv) }
   })
 
   app.post('/actions/:id/cancel', async req => {
     const conv = await actionConversation(req, req.params.id)
     await run(() => cancelAction(chatContext(app, conv, { req }), conv, req.params.id))
-    return { conversation_id: conv.id, items: await displayItems(conv) }
+    return { conversation_id: conv.id, closed: await closedNow(req, conv), items: await displayItems(conv) }
   })
 
   // ── Settings ────────────────────────────────────────────
   app.get('/settings', { preHandler: requirePermission('ai_assistant', 'view') }, async req => {
     const [t] = await sql`SELECT slug FROM tenants WHERE id = ${req.tenantId}`
-    const [settings, usage] = await Promise.all([getAiSettings(req.tenantId), monthUsage(req.tenantId)])
+    const [settings, usage, people, level] = await Promise.all([
+      getAiSettings(req.tenantId), monthUsage(req.tenantId), peopleUsage(req.tenantId), permissionLevel(req, 'ai_assistant'),
+    ])
+    const canManage = level === 'manage'
     return {
       settings,
       usage,
+      daily_share:     dailyShare(settings),
+      // Who uses how much: everyone for a manager, else just the caller.
+      people:          canManage ? people : people.filter(p => p.user_sub === req.user.sub),
       chat_configured: await chatConfigured(),
       guest_mcp_url:   mcpOrigin() + '/mcp',
       staff_mcp_url:   mcpOrigin() + '/mcp/staff/' + t.slug,
-      can_manage:      await permissionLevel(req, 'ai_assistant') === 'manage',
+      can_manage:      canManage,
     }
   })
 
@@ -293,10 +310,9 @@ export default async function aiRoutes(app) {
              COALESCE(s.staff_enabled, true)          AS staff_enabled,
              COALESCE(s.guest_mcp_enabled, true)      AS guest_mcp_enabled,
              COALESCE(s.guest_chat_enabled, false)    AS guest_chat_enabled,
-             COALESCE((SELECT sum(u.input_tokens + u.output_tokens + u.cache_read_tokens + u.cache_write_tokens)
-                         FROM ai_usage u
+             COALESCE((SELECT sum(u.units) FROM ai_usage u
                         WHERE u.tenant_id = t.id AND u.month = ${usageMonth()}
-                          AND u.channel IN ('staff_chat', 'guest_chat')), 0) AS chat_tokens,
+                          AND u.channel IN ('staff_chat', 'guest_chat')), 0) AS chat_units,
              COALESCE((SELECT sum(u.requests) FROM ai_usage u
                         WHERE u.tenant_id = t.id AND u.month = ${usageMonth()}
                           AND u.channel IN ('staff_mcp', 'guest_mcp')), 0) AS mcp_calls
@@ -308,7 +324,7 @@ export default async function aiRoutes(app) {
     return {
       month: usageMonth(),
       chat_configured: await chatConfigured(),
-      tenants: rows.map(r => ({ ...r, monthly_token_limit: Number(r.monthly_token_limit), chat_tokens: Number(r.chat_tokens), mcp_calls: Number(r.mcp_calls) })),
+      tenants: rows.map(r => ({ ...r, monthly_token_limit: Number(r.monthly_token_limit), chat_units: Number(r.chat_units), mcp_calls: Number(r.mcp_calls) })),
     }
   })
 

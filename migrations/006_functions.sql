@@ -13,8 +13,13 @@ BEGIN
 END;
 $$;
 
--- Schedule via pg_cron (run once after extension is confirmed active)
-SELECT cron.schedule('sweep-holds', '* * * * *', 'SELECT sweep_expired_holds()');
+-- Schedule via pg_cron when the database has it (see 001)
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_cron') THEN
+    PERFORM cron.schedule('sweep-holds', '* * * * *', 'SELECT sweep_expired_holds()');
+  END IF;
+END $$;
 
 -- ── Slot resolver ─────────────────────────────────────────────
 -- Returns available slots for a venue + date + covers.

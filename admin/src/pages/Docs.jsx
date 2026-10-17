@@ -886,6 +886,18 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
           <section id="api" data-doc="">
             <H2>API Reference</H2>
 
+            <P>
+              <strong>Errors.</strong> <Mono>errorHandler()</Mono> in <Mono>middleware/error.js</Mono>{' '}
+              (set before the route plugins in <Mono>app.js</Mono>) answers every thrown error as{' '}
+              <Mono>{'{ error, code?, errors? }'}</Mono>: <Mono>httpError(status, message)</Mono> as
+              given, Zod 400 with <Mono>issues</Mono>, Postgres 23505 / 23P01 / 55P03 / 23503 as 409,
+              and 22P02 (text that isn&apos;t a valid value for its type) as 404 "Not found" when it is
+              a uuid (a malformed id in the address or body is a record that doesn&apos;t exist) else
+              400. Anything else is a 500. Only 500s are logged as errors with the stack; a 4xx is one
+              warn line (<Mono>Request refused</Mono> with the status, message and code), so refusals
+              don&apos;t flood the error log.
+            </P>
+
             <H3>Holds &amp; Bookings — <span className="font-mono font-normal text-sm">/api/bookings</span></H3>
             <DataTable
               head={['Method', 'Path', 'Min role', 'Description']}
@@ -981,7 +993,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['GET', '/:id', 'operator', 'Customer detail including full booking history.'],
                 ['PATCH', '/:id', 'operator', 'Update name, phone, or notes.'],
                 ['POST', '/:id/unsubscribe', 'operator', 'Newsletter off: marketing_opt_in = false, marketing_opt_out_at = now() (migration 125). There is no staff subscribe; only the guest opts in, at online checkout.'],
-                ['POST', '/:id/anonymise', 'admin', 'GDPR erasure — replaces all PII with placeholders, anonymises linked bookings and web orders (guest fields, notes, allergy_note, consent, order line notes), clears the newsletter fields. Never deletes the row.'],
+                ['POST', '/:id/anonymise', 'admin', 'GDPR erasure — replaces all PII with placeholders, anonymises linked bookings and web orders (guest fields, notes, allergy_note, consent, order line notes), clears the newsletter fields, and in the same transaction removes their name, email and phone from Pepper\'s chats and audit (eraseFromAi(), see Pepper → Erasure and retention). Never deletes the row.'],
                 ['GET', '/:id/export', 'admin', 'GDPR data export — returns a JSON file download with customer, newsletter status, all booking records and all web orders (with items and the consent recorded at checkout).'],
               ]}
             />
@@ -1027,7 +1039,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['/api/backlog PATCH /:id', 'platform admin', 'Update item fields.'],
                 ['/api/backlog DELETE /:id', 'platform admin', 'Delete item.'],
                 ['/api/backlog PATCH /:id/move', 'platform admin', 'Move item to a new status column (Kanban drag).'],
-                ['/api/issues GET /', 'tenant', 'List issues for tenant. Platform admin sees all tenants.'],
+                ['/api/issues GET /', 'tenant', 'List issues for tenant. A platform admin in a tenant\'s view sees that tenant\'s issues like everyone else; ?scope=all (the page\'s All restaurant groups button, platform admins only) or no tenant lists every tenant\'s, with tenant_name. scope is ignored for anyone else.'],
                 ['/api/issues POST /', 'tenant', 'Create issue. Priority auto-derived from impact × urgency matrix.'],
                 ['/api/issues PATCH /:id', 'tenant / platform', 'Update issue. Platform admin can update status, resolution_notes, promoted_to_backlog_id.'],
                 ['/api/issues POST /:id/promote', 'platform admin', 'Promote issue to backlog — creates a backlog_item and links it.'],
@@ -1255,6 +1267,15 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>PaidByCardToggle</Mono> (form checkbox) and <Mono>CardBadge</Mono> (list tag),
               both reused by the mobile page. Card totals are shown as a separate "Paid by card
               (not in recon)" line in the day summary, the week grid and the mobile day total.
+            </P>
+            <P>
+              <strong>Expenses on a submitted day.</strong> Adding (<Mono>POST .../expenses</Mono>) and
+              the whole-day PUT already refused a submitted report; changing and deleting one expense
+              didn&apos;t, so a submitted day&apos;s figures could move after sign-off.{' '}
+              <Mono>assertExpenseOpen()</Mono> in <Mono>cashRecon.js</Mono> (the expense must be the
+              venue&apos;s and its report not submitted, else 404 / 422 "unsubmit first") now runs
+              before <Mono>PUT</Mono> and <Mono>DELETE .../expenses/:expenseId</Mono>. A receipt can
+              still be added or removed on a submitted day (it changes no figure).
             </P>
             <H3>Admin theming — SectionCard</H3>
             <P>
@@ -3851,9 +3872,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['set_preferred_supplier', 'setup manage', 'PUT /items/:id/preferred', 'venue_id or company; clear: true'],
                 ['add_supplier / update_supplier', 'setup manage', 'POST, PATCH /suppliers, PUT /suppliers/:id/venues', 'Days as names; a venue setting is merged into the full PUT list (the route replaces all)'],
                 ['create_order_list / update_order_list / set_pars', 'setup manage', 'POST, PATCH /lists, PUT /lists/:id/venues|items|pars', 'Items by name or code, every unknown name in one error; pars in packs (company-choice quote) or g/kg/ml/cl/l/each, stored in base units'],
-                ['import_price_list', 'setup manage', 'POST /inventory/import (dry_run on the card)', 'rows (up to 250, read by the model from a PDF, photo or email) become a CSV with the template headings; attached_file is a text/CSV ai_attachments row of this conversation and this user (chat only). All rows bad = refused'],
+                ['import_price_list', 'setup manage', 'POST /inventory/import (dry_run on the card)', 'rows (up to 100 per call, read by the model from a PDF, photo or email; a longer list is one call and one card per 100) become a CSV with the template headings; attached_file is a text/CSV ai_attachments row of this conversation and this user (chat only). All rows bad = refused'],
                 ['update_order', 'purchasing manage', 'PUT /orders/:id/lines', 'planOrder(): lines (on the order by code/name, else GET /venues/:id/catalog), supplier/pack switch (quote_id sent only then), fill_to_par (packsToPar), clear_all; only changed lines are sent'],
-                ['place_order', 'purchasing manage', 'PUT /orders/:id/lines, POST /orders/:id/submit', 'Card per supplier: delivery date (next delivery or deliveries[].date), how it is sent, lines at fitQty(); warns on rounding, minimum order, a missed cutoff, a date off the delivery days, no email address. Only overrides and notes are sent, so the route still picks the date at run time'],
+                ['place_order', 'purchasing manage', 'PUT /orders/:id/lines, POST /orders/:id/submit', 'Card per supplier: delivery date (next delivery or deliveries[].date), how it is sent, lines at fitQty(); warns on rounding, minimum order, a missed cutoff, a date off the delivery days, no email address. Only overrides and notes are sent, so the route still picks the date at run time. The card pins planned_delivery { supplierId: date } for suppliers without a date given; run() refuses (409) when a supplier\'s first delivery day has moved since (a cutoff passed), so the order is never placed for a day the card didn\'t show'],
                 ['send_purchase_order', 'purchasing manage', 'POST /pos/:id/send | /mark-sent', 'email needs an address (resend allowed, warned); other ways need To send'],
                 ['change_purchase_order', 'purchasing manage', 'PATCH /pos/:id, PUT /pos/:id/lines', 'Lines and add only while To send; add only from the PO\'s supplier (catalog quotes); an empty order is refused'],
                 ['cancel_purchase_order', 'purchasing manage', 'POST /pos/:id/cancel', 'Warns to tell the supplier when already sent'],
@@ -3899,10 +3920,10 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['list_menus', 'GET /menus?status=1 + SQL counts', 'Venue, shown_to_guests, publish (live / draft changes not published / never published, scheduled publish), sections, dishes'],
                 ['get_menu', 'GET /menus/:id[?version=live], /menus/variant-groups', 'The draft unless version live (404 text when never published); dishes with price or option prices (the dish\'s own, from loadMenuFull options[]), allergens with level, dietary, calories, online off, a combo\'s steps; descriptions with details or one section; lists tags and option groups; publish status'],
                 ['find_dishes', 'GET /menus, /menus/:id?version=live, /menus/dietary/all', 'search words, has (all tags), free_from (allergens; removable listed as ask_for_it_without, may_contain blocks); live versions shown to guests unless include_unpublished (adds hidden menus, and drafts of menus never published, marked not_published) or version draft; 60 shown'],
-                ['create_menu', 'POST /menus, PATCH /menus/:id (DELETE on failure)', 'Sections and up to 400 dishes in one call; unpublished unless published: true'],
+                ['create_menu', 'POST /menus, PATCH /menus/:id (DELETE on failure)', 'Sections and up to 50 dishes in one call (BATCH_DISHES); unpublished unless published: true. A bigger menu: the rest with add_dishes, see Batches below'],
                 ['update_menu', 'PATCH /menus/:id', 'Name, venue / all venues, published, tagline, service times, intro'],
                 ['duplicate_menu', 'POST /menus/:id/duplicate (+ PATCH to rename)', 'Copy is unpublished; designs remapped by the route'],
-                ['add_dishes', 'PATCH /menus/:id', 'Existing or new sections; same-name dish in that section skipped unless update_existing'],
+                ['add_dishes', 'PATCH /menus/:id', 'Existing or new sections, up to 50 dishes per call; same-name dish in that section skipped unless update_existing. May name a menu this chat\'s create_menu card is still waiting to make (loadForAdd())'],
                 ['update_dish', 'PATCH /menus/:id', 'Fields, allergens / add / remove (with level), dietary the same, options / remove_options, move_to_section, position, after_dish. Name the section when the dish is in several (409 otherwise). Warns on allergen changes and on a price change over 50%'],
                 ['remove_dishes', 'PATCH /menus/:id', 'Destructive; warns when a combo offers a removed dish (it loses that choice)'],
                 ['update_section', 'PATCH /menus/:id', 'Title, subtitle, visibility, VAT takeaway / eat in, position or after_section'],
@@ -3923,6 +3944,24 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               wheat ...); an unknown tag is left off and listed on the card, never created. Prices
               in and out are pounds. Not covered: dish photos, combo steps, print designs and
               print options, till fields, deleting a menu, the tag list.
+            </P>
+            <P>
+              <strong>Batches.</strong> A tool call is written by the model in one reply, and a reply
+              stops at <Mono>MAX_TOKENS</Mono> (16,000) in <Mono>chat.js</Mono>; a whole menu read from
+              a photo (hundreds of dishes with options and allergens) was cut off and came back as
+              "Not done". So <Mono>create_menu</Mono> and <Mono>add_dishes</Mono> take at most{' '}
+              <Mono>BATCH_DISHES</Mono> (50) dishes per call, and <Mono>import_price_list</Mono> 100
+              rows. The prompt has the model make the menu with its first sections, then call{' '}
+              <Mono>add_dishes</Mono> for the rest straight away, a section or two at a time, without
+              waiting for the first card. <Mono>loadForAdd()</Mono> makes that work before the menu
+              exists: when the named menu isn&apos;t there, it looks for this chat&apos;s latest{' '}
+              <Mono>create_menu</Mono> card for that exact name (<Mono>createCardFor()</Mono>). A card
+              still waiting: the add card is planned against the menu as that card would make it
+              (<Mono>planCreate()</Mono> of its stored input), titled "(new menu)" with a "Confirm ...
+              first" line, and its run refuses (409) until the create card has been confirmed. A
+              create card cancelled or expired: refused, with "make it again". The exact name match
+              stops dishes landing in another menu whose name merely starts the same. A tool call cut
+              off anyway gets a result (<Mono>CUT_OFF</Mono>) telling the model to split it.
             </P>
             <H3>Staff: the rest of Pepper (rota, cash, orders, till, customers, venue, website)</H3>
             <P>
@@ -3966,7 +4005,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['list_reviews / moderate_review', 'website view / manage', 'GET /api/reviews, /reviews/stats, PATCH /api/reviews/:id', 'A review by id, reviewer name or words from it'],
                 ['screens_status / reload_screen', 'screens view / manage', 'GET /api/screens/screens, POST .../:id/reload', ''],
                 ['email_log', 'email_templates view', 'GET /api/email-templates/log?limit=200', 'search by guest name or email; only_failed'],
-                ['report_issue / list_issues / request_feature', 'issue_log manage / view, feature_requests manage', 'POST, GET /api/issues, POST /api/feature-requests', 'list_issues keeps only this tenant\'s rows (the route lists every tenant for platform admins)'],
+                ['report_issue / list_issues / request_feature', 'issue_log manage / view, feature_requests manage', 'POST, GET /api/issues, POST /api/feature-requests', 'list_issues keeps only this tenant\'s rows (the route lists every tenant only for a platform admin asking with ?scope=all)'],
                 ['open_page', 'the page\'s own module, view', 'ROUTE_CATALOG (routes/nav.js) + ALSO synonyms', 'Scored match (exact, starts with, word, synonym); only pages the person can view; staff_chat gets a markdown link [Label](/route) that ChatView renders as an in-app Link (only paths starting with one /), MCP gets the full address on officeOrigin(); several matches return choices'],
               ]}
             />
@@ -4022,7 +4061,32 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               conversation started with (<Mono>ai_conversations.system_prompt</Mono>), so every
               request replays the history unchanged: thinking blocks stay valid and the prompt cache
               hits. Back-to-back user rows (a confirm note, then the next message) are merged when
-              sent. A refusal stores nothing. Every response's usage goes to <Mono>ai_usage</Mono>.
+              sent. A refusal stores nothing. Every response's usage goes to <Mono>ai_usage</Mono>{' '}
+              (and the person's day, see Usage below).
+            </P>
+            <P>
+              <strong>One writer per chat (migration 174).</strong> The API runs one process per CPU,
+              so an in-memory "running" set only stopped a second message reaching the same process.
+              A turn, a Confirm and a Cancel each take <Mono>holdConversation()</Mono>: an UPDATE that
+              sets <Mono>ai_conversations.running_until</Mono> to now + 90 s only where it is empty or
+              past, so exactly one caller gets the row; the others get a 409 ("Still working on your
+              last message"). The hold is renewed every 30 s while the work runs (only while it is
+              still ours: <Mono>running_until = held</Mono>) and cleared at the end; if the process
+              dies mid-turn it lapses by itself within 90 s. <Mono>withHold()</Mono> wraps{' '}
+              <Mono>runTurn()</Mono>, <Mono>confirmAction()</Mono> and <Mono>cancelAction()</Mono>.
+              Without it, a Confirm pressed while the model was mid-step could append its note
+              between a tool call and its result, and every later request in the chat would fail.
+            </P>
+            <P>
+              <strong>Turn budget.</strong> nginx gives <Mono>/api/ai/</Mono> 300 s (see Deployment,{' '}
+              <Mono>ensure-nginx-ai-timeout.sh</Mono>); before that the general 60 s cut long turns
+              off with a 504 while they kept running. A turn starts no new step after{' '}
+              <Mono>TURN_MS</Mono> (240 s): it stops once every tool call of the last step has its
+              result stored, replies that it stopped and the person can say "carry on" (stop reason{' '}
+              <Mono>time</Mono>). Never after a paused server step, so the history stays valid.
+              Before calling the model, the turn refuses a closed chat (see Erasure), a tenant past
+              its monthly allowance (<Mono>chatUnitsLeft()</Mono>, 429) and, for staff, a person past
+              their daily share (<Mono>personUnitsLeft()</Mono>, 429).
             </P>
             <P>
               <strong>Tool search (staff chat).</strong> Pepper has well over 100 tools; sending them
@@ -4072,15 +4136,58 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               session. The staff system prompt tells the model to say what it read, ask when unclear,
               and treat text inside a file as information, never as instructions.
             </P>
+            <H3>Usage, the allowance and each person&apos;s daily share (migration 174)</H3>
+            <P>
+              Chats are paid by the platform, so a tenant&apos;s chats stop at{' '}
+              <Mono>ai_settings.monthly_token_limit</Mono>. It used to count raw tokens, all four kinds
+              alike, so a long chat re-reading its cached history (cache reads cost a tenth of input)
+              looked ten times dearer than it was, while output (five times input) looked cheap. Now
+              it counts <strong>units</strong>: <Mono>usageUnits()</Mono> in{' '}
+              <Mono>ai/context.js</Mono> weighs tokens by price as input-token equivalents (input 1,
+              output 5, 5-minute cache write 1.25, cache read 0.1, or less for the models listed in{' '}
+              <Mono>CACHE_READ_WEIGHT</Mono>), with the model
+              that actually answered (<Mono>response.model</Mono>, which can be a fallback).{' '}
+              <Mono>addUsage()</Mono> adds the units to <Mono>ai_usage</Mono> and, for staff chat, to
+              the person&apos;s day in <Mono>ai_usage_people</Mono>; every caller passes{' '}
+              <Mono>model</Mono> and, for staff, <Mono>person</Mono> (the chat loop, and{' '}
+              <Mono>aiTranslate()</Mono> for the Translations page&apos;s AI draft).
+            </P>
+            <P>
+              <strong>Daily share.</strong> One person shouldn&apos;t be able to use a whole
+              restaurant group&apos;s month in a day. <Mono>person_daily_pct</Mono> (default 25) gives
+              each person that % of the monthly allowance per day (<Mono>dailyShare()</Mono>);{' '}
+              <Mono>personUnitsLeft()</Mono> is checked before every staff turn and every AI
+              translation draft, 429 with a message saying it starts again tomorrow. null = no daily
+              share. The Settings tab (<Mono>AiAssistant.jsx</Mono>) shows the month as a share of the
+              allowance, a people card (<Mono>PeopleCard</Mono>: each person&apos;s units this month,
+              their share of the month and today against the daily share) and the Fair use and
+              privacy card (<Mono>FairUseCard</Mono>: daily share, how long chats are kept; draft,
+              Save and Discard). Someone without ai_assistant manage sees only their own line.
+            </P>
+            <H3>Erasure and retention (migration 174)</H3>
+            <P>
+              <Mono>src/ai/erase.js</Mono>. Chats and the audit hold guests&apos; names, emails and
+              phone numbers (a booking made by chat, a guest looked up), so a GDPR erasure must reach
+              them, and chats must not be kept for ever.
+            </P>
+            <DataTable
+              head={['Part', 'What happens']}
+              rows={[
+                ['eraseFromAi(tx, tenantId, values)', 'Called by POST /api/customers/:id/anonymise inside its own transaction, with every name, email and phone on the customer row and on their bookings and orders (collected before they are overwritten). Identifiers under 3 characters are skipped. Candidate chats are found by text (ILIKE on messages, cards and titles); a chat is only touched when something in it matches as a whole word (case ignored, no letter, digit or _ either side), so erasing a guest called Tom leaves a chat about tomatoes alone. In a matching chat: every message has the identifiers replaced with [removed], thinking blocks dropped (they can\'t be edited and still replay) and file blocks replaced with "[File removed]"; cards scrubbed, and open ones cancelled (result { error: erased }); its files deleted; the title scrubbed; closed_at set with closed_reason erased. ai_actions rows that match get input and result scrubbed and redacted_at. A first name alone, or a phone written another way, isn\'t matched.'],
+                ['Closed chats', 'The stored history is replayed to the model unchanged, so an edited one can\'t carry on: runTurn() refuses it (409), the conversation responses carry closed, ChatView shows a notice and a Start a new chat button instead of the composer, and the chat list marks it. anonymise_customer, run from a chat, closes that chat too (the Confirm reply carries closed); its audit row is written by customer id, and the Confirm note uses the card title as it is after the erasure (titleNow()).'],
+                ['cleanUpAi(log)', 'The hourly ai-cleanup BullMQ job (startAiCleanupWorker() in jobs/queues.js, started by server.js). Per tenant: chats idle (updated_at) longer than chat_retention_days are deleted with their messages, cards and files (cascade), never one held by a running turn; ai_actions input and result cleared after 365 days (redacted_at); unsent uploads after a day; used or expired guest codes and grants after a day; ai_usage_people rows after 400 days. Idempotent, a failure on one tenant is logged and the rest carry on. Needs Redis (the repeat job), like the hold sweep.'],
+              ]}
+            />
             <H3>Tables</H3>
             <DataTable
               head={['Table', 'Notes']}
               rows={[
-                ['ai_settings', 'One per tenant (no row = defaults): guest_mcp_enabled (true), guest_chat_enabled (false), staff_enabled (true), monthly_token_limit (2,000,000; platform admin only).'],
-                ['ai_usage', 'Per tenant, month (first day, UTC), channel: requests and input / output / cache read / cache write tokens. The limit counts all four token kinds of staff_chat + guest_chat; MCP channels count calls only.'],
-                ['ai_conversations / ai_messages', 'Chats. channel staff_chat (user_sub) or guest_chat (guest_key, a random secret the browser keeps). Messages: seq, role, content jsonb (API content blocks).'],
+                ['ai_settings', 'One per tenant (no row = defaults): guest_mcp_enabled (true), guest_chat_enabled (false), staff_enabled (true), monthly_token_limit (2,000,000 units; platform admin only), person_daily_pct (25; 1-100 or null = no daily share; migration 174), chat_retention_days (90; 30 | 90 | 180 | 365; migration 174).'],
+                ['ai_usage', 'Per tenant, month (first day, UTC), channel: requests, input / output / cache read / cache write tokens, and units (migration 174: the tokens weighted by price, usageUnits()). The allowance counts units of staff_chat + guest_chat; MCP channels count calls only. Migration 174 backfilled units with the default weights.'],
+                ['ai_usage_people (migration 174)', 'Per tenant, day (UTC), user_sub: user_email, requests, units. Staff chat only (written by addUsage() with a person). The daily share and the Settings tab\'s people card read it; rows older than 400 days are deleted by the hourly clean-up. RLS, every query filters tenant_id.'],
+                ['ai_conversations / ai_messages', 'Chats. channel staff_chat (user_sub) or guest_chat (guest_key, a random secret the browser keeps). Messages: seq, role, content jsonb (API content blocks). Migration 174: running_until (the one-writer hold), closed_at + closed_reason (erased: read only, see Erasure), index (tenant_id, updated_at) for the retention clean-up.'],
                 ['ai_pending_actions', 'Confirm cards: tool_use_id, tool, input, card {title, lines, confirmLabel, destructive}, status pending | done | cancelled | failed, result, expires_at, decided_at (claim).'],
-                ['ai_actions', 'Audit log of every change through AI (all channels): tool, input, ok, result, booking_id (null for anything but bookings), actor. Shown on /ai Activity.'],
+                ['ai_actions', 'Audit log of every change through AI (all channels): tool, input, ok, result, booking_id (null for anything but bookings), actor. Shown on /ai Activity. redacted_at (migration 174): input and result cleared after a year, or the guest\'s details replaced on erasure.'],
                 ['ai_booking_codes / ai_booking_grants', 'Emailed codes and access keys (hashes only).'],
                 ['ai_access_tokens', 'Staff MCP tokens: sha256 of mcp_ + 40 hex, prefix, user_id, revoked_at. No RLS (read during auth before any tenant context); every query filters tenant_id.'],
                 ['bookings.source', 'Which AI channel made the booking (NULL = not AI).'],
@@ -4092,14 +4199,14 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <DataTable
               head={['Route', 'Notes']}
               rows={[
-                ['GET /api/ai/status', 'configured, enabled, permission, can_chat, tokens_left. Drives the Ask Pepper button.'],
-                ['GET/DELETE /api/ai/conversations[/:id], POST /api/ai/chat', 'The caller\'s own chats (user_sub). chat { conversation_id?, message, attachments? } returns the whole conversation as display items.'],
+                ['GET /api/ai/status', 'configured, enabled, permission, can_chat, units_left (the tenant\'s month), share_left (the caller\'s day; null = no daily share). Drives the Ask Pepper button.'],
+                ['GET/DELETE /api/ai/conversations[/:id], POST /api/ai/chat', 'The caller\'s own chats (user_sub); the list and a chat carry closed (erased, read only). chat { conversation_id?, message, attachments? } returns the whole conversation as display items; 409 while another turn or a card holds the chat, or when it is closed.'],
                 ['POST /api/ai/attachments, GET/DELETE /api/ai/attachments/:id', 'Upload one file (multipart field file) -> { id, name, kind, media_type, bytes }; the file itself, uploader only; remove an unsent upload. See Attached files above.'],
-                ['POST /api/ai/actions/:id/confirm | cancel', 'Confirm cards.'],
-                ['GET/PATCH /api/ai/settings', 'Switches + usage + MCP addresses (PATCH: ai_assistant manage).'],
+                ['POST /api/ai/actions/:id/confirm | cancel', 'Confirm cards; hold the chat like a turn (409 while it is busy). The reply carries closed: an anonymise card closes the chat it ran in.'],
+                ['GET/PATCH /api/ai/settings', 'GET: settings, usage (channels + chat_units), daily_share (units or null), people (peopleUsage(): name or email, requests, units this month, today; everyone for ai_assistant manage, else only the caller\'s own line), MCP addresses. PATCH (ai_assistant manage): the switches, person_daily_pct (1-100 or null), chat_retention_days (30 | 90 | 180 | 365).'],
                 ['GET/POST/DELETE /api/ai/tokens[/:id]', 'Own tokens; ai_assistant manage sees and revokes everyone\'s. POST returns the token once.'],
                 ['GET /api/ai/activity', 'ai_actions, last 100 (manage).'],
-                ['GET/PATCH /api/ai/platform/tenants[/:id]', 'Platform admin: usage and monthly_token_limit (Platform page, AI usage tab).'],
+                ['GET/PATCH /api/ai/platform/tenants[/:id]', 'Platform admin: chat_units, mcp_calls and monthly_token_limit (an allowance in units; Platform page, AI usage tab).'],
                 ['GET/PUT/DELETE /api/ai/platform/key, POST /api/ai/platform/key/test', 'Platform admin: the Anthropic key. GET = source (platform | env | null), saved hint/by/at, env_hint, model. PUT { api_key } checks it with Anthropic (models.retrieve of AI_MODEL, free) and saves it, 422 with the reason if rejected, warning if the key can\'t use the model. DELETE goes back to .env. Never returns the key.'],
                 ['/ai-api/*', 'Website chat: tenants/:id/status, chat, conversations/:id?key=, actions/:id/confirm | cancel. Rate limited per IP.'],
                 ['POST /mcp, POST /mcp/staff/:tenantSlug', 'MCP Streamable HTTP, stateless (a server per request, JSON responses). GET/DELETE 405. Staff: route config allowAccessToken; a JWT gets X-Tenant-Id from the slug; ai_assistant view + staff_enabled.'],
@@ -4803,7 +4910,10 @@ selection.combo = { [stepId]: [{ option_id, item_id, choices }] }   // item_id n
               <Mono>permissionProblem(..., &apos;sold_out&apos;)</Mono>). <Mono>tillConfig()</Mono>{' '}
               includes <Mono>sold_out: [{'{ item_id, until }'}]</Mono>; the till greys the dish, holding
               a dish (550 ms) or tapping a sold out one opens <Mono>SoldOutModal</Mono>{' '}
-              (CheckActions.jsx).
+              (CheckActions.jsx). <Mono>setSoldOut()</Mono> only marks the tenant&apos;s own dishes: one
+              in a menu&apos;s draft, or on a release that isn&apos;t cancelled (a dish taken out of the
+              draft is still on the live menu until publish), else 404 "Dish not found". Putting a
+              dish back on (false) is allowed for any id, so a stray row can always be cleared.
             </P>
             <InfoBox type="warn">
               A new place that marks dishes sold out must go through <Mono>setSoldOut()</Mono> and{' '}
@@ -5391,7 +5501,7 @@ GET /robots.txt`}</Code>
                 {
                   name: 'BullMQ queues',
                   path: 'src/jobs/queues.js',
-                  desc: 'Two Redis-backed queues: notificationQueue → email confirmation / cancellation jobs. holdSweepQueue → fallback cleanup for holds not released via DELETE /holds/:id.',
+                  desc: 'Redis-backed queues, a worker each, started by server.js in every API process: notifications (booking and order emails), hold-sweep (every minute: expired holds, online orders past their time, due menu releases), review-scrape (Apify reviews, jobs/reviewScrapeWorker.js), website-publish (scheduled publishes, jobs/publishWorker.js), gloriafood-poll (every minute), ai-cleanup (hourly: Pepper chat retention and audit clean-up, ai/erase.js cleanUpAi()). Repeat jobs are added at start-up and need Redis; BullMQ keeps one repeat per name however many processes add it.',
                   code: null,
                 },
                 {
@@ -5770,6 +5880,28 @@ npm install && npm run dev        # :5173, proxies /api → :3000`}</Code>
                 ['AUTO_BASELINE_UP_TO=NNN', 'Env var. On first run only (schema_migrations empty) AND with a pre-existing "tenants" table, auto-baseline up to NNN. No-op on every subsequent run. The deploy workflow sets this to 024 as a safety net for existing Lightsail deployments.'],
               ]}
             />
+            <H3>Building from empty (CI)</H3>
+            <P>
+              The live server&apos;s schema was built up one deploy at a time, so nothing showed that
+              the migrations no longer ran on an empty database: 062 and 063 truncated the order sheet
+              tables one statement at a time, and 090 truncated <Mono>fs_hold_checks</Mono> on its own.
+              Postgres refuses to truncate a table that another table references (even an empty one)
+              unless both are in the same statement or <Mono>CASCADE</Mono> is given; all three now use
+              one <Mono>TRUNCATE ... CASCADE</Mono>. 001 made{' '}
+              <Mono>pg_cron</Mono> a hard requirement, which most hosted and CI Postgres don&apos;t have:
+              001 now creates the extension only if it can (a notice otherwise), and 006 schedules the
+              hold sweep with <Mono>cron.schedule()</Mono> only when the extension is there. The app&apos;s
+              own BullMQ hold sweep (<Mono>holdSweepQueue</Mono>) is the primary sweep either way.
+            </P>
+            <P>
+              <Mono>.github/workflows/ci.yml</Mono> runs on every pull request and every push to main:
+              job <Mono>database</Mono> migrates an empty Postgres 16 (no pg_cron) from 001, runs the
+              migrations a second time expecting "up to date", then starts the API against it with
+              Redis and waits for <Mono>/api/health</Mono>; job <Mono>shared-tests</Mono> runs{' '}
+              <Mono>node --test shared/test/*.test.mjs shared/pos/test/*.test.mjs</Mono>. Separate from
+              the deploy workflow; a failing check doesn&apos;t block a push to main on its own (set up a
+              branch rule in GitHub for that).
+            </P>
             <H3>Typical deployment flow</H3>
             <Code>{`# From the developer's laptop:
 git push origin main
@@ -5781,7 +5913,9 @@ git push origin main
 #   5. npm install + build (admin, then the till app in pos/)
 #   6. pm2 restart macaroonie-api
 #   7. nginx patches (sudo): /manage on the apex, SPA cache headers,
-#      http2 on every https listen (ensure-nginx-http2.sh), domain sync
+#      http2 on every https listen (ensure-nginx-http2.sh), big media
+#      uploads (ensure-nginx-media-upload.sh), 5 minutes for Pepper's
+#      chat (ensure-nginx-ai-timeout.sh), domain sync
 #   8. health check on /api/health: tries every 2 s for up to 30 s,
 #      then fails the deploy with the last 30 PM2 log lines`}</Code>
             <P>
@@ -5793,6 +5927,24 @@ git push origin main
               other <Mono>listen ... ssl</Mono> lines on that address (in the files <Mono>sites-enabled</Mono> points at),
               runs <Mono>nginx -t</Mono> (restores every file and fails if it doesn&apos;t pass) and reloads. It never
               removes http2 and leaves addresses where no block has it alone.
+            </P>
+            <P>
+              <Mono>scripts/ensure-nginx-ai-timeout.sh</Mono>: every admin server block proxies{' '}
+              <Mono>/api/</Mono> with <Mono>proxy_read_timeout 60s</Mono>, and a Pepper turn (several
+              model calls, a photo to read, a menu to build) replies only at the end, so a turn over a
+              minute showed a 504 while the API carried on and saved the reply. Rather than raise the
+              timeout for every route, the script puts{' '}
+              <Mono>{'location ^~ /api/ai/ { ... }'}</Mono> in front of each{' '}
+              <Mono>location /api/</Mono> block, with that block&apos;s proxy_pass and limit_req,{' '}
+              <Mono>proxy_read_timeout</Mono> / <Mono>proxy_send_timeout 300s</Mono> and buffering off.{' '}
+              <Mono>^~</Mono> makes the prefix final, so no regex location can take those paths. The
+              chat loop stops starting new steps after 240 s to answer inside that. Same safety as the
+              other scripts (idempotent, <Mono>nginx -t</Mono> or restore). It and{' '}
+              <Mono>ensure-nginx-media-upload.sh</Mono> both insert before the same{' '}
+              <Mono>location /api/</Mono> line, so each looks for its own block in the text since the
+              previous <Mono>/api/</Mono> block (that server block&apos;s locations), not in a fixed
+              number of characters, or the other&apos;s insert would hide it and it would add itself
+              again on every deploy.
             </P>
             <H3>First-time baselining</H3>
             <P>

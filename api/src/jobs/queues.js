@@ -9,6 +9,7 @@ export const holdSweepQueue     = new Queue('hold-sweep',       { connection })
 export const reviewScrapeQueue  = new Queue('review-scrape',    { connection })
 export const publishQueue       = new Queue('website-publish',  { connection })
 export const gloriafoodQueue    = new Queue('gloriafood-poll',  { connection })
+export const aiCleanupQueue     = new Queue('ai-cleanup',       { connection })
 
 // ── Notification worker ───────────────────────────────────────
 // Routes booking emails through the new pluggable email system
@@ -89,6 +90,32 @@ export function startGloriaFoodPollWorker(log) {
     removeOnComplete: true,
     removeOnFail: 50,
   }).catch(err => log.warn({ err: err?.message }, 'GloriaFood poll not scheduled (Redis?)'))
+
+  return worker
+}
+
+// ── AI clean-up worker ────────────────────────────────────────
+// Every hour (migration 174, ai/erase.js cleanUpAi()): delete Pepper and
+// website chats idle longer than the tenant's chat_retention_days, clear
+// audit inputs older than a year, unsent uploads, used guest codes and old
+// per-person usage. Idempotent, so a run that overlaps another is harmless.
+
+export function startAiCleanupWorker(log) {
+  const worker = new Worker('ai-cleanup', async () => {
+    const { cleanUpAi } = await import('../ai/erase.js')
+    const r = await cleanUpAi(log)
+    if (r.chats || r.audit || r.uploads) log.info(r, 'AI clean-up')
+  }, { connection })
+
+  worker.on('failed', (job, err) => {
+    log.error({ jobId: job?.id, err }, 'AI clean-up job failed')
+  })
+
+  aiCleanupQueue.add('cleanup', {}, {
+    repeat: { every: 3_600_000 },
+    removeOnComplete: true,
+    removeOnFail: 20,
+  }).catch(err => log.warn({ err: err?.message }, 'AI clean-up not scheduled (Redis?)'))
 
   return worker
 }

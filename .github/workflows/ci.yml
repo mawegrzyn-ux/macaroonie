@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  database:
+    name: Migrate an empty database + start the API
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: macaroonie
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7
+        ports: ['6379:6379']
+
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/macaroonie
+      REDIS_URL: redis://localhost:6379
+      AUTH0_DOMAIN: ci.invalid
+      AUTH0_AUDIENCE: https://api.ci.invalid
+      STRIPE_SECRET_KEY: sk_test_ci
+      STRIPE_WEBHOOK_SECRET: whsec_ci
+      NODE_ENV: production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: api/package-lock.json
+
+      - name: Install API dependencies
+        working-directory: api
+        run: npm ci --no-audit --no-fund
+
+      # Every migration from 001 on an empty Postgres 16 (no pg_cron): a new
+      # environment or a rebuild from empty must work.
+      - name: Migrate an empty database
+        working-directory: api
+        run: node scripts/migrate.js
+
+      - name: Migrate again (nothing to do)
+        working-directory: api
+        run: node scripts/migrate.js | tee /tmp/migrate2.log && grep -q "up to date" /tmp/migrate2.log
+
+      - name: Start the API
+        working-directory: api
+        run: |
+          node src/server.js > /tmp/api.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3000/api/health; then echo; exit 0; fi
+            sleep 1
+          done
+          cat /tmp/api.log
+          exit 1
+
+  shared-tests:
+    name: Shared unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: node --test
+        run: node --test shared/test/*.test.mjs shared/pos/test/*.test.mjs

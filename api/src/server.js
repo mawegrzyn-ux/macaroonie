@@ -7,7 +7,8 @@ import { env }                               from './config/env.js'
 import { attachWss }                         from './config/ws.js'
 import { startNotificationWorker,
          startHoldSweepWorker,
-         startGloriaFoodPollWorker }         from './jobs/queues.js'
+         startGloriaFoodPollWorker,
+         startAiCleanupWorker }              from './jobs/queues.js'
 import { startReviewScrapeWorker }           from './jobs/reviewScrapeWorker.js'
 import { startPublishWorker }                from './jobs/publishWorker.js'
 import jwksClient                            from 'jwks-rsa'
@@ -31,6 +32,7 @@ const sweepWorker   = startHoldSweepWorker(sql, app.log)
 const reviewWorker  = startReviewScrapeWorker(app.log)
 const publishWorker = startPublishWorker(app.log)
 const gfWorker      = startGloriaFoodPollWorker(app.log)
+const aiWorker      = startAiCleanupWorker(app.log)
 
 // ── Graceful shutdown ────────────────────────────────────────
 const shutdown = async (signal) => {
@@ -41,6 +43,7 @@ const shutdown = async (signal) => {
   await reviewWorker.close()
   await publishWorker.close()
   await gfWorker.close()
+  await aiWorker.close()
   await sql.end()
   process.exit(0)
 }

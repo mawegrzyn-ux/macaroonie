@@ -3,7 +3,8 @@
 // AI assistant (/ai, module ai_assistant, migration 148). Tabs:
 //   Chat      the staff assistant, with earlier chats (ChatView)
 //   Connect   MCP addresses for AI apps, and the person's access tokens
-//   Settings  which AI features are on, and this month's usage (manage)
+//   Settings  which AI features are on, this month's usage and each person's,
+//             each person's daily share, how long chats are kept (manage)
 //   Activity  every booking change made through AI (manage)
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -285,7 +286,7 @@ function SettingsTab({ info }) {
   if (!info) return <Loader2 className="w-5 h-5 animate-spin text-muted-foreground mx-auto" />
   const u = info.usage
   const limit = info.settings.monthly_token_limit
-  const pct = limit ? Math.min(100, Math.round((u.chat_tokens / limit) * 100)) : 100
+  const pct = limit ? Math.min(100, Math.round((u.chat_units / limit) * 100)) : 100
   const mcpCalls = (u.channels.staff_mcp?.requests || 0) + (u.channels.guest_mcp?.requests || 0)
 
   return (
@@ -320,12 +321,16 @@ function SettingsTab({ info }) {
         <div>
           <div className="flex justify-between text-sm mb-1">
             <span>Chat allowance used</span>
-            <span className="font-medium">{u.chat_tokens.toLocaleString()} of {limit.toLocaleString()} tokens</span>
+            <span className="font-medium">{pct}% ({u.chat_units.toLocaleString()} of {limit.toLocaleString()})</span>
           </div>
           <div className="h-2.5 rounded-full bg-muted overflow-hidden">
             <div className={cn('h-full', pct >= 90 ? 'bg-destructive' : pct >= 70 ? 'bg-amber-500' : 'bg-primary')} style={{ width: pct + '%' }} />
           </div>
-          <p className="text-xs text-muted-foreground mt-1">The staff assistant and the website chat share this allowance. When it runs out they pause until next month; the connectors keep working.</p>
+          <p className="text-xs text-muted-foreground mt-1">
+            The staff assistant and the website chat share this allowance. When it runs out they pause until next month;
+            the connectors keep working. It counts what each reply costs: what the assistant writes counts five times,
+            the earlier part of a chat it reads again a tenth or less.
+          </p>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm">
           <Stat label="Staff chat replies" value={u.channels.staff_chat?.requests || 0} />
@@ -335,7 +340,106 @@ function SettingsTab({ info }) {
         </div>
         {mcpCalls === 0 && <p className="text-xs text-muted-foreground">No calls from AI apps yet this month.</p>}
       </Card>
+      <PeopleCard people={info.people || []} limit={limit} share={info.daily_share} />
+      <FairUseCard settings={info.settings} canManage={info.can_manage} />
     </>
+  )
+}
+
+/** Who uses the assistant this month, and how much of today's share each has used. */
+function PeopleCard({ people, limit, share }) {
+  if (!people.length) return null
+  const ofMonth = units => (limit ? Math.round((units / limit) * 1000) / 10 : 0)
+  return (
+    <Card title="Who uses it this month">
+      <ul className="divide-y -my-1">
+        {people.map(p => {
+          const todayPct = share ? Math.min(100, Math.round((p.today / share) * 100)) : null
+          return (
+            <li key={p.user_sub} className="py-2 flex flex-wrap items-center gap-x-4 gap-y-1">
+              <div className="flex-1 min-w-[160px]">
+                <div className="text-sm font-medium truncate">{p.name}</div>
+                <div className="text-xs text-muted-foreground">
+                  {p.requests.toLocaleString()} {p.requests === 1 ? 'reply' : 'replies'} · {ofMonth(p.units)}% of the month's allowance
+                </div>
+              </div>
+              {todayPct !== null && (
+                <div className="w-40 shrink-0">
+                  <div className="flex justify-between text-xs text-muted-foreground mb-0.5">
+                    <span>Today</span><span>{todayPct}% of their share</span>
+                  </div>
+                  <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                    <div className={cn('h-full', todayPct >= 100 ? 'bg-destructive' : todayPct >= 70 ? 'bg-amber-500' : 'bg-primary')} style={{ width: todayPct + '%' }} />
+                  </div>
+                </div>
+              )}
+            </li>
+          )
+        })}
+      </ul>
+    </Card>
+  )
+}
+
+const SHARE_CHOICES = [[null, 'No daily limit'], [10, '10% a day'], [25, '25% a day'], [50, '50% a day']]
+const KEEP_CHOICES = [[30, '30 days'], [90, '90 days'], [180, '180 days'], [365, '1 year']]
+
+/** Each person's daily share of the allowance, and how long chats are kept. */
+function FairUseCard({ settings, canManage }) {
+  const api = useApi()
+  const qc  = useQueryClient()
+  const [draft, setDraft] = useState(null)
+  const current = draft ?? settings
+  const dirty = !!draft && (draft.person_daily_pct !== settings.person_daily_pct || draft.chat_retention_days !== settings.chat_retention_days)
+  const save = useMutation({
+    mutationFn: () => api.patch('/ai/settings', { person_daily_pct: draft.person_daily_pct, chat_retention_days: draft.chat_retention_days }),
+    onSuccess: () => {
+      setDraft(null)
+      qc.invalidateQueries({ queryKey: ['ai-settings'] })
+      qc.invalidateQueries({ queryKey: ['ai-status'] })
+    },
+  })
+  // A share set some other way than these choices still shows.
+  const shares = SHARE_CHOICES.some(([v]) => v === current.person_daily_pct)
+    ? SHARE_CHOICES : [...SHARE_CHOICES, [current.person_daily_pct, current.person_daily_pct + '% a day']]
+  const select = 'w-full sm:w-48 rounded-md border bg-background px-3 min-h-[48px] text-sm touch-manipulation disabled:opacity-60'
+  return (
+    <Card title="Fair use and privacy">
+      <label className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
+        <span className="flex-1">
+          <span className="block text-sm font-medium">Each person&apos;s daily share</span>
+          <span className="block text-xs text-muted-foreground">
+            How much of the month&apos;s allowance one person can use in a day, so one busy day can&apos;t stop the assistant for everyone else.
+          </span>
+        </span>
+        <select className={select} disabled={!canManage} value={current.person_daily_pct ?? ''}
+          onChange={e => setDraft({ ...current, person_daily_pct: e.target.value === '' ? null : Number(e.target.value) })}>
+          {shares.map(([v, label]) => <option key={String(v)} value={v ?? ''}>{label}</option>)}
+        </select>
+      </label>
+      <label className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
+        <span className="flex-1">
+          <span className="block text-sm font-medium">Keep chats for</span>
+          <span className="block text-xs text-muted-foreground">
+            Chats nobody has used for this long are deleted, with their files. Chats can hold guests&apos; details, so keep them no longer than you need.
+          </span>
+        </span>
+        <select className={select} disabled={!canManage} value={current.chat_retention_days}
+          onChange={e => setDraft({ ...current, chat_retention_days: Number(e.target.value) })}>
+          {KEEP_CHOICES.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+        </select>
+      </label>
+      {canManage && (
+        <div className="flex items-center justify-end gap-2 pt-1">
+          {save.error && <span className="text-sm text-destructive mr-auto">{save.error.message}</span>}
+          {dirty && <button type="button" onClick={() => setDraft(null)} className="min-h-[44px] px-4 rounded-md border text-sm touch-manipulation">Discard</button>}
+          <button type="button" disabled={!dirty || save.isPending} onClick={() => save.mutate()}
+            className="min-h-[44px] px-5 rounded-md bg-primary text-primary-foreground text-sm font-medium disabled:opacity-40 flex items-center gap-2 touch-manipulation">
+            {save.isPending && <Loader2 className="w-4 h-4 animate-spin" />} Save
+          </button>
+        </div>
+      )}
+    </Card>
   )
 }
 

@@ -8,12 +8,10 @@ DROP TABLE IF EXISTS order_sheet_template_categories CASCADE;
 
 -- 2. Clear test data (safe: pre-prod, no real orders).
 -- TRUNCATE bypasses RLS; DELETE is silently blocked when app.tenant_id is unset.
-TRUNCATE order_sheet_order_items;
-TRUNCATE order_sheets;
-TRUNCATE order_sheet_suggested_qty;
-TRUNCATE order_sheet_items;
-TRUNCATE order_sheet_template_venues;
-TRUNCATE order_sheet_templates;
+-- One statement with CASCADE: separate TRUNCATEs of tables that reference
+-- each other are refused, which stopped a fresh database here.
+TRUNCATE order_sheet_order_items, order_sheets, order_sheet_suggested_qty,
+         order_sheet_items, order_sheet_template_venues, order_sheet_templates CASCADE;
 
 -- 3. Create tenant-level shared categories table
 CREATE TABLE order_sheet_categories (

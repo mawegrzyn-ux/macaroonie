@@ -1350,11 +1350,12 @@ export const purchasingTools = [
       'Adds or updates many products and supplier prices at once, the same as the Inventory page\'s import. Either ' +
       'attached_file: a CSV or text file attached in this chat with headings Item, Category, Base unit, Storage, ' +
       'Item code, Supplier, Supplier code, Pack, Pack count, Pack size, Pack unit, Price, VAT %; or rows: products ' +
-      'you read from a PDF, photo or email (up to 250 per call). Items match by code, then name; a supplier\'s price ' +
-      'matches by its code, else pack. New categories and suppliers are made. The card shows a dry run first.',
+      'you read from a PDF, photo or email (up to 100 per call: for a longer list, one call per 100, each its own ' +
+      'card). Items match by code, then name; a supplier\'s price matches by its code, else pack. New categories and ' +
+      'suppliers are made. The card shows a dry run first.',
     input: z.object({
       attached_file: z.string().max(200).optional().describe('File name of a CSV attached in this chat'),
-      rows:          z.array(ImportRow).max(250).optional(),
+      rows:          z.array(ImportRow).max(100).optional(),
     }),
     confirm: true,
     async describe(ctx, input) {
@@ -1461,12 +1462,16 @@ export const purchasingTools = [
         date:     DateStr.optional().describe('Delivery date for this supplier\'s order'),
         notes:    z.string().max(2000).optional().describe('Note printed on this supplier\'s order'),
       })).max(30).optional(),
+      planned_delivery: z.record(z.string().uuid(), DateStr).optional().describe('Filled in by the confirm card: leave it out'),
     }),
     confirm: true,
     async describe(ctx, input) {
       await requireOrder(ctx)
       const p = await planOrder(ctx, input)
       const groups = placeChecks(p, input)
+      // The first delivery day the card shows for each supplier (no date
+      // given): if it has moved by Confirm (a cutoff passed), run() refuses.
+      const planned = Object.fromEntries(groups.filter(g => !g.override).map(g => [g.id, g.date]))
       const cur = p.venue.currency
       const prices = p.order.show_prices
       const lines = [p.venue.name + ', ' + (p.order.list_name || 'items on no list')]
@@ -1495,12 +1500,20 @@ export const purchasingTools = [
         lines,
         ...(warnings.length ? { warningTitle: 'Check', warnings } : {}),
         confirmLabel: 'Place order',
+        ...(Object.keys(planned).length ? { pin: { planned_delivery: planned } } : {}),
       }
     },
     async run(ctx, input) {
       await requireOrder(ctx)
       const p = await planOrder(ctx, input)
       const groups = placeChecks(p, input)
+      for (const g of groups) {
+        const was = input.planned_delivery?.[g.id]
+        if (!g.override && was && was !== g.date) {
+          throw new ToolError('The order cutoff for ' + g.s.name + ' passed after the card was shown, so its first delivery is now ' +
+            longDate(g.date) + ', not ' + longDate(was) + '. Ask again to place it for the new day.', 409)
+        }
+      }
       return audited(ctx, 'place_order', input, async () => {
         if (p.changes.length) await callApi(ctx, 'PUT', '/api/purchasing/orders/' + p.order.id + '/lines', { body: { lines: p.changes } })
         const suppliers = {}

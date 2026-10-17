@@ -331,10 +331,20 @@ export default function IssueLog() {
   const [statusTab,  setStatusTab]  = useState('all')
   const [showCreate, setShowCreate] = useState(false)
   const [selected,   setSelected]   = useState(null)
+  // Platform admins: this restaurant group's issues, or every group's.
+  const [allGroups,  setAllGroups]  = useState(false)
+  const isPlatformAdmin = me?.is_platform_admin ?? false
+  const everyGroup = isPlatformAdmin && allGroups
 
   const { data: issues = [], isLoading } = useQuery({
-    queryKey: ['issues', statusTab],
-    queryFn:  () => api.get(`/issues${statusTab !== 'all' ? `?status=${statusTab}` : ''}`),
+    queryKey: ['issues', statusTab, everyGroup],
+    queryFn:  () => {
+      const q = new URLSearchParams()
+      if (statusTab !== 'all') q.set('status', statusTab)
+      if (everyGroup) q.set('scope', 'all')
+      const qs = q.toString()
+      return api.get('/issues' + (qs ? '?' + qs : ''))
+    },
     enabled:  !!me,
   })
 
@@ -354,7 +364,6 @@ export default function IssueLog() {
     },
   })
 
-  const isPlatformAdmin = me?.is_platform_admin ?? false
   const { canManage } = usePermission('issue_log')
 
   return (
@@ -373,6 +382,18 @@ export default function IssueLog() {
           )}
         </div>
         {!canManage && <ReadOnlyNotice what="the issue log" className="mb-4" />}
+
+        {isPlatformAdmin && (
+          <div className="flex items-center gap-1 rounded-md border p-0.5 w-fit mb-3">
+            {[[false, 'This restaurant group'], [true, 'All restaurant groups']].map(([v, label]) => (
+              <button key={label} type="button" onClick={() => setAllGroups(v)}
+                className={cn('px-3 min-h-[48px] rounded text-sm touch-manipulation',
+                  allGroups === v ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent')}>
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Status filter tabs */}
         <div className="flex gap-1 mb-4 overflow-x-auto pb-1">
@@ -426,7 +447,10 @@ export default function IssueLog() {
                   <td className="px-4 py-3">
                     <span className="text-muted-foreground">{CATEGORY_LABELS[issue.category] ?? issue.category}</span>
                   </td>
-                  <td className="px-4 py-3 font-medium">{issue.title}</td>
+                  <td className="px-4 py-3">
+                    <div className="font-medium">{issue.title}</div>
+                    {everyGroup && issue.tenant_name && <div className="text-xs text-muted-foreground">{issue.tenant_name}</div>}
+                  </td>
                   <td className="px-4 py-3">
                     <Badge className={STATUS_BADGE[issue.status]}>{STATUS_TAB_LABELS[issue.status] ?? issue.status}</Badge>
                   </td>

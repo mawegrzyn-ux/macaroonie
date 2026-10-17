@@ -82,6 +82,9 @@ jobs:
               # Media library uploads up to 160 MB (menu screen videos).
               sudo bash $APP/scripts/ensure-nginx-media-upload.sh \
                 || echo "WARN: nginx media upload size patch failed (videos over 30 MB won't upload)"
+              # Pepper's chat turns get 5 minutes instead of the 60 s for /api/.
+              sudo bash $APP/scripts/ensure-nginx-ai-timeout.sh \
+                || echo "WARN: nginx Pepper timeout patch failed (chat turns over 60 s show an error)"
               # Custom domains switch on by themselves (systemd timer); see
               # scripts/custom-domains-sync.sh.
               sudo bash $APP/scripts/install-domain-sync.sh \

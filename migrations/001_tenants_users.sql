@@ -5,7 +5,15 @@
 
 -- Extensions
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
-CREATE EXTENSION IF NOT EXISTS "pg_cron";   -- for hold sweep job
+-- pg_cron is optional: it runs the hold sweep as a backup to the API's own
+-- minute sweep (holdSweepQueue). A database without it (CI, a laptop) still
+-- builds.
+DO $$
+BEGIN
+  CREATE EXTENSION IF NOT EXISTS "pg_cron";
+EXCEPTION WHEN OTHERS THEN
+  RAISE NOTICE 'pg_cron not available (%): expired holds are swept by the API only', SQLERRM;
+END $$;
 
 -- ── Tenants ──────────────────────────────────────────────────
 -- Not RLS-protected (resolved at auth time only)

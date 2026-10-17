@@ -57,7 +57,9 @@ export function ConversationList({ activeId, onPick, className }) {
               <button type="button" onClick={() => onPick(c.id)}
                 className="flex-1 min-w-0 text-left px-3 py-2 min-h-[48px] touch-manipulation">
                 <div className="text-sm truncate">{c.title || 'New chat'}</div>
-                <div className="text-xs text-muted-foreground">{format(new Date(c.updated_at), 'd MMM, HH:mm')}</div>
+                <div className="text-xs text-muted-foreground">
+                  {format(new Date(c.updated_at), 'd MMM, HH:mm')}{c.closed && ' · closed (guest details erased)'}
+                </div>
               </button>
               <button type="button" onClick={() => setConfirmId(c.id)}
                 className="w-11 h-11 flex items-center justify-center text-muted-foreground hover:text-destructive touch-manipulation"

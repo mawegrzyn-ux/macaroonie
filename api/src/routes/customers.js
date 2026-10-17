@@ -15,6 +15,7 @@
 import { z } from 'zod'
 import { withTenant, sql } from '../config/db.js'
 import { requireAuth, requirePermission } from '../middleware/auth.js'
+import { eraseFromAi } from '../ai/erase.js'
 
 // Customers permission: view reads (including the booking screens' guest
 // search), manage changes, anonymise and export.
@@ -312,12 +313,22 @@ export default async function customersRoutes(app) {
 
     await withTenant(req.tenantId, async tx => {
       const [customer] = await tx`
-        SELECT id FROM customers
+        SELECT id, name, email, phone FROM customers
          WHERE id = ${req.params.id}
            AND tenant_id = ${req.tenantId}
            AND is_anonymised = false
       `
       if (!customer) throw httpError(404, 'Customer not found or already anonymised')
+      // Every way their details were written on bookings and orders, for
+      // Pepper's chats and audit (ai/erase.js), before they're overwritten.
+      const linked = await tx`
+        SELECT guest_name AS name, guest_email AS email, guest_phone AS phone FROM bookings
+         WHERE customer_id = ${req.params.id} AND tenant_id = ${req.tenantId}
+        UNION
+        SELECT guest_name, guest_email, guest_phone FROM orders
+         WHERE customer_id = ${req.params.id} AND tenant_id = ${req.tenantId}
+      `
+      const identifiers = [customer, ...linked].flatMap(r => [r.name, r.email, r.phone])
 
       // Wipe the customer record
       await tx`
@@ -365,6 +376,8 @@ export default async function customersRoutes(app) {
            AND order_id IN (SELECT id FROM orders
                              WHERE customer_id = ${req.params.id} AND tenant_id = ${req.tenantId})
       `
+      // Pepper: chats that mention them are redacted and closed, the audit redacted.
+      await eraseFromAi(tx, req.tenantId, identifiers)
     })
 
     return reply.code(204).send()

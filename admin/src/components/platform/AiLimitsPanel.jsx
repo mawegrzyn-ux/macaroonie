@@ -1,9 +1,10 @@
 // src/components/platform/AiLimitsPanel.jsx
 //
 // Platform page, "AI usage" tab (migration 148): the Anthropic API key
-// (AiKeyCard, migration 149), then each tenant's chat tokens this month
-// against its monthly limit, AI app calls, and the limit itself (the
-// platform pays for chats, so only a platform admin sets it).
+// (AiKeyCard, migration 149), then each tenant's chat use this month against
+// its monthly limit, AI app calls, and the limit itself (the platform pays
+// for chats, so only a platform admin sets it). Use and limit are units:
+// tokens weighted by price (migration 174, usageUnits() in ai/context.js).
 // GET/PATCH /api/ai/platform/tenants.
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -41,7 +42,7 @@ function TenantRow({ t }) {
     mutationFn: () => api.patch('/ai/platform/tenants/' + t.id, { monthly_token_limit: value }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['ai-platform'] }),
   })
-  const pct = t.monthly_token_limit ? Math.min(100, Math.round((t.chat_tokens / t.monthly_token_limit) * 100)) : 100
+  const pct = t.monthly_token_limit ? Math.min(100, Math.round((t.chat_units / t.monthly_token_limit) * 100)) : 100
   return (
     <li className="px-5 py-3 flex flex-wrap items-center gap-3">
       <div className="flex-1 min-w-[200px]">
@@ -50,7 +51,7 @@ function TenantRow({ t }) {
           <div className={cn('h-full', pct >= 90 ? 'bg-destructive' : pct >= 70 ? 'bg-amber-500' : 'bg-primary')} style={{ width: pct + '%' }} />
         </div>
         <div className="text-xs text-muted-foreground">
-          {t.chat_tokens.toLocaleString()} chat tokens · {t.mcp_calls.toLocaleString()} AI app calls
+          {pct}% · {t.chat_units.toLocaleString()} chat units · {t.mcp_calls.toLocaleString()} AI app calls
           {' · '}{[t.staff_enabled && 'staff', t.guest_mcp_enabled && 'guest apps', t.guest_chat_enabled && 'website chat'].filter(Boolean).join(', ') || 'all off'}
         </div>
       </div>
