@@ -34,6 +34,7 @@ import { ReadOnlyNotice, ReadOnlyFieldset } from '@/components/ReadOnlyNotice'
 import { MediaLibraryModal } from '@/components/media/MediaLibrary'
 import { PicturePick } from '@/components/media/PicturePick'
 import { FontPicker } from '@/components/website-builder/FontPicker'
+import { ColourPicker, useThemeColours, inkOn } from '@/components/ColourPicker'
 import {
   usePosVenue, usePosSetup, VenueSelect, Field, inputCls, ErrorNote, Segmented, SortableRows, Toggle, NumberBox, Btn,
 } from '@/components/pos/shared'
@@ -132,23 +133,19 @@ function ImagePick({ value, onChange, label = 'picture', contain, testId }) {
 }
 
 function ColourRow({ name, label, value, onChange }) {
-  const [text, setText] = useState(value)
-  useEffect(() => setText(value), [value])
-  return (
-    <div className="flex items-center gap-2">
-      <input type="color" value={value} onChange={e => onChange(e.target.value.toLowerCase())} aria-label={label}
-        data-testid={'kd-colour-' + name}
-        className="w-11 h-11 rounded-lg border p-1 bg-background shrink-0 cursor-pointer touch-manipulation" />
-      <span className="flex-1 min-w-0 text-sm truncate">{label}</span>
-      <input value={text} maxLength={7} aria-label={label + ' (hex)'} spellCheck={false}
-        onChange={e => {
-          setText(e.target.value)
-          if (/^#[0-9a-fA-F]{6}$/.test(e.target.value)) onChange(e.target.value.toLowerCase())
-        }}
-        onBlur={() => setText(value)}
-        className={cn(inputCls, 'w-28 font-mono')} />
-    </div>
-  )
+  return <ColourPicker label={label} value={value} onChange={onChange} testId={'kd-colour-' + name} />
+}
+
+// The website theme as a starting set: its colours, with black or white
+// text on the buttons and highlights.
+function websiteColours(theme) {
+  const by = Object.fromEntries(theme.map(s => [s.key, s.hex]))
+  if (!by.primary) return null
+  const colors = { ...DESIGN_COLORS }
+  for (const k of ['background', 'surface', 'text', 'muted', 'primary', 'accent']) if (by[k]) colors[k] = by[k]
+  colors.primary_text = inkOn(colors.primary)
+  colors.accent_text = inkOn(colors.accent)
+  return { name: 'Website colours', colors }
 }
 
 /** Opens what: nothing, a section or a dish of this venue's menus. */
@@ -238,14 +235,16 @@ function Note({ children, tone = 'muted' }) {
 function BrandPanel({ d, set }) {
   const c = d.brand.colors
   const poor = CONTRAST_PAIRS.filter(([a, b]) => contrast(c[a], c[b]) < 3)
+  const theme = useThemeColours()
+  const sets = useMemo(() => [websiteColours(theme), ...PRESETS].filter(Boolean), [theme])
   return (
     <>
       <Field group label="Logo" hint="On the start screen and at the top of the menu. A PNG or SVG with a see-through background looks best.">
         <ImagePick value={d.brand.logo_url} onChange={v => set('brand', { logo_url: v })} label="logo" contain testId="kd-logo" />
       </Field>
-      <Field group label="Colours" hint="Tap a set to start from, then change any colour.">
+      <Field group label="Colours" hint="Tap a set to start from, then change any colour: your website's colours, or a custom one.">
         <div className="flex flex-wrap gap-2 mb-3">
-          {PRESETS.map(p => (
+          {sets.map(p => (
             <button key={p.name} type="button" onClick={() => set('brand', { colors: { ...p.colors } })} data-testid="kd-preset"
               className="h-11 pl-1.5 pr-3 rounded-lg border bg-background hover:bg-muted text-xs font-medium inline-flex items-center gap-2 touch-manipulation">
               <span className="w-8 h-8 rounded-md overflow-hidden grid grid-cols-2 border shrink-0" aria-hidden="true">
@@ -256,7 +255,7 @@ function BrandPanel({ d, set }) {
             </button>
           ))}
         </div>
-        <div className="space-y-2">
+        <div className="space-y-3">
           {Object.keys(DESIGN_COLORS).map(k => (
             <ColourRow key={k} name={k} label={COLOR_LABELS[k]} value={c[k]}
               onChange={v => set('brand', b => ({ colors: { ...b.colors, [k]: v } }))} />

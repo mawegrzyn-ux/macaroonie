@@ -20,7 +20,13 @@ const _col = function (v, dflt) {
   if (v && /^#[0-9a-fA-F]{6}$/.test(v)) return v
   return _ROLE[v] ? 'var(' + _ROLE[v] + ')' : dflt
 }
-const _lightBg = d.bg === 'background' || d.bg === 'surface' || d.bg === 'border'
+/* Dark text on a light background: a light theme role, or a light custom colour. */
+const _lightHex = function (v) {
+  if (!v || !/^#[0-9a-fA-F]{6}$/.test(v)) return false
+  const n = parseInt(v.slice(1), 16)
+  return (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255 > 0.6
+}
+const _lightBg = d.bg === 'background' || d.bg === 'surface' || d.bg === 'border' || _lightHex(d.bg)
 const _bg = _col(d.bg || 'primary', 'var(--c-primary)')
 const _fg = _col(d.fg, _lightBg ? 'var(--c-text)' : '#fff')
 const _isCard = d.style === 'card'

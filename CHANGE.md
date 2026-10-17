@@ -5,6 +5,13 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-17 — Screen designer grid; theme colours and custom colours in every builder]
+
+- **The screen designer's grid button now shows the grid.** The lines were drawn so thin they disappeared at the zoom the designer opens at. They now show at any zoom (spaced out when zoomed out, every fifth line darker), the button looks pressed while the grid is on, and your choice is remembered on the device.
+- **Colours offer your website's theme colours, plus a custom colour.** The screen designer (board and block colours), the kiosk designer, menu tag colours and the booking email editor's text colour show your website's theme colours as swatches to tap, then a custom colour (your device's colour picker or a typed code like #f5b301). The kiosk designer also has a **Website colours** set to start from.
+- **The website builder's colours get a custom colour too**: after the seven theme colours, the rainbow swatch picks any colour. Theme colours still follow the theme; a custom colour stays as chosen.
+- **Fixes**: the website footer ignored anything but a theme colour; a promo block on a light custom background now uses dark text; the reservations widget's confirmation buttons set in Reservations widget settings lost their colour. No migration.
+
 ## [2026-10-17 — Fix: Pepper answering about the wrong day]
 
 - **Pepper said "the app's clock says today is Saturday 10 October" and gave last Saturday's orders.** The app's clock was right: Pepper had no way of knowing the date unless it looked the venues up first, so for one question it guessed a date and then blamed the clock. Every message to Pepper now tells it today's date and the time at your venues (each venue's own when they are in different time zones), and the day overview it uses for bookings looks at today unless asked for another day. No migration.

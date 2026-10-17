@@ -29,7 +29,9 @@ const ROLE_VAR = {
   primary: '--c-primary', accent: '--c-accent', background: '--c-bg',
   surface: '--c-surface', text: '--c-text', muted: '--c-muted', border: '--c-border',
 }
-const footerBg = ROLE_VAR[d.bg_colour] ? ('var(' + ROLE_VAR[d.bg_colour] + ')') : 'var(--c-bg, #faf6ef)'
+/* A custom colour (#rrggbb) is used as it is. */
+const footerBg = /^#[0-9a-fA-F]{6}$/.test(d.bg_colour || '') ? d.bg_colour
+  : ROLE_VAR[d.bg_colour] ? ('var(' + ROLE_VAR[d.bg_colour] + ')') : 'var(--c-bg, #faf6ef)'
 %>
 <style>
   .mc-footer { background:<%= footerBg %>; padding:64px 24px 30px; border-top:1px solid var(--c-border); margin-top:48px; }

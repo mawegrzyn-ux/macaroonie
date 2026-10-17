@@ -52,6 +52,8 @@ const DESIGNER_CSS = `
 .sd-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center;
   border: calc(2px / var(--sd-scale, 1)) dashed rgba(255,255,255,0.45); background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.75);
   font-family: system-ui, sans-serif; font-size: calc(13px / var(--sd-scale, 1)); line-height: 1.3; padding: calc(6px / var(--sd-scale, 1)); }
+.sd-gl { stroke: rgba(96, 165, 250, 0.35); stroke-width: 1; }
+.sd-gl5 { stroke: rgba(96, 165, 250, 0.7); stroke-width: 1; }
 `
 
 const uid = () => 'b' + crypto.randomUUID().replace(/-/g, '').slice(0, 10)
@@ -72,6 +74,27 @@ function freeSpot(blocks, w, h, W, H, grid) {
   return { x: margin + n * grid * 3, y: margin + n * grid * 3 }
 }
 const snapTo = (v, g) => (g > 1 ? Math.round(v / g) * g : Math.round(v))
+
+const GRID_KEY = 'maca_screen_grid'
+
+// Grid lines over the board, drawn in screen pixels so they stay one pixel
+// wide at any zoom (inside the scaled board a 1px line shrinks to nothing).
+// A line every snap step, or every few steps when they'd be under 10px
+// apart; every fifth line darker. Above the blocks, so a full-board picture
+// doesn't hide it; it takes no taps.
+function GridLines({ W, H, grid, scale }) {
+  const step = Math.max(1, grid) * Math.max(1, Math.ceil(10 / (Math.max(1, grid) * scale)))
+  const lines = []
+  const at = v => Math.round(v * scale) + 0.5
+  for (let i = 1, x = step; x < W; i++, x += step) lines.push(<line key={'x' + i} x1={at(x)} x2={at(x)} y1={0} y2={H * scale} className={i % 5 ? 'sd-gl' : 'sd-gl5'} />)
+  for (let i = 1, y = step; y < H; i++, y += step) lines.push(<line key={'y' + i} y1={at(y)} y2={at(y)} x1={0} x2={W * scale} className={i % 5 ? 'sd-gl' : 'sd-gl5'} />)
+  return (
+    <svg className="absolute left-0 top-0 pointer-events-none" width={W * scale} height={H * scale} style={{ zIndex: 3 }}
+      shapeRendering="crispEdges" aria-hidden="true" data-testid="board-grid-lines" data-step={step}>
+      {lines}
+    </svg>
+  )
+}
 
 // A dropped picture's block: its own shape, at most 40% of the board wide and half of it high.
 function fitSize(iw, ih, W, H) {
@@ -130,7 +153,11 @@ export default function ScreenDesigner() {
   const [zoom, setZoom] = useState(null)
   const [fitZoom, setFitZoom] = useState(0.5)
   const [drag, setDrag] = useState(null)
-  const [showGrid, setShowGrid] = useState(false)
+  const [showGrid, setShowGrid] = useState(() => { try { return localStorage.getItem(GRID_KEY) === '1' } catch { return false } })
+  const toggleGrid = () => setShowGrid(g => {
+    try { localStorage.setItem(GRID_KEY, g ? '0' : '1') } catch { /* private window */ }
+    return !g
+  })
   const [playing, setPlaying] = useState(false)
   const [, setFontsTick] = useState(0)
 
@@ -419,7 +446,9 @@ export default function ScreenDesigner() {
           <span className="text-xs w-12 text-center tabular-nums">{Math.round(scale * 100)}%</span>
           <button onClick={() => setZoom(Math.min(2, +(scale * 1.25).toFixed(3)))} className="w-10 h-10 flex items-center justify-center touch-manipulation" title="Zoom in"><Plus className="w-4 h-4" /></button>
           <button onClick={() => setZoom(null)} className={cn('w-10 h-10 flex items-center justify-center touch-manipulation', zoom === null && 'text-primary')} title="Fit"><Maximize2 className="w-4 h-4" /></button>
-          <button onClick={() => setShowGrid(g => !g)} className={cn('w-10 h-10 flex items-center justify-center touch-manipulation', showGrid && 'text-primary')} title="Grid lines"><Grid3x3 className="w-4 h-4" /></button>
+          <button onClick={toggleGrid} aria-pressed={showGrid} data-testid="board-grid"
+            className={cn('w-10 h-10 flex items-center justify-center rounded-r-md touch-manipulation', showGrid ? 'bg-primary text-primary-foreground' : 'hover:bg-accent')}
+            title={showGrid ? 'Hide the grid' : 'Show the grid'}><Grid3x3 className="w-4 h-4" /></button>
         </div>
         {canManage ? (
           <button disabled={!dirty || save.isPending} onClick={() => save.mutate()} data-testid="board-save"
@@ -450,13 +479,6 @@ export default function ScreenDesigner() {
           <div className="relative m-auto shrink-0" style={{ width: W * scale, height: H * scale }}>
             <div ref={boardRef} className={'sl-board sd-board absolute left-0 top-0 shadow-lg' + (playing ? ' sl-play' : '')}
               style={{ ...toReactStyle(boardStyle(layout)), transform: `scale(${scale})`, transformOrigin: '0 0', '--sd-scale': scale }}>
-              {showGrid && grid >= 4 && (
-                <div className="absolute inset-0 pointer-events-none" style={{
-                  zIndex: 0,
-                  backgroundImage: `linear-gradient(to right, rgba(120,170,255,0.18) 1px, transparent 1px), linear-gradient(to bottom, rgba(120,170,255,0.18) 1px, transparent 1px)`,
-                  backgroundSize: `${grid * Math.max(1, Math.ceil(8 / (grid * scale)))}px ${grid * Math.max(1, Math.ceil(8 / (grid * scale)))}px`,
-                }} />
-              )}
               {layout.blocks.map((b0, i) => {
                 const b = shown(b0)
                 const inner = renderBlockInner(b, ctx)
@@ -472,6 +494,7 @@ export default function ScreenDesigner() {
                 )
               })}
             </div>
+            {showGrid && <GridLines W={W} H={H} grid={grid} scale={scale} />}
             {/* Where a wall's screens meet (looks only): each screen's part, the gaps shaded. */}
             {(layout.guide_cols > 1 || layout.guide_rows > 1) && (
               <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 4 }} data-testid="wall-guides">

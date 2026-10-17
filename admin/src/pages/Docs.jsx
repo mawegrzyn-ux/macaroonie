@@ -5272,6 +5272,26 @@ selection.combo = { [stepId]: [{ option_id, item_id, choices }] }   // item_id n
               <Mono>announceSoldOut()</Mono>, or tills and screens keep showing the dish until their
               next config refresh (up to 10 minutes on a till, a minute on a screen).
             </InfoBox>
+
+            <H3>Designer grid and colours</H3>
+            <P>
+              <Mono>GridLines</Mono> in <Mono>ScreenDesigner.jsx</Mono> draws the snap grid as an SVG
+              beside the board, in screen pixels (one line every <Mono>grid</Mono> board px, times the
+              smallest whole number that keeps lines 10 px apart at the current zoom; every fifth line
+              darker; <Mono>z-index</Mono> 3, under the wall guides and the selection, no pointer
+              events). It used to be a 1px CSS gradient inside the scaled board, which shrank to a
+              fraction of a pixel at the usual 20-50% zoom and never showed. On / off is
+              per device (<Mono>localStorage maca_screen_grid</Mono>).
+            </P>
+            <P>
+              Board and block colours are <Mono>ColourField</Mono> (<Mono>components/screens/shared.jsx</Mono>),
+              now a wrapper of the shared <Mono>ColourPicker</Mono> (<Mono>components/ColourPicker.jsx</Mono>):
+              the website theme&apos;s colours from <Mono>GET /api/me</Mono>&apos;s{' '}
+              <Mono>site_theme</Mono> (<Mono>useThemeColours()</Mono>, one swatch per distinct colour),
+              then a custom colour (native colour input + typed <Mono>#rrggbb</Mono>). Boards store
+              colour codes, so a theme pick is copied as its code: changing the website theme later
+              doesn&apos;t change a board.
+            </P>
           </section>
 
           <section id="website-cms" data-doc="">
@@ -5541,6 +5561,31 @@ GET /robots.txt`}</Code>
             <InfoBox type="warn">
               Switching driver mid-flight <strong>orphans existing upload URLs</strong>.
               Migrate files between backends first if needed.
+            </InfoBox>
+
+            <H3>Block colours: theme roles or a custom code</H3>
+            <P>
+              <Mono>ThemeColourPicker</Mono> (<Mono>components/website-builder/ThemeColourPicker.jsx</Mono>)
+              stores a theme role name (<Mono>primary</Mono>, <Mono>accent</Mono>, <Mono>background</Mono>,{' '}
+              <Mono>surface</Mono>, <Mono>text</Mono>, <Mono>muted</Mono>, <Mono>border</Mono>) for a
+              swatch, or <Mono>#rrggbb</Mono> for its custom colour (the rainbow swatch, with a code box
+              while one is in use; <Mono>allowCustom</Mono> turns it off). Every reader resolves both: a
+              role to <Mono>var(--c-*)</Mono> (background is <Mono>--c-bg</Mono>), a code as it is.
+              Readers: <Mono>shared/headingBlock.js</Mono> <Mono>roleColour()</Mono>,{' '}
+              <Mono>tabs.eta</Mono> / <Mono>tabColour()</Mono>, <Mono>ai_chat.eta</Mono>,{' '}
+              <Mono>promo_cta.eta</Mono> / <Mono>promoColour()</Mono> (dark text on a light custom
+              background too), <Mono>online_ordering.eta</Mono> <Mono>_colour()</Mono>,{' '}
+              <Mono>ordering.eta</Mono> <Mono>boxColour()</Mono>, <Mono>scrolling_text.eta</Mono>,{' '}
+              <Mono>footer.eta</Mono> (custom codes since this change; the canvas in{' '}
+              <Mono>siteBlocks.jsx</Mono> too) and the reservations widget (<Mono>resolveRoleHex()</Mono>,
+              in the block and in <Mono>resolveWidgetDefaults()</Mono> in <Mono>siteRenderer.js</Mono>,
+              which now also resolves the tenant default confirmation buttons; a role there used to
+              reach the page as <Mono>#primary</Mono>).
+            </P>
+            <InfoBox type="warn">
+              A new block colour field that uses <Mono>ThemeColourPicker</Mono> must accept both
+              shapes in its SSR partial and its canvas (or pass <Mono>allowCustom={'{false}'}</Mono>):
+              a reader that only maps role names silently drops a custom colour on the live site.
             </InfoBox>
 
             <H3>Heading block (heading)</H3>

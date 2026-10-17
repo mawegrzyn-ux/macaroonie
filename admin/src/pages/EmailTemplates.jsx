@@ -10,7 +10,7 @@ import {
   Settings, Send, Clock, Shield, ChevronDown, Copy,
   Bold, Italic, Underline as UnderlineIcon, List, ListOrdered,
   AlignLeft, AlignCenter, AlignRight, Link2, Image as ImageIcon,
-  Type, Heading1, Heading2, Minus, Code,
+  Type, Heading1, Heading2, Minus, Code, Palette,
 } from 'lucide-react'
 import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
@@ -24,6 +24,7 @@ import { useApi } from '@/lib/api'
 import { usePermission } from '@/hooks/usePermission'
 import { ReadOnlyNotice, ReadOnlyFieldset } from '@/components/ReadOnlyNotice'
 import { cn } from '@/lib/utils'
+import { ColourMenuButton } from '@/components/ColourPicker'
 
 const EMAIL_TYPES = [
   { key: 'confirmation', label: 'Confirmation',  desc: 'Sent when a booking is confirmed.' },
@@ -375,10 +376,12 @@ function TemplateEditor({ venueId }) {
                   <span className="text-[10px] font-bold px-0.5">BTN</span>
                 </ToolbarBtn>
                 <ToolbarSep />
-                <input type="color"
-                  onChange={e => editor.chain().focus().setColor(e.target.value).run()}
-                  className="w-7 h-7 border rounded cursor-pointer bg-transparent p-0.5"
-                  title="Text colour" />
+                <ColourMenuButton title="Text colour" align="right"
+                  onPick={hex => editor.chain().focus().setColor(hex).run()}
+                  onClear={() => editor.chain().focus().unsetColor().run()}
+                  className="p-1.5 rounded text-muted-foreground hover:bg-accent hover:text-foreground">
+                  <Palette className="w-4 h-4" />
+                </ColourMenuButton>
               </div>
             )}
 

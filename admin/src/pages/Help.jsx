@@ -2562,6 +2562,22 @@ export default function Help() {
               defaults</strong> is always available if you mess something up.
             </InfoBox>
 
+            <H3>Colours on blocks and in the other builders</H3>
+            <P>
+              A block&apos;s colour (a heading, the footer, a promo, the basket, the reservations
+              widget&apos;s buttons) offers the seven theme colours first. A theme colour follows the
+              theme: change Primary on the Theme page and every block using Primary changes with it.
+              The last swatch, the rainbow, is a <strong>custom colour</strong>: tap it for your
+              device&apos;s colour picker, or type a code like #336699 in the box that appears. A
+              custom colour stays as it is when the theme changes. Tap a theme swatch to go back to
+              the theme.
+            </P>
+            <P>
+              The menu screen designer, the kiosk designer, menu tag colours and the booking email
+              editor&apos;s text colour show the same theme colours as swatches, then a custom colour.
+              The kiosk designer also has a <strong>Website colours</strong> set to start from.
+            </P>
+
             <H3>Boxed inset (margins) — customisable per step</H3>
             <P>
               The <strong>Layout</strong> card (Brand &amp; theme, tenant-wide — applies to every
@@ -3504,6 +3520,19 @@ export default function Help() {
               arrow keys nudge). On a tablet, tap a block first, then drag it. The panel on the right
               has the selected block&apos;s options; with nothing selected it has the board&apos;s
               background, colours, fonts and price style. Save when you&apos;re done.
+            </P>
+            <P>
+              <strong>Grid</strong>: the grid button at the top (next to the zoom buttons) shows lines
+              over the board where blocks snap, with every fifth line darker. Zoomed out, the lines
+              are drawn every few snap steps so they don&apos;t run together. The snap step is in the
+              board panel under Snap. Your choice is remembered on this device.
+            </P>
+            <P>
+              <strong>Colours</strong>: every colour shows your website&apos;s theme colours first
+              (Website → Brand &amp; theme): tap one to use it. To use any other colour, tap the
+              square below them for your device&apos;s colour picker, or type a code like
+              #f5b301. A ticked swatch means that theme colour is in use; a ring round the square
+              means a custom colour.
             </P>
             <P>
               <strong>Photos and videos from your computer</strong>: drag them straight onto the board.
@@ -4751,7 +4780,7 @@ export default function Help() {
             <DataTable
               head={['Card', 'What you set']}
               rows={[
-                ['Brand', 'Logo, colours (start from a set: Fresh, Red and gold, Night, Ocean, Plain, then change any), the fonts for headings and text, headings in capitals, rounded corners. Colours that are hard to read together are pointed out.'],
+                ['Brand', 'Logo, colours (start from a set: Website colours (your website theme\'s), Fresh, Red and gold, Night, Ocean, Plain, then change any: each colour offers the website\'s colours as swatches, or a custom one), the fonts for headings and text, headings in capitals, rounded corners. Colours that are hard to read together are pointed out.'],
                 ['Start screen', 'Pictures apart from the buttons or behind them; pictures and videos taking turns (drag to order, up to 8); the headline and the question; each order type\'s words, icon or picture; the Allergens button.'],
                 ['Languages', 'The language your menu is written in, and the languages guests can pick (flags on the start screen).'],
                 ['Menu', 'A home page with banners and featured tiles (each can open a section or a dish); sections down the side with pictures or words only; dishes per row; descriptions, calories, dietary badges and quick add; sections left off the kiosk.'],
