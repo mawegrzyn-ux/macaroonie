@@ -1,7 +1,9 @@
 // src/pages/Help.jsx
 // Operator-facing user guide — step-by-step instructions for restaurant staff.
 import { useState, useEffect } from 'react'
+import { useLocation } from 'react-router-dom'
 import { cn } from '@/lib/utils'
+import { helpSlug } from '@shared/help.js'
 
 const SECTIONS = [
   { id: 'getting-started',     label: 'Getting Started' },
@@ -53,6 +55,17 @@ const SECTIONS = [
 
 export default function Help() {
   const [activeId, setActiveId] = useState('getting-started')
+  const { hash } = useLocation()
+
+  // A link to a section or subsection (/help#tip-pots, from Pepper or
+  // elsewhere): the page is drawn after the browser looked for the anchor,
+  // so scroll to it here.
+  useEffect(() => {
+    const id = decodeURIComponent(hash.replace(/^#/, ''))
+    if (!id) return
+    const t = setTimeout(() => document.getElementById(id)?.scrollIntoView({ block: 'start' }), 0)
+    return () => clearTimeout(t)
+  }, [hash])
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -1290,7 +1303,7 @@ export default function Help() {
             <DataTable
               head={['Step', 'What to do']}
               rows={[
-                ['1. Add the account', 'In the Loyverse Back Office open Integrations > Access tokens, add a token, then paste it under Loyverse accounts > Add account. It is checked with Loyverse before it is saved and is never shown again. One account can serve several venues; add more accounts if your venues use different Loyverse logins.'],
+                ['1. Add the account', 'In the Loyverse Back Office open Integrations > Access tokens, add a token, then paste it under Loyverse accounts > Add account. It is checked with Loyverse before it is saved, stored encrypted and never shown again. One account can serve several venues; add more accounts if your venues use different Loyverse logins.'],
                 ['2. Pick the store', 'Under This venue, choose the account and the Loyverse store that is this venue.'],
                 ['3. Trading day start', 'Sales before this time count on the day before. Leave 00:00 if you close before midnight; set e.g. 04:00 if you trade past midnight.'],
                 ['4. Map the lines', 'Each income source, service charge source and payment channel gets a list of Loyverse figures. Tap Add, choose Add (+) or Subtract (-), then a figure. The line is filled with the sum. Tap + or - on a figure to flip it, or x to remove it. Lines with nothing mapped are never changed.'],
@@ -1342,7 +1355,7 @@ export default function Help() {
             <DataTable
               head={['Step', 'What to do']}
               rows={[
-                ['1. Choose how orders arrive', '"GloriaFood sends them" (recommended): tap Link this venue, copy the address shown, then in the GloriaFood admin panel for that restaurant open Others > 3rd party integrations, add Push Accepted Order, paste the address as the endpoint and choose JSON. Or "Collect them every minute": add Poll Accepted Order v2 in GloriaFood, copy its key, paste it here and save. The key is checked with GloriaFood and never shown again.'],
+                ['1. Choose how orders arrive', '"GloriaFood sends them" (recommended): tap Link this venue, copy the address shown, then in the GloriaFood admin panel for that restaurant open Others > 3rd party integrations, add Push Accepted Order, paste the address as the endpoint and choose JSON. Or "Collect them every minute": add Poll Accepted Order v2 in GloriaFood, copy its key, paste it here and save. The key is checked with GloriaFood, stored encrypted and never shown again.'],
                 ['2. Check it works', 'Place or accept a test order in GloriaFood. It shows under Latest orders received within a minute (test orders from GloriaFood\'s menu preview are marked and never counted). The first order also sets which GloriaFood restaurant this venue takes orders from; orders from any other restaurant are refused and the reason shows in red.'],
                 ['3. Pick the day rule', 'An order counts on the day it is collected or delivered (or, if you prefer, the day it was accepted). Orders before the trading day start count on the day before.'],
                 ['4. Map the lines', 'Same as Loyverse: each income source, service charge source and payment channel gets a list of GloriaFood figures, added or subtracted. Lines with nothing mapped are never changed.'],
@@ -2940,9 +2953,12 @@ export default function Help() {
               all out at once.
             </P>
             <P>
-              The <strong>Publishing</strong> card at the top of a menu shows what is live and lists
-              every change waiting to go live (prices in amber, dishes added in green, removed in
-              red). Then:
+              The <strong>Publish</strong> button sits next to Save at the top of a menu. Its small
+              badge counts the saved changes that aren&apos;t live yet (a dot means the menu has never
+              been published, a clock that a publish is scheduled); while changes are waiting it is
+              the coloured button. Tap it to open the <strong>Publishing</strong> window: what is
+              live, and every change waiting to go live (prices in amber, dishes added in green,
+              removed in red). Then:
             </P>
             <DataTable
               head={['Button', 'What it does']}
@@ -2956,7 +2972,7 @@ export default function Help() {
               ]}
             />
             <P>
-              Save your changes before publishing: the Publishing card asks you to while the menu has
+              Save your changes before publishing: the Publishing window asks you to while the menu has
               unsaved changes. A brand-new menu isn&apos;t on the website, online ordering or the till
               until its first publish. <strong>Shown to guests</strong> (in the menu&apos;s Settings)
               is part of the draft too, so hiding a menu also takes effect when you publish.
@@ -3779,6 +3795,11 @@ export default function Help() {
               GloriaFood shows as Cancelled. GloriaFood orders aren&apos;t in the Report tab.
             </P>
             <P>
+              With kitchen screens, GloriaFood orders can go to the kitchen too (Till setup → Kitchen
+              screens → Online orders, see Kitchen screens). The kitchen then moves them to Ready and
+              Collected here, and Ready or Collected here takes them off the kitchen screens.
+            </P>
+            <P>
               Orders you imported from GloriaFood&apos;s order export show too, but only on past days (go back
               with the arrows or pick a day): under <strong>Done</strong>, which opens by itself on a past day,
               with a grey <strong>Imported</strong> label. They are a record, so they can be looked at but not
@@ -3907,12 +3928,27 @@ export default function Help() {
               panel); delete one with the bin button.
             </P>
             <P>
-              A chat takes one message at a time. While Pepper is working on one, a second message
-              gets <em>"Still working on your last message"</em>, and pressing a card&apos;s button
-              asks you to press it again in a moment; wait for the answer, then carry on. A long job
+              Pepper&apos;s answer appears as it is written, with a line under it saying what it is
+              doing (thinking, looking something up, getting a card ready). A card that turns up
+              while Pepper is still working can be pressed once the answer has finished.
+            </P>
+            <P>
+              A chat takes one message at a time. While Pepper is working on one, the send button
+              waits and what you type stays in the box; wait for the answer, then carry on. A long job
               (a whole menu from a photo, a big price list) can take a few minutes. If it runs past
-              about four, Pepper stops between steps and asks you to say <em>carry on</em>, and picks
-              up where it left off.
+              about ten, Pepper stops between steps and asks you to say <em>carry on</em>, and picks
+              up where it left off. If your connection drops (a phone changing networks), the chat
+              says so and shows <em>"Still working on the last message"</em> until Pepper has
+              finished; the answer then appears by itself.
+            </P>
+            <P>
+              Everyday questions are answered by a faster model; Pepper moves to its most capable one
+              for photos and files, building a menu, importing a price list and long chats, and stays
+              on it for the rest of that chat. You don&apos;t need to do anything for this.
+            </P>
+            <P>
+              If Pepper can&apos;t help with a request, it says so and leaves that message out of the
+              chat, so the next one isn&apos;t held up by it.
             </P>
             <H3>What Pepper can do</H3>
             <DataTable
@@ -3931,8 +3967,42 @@ export default function Help() {
                 ['Website and marketing', '"Is the website up to date?", "Publish the website", "Put a banner up: closed today", "Switch off the lunch deal", "Any new reviews?", "Which menu screens are offline?"', 'Website, Promotions, Menu screens, Emails'],
                 ['Support', '"Log an issue: the card machine keeps disconnecting", "Ask for a feature: split bills by seat"', 'Issue log, Feature requests'],
                 ['Finding a page', '"Where do I change the opening times?"', 'The pages you can open'],
+                ['How the app works', '"How do I set up tip pots?", "Where do I add a fridge?", "What does variance mean?"', 'Everyone who can use Pepper'],
+                ['Your day in one go', '"Brief me on today", "What\'s on at Ware tomorrow?"', 'Each part follows its own area'],
               ]}
             />
+            <H3>Asking about the page you&apos;re on</H3>
+            <P>
+              When you open Ask Pepper from the sidebar, a small label above the message box shows
+              which page is behind the panel, for example{' '}
+              <em>About: Rota · Ware · week of 13 Oct</em> or <em>About: Food safety · Ware · Mon 19 Oct</em>.
+              Pepper is told the page and the venue and day or week it is showing, so you can ask
+              {' '}<em>"Who is on this week?"</em> or <em>"What still needs doing here?"</em> without
+              naming the venue or date. If you name a different venue or day, Pepper goes by what you
+              say.
+            </P>
+            <P>
+              Tap the label to stop sending the page for this chat (it then reads{' '}
+              <em>Not sending</em>); tap it again to start. The label follows you as you move
+              between pages with the panel open. The Pepper page and the phone app don&apos;t send a
+              page.
+            </P>
+            <H3>Your day in one go</H3>
+            <P>
+              Ask <em>"Brief me on today"</em> (or for another day or venue) and Pepper puts the day
+              together in one answer, leading with what needs doing: bookings and big parties, who is
+              working, health & safety checks still due and readings out of range, supplier
+              deliveries due, yesterday&apos;s cash-up, online orders still open, dishes sold out,
+              booking emails that failed and menu screens that are offline. A part your role
+              can&apos;t see is left out, and Pepper says which ones.
+            </P>
+            <H3>How do I...? questions</H3>
+            <P>
+              Ask how to do something in the app (<em>"How do I set up tip pots?"</em>,{' '}
+              <em>"Where do I add a fridge?"</em>) and Pepper answers from this Help guide, with a link
+              straight to the part that covers it. If the guide doesn&apos;t cover it, Pepper says so
+              rather than guessing.
+            </P>
             <P>
               The parts below go into each area in more detail.
             </P>
@@ -4210,17 +4280,23 @@ export default function Help() {
             </InfoBox>
             <H3>Using your own AI app</H3>
             <P>
-              On the Pepper page, open <strong>Connect</strong>. Type a name and press{' '}
-              <strong>Make token</strong>, then copy the token: it is shown once. In your AI app,
-              add a custom MCP connector with the address shown and send the token as the header
-              {' '}<Mono>Authorization: Bearer mcp_...</Mono>. Revoke a token with its bin button when
-              you no longer need it.
+              On the Pepper page, open <strong>Connect</strong>. Type a name, pick how long it works
+              for (<strong>Works for</strong>: 30, 90 or 180 days, or a year; 90 to start with), tick{' '}
+              <strong>Read only</strong> if the app should only look things up, and press{' '}
+              <strong>Make token</strong>. Copy the token: it is shown once. In your AI app, add a
+              custom MCP connector with the address shown and send the token as the header
+              {' '}<Mono>Authorization: Bearer mcp_...</Mono>. The list shows until when each token
+              works; after that it says <strong>Expired</strong> and the app gets an error asking for
+              a new one. Revoke a token with its bin button when you no longer need it.
             </P>
             <P>
-              Your AI app then has every one of Pepper&apos;s tools, with your permissions. There are
+              Your AI app then has Pepper&apos;s tools for the areas you can use, with your
+              permissions: only the tools for areas your role can see, and only the ones that change
+              things where your role can change them (a read-only token gets none of those). There are
               no Pepper cards there: most apps ask you before running a tool that changes something,
               so read what it is about to do before you allow it, and don&apos;t set the app to allow
-              changes without asking.
+              changes without asking. A read-only token is the safe choice for an app you only ask
+              questions.
             </P>
             <H3>The chat on your website</H3>
             <P>
@@ -4247,7 +4323,9 @@ export default function Help() {
             <P>
               Usage counts what each reply costs, not just its length: what Pepper writes counts five
               times, and the earlier part of a chat it reads again counts a tenth or less. So a long
-              chat costs much less than its size suggests. <strong>Who uses it this month</strong>{' '}
+              chat costs much less than its size suggests, and an everyday question answered by the
+              faster model uses only a small part of what the same question costs on the most
+              capable one. <strong>Who uses it this month</strong>{' '}
               shows each person&apos;s replies, their part of the month&apos;s allowance, and how much
               of today&apos;s share they have used.
             </P>
@@ -4286,7 +4364,7 @@ export default function Help() {
               The chats need an Anthropic API key. On the <strong>Platform</strong> page, open the{' '}
               <strong>AI usage</strong> tab, paste the key into <strong>Anthropic API key</strong>{' '}
               and press <strong>Check and save</strong>. The key is checked with Anthropic before it
-              is saved, and afterwards only its last four characters are shown. The chats use it
+              is saved (stored encrypted), and afterwards only its last four characters are shown. The chats use it
               straight away (within a few seconds on every server). <strong>Check the key now</strong>{' '}
               tests the key in use; <strong>Remove saved key</strong> (asks you to confirm) goes back
               to the key in the server's settings file, if there is one. If a key stops working, staff
@@ -4540,10 +4618,11 @@ export default function Help() {
             <P>
               Kitchen screens show the orders to cook on a screen instead of (or as well as) printed tickets.
               Use an Android tablet, or an Android TV box or stick with a big screen, in Chrome. Orders from
-              the till and from online ordering arrive the moment they're sent; the cooks tap to say a dish or
-              order is done, and the expo (the pass) marks the order ready. The <strong>kitchen flow</strong> says
+              the till, from online ordering and from GloriaFood arrive the moment they're sent; the cooks tap to say a dish or
+              order is done, and the expo (the pass) marks the order ready. A <strong>kitchen flow</strong> says
               how dishes move between stations: a burger bun from Prep 1 on to Prep 2 for the meat, while the
-              fries go from Prep 1 straight to Expo 1.
+              fries go from Prep 1 straight to Expo 1. You can keep several flows (a busy night, a quiet night with
+              one cook, the grill down) and switch between them from a kitchen screen.
             </P>
             <InfoBox type="info">
               Kitchen screens talk to Macaroonie over the internet, like the tills. If the internet drops, a
@@ -4556,8 +4635,10 @@ export default function Help() {
             <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
               <li><strong>Stations</strong>, four kinds: <strong>Prep</strong> (Grill, Fryer, Bar, Prep 1...) makes dishes; <strong>Expo</strong> (the pass) checks whole orders before they go out; <strong>Runner</strong> takes orders out to tables or the counter; <strong>Order ready board</strong> shows order numbers on menu screens (nothing to bump, no kitchen screen). Each station turns a ticket amber after your target minutes and red after more. <strong>Show held courses</strong> shows dishes waiting to be fired, greyed out. <strong>Show orders before their dishes get here</strong> (on for an expo) puts a ticket up as soon as the order is sent, each dish marked where it is now (At Grill). <strong>On order counts</strong>: groups such as Wings, counting how many pieces are on order (the 8pc dish counts 8, the 6 Wings option counts 6).</li>
               <li><strong>Kitchen flow</strong> (at the top): boxes for <strong>Orders in</strong> (the till and online orders) and every station, joined by links. Drag a box's dot onto another box (or tap the dot, then the box) to send dishes on to it. Tap a link's label to choose which dishes take it: dishes, sections, revenue streams or order types (your own list: Eat in, Take out...); a link with no filter takes every dish. From each box a dish takes the links that name it most closely (the dish, then its section, its revenue stream, its order type, then links for every dish), so Prep 1 to Prep 2 for burgers and Prep 1 to Expo 1 for everything else sends the bun on and the fries straight to the expo. Links that tie all apply: Expo 1 to ORB 1 and to a Runner at once, or for eat in only. <strong>Check a dish</strong> shows a dish's way. A new flow arranges itself; drag boxes by their grip, or press <strong>Tidy</strong>. A way round in a circle can't be saved. <strong>Save flow</strong>: dishes sent from then on follow it (dishes already in the kitchen keep their way).</li>
-              <li><strong>Kitchen screens</strong>: <strong>Add a screen</strong>, name it, tick the stations it shows (none ticked: all; order ready boards aren't shown on kitchen screens), what it opens on (tickets or the On order counts), tickets across, text size and the beep. On the screen, open the till address in Chrome, install it, and type the pairing code. It opens as a kitchen screen.</li>
+              <li><strong>Several flows</strong>: the row of flow names above the boxes picks the flow you're looking at; a green dot marks the one <strong>in use</strong>. <strong>New flow</strong> starts an empty one; <strong>Copy</strong> (in the box on the right) starts from the flow you're looking at, which is the quick way to make, say, a <em>Grill down</em> flow from your normal one. <strong>Use this flow now</strong> puts the flow you're looking at in use, after a confirm. <strong>Rename</strong> and the bin (delete, after a confirm) are there too; the flow in use can't be deleted. <strong>Order</strong> sets the order kitchen screens list the flows in (drag the rows). Save or discard changes before opening another flow.</li>
+              <li><strong>Kitchen screens</strong>: <strong>Add a screen</strong>, name it, tick the stations it shows (none ticked: all; order ready boards aren't shown on kitchen screens), what it opens on (tickets or the On order counts), tickets across, text size, the beep, and whether it <strong>can switch the kitchen flow</strong> (on unless you turn it off). On the screen, open the till address in Chrome, install it, and type the pairing code. It opens as a kitchen screen.</li>
               <li><strong>Online orders</strong>: send online orders to the kitchen when they're accepted (an order for later comes on when it's time to start it), and mark them ready when the kitchen finishes (the guest gets the ready email).</li>
+              <li><strong>GloriaFood orders</strong> (when the venue is linked to GloriaFood in Cash Recon settings): tick <strong>Send GloriaFood orders to the kitchen screens</strong> and press Save. Accepted orders then come onto the screens as GloriaFood sends them, marked with an orange <strong>GloriaFood</strong> label and GloriaFood's order number. Dishes are matched to your menus by name (capitals and spaces don't matter) and show under your menu's name, so dish and section links in the kitchen flow apply to them; a dish with no match (a name GloriaFood spells differently) goes by the order type and the links for every dish. Pick which of your order types each GloriaFood type counts as (Pickup, Delivery, Dine in...); they start matched by name. An order for later comes on the minutes you set before its time. Ready at the pass marks it Ready on the Online orders board, Collected marks it Collected there (with <strong>Mark them ready when the kitchen finishes</strong> on; GloriaFood isn't told). Ready or Collected on the board, or a cancellation in GloriaFood, takes it off the screens. Test orders from GloriaFood come on too, with the note "GloriaFood test order". Orders that arrived while this was off, imported orders, and orders more than two hours past their time don't come on.</li>
             </ol>
 
             <H3>Using a kitchen screen</H3>
@@ -4567,12 +4648,13 @@ export default function Help() {
               <li><strong>The expo</strong> sees whole orders, each dish marked where it is now ("At Fryer"), and <strong>READY</strong> marks the order ready (it also finishes dishes still at earlier stations). A line says when some of the order goes through another expo. Ready orders wait under the tick button until <strong>Collected</strong>.</li>
               <li><strong>A runner</strong> gets the order once the expo is done, and <strong>DONE</strong> when it's taken out. When the runner is the last step for every dish, DONE hands the order over (it leaves the order ready board).</li>
               <li>A station can't bump a dish that hasn't reached it yet, and can't bring back one the next station has already done.</li>
-              <li>Along the top: All orders, one tab per order type, Online, and the stations this screen shows. The green bar shows the average bump time today, the last 10, how many are done, the share on time, Live or Offline, and the time.</li>
+              <li>Along the top: All orders, one tab per order type, Online (your online orders and GloriaFood's), and the stations this screen shows. The green bar shows the average bump time today, the last 10, how many are done, the share on time, Live or Offline, and the time.</li>
               <li><strong>Rush</strong> moves a ticket to the front. <strong>SUM</strong> shows how many of each dish are on order. <strong>Prev</strong> lists the last tickets bumped here: <strong>Bring back</strong> one bumped by mistake. <strong>Remake</strong> puts a dish back on with a reason (for the waste report).</li>
               <li>A dish voided on the till shows crossed out with VOID until the ticket is bumped. Dishes moved to another table or check follow it.</li>
               <li>A <strong>combo</strong> shows as its name with its parts under it ("› Burger", "› 2 x KETCHUP"). Each part goes to the station that makes it, so the grill sees the burger and the fryer the fries, each under the combo's name; a part typed in just for the combo (a sauce pot, a toy) goes where the combo itself goes.</li>
-              <li>The clock button lists orders for later (held courses and online orders with a later collection time). They come on by themselves when it's time.</li>
+              <li>The clock button lists orders for later (held courses, and online and GloriaFood orders for a later time). They come on by themselves when it's time.</li>
               <li>The gear button: pick the station, Tickets or On order counts, text size, beep, full screen, and the bump bar keys.</li>
+              <li><strong>The flow button</strong> (top right, with the name of the flow in use, when you have more than one flow) lists your kitchen flows with the stations each uses. Tap <strong>Switch</strong> on another, then <strong>Yes, switch</strong>: dishes sent from then on go its way, for the whole kitchen. Dishes already on the screens stay where they are, so finish them as usual. Every kitchen screen shows the new flow straight away with a note saying who switched. Switching needs the internet; a screen not allowed to switch (Till setup) shows the flows without the Switch buttons.</li>
             </ul>
             <InfoBox type="tip">
               Bump bars and keyboards work: 1 to 9 and 0 pick a ticket, Enter or Space bumps, the arrows page
@@ -4707,7 +4789,7 @@ export default function Help() {
               head={['Tab', 'What it does']}
               rows={[
                 ['Templates', 'Edit the subject and HTML body for each email type. Insert merge fields, preview with sample data, reset to the built-in default.'],
-                ['Settings',  'Choose email provider (SendGrid, Mailgun, SES, SMTP), configure sender identity, reminder timing, and guest self-service permissions.'],
+                ['Settings',  'Choose email provider (SendGrid, Mailgun, SES, SMTP), configure sender identity, reminder timing, and guest self-service permissions. Keys and passwords are stored encrypted and never shown again: a saved one shows as "Saved, ends 1a2b". Leave the box empty to keep it, type a new one to replace it, or press Remove (then Save) to take it off.'],
                 ['Sent emails', 'Audit log of recent deliveries — see what was sent, when, to whom, and whether it succeeded or failed.'],
               ]}
             />
@@ -5582,8 +5664,11 @@ export default function Help() {
 function H2({ children }) {
   return <h2 className="text-xl font-bold mb-4 pb-2 border-b">{children}</h2>
 }
+// Each subsection has an anchor from its heading (helpSlug(), shared with
+// Pepper's help answers, which link to it: /help#tip-pots).
 function H3({ children, className }) {
-  return <h3 className={cn('text-base font-semibold mt-6 mb-3', className)}>{children}</h3>
+  const id = typeof children === 'string' ? helpSlug(children) : undefined
+  return <h3 id={id} className={cn('text-base font-semibold mt-6 mb-3 scroll-mt-4', className)}>{children}</h3>
 }
 function P({ children }) {
   return <p className="text-sm text-muted-foreground leading-relaxed mb-3">{children}</p>

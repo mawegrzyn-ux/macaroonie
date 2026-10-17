@@ -9,6 +9,7 @@ const SECTIONS = [
   { id: 'tech-stack',   label: 'Tech Stack' },
   { id: 'admin-portal', label: 'Admin Portal' },
   { id: 'multitenancy', label: 'Multitenancy & RLS' },
+  { id: 'stored-keys', label: 'Stored keys' },
   { id: 'auth',         label: 'Authentication' },
   { id: 'team-platform', label: 'Team & Platform Admin' },
   { id: 'rbac',          label: 'RBAC: Modules & Roles' },
@@ -389,52 +390,149 @@ export default function Docs() {
           <section id="multitenancy" data-doc="">
             <H2>Multitenancy &amp; RLS</H2>
             <P>
-              Every table in the database (except <Mono>tenants</Mono>) has a <Mono>tenant_id uuid</Mono> column,
-              row-level security enabled, and a policy:
+              Every tenant table has a <Mono>tenant_id uuid</Mono> column, row-level security enabled{' '}
+              <strong>and forced</strong> (migration 176), and one policy:
             </P>
-            <Code>{`USING (tenant_id = current_setting('app.tenant_id', true)::uuid)`}</Code>
+            <Code>{`USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid
+       OR current_setting('app.bypass_rls', true) = 'on')`}</Code>
             <P>
-              The <Mono>withTenant()</Mono> helper wraps every DB call in a transaction, sets the session
-              variable, then runs the provided function. RLS automatically scopes every query.
+              The app&apos;s database role owns the tables, and a table&apos;s owner isn&apos;t held to RLS
+              unless the table forces it: before 176 the policies stopped nothing. Now a query sees only the
+              rows of its transaction&apos;s tenant, or every row in <strong>system mode</strong>, and a
+              query with neither (one on the bare <Mono>sql</Mono> pool) sees no tenant rows and can&apos;t
+              write one. <Mono>NULLIF</Mono> is there because a pooled connection that had the setting in an
+              earlier transaction returns <Mono>&apos;&apos;</Mono>, not NULL. Superusers skip RLS even when
+              forced: production connects as <Mono>macaroonie_user</Mono> (not a superuser, owner of the
+              tables), and the tests and CI run as a role that isn&apos;t one either.
             </P>
-            <Code>{`// CORRECT — RLS context set; queries scoped to this tenant
+            <DataTable
+              head={['Helper (config/db.js)', 'Use it for']}
+              rows={[
+                ['withTenant(tenantId, fn)', 'Everything that knows its tenant (every admin route, req.tenantId): a transaction with app.tenant_id set (set_config(..., true), so it ends with the transaction).'],
+                ['tenantSql(tenantId)`...`', 'One statement in a tenant\'s transaction, as a tagged template (same as withTenant(tenantId, tx => tx`...`)).'],
+                ['systemSql / withSystem(fn)', 'A second, small pool (5 connections) whose connections start in system mode (app.bypass_rls = \'on\' as a connection startup parameter). Only for work that crosses tenants on purpose: finding the tenant from a token, slug, device, push address or id (public pages, widget, ordering, MCP, access tokens, devices, webhooks, memberships in auth.js); background jobs and sweeps; the platform pages. A system query still filters tenant_id where it can.'],
+                ['sql', 'The main pool. No tenant rows: only for global tables (platform_admins, platform_secrets, platform_interest, backlog_items) or inside withTenant().'],
+              ]}
+            />
+            <Code>{`// A route: the caller's tenant
 const rows = await withTenant(req.tenantId, tx =>
-  tx\`SELECT * FROM venues WHERE id = \${venueId}\`
+  tx\`SELECT * FROM venues WHERE id = \${venueId} AND tenant_id = \${req.tenantId}\`
 )
 
-// WRONG — RLS returns 0 rows silently (no error thrown)
+// Finding the tenant first (a push address, a slug): system mode
+const [link] = await systemSql\`SELECT tenant_id, venue_id FROM gloriafood_venue_links WHERE push_token = \${token}\`
+
+// WRONG: no tenant, no system mode -> 0 rows, silently
 const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <InfoBox type="warn">
-              RLS failures are <strong>silent</strong>. The query returns 0 rows, not an error.
-              Always use <Mono>withTenant()</Mono> for any query touching tenant data.
+              RLS failures are <strong>silent</strong>: the query returns 0 rows (or an UPDATE changes
+              none), not an error. A path that finds its tenant itself and forgot system mode simply finds
+              nothing. <Mono>api/test/system-paths.test.mjs</Mono> covers every such path (public pages,
+              widget, ordering, website, till and screen pairing, MCP and access tokens, memberships,
+              GloriaFood push, the feature board, platform pages, background jobs).
             </InfoBox>
-            <H3>RLS is not enough: filter tenant_id yourself</H3>
+            <DataTable
+              head={['Special case', 'Policy']}
+              rows={[
+                ['feature_requests, feature_request_upvotes', 'One board every tenant reads and upvotes: a read-all policy (board_read) beside the tenant one; writes are still per tenant.'],
+                ['screen_pairings', 'An unclaimed pairing (tenant_id NULL) is any tenant\'s to find by its code; routes/screens.js claims it inside the claiming tenant\'s transaction.'],
+                ['table_combination_members', 'No tenant_id: a row is visible when its combination is (EXISTS on table_combinations).'],
+                ['sweep_expired_holds()', 'pg_cron calls it with no tenant: it switches system mode on for its DELETE and back (a function\'s SET clause can\'t name a custom setting without superuser).'],
+                ['Global tables', 'platform_admins, platform_secrets, platform_interest, backlog_items, schema_migrations: no tenant_id, no RLS; access is gated in the API.'],
+              ]}
+            />
             <P>
-              The app's database role owns the tables, and a table owner isn't held to RLS unless the
-              table has <Mono>FORCE ROW LEVEL SECURITY</Mono>. So on the live database{' '}
-              <Mono>withTenant()</Mono> sets the context but doesn't stop a query from reading or
-              changing another tenant's rows. Every query must say{' '}
-              <Mono>tenant_id = $&#123;req.tenantId&#125;</Mono> itself, and a row loaded by an id from
-              the request must be checked to be the caller's. Routes whose URL carries a venue id
+              Migrations run in system mode (<Mono>scripts/migrate.js</Mono> connects with{' '}
+              <Mono>app.bypass_rls = on</Mono>), so a data migration sees every tenant&apos;s rows. A new
+              table with a <Mono>tenant_id</Mono> must enable and force RLS with the same{' '}
+              <Mono>tenant_isolation</Mono> policy in its own migration (176 only covered the tables that
+              existed then; see 177&apos;s <Mono>kds_flows</Mono>). Only a table&apos;s owner can force RLS:
+              176 refuses to run, listing them, when some tenant tables belong to another role (fix: as
+              postgres, <Mono>ALTER TABLE ... OWNER TO macaroonie_user</Mono>).
+            </P>
+            <H3>Still filter tenant_id yourself</H3>
+            <P>
+              RLS is the backstop, not the filter. Every query still says{' '}
+              <Mono>tenant_id = $&#123;req.tenantId&#125;</Mono> itself (it also helps the planner), and a
+              row loaded by an id from the request must be checked to be the caller&apos;s, so another
+              tenant&apos;s id is a clean 404. Routes whose URL carries a venue id
               (<Mono>/api/venues/:id/...</Mono>: schedules, venue settings, test data) register{' '}
               <Mono>requireOwnVenue(param)</Mono> from <Mono>middleware/venue.js</Mono> after{' '}
-              <Mono>requireAuth</Mono>: it answers 404 unless the venue is the caller's tenant's. The
-              online-order service (<Mono>orderSvc.js</Mono>: <Mono>loadAdminOrder()</Mono>, status,
-              payment, refund and collection-time changes) filters by tenant on every read and write.
-              Test any route you touch with a second tenant's rows in the database.
+              <Mono>requireAuth</Mono>. System-mode code has no backstop at all, so its filters are the
+              only ones. Test any route you touch with a second tenant&apos;s rows in the database, as a
+              role that isn&apos;t a superuser.
             </P>
-            <H3>withTx() vs withTenant()</H3>
+            <H3>Ids in the body: the venue guard and the route's own checks</H3>
             <P>
-              <Mono>withTx(fn)</Mono> opens a plain transaction without setting tenant context. Use it only
-              for tenant-resolution queries that run before the tenant ID is known
-              (e.g. slug → tenant UUID lookup).
+              A tenant filter on the row being changed isn't enough: a request can also name other
+              rows in its body (a venue, a section, a staff member, an option group), and a route that
+              inserts those ids as given makes the caller's rows point at another tenant's (and an
+              override's sittings, or a wage default's staff names, could cross over). The
+              cross-tenant sweep (Testing below), and a read of the routes it pointed at, found this in
+              eight routes taking a venue id in the body and ten taking other ids. Two layers now
+              stop it:
+            </P>
+            <DataTable
+              head={['Layer', 'What it checks']}
+              rows={[
+                ['refuseOtherTenantsVenues (middleware/venue.js)', 'Added to every route by app.js (onRoute, last in the route\'s preHandlers, so after requireAuth). Any key venue_id / *_venue_id or venue_ids / *_venue_ids in the query string or JSON body, at any depth, naming a venue of another tenant: 404 "Venue not found". An id that is no venue at all passes (the route deals with it; a stale id in saved page blocks mustn\'t stop a save). Requests without a tenant (public pages) are left alone.'],
+                ['The route', 'Every other id in a body: a table\'s section (venues.js), a combination\'s tables, a staff member\'s role (rota.js), a Cash Recon day\'s income sources, payment channels and SC sources and a wage week\'s staff (cashRecon.js assertVenueRows()), online ordering\'s menus (orders.js), a dish\'s option groups and options (upsertMenuTree() drops ids that aren\'t the tenant\'s, like unknown dietary codes), an override\'s sittings (schedules.js), translation keys (saveTranslations() skips keys for words the tenant hasn\'t got).'],
+              ]}
+            />
+            <P>
+              The venue guard can't know what a <Mono>design_id</Mono> or a <Mono>staff_id</Mono> is,
+              so a new route that takes another kind of id in its body must check it itself, and the
+              sweep only covers it once the fixtures make a row with that id.
             </P>
             <H3>Connection pooling</H3>
             <P>
-              Must use <strong>transaction-mode pooling</strong> (PgBouncer transaction mode).
-              Session mode leaks <Mono>app.tenant_id</Mono> between requests because{' '}
-              <Mono>SET LOCAL</Mono> persists for the life of the session.
+              The API connects straight to Postgres (postgres.js pools, no pooler in front).{' '}
+              <Mono>withTenant()</Mono> sets the tenant for its transaction only, so it is safe with any
+              pooling. <Mono>systemSql</Mono> relies on a connection startup parameter: behind a
+              transaction-mode pooler (PgBouncer) that wouldn&apos;t reach Postgres per transaction, and{' '}
+              <Mono>withSystem()</Mono> would have to set <Mono>app.bypass_rls</Mono> with{' '}
+              <Mono>set_config(..., true)</Mono> at the start of each transaction instead.
             </P>
+          </section>
+
+          {/* ── STORED KEYS ───────────────────────────────── */}
+          <section id="stored-keys" data-doc="">
+            <H2>Stored keys</H2>
+            <P>
+              Integration keys saved in the database are sealed (migration 179,{' '}
+              <Mono>services/vault.js</Mono>): AES-256-GCM with a master key from the environment,{' '}
+              <Mono>SECRETS_KEY</Mono> (32 bytes, base64 or hex), so a leaked dump or backup doesn&apos;t
+              hand them over. A sealed value is <Mono>v1:</Mono> + base64(iv | tag | ciphertext), a fresh
+              iv every time. Hints (last four characters) sit beside them in plain text for display, and no
+              route ever returns a key.
+            </P>
+            <DataTable
+              head={['Column', 'Sealed on save in', 'Unsealed in']}
+              rows={[
+                ['platform_secrets.value (anthropic_api_key)', 'saveKey() (ai/apiKey.js)', 'activeKey()'],
+                ['platform_secrets.value (kiosk_preview_key)', 'previewSecret() (kioskSvc.js)', 'previewSecret()'],
+                ['loyverse_connections.access_token', 'POST / PATCH /api/loyverse/connections', 'ownConnection(), loadLink() (routes/loyverse.js)'],
+                ['gloriafood_venue_links.poll_key', 'PUT /api/gloriafood/venues/:id/link', 'pollVenue() (gloriafoodSvc.js); the link route compares a typed key with the unsealed one'],
+                ['venue_email_settings.provider_api_key, provider_secret, smtp_pass', 'POST / PATCH /api/email-templates/settings/:venueId', 'emailCredentials() (emailSvc.js), loadSendgridKey() (emailMonitoring.js)'],
+              ]}
+            />
+            <P>
+              <Mono>unseal()</Mono> returns a value without the prefix as it is: keys saved before 179 are
+              sealed by <Mono>sealStoredSecrets()</Mono>, run at API start in system mode (each row is
+              updated only if it still holds the plain value, so several processes doing it at once is
+              harmless). <Mono>checkVault()</Mono> runs first: in production the API exits without a valid{' '}
+              <Mono>SECRETS_KEY</Mono>; in development and tests a fixed key derived from a constant is used,
+              so every process agrees. Every deploy runs <Mono>scripts/ensure-secrets-key.sh</Mono> before
+              migrating: it adds a random <Mono>SECRETS_KEY</Mono> to <Mono>api/.env</Mono> when there is none
+              (chmod 600) and never changes an existing one. The preload (<Mono>src/preload.js</Mono>) reads{' '}
+              <Mono>api/.env</Mono> on every start, so PM2 picks it up without a restart flag.
+            </P>
+            <InfoBox type="warn">
+              Back up <Mono>api/.env</Mono> with the key in it. Changing or losing <Mono>SECRETS_KEY</Mono>{' '}
+              makes every stored key unreadable: <Mono>unseal()</Mono> throws &quot;A stored key could not be
+              read&quot;, and the keys have to be typed in again where they were set up (Platform page, Cash Recon
+              settings, Booking emails). There is no rotation yet; the <Mono>v1:</Mono> prefix leaves room for one.
+            </InfoBox>
           </section>
 
           {/* ── AUTH ──────────────────────────────────────── */}
@@ -790,10 +888,18 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['sendgrid', 'Default. Free 100/day for trial. Provides Email Activity API for monitoring.', 'provider_api_key (or SENDGRID_API_KEY env)'],
                 ['postmark', 'Recommended for transactional. Strong deliverability, $15/10k. Click tracking via shared click.pstmrk.it (no custom tracking domains supported by Postmark).', 'provider_api_key (Server Token), provider_domain (message stream, defaults to "outbound")'],
                 ['mailgun',  'High-volume option. EU/US regions are different endpoints — use the dropdown.', 'provider_api_key, provider_domain (sending domain), provider_region (us|eu)'],
-                ['ses',      'Cheapest at scale. AWS Lightsail account already in place. Production access required.', 'provider_api_key (access key id), provider_domain (secret access key — overloaded), provider_region'],
+                ['ses',      'Cheapest at scale. AWS Lightsail account already in place. Production access required.', 'provider_api_key (access key id), provider_secret (secret access key; it was kept in provider_domain until migration 179), provider_region'],
                 ['smtp',     'Fallback / self-hosted.', 'smtp_host, smtp_port, smtp_user, smtp_pass, smtp_secure'],
               ]}
             />
+            <P>
+              provider_api_key, provider_secret and smtp_pass are stored sealed (migration 179, see Stored keys)
+              and never sent back: <Mono>GET .../settings/:venueId</Mono> returns them as null with{' '}
+              <Mono>*_hint</Mono> (last four) for Manage, nothing for View (<Mono>secrets_hidden</Mono>). On
+              save a string replaces the key, null removes it, empty or left out keeps it.{' '}
+              <Mono>emailCredentials()</Mono> in <Mono>emailSvc.js</Mono> is the one place they are
+              unsealed (booking, order and purchase order emails, the test send).
+            </P>
             <P>
               The <Mono>provider_domain</Mono> column is overloaded across providers (Mailgun
               sending domain, Postmark message stream name, SES secret access key). The UI
@@ -3089,7 +3195,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
           <section id="kds" data-doc="">
             <H2>Kitchen screens (KDS)</H2>
             <P>
-              Migrations 168 and 169 (kitchen flow). Design in <Mono>docs/POS.md</Mono> section 9. A kitchen screen is a till device of
+              Migrations 168, 169 (kitchen flow) and 177 (several kitchen flows). Design in <Mono>docs/POS.md</Mono> section 9. A kitchen screen is a till device of
               kind <Mono>kds</Mono> (<Mono>pos_devices</Mono>, short code K1, K2 ...), paired with a one-time
               code like a till. The same app at <Mono>pos.&lt;domain&gt;</Mono> boots{' '}
               <Mono>pos/src/kitchen/KitchenApp.jsx</Mono> (lazy) when the device's kind is <Mono>kds</Mono>.
@@ -3122,6 +3228,21 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               (combo parts each get their own way, merged for the item), so a flow change only affects
               dishes sent after it. Stations left out of the config (switched off or deleted) are passed
               straight through; links to them are ignored, so the next most specific link applies.
+            </P>
+            <P>
+              <strong>Several flows</strong> (migration 177): a venue has one or more named flows
+              (<Mono>kds_flows</Mono>, each with its links and layout); one is in use,{' '}
+              <Mono>pos_settings.kds_active_flow_id</Mono>, else the first by sort order
+              (<Mono>activeFlowOf()</Mono> in <Mono>services/kitchenSvc.js</Mono>). The sequencer's kitchen
+              config (<Mono>loadKitchenConfig()</Mono>) carries only the links of the flow in use as{' '}
+              <Mono>cfg.flow</Mono>, with <Mono>flow_id</Mono> and <Mono>active_setting</Mono> (the setting as
+              read): nothing in <Mono>shared/pos/kitchen.js</Mono> knows there is more than one flow.{' '}
+              <Mono>switchFlow()</Mono> takes the venue's till lock (<Mono>pg_advisory_xact_lock</Mono> on{' '}
+              <Mono>pos:&lt;venue&gt;</Mono>, the sequencer's), so a switch falls between two events; the
+              Postgres store's <Mono>context()</Mono> re-reads the setting per event
+              (<Mono>activeFlowSetting()</Mono>) and reloads the kitchen config when it changed, so a switch in
+              the middle of another device's batch counts from its next event. A switch never touches dishes
+              already sent: they keep <Mono>item.route</Mono>.
             </P>
             <P>
               A dish <em>arrives</em> at a node when every node before it is done (<Mono>flowTimes()</Mono>;{' '}
@@ -3166,22 +3287,27 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               head={['Table', 'What it holds']}
               rows={[
                 ['kds_stations', 'Per venue: name, kind prep | expo | runner | board, colour, settings jsonb { target_mins, late_mins, show_held, show_upcoming, summary_groups: [{ id, name, members: [{ kind dish | option, id | label, qty }] }] }, sort_order, is_active.'],
-                ['kds_flow_edges', 'The kitchen flow (169): from_station_id (NULL = Orders in), to_station_id (both ON DELETE CASCADE), targets jsonb, sort_order. One link per pair (unique index). Replaced kds_routes: each station\'s routes became one link from Orders in, every prep station got a link to every expo.'],
-                ['kds_orders', 'Projection (like pos_checks): id text, source till | online, check_id / order_id, status active | ready | collected | cancelled, state jsonb (the whole kitchen order), last_seq.'],
+                ['kds_flows', 'A venue\'s kitchen flows (177): name (1-40, unique per venue ignoring case and spaces), layout jsonb { [stationId | start]: { x, y } } (where the designer draws each box), sort_order (the kitchen screen\'s list). Forced RLS like every tenant table. The migration made one "Main flow" per venue with stations or links, holding its links and layout, in use. A venue without one gets it from GET .../setup (ensureFlows()).'],
+                ['kds_flow_edges', 'A flow\'s links (169, flow_id NOT NULL since 177, ON DELETE CASCADE with the flow): from_station_id (NULL = Orders in), to_station_id (both ON DELETE CASCADE), targets jsonb, sort_order. One link per pair per flow (unique index on flow_id, from, to). Read them by flow_id, never by venue alone. Replaced kds_routes: each station\'s routes became one link from Orders in, every prep station got a link to every expo.'],
+                ['kds_orders', 'Projection (like pos_checks): id text (a check id, web-<orders.id> or gf-<gloriafood_orders.id>), source till | online | gloriafood (178; taken from the id prefix by applyKitchenEvent(), never from the payload), check_id / order_id, status active | ready | collected | cancelled, state jsonb (the whole kitchen order), last_seq.'],
                 ['kds_log', 'One row per bump and remake: station (id, name, kind), seconds since the dishes arrived or were fired, items, order source / type / number, reason, recalled_at (a recalled bump is left out of the report). Feeds the Kitchen report and its CSV.'],
-                ['pos_devices', 'kind kds; settings { station_ids, view tickets | on_order, columns, text_size, sound }.'],
-                ['pos_settings', 'kds_online_orders (send accepted online orders), kds_online_ready (ready in the kitchen marks the online order ready, collected completes it), kds_flow_layout jsonb { [stationId | start]: { x, y } } (where the designer draws each box).'],
+                ['pos_devices', 'kind kds; settings { station_ids, view tickets | on_order, columns, text_size, sound, can_switch_flow (absent = true: its flow button may put another flow in use) }.'],
+                ['pos_settings', 'kds_online_orders (send accepted online orders), kds_online_ready (ready in the kitchen marks the online order ready, collected completes it; for GloriaFood orders: their board status), kds_gloriafood (178, default off: send GloriaFood orders), kds_gloriafood_types jsonb ({ pickup | delivery | dine_in | order_ahead | table_reservation: order type id | null }; a key left out is matched by name by gloriaFoodTypes()), kds_gloriafood_lead_mins (0-240, default 20: an order for later comes on this long before its time), kds_active_flow_id (the flow in use, ON DELETE SET NULL; NULL = the first), kds_flow_switched_at / kds_flow_switched_by (the last switch: a screen\'s name or a person\'s email). kds_flow_layout moved to kds_flows.layout (177).'],
               ]}
             />
             <H3>API</H3>
             <DataTable
               head={['Route', 'What it does']}
               rows={[
-                ['GET /pos-api/config (kds device)', 'kdsConfig(): stations (active only, boards too), flow, the device\'s settings, courses, venue name and time zone. No staff, PINs or menus. version changes with any of them.'],
+                ['GET /pos-api/config (kds device)', 'kdsConfig(): stations (active only, boards too), flow (the links of the flow in use), flows [{ id, name, station_ids (the stations its links send dishes to, in station order) }], active_flow_id, flow_switched_at / flow_switched_by, the device\'s settings, courses, venue name and time zone. No staff, PINs or menus. version changes with any of them, so a switch reaches every screen through pos.config.'],
+                ['PUT /pos-api/kitchen/flow', '{ flow_id } from a kds device\'s flow button: switchFlow() with the screen\'s name as switched_by; returns { flow_id, name, switched_at, switched_by, changed } (changed false: already in use). 403 for any other device kind or a screen with can_switch_flow false (read fresh from pos_devices), 404 for a flow not at its venue. Broadcasts pos.config. Online only (the screen says so offline).'],
                 ['GET /pos-api/kitchen/sync?since=', 'Kitchen orders changed since a seq (reset with every live order when far behind) and server_time for the screen\'s clock.'],
                 ['POST /pos-api/events', 'Takes kitchen events from kds devices (server-only types refused). The answer has kitchen (orders touched). Broadcasts pos.seq with kinds [checks | kitchen] (tills skip kitchen-only changes) and kitchen.board to screens:<venue>.'],
                 ['/api/pos/venues/:id/kds-stations, /kds-stations/:id, .../kds-stations/order', 'Stations (pos_setup manage). Turning a station into a board drops its links onward and takes it off kitchen screens; a kitchen screen can\'t show a board (422).'],
-                ['PUT /api/pos/venues/:id/kds-flow', '{ links: [{ from, to, targets }], layout } replaces the venue\'s flow (pos_setup manage). 422 with the first flowProblems() message; dish / section / revenue stream / order type ids must be the tenant\'s; layout keys that aren\'t start or a station are dropped. Returns the saved links, layout and warnings. GET /api/pos/venues/:id/setup returns kds_flow { links, layout }. Deleting a revenue centre takes it out of every filter (a link left with no filter goes).'],
+                ['PUT /api/pos/kds-flows/:id', '{ links: [{ from, to, targets }], layout } replaces one flow\'s links and layout (pos_setup manage). 422 with the first flowProblems() message (links name the flow\'s venue\'s stations); dish / section / revenue stream / order type ids must be the tenant\'s; layout keys that aren\'t start or a station are dropped. Returns { id, links, layout, warnings }. GET /api/pos/venues/:id/setup returns kds_flows [{ id, name, sort_order, layout, links }], kds_active_flow_id, kds_flow_switched_at / _by. Deleting a revenue centre takes it out of every filter of every flow (a link left with no filter goes).'],
+                ['POST /api/pos/venues/:id/kds-flows', '{ name, copy_from? } a new flow at the end: empty, or with the links and layout of copy_from (one of this venue\'s flows, else 404). 422 when the name is taken.'],
+                ['PATCH / DELETE /api/pos/kds-flows/:id', 'Rename ({ name }, 422 when taken); delete (422 for the flow in use: put another in use first; takes the till lock so it can\'t race a switch).'],
+                ['PUT /api/pos/venues/:id/kds-flows/order, .../kds-flows/active', 'order: { ids } sort order (keeps the flow in use in use, writing its id down if it was only "the first"); active: { flow_id } switchFlow() with the person\'s email as switched_by. Both pos_setup manage; both broadcast pos.config.'],
                 ['GET /api/pos/venues/:id/kitchen-report[.csv]?from=&to=', 'Per station: tickets, items, average, median, p90, max, on time (within target_mins), late; by hour; remakes. CSV: every bump and remake (pos_reports view).'],
                 ['GET /screen-api/orders', 'boardFor(): { preparing, ready } for every counter and online order, and boards: { [board station name, lower case]: { preparing, ready } } per order ready board, for the Order status block (opts.board picks one by name; screens with one get needs_orders in their config, poll every 15 s and refetch on kitchen.board).'],
               ]}
@@ -3196,6 +3322,38 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>kitchen.order_status</Mono>. The other way, a pass bump or collect calls{' '}
               <Mono>changeStatus()</Mono> (actor "Kitchen screen &lt;name&gt;") when{' '}
               <Mono>kds_online_ready</Mono> is on, so the guest gets the ready email.
+            </P>
+            <H3>GloriaFood orders (migration 178)</H3>
+            <P>
+              <Mono>kitchenOnGloriaFood(tenantId, venueId, ids)</Mono> (<Mono>services/kitchenSvc.js</Mono>) runs
+              after <Mono>gloriafood_orders</Mono> rows are stored or updated (<Mono>ingestWithTx()</Mono> returns
+              their <Mono>ids</Mono>; <Mono>ingestOrders()</Mono> and <Mono>pollVenue()</Mono> call it once the
+              transaction has committed, not awaited, since GloriaFood wants its answer within 15 s) and after{' '}
+              <Mono>POST /api/orders/gloriafood/:id/status</Mono>. It holds an advisory lock per venue
+              (<Mono>gf-kitchen:&lt;venue&gt;</Mono>) while it reads the rows and submits, so an order and its
+              cancellation pushed together land in that order; the rows are read fresh by id, never taken from
+              the push. For a row not yet in the kitchen: only when <Mono>kds_gloriafood</Mono> is on, the
+              status is accepted, the board status isn&apos;t ready / completed, the order isn&apos;t imported
+              (<Mono>received_via = 'import'</Mono>) and its fulfil (or accepted) time is less than two hours
+              past, <Mono>kitchen.order_in</Mono> with <Mono>gloriaFoodSnapshot()</Mono>: id{' '}
+              <Mono>gf-&lt;uuid&gt;</Mono>, number = GloriaFood&apos;s order id, guest first name, table number,
+              type from <Mono>gloriaFoodTypes()</Mono> (type_name = our type&apos;s name, else GloriaFood&apos;s
+              label), note = instructions (test orders, <Mono>source = 'admin'</Mono>, get &quot;GloriaFood test
+              order&quot;), <Mono>fire_at</Mono> = fulfil time minus <Mono>kds_gloriafood_lead_mins</Mono> for{' '}
+              <Mono>for_later</Mono> orders. Dishes keep GloriaFood&apos;s options (&quot;2 x Extra egg&quot;)
+              and are matched by name to the venue&apos;s live menus (<Mono>dishMatcher()</Mono>: lower case,
+              spaces collapsed, first match wins), which gives them <Mono>item_id</Mono> / <Mono>section_id</Mono>{' '}
+              for the flow&apos;s dish and section links and the menu&apos;s name (kitchen name if set); no match
+              routes by order type and default links. For a row already in the kitchen:{' '}
+              <Mono>kitchen.order_status</Mono> cancelled (status canceled in GloriaFood), ready (board ready) or
+              collected (board completed). The other way, <Mono>onlineMoves()</Mono> returns GloriaFood moves too
+              and <Mono>afterKitchen()</Mono> in <Mono>posApi.js</Mono> sets <Mono>board_status</Mono> ready (from
+              accepted / preparing) or completed, <Mono>board_status_by</Mono> &quot;Kitchen screen &lt;name&gt;&quot;,
+              and broadcasts <Mono>order.updated</Mono> (source gloriafood) when <Mono>kds_online_ready</Mono> is
+              on. GloriaFood itself is never told. A change to an order&apos;s dishes after it reached the kitchen
+              isn&apos;t copied. Till setup: <Mono>GET .../setup</Mono> returns <Mono>gloriafood</Mono>{' '}
+              (<Mono>{'{ show_on_board, types }'}</Mono>, null without a link); the PATCH checks type ids are the
+              tenant&apos;s (422). Tests: <Mono>api/test/gloriafood-kitchen.test.mjs</Mono>.
             </P>
             <H3>The screen</H3>
             <P>
@@ -3218,7 +3376,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               or find other devices on the LAN, so two tablets can't talk to each other without a server they
               both reach. With the hub, tills and kitchen screens point at it (<Mono>hub_url</Mono>) and it runs
               the same sequencer and kitchen rules. Admin: <Mono>components/pos/KitchenSection.jsx</Mono> (Till
-              setup → Kitchen screens: stations, screens, online orders; <Mono>StationModal</Mono>),{' '}
+              setup → Kitchen screens: stations, screens, online and GloriaFood orders (<Mono>OnlineCard</Mono>); <Mono>StationModal</Mono>),{' '}
               <Mono>components/pos/KitchenFlow.jsx</Mono> (the flow designer), Kitchen tab in{' '}
               <Mono>pages/PosReports.jsx</Mono>, Order status block in <Mono>shared/screenLayout.js</Mono> +{' '}
               <Mono>ScreenDesigner.jsx</Mono>.
@@ -3606,7 +3764,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>show_on_board</Mono> on: same shape with <Mono>source: &apos;gloriafood&apos;</Mono>, a
               GloriaFood label, our own board status only (never paid, refunded or told to GloriaFood). On days
               before today, orders imported from GloriaFood&apos;s export (migration 162) come too, marked{' '}
-              <Mono>imported</Mono>, in Done and view only. See Cash Reconciliation, GloriaFood.
+              <Mono>imported</Mono>, in Done and view only. See Cash Reconciliation, GloriaFood. A board move
+              to ready / completed also reaches the kitchen screens, and the kitchen moves the board status
+              (migration 178, see Kitchen screens → GloriaFood orders).
             </P>
             <H3>Promotions (migration 131)</H3>
             <P>
@@ -3639,7 +3799,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['Rounding', "Fractional per-unit discounts (bogo, free_item, bundle) go through settle(): the total is rounded once and split by allocate(), so a £15 meal deal costs exactly £15.00 (rounding each line separately could take a penny too many)."],
                 ['Maths', "basket: % of the remaining total, or min(amount, remaining), spread over lines by allocate() (largest remainder, whole pence). item: per covered line, % of remaining or amount x qty. bogo: covered units sorted dearest first, in each group of buy + get the get cheapest are get_percent off. max_discount_pence scales the lines down with allocate()."],
                 ['Guest feedback', "offers (manual ones that would apply, with saving_pence), notices (min_subtotal with short_pence, bogo_qty with more, required_item, no_items, not_now, not_combinable). Automatic ones only produce min_subtotal / bogo_qty notices. noticeText() words them."],
-                ['Tenant scoping', "Every promotions query filters tenant_id itself (not only RLS, which the app's database role may bypass): listPromotions(tx, tenantId), venuePromotions(tx, venue, today) (uses venue.tenant_id), lockUses(tx, tenantId, ids), codeTaken(tx, tenantId, ...), and /catalog's menus, sections, dishes and venues. Update, switch, reorder and delete add AND tenant_id, so another tenant's id is a 404. orders.js venueOf() checks the venue belongs to the tenant (current_setting('app.tenant_id'))."],
+                ['Tenant scoping', "Every promotions query filters tenant_id itself (as well as RLS, forced since migration 176): listPromotions(tx, tenantId), venuePromotions(tx, venue, today) (uses venue.tenant_id), lockUses(tx, tenantId, ids), codeTaken(tx, tenantId, ...), and /catalog's menus, sections, dishes and venues. Update, switch, reorder and delete add AND tenant_id, so another tenant's id is a 404. orders.js venueOf() checks the venue belongs to the tenant (current_setting('app.tenant_id'))."],
                 ['Dish picker (admin)', "DishPicker shows the chosen dishes and sections as removable chips plus a Choose / Change dishes button; the menu tree is DishPickerModal (z-[60], above the editor), which edits a copy: Done writes it back, Cancel drops it. Names come from the catalog; ids no longer on a menu show as Removed dish / Removed section."],
                 ['Uses', "Orders not rejected / cancelled / expired (promoSvc FREE_STATUSES). venuePromotions() drops used-up and ended ones; createOrder() calls lockUses() (FOR UPDATE on limited promotions, then a count) inside its transaction and returns 422 code promo_invalid when one has just run out. An unknown code is also 422 promo_invalid."],
               ]}
@@ -3709,7 +3869,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               head={['Channel', 'Entry point', 'Who / scope', 'Model']}
               rows={[
                 ['staff_chat', 'POST /api/ai/chat (Ask Pepper drawer, /ai page, /mobile/assistant)', 'A logged-in staff member, their tenant', 'Ours (Claude, platform pays)'],
-                ['staff_mcp', 'POST /mcp/staff/:tenantSlug (routes/mcp.js)', 'Bearer access token (mcp_...) or Auth0 JWT, one tenant', 'The client\'s own AI app'],
+                ['staff_mcp', 'POST /mcp/staff/:tenantSlug (routes/mcp.js)', 'Bearer access token (mcp_..., expires; can be read only) or Auth0 JWT, one tenant. Lists only the tools the person can use: toolAllowed() in tools/index.js (View on one of the area\'s SECTION_MODULES, Manage for a change tool, via permissionLevels() in auth.js), and for a read-only token no change tools (a call to one is refused)', 'The client\'s own AI app'],
                 ['guest_chat', 'POST /ai-api/chat (website ai_chat block, routes/aiApi.js)', 'A guest on one tenant\'s site', 'Ours'],
                 ['guest_mcp', 'POST /mcp (routes/mcp.js)', 'Anyone, every tenant with guest_mcp_enabled', 'The guest\'s own AI app'],
               ]}
@@ -3743,7 +3903,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               their tools by file. The registry throws at start-up on a staff tool without a known
               section, two staff tools with one name, or a missing core tool, so a mistake fails the
               deploy instead of a chat. <Mono>CORE_TOOLS</Mono> (list_venues, find_bookings,
-              day_overview, check_availability, hs_status, whos_working, open_page) are loaded in
+              day_overview, check_availability, hs_status, whos_working, open_page, how_do_i,
+              day_briefing) are loaded in
               every staff chat request; the rest are found with tool search (The chat loop, below).
               Over MCP every tool is listed in full.
             </P>
@@ -4007,8 +4168,46 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['email_log', 'email_templates view', 'GET /api/email-templates/log?limit=200', 'search by guest name or email; only_failed'],
                 ['report_issue / list_issues / request_feature', 'issue_log manage / view, feature_requests manage', 'POST, GET /api/issues, POST /api/feature-requests', 'list_issues keeps only this tenant\'s rows (the route lists every tenant only for a platform admin asking with ?scope=all)'],
                 ['open_page', 'the page\'s own module, view', 'ROUTE_CATALOG (routes/nav.js) + ALSO synonyms', 'Scored match (exact, starts with, word, synonym); only pages the person can view; staff_chat gets a markdown link [Label](/route) that ChatView renders as an in-app Link (only paths starting with one /), MCP gets the full address on officeOrigin(); several matches return choices'],
+                ['how_do_i', 'none (anyone with Pepper; OPEN_TOOLS)', 'searchHelp() in ai/helpIndex.js', 'Up to three Help passages, each with [Help: heading](/help#anchor) in the chat or the full address over MCP; nothing found = answers [] and a note to say so'],
+                ['day_briefing', 'each part its own (the reading tools it calls)', 'day_overview, whos_working, hs_status, purchase_orders, cash_day, online_orders, sold_out, email_log, screens_status (tools/briefing.js PARTS)', 'One venue, default today; a part refused with 403 goes in not_included, any other failure is an error line for that part only'],
               ]}
             />
+            <H3>Help answers, the day briefing and the page note</H3>
+            <P>
+              <Mono>how_do_i</Mono> (<Mono>tools/general.js</Mono>) searches the Help page itself:{' '}
+              <Mono>ai/helpIndex.js</Mono> reads <Mono>admin/src/pages/Help.jsx</Mono> from the
+              checkout (or <Mono>HELP_SOURCE_FILE</Mono>), cuts it at each{' '}
+              <Mono>{'<section id data-help>'}</Mono>, H2 and H3, turns the JSX into plain text
+              (DataTable rows become lines) and ranks passages with BM25, headings counting three
+              times. The index is built on first use and again when the file&apos;s mtime changes, so
+              a deploy refreshes it; no database, no embeddings. The Pepper section scores lower
+              unless the question is about Pepper. Links go to the subsection:{' '}
+              <Mono>helpSlug()</Mono> (<Mono>shared/help.js</Mono>) makes the same anchor on both
+              sides, the page&apos;s <Mono>H3</Mono> giving itself that id (only when its heading is
+              plain text) and <Mono>Help.jsx</Mono> scrolling to the hash after it renders. A heading
+              used twice links to its section instead.
+            </P>
+            <P>
+              <Mono>day_briefing</Mono> (<Mono>tools/briefing.js</Mono>) runs the reading tools in{' '}
+              <Mono>PARTS</Mono> side by side as the person asking, so each keeps its own permission
+              check, and trims what they return (big parties are 8 or more, lists capped at 10-15).
+              A new part is one line in <Mono>PARTS</Mono> calling an existing tool&apos;s{' '}
+              <Mono>run()</Mono>; never query tables there.
+            </P>
+            <P>
+              The page note: pages that show one venue and day or week call{' '}
+              <Mono>usePepperPage({'{ venueId, date | week }'})</Mono> (<Mono>lib/pepperPage.js</Mono>:
+              Timeline, Bookings, Rota, Food safety, Online orders, Cash Recon). The drawer&apos;s{' '}
+              <Mono>ChatView pageAware</Mono> sends <Mono>page: {'{ path, venue_id, date, week }'}</Mono>{' '}
+              with each message (not from /ai or /mobile) and shows it as a chip the person can turn
+              off. <Mono>pageNote()</Mono> in <Mono>ai/chat.js</Mono> names the page from{' '}
+              <Mono>ROUTE_CATALOG</Mono> (longest matching route) and the venue from the
+              tenant&apos;s own venues, and the turn stores it as a text block with{' '}
+              <Mono>_page: true</Mono> before the message: sent to the model (marker stripped by{' '}
+              <Mono>clean()</Mono>), left out of the display items and the chat title. The staff
+              chat&apos;s instructions say how to use it. Another tenant&apos;s venue id in{' '}
+              <Mono>page</Mono> is refused by <Mono>refuseOtherTenantsVenues</Mono> like any body.
+            </P>
             <P>
               Every change tool has a chat label (<Mono>TOOL_LABELS</Mono> in <Mono>chat.js</Mono> for
               reads, the card title for changes) and an Activity label and detail
@@ -4051,18 +4250,84 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             </P>
             <H3>The chat loop</H3>
             <P>
-              <Mono>runTurn()</Mono>: <Mono>client.beta.messages.create</Mono> with{' '}
-              <Mono>AI_MODEL</Mono> (default in <Mono>config/env.js</Mono>), <Mono>output_config.effort</Mono>{' '}
-              (<Mono>AI_EFFORT</Mono>, default medium), adaptive thinking (the default), top-level{' '}
-              <Mono>cache_control</Mono>, and server-side fallbacks (<Mono>fallbacks: 'default'</Mono>,
-              beta <Mono>server-side-fallback-2026-07-01</Mono>). Up to 12 model calls per turn
-              (<Mono>MAX_STEPS</Mono>).
+              <Mono>runTurn()</Mono>: every model call is <Mono>callModel()</Mono>, a stream
+              (<Mono>client.beta.messages.stream</Mono>, the whole message from{' '}
+              <Mono>finalMessage()</Mono>) with the chat&apos;s model (<Mono>modelOf()</Mono>, see
+              Model routing), <Mono>output_config.effort</Mono> (<Mono>AI_EFFORT</Mono>, default
+              medium), adaptive thinking (the default), top-level <Mono>cache_control</Mono>,{' '}
+              <Mono>max_tokens</Mono> 32,000, and server-side fallbacks (<Mono>fallbacks:
+              'default'</Mono>, beta <Mono>server-side-fallback-2026-07-01</Mono>) on every model
+              that offers them (<Mono>NO_FALLBACK()</Mono> leaves them off the everyday model). Up
+              to 12 model calls per turn (<Mono>MAX_STEPS</Mono>).
               Messages are stored exactly as returned and only appended, with the system prompt the
               conversation started with (<Mono>ai_conversations.system_prompt</Mono>), so every
               request replays the history unchanged: thinking blocks stay valid and the prompt cache
               hits. Back-to-back user rows (a confirm note, then the next message) are merged when
-              sent. A refusal stores nothing. Every response's usage goes to <Mono>ai_usage</Mono>{' '}
-              (and the person's day, see Usage below).
+              sent. Every response's usage goes to <Mono>ai_usage</Mono> (and the person's day, see
+              Usage below). Claude's own errors after the SDK's two retries (overloaded, rate
+              limited, down, cut off mid-reply) become a 503 "Claude is busy" with the cause logged
+              at warn.
+            </P>
+            <P>
+              <strong>Refusals.</strong> A refused reply is never stored. On the everyday model the
+              chat moves to the main model and the step runs again (it has no server-side fallback).
+              On the main model, if nothing of the turn&apos;s reply was stored yet, the person&apos;s
+              message is withdrawn too (<Mono>withdrawMessage()</Mono>, as for a file Claude can&apos;t
+              take): left in, it would be sent again merged with the next message and most likely
+              refused again. The turn returns a <Mono>notice</Mono> saying so; a new chat whose only
+              message was refused is deleted, and the reply&apos;s <Mono>conversation_id</Mono> is
+              null.
+            </P>
+            <P>
+              <strong>Streaming (server-sent events).</strong> <Mono>POST /api/ai/chat</Mono> and{' '}
+              <Mono>POST /ai-api/chat</Mono> stream when the request says{' '}
+              <Mono>Accept: text/event-stream</Mono> (<Mono>ai/sse.js</Mono>; without it they answer
+              JSON once, as before). The stream opens with the first event, so anything refused before
+              the message is stored (no access, allowance used up, the chat busy) is still a plain JSON
+              error. Events, each <Mono>event: type</Mono> + <Mono>data: JSON</Mono>:{' '}
+              <Mono>start</Mono> (conversation_id, title; the website chat adds guest_key),{' '}
+              <Mono>text</Mono> (key = step-block, delta), <Mono>activity</Mono> (Thinking...,
+              Finding the right tool..., Looking it up..., Getting a card ready...),{' '}
+              <Mono>step</Mono> (a lookup&apos;s line), <Mono>card</Mono> (a pending card as{' '}
+              <Mono>actionView()</Mono>), <Mono>discard</Mono> (drop the text of a refused step), then{' '}
+              <Mono>done</Mono> (the same body as the JSON reply: conversation_id, title,
+              stop_reason, notice, items) or <Mono>error</Mono> (status, error, conversation_id,{' '}
+              <Mono>withdrawn</Mono> when the message was taken back out). A comment line goes out
+              every 15 s, and <Mono>X-Accel-Buffering: no</Mono> stops nginx holding events back
+              (needed on the tenant-site server blocks, which buffer). Closing the page doesn&apos;t stop
+              the turn: writes after that are dropped and the reply is in the chat later.{' '}
+              <Mono>runTurn(ctx, conv, text, &#123; emit &#125;)</Mono> sends the events;{' '}
+              <Mono>streamEvents()</Mono> turns the SDK&apos;s stream events into text and activity,{' '}
+              <Mono>handleToolUse()</Mono> sends steps and cards. A listener error never stops a turn.
+            </P>
+            <P>
+              Admin side: <Mono>api.stream(path, body, onEvent)</Mono> in <Mono>lib/api.js</Mono>{' '}
+              (fetch with the auth headers, <Mono>readEvents()</Mono> parses the stream, resolves with
+              done, throws the error event as an <Mono>ApiError</Mono>, or one with status 0 and{' '}
+              <Mono>lost</Mono> when the stream ends without either; 45 s without a byte aborts it,
+              since the server writes every 15 s). <Mono>ChatView.jsx</Mono> keeps the live items
+              (text by key, steps, cards) and the activity line until done replaces them with the
+              stored conversation. Cards that arrive during the turn can&apos;t be pressed until it
+              ends. After a drop the chat reloads the conversation; <Mono>GET
+              /api/ai/conversations/:id</Mono> returns <Mono>running</Mono> (the hold is taken) and the
+              chat asks again every 3 s while it is. Notices (the turn stopped early, a refusal) show
+              in italics under the conversation. The website chat block (<Mono>ai_chat.eta</Mono>) does
+              the same in plain script.
+            </P>
+            <P>
+              <strong>Model routing (migration 175).</strong> A chat starts on the everyday model{' '}
+              (<Mono>AI_MODEL_FAST</Mono>) and moves to the main one (<Mono>AI_MODEL</Mono>) for good
+              when it needs it (<Mono>upgradeChat()</Mono>, <Mono>ai_conversations.model_tier</Mono>{' '}
+              'fast' to 'main'): a file is attached (before the first call), the everyday model calls
+              a <Mono>HEAVY_TOOLS</Mono> tool (create_menu, add_dishes, import_price_list: its call is
+              answered "Not run yet" and the main model makes it again, so the card is the main
+              model&apos;s), a request&apos;s prompt reaches <Mono>LONG_CHAT_TOKENS</Mono> (60,000:
+              the steps after it), or the everyday model refuses. A chat never moves back down: the
+              main model reads the everyday model&apos;s thinking blocks, the other way round they
+              would be dropped. Chats from before routing (tier NULL) stay on the main model.{' '}
+              <Mono>AI_MODEL_FAST</Mono> empty, or the same as <Mono>AI_MODEL</Mono>, puts every
+              chat on the main model. The move costs one full cache write on the main model. The
+              Platform page&apos;s key card shows both models.
             </P>
             <P>
               <strong>One writer per chat (migration 174).</strong> The API runs one process per CPU,
@@ -4080,8 +4345,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <P>
               <strong>Turn budget.</strong> nginx gives <Mono>/api/ai/</Mono> 300 s (see Deployment,{' '}
               <Mono>ensure-nginx-ai-timeout.sh</Mono>); before that the general 60 s cut long turns
-              off with a 504 while they kept running. A turn starts no new step after{' '}
-              <Mono>TURN_MS</Mono> (240 s): it stops once every tool call of the last step has its
+              off with a 504 while they kept running. A turn answered as JSON starts no new step
+              after <Mono>TURN_MS</Mono> (240 s); a streamed one, which keeps the connection busy,
+              after <Mono>STREAM_TURN_MS</Mono> (600 s). It stops once every tool call of the last step has its
               result stored, replies that it stopped and the person can say "carry on" (stop reason{' '}
               <Mono>time</Mono>). Never after a paused server step, so the history stays valid.
               Before calling the model, the turn refuses a closed chat (see Erasure), a tenant past
@@ -4143,10 +4409,15 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               alike, so a long chat re-reading its cached history (cache reads cost a tenth of input)
               looked ten times dearer than it was, while output (five times input) looked cheap. Now
               it counts <strong>units</strong>: <Mono>usageUnits()</Mono> in{' '}
-              <Mono>ai/context.js</Mono> weighs tokens by price as input-token equivalents (input 1,
-              output 5, 5-minute cache write 1.25, cache read 0.1, or less for the models listed in{' '}
-              <Mono>CACHE_READ_WEIGHT</Mono>), with the model
-              that actually answered (<Mono>response.model</Mono>, which can be a fallback).{' '}
+              <Mono>ai/context.js</Mono> prices the tokens with the model that actually answered
+              (<Mono>response.model</Mono>, which can be a fallback or the everyday model):{' '}
+              <Mono>PRICES</Mono> holds $ per million input, output, cache read and 5-minute cache
+              write tokens per model (prompts over 100K tokens at 5x where{' '}
+              <Mono>LONG_PROMPT_RATE</Mono> says so), and a unit is $4 per million, so on the default
+              main model an input token is one unit, output five, a cache write 1.25 and a cache read
+              0.05, and the everyday model costs a small fraction of that. A model not in the table
+              counts input 1, output 5, cache write 1.25, cache read 0.1. Routing a chat to the
+              everyday model therefore uses less of the allowance, not just less money.{' '}
               <Mono>addUsage()</Mono> adds the units to <Mono>ai_usage</Mono> and, for staff chat, to
               the person&apos;s day in <Mono>ai_usage_people</Mono>; every caller passes{' '}
               <Mono>model</Mono> and, for staff, <Mono>person</Mono> (the chat loop, and{' '}
@@ -4185,13 +4456,13 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['ai_settings', 'One per tenant (no row = defaults): guest_mcp_enabled (true), guest_chat_enabled (false), staff_enabled (true), monthly_token_limit (2,000,000 units; platform admin only), person_daily_pct (25; 1-100 or null = no daily share; migration 174), chat_retention_days (90; 30 | 90 | 180 | 365; migration 174).'],
                 ['ai_usage', 'Per tenant, month (first day, UTC), channel: requests, input / output / cache read / cache write tokens, and units (migration 174: the tokens weighted by price, usageUnits()). The allowance counts units of staff_chat + guest_chat; MCP channels count calls only. Migration 174 backfilled units with the default weights.'],
                 ['ai_usage_people (migration 174)', 'Per tenant, day (UTC), user_sub: user_email, requests, units. Staff chat only (written by addUsage() with a person). The daily share and the Settings tab\'s people card read it; rows older than 400 days are deleted by the hourly clean-up. RLS, every query filters tenant_id.'],
-                ['ai_conversations / ai_messages', 'Chats. channel staff_chat (user_sub) or guest_chat (guest_key, a random secret the browser keeps). Messages: seq, role, content jsonb (API content blocks). Migration 174: running_until (the one-writer hold), closed_at + closed_reason (erased: read only, see Erasure), index (tenant_id, updated_at) for the retention clean-up.'],
+                ['ai_conversations / ai_messages', 'Chats. channel staff_chat (user_sub) or guest_chat (guest_key, a random secret the browser keeps). Messages: seq, role, content jsonb (API content blocks). Migration 174: running_until (the one-writer hold), closed_at + closed_reason (erased: read only, see Erasure), index (tenant_id, updated_at) for the retention clean-up. Migration 175: model_tier fast | main (NULL = main; see Model routing).'],
                 ['ai_pending_actions', 'Confirm cards: tool_use_id, tool, input, card {title, lines, confirmLabel, destructive}, status pending | done | cancelled | failed, result, expires_at, decided_at (claim).'],
                 ['ai_actions', 'Audit log of every change through AI (all channels): tool, input, ok, result, booking_id (null for anything but bookings), actor. Shown on /ai Activity. redacted_at (migration 174): input and result cleared after a year, or the guest\'s details replaced on erasure.'],
                 ['ai_booking_codes / ai_booking_grants', 'Emailed codes and access keys (hashes only).'],
-                ['ai_access_tokens', 'Staff MCP tokens: sha256 of mcp_ + 40 hex, prefix, user_id, revoked_at. No RLS (read during auth before any tenant context); every query filters tenant_id.'],
+                ['ai_access_tokens', 'Staff MCP tokens: sha256 of mcp_ + 40 hex, prefix, user_id, revoked_at, expires_at (migration 179: 30, 90, 180 or 365 days from making it; 90 by default) and read_only (the connector lists and runs only tools without confirm). Forced RLS like every tenant table: auth.js finds the token in system mode; every query filters tenant_id.'],
                 ['bookings.source', 'Which AI channel made the booking (NULL = not AI).'],
-                ['platform_secrets (migration 149)', 'Global, no RLS: name, value, hint (last 4), updated_by, updated_at. Row anthropic_api_key = the chat key saved on the Platform page. value is never returned by any route.'],
+                ['platform_secrets (migration 149)', 'Global, no RLS: name, value (sealed since migration 179), hint (last 4), updated_by, updated_at. Rows: anthropic_api_key = the chat key saved on the Platform page; kiosk_preview_key = the key kiosk preview links are signed with. value is never returned by any route.'],
                 ['ai_attachments (migration 150)', 'Files attached in staff chats: tenant_id, conversation_id (NULL until sent; ON DELETE CASCADE), user_sub (uploader, the only one who can see or send it), kind image | pdf | text, media_type, filename, bytes, data bytea. Every query filters tenant_id.'],
               ]}
             />
@@ -4200,22 +4471,23 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               head={['Route', 'Notes']}
               rows={[
                 ['GET /api/ai/status', 'configured, enabled, permission, can_chat, units_left (the tenant\'s month), share_left (the caller\'s day; null = no daily share). Drives the Ask Pepper button.'],
-                ['GET/DELETE /api/ai/conversations[/:id], POST /api/ai/chat', 'The caller\'s own chats (user_sub); the list and a chat carry closed (erased, read only). chat { conversation_id?, message, attachments? } returns the whole conversation as display items; 409 while another turn or a card holds the chat, or when it is closed.'],
+                ['GET/DELETE /api/ai/conversations[/:id], POST /api/ai/chat', 'The caller\'s own chats (user_sub); the list and a chat carry closed (erased, read only), a chat also running (a turn or card holds it). chat { conversation_id?, message, attachments?, page? } returns the whole conversation as display items plus stop_reason and notice; with Accept: text/event-stream it streams (see Streaming above). conversation_id null = a new chat\'s only message was refused and the chat removed. 409 while another turn or a card holds the chat, or when it is closed.'],
                 ['POST /api/ai/attachments, GET/DELETE /api/ai/attachments/:id', 'Upload one file (multipart field file) -> { id, name, kind, media_type, bytes }; the file itself, uploader only; remove an unsent upload. See Attached files above.'],
                 ['POST /api/ai/actions/:id/confirm | cancel', 'Confirm cards; hold the chat like a turn (409 while it is busy). The reply carries closed: an anonymise card closes the chat it ran in.'],
                 ['GET/PATCH /api/ai/settings', 'GET: settings, usage (channels + chat_units), daily_share (units or null), people (peopleUsage(): name or email, requests, units this month, today; everyone for ai_assistant manage, else only the caller\'s own line), MCP addresses. PATCH (ai_assistant manage): the switches, person_daily_pct (1-100 or null), chat_retention_days (30 | 90 | 180 | 365).'],
                 ['GET/POST/DELETE /api/ai/tokens[/:id]', 'Own tokens; ai_assistant manage sees and revokes everyone\'s. POST returns the token once.'],
                 ['GET /api/ai/activity', 'ai_actions, last 100 (manage).'],
                 ['GET/PATCH /api/ai/platform/tenants[/:id]', 'Platform admin: chat_units, mcp_calls and monthly_token_limit (an allowance in units; Platform page, AI usage tab).'],
-                ['GET/PUT/DELETE /api/ai/platform/key, POST /api/ai/platform/key/test', 'Platform admin: the Anthropic key. GET = source (platform | env | null), saved hint/by/at, env_hint, model. PUT { api_key } checks it with Anthropic (models.retrieve of AI_MODEL, free) and saves it, 422 with the reason if rejected, warning if the key can\'t use the model. DELETE goes back to .env. Never returns the key.'],
-                ['/ai-api/*', 'Website chat: tenants/:id/status, chat, conversations/:id?key=, actions/:id/confirm | cancel. Rate limited per IP.'],
+                ['GET/PUT/DELETE /api/ai/platform/key, POST /api/ai/platform/key/test', 'Platform admin: the Anthropic key. GET = source (platform | env | null), saved hint/by/at, env_hint, model, fast_model (null when routing is off). PUT { api_key } checks it with Anthropic (models.retrieve of AI_MODEL and AI_MODEL_FAST, free) and saves it, 422 with the reason if rejected, warning naming the setting if the key can\'t use a model. DELETE goes back to .env. Never returns the key.'],
+                ['/ai-api/*', 'Website chat: tenants/:id/status, chat (streams with Accept: text/event-stream; the start event carries guest_key), conversations/:id?key= (with running), actions/:id/confirm | cancel. Rate limited per IP.'],
                 ['POST /mcp, POST /mcp/staff/:tenantSlug', 'MCP Streamable HTTP, stateless (a server per request, JSON responses). GET/DELETE 405. Staff: route config allowAccessToken; a JWT gets X-Tenant-Id from the slug; ai_assistant view + staff_enabled.'],
                 ['GET /.well-known/oauth-protected-resource/mcp/staff/:slug', 'RFC 9728 metadata pointing at Auth0, for OAuth MCP clients (not verified end to end yet).'],
               ]}
             />
             <H3>Admin and site</H3>
             <P>
-              <Mono>components/ai/ChatView.jsx</Mono> (chat, cards, <Mono>useAiStatus()</Mono>),{' '}
+              <Mono>components/ai/ChatView.jsx</Mono> (chat, cards, <Mono>useAiStatus()</Mono>, the
+              page chip with <Mono>pageAware</Mono>),{' '}
               <Mono>AssistantDrawer.jsx</Mono> (Ask Pepper panel from the sidebar, earlier chats,{' '}
               <Mono>maca_ai_conversation</Mono>), <Mono>pages/AiAssistant.jsx</Mono> (/ai, the
               Pepper page: Chat, Connect, Settings, Activity), <Mono>pages/mobile/MobileAssistant.jsx</Mono>,{' '}
@@ -4235,7 +4507,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               key changes; an authentication error from Anthropic during a chat becomes a 503 telling
               staff the key needs updating. Without any key the chats are off and MCP still works.
             </P>
-            <Code>{'# api/.env (optional fallback; a key saved on the Platform page wins)\nANTHROPIC_API_KEY=sk-ant-...\n# AI_MODEL=...   (default in src/config/env.js)\nAI_EFFORT=medium'}</Code>
+            <Code>{'# api/.env (optional fallback; a key saved on the Platform page wins)\nANTHROPIC_API_KEY=sk-ant-...\n# AI_MODEL=...        (the main model; default in src/config/env.js)\n# AI_MODEL_FAST=...   (the everyday model chats start on; empty = all on AI_MODEL)\nAI_EFFORT=medium'}</Code>
             <P>
               The connectors live on the apex (<Mono>https://macaroonie.com/mcp</Mono>), which is
               proxied to the API (<Mono>/mcp</Mono>, <Mono>/ai-api</Mono> and{' '}
@@ -4280,6 +4552,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['publishMenu()', 'Snapshot the draft. at empty or within 30 seconds = now; at most 400 days ahead. 422 when the hash equals the live one. Immediate publishes set announced_at and the route calls announceMenus().'],
                 ['announceDueReleases()', 'Run every minute by the hold sweep (jobs/queues.js): marks releases that went live since the last run as announced and calls announceMenus(): tillsMayNeedConfig() plus a menus.live broadcast on the menus:<tenantId> room for screens.'],
                 ['Routes', 'GET /api/menus?status=1 (publish per menu: live_at, scheduled_at, scheduled_count, changed); GET /:id?version=live; GET /:id/publish (live, scheduled, in_sync, changes, history); POST /:id/publish { at?, note? } (manage); DELETE /:id/releases/:releaseId (cancel a future one, manage); POST /:id/releases/:releaseId/restore (copy a release into the draft with restorableBody() + writeMenu(), manage); POST /:id/preview-link { release_id? }; GET /:id/allergens?version=live.'],
+                ['Admin (components/menus/MenuPublish.jsx)', 'PublishButton, beside Save in the menu editor\'s top bar: a badge with the number of changes in GET /:id/publish (a dot when there is no live version, a clock when one is scheduled), filled while changes wait and the editor is saved; it opens PublishWindow (portal into document.body: the bar\'s backdrop blur would make a fixed window fixed to the bar), whose PublishContent is the old card: changes, Publish now / Schedule / Preview print / Discard changes, scheduled publishes, history. Both read the query [\'menu-publish\', id], which the editor\'s Save invalidates. PublishBadges on the Menus list.'],
               ]}
             />
             <DataTable
@@ -5508,7 +5781,7 @@ GET /robots.txt`}</Code>
                   name: 'DB helpers',
                   path: 'src/config/db.js',
                   desc: 'Core database abstraction. Handle carefully.',
-                  code: "// withTenant — transaction with RLS context\nawait withTenant(tenantId, async tx => {\n  const [row] = await tx`SELECT * FROM bookings WHERE id = ${id}`\n  return row\n})\n\n// withTx — plain transaction, no tenant context\nawait withTx(async tx => {\n  const [t] = await tx`SELECT id FROM tenants WHERE slug = ${slug}`\n  return t\n})",
+                  code: "// withTenant — transaction with RLS context\nawait withTenant(tenantId, async tx => {\n  const [row] = await tx`SELECT * FROM bookings WHERE id = ${id} AND tenant_id = ${tenantId}`\n  return row\n})\n\n// withSystem — system mode (migration 176), only to find the tenant first\nawait withSystem(async tx => {\n  const [t] = await tx`SELECT tenant_id FROM tenant_site WHERE subdomain_slug = ${slug}`\n  return t\n})",
                 },
               ].map(item => (
                 <div key={item.name} className="border rounded-lg p-4">
@@ -5898,9 +6171,57 @@ npm install && npm run dev        # :5173, proxies /api → :3000`}</Code>
               job <Mono>database</Mono> migrates an empty Postgres 16 (no pg_cron) from 001, runs the
               migrations a second time expecting "up to date", then starts the API against it with
               Redis and waits for <Mono>/api/health</Mono>; job <Mono>shared-tests</Mono> runs{' '}
-              <Mono>node --test shared/test/*.test.mjs shared/pos/test/*.test.mjs</Mono>. Separate from
-              the deploy workflow; a failing check doesn&apos;t block a push to main on its own (set up a
-              branch rule in GitHub for that).
+              <Mono>node --test shared/test/*.test.mjs shared/pos/test/*.test.mjs</Mono>; job{' '}
+              <Mono>api-tests</Mono> migrates its own empty <Mono>macaroonie_test</Mono> database and
+              runs <Mono>npm test</Mono> in <Mono>api/</Mono> (below). Separate from the deploy
+              workflow; a failing check doesn&apos;t block a push to main on its own (set up a branch
+              rule in GitHub for that).
+            </P>
+            <H3>Testing: the API tests (api/test)</H3>
+            <P>
+              <Mono>npm test</Mono> in <Mono>api/</Mono> runs <Mono>api/test/*.test.mjs</Mono> with
+              Node&apos;s test runner, one file at a time, against the real app (<Mono>buildApp()</Mono>,{' '}
+              <Mono>app.inject()</Mono>, no network port). They empty the database first, so they
+              refuse to run unless the database name in <Mono>DATABASE_URL</Mono> contains{' '}
+              <Mono>test</Mono>; migrate it first (<Mono>node scripts/migrate.js</Mono>). They need
+              Redis like the API. <Mono>LOG_LEVEL=info npm test</Mono> shows the API&apos;s log (silent
+              otherwise). A run takes about a minute and a half.
+            </P>
+            <DataTable
+              head={['File', 'What it is']}
+              rows={[
+                ['test/support/register.mjs + loader.mjs', 'Loaded with --import: every import of src/middleware/auth.js gets auth-stub.mjs instead.'],
+                ['test/support/auth-stub.mjs', 'The real auth module with one change: requireAuth takes "Authorization: Bearer test:<auth0 sub>" plus X-Tenant-Id (no Auth0) and checks the person against users / platform_admins like the real one. Permissions, roles and modules are the real code.'],
+                ['test/support/app.mjs', 'getApp(), as(sub, tenantId) (a client per person: get / post / put / patch / delete / request, with the internal-call header so tests aren\'t rate limited), ok() (throws with the API\'s message), closeApp().'],
+                ['test/support/seed.mjs', 'resetAndSeed(): empties the tenants and the platform tables, makes the platform admin, then two tenants through POST /api/platform/tenants (Thai House = A, Other Co = B) with one person per role in A and an owner in B.'],
+                ['test/support/fixtures.mjs', 'fillTenant(sub, tenantId, { mark, slug }): a tenant\'s data in every area, made through the API as its owner (venues, tables, schedule incl. overrides, exceptions and caps, bookings, holds, customers, menus with options, allergens and a release, rota and tips, Cash Recon days and wages, food safety, checklists, dashboards, purchasing, website, promotions, till, kitchen, screens, Pepper). Returns { ids, failed, writes }: writes is every write that worked (the sweep sends them again as the other tenant). The mark goes in names and notes.'],
+                ['test/support/fake-claude.mjs', 'A stand-in Claude API: answers POST /v1/messages from a script, as a stream of server-sent events when asked; sets ANTHROPIC_BASE_URL.'],
+                ['test/tenant-sweep.test.mjs', 'The cross-tenant sweep (below).'],
+                ['test/ai-chat.test.mjs', 'Pepper\'s chat loop against the stand-in Claude: streamed turns, the JSON reply, busy chats, errors after the stream opened, withdrawn and refused messages, model routing.'],
+              ]}
+            />
+            <H3>The cross-tenant sweep</H3>
+            <P>
+              Both tenants are filled with <Mono>fillTenant()</Mono> (B with its own mark, so A&apos;s
+              mark <Mono>Zqx</Mono> appears only in A&apos;s data). Then, as B&apos;s owner:
+            </P>
+            <DataTable
+              head={['Test', 'Fails when']}
+              rows={[
+                ['Every route that takes a parameter', 'Called with A\'s ids, and with B\'s own ids mixed in (B\'s venue with A\'s sitting): about 53,000 calls. A reply holds A\'s mark or an id of A\'s it wasn\'t sent; any of A\'s rows changes (an md5 per table over A\'s rows after each route); a 500. Ids come from every table with a tenant_id, one per table per tenant; named parameters (KINDS: venueId, sid, ...) get ids from their tables, :id gets all of them.'],
+                ['Every write A made, sent again', 'Each write in fixtures\' writes, as A sent it and with each of A\'s ids in the address swapped for B\'s id from the same table (valid bodies, so the route gets past its validation): A\'s rows change, a record of A\'s named in the address is accepted, a reply holds an id of A\'s it wasn\'t sent, or a 500. Accepted with A\'s ids in the body only is listed, and left to the last test.'],
+                ['None of B\'s rows point at A\'s', 'Any row of B\'s, as text (jsonb included), holds an id of A\'s; or a link table without a tenant_id (table_combination_members) joins two tenants\' rows.'],
+              ]}
+            />
+            <P>
+              Public routes (widget, ordering, website, devices, webhooks, MCP) are left out: they are
+              reached by an id or token by design. A deliberate exception is listed with its reason:{' '}
+              <Mono>ALLOWED_CHANGES</Mono> (B upvoting A&apos;s feature request: one shared board) and{' '}
+              <Mono>ALLOWED_REFERENCES</Mono> (that upvote&apos;s row). A new table is swept as soon as
+              the fixtures make a row in it; a new route as soon as it is registered. When you add a
+              table or a route that takes ids, add a fixture step that makes a row (through the API) so
+              its ids are tried. Statuses 503 (no Auth0 or AI key on the test server) aren&apos;t
+              failures.
             </P>
             <H3>Typical deployment flow</H3>
             <Code>{`# From the developer's laptop:

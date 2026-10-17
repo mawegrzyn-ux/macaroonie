@@ -30,6 +30,20 @@
 // Attached files (staff chat, src/ai/attachments.js) are stored as image /
 // document blocks that reference an ai_attachments row; apiMessages() fills
 // the file's data in on every request, so the bytes sent are always the same.
+//
+// Every model call streams (callModel()). When the person's browser asked for
+// a stream (routes send `emit`), the reply's text goes out as it is written,
+// with what Pepper is doing (thinking, looking something up, a card) and
+// each step and card as it happens; the route then sends the finished
+// conversation. Without `emit` the turn runs the same and the route answers
+// once at the end.
+//
+// Model routing: a chat starts on the everyday model (AI_MODEL_FAST) and
+// moves to the main one (AI_MODEL) for good when it needs it: a file is
+// attached, a big job comes up (HEAVY_TOOLS: the everyday model's call is
+// handed over, not run), the chat gets long, or the everyday model refuses.
+// A chat never moves back down: the main model reads the everyday model's
+// earlier thinking, but not the other way round.
 
 import Anthropic from '@anthropic-ai/sdk'
 import { sql, withTenant } from '../config/db.js'
@@ -38,12 +52,14 @@ import { ToolError, makeContext, addUsage } from './context.js'
 import { toolsFor, findTool, jsonSchemaOf, parseInput, errorText, CORE_TOOLS } from './tools/index.js'
 import { chatUnitsLeft, personUnitsLeft } from './settings.js'
 import { activeKey } from './apiKey.js'
+import { longDate } from './tools/util.js'
+import { ROUTE_CATALOG } from '../routes/nav.js'
 import {
   claimAttachments, releaseAttachments, attachmentBlocks, loadAttachmentData, withFileData, attachmentItems,
 } from './attachments.js'
 
 const MAX_STEPS      = 12
-const MAX_TOKENS     = 16000
+const MAX_TOKENS     = 32000
 const ACTION_MINUTES = 30
 const MAX_MESSAGES   = 300   // stored rows per conversation; then start a new one
 
@@ -52,7 +68,8 @@ const CUT_OFF = 'Not done: your reply was cut off before this call was complete,
   'Split it into smaller calls (fewer dishes, rows or changes per call: for a menu, a section or two at a time) and carry on.'
 
 // The key is the one a platform admin saved, else ANTHROPIC_API_KEY
-// (src/ai/apiKey.js); the client is rebuilt when it changes.
+// (src/ai/apiKey.js); the client is rebuilt when it changes. The timeout
+// covers waiting for a reply to start; a streaming reply can then run on.
 let client = null, clientKey = null
 async function anthropic() {
   const { key } = await activeKey()
@@ -64,16 +81,76 @@ async function anthropic() {
   return client
 }
 
-/** A rejected key is the platform's problem, not the person's: say so. */
-async function createMessage(params) {
+/**
+ * One model call, streamed. `onEvent` (when the person's browser is
+ * listening) gets the raw stream events; the whole message comes back as
+ * create() would return it. A rejected key is the platform's problem, not
+ * the person's: say so.
+ */
+async function callModel(params, onEvent, log) {
   const api = await anthropic()
   try {
-    return await api.beta.messages.create(params)
+    const stream = api.beta.messages.stream(params)
+    if (onEvent) stream.on('streamEvent', onEvent)
+    return await stream.finalMessage()
   } catch (err) {
     if (err instanceof Anthropic.AuthenticationError || err instanceof Anthropic.PermissionDeniedError) {
       throw new ToolError('The AI assistant\'s key isn\'t working. A platform admin needs to update it.', 503)
     }
+    // Overloaded, rate limited, down or cut off mid-reply (after the SDK's
+    // own retries): nothing the person can fix but wait.
+    if (err instanceof Anthropic.APIConnectionError || err instanceof Anthropic.RateLimitError ||
+        (err instanceof Anthropic.APIError && (err.status == null || err.status >= 500))) {
+      log?.warn({ status: err.status, type: err.error?.error?.type, message: err.message }, 'Claude API error')
+      throw new ToolError('Claude is busy or can\'t be reached right now. Try again in a moment.', 503)
+    }
     throw err
+  }
+}
+
+// ── Which model ──────────────────────────────────────────
+
+// Tools whose calls are big jobs worth the main model (building a menu,
+// importing a price list): the everyday model's call is handed back unrun,
+// and the main model makes it again.
+const HEAVY_TOOLS = new Set(['create_menu', 'add_dishes', 'import_price_list'])
+// A request this many prompt tokens long makes it a long chat.
+const LONG_CHAT_TOKENS = 60_000
+const HANDOVER = 'Not run yet: big jobs like this one are done with more care. Make this call again now, checking every detail.'
+
+const routing = () => !!env.AI_MODEL_FAST && env.AI_MODEL_FAST !== env.AI_MODEL
+/** The tier a new chat starts on. */
+export const startTier = () => (routing() ? 'fast' : 'main')
+const onFast  = conv => routing() && conv.model_tier === 'fast'
+export const modelOf = conv => (onFast(conv) ? env.AI_MODEL_FAST : env.AI_MODEL)
+
+/** Moves a chat to the main model, for good. */
+async function upgradeChat(ctx, conv, why) {
+  if (!onFast(conv)) return
+  await withTenant(conv.tenant_id, tx => tx`
+    UPDATE ai_conversations SET model_tier = 'main' WHERE id = ${conv.id} AND tenant_id = ${conv.tenant_id}
+  `)
+  conv.model_tier = 'main'
+  ctx.log?.info({ conversation: conv.id, why }, 'AI chat moved to the main model')
+}
+
+const promptTokens = usage =>
+  (usage?.input_tokens || 0) + (usage?.cache_read_input_tokens || 0) + (usage?.cache_creation_input_tokens || 0)
+
+// Server-side fallback (a refused request re-run on another model) isn't
+// offered for every model; those are sent without it.
+const NO_FALLBACK = model => /^claude-haiku/.test(model)
+
+function requestFor(conv, model, tools, messages) {
+  return {
+    model,
+    max_tokens:    MAX_TOKENS,
+    ...(NO_FALLBACK(model) ? {} : { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' }),
+    output_config: { effort: env.AI_EFFORT },
+    cache_control: { type: 'ephemeral' },
+    system:        conv.system_prompt,
+    tools,
+    messages,
   }
 }
 
@@ -87,8 +164,10 @@ async function createMessage(params) {
 const LOCK_SECONDS = 90
 const BEAT_MS      = 30_000
 // A turn stops starting new steps after this, so its reply gets back before
-// the proxy gives up on the request (nginx gives /api/ai/ 300 s).
-const TURN_MS      = 240_000
+// the proxy gives up on the request (nginx gives /api/ai/ 300 s). A streamed
+// turn keeps the connection busy, so it can run longer.
+const TURN_MS        = 240_000
+const STREAM_TURN_MS = 600_000
 
 async function holdConversation(conv, busyText) {
   const until = LOCK_SECONDS + ' seconds'
@@ -137,12 +216,15 @@ const BUSY_CARD = 'Still working on the last message: press it again in a moment
 
 export async function createConversation({ tenantId, channel, userSub = null, userEmail = null, guestKey = null, venueId = null, systemPrompt }) {
   const [row] = await withTenant(tenantId, tx => tx`
-    INSERT INTO ai_conversations (tenant_id, channel, user_sub, user_email, guest_key, venue_id, system_prompt)
-    VALUES (${tenantId}, ${channel}, ${userSub}, ${userEmail}, ${guestKey}, ${venueId}, ${systemPrompt})
+    INSERT INTO ai_conversations (tenant_id, channel, user_sub, user_email, guest_key, venue_id, system_prompt, model_tier)
+    VALUES (${tenantId}, ${channel}, ${userSub}, ${userEmail}, ${guestKey}, ${venueId}, ${systemPrompt}, ${startTier()})
     RETURNING *
   `)
   return row
 }
+
+/** Whether a turn, a Confirm or a Cancel holds the chat right now. */
+export const isRunning = conv => !!conv.running_until && new Date(conv.running_until).getTime() > Date.now()
 
 export async function loadConversation(tenantId, id) {
   const [row] = await withTenant(tenantId, tx => tx`
@@ -175,12 +257,45 @@ async function appendMessage(conv, role, content) {
 
 // Our own markers on stored user blocks (never sent to the API):
 //   _note: 'action'   the outcome of a Confirm / Cancel press
+//   _page             which page the message was sent from (pageNote()): sent
+//                     to the model, not shown in the chat
 //   _attachment       an attached file: its data is filled in from `files`
 const clean = (block, files) => {
   if (!block || typeof block !== 'object') return block
   if (block._attachment) return withFileData(block, files)
-  const { _note, ...rest } = block
+  const { _note, _page, ...rest } = block
   return rest
+}
+
+/**
+ * "Ask about this page": the page the person sent a message from (the
+ * drawer sends { path, venue_id, date, week }) as a line for the model,
+ * stored with the message as a hidden _page block. The page's name comes
+ * from the route catalogue, the venue's from the tenant's own venues (an id
+ * that isn't theirs is left out), so nothing the browser sends is passed on
+ * as given. Null when there is nothing worth saying.
+ */
+export async function pageNote(tenantId, page) {
+  if (!page?.path) return null
+  const path = page.path
+  let best = null
+  for (const r of ROUTE_CATALOG) {
+    if ((path === r.route || (r.route !== '/' && path.startsWith(r.route + '/'))) && (!best || r.route.length > best.route.length)) best = r
+  }
+  let venue = null
+  if (page.venue_id) {
+    const [v] = await withTenant(tenantId, tx => tx`
+      SELECT id, name FROM venues WHERE id = ${page.venue_id} AND tenant_id = ${tenantId}
+    `)
+    venue = v || null
+  }
+  const bits = []
+  if (venue) bits.push('venue ' + venue.name + ' (venue_id ' + venue.id + ')')
+  if (page.date) bits.push(longDate(page.date) + ' (' + page.date + ')')
+  else if (page.week) bits.push('the week starting ' + longDate(page.week) + ' (' + page.week + ')')
+  if (!best && !bits.length) return null
+  return '[Sent from ' + (best ? 'the ' + best.label + ' page (' + path + ')' : 'the page ' + path) +
+    (bits.length ? ', showing ' + bits.join(', ') : '') + '.]'
 }
 
 /** The stored history as API messages: our markers stripped, attached files'
@@ -234,8 +349,9 @@ async function recordUsage(conv, response) {
   })
 }
 
-/** Runs one tool call from the model. Returns the tool_result block. */
-async function handleToolUse(ctx, conv, block) {
+/** Runs one tool call from the model. Returns the tool_result block. A
+ *  listening browser (`emit`) gets the step's line or the card. */
+async function handleToolUse(ctx, conv, block, emit) {
   const tool = findTool(ctx, block.name)
   const result = (text, isError = false) => ({
     type: 'tool_result', tool_use_id: block.id,
@@ -256,10 +372,12 @@ async function handleToolUse(ctx, conv, block) {
     // input, so Confirm does what the card says even after midnight.
     const { expiresAt, pin, ...cardData } = card
     const stored = pin ? parseInput(tool, { ...input, ...pin }) : input
-    await withTenant(conv.tenant_id, tx => tx`
+    const [row] = await withTenant(conv.tenant_id, tx => tx`
       INSERT INTO ai_pending_actions (tenant_id, conversation_id, tool_use_id, tool, input, card, expires_at)
       VALUES (${conv.tenant_id}, ${conv.id}, ${block.id}, ${tool.name}, ${tx.json(stored)}, ${tx.json(cardData)}, ${expires})
+      RETURNING *
     `)
+    emit?.({ type: 'card', card: actionView(row) })
     const mins = Math.max(1, Math.round((expires.getTime() - Date.now()) / 60_000))
     return result('Not done yet: the ' + (ctx.channel === 'guest_chat' ? 'guest' : 'staff member') +
       ' now sees a card "' + card.title + '" with the details and a Confirm button, valid for ' + mins +
@@ -267,20 +385,54 @@ async function handleToolUse(ctx, conv, block) {
       'Do not call ' + tool.name + ' again for the same change.')
   } catch (err) {
     return result(errorText(err, ctx.log), true)
+  } finally {
+    if (!tool.confirm && TOOL_LABELS[tool.name]) emit?.({ type: 'step', text: TOOL_LABELS[tool.name] })
   }
 }
 
 /**
  * Adds the person's message (with any attached files: ids of their unsent
  * uploads) and runs the model until it answers. `ctx` is the tool context
- * for this conversation (makeContext()). Returns { reply, stopReason }.
+ * for this conversation (makeContext()). `emit`, when the browser is
+ * listening, gets the turn as it happens (see streamEvents()). Returns
+ * { stopReason, notice }: notice is a line to show the person that isn't
+ * part of the conversation (the turn stopped early, or was refused).
  */
-export async function runTurn(ctx, conv, text, { attachments = [] } = {}) {
-  return withHold(conv, BUSY_TURN, () => turn(ctx, conv, text, attachments))
+export async function runTurn(ctx, conv, text, { attachments = [], emit = null, page = null } = {}) {
+  return withHold(conv, BUSY_TURN, () => turn(ctx, conv, text, attachments, emit, page))
 }
 
-async function turn(ctx, conv, text, attachments) {
+// What a listening browser hears while the model writes: its text as it
+// comes (key: step and block, so the browser can put each piece in its
+// place) and what it is doing. The browser's stream never stops the turn.
+function streamEvents(ctx, emit, step) {
+  return event => {
+    try {
+      if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
+        emit({ type: 'text', key: step + '-' + event.index, delta: event.delta.text })
+      } else if (event.type === 'content_block_start') {
+        const b = event.content_block
+        if (b.type === 'text') emit({ type: 'text', key: step + '-' + event.index, delta: b.text || '' })
+        else if (b.type === 'thinking' || b.type === 'redacted_thinking') emit({ type: 'activity', text: 'Thinking...' })
+        else if (b.type === 'server_tool_use') emit({ type: 'activity', text: 'Finding the right tool...' })
+        else if (b.type === 'tool_use') {
+          emit({ type: 'activity', text: findTool(ctx, b.name)?.confirm ? 'Getting a card ready...' : 'Looking it up...' })
+        }
+      }
+    } catch { /* ignore */ }
+  }
+}
+
+const NOTICES = {
+  refusal:   'Sorry, I can\'t help with that one.',
+  withdrawn: 'Sorry, I can\'t help with that one. I\'ve left that message out of the chat, so you can carry on with something else.',
+  time:      'This is taking a while, so I\'ve stopped here. Tell me to carry on and I\'ll pick up where I left off.',
+  max_steps: 'That took more steps than I can do at once. Tell me what to do next.',
+}
+
+async function turn(ctx, conv, text, attachments, emit, page) {
   const started = Date.now()
+  const budget = emit ? STREAM_TURN_MS : TURN_MS
   if (conv.closed_at) {
     throw new ToolError('This chat had a guest\'s details erased from it, so it can\'t carry on. Start a new chat.', 409)
   }
@@ -299,8 +451,13 @@ async function turn(ctx, conv, text, attachments) {
   `)
   if (n >= MAX_MESSAGES) throw new ToolError('This conversation is getting long. Start a new one.', 422)
   const files = await claimAttachments(conv, ctx.principal?.sub, attachments)
-  const userContent = [...attachmentBlocks(files), ...(text ? [{ type: 'text', text }] : [])]
-  if (!userContent.length) throw new ToolError('Type a message or attach a file.', 422)
+  if (!files.length && !text) throw new ToolError('Type a message or attach a file.', 422)
+  const note = conv.channel === 'staff_chat' ? await pageNote(conv.tenant_id, page) : null
+  const userContent = [
+    ...attachmentBlocks(files),
+    ...(note ? [{ type: 'text', text: note, _page: true }] : []),
+    ...(text ? [{ type: 'text', text }] : []),
+  ]
   const userSeq = await appendMessage(conv, 'user', userContent)
   const newTitle = !conv.title
   if (newTitle) {
@@ -308,71 +465,85 @@ async function turn(ctx, conv, text, attachments) {
     await withTenant(conv.tenant_id, tx => tx`UPDATE ai_conversations SET title = ${title} WHERE id = ${conv.id}`)
     conv.title = title
   }
+  // From here on the message is in the conversation: a listening browser can
+  // show the turn as it happens (before this, a refusal is a plain error).
+  emit?.({ type: 'start', conversation_id: conv.id, title: conv.title })
   const fileData = await loadAttachmentData(conv)
+  // Reading a photo, a PDF or a spreadsheet is the main model's job.
+  if (files.length) await upgradeChat(ctx, conv, 'files')
 
   const tools = toolDefs(ctx)
+  let replied = false   // something of this turn's reply is in the history
   for (let step = 0; step < MAX_STEPS; step++) {
     const rows = await loadMessages(conv)
     let response
     try {
-      response = await createMessage({
-        model:         env.AI_MODEL,
-        max_tokens:    MAX_TOKENS,
-        betas:         ['server-side-fallback-2026-07-01'],
-        fallbacks:     'default',
-        output_config: { effort: env.AI_EFFORT },
-        cache_control: { type: 'ephemeral' },
-        system:        conv.system_prompt,
-        tools,
-        messages:      apiMessages(rows, fileData),
-      })
+      response = await callModel(
+        requestFor(conv, modelOf(conv), tools, apiMessages(rows, fileData)),
+        emit && streamEvents(ctx, emit, step),
+        ctx.log,
+      )
     } catch (err) {
       // The model never read the new message (a file it can't take, a
       // request over the size limit): take the message back out, so the
       // conversation isn't left with something every later request trips on.
       if (step === 0 && (err instanceof Anthropic.BadRequestError || err?.status === 413)) {
         await withdrawMessage(conv, userSeq, files.map(f => f.id), newTitle)
-        throw new ToolError((files.length
+        // withdrawn: a streaming browser puts the message back in the box.
+        throw Object.assign(new ToolError((files.length
           ? 'Claude couldn\'t take the attached file' + (files.length > 1 ? 's' : '') + ' (' + apiErrorText(err) + '). Try a smaller file, or a screenshot of the part you need.'
-          : 'Claude couldn\'t take that message (' + apiErrorText(err) + ').'), 422)
+          : 'Claude couldn\'t take that message (' + apiErrorText(err) + ').'), 422), { withdrawn: true })
       }
       throw err
     }
     await recordUsage(conv, response)
 
     if (response.stop_reason === 'refusal') {
-      return { reply: 'Sorry, I can\'t help with that one.', stopReason: 'refusal' }
+      // Nothing of a refused reply is kept. The everyday model has no
+      // server-side fallback: the main model takes the step again.
+      emit?.({ type: 'discard', key: step + '-' })
+      if (onFast(conv)) {
+        await upgradeChat(ctx, conv, 'refusal')
+        continue
+      }
+      // A refused message left in the history would be sent again with the
+      // next one, and most likely refused again: take it back out.
+      if (!replied) {
+        await withdrawMessage(conv, userSeq, files.map(f => f.id), newTitle)
+        return { stopReason: 'refusal', notice: NOTICES.withdrawn }
+      }
+      return { stopReason: 'refusal', notice: NOTICES.refusal }
     }
     const content = storableContent(response.content)
-    if (!content.length) return { reply: null, stopReason: response.stop_reason }
+    if (!content.length) return { stopReason: response.stop_reason, notice: null }
     await appendMessage(conv, 'assistant', content)
+    replied = true
+    if (onFast(conv) && promptTokens(response.usage) >= LONG_CHAT_TOKENS) await upgradeChat(ctx, conv, 'long')
 
     // A long server-side step (a tool search) can pause the turn: send the
     // conversation back as it is and the model carries on.
     if (response.stop_reason === 'pause_turn') continue
     const toolUses = content.filter(b => b.type === 'tool_use')
-    if (!toolUses.length) {
-      return { reply: textOf(content), stopReason: response.stop_reason }
-    }
+    if (!toolUses.length) return { stopReason: response.stop_reason, notice: null }
     // Every tool_use needs its result in the next user message, even when
-    // the reply was cut off (max_tokens) or we stop here.
+    // the reply was cut off (max_tokens), is handed over or we stop here.
+    const handOver = response.stop_reason !== 'max_tokens' && onFast(conv) && toolUses.some(b => HEAVY_TOOLS.has(b.name))
     const results = []
     for (const b of toolUses) {
-      results.push(response.stop_reason === 'max_tokens'
-        ? { type: 'tool_result', tool_use_id: b.id, is_error: true, content: [{ type: 'text', text: CUT_OFF }] }
-        : await handleToolUse(ctx, conv, b))
+      results.push(response.stop_reason === 'max_tokens' ? errorResult(b, CUT_OFF)
+        : handOver ? errorResult(b, HANDOVER)
+        : await handleToolUse(ctx, conv, b, emit))
     }
     await appendMessage(conv, 'user', results)
+    if (handOver) await upgradeChat(ctx, conv, 'heavy')
     // Stop between steps (every tool call answered), never after a paused
     // server step: the next message carries on from here.
-    if (Date.now() - started > TURN_MS) {
-      return { reply: 'This is taking a while, so I\'ve stopped here. Tell me to carry on and I\'ll pick up where I left off.', stopReason: 'time' }
-    }
+    if (Date.now() - started > budget) return { stopReason: 'time', notice: NOTICES.time }
   }
-  return { reply: 'That took more steps than I can do at once. Tell me what to do next.', stopReason: 'max_steps' }
+  return { stopReason: 'max_steps', notice: NOTICES.max_steps }
 }
 
-const textOf = content => content.filter(b => b.type === 'text').map(b => b.text).join('\n\n').trim()
+const errorResult = (block, text) => ({ type: 'tool_result', tool_use_id: block.id, is_error: true, content: [{ type: 'text', text }] })
 
 const apiErrorText = err => String(err?.error?.error?.message || err?.message || 'request refused').slice(0, 300)
 
@@ -516,6 +687,8 @@ const TOOL_LABELS = {
   order_lists: 'Looked at the order lists', order_form: 'Opened the order', purchase_orders: 'Looked up supplier orders',
   list_menus: 'Looked at the menus', get_menu: 'Opened the menu', find_dishes: 'Searched the menus',
   open_page: 'Found the page',
+  how_do_i: 'Looked it up in Help',
+  day_briefing: 'Put the day together',
   list_staff: 'Looked at the staff', whos_working: 'Looked at who is working', rota_week: 'Looked at the rota',
   rota_pay: 'Looked at rota pay', rota_tips: 'Looked at the tips',
   cash_day: 'Looked at the cash up', cash_week: 'Looked at the cash week', wages_week: 'Looked at the wages',
@@ -547,6 +720,7 @@ export async function displayItems(conv) {
       let shownFiles = false
       for (const b of blocks) {
         if (b.type !== 'text') continue
+        if (b._page) continue
         if (b._note) { items.push({ type: 'note', text: b.text.replace(/^\[|\]$/g, '') }); continue }
         items.push({ type: 'user', text: b.text, ...(files.length && !shownFiles ? { attachments: files } : {}) })
         shownFiles = true

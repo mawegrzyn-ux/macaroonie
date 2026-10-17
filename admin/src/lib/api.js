@@ -135,6 +135,28 @@ export function useApi() {
     return res.blob()
   }, [getAccessTokenSilently])
 
+  // stream: POSTs JSON asking for server-sent events and calls onEvent with
+  // each one ({ type, ...data }). Resolves with the `done` event's data;
+  // rejects with the `error` event's (an ApiError), or with status 0 and
+  // `lost` set when the connection ends without either. A server that
+  // answers with plain JSON (an early refusal) is handled like post().
+  const stream = useCallback(async (path, body, onEvent) => {
+    const token = await getAccessTokenSilently()
+    const controller = new AbortController()
+    const res   = await fetch(`${BASE}${path}`, {
+      method: 'POST',
+      headers: authHeaders(token, { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' }),
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    })
+    if (!(res.headers.get('content-type') || '').includes('text/event-stream')) {
+      const data = res.status !== 204 ? await res.json().catch(() => null) : null
+      if (!res.ok) throw new ApiError(res.status, data)
+      return data
+    }
+    return readEvents(res.body, onEvent, controller)
+  }, [getAccessTokenSilently])
+
   return {
     get:      (path)        => call('GET',    path),
     post:     (path, body)  => call('POST',   path, body),
@@ -145,7 +167,53 @@ export function useApi() {
     upload,
     blob,
     postBlob,
+    stream,
   }
+}
+
+// The server sends something at least every 15 s while a stream is open, so
+// this long without a byte means the connection has died without closing (a
+// phone changing networks): give up on it rather than wait for ever.
+const STREAM_IDLE_MS = 45_000
+
+/** Reads a server-sent event stream to its `done` or `error` event. */
+async function readEvents(body, onEvent, controller) {
+  const reader  = body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let idle
+  const arm = () => { clearTimeout(idle); idle = setTimeout(() => controller?.abort(), STREAM_IDLE_MS) }
+  try {
+    arm()
+    for (;;) {
+      let chunk
+      try {
+        chunk = await reader.read()
+      } catch {
+        break   // the network went: treated as a dropped connection
+      }
+      arm()
+      if (chunk.value) buffer += decoder.decode(chunk.value, { stream: true })
+      let end
+      while ((end = /\r?\n\r?\n/.exec(buffer))) {
+        const lines = buffer.slice(0, end.index).split(/\r?\n/)
+        buffer = buffer.slice(end.index + end[0].length)
+        const data = lines.filter(l => l.startsWith('data:')).map(l => l.slice(5).replace(/^ /, '')).join('\n')
+        if (!data) continue   // a comment (keep-alive)
+        let event
+        try { event = JSON.parse(data) } catch { continue }
+        if (event.type === 'done') return event
+        if (event.type === 'error') throw new ApiError(event.status || 500, event)
+        onEvent?.(event)
+      }
+      if (chunk.done) break
+    }
+  } finally {
+    clearTimeout(idle)
+  }
+  const lost = new ApiError(0, { error: 'The connection dropped before the reply finished.' })
+  lost.lost = true
+  throw lost
 }
 
 // Public fetch — no auth (used for widget slots endpoint)

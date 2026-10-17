@@ -10,6 +10,7 @@ import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { format } from 'date-fns'
 import { HsSettingsButton, ClosedDayNotice } from '@/components/hs/HsSettings'
+import { usePepperPage } from '@/lib/pepperPage'
 import {
   TempChecksTable, DeliveryChecksBoard, HoldChecksTable, CookingChecksPanel, EndOfDayReview,
 } from '@/components/foodSafety/shared'
@@ -44,6 +45,7 @@ export default function FoodSafety() {
   const [tab, setTab] = useState('today')
   const [venueId, setVenueId] = useState('')
   const [date, setDate] = useState(todayStr())
+  usePepperPage({ venueId, date })
 
   const { data: venues = [] } = useQuery({
     queryKey: ['venues'],

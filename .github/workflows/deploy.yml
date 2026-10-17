@@ -35,6 +35,11 @@ jobs:
             echo "── api: install production deps ─────────"
             cd $APP/api && npm install --production --silent
 
+            echo "── api: secrets key ─────────────────────"
+            # Seals stored integration keys (migration 179). Adds SECRETS_KEY
+            # to api/.env when missing; never changes an existing one.
+            bash $APP/scripts/ensure-secrets-key.sh $APP/api/.env
+
             echo "── database: run pending migrations ─────"
             # Idempotent — only applies SQL files not yet in schema_migrations.
             # Fails the deploy if any migration errors, before pm2 restart.

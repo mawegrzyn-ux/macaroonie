@@ -5,6 +5,64 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-17 — Pepper: help answers, your day in one go, ask about this page]
+
+- **"How do I...?" answered from the Help guide**: ask Pepper how to do something in the app ("How do I set up tip pots?", "Where do I add a fridge?") and it answers from this app's own Help guide, with a link straight to the part that covers it. If the guide doesn't cover it, Pepper says so instead of guessing.
+- **Your day in one go**: "Brief me on today" (or another day or venue) gives bookings and big parties, who is working, health & safety checks still due and readings out of range, supplier deliveries due, yesterday's cash-up, online orders still open, sold out dishes, failed booking emails and offline menu screens, leading with what needs doing. Parts your role can't see are left out and named.
+- **Ask about the page you're on**: Ask Pepper from the sidebar now knows which page is behind it and the venue and day or week it shows, so "who is on this week?" on the Rota or "what's still to do?" on Food safety needs no venue or date. A label above the message box shows what Pepper is told; tap it to stop for that chat.
+- Help subsections can now be linked to directly (/help#tip-pots).
+
+## [2026-10-17 — Encrypted integration keys, connector tokens that expire, a tool list per person]
+
+- **Keys stored encrypted**: the Anthropic key, Loyverse tokens, GloriaFood poll keys and email provider keys and passwords are now stored encrypted with a key kept outside the database, so a leaked database copy doesn't give them away. Keys already saved are encrypted when the server starts. Every deploy adds the encryption key to the server's settings file when it is missing: back that file up, because without it the saved keys would have to be typed in again.
+- **Booking emails → Settings**: saved keys and passwords are never shown again. A saved one shows as "Saved, ends 1a2b"; leave the box empty to keep it, type a new one to replace it, or press **Remove** and Save to take it off. The AWS SES secret access key is stored in a field of its own now (moved automatically).
+- **Pepper connector tokens expire**: when you make a token, pick how long it works (30, 90 or 180 days, or a year; 90 to start with) and whether it is **Read only** (it can look things up, never change anything). The list shows until when each works, and **Expired** after that. Tokens made before today work for 90 more days.
+- **Your AI app only sees the Pepper tools you can use**: the areas your role can see, and the tools that change things only where your role can change them.
+- Migration 179.
+
+## [2026-10-17 — GloriaFood orders on the kitchen screens]
+
+- **GloriaFood orders can go to the kitchen screens**, like your own online orders. In Till setup → Kitchen screens → Online orders (shown when the venue is linked to GloriaFood), tick **Send GloriaFood orders to the kitchen screens** and Save. Accepted orders come on as GloriaFood sends them, with an orange GloriaFood label, GloriaFood's order number, the customer's first name, the table number for dine-in, notes and the dishes with their options. Test orders come on too, marked "GloriaFood test order".
+- **Dishes follow your kitchen flow**: each GloriaFood dish is matched to your menus by name (capitals and spaces don't matter) and shows under your menu's name, so dish and section links apply; a dish with no match goes by the order type and the links for every dish. Pick which of your order types each GloriaFood type counts as (Pickup, Delivery, Dine in, Order ahead, Table reservation); they start matched by name.
+- **Orders for later** come on the minutes you set before their time (20 to start with), listed under Later until then.
+- **Ready and collected**: READY at the pass marks the order Ready on the Online orders board and Collected marks it Collected (with Mark them ready when the kitchen finishes on). Ready or Collected on the board, or a cancellation in GloriaFood, takes it off the kitchen screens. GloriaFood itself isn't told.
+- Off until you switch it on. Imported orders, orders that arrived while it was off, and orders more than two hours past their time don't come on.
+- Migration 178.
+
+## [2026-10-17 — Several kitchen flows, switched from the kitchen screen]
+
+- **Kitchen flows**: Till setup → Kitchen screens now keeps several named flows per venue (a busy night, a quiet night with one cook, the grill down), one in use. Above the designer, the flow names pick the flow to look at (a green dot marks the one in use); **New flow** starts an empty one, **Copy** starts from the flow you're looking at, **Order** (drag) sets the order kitchen screens list them in. The box on the right puts the flow **in use** after a confirm, renames, copies or deletes it (the flow in use can't be deleted). Each flow saves on its own.
+- **The flow button on the kitchen screen**: with more than one flow, a button at the right of the top bar shows the flow in use. It lists the flows with the stations each one uses; **Switch**, then **Yes, switch**, sends new dishes that way for the whole kitchen. Dishes already on the screens stay where they are. Every other kitchen screen shows the new flow straight away with a note saying who switched. Switching needs the internet. Each kitchen screen has a **Can switch the kitchen flow** setting in Till setup (on to start).
+- Each venue's existing flow became "Main flow", in use.
+- Migration 177.
+
+## [2026-10-17 — Menu editor: Publish button beside Save]
+
+- The menu editor's **Publishing** card is now a **Publish** button next to Save. A small badge on it shows how many changes aren't live yet (a dot when the menu has never been published, a clock when a publish is scheduled). It opens the Publishing window with everything the card had: what changed, Publish now, Schedule, Preview print, Discard changes, a scheduled publish with Cancel, and the history with Copy into editor.
+- The button is highlighted once the draft is saved and has changes to publish. View-only users see the same window without the buttons that change anything.
+- No migration.
+
+## [2026-10-17 — Row-level security that holds for the app's own database role]
+
+- **Each restaurant group's data is now walled off by the database itself**, not only by each page's own checks. Until now the database's row-level security never applied to the app (it owns the tables), so a page that forgot its restaurant filter could have read another group's rows. Every table that belongs to a restaurant group now enforces it: a query sees only its own group's rows. Pages and services that find the group themselves (website pages, the booking widget, online ordering, tills and screens, GloriaFood pushes, Pepper's connectors, background jobs, the platform pages) do so in a separate, clearly marked mode.
+- Fixed: the booking widget's venue details call failed every time (it read a deposit setting that doesn't exist).
+- Before deploying: every restaurant table must belong to the app's database user. If any were created by hand as another user, the deploy stops and lists them with the command that fixes it.
+- Migration 176.
+
+## [2026-10-17 — API tests in the repo: the cross-tenant sweep, and what it found]
+
+- **API tests** (`npm test` in `api/`, and a new CI job on every pull request): the real app against an empty test database, with two restaurant groups made through the API, a stand-in login and a stand-in Claude. The **cross-tenant sweep** calls every admin route that takes an id as one group with the other group's ids (and its own ids mixed in, about 53,000 calls), sends every change the first group made again as the second, and then checks that nothing was read, changed or pointed at across groups. Pepper's chat loop (streaming, routing, refusals) has its own test.
+- **Fixed, found by the sweep**: one restaurant group could make records that pointed at another group's: fridges, check times, hold stations, cooking sessions, deliveries, checklists and reviews on another group's venue; a table in another group's room; a table combination of another group's tables; a dish with another group's option group; a staff member with another group's role; a Cash Recon day or wage week using another group's income sources, payment channels, service-charge sources or staff (a wage default even showed their names and pay); online ordering offering another group's menus; a sitting added to another group's special-date opening hours; translations for another group's dishes. A venue named anywhere in a request now has to be the group's own (checked for every page at once), and each of the other cases checks its ids.
+- No migration.
+
+## [2026-10-17 — Pepper streams its answers and uses a faster model for everyday questions]
+
+- **Answers appear as Pepper writes them**, in Ask Pepper, the Pepper page, the phone app and the website chat, with a line saying what it is doing (thinking, looking something up, getting a card ready). A card that arrives mid-answer can be pressed once the answer is done. A message typed while Pepper is working stays in the box.
+- **A dropped connection no longer loses the answer**: the chat says so, shows "Still working on the last message" until Pepper finishes, then shows the answer. Long jobs can now run up to about ten minutes before Pepper asks you to say "carry on".
+- **Faster, cheaper everyday answers**: chats start on a faster model and move to the most capable one for photos and files, building a menu, importing a price list, long chats, or anything the faster one won't answer, and stay there for the rest of that chat. Usage is counted at each model's own price, so everyday questions use far less of the monthly allowance. The Platform page shows both models. Server setting `AI_MODEL_FAST` (empty = every chat on `AI_MODEL`).
+- Fixed: when Pepper stopped early ("This is taking a while", too many steps) or couldn't help, that message never showed. A request Pepper can't help with is now left out of the chat, so it doesn't get in the way of the next one.
+- Migration 175.
+
 ## [2026-10-17 — Pepper: longer jobs, fair use, privacy; fresh-database builds]
 
 - **Long Pepper jobs no longer show an error after a minute.** The server now gives Pepper's chat 5 minutes to answer (other pages keep 1 minute). A job that runs past about four minutes stops between steps and asks you to say "carry on". Installed by the deploy.

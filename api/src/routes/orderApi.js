@@ -23,7 +23,7 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { z } from 'zod'
-import { sql, withTenant } from '../config/db.js'
+import { sql, withTenant, systemSql } from '../config/db.js'
 import { httpError } from '../middleware/error.js'
 import { getGateway, checkoutGateways } from '../services/paymentGateways/index.js'
 import {
@@ -89,7 +89,7 @@ const OrderBody = z.object({
 
 async function resolveVenue(venueId) {
   if (!uuid.safeParse(venueId).success) return null
-  const [venue] = await sql`
+  const [venue] = await systemSql`
     SELECT v.id, v.tenant_id, v.name, v.timezone, v.currency, v.slug,
            wc.address_line1, wc.city, wc.postcode, wc.phone
       FROM venues v
@@ -296,7 +296,7 @@ export async function paymentWebhookRoutes(app) {
       return reply.code(400).send({ error: 'Invalid webhook' })
     }
     if (!event?.ref) return { received: true }
-    const [payment] = await sql`
+    const [payment] = await systemSql`
       SELECT id, tenant_id FROM order_payments WHERE gateway = ${gateway.key} AND gateway_ref = ${event.ref} LIMIT 1
     `
     if (!payment) {

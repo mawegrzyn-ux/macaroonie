@@ -511,16 +511,23 @@ export default async function schedulesRoutes(app) {
   // ── POST override sittings + caps (same pattern as weekly) ─
   app.post('/:venueId/schedule/overrides/:oid/sittings', { preHandler: PERM.manage}, async (req, reply) => {
     const body = SittingBody.parse(req.body)
-    const [sitting] = await withTenant(req.tenantId, tx => tx`
-      INSERT INTO override_sittings
-        (override_id, venue_id, tenant_id, opens_at, closes_at, default_max_covers, sort_order,
-         doors_close_time, name)
-      VALUES
-        (${req.params.oid}, ${req.params.venueId}, ${req.tenantId},
-         ${body.opens_at}, ${body.closes_at}, ${body.default_max_covers}, ${body.sort_order},
-         ${body.doors_close_time ?? null}, ${body.name ?? null})
-      RETURNING *
-    `)
+    const [sitting] = await withTenant(req.tenantId, async tx => {
+      const [ov] = await tx`
+        SELECT id FROM schedule_date_overrides
+         WHERE id = ${req.params.oid} AND venue_id = ${req.params.venueId} AND tenant_id = ${req.tenantId}
+      `
+      if (!ov) throw httpError(404, 'Override not found')
+      return tx`
+        INSERT INTO override_sittings
+          (override_id, venue_id, tenant_id, opens_at, closes_at, default_max_covers, sort_order,
+           doors_close_time, name)
+        VALUES
+          (${ov.id}, ${req.params.venueId}, ${req.tenantId},
+           ${body.opens_at}, ${body.closes_at}, ${body.default_max_covers}, ${body.sort_order},
+           ${body.doors_close_time ?? null}, ${body.name ?? null})
+        RETURNING *
+      `
+    })
     return reply.code(201).send(sitting)
   })
 

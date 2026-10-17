@@ -27,6 +27,7 @@ import { loadAllergenNotice } from '../routes/menus.js'
 import { normaliseDesign, LANG_CODES } from '../../../shared/kiosk.js'
 import { menuTags } from '../../../shared/menuTags.js'
 import { venueNow } from '../../../shared/promotions.js'
+import { seal, unseal } from './vault.js'
 
 // The device id a preview runs as (never a real device).
 export const PREVIEW_DEVICE_ID = '00000000-0000-4000-8000-00000000000a'
@@ -133,18 +134,18 @@ const PREVIEW_SECRET = 'kiosk_preview_key'
 const PREVIEW_HOURS = 12
 let secretCache = null
 
-/** The key preview links are signed with: made once, kept in platform_secrets. */
+/** The key preview links are signed with: made once, kept in platform_secrets (sealed, migration 179). */
 async function previewSecret() {
   if (secretCache) return secretCache
   const [row] = await sql`SELECT value FROM platform_secrets WHERE name = ${PREVIEW_SECRET}`
-  if (row) return (secretCache = row.value)
+  if (row) return (secretCache = unseal(row.value))
   const value = crypto.randomBytes(32).toString('base64url')
   await sql`
     INSERT INTO platform_secrets (name, value, hint, updated_by)
-    VALUES (${PREVIEW_SECRET}, ${value}, 'kiosk previews', 'system')
+    VALUES (${PREVIEW_SECRET}, ${seal(value)}, 'kiosk previews', 'system')
     ON CONFLICT (name) DO NOTHING`
   const [again] = await sql`SELECT value FROM platform_secrets WHERE name = ${PREVIEW_SECRET}`
-  return (secretCache = again.value)
+  return (secretCache = unseal(again.value))
 }
 
 const sign = (secret, payload) => crypto.createHmac('sha256', secret).update(payload).digest('base64url')

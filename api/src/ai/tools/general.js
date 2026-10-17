@@ -6,11 +6,14 @@
 //               catalogue, routes/nav.js ROUTE_CATALOG), only pages the person
 //               can see. In the chat the link opens the page in the app; over
 //               MCP it is the full office address.
+//   how_do_i    the Help page's passages that best answer a how-to question,
+//               with a link to each (src/ai/helpIndex.js)
 
 import { z } from 'zod'
 import { ToolError, isStaff, staffPermissionLevel, levelAtLeast } from '../context.js'
 import { ROUTE_CATALOG } from '../../routes/nav.js'
 import { officeOrigin } from '../../services/platformHost.js'
+import { searchHelp } from '../helpIndex.js'
 
 // Other words staff use for a page, so "the timeline" or "wages" finds it.
 const ALSO = {
@@ -69,6 +72,34 @@ export const generalTools = [
           : { url: officeOrigin() + p.route }),
       })
       return top.length === 1 ? view(top[0]) : { choices: top.slice(0, 6).map(view), note: 'More than one page matches: offer the right one.' }
+    },
+  },
+  {
+    name: 'how_do_i',
+    section: 'general',
+    title: 'Look it up in Help',
+    description:
+      'Steps from the app\'s own Help guide: how to set something up or do a job on a page, where a setting is, what a figure means ' +
+      '("how do I set up tip pots?", "where do I add a fridge?", "what does variance mean?"). Returns the best-matching Help passages, ' +
+      'each with a link. Answer from them in your own words, briefly, and give the link to the most useful one. ' +
+      'Use it before guessing how the app works; if nothing matches, say so rather than making steps up.',
+    input: z.object({ question: z.string().trim().min(3).max(300) }),
+    readOnly: true,
+    async run(ctx, input) {
+      if (!isStaff(ctx)) throw new ToolError('Not available here', 403)
+      const found = searchHelp(input.question)
+      if (found === null) throw new ToolError('The Help guide isn\'t available on this server.', 503)
+      if (!found.length) return { answers: [], note: 'Nothing in the Help guide matches. Say so, and offer open_page or to ask a manager.' }
+      return {
+        answers: found.map(a => ({
+          section: a.section,
+          heading: a.heading,
+          text: a.text,
+          ...(ctx.channel === 'staff_chat'
+            ? { link: '[Help: ' + a.heading + '](' + a.link + ')' }
+            : { url: officeOrigin() + a.link }),
+        })),
+      }
     },
   },
 ]

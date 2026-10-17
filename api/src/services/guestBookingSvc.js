@@ -9,7 +9,7 @@
 // (keep the table if it still fits and is free, else allocateBestFit with
 // no displacement).
 
-import { sql, withTenant }  from '../config/db.js'
+import { sql, withTenant, systemSql }  from '../config/db.js'
 import { httpError }        from '../middleware/error.js'
 import { broadcastBooking } from './broadcastSvc.js'
 import { notificationQueue } from '../jobs/queues.js'
@@ -43,14 +43,14 @@ const bookingSelect = () => sql`
 /** A booking with its venue and guest-permission settings, by manage token. */
 export async function loadBookingByToken(token) {
   if (!token || typeof token !== 'string') return null
-  const [row] = await sql`${bookingSelect()} WHERE b.manage_token = ${token} LIMIT 1`
+  const [row] = await systemSql`${bookingSelect()} WHERE b.manage_token = ${token} LIMIT 1`
   return row ?? null
 }
 
 /** Same shape, by booking id (callers have already checked access). */
 export async function loadBookingById(id) {
   if (!id) return null
-  const [row] = await sql`${bookingSelect()} WHERE b.id = ${id} LIMIT 1`
+  const [row] = await systemSql`${bookingSelect()} WHERE b.id = ${id} LIMIT 1`
   return row ?? null
 }
 

@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url'
 
 import { env }          from './config/env.js'
 import { errorHandler } from './middleware/error.js'
+import { refuseOtherTenantsVenues } from './middleware/venue.js'
 import { INTERNAL_CALL_HEADER, INTERNAL_CALL_SECRET } from './middleware/auth.js'
 
 import venuesRoutes     from './routes/venues.js'
@@ -76,12 +77,24 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 export async function buildApp() {
   const app = Fastify({
     logger: {
-      level:     env.NODE_ENV === 'production' ? 'info' : 'debug',
-      transport: env.NODE_ENV !== 'production'
+      level:     env.LOG_LEVEL || (env.NODE_ENV === 'production' ? 'info' : 'debug'),
+      transport: env.NODE_ENV !== 'production' && env.LOG_LEVEL !== 'silent'
         ? { target: 'pino-pretty', options: { colorize: true } }
         : undefined,
     },
     trustProxy: true,   // respect X-Forwarded-* from Nginx
+  })
+
+  // Every route as it is added: the cross-tenant sweep in api/test calls
+  // each one that takes an id. Each route also gets the check that refuses
+  // another tenant's venue id in its query or body (middleware/venue.js),
+  // last, so it runs after the plugin's requireAuth has set req.tenantId.
+  const routeList = []
+  app.decorate('routeList', routeList)
+  app.addHook('onRoute', r => {
+    for (const method of [].concat(r.method)) routeList.push({ method, url: r.url })
+    const pre = [].concat(r.preHandler || [])
+    if (!pre.includes(refuseOtherTenantsVenues)) r.preHandler = [...pre, refuseOtherTenantsVenues]
   })
 
   // ── Security ────────────────────────────────────────────

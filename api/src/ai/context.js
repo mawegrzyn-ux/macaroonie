@@ -17,7 +17,7 @@
 // token through (tokens are refused on the admin API otherwise) and keeps
 // them out of the global rate limit (the outer request is counted).
 
-import { sql, withTenant } from '../config/db.js'
+import { sql, systemSql, withTenant } from '../config/db.js'
 import { permissionLevel, INTERNAL_CALL_HEADER, INTERNAL_CALL_SECRET } from '../middleware/auth.js'
 import { MODULES } from '../config/modules.js'
 
@@ -138,7 +138,7 @@ export async function audit(ctx, { tenantId, tool, input, ok, result, bookingId 
   `
   try {
     if (tid) await withTenant(tid, insert)
-    else await insert(sql)
+    else await insert(systemSql)
   } catch { /* the audit log never fails a booking */ }
 }
 
@@ -151,15 +151,38 @@ export function usageDay(d = new Date()) {
   return d.toISOString().slice(0, 10)
 }
 
-// Usage is counted in units: tokens weighted by what Anthropic charges for
-// them, as input-token equivalents. Output costs 5x input, cache writes
-// (5-minute) 1.25x, cache reads 0.1x (less on the models listed in
-// CACHE_READ_WEIGHT), so a long chat re-reading its cached history counts
-// for what it costs, not its raw size. The monthly allowance
+// Usage is counted in units: what the tokens cost, in steps of $4 per
+// million units, whichever model answered. On the default main model a unit
+// is one input token; output there costs 5 units, a cache write (5-minute)
+// 1.25 and a cache read 0.05, while the everyday model (AI_MODEL_FAST) costs
+// a fraction of that. So a long chat re-reading its cached history counts for
+// what it costs, not its raw size, and a chat routed to the cheaper model
+// uses less of the allowance. The monthly allowance
 // (ai_settings.monthly_token_limit) and each person's daily share are in units.
-const CACHE_READ_WEIGHT = { 'claude-opus-5-5': 0.05, 'claude-fable-5-1': 0.025, 'claude-mythos-5-1': 0.025 }
+const UNIT_PRICE = 4   // $ per million units
+// $ per million tokens: input, output, cache read, cache write (5-minute).
+const PRICES = {
+  'claude-opus-5-5':   [4, 20, 0.2, 5],
+  'claude-opus-5':     [5, 25, 0.5, 6.25],
+  'claude-opus-4-8':   [5, 25, 0.5, 6.25],
+  'claude-sonnet-5-5': [2, 10, 0.2, 2.5],
+  'claude-sonnet-5':   [2, 10, 0.2, 2.5],
+  'claude-haiku-5-5':  [0.1, 0.5, 0.01, 0.125],
+  'claude-fable-5-1':  [10, 50, 0.25, 12.5],
+  'claude-mythos-5-1': [10, 50, 0.25, 12.5],
+}
+// Prompts over this many tokens are charged at 5x on the models listed here.
+const LONG_PROMPT = 100_000
+const LONG_PROMPT_RATE = { 'claude-haiku-5-5': 5 }
+// A model not in the table: an input token is a unit, output 5, cache
+// writes 1.25, cache reads 0.1.
+const OTHER = [UNIT_PRICE, UNIT_PRICE * 5, UNIT_PRICE * 0.1, UNIT_PRICE * 1.25]
+
 export function usageUnits({ input = 0, output = 0, cacheRead = 0, cacheWrite = 0 }, model = null) {
-  return Math.round(input + output * 5 + cacheWrite * 1.25 + cacheRead * (CACHE_READ_WEIGHT[model] ?? 0.1))
+  const [pIn, pOut, pRead, pWrite] = PRICES[model] ?? OTHER
+  const rate = (input + cacheRead + cacheWrite > LONG_PROMPT && LONG_PROMPT_RATE[model]) || 1
+  const dollars = (input * pIn + output * pOut + cacheRead * pRead + cacheWrite * pWrite) * rate
+  return Math.round(dollars / UNIT_PRICE)
 }
 
 /** Add to this month's usage for a tenant + channel, and to the person's day

@@ -13,7 +13,7 @@
 //   DELETE /api/platform/interest/:id
 
 import { z } from 'zod'
-import { sql, withTenant } from '../config/db.js'
+import { sql, withTenant, systemSql } from '../config/db.js'
 import { requireAuth, requirePlatformAdmin } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
 import {
@@ -290,8 +290,8 @@ export default async function platformRoutes(app) {
           }
         }
         const [venue_count, user_count] = await Promise.all([
-          safeCount(sql`SELECT COUNT(*)::int AS c FROM venues WHERE tenant_id = ${t.id} AND is_active = true`),
-          safeCount(sql`SELECT COUNT(*)::int AS c FROM users  WHERE tenant_id = ${t.id} AND is_active = true`),
+          safeCount(systemSql`SELECT COUNT(*)::int AS c FROM venues WHERE tenant_id = ${t.id} AND is_active = true`),
+          safeCount(systemSql`SELECT COUNT(*)::int AS c FROM users  WHERE tenant_id = ${t.id} AND is_active = true`),
         ])
         return { ...t, venue_count, user_count }
       }))
@@ -404,7 +404,7 @@ export default async function platformRoutes(app) {
     const [tenant] = await sql`SELECT * FROM tenants WHERE id = ${tid}`
     if (!tenant) throw httpError(404, 'Tenant not found')
 
-    const [counts] = await sql`
+    const [counts] = await systemSql`
       SELECT
         (SELECT COUNT(*) FROM venues    WHERE tenant_id = ${tid} AND is_active = true)::int AS venues,
         (SELECT COUNT(*) FROM users     WHERE tenant_id = ${tid} AND is_active = true)::int AS users,

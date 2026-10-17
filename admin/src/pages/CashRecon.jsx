@@ -28,6 +28,7 @@ import { WeekWagesEditor } from '@/components/cashRecon/WagesTable'
 import { LoyverseSettings, LoyverseFillButton } from '@/components/cashRecon/Loyverse'
 import { GloriaFoodSettings, GloriaFoodFillButton, GloriaFoodOrdersButton } from '@/components/cashRecon/GloriaFood'
 import { splitPay } from '@shared/payMethod.js'
+import { usePepperPage } from '@/lib/pepperPage'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -2623,6 +2624,7 @@ export default function CashRecon() {
   const [dayDate,    setDayDate]   = useState(null)
   const [venueId,    setVenueIdL]  = useState(tlVenueId ?? null)
   const [spreadMode, setSpreadMode] = useState(true)
+  usePepperPage(view === 'day' ? { venueId, date: dayDate } : { venueId, week: weekStart })
 
   // Keep local venueId in sync with TimelineSettings context
   function setVenueId(id) {

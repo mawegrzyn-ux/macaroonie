@@ -9,20 +9,23 @@
 //
 //   GET  /tenants/:tenantId/status          { enabled } (the block hides itself when off)
 //   POST /chat                              { tenant_id, conversation_id?, guest_key?, message }
+//                                           (streamed with Accept: text/event-stream, as
+//                                           /api/ai/chat; the start event has the guest_key)
 //   GET  /conversations/:id?key=            the conversation's display items (page reload)
 //   POST /actions/:id/confirm               { conversation_id, guest_key }
 //   POST /actions/:id/cancel                { conversation_id, guest_key }
 
 import { z } from 'zod'
 import { randomBytes, timingSafeEqual } from 'node:crypto'
-import { sql } from '../config/db.js'
+import { sql, systemSql, tenantSql } from '../config/db.js'
 import { httpError } from '../middleware/error.js'
 import { ToolError } from '../ai/context.js'
 import { getAiSettings, chatConfigured, chatUnitsLeft } from '../ai/settings.js'
 import {
-  createConversation, loadConversation, runTurn, confirmAction, cancelAction, displayItems, chatContext,
+  createConversation, loadConversation, runTurn, confirmAction, cancelAction, displayItems, chatContext, isRunning,
 } from '../ai/chat.js'
 import { guestInstructions } from '../ai/prompts.js'
+import { wantsStream, eventStream, errorEvent } from '../ai/sse.js'
 
 const Uuid = z.string().uuid()
 const KeyBody = z.object({ conversation_id: Uuid, guest_key: z.string().min(10).max(100) })
@@ -43,7 +46,7 @@ async function run(fn) {
 }
 
 async function chatTenant(tenantId) {
-  const [t] = await sql`
+  const [t] = await tenantSql(tenantId)`
     SELECT t.id, COALESCE(NULLIF(ts.brand_name, ''), NULLIF(ts.site_name, ''), t.name) AS brand
       FROM tenants t
       LEFT JOIN tenant_site ts ON ts.tenant_id = t.id
@@ -67,7 +70,7 @@ async function guestConversation(tenantId, id, key) {
 
 /** The action's conversation, checked against the guest's key. */
 async function actionConversation(body) {
-  const [c] = await sql`SELECT tenant_id FROM ai_conversations WHERE id = ${body.conversation_id}`
+  const [c] = await systemSql`SELECT tenant_id FROM ai_conversations WHERE id = ${body.conversation_id}`
   if (!c) throw httpError(404, 'Conversation not found')
   return guestConversation(c.tenant_id, body.conversation_id, body.guest_key)
 }
@@ -80,7 +83,7 @@ export default async function aiApiRoutes(app) {
     return { enabled: !!t?.enabled }
   })
 
-  app.post('/chat', limited(20), async req => {
+  app.post('/chat', limited(20), async (req, reply) => {
     const body = ChatBody.parse(req.body)
     const tenant = await chatTenant(body.tenant_id)
     if (!tenant?.enabled) throw httpError(403, 'Chat isn\'t available on this site.')
@@ -96,16 +99,37 @@ export default async function aiApiRoutes(app) {
         systemPrompt: guestInstructions({ restaurant: tenant.brand, chat: true }),
       })
     }
-    const out = await run(() => runTurn(chatContext(app, conv, { req }), conv, body.message))
-    return { conversation_id: conv.id, guest_key: guestKey, stop_reason: out.stopReason, items: await displayItems(conv) }
+    const stream = wantsStream(req) ? eventStream(reply) : null
+    // conversation_id null: a new chat's only message was refused and taken
+    // back out, so there is no chat any more.
+    const done = async out => {
+      const gone = !(await loadConversation(conv.tenant_id, conv.id))
+      return {
+        conversation_id: gone ? null : conv.id, guest_key: guestKey, stop_reason: out.stopReason, notice: out.notice,
+        items: gone ? [] : await displayItems(conv),
+      }
+    }
+    if (!stream) return done(await run(() => runTurn(chatContext(app, conv, { req }), conv, body.message)))
+    // The stream's first event carries the key, so a new chat is the
+    // guest's even if the connection drops before the end.
+    const emit = event => stream.send(event.type === 'start' ? { ...event, guest_key: guestKey } : event)
+    try {
+      const out = await runTurn(chatContext(app, conv, { req }), conv, body.message, { emit })
+      stream.send({ type: 'done', ...(await done(out)) })
+    } catch (err) {
+      if (!stream.open) throw err instanceof ToolError ? httpError(err.status || 400, err.message) : err
+      stream.send({ ...errorEvent(req, err), conversation_id: conv.id })
+    }
+    stream.end()
+    return reply
   })
 
   app.get('/conversations/:id', limited(60), async req => {
     const id = Uuid.parse(req.params.id)
-    const [c] = await sql`SELECT tenant_id FROM ai_conversations WHERE id = ${id}`
+    const [c] = await systemSql`SELECT tenant_id FROM ai_conversations WHERE id = ${id}`
     if (!c) throw httpError(404, 'Conversation not found')
     const conv = await guestConversation(c.tenant_id, id, req.query.key)
-    return { conversation_id: conv.id, items: await displayItems(conv) }
+    return { conversation_id: conv.id, running: isRunning(conv), items: await displayItems(conv) }
   })
 
   app.post('/actions/:id/confirm', limited(20), async req => {

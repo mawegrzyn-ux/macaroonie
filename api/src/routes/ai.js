@@ -4,9 +4,10 @@
 //
 //   GET    /status                     can this person chat? (assistant panel)
 //   GET    /conversations              their own recent chats
-//   GET    /conversations/:id          one chat as display items
+//   GET    /conversations/:id          one chat as display items (+ running)
 //   DELETE /conversations/:id
-//   POST   /chat                       { conversation_id?, message, attachments? } -> items
+//   POST   /chat                       { conversation_id?, message, attachments? } -> items;
+//                                      streamed with Accept: text/event-stream
 //   POST   /attachments                multipart file -> { id, name, kind } (migration 150)
 //   GET    /attachments/:id            the file itself (its uploader only)
 //   DELETE /attachments/:id            an upload not sent yet
@@ -33,7 +34,7 @@
 // (view); each booking tool then checks the person's Bookings permission.
 
 import { z } from 'zod'
-import { sql, withTenant } from '../config/db.js'
+import { sql, withTenant, systemSql, tenantSql } from '../config/db.js'
 import { env } from '../config/env.js'
 import { httpError } from '../middleware/error.js'
 import { requireAuth, requirePermission, requirePlatformAdmin, permissionLevel, newAccessToken } from '../middleware/auth.js'
@@ -43,16 +44,27 @@ import {
 } from '../ai/settings.js'
 import { activeKey, keyInfo, checkKey, saveKey, removeKey } from '../ai/apiKey.js'
 import {
-  createConversation, loadConversation, runTurn, confirmAction, cancelAction, displayItems, chatContext,
+  createConversation, loadConversation, runTurn, confirmAction, cancelAction, displayItems, chatContext, isRunning,
 } from '../ai/chat.js'
+import { wantsStream, eventStream, errorEvent } from '../ai/sse.js'
 import { staffInstructions } from '../ai/prompts.js'
 import { ASSISTANT_NAME } from '../../../shared/assistant.js'
 import { saveUpload, loadOwnAttachment, deleteUnsent, MAX_BYTES, MAX_PER_MESSAGE } from '../ai/attachments.js'
 
+// A real day: 2026-02-31 matches the pattern but isn't one.
+const YMD = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
+  .refine(s => !Number.isNaN(Date.parse(s + 'T12:00:00Z')) && new Date(s + 'T12:00:00Z').toISOString().slice(0, 10) === s, 'Not a real date')
 const ChatBody = z.object({
   conversation_id: z.string().uuid().optional(),
   message:         z.string().trim().max(2000).default(''),
   attachments:     z.array(z.string().uuid()).max(MAX_PER_MESSAGE).default([]),
+  // The page the message was sent from (the Ask Pepper drawer): see pageNote().
+  page: z.object({
+    path:     z.string().max(200).regex(/^\/[A-Za-z0-9/_-]*$/),
+    venue_id: z.string().uuid().optional(),
+    date:     YMD.optional(),
+    week:     YMD.optional(),
+  }).optional(),
 }).refine(b => b.message || b.attachments.length, { message: 'Type a message or attach a file' })
 
 // Largest single upload (the PDF limit); detectFile() then applies the
@@ -134,9 +146,14 @@ export default async function aiRoutes(app) {
     `)
   })
 
+  // running: a turn is still going (another tab, or a stream that dropped):
+  // the chat asks again until it isn't.
   app.get('/conversations/:id', async req => {
     const conv = await ownConversation(req, req.params.id)
-    return { id: conv.id, title: conv.title, closed: !!conv.closed_at, items: await displayItems(conv) }
+    return {
+      id: conv.id, title: conv.title, closed: !!conv.closed_at, running: isRunning(conv),
+      items: await displayItems(conv),
+    }
   })
 
   app.delete('/conversations/:id', async req => {
@@ -145,7 +162,10 @@ export default async function aiRoutes(app) {
     return { ok: true }
   })
 
-  app.post('/chat', async req => {
+  // With Accept: text/event-stream the turn streams (src/ai/sse.js): start,
+  // text, activity, step, card, discard, then done (the same body the JSON
+  // reply has) or error.
+  app.post('/chat', async (req, reply) => {
     const body = ChatBody.parse(req.body)
     await staffChatAllowed(req)
     let conv
@@ -161,8 +181,28 @@ export default async function aiRoutes(app) {
         systemPrompt: staffInstructions({ tenant: t?.name, person: u?.full_name || null, chat: true }),
       })
     }
-    const out = await run(() => runTurn(chatContext(app, conv, { req }), conv, body.message, { attachments: body.attachments }))
-    return { conversation_id: conv.id, title: conv.title, stop_reason: out.stopReason, items: await displayItems(conv) }
+    const stream = wantsStream(req) ? eventStream(reply) : null
+    // conversation_id null: a new chat's only message was refused and taken
+    // back out, so there is no chat any more.
+    const done = async out => {
+      const gone = !(await loadConversation(req.tenantId, conv.id))
+      return {
+        conversation_id: gone ? null : conv.id, title: gone ? null : conv.title, stop_reason: out.stopReason, notice: out.notice,
+        items: gone ? [] : await displayItems(conv),
+      }
+    }
+    if (!stream) {
+      return done(await run(() => runTurn(chatContext(app, conv, { req }), conv, body.message, { attachments: body.attachments, page: body.page })))
+    }
+    try {
+      const out = await runTurn(chatContext(app, conv, { req }), conv, body.message, { attachments: body.attachments, page: body.page, emit: stream.send })
+      stream.send({ type: 'done', ...(await done(out)) })
+    } catch (err) {
+      if (!stream.open) throw err instanceof ToolError ? httpError(err.status || 400, err.message) : err
+      stream.send({ ...errorEvent(req, err), conversation_id: conv.id })
+    }
+    stream.end()
+    return reply
   })
 
   // ── Attached files ──────────────────────────────────────
@@ -249,7 +289,8 @@ export default async function aiRoutes(app) {
   app.get('/tokens', { preHandler: requirePermission('ai_assistant', 'view') }, async req => {
     const manage = await permissionLevel(req, 'ai_assistant') === 'manage'
     return withTenant(req.tenantId, tx => tx`
-      SELECT k.id, k.name, k.token_prefix, k.created_at, k.last_used_at, k.revoked_at,
+      SELECT k.id, k.name, k.token_prefix, k.created_at, k.last_used_at, k.revoked_at, k.expires_at, k.read_only,
+             (k.expires_at <= now()) AS expired,
              u.email AS user_email, (u.auth0_user_id = ${req.user.sub}) AS mine
         FROM ai_access_tokens k
         JOIN users u ON u.id = k.user_id
@@ -260,23 +301,30 @@ export default async function aiRoutes(app) {
   })
 
   app.post('/tokens', { preHandler: requirePermission('ai_assistant', 'view') }, async (req, reply) => {
-    const { name } = z.object({ name: z.string().trim().min(1).max(80) }).parse(req.body)
+    // Every token expires (migration 179); a read-only one offers and runs
+    // only the tools that read.
+    const { name, expires_in_days, read_only } = z.object({
+      name:            z.string().trim().min(1).max(80),
+      expires_in_days: z.union([z.literal(30), z.literal(90), z.literal(180), z.literal(365)]).default(90),
+      read_only:       z.boolean().default(false),
+    }).parse(req.body)
     const [user] = await withTenant(req.tenantId, tx => tx`
       SELECT id FROM users WHERE tenant_id = ${req.tenantId} AND auth0_user_id = ${req.user.sub} AND is_active = true LIMIT 1
     `)
     if (!user) throw httpError(422, 'Access tokens are for team members of this restaurant group. Ask an owner to invite you.')
     const { token, hash, prefix } = newAccessToken()
-    const [row] = await sql`
-      INSERT INTO ai_access_tokens (tenant_id, user_id, name, token_prefix, token_hash)
-      VALUES (${req.tenantId}, ${user.id}, ${name}, ${prefix}, ${hash})
-      RETURNING id, name, token_prefix, created_at
+    const [row] = await tenantSql(req.tenantId)`
+      INSERT INTO ai_access_tokens (tenant_id, user_id, name, token_prefix, token_hash, expires_at, read_only)
+      VALUES (${req.tenantId}, ${user.id}, ${name}, ${prefix}, ${hash},
+              now() + make_interval(days => ${expires_in_days}), ${read_only})
+      RETURNING id, name, token_prefix, created_at, expires_at, read_only
     `
     return reply.code(201).send({ ...row, token })
   })
 
   app.delete('/tokens/:id', { preHandler: requirePermission('ai_assistant', 'view') }, async req => {
     const manage = await permissionLevel(req, 'ai_assistant') === 'manage'
-    const [row] = await sql`
+    const [row] = await tenantSql(req.tenantId)`
       UPDATE ai_access_tokens k SET revoked_at = now()
         FROM users u
        WHERE k.id = ${req.params.id} AND k.tenant_id = ${req.tenantId} AND k.revoked_at IS NULL
@@ -304,7 +352,7 @@ export default async function aiRoutes(app) {
 
   // ── Platform admin: monthly limits ──────────────────────
   app.get('/platform/tenants', { preHandler: requirePlatformAdmin }, async () => {
-    const rows = await sql`
+    const rows = await systemSql`
       SELECT t.id, t.name, t.slug,
              COALESCE(s.monthly_token_limit, 2000000) AS monthly_token_limit,
              COALESCE(s.staff_enabled, true)          AS staff_enabled,

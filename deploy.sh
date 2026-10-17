@@ -29,6 +29,10 @@ deploy_api() {
     cd '${APP_DIR}/api'
     npm install --production --silent
   "
+  # SECRETS_KEY seals stored integration keys (migration 179): added to
+  # api/.env when missing, never changed once there.
+  sudo -u "${APP_USER}" bash "${APP_DIR}/scripts/ensure-secrets-key.sh" "${APP_DIR}/api/.env" \
+    || die "Couldn't check SECRETS_KEY in api/.env"
   # Run database migrations (idempotent — applies only new SQL files).
   # Uses DATABASE_URL from api/.env. Skipped with SKIP_MIGRATIONS=1.
   if [[ "${SKIP_MIGRATIONS:-0}" != "1" ]]; then

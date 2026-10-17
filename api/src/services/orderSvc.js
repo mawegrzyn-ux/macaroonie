@@ -9,7 +9,7 @@
 // the live menu on the server. Payments go only through the gateway
 // interface in services/paymentGateways/.
 
-import { sql, withTenant } from '../config/db.js'
+import { sql, withTenant, systemSql } from '../config/db.js'
 import { httpError } from '../middleware/error.js'
 import { broadcast } from '../config/ws.js'
 import { notificationQueue } from '../jobs/queues.js'
@@ -971,7 +971,7 @@ export async function refundOrder(tenantId, orderId, { amountPence = null, reaso
 // Unpaid online orders older than PENDING_TTL_MINS give their slot back.
 // Runs across tenants (bare sql, like the booking hold sweep).
 export async function expireStaleOrders(log) {
-  const rows = await sql`
+  const rows = await systemSql`
     UPDATE orders
        SET status = 'expired', cancelled_at = now(), cancel_reason = 'Payment not completed'
      WHERE status = 'pending_payment'
@@ -1013,7 +1013,7 @@ export async function loadAdminOrder(tx, id, tenantId) {
 }
 
 export async function loadPublicOrderByToken(token) {
-  const [meta] = await sql`
+  const [meta] = await systemSql`
     SELECT o.id, o.tenant_id, v.name AS venue_name, v.timezone
       FROM orders o JOIN venues v ON v.id = o.venue_id
      WHERE o.public_token = ${token} LIMIT 1

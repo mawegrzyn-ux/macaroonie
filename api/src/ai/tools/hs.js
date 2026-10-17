@@ -34,7 +34,7 @@
 // matches them and asks when a name is ambiguous.
 
 import { z } from 'zod'
-import { sql, withTenant } from '../../config/db.js'
+import { sql, withTenant, tenantSql } from '../../config/db.js'
 import {
   ToolError, callApi, audit, requireStaffPermission, staffPermissionLevel, levelAtLeast,
 } from '../context.js'
@@ -216,7 +216,7 @@ export const hsTools = [
       const [lists, fs] = await Promise.all([canSee(ctx, 'checklists'), canSee(ctx, 'food_safety')])
       if (!lists && !fs) throw new ToolError('You don\'t have permission to see checklists or food safety logs. Ask an owner or admin.', 403)
       const venue = venue_id ? await staffVenue(ctx, venue_id) : null
-      const [first] = venue ? [venue] : await sql`
+      const [first] = venue ? [venue] : await tenantSql(ctx.tenantId)`
         SELECT id, name, timezone FROM venues WHERE tenant_id = ${ctx.tenantId} AND is_active = true ORDER BY name LIMIT 1
       `
       if (!first) throw new ToolError('No venues yet.', 404)
@@ -816,19 +816,19 @@ async function cookingPlan(ctx, input) {
 
 /** A logged reading of this tenant, for the corrective-action card. */
 async function loadReading(ctx, type, id) {
-  const rows = type === 'fridge' ? await sql`
+  const rows = type === 'fridge' ? await tenantSql(ctx.tenantId)`
       SELECT l.corrective_action, l.log_date::text AS date, e.name || ' ' || l.temperature_c || '°C' AS what, v.name AS venue
         FROM fs_temp_logs l JOIN fs_equipment e ON e.id = l.equipment_id JOIN venues v ON v.id = l.venue_id
        WHERE l.id = ${id} AND l.tenant_id = ${ctx.tenantId}`
-    : type === 'hold' ? await sql`
+    : type === 'hold' ? await tenantSql(ctx.tenantId)`
       SELECT h.corrective_action, h.check_date::text AS date, s.name || ' ' || h.temperature_c || '°C' AS what, v.name AS venue
         FROM fs_hold_checks h JOIN fs_hold_stations s ON s.id = h.station_id JOIN venues v ON v.id = h.venue_id
        WHERE h.id = ${id} AND h.tenant_id = ${ctx.tenantId}`
-    : type === 'cooking' ? await sql`
+    : type === 'cooking' ? await tenantSql(ctx.tenantId)`
       SELECT c.corrective_action, c.check_date::text AS date, c.dish_name || ' ' || c.core_temp_c || '°C' AS what, v.name AS venue
         FROM fs_cooking_checks c JOIN venues v ON v.id = c.venue_id
        WHERE c.id = ${id} AND c.tenant_id = ${ctx.tenantId}`
-    : await sql`
+    : await tenantSql(ctx.tenantId)`
       SELECT d.corrective_action, d.delivery_date::text AS date, 'Delivery from ' || d.vendor_name AS what, v.name AS venue
         FROM fs_delivery_checks d JOIN venues v ON v.id = d.venue_id
        WHERE d.id = ${id} AND d.tenant_id = ${ctx.tenantId}`
@@ -838,7 +838,7 @@ async function loadReading(ctx, type, id) {
 
 /** A checklist of this tenant for a day: template, venue, tasks and ticks. */
 async function loadChecklist(ctx, checklistId, date) {
-  const [t] = await sql`
+  const [t] = await tenantSql(ctx.tenantId)`
     SELECT id, venue_id FROM checklist_templates
      WHERE id = ${checklistId} AND tenant_id = ${ctx.tenantId} AND is_active = true
   `
@@ -879,7 +879,7 @@ async function actionPlan(ctx, input) {
 }
 
 async function loadAction(ctx, id) {
-  const [a] = await sql`
+  const [a] = await tenantSql(ctx.tenantId)`
     SELECT l.id, l.task, l.is_completed, v.name AS venue_name, c.name AS category_name
       FROM hs_action_log l
       JOIN venues v ON v.id = l.venue_id AND v.tenant_id = l.tenant_id

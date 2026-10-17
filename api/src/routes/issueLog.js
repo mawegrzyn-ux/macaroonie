@@ -4,7 +4,7 @@
 // Mounted at /api/issues in app.js.
 
 import { z }          from 'zod'
-import { sql, withTenant } from '../config/db.js'
+import { sql, withTenant, systemSql, withSystem } from '../config/db.js'
 import { requireAuth, requirePlatformAdmin, requirePermission } from '../middleware/auth.js'
 import { httpError }  from '../middleware/error.js'
 
@@ -81,7 +81,7 @@ export default async function issueLogRoutes(app) {
     // (?scope=all, the page's "All restaurant groups") or outside a tenant;
     // inside a tenant's view, that tenant's only, like everyone else.
     if (req.isPlatformAdmin && (scope === 'all' || !req.tenantId)) {
-      return sql`
+      return systemSql`
         SELECT i.*, t.name AS tenant_name
           FROM issue_log i
           LEFT JOIN tenants t ON t.id = i.tenant_id
@@ -135,9 +135,9 @@ export default async function issueLogRoutes(app) {
     const setResolved = body.status === 'resolved' || body.status === 'closed'
 
     if (req.isPlatformAdmin) {
-      const [issue] = await sql`
+      const [issue] = await systemSql`
         UPDATE issue_log
-           SET ${sql(
+           SET ${systemSql(
              Object.fromEntries(fields.map(k => [k, body[k]])),
              ...fields
            )},
@@ -168,7 +168,7 @@ export default async function issueLogRoutes(app) {
   // ── POST /issues/:id/promote ──────────────────────────────
   // Platform admin only. Creates a backlog_items row from the issue.
   app.post('/:id/promote', { preHandler: requirePlatformAdmin }, async (req) => {
-    const [existing] = await sql`
+    const [existing] = await systemSql`
       SELECT * FROM issue_log WHERE id = ${req.params.id}
     `
     if (!existing) throw httpError(404, 'Issue not found')
@@ -178,7 +178,7 @@ export default async function issueLogRoutes(app) {
 
     const backlogPriority = itilToBacklogPriority(existing.priority)
 
-    const [backlogItem, issue] = await sql.begin(async tx => {
+    const [backlogItem, issue] = await withSystem(async tx => {
       const [bi] = await tx`
         INSERT INTO backlog_items
           (title, description, type, priority, promoted_from_issue_id, reporter_tenant_id)

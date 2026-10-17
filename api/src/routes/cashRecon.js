@@ -243,6 +243,17 @@ async function assertVenueOwnership(tx, tenantId, venueId) {
   return venue
 }
 
+// Ids a day or a wage week points at must be this venue's own: income
+// sources, payment channels, SC sources, staff.
+async function assertVenueRows(tx, tenantId, venueId, table, ids, what) {
+  const want = [...new Set(ids.filter(Boolean))]
+  if (!want.length) return
+  const own = await tx`
+    SELECT id FROM ${tx(table)} WHERE id = ANY(${want}::uuid[]) AND tenant_id = ${tenantId} AND venue_id = ${venueId}
+  `
+  if (own.length !== want.length) throw httpError(404, what + ' not found')
+}
+
 /** The expense, if it is this venue's and its day isn't submitted (a
  *  submitted day's figures only change after an unsubmit). */
 async function assertExpenseOpen(tx, tenantId, venueId, expenseId, verb) {
@@ -1174,6 +1185,9 @@ export default async function cashReconRoutes(app) {
 
     return withTenant(req.tenantId, async tx => {
       await assertVenueOwnership(tx, req.tenantId, venueId)
+      await assertVenueRows(tx, req.tenantId, venueId, 'cash_income_sources', body.income.map(e => e.source_id), 'Income source')
+      await assertVenueRows(tx, req.tenantId, venueId, 'cash_payment_channels', body.takings.map(e => e.channel_id), 'Payment channel')
+      await assertVenueRows(tx, req.tenantId, venueId, 'cash_sc_sources', body.sc.map(e => e.source_id), 'Service charge source')
 
       // Upsert the report header. A body without `notes` (the week grid
       // saves a day without loading its note) keeps the note it has.
@@ -1625,6 +1639,7 @@ export default async function cashReconRoutes(app) {
 
     return withTenant(req.tenantId, async tx => {
       await assertVenueOwnership(tx, req.tenantId, venueId)
+      await assertVenueRows(tx, req.tenantId, venueId, 'cash_staff', body.entries.map(e => e.staff_id), 'Staff member')
 
       // Upsert wage report header
       const [report] = await tx`
@@ -1693,6 +1708,7 @@ export default async function cashReconRoutes(app) {
 
     return withTenant(req.tenantId, async tx => {
       await assertVenueOwnership(tx, req.tenantId, venueId)
+      await assertVenueRows(tx, req.tenantId, venueId, 'cash_staff', body.entries.map(e => e.staff_id), 'Staff member')
 
       await tx`
         DELETE FROM cash_wage_defaults

@@ -580,6 +580,37 @@ function InboxLogoCard({ fromEmail }) {
   )
 }
 
+const SECRET_KEYS = ['provider_api_key', 'provider_secret', 'smtp_pass']
+
+/**
+ * A provider key box. The saved key is never sent to the browser: with one
+ * saved, the box says so (its last four) and stays empty until a new key is
+ * typed; Remove clears it on Save.
+ */
+function SecretInput({ field, state, setState, hint, placeholder }) {
+  const removing = state[field] === null
+  if (removing) {
+    return (
+      <div className="flex items-center gap-2 min-h-[40px]">
+        <span className="text-sm text-muted-foreground flex-1">Will be removed when you save.</span>
+        <button type="button" onClick={() => setState(s => ({ ...s, [field]: '' }))}
+          className="text-sm underline min-h-[40px] px-2 touch-manipulation">Keep it</button>
+      </div>
+    )
+  }
+  return (
+    <div className="flex items-center gap-2">
+      <TextInput type="password" autoComplete="new-password" value={state[field]}
+        onChange={e => setState(s => ({ ...s, [field]: e.target.value }))}
+        placeholder={hint ? 'Saved, ends ' + hint + '. Type a new one to replace it' : placeholder} />
+      {hint && !state[field] && (
+        <button type="button" onClick={() => setState(s => ({ ...s, [field]: null }))}
+          className="text-sm underline min-h-[40px] px-2 shrink-0 touch-manipulation">Remove</button>
+      )}
+    </div>
+  )
+}
+
 function EmailSettings({ venueId }) {
   const api = useApi()
   const qc  = useQueryClient()
@@ -596,13 +627,17 @@ function EmailSettings({ venueId }) {
     from_name:             settings.from_name || '',
     from_email:            settings.from_email || '',
     reply_to:              settings.reply_to || '',
-    provider_api_key:      settings.provider_api_key || '',
+    // Saved keys never come back from the server (migration 179): the boxes
+    // start empty, show the saved key's last four, and only a typed key (or
+    // Remove, which sets null) is sent.
+    provider_api_key:      '',
+    provider_secret:       '',
     provider_domain:       settings.provider_domain || '',
     provider_region:       settings.provider_region || '',
     smtp_host:             settings.smtp_host || '',
     smtp_port:             settings.smtp_port || 587,
     smtp_user:             settings.smtp_user || '',
-    smtp_pass:             settings.smtp_pass || '',
+    smtp_pass:             '',
     smtp_secure:           settings.smtp_secure ?? true,
     reminder_enabled:      settings.reminder_enabled ?? true,
     reminder_hours_before: settings.reminder_hours_before ?? 24,
@@ -618,9 +653,11 @@ function EmailSettings({ venueId }) {
   const save = useMutation({
     mutationFn: () => {
       const body = { ...state }
-      for (const k of ['from_name','from_email','reply_to','provider_api_key','provider_domain','provider_region','smtp_host','smtp_user','smtp_pass']) {
+      for (const k of ['from_name','from_email','reply_to','provider_domain','provider_region','smtp_host','smtp_user']) {
         if (!body[k]) body[k] = null
       }
+      // Keys: typed = replace, null = remove, empty = keep the saved one.
+      for (const k of SECRET_KEYS) if (body[k] === '') delete body[k]
       return hasSettings
         ? api.patch(`/email-templates/settings/${venueId}`, body)
         : api.post(`/email-templates/settings/${venueId}`, body)
@@ -657,7 +694,7 @@ function EmailSettings({ venueId }) {
                      : provider === 'postmark' ? 'Required. Use the Server Token from Postmark → Servers → your server → API Tokens.'
                      : 'Required for this provider.'}>
           <FormRow label={provider === 'postmark' ? 'Server token' : provider === 'ses' ? 'Access key ID' : 'API key'}>
-            <TextInput type="password" value={state.provider_api_key} onChange={set('provider_api_key')}
+            <SecretInput field="provider_api_key" state={state} setState={setState} hint={settings.provider_api_key_hint}
               placeholder={provider === 'sendgrid' ? 'Leave blank to use platform key' : 'Required'} />
           </FormRow>
           {provider === 'postmark' && (
@@ -682,7 +719,7 @@ function EmailSettings({ venueId }) {
           {provider === 'ses' && (
             <>
               <FormRow label="Secret access key">
-                <TextInput type="password" value={state.provider_domain} onChange={set('provider_domain')} placeholder="Required" />
+                <SecretInput field="provider_secret" state={state} setState={setState} hint={settings.provider_secret_hint} placeholder="Required" />
               </FormRow>
               <FormRow label="AWS region" hint="e.g. eu-west-1">
                 <TextInput value={state.provider_region} onChange={set('provider_region')} placeholder="eu-west-1" />
@@ -707,7 +744,7 @@ function EmailSettings({ venueId }) {
               <TextInput value={state.smtp_user} onChange={set('smtp_user')} />
             </FormRow>
             <FormRow label="Password">
-              <TextInput type="password" value={state.smtp_pass} onChange={set('smtp_pass')} />
+              <SecretInput field="smtp_pass" state={state} setState={setState} hint={settings.smtp_pass_hint} />
             </FormRow>
           </div>
           <div className="flex items-center gap-3">

@@ -4,8 +4,12 @@
 // assistant drawer (AssistantDrawer.jsx, opened from the sidebar's Ask
 // Pepper), the Pepper page (/ai) and the phone app (/mobile/assistant).
 // Talks to /api/ai:
-// POST /chat runs a turn and returns the whole conversation as display
-// items; a proposed change comes back as an `action` card, and nothing
+// POST /chat runs a turn, streamed (api.stream): the reply's text shows as it
+// is written, with a line for what Pepper is doing and each step and card as
+// it happens; the `done` event then brings the whole conversation as display
+// items, which replace the live ones. If the connection drops, the chat
+// reloads the conversation and keeps asking while it is still `running`.
+// A proposed change comes back as an `action` card, and nothing
 // changes until the person presses its Confirm button
 // (POST /actions/:id/confirm). Outcome notes for the model are not shown:
 // the card itself shows the result. Photos, screenshots, PDFs and text files
@@ -13,69 +17,198 @@
 // drop onto the chat): see ./attachments.jsx. Links Pepper gives to pages of
 // the app ([Rota](/rota), from its open_page tool) open in the app; other
 // links show as plain text.
-import { useEffect, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+// With pageAware (the drawer only), each message also says which page the
+// person is on, and the venue and day or week that page shows
+// (usePepperPage(), lib/pepperPage.js), so "who is on here?" needs no venue
+// or date. A chip above the message box shows what goes; tapping it stops
+// sending it for this chat.
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Link, useLocation } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Send, Loader2, Check, X, Sparkles, Search, CircleAlert, Paperclip, Camera, Upload } from 'lucide-react'
+import { format, parseISO } from 'date-fns'
+import { Send, Loader2, Check, X, Sparkles, Search, CircleAlert, Paperclip, Camera, Upload, MapPin } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { usePepperPageContext } from '@/lib/pepperPage'
 import { useAttachments, PendingFiles, MessageFiles, ACCEPT } from './attachments'
 import { ASSISTANT_NAME } from '@shared/assistant.js'
 
 const IS_TOUCH = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0
 
 const SUGGESTIONS = [
+  'Brief me on today',
   'What is booked for tonight?',
   'Who is working today?',
   'Which H&S checks are still to do today?',
   'How did yesterday\'s cash up balance?',
   'Mark the Pad Thai sold out for today',
-  'Which dishes are free from peanuts?',
+  'How do I set up tip pots?',
 ]
+
+// The parents key ChatView by conversation id, so a new chat's view is
+// replaced when the chat gets its id: a notice or error from that first turn
+// is handed to the new view here.
+const carried = new Map()
+
+// Pages where "this page" means nothing to Pepper.
+const NO_PAGE = /^\/(ai|mobile)(\/|$)/
+
+/** The nav label of the page at `path`: the longest matching route in the tenant's nav tree. */
+function navLabel(tree, path) {
+  let best = null
+  const walk = nodes => {
+    for (const n of nodes || []) {
+      const r = n.route
+      if (r && (path === r || (r !== '/' && path.startsWith(r + '/'))) && (!best || r.length > best.route.length)) best = n
+      walk(n.children)
+    }
+  }
+  walk(tree)
+  return best?.label ?? null
+}
+
+/** "/food-safety" -> "Food safety", for a page that isn't in the nav. */
+function pathLabel(path) {
+  const words = path.split('/').filter(s => s && !/^[0-9a-f-]{20,}$/i.test(s)).join(' ').replace(/[-_]+/g, ' ')
+  return words ? words[0].toUpperCase() + words.slice(1) : 'Overview'
+}
+
+/** What the drawer sends about the page on screen, and how the chip words it. */
+function usePageContext(enabled) {
+  const api = useApi()
+  const { pathname } = useLocation()
+  const ctx = usePepperPageContext()
+  const on = enabled && !NO_PAGE.test(pathname)
+  const { data: me } = useQuery({ queryKey: ['me'], queryFn: () => api.get('/me'), staleTime: 60_000, enabled: on })
+  const { data: venues = [] } = useQuery({ queryKey: ['venues'], queryFn: () => api.get('/venues'), enabled: on && !!ctx?.venue_id })
+  return useMemo(() => {
+    if (!on) return null
+    const page = { path: pathname, ...(ctx || {}) }
+    const label = navLabel(me?.nav_tree, pathname) || pathLabel(pathname)
+    const venue = ctx?.venue_id ? venues.find(v => v.id === ctx.venue_id)?.name : null
+    const when = ctx?.date ? format(parseISO(ctx.date), 'EEE d MMM')
+      : ctx?.week ? 'week of ' + format(parseISO(ctx.week), 'd MMM') : null
+    return { page, text: [label, venue, when].filter(Boolean).join(' · ') }
+  }, [on, pathname, ctx, me, venues])
+}
 
 export function useAiStatus() {
   const api = useApi()
   return useQuery({ queryKey: ['ai-status'], queryFn: () => api.get('/ai/status'), staleTime: 60_000 })
 }
 
-export default function ChatView({ conversationId, onConversationId, className }) {
+export default function ChatView({ conversationId, onConversationId, className, pageAware = false }) {
   const api = useApi()
   const qc  = useQueryClient()
   const [draft, setDraft]     = useState('')
   const [pending, setPending] = useState(null)   // { text, files } being sent, shown at once
-  const [error, setError]     = useState(null)
+  const [live, setLive]       = useState([])     // the turn as it streams in
+  const [activity, setActivity] = useState('')   // what Pepper is doing right now
+  const [notice, setNotice]   = useState(() => carried.get(conversationId ?? null)?.notice ?? null)   // the turn stopped early or was refused
+  const [error, setError]     = useState(() => carried.get(conversationId ?? null)?.error ?? null)
   const [dragging, setDragging] = useState(false)
   const listRef   = useRef(null)
+  const stick     = useRef(true)    // keep the list scrolled to the end
+  const started   = useRef(null)    // the conversation the streaming turn is in
+  const sending   = useRef(false)
   const fileInput = useRef(null)
   const camInput  = useRef(null)
   const dragDepth = useRef(0)
   const att = useAttachments()
+  const [usePage, setUsePage] = useState(true)
+  const pageCtx = usePageContext(pageAware)
+  const sentPage = usePage ? pageCtx?.page : undefined
 
   const { data: conv, isLoading } = useQuery({
     queryKey: ['ai-conversation', conversationId],
     queryFn:  () => api.get('/ai/conversations/' + conversationId),
     enabled:  !!conversationId,
+    // A turn still running (another tab, or a stream that dropped): look
+    // again until it's done.
+    refetchInterval: q => (q.state.data?.running && !sending.current ? 3000 : false),
   })
   const items = conversationId ? (conv?.items ?? []) : []
+  const running = !!conv?.running
 
+  useEffect(() => { carried.delete(conversationId ?? null) }, [conversationId])
+
+  // A null conversation_id: a new chat's only message was refused and taken
+  // back out, so there is no chat to show.
   function apply(res) {
-    qc.setQueryData(['ai-conversation', res.conversation_id], old => ({
-      ...(old || {}), id: res.conversation_id, title: res.title ?? old?.title, closed: res.closed ?? old?.closed, items: res.items,
-    }))
-    if (res.conversation_id !== conversationId) onConversationId?.(res.conversation_id)
+    if (res.conversation_id) {
+      qc.setQueryData(['ai-conversation', res.conversation_id], old => ({
+        ...(old || {}), id: res.conversation_id, title: res.title ?? old?.title, closed: res.closed ?? old?.closed,
+        running: false, items: res.items,
+      }))
+    }
+    if ((res.conversation_id ?? null) !== (conversationId ?? null)) onConversationId?.(res.conversation_id ?? null)
     qc.invalidateQueries({ queryKey: ['ai-conversations'] })
     qc.invalidateQueries({ queryKey: ['ai-status'] })
   }
 
+  function onEvent(ev) {
+    if (ev.type === 'start') { started.current = ev.conversation_id; return }
+    if (ev.type === 'activity') { setActivity(ev.text); return }
+    setLive(list => {
+      if (ev.type === 'text') {
+        const i = list.findIndex(x => x.key === ev.key)
+        if (i < 0) return [...list, { type: 'assistant', key: ev.key, text: ev.delta }]
+        const next = list.slice()
+        next[i] = { ...next[i], text: next[i].text + ev.delta }
+        return next
+      }
+      if (ev.type === 'discard') return list.filter(x => !x.key?.startsWith(ev.key))
+      if (ev.type === 'step') return [...list, { type: 'step', text: ev.text }]
+      if (ev.type === 'card') return [...list, ev.card]
+      return list
+    })
+    if (ev.type === 'step' || ev.type === 'card') setActivity('')
+  }
+
+  function endTurn() {
+    sending.current = false
+    setPending(null)
+    setLive([])
+    setActivity('')
+  }
+
   const send = useMutation({
-    mutationFn: ({ message, files }) => api.post('/ai/chat', {
+    mutationFn: ({ message, files, page }) => api.stream('/ai/chat', {
       conversation_id: conversationId || undefined, message, attachments: files.map(f => f.id),
-    }),
-    onMutate:   ({ message, files }) => { setPending({ text: message, files }); setError(null) },
-    onSuccess:  (res, { files }) => { setPending(null); att.discard(files); apply(res) },
+      ...(page ? { page } : {}),
+    }, onEvent),
+    onMutate:   ({ message, files }) => {
+      sending.current = true
+      started.current = null
+      stick.current = true
+      setPending({ text: message, files }); setError(null); setNotice(null)
+    },
+    onSuccess:  (res, { files }) => {
+      endTurn()
+      att.discard(files)
+      setNotice(res.notice || null)
+      if (res.notice && res.conversation_id && res.conversation_id !== conversationId) carried.set(res.conversation_id, { notice: res.notice })
+      apply(res)
+    },
     onError:    (err, { message, files }) => {
-      setPending(null)
-      setError(err.message || 'Something went wrong')
+      endTurn()
+      // Once the turn had started, the message is in the chat (unless
+      // Claude couldn't take it and it was withdrawn).
+      const inChat = !!started.current && !err.body?.withdrawn
+      const shown = err.lost
+        ? 'The connection dropped. ' + ASSISTANT_NAME + ' may still be working on it: the chat will update when it\'s done.'
+        : (err.message || 'Something went wrong')
+      setError(shown)
+      if (inChat) {
+        att.discard(files)
+        if (started.current !== conversationId) {
+          carried.set(started.current, { error: shown })
+          onConversationId?.(started.current)
+        }
+        qc.invalidateQueries({ queryKey: ['ai-conversation', started.current] })
+        qc.invalidateQueries({ queryKey: ['ai-conversations'] })
+        return
+      }
       setDraft(d => d || message)
       // A refused message leaves its files unsent, so they go back on the
       // message box; after a server error they may be in the chat already.
@@ -96,15 +229,20 @@ export default function ChatView({ conversationId, onConversationId, className }
 
   useEffect(() => {
     const el = listRef.current
-    if (el) el.scrollTop = el.scrollHeight
-  }, [items.length, pending, send.isPending])
+    if (el && stick.current) el.scrollTop = el.scrollHeight
+  }, [items.length, pending, send.isPending, live, activity, notice])
+
+  function onScroll(e) {
+    const el = e.currentTarget
+    stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+  }
 
   function submit(text) {
     const message = (text ?? draft).trim()
-    if ((!message && !att.ready.length) || send.isPending || att.uploading) return
+    if ((!message && !att.ready.length) || send.isPending || running || att.uploading) return
     const files = att.take().filter(f => f.status === 'ready')
     setDraft('')
-    send.mutate({ message, files })
+    send.mutate({ message, files, page: sentPage })
   }
 
   const hasFiles = e => Array.from(e.dataTransfer?.types || []).includes('Files')
@@ -124,10 +262,11 @@ export default function ChatView({ conversationId, onConversationId, className }
     att.add(pasted)
   }
 
-  const canSend = (!!draft.trim() || att.ready.length > 0) && !send.isPending && !att.uploading
+  const canSend = (!!draft.trim() || att.ready.length > 0) && !send.isPending && !running && !att.uploading
 
   const shown = items.filter(i => i.type !== 'note')
   const empty = !shown.length && !pending
+  const working = send.isPending || running
   // A guest's details were erased from this chat (customer anonymise): it
   // can be read, not continued.
   const closed = !!conv?.closed
@@ -141,7 +280,7 @@ export default function ChatView({ conversationId, onConversationId, className }
           <p className="text-xs text-muted-foreground">Photos, screenshots, PDFs, text or CSV files</p>
         </div>
       )}
-      <div ref={listRef} className="flex-1 overflow-y-auto px-3 sm:px-4 py-4 space-y-3">
+      <div ref={listRef} onScroll={onScroll} className="flex-1 overflow-y-auto px-3 sm:px-4 py-4 space-y-3">
         {conversationId && isLoading && (
           <div className="flex justify-center py-8"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
         )}
@@ -160,12 +299,17 @@ export default function ChatView({ conversationId, onConversationId, className }
             </div>
           </div>
         )}
-        {shown.map((item, i) => <ChatItem key={item.id || i} item={item} decide={decide} />)}
+        {shown.map((item, i) => <ChatItem key={item.id || i} item={item} decide={decide} busy={working} />)}
         {pending && <UserBubble text={pending.text} files={pending.files} local />}
-        {send.isPending && (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="w-4 h-4 animate-spin" /> Working on it...
+        {live.map((item, i) => <ChatItem key={item.key || item.id || 'l' + i} item={item} decide={decide} busy />)}
+        {working && (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            {send.isPending ? (activity || 'Working on it...') : 'Still working on the last message...'}
           </div>
+        )}
+        {notice && !working && (
+          <p className="text-sm text-muted-foreground italic">{notice}</p>
         )}
         {error && (
           <div className="flex items-start gap-2 text-sm text-destructive bg-destructive/10 rounded-md px-3 py-2">
@@ -186,6 +330,18 @@ export default function ChatView({ conversationId, onConversationId, className }
         </div>
       ) : (
         <div className="border-t bg-background">
+          {pageCtx && (
+            <div className="px-2 sm:px-3 pt-2">
+              <button type="button" onClick={() => setUsePage(v => !v)} aria-pressed={usePage}
+                title={usePage ? ASSISTANT_NAME + ' is told which page you are on. Tap to stop.' : 'Tap to tell ' + ASSISTANT_NAME + ' which page you are on.'}
+                className={cn('max-w-full inline-flex items-center gap-1.5 min-h-[36px] px-3 rounded-full border text-xs touch-manipulation',
+                  usePage ? 'border-primary/40 bg-primary/5 text-foreground' : 'text-muted-foreground line-through decoration-muted-foreground/60')}>
+                <MapPin className="w-3.5 h-3.5 shrink-0 text-primary" />
+                <span className="truncate">{usePage ? 'About: ' : 'Not sending: '}{pageCtx.text}</span>
+                {usePage && <X className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />}
+              </button>
+            </div>
+          )}
           <PendingFiles files={att.files} onRemove={att.remove} />
           {att.notice && <p className="px-3 pt-1 text-xs text-amber-700">{att.notice}</p>}
           <form
@@ -196,13 +352,13 @@ export default function ChatView({ conversationId, onConversationId, className }
               onChange={e => { att.add(e.target.files); e.target.value = '' }} />
             <input ref={camInput} type="file" accept="image/*" capture="environment" className="hidden"
               onChange={e => { att.add(e.target.files); e.target.value = '' }} />
-            <button type="button" onClick={() => fileInput.current?.click()} disabled={send.isPending}
+            <button type="button" onClick={() => fileInput.current?.click()} disabled={working}
               className="w-12 h-12 shrink-0 rounded-md border flex items-center justify-center text-muted-foreground hover:text-foreground disabled:opacity-40 touch-manipulation"
               aria-label="Attach a photo, screenshot or file" title="Attach a photo, screenshot or file">
               <Paperclip className="w-4 h-4" />
             </button>
             {IS_TOUCH && (
-              <button type="button" onClick={() => camInput.current?.click()} disabled={send.isPending}
+              <button type="button" onClick={() => camInput.current?.click()} disabled={working}
                 className="w-12 h-12 shrink-0 rounded-md border flex items-center justify-center text-muted-foreground hover:text-foreground disabled:opacity-40 touch-manipulation"
                 aria-label="Take a photo">
                 <Camera className="w-4 h-4" />
@@ -221,7 +377,7 @@ export default function ChatView({ conversationId, onConversationId, className }
             <button type="submit" disabled={!canSend}
               className="w-12 h-12 shrink-0 rounded-md bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40 touch-manipulation"
               aria-label="Send">
-              {send.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+              {working ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
             </button>
           </form>
         </div>
@@ -230,9 +386,10 @@ export default function ChatView({ conversationId, onConversationId, className }
   )
 }
 
-function ChatItem({ item, decide }) {
+function ChatItem({ item, decide, busy = false }) {
   if (item.type === 'user') return <UserBubble text={item.text} files={item.attachments} />
   if (item.type === 'assistant') {
+    if (!item.text.trim()) return null
     return (
       <div className="max-w-[92%] text-sm leading-relaxed">
         <RichText text={item.text} />
@@ -246,7 +403,7 @@ function ChatItem({ item, decide }) {
       </div>
     )
   }
-  if (item.type === 'action') return <ActionCard card={item} decide={decide} />
+  if (item.type === 'action') return <ActionCard card={item} decide={decide} busy={busy} />
   return null
 }
 
@@ -268,8 +425,10 @@ const STATUS_TEXT = {
   failed:    'Didn\'t go through',
 }
 
-function ActionCard({ card, decide }) {
-  const busy = decide.isPending && decide.variables?.id === card.id
+// While a turn is still running (`turnBusy`) its cards can't be answered
+// yet: the server would say the chat is busy.
+function ActionCard({ card, decide, busy: turnBusy = false }) {
+  const busy = turnBusy || (decide.isPending && decide.variables?.id === card.id)
   const open = card.status === 'pending'
   return (
     <div className={cn('rounded-lg border bg-background overflow-hidden', open && 'ring-2 ring-primary/40')}>

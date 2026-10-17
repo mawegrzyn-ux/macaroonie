@@ -39,6 +39,7 @@ import {
 } from '../services/orderSvc.js'
 import { broadcast } from '../config/ws.js'
 import { boardOrders, boardOrder } from '../services/gloriafoodSvc.js'
+import { kitchenOnGloriaFood } from '../services/kitchenSvc.js'
 import { setSoldOut, soldOutItemIds, announceSoldOut } from '../services/soldOut.js'
 import { isScheduled, scheduleProblem } from '../../../shared/menuSchedule.js'
 
@@ -159,6 +160,11 @@ export default async function ordersRoutes(app) {
     }
     const row = await withTenant(req.tenantId, async tx => {
       const venue = await venueOf(tx, req.params.venueId)
+      const menuIds = [...new Set(b.menu_ids)]
+      if (menuIds.length) {
+        const own = await tx`SELECT id FROM menus WHERE id = ANY(${menuIds}::uuid[]) AND tenant_id = ${req.tenantId}`
+        if (own.length !== menuIds.length) throw httpError(422, 'A chosen menu wasn\'t found')
+      }
       if (Object.keys(schedules).length) {
         const menus = await tx`SELECT id, name FROM menus WHERE id = ANY(${Object.keys(schedules)}::uuid[]) AND tenant_id = ${req.tenantId}`
         const today = localParts(new Date(), venue.timezone || 'Europe/London').date
@@ -403,6 +409,9 @@ export default async function ordersRoutes(app) {
       return u
     })
     broadcast(row.venue_id, { type: 'order.updated', source: 'gloriafood' })
+    // Ready / Collected on the board finishes it on the kitchen screens too
+    // (migration 178). Best effort, after the move is saved.
+    kitchenOnGloriaFood(req.tenantId, row.venue_id, [row.id]).catch(() => {})
     return { order: boardOrder(row) }
   })
 

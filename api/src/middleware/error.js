@@ -11,7 +11,9 @@ export function errorHandler(err, req, reply) {
   return reply.code(status).send(body)
 }
 
-function errorResponse(err) {
+/** The status and JSON body an error becomes (also sent as a chat stream's
+ *  error event, src/ai/sse.js). */
+export function errorResponse(err) {
   // Zod validation errors
   if (err instanceof ZodError) {
     return { status: 400, body: { error: 'Validation error', issues: err.flatten().fieldErrors } }

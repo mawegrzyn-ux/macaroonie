@@ -7,7 +7,8 @@ import { z }  from 'zod'
 import { withTenant } from '../config/db.js'
 import { requireAuth, requirePermission, permissionLevel } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
-import { sendEmail, renderTemplate, MERGE_FIELDS, buildMergeFields } from '../services/emailSvc.js'
+import { sendEmail, renderTemplate, MERGE_FIELDS, buildMergeFields, emailCredentials } from '../services/emailSvc.js'
+import { seal, unseal } from '../services/vault.js'
 import { DEFAULT_TEMPLATES } from '../services/emailTemplateDefaults.js'
 import { env } from '../config/env.js'
 
@@ -36,7 +37,10 @@ const EmailSettingsBody = z.object({
   from_name:             z.string().max(200).nullable().optional(),
   from_email:            z.string().email().nullable().optional(),
   reply_to:              z.string().email().nullable().optional(),
+  // Keys: a string replaces the saved one (stored sealed, migration 179),
+  // null removes it, left out (or empty) keeps it.
   provider_api_key:      z.string().nullable().optional(),
+  provider_secret:       z.string().nullable().optional(),   // SES secret access key
   provider_domain:       z.string().nullable().optional(),
   provider_region:       z.string().nullable().optional(),
   smtp_host:             z.string().nullable().optional(),
@@ -50,6 +54,20 @@ const EmailSettingsBody = z.object({
   allow_guest_cancel:    z.boolean().optional(),
   cancel_cutoff_hours:   z.coerce.number().int().min(0).optional(),
 })
+
+// Provider keys are never sent back, sealed or not: people who can change
+// the settings see the last four characters, others nothing.
+const SECRET_FIELDS = ['provider_api_key', 'provider_secret', 'smtp_pass']
+function settingsView(row, manage) {
+  const out = { ...row }
+  for (const k of SECRET_FIELDS) {
+    out[k] = null
+    if (!manage || !row[k]) continue
+    try { out[k + '_hint'] = unseal(row[k]).slice(-4) } catch { out[k + '_hint'] = '????' }
+  }
+  if (!manage) out.secrets_hidden = true
+  return out
+}
 
 export default async function emailTemplateRoutes(app) {
   app.addHook('preHandler', requireAuth)
@@ -195,29 +213,7 @@ export default async function emailTemplateRoutes(app) {
     const subject = '[TEST] ' + renderTemplate(template.subject, sampleFields)
     const html    = renderTemplate(template.body_html, sampleFields)
 
-    const provider = settings?.email_provider || 'sendgrid'
-    const credentials = {}
-    if (provider === 'sendgrid') {
-      credentials.apiKey = settings?.provider_api_key || env.SENDGRID_API_KEY
-    } else if (provider === 'postmark') {
-      credentials.apiKey = settings?.provider_api_key
-      // Postmark message stream stored in provider_domain (re-used field)
-      credentials.stream = settings?.provider_domain || 'outbound'
-    } else if (provider === 'mailgun') {
-      credentials.apiKey = settings?.provider_api_key
-      credentials.domain = settings?.provider_domain
-      credentials.region = settings?.provider_region || 'us'
-    } else if (provider === 'ses') {
-      credentials.region          = settings?.provider_region
-      credentials.accessKeyId     = settings?.provider_api_key
-      credentials.secretAccessKey = settings?.provider_domain
-    } else if (provider === 'smtp') {
-      credentials.host   = settings?.smtp_host
-      credentials.port   = settings?.smtp_port
-      credentials.user   = settings?.smtp_user
-      credentials.pass   = settings?.smtp_pass
-      credentials.secure = settings?.smtp_secure
-    }
+    const { provider, credentials } = emailCredentials(settings, env)
 
     const fromName  = settings?.from_name  || venue.name || 'Macaroonie'
     const fromEmail = settings?.from_email || env.EMAIL_FROM
@@ -285,18 +281,7 @@ export default async function emailTemplateRoutes(app) {
          AND tenant_id = ${req.tenantId}
     `)
     if (!row) return {}
-    // Provider secrets only for people who can change them. SES keeps its
-    // secret access key in provider_domain.
-    if (await permissionLevel(req, 'email_templates') !== 'manage') {
-      return {
-        ...row,
-        provider_api_key: null,
-        smtp_pass:        null,
-        provider_domain:  row.email_provider === 'ses' ? null : row.provider_domain,
-        secrets_hidden:   true,
-      }
-    }
-    return row
+    return settingsView(row, await permissionLevel(req, 'email_templates') === 'manage')
   })
 
   // POST + PATCH are aliases — both upsert the venue_email_settings row
@@ -305,6 +290,10 @@ export default async function emailTemplateRoutes(app) {
   // on the first save. Now both go through the same upsert.
   const upsertSettings = async (req, reply, statusCode) => {
     const body = EmailSettingsBody.parse(req.body)
+    for (const k of SECRET_FIELDS) {
+      if (body[k] === '' || body[k] === undefined) delete body[k]
+      else if (body[k] !== null) body[k] = seal(body[k])
+    }
     const fields = Object.keys(body)
 
     const [row] = await withTenant(req.tenantId, async tx => {
@@ -338,7 +327,7 @@ export default async function emailTemplateRoutes(app) {
       }
     })
 
-    return reply.code(statusCode).send(row)
+    return reply.code(statusCode).send(settingsView(row, true))
   }
 
   app.post('/settings/:venueId',  { preHandler: PERM.manage},

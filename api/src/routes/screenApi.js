@@ -25,7 +25,7 @@
 // screen.removed.
 
 import { z } from 'zod'
-import { sql, withTenant } from '../config/db.js'
+import { sql, withTenant, systemSql, tenantSql } from '../config/db.js'
 import { httpError } from '../middleware/error.js'
 import {
   sha256, newSecret, newScreenCode, normaliseScreenCode, sameHash, verifyScreen, PAIRING_MINUTES,
@@ -61,12 +61,12 @@ export default async function screenApiRoutes(app) {
   app.post('/pairings', { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async req => {
     const body = z.object({ device: DeviceInfo.optional() }).parse(req.body || {})
     const secret = newSecret()
-    await sql`DELETE FROM screen_pairings WHERE expires_at < now() - interval '1 day'`
+    await systemSql`DELETE FROM screen_pairings WHERE expires_at < now() - interval '1 day'`
     for (let i = 0; i < 6; i++) {
       const code = newScreenCode()
-      const [row] = await sql`
+      const [row] = await systemSql`
         INSERT INTO screen_pairings (code_hash, secret_hash, device_info, expires_at)
-        VALUES (${sha256(normaliseScreenCode(code))}, ${sha256(secret)}, ${sql.json(body.device || {})},
+        VALUES (${sha256(normaliseScreenCode(code))}, ${sha256(secret)}, ${systemSql.json(body.device || {})},
                 now() + make_interval(mins => ${PAIRING_MINUTES}))
         ON CONFLICT (code_hash) DO NOTHING
         RETURNING id, expires_at`
@@ -84,7 +84,7 @@ export default async function screenApiRoutes(app) {
   app.get('/pairings/:id', { config: { rateLimit: { max: 60, timeWindow: '1 minute' } } }, async (req, reply) => {
     if (!UUID.safeParse(req.params.id).success) throw httpError(404, 'Not found')
     const m = /^Pairing ([A-Za-z0-9_-]{20,})$/.exec(req.headers.authorization || '')
-    const [p] = await sql`SELECT id, secret_hash, expires_at, screen_id, claimed_at FROM screen_pairings WHERE id = ${req.params.id}`
+    const [p] = await systemSql`SELECT id, secret_hash, expires_at, screen_id, claimed_at FROM screen_pairings WHERE id = ${req.params.id}`
     if (!p || !m || !sameHash(sha256(m[1]), p.secret_hash)) return reply.code(404).send({ error: 'Not found', status: 'expired' })
     if (p.screen_id) return { status: 'paired', screen_id: p.screen_id }
     if (new Date(p.expires_at) <= new Date()) return { status: 'expired' }
@@ -137,7 +137,7 @@ export default async function screenApiRoutes(app) {
           config_version: b.config_version || null, offline_secs: b.offline_secs ?? 0, clock: b.clock || null,
           at: new Date().toISOString(),
         }
-        await sql`
+        await tenantSql(s.tenant_id)`
           UPDATE screens SET last_seen_at = now(), app_version = COALESCE(${b.app_version ?? null}, app_version),
                  status = ${sql.json(status)}
            WHERE id = ${s.id} AND tenant_id = ${s.tenant_id}`

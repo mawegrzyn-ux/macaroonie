@@ -22,7 +22,7 @@
 //   GET /widget/tenant/:tenantId   — tenant widget (location picker step 0)
 
 import { loadTenantBundle, loadLocationBundle, soleVenueOf } from '../services/siteDataSvc.js'
-import { sql, withTenant } from '../config/db.js'
+import { sql, withTenant, systemSql, tenantSql } from '../config/db.js'
 import { listPromotions } from '../services/promoSvc.js'
 import { promoSummary, promoTerms, promoLink, promoRunning, venueNow } from '../../../shared/promotions.js'
 import { formatPence } from '../../../shared/orderPricing.js'
@@ -146,7 +146,7 @@ const STAGING_OPEN = new Set(['/bimi.svg', '/.well-known/bimi.svg', '/robots.txt
 
 /** The staging password for a slug's tenant, or null when there is none. */
 async function stagingGate(slug) {
-  const [ts] = await sql`
+  const [ts] = await systemSql`
     SELECT ts.tenant_id, ts.site_name, t.name AS tenant_name
       FROM tenant_site ts
       JOIN tenants t ON t.id = ts.tenant_id AND t.is_active = true
@@ -224,8 +224,8 @@ export default async function siteRendererRoutes(app) {
     if (!req.siteHost) return reply.callNotFound()
     const { slug, customDomain } = req.siteHost
     const [row] = slug
-      ? await sql`SELECT bimi_svg FROM tenant_site WHERE subdomain_slug = ${slug} LIMIT 1`
-      : await sql`SELECT bimi_svg FROM tenant_site WHERE lower(custom_domain) = ${customDomain} AND custom_domain_verified = true LIMIT 1`
+      ? await systemSql`SELECT bimi_svg FROM tenant_site WHERE subdomain_slug = ${slug} LIMIT 1`
+      : await systemSql`SELECT bimi_svg FROM tenant_site WHERE lower(custom_domain) = ${customDomain} AND custom_domain_verified = true LIMIT 1`
     if (!row?.bimi_svg) {
       reply.code(404).type('text/plain')
       return 'Not found'
@@ -263,7 +263,7 @@ export default async function siteRendererRoutes(app) {
   const orderingVenues = async bundle => {
     const ids = (bundle.venues || []).map(v => v.id)
     if (!ids.length) return []
-    const rows = await sql`SELECT venue_id FROM ordering_settings WHERE venue_id = ANY(${ids}::uuid[]) AND is_enabled = true`
+    const rows = await systemSql`SELECT venue_id FROM ordering_settings WHERE venue_id = ANY(${ids}::uuid[]) AND is_enabled = true`
     const on = new Set(rows.map(r => r.venue_id))
     return bundle.venues.filter(v => on.has(v.id))
   }
@@ -667,7 +667,7 @@ export default async function siteRendererRoutes(app) {
       })(),
     }
 
-    const [venue] = await sql`
+    const [venue] = await systemSql`
       SELECT v.id, v.tenant_id, v.name, v.timezone,
              br.slot_duration_mins, br.min_covers, br.max_covers,
              br.book_until_days, br.hold_ttl_secs,
@@ -786,7 +786,7 @@ export default async function siteRendererRoutes(app) {
     }
     const initialVenueId = req.query.venue || null
 
-    const [tenantSite] = await sql`
+    const [tenantSite] = await tenantSql(tenantId)`
       SELECT ts.primary_colour, ts.font_family, ts.site_name, ts.widget_settings,
              ts.theme,
              t.name AS tenant_name
@@ -800,7 +800,7 @@ export default async function siteRendererRoutes(app) {
       return reply.view('site/not-found.eta', { message: 'Tenant not found', rootDomain: env.PUBLIC_ROOT_DOMAIN })
     }
 
-    const venues = await sql`
+    const venues = await tenantSql(tenantId)`
       SELECT v.id, v.name, v.timezone,
              br.slot_duration_mins, br.min_covers, br.max_covers,
              br.book_until_days, br.hold_ttl_secs,

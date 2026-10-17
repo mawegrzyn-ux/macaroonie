@@ -15,6 +15,8 @@
 //                               (a kiosk may only call /me, /config and /events)
 //   GET  /sync?since=<seq>      events and changed checks since seq; reset: true with all open checks
 //   GET  /kitchen/sync?since=   kitchen orders since seq (shared/pos/kitchen.js; services/kitchenSvc.js)
+//   PUT  /kitchen/flow          { flow_id } a kitchen screen's flow button puts another kitchen flow in
+//                               use (migration 177; not when Till setup turned it off for that screen)
 //   POST /events                { events: [...] } -> per-event results, in order (till and kitchen
 //                               events; kitchen.order_in / order_status are refused from devices)
 //   GET  /checks?status=closed  recent closed checks (reopen, refund, reprint)
@@ -34,7 +36,7 @@
 
 import crypto from 'node:crypto'
 import { z } from 'zod'
-import { sql, withTenant } from '../config/db.js'
+import { sql, withTenant, systemSql, tenantSql } from '../config/db.js'
 import { httpError } from '../middleware/error.js'
 import { broadcast } from '../config/ws.js'
 import {
@@ -46,7 +48,7 @@ import { KITCHEN_SERVER_EVENTS } from '../../../shared/pos/kitchen.js'
 import { CHECK_EVENTS } from '../../../shared/pos/checks.js'
 import { kioskConfig, readPreviewToken, previewDevice } from '../services/kioskSvc.js'
 import { setSoldOut, soldOutItemIds, announceSoldOut } from '../services/soldOut.js'
-import { kdsConfig, kitchenSync, onlineMoves } from '../services/kitchenSvc.js'
+import { kdsConfig, kitchenSync, onlineMoves, switchFlow } from '../services/kitchenSvc.js'
 import { changeStatus } from '../services/orderSvc.js'
 
 const UUID = z.string().uuid()
@@ -69,7 +71,7 @@ function sameHash(a, b) {
 async function loadDevice(id) {
   const hit = deviceCache.get(id)
   if (hit && Date.now() - hit.at < CACHE_MS) return hit.device
-  const [d] = await sql`
+  const [d] = await systemSql`
     SELECT d.id, d.tenant_id, d.venue_id, d.kind, d.name, d.short_code, d.secret_hash, d.revoked_at, d.settings,
            t.is_active AS tenant_active,
            COALESCE((SELECT m.is_enabled FROM tenant_modules m WHERE m.tenant_id = d.tenant_id AND m.module_key = 'pos_setup'), true) AS pos_enabled
@@ -111,7 +113,7 @@ async function requireDevice(req, reply) {
   if (Date.now() - seen > 60_000) {
     lastSeen.set(d.id, Date.now())
     const version = String(req.headers['x-pos-version'] || '').slice(0, 40) || null
-    sql`UPDATE pos_devices SET last_seen_at = now(), app_version = COALESCE(${version}, app_version) WHERE id = ${d.id}`
+    tenantSql(d.tenant_id)`UPDATE pos_devices SET last_seen_at = now(), app_version = COALESCE(${version}, app_version) WHERE id = ${d.id}`
       .catch(e => req.log.warn({ err: e }, 'pos last_seen update failed'))
   }
 }
@@ -152,7 +154,7 @@ export default async function posApiRoutes(app) {
     }).parse(req.body)
     const hash = sha256(normaliseCode(body.code))
     const secret = newDeviceSecret()
-    const [d] = await sql`
+    const [d] = await systemSql`
       UPDATE pos_devices
          SET secret_hash = ${sha256(secret)}, pairing_code_hash = NULL, pairing_expires_at = NULL, paired_at = now(),
              last_seen_at = now(), app_version = ${body.app_version ?? null}, user_agent = ${body.user_agent ?? null}
@@ -160,7 +162,7 @@ export default async function posApiRoutes(app) {
        RETURNING id, tenant_id, venue_id, kind, name, short_code`
     if (!d) throw httpError(422, 'That code isn\'t right or has run out: make a new one in Till setup')
     deviceCache.delete(d.id)
-    const [v] = await sql`SELECT name FROM venues WHERE id = ${d.venue_id} AND tenant_id = ${d.tenant_id}`
+    const [v] = await tenantSql(d.tenant_id)`SELECT name FROM venues WHERE id = ${d.venue_id} AND tenant_id = ${d.tenant_id}`
     return { device_id: d.id, secret, name: d.name, kind: d.kind, short_code: d.short_code, venue_id: d.venue_id, venue_name: v?.name || null }
   })
 
@@ -184,13 +186,13 @@ export default async function posApiRoutes(app) {
 
     scoped.get('/me', async req => {
       const d = req.posDevice
-      const [v] = await sql`SELECT name, timezone FROM venues WHERE id = ${d.venue_id} AND tenant_id = ${d.tenant_id}`
+      const [v] = await tenantSql(d.tenant_id)`SELECT name, timezone FROM venues WHERE id = ${d.venue_id} AND tenant_id = ${d.tenant_id}`
       return { device_id: d.id, name: d.name, kind: d.kind, short_code: d.short_code, settings: d.settings || {}, venue_id: d.venue_id, venue_name: v?.name, timezone: v?.timezone }
     })
 
     scoped.get('/config', async req => {
       const d = req.posDevice
-      const [own] = await sql`SELECT name, short_code, settings FROM pos_devices WHERE id = ${d.id} AND tenant_id = ${d.tenant_id}`
+      const [own] = await tenantSql(d.tenant_id)`SELECT name, short_code, settings FROM pos_devices WHERE id = ${d.id} AND tenant_id = ${d.tenant_id}`
       const device = { id: d.id, kind: d.kind, name: own?.name, short_code: own?.short_code, settings: own?.settings || {} }
       // A kitchen screen gets the kitchen's config (no menus, no PINs). Its
       // own settings count towards the version, so a change made in Till
@@ -214,6 +216,24 @@ export default async function posApiRoutes(app) {
       const d = req.posDevice
       const since = Math.max(0, Number(req.query.since) || 0)
       return withTenant(d.tenant_id, tx => kitchenSync(tx, d.tenant_id, d.venue_id, since))
+    })
+
+    // The kitchen screen's flow button: dishes sent from now follow the flow
+    // put in use, dishes already sent keep their way. Online only (the
+    // sequencer routes dishes); every screen at the venue gets pos.config.
+    scoped.put('/kitchen/flow', async req => {
+      const d = req.posDevice
+      if (d.kind !== 'kds') throw httpError(403, 'Only a kitchen screen can switch the kitchen flow')
+      const { flow_id } = z.object({ flow_id: UUID }).parse(req.body)
+      const out = await withTenant(d.tenant_id, async tx => {
+        const [own] = await tx`SELECT name, settings FROM pos_devices WHERE id = ${d.id} AND tenant_id = ${d.tenant_id}`
+        if (own?.settings?.can_switch_flow === false) {
+          throw httpError(403, 'This screen can\'t switch the kitchen flow: it can be allowed in Till setup, Kitchen screens')
+        }
+        return switchFlow(tx, d.tenant_id, d.venue_id, flow_id, own?.name || 'A kitchen screen')
+      })
+      if (out.changed) broadcast('pos:' + d.venue_id, { type: 'pos.config' })
+      return out
     })
 
     // Sold out: the signed-in person's role needs sold_out (or approved_by
@@ -426,8 +446,9 @@ export default async function posApiRoutes(app) {
 /**
  * After kitchen events: an online order the kitchen finished becomes ready
  * (the guest's "ready" email goes out), one handed over becomes collected,
- * when the venue wants it (pos_settings.kds_online_ready). Never fails the
- * events.
+ * when the venue wants it (pos_settings.kds_online_ready). A GloriaFood order
+ * (migration 178) moves on the Online orders board the same way (our board
+ * status only). Never fails the events.
  */
 function afterKitchen(req, device, results) {
   const moves = onlineMoves(results)
@@ -436,8 +457,21 @@ function afterKitchen(req, device, results) {
     const [s] = await withTenant(device.tenant_id, tx => tx`
       SELECT kds_online_ready FROM pos_settings WHERE venue_id = ${device.venue_id} AND tenant_id = ${device.tenant_id}`)
     if (s && s.kds_online_ready === false) return
+    let gfMoved = false
     for (const m of moves) {
       try {
+        if (m.source === 'gloriafood') {
+          const from = m.status === 'ready' ? ['accepted', 'preparing'] : ['accepted', 'preparing', 'ready']
+          const [g] = await withTenant(device.tenant_id, tx => tx`
+            UPDATE gloriafood_orders
+               SET board_status = ${m.status}, board_status_by = ${'Kitchen screen ' + device.name},
+                   board_status_at = now(), updated_at = now()
+             WHERE id = ${m.order_id} AND tenant_id = ${device.tenant_id} AND venue_id = ${device.venue_id}
+               AND status = 'accepted' AND received_via <> 'import' AND board_status = ANY(${from}::text[])
+            RETURNING id`)
+          if (g) gfMoved = true
+          continue
+        }
         const [o] = await withTenant(device.tenant_id, tx => tx`
           SELECT status FROM orders WHERE id = ${m.order_id} AND tenant_id = ${device.tenant_id} AND venue_id = ${device.venue_id}`)
         if (!o) continue
@@ -449,6 +483,7 @@ function afterKitchen(req, device, results) {
         req.log.warn({ err, order: m.order_id }, 'kitchen: online order status change failed')
       }
     }
+    if (gfMoved) broadcast(device.venue_id, { type: 'order.updated', source: 'gloriafood' })
   })().catch(err => req.log.warn({ err }, 'kitchen: online order moves failed'))
 }
 

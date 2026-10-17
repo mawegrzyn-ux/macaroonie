@@ -8,7 +8,10 @@
  * server has the AI set up: the script asks /ai-api/tenants/:id/status.
  * A booking only happens when the guest presses Confirm on the card the
  * chat shows. The conversation id and its key are kept in localStorage
- * (maca_ai_chat_<tenantId>) so a reload carries on.
+ * (maca_ai_chat_<tenantId>) so a reload carries on. Replies stream in
+ * (server-sent events, the same events as the staff chat): text as it is
+ * written, then the whole conversation at the end; a reload while a reply
+ * is still being written asks again until it is done.
  *
  * Data: mode ('inline' | 'launcher'), heading, intro, button_text,
  *       accent (theme role), container, boxed_step.
@@ -101,8 +104,12 @@ const _wrap = d.container === 'full'
   var state = {}
   try { state = JSON.parse(localStorage.getItem(KEY) || '{}') || {} } catch (e) { state = {} }
   var items = []
+  var live = []        /* the reply as it streams in */
+  var activity = ''
+  var notice = ''
   var busy = false
   var errorText = ''
+  var drawPending = false
   var launchBtn = document.getElementById('<%= _uid %>-btn')
 
   function esc(s) {
@@ -150,17 +157,25 @@ const _wrap = d.container === 'full'
         return '<button type="button" data-sugg="' + esc(s) + '">' + esc(s) + '</button>'
       }).join('') + '</div>'
     }
-    shown.forEach(function (i) {
+    shown.concat(live).forEach(function (i) {
       if (i.type === 'user') html += '<div class="aic-me">' + esc(i.text) + '</div>'
-      else if (i.type === 'assistant') html += '<div class="aic-ai">' + rich(i.text) + '</div>'
+      else if (i.type === 'assistant') { if (String(i.text || '').trim()) html += '<div class="aic-ai">' + rich(i.text) + '</div>' }
       else if (i.type === 'step') html += '<div class="aic-step">' + esc(i.text) + '</div>'
       else if (i.type === 'action') html += cardHtml(i)
     })
-    if (busy) html += '<div class="aic-busy">Just a moment...</div>'
+    if (busy) html += '<div class="aic-busy">' + esc(activity || 'Just a moment...') + '</div>'
+    if (notice && !busy) html += '<div class="aic-step">' + esc(notice) + '</div>'
     if (errorText) html += '<div class="aic-err">' + esc(errorText) + '</div>'
+    var atEnd = log.scrollHeight - log.scrollTop - log.clientHeight < 80
     log.innerHTML = html
-    log.scrollTop = log.scrollHeight
+    if (atEnd || !live.length) log.scrollTop = log.scrollHeight
     sendBtn.disabled = busy
+  }
+  /* At most one redraw a frame while a reply streams in. */
+  function renderSoon() {
+    if (drawPending) return
+    drawPending = true
+    requestAnimationFrame(function () { drawPending = false; render() })
   }
 
   function post(url, body) {
@@ -173,26 +188,117 @@ const _wrap = d.container === 'full'
       })
   }
 
+  /* POST asking for server-sent events: onEvent gets each one; resolves with
+     the done event, rejects with the error event (or a dropped connection,
+     err.lost). A plain JSON answer (an early refusal) is handled as post(). */
+  function stream(url, body, onEvent) {
+    /* The server sends something every 15 s while the stream is open: 45 s
+       of silence means the connection died without closing. */
+    var controller = window.AbortController ? new AbortController() : null
+    var idle = null
+    function arm() { clearTimeout(idle); idle = setTimeout(function () { if (controller) controller.abort() }, 45000) }
+    return fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' }, body: JSON.stringify(body), signal: controller ? controller.signal : undefined })
+      .then(function (r) {
+        if ((r.headers.get('content-type') || '').indexOf('text/event-stream') < 0 || !r.body) {
+          return r.json().catch(function () { return {} }).then(function (j) {
+            if (!r.ok) throw new Error(j.error || 'Something went wrong. Please try again.')
+            return j
+          })
+        }
+        var reader = r.body.getReader()
+        var decoder = new TextDecoder()
+        var buffer = ''
+        function lost() { var e = new Error('The connection dropped. Your reply will show here when it is ready.'); e.lost = true; return e }
+        arm()
+        function pump() {
+          return reader.read().then(function (chunk) {
+            arm()
+            if (chunk.value) buffer += decoder.decode(chunk.value, { stream: true })
+            var end
+            while ((end = /\r?\n\r?\n/.exec(buffer))) {
+              var lines = buffer.slice(0, end.index).split(/\r?\n/)
+              buffer = buffer.slice(end.index + end[0].length)
+              var data = lines.filter(function (l) { return l.indexOf('data:') === 0 }).map(function (l) { return l.slice(5).replace(/^ /, '') }).join('\n')
+              if (!data) continue
+              var ev
+              try { ev = JSON.parse(data) } catch (e) { continue }
+              if (ev.type === 'done') return ev
+              if (ev.type === 'error') { var err = new Error(ev.error || 'Something went wrong. Please try again.'); err.withdrawn = !!ev.withdrawn; throw err }
+              onEvent(ev)
+            }
+            if (chunk.done) throw lost()
+            return pump()
+          }, function () { throw lost() })
+        }
+        return pump()
+      })
+      .then(function (res) { clearTimeout(idle); return res }, function (err) { clearTimeout(idle); throw err })
+  }
+
+  function onEvent(ev) {
+    if (ev.type === 'start') {
+      state.conversation_id = ev.conversation_id
+      if (ev.guest_key) state.guest_key = ev.guest_key
+      save()
+      return
+    }
+    if (ev.type === 'activity') activity = ev.text
+    else if (ev.type === 'text') {
+      var found = null
+      live.forEach(function (x) { if (x.key === ev.key) found = x })
+      if (found) found.text += ev.delta
+      else live.push({ type: 'assistant', key: ev.key, text: ev.delta })
+    } else if (ev.type === 'discard') live = live.filter(function (x) { return !x.key || x.key.indexOf(ev.key) !== 0 })
+    else if (ev.type === 'step') { live.push({ type: 'step', text: ev.text }); activity = '' }
+    else if (ev.type === 'card') { live.push(ev.card); activity = '' }
+    renderSoon()
+  }
+
+  /* Reloads the conversation, and keeps asking while a reply is still being
+     written (a dropped stream, another tab). */
+  function reload() {
+    if (!state.conversation_id || !state.guest_key) return
+    fetch('/ai-api/conversations/' + state.conversation_id + '?key=' + encodeURIComponent(state.guest_key))
+      .then(function (r) { if (!r.ok) throw new Error('gone'); return r.json() })
+      .then(function (res) {
+        items = res.items || []
+        if (res.running && !busy) {
+          busy = true; activity = ''
+          render()
+          setTimeout(function () { busy = false; reload() }, 3000)
+          return
+        }
+        render()
+      })
+      .catch(function () { state = {}; save() })
+  }
+
   function send(text) {
     text = String(text || '').trim()
     if (!text || busy) return
-    busy = true; errorText = ''
+    busy = true; errorText = ''; notice = ''; live = []; activity = ''
     items.push({ type: 'user', text: text })
     render()
-    post('/ai-api/chat', { tenant_id: tenant, conversation_id: state.conversation_id || undefined, guest_key: state.guest_key || undefined, message: text })
+    var started = false
+    stream('/ai-api/chat', { tenant_id: tenant, conversation_id: state.conversation_id || undefined, guest_key: state.guest_key || undefined, message: text }, function (ev) {
+      if (ev.type === 'start') started = true
+      onEvent(ev)
+    })
       .then(function (res) {
         state.conversation_id = res.conversation_id
         if (res.guest_key) state.guest_key = res.guest_key
         save()
         items = res.items || []
+        notice = res.notice || ''
       })
       .catch(function (err) {
         errorText = err.message
+        if (started && !err.withdrawn) { live = []; busy = false; reload(); return }
         items.pop()
         input.value = input.value || text
         if (/not found/i.test(err.message)) { state = {}; save() }
       })
-      .then(function () { busy = false; render() })
+      .then(function () { busy = false; live = []; activity = ''; render() })
   }
 
   function decide(id, act) {
@@ -236,12 +342,7 @@ const _wrap = d.container === 'full'
     if (mode === 'launcher') { if (launchBtn) launchBtn.hidden = false }
     else root.hidden = false
     render()
-    if (state.conversation_id && state.guest_key) {
-      fetch('/ai-api/conversations/' + state.conversation_id + '?key=' + encodeURIComponent(state.guest_key))
-        .then(function (r) { if (!r.ok) throw new Error('gone'); return r.json() })
-        .then(function (res) { items = res.items || []; render() })
-        .catch(function () { state = {}; save() })
-    }
+    reload()
   }).catch(function () {})
 })()
 </script>

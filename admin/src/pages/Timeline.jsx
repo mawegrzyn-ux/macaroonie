@@ -24,6 +24,7 @@ import BookingDrawer from '@/components/bookings/BookingDrawer'
 import NewBookingModal from '@/components/bookings/NewBookingModal'
 import { useTimelineSettings } from '@/contexts/TimelineSettingsContext'
 import { useSettings, hexToRgba } from '@/contexts/SettingsContext'
+import { usePepperPage } from '@/lib/pepperPage'
 
 // ── Constants ────────────────────────────────────────────────
 const HOUR_WIDTH   = 80     // px per hour
@@ -536,6 +537,7 @@ export default function Timeline() {
 
   // Computed venueId — AppShell venue selector writes to context; fall back to first venue
   const venueId = tlSettings.venueId ?? venues[0]?.id ?? null
+  usePepperPage({ venueId, date })
 
   useRealtimeBookings(venueId)
 

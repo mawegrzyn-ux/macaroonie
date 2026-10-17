@@ -20,7 +20,7 @@
 // unsent uploads go after a day, used or expired guest codes after a day,
 // per-person usage after 400 days.
 
-import { sql, withTenant } from '../config/db.js'
+import { sql, systemSql, withTenant } from '../config/db.js'
 
 const REMOVED = '[removed]'
 const MIN_LENGTH = 3
@@ -154,7 +154,7 @@ export async function eraseFromAi(tx, tenantId, values) {
 // ── The hourly clean-up ──────────────────────────────────
 
 export async function cleanUpAi(log) {
-  const tenants = await sql`
+  const tenants = await systemSql`
     SELECT t.id, COALESCE(s.chat_retention_days, 90) AS days
       FROM tenants t LEFT JOIN ai_settings s ON s.tenant_id = t.id
   `

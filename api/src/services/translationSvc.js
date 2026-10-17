@@ -58,10 +58,13 @@ export function checkLang(lang) {
   return lang
 }
 
-/** One language's words: texts { key: text | '' } ('' removes it). Returns how many were saved and removed. */
+/** One language's words: texts { key: text | '' } ('' removes it). Returns how many were saved, removed and skipped. */
 export async function saveTranslations(tx, tenantId, lang, texts, by) {
   checkLang(lang)
-  let saved = 0, removed = 0
+  // Only words this tenant has: a key naming a dish that is gone (deleted
+  // while the page was open) or another tenant's is skipped, not stored.
+  const known = new Set((await translationSources(tx, tenantId)).map(s => s.key))
+  let saved = 0, removed = 0, skipped = 0
   for (const [key, value] of Object.entries(texts)) {
     if (!KEY_PATTERN.test(key)) throw httpError(422, 'A translation key isn\'t right: ' + key.slice(0, 60))
     const t = typeof value === 'string' ? value.trim() : ''
@@ -70,6 +73,7 @@ export async function saveTranslations(tx, tenantId, lang, texts, by) {
       removed += r.count
       continue
     }
+    if (!known.has(key)) { skipped++; continue }
     if (t.length > 2000) throw httpError(422, 'A translation is too long (2000 characters at most)')
     await tx`
       INSERT INTO menu_translations (tenant_id, lang, key, text, updated_by)
@@ -77,7 +81,7 @@ export async function saveTranslations(tx, tenantId, lang, texts, by) {
       ON CONFLICT (tenant_id, lang, key) DO UPDATE SET text = EXCLUDED.text, updated_by = EXCLUDED.updated_by, updated_at = now()`
     saved++
   }
-  return { saved, removed }
+  return { saved, removed, skipped }
 }
 
 // ── Suggestions from Claude ──────────────────────────────────────

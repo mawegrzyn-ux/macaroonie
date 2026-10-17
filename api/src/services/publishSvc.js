@@ -9,7 +9,7 @@
 // keep their own separate publish/moderation state and stay live-shared
 // between staging and production.
 
-import { sql, withTenant } from '../config/db.js'
+import { sql, withTenant, tenantSql } from '../config/db.js'
 import { httpError } from '../middleware/error.js'
 
 // Keep these three field lists in sync with the equivalent SQL column
@@ -58,7 +58,7 @@ function pick(row, fields) {
 
 /** Gathers the current live content into the snapshot shape, without saving it. */
 export async function buildPublishSnapshot(tenantId) {
-  const [tsRow] = await sql`SELECT * FROM tenant_site WHERE tenant_id = ${tenantId} LIMIT 1`
+  const [tsRow] = await tenantSql(tenantId)`SELECT * FROM tenant_site WHERE tenant_id = ${tenantId} LIMIT 1`
   if (!tsRow) throw httpError(404, 'No website set up for this tenant yet')
 
   return withTenant(tenantId, async tx => {
@@ -158,7 +158,7 @@ function diffPages(live = [], pub = [], prefix = '') {
  * Website menu area, page and location that publishing would change.
  */
 export async function publishStatus(tenantId) {
-  const [ts] = await sql`
+  const [ts] = await tenantSql(tenantId)`
     SELECT published_snapshot, published_at, scheduled_publish_at
       FROM tenant_site WHERE tenant_id = ${tenantId} LIMIT 1`
   if (!ts) return { exists: false }
@@ -185,7 +185,7 @@ export async function publishStatus(tenantId) {
     ...Object.keys(live.venue_pages || {}), ...Object.keys(pub.venue_pages || {}),
   ])]
   const venues = venueIds.length
-    ? await sql`SELECT id, name FROM venues WHERE tenant_id = ${tenantId} AND id = ANY(${venueIds}::uuid[])`
+    ? await tenantSql(tenantId)`SELECT id, name FROM venues WHERE tenant_id = ${tenantId} AND id = ANY(${venueIds}::uuid[])`
     : []
   const venueName = Object.fromEntries(venues.map(v => [v.id, v.name]))
   for (const vid of venueIds) {
@@ -210,7 +210,7 @@ export async function publishStatus(tenantId) {
 /** Publish now — builds a fresh snapshot and makes it live on production. */
 export async function publishTenantSite(tenantId) {
   const snapshot = await buildPublishSnapshot(tenantId)
-  const [row] = await sql`
+  const [row] = await tenantSql(tenantId)`
     UPDATE tenant_site
        SET published_snapshot   = ${sql.json(snapshot)},
            published_at         = now(),
@@ -233,7 +233,7 @@ export async function publishTenantSite(tenantId) {
  * elsewhere in the website builder (see upsertMenuTree in menus.js).
  */
 export async function overrideStagingWithProduction(tenantId) {
-  const [ts] = await sql`SELECT published_snapshot FROM tenant_site WHERE tenant_id = ${tenantId} LIMIT 1`
+  const [ts] = await tenantSql(tenantId)`SELECT published_snapshot FROM tenant_site WHERE tenant_id = ${tenantId} LIMIT 1`
   if (!ts?.published_snapshot) {
     throw httpError(409, "Nothing has been published yet — there's nothing to restore staging from.")
   }

@@ -16,7 +16,7 @@
 
 import { WebSocketServer } from 'ws'
 import IORedis from 'ioredis'
-import { sql } from './db.js'
+import { sql, systemSql } from './db.js'
 import { env } from './env.js'
 import { isMember } from '../services/membershipSvc.js'
 import { verifyDevice } from '../routes/posApi.js'
@@ -106,7 +106,8 @@ export function attachWss(httpServer, jwtVerify) {
       const sub     = payload.sub
       const email   = payload[`${CLAIM_NS}email`] ?? payload.email ?? null
 
-      const [venue] = await sql`
+      // System mode: the venue is what says which tenant this is.
+      const [venue] = await systemSql`
         SELECT v.id, v.tenant_id FROM venues v WHERE v.id = ${venueId} LIMIT 1
       `
       if (!venue) { ws.close(4003, 'Forbidden'); return }

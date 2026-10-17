@@ -13,6 +13,7 @@ import { useApi } from '@/lib/api'
 import { cn, openPicker } from '@/lib/utils'
 import { OrderBoard, AvailabilityModal, PauseButton, useOrders, money, todayIn } from '@/components/orders/shared'
 import { usePermission } from '@/hooks/usePermission'
+import { usePepperPage } from '@/lib/pepperPage'
 
 function addDays(date, n) {
   const [y, m, d] = date.split('-').map(Number)
@@ -40,6 +41,7 @@ export default function Orders() {
   const venue = venues.find(v => v.id === venueId)
   const today = todayIn(venue?.timezone)
   const [date, setDate] = useState(today)
+  usePepperPage({ venueId, date })
   useEffect(() => { setDate(todayIn(venue?.timezone)) }, [venue?.timezone])
 
   const board = useOrders(venueId, date)

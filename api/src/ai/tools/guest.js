@@ -9,7 +9,7 @@
 // services/guestBookingSvc.js, same as the guest's own manage page.
 
 import { z } from 'zod'
-import { sql, withTenant } from '../../config/db.js'
+import { sql, systemSql, withTenant } from '../../config/db.js'
 import { ToolError, callApi, audit } from '../context.js'
 import { requestCode, verifyCode, bookingIdForKey, GENERIC_CODE_REPLY, ACCESS_KEY_MINUTES } from '../codes.js'
 import {
@@ -28,7 +28,8 @@ const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 
 /** A venue a guest tool may use: active, and either this site's own
  *  (website chat) or on a tenant with AI booking switched on (MCP). */
 async function guestVenue(ctx, venueId) {
-  const [v] = await sql`
+  // System mode: a guest's venue can be any tenant's (MCP), checked below.
+  const [v] = await systemSql`
     SELECT v.id, v.tenant_id, v.name, v.slug, v.timezone,
            COALESCE(ts.brand_name, ts.site_name, t.name) AS brand,
            ts.subdomain_slug, ts.custom_domain, ts.custom_domain_verified, ts.is_published,
@@ -144,7 +145,7 @@ export const guestTools = [
         throw new ToolError('Give at least part of a restaurant name, town or postcode.', 422)
       }
       const like = '%' + q.toLowerCase() + '%'
-      const rows = await sql`
+      const rows = await systemSql`
         SELECT v.id, v.name, v.slug, v.timezone, v.tenant_id,
                COALESCE(ts.brand_name, ts.site_name, t.name) AS brand,
                wc.address_line1, wc.city, wc.postcode, wc.phone,

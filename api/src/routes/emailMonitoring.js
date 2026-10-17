@@ -23,6 +23,7 @@ import {
   pingApiKey,
 } from '../services/sendgridSvc.js'
 import { env } from '../config/env.js'
+import { unseal } from '../services/vault.js'
 
 // Booking emails permission: view reads. Clearing a suppression stays owner only.
 const PERM = {
@@ -46,7 +47,7 @@ async function loadSendgridKey(tenantId, venueId) {
   const provider = settings?.email_provider || 'sendgrid'
   if (provider !== 'sendgrid') return { provider, apiKey: null }
   // venue-specific key, falling back to the platform-wide env var
-  const apiKey = settings?.provider_api_key || env.SENDGRID_API_KEY || null
+  const apiKey = unseal(settings?.provider_api_key) || env.SENDGRID_API_KEY || null   // stored sealed (migration 179)
   return { provider, apiKey }
 }
 

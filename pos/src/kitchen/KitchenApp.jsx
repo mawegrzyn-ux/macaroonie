@@ -10,11 +10,15 @@
 // are now ("At Prep 1"). Bump bars and keyboards work too: 1-9 / 0 pick a
 // ticket, Enter or Space bumps, arrows page, R brings the last ticket back,
 // S shows what is on order, P makes a ticket a rush.
+//
+// With more than one kitchen flow (migration 177), the flow button at the
+// right of the top bar shows the one in use and switches to another: dishes
+// sent from then on follow it, dishes already sent keep their way.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ChevronLeft, ChevronRight, Check, RotateCcw, ListOrdered, Flame, Settings, Maximize, Minimize, Clock,
-  Wifi, WifiOff, X, Utensils, AlertTriangle, Keyboard, Volume2, PackageCheck,
+  Wifi, WifiOff, X, Utensils, AlertTriangle, Keyboard, Volume2, PackageCheck, Workflow, ChevronDown,
 } from 'lucide-react'
 import {
   stationTickets, recentBumps, laterOrders, onOrderCounts, stationStats, ageTone, clockSince, clockSecs,
@@ -23,7 +27,7 @@ import {
 import { countParts } from '@shared/combos.js'
 import {
   useKitchen, useOrders, useCfg, bootKitchen, nowIso, myStations, currentStation, setPrefs, bump, recall, itemDone,
-  remake, priority, collected, unlockAudio, chime, loadConfig, toast,
+  remake, priority, collected, unlockAudio, chime, loadConfig, toast, activeFlow, switchFlow,
 } from './store.js'
 
 const cx = (...p) => p.filter(Boolean).join(' ')
@@ -57,14 +61,17 @@ const TEXT = {
   xl:     { item: 'text-[22px]', mod: 'text-[19px]', head: 'text-[20px]' },
 }
 
-// Filters: all, one per order type (the tenant's own, migration 170), online.
+// Filters: all, one per order type (the tenant's own, migration 170), online
+// (the website's and GloriaFood's, migration 178).
+const isOnline = o => o.source === 'online' || o.source === 'gloriafood'
 function filtersFor(types) {
   return [
     { key: 'all', label: 'All orders', test: () => true },
     ...(types || []).map(t => ({ key: t.id, label: t.name, test: o => o.type === t.id })),
-    { key: 'online', label: 'Online', test: o => o.source === 'online' },
+    { key: 'online', label: 'Online', test: isOnline },
   ]
 }
+const SOURCE_NAMES = { online: 'Online', gloriafood: 'GloriaFood' }
 // Ticket badge colours by order type position (a type's own colour wins).
 const TYPE_COLOURS = ['bg-[#9be7a1] text-black', 'bg-[#25a7a7] text-white', 'bg-[#7c5cd6] text-white', 'bg-[#e0a33a] text-black', 'bg-[#d6577c] text-white']
 
@@ -143,7 +150,7 @@ function Kitchen() {
   const cols = Math.max(2, Math.min(10, dev.columns || Math.max(3, Math.floor(width / 230))))
   const [page, setPage] = useState(0)
   const [selected, setSelected] = useState(null)
-  const [panel, setPanel] = useState(null)   // 'recall' | 'sum' | 'later' | 'ready' | 'settings' | 'keys' | { remake }
+  const [panel, setPanel] = useState(null)   // 'recall' | 'sum' | 'later' | 'ready' | 'settings' | 'keys' | 'flow' | { remake }
   const [full, setFull] = useState(!!document.fullscreenElement)
 
   const all = useMemo(() => stationTickets(orders, station, now, cfg), [orders, station, now, cfg])
@@ -157,6 +164,7 @@ function Kitchen() {
   const right = Math.max(0, tickets.length - left - shown.length)
   const sel = shown.find(t => t.order.id === selected) || shown[0] || null
   const later = laterOrders(orders, now)
+  const flow = activeFlow(s.config)
   const orderLevel = isOrderLevel(station)
   const ready = orderLevel ? readyOrders(orders, station, now) : []
 
@@ -260,6 +268,14 @@ function Kitchen() {
             <Clock size={18} /> Later ({later.length})
           </button>
         )}
+        {flow && (
+          <button onClick={() => setPanel('flow')} data-testid="kds-flow-button" title="Kitchen flow" aria-label={'Kitchen flow: ' + flow.name}
+            className="shrink-0 min-w-[48px] px-3 sm:px-4 flex items-center gap-2 font-bold whitespace-nowrap bg-[#13241a] border-l border-white/15 text-white touch-manipulation active:brightness-125">
+            <Workflow size={18} className="text-[#9be7a1] shrink-0" />
+            <span className="max-w-[8rem] sm:max-w-[14rem] truncate">{flow.name}</span>
+            <ChevronDown size={16} className="text-white/60 shrink-0" />
+          </button>
+        )}
       </div>
       {/* Stats bar */}
       <div className="h-11 shrink-0 bg-[#0b6b35] flex items-center gap-3 sm:gap-6 px-3 text-[13px] whitespace-nowrap overflow-x-auto no-scrollbar">
@@ -341,6 +357,7 @@ function Kitchen() {
           onKeys={() => setPanel('keys')} onClose={() => setPanel(null)} />
       )}
       {panel === 'keys' && <KeysPanel onClose={() => setPanel(null)} />}
+      {panel === 'flow' && <FlowPanel config={s.config} names={names} onClose={() => setPanel(null)} />}
     </div>
   )
 }
@@ -388,7 +405,7 @@ function Ticket({ t, n, station, now, text, selected, alert, onSelect, names, ty
         selected ? 'ring-[3px] ring-[#22d3ee]' : 'ring-1 ring-white/10')}>
       <div className={cx('shrink-0 px-2 py-1.5', headBg)}>
         <div className="flex items-center gap-1.5">
-          <span className={cx('font-bold truncate min-w-0 flex-1', text.head)}>{o.table ? 'Tbl ' + o.table : o.tab || o.guest || (o.source === 'online' ? 'Online' : 'Counter')}</span>
+          <span className={cx('font-bold truncate min-w-0 flex-1', text.head)}>{o.table ? 'Tbl ' + o.table : o.tab || o.guest || SOURCE_NAMES[o.source] || 'Counter'}</span>
           {o.number && <span className="bg-white text-black font-black px-2 rounded tabular-nums text-[17px]">{o.number}</span>}
           <span className={cx('font-black px-1.5 rounded tabular-nums text-[17px]',
             tone === 'late' ? 'bg-red-600 text-white' : tone === 'warn' ? 'bg-amber-400 text-black' : 'bg-black/30 text-white')}
@@ -398,6 +415,7 @@ function Ticket({ t, n, station, now, text, selected, alert, onSelect, names, ty
           <span className="font-semibold text-white/80 tabular-nums">#{n}</span>
           {o.priority && <span className="bg-white text-[#b45309] font-black px-1.5 rounded">RUSH</span>}
           {fresh && !o.priority && <span className="font-black">NEW</span>}
+          {o.source === 'gloriafood' && <span className="bg-[#e8542a] text-white font-bold px-1.5 rounded whitespace-nowrap shrink-0" data-testid="kds-source">GloriaFood</span>}
           {allDone && <span className="font-black">PREPARED</span>}
           {(o.type_name || o.tent) && (
             <span className={cx('px-1.5 rounded font-bold whitespace-nowrap shrink-0', typeCls)} style={typeColour ? { background: typeColour } : undefined} data-testid="kds-type">
@@ -595,12 +613,12 @@ function ReadyPanel({ ready, now, onClose }) {
 function LaterPanel({ later, onClose }) {
   return (
     <Panel title="Orders for later" onClose={onClose}>
-      <div className="text-sm text-white/60 px-1">Online orders for a collection time. Each one comes onto the screen when it's time to start it.</div>
+      <div className="text-sm text-white/60 px-1">Online and GloriaFood orders for a later time. Each one comes onto the screen when it's time to start it.</div>
       {later.map(({ order, fire_at }) => (
         <div key={order.id} className="bg-zinc-800 rounded-lg p-3">
           <div className="flex items-center gap-3">
             <div className="text-2xl font-black tabular-nums">{order.number}</div>
-            <div className="flex-1 font-bold truncate">{order.guest || 'Online'}</div>
+            <div className="flex-1 font-bold truncate">{order.guest || SOURCE_NAMES[order.source] || 'Online'}{order.source === 'gloriafood' && order.guest ? <span className="ml-2 text-xs font-semibold text-white/60">GloriaFood</span> : null}</div>
             <div className="text-right text-sm">
               <div>Starts {new Date(fire_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</div>
               {order.promised_at && <div className="text-white/60">for {new Date(order.promised_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</div>}
@@ -699,8 +717,68 @@ function SettingsPanel({ stations, station, view, full, onFull, onKeys, onClose 
         <Keyboard size={20} /> Bump bar and keyboard keys
       </button>
       <div className="text-sm text-white/60 px-1 pt-2">
-        Tickets turn amber after {st.target_mins} min and red after {st.late_mins} min. Stations, timings and the kitchen flow (what goes where) are set in Macaroonie: Till setup, Kitchen screens.
+        Tickets turn amber after {st.target_mins} min and red after {st.late_mins} min. Stations, timings and the kitchen flows (what goes where) are set in Macaroonie: Till setup, Kitchen screens.
       </div>
+    </Panel>
+  )
+}
+
+const whenText = at => {
+  const d = new Date(at)
+  const today = new Date().toDateString() === d.toDateString()
+  return d.toLocaleString('en-GB', today ? { hour: '2-digit', minute: '2-digit' } : { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+}
+
+/** The kitchen's flows: the one in use, and a switch to another (confirmed first). */
+function FlowPanel({ config, names, onClose }) {
+  const flows = config.flows || []
+  const active = activeFlow(config)
+  const canSwitch = config.device?.settings?.can_switch_flow !== false
+  const [confirm, setConfirm] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const go = async f => {
+    setBusy(true)
+    const r = await switchFlow(f.id)
+    setBusy(false)
+    if (!r.ok) { toast(r.error, 'bad', 6000); return }
+    toast('Kitchen flow now: ' + f.name, 'ok')
+    onClose()
+  }
+  return (
+    <Panel title="Kitchen flow" onClose={onClose}>
+      <div className="text-sm text-white/60 px-1">Which way dishes go through the kitchen. A switch counts for dishes sent from then on: dishes already on the screens stay where they are.</div>
+      {flows.map(f => {
+        const on = f.id === active?.id
+        const where = f.station_ids.map(id => names[id]).filter(Boolean)
+        return (
+          <div key={f.id} className={cx('rounded-lg p-3', on ? 'bg-[#0e6b33]' : 'bg-zinc-800')} data-testid="kds-flow" data-active={on ? 'true' : 'false'}>
+            <div className="flex items-center gap-3">
+              <div className="flex-1 min-w-0">
+                <div className="font-bold text-lg truncate">{f.name}</div>
+                <div className="text-sm text-white/70 truncate">{where.length ? where.join(', ') : 'No stations in it yet'}</div>
+              </div>
+              {on
+                ? <span className="shrink-0 px-3 h-10 rounded-lg bg-[#9be7a1] text-black font-black flex items-center">IN USE</span>
+                : canSwitch && confirm !== f.id && (
+                  <button className="shrink-0 h-12 px-5 rounded-lg bg-white text-black font-bold touch-manipulation" onClick={() => setConfirm(f.id)}>Switch</button>
+                )}
+            </div>
+            {!on && confirm === f.id && (
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <div className="flex-1 min-w-[11rem] text-sm font-semibold">Send new dishes the {f.name} way?</div>
+                <button className="h-12 px-4 rounded-lg bg-[#1d9a52] font-bold touch-manipulation disabled:opacity-50" disabled={busy} onClick={() => go(f)}>
+                  {busy ? 'Switching...' : 'Yes, switch'}
+                </button>
+                <button className="h-12 px-4 rounded-lg bg-zinc-700 font-bold touch-manipulation" disabled={busy} onClick={() => setConfirm(null)}>Cancel</button>
+              </div>
+            )}
+          </div>
+        )
+      })}
+      {config.flow_switched_at && (
+        <div className="text-sm text-white/50 px-1">Last switched {whenText(config.flow_switched_at)}{config.flow_switched_by ? ' by ' + config.flow_switched_by : ''}.</div>
+      )}
+      {!canSwitch && <div className="text-sm text-amber-300 px-1">This screen can't switch flows. It can be allowed in Macaroonie: Till setup, Kitchen screens.</div>}
     </Panel>
   )
 }

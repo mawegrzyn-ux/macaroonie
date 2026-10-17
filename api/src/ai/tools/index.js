@@ -26,11 +26,12 @@
 // orders, sold out, till and kitchen reports), tools/venue.js (customers,
 // opening times, tables, booking rules), tools/site.js (website,
 // promotions, reviews, menu screens, booking emails, support) and
-// tools/general.js (open_page).
+// tools/general.js (open_page, how_do_i) and tools/briefing.js (day_briefing).
 
 import { zodToJsonSchema } from 'zod-to-json-schema'
 import { ZodError } from 'zod'
 import { ToolError, isStaff } from '../context.js'
+import { MODULE_KEYS } from '../../config/modules.js'
 import { guestTools } from './guest.js'
 import { staffTools as bookingTools } from './staff.js'
 import { hsTools } from './hs.js'
@@ -42,6 +43,7 @@ import { orderTools } from './orders.js'
 import { venueTools } from './venue.js'
 import { siteTools } from './site.js'
 import { generalTools } from './general.js'
+import { briefingTools } from './briefing.js'
 
 // The areas Pepper covers, in the order its prompt lists them.
 export const SECTIONS = {
@@ -60,11 +62,42 @@ export const SECTIONS = {
   support:    'Reporting problems and asking for features',
 }
 
+// The modules each area's tools check (requireStaffPermission). The staff
+// connector lists a tool only when the person has View on one of its area's
+// modules (Manage for a change tool), so a list can show a tool the person
+// still can't use (the tool refuses), never hide one they can.
+export const SECTION_MODULES = {
+  bookings:   ['bookings'],
+  customers:  ['customers'],
+  venue:      ['schedule', 'rules', 'tables', 'venues'],
+  hs:         ['checklists', 'food_safety', 'hs_action_log'],
+  rota:       ['staff', 'rota', 'rota_pay', 'rota_tips'],
+  cash:       ['cash_recon'],
+  orders:     ['web_orders'],
+  till:       ['pos_reports'],
+  menus:      ['menus'],
+  purchasing: ['purchasing', 'purchasing_setup'],
+  website:    ['website', 'promotions', 'screens', 'email_templates'],
+  support:    ['issue_log', 'feature_requests'],
+}
+// Tools anyone with Pepper can use (no area's permission).
+const OPEN_TOOLS = new Set(['list_venues', 'open_page', 'how_do_i'])
+
+/** Can a person with these module levels use this staff tool (connector list)? */
+export function toolAllowed(tool, levels) {
+  if (OPEN_TOOLS.has(tool.name) || tool.section === 'general') return true
+  const modules = SECTION_MODULES[tool.section]
+  if (!modules) return true
+  const need = tool.confirm ? 'manage' : 'view'
+  return modules.some(m => levels[m] === 'manage' || (need === 'view' && levels[m] === 'view'))
+}
+
 const withSection = (tools, section) => tools.map(t => (t.section ? t : { ...t, section }))
 
 // Pepper's tools, every area. Older files don't tag their tools; their file is their area.
 const staffTools = [
   ...generalTools,
+  ...briefingTools,
   ...withSection(bookingTools, 'bookings'),
   ...withSection(hsTools, 'hs'),
   ...withSection(purchasingTools, 'purchasing'),
@@ -77,11 +110,16 @@ const BY_AUDIENCE = { guest: guestTools, staff: staffTools }
 // (src/ai/chat.js). The everyday questions: today's bookings, who is on,
 // what is due, where a page is.
 export const CORE_TOOLS = new Set([
-  'list_venues', 'find_bookings', 'day_overview', 'check_availability', 'hs_status', 'whos_working', 'open_page',
+  'list_venues', 'find_bookings', 'day_overview', 'check_availability', 'hs_status', 'whos_working', 'open_page', 'how_do_i',
+  'day_briefing',
 ])
 
 for (const t of staffTools) {
   if (!SECTIONS[t.section]) throw new Error('Tool ' + t.name + ' has no known section')
+  if (t.section !== 'general' && !SECTION_MODULES[t.section]) throw new Error('Section ' + t.section + ' has no modules in SECTION_MODULES')
+}
+for (const m of Object.values(SECTION_MODULES).flat()) {
+  if (!MODULE_KEYS.includes(m)) throw new Error('SECTION_MODULES names an unknown module: ' + m)
 }
 {
   const names = staffTools.map(t => t.name)
