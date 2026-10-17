@@ -19,6 +19,10 @@
 //   kitchenOnOnlineOrder()  called by orderSvc after an online order changes:
 //                           accepted -> into the kitchen, ready / completed /
 //                           cancelled -> the kitchen follows
+//   kitchenOnGloriaFood()   the same for GloriaFood orders (migration 178),
+//                           called after orders are stored (push, poll) and
+//                           after a board move; gloriaFoodTypes() is which
+//                           order type each GloriaFood type goes to
 //   announceKitchen()       tell the venue's screens to sync
 //   boardFor()              order ready board numbers for a venue (all
 //                           counter / online orders, and per board station)
@@ -29,7 +33,8 @@ import { withTenant } from '../config/db.js'
 import { broadcast } from '../config/ws.js'
 import { httpError } from '../middleware/error.js'
 import { ulid } from '../../../shared/pos/ids.js'
-import { onlineOrderId, stationSettings, boardNumbers, STALE_HOURS, BUMP_KINDS } from '../../../shared/pos/kitchen.js'
+import { onlineOrderId, gloriaFoodOrderId, stationSettings, boardNumbers, STALE_HOURS, BUMP_KINDS } from '../../../shared/pos/kitchen.js'
+import { typeLabel as gfTypeLabel, TYPE_LABELS as GF_TYPE_LABELS } from '../../../shared/gloriafood.js'
 import { createHash } from 'node:crypto'
 
 const by = (rows, f = r => r) => Object.fromEntries(rows.map(r => [r.id, f(r)]))
@@ -323,9 +328,10 @@ export async function kitchenOnOnlineOrder(order) {
 }
 
 /**
- * Online orders the kitchen just finished (or handed over) in these
- * sequencer results: [{ order_id, status: 'ready' | 'completed' }]. The
- * caller moves the online order on (orderSvc.changeStatus) when the venue
+ * Online and GloriaFood orders the kitchen just finished (or handed over) in
+ * these sequencer results: [{ source: 'online' | 'gloriafood', order_id,
+ * status: 'ready' | 'completed' }]. The caller moves the order on
+ * (orderSvc.changeStatus, or the GloriaFood board status) when the venue
  * wants it (pos_settings.kds_online_ready).
  */
 export function onlineMoves(results) {
@@ -333,12 +339,173 @@ export function onlineMoves(results) {
   for (const r of results) {
     if (!r.ok || r.duplicate) continue
     for (const o of Object.values(r.kitchen || {})) {
-      if (o.source !== 'online' || !o.order_id) continue
-      if (o.status === 'ready' && o.ready_event === r.event?.id) out.push({ order_id: o.order_id, status: 'ready' })
-      if (o.status === 'collected' && o.collected_event === r.event?.id) out.push({ order_id: o.order_id, status: 'completed' })
+      if (!['online', 'gloriafood'].includes(o.source) || !o.order_id) continue
+      if (o.status === 'ready' && o.ready_event === r.event?.id) out.push({ source: o.source, order_id: o.order_id, status: 'ready' })
+      if (o.status === 'collected' && o.collected_event === r.event?.id) out.push({ source: o.source, order_id: o.order_id, status: 'completed' })
     }
   }
   return out
+}
+
+// ── GloriaFood orders (migration 178) ────────────────────────────
+
+// The names an order type is matched by for each GloriaFood order type when
+// Till setup hasn't picked one (pos_settings.kds_gloriafood_types).
+const GF_TYPE_NAMES = {
+  pickup:            ['collection', 'take out', 'takeaway'],
+  delivery:          ['delivery'],
+  dine_in:           ['eat in', 'dine in'],
+  order_ahead:       ['collection', 'take out', 'takeaway'],
+  table_reservation: ['eat in', 'dine in'],
+}
+export const GF_TYPES = Object.keys(GF_TYPE_LABELS)
+// An order whose time is further behind us than this isn't sent: a push or
+// poll that comes very late, or an old order sent again because it changed.
+const GF_LATE_HOURS = 2
+const GF_TO_KITCHEN = { ready: 'ready', completed: 'collected' }
+
+/**
+ * Which of the tenant's order types each GloriaFood order type goes to:
+ * { [gloriafood type]: order type id | null }. A type Till setup picked (or
+ * set to none) stays; one it left out is matched by name.
+ */
+export async function gloriaFoodTypes(tx, tenantId, saved = {}) {
+  const types = await tx`SELECT id, name, is_active FROM order_types WHERE tenant_id = ${tenantId} ORDER BY sort_order, name`
+  const out = {}
+  for (const k of GF_TYPES) {
+    if (saved && Object.hasOwn(saved, k)) {
+      out[k] = types.some(t => t.id === saved[k]) ? saved[k] : null
+      continue
+    }
+    const active = types.filter(t => t.is_active)
+    const hit = (GF_TYPE_NAMES[k] || []).map(n => active.find(t => t.name.trim().toLowerCase() === n)).find(Boolean)
+    out[k] = hit?.id || null
+  }
+  return { map: out, names: Object.fromEntries(types.map(t => [t.id, t.name])) }
+}
+
+const dishKey = s => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ')
+
+/**
+ * GloriaFood dishes carry only a name: find the venue's menu dish with the
+ * same name (live menus, case and spaces ignored), so dish and section links
+ * in the kitchen flow apply to it, and it shows under the menu's own name
+ * (kitchen name if set), as till orders do. name -> { item_id, section_id, name } | null
+ */
+async function dishMatcher(tx, tenantId, venueId) {
+  const { loadMenuVersions } = await import('./menuReleases.js')
+  const menus = await loadMenuVersions(tx, tenantId, { venueId })
+  const map = new Map()
+  for (const m of menus) {
+    for (const s of m.sections || []) {
+      for (const i of s.items || []) {
+        const k = dishKey(i.name)
+        if (k && !map.has(k)) map.set(k, { item_id: i.id, section_id: s.id, name: i.kitchen_name || i.name })
+      }
+    }
+  }
+  return name => map.get(dishKey(name)) || null
+}
+
+/** The kitchen's copy of a stored GloriaFood order (kitchen.order_in payload). */
+function gloriaFoodSnapshot(r, { map, names, match, leadMins }) {
+  const typeId = r.order_type ? map[r.order_type] || null : null
+  let fireAt = null
+  if (r.for_later && r.fulfill_at) {
+    const t = new Date(r.fulfill_at).getTime() - Number(leadMins ?? 20) * 60000
+    if (t > Date.now()) fireAt = new Date(t).toISOString()
+  }
+  const test = r.source === 'admin'
+  const note = [test ? 'GloriaFood test order' : null, r.instructions].filter(Boolean).join(': ')
+  return {
+    id: gloriaFoodOrderId(r.id), order_id: r.id,
+    number: String(r.gf_order_id).slice(0, 20),
+    guest: firstName(r.client_name),
+    table: r.table_number ? String(r.table_number).slice(0, 20) : null,
+    type: typeId,
+    type_name: (typeId ? names[typeId] : r.order_type ? gfTypeLabel(r.order_type) : null)?.slice(0, 40) || null,
+    promised_at: r.fulfill_at ? new Date(r.fulfill_at).toISOString() : null,
+    fire_at: fireAt,
+    note: note ? note.slice(0, 500) : null,
+    allergy: null,
+    items: (r.items || []).slice(0, 200).map((d, i) => {
+      const hit = match(d.name)
+      return {
+        id: String(i), item_id: hit?.item_id || null, section_id: hit?.section_id || null, revenue_stream_id: null,
+        name: String(hit?.name || d.name || 'Item').slice(0, 200),
+        qty: Math.min(999, Math.max(1, Math.round(Number(d.qty) || 1))),
+        options: (d.options || []).slice(0, 40)
+          .map(o => ({ label: ((Number(o.qty) > 1 ? o.qty + ' x ' : '') + (o.name || '')).slice(0, 120), mode: null }))
+          .filter(o => o.label),
+        note: d.note ? String(d.note).slice(0, 300) : null,
+      }
+    }),
+  }
+}
+
+/**
+ * After GloriaFood orders are stored (push, poll) or moved on the Online
+ * orders board (ids = gloriafood_orders ids). An accepted order goes into the
+ * kitchen when the venue sends GloriaFood orders there
+ * (pos_settings.kds_gloriafood); for one already in the kitchen, a
+ * cancellation in GloriaFood or Ready / Collected on the board is copied
+ * there. One venue at a time (advisory lock), so an order and its
+ * cancellation arriving together land in that order. Imported orders never
+ * go. Returns [{ id, type }] of the events sent; never throws.
+ */
+export async function kitchenOnGloriaFood(tenantId, venueId, ids) {
+  const sent = []
+  if (!tenantId || !venueId || !ids?.length) return sent
+  try {
+    await withTenant(tenantId, async tx => {
+      await tx`SELECT pg_advisory_xact_lock(hashtext('gf-kitchen:' || ${venueId}::text))`
+      const [{ n }] = await tx`SELECT count(*)::int AS n FROM kds_stations WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND is_active AND kind <> 'board'`
+      if (!n) return
+      const [s] = await tx`
+        SELECT kds_gloriafood, kds_gloriafood_types, kds_gloriafood_lead_mins FROM pos_settings
+         WHERE venue_id = ${venueId} AND tenant_id = ${tenantId}`
+      const rows = await tx`
+        SELECT * FROM gloriafood_orders
+         WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND id = ANY(${ids}::uuid[])
+           AND received_via <> 'import'
+         ORDER BY accepted_at NULLS LAST, gf_order_id`
+      if (!rows.length) return
+      const kids = rows.map(r => gloriaFoodOrderId(r.id))
+      const have = by(await tx`
+        SELECT id, status FROM kds_orders
+         WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND id = ANY(${kids}::text[])`)
+      let ctx = null
+      for (const r of rows) {
+        const kid = gloriaFoodOrderId(r.id)
+        const k = have[kid]
+        let plan = null
+        if (k) {
+          if (['collected', 'cancelled', 'merged'].includes(k.status)) continue
+          const to = ['canceled', 'cancelled'].includes(r.status) ? 'cancelled' : GF_TO_KITCHEN[r.board_status]
+          if (!to || to === k.status) continue
+          plan = { type: 'kitchen.order_status', payload: { order_id: kid, status: to } }
+        } else {
+          if (!s?.kds_gloriafood || r.status !== 'accepted' || ['ready', 'completed'].includes(r.board_status)) continue
+          const when = r.fulfill_at || r.accepted_at
+          if (when && new Date(when).getTime() < Date.now() - GF_LATE_HOURS * 3600_000) continue
+          ctx ||= {
+            ...(await gloriaFoodTypes(tx, tenantId, s.kds_gloriafood_types)),
+            match: await dishMatcher(tx, tenantId, venueId),
+            leadMins: s.kds_gloriafood_lead_mins,
+          }
+          const order = gloriaFoodSnapshot(r, ctx)
+          if (!order.items.length) continue
+          plan = { type: 'kitchen.order_in', payload: { order } }
+        }
+        const res = await submitServerEvent(tenantId, venueId, plan.type, plan.payload)
+        if (res.ok) sent.push({ id: r.id, type: plan.type })
+        else if (res.code !== 'duplicate') console.warn('[kitchen] GloriaFood order', r.id, res.error)
+      }
+    })
+  } catch (err) {
+    console.warn('[kitchen] GloriaFood orders failed', venueId, err.message)
+  }
+  return sent
 }
 
 /**

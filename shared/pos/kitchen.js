@@ -11,8 +11,9 @@
 //     the speed figures from the same kitchen orders
 //   - the admin flow designer (checking a dish's way through the kitchen)
 //
-// A kitchen order is one order in the kitchen: a till check (id = check id)
-// or an online order (id = 'web-<orders.id>'). Its items are the dishes sent
+// A kitchen order is one order in the kitchen: a till check (id = check id),
+// an online order (id = 'web-<orders.id>') or a GloriaFood order (id =
+// 'gf-<gloriafood_orders.id>', migration 178). Its items are the dishes sent
 // to the kitchen.
 //
 // The kitchen is a flow (Till setup > Kitchen screens > Kitchen flow):
@@ -43,7 +44,7 @@ import { isId } from './ids.js'
 export const KITCHEN_DEVICE_EVENTS = [
   'kitchen.item_done', 'kitchen.bumped', 'kitchen.recalled', 'kitchen.remake', 'kitchen.priority', 'kitchen.collected',
 ]
-// Made by the server only (online orders), never accepted from a device.
+// Made by the server only (online and GloriaFood orders), never accepted from a device.
 export const KITCHEN_SERVER_EVENTS = ['kitchen.order_in', 'kitchen.order_status']
 export const KITCHEN_EVENTS = [...KITCHEN_DEVICE_EVENTS, ...KITCHEN_SERVER_EVENTS]
 
@@ -84,8 +85,11 @@ const clone = v => (v == null ? v : JSON.parse(JSON.stringify(v)))
 const ms = v => (v ? Date.parse(v) : NaN)
 const later = (a, b) => (!a ? b : !b ? a : ms(b) > ms(a) ? b : a)
 
-export const isOrderId = v => isId(v) || (typeof v === 'string' && /^web-[0-9a-f-]{36}$/i.test(v))
+export const isOrderId = v => isId(v) || (typeof v === 'string' && /^(web|gf)-[0-9a-f-]{36}$/i.test(v))
 export const onlineOrderId = orderId => 'web-' + orderId
+export const gloriaFoodOrderId = orderId => 'gf-' + orderId
+// Where an order made by the server came from, by its id.
+const sourceOfId = id => (String(id).startsWith('gf-') ? 'gloriafood' : 'online')
 
 /**
  * A station's settings with the defaults filled in. show_upcoming: show
@@ -100,10 +104,11 @@ export function stationSettings(station) {
 
 function onlineOrderProblem(o) {
   if (!o || typeof o !== 'object') return 'order missing'
-  if (!isOrderId(o.id) || !o.id.startsWith('web-')) return 'order.id'
+  if (!isOrderId(o.id) || isId(o.id)) return 'order.id'
   if (!isUuid(o.order_id)) return 'order.order_id'
   if (!isText(o.number || '', 20)) return 'order.number'
   if (!optText(o.guest, 80)) return 'order.guest'
+  if (!optText(o.table, 20)) return 'order.table'
   if (o.type != null && !isUuid(o.type)) return 'order.type'
   if (!optText(o.type_name, 40)) return 'order.type_name'
   if (o.promised_at != null && !isTime(o.promised_at)) return 'order.promised_at'
@@ -815,8 +820,9 @@ export function applyKitchenEvent(orders, e, cfg = {}) {
     if (orders[src.id]) return fail('This order is already in the kitchen', 'duplicate')
     const fireAt = src.fire_at && ms(src.fire_at) > ms(at) ? src.fire_at : null
     const o = newOrder({
-      id: src.id, source: 'online', order_id: src.order_id, number: src.number || '',
-      counter: false, board: true, guest: src.guest || null, type: src.type || null, type_name: src.type_name || null,
+      id: src.id, source: sourceOfId(src.id), order_id: src.order_id, number: src.number || '',
+      counter: false, board: true, guest: src.guest || null, table: src.table || null,
+      type: src.type || null, type_name: src.type_name || null,
       promised_at: src.promised_at || null, note: src.note || null, allergy: src.allergy || null,
     }, at)
     o.items = src.items.map(i => itemFromOnline(i, cfg, at, fireAt, src.type))

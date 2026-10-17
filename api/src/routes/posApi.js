@@ -446,8 +446,9 @@ export default async function posApiRoutes(app) {
 /**
  * After kitchen events: an online order the kitchen finished becomes ready
  * (the guest's "ready" email goes out), one handed over becomes collected,
- * when the venue wants it (pos_settings.kds_online_ready). Never fails the
- * events.
+ * when the venue wants it (pos_settings.kds_online_ready). A GloriaFood order
+ * (migration 178) moves on the Online orders board the same way (our board
+ * status only). Never fails the events.
  */
 function afterKitchen(req, device, results) {
   const moves = onlineMoves(results)
@@ -456,8 +457,21 @@ function afterKitchen(req, device, results) {
     const [s] = await withTenant(device.tenant_id, tx => tx`
       SELECT kds_online_ready FROM pos_settings WHERE venue_id = ${device.venue_id} AND tenant_id = ${device.tenant_id}`)
     if (s && s.kds_online_ready === false) return
+    let gfMoved = false
     for (const m of moves) {
       try {
+        if (m.source === 'gloriafood') {
+          const from = m.status === 'ready' ? ['accepted', 'preparing'] : ['accepted', 'preparing', 'ready']
+          const [g] = await withTenant(device.tenant_id, tx => tx`
+            UPDATE gloriafood_orders
+               SET board_status = ${m.status}, board_status_by = ${'Kitchen screen ' + device.name},
+                   board_status_at = now(), updated_at = now()
+             WHERE id = ${m.order_id} AND tenant_id = ${device.tenant_id} AND venue_id = ${device.venue_id}
+               AND status = 'accepted' AND received_via <> 'import' AND board_status = ANY(${from}::text[])
+            RETURNING id`)
+          if (g) gfMoved = true
+          continue
+        }
         const [o] = await withTenant(device.tenant_id, tx => tx`
           SELECT status FROM orders WHERE id = ${m.order_id} AND tenant_id = ${device.tenant_id} AND venue_id = ${device.venue_id}`)
         if (!o) continue
@@ -469,6 +483,7 @@ function afterKitchen(req, device, results) {
         req.log.warn({ err, order: m.order_id }, 'kitchen: online order status change failed')
       }
     }
+    if (gfMoved) broadcast(device.venue_id, { type: 'order.updated', source: 'gloriafood' })
   })().catch(err => req.log.warn({ err }, 'kitchen: online order moves failed'))
 }
 

@@ -61,14 +61,17 @@ const TEXT = {
   xl:     { item: 'text-[22px]', mod: 'text-[19px]', head: 'text-[20px]' },
 }
 
-// Filters: all, one per order type (the tenant's own, migration 170), online.
+// Filters: all, one per order type (the tenant's own, migration 170), online
+// (the website's and GloriaFood's, migration 178).
+const isOnline = o => o.source === 'online' || o.source === 'gloriafood'
 function filtersFor(types) {
   return [
     { key: 'all', label: 'All orders', test: () => true },
     ...(types || []).map(t => ({ key: t.id, label: t.name, test: o => o.type === t.id })),
-    { key: 'online', label: 'Online', test: o => o.source === 'online' },
+    { key: 'online', label: 'Online', test: isOnline },
   ]
 }
+const SOURCE_NAMES = { online: 'Online', gloriafood: 'GloriaFood' }
 // Ticket badge colours by order type position (a type's own colour wins).
 const TYPE_COLOURS = ['bg-[#9be7a1] text-black', 'bg-[#25a7a7] text-white', 'bg-[#7c5cd6] text-white', 'bg-[#e0a33a] text-black', 'bg-[#d6577c] text-white']
 
@@ -402,7 +405,7 @@ function Ticket({ t, n, station, now, text, selected, alert, onSelect, names, ty
         selected ? 'ring-[3px] ring-[#22d3ee]' : 'ring-1 ring-white/10')}>
       <div className={cx('shrink-0 px-2 py-1.5', headBg)}>
         <div className="flex items-center gap-1.5">
-          <span className={cx('font-bold truncate min-w-0 flex-1', text.head)}>{o.table ? 'Tbl ' + o.table : o.tab || o.guest || (o.source === 'online' ? 'Online' : 'Counter')}</span>
+          <span className={cx('font-bold truncate min-w-0 flex-1', text.head)}>{o.table ? 'Tbl ' + o.table : o.tab || o.guest || SOURCE_NAMES[o.source] || 'Counter'}</span>
           {o.number && <span className="bg-white text-black font-black px-2 rounded tabular-nums text-[17px]">{o.number}</span>}
           <span className={cx('font-black px-1.5 rounded tabular-nums text-[17px]',
             tone === 'late' ? 'bg-red-600 text-white' : tone === 'warn' ? 'bg-amber-400 text-black' : 'bg-black/30 text-white')}
@@ -412,6 +415,7 @@ function Ticket({ t, n, station, now, text, selected, alert, onSelect, names, ty
           <span className="font-semibold text-white/80 tabular-nums">#{n}</span>
           {o.priority && <span className="bg-white text-[#b45309] font-black px-1.5 rounded">RUSH</span>}
           {fresh && !o.priority && <span className="font-black">NEW</span>}
+          {o.source === 'gloriafood' && <span className="bg-[#e8542a] text-white font-bold px-1.5 rounded whitespace-nowrap shrink-0" data-testid="kds-source">GloriaFood</span>}
           {allDone && <span className="font-black">PREPARED</span>}
           {(o.type_name || o.tent) && (
             <span className={cx('px-1.5 rounded font-bold whitespace-nowrap shrink-0', typeCls)} style={typeColour ? { background: typeColour } : undefined} data-testid="kds-type">
@@ -609,12 +613,12 @@ function ReadyPanel({ ready, now, onClose }) {
 function LaterPanel({ later, onClose }) {
   return (
     <Panel title="Orders for later" onClose={onClose}>
-      <div className="text-sm text-white/60 px-1">Online orders for a collection time. Each one comes onto the screen when it's time to start it.</div>
+      <div className="text-sm text-white/60 px-1">Online and GloriaFood orders for a later time. Each one comes onto the screen when it's time to start it.</div>
       {later.map(({ order, fire_at }) => (
         <div key={order.id} className="bg-zinc-800 rounded-lg p-3">
           <div className="flex items-center gap-3">
             <div className="text-2xl font-black tabular-nums">{order.number}</div>
-            <div className="flex-1 font-bold truncate">{order.guest || 'Online'}</div>
+            <div className="flex-1 font-bold truncate">{order.guest || SOURCE_NAMES[order.source] || 'Online'}{order.source === 'gloriafood' && order.guest ? <span className="ml-2 text-xs font-semibold text-white/60">GloriaFood</span> : null}</div>
             <div className="text-right text-sm">
               <div>Starts {new Date(fire_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</div>
               {order.promised_at && <div className="text-white/60">for {new Date(order.promised_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</div>}

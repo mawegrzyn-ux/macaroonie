@@ -5,6 +5,15 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-17 — GloriaFood orders on the kitchen screens]
+
+- **GloriaFood orders can go to the kitchen screens**, like your own online orders. In Till setup → Kitchen screens → Online orders (shown when the venue is linked to GloriaFood), tick **Send GloriaFood orders to the kitchen screens** and Save. Accepted orders come on as GloriaFood sends them, with an orange GloriaFood label, GloriaFood's order number, the customer's first name, the table number for dine-in, notes and the dishes with their options. Test orders come on too, marked "GloriaFood test order".
+- **Dishes follow your kitchen flow**: each GloriaFood dish is matched to your menus by name (capitals and spaces don't matter) and shows under your menu's name, so dish and section links apply; a dish with no match goes by the order type and the links for every dish. Pick which of your order types each GloriaFood type counts as (Pickup, Delivery, Dine in, Order ahead, Table reservation); they start matched by name.
+- **Orders for later** come on the minutes you set before their time (20 to start with), listed under Later until then.
+- **Ready and collected**: READY at the pass marks the order Ready on the Online orders board and Collected marks it Collected (with Mark them ready when the kitchen finishes on). Ready or Collected on the board, or a cancellation in GloriaFood, takes it off the kitchen screens. GloriaFood itself isn't told.
+- Off until you switch it on. Imported orders, orders that arrived while it was off, and orders more than two hours past their time don't come on.
+- Migration 178.
+
 ## [2026-10-17 — Several kitchen flows, switched from the kitchen screen]
 
 - **Kitchen flows**: Till setup → Kitchen screens now keeps several named flows per venue (a busy night, a quiet night with one cook, the grill down), one in use. Above the designer, the flow names pick the flow to look at (a green dot marks the one in use); **New flow** starts an empty one, **Copy** starts from the flow you're looking at, **Order** (drag) sets the order kitchen screens list them in. The box on the right puts the flow **in use** after a confirm, renames, copies or deletes it (the flow in use can't be deleted). Each flow saves on its own.

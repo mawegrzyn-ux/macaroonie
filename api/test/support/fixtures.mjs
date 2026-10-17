@@ -207,7 +207,7 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx' } = 
   await step('custom role', () => post('/api/access/roles', { key: slug + '-supervisor', label: mark + ' Supervisor', permissions: { bookings: 'manage' } }))
   const tax = await step('tax rate', () => post('/api/tax-rates', { name: mark + ' Zero', rate: 0 }))
   if (tax) await step('tax rate value', () => put(`/api/tax-rates/${tax.id}/values`, { values: { [V]: 5 } }))
-  await step('order type', () => post('/api/order-types', { name: mark + ' Drive thru' }))
+  const orderType = await step('order type', () => post('/api/order-types', { name: mark + ' Drive thru' }))
   await step('nav item', () => post('/api/nav/items', { label: mark + ' Link', route: '/rota', parent_id: null }))
   await step('ordering settings', () => put(`/api/orders/settings/${V}`, {
     is_enabled: true, hours: [0, 1, 2, 3, 4, 5, 6].map(day => ({ day, windows: [{ open: '11:00', close: '22:00' }] })),
@@ -243,6 +243,13 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx' } = 
     }
   }
   await step('till settings', () => patch(`/api/pos/venues/${V}/settings`, { receipt_name: mark + ' Thai House' }))
+  // GloriaFood (migration 159) and its orders on the kitchen screens (178).
+  await step('gloriafood link', () => put(`/api/gloriafood/venues/${V}/link`, { method: 'push', show_on_board: true }))
+  if (orderType) {
+    await step('gloriafood kitchen settings', () => patch(`/api/pos/venues/${V}/settings`, {
+      kds_gloriafood: true, kds_gloriafood_lead_mins: 25, kds_gloriafood_types: { pickup: orderType.id, delivery: null },
+    }))
+  }
   await step('floor area', () => post(`/api/pos/venues/${V}/floor-areas`, { name: mark + ' Patio' }))
   await step('kiosk design', () => post('/api/pos/kiosk-designs', { name: mark + ' Kiosk' }))
   const design = await step('screen design', () => post('/api/screens/designs', { name: mark + ' Board' }))

@@ -3205,10 +3205,10 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['kds_stations', 'Per venue: name, kind prep | expo | runner | board, colour, settings jsonb { target_mins, late_mins, show_held, show_upcoming, summary_groups: [{ id, name, members: [{ kind dish | option, id | label, qty }] }] }, sort_order, is_active.'],
                 ['kds_flows', 'A venue\'s kitchen flows (177): name (1-40, unique per venue ignoring case and spaces), layout jsonb { [stationId | start]: { x, y } } (where the designer draws each box), sort_order (the kitchen screen\'s list). Forced RLS like every tenant table. The migration made one "Main flow" per venue with stations or links, holding its links and layout, in use. A venue without one gets it from GET .../setup (ensureFlows()).'],
                 ['kds_flow_edges', 'A flow\'s links (169, flow_id NOT NULL since 177, ON DELETE CASCADE with the flow): from_station_id (NULL = Orders in), to_station_id (both ON DELETE CASCADE), targets jsonb, sort_order. One link per pair per flow (unique index on flow_id, from, to). Read them by flow_id, never by venue alone. Replaced kds_routes: each station\'s routes became one link from Orders in, every prep station got a link to every expo.'],
-                ['kds_orders', 'Projection (like pos_checks): id text, source till | online, check_id / order_id, status active | ready | collected | cancelled, state jsonb (the whole kitchen order), last_seq.'],
+                ['kds_orders', 'Projection (like pos_checks): id text (a check id, web-<orders.id> or gf-<gloriafood_orders.id>), source till | online | gloriafood (178; taken from the id prefix by applyKitchenEvent(), never from the payload), check_id / order_id, status active | ready | collected | cancelled, state jsonb (the whole kitchen order), last_seq.'],
                 ['kds_log', 'One row per bump and remake: station (id, name, kind), seconds since the dishes arrived or were fired, items, order source / type / number, reason, recalled_at (a recalled bump is left out of the report). Feeds the Kitchen report and its CSV.'],
                 ['pos_devices', 'kind kds; settings { station_ids, view tickets | on_order, columns, text_size, sound, can_switch_flow (absent = true: its flow button may put another flow in use) }.'],
-                ['pos_settings', 'kds_online_orders (send accepted online orders), kds_online_ready (ready in the kitchen marks the online order ready, collected completes it), kds_active_flow_id (the flow in use, ON DELETE SET NULL; NULL = the first), kds_flow_switched_at / kds_flow_switched_by (the last switch: a screen\'s name or a person\'s email). kds_flow_layout moved to kds_flows.layout (177).'],
+                ['pos_settings', 'kds_online_orders (send accepted online orders), kds_online_ready (ready in the kitchen marks the online order ready, collected completes it; for GloriaFood orders: their board status), kds_gloriafood (178, default off: send GloriaFood orders), kds_gloriafood_types jsonb ({ pickup | delivery | dine_in | order_ahead | table_reservation: order type id | null }; a key left out is matched by name by gloriaFoodTypes()), kds_gloriafood_lead_mins (0-240, default 20: an order for later comes on this long before its time), kds_active_flow_id (the flow in use, ON DELETE SET NULL; NULL = the first), kds_flow_switched_at / kds_flow_switched_by (the last switch: a screen\'s name or a person\'s email). kds_flow_layout moved to kds_flows.layout (177).'],
               ]}
             />
             <H3>API</H3>
@@ -3239,6 +3239,38 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>changeStatus()</Mono> (actor "Kitchen screen &lt;name&gt;") when{' '}
               <Mono>kds_online_ready</Mono> is on, so the guest gets the ready email.
             </P>
+            <H3>GloriaFood orders (migration 178)</H3>
+            <P>
+              <Mono>kitchenOnGloriaFood(tenantId, venueId, ids)</Mono> (<Mono>services/kitchenSvc.js</Mono>) runs
+              after <Mono>gloriafood_orders</Mono> rows are stored or updated (<Mono>ingestWithTx()</Mono> returns
+              their <Mono>ids</Mono>; <Mono>ingestOrders()</Mono> and <Mono>pollVenue()</Mono> call it once the
+              transaction has committed, not awaited, since GloriaFood wants its answer within 15 s) and after{' '}
+              <Mono>POST /api/orders/gloriafood/:id/status</Mono>. It holds an advisory lock per venue
+              (<Mono>gf-kitchen:&lt;venue&gt;</Mono>) while it reads the rows and submits, so an order and its
+              cancellation pushed together land in that order; the rows are read fresh by id, never taken from
+              the push. For a row not yet in the kitchen: only when <Mono>kds_gloriafood</Mono> is on, the
+              status is accepted, the board status isn&apos;t ready / completed, the order isn&apos;t imported
+              (<Mono>received_via = 'import'</Mono>) and its fulfil (or accepted) time is less than two hours
+              past, <Mono>kitchen.order_in</Mono> with <Mono>gloriaFoodSnapshot()</Mono>: id{' '}
+              <Mono>gf-&lt;uuid&gt;</Mono>, number = GloriaFood&apos;s order id, guest first name, table number,
+              type from <Mono>gloriaFoodTypes()</Mono> (type_name = our type&apos;s name, else GloriaFood&apos;s
+              label), note = instructions (test orders, <Mono>source = 'admin'</Mono>, get &quot;GloriaFood test
+              order&quot;), <Mono>fire_at</Mono> = fulfil time minus <Mono>kds_gloriafood_lead_mins</Mono> for{' '}
+              <Mono>for_later</Mono> orders. Dishes keep GloriaFood&apos;s options (&quot;2 x Extra egg&quot;)
+              and are matched by name to the venue&apos;s live menus (<Mono>dishMatcher()</Mono>: lower case,
+              spaces collapsed, first match wins), which gives them <Mono>item_id</Mono> / <Mono>section_id</Mono>{' '}
+              for the flow&apos;s dish and section links and the menu&apos;s name (kitchen name if set); no match
+              routes by order type and default links. For a row already in the kitchen:{' '}
+              <Mono>kitchen.order_status</Mono> cancelled (status canceled in GloriaFood), ready (board ready) or
+              collected (board completed). The other way, <Mono>onlineMoves()</Mono> returns GloriaFood moves too
+              and <Mono>afterKitchen()</Mono> in <Mono>posApi.js</Mono> sets <Mono>board_status</Mono> ready (from
+              accepted / preparing) or completed, <Mono>board_status_by</Mono> &quot;Kitchen screen &lt;name&gt;&quot;,
+              and broadcasts <Mono>order.updated</Mono> (source gloriafood) when <Mono>kds_online_ready</Mono> is
+              on. GloriaFood itself is never told. A change to an order&apos;s dishes after it reached the kitchen
+              isn&apos;t copied. Till setup: <Mono>GET .../setup</Mono> returns <Mono>gloriafood</Mono>{' '}
+              (<Mono>{'{ show_on_board, types }'}</Mono>, null without a link); the PATCH checks type ids are the
+              tenant&apos;s (422). Tests: <Mono>api/test/gloriafood-kitchen.test.mjs</Mono>.
+            </P>
             <H3>The screen</H3>
             <P>
               <Mono>pos/src/kitchen/store.js</Mono> keeps confirmed kitchen orders (last sync), an IndexedDB
@@ -3260,7 +3292,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               or find other devices on the LAN, so two tablets can't talk to each other without a server they
               both reach. With the hub, tills and kitchen screens point at it (<Mono>hub_url</Mono>) and it runs
               the same sequencer and kitchen rules. Admin: <Mono>components/pos/KitchenSection.jsx</Mono> (Till
-              setup → Kitchen screens: stations, screens, online orders; <Mono>StationModal</Mono>),{' '}
+              setup → Kitchen screens: stations, screens, online and GloriaFood orders (<Mono>OnlineCard</Mono>); <Mono>StationModal</Mono>),{' '}
               <Mono>components/pos/KitchenFlow.jsx</Mono> (the flow designer), Kitchen tab in{' '}
               <Mono>pages/PosReports.jsx</Mono>, Order status block in <Mono>shared/screenLayout.js</Mono> +{' '}
               <Mono>ScreenDesigner.jsx</Mono>.
@@ -3648,7 +3680,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>show_on_board</Mono> on: same shape with <Mono>source: &apos;gloriafood&apos;</Mono>, a
               GloriaFood label, our own board status only (never paid, refunded or told to GloriaFood). On days
               before today, orders imported from GloriaFood&apos;s export (migration 162) come too, marked{' '}
-              <Mono>imported</Mono>, in Done and view only. See Cash Reconciliation, GloriaFood.
+              <Mono>imported</Mono>, in Done and view only. See Cash Reconciliation, GloriaFood. A board move
+              to ready / completed also reaches the kitchen screens, and the kitchen moves the board status
+              (migration 178, see Kitchen screens → GloriaFood orders).
             </P>
             <H3>Promotions (migration 131)</H3>
             <P>

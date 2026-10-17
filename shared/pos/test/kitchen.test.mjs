@@ -12,7 +12,7 @@ import { applyEvent } from '../checks.js'
 import { createSequencer } from '../sequencer.js'
 import {
   kitchenForCheckEvent, applyKitchenEvent, stationTickets, onOrderCounts, stationStats, boardNumbers,
-  laterOrders, recentBumps, itemState, ageTone, clockSince, kitchenEventProblem, onlineOrderId,
+  laterOrders, recentBumps, itemState, ageTone, clockSince, kitchenEventProblem, onlineOrderId, gloriaFoodOrderId, isOrderId,
   itemRoute, routeOrder, flowProblems, flowWarnings, readyOrders, boardState, itemWhere, START,
 } from '../kitchen.js'
 
@@ -576,6 +576,27 @@ test('online orders follow the flow by order type', () => {
   } })))
   const item = t.orders[onlineOrderId(oid)].items[0]
   assert.deepEqual(routeOrder(item.route), [P1, P2, E1, ORB])
+})
+
+test('GloriaFood orders: their own id and source, a table, dishes without menu ids go by the default links', () => {
+  const t = till(withExpo)
+  const gid = uuid()
+  const kid = gloriaFoodOrderId(gid)
+  assert.ok(isOrderId(kid))
+  ok(t.kitchen(kev('kitchen.order_in', { order: {
+    id: kid, order_id: gid, number: '776113', guest: 'Ann', table: '7', type: EAT, type_name: 'Eat in',
+    items: [{ id: '0', item_id: null, section_id: null, name: 'Pad Thai', qty: 1, options: [{ label: 'Chicken' }] }],
+  } })))
+  const o = t.orders[kid]
+  assert.equal(o.source, 'gloriafood')
+  assert.equal(o.table, '7')
+  assert.equal(o.order_id, gid)
+  assert.equal(stationTickets(t.orders, simple.GRILL, at(), withExpo).length, 1, 'no dish id: the default links')
+  ok(t.kitchen(kev('kitchen.bumped', { order_id: kid, station_id: simple.GRILL.id })))
+  ok(t.kitchen(kev('kitchen.order_status', { order_id: kid, status: 'cancelled' })))
+  assert.equal(t.orders[kid].status, 'cancelled')
+  // A till check id can't pose as a server-made order.
+  assert.match(kitchenEventProblem(kev('kitchen.order_in', { order: { id: uuid(), order_id: gid, number: '1', items: [{ id: '0', name: 'X', qty: 1 }] } })), /order\.id/)
 })
 
 test('on-order counts: per dish, or summary groups adding up pieces; the expo counts what is coming', () => {

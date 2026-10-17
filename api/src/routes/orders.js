@@ -39,6 +39,7 @@ import {
 } from '../services/orderSvc.js'
 import { broadcast } from '../config/ws.js'
 import { boardOrders, boardOrder } from '../services/gloriafoodSvc.js'
+import { kitchenOnGloriaFood } from '../services/kitchenSvc.js'
 import { setSoldOut, soldOutItemIds, announceSoldOut } from '../services/soldOut.js'
 import { isScheduled, scheduleProblem } from '../../../shared/menuSchedule.js'
 
@@ -408,6 +409,9 @@ export default async function ordersRoutes(app) {
       return u
     })
     broadcast(row.venue_id, { type: 'order.updated', source: 'gloriafood' })
+    // Ready / Collected on the board finishes it on the kitchen screens too
+    // (migration 178). Best effort, after the move is saved.
+    kitchenOnGloriaFood(req.tenantId, row.venue_id, [row.id]).catch(() => {})
     return { order: boardOrder(row) }
   })
 

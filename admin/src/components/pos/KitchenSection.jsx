@@ -10,7 +10,8 @@
 //     On order counts groups
 //   - the kitchen flows: how dishes move between them, one in use at a time,
 //     switched here or from a kitchen screen (KitchenFlow.jsx)
-//   - online orders: into the kitchen when accepted, ready when finished
+//   - online orders: into the kitchen when accepted, ready when finished;
+//     GloriaFood orders too when the venue is linked (migration 178)
 
 import { useEffect, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
@@ -23,6 +24,7 @@ import {
 import KitchenFlow from './KitchenFlow'
 import { PairingCode } from './TillsSection'
 import { STATION_KINDS, KIND_LABELS } from '@shared/pos/kitchen.js'
+import { TYPE_LABELS as GF_TYPE_LABELS } from '@shared/gloriafood.js'
 
 const KINDS = STATION_KINDS.map(k => ({ value: k, label: { prep: 'Prep', expo: 'Expo (pass)', runner: 'Runner', board: 'Order ready board' }[k] }))
 const KIND_HINTS = {
@@ -352,22 +354,80 @@ function StationsCard({ venueId, setup, onEdit }) {
 
 // ── Online orders ────────────────────────────────────────────────
 
+// GloriaFood order types (shared/gloriafood.js), in the order they're listed.
+const GF_TYPES = Object.entries(GF_TYPE_LABELS)
+
+function onlineForm(settings, gloriafood) {
+  return {
+    kds_online_orders: settings.kds_online_orders !== false,
+    kds_online_ready: settings.kds_online_ready !== false,
+    kds_gloriafood: !!settings.kds_gloriafood,
+    kds_gloriafood_lead_mins: settings.kds_gloriafood_lead_mins ?? 20,
+    // What each GloriaFood type goes to now (the server matched the ones
+    // not picked yet by name), so Save keeps what is shown.
+    kds_gloriafood_types: { ...(gloriafood?.types || {}) },
+  }
+}
+
 function OnlineCard({ venueId, setup }) {
   const api = useApi()
   const qc = useQueryClient()
-  const saved = { kds_online_orders: setup.settings.kds_online_orders !== false, kds_online_ready: setup.settings.kds_online_ready !== false }
+  const gf = setup.gloriafood
+  const saved = onlineForm(setup.settings, gf)
+  const savedKey = JSON.stringify(saved)
   const [form, setForm] = useState(saved)
-  useEffect(() => setForm(saved), [setup.settings.kds_online_orders, setup.settings.kds_online_ready]) // eslint-disable-line react-hooks/exhaustive-deps
-  const dirty = form.kds_online_orders !== saved.kds_online_orders || form.kds_online_ready !== saved.kds_online_ready
+  useEffect(() => setForm(JSON.parse(savedKey)), [savedKey])
+  const dirty = JSON.stringify(form) !== savedKey
   const save = useMutation({
-    mutationFn: () => api.patch(`/pos/venues/${venueId}/settings`, form),
+    mutationFn: () => api.patch(`/pos/venues/${venueId}/settings`, gf ? form : {
+      kds_online_orders: form.kds_online_orders, kds_online_ready: form.kds_online_ready,
+    }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-setup', venueId] }),
   })
+  const types = (setup.order_types || []).filter(t => t.is_active || Object.values(form.kds_gloriafood_types).includes(t.id))
+  const setType = (k, v) => setForm(f => ({ ...f, kds_gloriafood_types: { ...f.kds_gloriafood_types, [k]: v || null } }))
   return (
-    <Section title="Online orders" hint="Orders from your website's online ordering.">
+    <Section title="Online orders" hint={gf ? 'Orders from your website\'s online ordering and from GloriaFood.' : 'Orders from your website\'s online ordering.'}>
       <Toggle label="Send online orders to the kitchen screens" hint="When an order is accepted (or straight away with automatic accept). Orders for a later collection time come on when it's time to start them (the collection time minus the ordering lead time)."
         checked={form.kds_online_orders} onChange={v => setForm(f => ({ ...f, kds_online_orders: v }))} />
-      <Toggle label="Mark them ready when the kitchen finishes" hint="The guest gets the ready email. Marked collected at the pass, the order is completed too."
+      {gf && (
+        <div className="rounded-lg border p-3 space-y-3" data-testid="kds-gloriafood">
+          <Toggle label="Send GloriaFood orders to the kitchen screens"
+            hint="Accepted GloriaFood orders, as they arrive. Dishes are matched to your menus by name, so dish and section links in the kitchen flow apply; a dish with no match follows the order type and default links. Orders cancelled in GloriaFood come off the screens."
+            checked={form.kds_gloriafood} onChange={v => setForm(f => ({ ...f, kds_gloriafood: v }))} />
+          {form.kds_gloriafood && (
+            <>
+              <Field label="Orders for later come on">
+                <span className="flex items-center gap-2">
+                  <NumberBox value={form.kds_gloriafood_lead_mins} min={0} max={240} ariaLabel="Minutes before the order's time"
+                    onChange={v => setForm(f => ({ ...f, kds_gloriafood_lead_mins: v ?? 0 }))} />
+                  <span className="text-sm text-muted-foreground">minutes before their time</span>
+                </span>
+              </Field>
+              <div>
+                <p className="text-xs font-medium text-muted-foreground mb-1">Order types</p>
+                <p className="text-[11px] text-muted-foreground mb-2">Which of your order types each GloriaFood order counts as on the kitchen screens and in the kitchen flow.</p>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {GF_TYPES.map(([k, label]) => (
+                    <label key={k} className="flex items-center gap-2">
+                      <span className="text-sm w-36 shrink-0">{label}</span>
+                      <select className={inputCls} value={form.kds_gloriafood_types[k] || ''} aria-label={'GloriaFood ' + label}
+                        onChange={e => setType(k, e.target.value)}>
+                        <option value="">None</option>
+                        {types.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                      </select>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+      <Toggle label="Mark them ready when the kitchen finishes"
+        hint={gf
+          ? 'The guest gets the ready email. Marked collected at the pass, the order is completed too. GloriaFood orders move on the Online orders board (GloriaFood isn\'t told).'
+          : 'The guest gets the ready email. Marked collected at the pass, the order is completed too.'}
         checked={form.kds_online_ready} onChange={v => setForm(f => ({ ...f, kds_online_ready: v }))} />
       <div className="flex items-center gap-3">
         <Btn variant="primary" disabled={!dirty || save.isPending} onClick={() => save.mutate()}>

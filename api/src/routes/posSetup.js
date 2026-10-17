@@ -57,7 +57,7 @@ import {
 import { reconFields } from '../services/reconFill.js'
 import { stationSettings, flowProblems, flowWarnings, STATION_KINDS, FLOW_TARGET_KINDS } from '../../../shared/pos/kitchen.js'
 import { posOrigin } from '../services/platformHost.js'
-import { ensureFlows, activeFlowOf, switchFlow } from '../services/kitchenSvc.js'
+import { ensureFlows, activeFlowOf, switchFlow, gloriaFoodTypes, GF_TYPES } from '../services/kitchenSvc.js'
 import { checkDesign, previewToken } from '../services/kioskSvc.js'
 import { normaliseDesign } from '../../../shared/kiosk.js'
 import { DEFAULT_POS_ROLES, PERMISSION_KEYS, normalisePermissions } from '../../../shared/pos/permissions.js'
@@ -107,6 +107,10 @@ const SettingsBody = z.object({
   recon_auto_fill:           z.boolean().optional(),
   kds_online_orders:         z.boolean().optional(),
   kds_online_ready:          z.boolean().optional(),
+  // GloriaFood orders on the kitchen screens (migration 178).
+  kds_gloriafood:            z.boolean().optional(),
+  kds_gloriafood_types:      z.record(z.enum(GF_TYPES), UUID.nullable()).optional(),
+  kds_gloriafood_lead_mins:  z.number().int().min(0).max(240).optional(),
 })
 
 // Ask for a customer name / tent number when the order type is picked:
@@ -424,6 +428,12 @@ export default async function posSetupRoutes(app) {
         flowsView(tx, tenantId, venueId, settings),
         tx`SELECT id, name, settings, updated_at FROM kiosk_designs WHERE tenant_id = ${tenantId} ORDER BY created_at`,
       ])
+      // A GloriaFood link (migration 159): its orders can go to the kitchen
+      // screens (migration 178), each GloriaFood order type to one of ours.
+      const [gfLink] = await tx`SELECT show_on_board FROM gloriafood_venue_links WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`
+      const gloriafood = gfLink
+        ? { show_on_board: gfLink.show_on_board, types: (await gloriaFoodTypes(tx, tenantId, settings.kds_gloriafood_types)).map }
+        : null
       // Sections and dishes, for printer routing.
       const menuIds = menus.map(m => m.id)
       const [sections, items] = await Promise.all([
@@ -446,6 +456,7 @@ export default async function posSetupRoutes(app) {
         ...kdsFlows,
         kiosk_designs: kioskDesigns.map(d => ({ id: d.id, name: d.name, settings: normaliseDesign(d.settings), updated_at: d.updated_at })),
         recon_fields: await reconFields(tx, tenantId, venueId),
+        gloriafood,
         till_url: posOrigin(),
       }
     })
@@ -461,6 +472,12 @@ export default async function posSetupRoutes(app) {
       const set = { ...body, updated_at: new Date() }
       if (body.tenders) set.tenders = tx.json(body.tenders)
       if (body.recon_map) set.recon_map = tx.json(body.recon_map)
+      if (body.kds_gloriafood_types) {
+        const ids = [...new Set(Object.values(body.kds_gloriafood_types).filter(Boolean))]
+        const known = ids.length ? await tx`SELECT id FROM order_types WHERE tenant_id = ${req.tenantId} AND id = ANY(${ids}::uuid[])` : []
+        if (known.length !== ids.length) throw httpError(422, 'Order type not found')
+        set.kds_gloriafood_types = tx.json(body.kds_gloriafood_types)
+      }
       const keys = Object.keys(set)
       const [row] = await tx`
         UPDATE pos_settings SET ${tx(set, ...keys)}

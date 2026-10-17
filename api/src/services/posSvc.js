@@ -103,6 +103,8 @@ export function settingsView(s) {
     order_no_start: s.order_no_start, auto_logout_secs: s.auto_logout_secs,
     recon_map: s.recon_map || {}, recon_auto_fill: s.recon_auto_fill,
     kds_online_orders: s.kds_online_orders ?? true, kds_online_ready: s.kds_online_ready ?? true,
+    kds_gloriafood: !!s.kds_gloriafood, kds_gloriafood_types: s.kds_gloriafood_types || {},
+    kds_gloriafood_lead_mins: s.kds_gloriafood_lead_mins ?? 20,
   }
 }
 

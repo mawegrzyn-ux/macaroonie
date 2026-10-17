@@ -92,19 +92,21 @@ export function ordersOf(body) {
  * locked by the caller or here). Upserts by GloriaFood order id, never going
  * back to an older version of an order. The first order sets which GloriaFood
  * restaurant the venue is linked to; orders from any other restaurant are
- * refused. Returns { stored, updated, refused, skipped, link }.
+ * refused. Returns { stored, updated, refused, skipped, link, ids } (ids:
+ * the rows stored or updated, for the kitchen screens once committed).
  */
 export async function ingestWithTx(tx, { tenantId, venueId, orders, via }) {
   const [link] = await tx`
     SELECT * FROM gloriafood_venue_links
      WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}
      FOR UPDATE`
-  if (!link) return { stored: 0, updated: 0, refused: 0, skipped: orders.length, link: null }
+  if (!link) return { stored: 0, updated: 0, refused: 0, skipped: orders.length, link: null, ids: [] }
 
   let restaurantId = link.gf_restaurant_id != null ? Number(link.gf_restaurant_id) : null
   let restaurantName = link.gf_restaurant_name
   let stored = 0, updated = 0, refused = 0, skipped = 0
   let refusedFrom = null
+  const ids = []
 
   for (const payload of orders) {
     const row = orderFromPayload(payload)
@@ -160,11 +162,14 @@ export async function ingestWithTx(tx, { tenantId, venueId, orders, via }) {
         AND gloriafood_orders.tenant_id = EXCLUDED.tenant_id
         AND (gloriafood_orders.gf_updated_at IS NULL OR EXCLUDED.gf_updated_at IS NULL
              OR EXCLUDED.gf_updated_at >= gloriafood_orders.gf_updated_at)
-      RETURNING (xmax = 0) AS inserted
+      RETURNING id, (xmax = 0) AS inserted
     `
     if (!r) skipped++
-    else if (r.inserted) stored++
-    else updated++
+    else {
+      ids.push(r.id)
+      if (r.inserted) stored++
+      else updated++
+    }
   }
 
   const error = refused
@@ -177,14 +182,24 @@ export async function ingestWithTx(tx, { tenantId, venueId, orders, via }) {
            last_error_at = CASE WHEN ${!!error} THEN now() ELSE last_error_at END,
            updated_at    = now()
      WHERE id = ${link.id} AND tenant_id = ${tenantId}`
-  return { stored, updated, refused, skipped, link }
+  return { stored, updated, refused, skipped, link, ids }
 }
 
-/** Store orders and tell open boards (when the venue shows them there). */
+/** Store orders and tell open boards (when the venue shows them there) and the kitchen. */
 export async function ingestOrders({ tenantId, venueId, orders, via }) {
   const res = await withTenant(tenantId, tx => ingestWithTx(tx, { tenantId, venueId, orders, via }))
   announce(venueId, res)
+  toKitchen(tenantId, venueId, res.ids)
   return res
+}
+
+// Orders just stored go to the kitchen screens when the venue sends them
+// there (migration 178). Not awaited: GloriaFood wants its answer within 15
+// seconds, and the kitchen copy is best effort (the order is already stored).
+// kitchenSvc is loaded on demand: it brings in the till code.
+function toKitchen(tenantId, venueId, ids) {
+  if (!ids?.length) return
+  import('./kitchenSvc.js').then(m => m.kitchenOnGloriaFood(tenantId, venueId, ids)).catch(() => {})
 }
 
 function announce(venueId, res) {
@@ -213,7 +228,7 @@ export async function pollVenue(tenantId, venueId, log) {
       popped = await popOrders(link.poll_key)
       const r = popped.length
         ? await ingestWithTx(tx, { tenantId, venueId, orders: popped, via: 'poll' })
-        : { stored: 0, updated: 0, refused: 0, skipped: 0, link: null }
+        : { stored: 0, updated: 0, refused: 0, skipped: 0, link: null, ids: [] }
       await tx`
         UPDATE gloriafood_venue_links
            SET last_poll_at = now(),
@@ -222,6 +237,7 @@ export async function pollVenue(tenantId, venueId, log) {
       return r
     })
     if (res.link) announce(venueId, res)
+    toKitchen(tenantId, venueId, res.ids)
     return res
   } catch (e) {
     // Orders popped but not stored would be lost: put them in the log so

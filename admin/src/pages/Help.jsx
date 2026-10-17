@@ -3782,6 +3782,11 @@ export default function Help() {
               GloriaFood shows as Cancelled. GloriaFood orders aren&apos;t in the Report tab.
             </P>
             <P>
+              With kitchen screens, GloriaFood orders can go to the kitchen too (Till setup → Kitchen
+              screens → Online orders, see Kitchen screens). The kitchen then moves them to Ready and
+              Collected here, and Ready or Collected here takes them off the kitchen screens.
+            </P>
+            <P>
               Orders you imported from GloriaFood&apos;s order export show too, but only on past days (go back
               with the arrows or pick a day): under <strong>Done</strong>, which opens by itself on a past day,
               with a grey <strong>Imported</strong> label. They are a record, so they can be looked at but not
@@ -4560,7 +4565,7 @@ export default function Help() {
             <P>
               Kitchen screens show the orders to cook on a screen instead of (or as well as) printed tickets.
               Use an Android tablet, or an Android TV box or stick with a big screen, in Chrome. Orders from
-              the till and from online ordering arrive the moment they're sent; the cooks tap to say a dish or
+              the till, from online ordering and from GloriaFood arrive the moment they're sent; the cooks tap to say a dish or
               order is done, and the expo (the pass) marks the order ready. A <strong>kitchen flow</strong> says
               how dishes move between stations: a burger bun from Prep 1 on to Prep 2 for the meat, while the
               fries go from Prep 1 straight to Expo 1. You can keep several flows (a busy night, a quiet night with
@@ -4580,6 +4585,7 @@ export default function Help() {
               <li><strong>Several flows</strong>: the row of flow names above the boxes picks the flow you're looking at; a green dot marks the one <strong>in use</strong>. <strong>New flow</strong> starts an empty one; <strong>Copy</strong> (in the box on the right) starts from the flow you're looking at, which is the quick way to make, say, a <em>Grill down</em> flow from your normal one. <strong>Use this flow now</strong> puts the flow you're looking at in use, after a confirm. <strong>Rename</strong> and the bin (delete, after a confirm) are there too; the flow in use can't be deleted. <strong>Order</strong> sets the order kitchen screens list the flows in (drag the rows). Save or discard changes before opening another flow.</li>
               <li><strong>Kitchen screens</strong>: <strong>Add a screen</strong>, name it, tick the stations it shows (none ticked: all; order ready boards aren't shown on kitchen screens), what it opens on (tickets or the On order counts), tickets across, text size, the beep, and whether it <strong>can switch the kitchen flow</strong> (on unless you turn it off). On the screen, open the till address in Chrome, install it, and type the pairing code. It opens as a kitchen screen.</li>
               <li><strong>Online orders</strong>: send online orders to the kitchen when they're accepted (an order for later comes on when it's time to start it), and mark them ready when the kitchen finishes (the guest gets the ready email).</li>
+              <li><strong>GloriaFood orders</strong> (when the venue is linked to GloriaFood in Cash Recon settings): tick <strong>Send GloriaFood orders to the kitchen screens</strong> and press Save. Accepted orders then come onto the screens as GloriaFood sends them, marked with an orange <strong>GloriaFood</strong> label and GloriaFood's order number. Dishes are matched to your menus by name (capitals and spaces don't matter) and show under your menu's name, so dish and section links in the kitchen flow apply to them; a dish with no match (a name GloriaFood spells differently) goes by the order type and the links for every dish. Pick which of your order types each GloriaFood type counts as (Pickup, Delivery, Dine in...); they start matched by name. An order for later comes on the minutes you set before its time. Ready at the pass marks it Ready on the Online orders board, Collected marks it Collected there (with <strong>Mark them ready when the kitchen finishes</strong> on; GloriaFood isn't told). Ready or Collected on the board, or a cancellation in GloriaFood, takes it off the screens. Test orders from GloriaFood come on too, with the note "GloriaFood test order". Orders that arrived while this was off, imported orders, and orders more than two hours past their time don't come on.</li>
             </ol>
 
             <H3>Using a kitchen screen</H3>
@@ -4589,11 +4595,11 @@ export default function Help() {
               <li><strong>The expo</strong> sees whole orders, each dish marked where it is now ("At Fryer"), and <strong>READY</strong> marks the order ready (it also finishes dishes still at earlier stations). A line says when some of the order goes through another expo. Ready orders wait under the tick button until <strong>Collected</strong>.</li>
               <li><strong>A runner</strong> gets the order once the expo is done, and <strong>DONE</strong> when it's taken out. When the runner is the last step for every dish, DONE hands the order over (it leaves the order ready board).</li>
               <li>A station can't bump a dish that hasn't reached it yet, and can't bring back one the next station has already done.</li>
-              <li>Along the top: All orders, one tab per order type, Online, and the stations this screen shows. The green bar shows the average bump time today, the last 10, how many are done, the share on time, Live or Offline, and the time.</li>
+              <li>Along the top: All orders, one tab per order type, Online (your online orders and GloriaFood's), and the stations this screen shows. The green bar shows the average bump time today, the last 10, how many are done, the share on time, Live or Offline, and the time.</li>
               <li><strong>Rush</strong> moves a ticket to the front. <strong>SUM</strong> shows how many of each dish are on order. <strong>Prev</strong> lists the last tickets bumped here: <strong>Bring back</strong> one bumped by mistake. <strong>Remake</strong> puts a dish back on with a reason (for the waste report).</li>
               <li>A dish voided on the till shows crossed out with VOID until the ticket is bumped. Dishes moved to another table or check follow it.</li>
               <li>A <strong>combo</strong> shows as its name with its parts under it ("› Burger", "› 2 x KETCHUP"). Each part goes to the station that makes it, so the grill sees the burger and the fryer the fries, each under the combo's name; a part typed in just for the combo (a sauce pot, a toy) goes where the combo itself goes.</li>
-              <li>The clock button lists orders for later (held courses and online orders with a later collection time). They come on by themselves when it's time.</li>
+              <li>The clock button lists orders for later (held courses, and online and GloriaFood orders for a later time). They come on by themselves when it's time.</li>
               <li>The gear button: pick the station, Tickets or On order counts, text size, beep, full screen, and the bump bar keys.</li>
               <li><strong>The flow button</strong> (top right, with the name of the flow in use, when you have more than one flow) lists your kitchen flows with the stations each uses. Tap <strong>Switch</strong> on another, then <strong>Yes, switch</strong>: dishes sent from then on go its way, for the whole kitchen. Dishes already on the screens stay where they are, so finish them as usual. Every kitchen screen shows the new flow straight away with a note saying who switched. Switching needs the internet; a screen not allowed to switch (Till setup) shows the flows without the Switch buttons.</li>
             </ul>

@@ -365,6 +365,14 @@ Chrome, as an installed PWA.
 - **Online orders** enter as server-made events (`kitchen.order_in` / `kitchen.order_status`)
   when accepted on the orders board; the pass marking one ready marks the online order ready
   (the guest's email), if switched on.
+- **GloriaFood orders** (migration 178, 17 Oct 2026) enter the same way, as GloriaFood pushes
+  them (or the poll collects them), when Till setup switches it on (`kds_gloriafood`, off by
+  default). Their kitchen id is `gf-<gloriafood_orders.id>` (source `gloriafood`, from the id
+  prefix). GloriaFood dishes carry only a name: they are matched by name to the venue's live
+  menus so dish and section links apply, and the GloriaFood order type maps to one of the
+  tenant's (`kds_gloriafood_types`). Ready / collected in the kitchen moves our board status;
+  Ready / Collected on the board and a cancellation in GloriaFood reach the kitchen. GloriaFood
+  itself is never told.
 - **The kitchen flow** (migration 169, 16 Oct 2026) replaced printer-style routing. Stations are
   prep, expo, runner or order ready board; links go from Orders in (the till and online orders)
   to stations and on from station to station, each with an optional filter (dishes, sections,
@@ -427,7 +435,10 @@ nothing changes for the devices.
 ### 9.3 Not built yet
 
 - The hub itself (above), so no till-to-kitchen with the internet down.
-- GloriaFood orders on the kitchen screens (they reach the orders board, not the kitchen).
+- GloriaFood: a change to an order's dishes after it reached the kitchen isn't copied (only a
+  cancellation); a dish whose GloriaFood name differs from the menu's isn't matched (it follows
+  the order type and default links); orders that arrived while sending was off don't come on
+  later; GloriaFood isn't told when the kitchen finishes.
 - Ready / bumped shown on the till (the till doesn't show what the kitchen has done).
 - Item-level cook times and "start this now" timing across stations (all dishes of an order
   start together; held courses and later online orders wait).
