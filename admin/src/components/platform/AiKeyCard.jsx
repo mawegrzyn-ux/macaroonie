@@ -155,7 +155,14 @@ function KeyStatus({ info }) {
       {info.source === 'platform' && info.env_hint && (
         <p className="text-muted-foreground">The server's .env also has a key (ending <span className="font-mono">{info.env_hint}</span>); the one saved here is used.</p>
       )}
-      <p className="text-muted-foreground">Chat model: <span className="font-mono">{info.model}</span></p>
+      {info.fast_model ? (
+        <p className="text-muted-foreground">
+          Chats start on <span className="font-mono">{info.fast_model}</span> and move to{' '}
+          <span className="font-mono">{info.model}</span> for files, big jobs and long chats.
+        </p>
+      ) : (
+        <p className="text-muted-foreground">Chat model: <span className="font-mono">{info.model}</span></p>
+      )}
     </div>
   )
 }

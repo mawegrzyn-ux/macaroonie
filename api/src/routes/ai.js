@@ -4,9 +4,10 @@
 //
 //   GET    /status                     can this person chat? (assistant panel)
 //   GET    /conversations              their own recent chats
-//   GET    /conversations/:id          one chat as display items
+//   GET    /conversations/:id          one chat as display items (+ running)
 //   DELETE /conversations/:id
-//   POST   /chat                       { conversation_id?, message, attachments? } -> items
+//   POST   /chat                       { conversation_id?, message, attachments? } -> items;
+//                                      streamed with Accept: text/event-stream
 //   POST   /attachments                multipart file -> { id, name, kind } (migration 150)
 //   GET    /attachments/:id            the file itself (its uploader only)
 //   DELETE /attachments/:id            an upload not sent yet
@@ -43,8 +44,9 @@ import {
 } from '../ai/settings.js'
 import { activeKey, keyInfo, checkKey, saveKey, removeKey } from '../ai/apiKey.js'
 import {
-  createConversation, loadConversation, runTurn, confirmAction, cancelAction, displayItems, chatContext,
+  createConversation, loadConversation, runTurn, confirmAction, cancelAction, displayItems, chatContext, isRunning,
 } from '../ai/chat.js'
+import { wantsStream, eventStream, errorEvent } from '../ai/sse.js'
 import { staffInstructions } from '../ai/prompts.js'
 import { ASSISTANT_NAME } from '../../../shared/assistant.js'
 import { saveUpload, loadOwnAttachment, deleteUnsent, MAX_BYTES, MAX_PER_MESSAGE } from '../ai/attachments.js'
@@ -134,9 +136,14 @@ export default async function aiRoutes(app) {
     `)
   })
 
+  // running: a turn is still going (another tab, or a stream that dropped):
+  // the chat asks again until it isn't.
   app.get('/conversations/:id', async req => {
     const conv = await ownConversation(req, req.params.id)
-    return { id: conv.id, title: conv.title, closed: !!conv.closed_at, items: await displayItems(conv) }
+    return {
+      id: conv.id, title: conv.title, closed: !!conv.closed_at, running: isRunning(conv),
+      items: await displayItems(conv),
+    }
   })
 
   app.delete('/conversations/:id', async req => {
@@ -145,7 +152,10 @@ export default async function aiRoutes(app) {
     return { ok: true }
   })
 
-  app.post('/chat', async req => {
+  // With Accept: text/event-stream the turn streams (src/ai/sse.js): start,
+  // text, activity, step, card, discard, then done (the same body the JSON
+  // reply has) or error.
+  app.post('/chat', async (req, reply) => {
     const body = ChatBody.parse(req.body)
     await staffChatAllowed(req)
     let conv
@@ -161,8 +171,28 @@ export default async function aiRoutes(app) {
         systemPrompt: staffInstructions({ tenant: t?.name, person: u?.full_name || null, chat: true }),
       })
     }
-    const out = await run(() => runTurn(chatContext(app, conv, { req }), conv, body.message, { attachments: body.attachments }))
-    return { conversation_id: conv.id, title: conv.title, stop_reason: out.stopReason, items: await displayItems(conv) }
+    const stream = wantsStream(req) ? eventStream(reply) : null
+    // conversation_id null: a new chat's only message was refused and taken
+    // back out, so there is no chat any more.
+    const done = async out => {
+      const gone = !(await loadConversation(req.tenantId, conv.id))
+      return {
+        conversation_id: gone ? null : conv.id, title: gone ? null : conv.title, stop_reason: out.stopReason, notice: out.notice,
+        items: gone ? [] : await displayItems(conv),
+      }
+    }
+    if (!stream) {
+      return done(await run(() => runTurn(chatContext(app, conv, { req }), conv, body.message, { attachments: body.attachments })))
+    }
+    try {
+      const out = await runTurn(chatContext(app, conv, { req }), conv, body.message, { attachments: body.attachments, emit: stream.send })
+      stream.send({ type: 'done', ...(await done(out)) })
+    } catch (err) {
+      if (!stream.open) throw err instanceof ToolError ? httpError(err.status || 400, err.message) : err
+      stream.send({ ...errorEvent(req, err), conversation_id: conv.id })
+    }
+    stream.end()
+    return reply
   })
 
   // ── Attached files ──────────────────────────────────────

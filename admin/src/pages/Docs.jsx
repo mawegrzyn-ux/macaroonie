@@ -4051,18 +4051,84 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             </P>
             <H3>The chat loop</H3>
             <P>
-              <Mono>runTurn()</Mono>: <Mono>client.beta.messages.create</Mono> with{' '}
-              <Mono>AI_MODEL</Mono> (default in <Mono>config/env.js</Mono>), <Mono>output_config.effort</Mono>{' '}
-              (<Mono>AI_EFFORT</Mono>, default medium), adaptive thinking (the default), top-level{' '}
-              <Mono>cache_control</Mono>, and server-side fallbacks (<Mono>fallbacks: 'default'</Mono>,
-              beta <Mono>server-side-fallback-2026-07-01</Mono>). Up to 12 model calls per turn
-              (<Mono>MAX_STEPS</Mono>).
+              <Mono>runTurn()</Mono>: every model call is <Mono>callModel()</Mono>, a stream
+              (<Mono>client.beta.messages.stream</Mono>, the whole message from{' '}
+              <Mono>finalMessage()</Mono>) with the chat&apos;s model (<Mono>modelOf()</Mono>, see
+              Model routing), <Mono>output_config.effort</Mono> (<Mono>AI_EFFORT</Mono>, default
+              medium), adaptive thinking (the default), top-level <Mono>cache_control</Mono>,{' '}
+              <Mono>max_tokens</Mono> 32,000, and server-side fallbacks (<Mono>fallbacks:
+              'default'</Mono>, beta <Mono>server-side-fallback-2026-07-01</Mono>) on every model
+              that offers them (<Mono>NO_FALLBACK()</Mono> leaves them off the everyday model). Up
+              to 12 model calls per turn (<Mono>MAX_STEPS</Mono>).
               Messages are stored exactly as returned and only appended, with the system prompt the
               conversation started with (<Mono>ai_conversations.system_prompt</Mono>), so every
               request replays the history unchanged: thinking blocks stay valid and the prompt cache
               hits. Back-to-back user rows (a confirm note, then the next message) are merged when
-              sent. A refusal stores nothing. Every response's usage goes to <Mono>ai_usage</Mono>{' '}
-              (and the person's day, see Usage below).
+              sent. Every response's usage goes to <Mono>ai_usage</Mono> (and the person's day, see
+              Usage below). Claude's own errors after the SDK's two retries (overloaded, rate
+              limited, down, cut off mid-reply) become a 503 "Claude is busy" with the cause logged
+              at warn.
+            </P>
+            <P>
+              <strong>Refusals.</strong> A refused reply is never stored. On the everyday model the
+              chat moves to the main model and the step runs again (it has no server-side fallback).
+              On the main model, if nothing of the turn&apos;s reply was stored yet, the person&apos;s
+              message is withdrawn too (<Mono>withdrawMessage()</Mono>, as for a file Claude can&apos;t
+              take): left in, it would be sent again merged with the next message and most likely
+              refused again. The turn returns a <Mono>notice</Mono> saying so; a new chat whose only
+              message was refused is deleted, and the reply&apos;s <Mono>conversation_id</Mono> is
+              null.
+            </P>
+            <P>
+              <strong>Streaming (server-sent events).</strong> <Mono>POST /api/ai/chat</Mono> and{' '}
+              <Mono>POST /ai-api/chat</Mono> stream when the request says{' '}
+              <Mono>Accept: text/event-stream</Mono> (<Mono>ai/sse.js</Mono>; without it they answer
+              JSON once, as before). The stream opens with the first event, so anything refused before
+              the message is stored (no access, allowance used up, the chat busy) is still a plain JSON
+              error. Events, each <Mono>event: type</Mono> + <Mono>data: JSON</Mono>:{' '}
+              <Mono>start</Mono> (conversation_id, title; the website chat adds guest_key),{' '}
+              <Mono>text</Mono> (key = step-block, delta), <Mono>activity</Mono> (Thinking...,
+              Finding the right tool..., Looking it up..., Getting a card ready...),{' '}
+              <Mono>step</Mono> (a lookup&apos;s line), <Mono>card</Mono> (a pending card as{' '}
+              <Mono>actionView()</Mono>), <Mono>discard</Mono> (drop the text of a refused step), then{' '}
+              <Mono>done</Mono> (the same body as the JSON reply: conversation_id, title,
+              stop_reason, notice, items) or <Mono>error</Mono> (status, error, conversation_id,{' '}
+              <Mono>withdrawn</Mono> when the message was taken back out). A comment line goes out
+              every 15 s, and <Mono>X-Accel-Buffering: no</Mono> stops nginx holding events back
+              (needed on the tenant-site server blocks, which buffer). Closing the page doesn&apos;t stop
+              the turn: writes after that are dropped and the reply is in the chat later.{' '}
+              <Mono>runTurn(ctx, conv, text, &#123; emit &#125;)</Mono> sends the events;{' '}
+              <Mono>streamEvents()</Mono> turns the SDK&apos;s stream events into text and activity,{' '}
+              <Mono>handleToolUse()</Mono> sends steps and cards. A listener error never stops a turn.
+            </P>
+            <P>
+              Admin side: <Mono>api.stream(path, body, onEvent)</Mono> in <Mono>lib/api.js</Mono>{' '}
+              (fetch with the auth headers, <Mono>readEvents()</Mono> parses the stream, resolves with
+              done, throws the error event as an <Mono>ApiError</Mono>, or one with status 0 and{' '}
+              <Mono>lost</Mono> when the stream ends without either; 45 s without a byte aborts it,
+              since the server writes every 15 s). <Mono>ChatView.jsx</Mono> keeps the live items
+              (text by key, steps, cards) and the activity line until done replaces them with the
+              stored conversation. Cards that arrive during the turn can&apos;t be pressed until it
+              ends. After a drop the chat reloads the conversation; <Mono>GET
+              /api/ai/conversations/:id</Mono> returns <Mono>running</Mono> (the hold is taken) and the
+              chat asks again every 3 s while it is. Notices (the turn stopped early, a refusal) show
+              in italics under the conversation. The website chat block (<Mono>ai_chat.eta</Mono>) does
+              the same in plain script.
+            </P>
+            <P>
+              <strong>Model routing (migration 175).</strong> A chat starts on the everyday model{' '}
+              (<Mono>AI_MODEL_FAST</Mono>) and moves to the main one (<Mono>AI_MODEL</Mono>) for good
+              when it needs it (<Mono>upgradeChat()</Mono>, <Mono>ai_conversations.model_tier</Mono>{' '}
+              'fast' to 'main'): a file is attached (before the first call), the everyday model calls
+              a <Mono>HEAVY_TOOLS</Mono> tool (create_menu, add_dishes, import_price_list: its call is
+              answered "Not run yet" and the main model makes it again, so the card is the main
+              model&apos;s), a request&apos;s prompt reaches <Mono>LONG_CHAT_TOKENS</Mono> (60,000:
+              the steps after it), or the everyday model refuses. A chat never moves back down: the
+              main model reads the everyday model&apos;s thinking blocks, the other way round they
+              would be dropped. Chats from before routing (tier NULL) stay on the main model.{' '}
+              <Mono>AI_MODEL_FAST</Mono> empty, or the same as <Mono>AI_MODEL</Mono>, puts every
+              chat on the main model. The move costs one full cache write on the main model. The
+              Platform page&apos;s key card shows both models.
             </P>
             <P>
               <strong>One writer per chat (migration 174).</strong> The API runs one process per CPU,
@@ -4080,8 +4146,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <P>
               <strong>Turn budget.</strong> nginx gives <Mono>/api/ai/</Mono> 300 s (see Deployment,{' '}
               <Mono>ensure-nginx-ai-timeout.sh</Mono>); before that the general 60 s cut long turns
-              off with a 504 while they kept running. A turn starts no new step after{' '}
-              <Mono>TURN_MS</Mono> (240 s): it stops once every tool call of the last step has its
+              off with a 504 while they kept running. A turn answered as JSON starts no new step
+              after <Mono>TURN_MS</Mono> (240 s); a streamed one, which keeps the connection busy,
+              after <Mono>STREAM_TURN_MS</Mono> (600 s). It stops once every tool call of the last step has its
               result stored, replies that it stopped and the person can say "carry on" (stop reason{' '}
               <Mono>time</Mono>). Never after a paused server step, so the history stays valid.
               Before calling the model, the turn refuses a closed chat (see Erasure), a tenant past
@@ -4143,10 +4210,15 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               alike, so a long chat re-reading its cached history (cache reads cost a tenth of input)
               looked ten times dearer than it was, while output (five times input) looked cheap. Now
               it counts <strong>units</strong>: <Mono>usageUnits()</Mono> in{' '}
-              <Mono>ai/context.js</Mono> weighs tokens by price as input-token equivalents (input 1,
-              output 5, 5-minute cache write 1.25, cache read 0.1, or less for the models listed in{' '}
-              <Mono>CACHE_READ_WEIGHT</Mono>), with the model
-              that actually answered (<Mono>response.model</Mono>, which can be a fallback).{' '}
+              <Mono>ai/context.js</Mono> prices the tokens with the model that actually answered
+              (<Mono>response.model</Mono>, which can be a fallback or the everyday model):{' '}
+              <Mono>PRICES</Mono> holds $ per million input, output, cache read and 5-minute cache
+              write tokens per model (prompts over 100K tokens at 5x where{' '}
+              <Mono>LONG_PROMPT_RATE</Mono> says so), and a unit is $4 per million, so on the default
+              main model an input token is one unit, output five, a cache write 1.25 and a cache read
+              0.05, and the everyday model costs a small fraction of that. A model not in the table
+              counts input 1, output 5, cache write 1.25, cache read 0.1. Routing a chat to the
+              everyday model therefore uses less of the allowance, not just less money.{' '}
               <Mono>addUsage()</Mono> adds the units to <Mono>ai_usage</Mono> and, for staff chat, to
               the person&apos;s day in <Mono>ai_usage_people</Mono>; every caller passes{' '}
               <Mono>model</Mono> and, for staff, <Mono>person</Mono> (the chat loop, and{' '}
@@ -4185,7 +4257,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['ai_settings', 'One per tenant (no row = defaults): guest_mcp_enabled (true), guest_chat_enabled (false), staff_enabled (true), monthly_token_limit (2,000,000 units; platform admin only), person_daily_pct (25; 1-100 or null = no daily share; migration 174), chat_retention_days (90; 30 | 90 | 180 | 365; migration 174).'],
                 ['ai_usage', 'Per tenant, month (first day, UTC), channel: requests, input / output / cache read / cache write tokens, and units (migration 174: the tokens weighted by price, usageUnits()). The allowance counts units of staff_chat + guest_chat; MCP channels count calls only. Migration 174 backfilled units with the default weights.'],
                 ['ai_usage_people (migration 174)', 'Per tenant, day (UTC), user_sub: user_email, requests, units. Staff chat only (written by addUsage() with a person). The daily share and the Settings tab\'s people card read it; rows older than 400 days are deleted by the hourly clean-up. RLS, every query filters tenant_id.'],
-                ['ai_conversations / ai_messages', 'Chats. channel staff_chat (user_sub) or guest_chat (guest_key, a random secret the browser keeps). Messages: seq, role, content jsonb (API content blocks). Migration 174: running_until (the one-writer hold), closed_at + closed_reason (erased: read only, see Erasure), index (tenant_id, updated_at) for the retention clean-up.'],
+                ['ai_conversations / ai_messages', 'Chats. channel staff_chat (user_sub) or guest_chat (guest_key, a random secret the browser keeps). Messages: seq, role, content jsonb (API content blocks). Migration 174: running_until (the one-writer hold), closed_at + closed_reason (erased: read only, see Erasure), index (tenant_id, updated_at) for the retention clean-up. Migration 175: model_tier fast | main (NULL = main; see Model routing).'],
                 ['ai_pending_actions', 'Confirm cards: tool_use_id, tool, input, card {title, lines, confirmLabel, destructive}, status pending | done | cancelled | failed, result, expires_at, decided_at (claim).'],
                 ['ai_actions', 'Audit log of every change through AI (all channels): tool, input, ok, result, booking_id (null for anything but bookings), actor. Shown on /ai Activity. redacted_at (migration 174): input and result cleared after a year, or the guest\'s details replaced on erasure.'],
                 ['ai_booking_codes / ai_booking_grants', 'Emailed codes and access keys (hashes only).'],
@@ -4200,15 +4272,15 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               head={['Route', 'Notes']}
               rows={[
                 ['GET /api/ai/status', 'configured, enabled, permission, can_chat, units_left (the tenant\'s month), share_left (the caller\'s day; null = no daily share). Drives the Ask Pepper button.'],
-                ['GET/DELETE /api/ai/conversations[/:id], POST /api/ai/chat', 'The caller\'s own chats (user_sub); the list and a chat carry closed (erased, read only). chat { conversation_id?, message, attachments? } returns the whole conversation as display items; 409 while another turn or a card holds the chat, or when it is closed.'],
+                ['GET/DELETE /api/ai/conversations[/:id], POST /api/ai/chat', 'The caller\'s own chats (user_sub); the list and a chat carry closed (erased, read only), a chat also running (a turn or card holds it). chat { conversation_id?, message, attachments? } returns the whole conversation as display items plus stop_reason and notice; with Accept: text/event-stream it streams (see Streaming above). conversation_id null = a new chat\'s only message was refused and the chat removed. 409 while another turn or a card holds the chat, or when it is closed.'],
                 ['POST /api/ai/attachments, GET/DELETE /api/ai/attachments/:id', 'Upload one file (multipart field file) -> { id, name, kind, media_type, bytes }; the file itself, uploader only; remove an unsent upload. See Attached files above.'],
                 ['POST /api/ai/actions/:id/confirm | cancel', 'Confirm cards; hold the chat like a turn (409 while it is busy). The reply carries closed: an anonymise card closes the chat it ran in.'],
                 ['GET/PATCH /api/ai/settings', 'GET: settings, usage (channels + chat_units), daily_share (units or null), people (peopleUsage(): name or email, requests, units this month, today; everyone for ai_assistant manage, else only the caller\'s own line), MCP addresses. PATCH (ai_assistant manage): the switches, person_daily_pct (1-100 or null), chat_retention_days (30 | 90 | 180 | 365).'],
                 ['GET/POST/DELETE /api/ai/tokens[/:id]', 'Own tokens; ai_assistant manage sees and revokes everyone\'s. POST returns the token once.'],
                 ['GET /api/ai/activity', 'ai_actions, last 100 (manage).'],
                 ['GET/PATCH /api/ai/platform/tenants[/:id]', 'Platform admin: chat_units, mcp_calls and monthly_token_limit (an allowance in units; Platform page, AI usage tab).'],
-                ['GET/PUT/DELETE /api/ai/platform/key, POST /api/ai/platform/key/test', 'Platform admin: the Anthropic key. GET = source (platform | env | null), saved hint/by/at, env_hint, model. PUT { api_key } checks it with Anthropic (models.retrieve of AI_MODEL, free) and saves it, 422 with the reason if rejected, warning if the key can\'t use the model. DELETE goes back to .env. Never returns the key.'],
-                ['/ai-api/*', 'Website chat: tenants/:id/status, chat, conversations/:id?key=, actions/:id/confirm | cancel. Rate limited per IP.'],
+                ['GET/PUT/DELETE /api/ai/platform/key, POST /api/ai/platform/key/test', 'Platform admin: the Anthropic key. GET = source (platform | env | null), saved hint/by/at, env_hint, model, fast_model (null when routing is off). PUT { api_key } checks it with Anthropic (models.retrieve of AI_MODEL and AI_MODEL_FAST, free) and saves it, 422 with the reason if rejected, warning naming the setting if the key can\'t use a model. DELETE goes back to .env. Never returns the key.'],
+                ['/ai-api/*', 'Website chat: tenants/:id/status, chat (streams with Accept: text/event-stream; the start event carries guest_key), conversations/:id?key= (with running), actions/:id/confirm | cancel. Rate limited per IP.'],
                 ['POST /mcp, POST /mcp/staff/:tenantSlug', 'MCP Streamable HTTP, stateless (a server per request, JSON responses). GET/DELETE 405. Staff: route config allowAccessToken; a JWT gets X-Tenant-Id from the slug; ai_assistant view + staff_enabled.'],
                 ['GET /.well-known/oauth-protected-resource/mcp/staff/:slug', 'RFC 9728 metadata pointing at Auth0, for OAuth MCP clients (not verified end to end yet).'],
               ]}
@@ -4235,7 +4307,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               key changes; an authentication error from Anthropic during a chat becomes a 503 telling
               staff the key needs updating. Without any key the chats are off and MCP still works.
             </P>
-            <Code>{'# api/.env (optional fallback; a key saved on the Platform page wins)\nANTHROPIC_API_KEY=sk-ant-...\n# AI_MODEL=...   (default in src/config/env.js)\nAI_EFFORT=medium'}</Code>
+            <Code>{'# api/.env (optional fallback; a key saved on the Platform page wins)\nANTHROPIC_API_KEY=sk-ant-...\n# AI_MODEL=...        (the main model; default in src/config/env.js)\n# AI_MODEL_FAST=...   (the everyday model chats start on; empty = all on AI_MODEL)\nAI_EFFORT=medium'}</Code>
             <P>
               The connectors live on the apex (<Mono>https://macaroonie.com/mcp</Mono>), which is
               proxied to the API (<Mono>/mcp</Mono>, <Mono>/ai-api</Mono> and{' '}

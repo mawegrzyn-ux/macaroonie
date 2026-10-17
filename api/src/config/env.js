@@ -43,7 +43,11 @@ const schema = z.object({
   // AI chat (migration 148). Unset = the assistant and the website chat are
   // off; the MCP connectors work without it (the client's AI does the talking).
   ANTHROPIC_API_KEY:     z.string().optional(),
+  // The main model, and the everyday one chats start on (src/ai/chat.js
+  // moves a chat to the main model for files, big jobs and long chats).
+  // AI_MODEL_FAST empty (or the same as AI_MODEL) = every chat on AI_MODEL.
   AI_MODEL:              z.string().default('claude-opus-5-5'),
+  AI_MODEL_FAST:         z.string().default('claude-haiku-5-5'),
   AI_EFFORT:             z.enum(['low', 'medium', 'high', 'xhigh', 'max']).default('medium'),
 
   // Loyverse POS API (migration 154). Only changed for testing against a

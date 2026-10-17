@@ -3907,12 +3907,27 @@ export default function Help() {
               panel); delete one with the bin button.
             </P>
             <P>
-              A chat takes one message at a time. While Pepper is working on one, a second message
-              gets <em>"Still working on your last message"</em>, and pressing a card&apos;s button
-              asks you to press it again in a moment; wait for the answer, then carry on. A long job
+              Pepper&apos;s answer appears as it is written, with a line under it saying what it is
+              doing (thinking, looking something up, getting a card ready). A card that turns up
+              while Pepper is still working can be pressed once the answer has finished.
+            </P>
+            <P>
+              A chat takes one message at a time. While Pepper is working on one, the send button
+              waits and what you type stays in the box; wait for the answer, then carry on. A long job
               (a whole menu from a photo, a big price list) can take a few minutes. If it runs past
-              about four, Pepper stops between steps and asks you to say <em>carry on</em>, and picks
-              up where it left off.
+              about ten, Pepper stops between steps and asks you to say <em>carry on</em>, and picks
+              up where it left off. If your connection drops (a phone changing networks), the chat
+              says so and shows <em>"Still working on the last message"</em> until Pepper has
+              finished; the answer then appears by itself.
+            </P>
+            <P>
+              Everyday questions are answered by a faster model; Pepper moves to its most capable one
+              for photos and files, building a menu, importing a price list and long chats, and stays
+              on it for the rest of that chat. You don&apos;t need to do anything for this.
+            </P>
+            <P>
+              If Pepper can&apos;t help with a request, it says so and leaves that message out of the
+              chat, so the next one isn&apos;t held up by it.
             </P>
             <H3>What Pepper can do</H3>
             <DataTable
@@ -4247,7 +4262,9 @@ export default function Help() {
             <P>
               Usage counts what each reply costs, not just its length: what Pepper writes counts five
               times, and the earlier part of a chat it reads again counts a tenth or less. So a long
-              chat costs much less than its size suggests. <strong>Who uses it this month</strong>{' '}
+              chat costs much less than its size suggests, and an everyday question answered by the
+              faster model uses only a small part of what the same question costs on the most
+              capable one. <strong>Who uses it this month</strong>{' '}
               shows each person&apos;s replies, their part of the month&apos;s allowance, and how much
               of today&apos;s share they have used.
             </P>

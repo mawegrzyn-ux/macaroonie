@@ -52,21 +52,28 @@ export async function keyInfo() {
   const [row] = await sql`SELECT hint, updated_by, updated_at FROM platform_secrets WHERE name = ${SECRET}`
   const envKey = env.ANTHROPIC_API_KEY || null
   return {
-    source:   row ? 'platform' : envKey ? 'env' : null,
-    saved:    row ? { hint: row.hint, updated_by: row.updated_by, updated_at: row.updated_at } : null,
-    env_hint: envKey ? hintOf(envKey) : null,
-    model:    env.AI_MODEL,
+    source:     row ? 'platform' : envKey ? 'env' : null,
+    saved:      row ? { hint: row.hint, updated_by: row.updated_by, updated_at: row.updated_at } : null,
+    env_hint:   envKey ? hintOf(envKey) : null,
+    model:      env.AI_MODEL,
+    fast_model: env.AI_MODEL_FAST && env.AI_MODEL_FAST !== env.AI_MODEL ? env.AI_MODEL_FAST : null,
   }
 }
 
 /**
- * Asks Anthropic whether a key works, by looking up the chat model (free, no
+ * Asks Anthropic whether a key works, by looking up the chat models (free, no
  * tokens). Returns { ok, message?, warning? }.
  */
 export async function checkKey(key) {
   const client = new Anthropic({ apiKey: key, maxRetries: 0, timeout: 15_000 })
+  const fast = env.AI_MODEL_FAST && env.AI_MODEL_FAST !== env.AI_MODEL ? env.AI_MODEL_FAST : null
+  let model = env.AI_MODEL
   try {
-    await client.models.retrieve(env.AI_MODEL)
+    await client.models.retrieve(model)
+    if (fast) {
+      model = fast
+      await client.models.retrieve(model)
+    }
     return { ok: true }
   } catch (err) {
     if (err instanceof Anthropic.AuthenticationError) {
@@ -76,7 +83,8 @@ export async function checkKey(key) {
       return { ok: false, message: 'Anthropic says this key isn\'t allowed to use the API. Check the account in the Anthropic Console.' }
     }
     if (err instanceof Anthropic.NotFoundError) {
-      return { ok: true, warning: 'The key works, but this Anthropic account can\'t use the chat model (' + env.AI_MODEL + '). Set AI_MODEL on the server to a model it can use.' }
+      const setting = model === fast ? 'AI_MODEL_FAST' : 'AI_MODEL'
+      return { ok: true, warning: 'The key works, but this Anthropic account can\'t use the chat model (' + model + '). Set ' + setting + ' on the server to a model it can use.' }
     }
     if (err instanceof Anthropic.APIConnectionError) {
       return { ok: false, message: 'Couldn\'t reach Anthropic to check the key. Try again in a moment.' }

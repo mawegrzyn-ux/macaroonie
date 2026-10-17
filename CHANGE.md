@@ -5,6 +5,14 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-17 — Pepper streams its answers and uses a faster model for everyday questions]
+
+- **Answers appear as Pepper writes them**, in Ask Pepper, the Pepper page, the phone app and the website chat, with a line saying what it is doing (thinking, looking something up, getting a card ready). A card that arrives mid-answer can be pressed once the answer is done. A message typed while Pepper is working stays in the box.
+- **A dropped connection no longer loses the answer**: the chat says so, shows "Still working on the last message" until Pepper finishes, then shows the answer. Long jobs can now run up to about ten minutes before Pepper asks you to say "carry on".
+- **Faster, cheaper everyday answers**: chats start on a faster model and move to the most capable one for photos and files, building a menu, importing a price list, long chats, or anything the faster one won't answer, and stay there for the rest of that chat. Usage is counted at each model's own price, so everyday questions use far less of the monthly allowance. The Platform page shows both models. Server setting `AI_MODEL_FAST` (empty = every chat on `AI_MODEL`).
+- Fixed: when Pepper stopped early ("This is taking a while", too many steps) or couldn't help, that message never showed. A request Pepper can't help with is now left out of the chat, so it doesn't get in the way of the next one.
+- Migration 175.
+
 ## [2026-10-17 — Pepper: longer jobs, fair use, privacy; fresh-database builds]
 
 - **Long Pepper jobs no longer show an error after a minute.** The server now gives Pepper's chat 5 minutes to answer (other pages keep 1 minute). A job that runs past about four minutes stops between steps and asks you to say "carry on". Installed by the deploy.
