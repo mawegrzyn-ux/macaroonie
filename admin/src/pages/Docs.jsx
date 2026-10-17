@@ -3987,6 +3987,18 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               before sending) that the model reads next turn. Cancel on a booking card releases its
               hold. Over MCP, run() is called directly; the client's own app asks the person.
             </P>
+            <P>
+              <Mono>run()</Mono> re-plans from the stored input, so the run sees anything changed on
+              the pages since the card. Inputs that mean "now" would also be worked out again (today,
+              this week, the check due now, the day's order 12), which after midnight or a check time
+              is a different day, check or order. So <Mono>describe()</Mono> returns{' '}
+              <Mono>pin</Mono>: the values the card was built with (<Mono>date</Mono>,{' '}
+              <Mono>week</Mono>, <Mono>from</Mono> / <Mono>to</Mono>, an order or check time by id,
+              a refund&apos;s amount). <Mono>handleToolUse()</Mono> merges it into the input,
+              re-validates it with the tool&apos;s schema and stores that; the card itself never holds
+              it. A pinned refund amount that is no longer available fails at Confirm instead of
+              refunding a different sum.
+            </P>
             <H3>Guest change / cancel: emailed code</H3>
             <P>
               <Mono>ai/codes.js</Mono>. <Mono>request_booking_code(reference, email)</Mono> finds the

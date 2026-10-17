@@ -527,6 +527,7 @@ export const rotaTools = [
           warnings: ['The week of ' + weekText(p.to) + ' already has ' + plural(p.existing, 'entry', 'entries') + ' (incl. sickness and time off); they are replaced.'],
         } : {}),
         confirmLabel: 'Copy rota',
+        pin: { week: p.to, from_week: p.from },
       }
     },
     async run(ctx, input) {
@@ -658,6 +659,7 @@ export const rotaTools = [
         lines,
         ...(warnings.length ? { warningTitle: 'Check', warnings } : {}),
         confirmLabel: 'Add',
+        pin: { week: p.monday },
       }
     },
     async run(ctx, input) {
@@ -702,6 +704,7 @@ export const rotaTools = [
           warnings: [plural(p.existing, 'person', 'people') + ' already on this week\'s wages get the new amounts. Paid ticks are kept.'],
         } : {}),
         confirmLabel: 'Fill wages',
+        pin: { week: p.monday },
       }
     },
     async run(ctx, input) {
@@ -750,6 +753,7 @@ export const rotaTools = [
           ...(input.note ? ['Note: ' + input.note] : []),
         ],
         confirmLabel: 'Save',
+        pin: { week: p.monday },
       }
     },
     async run(ctx, input) {
@@ -798,6 +802,7 @@ export const rotaTools = [
         title: 'Enter these tip amounts?',
         lines: [p.venue.name + ', week of ' + weekText(p.monday), ...p.rows.map(r => r.text)],
         confirmLabel: 'Save',
+        pin: { week: p.monday },
       }
     },
     async run(ctx, input) {

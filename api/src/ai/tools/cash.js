@@ -188,7 +188,7 @@ async function wagesPlan(ctx, input) {
       notes: e.notes ?? null,
     })),
   }
-  return { venue, monday, body, lines, warnings }
+  return { venue, monday, paidOn, body, lines, warnings }
 }
 
 // ── fill from Loyverse / GloriaFood ─────────────────────────
@@ -349,6 +349,7 @@ export const cashTools = [
         lines: [p.venue.name + ', ' + longDate(p.date), ...p.lines,
           ...(p.variance != null ? ['Variance now: ' + varianceText(p.variance, p.venue.currency)] : [])],
         confirmLabel: 'Save',
+        pin: { date: p.date },
       }
     },
     async run(ctx, input) {
@@ -384,7 +385,10 @@ export const cashTools = [
     async describe(ctx, input) {
       await requireStaffPermission(ctx, 'cash_recon', 'manage')
       const p = await expensePlan(ctx, input)
-      return { title: 'Add this expense?', lines: p.lines, ...(p.warnings.length ? { warningTitle: 'Check', warnings: p.warnings } : {}), confirmLabel: 'Add' }
+      return {
+        title: 'Add this expense?', lines: p.lines, ...(p.warnings.length ? { warningTitle: 'Check', warnings: p.warnings } : {}),
+        confirmLabel: 'Add', pin: { date: p.date },
+      }
     },
     async run(ctx, input) {
       await requireStaffPermission(ctx, 'cash_recon', 'manage')
@@ -420,6 +424,7 @@ export const cashTools = [
           ', cash expenses ' + money(p.summary.total_expenses, cur)],
         ...(warnings.length ? { warningTitle: 'Check', warnings } : {}),
         confirmLabel: 'Submit',
+        pin: { date: p.date },
       }
     },
     async run(ctx, input) {
@@ -487,6 +492,7 @@ export const cashTools = [
         lines: [p.venue.name + ', week of ' + shortDate(p.monday), ...p.lines],
         ...(p.warnings.length ? { warningTitle: 'Check', warnings: p.warnings } : {}),
         confirmLabel: 'Save',
+        pin: { week: p.monday, paid_on: p.paidOn },
       }
     },
     async run(ctx, input) {
@@ -522,6 +528,7 @@ export const cashTools = [
         lines: [p.venue.name, ...p.lines],
         ...(p.warnings.length ? { warningTitle: 'Check', warnings: p.warnings } : {}),
         confirmLabel: 'Fill',
+        pin: { from: p.from, to: p.to },
       }
     },
     async run(ctx, input) {

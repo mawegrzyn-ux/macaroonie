@@ -17,7 +17,7 @@ Migrations are listed where a database change is required.
   - **Opening times and setup**: booking times, close for dates (with how many bookings are already in them), reopen, tables, booking rules.
   - **Website and more**: publish status and publish, the emergency banner, promotions on or off, reviews (approve, feature, reply), menu screens (status, reload), booking emails sent, report an issue, list issues, request a feature.
   - **Finding a page**: Pepper replies with a link to the page that does the job, only pages the person can open.
-- Every change still shows a card first with what will happen and nothing changes until Confirm; every change is listed under Pepper → Activity.
+- Every change still shows a card first with what will happen and nothing changes until Confirm; every change is listed under Pepper → Activity. A card now does exactly what it shows even when Confirm is pressed later: the day, week, order, check time or refund amount on it is kept, so a cash up confirmed just after midnight still submits the day on the card, and a refund changed on the board in the meantime is refused instead of refunding a different sum.
 - Pepper has its own switch on Access → Modules (it was part of Bookings).
 - Fixed (security): on the online orders board, another restaurant group could open an order's details, its report, change its status or refund it by its id; and the schedule, venue settings and test data routes took a venue id from another restaurant group (close weekdays, add sittings, change booking rules, add tables, read the schedule). Both now check the order or venue is the caller's.
 - Migration 173.

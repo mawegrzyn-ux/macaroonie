@@ -128,7 +128,7 @@ async function orderPlan(ctx, input) {
     call = { path: `/api/orders/${order.id}/mark-paid`, body: { method: input.action === 'paid_cash' ? 'cash' : 'card_terminal' } }
   }
   if (input.reason) lines.push('Reason: ' + input.reason)
-  return { venue, order, lines, warnings, call }
+  return { venue, date, order, lines, warnings, call }
 }
 
 // ── sold out ────────────────────────────────────────────────
@@ -217,6 +217,7 @@ export const orderTools = [
         ...(p.warnings.length ? { warningTitle: 'Check', warnings: p.warnings } : {}),
         confirmLabel: ACTION_WORD[input.action],
         destructive: input.action === 'reject' || input.action === 'cancel',
+        pin: { date: p.date, order: p.order.id },
       }
     },
     async run(ctx, input) {
@@ -263,6 +264,9 @@ export const orderTools = [
         warnings: ['This can\'t be undone.'],
         confirmLabel: 'Refund',
         destructive: true,
+        // The amount on the card, not "what's left" at Confirm: if the order was
+        // refunded in between, the run refuses instead of refunding a different sum.
+        pin: { date: p.date, order: p.order.id, amount: p.amount / 100 },
       }
     },
     async run(ctx, input) {
@@ -513,7 +517,7 @@ async function refundPlan(ctx, input) {
   if (left <= 0) throw new ToolError(numberOf(order) + ' has nothing left to refund.', 409)
   const amount = input.amount != null ? Math.round(input.amount * 100) : left
   if (amount > left) throw new ToolError('Only ' + pence(left, venue.currency) + ' can be refunded.', 422)
-  return { venue, order, left, amount }
+  return { venue, date, order, left, amount }
 }
 
 async function soldOutPlan(ctx, input) {

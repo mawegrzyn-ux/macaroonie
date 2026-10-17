@@ -192,10 +192,14 @@ async function handleToolUse(ctx, conv, block) {
     const expires = card.expiresAt
       ? new Date(Math.min(new Date(card.expiresAt).getTime(), Date.now() + ACTION_MINUTES * 60_000))
       : new Date(Date.now() + ACTION_MINUTES * 60_000)
-    const { expiresAt, ...cardData } = card
+    // pin: what the card was worked out with (the day, the week, which order or
+    // check time) replaces "today" / "now" / a day's order number in the stored
+    // input, so Confirm does what the card says even after midnight.
+    const { expiresAt, pin, ...cardData } = card
+    const stored = pin ? parseInput(tool, { ...input, ...pin }) : input
     await withTenant(conv.tenant_id, tx => tx`
       INSERT INTO ai_pending_actions (tenant_id, conversation_id, tool_use_id, tool, input, card, expires_at)
-      VALUES (${conv.tenant_id}, ${conv.id}, ${block.id}, ${tool.name}, ${tx.json(input)}, ${tx.json(cardData)}, ${expires})
+      VALUES (${conv.tenant_id}, ${conv.id}, ${block.id}, ${tool.name}, ${tx.json(stored)}, ${tx.json(cardData)}, ${expires})
     `)
     const mins = Math.max(1, Math.round((expires.getTime() - Date.now()) / 60_000))
     return result('Not done yet: the ' + (ctx.channel === 'guest_chat' ? 'guest' : 'staff member') +
