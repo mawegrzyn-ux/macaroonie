@@ -18,7 +18,7 @@
 // only through a short-lived preview link (POST /:id/preview-link).
 
 import { z } from 'zod'
-import { withTenant, sql } from '../config/db.js'
+import { withTenant, sql, systemSql, tenantSql } from '../config/db.js'
 import { requireAuth, requirePermission } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
 import { SEED_BY_SLUG, ONETHAI_DIETARY_TAGS, ensureStandardAllergens } from '../services/menuSeeds.js'
@@ -911,7 +911,7 @@ export default async function menusRoutes(app) {
     // RLS context. Only return when the tenant_site is published OR
     // the menu's own venue page is live (gate matches the public site).
     if (!z.string().uuid().safeParse(req.params.menuId).success) throw httpError(404, 'Menu not found')
-    const [meta] = await sql`
+    const [meta] = await systemSql`
       SELECT m.tenant_id, ts.is_published AS site_published
         FROM menus m
         LEFT JOIN tenant_site ts ON ts.tenant_id = m.tenant_id
@@ -939,7 +939,7 @@ export default async function menusRoutes(app) {
       return reply.view('site/not-found.eta', { message: 'Menu not found', rootDomain: 'macaroonie.com' })
     }
     if (!z.string().uuid().safeParse(req.params.id).success) return notFound()
-    const [meta] = await sql`SELECT tenant_id FROM menus WHERE id = ${req.params.id} LIMIT 1`
+    const [meta] = await systemSql`SELECT tenant_id FROM menus WHERE id = ${req.params.id} LIMIT 1`
     if (!meta) return notFound()
     // The live version, or with ?preview=<link id> (POST /:id/preview-link,
     // an hour) the draft or a scheduled release, for the admin's Print button.
@@ -947,7 +947,7 @@ export default async function menusRoutes(app) {
     let preview = false
     if (req.query?.preview) {
       if (!z.string().uuid().safeParse(req.query.preview).success) return notFound()
-      const [link] = await sql`
+      const [link] = await tenantSql(meta.tenant_id)`
         SELECT release_id FROM menu_preview_links
          WHERE id = ${req.query.preview} AND menu_id = ${req.params.id} AND tenant_id = ${meta.tenant_id}
            AND expires_at > now()`

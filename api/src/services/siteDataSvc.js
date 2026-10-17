@@ -21,7 +21,7 @@
 //   2. tenant_site                                (franchise identity)
 //   3. website_config (when rendering a location, or the sole venue on home)
 
-import { sql, withTenant } from '../config/db.js'
+import { sql, withTenant, systemSql, tenantSql } from '../config/db.js'
 import { loadMenuVersions } from './menuReleases.js'
 
 // A venue with website_config.use_brand_override = true replaces the
@@ -114,7 +114,7 @@ async function resolveTenantSite(lookup, { includeUnpublished = false } = {}) {
 
   let row
   if (customDomain) {
-    [row] = await sql`
+    [row] = await systemSql`
       SELECT ts.*, t.name AS tenant_name, t.slug AS tenant_slug
         FROM tenant_site ts
         JOIN tenants t ON t.id = ts.tenant_id AND t.is_active = true
@@ -124,7 +124,7 @@ async function resolveTenantSite(lookup, { includeUnpublished = false } = {}) {
     `
   }
   if (!row && slug) {
-    [row] = await sql`
+    [row] = await systemSql`
       SELECT ts.*, t.name AS tenant_name, t.slug AS tenant_slug
         FROM tenant_site ts
         JOIN tenants t ON t.id = ts.tenant_id AND t.is_active = true
@@ -386,7 +386,7 @@ async function buildPublishedTenantBundle(ts) {
   const snap = ts.published_snapshot
   const tenantSiteFrozen = { ...ts, ...snap.tenant_site }
 
-  const venues = await sql`
+  const venues = await tenantSql(ts.tenant_id)`
     SELECT v.id, v.slug, v.name, v.timezone, v.currency
       FROM venues v
      WHERE v.tenant_id = ${ts.tenant_id} AND v.is_active = true
@@ -696,7 +696,7 @@ export async function loadLocationBundle(tenantBundle, venueSlug) {
   const tenantId  = ts.tenant_id
   const isStaging = !!tenantBundle.is_staging
 
-  const [venue] = await sql`
+  const [venue] = await tenantSql(tenantId)`
     SELECT id, slug, name, timezone, currency
       FROM venues
      WHERE tenant_id = ${tenantId}

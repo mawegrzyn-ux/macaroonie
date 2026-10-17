@@ -15,7 +15,7 @@
 // booking.
 
 import { createHash, randomBytes, randomInt, timingSafeEqual } from 'node:crypto'
-import { sql, withTenant } from '../config/db.js'
+import { sql, systemSql, withTenant } from '../config/db.js'
 import { env } from '../config/env.js'
 import { sendEmail, emailCredentials } from '../services/emailSvc.js'
 import { ToolError } from './context.js'
@@ -45,7 +45,8 @@ async function findBooking({ reference, email, tenantId = null, guestMcp = false
   const ref = normaliseReference(reference)
   const mail = String(email || '').trim().toLowerCase()
   if (!/^[0-9A-F]{8}$/.test(ref) || !mail.includes('@')) return null
-  const [row] = await sql`
+  // System mode: the reference and email find the tenant.
+  const [row] = await systemSql`
     SELECT b.id, b.tenant_id, b.venue_id, b.guest_name, b.guest_email, b.starts_at
       FROM bookings b
       JOIN tenants t ON t.id = b.tenant_id AND t.is_active = true
@@ -161,7 +162,7 @@ export async function bookingIdForKey(accessKey, { tenantId = null } = {}) {
   const key = String(accessKey || '').trim()
   const expired = new ToolError('That access key is invalid or has expired. Start again with request_booking_code.', 401)
   if (!key.startsWith('bk_')) throw expired
-  const [row] = await sql`
+  const [row] = await systemSql`
     SELECT booking_id, tenant_id FROM ai_booking_grants
      WHERE token_hash = ${hash(key)} AND expires_at > now()
      LIMIT 1

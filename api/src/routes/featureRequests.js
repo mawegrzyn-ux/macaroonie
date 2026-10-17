@@ -4,7 +4,7 @@
 // Mounted at /api/feature-requests in app.js.
 
 import { z }          from 'zod'
-import { sql, withTenant } from '../config/db.js'
+import { sql, withTenant, withSystem } from '../config/db.js'
 import { requireAuth, requirePlatformAdmin, requirePermission } from '../middleware/auth.js'
 import { httpError }  from '../middleware/error.js'
 
@@ -106,13 +106,18 @@ export default async function featureRequestsRoutes(app) {
     const fields = Object.keys(body).filter(k => body[k] !== undefined)
     if (!fields.length) throw httpError(400, 'No fields to update')
 
-    const [item] = await sql`
-      UPDATE feature_requests
-         SET ${sql(Object.fromEntries(fields.map(k => [k, body[k]])), ...fields)},
-             updated_at = now()
-       WHERE id = ${req.params.id}
-       RETURNING *
-    `
+    // A platform admin changes any tenant's request (system mode); a tenant
+    // only its own (the board is read by everyone, written by its owner).
+    const values = Object.fromEntries(fields.map(k => [k, body[k]]))
+    const [item] = req.isPlatformAdmin
+      ? await withSystem(tx => tx`
+          UPDATE feature_requests SET ${tx(values, ...fields)}, updated_at = now()
+           WHERE id = ${req.params.id}
+           RETURNING *`)
+      : await withTenant(req.tenantId, tx => tx`
+          UPDATE feature_requests SET ${tx(values, ...fields)}, updated_at = now()
+           WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
+           RETURNING *`)
     if (!item) throw httpError(404, 'Feature request not found')
     return item
   })
@@ -124,46 +129,40 @@ export default async function featureRequestsRoutes(app) {
     const userId    = req.user.sub
     const tenantId  = req.tenantId
 
-    /* check existing upvote */
-    const [existing] = await sql`
-      SELECT 1 FROM feature_request_upvotes
-       WHERE request_id = ${requestId} AND user_id = ${userId}
-       LIMIT 1
-    `
-
-    let upvoted
-    let upvotes
-
-    if (existing) {
-      /* remove upvote */
-      await sql`
-        DELETE FROM feature_request_upvotes
+    // One board for every tenant: the vote row is the voter's tenant's, the
+    // count is on the request's (any tenant's), so system mode.
+    const { upvoted, upvotes } = await withSystem(async tx => {
+      const [existing] = await tx`
+        SELECT 1 FROM feature_request_upvotes
          WHERE request_id = ${requestId} AND user_id = ${userId}
+         LIMIT 1
       `
-      const [row] = await sql`
-        UPDATE feature_requests
-           SET upvotes = GREATEST(0, upvotes - 1), updated_at = now()
-         WHERE id = ${requestId}
-         RETURNING upvotes
-      `
-      upvoted  = false
-      upvotes  = row?.upvotes ?? 0
-    } else {
-      /* add upvote */
-      await sql`
+      if (existing) {
+        await tx`
+          DELETE FROM feature_request_upvotes
+           WHERE request_id = ${requestId} AND user_id = ${userId}
+        `
+        const [row] = await tx`
+          UPDATE feature_requests
+             SET upvotes = GREATEST(0, upvotes - 1), updated_at = now()
+           WHERE id = ${requestId}
+           RETURNING upvotes
+        `
+        return { upvoted: false, upvotes: row?.upvotes ?? 0 }
+      }
+      await tx`
         INSERT INTO feature_request_upvotes (request_id, user_id, tenant_id)
-        VALUES (${requestId}, ${userId}, ${tenantId ?? sql`(SELECT tenant_id FROM feature_requests WHERE id = ${requestId})`})
+        VALUES (${requestId}, ${userId}, ${tenantId ?? tx`(SELECT tenant_id FROM feature_requests WHERE id = ${requestId})`})
         ON CONFLICT DO NOTHING
       `
-      const [row] = await sql`
+      const [row] = await tx`
         UPDATE feature_requests
            SET upvotes = upvotes + 1, updated_at = now()
          WHERE id = ${requestId}
          RETURNING upvotes
       `
-      upvoted  = true
-      upvotes  = row?.upvotes ?? 0
-    }
+      return { upvoted: true, upvotes: row?.upvotes ?? 0 }
+    })
 
     return { upvoted, upvotes }
   })
@@ -179,7 +178,7 @@ export default async function featureRequestsRoutes(app) {
       throw httpError(422, 'Feature request is already promoted to the backlog')
     }
 
-    const [backlogItem, request] = await sql.begin(async tx => {
+    const [backlogItem, request] = await withSystem(async tx => {
       const [bi] = await tx`
         INSERT INTO backlog_items
           (title, description, type, priority, promoted_from_request_id, reporter_tenant_id)

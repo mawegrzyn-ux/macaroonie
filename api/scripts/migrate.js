@@ -58,7 +58,9 @@ const BASELINE_UP_TO = baselineUpToIdx !== -1 ? argv[baselineUpToIdx + 1] : null
 // and remains a no-op on every subsequent run.
 const AUTO_BASELINE_UP_TO = process.env.AUTO_BASELINE_UP_TO || null
 
-const sql = postgres(DATABASE_URL, { max: 1, idle_timeout: 2 })
+// System mode (migration 176): tenant tables force RLS, and a migration that
+// changes their rows must see all of them.
+const sql = postgres(DATABASE_URL, { max: 1, idle_timeout: 2, connection: { 'app.bypass_rls': 'on' } })
 
 function log(msg)  { console.log(msg) }
 function ok(msg)   { console.log(`\x1b[32m✓\x1b[0m ${msg}`) }

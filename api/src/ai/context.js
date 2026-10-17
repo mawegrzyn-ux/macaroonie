@@ -17,7 +17,7 @@
 // token through (tokens are refused on the admin API otherwise) and keeps
 // them out of the global rate limit (the outer request is counted).
 
-import { sql, withTenant } from '../config/db.js'
+import { sql, systemSql, withTenant } from '../config/db.js'
 import { permissionLevel, INTERNAL_CALL_HEADER, INTERNAL_CALL_SECRET } from '../middleware/auth.js'
 import { MODULES } from '../config/modules.js'
 
@@ -138,7 +138,7 @@ export async function audit(ctx, { tenantId, tool, input, ok, result, bookingId 
   `
   try {
     if (tid) await withTenant(tid, insert)
-    else await insert(sql)
+    else await insert(systemSql)
   } catch { /* the audit log never fails a booking */ }
 }
 

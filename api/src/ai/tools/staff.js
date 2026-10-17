@@ -21,7 +21,7 @@
 // Times outside the booking times, or blocked in the schedule, still fail.
 
 import { z } from 'zod'
-import { sql, withTenant } from '../../config/db.js'
+import { sql, withTenant, tenantSql } from '../../config/db.js'
 import { ToolError, callApi, audit, requireStaffPermission, isStaff } from '../context.js'
 import { loadBookingById, rescheduleBooking, partySizeLimit, coversLimit } from '../../services/guestBookingSvc.js'
 import { allocateBestFit } from '../../services/occupancySvc.js'
@@ -39,7 +39,7 @@ const BookingRef = z.string().min(6).max(40).describe('booking_id, or the 8-char
 
 /** An active venue of this tenant (shared with the H&S tools). */
 export async function staffVenue(ctx, venueId) {
-  const [v] = await sql`
+  const [v] = await tenantSql(ctx.tenantId)`
     SELECT id, tenant_id, name, timezone FROM venues
      WHERE id = ${venueId} AND tenant_id = ${ctx.tenantId} AND is_active = true
   `
@@ -53,7 +53,7 @@ async function staffBooking(ctx, idOrRef) {
   const isId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(key)
   const ref = key.toUpperCase()
   if (!isId && !/^[0-9A-F]{8}$/.test(ref)) throw new ToolError('Give a booking_id or an 8-character reference.', 422)
-  const rows = await sql`
+  const rows = await tenantSql(ctx.tenantId)`
     SELECT b.id FROM bookings b
      WHERE b.tenant_id = ${ctx.tenantId}
        AND ${isId ? sql`b.id = ${key}::uuid` : sql`upper(left(b.id::text, 8)) = ${ref}`}
@@ -90,7 +90,7 @@ function staffView(b) {
   }
 }
 
-const bookingRows = (ctx, where, limit) => sql`
+const bookingRows = (ctx, where, limit) => tenantSql(ctx.tenantId)`
   SELECT b.*, v.name AS venue_name, v.timezone AS venue_timezone,
          t.label AS table_label, t.is_unallocated AS table_is_unallocated, tc.name AS combination_name
     FROM bookings b
@@ -204,7 +204,7 @@ export const staffTools = [
     async run(ctx) {
       // Every area needs the venues, not only bookings: any staff member.
       if (!isStaff(ctx)) throw new ToolError('Not available here', 403)
-      const rows = await sql`
+      const rows = await tenantSql(ctx.tenantId)`
         SELECT id, name, timezone FROM venues
          WHERE tenant_id = ${ctx.tenantId} AND is_active = true ORDER BY name
       `
@@ -441,7 +441,7 @@ export const staffTools = [
             },
           })
         }
-        await sql`UPDATE bookings SET source = ${ctx.channel} WHERE id = ${bk.id} AND tenant_id = ${ctx.tenantId}`
+        await tenantSql(ctx.tenantId)`UPDATE bookings SET source = ${ctx.channel} WHERE id = ${bk.id} AND tenant_id = ${ctx.tenantId}`
         const [row] = await bookingRows(ctx, sql`b.id = ${bk.id}`, 1)
         const view = staffView(row)
         const result = plan.limits.length ? { ...view, overridden_limits: plan.limits } : view

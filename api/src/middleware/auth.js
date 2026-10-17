@@ -23,7 +23,7 @@ import { createHash, randomBytes } from 'node:crypto'
 import jwksClient from 'jwks-rsa'
 import { createVerifier } from 'fast-jwt'   // fast-jwt ships with fastify/jwt, no extra dep
 import { env } from '../config/env.js'
-import { sql, withTenant } from '../config/db.js'
+import { sql, systemSql, withTenant } from '../config/db.js'
 import { resolvePermission, MODULES } from '../config/modules.js'
 import { isMember } from '../services/membershipSvc.js'
 
@@ -76,7 +76,8 @@ async function authenticateAccessToken(req, reply, token) {
   if (!accessTokenAllowed(req)) {
     return reply.code(401).send({ error: 'Access tokens only work with the MCP connector' })
   }
-  const [row] = await sql`
+  // System mode: the token is what says which tenant this is.
+  const [row] = await systemSql`
     SELECT id, tenant_id, user_id FROM ai_access_tokens
      WHERE token_hash = ${hashAccessToken(token)} AND revoked_at IS NULL
      LIMIT 1
@@ -99,7 +100,7 @@ async function authenticateAccessToken(req, reply, token) {
   req.tenantId        = row.tenant_id
   req.auth0OrgId      = null
   req.isPlatformAdmin = false
-  sql`UPDATE ai_access_tokens SET last_used_at = now() WHERE id = ${row.id}`.catch(() => {})
+  systemSql`UPDATE ai_access_tokens SET last_used_at = now() WHERE id = ${row.id} AND tenant_id = ${row.tenant_id}`.catch(() => {})
 }
 
 function requestedTenantHeader(req) {
@@ -378,30 +379,34 @@ export async function permissionLevel(req, moduleKey) {
   if (req.isPlatformAdmin) return 'manage'
   if (!req.tenantId) return 'none'
 
-  const [moduleRow] = await sql`
-    SELECT is_enabled FROM tenant_modules
-     WHERE tenant_id = ${req.tenantId} AND module_key = ${moduleKey}
-     LIMIT 1
-  `
-  // Default to enabled if no row exists yet (legacy tenants).
-  if (moduleRow && !moduleRow.is_enabled) return 'none'
+  const { moduleRow, permRow } = await withTenant(req.tenantId, async tx => {
+    const [moduleRow] = await tx`
+      SELECT is_enabled FROM tenant_modules
+       WHERE tenant_id = ${req.tenantId} AND module_key = ${moduleKey}
+       LIMIT 1
+    `
+    // Default to enabled if no row exists yet (legacy tenants).
+    if (moduleRow && !moduleRow.is_enabled) return { moduleRow }
 
-  // Lookup permissions: prefer custom_role_id, fall back to built-in matching users.role.
-  const [permRow] = await sql`
-    SELECT COALESCE(r_custom.permissions, r_builtin.permissions, '{}'::jsonb) AS permissions,
-           -- users.role when the tenant has no built-in role rows: the
-           -- module defaults for that role still apply.
-           COALESCE(r_custom.key, r_builtin.key, u.role::text) AS role_key
-      FROM users u
- LEFT JOIN tenant_roles r_custom  ON r_custom.id  = u.custom_role_id
- LEFT JOIN tenant_roles r_builtin ON r_builtin.tenant_id = u.tenant_id
-                                 AND r_builtin.key       = u.role::text
-                                 AND r_builtin.is_builtin = true
-     WHERE u.auth0_user_id = ${req.user.sub}
-       AND u.tenant_id     = ${req.tenantId}
-       AND u.is_active     = true
-     LIMIT 1
-  `
+    // Lookup permissions: prefer custom_role_id, fall back to built-in matching users.role.
+    const [permRow] = await tx`
+      SELECT COALESCE(r_custom.permissions, r_builtin.permissions, '{}'::jsonb) AS permissions,
+             -- users.role when the tenant has no built-in role rows: the
+             -- module defaults for that role still apply.
+             COALESCE(r_custom.key, r_builtin.key, u.role::text) AS role_key
+        FROM users u
+   LEFT JOIN tenant_roles r_custom  ON r_custom.id  = u.custom_role_id
+   LEFT JOIN tenant_roles r_builtin ON r_builtin.tenant_id = u.tenant_id
+                                   AND r_builtin.key       = u.role::text
+                                   AND r_builtin.is_builtin = true
+       WHERE u.auth0_user_id = ${req.user.sub}
+         AND u.tenant_id     = ${req.tenantId}
+         AND u.is_active     = true
+       LIMIT 1
+    `
+    return { moduleRow, permRow }
+  })
+  if (moduleRow && !moduleRow.is_enabled) return 'none'
   // Fall back to the module registry default for the role's key when the
   // role has no explicit entry (e.g. a module added after the role existed,
   // before its data migration ran).

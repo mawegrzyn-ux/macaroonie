@@ -14,7 +14,7 @@ import { z }     from 'zod'
 import crypto    from 'node:crypto'
 import dns        from 'node:dns/promises'
 import fs         from 'node:fs/promises'
-import { withTenant, sql } from '../config/db.js'
+import { withTenant, sql, systemSql } from '../config/db.js'
 import { env }    from '../config/env.js'
 import { getStorage } from '../services/storageSvc.js'
 import { requireAuth, requirePermission, requireAnyPermission } from '../middleware/auth.js'
@@ -703,7 +703,7 @@ export default async function websiteRoutes(app) {
   // Global uniqueness check.
   app.get('/tenant-site/slug-available', { preHandler: PERM.view }, async (req) => {
     const slug = SlugSchema.parse(req.query.slug)
-    const [hit] = await sql`
+    const [hit] = await systemSql`
       SELECT 1 FROM tenant_site
        WHERE subdomain_slug = ${slug}
          AND tenant_id     <> ${req.tenantId}

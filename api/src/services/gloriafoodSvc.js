@@ -17,7 +17,7 @@
 // export, imported by importExport() (migration 162).
 
 import crypto from 'node:crypto'
-import { sql, withTenant } from '../config/db.js'
+import { sql, withTenant, systemSql } from '../config/db.js'
 import { env } from '../config/env.js'
 import { broadcast } from '../config/ws.js'
 import { tradingDay } from './loyverseSvc.js'
@@ -244,7 +244,7 @@ export async function pollVenue(tenantId, venueId, log) {
  * never stop the others.
  */
 export async function pollAll(log) {
-  const links = await sql`
+  const links = await systemSql`
     SELECT tenant_id, venue_id FROM gloriafood_venue_links
      WHERE method = 'poll' AND poll_key IS NOT NULL`
   let stored = 0
@@ -256,7 +256,7 @@ export async function pollAll(log) {
       log?.warn({ venueId: l.venue_id, err: e?.message }, 'GloriaFood poll failed')
     }
   }
-  const tenants = await sql`SELECT DISTINCT tenant_id FROM gloriafood_venue_links`
+  const tenants = await systemSql`SELECT DISTINCT tenant_id FROM gloriafood_venue_links`
   for (const { tenant_id } of tenants) {
     await withTenant(tenant_id, tx => tx`
       UPDATE gloriafood_orders

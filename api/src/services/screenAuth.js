@@ -11,7 +11,7 @@
 // import it without pulling in the menu code.
 
 import crypto from 'node:crypto'
-import { sql } from '../config/db.js'
+import { sql, systemSql } from '../config/db.js'
 
 export const sha256 = s => crypto.createHash('sha256').update(String(s)).digest('hex')
 export const newSecret = () => crypto.randomBytes(32).toString('base64url')
@@ -47,7 +47,7 @@ export function forgetScreen(id) { cache.delete(id) }
 async function loadScreen(id) {
   const hit = cache.get(id)
   if (hit && Date.now() - hit.at < CACHE_MS) return hit.screen
-  const [s] = await sql`
+  const [s] = await systemSql`
     SELECT s.id, s.tenant_id, s.venue_id, s.name, s.short_code, s.secret_hash,
            t.is_active AS tenant_active,
            COALESCE((SELECT m.is_enabled FROM tenant_modules m WHERE m.tenant_id = s.tenant_id AND m.module_key = 'screens'), true) AS screens_enabled

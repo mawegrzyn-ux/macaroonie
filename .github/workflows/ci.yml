@@ -74,10 +74,13 @@ jobs:
 
   # The API's own tests (api/test): the real app with a stand-in login and a
   # stand-in Claude, two tenants made through the API, the cross-tenant
-  # sweep and Pepper's chat loop. They empty the database, so it is its own
-  # one, with "test" in its name (the tests refuse any other).
+  # sweep, the system-mode paths and Pepper's chat loop. They empty the
+  # database, so it is its own one, with "test" in its name (the tests
+  # refuse any other). It belongs to a role that isn't a superuser, like
+  # production's: superusers skip row-level security, and the tests check
+  # it holds.
   api-tests:
-    name: API tests (cross-tenant sweep, Pepper)
+    name: API tests (cross-tenant sweep, RLS, Pepper)
     runs-on: ubuntu-latest
 
     services:
@@ -85,7 +88,6 @@ jobs:
         image: postgres:16
         env:
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: macaroonie_test
         ports: ['5432:5432']
         options: >-
           --health-cmd "pg_isready -U postgres"
@@ -97,7 +99,7 @@ jobs:
         ports: ['6379:6379']
 
     env:
-      DATABASE_URL: postgres://postgres:postgres@localhost:5432/macaroonie_test
+      DATABASE_URL: postgres://maca_app:maca_app@localhost:5432/macaroonie_test
       REDIS_URL: redis://localhost:6379
       AUTH0_DOMAIN: ci.invalid
       AUTH0_AUDIENCE: https://api.ci.invalid
@@ -115,6 +117,12 @@ jobs:
       - name: Install API dependencies
         working-directory: api
         run: npm install --no-audit --no-fund
+
+      - name: A test database owned by a role that isn't a superuser
+        run: |
+          psql postgres://postgres:postgres@localhost:5432/postgres \
+            -c "CREATE ROLE maca_app LOGIN PASSWORD 'maca_app'" \
+            -c "CREATE DATABASE macaroonie_test OWNER maca_app"
 
       - name: Migrate
         working-directory: api

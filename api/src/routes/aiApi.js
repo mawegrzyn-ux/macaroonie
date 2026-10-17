@@ -17,7 +17,7 @@
 
 import { z } from 'zod'
 import { randomBytes, timingSafeEqual } from 'node:crypto'
-import { sql } from '../config/db.js'
+import { sql, systemSql, tenantSql } from '../config/db.js'
 import { httpError } from '../middleware/error.js'
 import { ToolError } from '../ai/context.js'
 import { getAiSettings, chatConfigured, chatUnitsLeft } from '../ai/settings.js'
@@ -46,7 +46,7 @@ async function run(fn) {
 }
 
 async function chatTenant(tenantId) {
-  const [t] = await sql`
+  const [t] = await tenantSql(tenantId)`
     SELECT t.id, COALESCE(NULLIF(ts.brand_name, ''), NULLIF(ts.site_name, ''), t.name) AS brand
       FROM tenants t
       LEFT JOIN tenant_site ts ON ts.tenant_id = t.id
@@ -70,7 +70,7 @@ async function guestConversation(tenantId, id, key) {
 
 /** The action's conversation, checked against the guest's key. */
 async function actionConversation(body) {
-  const [c] = await sql`SELECT tenant_id FROM ai_conversations WHERE id = ${body.conversation_id}`
+  const [c] = await systemSql`SELECT tenant_id FROM ai_conversations WHERE id = ${body.conversation_id}`
   if (!c) throw httpError(404, 'Conversation not found')
   return guestConversation(c.tenant_id, body.conversation_id, body.guest_key)
 }
@@ -126,7 +126,7 @@ export default async function aiApiRoutes(app) {
 
   app.get('/conversations/:id', limited(60), async req => {
     const id = Uuid.parse(req.params.id)
-    const [c] = await sql`SELECT tenant_id FROM ai_conversations WHERE id = ${id}`
+    const [c] = await systemSql`SELECT tenant_id FROM ai_conversations WHERE id = ${id}`
     if (!c) throw httpError(404, 'Conversation not found')
     const conv = await guestConversation(c.tenant_id, id, req.query.key)
     return { conversation_id: conv.id, running: isRunning(conv), items: await displayItems(conv) }

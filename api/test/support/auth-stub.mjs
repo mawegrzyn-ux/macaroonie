@@ -2,11 +2,14 @@
 // "Authorization: Bearer test:<auth0 sub>" (no Auth0, no JWT) plus the
 // X-Tenant-Id header, and checks the person against users / platform_admins
 // the way the real one does after verifying the token. Permissions, roles,
-// modules and access tokens are the real code.
+// modules and access tokens (Bearer mcp_...) are the real code.
 export * from '../../src/middleware/auth.js?real'
+import { requireAuth as realRequireAuth, ACCESS_TOKEN_PREFIX } from '../../src/middleware/auth.js?real'
 import { sql, withTenant } from '../../src/config/db.js'
 
 export async function requireAuth(req, reply) {
+  // Pepper's access tokens (mcp_...) go through the real check.
+  if ((req.headers.authorization || '').startsWith('Bearer ' + ACCESS_TOKEN_PREFIX)) return realRequireAuth(req, reply)
   const m = /^Bearer test:(.+)$/.exec(req.headers.authorization || '')
   if (!m) return reply.code(401).send({ error: 'Missing authorization header' })
   const sub = m[1]

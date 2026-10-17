@@ -2,7 +2,7 @@
 // Adds: WS server attachment after HTTP listen.
 
 import { buildApp }                          from './app.js'
-import { sql }                               from './config/db.js'
+import { sql, systemSql }                    from './config/db.js'
 import { env }                               from './config/env.js'
 import { attachWss }                         from './config/ws.js'
 import { startNotificationWorker,
@@ -28,7 +28,7 @@ async function verifyWsToken(token) {
 
 // ── Background workers ───────────────────────────────────────
 const notifWorker   = startNotificationWorker(app.log)
-const sweepWorker   = startHoldSweepWorker(sql, app.log)
+const sweepWorker   = startHoldSweepWorker(systemSql, app.log)
 const reviewWorker  = startReviewScrapeWorker(app.log)
 const publishWorker = startPublishWorker(app.log)
 const gfWorker      = startGloriaFoodPollWorker(app.log)
@@ -45,6 +45,7 @@ const shutdown = async (signal) => {
   await gfWorker.close()
   await aiWorker.close()
   await sql.end()
+  await systemSql.end()
   process.exit(0)
 }
 process.on('SIGTERM', () => shutdown('SIGTERM'))

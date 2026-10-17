@@ -34,7 +34,7 @@
 // (view); each booking tool then checks the person's Bookings permission.
 
 import { z } from 'zod'
-import { sql, withTenant } from '../config/db.js'
+import { sql, withTenant, systemSql, tenantSql } from '../config/db.js'
 import { env } from '../config/env.js'
 import { httpError } from '../middleware/error.js'
 import { requireAuth, requirePermission, requirePlatformAdmin, permissionLevel, newAccessToken } from '../middleware/auth.js'
@@ -296,7 +296,7 @@ export default async function aiRoutes(app) {
     `)
     if (!user) throw httpError(422, 'Access tokens are for team members of this restaurant group. Ask an owner to invite you.')
     const { token, hash, prefix } = newAccessToken()
-    const [row] = await sql`
+    const [row] = await tenantSql(req.tenantId)`
       INSERT INTO ai_access_tokens (tenant_id, user_id, name, token_prefix, token_hash)
       VALUES (${req.tenantId}, ${user.id}, ${name}, ${prefix}, ${hash})
       RETURNING id, name, token_prefix, created_at
@@ -306,7 +306,7 @@ export default async function aiRoutes(app) {
 
   app.delete('/tokens/:id', { preHandler: requirePermission('ai_assistant', 'view') }, async req => {
     const manage = await permissionLevel(req, 'ai_assistant') === 'manage'
-    const [row] = await sql`
+    const [row] = await tenantSql(req.tenantId)`
       UPDATE ai_access_tokens k SET revoked_at = now()
         FROM users u
        WHERE k.id = ${req.params.id} AND k.tenant_id = ${req.tenantId} AND k.revoked_at IS NULL
@@ -334,7 +334,7 @@ export default async function aiRoutes(app) {
 
   // ── Platform admin: monthly limits ──────────────────────
   app.get('/platform/tenants', { preHandler: requirePlatformAdmin }, async () => {
-    const rows = await sql`
+    const rows = await systemSql`
       SELECT t.id, t.name, t.slug,
              COALESCE(s.monthly_token_limit, 2000000) AS monthly_token_limit,
              COALESCE(s.staff_enabled, true)          AS staff_enabled,

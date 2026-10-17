@@ -31,7 +31,7 @@
 // submitted days alone.
 
 import { z }          from 'zod'
-import { sql, withTenant } from '../config/db.js'
+import { sql, withTenant, systemSql } from '../config/db.js'
 import { requireAuth, requireRole, requirePermission } from '../middleware/auth.js'
 import { httpError }  from '../middleware/error.js'
 import { officeOrigin } from '../services/platformHost.js'
@@ -559,7 +559,7 @@ export async function gloriafoodWebhookRoutes(app) {
   }, async (req, reply) => {
     const token = String(req.params.token || '')
     if (!/^[A-Za-z0-9_-]{20,64}$/.test(token)) return reply.code(404).send({ error: 'Unknown address' })
-    const [link] = await sql`
+    const [link] = await systemSql`
       SELECT tenant_id, venue_id FROM gloriafood_venue_links WHERE push_token = ${token}`
     if (!link) return reply.code(404).send({ error: 'Unknown address' })
 

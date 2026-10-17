@@ -6,7 +6,7 @@
 // Widget calls are unauthenticated; admin calls carry JWT for tenant context.
 
 import { z } from 'zod'
-import { withTenant, withTx, sql } from '../config/db.js'
+import { withTenant, withSystem, sql } from '../config/db.js'
 import { httpError } from '../middleware/error.js'
 
 const QuerySchema = z.object({
@@ -31,7 +31,7 @@ export default async function slotsRoutes(app) {
     const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
     const isUuid = UUID_RE.test(venueId)
 
-    const [venue] = await withTx(tx => tx`
+    const [venue] = await withSystem(tx => tx`
       SELECT v.id, v.tenant_id, v.is_active, v.timezone
         FROM venues v
        WHERE ${isUuid ? sql`v.id = ${venueId}::uuid` : sql`v.slug = ${venueId}`}

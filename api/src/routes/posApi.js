@@ -34,7 +34,7 @@
 
 import crypto from 'node:crypto'
 import { z } from 'zod'
-import { sql, withTenant } from '../config/db.js'
+import { sql, withTenant, systemSql, tenantSql } from '../config/db.js'
 import { httpError } from '../middleware/error.js'
 import { broadcast } from '../config/ws.js'
 import {
@@ -69,7 +69,7 @@ function sameHash(a, b) {
 async function loadDevice(id) {
   const hit = deviceCache.get(id)
   if (hit && Date.now() - hit.at < CACHE_MS) return hit.device
-  const [d] = await sql`
+  const [d] = await systemSql`
     SELECT d.id, d.tenant_id, d.venue_id, d.kind, d.name, d.short_code, d.secret_hash, d.revoked_at, d.settings,
            t.is_active AS tenant_active,
            COALESCE((SELECT m.is_enabled FROM tenant_modules m WHERE m.tenant_id = d.tenant_id AND m.module_key = 'pos_setup'), true) AS pos_enabled
@@ -111,7 +111,7 @@ async function requireDevice(req, reply) {
   if (Date.now() - seen > 60_000) {
     lastSeen.set(d.id, Date.now())
     const version = String(req.headers['x-pos-version'] || '').slice(0, 40) || null
-    sql`UPDATE pos_devices SET last_seen_at = now(), app_version = COALESCE(${version}, app_version) WHERE id = ${d.id}`
+    tenantSql(d.tenant_id)`UPDATE pos_devices SET last_seen_at = now(), app_version = COALESCE(${version}, app_version) WHERE id = ${d.id}`
       .catch(e => req.log.warn({ err: e }, 'pos last_seen update failed'))
   }
 }
@@ -152,7 +152,7 @@ export default async function posApiRoutes(app) {
     }).parse(req.body)
     const hash = sha256(normaliseCode(body.code))
     const secret = newDeviceSecret()
-    const [d] = await sql`
+    const [d] = await systemSql`
       UPDATE pos_devices
          SET secret_hash = ${sha256(secret)}, pairing_code_hash = NULL, pairing_expires_at = NULL, paired_at = now(),
              last_seen_at = now(), app_version = ${body.app_version ?? null}, user_agent = ${body.user_agent ?? null}
@@ -160,7 +160,7 @@ export default async function posApiRoutes(app) {
        RETURNING id, tenant_id, venue_id, kind, name, short_code`
     if (!d) throw httpError(422, 'That code isn\'t right or has run out: make a new one in Till setup')
     deviceCache.delete(d.id)
-    const [v] = await sql`SELECT name FROM venues WHERE id = ${d.venue_id} AND tenant_id = ${d.tenant_id}`
+    const [v] = await tenantSql(d.tenant_id)`SELECT name FROM venues WHERE id = ${d.venue_id} AND tenant_id = ${d.tenant_id}`
     return { device_id: d.id, secret, name: d.name, kind: d.kind, short_code: d.short_code, venue_id: d.venue_id, venue_name: v?.name || null }
   })
 
@@ -184,13 +184,13 @@ export default async function posApiRoutes(app) {
 
     scoped.get('/me', async req => {
       const d = req.posDevice
-      const [v] = await sql`SELECT name, timezone FROM venues WHERE id = ${d.venue_id} AND tenant_id = ${d.tenant_id}`
+      const [v] = await tenantSql(d.tenant_id)`SELECT name, timezone FROM venues WHERE id = ${d.venue_id} AND tenant_id = ${d.tenant_id}`
       return { device_id: d.id, name: d.name, kind: d.kind, short_code: d.short_code, settings: d.settings || {}, venue_id: d.venue_id, venue_name: v?.name, timezone: v?.timezone }
     })
 
     scoped.get('/config', async req => {
       const d = req.posDevice
-      const [own] = await sql`SELECT name, short_code, settings FROM pos_devices WHERE id = ${d.id} AND tenant_id = ${d.tenant_id}`
+      const [own] = await tenantSql(d.tenant_id)`SELECT name, short_code, settings FROM pos_devices WHERE id = ${d.id} AND tenant_id = ${d.tenant_id}`
       const device = { id: d.id, kind: d.kind, name: own?.name, short_code: own?.short_code, settings: own?.settings || {} }
       // A kitchen screen gets the kitchen's config (no menus, no PINs). Its
       // own settings count towards the version, so a change made in Till

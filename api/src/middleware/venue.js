@@ -12,7 +12,7 @@
 //
 // Routes without that param pass straight through.
 
-import { sql } from '../config/db.js'
+import { systemSql } from '../config/db.js'
 import { httpError } from './error.js'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -22,7 +22,7 @@ export function requireOwnVenue(param = 'venueId') {
     const id = req.params?.[param]
     if (id === undefined) return
     if (!req.tenantId || !UUID_RE.test(String(id))) throw httpError(404, 'Venue not found')
-    const [v] = await sql`SELECT 1 FROM venues WHERE id = ${id} AND tenant_id = ${req.tenantId}`
+    const [v] = await systemSql`SELECT 1 FROM venues WHERE id = ${id} AND tenant_id = ${req.tenantId}`
     if (!v) throw httpError(404, 'Venue not found')
   }
 }
@@ -61,7 +61,8 @@ export async function refuseOtherTenantsVenues(req) {
   venueIdsIn(req.query, ids, state)
   venueIdsIn(req.body, ids, state)
   if (!ids.size) return
-  const [other] = await sql`
+  // System mode: it has to see other tenants' venues to refuse them.
+  const [other] = await systemSql`
     SELECT 1 FROM venues WHERE id = ANY(${[...ids]}::uuid[]) AND tenant_id <> ${req.tenantId} LIMIT 1
   `
   if (other) throw httpError(404, 'Venue not found')

@@ -19,7 +19,7 @@
 //   POST   /venues/:venueId/holds/:holdId/confirm      — confirm a free booking
 
 import { z } from 'zod'
-import { sql, withTenant } from '../config/db.js'
+import { sql, withTenant, systemSql } from '../config/db.js'
 import { httpError } from '../middleware/error.js'
 import { broadcastBooking } from '../services/broadcastSvc.js'
 import { upsertCustomer } from '../routes/customers.js'
@@ -62,7 +62,7 @@ const BookBody = z.object({
 })
 
 async function resolveTenant(venueId) {
-  const [venue] = await sql`
+  const [venue] = await systemSql`
     SELECT v.id, v.tenant_id, v.name, v.timezone, v.currency
       FROM venues v
       JOIN tenants t ON t.id = v.tenant_id AND t.is_active = true
@@ -262,7 +262,7 @@ export default async function widgetApiRoutes(app) {
     const slug = String(req.query.slug || '').toLowerCase().trim()
     if (!slug) throw httpError(400, 'slug query parameter is required')
 
-    const rows = await sql`
+    const rows = await systemSql`
       SELECT v.id, v.name, v.timezone, v.currency,
              COALESCE(ts.site_name, t.slug) AS site_name,
              br.min_covers, br.max_covers
@@ -299,7 +299,7 @@ export default async function widgetApiRoutes(app) {
     const [extras] = await withTenant(venue.tenant_id, tx => tx`
       SELECT br.slot_duration_mins, br.min_covers, br.max_covers,
              br.book_until_days, br.cutoff_before_mins, br.hold_ttl_secs,
-             dr.requires_deposit, dr.amount_pence, dr.currency,
+             dr.requires_deposit, dr.deposit_type, dr.deposit_amount, dr.currency,
              ts.primary_colour, ts.secondary_colour, ts.font_family,
              ts.theme, ts.site_name
         FROM venues v
@@ -321,7 +321,9 @@ export default async function widgetApiRoutes(app) {
       booking_window_days: extras?.book_until_days ?? 30,
       hold_ttl_secs:       extras?.hold_ttl_secs ?? 300,
       requires_deposit:    !!extras?.requires_deposit,
-      deposit_amount_pence: extras?.amount_pence || null,
+      // deposit_rules.deposit_amount is in pounds, per booking or per cover.
+      deposit_amount_pence: extras?.deposit_amount != null ? Math.round(Number(extras.deposit_amount) * 100) : null,
+      deposit_type:         extras?.deposit_type || null,
       deposit_currency:     extras?.currency || venue.currency,
       // Theme: prefer explicit theme JSONB → primary colour → tenant default
       primary_colour: extras?.primary_colour || extras?.theme?.colors?.primary || '#2563eb',

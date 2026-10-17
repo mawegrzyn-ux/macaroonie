@@ -12,7 +12,7 @@
 
 import { Worker } from 'bullmq'
 import { env }    from '../config/env.js'
-import { withTenant, sql } from '../config/db.js'
+import { withTenant, sql, tenantSql } from '../config/db.js'
 import {
   startGoogleReviewsScrape,
   getRunStatus,
@@ -54,7 +54,7 @@ export function startReviewScrapeWorker(log) {
       }
 
       // ── 2. Mark running ──────────────────────────────────
-      await sql`
+      await tenantSql(tenantId)`
         UPDATE review_scrape_jobs
            SET status = 'running', apify_run_id = ${apifyRunId}
          WHERE id = ${jobId}
@@ -98,7 +98,7 @@ export function startReviewScrapeWorker(log) {
       }
 
       // ── 5. Mark done ─────────────────────────────────────
-      await sql`
+      await tenantSql(tenantId)`
         UPDATE review_scrape_jobs
            SET status = 'done', result_count = ${saved}, finished_at = now()
          WHERE id = ${jobId}
@@ -107,7 +107,7 @@ export function startReviewScrapeWorker(log) {
 
     } catch (err) {
       log.error({ jobId, err }, 'Review scrape job failed')
-      await sql`
+      await tenantSql(tenantId)`
         UPDATE review_scrape_jobs
            SET status = 'failed', error_message = ${err.message}, finished_at = now()
          WHERE id = ${jobId}

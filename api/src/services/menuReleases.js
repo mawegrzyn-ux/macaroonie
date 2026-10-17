@@ -24,7 +24,7 @@
 // read and write the draft.
 
 import { createHash } from 'node:crypto'
-import { sql, withTenant } from '../config/db.js'
+import { sql, withTenant, systemSql } from '../config/db.js'
 import { httpError } from '../middleware/error.js'
 import { broadcast } from '../config/ws.js'
 import { tillsMayNeedConfig } from './posNotify.js'
@@ -295,7 +295,7 @@ export function announceMenus(tenantId, menuIds, log) {
 
 /** Minute sweep: releases that went live since the last run. */
 export async function announceDueReleases(log) {
-  const rows = await sql`
+  const rows = await systemSql`
     UPDATE menu_releases SET announced_at = now()
      WHERE announced_at IS NULL AND cancelled_at IS NULL AND goes_live_at <= now()
      RETURNING tenant_id, menu_id`
@@ -311,7 +311,7 @@ export async function announceDueReleases(log) {
  * as published.
  */
 export async function rehashReleases(log) {
-  const rows = await sql`SELECT id, tenant_id, snapshot FROM menu_releases WHERE content_hash = ''`
+  const rows = await systemSql`SELECT id, tenant_id, snapshot FROM menu_releases WHERE content_hash = ''`
   for (const r of rows) {
     try {
       await withTenant(r.tenant_id, tx => tx`
@@ -328,7 +328,7 @@ export async function rehashReleases(log) {
 /** Start-up: the first release of every menu made before publishing existed. */
 export async function backfillFirstReleases(log) {
   await rehashReleases(log)
-  const menus = await sql`SELECT id, tenant_id FROM menus WHERE needs_first_release`
+  const menus = await systemSql`SELECT id, tenant_id FROM menus WHERE needs_first_release`
   let made = 0
   for (const m of menus) {
     try {
