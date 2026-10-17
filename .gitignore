@@ -61,3 +61,6 @@ test-results/
 backups/
 releases/
 .claude/
+
+# Redis snapshots from local runs
+dump.rdb
