@@ -26,7 +26,7 @@
 // orders, sold out, till and kitchen reports), tools/venue.js (customers,
 // opening times, tables, booking rules), tools/site.js (website,
 // promotions, reviews, menu screens, booking emails, support) and
-// tools/general.js (open_page).
+// tools/general.js (open_page, how_do_i) and tools/briefing.js (day_briefing).
 
 import { zodToJsonSchema } from 'zod-to-json-schema'
 import { ZodError } from 'zod'
@@ -43,6 +43,7 @@ import { orderTools } from './orders.js'
 import { venueTools } from './venue.js'
 import { siteTools } from './site.js'
 import { generalTools } from './general.js'
+import { briefingTools } from './briefing.js'
 
 // The areas Pepper covers, in the order its prompt lists them.
 export const SECTIONS = {
@@ -80,7 +81,7 @@ export const SECTION_MODULES = {
   support:    ['issue_log', 'feature_requests'],
 }
 // Tools anyone with Pepper can use (no area's permission).
-const OPEN_TOOLS = new Set(['list_venues', 'open_page'])
+const OPEN_TOOLS = new Set(['list_venues', 'open_page', 'how_do_i'])
 
 /** Can a person with these module levels use this staff tool (connector list)? */
 export function toolAllowed(tool, levels) {
@@ -96,6 +97,7 @@ const withSection = (tools, section) => tools.map(t => (t.section ? t : { ...t, 
 // Pepper's tools, every area. Older files don't tag their tools; their file is their area.
 const staffTools = [
   ...generalTools,
+  ...briefingTools,
   ...withSection(bookingTools, 'bookings'),
   ...withSection(hsTools, 'hs'),
   ...withSection(purchasingTools, 'purchasing'),
@@ -108,7 +110,8 @@ const BY_AUDIENCE = { guest: guestTools, staff: staffTools }
 // (src/ai/chat.js). The everyday questions: today's bookings, who is on,
 // what is due, where a page is.
 export const CORE_TOOLS = new Set([
-  'list_venues', 'find_bookings', 'day_overview', 'check_availability', 'hs_status', 'whos_working', 'open_page',
+  'list_venues', 'find_bookings', 'day_overview', 'check_availability', 'hs_status', 'whos_working', 'open_page', 'how_do_i',
+  'day_briefing',
 ])
 
 for (const t of staffTools) {

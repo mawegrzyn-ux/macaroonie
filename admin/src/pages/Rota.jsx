@@ -12,6 +12,7 @@ import { useWeekNav } from '@/components/cashRecon/widgets'
 import { useVenues, useVenueChoice, PageHeader, VenuePicker } from '@/components/staff/shared'
 import { RotaGrid, RotaPayTable, RotaTipsTable, useRotaPerms } from '@/components/staff/rota'
 import { PayHeader, TipsHeader } from '@/components/staff/rotaWidgets'
+import { usePepperPage } from '@/lib/pepperPage'
 
 // Same card as the Rota dashboard's widgets: accent header bar with an
 // icon, title and the week's total, white body.
@@ -34,6 +35,7 @@ export default function Rota() {
   const { data: venues = [] } = useVenues()
   const [venueId, setVenueId] = useVenueChoice(venues)
   const { ctx, element: weekNav } = useWeekNav()
+  usePepperPage({ venueId, week: ctx.weekStart })
   const { canEditRota, canSeePay, canEditPay, canSeeTips, canEditTips } = useRotaPerms()
 
   return (

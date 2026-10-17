@@ -3903,7 +3903,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               their tools by file. The registry throws at start-up on a staff tool without a known
               section, two staff tools with one name, or a missing core tool, so a mistake fails the
               deploy instead of a chat. <Mono>CORE_TOOLS</Mono> (list_venues, find_bookings,
-              day_overview, check_availability, hs_status, whos_working, open_page) are loaded in
+              day_overview, check_availability, hs_status, whos_working, open_page, how_do_i,
+              day_briefing) are loaded in
               every staff chat request; the rest are found with tool search (The chat loop, below).
               Over MCP every tool is listed in full.
             </P>
@@ -4167,8 +4168,46 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['email_log', 'email_templates view', 'GET /api/email-templates/log?limit=200', 'search by guest name or email; only_failed'],
                 ['report_issue / list_issues / request_feature', 'issue_log manage / view, feature_requests manage', 'POST, GET /api/issues, POST /api/feature-requests', 'list_issues keeps only this tenant\'s rows (the route lists every tenant only for a platform admin asking with ?scope=all)'],
                 ['open_page', 'the page\'s own module, view', 'ROUTE_CATALOG (routes/nav.js) + ALSO synonyms', 'Scored match (exact, starts with, word, synonym); only pages the person can view; staff_chat gets a markdown link [Label](/route) that ChatView renders as an in-app Link (only paths starting with one /), MCP gets the full address on officeOrigin(); several matches return choices'],
+                ['how_do_i', 'none (anyone with Pepper; OPEN_TOOLS)', 'searchHelp() in ai/helpIndex.js', 'Up to three Help passages, each with [Help: heading](/help#anchor) in the chat or the full address over MCP; nothing found = answers [] and a note to say so'],
+                ['day_briefing', 'each part its own (the reading tools it calls)', 'day_overview, whos_working, hs_status, purchase_orders, cash_day, online_orders, sold_out, email_log, screens_status (tools/briefing.js PARTS)', 'One venue, default today; a part refused with 403 goes in not_included, any other failure is an error line for that part only'],
               ]}
             />
+            <H3>Help answers, the day briefing and the page note</H3>
+            <P>
+              <Mono>how_do_i</Mono> (<Mono>tools/general.js</Mono>) searches the Help page itself:{' '}
+              <Mono>ai/helpIndex.js</Mono> reads <Mono>admin/src/pages/Help.jsx</Mono> from the
+              checkout (or <Mono>HELP_SOURCE_FILE</Mono>), cuts it at each{' '}
+              <Mono>{'<section id data-help>'}</Mono>, H2 and H3, turns the JSX into plain text
+              (DataTable rows become lines) and ranks passages with BM25, headings counting three
+              times. The index is built on first use and again when the file&apos;s mtime changes, so
+              a deploy refreshes it; no database, no embeddings. The Pepper section scores lower
+              unless the question is about Pepper. Links go to the subsection:{' '}
+              <Mono>helpSlug()</Mono> (<Mono>shared/help.js</Mono>) makes the same anchor on both
+              sides, the page&apos;s <Mono>H3</Mono> giving itself that id (only when its heading is
+              plain text) and <Mono>Help.jsx</Mono> scrolling to the hash after it renders. A heading
+              used twice links to its section instead.
+            </P>
+            <P>
+              <Mono>day_briefing</Mono> (<Mono>tools/briefing.js</Mono>) runs the reading tools in{' '}
+              <Mono>PARTS</Mono> side by side as the person asking, so each keeps its own permission
+              check, and trims what they return (big parties are 8 or more, lists capped at 10-15).
+              A new part is one line in <Mono>PARTS</Mono> calling an existing tool&apos;s{' '}
+              <Mono>run()</Mono>; never query tables there.
+            </P>
+            <P>
+              The page note: pages that show one venue and day or week call{' '}
+              <Mono>usePepperPage({'{ venueId, date | week }'})</Mono> (<Mono>lib/pepperPage.js</Mono>:
+              Timeline, Bookings, Rota, Food safety, Online orders, Cash Recon). The drawer&apos;s{' '}
+              <Mono>ChatView pageAware</Mono> sends <Mono>page: {'{ path, venue_id, date, week }'}</Mono>{' '}
+              with each message (not from /ai or /mobile) and shows it as a chip the person can turn
+              off. <Mono>pageNote()</Mono> in <Mono>ai/chat.js</Mono> names the page from{' '}
+              <Mono>ROUTE_CATALOG</Mono> (longest matching route) and the venue from the
+              tenant&apos;s own venues, and the turn stores it as a text block with{' '}
+              <Mono>_page: true</Mono> before the message: sent to the model (marker stripped by{' '}
+              <Mono>clean()</Mono>), left out of the display items and the chat title. The staff
+              chat&apos;s instructions say how to use it. Another tenant&apos;s venue id in{' '}
+              <Mono>page</Mono> is refused by <Mono>refuseOtherTenantsVenues</Mono> like any body.
+            </P>
             <P>
               Every change tool has a chat label (<Mono>TOOL_LABELS</Mono> in <Mono>chat.js</Mono> for
               reads, the card title for changes) and an Activity label and detail
@@ -4432,7 +4471,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               head={['Route', 'Notes']}
               rows={[
                 ['GET /api/ai/status', 'configured, enabled, permission, can_chat, units_left (the tenant\'s month), share_left (the caller\'s day; null = no daily share). Drives the Ask Pepper button.'],
-                ['GET/DELETE /api/ai/conversations[/:id], POST /api/ai/chat', 'The caller\'s own chats (user_sub); the list and a chat carry closed (erased, read only), a chat also running (a turn or card holds it). chat { conversation_id?, message, attachments? } returns the whole conversation as display items plus stop_reason and notice; with Accept: text/event-stream it streams (see Streaming above). conversation_id null = a new chat\'s only message was refused and the chat removed. 409 while another turn or a card holds the chat, or when it is closed.'],
+                ['GET/DELETE /api/ai/conversations[/:id], POST /api/ai/chat', 'The caller\'s own chats (user_sub); the list and a chat carry closed (erased, read only), a chat also running (a turn or card holds it). chat { conversation_id?, message, attachments?, page? } returns the whole conversation as display items plus stop_reason and notice; with Accept: text/event-stream it streams (see Streaming above). conversation_id null = a new chat\'s only message was refused and the chat removed. 409 while another turn or a card holds the chat, or when it is closed.'],
                 ['POST /api/ai/attachments, GET/DELETE /api/ai/attachments/:id', 'Upload one file (multipart field file) -> { id, name, kind, media_type, bytes }; the file itself, uploader only; remove an unsent upload. See Attached files above.'],
                 ['POST /api/ai/actions/:id/confirm | cancel', 'Confirm cards; hold the chat like a turn (409 while it is busy). The reply carries closed: an anonymise card closes the chat it ran in.'],
                 ['GET/PATCH /api/ai/settings', 'GET: settings, usage (channels + chat_units), daily_share (units or null), people (peopleUsage(): name or email, requests, units this month, today; everyone for ai_assistant manage, else only the caller\'s own line), MCP addresses. PATCH (ai_assistant manage): the switches, person_daily_pct (1-100 or null), chat_retention_days (30 | 90 | 180 | 365).'],
@@ -4447,7 +4486,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             />
             <H3>Admin and site</H3>
             <P>
-              <Mono>components/ai/ChatView.jsx</Mono> (chat, cards, <Mono>useAiStatus()</Mono>),{' '}
+              <Mono>components/ai/ChatView.jsx</Mono> (chat, cards, <Mono>useAiStatus()</Mono>, the
+              page chip with <Mono>pageAware</Mono>),{' '}
               <Mono>AssistantDrawer.jsx</Mono> (Ask Pepper panel from the sidebar, earlier chats,{' '}
               <Mono>maca_ai_conversation</Mono>), <Mono>pages/AiAssistant.jsx</Mono> (/ai, the
               Pepper page: Chat, Connect, Settings, Activity), <Mono>pages/mobile/MobileAssistant.jsx</Mono>,{' '}

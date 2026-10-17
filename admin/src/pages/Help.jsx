@@ -1,7 +1,9 @@
 // src/pages/Help.jsx
 // Operator-facing user guide — step-by-step instructions for restaurant staff.
 import { useState, useEffect } from 'react'
+import { useLocation } from 'react-router-dom'
 import { cn } from '@/lib/utils'
+import { helpSlug } from '@shared/help.js'
 
 const SECTIONS = [
   { id: 'getting-started',     label: 'Getting Started' },
@@ -53,6 +55,17 @@ const SECTIONS = [
 
 export default function Help() {
   const [activeId, setActiveId] = useState('getting-started')
+  const { hash } = useLocation()
+
+  // A link to a section or subsection (/help#tip-pots, from Pepper or
+  // elsewhere): the page is drawn after the browser looked for the anchor,
+  // so scroll to it here.
+  useEffect(() => {
+    const id = decodeURIComponent(hash.replace(/^#/, ''))
+    if (!id) return
+    const t = setTimeout(() => document.getElementById(id)?.scrollIntoView({ block: 'start' }), 0)
+    return () => clearTimeout(t)
+  }, [hash])
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -3954,8 +3967,42 @@ export default function Help() {
                 ['Website and marketing', '"Is the website up to date?", "Publish the website", "Put a banner up: closed today", "Switch off the lunch deal", "Any new reviews?", "Which menu screens are offline?"', 'Website, Promotions, Menu screens, Emails'],
                 ['Support', '"Log an issue: the card machine keeps disconnecting", "Ask for a feature: split bills by seat"', 'Issue log, Feature requests'],
                 ['Finding a page', '"Where do I change the opening times?"', 'The pages you can open'],
+                ['How the app works', '"How do I set up tip pots?", "Where do I add a fridge?", "What does variance mean?"', 'Everyone who can use Pepper'],
+                ['Your day in one go', '"Brief me on today", "What\'s on at Ware tomorrow?"', 'Each part follows its own area'],
               ]}
             />
+            <H3>Asking about the page you&apos;re on</H3>
+            <P>
+              When you open Ask Pepper from the sidebar, a small label above the message box shows
+              which page is behind the panel, for example{' '}
+              <em>About: Rota · Ware · week of 13 Oct</em> or <em>About: Food safety · Ware · Mon 19 Oct</em>.
+              Pepper is told the page and the venue and day or week it is showing, so you can ask
+              {' '}<em>"Who is on this week?"</em> or <em>"What still needs doing here?"</em> without
+              naming the venue or date. If you name a different venue or day, Pepper goes by what you
+              say.
+            </P>
+            <P>
+              Tap the label to stop sending the page for this chat (it then reads{' '}
+              <em>Not sending</em>); tap it again to start. The label follows you as you move
+              between pages with the panel open. The Pepper page and the phone app don&apos;t send a
+              page.
+            </P>
+            <H3>Your day in one go</H3>
+            <P>
+              Ask <em>"Brief me on today"</em> (or for another day or venue) and Pepper puts the day
+              together in one answer, leading with what needs doing: bookings and big parties, who is
+              working, health & safety checks still due and readings out of range, supplier
+              deliveries due, yesterday&apos;s cash-up, online orders still open, dishes sold out,
+              booking emails that failed and menu screens that are offline. A part your role
+              can&apos;t see is left out, and Pepper says which ones.
+            </P>
+            <H3>How do I...? questions</H3>
+            <P>
+              Ask how to do something in the app (<em>"How do I set up tip pots?"</em>,{' '}
+              <em>"Where do I add a fridge?"</em>) and Pepper answers from this Help guide, with a link
+              straight to the part that covers it. If the guide doesn&apos;t cover it, Pepper says so
+              rather than guessing.
+            </P>
             <P>
               The parts below go into each area in more detail.
             </P>
@@ -5617,8 +5664,11 @@ export default function Help() {
 function H2({ children }) {
   return <h2 className="text-xl font-bold mb-4 pb-2 border-b">{children}</h2>
 }
+// Each subsection has an anchor from its heading (helpSlug(), shared with
+// Pepper's help answers, which link to it: /help#tip-pots).
 function H3({ children, className }) {
-  return <h3 className={cn('text-base font-semibold mt-6 mb-3', className)}>{children}</h3>
+  const id = typeof children === 'string' ? helpSlug(children) : undefined
+  return <h3 id={id} className={cn('text-base font-semibold mt-6 mb-3 scroll-mt-4', className)}>{children}</h3>
 }
 function P({ children }) {
   return <p className="text-sm text-muted-foreground leading-relaxed mb-3">{children}</p>

@@ -17,24 +17,32 @@
 // drop onto the chat): see ./attachments.jsx. Links Pepper gives to pages of
 // the app ([Rota](/rota), from its open_page tool) open in the app; other
 // links show as plain text.
-import { useEffect, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+// With pageAware (the drawer only), each message also says which page the
+// person is on, and the venue and day or week that page shows
+// (usePepperPage(), lib/pepperPage.js), so "who is on here?" needs no venue
+// or date. A chip above the message box shows what goes; tapping it stops
+// sending it for this chat.
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Link, useLocation } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Send, Loader2, Check, X, Sparkles, Search, CircleAlert, Paperclip, Camera, Upload } from 'lucide-react'
+import { format, parseISO } from 'date-fns'
+import { Send, Loader2, Check, X, Sparkles, Search, CircleAlert, Paperclip, Camera, Upload, MapPin } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { usePepperPageContext } from '@/lib/pepperPage'
 import { useAttachments, PendingFiles, MessageFiles, ACCEPT } from './attachments'
 import { ASSISTANT_NAME } from '@shared/assistant.js'
 
 const IS_TOUCH = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0
 
 const SUGGESTIONS = [
+  'Brief me on today',
   'What is booked for tonight?',
   'Who is working today?',
   'Which H&S checks are still to do today?',
   'How did yesterday\'s cash up balance?',
   'Mark the Pad Thai sold out for today',
-  'Which dishes are free from peanuts?',
+  'How do I set up tip pots?',
 ]
 
 // The parents key ChatView by conversation id, so a new chat's view is
@@ -42,12 +50,54 @@ const SUGGESTIONS = [
 // is handed to the new view here.
 const carried = new Map()
 
+// Pages where "this page" means nothing to Pepper.
+const NO_PAGE = /^\/(ai|mobile)(\/|$)/
+
+/** The nav label of the page at `path`: the longest matching route in the tenant's nav tree. */
+function navLabel(tree, path) {
+  let best = null
+  const walk = nodes => {
+    for (const n of nodes || []) {
+      const r = n.route
+      if (r && (path === r || (r !== '/' && path.startsWith(r + '/'))) && (!best || r.length > best.route.length)) best = n
+      walk(n.children)
+    }
+  }
+  walk(tree)
+  return best?.label ?? null
+}
+
+/** "/food-safety" -> "Food safety", for a page that isn't in the nav. */
+function pathLabel(path) {
+  const words = path.split('/').filter(s => s && !/^[0-9a-f-]{20,}$/i.test(s)).join(' ').replace(/[-_]+/g, ' ')
+  return words ? words[0].toUpperCase() + words.slice(1) : 'Overview'
+}
+
+/** What the drawer sends about the page on screen, and how the chip words it. */
+function usePageContext(enabled) {
+  const api = useApi()
+  const { pathname } = useLocation()
+  const ctx = usePepperPageContext()
+  const on = enabled && !NO_PAGE.test(pathname)
+  const { data: me } = useQuery({ queryKey: ['me'], queryFn: () => api.get('/me'), staleTime: 60_000, enabled: on })
+  const { data: venues = [] } = useQuery({ queryKey: ['venues'], queryFn: () => api.get('/venues'), enabled: on && !!ctx?.venue_id })
+  return useMemo(() => {
+    if (!on) return null
+    const page = { path: pathname, ...(ctx || {}) }
+    const label = navLabel(me?.nav_tree, pathname) || pathLabel(pathname)
+    const venue = ctx?.venue_id ? venues.find(v => v.id === ctx.venue_id)?.name : null
+    const when = ctx?.date ? format(parseISO(ctx.date), 'EEE d MMM')
+      : ctx?.week ? 'week of ' + format(parseISO(ctx.week), 'd MMM') : null
+    return { page, text: [label, venue, when].filter(Boolean).join(' · ') }
+  }, [on, pathname, ctx, me, venues])
+}
+
 export function useAiStatus() {
   const api = useApi()
   return useQuery({ queryKey: ['ai-status'], queryFn: () => api.get('/ai/status'), staleTime: 60_000 })
 }
 
-export default function ChatView({ conversationId, onConversationId, className }) {
+export default function ChatView({ conversationId, onConversationId, className, pageAware = false }) {
   const api = useApi()
   const qc  = useQueryClient()
   const [draft, setDraft]     = useState('')
@@ -65,6 +115,9 @@ export default function ChatView({ conversationId, onConversationId, className }
   const camInput  = useRef(null)
   const dragDepth = useRef(0)
   const att = useAttachments()
+  const [usePage, setUsePage] = useState(true)
+  const pageCtx = usePageContext(pageAware)
+  const sentPage = usePage ? pageCtx?.page : undefined
 
   const { data: conv, isLoading } = useQuery({
     queryKey: ['ai-conversation', conversationId],
@@ -120,8 +173,9 @@ export default function ChatView({ conversationId, onConversationId, className }
   }
 
   const send = useMutation({
-    mutationFn: ({ message, files }) => api.stream('/ai/chat', {
+    mutationFn: ({ message, files, page }) => api.stream('/ai/chat', {
       conversation_id: conversationId || undefined, message, attachments: files.map(f => f.id),
+      ...(page ? { page } : {}),
     }, onEvent),
     onMutate:   ({ message, files }) => {
       sending.current = true
@@ -188,7 +242,7 @@ export default function ChatView({ conversationId, onConversationId, className }
     if ((!message && !att.ready.length) || send.isPending || running || att.uploading) return
     const files = att.take().filter(f => f.status === 'ready')
     setDraft('')
-    send.mutate({ message, files })
+    send.mutate({ message, files, page: sentPage })
   }
 
   const hasFiles = e => Array.from(e.dataTransfer?.types || []).includes('Files')
@@ -276,6 +330,18 @@ export default function ChatView({ conversationId, onConversationId, className }
         </div>
       ) : (
         <div className="border-t bg-background">
+          {pageCtx && (
+            <div className="px-2 sm:px-3 pt-2">
+              <button type="button" onClick={() => setUsePage(v => !v)} aria-pressed={usePage}
+                title={usePage ? ASSISTANT_NAME + ' is told which page you are on. Tap to stop.' : 'Tap to tell ' + ASSISTANT_NAME + ' which page you are on.'}
+                className={cn('max-w-full inline-flex items-center gap-1.5 min-h-[36px] px-3 rounded-full border text-xs touch-manipulation',
+                  usePage ? 'border-primary/40 bg-primary/5 text-foreground' : 'text-muted-foreground line-through decoration-muted-foreground/60')}>
+                <MapPin className="w-3.5 h-3.5 shrink-0 text-primary" />
+                <span className="truncate">{usePage ? 'About: ' : 'Not sending: '}{pageCtx.text}</span>
+                {usePage && <X className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />}
+              </button>
+            </div>
+          )}
           <PendingFiles files={att.files} onRemove={att.remove} />
           {att.notice && <p className="px-3 pt-1 text-xs text-amber-700">{att.notice}</p>}
           <form

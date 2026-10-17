@@ -2,6 +2,7 @@
 //
 // Pepper (the staff AI assistant) as a panel on the right, opened from the
 // sidebar's "Ask Pepper" button on any page (so staff can keep the timeline in view).
+// Each message says which page is behind the panel (ChatView pageAware).
 // The open conversation is remembered per browser (maca_ai_conversation).
 import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -114,7 +115,7 @@ export default function AssistantDrawer({ open, onClose }) {
             <ConversationList activeId={conversationId} onPick={id => { setConversationId(id); setShowHistory(false) }} />
           </div>
         ) : (
-          <ChatView key={conversationId || 'new'} conversationId={conversationId} onConversationId={setConversationId} className="flex-1" />
+          <ChatView key={conversationId || 'new'} conversationId={conversationId} onConversationId={setConversationId} className="flex-1" pageAware />
         )}
       </aside>
     </>

@@ -52,6 +52,8 @@ import { ToolError, makeContext, addUsage } from './context.js'
 import { toolsFor, findTool, jsonSchemaOf, parseInput, errorText, CORE_TOOLS } from './tools/index.js'
 import { chatUnitsLeft, personUnitsLeft } from './settings.js'
 import { activeKey } from './apiKey.js'
+import { longDate } from './tools/util.js'
+import { ROUTE_CATALOG } from '../routes/nav.js'
 import {
   claimAttachments, releaseAttachments, attachmentBlocks, loadAttachmentData, withFileData, attachmentItems,
 } from './attachments.js'
@@ -255,12 +257,45 @@ async function appendMessage(conv, role, content) {
 
 // Our own markers on stored user blocks (never sent to the API):
 //   _note: 'action'   the outcome of a Confirm / Cancel press
+//   _page             which page the message was sent from (pageNote()): sent
+//                     to the model, not shown in the chat
 //   _attachment       an attached file: its data is filled in from `files`
 const clean = (block, files) => {
   if (!block || typeof block !== 'object') return block
   if (block._attachment) return withFileData(block, files)
-  const { _note, ...rest } = block
+  const { _note, _page, ...rest } = block
   return rest
+}
+
+/**
+ * "Ask about this page": the page the person sent a message from (the
+ * drawer sends { path, venue_id, date, week }) as a line for the model,
+ * stored with the message as a hidden _page block. The page's name comes
+ * from the route catalogue, the venue's from the tenant's own venues (an id
+ * that isn't theirs is left out), so nothing the browser sends is passed on
+ * as given. Null when there is nothing worth saying.
+ */
+export async function pageNote(tenantId, page) {
+  if (!page?.path) return null
+  const path = page.path
+  let best = null
+  for (const r of ROUTE_CATALOG) {
+    if ((path === r.route || (r.route !== '/' && path.startsWith(r.route + '/'))) && (!best || r.route.length > best.route.length)) best = r
+  }
+  let venue = null
+  if (page.venue_id) {
+    const [v] = await withTenant(tenantId, tx => tx`
+      SELECT id, name FROM venues WHERE id = ${page.venue_id} AND tenant_id = ${tenantId}
+    `)
+    venue = v || null
+  }
+  const bits = []
+  if (venue) bits.push('venue ' + venue.name + ' (venue_id ' + venue.id + ')')
+  if (page.date) bits.push(longDate(page.date) + ' (' + page.date + ')')
+  else if (page.week) bits.push('the week starting ' + longDate(page.week) + ' (' + page.week + ')')
+  if (!best && !bits.length) return null
+  return '[Sent from ' + (best ? 'the ' + best.label + ' page (' + path + ')' : 'the page ' + path) +
+    (bits.length ? ', showing ' + bits.join(', ') : '') + '.]'
 }
 
 /** The stored history as API messages: our markers stripped, attached files'
@@ -363,8 +398,8 @@ async function handleToolUse(ctx, conv, block, emit) {
  * { stopReason, notice }: notice is a line to show the person that isn't
  * part of the conversation (the turn stopped early, or was refused).
  */
-export async function runTurn(ctx, conv, text, { attachments = [], emit = null } = {}) {
-  return withHold(conv, BUSY_TURN, () => turn(ctx, conv, text, attachments, emit))
+export async function runTurn(ctx, conv, text, { attachments = [], emit = null, page = null } = {}) {
+  return withHold(conv, BUSY_TURN, () => turn(ctx, conv, text, attachments, emit, page))
 }
 
 // What a listening browser hears while the model writes: its text as it
@@ -395,7 +430,7 @@ const NOTICES = {
   max_steps: 'That took more steps than I can do at once. Tell me what to do next.',
 }
 
-async function turn(ctx, conv, text, attachments, emit) {
+async function turn(ctx, conv, text, attachments, emit, page) {
   const started = Date.now()
   const budget = emit ? STREAM_TURN_MS : TURN_MS
   if (conv.closed_at) {
@@ -416,8 +451,13 @@ async function turn(ctx, conv, text, attachments, emit) {
   `)
   if (n >= MAX_MESSAGES) throw new ToolError('This conversation is getting long. Start a new one.', 422)
   const files = await claimAttachments(conv, ctx.principal?.sub, attachments)
-  const userContent = [...attachmentBlocks(files), ...(text ? [{ type: 'text', text }] : [])]
-  if (!userContent.length) throw new ToolError('Type a message or attach a file.', 422)
+  if (!files.length && !text) throw new ToolError('Type a message or attach a file.', 422)
+  const note = conv.channel === 'staff_chat' ? await pageNote(conv.tenant_id, page) : null
+  const userContent = [
+    ...attachmentBlocks(files),
+    ...(note ? [{ type: 'text', text: note, _page: true }] : []),
+    ...(text ? [{ type: 'text', text }] : []),
+  ]
   const userSeq = await appendMessage(conv, 'user', userContent)
   const newTitle = !conv.title
   if (newTitle) {
@@ -647,6 +687,8 @@ const TOOL_LABELS = {
   order_lists: 'Looked at the order lists', order_form: 'Opened the order', purchase_orders: 'Looked up supplier orders',
   list_menus: 'Looked at the menus', get_menu: 'Opened the menu', find_dishes: 'Searched the menus',
   open_page: 'Found the page',
+  how_do_i: 'Looked it up in Help',
+  day_briefing: 'Put the day together',
   list_staff: 'Looked at the staff', whos_working: 'Looked at who is working', rota_week: 'Looked at the rota',
   rota_pay: 'Looked at rota pay', rota_tips: 'Looked at the tips',
   cash_day: 'Looked at the cash up', cash_week: 'Looked at the cash week', wages_week: 'Looked at the wages',
@@ -678,6 +720,7 @@ export async function displayItems(conv) {
       let shownFiles = false
       for (const b of blocks) {
         if (b.type !== 'text') continue
+        if (b._page) continue
         if (b._note) { items.push({ type: 'note', text: b.text.replace(/^\[|\]$/g, '') }); continue }
         items.push({ type: 'user', text: b.text, ...(files.length && !shownFiles ? { attachments: files } : {}) })
         shownFiles = true

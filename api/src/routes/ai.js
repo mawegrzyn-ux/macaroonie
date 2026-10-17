@@ -51,10 +51,20 @@ import { staffInstructions } from '../ai/prompts.js'
 import { ASSISTANT_NAME } from '../../../shared/assistant.js'
 import { saveUpload, loadOwnAttachment, deleteUnsent, MAX_BYTES, MAX_PER_MESSAGE } from '../ai/attachments.js'
 
+// A real day: 2026-02-31 matches the pattern but isn't one.
+const YMD = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
+  .refine(s => !Number.isNaN(Date.parse(s + 'T12:00:00Z')) && new Date(s + 'T12:00:00Z').toISOString().slice(0, 10) === s, 'Not a real date')
 const ChatBody = z.object({
   conversation_id: z.string().uuid().optional(),
   message:         z.string().trim().max(2000).default(''),
   attachments:     z.array(z.string().uuid()).max(MAX_PER_MESSAGE).default([]),
+  // The page the message was sent from (the Ask Pepper drawer): see pageNote().
+  page: z.object({
+    path:     z.string().max(200).regex(/^\/[A-Za-z0-9/_-]*$/),
+    venue_id: z.string().uuid().optional(),
+    date:     YMD.optional(),
+    week:     YMD.optional(),
+  }).optional(),
 }).refine(b => b.message || b.attachments.length, { message: 'Type a message or attach a file' })
 
 // Largest single upload (the PDF limit); detectFile() then applies the
@@ -182,10 +192,10 @@ export default async function aiRoutes(app) {
       }
     }
     if (!stream) {
-      return done(await run(() => runTurn(chatContext(app, conv, { req }), conv, body.message, { attachments: body.attachments })))
+      return done(await run(() => runTurn(chatContext(app, conv, { req }), conv, body.message, { attachments: body.attachments, page: body.page })))
     }
     try {
-      const out = await runTurn(chatContext(app, conv, { req }), conv, body.message, { attachments: body.attachments, emit: stream.send })
+      const out = await runTurn(chatContext(app, conv, { req }), conv, body.message, { attachments: body.attachments, page: body.page, emit: stream.send })
       stream.send({ type: 'done', ...(await done(out)) })
     } catch (err) {
       if (!stream.open) throw err instanceof ToolError ? httpError(err.status || 400, err.message) : err

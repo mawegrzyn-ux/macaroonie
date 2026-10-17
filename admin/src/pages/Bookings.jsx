@@ -17,6 +17,7 @@ import BookingDrawer from '@/components/bookings/BookingDrawer'
 import NewBookingModal from '@/components/bookings/NewBookingModal'
 import { usePermission } from '@/hooks/usePermission'
 import { useTimelineSettings } from '@/contexts/TimelineSettingsContext'
+import { usePepperPage } from '@/lib/pepperPage'
 
 const SELECTABLE_STATUSES = ['unconfirmed', 'confirmed', 'reconfirmed', 'arrived', 'seated', 'checked_out', 'no_show', 'cancelled']
 
@@ -99,6 +100,7 @@ export default function Bookings() {
   })
 
   const venueId = selectedVenueId ?? venues[0]?.id ?? null
+  usePepperPage({ venueId, date })
 
   const { data: rules } = useQuery({
     queryKey: ['rules', venueId],

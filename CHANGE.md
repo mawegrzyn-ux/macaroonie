@@ -5,6 +5,13 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-17 — Pepper: help answers, your day in one go, ask about this page]
+
+- **"How do I...?" answered from the Help guide**: ask Pepper how to do something in the app ("How do I set up tip pots?", "Where do I add a fridge?") and it answers from this app's own Help guide, with a link straight to the part that covers it. If the guide doesn't cover it, Pepper says so instead of guessing.
+- **Your day in one go**: "Brief me on today" (or another day or venue) gives bookings and big parties, who is working, health & safety checks still due and readings out of range, supplier deliveries due, yesterday's cash-up, online orders still open, sold out dishes, failed booking emails and offline menu screens, leading with what needs doing. Parts your role can't see are left out and named.
+- **Ask about the page you're on**: Ask Pepper from the sidebar now knows which page is behind it and the venue and day or week it shows, so "who is on this week?" on the Rota or "what's still to do?" on Food safety needs no venue or date. A label above the message box shows what Pepper is told; tap it to stop for that chat.
+- Help subsections can now be linked to directly (/help#tip-pots).
+
 ## [2026-10-17 — Encrypted integration keys, connector tokens that expire, a tool list per person]
 
 - **Keys stored encrypted**: the Anthropic key, Loyverse tokens, GloriaFood poll keys and email provider keys and passwords are now stored encrypted with a key kept outside the database, so a leaked database copy doesn't give them away. Keys already saved are encrypted when the server starts. Every deploy adds the encryption key to the server's settings file when it is missing: back that file up, because without it the saved keys would have to be typed in again.
