@@ -27,6 +27,7 @@ import { cn, formatTime, STATUS_COLOURS, STATUS_LABELS } from '@/lib/utils'
 import { MIN_ROWS, MAX_ROWS, rowSpanFor, heightForRows, gridStyle } from '@/lib/dashboardGrid'
 import { TitleRename } from '@/components/dashboards/TitleRename'
 import { AllergenLookup } from '@/components/menus/AllergenMatrix'
+import { ASSISTANT_NAME } from '@shared/assistant.js'
 
 function resolveIcon(name) {
   return LucideIcons[name] || LucideIcons.Circle
@@ -88,7 +89,7 @@ const SHORTCUT_OPTIONS = [
   { to: '/team',                 label: 'Team',                 icon: Users,           colour: 'bg-slate-100 text-slate-600' },
   { to: '/access',               label: 'Access',               icon: Shield,          colour: 'bg-gray-100 text-gray-600' },
   { to: '/settings',             label: 'Settings',             icon: SlidersHorizontal, colour: 'bg-neutral-100 text-neutral-600' },
-  { to: '/ai',                   label: 'AI assistant',         icon: LucideIcons.Sparkles, colour: 'bg-purple-100 text-purple-700' },
+  { to: '/ai',                   label: ASSISTANT_NAME,         icon: LucideIcons.Sparkles, colour: 'bg-purple-100 text-purple-700' },
   { to: '/issues',               label: 'Issues',               icon: AlertCircle,     colour: 'bg-red-100 text-red-700' },
   { to: '/feature-requests',     label: 'Feature requests',     icon: Lightbulb,       colour: 'bg-yellow-100 text-yellow-700' },
   { to: '/changelog',            label: "What's new",           icon: Newspaper,       colour: 'bg-sky-100 text-sky-700' },

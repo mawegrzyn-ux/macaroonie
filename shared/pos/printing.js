@@ -18,7 +18,8 @@
 // receipts in the browser.
 
 import { kitchenTicket, receipt } from './tickets.js'
-import { checkTotals, isActiveLine, modifierText } from './pricing.js'
+import { checkTotals, isActiveLine, modifierText, groupModifiers } from './pricing.js'
+import { countParts } from '../combos.js'
 import { TENDERS, checkLabel } from './checks.js'
 
 const LEVELS = ['item', 'section', 'revenue_stream', 'default']
@@ -39,7 +40,7 @@ export function routeFor(target, routes = [], key = 'printer_id') {
 }
 
 function kitchenModifiers(mods = []) {
-  return mods.filter(m => !m.base || m.label).map(m => ({
+  return groupModifiers(mods).filter(m => !m.base || m.label).map(m => ({
     kind: m.prefix === 'no' ? 'remove' : 'add', text: modifierText(m), depth: m.depth || 0,
   }))
 }
@@ -63,7 +64,9 @@ function linesByPrinter(lines, check, cfg) {
       // Each part goes to its own printers; the deal's name heads the parts.
       const parts = new Map()
       for (const part of l.combo) {
-        for (const pid of routeFor({ item_id: part.item_id, section_id: part.section_id, revenue_stream_id: rs }, cfg.routes)) {
+        // A typed-in choice (no dish) prints where the combo itself does.
+        const target = part.item_id ? { item_id: part.item_id, section_id: part.section_id, revenue_stream_id: rs } : { item_id: l.item_id, section_id: l.section_id, revenue_stream_id: rs }
+        for (const pid of routeFor(target, cfg.routes)) {
           const list = parts.get(pid) || []
           list.push(part)
           parts.set(pid, list)
@@ -74,8 +77,8 @@ function linesByPrinter(lines, check, cfg) {
           ...base, qty: l.qty, name: l.kitchen_name || l.name,
           modifiers: [
             ...kitchenModifiers(l.modifiers),
-            ...list.flatMap(part => [
-              { kind: 'part', text: part.kitchen_name || part.name },
+            ...countParts(list).flatMap(({ part, count }) => [
+              { kind: 'part', text: (count > 1 ? count + ' x ' : '') + (part.kitchen_name || part.name) },
               ...kitchenModifiers(part.modifiers).map(m => ({ ...m, depth: (m.depth || 0) + 1 })),
             ]),
           ],
@@ -137,8 +140,8 @@ export function billOps(check, cfg, { preBill = false, at = null, drawer = false
   const lines = (check.lines || []).filter(isActiveLine).map(l => ({
     qty: l.qty, name: lineName(l), total: (Number(l.unit_price) || 0) * l.qty,
     modifiers: [
-      ...(l.modifiers || []).filter(m => !m.base).map(m => ({ text: modifierText(m), price: (Number(m.price) || 0) * l.qty })),
-      ...(l.combo || []).map(c => ({ text: c.name, price: partPrice(c) * l.qty })),
+      ...groupModifiers(l.modifiers).filter(m => !m.base).map(m => ({ text: modifierText(m), price: (Number(m.price) || 0) * l.qty })),
+      ...countParts(l.combo).map(({ part: c, count }) => ({ text: (count > 1 ? count + ' x ' : '') + c.name, price: partPrice(c) * count * l.qty })),
     ],
   }))
   const tender = k => TENDERS.find(x => x.key === k)?.label || k

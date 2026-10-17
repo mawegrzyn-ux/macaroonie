@@ -1,19 +1,21 @@
 // What can be done to one item on a check. Before it is sent: change the
 // quantity, seat, course, note and allergies, or delete it. After: change
 // the seat, or void it (with a reason, which a manager may need to allow).
-// Either way: comp it, discount it, or move it to another check.
+// Either way: comp it, discount it, or move it to another check. A dish not
+// sent yet can be made into a combo that offers it (shared/combos.js).
 
 import { useState } from 'react'
-import { Minus, Plus, Trash2, Ban, Gift, Percent, ArrowRightLeft, X } from 'lucide-react'
+import { Minus, Plus, Trash2, Ban, Gift, Percent, ArrowRightLeft, X, Layers } from 'lucide-react'
 import { ulid } from '@shared/pos/ids.js'
-import { lineGross, modifierText, checkTotals } from '@shared/pos/pricing.js'
+import { lineGross, modifierText, groupModifiers, checkTotals } from '@shared/pos/pricing.js'
 import { Modal, ReasonPicker, cx, money, useApproval } from './ui.jsx'
 import { dispatch, toast } from '../lib/store.js'
+import { combosForLine } from '../lib/checkOps.js'
 
 const VOID_REASONS = ['Wrong item', 'Guest changed mind', 'Quality', 'Took too long', 'Dropped / spilt']
 const COMP_REASONS = ['Quality', 'Took too long', 'Birthday', 'Regular', 'Staff', 'Manager decision']
 
-export default function LineModal({ check, line, config, onClose, onDiscount, onMove }) {
+export default function LineModal({ check, line, config, onClose, onDiscount, onMove, onMakeCombo }) {
   const approve = useApproval()
   const [mode, setMode] = useState(null)   // 'void' | 'comp' | 'delete'
   const [reason, setReason] = useState('')
@@ -26,6 +28,8 @@ export default function LineModal({ check, line, config, onClose, onDiscount, on
   const allergens = (config.dietary_tags || []).filter(t => t.kind === 'allergen')
   const t = checkTotals(check)
   const net = t.lines.find(l => l.id === line.id)?.net ?? 0
+  const combos = onMakeCombo ? combosForLine(line, config) : []
+  const inCombo = (check.promotions || []).filter(p => p.kind === 'combo' && p.lines?.[line.id])
 
   const change = patch => {
     const r = dispatch('line.changed', { line_id: line.id, ...patch }, { check_id: check.id })
@@ -62,8 +66,9 @@ export default function LineModal({ check, line, config, onClose, onDiscount, on
     <Modal title={line.qty + ' x ' + line.name} onClose={onClose} wide>
       <div className="space-y-5">
         <div className="text-sm text-muted">
-          {(line.modifiers || []).map(modifierText).join(', ')}
+          {groupModifiers(line.modifiers).map(modifierText).join(', ')}
           {(line.combo || []).map(c => c.name).join(', ')}
+          {inCombo.length > 0 && <div className="text-brand font-semibold mt-1">Part of {inCombo.map(p => p.name).join(', ')} (applied by itself)</div>}
           <div className="text-ink font-semibold mt-1">{money(lineGross(line))}{net !== lineGross(line) && !voided ? ' · after discounts ' + money(net) : ''}</div>
         </div>
 
@@ -125,6 +130,19 @@ export default function LineModal({ check, line, config, onClose, onDiscount, on
                     <button className="btn min-h-[40px]" onClick={() => { const r = dispatch('discount.removed', { discount_id: d.id }, { check_id: check.id }); if (!r.ok) toast(r.error, 'bad') }}><X size={16} /> Take off</button>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {combos.length > 0 && (
+              <div className="space-y-2" data-testid="make-combo">
+                <div className="label">Make it a combo</div>
+                <div className="flex flex-wrap gap-2">
+                  {combos.map(({ combo, start }) => (
+                    <button key={combo.id} className="btn" onClick={() => onMakeCombo(line, combo, start)}>
+                      <Layers size={18} /> {combo.name}{combo.price_pence != null ? ' ' + money(combo.price_pence) : ''}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
 

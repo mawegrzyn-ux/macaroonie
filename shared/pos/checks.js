@@ -46,6 +46,36 @@ export const TENDER_KEYS = TENDERS.map(t => t.key)
 
 export const CHECK_MODES = ['table', 'tab', 'counter']
 
+// Self-order kiosks (shared/kiosk.js, docs/POS.md section 10). A kiosk is in
+// staffById under its device id as { kiosk: true }, with no permissions. It
+// opens counter orders and works on its own orders only: dishes from the
+// menu at their menu price, the offers that apply, sending to the kitchen,
+// one card payment and closing. Staff on a till can do anything else to a
+// kiosk order (take payment at the counter, add, void, discount ...).
+export const KIOSK_EVENTS = ['check.opened', 'line.added', 'promotions.set', 'lines.sent', 'payment.added', 'check.closed']
+
+function kioskProblem(checks, e) {
+  if (!KIOSK_EVENTS.includes(e.type)) return 'A kiosk can\'t do this'
+  if (e.approved_by) return 'A kiosk can\'t be approved for anything'
+  // Only the kiosk itself sends its events (the API names the device).
+  if (e.device_id && e.device_id !== e.staff_id) return 'Only the kiosk itself can do this'
+  const p = e.payload || {}
+  if (e.type === 'check.opened') {
+    if (p.mode !== 'counter' || p.table_id || p.from_check_id || p.service_charge || (p.server_id && p.server_id !== e.staff_id)) {
+      return 'A kiosk only opens counter orders'
+    }
+    return null
+  }
+  const c = checks[e.check_id]
+  if (c && c.opened_by !== e.staff_id) return 'A kiosk only changes its own orders'
+  if (e.type === 'line.added' && (!p.line?.item_id || p.line.price_override || p.line.open_item)) return 'A kiosk only adds dishes from the menu'
+  if (e.type === 'payment.added') {
+    const x = p.payment || {}
+    if (x.tender !== 'card_external' || (x.tip || 0) > 0 || x.tendered != null) return 'A kiosk only takes card payments'
+  }
+  return null
+}
+
 // ── Shape checks ───────────────────────────────────────────────
 
 const isUuid = v => typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)
@@ -181,6 +211,9 @@ export function eventProblem(e) {
       if (!Array.isArray(p.promotions)) return bad('promotions')
       for (const x of p.promotions) {
         if (!isUuid(x.promotion_id) || !isText(x.name || '', 120)) return bad('promotion')
+        // An automatic combo (shared/combos.js) found among the check's dishes.
+        if (x.kind != null && x.kind !== 'combo') return bad('promotion kind')
+        if (x.count != null && !(Number.isInteger(x.count) && x.count >= 1 && x.count <= 99)) return bad('promotion count')
         if (typeof x.lines !== 'object' || Object.entries(x.lines || {}).some(([k, v]) => !isId(k) || !isPence(v))) return bad('promotion lines')
       }
       return null
@@ -309,6 +342,10 @@ export function applyEvent(checks, e, ctx = {}) {
   if (!CHECK_EVENTS.includes(e.type)) return fail('Not a check event', 'invalid')
   const staffById = ctx.staffById || {}
   if (!staffById[e.staff_id]) return fail('Unknown staff member', 'staff')
+  if (staffById[e.staff_id].kiosk) {
+    const why = kioskProblem(checks, e)
+    if (why) return fail(why, 'kiosk')
+  }
   const p = e.payload || {}
   const need = (key, amount) => {
     const why = permissionProblem(staffById, e, key, amount)
@@ -528,7 +565,7 @@ export function applyEvent(checks, e, ctx = {}) {
     }
 
     case 'promotions.set':
-      c.promotions = p.promotions.map(x => ({ promotion_id: x.promotion_id, name: x.name, lines: x.lines }))
+      c.promotions = p.promotions.map(x => ({ promotion_id: x.promotion_id, name: x.name, ...(x.kind === 'combo' ? { kind: 'combo', count: x.count || 1 } : {}), lines: x.lines }))
       break
 
     case 'service_charge.set':

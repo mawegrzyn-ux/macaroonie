@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Printer, RotateCcw, Undo2, Search, RefreshCw } from 'lucide-react'
 import { ulid } from '@shared/pos/ids.js'
-import { checkTotals, modifierText } from '@shared/pos/pricing.js'
+import { checkTotals, modifierText, groupModifiers } from '@shared/pos/pricing.js'
 import { checkLabel, TENDERS } from '@shared/pos/checks.js'
 import { useTill, useChecks, dispatch, toast, printBill, server, loadCheck } from '../lib/store.js'
 import { Modal, Keypad, ReasonPicker, cx, money, poundsToPence, useApproval } from '../components/ui.jsx'
@@ -142,7 +142,7 @@ function ClosedDetail({ check, config }) {
         {check.lines.map(l => (
           <div key={l.id} className={cx('p-3 flex gap-3', l.status === 'voided' && 'opacity-50 line-through')}>
             <div className="w-8 font-bold">{l.qty}</div>
-            <div className="flex-1">{l.name}<div className="text-sm text-muted">{(l.modifiers || []).map(modifierText).join(', ')}</div></div>
+            <div className="flex-1">{l.name}<div className="text-sm text-muted">{groupModifiers(l.modifiers).map(modifierText).join(', ')}</div></div>
           </div>
         ))}
       </div>

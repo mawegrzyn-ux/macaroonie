@@ -1,6 +1,7 @@
 // The till app (docs/POS.md): pair, sign in with a PIN, then the floor, a
 // check, counter service, closed checks, reports and till settings. A device
-// paired as a kitchen screen opens the kitchen screen instead.
+// paired as a kitchen screen opens the kitchen screen instead, one paired as
+// a self-order kiosk the kiosk (and ?kiosk_preview= the kiosk design preview).
 
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { LayoutGrid, ShoppingBag, Receipt, BarChart3, Settings, Lock, RefreshCw, WifiOff } from 'lucide-react'
@@ -19,8 +20,17 @@ import TillSettings from './screens/TillSettings.jsx'
 // A device paired as a kitchen screen runs the kitchen app (src/kitchen),
 // loaded only on those devices.
 const KitchenApp = lazy(() => import('./kitchen/KitchenApp.jsx'))
+// A self-order kiosk (and the kiosk design editor's preview) runs the kiosk
+// app (src/kiosk), loaded only there.
+const KioskApp = lazy(() => import('./kiosk/KioskApp.jsx'))
+const PREVIEW = new URLSearchParams(location.search).get('kiosk_preview')
 
 export default function App() {
+  if (PREVIEW) return <Suspense fallback={<div className="h-full bg-black" />}><KioskApp previewToken={PREVIEW} /></Suspense>
+  return <TillApp />
+}
+
+function TillApp() {
   useEffect(() => {
     boot()
     const onDown = () => touch()
@@ -30,6 +40,7 @@ export default function App() {
   const s = useTill()
   let body
   if (s.phase === 'kitchen') return <Suspense fallback={<div className="h-full bg-black" />}><KitchenApp device={s.device} /></Suspense>
+  if (s.phase === 'kiosk') return <Suspense fallback={<div className="h-full bg-black" />}><KioskApp device={s.device} /></Suspense>
   if (s.phase === 'pair') body = <Pair />
   else if (s.phase === 'loading') body = <Splash />
   else if (!s.config) body = <NoConfig />

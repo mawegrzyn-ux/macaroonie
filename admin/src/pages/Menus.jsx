@@ -44,7 +44,8 @@ import { RichTextEditor } from '@/components/RichTextEditor'
 import { Card, Field, Input, TextArea, Btn, formatPrice, PriceInput } from '@/components/menus/shared'
 import { levelOf, LEVEL_LABELS } from '@shared/menuTags.js'
 import { LevelChip } from '@/components/menus/AllergenMatrix'
-import { SectionTillFields, ItemTillFields, useTillCourses, comboPayload } from '@/components/menus/TillFields'
+import { SectionTillFields, ItemTillFields, useTillCourses } from '@/components/menus/TillFields'
+import { ComboBox, comboPayload } from '@/components/menus/ComboEditor'
 import { PublishPanel, PublishBadges, useOpenPreview } from '@/components/menus/MenuPublish'
 import { TaxBox, useTaxLookups, taxSettingProblems } from '@/components/menus/TaxBox'
 import { normTax, cleanTax } from '@shared/tax.js'
@@ -1114,7 +1115,9 @@ function ItemRow({ item, index, total, selected, onSelect, onRemove, onMoveUp, o
         <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-sky-100 text-sky-800 shrink-0" title="Minimum order quantity (online ordering)">Min {item.min_order_qty}</span>
       )}
       {item.kind === 'combo' && (
-        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-800 shrink-0" title="Meal deal on the till">Meal deal</span>
+        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-800 shrink-0" title={item.combo?.mode === 'auto' ? 'Combo, also applied by itself to separate dishes' : 'Combo'}>
+          Combo{item.combo?.mode === 'auto' ? ' · auto' : ''}
+        </span>
       )}
       {(item.dietary || []).length > 0 && (
         <span className="text-[10px] text-muted-foreground shrink-0">{item.dietary.length} tag{item.dietary.length === 1 ? '' : 's'}</span>
@@ -1403,6 +1406,8 @@ function ItemDrawer({ item, section, menuTax, sections = [], courses, dietaryTag
           <TextArea value={item.description || ''} onChange={e => onChange({ description: e.target.value })} rows={3} />
         </Field>
 
+        <ComboBox item={item} section={section} sections={sections} readOnly={readOnly} onChange={onChange} />
+
         <Field label="Notes" hint="e.g. 'pp'. For an online ordering minimum, use Minimum order quantity below.">
           <Input value={item.notes || ''} onChange={e => onChange({ notes: e.target.value })} />
         </Field>
@@ -1455,7 +1460,7 @@ function ItemDrawer({ item, section, menuTax, sections = [], courses, dietaryTag
 
         <AllergenPicker tags={allergenTags} item={item} onSet={setAllergen} />
 
-        <ItemTillFields item={item} section={section} sections={sections} courses={courses} onChange={onChange} />
+        <ItemTillFields item={item} section={section} courses={courses} onChange={onChange} />
 
         {/* Attached variant groups — the only source of variants. Every
             option is predefined in the group (managed on Menus > Variant

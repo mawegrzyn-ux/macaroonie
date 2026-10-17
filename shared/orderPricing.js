@@ -12,6 +12,7 @@
 // ./promotions.js, served next to this file as /order-api/promotions.js.
 //
 import { applyPromotions } from './promotions.js'
+import { isCombo, priceCombo, comboFromPrice, findAutoCombos, autoMatchable, menuCtx } from './combos.js'
 
 // A dish's choices come from its ad-hoc variants (one required choice) and
 // its attached variant groups:
@@ -19,6 +20,14 @@ import { applyPromotions } from './promotions.js'
 //   mode 'extra' — the option price is added on top (Extra egg +£1.00)
 // Unit price = the chosen base options' prices (or the dish's own price
 // when no base option is chosen) + every chosen extra.
+// A group may let the same option be picked more than once (repeat,
+// migration 171: 2 x Extra cheese), and an optional group may wait behind a
+// button instead of showing straight away (on_request).
+//
+// Combos (kind 'combo', shared/combos.js) are priced here too: the combo's
+// price (or its own base options), its own extras, then each step's picks:
+// the choice's extra charge plus that dish's own extras (a part's base
+// options don't change the deal's price).
 
 // Ad-hoc variants are re-inserted on every menu save, so their database ids
 // change; the label is what stays the same.
@@ -47,18 +56,20 @@ export function itemChoices(item, rules = {}) {
   const adhoc = (Array.isArray(item.variants) ? item.variants : []).filter(keep)
   if (adhoc.length) {
     out.push({
-      key: 'variants', name: 'Choose', mode: 'base', min: 1, max: 1, hide_zero_price: !!rules.hideZeroPrice,
+      key: 'variants', name: 'Choose', mode: 'base', min: 1, max: 1, repeat: false, on_request: false, hide_zero_price: !!rules.hideZeroPrice,
       options: adhoc.map(v => ({ id: variantOptionId(v.label), label: v.label, price_pence: v.price_pence ?? null })),
     })
   }
   for (const g of item.variant_groups || []) {
     const opts = (g.options || []).filter(keep).map(o => ({ id: o.option_id ?? o.id, label: o.label, price_pence: o.price_pence ?? null }))
     if (!opts.length) continue
-    const max = Math.max(1, Math.min(opts.length, Number(g.max_select ?? 1)))
+    // With repeat an option can count more than once, so max isn't capped at the number of options.
+    const max = Math.max(1, g.allow_repeat ? Number(g.max_select ?? 1) : Math.min(opts.length, Number(g.max_select ?? 1)))
     const min = Math.max(0, Math.min(max, Number(g.min_select ?? 1)))
     out.push({
       key: g.group_id ?? g.id, name: g.name, mode: g.price_mode === 'extra' ? 'extra' : 'base',
-      min, max, hide_zero_price: !!rules.hideZeroPrice, options: opts,
+      min, max, repeat: !!g.allow_repeat, on_request: min === 0 && !!g.on_request,
+      hide_zero_price: !!rules.hideZeroPrice, options: opts,
     })
   }
   return out
@@ -79,58 +90,111 @@ function choicesOf(item) {
 }
 
 // Lowest price a guest can pay for the dish ("from £9.50"), or null when
-// it has no price at all (then it can't be ordered).
-export function fromPrice(item, choices = choicesOf(item)) {
+// it has no price at all (then it can't be ordered). A combo adds its
+// steps' cheapest picks (ctx: { itemsById, sectionItems } for its dishes).
+export function fromPrice(item, choices = choicesOf(item), ctx = null) {
+  if (isCombo(item)) return comboFromPrice(item, ownFromPrice({ ...item, price_pence: item.price_pence ?? 0 }, choices), ctx || {}).pence
+  return ownFromPrice(item, choices)
+}
+
+// Does the price shown need "from"? Base options with a choice of price, or
+// a combo whose picks can cost extra.
+export function priceVaries(item, choices = choicesOf(item), ctx = null) {
+  if (choices.some(c => c.mode === 'base' && c.options.length > 1)) return true
+  return isCombo(item) && comboFromPrice(item, 0, ctx || {}).varies
+}
+
+// A combo's price as a menu shows it (website, print, screens): its
+// cheapest price, and whether "from" goes before it. Its dishes are found
+// in the same menu.
+export function comboMenuPrice(item, menu) {
+  const ctx = menuCtx(menu)
+  const choices = itemChoices(item, variantRules(menu))
+  return { pence: fromPrice(item, choices, ctx), from: priceVaries(item, choices, ctx) }
+}
+
+function ownFromPrice(item, choices) {
   const base = choices.filter(c => c.mode === 'base')
   let price = null
   for (const c of base) {
     if (c.min < 1) continue
     // A base option with no price leaves the dish at its own price.
-    const cheapest = c.options.map(o => o.price_pence ?? item.price_pence ?? null)
-      .filter(p => p != null).sort((a, b) => a - b).slice(0, c.min)
+    const sorted = c.options.map(o => o.price_pence ?? item.price_pence ?? null)
+      .filter(p => p != null).sort((a, b) => a - b)
+    const cheapest = c.repeat && sorted.length ? Array(c.min).fill(sorted[0]) : sorted.slice(0, c.min)
     if (cheapest.length < c.min) continue
     price = (price ?? 0) + cheapest.reduce((s, p) => s + p, 0)
   }
   if (price == null) price = item.price_pence ?? null
   if (price == null) return null
   for (const c of choices.filter(c => c.mode === 'extra' && c.min > 0)) {
-    const cheapest = c.options.map(o => o.price_pence ?? 0).sort((a, b) => a - b).slice(0, c.min)
+    const sorted = c.options.map(o => o.price_pence ?? 0).sort((a, b) => a - b)
+    const cheapest = c.repeat && sorted.length ? Array(c.min).fill(sorted[0]) : sorted.slice(0, c.min)
     price += cheapest.reduce((s, p) => s + p, 0)
   }
   return price
 }
 
 export function isPriced(item, choices = choicesOf(item)) {
-  if (item.price_pence != null) return true
+  if (item.price_pence != null || isCombo(item)) return true
   return choices.some(c => c.mode === 'base' && c.min >= 1 && c.options.some(o => o.price_pence != null))
 }
 
-// One basket line: { choices: { [key]: [optionId, ...] } }.
-// Returns { ok: true, unit_pence, options } or { ok: false, error }.
-export function priceLine(item, selection, choices = choicesOf(item)) {
-  const picked = (selection && selection.choices) || {}
+// A set of choices: { ok, base, extras, options } or { ok: false, error }.
+// picked: { [key]: [optionId, ...] }; an id may repeat in a repeat group.
+function priceChoiceSet(choices, picked) {
   const options = []
   let base = null
   let extras = 0
   for (const c of choices) {
-    const ids = [...new Set(Array.isArray(picked[c.key]) ? picked[c.key] : [])]
+    const raw = Array.isArray(picked[c.key]) ? picked[c.key] : []
+    const ids = c.repeat ? raw : [...new Set(raw)]
     if (ids.length < c.min) {
       const what = c.key === 'variants' ? 'an option' : c.name.toLowerCase()
       return { ok: false, error: c.min === 1 ? 'Choose ' + what : 'Choose at least ' + c.min + ' for ' + c.name }
     }
     if (ids.length > c.max) return { ok: false, error: 'Choose up to ' + c.max + ' for ' + c.name }
-    for (const id of ids) {
+    // The same option picked more than once shows once: "2 x Cheese" at twice the price.
+    const counts = new Map()
+    for (const id of ids) counts.set(id, (counts.get(id) || 0) + 1)
+    for (const [id, n] of counts) {
       const o = c.options.find(x => x.id === id)
       if (!o) return { ok: false, error: 'An option is no longer available: please choose again' }
-      options.push({ group: c.name, label: o.label, price_pence: o.price_pence, mode: c.mode })
+      options.push({
+        group: c.name, label: (n > 1 ? n + ' x ' : '') + o.label,
+        price_pence: o.price_pence == null ? o.price_pence : o.price_pence * n, mode: c.mode, ...(n > 1 ? { qty: n } : {}),
+      })
       // A base option with no price leaves the dish at its own price.
-      if (c.mode === 'base') { if (o.price_pence != null) base = (base ?? 0) + o.price_pence }
-      else extras += o.price_pence ?? 0
+      if (c.mode === 'base') { if (o.price_pence != null) base = (base ?? 0) + o.price_pence * n }
+      else extras += (o.price_pence ?? 0) * n
     }
   }
-  if (base == null) base = item.price_pence ?? null
+  return { ok: true, base, extras, options }
+}
+
+// One basket line: { choices: { [key]: [optionId, ...] }, combo }.
+// Returns { ok: true, unit_pence, base_pence, options, parts } or { ok: false, error }.
+// ctx (combos): { itemsById, sectionItems } to find a combo's dishes.
+export function priceLine(item, selection, choices = choicesOf(item), ctx = null) {
+  const r = priceChoiceSet(choices, (selection && selection.choices) || {})
+  if (!r.ok) return r
+  let base = r.base ?? item.price_pence ?? null
+  if (isCombo(item)) {
+    const pc = priceCombo(item, selection || {}, ctx || {}, (part, picked) => {
+      const pr = priceChoiceSet(choicesOf(part), picked || {})
+      return pr.ok ? { ok: true, extras: pr.extras, detail: pr.options } : pr
+    })
+    if (!pc.ok) return pc
+    base = base ?? 0
+    const parts = pc.parts.map(p => ({
+      step: p.step, step_id: p.step_id, option_id: p.option_id, item_id: p.item_id, section_id: p.section_id,
+      name: p.name, kitchen_name: p.kitchen_name, upcharge_pence: p.upcharge, extras_pence: p.extras,
+      options: (p.detail || []).filter(o => o.mode !== 'base' || o.label),
+    }))
+    return { ok: true, unit_pence: base + r.extras + pc.upcharge + pc.extras, base_pence: base, options: r.options, parts }
+  }
   if (base == null) return { ok: false, error: 'This dish has no price' }
-  return { ok: true, unit_pence: base + extras, options }
+  return { ok: true, unit_pence: base + r.extras, base_pence: base, options: r.options, parts: null }
 }
 
 // VAT inside a VAT-inclusive amount.
@@ -146,22 +210,27 @@ export function tipFor(subtotalPence, percent) {
 }
 
 // A whole basket. itemsById: { [menuItemId]: item (with vat_rate) },
-// lines: [{ item_id, qty, choices, note }].
-// With `promos` (+ `promoCtx`, see shared/promotions.js) the discounts are
-// taken off: subtotal stays the full price, discount_pence is what the
-// promotions take off, VAT is on what is paid per line, the tip is a % of
-// the discounted subtotal, total = subtotal - discount + tip.
-export function priceBasket(itemsById, lines, { tipPercent = 0, promos = null, promoCtx = {} } = {}) {
+// lines: [{ item_id, qty, choices, combo, note }].
+// combos: { ctx: { itemsById, sectionItems } to find combos' dishes (every
+// dish of the menus, orderable alone or not), auto: [combo items] to spot
+// among separate dishes (shared/combos.js findAutoCombos) }.
+// Automatic combos come off first, then promotions (`promos` + `promoCtx`,
+// see shared/promotions.js) on what is left: subtotal stays the full price,
+// discount_pence is what combos and promotions take off, VAT is on what is
+// paid per line, the tip is a % of the discounted subtotal,
+// total = subtotal - discount + tip.
+export function priceBasket(itemsById, lines, { tipPercent = 0, promos = null, promoCtx = {}, combos = null } = {}) {
   const out = []
   const errors = []
   let subtotal = 0
   let vat = 0
+  const comboCtx = (combos && combos.ctx) || { itemsById }
   for (const [i, line] of (lines || []).entries()) {
     const item = itemsById[line.item_id]
     if (!item) { errors.push({ index: i, error: 'This dish is no longer on the menu' }); continue }
     if (item.sold_out) { errors.push({ index: i, error: item.name + ' is sold out' }); continue }
     const qty = Math.max(1, Math.min(99, Math.floor(Number(line.qty) || 1)))
-    const priced = priceLine(item, line)
+    const priced = priceLine(item, line, choicesOf(item), comboCtx)
     if (!priced.ok) { errors.push({ index: i, error: item.name + ': ' + priced.error }); continue }
     const lineTotal = priced.unit_pence * qty
     const rate = Number(item.vat_rate) || 0
@@ -170,7 +239,8 @@ export function priceBasket(itemsById, lines, { tipPercent = 0, promos = null, p
     vat += lineVat
     out.push({
       item_id: item.id, section_id: item.section_id ?? null, name: item.name, qty, options: priced.options,
-      unit_pence: priced.unit_pence, line_total_pence: lineTotal,
+      parts: priced.parts || null,
+      unit_pence: priced.unit_pence, base_pence: priced.base_pence, line_total_pence: lineTotal,
       vat_rate: rate, vat_pence: lineVat, note: line.note ? String(line.note).slice(0, 300) : null,
     })
   }
@@ -186,17 +256,34 @@ export function priceBasket(itemsById, lines, { tipPercent = 0, promos = null, p
     const min = Number(itemsById[id]?.min_qty) || 0
     if (min > 1 && d.qty < min) errors.push({ index: d.index, code: 'min_qty', error: itemsById[id].name + ': the minimum order is ' + min })
   }
-  let discount = 0
+  // Automatic combos among separate dishes (a combo line is already one).
+  const comboOff = out.map(() => 0)
+  let comboList = []
+  const autoCombos = (combos && combos.auto || []).filter(c => autoMatchable(c) && !c.sold_out)
+  if (autoCombos.length && out.length) {
+    const found = findAutoCombos(
+      out.map((l, i) => ({ key: i, item_id: l.item_id, section_id: l.section_id, qty: l.parts ? 0 : l.qty, unit_base: l.base_pence })),
+      autoCombos, comboCtx, c => fromPrice({ ...c, combo: null, kind: 'dish', price_pence: c.price_pence ?? 0 }, choicesOf(c)) ?? 0,
+    )
+    for (const f of found) {
+      for (const [k, p] of Object.entries(f.lines)) comboOff[Number(k)] += p
+    }
+    comboList = found.map(f => ({ combo_id: f.combo_id, name: f.name, count: f.count, discount_pence: f.saving }))
+  }
+  const comboTotal = comboOff.reduce((s, x) => s + x, 0)
+  let discount = comboTotal
   let promo = null
   if (promos && promos.length && out.length) {
-    promo = applyPromotions(out, promos, promoCtx)
+    promo = applyPromotions(out.map((l, i) => ({ ...l, line_total_pence: l.line_total_pence - comboOff[i] })), promos, promoCtx)
+    discount += promo.discount_pence
+  }
+  if (discount) {
     vat = 0
     out.forEach((l, i) => {
-      l.discount_pence = promo.line_discounts[i] || 0
+      l.discount_pence = comboOff[i] + (promo ? promo.line_discounts[i] || 0 : 0)
       l.vat_pence = vatIncluded(l.line_total_pence - l.discount_pence, l.vat_rate)
       vat += l.vat_pence
     })
-    discount = promo.discount_pence
   } else {
     out.forEach(l => { l.discount_pence = 0 })
   }
@@ -204,6 +291,7 @@ export function priceBasket(itemsById, lines, { tipPercent = 0, promos = null, p
   const tip = tipFor(net, tipPercent)
   return {
     lines: out, errors, subtotal_pence: subtotal, discount_pence: discount, vat_pence: vat, tip_pence: tip, total_pence: net + tip,
+    combos: comboList, combo_discount_pence: comboTotal,
     promotions: promo ? promo.applied : [], promo_offers: promo ? promo.offers : [], promo_notices: promo ? promo.notices : [],
   }
 }

@@ -2,7 +2,7 @@
 
 import { z } from 'zod'
 import { sql, withTenant } from '../../config/db.js'
-import { ToolError } from '../context.js'
+import { ToolError, audit } from '../context.js'
 
 export const DateStr  = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'date must be YYYY-MM-DD')
 export const TimeStr  = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'time must be HH:MM (24-hour, restaurant local time)')
@@ -44,6 +44,79 @@ export async function zonedInstant(date, time, tz) {
 }
 
 export const reference = id => String(id).slice(0, 8).toUpperCase()
+
+// ── Shared by the section tools (rota, cash, orders, ...) ─────────────
+
+export const VenueText = z.string().trim().max(120).optional()
+  .describe('Venue name or venue_id. Can be left out when the restaurant has one venue.')
+
+/** The tenant's active venues, by name. */
+export async function tenantVenueList(ctx) {
+  return withTenant(ctx.tenantId, tx => tx`
+    SELECT id, tenant_id, name, timezone, currency FROM venues
+     WHERE tenant_id = ${ctx.tenantId} AND is_active = true ORDER BY name
+  `)
+}
+
+/** The venue a staff tool works on: the one named, else the only one. */
+export async function venueFor(ctx, text) {
+  const venues = await tenantVenueList(ctx)
+  if (!venues.length) throw new ToolError('There are no venues yet.', 404)
+  if (text == null || String(text).trim() === '') {
+    if (venues.length === 1) return venues[0]
+    throw new ToolError('Which venue? ' + venues.map(v => v.name).join(', ') + '.', 422)
+  }
+  return pickByName(venues, text, v => v.name, 'venue')
+}
+
+/** Today's date (YYYY-MM-DD) at a venue. */
+export const venueToday = venue => localParts(new Date(), venue.timezone).date
+
+export function addDays(date, n) {
+  const d = new Date(date + 'T12:00:00Z')
+  d.setUTCDate(d.getUTCDate() + n)
+  return d.toISOString().slice(0, 10)
+}
+
+/** The Monday of the week a date is in. */
+export function mondayOf(date) {
+  const d = new Date(date + 'T12:00:00Z')
+  const dow = d.getUTCDay()
+  return addDays(date, dow === 0 ? -6 : 1 - dow)
+}
+
+/** "Fri 12 Oct" for a YYYY-MM-DD date. */
+export function shortDate(date) {
+  return new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short' })
+    .format(new Date(date + 'T12:00:00Z'))
+}
+
+/** "£12.50" for an amount in pounds (null when there is none). */
+export function money(n, currency = 'GBP') {
+  if (n === null || n === undefined || n === '' || !Number.isFinite(Number(n))) return null
+  try {
+    return new Intl.NumberFormat('en-GB', { style: 'currency', currency: currency || 'GBP' }).format(Number(n))
+  } catch {
+    return Number(n).toFixed(2)
+  }
+}
+
+/** money() for an amount in pence. */
+export const pence = (p, currency) => money(p == null ? null : Number(p) / 100, currency)
+
+export const plural = (n, one, many = one + 's') => n + ' ' + (n === 1 ? one : many)
+
+/** Run a change and write its ai_actions row, ok or not. */
+export async function audited(ctx, tool, input, fn) {
+  try {
+    const result = await fn()
+    await audit(ctx, { tool, input, ok: true, result })
+    return result
+  } catch (err) {
+    await audit(ctx, { tool, input, ok: false, result: { error: err.message } })
+    throw err
+  }
+}
 
 /** Booking rules a tool checks before calling a route. */
 export async function venueRules(venue) {

@@ -186,9 +186,9 @@ export const MODULES = [
   },
   {
     key:    'ai_assistant',
-    label:  'AI assistant',
-    group:  'bookings',
-    description: 'The staff AI assistant and the staff MCP connector: find, make and change bookings by chat. Each booking action also needs the Bookings permission.',
+    label:  'Pepper (AI assistant)',
+    group:  'pepper',
+    description: 'Pepper, the staff AI assistant (Ask Pepper, the Pepper page, the phone app) and the staff MCP connector for AI apps. Pepper works across every area; each thing it reads or changes also needs that area\'s own permission.',
     default: { owner: 'manage', admin: 'manage', operator: 'view', viewer: 'none' },
   },
   {
@@ -351,7 +351,7 @@ export const MODULE_GROUPS = [
     key:    'bookings',
     label:  'Bookings',
     description: 'Reservations, table management, schedule, rules — the core product.',
-    moduleKeys: ['bookings', 'venues', 'tables', 'schedule', 'rules', 'customers', 'widget_test', 'test_data', 'ai_assistant'],
+    moduleKeys: ['bookings', 'venues', 'tables', 'schedule', 'rules', 'customers', 'widget_test', 'test_data'],
   },
   {
     key:    'email_templates',
@@ -394,6 +394,12 @@ export const MODULE_GROUPS = [
     label:  'Online ordering',
     description: 'Collection orders from the website, with payment through a payment gateway or at the counter.',
     moduleKeys: ['web_orders', 'web_ordering_setup', 'promotions'],
+  },
+  {
+    key:    'pepper',
+    label:  'Pepper (AI assistant)',
+    description: 'The staff AI assistant and the staff connector for AI apps, across every area the person can use.',
+    moduleKeys: ['ai_assistant'],
   },
   {
     key:    'support',

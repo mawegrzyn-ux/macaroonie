@@ -22,7 +22,7 @@
 
 import { z } from 'zod'
 import { sql, withTenant } from '../../config/db.js'
-import { ToolError, callApi, audit, requireStaffPermission } from '../context.js'
+import { ToolError, callApi, audit, requireStaffPermission, isStaff } from '../context.js'
 import { loadBookingById, rescheduleBooking, partySizeLimit, coversLimit } from '../../services/guestBookingSvc.js'
 import { allocateBestFit } from '../../services/occupancySvc.js'
 import {
@@ -202,7 +202,8 @@ export const staffTools = [
     input: z.object({}),
     readOnly: true,
     async run(ctx) {
-      await requireStaffPermission(ctx, 'bookings', 'view')
+      // Every area needs the venues, not only bookings: any staff member.
+      if (!isStaff(ctx)) throw new ToolError('Not available here', 403)
       const rows = await sql`
         SELECT id, name, timezone FROM venues
          WHERE tenant_id = ${ctx.tenantId} AND is_active = true ORDER BY name
@@ -615,40 +616,6 @@ export const staffTools = [
       await callApi(ctx, 'PATCH', `/api/bookings/${b.id}/notes`, { body: { operator_notes: next } })
       await audit(ctx, { tool: 'add_booking_note', input: { booking: reference(b.id), note }, ok: true, bookingId: b.id })
       return { reference: reference(b.id), staff_notes: next, message: 'Note added.' }
-    },
-  },
-
-  {
-    name: 'find_customer',
-    title: 'Find a customer',
-    description: 'Looks up guests in the customer list by name, email or phone, with their visit count and next booking.',
-    input: z.object({ query: z.string().min(2).max(100) }),
-    readOnly: true,
-    async run(ctx, { query }) {
-      await requireStaffPermission(ctx, 'customers', 'view')
-      const q = query.trim().toLowerCase()
-      const like = '%' + q + '%'
-      const rows = await sql`
-        SELECT c.id, c.name, c.email, c.phone, c.visit_count, c.notes,
-               (SELECT min(b.starts_at) FROM bookings b
-                 WHERE b.customer_id = c.id AND b.tenant_id = c.tenant_id
-                   AND b.starts_at >= now() AND ${ACTIVE}) AS next_booking_at
-          FROM customers c
-         WHERE c.tenant_id = ${ctx.tenantId}
-           AND c.is_anonymised = false
-           AND (lower(c.name) LIKE ${like} OR lower(COALESCE(c.email, '')) LIKE ${like}
-                OR replace(COALESCE(c.phone, ''), ' ', '') LIKE ${'%' + q.replace(/\s+/g, '') + '%'})
-         ORDER BY c.name
-         LIMIT 10
-      `
-      const [venue] = await sql`SELECT timezone FROM venues WHERE tenant_id = ${ctx.tenantId} ORDER BY created_at LIMIT 1`
-      return {
-        customers: rows.map(c => ({
-          name: c.name, email: realEmail(c.email), phone: c.phone || null,
-          visits: c.visit_count ?? 0, notes: c.notes || null,
-          next_booking: c.next_booking_at ? whenText(c.next_booking_at, venue?.timezone) : null,
-        })),
-      }
     },
   },
 ]

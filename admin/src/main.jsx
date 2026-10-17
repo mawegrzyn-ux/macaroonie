@@ -60,6 +60,7 @@ import MenuDietaryTags from '@/pages/MenuDietaryTags'
 import MenuAllergenMatrix from '@/pages/MenuAllergenMatrix'
 import MenuTax from '@/pages/MenuTax'
 import MenuDeliveroo from '@/pages/MenuDeliveroo'
+import MenuTranslations from '@/pages/MenuTranslations'
 import MenuDesigner from '@/pages/MenuDesigner'
 import Screens from '@/pages/Screens'
 import ScreenDesigner from '@/pages/ScreenDesigner'
@@ -92,6 +93,7 @@ import OrderingSettings from '@/pages/OrderingSettings'
 import PosSetup from '@/pages/PosSetup'
 import PosFloor from '@/pages/PosFloor'
 import PosReports from '@/pages/PosReports'
+import KioskDesigner from '@/pages/KioskDesigner'
 import Promotions from '@/pages/Promotions'
 import MobileOrders    from '@/pages/mobile/MobileOrders'
 import MobileAllergens from '@/pages/mobile/MobileAllergens'
@@ -182,6 +184,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 <Route path="pos" element={<PosSetup />} />
                 <Route path="pos/floor" element={<PosFloor />} />
                 <Route path="pos/reports" element={<PosReports />} />
+                <Route path="pos/kiosk-designs/:id" element={<KioskDesigner />} />
                 <Route path="promotions" element={<Promotions />} />
                 <Route path="venues"    element={<Venues />} />
                 <Route path="tables"   element={<Tables />} />
@@ -210,6 +213,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 <Route path="menus/allergens"       element={<MenuAllergenMatrix />} />
                 <Route path="menus/tax"             element={<MenuTax />} />
                 <Route path="menus/deliveroo"       element={<MenuDeliveroo />} />
+                <Route path="menus/translations"    element={<MenuTranslations />} />
                 <Route path="menus/:id/design"      element={<MenuDesigner />} />
                 <Route path="screens"               element={<Screens />} />
                 <Route path="screens/boards/:id"    element={<ScreenDesigner />} />

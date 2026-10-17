@@ -16,6 +16,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { platformHostKind } from '../services/platformHost.js'
+import { env } from '../config/env.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const DIST = path.resolve(__dirname, '..', '..', '..', 'pos', 'dist')
@@ -61,6 +62,15 @@ async function posSite(app) {
     }
     const rel = '/' + path.relative(DIST, file).split(path.sep).join('/')
     const ext = path.extname(file)
+    // A kiosk design's live preview is shown inside the admin (Till setup >
+    // Kiosks), so that page may be framed by the platform's own hosts. The
+    // app's service worker leaves these pages to the network (pos/vite.config.js).
+    if (ext === '.html' && /[?&]kiosk_preview=/.test(req.url)) {
+      reply.raw.removeHeader('x-frame-options')
+      reply.removeHeader('x-frame-options')
+      const root = env.PUBLIC_ROOT_DOMAIN.toLowerCase()
+      reply.header('Content-Security-Policy', `frame-ancestors 'self' ${env.PUBLIC_SITE_SCHEME}://${root} ${env.PUBLIC_SITE_SCHEME}://*.${root}`)
+    }
     reply.header('Cache-Control', NO_CACHE.has(rel) || ext === '.html' || /^\/workbox-/.test(rel)
       ? 'no-cache, no-store, must-revalidate'
       : rel.startsWith('/assets/') ? 'public, max-age=31536000, immutable' : 'public, max-age=3600')

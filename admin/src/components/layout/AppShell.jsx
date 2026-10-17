@@ -50,6 +50,7 @@ import AssistantDrawer from '@/components/ai/AssistantDrawer'
 import { useAiStatus } from '@/components/ai/ChatView'
 import { useTimelineSettings } from '@/contexts/TimelineSettingsContext'
 import { useSettings, applySiteTheme } from '@/contexts/SettingsContext'
+import { ASSISTANT_NAME } from '@shared/assistant.js'
 
 // The tenant-customisable nav tree comes from /api/me's nav_tree (see
 // the nav designer, api/src/routes/nav.js) — already filtered server-side
@@ -528,14 +529,14 @@ export default function AppShell() {
             <button
               type="button"
               onClick={openAi}
-              title="Ask the AI assistant"
+              title={'Ask ' + ASSISTANT_NAME}
               className={cn(
                 'w-full flex items-center gap-2 rounded-md text-sm font-medium text-primary hover:bg-primary/10 touch-manipulation min-h-[44px]',
                 open ? 'px-3' : 'justify-center',
               )}
             >
               <Sparkles className="w-4 h-4 shrink-0" />
-              {open && <span>Ask AI</span>}
+              {open && <span>Ask {ASSISTANT_NAME}</span>}
             </button>
           </div>
         )}
@@ -595,7 +596,7 @@ export default function AppShell() {
               type="button"
               className="mt-2 w-11 h-11 flex items-center justify-center rounded-md text-primary hover:bg-primary/10 touch-manipulation"
               onClick={openAi}
-              aria-label="Ask the AI assistant"
+              aria-label={'Ask ' + ASSISTANT_NAME}
             >
               <Sparkles className="w-5 h-5" />
             </button>

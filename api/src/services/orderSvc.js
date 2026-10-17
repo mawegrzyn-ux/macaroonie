@@ -17,7 +17,8 @@ import { upsertCustomer } from '../routes/customers.js'
 import { loadMenuVersions } from './menuReleases.js'
 import { loadOpeningHours } from './siteDataSvc.js'
 import { getGateway, checkoutGateways, COUNTER_METHODS } from './paymentGateways/index.js'
-import { itemChoices, variantRules, fromPrice, isPriced, priceBasket } from '../../../shared/orderPricing.js'
+import { itemChoices, variantRules, fromPrice, priceVaries, isPriced, priceBasket } from '../../../shared/orderPricing.js'
+import { normaliseCombo, stepChoices } from '../../../shared/combos.js'
 import { menuOnAt, menuOnDate, scheduleLabel, isScheduled } from '../../../shared/menuSchedule.js'
 import { venuePromotions, findByCode, lockUses } from './promoSvc.js'
 import { menuTags } from '../../../shared/menuTags.js'
@@ -187,9 +188,33 @@ export async function loadOrderingMenu(tx, venue, settings, { fulfilment = 'coll
   const menus = []
   const itemsById = {}
   const itemMenus = {}
+  // Combos (migration 171) can offer a menu's dishes that aren't sold
+  // alone online (switched off for ordering, or in a section hidden on the
+  // website), so every dish of these menus is a possible combo part.
+  const partsById = {}
+  const sectionItems = {}
+  const comboPartIds = new Set()
   let dietaryTags = []
   const schedules = settings.menu_schedules || {}
   const nowParts = now ? localParts(now, venue.timezone) : null
+  const shapeItem = (it, s, full, rules, shownCodes) => {
+    const choices = itemChoices(it, rules)
+    return {
+      id: it.id, section_id: s.id, name: it.name, native_name: it.native_name || null, kind: it.kind === 'combo' ? 'combo' : 'dish',
+      description: it.description || null, notes: it.notes || null,
+      image_url: it.image_url || null, calories: it.calories ?? null,
+      dietary: (it.dietary || []).filter(c => shownCodes.has(c)),
+      allergen_levels: Object.fromEntries(Object.entries(it.allergen_levels || {}).filter(([c]) => shownCodes.has(c))),
+      price_pence: it.price_pence ?? null,
+      featured: !!it.is_featured,   // House favourite (Menus page)
+      choices,
+      combo: it.kind === 'combo' ? normaliseCombo(it.combo) : null,
+      sold_out: soldOut.has(it.id),
+      min_qty: it.min_order_qty > 1 ? it.min_order_qty : null,   // migration 133
+      vat_rate: taxFor([it.tax, s.tax, full.tax], ctx, rates).vat_rate,
+      variants: it.variants || [], variant_groups: it.variant_groups || [],
+    }
+  }
   for (const id of ids) {
     const full = liveById.get(id)
     if (!full) continue
@@ -199,6 +224,14 @@ export async function loadOrderingMenu(tx, venue, settings, { fulfilment = 'coll
     dietaryTags = menuTags(full.dietary_tags || dietaryTags)
     const shownCodes = new Set(dietaryTags.map(t => t.code))
     const rules = variantRules(full)
+    for (const s of full.sections || []) {
+      if ((s.visibility || 'show') === 'hidden') continue
+      for (const it of s.items || []) {
+        if (it.kind === 'combo') continue
+        if (!partsById[it.id]) partsById[it.id] = shapeItem(it, s, full, rules, shownCodes)
+        sectionItems[s.id] = [...new Set([...(sectionItems[s.id] || []), it.id])]
+      }
+    }
     const sections = []
     for (const s of full.sections || []) {
       // Online ordering is part of the website: sections hidden on the
@@ -207,21 +240,14 @@ export async function loadOrderingMenu(tx, venue, settings, { fulfilment = 'coll
       const items = []
       for (const it of s.items || []) {
         if (it.is_orderable === false) continue
-        const choices = itemChoices(it, rules)
-        if (!isPriced(it, choices)) continue
-        const item = {
-          id: it.id, section_id: s.id, name: it.name, native_name: it.native_name || null,
-          description: it.description || null, notes: it.notes || null,
-          image_url: it.image_url || null, calories: it.calories ?? null,
-          dietary: (it.dietary || []).filter(c => shownCodes.has(c)),
-          allergen_levels: Object.fromEntries(Object.entries(it.allergen_levels || {}).filter(([c]) => shownCodes.has(c))),
-          price_pence: it.price_pence ?? null,
-          featured: !!it.is_featured,   // House favourite (Menus page)
-          choices, from_pence: fromPrice(it, choices),
-          sold_out: soldOut.has(it.id),
-          min_qty: it.min_order_qty > 1 ? it.min_order_qty : null,   // migration 133
-          vat_rate: taxFor([it.tax, s.tax, full.tax], ctx, rates).vat_rate,
-          variants: it.variants || [], variant_groups: it.variant_groups || [],
+        const item = itemsById[it.id] || shapeItem(it, s, full, rules, shownCodes)
+        if (!isPriced(item, item.choices)) continue
+        item.from_pence = fromPrice(item, item.choices, { itemsById: partsById, sectionItems })
+        item.from_varies = priceVaries(item, item.choices, { itemsById: partsById, sectionItems })
+        if (item.combo) {
+          for (const st of item.combo.steps) {
+            for (const c of stepChoices(st, { itemsById: partsById, sectionItems, selfId: item.id })) if (c.item_id) comboPartIds.add(c.item_id)
+          }
         }
         if (!itemsById[it.id]) itemsById[it.id] = item
         ;(itemMenus[it.id] ??= []).push(id)
@@ -241,7 +267,18 @@ export async function loadOrderingMenu(tx, venue, settings, { fulfilment = 'coll
     menus,
     itemsById,
     itemMenus,
+    partsById,
+    sectionItems,
+    comboPartIds,
     dietary_tags: (dietaryTags || []).map(t => ({ code: t.code, label: t.label, glyph: t.glyph, colour: t.colour, kind: t.kind, in_key: t.in_key })),
+  }
+}
+
+/** What priceBasket() needs for combos: their dishes, and the automatic ones to spot. */
+export function basketCombos(menu) {
+  return {
+    ctx: { itemsById: menu.partsById, sectionItems: menu.sectionItems },
+    auto: Object.values(menu.itemsById).filter(i => i.kind === 'combo' && i.combo?.mode === 'auto'),
   }
 }
 
@@ -364,14 +401,14 @@ const int = v => (v == null ? v : Number(v))
 
 function shapeItems(items) {
   return items.map(i => ({
-    id: i.id, menu_item_id: i.menu_item_id, name: i.name, options: i.options || [],
+    id: i.id, menu_item_id: i.menu_item_id, name: i.name, options: i.options || [], parts: i.parts || null,
     qty: i.qty, unit_price_pence: i.unit_price_pence, line_total_pence: i.line_total_pence,
     discount_pence: i.discount_pence || 0,
     vat_rate: Number(i.vat_rate), vat_pence: i.vat_pence, note: i.note,
   }))
 }
 
-const shapePromos = rows => (rows || []).map(p => ({ name: p.name, code: p.code, discount_pence: p.discount_pence }))
+const shapePromos = rows => (rows || []).map(p => ({ name: p.name, code: p.code, discount_pence: p.discount_pence, combo: !!p.combo_item_id }))
 
 export function publicOrder(order, items, venue, promotions = []) {
   return {
@@ -421,7 +458,7 @@ async function loadItems(tx, orderId) {
 }
 
 export async function loadOrderPromotions(tx, orderId) {
-  return tx`SELECT name, code, discount_pence FROM order_promotions WHERE order_id = ${orderId} ORDER BY created_at, name`
+  return tx`SELECT name, code, discount_pence, combo_item_id FROM order_promotions WHERE order_id = ${orderId} ORDER BY created_at, name`
 }
 
 async function addEvent(tx, order, type, { from = null, to = null, detail = {}, actor = 'system' } = {}) {
@@ -550,7 +587,8 @@ export async function createOrder({ venue, body, gatewayCtx = {} }) {
     }
 
     // Prices, and every dish must be on its menu at the collection time.
-    const { itemsById, itemMenus } = await loadOrderingMenu(tx, venue, settings, { fulfilment: 'collection' })
+    const orderingMenu = await loadOrderingMenu(tx, venue, settings, { fulfilment: 'collection' })
+    const { itemsById, itemMenus } = orderingMenu
     const off = itemOffAt(body.lines.map(l => l.item_id), itemMenus, settings, localParts(promisedAt, tz))
     if (off && itemsById[off]) {
       throw CreateError(422, `${itemsById[off].name} isn't on the menu at that collection time: please choose another time or remove it`, { code: 'slot_unavailable' })
@@ -570,7 +608,7 @@ export async function createOrder({ venue, body, gatewayCtx = {} }) {
       unlocked.push(p.id)
     }
     const promoCtx = { at: nowParts, venueId: venue.id, unlocked, chosen: body.promo_ids || [] }
-    const priced = priceBasket(itemsById, body.lines, { tipPercent, promos, promoCtx })
+    const priced = priceBasket(itemsById, body.lines, { tipPercent, promos, promoCtx, combos: basketCombos(orderingMenu) })
     if (priced.errors.length) throw CreateError(422, priced.errors[0].error, { code: 'basket_invalid', errors: priced.errors })
     if (!priced.lines.length) throw CreateError(422, 'Your basket is empty')
     // The minimum order is on the dishes' full price, before promotions.
@@ -629,9 +667,9 @@ export async function createOrder({ venue, body, gatewayCtx = {} }) {
     `
     for (const [i, l] of priced.lines.entries()) {
       await tx`
-        INSERT INTO order_items (order_id, tenant_id, menu_item_id, name, options, qty,
+        INSERT INTO order_items (order_id, tenant_id, menu_item_id, name, options, parts, qty,
                                  unit_price_pence, line_total_pence, discount_pence, vat_rate, vat_pence, note, sort_order)
-        VALUES (${order.id}, ${venue.tenant_id}, ${l.item_id}, ${l.name}, ${tx.json(l.options)}, ${l.qty},
+        VALUES (${order.id}, ${venue.tenant_id}, ${l.item_id}, ${l.name}, ${tx.json(l.options)}, ${l.parts ? tx.json(l.parts) : null}, ${l.qty},
                 ${l.unit_pence}, ${l.line_total_pence}, ${l.discount_pence || 0}, ${l.vat_rate}, ${l.vat_pence}, ${l.note}, ${i})
       `
     }
@@ -639,6 +677,13 @@ export async function createOrder({ venue, body, gatewayCtx = {} }) {
       await tx`
         INSERT INTO order_promotions (order_id, tenant_id, promotion_id, name, code, discount_pence)
         VALUES (${order.id}, ${venue.tenant_id}, ${p.id}, ${p.name}, ${p.code}, ${p.discount_pence})
+      `
+    }
+    // Automatic combos found in the basket (migration 171).
+    for (const c of priced.combos || []) {
+      await tx`
+        INSERT INTO order_promotions (order_id, tenant_id, promotion_id, combo_item_id, name, code, discount_pence)
+        VALUES (${order.id}, ${venue.tenant_id}, NULL, ${c.combo_id}, ${c.name}, NULL, ${c.discount_pence})
       `
     }
     await addEvent(tx, order, 'status', { to: 'pending_payment', actor: 'guest', detail: { channel: 'web' } })
@@ -780,7 +825,7 @@ async function refundDuplicate(tenantId, { payment, order }) {
 export async function changeStatus(tenantId, orderId, to, { actor, reason = null, prepMinutes = null } = {}) {
   let from
   const res = await withTenant(tenantId, async tx => {
-    const [o] = await tx`SELECT ${ORDER_COLS} FROM orders WHERE id = ${orderId} FOR UPDATE`
+    const [o] = await tx`SELECT ${ORDER_COLS} FROM orders WHERE id = ${orderId} AND tenant_id = ${tenantId} FOR UPDATE`
     if (!o) throw httpError(404, 'Order not found')
     from = o.status
     if (!(TRANSITIONS[o.status] || []).includes(to)) {
@@ -822,7 +867,7 @@ export async function changePromisedTime(tenantId, orderId, { promisedAt, actor 
   const o = await withTenant(tenantId, async tx => {
     const [u] = await tx`
       UPDATE orders SET promised_at = ${promisedAt}
-       WHERE id = ${orderId} AND status IN ('placed', 'accepted', 'preparing', 'ready')
+       WHERE id = ${orderId} AND tenant_id = ${tenantId} AND status IN ('placed', 'accepted', 'preparing', 'ready')
        RETURNING ${ORDER_COLS}
     `
     if (!u) throw httpError(409, 'This order can no longer be retimed')
@@ -837,7 +882,7 @@ export async function changePromisedTime(tenantId, orderId, { promisedAt, actor 
 export async function markPaid(tenantId, orderId, { method, actor }) {
   if (!COUNTER_METHODS[method]) throw httpError(400, 'Unknown payment method')
   const o = await withTenant(tenantId, async tx => {
-    const [cur] = await tx`SELECT ${ORDER_COLS} FROM orders WHERE id = ${orderId} FOR UPDATE`
+    const [cur] = await tx`SELECT ${ORDER_COLS} FROM orders WHERE id = ${orderId} AND tenant_id = ${tenantId} FOR UPDATE`
     if (!cur) throw httpError(404, 'Order not found')
     const due = cur.total_pence - cur.paid_pence
     if (due <= 0) throw httpError(409, 'This order is already paid')
@@ -864,7 +909,7 @@ export async function markPaid(tenantId, orderId, { method, actor }) {
 // refunded by staff at the counter.
 export async function refundOrder(tenantId, orderId, { amountPence = null, reason = null, actor, notifyGuest = true }) {
   const plan = await withTenant(tenantId, async tx => {
-    const [o] = await tx`SELECT ${ORDER_COLS} FROM orders WHERE id = ${orderId}`
+    const [o] = await tx`SELECT ${ORDER_COLS} FROM orders WHERE id = ${orderId} AND tenant_id = ${tenantId}`
     if (!o) throw httpError(404, 'Order not found')
     const refundable = o.paid_pence - o.refunded_pence
     if (refundable <= 0) throw httpError(409, 'Nothing left to refund')
@@ -912,7 +957,7 @@ export async function refundOrder(tenantId, orderId, { amountPence = null, reaso
       UPDATE orders
          SET refunded_pence = refunded_pence + ${total},
              payment_status = CASE WHEN refunded_pence + ${total} >= paid_pence THEN 'refunded' ELSE 'partially_refunded' END
-       WHERE id = ${orderId}
+       WHERE id = ${orderId} AND tenant_id = ${tenantId}
        RETURNING ${ORDER_COLS}
     `
     await addEvent(tx, u, 'refund', { detail: { amount_pence: total, reason, payments: done.map(d => ({ id: d.payment.id, gateway: d.payment.gateway, amount_pence: d.amount, ref: d.ref })) }, actor })
@@ -954,9 +999,10 @@ export async function expireStaleOrders(log) {
 
 // ── Loading for the admin and the guest ───────────────────────
 
-export async function loadAdminOrder(tx, id) {
+export async function loadAdminOrder(tx, id, tenantId) {
   const o = await loadOrderRow(tx, id)
-  if (!o) return null
+  // RLS isn't relied on (see CLAUDE.md): the order must be the caller's tenant's.
+  if (!o || o.tenant_id !== tenantId) return null
   const [items, events, payments, promos] = await Promise.all([
     loadItems(tx, id),
     tx`SELECT * FROM order_events WHERE order_id = ${id} ORDER BY created_at`,

@@ -30,9 +30,11 @@ const SECTIONS = [
   { id: 'purchasing', label: 'Purchasing' },
   { id: 'pos', label: 'Till (POS)' },
   { id: 'kds', label: 'Kitchen screens (KDS)' },
+  { id: 'kiosks', label: 'Self-order kiosks' },
   { id: 'web-ordering', label: 'Web Ordering' },
-  { id: 'ai-assistant', label: 'AI Assistant & MCP' },
+  { id: 'ai-assistant', label: 'Pepper (AI assistant) & MCP' },
   { id: 'menus',        label: 'Menus' },
+  { id: 'combos',       label: 'Combos' },
   { id: 'tax',          label: 'Tax, Order Types & Streams' },
   { id: 'screens',      label: 'Menu Screens' },
   { id: 'website-cms',  label: 'Website CMS' },
@@ -406,6 +408,21 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               RLS failures are <strong>silent</strong>. The query returns 0 rows, not an error.
               Always use <Mono>withTenant()</Mono> for any query touching tenant data.
             </InfoBox>
+            <H3>RLS is not enough: filter tenant_id yourself</H3>
+            <P>
+              The app's database role owns the tables, and a table owner isn't held to RLS unless the
+              table has <Mono>FORCE ROW LEVEL SECURITY</Mono>. So on the live database{' '}
+              <Mono>withTenant()</Mono> sets the context but doesn't stop a query from reading or
+              changing another tenant's rows. Every query must say{' '}
+              <Mono>tenant_id = $&#123;req.tenantId&#125;</Mono> itself, and a row loaded by an id from
+              the request must be checked to be the caller's. Routes whose URL carries a venue id
+              (<Mono>/api/venues/:id/...</Mono>: schedules, venue settings, test data) register{' '}
+              <Mono>requireOwnVenue(param)</Mono> from <Mono>middleware/venue.js</Mono> after{' '}
+              <Mono>requireAuth</Mono>: it answers 404 unless the venue is the caller's tenant's. The
+              online-order service (<Mono>orderSvc.js</Mono>: <Mono>loadAdminOrder()</Mono>, status,
+              payment, refund and collection-time changes) filters by tenant on every read and write.
+              Test any route you touch with a second tenant's rows in the database.
+            </P>
             <H3>withTx() vs withTenant()</H3>
             <P>
               <Mono>withTx(fn)</Mono> opens a plain transaction without setting tenant context. Use it only
@@ -672,6 +689,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['email_templates', 'email_templates'],
                 ['website',         'website'],
                 ['cash_recon',      'cash_recon'],
+                ['pepper',          'ai_assistant (was in bookings until migration 173; Pepper covers every area, so it has its own switch)'],
                 ['(core, no group)', 'dashboard, team, settings, documentation — always-on'],
               ]}
             />
@@ -2950,7 +2968,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['pos_printers / pos_print_routes', 'Printers (host, port, columns, backup); routes target_kind item | section | revenue_stream | default.'],
                 ['floor_areas', 'name, width x height in units, revenue_stream_id, decor jsonb. tables gains floor_area_id, pos_x/y/w/h, shape, rotation.'],
                 ['cash_staff', 'pos_pin_hash (unique per venue), pos_role_id.'],
-                ['menus', 'menu_items kind (dish | combo), kitchen_name, pos_course_id, pos_colour, combo jsonb { slots: [{ id, name, min, max, item_ids, section_ids, upcharges }] }; menu_sections pos_course_id, pos_colour; menu_variant_groups pos_prefixes; menu_variant_options child_group_id; promotions channels text[] (online | pos).'],
+                ['menus', 'menu_items kind (dish | combo), kitchen_name, pos_course_id, pos_colour, combo jsonb (steps since migration 171, see Combos); menu_sections pos_course_id, pos_colour; menu_variant_groups pos_prefixes; menu_variant_options child_group_id; promotions channels text[] (online | pos).'],
               ]}
             />
             <H3>Sync</H3>
@@ -2988,7 +3006,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <H3>Prices, VAT and offers</H3>
             <P>
               <Mono>shared/pos/pricing.js</Mono>: <Mono>priceItem()</Mono> (unit price + modifiers: prefixes No /
-              Light free, Extra / On the side priced, nested groups always extra; meal deal slot upcharges),{' '}
+              Light free, Extra / On the side priced, nested groups always extra; combos through shared/combos.js),{' '}
               <Mono>posTax(item, check, config)</Mono> (the dish's tax levels resolved by{' '}
               <Mono>taxFor()</Mono> in <Mono>shared/tax.js</Mono> for the venue, the check's order type and
               revenue stream: <Mono>{'{ vat_rate, tax_rate_id }'}</Mono>, stored on each line) and <Mono>checkTotals()</Mono> (line discounts and comps, then promotions, then check
@@ -3026,7 +3044,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['Till setup /pos', 'pages/PosSetup.jsx (?tab=) + components/pos/*Section.jsx; GET /api/pos/venues/:id/setup is the one read (includes till_url = posOrigin(), sections and items for routing, recon_fields).'],
                 ['Floor plan /pos/floor', 'pages/PosFloor.jsx: snap 0.5 unit, pointer drag / resize, explicit Save per area (PUT /api/pos/floor-areas/:id/layout replaces tables on the area + decor).'],
                 ['Till reports /pos/reports', 'pages/PosReports.jsx: days (+ fill-recon, needs cash_recon manage too), checks with events, conflicts, print queue.'],
-                ['Menus, Variant groups, Promotions', 'components/menus/TillFields.jsx (section / dish Till box, comboPayload()); VariantGroupsManager pos_prefixes + child_group_id; Promotions Where (channels).'],
+                ['Menus, Variant groups, Promotions', 'components/menus/TillFields.jsx (section / dish Till box), components/menus/ComboEditor.jsx (Dish / Combo, steps, comboPayload()); VariantGroupsManager pos_prefixes + child_group_id + allow_repeat / on_request; Promotions Where (channels).'],
               ]}
             />
             <H3>Hosting</H3>
@@ -3080,7 +3098,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               type 3, default 4;{' '}
               <Mono>nextStations()</Mono>). When a dish is sent, <Mono>itemRoute()</Mono> works out its whole way
               and stores it on the item as <Mono>{'route: { [node]: [the nodes before it, \'start\' = Orders in] }'}</Mono>{' '}
-              (meal deal parts each get their own way, merged for the item), so a flow change only affects
+              (combo parts each get their own way, merged for the item), so a flow change only affects
               dishes sent after it. Stations left out of the config (switched off or deleted) are passed
               straight through; links to them are ignored, so the next most specific link applies.
             </P>
@@ -3210,6 +3228,140 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>sl-och-in</Mono> and numbers going out in their old place with <Mono>sl-och-out</Mono>, a
               negative animation-delay keeping a redraw mid-animation in step, then draws plain once it is over.
               The designer's Play shows an example change.
+            </P>
+          </section>
+
+          {/* ── SELF-ORDER KIOSKS ────────────────────────────── */}
+          <section id="kiosks" data-doc="">
+            <H2>Self-order kiosks</H2>
+            <P>
+              Migration 172. Design in <Mono>docs/POS.md</Mono> section 10. A kiosk is a till device of kind{' '}
+              <Mono>kiosk</Mono> (<Mono>pos_devices</Mono>, short code KS1, KS2 ...), paired with a one-time code
+              like a till. The same app at <Mono>pos.&lt;domain&gt;</Mono> boots{' '}
+              <Mono>pos/src/kiosk/KioskApp.jsx</Mono> (lazy) when the device's kind is <Mono>kiosk</Mono>, or with{' '}
+              <Mono>?kiosk_preview=&lt;signed link&gt;</Mono> for the design editor's preview. A kiosk order is a
+              counter check made from the till's own events, so it reaches the Counter list, the kitchen, Till
+              reports and Cash Recon with no special case; the kiosk is its server (<Mono>server_id</Mono> = the
+              device id).
+            </P>
+            <H3>Orders: the till's events, the kiosk rules</H3>
+            <P>
+              <Mono>shared/kiosk.js</Mono> is the one place for what the kiosk app, the API and the admin share.{' '}
+              <Mono>kioskOrder(config, basket, opts)</Mono> turns a basket into events, checked with{' '}
+              <Mono>replay()</Mono> (the sequencer's rules): <Mono>check.opened</Mono> (counter, the kiosk's
+              stream, the order type, <Mono>tab_name</Mono>, <Mono>tent</Mono>, <Mono>provisional_no</Mono>), one{' '}
+              <Mono>line.added</Mono> per entry (<Mono>kioskLine()</Mono>: <Mono>priceItem()</Mono> and{' '}
+              <Mono>posTax()</Mono>), <Mono>promotions.set</Mono> when <Mono>checkOffers()</Mono>{' '}
+              (<Mono>shared/pos/offers.js</Mono>: automatic combos and automatic till promotions) finds any, then
+              for a card payment <Mono>payment.added</Mono> (<Mono>card_external</Mono>, the whole total),{' '}
+              <Mono>lines.sent</Mono> and <Mono>check.closed</Mono>; for pay at the counter{' '}
+              <Mono>lines.sent</Mono> only when <Mono>checkout.send_counter</Mono> is on (else staff send it when
+              they take payment).
+            </P>
+            <P>
+              The sequencer knows each kiosk as <Mono>kioskStaff(device)</Mono>{' '}
+              (<Mono>{'{ kiosk: true, permissions: {} }'}</Mono>, in <Mono>staffById</Mono> next to the staff,{' '}
+              <Mono>services/posSvc.js</Mono>). <Mono>kioskProblem()</Mono> in <Mono>shared/pos/checks.js</Mono>{' '}
+              refuses (code <Mono>kiosk</Mono>) anything but <Mono>KIOSK_EVENTS</Mono>, approvals, events sent by
+              another device in the kiosk's name, table orders, other servers' checks, lines not from the menu
+              (price override, open item) and payments other than <Mono>card_external</Mono> without tip or
+              tendered cash.
+            </P>
+            <H3>API</H3>
+            <DataTable
+              head={['Route', 'What it does']}
+              rows={[
+                ['GET /pos-api/config (kiosk)', 'kioskConfig() in services/kioskSvc.js: venue, settings, the kiosk\'s stream and its order types (ask_name / ask_tent), all order types, tax rates, menus / items / section_items (tillMenuData guest view), option groups with their kiosk fields, guest-visible dietary tags, the allergen notice, automatic till promotions, sold out, the design (normalised), translations for the design\'s languages, the device. No staff, no PINs. version = a hash of it.'],
+                ['Kiosk device routes', 'A kiosk may only call GET /pos-api/me, GET /pos-api/config and POST /pos-api/events (KIOSK_ROUTES); anything else is 403 code kiosk.'],
+                ['GET /pos-api/kiosk-preview?token=', 'The preview\'s config: kioskConfig() with previewDevice() (the editor\'s stream and design, the test card reader). The token is the key: readPreviewToken(), HMAC with platform_secrets kiosk_preview_key, 12 hours.'],
+                ['GET /api/pos/kiosk-designs', 'pos_setup view. Normalised settings.'],
+                ['POST /api/pos/kiosk-designs', 'pos_setup manage. { name, settings, copy_from? } (copy_from: another design of the tenant). Up to 50 per tenant.'],
+                ['PUT /api/pos/kiosk-designs/:id', 'pos_setup manage. { name, settings }, stored as normaliseDesign(settings). Broadcasts pos.config to every venue with a kiosk (kiosksChanged()).'],
+                ['DELETE /api/pos/kiosk-designs/:id', 'pos_setup manage. Refused (422, names the kiosks) while a kiosk picks it.'],
+                ['POST /api/pos/kiosk-designs/:id/preview', 'pos_setup view. { venue_id, revenue_stream_id? } (both the tenant\'s, the stream at that venue) -> { token, url } (posOrigin() + ?kiosk_preview=).'],
+                ['GET /api/menus/translations?lang=', 'menus view. lang optional (the first kiosk language besides the menu\'s own). -> { lang, source, designs, languages [{ code, name, on_a_kiosk }], sources [{ key, group, context, text }], texts, builtin (the kiosk\'s own words and standard allergen names in that language), ai }.'],
+                ['PUT /api/menus/translations', 'menus manage. { lang, texts: { key: text | \'\' } }: upserts, \'\' deletes; keys must match KEY_PATTERN. -> { saved, removed }.'],
+                ['POST /api/menus/translations/ai', 'menus manage. { lang, source, keys?, skip? } -> { texts, left }: Claude\'s suggestions for words without a translation, AI_BATCH (120) a call, structured output (json_schema), counted in the tenant\'s monthly AI allowance. Nothing is saved.'],
+              ]}
+            />
+            <P>
+              <Mono>routes/posSite.js</Mono> lets a <Mono>?kiosk_preview=</Mono> page be framed by the platform's
+              own hosts (<Mono>frame-ancestors</Mono>, no <Mono>X-Frame-Options</Mono>); the app's service worker
+              leaves those pages to the network. Media changes need Website, Menus, Menu screens or Till setup
+              manage (<Mono>routes/media.js</Mono>); kiosk pictures use scope <Mono>kiosk</Mono>. Till reports'
+              checks list, check history, refused changes and day names show the kiosk's name (a{' '}
+              <Mono>pos_devices</Mono> join on the server / staff id).
+            </P>
+            <H3>Designs</H3>
+            <P>
+              <Mono>normaliseDesign()</Mono> fills every default and checks every value (unknown keys dropped,
+              colours hex, numbers clamped, ids checked); the API stores only its output and the kiosk and the
+              editor run it again. Empty words mean the kiosk's own words (<Mono>shared/kioskText.js</Mono>{' '}
+              <Mono>UI_TEXT</Mono>, 103 words in 9 languages); typed words are translated under{' '}
+              <Mono>{"TK.design(id, path)"}</Mono>. <Mono>designProblems(design, kiosk?)</Mono> lists what stops a
+              design taking orders (no way to pay; a kiosk without a card reader and no pay at the counter).
+            </P>
+            <DataTable
+              head={['Part', 'Fields']}
+              rows={[
+                ['brand', 'logo_url, colors { background, surface, text, muted, primary, primary_text, accent, accent_text }, font_heading / font_body (System or KIOSK_FONTS: the website fonts plus Oswald, Bebas Neue, Anton, Barlow Condensed, Archivo Black), radius 0-32, heading_case upper | normal'],
+                ['start', 'layout split | full, media [{ id, type image | video, url }] (8), media_secs 3-30, headline, question, type_cards { [orderTypeId]: { label, icon eat_in | take_away | delivery | none, image_url } }, show_allergens'],
+                ['languages', 'source, enabled (KIOSK_LANGUAGES: en es ca fr de it pt nl pl; the source always on)'],
+                ['menu', 'home, banners [{ id, image_url, title, link { kind none | item | section, id } }] (10), banner_secs 3-20, featured [{ id, image_url, title, subtitle, size normal | wide, link }] (12), rail images | text, columns auto | 2-4, show_calories, show_descriptions, show_tags, quick_add, hidden_section_ids'],
+                ['options', 'display grid | list | slider | wheel (where a group or step has none), level_icon flame | star | dot'],
+                ['checkout', 'pay_card, pay_counter, send_counter, counter_note, upsell, upsell_title, upsell_item_ids (8), receipt off | ask | always, thanks'],
+                ['behaviour', 'idle_secs 20-600, warn_secs 5-60, done_secs 5-120, reach'],
+              ]}
+            />
+            <H3>Menus</H3>
+            <P>
+              <Mono>menu_variant_groups</Mono> gains <Mono>kiosk_display</Mono> (NULL = the design's),{' '}
+              <Mono>scale_low</Mono> / <Mono>scale_high</Mono>; <Mono>menu_variant_options</Mono> gains{' '}
+              <Mono>image_url</Mono>, <Mono>description</Mono>, <Mono>level</Mono> (0-5). Like the rest of the
+              group library they change straight away, not per publish. An option's <Mono>sort_order</Mono> in
+              the group body is now optional (left out = its place in the list; a default of 0 had sorted new
+              groups by name). A combo step has <Mono>display</Mono>; a typed-in choice has{' '}
+              <Mono>image_url</Mono> and <Mono>description</Mono> (<Mono>normaliseCombo()</Mono>,{' '}
+              <Mono>stepChoices()</Mono> passes them, and a dish choice its own photo and description).{' '}
+              <Mono>comboItemIds()</Mono> lists every dish a combo can hold: the kiosk shows a combo's allergens as
+              the strongest level of each over all of them ("Depends on what you choose"), and the order page the
+              allergens of what was picked.
+            </P>
+            <P>
+              <Mono>menu_translations</Mono> (tenant, lang, key, text) holds the menu's words in other languages.
+              Keys come from <Mono>TK</Mono> (item / variant / section / group / option / combo step and choice /
+              order type / tag / notice / design / ui) and point at stable ids, so a translation follows its dish
+              through edits and publishes. <Mono>translationSources()</Mono> lists every word a kiosk can show
+              (from the drafts, so a new dish can be translated before it is published).
+            </P>
+            <H3>The kiosk app (pos/src/kiosk)</H3>
+            <DataTable
+              head={['File', 'What it does']}
+              rows={[
+                ['store.js', 'State; bootKiosk() (IndexedDB kiosk_config, kiosk_outbox), bootPreview() (listens for kiosk.design, kiosk.restart, kiosk.show { screen: menu } from the parent window, then posts kiosk.ready); loadConfig() with version; socket (pos.config reloads, pos.revoked forgets); placeOrder(); the outbox for card orders paid but not sent (sent again until accepted; the guest gets the provisional number short_code-NNNN); textsFor() (translations, then UI_TEXT, money with narrowSymbol); allergen levels (itemLevels(): a combo is the union of its dishes).'],
+                ['KioskApp.jsx', 'The design as CSS variables (--k-*), fonts, the idle warning and restart, reach, wake lock (not in the preview), screens.'],
+                ['Start / Menu / Builder / OptionGroup / Checkout / Allergens', 'Start screen; menu with rail, home page and dish cards; the dish and combo builder (the Add / Continue button points at the first choice still missing); one option group in its display; basket, upsell, name and table number (keyboard / number pad), pay, test card reader, order number; allergen lookup.'],
+                ['displays.jsx', 'GridDisplay, ListDisplay, SliderDisplay (sorted by level when a scale shows), WheelDisplay (up to 16 on the wheel, the rest in a grid below); the same props, so any group or step can use any.'],
+                ['parts.jsx / kiosk.css', 'Sheets (close on a click of the backdrop), number pad, level marks, photos; :where(.k-root) button keeps button colour inheritance at the lowest weight.'],
+              ]}
+            />
+            <P>
+              A pay-at-counter order whose reply is lost keeps its events: Try again sends the very same ones,
+              the server skips event ids it already has and returns the order number for the duplicate, so the
+              till never gets the order twice.
+            </P>
+            <H3>Admin</H3>
+            <P>
+              Till setup → Kiosks: <Mono>components/pos/KiosksSection.jsx</Mono> (kiosks with their design,
+              stream, card reader, receipt printer and problems; designs with copy / delete;{' '}
+              <Mono>kioskDesign()</Mono>). Design editor: <Mono>pages/KioskDesigner.jsx</Mono>{' '}
+              (<Mono>/pos/kiosk-designs/:id</Mono>): panels over the raw draft (text) and the normalised design
+              (everything else), the preview frame at 1080 x 1920 or 1920 x 1080 scaled to fit, the design posted
+              to the frame's own origin after <Mono>kiosk.ready</Mono>, Save / Discard / leave confirm, view only.
+              Translations: <Mono>pages/MenuTranslations.jsx</Mono> (<Mono>/menus/translations</Mono>, nav link
+              from migration 172). Option groups: <Mono>components/menus/VariantGroupsManager.jsx</Mono>; combo
+              steps: <Mono>components/menus/ComboEditor.jsx</Mono>; pictures in those rows:{' '}
+              <Mono>components/media/PicturePick.jsx</Mono> (pick from Media or drop a file).
             </P>
           </section>
 
@@ -3521,15 +3673,21 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
           </section>
 
           <section id="ai-assistant" data-doc="">
-            <H2>AI Assistant &amp; MCP</H2>
+            <H2>Pepper (AI assistant) &amp; MCP</H2>
             <P>
-              Booking by chat (migration 148). One tool layer, <Mono>api/src/ai/tools</Mono>, serves
+              Booking by chat started with migration 148; the staff side is now{' '}
+              <strong>Pepper</strong>, with tools for every area of the app (migration 173 renamed
+              the nav link and moved the module into its own group). The name is one constant,{' '}
+              <Mono>ASSISTANT_NAME</Mono> in <Mono>shared/assistant.js</Mono>, used by the staff
+              prompt, the MCP server metadata and messages, and the admin (sidebar button, drawer,
+              Pepper page, phone tile, shortcut). The guest chat and guest connector stay neutral
+              ("the booking assistant on the website of ..."). One tool layer, <Mono>api/src/ai/tools</Mono>, serves
               four front ends, each a <Mono>channel</Mono>:
             </P>
             <DataTable
               head={['Channel', 'Entry point', 'Who / scope', 'Model']}
               rows={[
-                ['staff_chat', 'POST /api/ai/chat (Ask AI drawer, /ai page, /mobile/assistant)', 'A logged-in staff member, their tenant', 'Ours (Claude, platform pays)'],
+                ['staff_chat', 'POST /api/ai/chat (Ask Pepper drawer, /ai page, /mobile/assistant)', 'A logged-in staff member, their tenant', 'Ours (Claude, platform pays)'],
                 ['staff_mcp', 'POST /mcp/staff/:tenantSlug (routes/mcp.js)', 'Bearer access token (mcp_...) or Auth0 JWT, one tenant', 'The client\'s own AI app'],
                 ['guest_chat', 'POST /ai-api/chat (website ai_chat block, routes/aiApi.js)', 'A guest on one tenant\'s site', 'Ours'],
                 ['guest_mcp', 'POST /mcp (routes/mcp.js)', 'Anyone, every tenant with guest_mcp_enabled', 'The guest\'s own AI app'],
@@ -3542,7 +3700,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               request_booking_code, verify_booking_code, get_booking, change_booking, cancel_booking.{' '}
               <Mono>tools/staff.js</Mono>: list_venues, find_bookings, get_booking, day_overview,
               check_availability, create_booking, change_booking, set_booking_status,
-              update_guest_details, add_booking_note, find_customer.{' '}
+              update_guest_details, add_booking_note.{' '}
               <Mono>tools/hs.js</Mono> (staff, health &amp; safety): hs_status, food_safety_day,
               log_temperature, log_hold_check, log_cooking_check, log_delivery, add_corrective_action,
               checklists_due, get_checklist, tick_checklist, list_hs_actions, add_hs_action,
@@ -3550,10 +3708,35 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               change tools, below. <Mono>tools/menus.js</Mono> (staff, menus): 3 reads and 9 change
               tools, below. <Mono>pickByName()</Mono> (id, exact, starts with, contains, every
               word; ambiguous asks, at most 20 choices listed) is in <Mono>tools/util.js</Mono>, shared by
-              the H&amp;S and purchasing tools. A tool is{' '}
-              <Mono>{'{ name, description, input (Zod), run(ctx, input), readOnly, confirm, destructive, describe() }'}</Mono>{' '}
+              the staff tools. The other areas are in <Mono>tools/rota.js</Mono>,{' '}
+              <Mono>cash.js</Mono>, <Mono>orders.js</Mono>, <Mono>venue.js</Mono>,{' '}
+              <Mono>site.js</Mono> and <Mono>general.js</Mono> (below). A tool is{' '}
+              <Mono>{'{ name, section, title, description, input (Zod), run(ctx, input), readOnly, confirm, destructive, describe() }'}</Mono>{' '}
               (<Mono>tools/index.js</Mono>); the Zod schema goes to the model and MCP clients as JSON
               Schema via zod-to-json-schema.
+            </P>
+            <P>
+              <Mono>section</Mono> is the area (<Mono>SECTIONS</Mono> in <Mono>tools/index.js</Mono>:
+              general, bookings, customers, venue, hs, rota, cash, orders, till, menus, purchasing,
+              website, support). The older files don&apos;t set it; <Mono>withSection()</Mono> tags
+              their tools by file. The registry throws at start-up on a staff tool without a known
+              section, two staff tools with one name, or a missing core tool, so a mistake fails the
+              deploy instead of a chat. <Mono>CORE_TOOLS</Mono> (list_venues, find_bookings,
+              day_overview, check_availability, hs_status, whos_working, open_page) are loaded in
+              every staff chat request; the rest are found with tool search (The chat loop, below).
+              Over MCP every tool is listed in full.
+            </P>
+            <P>
+              Helpers in <Mono>tools/util.js</Mono> for the newer tools: <Mono>VenueText</Mono> +{' '}
+              <Mono>venueFor()</Mono> (a venue by name or id, or the only venue; several and none
+              named is a 422 listing them), <Mono>venueToday()</Mono>, <Mono>addDays()</Mono>,{' '}
+              <Mono>mondayOf()</Mono>, <Mono>shortDate()</Mono> ("Fri 12 Oct"),{' '}
+              <Mono>money()</Mono> / <Mono>pence()</Mono>, <Mono>plural()</Mono> and{' '}
+              <Mono>audited(ctx, tool, input, fn)</Mono> (runs a change and writes its{' '}
+              <Mono>ai_actions</Mono> row, failure included). <Mono>requireStaffPermission()</Mono>{' '}
+              (<Mono>context.js</Mono>) words a refusal per module (<Mono>DENIED</Mono>, falling back
+              to the module label from <Mono>config/modules.js</Mono>), e.g. "You don&apos;t have
+              permission to see rota pay".
             </P>
             <P>
               Staff tools never write bookings with their own SQL when an admin route does the job:
@@ -3702,7 +3885,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               exported from <Mono>routes/menus.js</Mono>: it turns <Mono>loadMenuFull()</Mono> output
               back into the PATCH body with every menu, section, dish and footer-note field and their
               ids, so an untouched save changes nothing (tested by a round trip) and print designs,
-              meal deals and till fields keep pointing at the same rows. <Mono>/duplicate</Mono> uses
+              combos and till fields keep pointing at the same rows. <Mono>/duplicate</Mono> uses
               it too (with fresh ids). A tool edits that body and <Mono>saveBody()</Mono> renumbers{' '}
               <Mono>sort_order</Mono> by position and PATCHes. <Mono>describe()</Mono> and{' '}
               <Mono>run()</Mono> share one plan function each (<Mono>planCreate</Mono>,{' '}
@@ -3714,14 +3897,14 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               head={['Tool', 'Route(s)', 'Notes']}
               rows={[
                 ['list_menus', 'GET /menus?status=1 + SQL counts', 'Venue, shown_to_guests, publish (live / draft changes not published / never published, scheduled publish), sections, dishes'],
-                ['get_menu', 'GET /menus/:id[?version=live], /menus/variant-groups', 'The draft unless version live (404 text when never published); dishes with price or option prices (the dish\'s own, from loadMenuFull options[]), allergens with level, dietary, calories, online off, meal deal; descriptions with details or one section; lists tags and option groups; publish status'],
+                ['get_menu', 'GET /menus/:id[?version=live], /menus/variant-groups', 'The draft unless version live (404 text when never published); dishes with price or option prices (the dish\'s own, from loadMenuFull options[]), allergens with level, dietary, calories, online off, a combo\'s steps; descriptions with details or one section; lists tags and option groups; publish status'],
                 ['find_dishes', 'GET /menus, /menus/:id?version=live, /menus/dietary/all', 'search words, has (all tags), free_from (allergens; removable listed as ask_for_it_without, may_contain blocks); live versions shown to guests unless include_unpublished (adds hidden menus, and drafts of menus never published, marked not_published) or version draft; 60 shown'],
                 ['create_menu', 'POST /menus, PATCH /menus/:id (DELETE on failure)', 'Sections and up to 400 dishes in one call; unpublished unless published: true'],
                 ['update_menu', 'PATCH /menus/:id', 'Name, venue / all venues, published, tagline, service times, intro'],
                 ['duplicate_menu', 'POST /menus/:id/duplicate (+ PATCH to rename)', 'Copy is unpublished; designs remapped by the route'],
                 ['add_dishes', 'PATCH /menus/:id', 'Existing or new sections; same-name dish in that section skipped unless update_existing'],
                 ['update_dish', 'PATCH /menus/:id', 'Fields, allergens / add / remove (with level), dietary the same, options / remove_options, move_to_section, position, after_dish. Name the section when the dish is in several (409 otherwise). Warns on allergen changes and on a price change over 50%'],
-                ['remove_dishes', 'PATCH /menus/:id', 'Destructive; warns when a meal deal offers a removed dish'],
+                ['remove_dishes', 'PATCH /menus/:id', 'Destructive; warns when a combo offers a removed dish (it loses that choice)'],
                 ['update_section', 'PATCH /menus/:id', 'Title, subtitle, visibility, VAT takeaway / eat in, position or after_section'],
                 ['remove_section', 'PATCH /menus/:id', 'Destructive; its dishes go too'],
                 ['change_prices', 'PATCH /menus/:id', 'Whole menu, sections or dishes; percent / amount / set; round_to 1/5/10/50/100p up, nearest or down; include_options (default on) writes per-dish option overrides'],
@@ -3738,8 +3921,59 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               them) at run time, named in the card&apos;s warnings. Allergens and dietary tags are
               matched to the tenant&apos;s tags by label, code or common names (soy, shellfish, dairy,
               wheat ...); an unknown tag is left off and listed on the card, never created. Prices
-              in and out are pounds. Not covered: dish photos, meal deal contents, print designs and
+              in and out are pounds. Not covered: dish photos, combo steps, print designs and
               print options, till fields, deleting a menu, the tag list.
+            </P>
+            <H3>Staff: the rest of Pepper (rota, cash, orders, till, customers, venue, website)</H3>
+            <P>
+              Same rules as the other staff tools: <Mono>requireStaffPermission(ctx, module, level)</Mono>{' '}
+              with the page&apos;s own module, every read and change through the admin route with{' '}
+              <Mono>callApi()</Mono> (so the route&apos;s gates, figures and redaction apply), confirm
+              tools for every change with <Mono>describe()</Mono> and <Mono>run()</Mono> sharing one
+              plan function (re-planned at run time, so a change made on the page between the card
+              and Confirm is seen), and an <Mono>ai_actions</Mono> row per change through{' '}
+              <Mono>audited()</Mono>. Venues are named (<Mono>venueFor()</Mono>); dates default to
+              today at the venue. Figures (pay, tips, variance, till totals) are always the
+              route&apos;s own: the tools never add them up.
+            </P>
+            <DataTable
+              head={['Tool', 'Permission', 'Route(s)', 'Notes']}
+              rows={[
+                ['list_staff / whos_working / rota_week', 'staff view / rota view', 'GET /api/rota/venues/:v/staff, /weeks/:monday', 'Working, sick or off, away (off_days), closed days; rota_week also lists removed and away staff'],
+                ['set_rota', 'rota manage', 'GET then PUT /api/rota/venues/:v/weeks/:monday/entries', 'rotaPlan(): one week, many changes; people from staff + removed_staff + away_staff; refused on off days with the reason; day_parts takes a shift (the only active one when there is one), hourly takes periods (a shift name gives its times; an overlapping period replaces the old one); status off without shift/times clears the day; an absence status without them marks the day\'s entries. Sends the whole week (the PUT replaces it) and removed_staff_ids only when someone is put back on'],
+                ['copy_rota_week', 'rota manage', 'POST .../weeks/:to/copy { from_week }', 'Default last week onto this week; card counts entries replaced'],
+                ['rota_pay / rota_tips', 'rota_pay view / rota_tips view', 'GET .../weeks/:monday/pay', 'The redacted pay payload (redactWeek()); a refusal says if the other half is visible'],
+                ['add_pay_adjustment / fill_wages_from_rota', 'rota_pay manage', 'POST .../pay-adjustments, .../fill-wages', 'Card warns when the week\'s wages were already filled (SQL with a tenant filter)'],
+                ['adjust_tips / set_tip_pot_amounts', 'rota_tips manage', 'POST .../tip-moves, PUT .../pot-lines', 'move / add / remove in points or £; a total split equally to 2dp (remainder to the first person) or per person; pot lines named "Line" or "Pot: Line"'],
+                ['add_staff_member / update_staff_member / set_staff_leaving / add_time_off / remove_time_off', 'staff manage', 'POST, PATCH .../staff[/:id], PUT .../leaving, POST / DELETE .../off-periods', 'Leaving and off periods dry-run first so the card counts the rota entries that come off'],
+                ['cash_day / cash_week / wages_week', 'cash_recon view', 'GET /api/venues/:v/cash-recon/config, /daily/:date, /week/:monday, /week-detail/:monday, /wages/:monday', 'Variance from the /week route only (the same figure as the page); fields not entered listed'],
+                ['record_cash_day', 'cash_recon manage', 'GET then PUT .../daily/:date', 'recordPlan() rebuilds the whole-day body: existing entries kept, every expense with vat_amount and paid_by_card, notes only when given (the PUT keeps the note when the key is absent); income split with splitIncome() from services/reconFill.js, the same split Loyverse / GloriaFood fills use'],
+                ['add_expense / submit_cash_day', 'cash_recon manage', 'POST .../expenses, POST .../daily/:date/submit', 'A submitted day refuses a new expense (card and route); the submit card shows the totals and variance'],
+                ['mark_wages_paid', 'cash_recon manage', 'GET then PUT .../wages/:monday', 'wagesPlan() rebuilds the whole-week body, changing only cash_amount and paid_date; header notes kept'],
+                ['fill_cash_from_till', 'cash_recon manage', 'POST /api/loyverse|gloriafood/venues/:v/preview, /apply', 'Up to 14 days; submitted days skipped; card per day plus payments not mapped'],
+                ['online_orders / online_orders_report', 'web_orders view', 'GET /api/orders?venue_id&date, /api/orders/report', 'findOrder(): the day\'s number ("12", "#12", "GF 3"), the guest\'s name, or an id'],
+                ['update_online_order', 'web_orders manage', 'POST /api/orders/:id/status | /promised | /mark-paid, /api/orders/gloriafood/:id/status', 'accept (prep_minutes), preparing, ready, collected, reject / cancel (reason; a paid order is refunded by the route), retime, paid_cash, paid_card'],
+                ['refund_online_order / pause_online_orders', 'web_orders manage', 'POST /api/orders/:id/refund, /api/orders/pause/:v', ''],
+                ['sold_out / set_sold_out', 'web_orders view / manage', 'loadMenuVersions(..., publishedOnly) + soldOutRows(); PUT /api/orders/availability/:v/:itemId', 'Dishes by name on the live menus; every item id with that name is marked (today | indefinite | back on)'],
+                ['till_day / till_checks / kitchen_report', 'pos_reports view', 'GET /api/pos/venues/:v/days, /days/:id, /checks, /kitchen-report', 'Default the latest trading day; live X while open, else the Z'],
+                ['find_customers / customer_details', 'customers view', 'GET /api/customers?q=, /api/customers/:id', 'find_customers adds each customer\'s next booking (one SQL query, tenant filter)'],
+                ['update_customer / unsubscribe_customer / anonymise_customer', 'customers manage', 'PATCH /api/customers/:id, POST .../unsubscribe, .../anonymise', 'anonymise is destructive (MCP destructiveHint); the card says it can\'t be undone'],
+                ['opening_times / close_dates / remove_closure', 'schedule view / manage', 'GET /api/venues/:v/schedule, /schedule/exceptions, /schedule/overrides; POST / DELETE /schedule/exceptions', 'A closure is an exception with is_closed and priority 10; the card counts bookings already in the dates (they stay)'],
+                ['list_tables', 'tables view', 'GET /api/venues/:v/tables, /combinations', ''],
+                ['booking_rules / update_booking_rules', 'rules view / manage', 'GET, POST, PATCH /api/venues/:v/rules', 'PATCH when the venue has rules, else POST the defaults merged with the change (then PATCH the table-joining flags the POST doesn\'t take); hold_minutes → hold_ttl_secs'],
+                ['website_status / publish_website / set_website_banner', 'website view / manage', 'GET /api/website/tenant-site[/publish-status], POST .../publish, PATCH /api/website/tenant-site', 'The banner needs no publish; turning it on with no text reuses the last text'],
+                ['list_promotions / switch_promotion', 'promotions view / manage', 'GET /api/promotions, PATCH /api/promotions/:id/active', 'Described with promoSummary() / promoTerms() / promoRunning() from shared/promotions.js'],
+                ['list_reviews / moderate_review', 'website view / manage', 'GET /api/reviews, /reviews/stats, PATCH /api/reviews/:id', 'A review by id, reviewer name or words from it'],
+                ['screens_status / reload_screen', 'screens view / manage', 'GET /api/screens/screens, POST .../:id/reload', ''],
+                ['email_log', 'email_templates view', 'GET /api/email-templates/log?limit=200', 'search by guest name or email; only_failed'],
+                ['report_issue / list_issues / request_feature', 'issue_log manage / view, feature_requests manage', 'POST, GET /api/issues, POST /api/feature-requests', 'list_issues keeps only this tenant\'s rows (the route lists every tenant for platform admins)'],
+                ['open_page', 'the page\'s own module, view', 'ROUTE_CATALOG (routes/nav.js) + ALSO synonyms', 'Scored match (exact, starts with, word, synonym); only pages the person can view; staff_chat gets a markdown link [Label](/route) that ChatView renders as an in-app Link (only paths starting with one /), MCP gets the full address on officeOrigin(); several matches return choices'],
+              ]}
+            />
+            <P>
+              Every change tool has a chat label (<Mono>TOOL_LABELS</Mono> in <Mono>chat.js</Mono> for
+              reads, the card title for changes) and an Activity label and detail
+              (<Mono>AiAssistant.jsx</Mono>: <Mono>TOOL_LABELS</Mono>, <Mono>changeDetail()</Mono>).
             </P>
             <H3>Confirm cards (chats)</H3>
             <P>
@@ -3752,6 +3986,18 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               outcome to the conversation as a user note (<Mono>_note: 'action'</Mono>, stripped
               before sending) that the model reads next turn. Cancel on a booking card releases its
               hold. Over MCP, run() is called directly; the client's own app asks the person.
+            </P>
+            <P>
+              <Mono>run()</Mono> re-plans from the stored input, so the run sees anything changed on
+              the pages since the card. Inputs that mean "now" would also be worked out again (today,
+              this week, the check due now, the day's order 12), which after midnight or a check time
+              is a different day, check or order. So <Mono>describe()</Mono> returns{' '}
+              <Mono>pin</Mono>: the values the card was built with (<Mono>date</Mono>,{' '}
+              <Mono>week</Mono>, <Mono>from</Mono> / <Mono>to</Mono>, an order or check time by id,
+              a refund&apos;s amount). <Mono>handleToolUse()</Mono> merges it into the input,
+              re-validates it with the tool&apos;s schema and stores that; the card itself never holds
+              it. A pinned refund amount that is no longer available fails at Confirm instead of
+              refunding a different sum.
             </P>
             <H3>Guest change / cancel: emailed code</H3>
             <P>
@@ -3770,16 +4016,36 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>AI_MODEL</Mono> (default in <Mono>config/env.js</Mono>), <Mono>output_config.effort</Mono>{' '}
               (<Mono>AI_EFFORT</Mono>, default medium), adaptive thinking (the default), top-level{' '}
               <Mono>cache_control</Mono>, and server-side fallbacks (<Mono>fallbacks: 'default'</Mono>,
-              beta <Mono>server-side-fallback-2026-07-01</Mono>). Up to 8 model calls per turn.
+              beta <Mono>server-side-fallback-2026-07-01</Mono>). Up to 12 model calls per turn
+              (<Mono>MAX_STEPS</Mono>).
               Messages are stored exactly as returned and only appended, with the system prompt the
               conversation started with (<Mono>ai_conversations.system_prompt</Mono>), so every
               request replays the history unchanged: thinking blocks stay valid and the prompt cache
               hits. Back-to-back user rows (a confirm note, then the next message) are merged when
               sent. A refusal stores nothing. Every response's usage goes to <Mono>ai_usage</Mono>.
             </P>
+            <P>
+              <strong>Tool search (staff chat).</strong> Pepper has well over 100 tools; sending them
+              all in full every request would cost tokens and blur the model&apos;s choice.{' '}
+              <Mono>toolDefs(ctx)</Mono> in <Mono>chat.js</Mono> sends, for{' '}
+              <Mono>staff_chat</Mono> only, the server-side search tool{' '}
+              <Mono>{'{ type: \'tool_search_tool_bm25_20251119\', name: \'tool_search_tool_bm25\' }'}</Mono>{' '}
+              first, the <Mono>CORE_TOOLS</Mono> in full, and every other tool with{' '}
+              <Mono>defer_loading: true</Mono> (name and description indexed, schema loaded only when
+              a search returns it). No beta header is needed. The response then holds{' '}
+              <Mono>server_tool_use</Mono> (id <Mono>srvtoolu_...</Mono>) and{' '}
+              <Mono>tool_search_tool_result</Mono> blocks: they are stored and replayed unchanged like
+              everything else, and get no <Mono>tool_result</Mono> from us (the API answered them
+              itself). A response with <Mono>stop_reason: 'pause_turn'</Mono> (a long server-side
+              step paused) is sent back as it is to carry on. The staff prompt lists every area with
+              its tool names, so searches hit; the guest chat sends its few tools in full. Not yet
+              checked against the live API: an old conversation whose stored blocks name a tool a
+              later deploy removed or changed (the tool list is part of what replayed thinking is
+              checked against).
+            </P>
             <H3>Attached files (migration 150)</H3>
             <P>
-              Staff chats only (Ask AI, /ai, /mobile/assistant); the website chat and MCP don't take
+              Staff chats only (Ask Pepper, /ai, /mobile/assistant); the website chat and MCP don't take
               files. <Mono>src/ai/attachments.js</Mono> is the one place that handles them:
             </P>
             <DataTable
@@ -3814,7 +4080,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['ai_usage', 'Per tenant, month (first day, UTC), channel: requests and input / output / cache read / cache write tokens. The limit counts all four token kinds of staff_chat + guest_chat; MCP channels count calls only.'],
                 ['ai_conversations / ai_messages', 'Chats. channel staff_chat (user_sub) or guest_chat (guest_key, a random secret the browser keeps). Messages: seq, role, content jsonb (API content blocks).'],
                 ['ai_pending_actions', 'Confirm cards: tool_use_id, tool, input, card {title, lines, confirmLabel, destructive}, status pending | done | cancelled | failed, result, expires_at, decided_at (claim).'],
-                ['ai_actions', 'Audit log of changes through AI (all channels): bookings, and the staff H&S tools (booking_id null): tool, input, ok, result, booking_id, actor. Shown on /ai Activity.'],
+                ['ai_actions', 'Audit log of every change through AI (all channels): tool, input, ok, result, booking_id (null for anything but bookings), actor. Shown on /ai Activity.'],
                 ['ai_booking_codes / ai_booking_grants', 'Emailed codes and access keys (hashes only).'],
                 ['ai_access_tokens', 'Staff MCP tokens: sha256 of mcp_ + 40 hex, prefix, user_id, revoked_at. No RLS (read during auth before any tenant context); every query filters tenant_id.'],
                 ['bookings.source', 'Which AI channel made the booking (NULL = not AI).'],
@@ -3826,7 +4092,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <DataTable
               head={['Route', 'Notes']}
               rows={[
-                ['GET /api/ai/status', 'configured, enabled, permission, can_chat, tokens_left. Drives the Ask AI button.'],
+                ['GET /api/ai/status', 'configured, enabled, permission, can_chat, tokens_left. Drives the Ask Pepper button.'],
                 ['GET/DELETE /api/ai/conversations[/:id], POST /api/ai/chat', 'The caller\'s own chats (user_sub). chat { conversation_id?, message, attachments? } returns the whole conversation as display items.'],
                 ['POST /api/ai/attachments, GET/DELETE /api/ai/attachments/:id', 'Upload one file (multipart field file) -> { id, name, kind, media_type, bytes }; the file itself, uploader only; remove an unsent upload. See Attached files above.'],
                 ['POST /api/ai/actions/:id/confirm | cancel', 'Confirm cards.'],
@@ -3843,9 +4109,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <H3>Admin and site</H3>
             <P>
               <Mono>components/ai/ChatView.jsx</Mono> (chat, cards, <Mono>useAiStatus()</Mono>),{' '}
-              <Mono>AssistantDrawer.jsx</Mono> (Ask AI panel from the sidebar, earlier chats,{' '}
-              <Mono>maca_ai_conversation</Mono>), <Mono>pages/AiAssistant.jsx</Mono> (/ai: Chat,
-              Connect, Settings, Activity), <Mono>pages/mobile/MobileAssistant.jsx</Mono>,{' '}
+              <Mono>AssistantDrawer.jsx</Mono> (Ask Pepper panel from the sidebar, earlier chats,{' '}
+              <Mono>maca_ai_conversation</Mono>), <Mono>pages/AiAssistant.jsx</Mono> (/ai, the
+              Pepper page: Chat, Connect, Settings, Activity), <Mono>pages/mobile/MobileAssistant.jsx</Mono>,{' '}
               <Mono>components/platform/AiLimitsPanel.jsx</Mono> with <Mono>AiKeyCard.jsx</Mono>. Website block{' '}
               <Mono>ai_chat</Mono>: <Mono>views/site/blocks/ai_chat.eta</Mono> (vanilla JS, hides
               itself unless /ai-api status is enabled, <Mono>maca_ai_chat_[tenantId]</Mono>), editor{' '}
@@ -4234,6 +4500,83 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               and the real One Thai Ware export (round trip, Windows-1252, xlsx in and out, permissions),
               and the page in Chromium at 1280, 1015 and 390 px (match, skip, keep, typed prices, code
               map, save, download and reload).
+            </P>
+          </section>
+
+          {/* ── COMBOS ─────────────────────────────────────── */}
+          <section id="combos" data-doc="">
+            <H2>Combos</H2>
+            <P>
+              Migration 171. A combo is a <Mono>menu_items</Mono> row with <Mono>kind = 'combo'</Mono> and a{' '}
+              <Mono>combo</Mono> jsonb: steps with choices, conditions and repeats, used by the till, online
+              ordering, the kitchen, the website, printed menus and menu screens. It replaced the till-only meal
+              deal slots (<Mono>{'{ slots: [...] }'}</Mono>), which the migration turned into steps in the menu
+              tables and in every <Mono>menu_releases</Mono> snapshot (choice ids from{' '}
+              <Mono>md5(slot id + dish / section id)</Mono>, so drafts and releases match; hashes blanked and
+              recomputed at start by <Mono>rehashReleases()</Mono>).
+            </P>
+            <Code>{`menu_items.combo = {
+  mode: 'manual' | 'auto',
+  steps: [{
+    id, name, min, max,          // min 0 = optional; max up to 20
+    repeat,                      // the same choice more than once
+    auto,                        // fill (and skip) a step with one open choice
+    ask: 'always' | 'button',    // 'button' only when min = 0
+    when: null | { step_id, option_ids },   // an EARLIER step; [] = anything picked there
+    options: [{ id, type: 'item' | 'section' | 'custom',
+                item_id, section_id, label, kitchen_name, price_pence }],
+  }],
+}
+selection.combo = { [stepId]: [{ option_id, item_id, choices }] }   // item_id null for a custom choice`}</Code>
+            <H3>One set of rules: shared/combos.js</H3>
+            <DataTable
+              head={['Function', 'What it does']}
+              rows={[
+                ['normaliseCombo(raw), comboOf(item)', 'The stored shape, cleaned; comboOf caches it on the item (non-enumerable _combo).'],
+                ['menuCtx(menu), sectionItemsOf(menus)', 'ctx = { itemsById, sectionItems } that every function below takes to find a step\'s dishes.'],
+                ['stepChoices(step, ctx)', 'A step\'s choices: items, every dish of a section (key option.id + ":" + itemId), custom ones; never a combo or the combo itself; sold out flagged.'],
+                ['resolveSteps(item, picks, ctx)', '{ picks, steps: [{ step, choices, shown, auto }] }: drops picks on steps whose condition no longer holds (in step order), fills single-choice auto steps.'],
+                ['priceCombo(item, selection, ctx, partPrice)', '{ ok, parts, upcharge, extras, picks } or { ok: false, error, step_id }. partPrice(part, choices) is the caller\'s option engine; a part\'s base options never change the deal price, its extras do.'],
+                ['comboFromPrice(item, base, ctx)', '{ pence, varies }: own price + cheapest picks of unconditional required steps; varies when any choice has a charge. Wrapped by fromPrice() / priceVaries() / comboMenuPrice() in shared/orderPricing.js.'],
+                ['comboGuide(item, ctx)', 'The steps in words for a menu screen\'s How to order view.'],
+                ['findAutoCombos(lines, combos, ctx, base)', 'Automatic combos in a set of separate lines: greedy, biggest saving first, only when cheaper than the lines; returns [{ combo_id, name, count, saving, lines: { key: pence } }] with the saving spread by spreadCapped() (never more than a line\'s own price).'],
+                ['combosWithItem(), stepWithItem()', 'Which combos offer a dish and where it goes (the till\'s Make it a combo).'],
+                ['comboProblems(combo, { itemIds, sectionIds })', 'What stops a combo working (the editor\'s amber list).'],
+                ['countParts(parts)', 'For display only: the same pick twice in a step as one entry with a count ("2 x Ketchup pot"). Works on till, online and kitchen part shapes.'],
+              ]}
+            />
+            <H3>Where combos are read</H3>
+            <DataTable
+              head={['Surface', 'How']}
+              rows={[
+                ['Menus API', 'routes/menus.js: ComboBody Zod; cleanCombo() inside upsertMenuTree() drops choices for dishes / sections not on the menu, combos and itself, and conditions on later or unknown steps; remapCombo() on /duplicate; menuSaveBody() carries kind + combo.'],
+                ['Till', 'posSvc tillConfig(): items carry kind + combo, config.section_items. shared/pos/pricing.js priceItem() prices through priceCombo(); line.combo = parts { step_id, step, option_id, item_id, name, kitchen_name, section_id, course_id, upcharge, modifiers, extras, custom }. pos/src/lib/checkOps.js: comboCtx(), autoCombosFor() (refreshed on every line change by Check.jsx), combosForLine() / comboStartFrom() (Make it a combo).'],
+                ['Automatic combos on the till', 'Stored as promotions.set entries { promotion_id: comboItemId, name, kind: "combo", count, lines } (checks.js accepts kind combo and count). checkTotals() names them "X x N" and flags combo: true. promotionsFor() applies combos first, promotions on what is left.'],
+                ['Online ordering', 'orderSvc loadOrderingMenu(): items carry kind, combo, from_pence, from_varies; partsById (every dish of the menus in shown sections, orderable or not) as combo_parts and section_items in GET /order-api/venues/:id; basketCombos(menu) gives priceBasket() its combos. priceBasket() applies automatic combos before promotions (promotions run on line_total minus the combo saving) and returns combos[] + combo_discount_pence. order_items.parts; order_promotions rows with promotion_id NULL and combo_item_id for automatic combos. /order-api/combos.js serves shared/combos.js to the guest page.'],
+                ['Kitchen', 'shared/pos/kitchen.js: a combo line is the header with parts; each part routes by its own dish (a custom part like the combo), the item route is mergeRoutes(parts); stations see only their own parts. kitchenSvc onlineSnapshot() sends parts for online orders. printing.js: parts print on their own printers under the combo\'s name; a custom part prints where the combo does.'],
+                ['Website, print, canvas', 'comboMenuPrice(item, menu) in menu_inline.eta (it.siteBlocks), menu_print.eta, shared/menuLayout.js and MenuInlineCanvas: the description and the price, "from" when it varies; no steps.'],
+                ['Menu screens', 'screenSvc slimItem() keeps kind + combo; shared/screenLayout.js menu and dish blocks take opts.combo_view: "menu" | "steps" (comboStepsHtml(), .sl-steps); combos.js is in PLAYER_LIBS and the player\'s sw.js shell.'],
+                ['AI menu tools', 'get_menu shows a combo\'s steps (comboText()); removing dishes or a section lists the combos that lose those choices (comboRefs()). The tools don\'t edit steps.'],
+              ]}
+            />
+            <H3>Option groups: repeat and on request</H3>
+            <P>
+              <Mono>menu_variant_groups.allow_repeat</Mono> (the same option more than once; max is not capped
+              at the number of options) and <Mono>on_request</Mono> (an optional group waits behind a button;
+              ignored when min &gt; 0). Both reach the till through <Mono>posChoices()</Mono> /{' '}
+              <Mono>groupChoice()</Mono> and online through <Mono>itemChoices()</Mono> as{' '}
+              <Mono>choice.repeat</Mono> / <Mono>choice.on_request</Mono>; <Mono>menuDiff.js</Mono> drops them
+              when false so existing releases don&apos;t read as changed. The till keeps one modifier per pick
+              and groups them for display with <Mono>groupModifiers()</Mono> (shared/pos/pricing.js,{' '}
+              <Mono>modifierText()</Mono> prints &ldquo;2 x Cheese&rdquo;); online orders store a repeated pick
+              once with the count in its label and the summed price (<Mono>priceChoiceSet()</Mono>).
+            </P>
+            <P>
+              Tested: 92 shared unit tests (combos, pricing, auto matching, kitchen, grouping), 30 API checks
+              against Postgres (save, clean, copy, publish, migration, ordering menu, quote, order, print), the
+              admin editor in Chromium at 1280 and 1015 px, the till (steps, repeats, on-request groups, auto
+              combo, Make it a combo, send, kitchen screen), the guest ordering page at 1280 and 390 px, a menu
+              screen board in both views and the website Menu block.
             </P>
           </section>
 

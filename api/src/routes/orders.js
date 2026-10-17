@@ -271,6 +271,8 @@ export default async function ordersRoutes(app) {
       to:   z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     }).parse(req.query || {})
     return withTenant(req.tenantId, async tx => {
+      // The venue must be this tenant's: the queries below filter by venue only.
+      await venueOf(tx, q.venue_id)
       const counted = ['placed', 'accepted', 'preparing', 'ready', 'completed']
       const [days, byMethod, top, statuses, promos] = await Promise.all([
         tx`
@@ -406,12 +408,12 @@ export default async function ordersRoutes(app) {
 
   app.get('/:id', { preHandler: view }, async (req) => {
     if (!uuid.safeParse(req.params.id).success) throw httpError(404, 'Order not found')
-    const o = await withTenant(req.tenantId, tx => loadAdminOrder(tx, req.params.id))
+    const o = await withTenant(req.tenantId, tx => loadAdminOrder(tx, req.params.id, req.tenantId))
     if (!o) throw httpError(404, 'Order not found')
     return o
   })
 
-  const reload = async (req, id) => withTenant(req.tenantId, tx => loadAdminOrder(tx, id))
+  const reload = async (req, id) => withTenant(req.tenantId, tx => loadAdminOrder(tx, id, req.tenantId))
 
   app.post('/:id/status', { preHandler: manage }, async (req) => {
     if (!uuid.safeParse(req.params.id).success) throw httpError(404, 'Order not found')

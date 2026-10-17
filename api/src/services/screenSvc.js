@@ -33,7 +33,7 @@ export const SHARED_DIR = path.resolve(__dirname, '..', '..', '..', 'shared')
 // The shared files the player imports (served as /lib/<name> by
 // routes/screenSite.js). screenLayout.js imports the others by relative
 // path, so they must all be served from the same folder.
-export const PLAYER_LIBS = ['screenLayout.js', 'fonts.js', 'menuTags.js', 'orderPricing.js', 'promotions.js', 'menuSchedule.js']
+export const PLAYER_LIBS = ['screenLayout.js', 'fonts.js', 'menuTags.js', 'orderPricing.js', 'promotions.js', 'menuSchedule.js', 'combos.js']
 
 let versionCache = null
 export function playerVersion() {
@@ -60,6 +60,8 @@ export function playerVersion() {
 function slimItem(it) {
   return {
     id: it.id, name: it.name, description: it.description || null, price_pence: it.price_pence ?? null,
+    // Combos (migration 171): a board shows them as a menu line or as their steps.
+    kind: it.kind === 'combo' ? 'combo' : 'dish', combo: it.kind === 'combo' ? (it.combo || null) : null,
     calories: it.calories ?? null, image_url: it.image_url || null, is_featured: !!it.is_featured,
     dietary: it.dietary || [], allergen_levels: it.allergen_levels || {},
     variants: (it.variants || []).map(v => ({ label: v.label, price_pence: v.price_pence ?? null })),

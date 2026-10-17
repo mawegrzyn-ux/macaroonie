@@ -2,7 +2,8 @@
 
 Status: **Phases 1-5 built cloud-first; the hub and printer trials are parked** (11 Oct 2026).
 Decisions agreed 11 Oct 2026. What runs today, and what's provisioned for the hub, is in
-section 8. Kitchen screens (KDS, 16 Oct 2026): section 9.
+section 8. Kitchen screens (KDS, 16 Oct 2026): section 9. Self-order kiosks (17 Oct 2026):
+section 10.
 
 A restaurant till with table service and counter service, built into Macaroonie:
 table service first, counter mode later. This file is the design; CLAUDE.md links here.
@@ -152,7 +153,7 @@ First event types: `check.opened`, `check.covers_set`, `check.table_moved`,
 | `pos_courses` | tenant: Drinks / Starters / Mains / Desserts, order, fire by default |
 | `menu_sections` + / `menu_items` + | default course / course override |
 | modifiers | extend variant groups: nested groups, "no / extra / light", per-dish prices (exist) |
-| combos | `menu_items.kind = 'combo'` + slots (choose from a section or list, upcharges) |
+| combos | `menu_items.kind = 'combo'` + steps (migration 171, section 8.2) |
 | `pos_events` | the event log (source of truth) |
 | `pos_checks`, `pos_check_lines`, `pos_payments` | projections |
 | `pos_shifts` / `pos_days` | drawer floats, X/Z reports, cash-up into Cash Recon |
@@ -245,7 +246,7 @@ provision in code for the hub"). What exists:
 | Sequencer | the cloud | `services/posSvc.js` runs `createSequencer()` with a Postgres store under a per-venue advisory lock. The hub will run the same sequencer with SQLite. |
 | Till API | `/pos-api` (`routes/posApi.js`) | Pairing, device auth, config snapshot, events in, sync out, presence, reports, print queue (claim / status routes are for the hub). |
 | Admin | `/api/pos` (`routes/posSetup.js`) | Till setup, Floor plan, Till reports pages; Menus / Variant groups / Promotions till fields. |
-| Till app | `pos/` | React PWA served by the API on `pos.<domain>` (`routes/posSite.js`, no nginx change). Local-first: IndexedDB outbox, optimistic apply, socket + polling sync. Table service, tabs, counter mode, courses (hold / fire), modifiers, meal deals, discounts / comps / offers, service charge, split / move / merge, pay (external card, cash, voucher, ...), refunds, reopen, X / Z. |
+| Till app | `pos/` | React PWA served by the API on `pos.<domain>` (`routes/posSite.js`, no nginx change). Local-first: IndexedDB outbox, optimistic apply, socket + polling sync. Table service, tabs, counter mode, courses (hold / fire), modifiers, combos, discounts / comps / offers, service charge, split / move / merge, pay (external card, cash, voucher, ...), refunds, reopen, X / Z. |
 | Cash Recon | `services/reconFill.js` | Z figures fill the Cash Recon day through `recon_map` (shared with Loyverse). |
 | Sold out | `services/soldOut.js` | Hold a dish (or tap a sold out one) on the till: `PUT /pos-api/sold-out/:itemId` (role permission `sold_out`, or a manager's PIN), online only. The same `ordering_item_availability` rows as online ordering; every till, the orders board and the menu screens hear it. `tillConfig().sold_out`. Migration 166. |
 
@@ -298,6 +299,35 @@ ordering, the Deliveroo file, Cash Recon fill through the Z, reports).
 - **Reports**: day figures by revenue stream and by order type; the Z prints both.
 - Not built: tax-inclusive vs exclusive pricing per location (all prices include VAT); a rate
   change on a date (change the % on the day, or publish a menu with another rate).
+
+### 8.2 Combos (migration 171, 16 Oct 2026)
+
+The user's design: a combo is a menu item like any other, built from steps. Each step has a
+min and max (min 0 = optional), may allow the same choice more than once, may pick itself when
+it has one choice, may wait behind a button (optional steps), and may show only after a pick in
+an earlier step. Choices are dishes, whole sections or choices typed in for the combo, each with
+an extra charge. The combo's own price can be £0. Menus, the website and screens show the
+description and the price ("from" when choices can cost more); the till and the ordering page
+go through the steps. Option groups gained "more than once" and "show a button".
+
+Choices made with the user: automatic combos group and reprice (items stay as entered, the
+saving shows as a discount, only when cheaper, re-checked as the check changes); automatic
+combos apply on the till and online; a manual combo starts from its own button or "Make it a
+combo" on a till line; step choices can be dishes, sections or new.
+
+- **Rule**: `shared/combos.js` (steps, conditions, pricing, "from" price, the automatic
+  matcher). The till prices through `priceItem()` → `priceCombo()`; online through
+  `priceLine()` / `priceBasket()`.
+- **Till**: a combo line stores its parts in `line.combo` (each with `item_id`, `section_id`,
+  `course_id`, `upcharge`, `modifiers`); an automatic combo is a `promotions.set` entry with
+  `kind: 'combo'` and `count`, worked out by the till (`autoCombosFor()`) whenever the lines
+  change, so it is in the event log like any offer. "Make it a combo" adds the combo with the
+  dish picked and deletes the original line (only before it's sent).
+- **Kitchen**: each part routes by its own dish (a typed-in part like the combo); tickets and
+  kitchen screens show the combo's name with the parts under it, repeats counted.
+- Not built: a combo inside a combo; per-step prices that depend on another step; combos on
+  GloriaFood or Deliveroo (the Deliveroo file sends a combo's own price; its choices are
+  Deliveroo modifiers set in the Hub).
 
 ---
 
@@ -394,9 +424,66 @@ nothing changes for the devices.
 - Item-level cook times and "start this now" timing across stations (all dishes of an order
   start together; held courses and later online orders wait).
 - No "split one dish into two jobs" (e.g. the burger's bun and meat as separate items on two
-  stations at once): a dish moves through stations one after another, or a meal deal's parts go
+  stations at once): a dish moves through stations one after another, or a combo's parts go
   their own ways.
 - Tested in Chromium on desktop sizes (tablet, TV, portrait) only; not yet on a real Android
   tablet, a TV box, or with a real bump bar. Sound needs one tap on the screen first (browser
   autoplay rule).
 
+
+## 10. Self-order kiosks (migration 172, 17 Oct 2026)
+
+The user's brief: "a fully fledged kiosk as a PWA, inspired by the screenshots (Wingstop's start
+screen, menu with a category rail, a FLAVOR RULES combo with a step list and a card slider, a heat
+slider from No spice to Very spicy), with a few ways of presenting choices: a simple grid, a list,
+a slider like the screenshot, a spin wheel". Guides read: Wingstop's technology architecture deck
+and the ConnectSmart Kitchen guide.
+
+### 10.1 How it fits
+
+- A kiosk is a till device of kind `kiosk`, paired at the till address with a one-time code. The
+  same PWA boots the kiosk screens (`pos/src/kiosk`) for it. There is no separate kiosk host.
+- Its orders are counter checks made of the till's own events (`kioskOrder()` in
+  `shared/kiosk.js`), sequenced by the same sequencer, so they reach the tills' Counter list, the
+  kitchen (and its flow), Till reports, X / Z and Cash Recon with no special case. The kiosk is the
+  check's server (`kioskStaff()`: `{ kiosk: true }`, no permissions).
+- The kiosk rules (`kioskProblem()` in `shared/pos/checks.js`) keep a kiosk to the events an order
+  needs: open a counter check, add menu dishes, automatic offers, send, take a `card_external`
+  payment, close. Nothing else (no discounts, voids, cash, tips, other checks, approvals).
+- Prices, tax, combos and automatic offers are the till's own (`priceItem()`, `posTax()`,
+  `shared/pos/offers.js`), so the kiosk shows exactly what the till charges.
+- Card payments: a test reader only (Approve / Decline, no money). A real terminal plugs in at the
+  card step: it must give back a reference the `payment.added` event carries.
+- The design (`kiosk_designs`, tenant-wide) sets brand, start screen, languages, menu home page,
+  how choices show, paying and timing; `normaliseDesign()` is the one checker. The editor shows the
+  real kiosk in a frame and posts the unsaved design to it.
+- Choices: an option group or a combo step shows as grid, list, slider (with a level scale such as
+  heat) or spin wheel; the group / step picks, else the design. Options have a picture, a line of
+  words and a level 0-5.
+- Languages: the kiosk's own words come in nine languages (`shared/kioskText.js`); the menu's words
+  are translated on Menus > Translations (`menu_translations`, with an AI first draft).
+
+### 10.2 Offline
+
+- The kiosk keeps its config (IndexedDB) and opens without the internet, but its start screen says
+  ordering is paused until it is back: a pay-at-counter order needs the till to see it, and a card
+  payment needs the order to reach the kitchen.
+- A card payment that went through when the order can't be sent is kept in the kiosk's outbox and
+  sent again until accepted; the guest gets the kiosk's own number (`KS1-0012`) to show at the
+  counter. The check carries it as `provisional_no`.
+- A pay-at-counter order whose reply was lost is sent again with the same events; the server skips
+  event ids it already has and returns the order number, so the till never gets it twice.
+- With the hub (later), kiosks get `device.hub_url` like tills and keep taking orders with the
+  internet down.
+
+### 10.3 Not built yet
+
+- Real card terminals (Dojo, SumUp, Zettle, Stripe Terminal, Adyen) at the kiosk.
+- Receipts go to the kiosk's browser print; the receipt printer picked in Till setup is used once
+  the hub prints.
+- No loyalty, logins, vouchers or promo codes on the kiosk (automatic offers only).
+- No "upsize" or "make it a meal" prompts beyond automatic combos and the "Anything else?" dishes.
+- No age check for age-restricted dishes.
+- The design editor has no undo beyond Discard.
+- Tested in Chromium at kiosk sizes (1080 x 1920 and 1920 x 1080); not yet on a real kiosk screen,
+  with a real card terminal, or with a screen reader.

@@ -5,6 +5,48 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-17 — Pepper, the assistant for every area]
+
+- The staff AI assistant is now **Pepper**: **Ask Pepper** in the sidebar, the **Pepper** page, Pepper in the phone app and on the Overview shortcuts. The website chat and guests' AI apps keep a neutral name.
+- Pepper now works in **every area**, with each person's own permissions, in the chat and through the staff connector for AI apps (Claude, Cursor and others):
+  - **Staff and the rota**: who's working, a week's rota, put people on or off, sick or on time off (several people and days at once), copy a week, staff details, leaving dates and periods off the rota, pay and tips for a week, pay adjustments, fill Cash Recon wages, move or adjust tips, tip pot amounts.
+  - **Cash up**: a day or a week with its variance (the page's own figure), enter figures, add an expense, submit a day, see and mark wages paid, fill from Loyverse or GloriaFood.
+  - **Online orders**: the day's orders, accept / preparing / ready / collected / turn down / cancel / retime / paid at the counter (GloriaFood orders too), refunds, pause, the report; **sold out** for the tills, online ordering and menu screens at once.
+  - **Till and kitchen**: a trading day's figures, its checks, kitchen speed.
+  - **Customers**: find, details with bookings, change, newsletter unsubscribe, GDPR anonymise.
+  - **Opening times and setup**: booking times, close for dates (with how many bookings are already in them), reopen, tables, booking rules.
+  - **Website and more**: publish status and publish, the emergency banner, promotions on or off, reviews (approve, feature, reply), menu screens (status, reload), booking emails sent, report an issue, list issues, request a feature.
+  - **Finding a page**: Pepper replies with a link to the page that does the job, only pages the person can open.
+- Every change still shows a card first with what will happen and nothing changes until Confirm; every change is listed under Pepper → Activity. A card now does exactly what it shows even when Confirm is pressed later: the day, week, order, check time or refund amount on it is kept, so a cash up confirmed just after midnight still submits the day on the card, and a refund changed on the board in the meantime is refused instead of refunding a different sum.
+- Pepper has its own switch on Access → Modules (it was part of Bookings).
+- Fixed (security): on the online orders board, another restaurant group could open an order's details, its report, change its status or refund it by its id; and the schedule, venue settings and test data routes took a venue id from another restaurant group (close weekdays, add sittings, change booking rules, add tables, read the schedule). Both now check the order or venue is the caller's.
+- Migration 173.
+
+## [2026-10-17 — Self-order kiosks]
+
+- New **self-order kiosks**: a big touch screen guests order on by themselves, upright or wide, in Chrome. A start screen with your pictures and videos, flags for nine languages, Staying or going? with your order types, and an allergen lookup; a menu with sections down the side, a home page of banners and featured tiles, and dish cards; each dish and combo built step by step with its allergens; an order page with "Anything else?", a name or table number when the revenue stream asks, and pay by card or at the counter; then the order number. "Still there?" after a while with no taps, a reach button for guests who can't reach the top of the screen, sold out dishes greyed out at once.
+- **Four ways to show choices**: grid, list, a slider with a level scale (No spice ... Very spicy, marked with flames, stars or dots) and a spin wheel. The kiosk design sets the default; each option group and each combo step can pick its own.
+- Kiosk orders are counter orders like the till's: they go to the kitchen and its flow, the tills' Counter list, Till reports (with the kiosk named) and Cash Recon. A kiosk can only place its own orders and take card payments; card payments use a test reader for now (no money taken).
+- **Till setup → Kiosks**: add a kiosk (name, revenue stream, design, card reader, receipt printer) and pair it with a code at the till address. **Kiosk designs**, shared by every venue, are edited on their own page with the kiosk itself beside the settings, showing every change as you make it: brand colours (with ready-made sets and a warning for colours hard to read together), fonts, logo, the start screen, languages, the menu home page, sections left off, choices, paying and timing. Explicit Save.
+- **Menus → Variant groups**: a Self-order kiosk box (how the options show, the words at the two ends of a scale), and on each option a picture (pick one or drop one on it), a line of words and a level from 0 to 5. Options now drag into order.
+- **Combos**: each step can say how a kiosk shows its choices; a choice typed in for a combo can have a picture and words.
+- New **Menus → Translations**: every word a kiosk can show next to its translation in the language you pick, with the kiosk's own words and the 14 allergens already in every language. **Suggest the missing ones** asks the AI assistant for a first draft; suggestions are marked Check and nothing is kept until Save.
+- If the internet goes, a kiosk pauses new orders; a card order already paid is kept and sent when the internet is back, and the guest shows the kiosk's own number at the counter. A pay-at-counter order is never sent twice when its reply is lost.
+- Media uploads are now allowed with Till setup manage (for kiosk pictures).
+- Fixed: a new option group's options came back sorted by name instead of the order they were typed in.
+- Migration 172.
+
+## [2026-10-16 — Combos]
+
+- **Combos**: any menu item can be a combo (Dish / Combo at the top of its panel). It has its own price (it can be £0) and **steps**, each with at least / at most (at least 0 = optional), **the same choice more than once**, **pick it by itself when there's one choice**, **show a button** instead of opening an optional step, and **when it shows** (only after a pick in an earlier step, e.g. a sauce pot only with fries). Choices are dishes from the menu, whole sections, or choices typed in just for the combo (with a kitchen name), each with an extra charge. A picked dish still asks its own options at its own extra prices. Drag to order steps and choices; the panel shows "Shown as from £x" and anything that stops the combo working.
+- **Manual or Automatic**: a manual combo is used when chosen (its button, or **Make it a combo** on a till line); an automatic one also applies by itself when an order has its dishes as separate items, on the till and online, whenever that makes the order cheaper. The items stay as entered and the saving shows as a line.
+- **Till**: combos open with a chip per step, steps behind buttons, Included steps and each dish's options under it; Add says what's missing. The check, receipts, kitchen tickets and kitchen screens show the combo with its parts under it, each part going to its own station.
+- **Online ordering**: one step at a time with Back / Next, then a last page with the whole combo; the basket, status page, emails and the orders board list the picks.
+- **Website, printed menus and menu screens** show a combo's description and price, with "from" when choices can cost more. Menu screens' Menu list and Featured dish blocks can instead show **How to order (steps)**.
+- **Option groups** (Menus → Variant groups): **The same option more than once** (2 x Extra cheese, with − and + on the till and online) and **Don't open it by itself: show a button for it** for optional groups. Repeats show as "2 x Cheese" everywhere.
+- The till's meal deals became combos (their slots are steps); nothing to redo.
+- Migration 171.
+
 ## [2026-10-16 — Tax rates, order types and revenue streams]
 
 - New **Menus → Tax rates**: your list of rates (Standard 20% and Zero 0% to start), one marked default, each with its own % at a location if it differs. **Check** shows every dish's rate for each order type at a location and revenue stream, as the till, online ordering and the Deliveroo file work it out.

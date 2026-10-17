@@ -28,6 +28,7 @@ import { useApi } from '@/lib/api'
 import { usePermission } from '@/hooks/usePermission'
 import { cn } from '@/lib/utils'
 import { formatPence } from '@shared/orderPricing.js'
+import { countParts } from '@shared/combos.js'
 
 export const STATUS = {
   pending_payment: { label: 'Awaiting payment', cls: 'bg-gray-100 text-gray-700' },
@@ -190,7 +191,7 @@ export function printTicket(order, venue) {
   const tz = venue?.timezone || 'Europe/London'
   const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   const lines = (order.items || []).map(i => `
-    <div class="l"><div><b>${i.qty} x ${esc(i.name)}</b>${(i.options || []).length ? `<div class="o">${esc(i.options.map(o => o.label).join(', '))}</div>` : ''}${i.note ? `<div class="o">Note: ${esc(i.note)}</div>` : ''}</div><div>${money(i.line_total_pence, order.currency)}</div></div>`).join('')
+    <div class="l"><div><b>${i.qty} x ${esc(i.name)}</b>${(i.options || []).length ? `<div class="o">${esc(i.options.map(o => o.label).join(', '))}</div>` : ''}${countParts(i.parts).map(({ part: p, count }) => `<div class="o">&rsaquo; ${count > 1 ? count + ' x ' : ''}${esc(p.name)}${(p.options || []).length ? ' (' + esc(p.options.map(o => o.label).join(', ')) + ')' : ''}</div>`).join('')}${i.note ? `<div class="o">Note: ${esc(i.note)}</div>` : ''}</div><div>${money(i.line_total_pence, order.currency)}</div></div>`).join('')
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>Order ${order.order_number}</title><style>
     @page { size: 80mm auto; margin: 4mm; }
     body { font-family: -apple-system, Segoe UI, Helvetica, Arial, sans-serif; font-size: 13px; width: 72mm; margin: 0; }
@@ -473,6 +474,9 @@ export function OrderDetailModal({ order: summary, venue, venueId, onClose }) {
                 <div className="min-w-0">
                   <div><strong>{i.qty} x</strong> {i.name}</div>
                   {i.options?.length > 0 && <div className="text-xs text-muted-foreground">{i.options.map(x => x.label).join(', ')}</div>}
+                  {countParts(i.parts).map(({ part: p, count }, pi) => (
+                    <div key={pi} className="text-xs text-muted-foreground pl-3">› {count > 1 ? count + ' x ' : ''}{p.name}{p.options?.length ? ' (' + p.options.map(x => x.label).join(', ') + ')' : ''}</div>
+                  ))}
                   {i.note && <div className="text-xs text-muted-foreground">Note: {i.note}</div>}
                 </div>
                 <div className="shrink-0">{money(i.line_total_pence, o.currency)}</div>
@@ -660,6 +664,9 @@ export function GloriaFoodOrderModal({ order: o, venue, venueId, onClose }) {
                 <div className="min-w-0">
                   <div><strong>{i.qty} x</strong> {i.name}</div>
                   {i.options?.length > 0 && <div className="text-xs text-muted-foreground">{i.options.map(x => x.label).join(', ')}</div>}
+                  {countParts(i.parts).map(({ part: p, count }, pi) => (
+                    <div key={pi} className="text-xs text-muted-foreground pl-3">› {count > 1 ? count + ' x ' : ''}{p.name}{p.options?.length ? ' (' + p.options.map(x => x.label).join(', ') + ')' : ''}</div>
+                  ))}
                   {i.note && <div className="text-xs text-muted-foreground">Note: {i.note}</div>}
                 </div>
                 <div className="shrink-0">{money(i.line_total_pence, o.currency)}</div>

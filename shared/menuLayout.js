@@ -35,6 +35,7 @@
 
 import { FONT_WEIGHTS, fontStack, googleFontsUrl } from './fonts.js'
 import { allergenKey, isRemovable } from './menuTags.js'
+import { comboMenuPrice } from './orderPricing.js'
 
 export const BLOCK_TYPES = [
   'header', 'intro', 'section', 'item', 'text', 'image',
@@ -335,10 +336,12 @@ function itemHtml(item, ctx, opts) {
   const isUnpriced = p => p == null || Number(p) === 0
   const vPrice = p => (hideZero && Number(p) === 0) ? '' : fmtPrice(p)
 
-  const groups = (item.variant_groups || [])
+  // A combo shows its description and price only ("from" when its choices can cost more).
+  const combo = item.kind === 'combo' ? comboMenuPrice(item, m) : null
+  const groups = combo ? [] : (item.variant_groups || [])
     .map(g => hideUnpriced ? { ...g, options: (g.options || []).filter(v => !isUnpriced(v.price_pence)) } : g)
     .filter(g => !hideUnpriced || (g.options && g.options.length))
-  const adhoc = hideUnpriced
+  const adhoc = combo ? [] : hideUnpriced
     ? (item.variants || []).filter(v => !isUnpriced(v.price_pence))
     : (item.variants || [])
   const hasVar = adhoc.length > 0 || groups.some(g => g.options && g.options.length)
@@ -358,7 +361,8 @@ function itemHtml(item, ctx, opts) {
   body += '</span>'
   if (tags) body += '<span class="ml-tags">' + tags + '</span>'
   body += '</div>'
-  if (item.price_pence != null && !hasVar) body += '<span class="ml-price">' + fmtPrice(item.price_pence) + '</span>'
+  const price = combo ? combo.pence : item.price_pence
+  if (price != null && !hasVar) body += '<span class="ml-price">' + (combo && combo.from ? 'from ' : '') + fmtPrice(price) + '</span>'
   body += '</div>'
   if (item.description && o.show_description !== false) body += '<div class="ml-desc">' + esc(item.description) + '</div>'
   if (item.notes) body += '<div class="ml-notes">' + esc(item.notes) + '</div>'

@@ -6,6 +6,7 @@
 // defaultNav.js elsewhere in this app.
 
 import { LayoutGrid, LayoutTemplate, Receipt, ShoppingCart, Wallet, Users, ShoppingBag, Wheat, Sparkles } from 'lucide-react'
+import { ASSISTANT_NAME } from '@shared/assistant.js'
 
 export const MOBILE_MODULES = [
   {
@@ -66,8 +67,8 @@ export const MOBILE_MODULES = [
   },
   {
     key: 'assistant',
-    label: 'AI assistant',
-    description: 'Bookings, H&S checks, supplier orders and menus by chat',
+    label: ASSISTANT_NAME,
+    description: 'Ask about bookings, the rota, cash up, orders, H&S, menus and more',
     icon: Sparkles,
     path: '/mobile/assistant',
   },

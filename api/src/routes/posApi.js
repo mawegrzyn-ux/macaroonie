@@ -7,9 +7,12 @@
 // sequencer checks what their POS role allows.
 //
 //   POST /pair                  { code } -> { device_id, secret, ... }   (no auth)
+//   GET  /kiosk-preview?token=  a kiosk design's preview config (the signed link is the key, services/kioskSvc.js)
 //   GET  /me                    this till and its venue
 //   GET  /config?version=       everything the till needs offline (unchanged: true when version matches);
-//                               a kitchen screen (kind 'kds') gets the kitchen's config instead
+//                               a kitchen screen (kind 'kds') gets the kitchen's config instead, a
+//                               self-order kiosk (kind 'kiosk') its menus, design and languages
+//                               (a kiosk may only call /me, /config and /events)
 //   GET  /sync?since=<seq>      events and changed checks since seq; reset: true with all open checks
 //   GET  /kitchen/sync?since=   kitchen orders since seq (shared/pos/kitchen.js; services/kitchenSvc.js)
 //   POST /events                { events: [...] } -> per-event results, in order (till and kitchen
@@ -40,6 +43,8 @@ import {
 import { dayFigures } from '../../../shared/pos/reports.js'
 import { permissionProblem } from '../../../shared/pos/permissions.js'
 import { KITCHEN_SERVER_EVENTS } from '../../../shared/pos/kitchen.js'
+import { CHECK_EVENTS } from '../../../shared/pos/checks.js'
+import { kioskConfig, readPreviewToken, previewDevice } from '../services/kioskSvc.js'
 import { setSoldOut, soldOutItemIds, announceSoldOut } from '../services/soldOut.js'
 import { kdsConfig, kitchenSync, onlineMoves } from '../services/kitchenSvc.js'
 import { changeStatus } from '../services/orderSvc.js'
@@ -87,12 +92,19 @@ export async function verifyDevice(id, secret) {
 
 const lastSeen = new Map()
 
+const KIOSK_ROUTES = new Set(['GET /pos-api/me', 'GET /pos-api/config', 'POST /pos-api/events'])
+
 async function requireDevice(req, reply) {
   const m = /^Device ([0-9a-f-]{36})\.([A-Za-z0-9_-]{20,})$/i.exec(req.headers.authorization || '')
   if (!m) return reply.code(401).send({ error: 'This till isn\'t paired', code: 'not_paired' })
   const d = await verifyDevice(m[1], m[2])
   if (!d) return reply.code(401).send({ error: 'This till isn\'t paired (or was removed)', code: 'not_paired' })
   if (!d.pos_enabled) return reply.code(403).send({ error: 'The till is switched off for this restaurant', code: 'pos_off' })
+  // A kiosk is a public screen: it reads its own config and sends its own
+  // orders, nothing else (no other checks, reports, print queue or sold out).
+  if (d.kind === 'kiosk' && !KIOSK_ROUTES.has(req.method + ' ' + (req.routeOptions?.url || req.routerPath))) {
+    return reply.code(403).send({ error: 'A kiosk can\'t do this', code: 'kiosk' })
+  }
   req.posDevice = d
   req.tenantId = d.tenant_id
   const seen = lastSeen.get(d.id) || 0
@@ -152,6 +164,21 @@ export default async function posApiRoutes(app) {
     return { device_id: d.id, secret, name: d.name, kind: d.kind, short_code: d.short_code, venue_id: d.venue_id, venue_name: v?.name || null }
   })
 
+  // The kiosk design editor's live preview (Till setup > Kiosks): the link
+  // the admin made is the key (services/kioskSvc.js, 12 hours). A preview
+  // never places orders; the editor sends unsaved changes to the preview
+  // itself (postMessage), so this only gives the menu and the saved design.
+  app.get('/kiosk-preview', { config: { rateLimit: { max: 60, timeWindow: '1 minute' } } }, async req => {
+    const p = await readPreviewToken(req.query.token)
+    if (!p) throw httpError(401, 'This preview link has run out: open the preview again from Till setup')
+    return withTenant(p.tenantId, async tx => {
+      const device = previewDevice(p)
+      const [d] = await tx`SELECT id FROM kiosk_designs WHERE id = ${p.designId} AND tenant_id = ${p.tenantId}`
+      if (!d) throw httpError(404, 'Kiosk design not found')
+      return kioskConfig(tx, p.tenantId, p.venueId, device, { preview: true })
+    })
+  })
+
   app.register(async scoped => {
     scoped.addHook('preHandler', requireDevice)
 
@@ -167,13 +194,16 @@ export default async function posApiRoutes(app) {
       const device = { id: d.id, kind: d.kind, name: own?.name, short_code: own?.short_code, settings: own?.settings || {} }
       // A kitchen screen gets the kitchen's config (no menus, no PINs). Its
       // own settings count towards the version, so a change made in Till
-      // setup reaches it.
+      // setup reaches it. A kiosk gets its menus, design and languages
+      // (services/kioskSvc.js), no staff and no PINs.
       const config = d.kind === 'kds'
         ? await withTenant(d.tenant_id, async tx => {
           const c = await kdsConfig(tx, d.tenant_id, d.venue_id)
           return { ...c, version: c.version + '.' + sha256(JSON.stringify(device)).slice(0, 8) }
         })
-        : await withTenant(d.tenant_id, tx => tillConfig(tx, d.tenant_id, d.venue_id))
+        : d.kind === 'kiosk'
+          ? await withTenant(d.tenant_id, tx => kioskConfig(tx, d.tenant_id, d.venue_id, device))
+          : await withTenant(d.tenant_id, tx => tillConfig(tx, d.tenant_id, d.venue_id))
       if (req.query.version && req.query.version === config.version) return { unchanged: true, version: config.version }
       return { ...config, device }
     })
@@ -250,6 +280,7 @@ export default async function posApiRoutes(app) {
       const kitchen = {}
       const kinds = new Set()
       let accepted = 0
+      let kioskIds = null
       for (const raw of events) {
         // The till names itself and its venue by its pairing, not by the event.
         const e = { ...raw, venue_id: d.venue_id, device_id: d.id }
@@ -259,6 +290,23 @@ export default async function posApiRoutes(app) {
         // Online orders reach the kitchen from the server only.
         if (KITCHEN_SERVER_EVENTS.includes(e.type)) {
           results.push({ id: e.id, ok: false, error: 'Not allowed from a device', code: 'invalid' })
+          continue
+        }
+        // A kiosk is its own "staff member" (shared/kiosk.js): its events are
+        // its own whatever they say, and only check events (the kiosk rules
+        // in shared/pos/checks.js decide which). Nobody else may act as one.
+        if (d.kind === 'kiosk') {
+          e.staff_id = d.id
+          if (!CHECK_EVENTS.includes(e.type)) {
+            results.push({ id: e.id, ok: false, error: 'A kiosk can\'t do this', code: 'kiosk' })
+            continue
+          }
+        } else if (e.staff_id && kioskIds === null) {
+          kioskIds = new Set((await withTenant(d.tenant_id, tx => tx`
+            SELECT id FROM pos_devices WHERE tenant_id = ${d.tenant_id} AND venue_id = ${d.venue_id} AND kind = 'kiosk'`)).map(r => r.id))
+        }
+        if (d.kind !== 'kiosk' && kioskIds?.has(e.staff_id)) {
+          results.push({ id: e.id, ok: false, error: 'Only the kiosk itself can do this', code: 'kiosk' })
           continue
         }
         const r = await seqr.submit(e)

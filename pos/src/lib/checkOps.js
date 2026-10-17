@@ -2,9 +2,15 @@
 // function builds events; the check rules (shared/pos/checks.js) decide.
 
 import { ulid } from '@shared/pos/ids.js'
-import { priceItem, posTax, promoLines, spread, isActiveLine, lineGross, posChoices } from '@shared/pos/pricing.js'
-import { applyPromotions, venueNow } from '@shared/promotions.js'
-import { dispatch, dispatchMany, getState, currentChecks } from './store.js'
+import { priceItem, posTax, isActiveLine, lineGross } from '@shared/pos/pricing.js'
+import { combosWithItem, stepWithItem } from '@shared/combos.js'
+import { configItem, comboCtx, autoCombosFor, checkOffers } from '@shared/pos/offers.js'
+import { dispatch, dispatchMany, getState, currentChecks, soldOutMap } from './store.js'
+
+// Offers, item choices and combo lookups live in shared/pos/offers.js (the
+// kiosk uses them too).
+export { comboCtx, autoCombosFor }
+export const tillItem = configItem
 
 export const byId = list => Object.fromEntries((list || []).map(x => [x.id, x]))
 
@@ -92,14 +98,6 @@ export function openCheck({ mode, table_id = null, tab_name = null, covers = nul
   return r.ok ? { ok: true, checkId } : r
 }
 
-/** Item with its till choices worked out once. */
-export function tillItem(config, id) {
-  const it = config?.items?.[id]
-  if (!it) return null
-  if (!it.pos_choices) it.pos_choices = posChoices(it, config.groups || {})
-  return it
-}
-
 export function needsChoices(config, item) {
   const it = tillItem(config, item.id)
   if (it.kind === 'combo') return true
@@ -127,7 +125,7 @@ const sameLine = (a, b) => a.item_id === b.item_id && a.status === 'new'
 export function addItem(check, item, selection = {}, opts = {}) {
   const { config } = getState()
   const it = tillItem(config, item.id)
-  const priced = priceItem(it, selection, { itemsById: config.items, groupsById: config.groups || {} })
+  const priced = priceItem(it, selection, comboCtx(config))
   if (!priced.ok) return priced
   const tax = posTax(it, check, config)
   const override = opts.unit_price != null && opts.unit_price !== priced.unit_price
@@ -185,28 +183,9 @@ export function sendCheck(check, heldCourseIds = []) {
 
 // ── Promotions on the till (shared/promotions.js, channel 'pos') ──
 
-/** The offers that apply now, as a promotions.set payload, or null when nothing changed. */
-export function promotionsFor(check, { add = null, remove = null } = {}) {
-  const { config } = getState()
-  const promos = config?.promotions || []
-  if (!promos.length && !(check.promotions || []).length) return null
-  const lines = promoLines(check)
-  const kept = new Set((check.promotions || []).map(p => p.promotion_id))
-  if (add) kept.add(add)
-  if (remove) kept.delete(remove)
-  const chosen = promos.filter(p => p.apply_mode !== 'auto' && kept.has(p.id)).map(p => p.id)
-  const result = lines.length ? applyPromotions(lines, promos, {
-    at: venueNow(config.venue?.timezone || 'Europe/London'), venueId: config.venue?.id, chosen, unlocked: chosen,
-  }) : { applied: [], line_discounts: [], offers: [] }
-  const weights = result.line_discounts
-  const next = result.applied.map(a => {
-    const share = spread(a.discount_pence, weights)
-    const linesMap = {}
-    lines.forEach((l, i) => { if (share[i] > 0) linesMap[l.line_id] = share[i] })
-    return { promotion_id: a.id, name: a.name, lines: linesMap }
-  })
-  const same = JSON.stringify(next) === JSON.stringify((check.promotions || []).map(p => ({ promotion_id: p.promotion_id, name: p.name, lines: p.lines })))
-  return { payload: { promotions: next }, changed: !same, offers: result.offers || [] }
+/** The offers that apply now (automatic combos, then promotions), as a promotions.set payload, or null when nothing changed. */
+export function promotionsFor(check, opts = {}) {
+  return checkOffers(check, getState().config, opts)
 }
 
 /** Bring the check's automatic offers up to date before a bill or payment. */
@@ -215,6 +194,43 @@ export function refreshPromotions(checkId, opts) {
   if (!check || check.status !== 'open') return
   const p = promotionsFor(check, opts)
   if (p && p.changed) dispatch('promotions.set', p.payload, { check_id: checkId })
+}
+
+/**
+ * A line's modifiers back as option picks ({ [groupId]: [{ id, prefix, children }] }),
+ * for starting a combo with a dish already on the check.
+ */
+export function selectionFromModifiers(mods = []) {
+  const out = {}
+  let last = null
+  for (const m of mods) {
+    if ((m.depth || 0) === 0) {
+      last = { id: m.option_id, prefix: m.prefix || null }
+      ;(out[m.group_id] ||= []).push(last)
+    } else if (last) {
+      last.children = last.children || {}
+      ;(last.children[m.group_id] ||= []).push({ id: m.option_id, prefix: m.prefix || null })
+    }
+  }
+  return out
+}
+
+/** Combos (manual or automatic) that offer this line's dish, with where it goes: [{ combo, start }]. */
+export function combosForLine(line, config) {
+  if (!line?.item_id || line.status !== 'new' || (line.combo && line.combo.length) || line.open_item) return []
+  const ctx = { itemsById: config?.items || {}, sectionItems: config?.section_items || {} }
+  const sold = soldOutMap(config)
+  return combosWithItem(line.item_id, Object.values(config?.items || {}).filter(i => i.kind === 'combo' && !sold.has(i.id)), ctx)
+    .map(combo => ({ combo, start: stepWithItem(combo, line.item_id, ctx) }))
+    .filter(x => x.start)
+}
+
+/** The selection a combo starts with when made from a line. */
+export function comboStartFrom(line, start) {
+  return {
+    combo: { [start.step_id]: [{ option_id: start.option_id, item_id: start.item_id, choices: selectionFromModifiers(line.modifiers) }] },
+    choices: {},
+  }
 }
 
 /** Lines grouped by course (in course order) for the check list. */

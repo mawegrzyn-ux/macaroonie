@@ -2,9 +2,9 @@
 //
 // Till setup (/pos, pos_setup module). Per venue: tills and pairing,
 // revenue streams (with the order types each offers), printers and what
-// prints where, kitchen screens (stations, the kitchen flow, pairing), staff
-// PINs, receipts and payments, the Cash Recon link. Company-wide: order
-// types, till roles and courses.
+// prints where, kitchen screens (stations, the kitchen flow, pairing),
+// self-order kiosks, staff PINs, receipts and payments, the Cash Recon link.
+// Company-wide: order types, kiosk designs, till roles and courses.
 // The floor plan has its own page (/pos/floor). docs/POS.md.
 
 import { useSearchParams, Link } from 'react-router-dom'
@@ -18,6 +18,7 @@ import RevenueStreamsSection from '@/components/pos/RevenueStreamsSection'
 import OrderTypesSection from '@/components/pos/OrderTypesSection'
 import PrintersSection from '@/components/pos/PrintersSection'
 import KitchenSection from '@/components/pos/KitchenSection'
+import KiosksSection from '@/components/pos/KiosksSection'
 import StaffSection from '@/components/pos/StaffSection'
 import RolesSection from '@/components/pos/RolesSection'
 import CoursesSection from '@/components/pos/CoursesSection'
@@ -29,6 +30,7 @@ const TABS = [
   { key: 'types', label: 'Order types', render: p => <OrderTypesSection {...p} /> },
   { key: 'printers', label: 'Printers', render: p => <PrintersSection {...p} /> },
   { key: 'kitchen', label: 'Kitchen screens', wide: true, render: p => <KitchenSection {...p} /> },
+  { key: 'kiosks', label: 'Kiosks', render: p => <KiosksSection {...p} /> },
   { key: 'staff', label: 'Staff and PINs', render: p => <StaffSection {...p} /> },
   { key: 'roles', label: 'Till roles', render: p => <RolesSection {...p} /> },
   { key: 'courses', label: 'Courses', render: p => <CoursesSection {...p} /> },

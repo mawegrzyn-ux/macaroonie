@@ -49,6 +49,7 @@ import { randomUUID } from 'node:crypto'
 import { withTenant } from '../../config/db.js'
 import { ToolError, callApi, audit, requireStaffPermission } from '../context.js'
 import { menuSaveBody } from '../../routes/menus.js'
+import { stepRule } from '../../../../shared/combos.js'
 import { pickByName, DateStr, TimeStr, localParts, whenText, zonedInstant } from './util.js'
 
 const Name = z.string().min(1).max(200)
@@ -474,13 +475,26 @@ function dishLine(item, tags, book) {
     (allergens.length ? '; allergens: ' + allergens.join(', ') : '') + (dietary.length ? '; ' + dietary.join(', ') : '')
 }
 
-/** Every dish id still on the menu, for meal deals that point at removed ones. */
+/** A combo's steps in words for get_menu: "Main (Choose 1): Burger, Veggie burger; Dip (Optional, up to 2, more than once): Ketchup +£0.30". */
+function comboText(it, sections) {
+  const names = new Map(sections.flatMap(s => (s.items || []).map(i => [i.id, i.name])))
+  const secs = new Map(sections.map(s => [s.id, s.title]))
+  return (it.combo?.steps || []).map(st => {
+    const opts = (st.options || []).map(o => {
+      const label = o.type === 'item' ? names.get(o.item_id) : o.type === 'section' ? 'any ' + (secs.get(o.section_id) || 'section') : o.label
+      return label ? label + (o.price_pence ? ' +' + money(o.price_pence) : '') : null
+    }).filter(Boolean)
+    return st.name + ' (' + stepRule(st) + (st.repeat ? ', more than once' : '') + (st.when ? ', only with some choices' : '') + '): ' + opts.join(', ')
+  }).join('; ') + (it.combo?.mode === 'auto' ? ' [applied automatically]' : '')
+}
+
+/** Combos that offer any of these dishes or sections (they lose those choices on save). */
 function comboRefs(body, goneIds) {
   const out = []
   for (const s of body.sections) {
     for (const it of s.items) {
-      if (it.kind !== 'combo' || !it.combo?.slots) continue
-      if (it.combo.slots.some(sl => (sl.item_ids || []).some(id => goneIds.has(id)) || (sl.section_ids || []).some(id => goneIds.has(id)))) out.push(it.name)
+      if (it.kind !== 'combo' || !it.combo?.steps) continue
+      if (it.combo.steps.some(st => (st.options || []).some(o => goneIds.has(o.item_id) || goneIds.has(o.section_id)))) out.push(it.name)
     }
   }
   return out
@@ -645,7 +659,7 @@ export const menuTools = [
             const opts = dishOptions(it)
             return {
               name: it.name,
-              ...(it.kind === 'combo' ? { meal_deal: true } : {}),
+              ...(it.kind === 'combo' ? { combo: comboText(it, sections) } : {}),
               price: it.price_pence != null ? money(it.price_pence) : (opts.length ? 'by option' : 'no price'),
               ...(opts.length ? { options: opts } : {}),
               ...(t.allergens.length ? { allergens: t.allergens } : {}),
@@ -985,7 +999,7 @@ export const menuTools = [
         lines: cut(p.gone.map(x => x.it.name + ' (' + x.s.title + ')')),
         ...warn([
           'Gone from the website, online ordering, printed menus and the till.',
-          ...(p.combos.length ? ['Meal deals that offer them: ' + p.combos.join(', ') + '. Change those on the Menus page.'] : []),
+          ...(p.combos.length ? ['Combos that offer them (they lose those choices): ' + p.combos.join(', ') + '. Change those on the Menus page.'] : []),
         ]),
         confirmLabel: 'Remove',
       }
@@ -1055,7 +1069,7 @@ export const menuTools = [
         lines: cut([plural(p.sec.items.length, 'dish', 'dishes') + ' go with it:', ...p.sec.items.map(it => '  ' + it.name)]),
         ...warn([
           'Gone from the website, online ordering, printed menus and the till.',
-          ...(p.combos.length ? ['Meal deals that offer them: ' + p.combos.join(', ') + '.'] : []),
+          ...(p.combos.length ? ['Combos that offer them (they lose those choices): ' + p.combos.join(', ') + '.'] : []),
         ]),
         confirmLabel: 'Remove',
       }

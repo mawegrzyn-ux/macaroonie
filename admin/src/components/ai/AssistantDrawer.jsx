@@ -1,7 +1,7 @@
 // src/components/ai/AssistantDrawer.jsx
 //
-// The AI assistant as a panel on the right, opened from the sidebar's
-// "Ask AI" button on any page (so staff can keep the timeline in view).
+// Pepper (the staff AI assistant) as a panel on the right, opened from the
+// sidebar's "Ask Pepper" button on any page (so staff can keep the timeline in view).
 // The open conversation is remembered per browser (maca_ai_conversation).
 import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -10,6 +10,7 @@ import { format } from 'date-fns'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import ChatView from './ChatView'
+import { ASSISTANT_NAME } from '@shared/assistant.js'
 
 const KEY = 'maca_ai_conversation'
 
@@ -89,7 +90,7 @@ export default function AssistantDrawer({ open, onClose }) {
       <aside className="fixed top-0 right-0 bottom-0 z-50 w-full sm:w-[420px] bg-background border-l shadow-xl flex flex-col">
         <div className="h-14 shrink-0 flex items-center gap-1 px-2 border-b">
           <Sparkles className="w-4 h-4 text-primary ml-2" />
-          <span className="font-semibold text-sm flex-1 ml-1">AI assistant</span>
+          <span className="font-semibold text-sm flex-1 ml-1">{ASSISTANT_NAME}</span>
           <button type="button" onClick={() => setShowHistory(v => !v)}
             className={cn('w-11 h-11 flex items-center justify-center rounded-md hover:bg-accent touch-manipulation', showHistory && 'bg-accent')}
             aria-label="Earlier chats" title="Earlier chats">

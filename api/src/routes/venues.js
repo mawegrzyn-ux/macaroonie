@@ -3,6 +3,7 @@
 import { z } from 'zod'
 import { withTenant } from '../config/db.js'
 import { requireAuth, requirePermission } from '../middleware/auth.js'
+import { requireOwnVenue } from '../middleware/venue.js'
 import { httpError } from '../middleware/error.js'
 
 // Changes need manage on the module they belong to. Reads stay open to every
@@ -47,6 +48,8 @@ export default async function venuesRoutes(app) {
 
   // All routes require auth
   app.addHook('preHandler', requireAuth)
+  // The venue in the URL must be the caller's tenant's (middleware/venue.js).
+  app.addHook('preHandler', requireOwnVenue('id'))
 
   // ── GET /venues ──────────────────────────────────────────
   app.get('/', async (req) => {

@@ -25,6 +25,7 @@ import { checkTotals, isActiveLine, lineGross } from '../../../shared/pos/pricin
 import { dayFigures } from '../../../shared/pos/reports.js'
 import { normalisePermissions, DEFAULT_POS_ROLES } from '../../../shared/pos/permissions.js'
 import { TENDERS } from '../../../shared/pos/checks.js'
+import { kioskStaff } from '../../../shared/kiosk.js'
 import { venueNow } from '../../../shared/promotions.js'
 import { soldOutRows } from './soldOut.js'
 import { loadKitchenConfig } from './kitchenSvc.js'
@@ -146,6 +147,60 @@ async function tillMenus(tx, tenantId, venueId, streams) {
 }
 
 /**
+ * The menus of these revenue streams as a till or kiosk carries them:
+ * { menus: [{ id, name, sections: [{ id, title, ..., item_ids }] }], items: { id: item },
+ *   section_items, dietary }. Sections hidden everywhere stay off. `guest`
+ * (a kiosk, services/kioskSvc.js): sections hidden on the website stay off
+ * too, and dishes carry what guests see (photo, calories, featured).
+ * Tax settings travel with each dish (dish, section, menu), trimmed to this
+ * venue; the till works the rate out per check (shared/tax.js), since the
+ * order type and revenue stream decide it.
+ */
+export async function tillMenuData(tx, tenantId, venueId, streams, { guest = false, allStreams = streams } = {}) {
+  const menus = []
+  const items = {}
+  let dietary = []
+  const streamIds = new Set(allStreams.map(r => r.id))
+  for (const full of await tillMenus(tx, tenantId, venueId, streams)) {
+    const menuTax = taxForVenue(full.tax, venueId, streamIds)
+    dietary = full.dietary_tags || dietary
+    const sections = []
+    for (const s of full.sections || []) {
+      const visibility = s.visibility || 'show'
+      if (visibility === 'hidden' || (guest && visibility !== 'show')) continue
+      const sectionTax = taxForVenue(s.tax, venueId, streamIds)
+      const ids = []
+      for (const it of s.items || []) {
+        ids.push(it.id)
+        if (items[it.id]) continue
+        items[it.id] = {
+          id: it.id, name: it.name, kitchen_name: it.kitchen_name || null, section_id: s.id,
+          price_pence: it.price_pence ?? null, kind: it.kind || 'dish',
+          course_id: it.pos_course_id || s.pos_course_id || null,
+          colour: it.pos_colour || s.pos_colour || null,
+          tax: [taxForVenue(it.tax, venueId, streamIds), sectionTax, menuTax],
+          variants: it.variants || [], variant_groups: it.variant_groups || [],
+          combo: it.combo || null,
+          dietary: it.dietary || [], allergen_levels: it.allergen_levels || {},
+          description: it.description || null,
+          ...(guest ? { image_url: it.image_url || null, calories: it.calories ?? null, is_featured: !!it.is_featured } : {}),
+        }
+      }
+      sections.push({
+        id: s.id, title: s.title, colour: s.pos_colour || null, course_id: s.pos_course_id || null, item_ids: ids,
+        ...(guest ? { subtitle: s.subtitle || null, image_url: s.image_url || null } : {}),
+      })
+    }
+    menus.push({ id: full.id, name: full.name, sections })
+  }
+  // Combos (shared/combos.js) find a section option's dishes through this:
+  // every dish of the section the till knows.
+  const sectionItems = {}
+  for (const m of menus) for (const s of m.sections) sectionItems[s.id] = [...new Set([...(sectionItems[s.id] || []), ...s.item_ids])]
+  return { menus, items, section_items: sectionItems, dietary }
+}
+
+/**
  * Everything a till needs, one snapshot. `version` changes whenever any of
  * it does, so a till only downloads a new one when something changed.
  */
@@ -169,69 +224,18 @@ export async function tillConfig(tx, tenantId, venueId) {
     tx`SELECT id, name, kind, host, port, columns, backup_printer_id, sort_order FROM pos_printers
         WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND is_active ORDER BY sort_order, name`,
     tx`SELECT printer_id, target_kind, target_id FROM pos_print_routes WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`,
-    tx`SELECT g.id, g.name, g.price_mode, g.min_select, g.max_select, g.pos_prefixes,
+    tx`SELECT g.id, g.name, g.price_mode, g.min_select, g.max_select, g.pos_prefixes, g.allow_repeat, g.on_request,
               COALESCE(json_agg(json_build_object('id', o.id, 'label', o.label, 'price_pence', o.price_pence, 'child_group_id', o.child_group_id)
                 ORDER BY o.sort_order, o.label) FILTER (WHERE o.id IS NOT NULL), '[]') AS options
          FROM menu_variant_groups g
          LEFT JOIN menu_variant_options o ON o.group_id = g.id AND o.tenant_id = g.tenant_id
         WHERE g.tenant_id = ${tenantId}
         GROUP BY g.id`,
-    tx`SELECT id, name, short_code, settings FROM pos_devices
+    tx`SELECT id, name, kind, short_code, settings FROM pos_devices
         WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND revoked_at IS NULL`,
   ])
   const staff = await loadTillStaff(tx, tenantId, venueId, { signIn: true })
-
-  // Menus: sections and dishes. Sections hidden everywhere stay off the till.
-  const menus = []
-  const items = {}
-  let dietary = []
-  // Tax settings travel with each dish (dish, section, menu), trimmed to this
-  // venue; the till works the rate out per check (shared/tax.js), since the
-  // order type and revenue stream decide it.
-  const streamIds = new Set(streams.map(r => r.id))
-  for (const full of await tillMenus(tx, tenantId, venueId, streams)) {
-    const menuTax = taxForVenue(full.tax, venueId, streamIds)
-    dietary = full.dietary_tags || dietary
-    const sections = []
-    for (const s of full.sections || []) {
-      if ((s.visibility || 'show') === 'hidden') continue
-      const sectionTax = taxForVenue(s.tax, venueId, streamIds)
-      const ids = []
-      for (const it of s.items || []) {
-        ids.push(it.id)
-        if (items[it.id]) continue
-        items[it.id] = {
-          id: it.id, name: it.name, kitchen_name: it.kitchen_name || null, section_id: s.id,
-          price_pence: it.price_pence ?? null, kind: it.kind || 'dish',
-          course_id: it.pos_course_id || s.pos_course_id || null,
-          colour: it.pos_colour || s.pos_colour || null,
-          tax: [taxForVenue(it.tax, venueId, streamIds), sectionTax, menuTax],
-          variants: it.variants || [], variant_groups: it.variant_groups || [],
-          combo: it.combo || null,
-          dietary: it.dietary || [], allergen_levels: it.allergen_levels || {},
-          description: it.description || null,
-        }
-      }
-      sections.push({ id: s.id, title: s.title, colour: s.pos_colour || null, course_id: s.pos_course_id || null, item_ids: ids })
-    }
-    menus.push({ id: full.id, name: full.name, sections })
-  }
-  // Meal deal slots: each slot's choices are its dishes plus every dish of
-  // its sections that the till knows.
-  const sectionItems = {}
-  for (const m of menus) for (const s of m.sections) sectionItems[s.id] = [...(sectionItems[s.id] || []), ...s.item_ids]
-  for (const it of Object.values(items)) {
-    if (it.kind !== 'combo') continue
-    it.combo_slots = (it.combo?.slots || []).map(slot => {
-      const ids = [...new Set([...(slot.item_ids || []), ...(slot.section_ids || []).flatMap(sid => sectionItems[sid] || [])])]
-        .filter(id => items[id] && items[id].kind !== 'combo')
-      return {
-        id: slot.id, name: slot.name || 'Choose',
-        min: Math.max(0, Number(slot.min ?? 1)), max: Math.max(1, Number(slot.max ?? 1)),
-        options: ids.map(item_id => ({ item_id, upcharge_pence: Math.max(0, Number(slot.upcharges?.[item_id]) || 0) })),
-      }
-    })
-  }
+  const { menus, items, section_items: sectionItems, dietary } = await tillMenuData(tx, tenantId, venueId, streams)
 
   const tz = venue.timezone || 'Europe/London'
   // Dishes sold out at the venue now (services/soldOut.js), with when they
@@ -254,13 +258,16 @@ export async function tillConfig(tx, tenantId, venueId) {
     staff,
     menus,
     items,
+    section_items: sectionItems,
     groups: Object.fromEntries(groups.map(g => [g.id, g])),
     dietary_tags: (dietary || []).map(t => ({ code: t.code, label: t.label, kind: t.kind, colour: t.colour, glyph: t.glyph })),
     printers,
     routes,
     promotions,
     sold_out: soldOut,
-    devices: devices.map(d => ({ id: d.id, name: d.name, short_code: d.short_code, settings: d.settings || {} })),
+    // A kiosk's orders name the kiosk as their server (shared/kiosk.js), so
+    // the till shows its name from here.
+    devices: devices.map(d => ({ id: d.id, name: d.name, kind: d.kind, short_code: d.short_code, settings: d.settings || {} })),
   }
   config.version = sha256(JSON.stringify(config)).slice(0, 16)
   return config
@@ -276,7 +283,7 @@ async function printConfig(tx, tenantId, venueId) {
     tx`SELECT id, label FROM tables WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`,
     tx`SELECT id, name FROM cash_staff WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`,
     tx`SELECT id, name, sort_order FROM pos_courses WHERE tenant_id = ${tenantId}`,
-    tx`SELECT id, settings FROM pos_devices WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`,
+    tx`SELECT id, name, kind, settings FROM pos_devices WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`,
     tx`SELECT id, name FROM order_types WHERE tenant_id = ${tenantId}`,
   ])
   const by = (rows, f = r => r) => Object.fromEntries(rows.map(r => [r.id, f(r)]))
@@ -286,7 +293,8 @@ async function printConfig(tx, tenantId, venueId) {
     printers: by(printers),
     routes,
     tables: by(tables),
-    staff: by(staff),
+    // A kiosk order's server is the kiosk.
+    staff: { ...by(devices.filter(d => d.kind === 'kiosk'), d => ({ name: d.name })), ...by(staff) },
     courses: by(courses),
     order_types: by(orderTypes),
     devices: by(devices, d => ({ receipt_printer_id: d.settings?.receipt_printer_id || null })),
@@ -392,10 +400,15 @@ export function sequencer(tenantId, venueId, { deviceId = null } = {}) {
     async context() {
       if (ctxCache) return ctxCache
       const staff = await loadTillStaff(tx, tenantId, venueId)
+      // Self-order kiosks are known by their device id, with the kiosk rules
+      // (shared/pos/checks.js) and no permissions.
+      const kiosks = await tx`
+        SELECT id, name FROM pos_devices
+         WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND kind = 'kiosk' AND revoked_at IS NULL`
       const print = await printConfig(tx, tenantId, venueId)
       const settings = print.settings
       ctxCache = {
-        staffById: Object.fromEntries(staff.map(s => [s.id, s])),
+        staffById: Object.fromEntries([...kiosks.map(kioskStaff), ...staff].map(s => [s.id, s])),
         print, settings, timezone: print.timezone,
         kitchen: await loadKitchenConfig(tx, tenantId, venueId),
       }

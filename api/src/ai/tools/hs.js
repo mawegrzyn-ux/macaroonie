@@ -143,6 +143,8 @@ function tempCard(kind, input, plan) {
         (input.corrective_action ? '' : ' Add what was done about it (a corrective action).')],
     } : {}),
     confirmLabel: 'Log reading',
+    // The day and check time on the card, not the check due when Confirm is pressed.
+    pin: { date, ...(time ? { check_time: time.id } : {}) },
   }
 }
 
@@ -406,6 +408,7 @@ export const hsTools = [
           warnings: ['A core temperature under 75°C fails.' + (input.corrective_action ? '' : ' Add what was done about it (a corrective action).')],
         } : {}),
         confirmLabel: 'Log check',
+        pin: { date: p.date, ...(p.session ? { session: p.session.id } : {}) },
       }
     },
     async run(ctx, input) {
@@ -478,6 +481,7 @@ export const hsTools = [
           warnings: ['Add what was done about it (a corrective action).'],
         } : {}),
         confirmLabel: 'Log delivery',
+        pin: { date },
       }
     },
     async run(ctx, input) {
@@ -628,6 +632,7 @@ export const hsTools = [
             : plan.next.size + ' of ' + c.items.length + ' tasks ticked after this',
         ],
         confirmLabel: verb,
+        pin: { date: c.date },
       }
     },
     async run(ctx, input) {

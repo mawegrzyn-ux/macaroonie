@@ -21,6 +21,7 @@
 import { z }          from 'zod'
 import { withTenant } from '../config/db.js'
 import { requireAuth, requirePermission } from '../middleware/auth.js'
+import { requireOwnVenue } from '../middleware/venue.js'
 import { httpError }  from '../middleware/error.js'
 import { HS_KINDS, generateHsData, clearGenerated } from '../services/hsTestDataSvc.js'
 import { localParts } from '../services/orderSvc.js'
@@ -96,6 +97,8 @@ function shuffled(arr) {
 
 export default async function testDataRoutes(app) {
   app.addHook('preHandler', requireAuth)
+  // The venue in the URL must be the caller's tenant's (middleware/venue.js).
+  app.addHook('preHandler', requireOwnVenue('venueId'))
 
   // ── POST /:venueId/test-data/seed ──────────────────────────
   app.post('/:venueId/test-data/seed', { preHandler: requirePermission('test_data', 'manage') }, async (req) => {

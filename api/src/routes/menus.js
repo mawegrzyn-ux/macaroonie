@@ -34,7 +34,11 @@ import {
 import { FONT_OPTIONS } from '../../../shared/fonts.js'
 import { ALLERGEN_LEVELS, allergenKey, menuTags, noticeOf } from '../../../shared/menuTags.js'
 import { cleanTax } from '../../../shared/tax.js'
+import { comboMenuPrice } from '../../../shared/orderPricing.js'
 import { taxLookups, checkTaxSetting } from '../services/taxSvc.js'
+import { translationSources, saveTranslations, aiTranslate, checkLang, AI_BATCH } from '../services/translationSvc.js'
+import { chatConfigured } from '../ai/apiKey.js'
+import { KIOSK_LANGUAGES, ALLERGEN_NAMES, TK, normaliseDesign, uiText } from '../../../shared/kiosk.js'
 
 // Changes need Menus manage. Reads stay open to every member of the tenant:
 // the website builder, ordering setup, Deliveroo and dashboards read menus.
@@ -60,18 +64,39 @@ const ItemGroupAttach = z.object({
   })).default([]),
 })
 
-// Till meal deals (migration 156): each slot is a choice the guest makes
-// (Main, Side, Drink) from its dishes and its sections' dishes.
-const ComboSlot = z.object({
-  id:          z.string().uuid(),
-  name:        z.string().min(1).max(60),
-  min:         z.number().int().min(0).max(10).default(1),
-  max:         z.number().int().min(1).max(10).default(1),
-  item_ids:    z.array(z.string().uuid()).max(200).default([]),
-  section_ids: z.array(z.string().uuid()).max(50).default([]),
-  upcharges:   z.record(z.string().uuid(), z.number().int().min(0).max(100000)).default({}),
+// Combos (migration 171, shared/combos.js): steps the guest goes through
+// (Main, Side, Drink), each a choice of this menu's dishes, whole sections
+// or choices typed in for the combo, with an extra charge per choice.
+const ComboOption = z.object({
+  id:           z.string().uuid(),
+  type:         z.enum(['item', 'section', 'custom']),
+  item_id:      z.string().uuid().nullable().optional(),
+  section_id:   z.string().uuid().nullable().optional(),
+  label:        z.string().max(80).nullable().optional(),
+  kitchen_name: z.string().max(60).nullable().optional(),
+  // Kiosks (migration 172): a typed-in choice's photo and words (a dish shows its own).
+  image_url:    z.string().max(2000).nullable().optional(),
+  description:  z.string().max(300).nullable().optional(),
+  price_pence:  z.number().int().min(0).max(100000).default(0),
+}).refine(o => (o.type === 'item' ? !!o.item_id : o.type === 'section' ? !!o.section_id : !!(o.label || '').trim()),
+  { message: 'A combo choice needs a dish, a section or a name' })
+const ComboStep = z.object({
+  id:      z.string().uuid(),
+  name:    z.string().min(1).max(60),
+  min:     z.number().int().min(0).max(20).default(1),
+  max:     z.number().int().min(1).max(20).default(1),
+  repeat:  z.boolean().default(false),
+  auto:    z.boolean().default(true),
+  ask:     z.enum(['always', 'button']).default('always'),
+  when:    z.object({ step_id: z.string().uuid(), option_ids: z.array(z.string().uuid()).max(100).default([]) }).nullable().default(null),
+  // Kiosks (migration 172): how the step's choices show; null = the design's default.
+  display: z.enum(['grid', 'list', 'slider', 'wheel']).nullable().optional(),
+  options: z.array(ComboOption).max(200).default([]),
 })
-const ComboBody = z.object({ slots: z.array(ComboSlot).max(10).default([]) })
+const ComboBody = z.object({
+  mode:  z.enum(['manual', 'auto']).default('manual'),
+  steps: z.array(ComboStep).max(12).default([]),
+})
 
 // A tax setting (migration 170, shared/tax.js): the setting's rate and
 // exceptions for order types, locations or revenue streams. Ids are checked
@@ -273,9 +298,16 @@ const VariantOptionBody = z.object({
   id:          z.string().uuid().optional(),
   label:       z.string().min(1).max(60),
   price_pence: z.number().int().min(0).default(0),
-  sort_order:  z.number().int().default(0),
+  // Left out: the option's place in the list sent (a default of 0 made every
+  // option 0, so a new group's options came back sorted by name).
+  sort_order:  z.number().int().optional(),
   // Till (migration 156): choosing this option asks another group (Steak -> Cooking).
   child_group_id: z.string().uuid().nullable().optional(),
+  // Kiosks (migration 172): a photo, a line of words and a level (0-5) on
+  // the group's scale (heat: No spice ... Very spicy).
+  image_url:      z.string().max(2000).nullable().optional(),
+  description:    z.string().max(300).nullable().optional(),
+  level:          z.number().int().min(0).max(5).nullable().optional(),
 })
 
 const VariantGroupBody = z.object({
@@ -288,6 +320,15 @@ const VariantGroupBody = z.object({
   max_select: z.number().int().min(1).max(20).default(1),
   // Till (migration 156): offer No / Light / Extra / On the side per option.
   pos_prefixes: z.boolean().default(false),
+  // Migration 171: the same option more than once (2 x Extra cheese); an
+  // optional group waits behind a button instead of opening by itself.
+  allow_repeat: z.boolean().default(false),
+  on_request:   z.boolean().default(false),
+  // Kiosks (migration 172): how the options show (null = the design's
+  // default) and the words at the two ends of a scale (options' level).
+  kiosk_display: z.enum(['grid', 'list', 'slider', 'wheel']).nullable().optional(),
+  scale_low:     z.string().trim().max(40).nullable().optional(),
+  scale_high:    z.string().trim().max(40).nullable().optional(),
   options:    z.array(VariantOptionBody).default([]),
 })
 
@@ -306,7 +347,7 @@ export async function attachVariantGroupsToItems(tx, items) {
   if (!ids.length) return items
   const rows = await tx`
     SELECT ig.item_id, ig.group_id, ig.sort_order AS group_sort,
-           g.name AS group_name, g.price_mode, g.min_select, g.max_select,
+           g.name AS group_name, g.price_mode, g.min_select, g.max_select, g.allow_repeat, g.on_request,
            o.id AS option_id, o.label, o.price_pence AS default_pence,
            o.sort_order AS option_sort,
            p.price_pence AS override_pence
@@ -325,7 +366,8 @@ export async function attachVariantGroupsToItems(tx, items) {
     if (!g) {
       g = {
         group_id: r.group_id, name: r.group_name, sort_order: r.group_sort,
-        price_mode: r.price_mode, min_select: r.min_select, max_select: r.max_select, options: [],
+        price_mode: r.price_mode, min_select: r.min_select, max_select: r.max_select,
+        allow_repeat: r.allow_repeat, on_request: r.on_request, options: [],
       }
       list.push(g)
     }
@@ -351,6 +393,7 @@ async function loadVariantGroups(tx, tenantId) {
              'id', o.id, 'label', o.label,
              'price_pence', o.price_pence, 'sort_order', o.sort_order,
              'child_group_id', o.child_group_id
+             , 'image_url', o.image_url, 'description', o.description, 'level', o.level
            ) ORDER BY o.sort_order, o.label) FILTER (WHERE o.id IS NOT NULL), '[]'::json) AS options
       FROM menu_variant_groups g
       LEFT JOIN menu_variant_options o ON o.group_id = g.id
@@ -607,7 +650,36 @@ function checkMenuTax(body, lookups) {
   }
 }
 
+/**
+ * A combo trimmed to what this menu has: choices pointing at a dish or
+ * section that isn't on it (or at a combo, or at the combo itself) are
+ * dropped, and so are conditions on steps or choices that are gone. The
+ * Menus page warns about a step left with no choices.
+ */
+function cleanCombo(combo, selfId, itemKinds, sectionIds) {
+  if (!combo) return null
+  const steps = []
+  for (const st of combo.steps || []) {
+    const options = (st.options || []).filter(o =>
+      o.type === 'custom' ? !!(o.label || '').trim()
+        : o.type === 'item' ? (o.item_id !== selfId && itemKinds.get(o.item_id) === 'dish')
+          : sectionIds.has(o.section_id))
+    const ref = st.when && steps.find(x => x.id === st.when.step_id)
+    const when = ref ? { step_id: ref.id, option_ids: (st.when.option_ids || []).filter(id => ref.options.some(o => o.id === id)) } : null
+    steps.push({ ...st, min: Math.min(st.min, st.max), ask: st.min === 0 ? st.ask : 'always', when, options })
+  }
+  return { mode: combo.mode === 'auto' ? 'auto' : 'manual', steps }
+}
+
 async function upsertMenuTree(tx, tenantId, menuId, body) {
+  // Combos may only offer this menu's own dishes and sections.
+  const itemKinds = new Map((body.sections || []).flatMap(s => (s.items || []).filter(i => i.id).map(i => [i.id, i.kind === 'combo' ? 'combo' : 'dish'])))
+  const sectionIds = new Set((body.sections || []).map(s => s.id).filter(Boolean))
+  for (const s of body.sections || []) {
+    for (const it of s.items || []) {
+      if (it.kind === 'combo') it.combo = cleanCombo(it.combo || { steps: [] }, it.id, itemKinds, sectionIds)
+    }
+  }
   // Resolve dietary codes → tags ONCE. Codes referenced but missing are
   // silently dropped (operator can add them via the dietary tag editor).
   // A standard allergen's key also resolves (the seeds say 'nuts' for a
@@ -651,7 +723,7 @@ async function upsertMenuTree(tx, tenantId, menuId, body) {
                 ${item.is_orderable ?? true}, ${tx.json(cleanTax(item.tax))},
                 ${item.min_order_qty > 1 ? item.min_order_qty : null},
                 ${item.kind === 'combo' ? 'combo' : 'dish'}, ${item.kitchen_name || null}, ${item.pos_course_id ?? null},
-                ${item.pos_colour ?? null}, ${item.kind === 'combo' && item.combo ? tx.json(item.combo) : null})
+                ${item.pos_colour ?? null}, ${item.kind === 'combo' ? tx.json(item.combo || { mode: 'manual', steps: [] }) : null})
         RETURNING id
       `
       // Variants (ad-hoc, per-item)
@@ -698,6 +770,28 @@ async function upsertMenuTree(tx, tenantId, menuId, body) {
       VALUES (${c.id ?? randomUUID()}, ${menuId}, ${tenantId}, ${c.kind || 'custom'},
               ${c.title}, ${c.body ?? null}, ${c.sort_order ?? ci})
     `
+  }
+}
+
+/**
+ * A combo pointed at other rows (a menu copy): dishes and sections through
+ * `map` (old id -> new id), steps and choices with fresh ids, conditions
+ * following them.
+ */
+export function remapCombo(combo, map) {
+  const ids = {}
+  const fresh = id => (ids[id] ||= randomUUID())
+  return {
+    mode: combo.mode || 'manual',
+    steps: (combo.steps || []).map(st => ({
+      ...st, id: fresh(st.id),
+      when: st.when ? { step_id: fresh(st.when.step_id), option_ids: (st.when.option_ids || []).map(fresh) } : null,
+      options: (st.options || []).map(o => ({
+        ...o, id: fresh(o.id),
+        item_id: o.item_id ? (map[o.item_id] || o.item_id) : null,
+        section_id: o.section_id ? (map[o.section_id] || o.section_id) : null,
+      })),
+    })),
   }
 }
 
@@ -894,7 +988,7 @@ export default async function menusRoutes(app) {
         orientation: layout.orientation,
       })
     }
-    return reply.view('menu_print.eta', { menu: printed, key })
+    return reply.view('menu_print.eta', { menu: printed, key, comboMenuPrice })
   })
 
   // ── Authenticated admin routes — scoped so addHook doesn't ──
@@ -1170,16 +1264,10 @@ export default async function menusRoutes(app) {
       }))
       const callouts = body.callouts.map(c => ({ ...c, id: (newId[c.id] = randomUUID()) }))
 
-      // Meal deals point at the copy's own dishes and sections.
+      // Combos point at the copy's own dishes and sections.
       for (const sec of sections) {
         for (const it of sec.items) {
-          if (!it.combo?.slots) continue
-          it.combo = { slots: it.combo.slots.map(sl => ({
-            ...sl, id: randomUUID(),
-            item_ids: (sl.item_ids || []).map(x => newId[x] || x),
-            section_ids: (sl.section_ids || []).map(x => newId[x] || x),
-            upcharges: Object.fromEntries(Object.entries(sl.upcharges || {}).map(([k, v]) => [newId[k] || k, v])),
-          })) }
+          if (it.combo) it.combo = remapCombo(it.combo, newId)
         }
       }
 
@@ -1453,17 +1541,21 @@ export default async function menusRoutes(app) {
     const body = VariantGroupBody.parse(req.body)
     const row = await withTenant(req.tenantId, async tx => {
       const [g] = await tx`
-        INSERT INTO menu_variant_groups (tenant_id, name, sort_order, price_mode, min_select, max_select, pos_prefixes)
+        INSERT INTO menu_variant_groups (tenant_id, name, sort_order, price_mode, min_select, max_select, pos_prefixes, allow_repeat, on_request,
+                                         kiosk_display, scale_low, scale_high)
         VALUES (${req.tenantId}, ${body.name}, ${body.sort_order}, ${body.price_mode},
-                ${Math.min(body.min_select, body.max_select)}, ${body.max_select}, ${body.pos_prefixes})
+                ${Math.min(body.min_select, body.max_select)}, ${body.max_select}, ${body.pos_prefixes},
+                ${body.allow_repeat}, ${body.on_request},
+                ${body.kiosk_display ?? null}, ${body.scale_low || null}, ${body.scale_high || null})
         RETURNING *
       `
       const options = []
       for (const [i, o] of (body.options || []).entries()) {
         const [opt] = await tx`
-          INSERT INTO menu_variant_options (group_id, tenant_id, label, price_pence, sort_order, child_group_id)
+          INSERT INTO menu_variant_options (group_id, tenant_id, label, price_pence, sort_order, child_group_id, image_url, description, level)
           VALUES (${g.id}, ${req.tenantId}, ${o.label}, ${o.price_pence}, ${o.sort_order ?? i},
-                  ${await childGroup(tx, req.tenantId, o.child_group_id, g.id)})
+                  ${await childGroup(tx, req.tenantId, o.child_group_id, g.id)},
+                  ${o.image_url || null}, ${o.description || null}, ${o.level ?? null})
           RETURNING *
         `
         options.push(opt)
@@ -1482,6 +1574,8 @@ export default async function menusRoutes(app) {
                price_mode = ${body.price_mode},
                min_select = ${Math.min(body.min_select, body.max_select)}, max_select = ${body.max_select},
                pos_prefixes = ${body.pos_prefixes},
+               allow_repeat = ${body.allow_repeat}, on_request = ${body.on_request},
+               kiosk_display = ${body.kiosk_display ?? null}, scale_low = ${body.scale_low || null}, scale_high = ${body.scale_high || null},
                updated_at = now()
          WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
          RETURNING *
@@ -1495,16 +1589,18 @@ export default async function menusRoutes(app) {
           const [opt] = await tx`
             UPDATE menu_variant_options
                SET label = ${o.label}, price_pence = ${o.price_pence}, sort_order = ${i},
-                   child_group_id = ${await childGroup(tx, req.tenantId, o.child_group_id, g.id)}
+                   child_group_id = ${await childGroup(tx, req.tenantId, o.child_group_id, g.id)},
+                   image_url = ${o.image_url || null}, description = ${o.description || null}, level = ${o.level ?? null}
              WHERE id = ${o.id} AND group_id = ${g.id} AND tenant_id = ${req.tenantId}
              RETURNING *
           `
           if (opt) { keepIds.push(opt.id); options.push(opt) }
         } else {
           const [opt] = await tx`
-            INSERT INTO menu_variant_options (group_id, tenant_id, label, price_pence, sort_order, child_group_id)
+            INSERT INTO menu_variant_options (group_id, tenant_id, label, price_pence, sort_order, child_group_id, image_url, description, level)
             VALUES (${g.id}, ${req.tenantId}, ${o.label}, ${o.price_pence}, ${i},
-                    ${await childGroup(tx, req.tenantId, o.child_group_id, g.id)})
+                    ${await childGroup(tx, req.tenantId, o.child_group_id, g.id)},
+                    ${o.image_url || null}, ${o.description || null}, ${o.level ?? null})
             RETURNING *
           `
           keepIds.push(opt.id)
@@ -1531,6 +1627,83 @@ export default async function menusRoutes(app) {
     `)
     if (!row) throw httpError(404, 'Variant group not found')
     return { ok: true }
+  })
+
+  // ════════════════════════════════════════════════════════════
+  //   TRANSLATIONS — the menu's words in other languages for kiosks
+  //   (migration 172, services/translationSvc.js, shared/kiosk.js TK)
+  // ════════════════════════════════════════════════════════════
+
+  // Every word a kiosk can show, the language's translations, and whether
+  // Claude can suggest the missing ones. builtin: the words a kiosk already
+  // has in this language without a translation (its own words, the 14
+  // allergens' names), shown on the page as hints. source: the language the
+  // menu is written in (the first kiosk design's; English with none). No
+  // lang: the first language a kiosk offers besides the menu's own, else the
+  // first other language.
+  app.get('/translations', { preHandler: requirePermission('menus', 'view') }, async (req) => {
+    return withTenant(req.tenantId, async tx => {
+      const designs = await tx`SELECT settings FROM kiosk_designs WHERE tenant_id = ${req.tenantId} ORDER BY created_at`
+      const normal = designs.map(d => normaliseDesign(d.settings))
+      const source = normal[0]?.languages.source || 'en'
+      const used = new Set(normal.flatMap(d => d.languages.enabled))
+      const others = KIOSK_LANGUAGES.map(l => l.code).filter(c => c !== source)
+      const lang = req.query.lang ? checkLang(String(req.query.lang)) : (others.find(c => used.has(c)) || others[0])
+      const [sources, rows, standard] = await Promise.all([
+        translationSources(tx, req.tenantId),
+        tx`SELECT key, text, updated_by, updated_at FROM menu_translations WHERE tenant_id = ${req.tenantId} AND lang = ${lang}`,
+        tx`SELECT code, standard_key FROM menu_dietary_tags WHERE tenant_id = ${req.tenantId} AND standard_key IS NOT NULL`,
+      ])
+      const builtin = {}
+      for (const s of sources) {
+        if (s.key.startsWith('ui:')) builtin[s.key] = uiText(lang, s.key.slice(3))
+      }
+      for (const t of standard) {
+        const name = ALLERGEN_NAMES[lang]?.[t.standard_key]
+        if (name) builtin[TK.tag(t.code)] = name
+      }
+      return {
+        lang,
+        source,
+        designs: designs.length,
+        languages: KIOSK_LANGUAGES.map(l => ({ ...l, on_a_kiosk: used.has(l.code) })),
+        sources,
+        texts: Object.fromEntries(rows.map(r => [r.key, r.text])),
+        builtin,
+        ai: await chatConfigured(),
+      }
+    })
+  })
+
+  app.put('/translations', { preHandler: PERM.manage }, async (req) => {
+    const body = z.object({
+      lang:  z.string().regex(/^[a-z]{2}$/),
+      texts: z.record(z.string().max(200), z.string().max(2000)),
+    }).refine(b => Object.keys(b.texts).length <= 5000, { message: 'Too many words in one save' }).parse(req.body)
+    return withTenant(req.tenantId, tx => saveTranslations(tx, req.tenantId, body.lang, body.texts, req.user?.email ?? null))
+  })
+
+  // Claude's suggestions for words without a translation (or the keys given),
+  // AI_BATCH at a time. Nothing is saved: the page shows them to check first.
+  app.post('/translations/ai', { preHandler: PERM.manage }, async (req) => {
+    const body = z.object({
+      lang:   z.string().regex(/^[a-z]{2}$/),
+      source: z.string().regex(/^[a-z]{2}$/).default('en'),
+      keys:   z.array(z.string().max(200)).max(1000).optional(),
+      skip:   z.array(z.string().max(200)).max(5000).default([]),
+    }).parse(req.body)
+    checkLang(body.lang)
+    const { todo } = await withTenant(req.tenantId, async tx => {
+      const sources = await translationSources(tx, req.tenantId)
+      const have = new Set((await tx`SELECT key FROM menu_translations WHERE tenant_id = ${req.tenantId} AND lang = ${body.lang}`).map(r => r.key))
+      const skip = new Set(body.skip)
+      const wanted = body.keys ? new Set(body.keys) : null
+      // Built-in kiosk words come in every language already.
+      return { todo: sources.filter(s => (wanted ? wanted.has(s.key) : !have.has(s.key) && !s.key.startsWith('ui:')) && !skip.has(s.key)) }
+    })
+    const batch = todo.slice(0, AI_BATCH)
+    const texts = await aiTranslate(req.tenantId, { lang: body.lang, source: body.source, items: batch })
+    return { texts, left: Math.max(0, todo.length - batch.length) }
   })
 
   // ════════════════════════════════════════════════════════════

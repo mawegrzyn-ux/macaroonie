@@ -37,7 +37,8 @@
 
 import { FONT_WEIGHTS, FONT_OPTIONS } from './fonts.js'
 import { allergenKey, isRemovable, menuTags } from './menuTags.js'
-import { itemChoices, variantRules, fromPrice } from './orderPricing.js'
+import { itemChoices, variantRules, fromPrice, comboMenuPrice } from './orderPricing.js'
+import { comboGuide, menuCtx } from './combos.js'
 
 // ── Constants ───────────────────────────────────────────────
 
@@ -155,6 +156,7 @@ export const BLOCK_DEFAULTS = {
       source: 'section', menu_id: null, section_id: null, item_ids: [], show_title: true, title: '',
       columns: 1, show_desc: true, show_cal: false, show_tags: true, show_options: true, leaders: false,
       sold_out: 'mark', title_size: 56, name_size: 36, price_size: 36, desc_size: 22, gap: 18,
+      combo_view: 'menu',
     },
   },
   dish: {
@@ -162,6 +164,7 @@ export const BLOCK_DEFAULTS = {
     opts: {
       menu_id: null, item_id: null, layout: 'stack', show_image: true, image_share: 60, show_desc: true,
       show_tags: true, show_price: true, sold_out: 'mark', name_size: 56, price_size: 64, desc_size: 26, align: 'left',
+      combo_view: 'menu',
     },
   },
   price: { w: 0.22, h: 0.1, opts: { menu_id: null, item_id: null, option: '', size: 80, font: 'heading', weight: 700, align: 'center', valign: 'middle', show_name: false, from_text: 'from', sold_out: 'mark' } },
@@ -431,6 +434,12 @@ function dishOptions(item, menu) {
 
 /** Price text for a dish: its price, "from £x" when it has options, '' when none. */
 export function dishPriceText(item, menu, board, { option = '', fromText = 'from' } = {}) {
+  // A combo (shared/combos.js): its cheapest price, "from" when its choices can cost more.
+  if (item.kind === 'combo') {
+    const c = comboMenuPrice(item, menu)
+    if (c.pence == null) return ''
+    return (c.from && fromText ? fromText + ' ' : '') + formatPrice(c.pence, board)
+  }
   const choices = dishOptions(item, menu)
   if (option) {
     for (const c of choices) {
@@ -656,10 +665,22 @@ function soldOutHtml(ctx) {
   return '<span class="sl-sold">' + esc(ctx.board.sold_out_text || 'Sold out') + '</span>'
 }
 
+// A combo's steps, numbered like a how-to: "1 Choose your main: Burger,
+// Veggie burger (+£1.00)". Shown when a block's combo_view is 'steps'.
+function comboStepsHtml(it, menu, board) {
+  const guide = comboGuide(it, menuCtx(menu))
+  if (!guide.length) return ''
+  return '<ol class="sl-steps">' + guide.map((g, i) => '<li class="sl-step"><span class="sl-step-n">' + (i + 1) + '</span><span class="sl-step-body">' +
+    '<span class="sl-step-name">' + esc(g.name) + '</span> <span class="sl-step-rule">' + esc(g.rule + (g.when ? ' · ' + g.when : '')) + '</span>' +
+    '<span class="sl-step-opts">' + g.options.map(op => esc(op.label) + (op.price_pence ? ' <span class="sl-step-up">+' + esc(formatPrice(op.price_pence, board)) + '</span>' : '')).join(' · ') + '</span>' +
+    '</span></li>').join('') + '</ol>'
+}
+
 function menuItemHtml(it, o, ctx) {
   const menu = ctx.menuOfItem[it.id]
   const sold = ctx.soldOut.has(it.id)
-  const withOptions = o.show_options !== false && hasBaseOptions(it, menu)
+  const steps = it.kind === 'combo' && o.combo_view === 'steps'
+  const withOptions = it.kind !== 'combo' && o.show_options !== false && hasBaseOptions(it, menu)
   const price = sold ? soldOutHtml(ctx) : withOptions ? '' : esc(dishPriceText(it, menu, ctx.board))
   let h = '<div class="sl-item' + (sold ? ' is-sold' : '') + '"><div class="sl-row"><span class="sl-name">' + esc(it.name) +
     (o.show_tags !== false ? tagsHtml(it, ctx) : '') + '</span>'
@@ -668,6 +689,7 @@ function menuItemHtml(it, o, ctx) {
   if (o.show_desc !== false && it.description) h += '<div class="sl-desc">' + esc(it.description) + '</div>'
   if (o.show_cal && it.calories != null) h += '<div class="sl-cal">' + esc(it.calories) + ' kcal</div>'
   if (withOptions && !sold) h += optionsHtml(it, menu, ctx.board)
+  if (steps && !sold) h += comboStepsHtml(it, menu, ctx.board)
   return h + '</div>'
 }
 
@@ -767,6 +789,7 @@ export function renderBlockInner(block, ctx) {
       h += '<div class="sl-dish-body"><div class="sl-dish-name">' + esc(it.name) + (o.show_tags !== false ? tagsHtml(it, ctx) : '') + '</div>'
       if (o.show_desc !== false && it.description) h += '<div class="sl-desc">' + esc(it.description) + '</div>'
       if (o.show_price !== false) h += '<div class="sl-dish-price">' + (sold ? soldOutHtml(ctx) : esc(dishPriceText(it, menu, board))) + '</div>'
+      if (it.kind === 'combo' && o.combo_view === 'steps' && !sold) h += comboStepsHtml(it, menu, board)
       return h + '</div></div>'
     }
     case 'price': {
@@ -1045,6 +1068,14 @@ export const SCREEN_LAYOUT_CSS = `
 .sl-lead { flex: 1; border-bottom: 3px dotted currentColor; opacity: 0.35; transform: translateY(-0.3em); min-width: 24px; }
 .sl-price { font-family: var(--sl-heading); font-size: var(--p); font-weight: 700; color: var(--cp, var(--sl-accent)); white-space: nowrap; }
 .sl-desc { font-size: var(--d); color: var(--cd, var(--sl-muted)); line-height: 1.3; margin-top: 4px; }
+.sl-steps { list-style: none; margin: 8px 0 0; padding: 0; font-size: var(--d); }
+.sl-step { display: flex; gap: .6em; align-items: flex-start; margin-top: .45em; break-inside: avoid; }
+.sl-step-n { flex: none; width: 1.6em; height: 1.6em; border-radius: 50%; border: 2px solid var(--cp, var(--sl-accent)); color: var(--cp, var(--sl-accent)); font-weight: 700; display: inline-flex; align-items: center; justify-content: center; line-height: 1; }
+.sl-step-body { min-width: 0; }
+.sl-step-name { font-weight: 700; color: var(--cn, var(--sl-text)); }
+.sl-step-rule { color: var(--cd, var(--sl-muted)); font-size: .85em; }
+.sl-step-opts { display: block; color: var(--cd, var(--sl-muted)); line-height: 1.3; }
+.sl-step-up { color: var(--cp, var(--sl-accent)); white-space: nowrap; }
 .sl-cal { font-size: calc(var(--d) * 0.85); color: var(--sl-muted); margin-top: 2px; }
 .sl-opts { font-size: calc(var(--n) * 0.7); margin-top: 4px; color: var(--cn, var(--sl-text)); }
 .sl-opt-name { color: var(--sl-muted); }

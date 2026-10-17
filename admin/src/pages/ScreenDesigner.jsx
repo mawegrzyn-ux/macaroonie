@@ -812,6 +812,10 @@ function BlockPanel({ block, board, data, canManage, onUpdate, onOpts, onDuplica
             <Check label="Options with their prices" checked={o.show_options !== false} onChange={v => onOpts({ show_options: v })} />
             <Check label="Dotted line to the price" checked={!!o.leaders} onChange={v => onOpts({ leaders: v })} />
             <div>
+              <p className="text-[11px] text-muted-foreground mb-0.5">Combos</p>
+              <Seg value={o.combo_view === 'steps' ? 'steps' : 'menu'} options={[['menu', 'Like the menu'], ['steps', 'How to order (steps)']]} onChange={v => onOpts({ combo_view: v })} />
+            </div>
+            <div>
               <p className="text-[11px] text-muted-foreground mb-0.5">Columns</p>
               <Seg value={Number(o.columns) || 1} options={[[1, '1'], [2, '2'], [3, '3'], [4, '4']]} onChange={v => onOpts({ columns: v })} />
             </div>
@@ -854,6 +858,12 @@ function BlockPanel({ block, board, data, canManage, onUpdate, onOpts, onDuplica
             <Check label="Description" checked={o.show_desc !== false} onChange={v => onOpts({ show_desc: v })} />
             <Check label="Allergen and diet tags" checked={o.show_tags !== false} onChange={v => onOpts({ show_tags: v })} />
             <Check label="Price" checked={o.show_price !== false} onChange={v => onOpts({ show_price: v })} />
+            {menu && (menu.sections || []).some(sec => (sec.items || []).some(i => i.id === o.item_id && i.kind === 'combo')) && (
+              <div>
+                <p className="text-[11px] text-muted-foreground mb-0.5">This combo</p>
+                <Seg value={o.combo_view === 'steps' ? 'steps' : 'menu'} options={[['menu', 'Like the menu'], ['steps', 'How to order (steps)']]} onChange={v => onOpts({ combo_view: v })} />
+              </div>
+            )}
             <div>
               <p className="text-[11px] text-muted-foreground mb-0.5">When sold out</p>
               <Seg value={o.sold_out === 'hide' ? 'hide' : 'mark'} options={[['mark', 'Say sold out'], ['hide', 'Hide it']]} onChange={v => onOpts({ sold_out: v })} />

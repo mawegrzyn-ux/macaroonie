@@ -1,8 +1,11 @@
 // src/ai/tools/index.js
 //
-// The AI booking tool registry (migration 148). A tool is:
+// The AI tool registry (migration 148). A tool is:
 //
 //   name, title, description   shown to the model
+//   section                    the area of the app it belongs to (SECTIONS):
+//                              Pepper's prompt lists the areas, and the staff
+//                              chat loads all but CORE_TOOLS on demand
 //   input                      Zod object schema (validated before run;
 //                              sent to the model / MCP client as JSON Schema)
 //   run(ctx, input)            does the work, returns a plain object
@@ -14,12 +17,16 @@
 //                              input) builds that card and checks the call
 //                              can go ahead. Over MCP the client's own app
 //                              asks the person, and run() is called directly.
-//   destructive                cancels (MCP destructiveHint)
+//   destructive                cancels or erases (MCP destructiveHint)
 //
-// Guest tools: tools/guest.js. Staff tools: tools/staff.js (bookings),
-// tools/hs.js (health & safety, checklists, action log),
-// tools/purchasing.js (inventory, suppliers, order lists, supplier orders)
-// and tools/menus.js (menus, sections, dishes, prices, allergens).
+// Guest tools: tools/guest.js. Staff tools (Pepper): tools/staff.js
+// (bookings), tools/hs.js (health & safety, checklists, action log),
+// tools/purchasing.js, tools/menus.js, tools/rota.js (staff, rota, pay,
+// tips), tools/cash.js (cash reconciliation), tools/orders.js (online
+// orders, sold out, till and kitchen reports), tools/venue.js (customers,
+// opening times, tables, booking rules), tools/site.js (website,
+// promotions, reviews, menu screens, booking emails, support) and
+// tools/general.js (open_page).
 
 import { zodToJsonSchema } from 'zod-to-json-schema'
 import { ZodError } from 'zod'
@@ -29,10 +36,59 @@ import { staffTools as bookingTools } from './staff.js'
 import { hsTools } from './hs.js'
 import { purchasingTools } from './purchasing.js'
 import { menuTools } from './menus.js'
+import { rotaTools } from './rota.js'
+import { cashTools } from './cash.js'
+import { orderTools } from './orders.js'
+import { venueTools } from './venue.js'
+import { siteTools } from './site.js'
+import { generalTools } from './general.js'
 
-// Staff get the booking, H&S / checklist, purchasing and menu tools.
-const staffTools = [...bookingTools, ...hsTools, ...purchasingTools, ...menuTools]
+// The areas Pepper covers, in the order its prompt lists them.
+export const SECTIONS = {
+  general:    'Finding your way: links to pages',
+  bookings:   'Table bookings',
+  customers:  'Customers',
+  venue:      'Opening times, closures, tables and booking rules',
+  hs:         'Health & safety, food safety checks and checklists',
+  rota:       'Staff, the rota, pay and tips',
+  cash:       'Cash reconciliation and wages paid',
+  orders:     'Online orders and sold out dishes',
+  till:       'Till and kitchen reports',
+  menus:      'Menus, dishes, prices and allergens',
+  purchasing: 'Purchasing: inventory, suppliers and supplier orders',
+  website:    'Website, promotions, reviews, menu screens and booking emails',
+  support:    'Reporting problems and asking for features',
+}
+
+const withSection = (tools, section) => tools.map(t => (t.section ? t : { ...t, section }))
+
+// Pepper's tools, every area. Older files don't tag their tools; their file is their area.
+const staffTools = [
+  ...generalTools,
+  ...withSection(bookingTools, 'bookings'),
+  ...withSection(hsTools, 'hs'),
+  ...withSection(purchasingTools, 'purchasing'),
+  ...withSection(menuTools, 'menus'),
+  ...rotaTools, ...cashTools, ...orderTools, ...venueTools, ...siteTools,
+]
 const BY_AUDIENCE = { guest: guestTools, staff: staffTools }
+
+// Loaded in every staff chat request; the rest are found with tool search
+// (src/ai/chat.js). The everyday questions: today's bookings, who is on,
+// what is due, where a page is.
+export const CORE_TOOLS = new Set([
+  'list_venues', 'find_bookings', 'day_overview', 'check_availability', 'hs_status', 'whos_working', 'open_page',
+])
+
+for (const t of staffTools) {
+  if (!SECTIONS[t.section]) throw new Error('Tool ' + t.name + ' has no known section')
+}
+{
+  const names = staffTools.map(t => t.name)
+  const dup = names.find((n, i) => names.indexOf(n) !== i)
+  if (dup) throw new Error('Two staff tools are called ' + dup)
+  for (const n of CORE_TOOLS) if (!names.includes(n)) throw new Error('Core tool ' + n + ' is missing')
+}
 
 export function toolsFor(ctx) {
   return isStaff(ctx) ? staffTools : guestTools
@@ -44,6 +100,13 @@ export function findTool(ctx, name) {
 
 export function audienceTools(audience) {
   return BY_AUDIENCE[audience] || []
+}
+
+/** Tool names per area, for Pepper's prompt: { section: [names] }. */
+export function toolsBySection() {
+  const out = {}
+  for (const t of staffTools) (out[t.section] ??= []).push(t.name)
+  return out
 }
 
 const schemaCache = new WeakMap()

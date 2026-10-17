@@ -53,11 +53,13 @@ export function MediaLibraryModal({
   const kind = kindProp || (mode === 'picker' ? 'image' : 'all')
   const api = useApi()
   const qc  = useQueryClient()
-  // Uploading and changing media needs Website or Menus manage (the API's
-  // rule); everyone else can browse.
+  // Uploading and changing media needs Website, Menus, Menu screens or Till
+  // setup manage (the API's rule, routes/media.js); everyone else can browse.
   const website = usePermission('website')
   const menus = usePermission('menus')
-  const canEdit = website.canManage || menus.canManage
+  const screens = usePermission('screens')
+  const tills = usePermission('pos_setup')
+  const canEdit = website.canManage || menus.canManage || screens.canManage || tills.canManage
 
   const [fullscreen, setFullscreen]   = useState(false)
   const [view, setView]               = useState('grid')           // 'grid' | 'list'

@@ -46,11 +46,13 @@ const SALAD = { id: uuid(), name: 'Salad', section_id: FOOD_SECTION, price_pence
 ] }
 const COLA = { id: uuid(), name: 'Cola', section_id: DRINKS_SECTION, price_pence: 300, variant_groups: [] }
 const BURGER = { id: uuid(), name: 'Burger', section_id: FOOD_SECTION, price_pence: 1000, variant_groups: [] }
+const MAIN_OPT = uuid(), COLA_OPT = uuid()
 const DEAL = { id: uuid(), name: 'Burger meal', kind: 'combo', section_id: FOOD_SECTION, price_pence: 1200, variant_groups: [],
-  combo_slots: [
-    { id: uuid(), name: 'Main', min: 1, max: 1, options: [{ item_id: BURGER.id, upcharge_pence: 0 }] },
-    { id: uuid(), name: 'Drink', min: 1, max: 1, options: [{ item_id: COLA.id, upcharge_pence: 50 }] },
-  ] }
+  combo: { mode: 'manual', steps: [
+    { id: uuid(), name: 'Main', min: 1, max: 1, auto: false, options: [{ id: MAIN_OPT, type: 'item', item_id: BURGER.id, price_pence: 0 }] },
+    { id: uuid(), name: 'Drink', min: 1, max: 1, auto: false, options: [{ id: COLA_OPT, type: 'item', item_id: COLA.id, price_pence: 50 }] },
+  ] } }
+const mealPicks = (main, drink) => ({ combo: { [main.id]: [{ option_id: MAIN_OPT, item_id: BURGER.id }], [drink.id]: [{ option_id: COLA_OPT, item_id: COLA.id }] } })
 const itemsById = Object.fromEntries([PAD_THAI, SALAD, COLA, BURGER, DEAL].map(i => [i.id, i]))
 
 const print = {
@@ -113,11 +115,11 @@ test('priceItem: base option sets the price, extras add, No is free, nested grou
 })
 
 test('priceItem: meal deal with upcharge', () => {
-  const [main, drink] = DEAL.combo_slots
-  const r = priceItem(DEAL, { combo: { [main.id]: [{ item_id: BURGER.id }], [drink.id]: [{ item_id: COLA.id }] } }, { itemsById, groupsById })
+  const [main, drink] = DEAL.combo.steps
+  const r = priceItem(DEAL, mealPicks(main, drink), { itemsById, groupsById })
   assert.ok(r.ok, r.error)
   assert.equal(lineGross({ ...r, qty: 1 }), 1250)
-  assert.match(priceItem(DEAL, { combo: { [main.id]: [{ item_id: BURGER.id }] } }, { itemsById, groupsById }).error, /drink/)
+  assert.match(priceItem(DEAL, { combo: { [main.id]: [{ option_id: MAIN_OPT, item_id: BURGER.id }] } }, { itemsById, groupsById }).error, /drink/)
 })
 
 // ── Check rules ─────────────────────────────────────────────────
@@ -268,10 +270,10 @@ test('routing: dish, then section, then revenue centre, then default', () => {
 
 test('jobs: kitchen and bar tickets, held course, meal deal parts split, void ticket', () => {
   let c = open()
-  const [main, drink] = DEAL.combo_slots
+  const [main, drink] = DEAL.combo.steps
   const s = line(SALAD, {}, { course_id: STARTERS, allergies: ['Peanuts'], note: 'No dressing' })
   const m = line(PAD_THAI, { choices: { [PROTEIN]: [CHICKEN], [TOPPINGS]: [{ id: ONION, prefix: 'no' }] } }, { course_id: MAINS })
-  const meal = line(DEAL, { combo: { [main.id]: [{ item_id: BURGER.id }], [drink.id]: [{ item_id: COLA.id }] } }, { course_id: MAINS })
+  const meal = line(DEAL, mealPicks(main, drink), { course_id: MAINS })
   const cola = line(COLA)
   for (const l of [s, m, meal, cola]) c = ok(apply(c, 'line.added', { line: l })).checks[c.id]
   const send = ev('lines.sent', { send_id: ulid(), line_ids: [s.id, m.id, meal.id, cola.id], held_course_ids: [MAINS] }, { check_id: c.id })

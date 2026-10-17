@@ -25,6 +25,7 @@ const VIDEO_RE = /\.(mp4|webm|m4v)(?:$|[?#])/i
 const SHELL_FILES = [
   '/', '/player.js', '/manifest.webmanifest', '/icon.svg', '/icon-192.png', '/icon-512.png',
   '/lib/screenLayout.js', '/lib/fonts.js', '/lib/menuTags.js', '/lib/orderPricing.js', '/lib/promotions.js', '/lib/menuSchedule.js',
+  '/lib/combos.js',
 ]
 
 self.addEventListener('install', event => {

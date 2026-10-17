@@ -497,7 +497,7 @@ export const BLOCKS = [
   {
     key:         'ai_chat',
     label:       'AI chat',
-    description: 'A chat that answers guests and books, changes or cancels tables. Only shows while Chat on your website is switched on (AI assistant page).',
+    description: 'A chat that answers guests and books, changes or cancels tables. Only shows while Chat on your website is switched on (Pepper page, Settings).',
     icon:        MessageCircle,
     category:    'data',
     defaultData: {

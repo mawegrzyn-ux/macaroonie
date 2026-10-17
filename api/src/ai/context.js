@@ -19,6 +19,7 @@
 
 import { sql, withTenant } from '../config/db.js'
 import { permissionLevel, INTERNAL_CALL_HEADER, INTERNAL_CALL_SECRET } from '../middleware/auth.js'
+import { MODULES } from '../config/modules.js'
 
 export const CHANNELS = ['guest_mcp', 'guest_chat', 'staff_mcp', 'staff_chat']
 
@@ -82,7 +83,18 @@ const DENIED = {
   purchasing:    { view: 'see supplier orders',       manage: 'place, send or receive supplier orders' },
   purchasing_setup: { view: 'see the inventory, suppliers and prices', manage: 'change the inventory, suppliers, prices or order lists' },
   menus:         { view: 'see menus',                 manage: 'change menus' },
+  staff:         { view: 'see staff',                 manage: 'change staff' },
+  rota:          { view: 'see the rota',              manage: 'change the rota' },
+  rota_pay:      { view: 'see rota pay',              manage: 'change rota pay or fill wages' },
+  rota_tips:     { view: 'see tips',                  manage: 'change tips' },
+  cash_recon:    { view: 'see cash reconciliation',   manage: 'change cash reconciliation' },
+  web_orders:    { view: 'see online orders',         manage: 'change online orders' },
+  pos_reports:   { view: 'see till reports',          manage: 'change till reports' },
+  pos_setup:     { view: 'see till setup',            manage: 'change till setup' },
 }
+
+// Any other module is named by its label from the module registry.
+const MODULE_LABEL = Object.fromEntries(MODULES.map(m => [m.key, m.label]))
 
 /** This staff member's level for a module ('none' | 'view' | 'manage'),
  *  same rule as requirePermission(). */
@@ -103,7 +115,8 @@ export async function requireStaffPermission(ctx, moduleKey, level) {
   if (!isStaff(ctx)) throw new ToolError('Not available here', 403)
   const have = await staffPermissionLevel(ctx, moduleKey)
   if (!levelAtLeast(have, level)) {
-    const what = DENIED[moduleKey]?.[level] || 'use this'
+    const what = DENIED[moduleKey]?.[level] ||
+      (MODULE_LABEL[moduleKey] ? (level === 'manage' ? 'change ' : 'see ') + MODULE_LABEL[moduleKey] : 'use this')
     throw new ToolError('You don\'t have permission to ' + what + '. Ask an owner or admin.', 403)
   }
 }

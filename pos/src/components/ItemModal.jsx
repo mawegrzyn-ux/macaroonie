@@ -1,22 +1,35 @@
 // Choosing a dish's options before it goes on the check: option groups
-// (with No / Light / Extra / On the side where the group allows it, and
-// nested groups such as Steak -> Cooking), meal deal parts, quantity, seat,
-// course, a note for the kitchen, allergies, and a price change.
+// (with No / Light / Extra / On the side where the group allows it, nested
+// groups such as Steak -> Cooking, the same option more than once where the
+// group allows it, and optional groups that wait behind a button), combo
+// steps (shared/combos.js), quantity, seat, course, a note for the kitchen,
+// allergies, and a price change.
 
-import { useMemo, useState } from 'react'
-import { Minus, Plus, AlertTriangle } from 'lucide-react'
+import { useMemo, useRef, useState } from 'react'
+import { Minus, Plus, AlertTriangle, Check } from 'lucide-react'
 import { priceItem, lineGross, PREFIXES, groupChoice } from '@shared/pos/pricing.js'
+import { resolveSteps, stepRule } from '@shared/combos.js'
 import { Modal, Keypad, cx, money, poundsToPence } from './ui.jsx'
-import { tillItem, courseFor } from '../lib/checkOps.js'
+import { tillItem, courseFor, comboCtx } from '../lib/checkOps.js'
 import { can } from '../lib/store.js'
 
-const entriesOf = (sel, key) => (sel[key] || [])
+const entriesOf = (sel, key) => ((sel || {})[key] || [])
 
-function ChoiceGroup({ choice, value, onChange, groupsById, depth = 0 }) {
+/**
+ * One option group. A repeat group adds a pick on every tap (with a minus to
+ * take one off); an optional group with on_request waits behind a button.
+ */
+export function ChoiceGroup({ choice, value, onChange, groupsById, depth = 0 }) {
   const [mode, setMode] = useState(null) // prefix for the next tap
   const picked = value || []
+  const [open, setOpen] = useState(!choice.on_request || picked.length > 0)
   const counted = picked.filter(e => e.prefix !== 'no').length
+  const countOf = id => picked.filter(e => e.id === id).length
   const toggle = o => {
+    if (choice.repeat && !mode) {
+      if (counted >= choice.max) return
+      return onChange([...picked, { id: o.id, prefix: null }])
+    }
     const has = picked.find(e => e.id === o.id)
     if (has && (has.prefix || null) === (mode || null)) return onChange(picked.filter(e => e.id !== o.id))
     if (has) return onChange(picked.map(e => (e.id === o.id ? { ...e, prefix: mode } : e)))
@@ -27,13 +40,24 @@ function ChoiceGroup({ choice, value, onChange, groupsById, depth = 0 }) {
     }
     onChange([...picked, { id: o.id, prefix: mode }])
   }
+  const takeOne = o => {
+    const i = picked.map(e => e.id).lastIndexOf(o.id)
+    if (i >= 0) onChange(picked.filter((_, j) => j !== i))
+  }
   const hint = choice.min && choice.max === choice.min ? 'Choose ' + choice.min
     : choice.min ? 'Choose ' + choice.min + ' to ' + choice.max : 'Up to ' + choice.max
+  if (!open) {
+    return (
+      <button className={cx('btn justify-start gap-2 w-full', depth && 'ml-4')} onClick={() => setOpen(true)} data-testid="group-button">
+        <Plus size={18} /> {choice.name}
+      </button>
+    )
+  }
   return (
     <div className={cx('space-y-2', depth && 'ml-4 pl-3 border-l-4 border-brand-soft')}>
       <div className="flex items-center gap-2 flex-wrap">
         <div className="font-bold">{choice.name}</div>
-        <div className={cx('text-xs font-semibold', choice.min && counted < choice.min ? 'text-bad' : 'text-muted')}>{hint}</div>
+        <div className={cx('text-xs font-semibold', choice.min && counted < choice.min ? 'text-bad' : 'text-muted')}>{hint}{choice.repeat ? ' · tap again for more' : ''}</div>
         {choice.prefixes && (
           <div className="ml-auto flex gap-1">
             {[{ key: null, label: 'Add' }, ...PREFIXES].map(p => (
@@ -45,99 +69,160 @@ function ChoiceGroup({ choice, value, onChange, groupsById, depth = 0 }) {
       <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))' }}>
         {choice.options.map(o => {
           const e = picked.find(x => x.id === o.id)
+          const n = countOf(o.id)
           const pre = PREFIXES.find(p => p.key === e?.prefix)
           return (
-            <button key={o.id} onClick={() => toggle(o)}
-              className={cx('btn justify-between text-left h-auto min-h-[56px] py-2', e && (e.prefix === 'no' ? 'bg-bad-soft border-bad text-bad' : 'bg-brand text-white border-brand'))}>
-              <span className="leading-tight">{pre ? pre.label + ' ' : ''}{o.label}</span>
-              {o.price_pence ? <span className="text-sm opacity-90">{choice.mode === 'extra' ? '+' : ''}{money(o.price_pence)}</span> : null}
-            </button>
+            <div key={o.id} className="relative">
+              <button onClick={() => toggle(o)} data-testid="option"
+                className={cx('btn w-full justify-between text-left h-auto min-h-[56px] py-2', e && (e.prefix === 'no' ? 'bg-bad-soft border-bad text-bad' : 'bg-brand text-white border-brand'))}>
+                <span className="leading-tight">{choice.repeat && n > 1 ? n + ' x ' : ''}{pre ? pre.label + ' ' : ''}{o.label}</span>
+                {o.price_pence ? <span className="text-sm opacity-90">{choice.mode === 'extra' ? '+' : ''}{money(o.price_pence)}</span> : null}
+              </button>
+              {choice.repeat && n > 0 && (
+                <button onClick={() => takeOne(o)} aria-label={'One less ' + o.label}
+                  className="absolute -top-2 -right-2 w-9 h-9 rounded-full bg-white border-2 border-brand text-brand flex items-center justify-center shadow">
+                  <Minus size={16} />
+                </button>
+              )}
+            </div>
           )
         })}
       </div>
-      {picked.filter(e => e.prefix !== 'no').map(e => {
+      {picked.filter(e => e.prefix !== 'no').map((e, idx) => {
         const o = choice.options.find(x => x.id === e.id)
         const child = o?.child_group_id && groupsById[o.child_group_id]
         if (!child) return null
         const cc = groupChoice(child, { nested: true })
         return (
-          <ChoiceGroup key={e.id} choice={{ ...cc, name: o.label + ': ' + cc.name }} depth={depth + 1} groupsById={groupsById}
-            value={entriesOf(e.children || {}, cc.key)}
-            onChange={v => onChange(picked.map(x => (x.id === e.id ? { ...x, children: { ...(x.children || {}), [cc.key]: v } } : x)))} />
+          <ChoiceGroup key={e.id + ':' + idx} choice={{ ...cc, name: o.label + ': ' + cc.name }} depth={depth + 1} groupsById={groupsById}
+            value={entriesOf(e.children, cc.key)}
+            onChange={v => onChange(picked.map(x => (x === e ? { ...x, children: { ...(x.children || {}), [cc.key]: v } } : x)))} />
         )
       })}
     </div>
   )
 }
 
-function ComboSlot({ slot, value, onChange, config }) {
-  const picked = value || []
-  const toggle = itemId => {
-    if (picked.some(p => p.item_id === itemId)) return onChange(picked.filter(p => p.item_id !== itemId))
-    if (slot.max === 1) return onChange([{ item_id: itemId, choices: {} }])
-    if (picked.length >= slot.max) return
-    onChange([...picked, { item_id: itemId, choices: {} }])
-  }
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-2">
-        <div className="font-bold">{slot.name}</div>
-        <div className={cx('text-xs font-semibold', picked.length < slot.min ? 'text-bad' : 'text-muted')}>
-          {slot.min === slot.max ? 'Choose ' + slot.min : 'Choose ' + slot.min + ' to ' + slot.max}
-        </div>
+/** A dish's own option groups. */
+function Choices({ item, value, onChange, groupsById }) {
+  return (item.pos_choices || []).map(c => (
+    <ChoiceGroup key={c.key} choice={c} groupsById={groupsById} value={entriesOf(value, c.key)}
+      onChange={v => onChange({ ...(value || {}), [c.key]: v })} />
+  ))
+}
+
+/** A combo's steps, one after another; steps that are done show a tick at the top. */
+function ComboSteps({ item, config, picks, onChange, ctx, stepRefs }) {
+  const { steps, picks: resolved } = resolveSteps(item, picks, ctx)
+  const [opened, setOpened] = useState({})
+  const groupsById = config.groups || {}
+  const set = (stepId, list) => onChange({ ...picks, [stepId]: list })
+  return steps.filter(s => s.shown).map(({ step, choices, auto }) => {
+    const got = resolved[step.id] || []
+    const count = (c) => got.filter(e => e.option_id === c.option_id && (e.item_id || null) === c.item_id).length
+    const tap = c => {
+      const entry = { option_id: c.option_id, item_id: c.item_id, choices: {} }
+      const n = count(c)
+      if (step.repeat) {
+        if (got.length >= step.max) return
+        return set(step.id, [...got, entry])
+      }
+      if (n) return set(step.id, got.filter(e => !(e.option_id === c.option_id && (e.item_id || null) === c.item_id)))
+      if (step.max === 1) return set(step.id, [entry])
+      if (got.length >= step.max) return
+      set(step.id, [...got, entry])
+    }
+    const takeOne = c => {
+      const i = got.map(e => e.option_id + ':' + (e.item_id || '')).lastIndexOf(c.option_id + ':' + (c.item_id || ''))
+      if (i >= 0) set(step.id, got.filter((_, j) => j !== i))
+    }
+    const done = got.length >= step.min
+    const hidden = step.ask === 'button' && !got.length && !opened[step.id]
+    return (
+      <div key={step.id} ref={el => { stepRefs.current[step.id] = el }} className="space-y-2 scroll-mt-4" data-testid="combo-step">
+        {hidden ? (
+          <button className="btn justify-start gap-2 w-full" onClick={() => setOpened(o => ({ ...o, [step.id]: true }))} data-testid="step-button">
+            <Plus size={18} /> {step.name}
+          </button>
+        ) : (
+          <>
+            <div className="flex items-center gap-2">
+              <div className="font-bold">{step.name}</div>
+              <div className={cx('text-xs font-semibold', !done ? 'text-bad' : 'text-muted')}>
+                {auto ? 'Included' : stepRule(step)}{step.repeat && !auto ? ' · tap again for more' : ''}
+              </div>
+            </div>
+            {!auto && (
+              <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))' }}>
+                {choices.map(c => {
+                  const n = count(c)
+                  return (
+                    <div key={c.key} className="relative">
+                      <button onClick={() => tap(c)} disabled={c.sold_out} data-testid="combo-choice"
+                        className={cx('btn w-full justify-between text-left h-auto min-h-[56px] py-2', n > 0 && 'bg-brand text-white border-brand', c.sold_out && 'line-through text-muted')}>
+                        <span className="leading-tight">{step.repeat && n > 1 ? n + ' x ' : ''}{c.label}</span>
+                        {c.sold_out ? <span className="text-xs font-bold uppercase">Sold out</span>
+                          : c.price_pence ? <span className="text-sm">+{money(c.price_pence)}</span> : null}
+                      </button>
+                      {step.repeat && n > 0 && (
+                        <button onClick={() => takeOne(c)} aria-label={'One less ' + c.label}
+                          className="absolute -top-2 -right-2 w-9 h-9 rounded-full bg-white border-2 border-brand text-brand flex items-center justify-center shadow">
+                          <Minus size={16} />
+                        </button>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+            {got.map((e, idx) => {
+              const part = e.item_id ? tillItem(config, e.item_id) : null
+              const label = choices.find(c => c.option_id === e.option_id && (c.item_id || null) === (e.item_id || null))?.label
+              if (auto && !part?.pos_choices?.length) return <div key={idx} className="text-sm text-muted">{label}</div>
+              if (!part?.pos_choices?.length) return null
+              const same = got.filter(x => x.item_id === e.item_id).length > 1
+              return (
+                <div key={idx} className="ml-4 pl-3 border-l-4 border-brand-soft space-y-3">
+                  <div className="text-sm font-semibold text-muted">{label}{same ? ' ' + (got.slice(0, idx + 1).filter(x => x.item_id === e.item_id).length) : ''}</div>
+                  <Choices item={part} groupsById={groupsById} value={e.choices}
+                    onChange={ch => set(step.id, got.map((x, j) => (j === idx ? { ...x, choices: ch } : x)))} />
+                </div>
+              )
+            })}
+          </>
+        )}
       </div>
-      <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))' }}>
-        {slot.options.map(o => {
-          const it = config.items[o.item_id]
-          const on = picked.some(p => p.item_id === o.item_id)
-          return (
-            <button key={o.item_id} onClick={() => toggle(o.item_id)}
-              className={cx('btn justify-between text-left h-auto min-h-[56px] py-2', on && 'bg-brand text-white border-brand')}>
-              <span className="leading-tight">{it?.name}</span>
-              {o.upcharge_pence ? <span className="text-sm">+{money(o.upcharge_pence)}</span> : null}
-            </button>
-          )
-        })}
-      </div>
-      {picked.map(p => {
-        const part = tillItem(config, p.item_id)
-        if (!part?.pos_choices?.length) return null
-        return (
-          <div key={p.item_id} className="ml-4 pl-3 border-l-4 border-brand-soft space-y-3">
-            <div className="text-sm font-semibold text-muted">{part.name}</div>
-            {part.pos_choices.map(c => (
-              <ChoiceGroup key={c.key} choice={c} groupsById={config.groups || {}} value={entriesOf(p.choices, c.key)}
-                onChange={v => onChange(picked.map(x => (x.item_id === p.item_id ? { ...x, choices: { ...x.choices, [c.key]: v } } : x)))} />
-            ))}
-          </div>
-        )
-      })}
-    </div>
-  )
+    )
+  })
 }
 
 /**
  * onAdd({ selection, qty, seat, course, note, allergies, unit_price }) adds the dish.
  * defaults: { seat, course } from the check screen.
+ * initial: { selection, qty } to start from (e.g. "Make it a combo").
  */
-export default function ItemModal({ item, config, defaults = {}, onClose, onAdd }) {
+export default function ItemModal({ item, config, defaults = {}, initial = null, title = null, onClose, onAdd }) {
   const it = tillItem(config, item.id)
-  const [sel, setSel] = useState({ choices: {}, combo: {} })
-  const [qty, setQty] = useState(1)
+  const ctx = useMemo(() => comboCtx(config), [config])
+  const [sel, setSel] = useState(() => ({ choices: {}, combo: {}, ...(initial?.selection || {}) }))
+  const [qty, setQty] = useState(initial?.qty || 1)
   const [seat, setSeat] = useState(defaults.seat ?? null)
   const [course, setCourse] = useState(defaults.course ?? null)
   const [note, setNote] = useState('')
   const [allergies, setAllergies] = useState([])
   const [priceText, setPriceText] = useState(null)
-  const priced = useMemo(() => priceItem(it, sel, { itemsById: config.items, groupsById: config.groups || {} }), [it, sel, config])
+  const stepRefs = useRef({})
+  const priced = useMemo(() => priceItem(it, sel, ctx), [it, sel, ctx])
   const unit = priceText != null ? poundsToPence(priceText) : priced.ok ? priced.unit_price : null
   const total = priced.ok ? lineGross({ ...priced, unit_price: unit, qty }) : null
   const allergens = (config.dietary_tags || []).filter(t => t.kind === 'allergen')
   const courses = config.courses || []
   const autoCourse = courses.find(c => c.id === courseFor(it, null))
+  const isCombo = it.kind === 'combo'
+  const steps = isCombo ? resolveSteps(it, sel.combo || {}, ctx) : null
 
   return (
-    <Modal title={it.name} onClose={onClose} wide
+    <Modal title={title || it.name} onClose={onClose} wide
       footer={<>
         {!priced.ok && <div className="flex items-center gap-2 text-bad font-semibold mr-auto"><AlertTriangle size={18} />{priced.error}</div>}
         <div className="flex items-center gap-2 mr-auto">
@@ -145,20 +230,32 @@ export default function ItemModal({ item, config, defaults = {}, onClose, onAdd 
           <div className="w-10 text-center text-xl font-bold tabular-nums">{qty}</div>
           <button className="btn w-12 px-0" onClick={() => setQty(q => Math.min(99, q + 1))}><Plus size={18} /></button>
         </div>
-        <button className="btn btn-primary min-w-[180px] h-14 text-lg" disabled={!priced.ok || unit == null}
-          onClick={() => onAdd({ selection: sel, qty, seat, course, note: note.trim(), allergies, unit_price: priceText != null ? unit : null })}>
+        <button className="btn btn-primary min-w-[180px] h-14 text-lg" disabled={!priced.ok || unit == null} data-testid="add"
+          onClick={() => onAdd({ selection: { ...sel, combo: isCombo ? priced.ok && steps ? steps.picks : sel.combo : undefined }, qty, seat, course, note: note.trim(), allergies, unit_price: priceText != null ? unit : null })}>
           Add {total != null ? money(total) : ''}
         </button>
       </>}>
       <div className="space-y-6">
         {it.description && <div className="text-sm text-muted -mt-2">{it.description}</div>}
-        {(it.combo_slots || []).map(slot => (
-          <ComboSlot key={slot.id} slot={slot} config={config} value={sel.combo[slot.id]} onChange={v => setSel(s => ({ ...s, combo: { ...s.combo, [slot.id]: v } }))} />
-        ))}
-        {(it.pos_choices || []).map(c => (
-          <ChoiceGroup key={c.key} choice={c} groupsById={config.groups || {}} value={sel.choices[c.key]}
-            onChange={v => setSel(s => ({ ...s, choices: { ...s.choices, [c.key]: v } }))} />
-        ))}
+        {isCombo && steps && (
+          <div className="flex flex-wrap gap-2 -mt-1" aria-label="Steps">
+            {steps.steps.filter(s => s.shown && !(s.step.ask === 'button' && !(steps.picks[s.step.id] || []).length)).map(({ step }) => {
+              const done = (steps.picks[step.id] || []).length >= step.min
+              return (
+                <button key={step.id} className={cx('chip min-h-[40px] gap-1', done ? 'chip-on' : 'border-bad text-bad')}
+                  onClick={() => stepRefs.current[step.id]?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>
+                  {done && <Check size={14} />}{step.name}
+                </button>
+              )
+            })}
+          </div>
+        )}
+        {isCombo && (
+          <ComboSteps item={it} config={config} ctx={ctx} picks={sel.combo || {}} stepRefs={stepRefs}
+            onChange={combo => setSel(s => ({ ...s, combo }))} />
+        )}
+        <Choices item={it} groupsById={config.groups || {}} value={sel.choices}
+          onChange={choices => setSel(s => ({ ...s, choices }))} />
 
         <div className="grid sm:grid-cols-2 gap-5">
           <div>
