@@ -2940,9 +2940,12 @@ export default function Help() {
               all out at once.
             </P>
             <P>
-              The <strong>Publishing</strong> card at the top of a menu shows what is live and lists
-              every change waiting to go live (prices in amber, dishes added in green, removed in
-              red). Then:
+              The <strong>Publish</strong> button sits next to Save at the top of a menu. Its small
+              badge counts the saved changes that aren&apos;t live yet (a dot means the menu has never
+              been published, a clock that a publish is scheduled); while changes are waiting it is
+              the coloured button. Tap it to open the <strong>Publishing</strong> window: what is
+              live, and every change waiting to go live (prices in amber, dishes added in green,
+              removed in red). Then:
             </P>
             <DataTable
               head={['Button', 'What it does']}
@@ -2956,7 +2959,7 @@ export default function Help() {
               ]}
             />
             <P>
-              Save your changes before publishing: the Publishing card asks you to while the menu has
+              Save your changes before publishing: the Publishing window asks you to while the menu has
               unsaved changes. A brand-new menu isn&apos;t on the website, online ordering or the till
               until its first publish. <strong>Shown to guests</strong> (in the menu&apos;s Settings)
               is part of the draft too, so hiding a menu also takes effect when you publish.

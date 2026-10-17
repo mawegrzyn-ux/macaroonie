@@ -5,6 +5,12 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-17 — Menu editor: Publish button beside Save]
+
+- The menu editor's **Publishing** card is now a **Publish** button next to Save. A small badge on it shows how many changes aren't live yet (a dot when the menu has never been published, a clock when a publish is scheduled). It opens the Publishing window with everything the card had: what changed, Publish now, Schedule, Preview print, Discard changes, a scheduled publish with Cancel, and the history with Copy into editor.
+- The button is highlighted once the draft is saved and has changes to publish. View-only users see the same window without the buttons that change anything.
+- No migration.
+
 ## [2026-10-17 — API tests in the repo: the cross-tenant sweep, and what it found]
 
 - **API tests** (`npm test` in `api/`, and a new CI job on every pull request): the real app against an empty test database, with two restaurant groups made through the API, a stand-in login and a stand-in Claude. The **cross-tenant sweep** calls every admin route that takes an id as one group with the other group's ids (and its own ids mixed in, about 53,000 calls), sends every change the first group made again as the second, and then checks that nothing was read, changed or pointed at across groups. Pepper's chat loop (streaming, routing, refusals) has its own test.

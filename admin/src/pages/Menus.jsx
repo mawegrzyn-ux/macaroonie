@@ -15,7 +15,8 @@
 //
 // Single Save button PATCHes the whole tree (server delete-and-reinserts).
 // That saves the DRAFT: guests, tills and Deliveroo see the live version,
-// which changes when the menu is published (PublishPanel, migration 165).
+// which changes when the menu is published (PublishButton next to Save,
+// migration 165).
 
 import { useState, useEffect, useMemo, createContext, useContext } from 'react'
 import { useSearchParams, useNavigate, Link } from 'react-router-dom'
@@ -46,7 +47,7 @@ import { levelOf, LEVEL_LABELS } from '@shared/menuTags.js'
 import { LevelChip } from '@/components/menus/AllergenMatrix'
 import { SectionTillFields, ItemTillFields, useTillCourses } from '@/components/menus/TillFields'
 import { ComboBox, comboPayload } from '@/components/menus/ComboEditor'
-import { PublishPanel, PublishBadges, useOpenPreview } from '@/components/menus/MenuPublish'
+import { PublishButton, PublishBadges, useOpenPreview } from '@/components/menus/MenuPublish'
 import { TaxBox, useTaxLookups, taxSettingProblems } from '@/components/menus/TaxBox'
 import { normTax, cleanTax } from '@shared/tax.js'
 
@@ -482,7 +483,7 @@ function MenuEditor({ id, onBack }) {
     <div className="h-full overflow-y-auto">
     <div className="p-6 max-w-6xl mx-auto space-y-5 pb-24">
       {/* Top bar — sticks to the scroll container, not the viewport. */}
-      <div className="flex items-center justify-between sticky top-0 z-10 bg-background/95 backdrop-blur py-3 -mx-6 px-6 border-b">
+      <div className="flex items-center justify-between sticky top-0 z-10 bg-background/95 backdrop-blur py-3 -mx-6 px-6 max-lg:notouch:pl-14 border-b">
         <div className="flex items-center gap-3 min-w-0">
           <button onClick={onBack} className="text-sm text-muted-foreground hover:text-foreground">
             ← All menus
@@ -538,6 +539,8 @@ function MenuEditor({ id, onBack }) {
             {save.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
             {dirty ? 'Save changes' : 'Saved'}
           </Btn>}
+          {/* Save, then publish: the saved draft goes live from here (MenuPublish.jsx). */}
+          <PublishButton menuId={id} dirty={!!dirty} canManage={canManage} />
         </div>
       </div>
 
@@ -553,7 +556,6 @@ function MenuEditor({ id, onBack }) {
       )}
 
       {!canManage && <ReadOnlyNotice what="this menu" />}
-      <PublishPanel menuId={id} dirty={!!dirty} canManage={canManage} />
       <MenuReadOnly.Provider value={!canManage}>
       {/* Sections + dish list, with a right-hand drawer for the selected dish or section */}
       <div className="flex gap-4 items-start">

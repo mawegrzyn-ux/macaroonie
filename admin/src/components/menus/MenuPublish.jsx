@@ -5,19 +5,23 @@
 // lookup see the live version, which only changes when a menu is published
 // (now or at a set time).
 //
-//   PublishPanel     the menu editor's Publishing card: what is live, the
-//                    changes waiting, Publish now / Schedule, scheduled
-//                    publishes (cancel), earlier publishes (copy back into
-//                    the editor), Discard changes.
+//   PublishButton    the menu editor's Publish button, next to Save: a small
+//                    badge with the number of saved changes not live yet (a
+//                    dot when never published, a clock when a publish is
+//                    scheduled); it opens the Publishing window: what is
+//                    live, the changes waiting, Publish now / Schedule,
+//                    scheduled publishes (cancel), earlier publishes (copy
+//                    back into the editor), Discard changes.
 //   PublishBadges    status chips for the Menus list (GET /menus?status=1).
 //   useOpenPreview() opens the print page for the saved draft or a given
 //                    publish through an hour-long preview link.
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, parseISO } from 'date-fns'
 import {
-  Loader2, Send, CalendarClock, Undo2, ChevronDown, ChevronRight, Printer, X, CheckCircle2, AlertTriangle,
+  Loader2, Send, CalendarClock, Undo2, ChevronDown, ChevronRight, Printer, X, CheckCircle2, AlertTriangle, Upload,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -97,18 +101,121 @@ function Confirm({ text, yes, onYes, onNo, busy, tone = 'primary' }) {
 
 const TIMES = Array.from({ length: 96 }, (_, i) => `${String(Math.floor(i / 4)).padStart(2, '0')}:${String((i % 4) * 15).padStart(2, '0')}`)
 
-/**
- * The editor's Publishing card. dirty = the editor has unsaved changes:
- * publishing uses the saved menu, so it asks for a save first.
- */
-export function PublishPanel({ menuId, dirty, canManage }) {
+/** The publishing status of a menu (shared by the button and its window). */
+function usePublishStatus(menuId) {
   const api = useApi()
-  const qc = useQueryClient()
-  const openPreview = useOpenPreview()
-  const { data: st, isLoading, error } = useQuery({
+  return useQuery({
     queryKey: ['menu-publish', menuId],
     queryFn: () => api.get(`/menus/${menuId}/publish`),
   })
+}
+
+/** What the status says in a few words, with its colour. */
+function statusLine(st) {
+  if (!st) return null
+  const n = (st.changes || []).length
+  if (!st.live) return { tone: 'muted', text: 'Not published yet' }
+  if (!st.in_sync) return { tone: 'amber', text: `${n} change${n === 1 ? '' : 's'} not live` }
+  return { tone: 'green', text: 'Live, nothing waiting' }
+}
+
+function StatusChip({ st }) {
+  const line = statusLine(st)
+  if (!line) return null
+  return line.tone === 'green'
+    ? <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700"><CheckCircle2 className="w-4 h-4" /> {line.text}</span>
+    : line.tone === 'amber'
+      ? <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-700"><AlertTriangle className="w-4 h-4" /> {line.text}</span>
+      : <span className="text-xs font-medium text-muted-foreground">{line.text}</span>
+}
+
+/**
+ * The editor's Publish button (next to Save) and its Publishing window.
+ * The badge counts the saved changes that aren't live yet; a dot means the
+ * menu was never published; a clock means a publish is scheduled. dirty =
+ * the editor has unsaved changes: publishing uses the saved menu, so the
+ * window asks for a save first.
+ */
+export function PublishButton({ menuId, dirty, canManage }) {
+  const { data: st } = usePublishStatus(menuId)
+  const [open, setOpen] = useState(false)
+  const changes = (st?.changes || []).length
+  const waiting = !!st && !st.in_sync
+  const scheduled = (st?.scheduled || [])[0]
+  const callToAction = canManage && waiting && !dirty
+  const label = canManage ? 'Publish' : 'Publishing'
+  const title = !st ? label
+    : [statusLine(st).text, scheduled && 'goes live ' + when(scheduled.goes_live_at)].filter(Boolean).join(' · ')
+
+  return (
+    <>
+      <button type="button" onClick={() => setOpen(true)} title={title} data-testid="publish-button"
+        className={cn('relative inline-flex items-center gap-1.5 text-sm px-3 min-h-[44px] rounded-md touch-manipulation',
+          callToAction ? 'bg-primary text-primary-foreground font-medium hover:bg-primary/90'
+            : 'text-muted-foreground hover:text-foreground')}>
+        <Upload className="w-3.5 h-3.5" /> {label}
+        {scheduled && <CalendarClock className={cn('w-3.5 h-3.5', callToAction ? '' : 'text-blue-600')} aria-label="A publish is scheduled" />}
+        {st && !st.live
+          ? <span className="w-2 h-2 rounded-full bg-amber-500" aria-label="Not published yet" data-testid="publish-indicator" />
+          : waiting && changes > 0 && (
+            <span data-testid="publish-indicator" aria-label={`${changes} change${changes === 1 ? '' : 's'} not live`}
+              className={cn('min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-semibold leading-[18px] text-center',
+                callToAction ? 'bg-background text-primary' : 'bg-amber-500 text-white')}>
+              {changes > 99 ? '99+' : changes}
+            </span>
+          )}
+      </button>
+      {open && <PublishWindow menuId={menuId} dirty={dirty} canManage={canManage} onClose={() => setOpen(false)} />}
+    </>
+  )
+}
+
+/**
+ * The Publishing window (Standard Design Rule 9: scrolls inside 85vh). It
+ * goes into document.body: the button sits in the editor's sticky top bar,
+ * whose backdrop blur would make a position: fixed window fixed to the bar
+ * instead of the screen.
+ */
+function PublishWindow({ menuId, dirty, canManage, onClose }) {
+  const { data: st } = usePublishStatus(menuId)
+  useEffect(() => {
+    const onKey = e => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-4"
+      role="dialog" aria-modal="true" aria-label="Publishing"
+      onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="w-full sm:max-w-2xl bg-background rounded-t-2xl sm:rounded-2xl shadow-xl flex flex-col max-h-[85vh]">
+        <div className="flex items-start justify-between gap-3 px-5 py-3 border-b section-head rounded-t-2xl">
+          <div className="min-w-0">
+            <h2 className="text-sm font-semibold">Publishing</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Changes you save are a draft. Guests, the till and Deliveroo see the menu once it is published.
+            </p>
+            <div className="mt-1"><StatusChip st={st} /></div>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close"
+            className="shrink-0 h-11 w-11 inline-flex items-center justify-center rounded-lg text-muted-foreground hover:bg-muted touch-manipulation">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto">
+          <PublishContent menuId={menuId} dirty={dirty} canManage={canManage} />
+        </div>
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
+/** The window's contents: status, changes, actions, scheduled, history. */
+function PublishContent({ menuId, dirty, canManage }) {
+  const api = useApi()
+  const qc = useQueryClient()
+  const openPreview = useOpenPreview()
+  const { data: st, isLoading, error } = usePublishStatus(menuId)
   const [mode, setMode] = useState(null)      // null | 'now' | 'schedule' | 'discard' | { cancel: id } | { restore: id }
   const [note, setNote] = useState('')
   const [date, setDate] = useState('')
@@ -138,10 +245,10 @@ export function PublishPanel({ menuId, dirty, canManage }) {
   const failed = publish.error || cancel.error || restore.error
 
   if (isLoading) {
-    return <div className="bg-background border rounded-xl p-5 text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" /></div>
+    return <div className="p-5 text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" /></div>
   }
   if (error || !st) {
-    return <div className="bg-background border rounded-xl p-5 text-sm text-destructive">Couldn't load the publishing status: {errText(error)}</div>
+    return <div className="p-5 text-sm text-destructive">Couldn't load the publishing status: {errText(error)}</div>
   }
 
   const live = st.live
@@ -162,21 +269,7 @@ export function PublishPanel({ menuId, dirty, canManage }) {
   }
 
   return (
-    <div className="bg-background border rounded-xl overflow-hidden" data-testid="publish-panel">
-      <div className="px-5 py-3 section-head flex flex-wrap items-center justify-between gap-2">
-        <div className="min-w-0">
-          <h2 className="text-sm font-semibold">Publishing</h2>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Changes you save here are a draft. Guests, the till and Deliveroo see the menu once it is published.
-          </p>
-        </div>
-        {live && !waiting
-          ? <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700"><CheckCircle2 className="w-4 h-4" /> Live, nothing waiting</span>
-          : live
-            ? <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-700"><AlertTriangle className="w-4 h-4" /> {changes.length} change{changes.length === 1 ? '' : 's'} not live</span>
-            : <span className="text-xs font-medium text-muted-foreground">Not published yet</span>}
-      </div>
-
+    <div data-testid="publish-panel">
       <div className="p-5 space-y-4">
         <p className="text-sm">
           {live
