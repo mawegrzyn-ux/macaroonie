@@ -389,39 +389,77 @@ export default function Docs() {
           <section id="multitenancy" data-doc="">
             <H2>Multitenancy &amp; RLS</H2>
             <P>
-              Every table in the database (except <Mono>tenants</Mono>) has a <Mono>tenant_id uuid</Mono> column,
-              row-level security enabled, and a policy:
+              Every tenant table has a <Mono>tenant_id uuid</Mono> column, row-level security enabled{' '}
+              <strong>and forced</strong> (migration 176), and one policy:
             </P>
-            <Code>{`USING (tenant_id = current_setting('app.tenant_id', true)::uuid)`}</Code>
+            <Code>{`USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid
+       OR current_setting('app.bypass_rls', true) = 'on')`}</Code>
             <P>
-              The <Mono>withTenant()</Mono> helper wraps every DB call in a transaction, sets the session
-              variable, then runs the provided function. RLS automatically scopes every query.
+              The app&apos;s database role owns the tables, and a table&apos;s owner isn&apos;t held to RLS
+              unless the table forces it: before 176 the policies stopped nothing. Now a query sees only the
+              rows of its transaction&apos;s tenant, or every row in <strong>system mode</strong>, and a
+              query with neither (one on the bare <Mono>sql</Mono> pool) sees no tenant rows and can&apos;t
+              write one. <Mono>NULLIF</Mono> is there because a pooled connection that had the setting in an
+              earlier transaction returns <Mono>&apos;&apos;</Mono>, not NULL. Superusers skip RLS even when
+              forced: production connects as <Mono>macaroonie_user</Mono> (not a superuser, owner of the
+              tables), and the tests and CI run as a role that isn&apos;t one either.
             </P>
-            <Code>{`// CORRECT — RLS context set; queries scoped to this tenant
+            <DataTable
+              head={['Helper (config/db.js)', 'Use it for']}
+              rows={[
+                ['withTenant(tenantId, fn)', 'Everything that knows its tenant (every admin route, req.tenantId): a transaction with app.tenant_id set (set_config(..., true), so it ends with the transaction).'],
+                ['tenantSql(tenantId)`...`', 'One statement in a tenant\'s transaction, as a tagged template (same as withTenant(tenantId, tx => tx`...`)).'],
+                ['systemSql / withSystem(fn)', 'A second, small pool (5 connections) whose connections start in system mode (app.bypass_rls = \'on\' as a connection startup parameter). Only for work that crosses tenants on purpose: finding the tenant from a token, slug, device, push address or id (public pages, widget, ordering, MCP, access tokens, devices, webhooks, memberships in auth.js); background jobs and sweeps; the platform pages. A system query still filters tenant_id where it can.'],
+                ['sql', 'The main pool. No tenant rows: only for global tables (platform_admins, platform_secrets, platform_interest, backlog_items) or inside withTenant().'],
+              ]}
+            />
+            <Code>{`// A route: the caller's tenant
 const rows = await withTenant(req.tenantId, tx =>
-  tx\`SELECT * FROM venues WHERE id = \${venueId}\`
+  tx\`SELECT * FROM venues WHERE id = \${venueId} AND tenant_id = \${req.tenantId}\`
 )
 
-// WRONG — RLS returns 0 rows silently (no error thrown)
+// Finding the tenant first (a push address, a slug): system mode
+const [link] = await systemSql\`SELECT tenant_id, venue_id FROM gloriafood_venue_links WHERE push_token = \${token}\`
+
+// WRONG: no tenant, no system mode -> 0 rows, silently
 const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <InfoBox type="warn">
-              RLS failures are <strong>silent</strong>. The query returns 0 rows, not an error.
-              Always use <Mono>withTenant()</Mono> for any query touching tenant data.
+              RLS failures are <strong>silent</strong>: the query returns 0 rows (or an UPDATE changes
+              none), not an error. A path that finds its tenant itself and forgot system mode simply finds
+              nothing. <Mono>api/test/system-paths.test.mjs</Mono> covers every such path (public pages,
+              widget, ordering, website, till and screen pairing, MCP and access tokens, memberships,
+              GloriaFood push, the feature board, platform pages, background jobs).
             </InfoBox>
-            <H3>RLS is not enough: filter tenant_id yourself</H3>
+            <DataTable
+              head={['Special case', 'Policy']}
+              rows={[
+                ['feature_requests, feature_request_upvotes', 'One board every tenant reads and upvotes: a read-all policy (board_read) beside the tenant one; writes are still per tenant.'],
+                ['screen_pairings', 'An unclaimed pairing (tenant_id NULL) is any tenant\'s to find by its code; routes/screens.js claims it inside the claiming tenant\'s transaction.'],
+                ['table_combination_members', 'No tenant_id: a row is visible when its combination is (EXISTS on table_combinations).'],
+                ['sweep_expired_holds()', 'pg_cron calls it with no tenant: it switches system mode on for its DELETE and back (a function\'s SET clause can\'t name a custom setting without superuser).'],
+                ['Global tables', 'platform_admins, platform_secrets, platform_interest, backlog_items, schema_migrations: no tenant_id, no RLS; access is gated in the API.'],
+              ]}
+            />
             <P>
-              The app's database role owns the tables, and a table owner isn't held to RLS unless the
-              table has <Mono>FORCE ROW LEVEL SECURITY</Mono>. So on the live database{' '}
-              <Mono>withTenant()</Mono> sets the context but doesn't stop a query from reading or
-              changing another tenant's rows. Every query must say{' '}
-              <Mono>tenant_id = $&#123;req.tenantId&#125;</Mono> itself, and a row loaded by an id from
-              the request must be checked to be the caller's. Routes whose URL carries a venue id
+              Migrations run in system mode (<Mono>scripts/migrate.js</Mono> connects with{' '}
+              <Mono>app.bypass_rls = on</Mono>), so a data migration sees every tenant&apos;s rows. A new
+              table with a <Mono>tenant_id</Mono> must enable and force RLS with the same{' '}
+              <Mono>tenant_isolation</Mono> policy in its own migration (176 only covered the tables that
+              existed then; see 177&apos;s <Mono>kds_flows</Mono>). Only a table&apos;s owner can force RLS:
+              176 refuses to run, listing them, when some tenant tables belong to another role (fix: as
+              postgres, <Mono>ALTER TABLE ... OWNER TO macaroonie_user</Mono>).
+            </P>
+            <H3>Still filter tenant_id yourself</H3>
+            <P>
+              RLS is the backstop, not the filter. Every query still says{' '}
+              <Mono>tenant_id = $&#123;req.tenantId&#125;</Mono> itself (it also helps the planner), and a
+              row loaded by an id from the request must be checked to be the caller&apos;s, so another
+              tenant&apos;s id is a clean 404. Routes whose URL carries a venue id
               (<Mono>/api/venues/:id/...</Mono>: schedules, venue settings, test data) register{' '}
               <Mono>requireOwnVenue(param)</Mono> from <Mono>middleware/venue.js</Mono> after{' '}
-              <Mono>requireAuth</Mono>: it answers 404 unless the venue is the caller's tenant's. The
-              online-order service (<Mono>orderSvc.js</Mono>: <Mono>loadAdminOrder()</Mono>, status,
-              payment, refund and collection-time changes) filters by tenant on every read and write.
-              Test any route you touch with a second tenant's rows in the database.
+              <Mono>requireAuth</Mono>. System-mode code has no backstop at all, so its filters are the
+              only ones. Test any route you touch with a second tenant&apos;s rows in the database, as a
+              role that isn&apos;t a superuser.
             </P>
             <H3>Ids in the body: the venue guard and the route's own checks</H3>
             <P>
@@ -445,17 +483,14 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               so a new route that takes another kind of id in its body must check it itself, and the
               sweep only covers it once the fixtures make a row with that id.
             </P>
-            <H3>withTx() vs withTenant()</H3>
-            <P>
-              <Mono>withTx(fn)</Mono> opens a plain transaction without setting tenant context. Use it only
-              for tenant-resolution queries that run before the tenant ID is known
-              (e.g. slug → tenant UUID lookup).
-            </P>
             <H3>Connection pooling</H3>
             <P>
-              Must use <strong>transaction-mode pooling</strong> (PgBouncer transaction mode).
-              Session mode leaks <Mono>app.tenant_id</Mono> between requests because{' '}
-              <Mono>SET LOCAL</Mono> persists for the life of the session.
+              The API connects straight to Postgres (postgres.js pools, no pooler in front).{' '}
+              <Mono>withTenant()</Mono> sets the tenant for its transaction only, so it is safe with any
+              pooling. <Mono>systemSql</Mono> relies on a connection startup parameter: behind a
+              transaction-mode pooler (PgBouncer) that wouldn&apos;t reach Postgres per transaction, and{' '}
+              <Mono>withSystem()</Mono> would have to set <Mono>app.bypass_rls</Mono> with{' '}
+              <Mono>set_config(..., true)</Mono> at the start of each transaction instead.
             </P>
           </section>
 
@@ -3715,7 +3750,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['Rounding', "Fractional per-unit discounts (bogo, free_item, bundle) go through settle(): the total is rounded once and split by allocate(), so a £15 meal deal costs exactly £15.00 (rounding each line separately could take a penny too many)."],
                 ['Maths', "basket: % of the remaining total, or min(amount, remaining), spread over lines by allocate() (largest remainder, whole pence). item: per covered line, % of remaining or amount x qty. bogo: covered units sorted dearest first, in each group of buy + get the get cheapest are get_percent off. max_discount_pence scales the lines down with allocate()."],
                 ['Guest feedback', "offers (manual ones that would apply, with saving_pence), notices (min_subtotal with short_pence, bogo_qty with more, required_item, no_items, not_now, not_combinable). Automatic ones only produce min_subtotal / bogo_qty notices. noticeText() words them."],
-                ['Tenant scoping', "Every promotions query filters tenant_id itself (not only RLS, which the app's database role may bypass): listPromotions(tx, tenantId), venuePromotions(tx, venue, today) (uses venue.tenant_id), lockUses(tx, tenantId, ids), codeTaken(tx, tenantId, ...), and /catalog's menus, sections, dishes and venues. Update, switch, reorder and delete add AND tenant_id, so another tenant's id is a 404. orders.js venueOf() checks the venue belongs to the tenant (current_setting('app.tenant_id'))."],
+                ['Tenant scoping', "Every promotions query filters tenant_id itself (as well as RLS, forced since migration 176): listPromotions(tx, tenantId), venuePromotions(tx, venue, today) (uses venue.tenant_id), lockUses(tx, tenantId, ids), codeTaken(tx, tenantId, ...), and /catalog's menus, sections, dishes and venues. Update, switch, reorder and delete add AND tenant_id, so another tenant's id is a 404. orders.js venueOf() checks the venue belongs to the tenant (current_setting('app.tenant_id'))."],
                 ['Dish picker (admin)', "DishPicker shows the chosen dishes and sections as removable chips plus a Choose / Change dishes button; the menu tree is DishPickerModal (z-[60], above the editor), which edits a copy: Done writes it back, Cancel drops it. Names come from the catalog; ids no longer on a menu show as Removed dish / Removed section."],
                 ['Uses', "Orders not rejected / cancelled / expired (promoSvc FREE_STATUSES). venuePromotions() drops used-up and ended ones; createOrder() calls lockUses() (FOR UPDATE on limited promotions, then a count) inside its transaction and returns 422 code promo_invalid when one has just run out. An unknown code is also 422 promo_invalid."],
               ]}
@@ -5657,7 +5692,7 @@ GET /robots.txt`}</Code>
                   name: 'DB helpers',
                   path: 'src/config/db.js',
                   desc: 'Core database abstraction. Handle carefully.',
-                  code: "// withTenant — transaction with RLS context\nawait withTenant(tenantId, async tx => {\n  const [row] = await tx`SELECT * FROM bookings WHERE id = ${id}`\n  return row\n})\n\n// withTx — plain transaction, no tenant context\nawait withTx(async tx => {\n  const [t] = await tx`SELECT id FROM tenants WHERE slug = ${slug}`\n  return t\n})",
+                  code: "// withTenant — transaction with RLS context\nawait withTenant(tenantId, async tx => {\n  const [row] = await tx`SELECT * FROM bookings WHERE id = ${id} AND tenant_id = ${tenantId}`\n  return row\n})\n\n// withSystem — system mode (migration 176), only to find the tenant first\nawait withSystem(async tx => {\n  const [t] = await tx`SELECT tenant_id FROM tenant_site WHERE subdomain_slug = ${slug}`\n  return t\n})",
                 },
               ].map(item => (
                 <div key={item.name} className="border rounded-lg p-4">

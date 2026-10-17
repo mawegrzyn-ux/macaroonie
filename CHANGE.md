@@ -27,6 +27,13 @@ Migrations are listed where a database change is required.
 - The button is highlighted once the draft is saved and has changes to publish. View-only users see the same window without the buttons that change anything.
 - No migration.
 
+## [2026-10-17 — Row-level security that holds for the app's own database role]
+
+- **Each restaurant group's data is now walled off by the database itself**, not only by each page's own checks. Until now the database's row-level security never applied to the app (it owns the tables), so a page that forgot its restaurant filter could have read another group's rows. Every table that belongs to a restaurant group now enforces it: a query sees only its own group's rows. Pages and services that find the group themselves (website pages, the booking widget, online ordering, tills and screens, GloriaFood pushes, Pepper's connectors, background jobs, the platform pages) do so in a separate, clearly marked mode.
+- Fixed: the booking widget's venue details call failed every time (it read a deposit setting that doesn't exist).
+- Before deploying: every restaurant table must belong to the app's database user. If any were created by hand as another user, the deploy stops and lists them with the command that fixes it.
+- Migration 176.
+
 ## [2026-10-17 — API tests in the repo: the cross-tenant sweep, and what it found]
 
 - **API tests** (`npm test` in `api/`, and a new CI job on every pull request): the real app against an empty test database, with two restaurant groups made through the API, a stand-in login and a stand-in Claude. The **cross-tenant sweep** calls every admin route that takes an id as one group with the other group's ids (and its own ids mixed in, about 53,000 calls), sends every change the first group made again as the second, and then checks that nothing was read, changed or pointed at across groups. Pepper's chat loop (streaming, routing, refusals) has its own test.

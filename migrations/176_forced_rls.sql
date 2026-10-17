@@ -25,6 +25,26 @@
 
 BEGIN;
 
+-- Only a table's owner (or a superuser) can force RLS on it. Tables made
+-- by hand as another role (an early psql run as postgres) would stop this
+-- migration at the first one: list them all with the fix instead.
+DO $$
+DECLARE bad text;
+BEGIN
+  IF (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) THEN RETURN; END IF;
+  SELECT string_agg(format('%I (owner %s)', c.relname, pg_get_userbyid(c.relowner)), ', ' ORDER BY c.relname) INTO bad
+    FROM pg_class c
+   WHERE c.relnamespace = 'public'::regnamespace
+     AND c.relkind = 'r'
+     AND pg_get_userbyid(c.relowner) <> current_user
+     AND (c.relname = 'table_combination_members'
+          OR EXISTS (SELECT 1 FROM pg_attribute a
+                      WHERE a.attrelid = c.oid AND a.attname = 'tenant_id' AND NOT a.attisdropped));
+  IF bad IS NOT NULL THEN
+    RAISE EXCEPTION 'Row-level security can only be forced by a table''s owner, and these tables belong to another role: %. As postgres, run ALTER TABLE <table> OWNER TO % for each, then deploy again.', bad, current_user;
+  END IF;
+END $$;
+
 DO $$
 DECLARE
   t record;
