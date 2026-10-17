@@ -5,6 +5,12 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-17 — API tests in the repo: the cross-tenant sweep, and what it found]
+
+- **API tests** (`npm test` in `api/`, and a new CI job on every pull request): the real app against an empty test database, with two restaurant groups made through the API, a stand-in login and a stand-in Claude. The **cross-tenant sweep** calls every admin route that takes an id as one group with the other group's ids (and its own ids mixed in, about 53,000 calls), sends every change the first group made again as the second, and then checks that nothing was read, changed or pointed at across groups. Pepper's chat loop (streaming, routing, refusals) has its own test.
+- **Fixed, found by the sweep**: one restaurant group could make records that pointed at another group's: fridges, check times, hold stations, cooking sessions, deliveries, checklists and reviews on another group's venue; a table in another group's room; a table combination of another group's tables; a dish with another group's option group; a staff member with another group's role; a Cash Recon day or wage week using another group's income sources, payment channels, service-charge sources or staff (a wage default even showed their names and pay); online ordering offering another group's menus; a sitting added to another group's special-date opening hours; translations for another group's dishes. A venue named anywhere in a request now has to be the group's own (checked for every page at once), and each of the other cases checks its ids.
+- No migration.
+
 ## [2026-10-17 — Pepper streams its answers and uses a faster model for everyday questions]
 
 - **Answers appear as Pepper writes them**, in Ask Pepper, the Pepper page, the phone app and the website chat, with a line saying what it is doing (thinking, looking something up, getting a card ready). A card that arrives mid-answer can be pressed once the answer is done. A message typed while Pepper is working stays in the box.

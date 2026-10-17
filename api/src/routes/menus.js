@@ -687,6 +687,13 @@ async function upsertMenuTree(tx, tenantId, menuId, body) {
   const tags = await tx`SELECT id, code, kind, standard_key FROM menu_dietary_tags WHERE tenant_id = ${tenantId}`
   const tagByCode = Object.fromEntries(tags.filter(t => t.standard_key).map(t => [t.standard_key, t]))
   for (const t of tags) tagByCode[t.code] = t
+  // Option groups and their options the same way: only this tenant's (an
+  // id that isn't, deleted or another tenant's, is dropped).
+  const [groupRows, optionRows] = await Promise.all([
+    tx`SELECT id FROM menu_variant_groups WHERE tenant_id = ${tenantId}`,
+    tx`SELECT id FROM menu_variant_options WHERE tenant_id = ${tenantId}`,
+  ])
+  const ownGroups = new Set(groupRows.map(r => r.id)), ownOptions = new Set(optionRows.map(r => r.id))
 
   // Wipe + re-insert. Sections cascade to items → variants → dietary,
   // and callouts cascade from menu_id, so a single delete clears the
@@ -735,14 +742,14 @@ async function upsertMenuTree(tx, tenantId, menuId, body) {
       }
       // Attached variant groups + optional price overrides
       for (const [gi, g] of (item.variant_groups || []).entries()) {
-        if (!g?.group_id) continue
+        if (!ownGroups.has(g?.group_id)) continue
         await tx`
           INSERT INTO menu_item_variant_groups (item_id, group_id, tenant_id, sort_order)
           VALUES (${it.id}, ${g.group_id}, ${tenantId}, ${g.sort_order ?? gi})
           ON CONFLICT DO NOTHING
         `
         for (const ov of (g.overrides || [])) {
-          if (!ov?.option_id || ov.price_pence == null) continue
+          if (!ownOptions.has(ov?.option_id) || ov.price_pence == null) continue
           await tx`
             INSERT INTO menu_item_variant_prices (item_id, option_id, tenant_id, price_pence)
             VALUES (${it.id}, ${ov.option_id}, ${tenantId}, ${ov.price_pence})

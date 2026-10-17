@@ -3,6 +3,8 @@ import { z } from 'zod'
 
 const schema = z.object({
   NODE_ENV:              z.enum(['development', 'production', 'test']).default('development'),
+  // Unset: info in production, debug otherwise. The tests run with silent.
+  LOG_LEVEL:             z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).optional(),
   PORT:                  z.coerce.number().default(3000),
 
   // PostgreSQL

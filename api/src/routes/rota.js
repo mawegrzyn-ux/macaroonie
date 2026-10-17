@@ -278,6 +278,12 @@ function cleanSurcharges(list) {
     .filter(s => s.pct > 0)
 }
 
+async function assertRole(tx, tenantId, roleId) {
+  if (!roleId) return
+  const [r] = await tx`SELECT id FROM staff_roles WHERE id = ${roleId} AND tenant_id = ${tenantId}`
+  if (!r) throw httpError(404, 'Role not found')
+}
+
 async function assertPot(tx, tenantId, potId) {
   const [p] = await tx`SELECT id, distribution FROM tip_pots WHERE id = ${potId} AND tenant_id = ${tenantId}`
   if (!p) throw httpError(404, 'Tip pot not found')
@@ -851,6 +857,7 @@ export default async function rotaRoutes(app) {
     const b = StaffBody.parse(req.body)
     return withTenant(req.tenantId, async tx => {
       await assertVenue(tx, req.tenantId, req.params.venueId)
+      await assertRole(tx, req.tenantId, b.role_id)
       const [{ n }] = await tx`
         SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM cash_staff
          WHERE tenant_id = ${req.tenantId} AND venue_id = ${req.params.venueId}
@@ -885,6 +892,7 @@ export default async function rotaRoutes(app) {
         SELECT id FROM cash_staff WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId} AND venue_id = ${req.params.venueId}
       `
       if (!exists) throw httpError(404, 'Staff member not found')
+      await assertRole(tx, req.tenantId, rest.role_id)
       if (fields.length) {
         await tx`
           UPDATE cash_staff SET ${tx(Object.fromEntries(fields.map(k => [k, rest[k]])), ...fields)}

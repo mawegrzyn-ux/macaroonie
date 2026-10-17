@@ -423,6 +423,28 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               payment, refund and collection-time changes) filters by tenant on every read and write.
               Test any route you touch with a second tenant's rows in the database.
             </P>
+            <H3>Ids in the body: the venue guard and the route's own checks</H3>
+            <P>
+              A tenant filter on the row being changed isn't enough: a request can also name other
+              rows in its body (a venue, a section, a staff member, an option group), and a route that
+              inserts those ids as given makes the caller's rows point at another tenant's (and an
+              override's sittings, or a wage default's staff names, could cross over). The
+              cross-tenant sweep (Testing below), and a read of the routes it pointed at, found this in
+              eight routes taking a venue id in the body and ten taking other ids. Two layers now
+              stop it:
+            </P>
+            <DataTable
+              head={['Layer', 'What it checks']}
+              rows={[
+                ['refuseOtherTenantsVenues (middleware/venue.js)', 'Added to every route by app.js (onRoute, last in the route\'s preHandlers, so after requireAuth). Any key venue_id / *_venue_id or venue_ids / *_venue_ids in the query string or JSON body, at any depth, naming a venue of another tenant: 404 "Venue not found". An id that is no venue at all passes (the route deals with it; a stale id in saved page blocks mustn\'t stop a save). Requests without a tenant (public pages) are left alone.'],
+                ['The route', 'Every other id in a body: a table\'s section (venues.js), a combination\'s tables, a staff member\'s role (rota.js), a Cash Recon day\'s income sources, payment channels and SC sources and a wage week\'s staff (cashRecon.js assertVenueRows()), online ordering\'s menus (orders.js), a dish\'s option groups and options (upsertMenuTree() drops ids that aren\'t the tenant\'s, like unknown dietary codes), an override\'s sittings (schedules.js), translation keys (saveTranslations() skips keys for words the tenant hasn\'t got).'],
+              ]}
+            />
+            <P>
+              The venue guard can't know what a <Mono>design_id</Mono> or a <Mono>staff_id</Mono> is,
+              so a new route that takes another kind of id in its body must check it itself, and the
+              sweep only covers it once the fixtures make a row with that id.
+            </P>
             <H3>withTx() vs withTenant()</H3>
             <P>
               <Mono>withTx(fn)</Mono> opens a plain transaction without setting tenant context. Use it only
@@ -5970,9 +5992,57 @@ npm install && npm run dev        # :5173, proxies /api → :3000`}</Code>
               job <Mono>database</Mono> migrates an empty Postgres 16 (no pg_cron) from 001, runs the
               migrations a second time expecting "up to date", then starts the API against it with
               Redis and waits for <Mono>/api/health</Mono>; job <Mono>shared-tests</Mono> runs{' '}
-              <Mono>node --test shared/test/*.test.mjs shared/pos/test/*.test.mjs</Mono>. Separate from
-              the deploy workflow; a failing check doesn&apos;t block a push to main on its own (set up a
-              branch rule in GitHub for that).
+              <Mono>node --test shared/test/*.test.mjs shared/pos/test/*.test.mjs</Mono>; job{' '}
+              <Mono>api-tests</Mono> migrates its own empty <Mono>macaroonie_test</Mono> database and
+              runs <Mono>npm test</Mono> in <Mono>api/</Mono> (below). Separate from the deploy
+              workflow; a failing check doesn&apos;t block a push to main on its own (set up a branch
+              rule in GitHub for that).
+            </P>
+            <H3>Testing: the API tests (api/test)</H3>
+            <P>
+              <Mono>npm test</Mono> in <Mono>api/</Mono> runs <Mono>api/test/*.test.mjs</Mono> with
+              Node&apos;s test runner, one file at a time, against the real app (<Mono>buildApp()</Mono>,{' '}
+              <Mono>app.inject()</Mono>, no network port). They empty the database first, so they
+              refuse to run unless the database name in <Mono>DATABASE_URL</Mono> contains{' '}
+              <Mono>test</Mono>; migrate it first (<Mono>node scripts/migrate.js</Mono>). They need
+              Redis like the API. <Mono>LOG_LEVEL=info npm test</Mono> shows the API&apos;s log (silent
+              otherwise). A run takes about a minute and a half.
+            </P>
+            <DataTable
+              head={['File', 'What it is']}
+              rows={[
+                ['test/support/register.mjs + loader.mjs', 'Loaded with --import: every import of src/middleware/auth.js gets auth-stub.mjs instead.'],
+                ['test/support/auth-stub.mjs', 'The real auth module with one change: requireAuth takes "Authorization: Bearer test:<auth0 sub>" plus X-Tenant-Id (no Auth0) and checks the person against users / platform_admins like the real one. Permissions, roles and modules are the real code.'],
+                ['test/support/app.mjs', 'getApp(), as(sub, tenantId) (a client per person: get / post / put / patch / delete / request, with the internal-call header so tests aren\'t rate limited), ok() (throws with the API\'s message), closeApp().'],
+                ['test/support/seed.mjs', 'resetAndSeed(): empties the tenants and the platform tables, makes the platform admin, then two tenants through POST /api/platform/tenants (Thai House = A, Other Co = B) with one person per role in A and an owner in B.'],
+                ['test/support/fixtures.mjs', 'fillTenant(sub, tenantId, { mark, slug }): a tenant\'s data in every area, made through the API as its owner (venues, tables, schedule incl. overrides, exceptions and caps, bookings, holds, customers, menus with options, allergens and a release, rota and tips, Cash Recon days and wages, food safety, checklists, dashboards, purchasing, website, promotions, till, kitchen, screens, Pepper). Returns { ids, failed, writes }: writes is every write that worked (the sweep sends them again as the other tenant). The mark goes in names and notes.'],
+                ['test/support/fake-claude.mjs', 'A stand-in Claude API: answers POST /v1/messages from a script, as a stream of server-sent events when asked; sets ANTHROPIC_BASE_URL.'],
+                ['test/tenant-sweep.test.mjs', 'The cross-tenant sweep (below).'],
+                ['test/ai-chat.test.mjs', 'Pepper\'s chat loop against the stand-in Claude: streamed turns, the JSON reply, busy chats, errors after the stream opened, withdrawn and refused messages, model routing.'],
+              ]}
+            />
+            <H3>The cross-tenant sweep</H3>
+            <P>
+              Both tenants are filled with <Mono>fillTenant()</Mono> (B with its own mark, so A&apos;s
+              mark <Mono>Zqx</Mono> appears only in A&apos;s data). Then, as B&apos;s owner:
+            </P>
+            <DataTable
+              head={['Test', 'Fails when']}
+              rows={[
+                ['Every route that takes a parameter', 'Called with A\'s ids, and with B\'s own ids mixed in (B\'s venue with A\'s sitting): about 53,000 calls. A reply holds A\'s mark or an id of A\'s it wasn\'t sent; any of A\'s rows changes (an md5 per table over A\'s rows after each route); a 500. Ids come from every table with a tenant_id, one per table per tenant; named parameters (KINDS: venueId, sid, ...) get ids from their tables, :id gets all of them.'],
+                ['Every write A made, sent again', 'Each write in fixtures\' writes, as A sent it and with each of A\'s ids in the address swapped for B\'s id from the same table (valid bodies, so the route gets past its validation): A\'s rows change, a record of A\'s named in the address is accepted, a reply holds an id of A\'s it wasn\'t sent, or a 500. Accepted with A\'s ids in the body only is listed, and left to the last test.'],
+                ['None of B\'s rows point at A\'s', 'Any row of B\'s, as text (jsonb included), holds an id of A\'s; or a link table without a tenant_id (table_combination_members) joins two tenants\' rows.'],
+              ]}
+            />
+            <P>
+              Public routes (widget, ordering, website, devices, webhooks, MCP) are left out: they are
+              reached by an id or token by design. A deliberate exception is listed with its reason:{' '}
+              <Mono>ALLOWED_CHANGES</Mono> (B upvoting A&apos;s feature request: one shared board) and{' '}
+              <Mono>ALLOWED_REFERENCES</Mono> (that upvote&apos;s row). A new table is swept as soon as
+              the fixtures make a row in it; a new route as soon as it is registered. When you add a
+              table or a route that takes ids, add a fixture step that makes a row (through the API) so
+              its ids are tried. Statuses 503 (no Auth0 or AI key on the test server) aren&apos;t
+              failures.
             </P>
             <H3>Typical deployment flow</H3>
             <Code>{`# From the developer's laptop:

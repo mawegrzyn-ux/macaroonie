@@ -159,6 +159,11 @@ export default async function ordersRoutes(app) {
     }
     const row = await withTenant(req.tenantId, async tx => {
       const venue = await venueOf(tx, req.params.venueId)
+      const menuIds = [...new Set(b.menu_ids)]
+      if (menuIds.length) {
+        const own = await tx`SELECT id FROM menus WHERE id = ANY(${menuIds}::uuid[]) AND tenant_id = ${req.tenantId}`
+        if (own.length !== menuIds.length) throw httpError(422, 'A chosen menu wasn\'t found')
+      }
       if (Object.keys(schedules).length) {
         const menus = await tx`SELECT id, name FROM menus WHERE id = ANY(${Object.keys(schedules)}::uuid[]) AND tenant_id = ${req.tenantId}`
         const today = localParts(new Date(), venue.timezone || 'Europe/London').date

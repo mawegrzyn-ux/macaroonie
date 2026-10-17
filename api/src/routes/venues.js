@@ -160,18 +160,30 @@ export default async function venuesRoutes(app) {
     `)
   })
 
+  // A table's section must be one of this venue's.
+  async function assertSection(tx, req, sectionId) {
+    if (!sectionId) return
+    const [s] = await tx`
+      SELECT 1 FROM venue_sections WHERE id = ${sectionId} AND venue_id = ${req.params.id} AND tenant_id = ${req.tenantId}
+    `
+    if (!s) throw httpError(404, 'Section not found')
+  }
+
   // POST /venues/:id/tables
   app.post('/:id/tables', { preHandler: PERM.tables}, async (req, reply) => {
     const body = TableBody.parse(req.body)
-    const [table] = await withTenant(req.tenantId, tx => tx`
-      INSERT INTO tables (venue_id, tenant_id, section_id, label, min_covers, max_covers, sort_order, is_active)
-      VALUES (
-        ${req.params.id}, ${req.tenantId}, ${body.section_id ?? null},
-        ${body.label}, ${body.min_covers}, ${body.max_covers},
-        ${body.sort_order}, ${body.is_active}
-      )
-      RETURNING *
-    `)
+    const [table] = await withTenant(req.tenantId, async tx => {
+      await assertSection(tx, req, body.section_id)
+      return tx`
+        INSERT INTO tables (venue_id, tenant_id, section_id, label, min_covers, max_covers, sort_order, is_active)
+        VALUES (
+          ${req.params.id}, ${req.tenantId}, ${body.section_id ?? null},
+          ${body.label}, ${body.min_covers}, ${body.max_covers},
+          ${body.sort_order}, ${body.is_active}
+        )
+        RETURNING *
+      `
+    })
     return reply.code(201).send(table)
   })
 
@@ -181,14 +193,17 @@ export default async function venuesRoutes(app) {
     const fields = Object.keys(body)
     if (!fields.length) throw httpError(400, 'No fields to update')
 
-    const [table] = await withTenant(req.tenantId, tx => tx`
-      UPDATE tables
-         SET ${tx(body, ...fields)}, updated_at = now()
-       WHERE id = ${req.params.tid}
-         AND venue_id = ${req.params.id}
-         AND tenant_id = ${req.tenantId}
-      RETURNING *
-    `)
+    const [table] = await withTenant(req.tenantId, async tx => {
+      await assertSection(tx, req, body.section_id)
+      return tx`
+        UPDATE tables
+           SET ${tx(body, ...fields)}, updated_at = now()
+         WHERE id = ${req.params.tid}
+           AND venue_id = ${req.params.id}
+           AND tenant_id = ${req.tenantId}
+        RETURNING *
+      `
+    })
     if (!table) throw httpError(404, 'Table not found')
     return table
   })
@@ -260,8 +275,9 @@ export default async function venuesRoutes(app) {
              ) AS members
         FROM table_combinations c
         LEFT JOIN table_combination_members m ON m.combination_id = c.id
-        LEFT JOIN tables t ON t.id = m.table_id
+        LEFT JOIN tables t ON t.id = m.table_id AND t.tenant_id = c.tenant_id
        WHERE c.venue_id = ${req.params.id}
+         AND c.tenant_id = ${req.tenantId}
        GROUP BY c.id
        ORDER BY c.name
     `)
@@ -271,6 +287,11 @@ export default async function venuesRoutes(app) {
   app.post('/:id/combinations', { preHandler: PERM.tables}, async (req, reply) => {
     const body = CombinationBody.parse(req.body)
     const combo = await withTenant(req.tenantId, async tx => {
+      const ids = [...new Set(body.table_ids)]
+      const own = await tx`
+        SELECT id FROM tables WHERE id = ANY(${ids}::uuid[]) AND venue_id = ${req.params.id} AND tenant_id = ${req.tenantId}
+      `
+      if (own.length !== ids.length) throw httpError(404, 'One or more tables not found in this venue')
       const [c] = await tx`
         INSERT INTO table_combinations (venue_id, tenant_id, name, min_covers, max_covers, is_active)
         VALUES (${req.params.id}, ${req.tenantId}, ${body.name}, ${body.min_covers}, ${body.max_covers}, ${body.is_active})

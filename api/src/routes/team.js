@@ -163,7 +163,7 @@ export default async function teamRoutes(app) {
     let inviterName = null
     if (req.user.sub) {
       const [me] = await withTenant(req.tenantId, tx => tx`
-        SELECT id, full_name, email FROM users WHERE auth0_user_id = ${req.user.sub}
+        SELECT id, full_name, email FROM users WHERE auth0_user_id = ${req.user.sub} AND tenant_id = ${req.tenantId}
       `)
       invitedBy   = me?.id ?? null
       inviterName = me?.full_name || me?.email || null
@@ -394,7 +394,7 @@ export default async function teamRoutes(app) {
     let inviterName = null
     if (req.user.sub) {
       const [me] = await withTenant(req.tenantId, tx => tx`
-        SELECT full_name, email FROM users WHERE auth0_user_id = ${req.user.sub}
+        SELECT full_name, email FROM users WHERE auth0_user_id = ${req.user.sub} AND tenant_id = ${req.tenantId}
       `)
       inviterName = me?.full_name || me?.email || null
     }
