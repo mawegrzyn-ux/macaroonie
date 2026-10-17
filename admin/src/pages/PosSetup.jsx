@@ -2,7 +2,7 @@
 //
 // Till setup (/pos, pos_setup module). Per venue: tills and pairing,
 // revenue streams (with the order types each offers), printers and what
-// prints where, kitchen screens (stations, the kitchen flow, pairing),
+// prints where, kitchen screens (stations, the kitchen flows, pairing),
 // self-order kiosks, staff PINs, receipts and payments, the Cash Recon link.
 // Company-wide: order types, kiosk designs, till roles and courses.
 // The floor plan has its own page (/pos/floor). docs/POS.md.

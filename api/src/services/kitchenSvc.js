@@ -4,8 +4,16 @@
 // shared/pos/kitchen.js and run inside the sequencer (services/posSvc.js).
 //
 //   loadKitchenConfig()     what the sequencer's kitchen rules need (stations,
-//                           the flow, courses, tables, staff, revenue centres)
+//                           the flow in use, courses, tables, staff, revenue
+//                           centres)
 //   kdsConfig()             what a kitchen screen downloads (/pos-api/config)
+//   loadFlows() / ensureFlows() / activeFlowOf()
+//                           a venue's kitchen flows (migration 177) and the one
+//                           in use (pos_settings.kds_active_flow_id, else the
+//                           first)
+//   switchFlow()            put another flow in use (Till setup, or a kitchen
+//                           screen's flow button): dishes sent after it follow
+//                           it, dishes already sent keep their way (item.route)
 //   kitchenSync()           kitchen orders since a sequence number
 //   submitServerEvent()     a kitchen event made by the server (online orders)
 //   kitchenOnOnlineOrder()  called by orderSvc after an online order changes:
@@ -19,6 +27,7 @@
 
 import { withTenant } from '../config/db.js'
 import { broadcast } from '../config/ws.js'
+import { httpError } from '../middleware/error.js'
 import { ulid } from '../../../shared/pos/ids.js'
 import { onlineOrderId, stationSettings, boardNumbers, STALE_HOURS, BUMP_KINDS } from '../../../shared/pos/kitchen.js'
 import { createHash } from 'node:crypto'
@@ -32,14 +41,45 @@ export async function loadStations(tx, tenantId, venueId, { activeOnly = true } 
      ORDER BY sort_order, name`
 }
 
-/** The flow between the active stations: [{ id, from, to, targets }]. */
-export async function loadFlow(tx, tenantId, venueId, stations) {
+/** A venue's kitchen flows, in their order: [{ id, name, layout, sort_order }]. */
+export async function loadFlows(tx, tenantId, venueId) {
+  return tx`
+    SELECT id, name, layout, sort_order FROM kds_flows
+     WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}
+     ORDER BY sort_order, created_at`
+}
+
+/** The venue's flows, making the first one ("Main flow") when it has none. */
+export async function ensureFlows(tx, tenantId, venueId) {
+  const flows = await loadFlows(tx, tenantId, venueId)
+  if (flows.length) return flows
+  await tx`
+    INSERT INTO kds_flows (tenant_id, venue_id, name) VALUES (${tenantId}, ${venueId}, 'Main flow')
+    ON CONFLICT DO NOTHING`
+  return loadFlows(tx, tenantId, venueId)
+}
+
+/** The flow in use: the one pos_settings names, else the first. */
+export function activeFlowOf(flows, activeId) {
+  return flows.find(f => f.id === activeId) || flows[0] || null
+}
+
+/** A flow's links between the given stations: [{ id, from, to, targets }]. */
+export async function loadFlow(tx, tenantId, flowId, stations) {
+  if (!flowId) return []
   const live = new Set(stations.map(s => s.id))
   const rows = await tx`
     SELECT id, from_station_id AS "from", to_station_id AS "to", targets
-      FROM kds_flow_edges WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}
+      FROM kds_flow_edges WHERE tenant_id = ${tenantId} AND flow_id = ${flowId}
      ORDER BY sort_order, created_at`
   return rows.filter(l => live.has(l.to) && (!l.from || live.has(l.from)))
+}
+
+async function flowSetting(tx, tenantId, venueId) {
+  const [s] = await tx`
+    SELECT kds_active_flow_id, kds_flow_switched_at, kds_flow_switched_by FROM pos_settings
+     WHERE venue_id = ${venueId} AND tenant_id = ${tenantId}`
+  return s || {}
 }
 
 const stationView = s => ({ id: s.id, name: s.name, kind: s.kind, colour: s.colour, settings: stationSettings(s) })
@@ -47,13 +87,19 @@ const stationView = s => ({ id: s.id, name: s.name, kind: s.kind, colour: s.colo
 /**
  * The sequencer's kitchen config. enabled = the venue has an active station
  * with something to bump (prep, expo or runner). A station switched off is
- * left out, so dishes pass straight through it.
+ * left out, so dishes pass straight through it. flow = the links of the flow
+ * in use (flow_id); active_setting = pos_settings.kds_active_flow_id as read,
+ * so the sequencer can tell a switch happened (activeFlowSetting()).
  */
 export async function loadKitchenConfig(tx, tenantId, venueId) {
   const stations = await loadStations(tx, tenantId, venueId)
-  if (!stations.some(s => BUMP_KINDS.includes(s.kind))) return { enabled: false, stations: {}, flow: [] }
+  const setting = await flowSetting(tx, tenantId, venueId)
+  const active_setting = setting.kds_active_flow_id || null
+  if (!stations.some(s => BUMP_KINDS.includes(s.kind))) return { enabled: false, stations: {}, flow: [], flow_id: null, active_setting }
+  const flows = await loadFlows(tx, tenantId, venueId)
+  const active = activeFlowOf(flows, active_setting)
   const [flow, courses, tables, staff, types] = await Promise.all([
-    loadFlow(tx, tenantId, venueId, stations),
+    loadFlow(tx, tenantId, active?.id, stations),
     tx`SELECT id, name, sort_order FROM pos_courses WHERE tenant_id = ${tenantId}`,
     tx`SELECT id, label FROM tables WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`,
     tx`SELECT id, name FROM cash_staff WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`,
@@ -63,6 +109,8 @@ export async function loadKitchenConfig(tx, tenantId, venueId) {
     enabled: true,
     stations: by(stations, stationView),
     flow,
+    flow_id: active?.id || null,
+    active_setting,
     courses: by(courses, c => ({ name: c.name, sort_order: c.sort_order })),
     tables: by(tables, t => ({ label: t.label })),
     staff: by(staff, s => ({ name: s.name })),
@@ -70,16 +118,61 @@ export async function loadKitchenConfig(tx, tenantId, venueId) {
   }
 }
 
+/** pos_settings.kds_active_flow_id now (one row): has the flow been switched since a config was read? */
+export async function activeFlowSetting(tx, tenantId, venueId) {
+  return (await flowSetting(tx, tenantId, venueId)).kds_active_flow_id || null
+}
+
+/**
+ * Put another of the venue's flows in use. Dishes sent from now follow it;
+ * dishes already sent keep their way. Takes the venue's till lock, so it
+ * falls between two sequenced events, never inside one. by = a kitchen
+ * screen's name or a person. Returns { flow_id, name, switched_at,
+ * switched_by, changed } (changed false: it was already in use).
+ */
+export async function switchFlow(tx, tenantId, venueId, flowId, by) {
+  const { ensureSettings } = await import('./posSvc.js')
+  await tx`SELECT pg_advisory_xact_lock(hashtext(${'pos:' + venueId}))`
+  const [flow] = await tx`SELECT id, name FROM kds_flows WHERE id = ${flowId} AND tenant_id = ${tenantId} AND venue_id = ${venueId}`
+  if (!flow) throw httpError(404, 'Kitchen flow not found')
+  const settings = await ensureSettings(tx, tenantId, venueId)
+  const flows = await loadFlows(tx, tenantId, venueId)
+  if (activeFlowOf(flows, settings.kds_active_flow_id)?.id === flow.id) {
+    // Already in use: write it down if it was only the default (the first).
+    if (settings.kds_active_flow_id !== flow.id) {
+      await tx`UPDATE pos_settings SET kds_active_flow_id = ${flow.id} WHERE venue_id = ${venueId} AND tenant_id = ${tenantId}`
+    }
+    return { flow_id: flow.id, name: flow.name, switched_at: settings.kds_flow_switched_at, switched_by: settings.kds_flow_switched_by, changed: false }
+  }
+  const [s] = await tx`
+    UPDATE pos_settings
+       SET kds_active_flow_id = ${flow.id}, kds_flow_switched_at = now(), kds_flow_switched_by = ${String(by || '').slice(0, 120) || null},
+           updated_at = now()
+     WHERE venue_id = ${venueId} AND tenant_id = ${tenantId}
+     RETURNING kds_flow_switched_at, kds_flow_switched_by`
+  return { flow_id: flow.id, name: flow.name, switched_at: s.kds_flow_switched_at, switched_by: s.kds_flow_switched_by, changed: true }
+}
+
 /** What a kitchen screen needs: its venue, the stations, its own settings. */
 export async function kdsConfig(tx, tenantId, venueId) {
   const [venue] = await tx`SELECT id, name, timezone FROM venues WHERE id = ${venueId} AND tenant_id = ${tenantId}`
   const [settings] = await tx`
-    SELECT day_starts_at, kds_online_orders, kds_online_ready FROM pos_settings
+    SELECT day_starts_at, kds_online_orders, kds_online_ready, kds_active_flow_id, kds_flow_switched_at, kds_flow_switched_by
+      FROM pos_settings
      WHERE venue_id = ${venueId} AND tenant_id = ${tenantId}`
   const stations = await loadStations(tx, tenantId, venueId)
   const courses = await tx`SELECT id, name, short_name, colour, sort_order FROM pos_courses WHERE tenant_id = ${tenantId} AND is_active ORDER BY sort_order, name`
   // The tenant's order types (migration 170): the screen's filters and ticket badges.
   const orderTypes = await tx`SELECT id, name, colour, sort_order FROM order_types WHERE tenant_id = ${tenantId} AND is_active ORDER BY sort_order, name`
+  // The venue's flows (migration 177) for the flow button: each with the
+  // stations it sends dishes to, and the one in use.
+  const flows = await loadFlows(tx, tenantId, venueId)
+  const active = activeFlowOf(flows, settings?.kds_active_flow_id)
+  const live = new Set(stations.map(s => s.id))
+  const edges = flows.length ? await tx`
+    SELECT flow_id, from_station_id AS "from", to_station_id AS "to" FROM kds_flow_edges
+     WHERE tenant_id = ${tenantId} AND flow_id = ANY(${flows.map(f => f.id)}::uuid[])` : []
+  const order = Object.fromEntries(stations.map((s, i) => [s.id, i]))
   const config = {
     kind: 'kds',
     venue: { id: venue?.id, name: venue?.name, timezone: venue?.timezone || 'Europe/London' },
@@ -91,7 +184,15 @@ export async function kdsConfig(tx, tenantId, venueId) {
     stations: stations.map(stationView),
     // The screen draws where dishes come from and go to; their ways are
     // worked out when they are sent (item.route), not on the screen.
-    flow: await loadFlow(tx, tenantId, venueId, stations),
+    flow: await loadFlow(tx, tenantId, active?.id, stations),
+    flows: flows.map(f => ({
+      id: f.id, name: f.name,
+      station_ids: [...new Set(edges.filter(e => e.flow_id === f.id && live.has(e.to) && (!e.from || live.has(e.from))).map(e => e.to))]
+        .sort((a, b) => order[a] - order[b]),
+    })),
+    active_flow_id: active?.id || null,
+    flow_switched_at: settings?.kds_flow_switched_at || null,
+    flow_switched_by: settings?.kds_flow_switched_by || null,
     courses,
     order_types: orderTypes,
   }

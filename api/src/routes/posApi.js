@@ -15,6 +15,8 @@
 //                               (a kiosk may only call /me, /config and /events)
 //   GET  /sync?since=<seq>      events and changed checks since seq; reset: true with all open checks
 //   GET  /kitchen/sync?since=   kitchen orders since seq (shared/pos/kitchen.js; services/kitchenSvc.js)
+//   PUT  /kitchen/flow          { flow_id } a kitchen screen's flow button puts another kitchen flow in
+//                               use (migration 177; not when Till setup turned it off for that screen)
 //   POST /events                { events: [...] } -> per-event results, in order (till and kitchen
 //                               events; kitchen.order_in / order_status are refused from devices)
 //   GET  /checks?status=closed  recent closed checks (reopen, refund, reprint)
@@ -46,7 +48,7 @@ import { KITCHEN_SERVER_EVENTS } from '../../../shared/pos/kitchen.js'
 import { CHECK_EVENTS } from '../../../shared/pos/checks.js'
 import { kioskConfig, readPreviewToken, previewDevice } from '../services/kioskSvc.js'
 import { setSoldOut, soldOutItemIds, announceSoldOut } from '../services/soldOut.js'
-import { kdsConfig, kitchenSync, onlineMoves } from '../services/kitchenSvc.js'
+import { kdsConfig, kitchenSync, onlineMoves, switchFlow } from '../services/kitchenSvc.js'
 import { changeStatus } from '../services/orderSvc.js'
 
 const UUID = z.string().uuid()
@@ -214,6 +216,24 @@ export default async function posApiRoutes(app) {
       const d = req.posDevice
       const since = Math.max(0, Number(req.query.since) || 0)
       return withTenant(d.tenant_id, tx => kitchenSync(tx, d.tenant_id, d.venue_id, since))
+    })
+
+    // The kitchen screen's flow button: dishes sent from now follow the flow
+    // put in use, dishes already sent keep their way. Online only (the
+    // sequencer routes dishes); every screen at the venue gets pos.config.
+    scoped.put('/kitchen/flow', async req => {
+      const d = req.posDevice
+      if (d.kind !== 'kds') throw httpError(403, 'Only a kitchen screen can switch the kitchen flow')
+      const { flow_id } = z.object({ flow_id: UUID }).parse(req.body)
+      const out = await withTenant(d.tenant_id, async tx => {
+        const [own] = await tx`SELECT name, settings FROM pos_devices WHERE id = ${d.id} AND tenant_id = ${d.tenant_id}`
+        if (own?.settings?.can_switch_flow === false) {
+          throw httpError(403, 'This screen can\'t switch the kitchen flow: it can be allowed in Till setup, Kitchen screens')
+        }
+        return switchFlow(tx, d.tenant_id, d.venue_id, flow_id, own?.name || 'A kitchen screen')
+      })
+      if (out.changed) broadcast('pos:' + d.venue_id, { type: 'pos.config' })
+      return out
     })
 
     // Sold out: the signed-in person's role needs sold_out (or approved_by

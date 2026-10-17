@@ -28,7 +28,7 @@ import { TENDERS } from '../../../shared/pos/checks.js'
 import { kioskStaff } from '../../../shared/kiosk.js'
 import { venueNow } from '../../../shared/promotions.js'
 import { soldOutRows } from './soldOut.js'
-import { loadKitchenConfig } from './kitchenSvc.js'
+import { loadKitchenConfig, activeFlowSetting } from './kitchenSvc.js'
 import { ensureTaxDefaults, loadTaxRates, loadOrderTypes, loadStreams, taxForVenue } from './taxSvc.js'
 
 export const DEFAULT_COURSES = [
@@ -398,6 +398,12 @@ export function sequencer(tenantId, venueId, { deviceId = null } = {}) {
       return r || null
     },
     async context() {
+      // Cached for the batch, except the kitchen flow in use: a switch made
+      // between two events of the batch (switchFlow() takes the same lock)
+      // counts from the next one.
+      if (ctxCache?.kitchen?.enabled && await activeFlowSetting(tx, tenantId, venueId) !== ctxCache.kitchen.active_setting) {
+        ctxCache = { ...ctxCache, kitchen: await loadKitchenConfig(tx, tenantId, venueId) }
+      }
       if (ctxCache) return ctxCache
       const staff = await loadTillStaff(tx, tenantId, venueId)
       // Self-order kiosks are known by their device id, with the kiosk rules

@@ -8,7 +8,8 @@
 //     out; order ready boards show the numbers on menu screens. Timings
 //     (amber / red), held courses, showing dishes before they arrive, and the
 //     On order counts groups
-//   - the kitchen flow: how dishes move between them (KitchenFlow.jsx)
+//   - the kitchen flows: how dishes move between them, one in use at a time,
+//     switched here or from a kitchen screen (KitchenFlow.jsx)
 //   - online orders: into the kitchen when accepted, ready when finished
 
 import { useEffect, useState } from 'react'
@@ -55,12 +56,16 @@ function ScreenModal({ venueId, setup, device, onClose, onPaired }) {
     columns: s.columns ?? null,
     text_size: s.text_size || 'normal',
     sound: s.sound !== false,
+    can_switch_flow: s.can_switch_flow !== false,
   })
   const set = patch => setForm(f => ({ ...f, ...patch }))
   const stations = setup.kds_stations.filter(x => x.is_active && x.kind !== 'board')
   const body = () => ({
     name: form.name.trim(),
-    settings: { station_ids: form.station_ids, view: form.view, columns: form.columns || undefined, text_size: form.text_size, sound: form.sound },
+    settings: {
+      station_ids: form.station_ids, view: form.view, columns: form.columns || undefined, text_size: form.text_size, sound: form.sound,
+      can_switch_flow: form.can_switch_flow,
+    },
   })
   const refresh = () => qc.invalidateQueries({ queryKey: ['pos-setup', venueId] })
   const save = useMutation({
@@ -105,6 +110,11 @@ function ScreenModal({ venueId, setup, device, onClose, onPaired }) {
         <Field group label="Text size"><Segmented value={form.text_size} options={TEXT_SIZES} onChange={v => set({ text_size: v })} /></Field>
       </div>
       <Toggle label="Beep for new orders" checked={form.sound} onChange={v => set({ sound: v })} />
+      <Toggle label="Can switch the kitchen flow"
+        hint={(setup.kds_flows || []).length > 1
+          ? 'The flow button at the top right of the screen puts another kitchen flow in use for the whole kitchen.'
+          : 'With more than one kitchen flow, a flow button at the top right of the screen puts another one in use for the whole kitchen.'}
+        checked={form.can_switch_flow} onChange={v => set({ can_switch_flow: v })} />
       <ErrorNote error={save.error || remove.error} />
     </Modal>
   )

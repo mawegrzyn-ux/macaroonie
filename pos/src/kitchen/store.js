@@ -137,11 +137,58 @@ export async function loadConfig() {
     const v = state.config?.version
     const res = await api.get('/pos-api/config' + (v ? '?version=' + encodeURIComponent(v) : ''))
     if (!res.unchanged) {
+      const before = state.config
       await idb.set(CONFIG_KEY, res)
       setState({ config: res, online: true })
+      flowNotice(before, res)
     } else setState({ online: true })
   } catch (err) {
     handleError(err)
+  }
+}
+
+// ── Kitchen flows (migration 177) ────────────────────────────────
+
+/** The flow in use (config.flows / active_flow_id), or null with fewer than two flows. */
+export function activeFlow(config = state.config) {
+  const flows = config?.flows || []
+  if (flows.length < 2) return null
+  return flows.find(f => f.id === config.active_flow_id) || flows[0]
+}
+
+// This screen's own switch: no "flow changed" notice for it.
+let ownSwitch = null
+
+/** Another screen (or Till setup) put another flow in use: say so here. */
+function flowNotice(before, after) {
+  if (!before || !after?.active_flow_id || before.active_flow_id === after.active_flow_id) return
+  if (ownSwitch && ownSwitch.flowId === after.active_flow_id && Date.now() < ownSwitch.until) return
+  const f = activeFlow(after)
+  if (f) toast('Kitchen flow now: ' + f.name + (after.flow_switched_by ? ' (' + after.flow_switched_by + ')' : ''), 'ok', 8000)
+}
+
+/**
+ * Put another kitchen flow in use (the flow button). Online only: the
+ * sequencer routes dishes, so a switch made offline would mean nothing.
+ * Returns { ok } or { ok: false, error }.
+ */
+export async function switchFlow(flowId) {
+  ownSwitch = { flowId, until: Date.now() + 20000 }
+  try {
+    const res = await api.put('/pos-api/kitchen/flow', { flow_id: flowId })
+    if (state.config) {
+      setState({ online: true, config: { ...state.config, active_flow_id: res.flow_id, flow_switched_at: res.switched_at, flow_switched_by: res.switched_by } })
+    }
+    loadConfig()
+    return { ok: true, name: res.name }
+  } catch (err) {
+    ownSwitch = null
+    if (err instanceof OfflineError || err?.offline) {
+      setState({ online: false })
+      return { ok: false, error: 'No connection: the kitchen flow can only be switched online' }
+    }
+    if (err?.status === 401) handleError(err)
+    return { ok: false, error: err?.message || 'The flow wasn\'t switched' }
   }
 }
 

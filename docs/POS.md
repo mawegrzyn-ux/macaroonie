@@ -375,7 +375,15 @@ Chrome, as an installed PWA.
   an expo can send to a board and a runner at once, or to a runner that then sends to the board.
   A dish's whole way is worked out when it is sent and kept on the dish (`item.route`), so a flow
   change during service only affects dishes sent after it. Designer: Till setup → Kitchen
-  screens → Kitchen flow.
+  screens → Kitchen flows.
+- **Several flows** (migration 177, 17 Oct 2026): a venue keeps named flows (`kds_flows`: a busy
+  night, one cook, the grill down), one in use (`pos_settings.kds_active_flow_id`). The kitchen
+  screen's flow button (top right) lists them and switches the whole kitchen
+  (`PUT /pos-api/kitchen/flow`; Till setup can do the same, and can stop a screen switching). The
+  shared rules don't know about it: the sequencer's kitchen config simply carries the links of the
+  flow in use. A switch takes the venue's sequencer lock and the sequencer re-reads the setting per
+  event, so it falls between two events, and it only affects dishes sent after it (dishes keep
+  `item.route`). Switching needs the cloud for now (the hub would sequence it locally).
 - **Order-ready boards**: the menu screens' `order_status` block shows numbers preparing and
   ready (`/screen-api/orders`), pushed on `kitchen.board`: every counter and online order, or one
   board station of the flow by name (`boards[name]`, ready once every dish on its way there has
@@ -426,6 +434,8 @@ nothing changes for the devices.
 - No "split one dish into two jobs" (e.g. the burger's bun and meat as separate items on two
   stations at once): a dish moves through stations one after another, or a combo's parts go
   their own ways.
+- Kitchen flows switch by hand only: no switching by time of day or day of the week, and dishes
+  already sent are never moved to the new flow's stations (finish them where they are).
 - Tested in Chromium on desktop sizes (tablet, TV, portrait) only; not yet on a real Android
   tablet, a TV box, or with a real bump bar. Sound needs one tap on the screen first (browser
   autoplay rule).

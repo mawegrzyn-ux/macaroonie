@@ -1,8 +1,15 @@
 // src/components/pos/KitchenFlow.jsx
 //
-// Till setup > Kitchen screens > Kitchen flow: a visual designer for how
+// Till setup > Kitchen screens > Kitchen flows: a visual designer for how
 // dishes move through the kitchen (docs/POS.md section 9; the rules are
-// shared/pos/kitchen.js, the API PUT /pos/venues/:id/kds-flow).
+// shared/pos/kitchen.js, the API PUT /pos/kds-flows/:id).
+//
+// A venue can have several flows (migration 177: a busy night, one cook,
+// the grill down); one is in use. The flow bar picks the flow to look at or
+// edit, makes a new one and orders them (the order of the kitchen screen's
+// flow list); the This flow box puts the flow in use (a kitchen screen's
+// flow button does the same), renames, copies or deletes it. Dishes follow
+// the flow in use when they are sent and keep that way.
 //
 // Boxes are Orders in (the till and online orders) and the venue's stations:
 // prep, expo, runner and order ready boards. A link says dishes go on from
@@ -20,13 +27,14 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Plus, Loader2, Pencil, Maximize2, Minimize2, Wand2, Route, X, Search, GripVertical, AlertTriangle, Info, Link2,
+  ArrowUpDown, Copy, CheckCircle2,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import {
   flowProblems, flowWarnings, itemRoute, KIND_LABELS, START,
 } from '@shared/pos/kitchen.js'
-import { Section, Btn, ErrorNote, ConfirmDelete, inputCls } from './shared'
+import { Section, Btn, ErrorNote, ConfirmDelete, inputCls, Modal, Field, SortableRows } from './shared'
 
 const NODE_W = 196
 const NODE_H = 72
@@ -48,12 +56,12 @@ let keySeq = 0
 const newKey = () => 'new-' + (++keySeq) + '-' + Math.random().toString(36).slice(2, 7)
 const nodeKey = id => id || START
 
-function seedDraft(setup) {
+function seedDraft(setup, flow) {
   const ids = new Set(setup.kds_stations.map(s => s.id))
-  const links = (setup.kds_flow?.links || [])
+  const links = (flow?.links || [])
     .filter(l => ids.has(l.to) && (!l.from || ids.has(l.from)))
     .map(l => ({ key: l.id, from: l.from || null, to: l.to, targets: l.targets || [] }))
-  return { links, layout: placeMissing({ ...(setup.kds_flow?.layout || {}) }, setup.kds_stations, links) }
+  return { links, layout: placeMissing({ ...(flow?.layout || {}) }, setup.kds_stations, links) }
 }
 
 /**
@@ -143,29 +151,78 @@ function linkSummary(link, lk) {
 export default function KitchenFlow({ venueId, setup, canManage, onStation }) {
   const api = useApi()
   const qc = useQueryClient()
+  const flows = setup.kds_flows || []
+  const activeId = setup.kds_active_flow_id
+  const [flowId, setFlowId] = useState(activeId)
+  const flow = flows.find(f => f.id === flowId) || flows.find(f => f.id === activeId) || flows[0] || null
+  const [dirty, setDirty] = useState(false)
+  const [full, setFull] = useState(false)
+  const [modal, setModal] = useState(null)            // 'new' | 'copy' | 'rename' | 'order'
+  const refresh = () => qc.invalidateQueries({ queryKey: ['pos-setup', venueId] })
+  const useNow = useMutation({
+    mutationFn: id => api.put(`/pos/venues/${venueId}/kds-flows/active`, { flow_id: id }),
+    onSuccess: refresh,
+  })
+  const remove = useMutation({
+    mutationFn: id => api.delete(`/pos/kds-flows/${id}`),
+    onSuccess: () => { setFlowId(activeId); refresh() },
+  })
+
+  const bar = flow && (
+    <FlowBar flows={flows} flow={flow} activeId={activeId} dirty={dirty} canManage={canManage}
+      onPick={id => { setFlowId(id); useNow.reset(); remove.reset() }} onNew={() => setModal('new')} onOrder={() => setModal('order')} />
+  )
+  const flowBox = flow && (
+    <ThisFlow flow={flow} active={flow.id === activeId} setup={setup} canManage={canManage} dirty={dirty}
+      onUse={() => useNow.mutate(flow.id)} using={useNow.isPending} error={useNow.error || remove.error}
+      onRename={() => setModal('rename')} onCopy={() => setModal('copy')} onDelete={() => remove.mutate(flow.id)} deleting={remove.isPending} />
+  )
+
+  return (
+    <Section title="Kitchen flows" hint="How dishes move through the kitchen: from Orders in (the till and online orders) to the stations that make them, on to the expo, runners and order ready boards. Make more than one (a busy night, one cook, the grill down) and switch between them here or with the flow button on a kitchen screen. A change or a switch counts for dishes sent after it.">
+      {flow
+        ? <FlowDesigner key={flow.id} venueId={venueId} setup={setup} flow={flow} isActive={flow.id === activeId} canManage={canManage}
+            onStation={onStation} bar={bar} flowBox={flowBox} full={full} setFull={setFull} onDirty={setDirty} />
+        : <p className="text-sm text-muted-foreground">No kitchen flow yet.</p>}
+      {(modal === 'new' || modal === 'copy' || modal === 'rename') && flow && (
+        <FlowModal mode={modal} venueId={venueId} flow={flow} onClose={() => setModal(null)}
+          onSaved={out => { setModal(null); if (modal !== 'rename') setFlowId(out.id); refresh() }} />
+      )}
+      {modal === 'order' && (
+        <OrderFlowsModal venueId={venueId} flows={flows} activeId={activeId} onClose={() => setModal(null)} onSaved={refresh} />
+      )}
+    </Section>
+  )
+}
+
+function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, bar, flowBox, full, setFull, onDirty }) {
+  const api = useApi()
+  const qc = useQueryClient()
   const lk = useLookups(setup)
   const stations = setup.kds_stations
   const byId = useMemo(() => Object.fromEntries(stations.map(s => [s.id, s])), [stations])
   const nameOf = id => (id && id !== START ? byId[id]?.name || 'a removed station' : 'Orders in')
 
-  const [draft, setDraft] = useState(() => seedDraft(setup))
+  const [draft, setDraft] = useState(() => seedDraft(setup, flow))
   const [dirty, setDirty] = useState(false)
   const [selected, setSelected] = useState(null)     // { link: key } | { node: id }
   const [connectFrom, setConnectFrom] = useState(null)
   const [wire, setWire] = useState(null)              // { from, x, y } while dragging a new link
   const [checking, setChecking] = useState(false)
   const [check, setCheck] = useState(() => ({ item_id: '', order_type_id: (setup.order_types || []).find(t => t.is_active)?.id || '', revenue_stream_id: '' }))
-  const [full, setFull] = useState(false)
   const [saved, setSaved] = useState(null)            // warnings after the last save
   // A flow that has never been laid out arranges itself as links are added,
   // until a box is moved by hand (or places are saved).
-  const [autoTidy, setAutoTidy] = useState(() => !Object.keys(setup.kds_flow?.layout || {}).length)
+  const [autoTidy, setAutoTidy] = useState(() => !Object.keys(flow.layout || {}).length)
+  // The flow bar can't open another flow while this one has unsaved changes.
+  useEffect(() => { onDirty(dirty) }, [dirty]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => onDirty(false), []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // A change from elsewhere (station added, removed, saved flow): take it in,
   // keeping an unsaved draft but dropping links to stations that are gone.
-  const flowKey = JSON.stringify(setup.kds_flow) + '|' + stations.map(s => s.id).join(',')
+  const flowKey = JSON.stringify({ links: flow.links, layout: flow.layout }) + '|' + stations.map(s => s.id).join(',')
   useEffect(() => {
-    if (!dirty) { setDraft(seedDraft(setup)); return }
+    if (!dirty) { setDraft(seedDraft(setup, flow)); return }
     setDraft(d => {
       const links = d.links.filter(l => byId[l.to] && (!l.from || byId[l.from]))
       return { links, layout: placeMissing(d.layout, stations, links) }
@@ -287,7 +344,7 @@ export default function KitchenFlow({ venueId, setup, canManage, onStation }) {
   const inRoute = id => !!route && (id === START ? Object.keys(route).length > 0 : !!route[id])
 
   const save = useMutation({
-    mutationFn: () => api.put(`/pos/venues/${venueId}/kds-flow`, {
+    mutationFn: () => api.put(`/pos/kds-flows/${flow.id}`, {
       links: draft.links.map(l => ({ from: l.from, to: l.to, targets: l.targets })),
       layout: pos,
     }),
@@ -300,7 +357,7 @@ export default function KitchenFlow({ venueId, setup, canManage, onStation }) {
       qc.invalidateQueries({ queryKey: ['pos-setup', venueId] })
     },
   })
-  const discard = () => { setDraft(seedDraft(setup)); setDirty(false); setSelected(null); setConnectFrom(null) }
+  const discard = () => { setDraft(seedDraft(setup, flow)); setDirty(false); setSelected(null); setConnectFrom(null) }
 
   const selLink = selected?.link ? draft.links.find(l => l.key === selected.link) : null
   const selNode = selected?.node || null
@@ -421,6 +478,7 @@ export default function KitchenFlow({ venueId, setup, canManage, onStation }) {
           onEdit={() => onStation(byId[selNode])} onLink={() => { setConnectFrom(selNode); setSelected(null) }}
           onPick={key => setSelected({ link: key })} onClose={() => setSelected(null)} />
       )}
+      {!connectFrom && !checking && !selLink && !selNode && flowBox}
       {!connectFrom && !checking && !selLink && !selNode && (
         <div className="rounded-xl border bg-background p-3 space-y-2 text-muted-foreground">
           <p className="flex gap-2"><Info className="w-4 h-4 shrink-0 mt-0.5" />
@@ -436,6 +494,7 @@ export default function KitchenFlow({ venueId, setup, canManage, onStation }) {
 
   const body = (
     <>
+      {bar}
       <div className="flex flex-wrap items-center gap-2">
         {canManage && <AddStationMenu onPick={kind => onStation({ kind })} />}
         {canManage && (
@@ -473,19 +532,154 @@ export default function KitchenFlow({ venueId, setup, canManage, onStation }) {
             {save.isPending && <Loader2 className="w-4 h-4 animate-spin" />} Save flow
           </Btn>
           {dirty && <Btn onClick={discard}>Discard changes</Btn>}
-          {!dirty && saved && <span className="text-xs text-green-700">Saved. The kitchen screens follow it for dishes sent from now on.</span>}
+          {!dirty && saved && (
+            <span className="text-xs text-green-700">
+              {isActive ? 'Saved. The kitchen screens follow it for dishes sent from now on.' : 'Saved. It isn\'t in use: Use this flow now puts it in use.'}
+            </span>
+          )}
           <ErrorNote error={save.error} />
         </div>
       )}
     </>
   )
 
+  return full
+    ? <div className="fixed inset-0 z-50 bg-page p-3 flex flex-col gap-3 overflow-y-auto" data-testid="flow-full">{body}</div>
+    : body
+}
+
+// ── Flows: the bar, This flow, new / copy / rename, order ─────────
+
+// The tabs aren't <button>s: Till setup wraps a View user's page in a
+// disabled fieldset, and they must still be able to look at each flow.
+function FlowBar({ flows, flow, activeId, dirty, canManage, onPick, onNew, onOrder }) {
   return (
-    <Section title="Kitchen flow" hint="How dishes move through the kitchen: from Orders in (the till and online orders) to the stations that make them, on to the expo, runners and order ready boards. A change counts for dishes sent after it is saved.">
-      {full
-        ? <div className="fixed inset-0 z-50 bg-page p-3 flex flex-col gap-3" data-testid="flow-full">{body}</div>
-        : body}
-    </Section>
+    <div className="flex flex-wrap items-center gap-2" data-testid="flow-bar">
+      <div role="tablist" aria-label="Kitchen flows" className="flex flex-wrap gap-1.5 min-w-0">
+        {flows.map(f => {
+          const on = f.id === flow.id
+          const locked = dirty && !on
+          const pick = () => { if (!locked && !on) onPick(f.id) }
+          return (
+            <div key={f.id} role="tab" tabIndex={locked ? -1 : 0} aria-selected={on} aria-disabled={locked || undefined}
+              onClick={pick} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick() } }}
+              data-testid="flow-tab" data-locked={locked ? 'true' : undefined} title={locked ? 'Save or discard the changes first' : undefined}
+              className={cn('min-h-[44px] max-w-full px-3 rounded-lg border text-sm font-medium flex items-center gap-2 touch-manipulation select-none',
+                on ? 'bg-primary text-primary-foreground border-primary' : 'bg-background hover:bg-muted cursor-pointer',
+                locked && 'opacity-50 cursor-not-allowed hover:bg-background')}>
+              {f.id === activeId && <span className="w-2.5 h-2.5 rounded-full bg-green-500 ring-2 ring-white/70 shrink-0" aria-hidden="true" />}
+              <span className="truncate max-w-[14rem]">{f.name}</span>
+              {f.id === activeId && <span className="text-[11px] font-semibold opacity-80 shrink-0">In use</span>}
+            </div>
+          )
+        })}
+      </div>
+      {canManage && <Btn onClick={onNew} disabled={dirty} title="New kitchen flow"><Plus className="w-4 h-4" /> <span>New flow</span></Btn>}
+      {canManage && flows.length > 1 && (
+        <Btn onClick={onOrder} disabled={dirty} title="Order the flows"><ArrowUpDown className="w-4 h-4" /> <span className="hidden sm:inline">Order</span></Btn>
+      )}
+    </div>
+  )
+}
+
+const when = at => new Date(at).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+
+function ThisFlow({ flow, active, setup, canManage, dirty, onUse, using, error, onRename, onCopy, onDelete, deleting }) {
+  const [asking, setAsking] = useState(false)
+  useEffect(() => setAsking(false), [flow.id, active])
+  return (
+    <PanelBox title={flow.name} testid="flow-this">
+      {active
+        ? (
+          <p className="flex items-start gap-2 text-green-800" data-testid="flow-in-use">
+            <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+            <span>In use: dishes follow this flow.{setup.kds_flow_switched_at
+              ? ' Switched ' + when(setup.kds_flow_switched_at) + (setup.kds_flow_switched_by ? ' by ' + setup.kds_flow_switched_by : '') + '.'
+              : ''}</span>
+          </p>
+        )
+        : <p className="text-muted-foreground">Not in use. Put it in use here or with the flow button on a kitchen screen.</p>}
+      {canManage && !active && (
+        asking
+          ? (
+            <div className="rounded-lg border border-blue-300 bg-blue-50 p-3 space-y-2" data-testid="flow-use-confirm">
+              <p>Dishes sent from now follow {flow.name}. Dishes already in the kitchen keep their way.</p>
+              <div className="flex flex-wrap gap-2">
+                <Btn variant="primary" onClick={onUse} disabled={using}>{using && <Loader2 className="w-4 h-4 animate-spin" />} Yes, use it now</Btn>
+                <Btn onClick={() => setAsking(false)}>Cancel</Btn>
+              </div>
+            </div>
+          )
+          : (
+            <div className="flex flex-wrap items-center gap-2">
+              <Btn variant="primary" onClick={() => setAsking(true)} disabled={dirty}>
+                <CheckCircle2 className="w-4 h-4" /> Use this flow now
+              </Btn>
+              {dirty && <span className="text-xs text-muted-foreground">Save or discard the changes first.</span>}
+            </div>
+          )
+      )}
+      {canManage && (
+        <div className="flex flex-wrap items-center gap-2 pt-1 border-t">
+          <Btn onClick={onRename} disabled={dirty}><Pencil className="w-4 h-4" /> Rename</Btn>
+          <Btn onClick={onCopy} disabled={dirty}><Copy className="w-4 h-4" /> Copy</Btn>
+          <span className="flex-1" />
+          {active
+            ? <span className="text-xs text-muted-foreground">The flow in use can't be deleted.</span>
+            : <ConfirmDelete label="Delete flow" confirmLabel="Yes, delete" onConfirm={onDelete} disabled={deleting || dirty} />}
+        </div>
+      )}
+      <ErrorNote error={error} />
+    </PanelBox>
+  )
+}
+
+function FlowModal({ mode, venueId, flow, onClose, onSaved }) {
+  const api = useApi()
+  const [name, setName] = useState(mode === 'rename' ? flow.name : mode === 'copy' ? ('Copy of ' + flow.name).slice(0, 40) : '')
+  const save = useMutation({
+    mutationFn: () => mode === 'rename'
+      ? api.patch(`/pos/kds-flows/${flow.id}`, { name: name.trim() })
+      : api.post(`/pos/venues/${venueId}/kds-flows`, { name: name.trim(), copy_from: mode === 'copy' ? flow.id : null }),
+    onSuccess: onSaved,
+  })
+  const title = mode === 'rename' ? 'Rename ' + flow.name : mode === 'copy' ? 'Copy ' + flow.name : 'New kitchen flow'
+  return (
+    <Modal title={title} onClose={onClose}
+      footer={(
+        <Btn variant="primary" className="flex-1" disabled={!name.trim() || save.isPending} onClick={() => save.mutate()}>
+          {save.isPending && <Loader2 className="w-4 h-4 animate-spin" />} {mode === 'rename' ? 'Save' : mode === 'copy' ? 'Make the copy' : 'Make the flow'}
+        </Btn>
+      )}>
+      <Field label="Name" hint="Kitchen screens list the flows by name, e.g. Busy night, One cook, Grill down.">
+        <input className={inputCls} value={name} maxLength={40} onChange={e => setName(e.target.value)} placeholder="e.g. Busy night"
+          onKeyDown={e => { if (e.key === 'Enter' && name.trim() && !save.isPending) save.mutate() }} />
+      </Field>
+      {mode === 'new' && <p className="text-sm text-muted-foreground">It starts empty: link Orders in to the stations, then on to the expo and boards. To start from this flow instead, use Copy.</p>}
+      {mode === 'copy' && <p className="text-sm text-muted-foreground">With the same links and boxes as {flow.name}, ready to change. It isn't in use until you put it in use.</p>}
+      <ErrorNote error={save.error} />
+    </Modal>
+  )
+}
+
+function OrderFlowsModal({ venueId, flows, activeId, onClose, onSaved }) {
+  const api = useApi()
+  const reorder = useMutation({
+    mutationFn: ids => api.put(`/pos/venues/${venueId}/kds-flows/order`, { ids }),
+    onSuccess: onSaved,
+  })
+  return (
+    <Modal title="Order the kitchen flows" onClose={onClose}>
+      <p className="text-sm text-muted-foreground">Drag to change the order. Kitchen screens list the flows in this order.</p>
+      <SortableRows items={flows} onReorder={ids => reorder.mutate(ids)}
+        renderItem={f => (
+          <div className="flex items-center gap-2 min-h-[44px]" data-testid="flow-order-row">
+            <span className="flex-1 min-w-0 truncate text-sm font-medium">{f.name}</span>
+            {f.id === activeId && <span className="text-[11px] font-semibold text-green-700 shrink-0">In use</span>}
+          </div>
+        )} />
+      <ErrorNote error={reorder.error} />
+    </Modal>
   )
 }
 
@@ -511,11 +705,13 @@ function AddStationMenu({ onPick }) {
 function PanelBox({ title, onClose, children, testid }) {
   return (
     <div className="rounded-xl border bg-background overflow-hidden" data-testid={testid}>
-      <div className="section-head px-3 py-2 flex items-center gap-2">
-        <p className="font-semibold flex-1 min-w-0">{title}</p>
-        <button type="button" onClick={onClose} aria-label="Close" className="w-11 h-11 -my-2 -mr-2 flex items-center justify-center rounded-lg hover:bg-muted touch-manipulation">
-          <X className="w-4 h-4" />
-        </button>
+      <div className={cn('section-head px-3 flex items-center gap-2', onClose ? 'py-2' : 'py-2.5')}>
+        <p className="font-semibold flex-1 min-w-0 truncate">{title}</p>
+        {onClose && (
+          <button type="button" onClick={onClose} aria-label="Close" className="w-11 h-11 -my-2 -mr-2 flex items-center justify-center rounded-lg hover:bg-muted touch-manipulation">
+            <X className="w-4 h-4" />
+          </button>
+        )}
       </div>
       <div className="p-3 space-y-3">{children}</div>
     </div>

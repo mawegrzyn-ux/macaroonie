@@ -33,7 +33,11 @@
 //   GET    /venues/:venueId/print-jobs            the print queue
 //   Kitchen screens (docs/POS.md section 9; shared/pos/kitchen.js):
 //   POST   /venues/:venueId/kds-stations          + PATCH/DELETE /kds-stations/:id, PUT /venues/:venueId/kds-stations/order
-//   PUT    /venues/:venueId/kds-flow              the kitchen flow: every link + where the designer draws each box
+//   POST   /venues/:venueId/kds-flows             a kitchen flow (empty, or a copy of another; migration 177)
+//   PATCH  /kds-flows/:id                         rename;  DELETE /kds-flows/:id (not the one in use)
+//   PUT    /kds-flows/:id                         a flow's links + where the designer draws each box
+//   PUT    /venues/:venueId/kds-flows/order       the flows' order (the kitchen screen's flow list)
+//   PUT    /venues/:venueId/kds-flows/active      put a flow in use (also from a kitchen screen: PUT /pos-api/kitchen/flow)
 //   GET    /venues/:venueId/kitchen-report?from=&to=   speed of service per station, by hour, remakes
 //   GET    /venues/:venueId/kitchen-report.csv?from=&to=  every bump and remake, for spreadsheets / BI
 //   (kitchen screens themselves are devices: POST /venues/:venueId/devices with kind 'kds')
@@ -53,6 +57,7 @@ import {
 import { reconFields } from '../services/reconFill.js'
 import { stationSettings, flowProblems, flowWarnings, STATION_KINDS, FLOW_TARGET_KINDS } from '../../../shared/pos/kitchen.js'
 import { posOrigin } from '../services/platformHost.js'
+import { ensureFlows, activeFlowOf, switchFlow } from '../services/kitchenSvc.js'
 import { checkDesign, previewToken } from '../services/kioskSvc.js'
 import { normaliseDesign } from '../../../shared/kiosk.js'
 import { DEFAULT_POS_ROLES, PERMISSION_KEYS, normalisePermissions } from '../../../shared/pos/permissions.js'
@@ -154,6 +159,8 @@ const DeviceSettings = z.object({
   columns:            z.number().int().min(3).max(10).optional(),
   text_size:          z.enum(['normal', 'large', 'xl']).optional(),
   sound:              z.boolean().optional(),
+  // Its flow button may put another kitchen flow in use (absent = yes).
+  can_switch_flow:    z.boolean().optional(),
   // Self-order kiosks (kind 'kiosk', shared/kiosk.js): its design (null = the
   // tenant's first) and its card reader ('test' takes no money; real
   // terminals come as adapters later, docs/POS.md section 10).
@@ -207,6 +214,12 @@ const StationBody = z.object({
 const FlowTarget = z.object({
   kind: z.enum(FLOW_TARGET_KINDS),
   id:   z.string().max(40).nullable().optional(),
+})
+const FlowName = z.string().trim().min(1).max(40)
+const NewFlowBody = z.object({
+  name:      FlowName,
+  // Start from a copy of this flow's links and layout (one of the venue's).
+  copy_from: UUID.nullable().optional(),
 })
 const KdsFlowBody = z.object({
   links: z.array(z.object({
@@ -275,12 +288,45 @@ async function ownRow(tx, table, tenantId, id, what) {
   return row
 }
 
-/** A venue's kitchen flow links, in the shape shared/pos/kitchen.js uses. */
-export async function loadFlowLinks(tx, tenantId, venueId) {
+/** A flow's links, in the shape shared/pos/kitchen.js uses. */
+export async function loadFlowLinks(tx, tenantId, flowId) {
   return tx`
     SELECT id, from_station_id AS "from", to_station_id AS "to", targets
-      FROM kds_flow_edges WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}
+      FROM kds_flow_edges WHERE tenant_id = ${tenantId} AND flow_id = ${flowId}
      ORDER BY sort_order, created_at`
+}
+
+/** The venue's flows with their links, the one in use and the last switch (the setup page). */
+async function flowsView(tx, tenantId, venueId, settings) {
+  const flows = await ensureFlows(tx, tenantId, venueId)
+  const links = await tx`
+    SELECT id, flow_id, from_station_id AS "from", to_station_id AS "to", targets
+      FROM kds_flow_edges WHERE tenant_id = ${tenantId} AND flow_id = ANY(${flows.map(f => f.id)}::uuid[])
+     ORDER BY sort_order, created_at`
+  return {
+    kds_flows: flows.map(f => ({
+      id: f.id, name: f.name, sort_order: f.sort_order, layout: f.layout || {},
+      links: links.filter(l => l.flow_id === f.id).map(({ flow_id, ...l }) => l),
+    })),
+    kds_active_flow_id: activeFlowOf(flows, settings.kds_active_flow_id)?.id || null,
+    kds_flow_switched_at: settings.kds_flow_switched_at || null,
+    kds_flow_switched_by: settings.kds_flow_switched_by || null,
+  }
+}
+
+/** A flow of the tenant's, or 404. */
+async function ownFlow(tx, tenantId, id) {
+  const [f] = await tx`SELECT id, venue_id, name, layout, sort_order FROM kds_flows WHERE id = ${id} AND tenant_id = ${tenantId}`
+  if (!f) throw httpError(404, 'Kitchen flow not found')
+  return f
+}
+
+async function flowNameTaken(tx, tenantId, venueId, name, exceptId = null) {
+  const [hit] = await tx`
+    SELECT 1 FROM kds_flows
+     WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND lower(btrim(name)) = lower(btrim(${name}))
+       ${exceptId ? tx`AND id <> ${exceptId}` : tx``}`
+  return !!hit
 }
 
 /** Something a flow filter names is gone: take it out of every filter. A link
@@ -353,7 +399,7 @@ export default async function posSetupRoutes(app) {
       const venue = await ownVenue(tx, tenantId, venueId)
       const settings = await ensureSettings(tx, tenantId, venueId)
       await ensureTaxDefaults(tx, tenantId)
-      const [streams, orderTypes, printers, routes, devices, areas, tables, staff, roles, courses, menus, kdsStations, kdsLinks, kioskDesigns] = await Promise.all([
+      const [streams, orderTypes, printers, routes, devices, areas, tables, staff, roles, courses, menus, kdsStations, kdsFlows, kioskDesigns] = await Promise.all([
         loadStreams(tx, tenantId, venueId),
         loadOrderTypes(tx, tenantId),
         tx`SELECT id, name, kind, host, port, columns, backup_printer_id, sort_order, is_active
@@ -375,7 +421,7 @@ export default async function posSetupRoutes(app) {
             ORDER BY sort_order, name`,
         tx`SELECT id, name, kind, colour, settings, sort_order, is_active FROM kds_stations
             WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} ORDER BY sort_order, name`,
-        loadFlowLinks(tx, tenantId, venueId),
+        flowsView(tx, tenantId, venueId, settings),
         tx`SELECT id, name, settings, updated_at FROM kiosk_designs WHERE tenant_id = ${tenantId} ORDER BY created_at`,
       ])
       // Sections and dishes, for printer routing.
@@ -397,7 +443,7 @@ export default async function posSetupRoutes(app) {
         roles: roles.map(r => ({ ...r, permissions: normalisePermissions(r.permissions || {}) })),
         courses, menus, sections, items,
         kds_stations: kdsStations.map(s => ({ ...s, settings: stationSettings(s) })),
-        kds_flow: { links: kdsLinks, layout: settings.kds_flow_layout || {} },
+        ...kdsFlows,
         kiosk_designs: kioskDesigns.map(d => ({ id: d.id, name: d.name, settings: normaliseDesign(d.settings), updated_at: d.updated_at })),
         recon_fields: await reconFields(tx, tenantId, venueId),
         till_url: posOrigin(),
@@ -850,11 +896,106 @@ export default async function posSetupRoutes(app) {
     return { ok: true }
   })
 
-  app.put('/venues/:venueId/kds-flow', { preHandler: canSetup }, async req => {
+  // ── Kitchen flows (migration 177) ────────────────────────────────
+  // A venue has one or more named flows; one is in use. Dishes follow the
+  // flow in use when they are sent and keep that way (item.route), so a
+  // switch or a saved change counts for dishes sent after it.
+  app.post('/venues/:venueId/kds-flows', { preHandler: canSetup }, async (req, reply) => {
     const venueId = UUID.parse(req.params.venueId)
-    const body = KdsFlowBody.parse(req.body)
+    const body = NewFlowBody.parse(req.body)
+    const flow = await withTenant(req.tenantId, async tx => {
+      await ownVenue(tx, req.tenantId, venueId)
+      await ensureFlows(tx, req.tenantId, venueId)
+      if (await flowNameTaken(tx, req.tenantId, venueId, body.name)) throw httpError(422, 'There is already a flow called ' + body.name)
+      // A copy must be of one of this venue's flows (its links name its stations).
+      const from = body.copy_from ? await ownFlow(tx, req.tenantId, body.copy_from) : null
+      if (from && from.venue_id !== venueId) throw httpError(404, 'Kitchen flow not found')
+      const [{ n }] = await tx`SELECT COALESCE(MAX(sort_order), -1)::int + 1 AS n FROM kds_flows WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}`
+      const [f] = await tx`
+        INSERT INTO kds_flows (tenant_id, venue_id, name, layout, sort_order)
+        VALUES (${req.tenantId}, ${venueId}, ${body.name}, ${tx.json(from?.layout || {})}, ${n})
+        RETURNING id, name, layout, sort_order`
+      if (from) {
+        await tx`
+          INSERT INTO kds_flow_edges (tenant_id, venue_id, flow_id, from_station_id, to_station_id, targets, sort_order)
+          SELECT tenant_id, venue_id, ${f.id}, from_station_id, to_station_id, targets, sort_order
+            FROM kds_flow_edges WHERE tenant_id = ${req.tenantId} AND flow_id = ${from.id}`
+      }
+      return { ...f, links: await loadFlowLinks(tx, req.tenantId, f.id) }
+    })
+    configChanged(venueId)
+    return reply.code(201).send(flow)
+  })
+
+  app.patch('/kds-flows/:id', { preHandler: canSetup }, async req => {
+    const id = UUID.parse(req.params.id)
+    const { name } = z.object({ name: FlowName }).parse(req.body)
+    const row = await withTenant(req.tenantId, async tx => {
+      const f = await ownFlow(tx, req.tenantId, id)
+      if (await flowNameTaken(tx, req.tenantId, f.venue_id, name, id)) throw httpError(422, 'There is already a flow called ' + name)
+      const [out] = await tx`
+        UPDATE kds_flows SET name = ${name}, updated_at = now()
+         WHERE id = ${id} AND tenant_id = ${req.tenantId}
+         RETURNING id, venue_id, name, sort_order`
+      return out
+    })
+    configChanged(row.venue_id)
+    return row
+  })
+
+  app.delete('/kds-flows/:id', { preHandler: canSetup }, async req => {
+    const id = UUID.parse(req.params.id)
+    const venueId = await withTenant(req.tenantId, async tx => {
+      const f = await ownFlow(tx, req.tenantId, id)
+      // The flow in use can't go: dishes would quietly start following another.
+      await tx`SELECT pg_advisory_xact_lock(hashtext(${'pos:' + f.venue_id}))`
+      const flows = await tx`SELECT id FROM kds_flows WHERE tenant_id = ${req.tenantId} AND venue_id = ${f.venue_id} ORDER BY sort_order, created_at`
+      const [s] = await tx`SELECT kds_active_flow_id FROM pos_settings WHERE venue_id = ${f.venue_id} AND tenant_id = ${req.tenantId}`
+      if (activeFlowOf(flows, s?.kds_active_flow_id)?.id === id) throw httpError(422, 'This flow is in use: put another flow in use first')
+      await tx`DELETE FROM kds_flows WHERE id = ${id} AND tenant_id = ${req.tenantId}`
+      return f.venue_id
+    })
+    configChanged(venueId)
+    return { ok: true }
+  })
+
+  app.put('/venues/:venueId/kds-flows/order', { preHandler: canSetup }, async req => {
+    const venueId = UUID.parse(req.params.venueId)
+    const { ids } = OrderBody.parse(req.body)
+    await withTenant(req.tenantId, async tx => {
+      await ownVenue(tx, req.tenantId, venueId)
+      // The flow in use may be "the first": keep it in use whatever the order.
+      const flows = await tx`SELECT id FROM kds_flows WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId} ORDER BY sort_order, created_at`
+      const [s] = await tx`SELECT kds_active_flow_id FROM pos_settings WHERE venue_id = ${venueId} AND tenant_id = ${req.tenantId}`
+      const active = activeFlowOf(flows, s?.kds_active_flow_id)
+      if (s && active && s.kds_active_flow_id !== active.id) {
+        await tx`UPDATE pos_settings SET kds_active_flow_id = ${active.id} WHERE venue_id = ${venueId} AND tenant_id = ${req.tenantId}`
+      }
+      for (const [i, id] of ids.entries()) {
+        await tx`UPDATE kds_flows SET sort_order = ${i} WHERE id = ${id} AND tenant_id = ${req.tenantId} AND venue_id = ${venueId}`
+      }
+    })
+    configChanged(venueId)
+    return { ok: true }
+  })
+
+  app.put('/venues/:venueId/kds-flows/active', { preHandler: canSetup }, async req => {
+    const venueId = UUID.parse(req.params.venueId)
+    const { flow_id } = z.object({ flow_id: UUID }).parse(req.body)
     const out = await withTenant(req.tenantId, async tx => {
       await ownVenue(tx, req.tenantId, venueId)
+      return switchFlow(tx, req.tenantId, venueId, flow_id, by(req) || 'Till setup')
+    })
+    if (out.changed) configChanged(venueId)
+    return out
+  })
+
+  app.put('/kds-flows/:id', { preHandler: canSetup }, async req => {
+    const id = UUID.parse(req.params.id)
+    const body = KdsFlowBody.parse(req.body)
+    const out = await withTenant(req.tenantId, async tx => {
+      const flow = await ownFlow(tx, req.tenantId, id)
+      const venueId = flow.venue_id
       const stations = await tx`SELECT id, name, kind, is_active FROM kds_stations WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}`
       const streams = new Set((await tx`SELECT id FROM pos_revenue_streams WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}`).map(r => r.id))
       const orderTypes = new Set((await tx`SELECT id FROM order_types WHERE tenant_id = ${req.tenantId}`).map(r => r.id))
@@ -889,19 +1030,18 @@ export default async function posSetupRoutes(app) {
       const known = new Set(['start', ...stations.map(s => s.id)])
       const layout = Object.fromEntries(Object.entries(body.layout).filter(([k]) => known.has(k))
         .map(([k, p]) => [k, { x: Math.round(p.x), y: Math.round(p.y) }]))
-      await ensureSettings(tx, req.tenantId, venueId)
-      await tx`DELETE FROM kds_flow_edges WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}`
+      await tx`DELETE FROM kds_flow_edges WHERE tenant_id = ${req.tenantId} AND flow_id = ${id}`
       for (const [i, l] of links.entries()) {
         await tx`
-          INSERT INTO kds_flow_edges (tenant_id, venue_id, from_station_id, to_station_id, targets, sort_order)
-          VALUES (${req.tenantId}, ${venueId}, ${l.from}, ${l.to}, ${tx.json(l.targets)}, ${i})`
+          INSERT INTO kds_flow_edges (tenant_id, venue_id, flow_id, from_station_id, to_station_id, targets, sort_order)
+          VALUES (${req.tenantId}, ${venueId}, ${id}, ${l.from}, ${l.to}, ${tx.json(l.targets)}, ${i})`
       }
-      await tx`UPDATE pos_settings SET kds_flow_layout = ${tx.json(layout)} WHERE venue_id = ${venueId} AND tenant_id = ${req.tenantId}`
-      const saved = await loadFlowLinks(tx, req.tenantId, venueId)
-      return { links: saved, layout, warnings: flowWarnings(stations, saved) }
+      await tx`UPDATE kds_flows SET layout = ${tx.json(layout)}, updated_at = now() WHERE id = ${id} AND tenant_id = ${req.tenantId}`
+      const saved = await loadFlowLinks(tx, req.tenantId, id)
+      return { venueId, out: { id, links: saved, layout, warnings: flowWarnings(stations, saved) } }
     })
-    configChanged(venueId)
-    return out
+    configChanged(out.venueId)
+    return out.out
   })
 
   // ── Kitchen report (speed of service) ───────────────────────────

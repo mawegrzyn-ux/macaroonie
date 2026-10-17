@@ -5,6 +5,13 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-17 — Several kitchen flows, switched from the kitchen screen]
+
+- **Kitchen flows**: Till setup → Kitchen screens now keeps several named flows per venue (a busy night, a quiet night with one cook, the grill down), one in use. Above the designer, the flow names pick the flow to look at (a green dot marks the one in use); **New flow** starts an empty one, **Copy** starts from the flow you're looking at, **Order** (drag) sets the order kitchen screens list them in. The box on the right puts the flow **in use** after a confirm, renames, copies or deletes it (the flow in use can't be deleted). Each flow saves on its own.
+- **The flow button on the kitchen screen**: with more than one flow, a button at the right of the top bar shows the flow in use. It lists the flows with the stations each one uses; **Switch**, then **Yes, switch**, sends new dishes that way for the whole kitchen. Dishes already on the screens stay where they are. Every other kitchen screen shows the new flow straight away with a note saying who switched. Switching needs the internet. Each kitchen screen has a **Can switch the kitchen flow** setting in Till setup (on to start).
+- Each venue's existing flow became "Main flow", in use.
+- Migration 177.
+
 ## [2026-10-17 — Menu editor: Publish button beside Save]
 
 - The menu editor's **Publishing** card is now a **Publish** button next to Save. A small badge on it shows how many changes aren't live yet (a dot when the menu has never been published, a clock when a publish is scheduled). It opens the Publishing window with everything the card had: what changed, Publish now, Schedule, Preview print, Discard changes, a scheduled publish with Cancel, and the history with Copy into editor.

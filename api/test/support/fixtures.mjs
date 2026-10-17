@@ -229,7 +229,19 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx' } = 
   await step('printer', () => post(`/api/pos/venues/${V}/printers`, { name: mark + ' Kitchen', ip_address: '192.168.1.50' }))
   await step('till device', () => post(`/api/pos/venues/${V}/devices`, { name: mark + ' Till 1', kind: 'terminal' }))
   const station = await step('kitchen station', () => post(`/api/pos/venues/${V}/kds-stations`, { name: mark + ' Wok', kind: 'prep' }))
-  if (station) await step('kitchen flow', () => put(`/api/pos/venues/${V}/kds-flow`, { links: [{ from: null, to: station.id, targets: [] }], layout: {} }))
+  // Kitchen flows (migration 177): the first comes with the setup page; a
+  // second copied from it, renamed, put first and in use.
+  const tillSetup = station ? await step('till setup', () => get(`/api/pos/venues/${V}/setup`)) : null
+  const mainFlow = tillSetup?.kds_flows?.[0]
+  if (station && mainFlow) {
+    await step('kitchen flow', () => put(`/api/pos/kds-flows/${mainFlow.id}`, { links: [{ from: null, to: station.id, targets: [] }], layout: { start: { x: 28, y: 28 }, [station.id]: { x: 378, y: 28 } } }))
+    const busy = await step('second kitchen flow', () => post(`/api/pos/venues/${V}/kds-flows`, { name: mark + ' Busy', copy_from: mainFlow.id }))
+    if (busy) {
+      await step('rename kitchen flow', () => patch(`/api/pos/kds-flows/${busy.id}`, { name: mark + ' Busy night' }))
+      await step('kitchen flows order', () => put(`/api/pos/venues/${V}/kds-flows/order`, { ids: [busy.id, mainFlow.id] }))
+      await step('kitchen flow in use', () => put(`/api/pos/venues/${V}/kds-flows/active`, { flow_id: busy.id }))
+    }
+  }
   await step('till settings', () => patch(`/api/pos/venues/${V}/settings`, { receipt_name: mark + ' Thai House' }))
   await step('floor area', () => post(`/api/pos/venues/${V}/floor-areas`, { name: mark + ' Patio' }))
   await step('kiosk design', () => post('/api/pos/kiosk-designs', { name: mark + ' Kiosk' }))
