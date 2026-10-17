@@ -4,7 +4,8 @@
 // save one on the Platform page (AI usage tab), stored in platform_secrets
 // as 'anthropic_api_key'; it wins over ANTHROPIC_API_KEY in the server's
 // .env, which stays as the fallback. The key never leaves the server: the
-// admin only ever sees its last four characters.
+// admin only ever sees its last four characters. It is stored sealed
+// (services/vault.js, migration 179).
 //
 // The API runs as several processes (PM2 cluster), so each process keeps the
 // key for KEY_TTL_MS and then reads it again: a key saved or removed in one
@@ -13,6 +14,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { sql } from '../config/db.js'
 import { env } from '../config/env.js'
+import { seal, unseal } from '../services/vault.js'
 
 const SECRET     = 'anthropic_api_key'
 const KEY_TTL_MS = 15_000
@@ -27,12 +29,13 @@ function fromEnv() {
 /** The key the chats use now, and where it came from. */
 export async function activeKey() {
   if (cached && Date.now() - cached.at < KEY_TTL_MS) return cached
+  let row
   try {
-    const [row] = await sql`SELECT value FROM platform_secrets WHERE name = ${SECRET}`
-    cached = row ? { key: row.value, source: 'platform', at: Date.now() } : fromEnv()
+    [row] = await sql`SELECT value FROM platform_secrets WHERE name = ${SECRET}`
   } catch {
-    cached = fromEnv()   // table not there yet (migration 149 not run)
+    return (cached = fromEnv())   // table not there yet (migration 149 not run)
   }
+  cached = row ? { key: unseal(row.value), source: 'platform', at: Date.now() } : fromEnv()
   return cached
 }
 
@@ -96,7 +99,7 @@ export async function checkKey(key) {
 export async function saveKey(key, updatedBy) {
   await sql`
     INSERT INTO platform_secrets (name, value, hint, updated_by)
-    VALUES (${SECRET}, ${key}, ${hintOf(key)}, ${updatedBy})
+    VALUES (${SECRET}, ${seal(key)}, ${hintOf(key)}, ${updatedBy})
     ON CONFLICT (name) DO UPDATE SET
       value      = EXCLUDED.value,
       hint       = EXCLUDED.hint,

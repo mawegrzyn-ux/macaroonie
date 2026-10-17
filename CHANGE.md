@@ -5,6 +5,14 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-17 — Encrypted integration keys, connector tokens that expire, a tool list per person]
+
+- **Keys stored encrypted**: the Anthropic key, Loyverse tokens, GloriaFood poll keys and email provider keys and passwords are now stored encrypted with a key kept outside the database, so a leaked database copy doesn't give them away. Keys already saved are encrypted when the server starts. Every deploy adds the encryption key to the server's settings file when it is missing: back that file up, because without it the saved keys would have to be typed in again.
+- **Booking emails → Settings**: saved keys and passwords are never shown again. A saved one shows as "Saved, ends 1a2b"; leave the box empty to keep it, type a new one to replace it, or press **Remove** and Save to take it off. The AWS SES secret access key is stored in a field of its own now (moved automatically).
+- **Pepper connector tokens expire**: when you make a token, pick how long it works (30, 90 or 180 days, or a year; 90 to start with) and whether it is **Read only** (it can look things up, never change anything). The list shows until when each works, and **Expired** after that. Tokens made before today work for 90 more days.
+- **Your AI app only sees the Pepper tools you can use**: the areas your role can see, and the tools that change things only where your role can change them.
+- Migration 179.
+
 ## [2026-10-17 — GloriaFood orders on the kitchen screens]
 
 - **GloriaFood orders can go to the kitchen screens**, like your own online orders. In Till setup → Kitchen screens → Online orders (shown when the venue is linked to GloriaFood), tick **Send GloriaFood orders to the kitchen screens** and Save. Accepted orders come on as GloriaFood sends them, with an orange GloriaFood label, GloriaFood's order number, the customer's first name, the table number for dine-in, notes and the dishes with their options. Test orders come on too, marked "GloriaFood test order".

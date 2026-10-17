@@ -184,12 +184,16 @@ function TokensCard() {
   const api = useApi()
   const qc  = useQueryClient()
   const [name, setName] = useState('')
+  // Every token expires; a read-only one offers only the tools that read (migration 179).
+  const [days, setDays] = useState(90)
+  const [readOnly, setReadOnly] = useState(false)
   const [created, setCreated] = useState(null)
   const [confirmId, setConfirmId] = useState(null)
   const { data: tokens = [] } = useQuery({ queryKey: ['ai-tokens'], queryFn: () => api.get('/ai/tokens') })
   const create = useMutation({
-    mutationFn: () => api.post('/ai/tokens', { name: name.trim() }),
-    onSuccess: row => { setCreated(row); setName(''); qc.invalidateQueries({ queryKey: ['ai-tokens'] }) },
+    mutationFn: () => api.post('/ai/tokens', { name: name.trim(), expires_in_days: days, read_only: readOnly }),
+    // The next token starts from the defaults again.
+    onSuccess: row => { setCreated(row); setName(''); setDays(90); setReadOnly(false); qc.invalidateQueries({ queryKey: ['ai-tokens'] }) },
   })
   const revoke = useMutation({
     mutationFn: id => api.delete('/ai/tokens/' + id),
@@ -198,14 +202,29 @@ function TokensCard() {
 
   return (
     <Card title="Access tokens">
-      <form className="flex gap-2" onSubmit={e => { e.preventDefault(); if (name.trim()) create.mutate() }}>
-        <input value={name} onChange={e => setName(e.target.value)} maxLength={80}
-          placeholder="Name, e.g. Claude on my laptop"
-          className="flex-1 min-w-0 rounded-md border bg-background px-3 min-h-[44px] text-sm" />
-        <button type="submit" disabled={!name.trim() || create.isPending}
-          className="min-h-[44px] px-4 rounded-md bg-primary text-primary-foreground text-sm font-medium flex items-center gap-2 disabled:opacity-40 touch-manipulation">
-          {create.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <KeyRound className="w-4 h-4" />} Make token
-        </button>
+      <form className="space-y-2" onSubmit={e => { e.preventDefault(); if (name.trim()) create.mutate() }}>
+        <div className="flex gap-2">
+          <input value={name} onChange={e => setName(e.target.value)} maxLength={80} aria-label="Token name"
+            placeholder="Name, e.g. Claude on my laptop"
+            className="flex-1 min-w-0 rounded-md border bg-background px-3 min-h-[44px] text-sm" />
+          <button type="submit" disabled={!name.trim() || create.isPending}
+            className="min-h-[44px] px-4 rounded-md bg-primary text-primary-foreground text-sm font-medium flex items-center gap-2 disabled:opacity-40 touch-manipulation">
+            {create.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <KeyRound className="w-4 h-4" />} Make token
+          </button>
+        </div>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <label className="flex items-center gap-2 text-sm">
+            <span className="text-muted-foreground">Works for</span>
+            <select value={days} onChange={e => setDays(Number(e.target.value))} aria-label="Works for"
+              className="rounded-md border bg-background px-2 min-h-[44px] text-sm touch-manipulation">
+              {[30, 90, 180, 365].map(d => <option key={d} value={d}>{d === 365 ? 'a year' : d + ' days'}</option>)}
+            </select>
+          </label>
+          <label className="flex items-center gap-2 text-sm min-h-[44px] cursor-pointer touch-manipulation">
+            <input type="checkbox" checked={readOnly} onChange={e => setReadOnly(e.target.checked)} className="w-5 h-5" />
+            <span>Read only <span className="text-muted-foreground">(can look things up, can't change anything)</span></span>
+          </label>
+        </div>
       </form>
       {create.error && <p className="text-sm text-destructive">{create.error.message}</p>}
       {created && (
@@ -220,14 +239,20 @@ function TokensCard() {
           {tokens.map(t => (
             <li key={t.id} className="flex items-center gap-3 px-3 py-2 min-h-[52px]">
               <div className="flex-1 min-w-0">
-                <div className={cn('text-sm font-medium truncate', t.revoked_at && 'line-through text-muted-foreground')}>{t.name}</div>
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className={cn('text-sm font-medium truncate', (t.revoked_at || t.expired) && 'line-through text-muted-foreground')}>{t.name}</span>
+                  {t.read_only && <span className="text-[11px] px-1.5 py-0.5 rounded border shrink-0">Read only</span>}
+                </div>
                 <div className="text-xs text-muted-foreground truncate">
                   {t.token_prefix}... {!t.mine && <>· {t.user_email} </>}· made {format(new Date(t.created_at), 'd MMM yyyy')}
                   {t.last_used_at ? ' · last used ' + format(new Date(t.last_used_at), 'd MMM, HH:mm') : ' · not used yet'}
+                  {!t.revoked_at && !t.expired && t.expires_at && ' · works until ' + format(new Date(t.expires_at), 'd MMM yyyy')}
                 </div>
               </div>
               {t.revoked_at ? (
                 <span className="text-xs text-muted-foreground">Revoked</span>
+              ) : t.expired ? (
+                <span className="text-xs text-muted-foreground">Expired</span>
               ) : confirmId === t.id ? (
                 <div className="flex items-center gap-2">
                   <button type="button" onClick={() => revoke.mutate(t.id)}

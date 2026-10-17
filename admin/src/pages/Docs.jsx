@@ -9,6 +9,7 @@ const SECTIONS = [
   { id: 'tech-stack',   label: 'Tech Stack' },
   { id: 'admin-portal', label: 'Admin Portal' },
   { id: 'multitenancy', label: 'Multitenancy & RLS' },
+  { id: 'stored-keys', label: 'Stored keys' },
   { id: 'auth',         label: 'Authentication' },
   { id: 'team-platform', label: 'Team & Platform Admin' },
   { id: 'rbac',          label: 'RBAC: Modules & Roles' },
@@ -494,6 +495,46 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             </P>
           </section>
 
+          {/* ── STORED KEYS ───────────────────────────────── */}
+          <section id="stored-keys" data-doc="">
+            <H2>Stored keys</H2>
+            <P>
+              Integration keys saved in the database are sealed (migration 179,{' '}
+              <Mono>services/vault.js</Mono>): AES-256-GCM with a master key from the environment,{' '}
+              <Mono>SECRETS_KEY</Mono> (32 bytes, base64 or hex), so a leaked dump or backup doesn&apos;t
+              hand them over. A sealed value is <Mono>v1:</Mono> + base64(iv | tag | ciphertext), a fresh
+              iv every time. Hints (last four characters) sit beside them in plain text for display, and no
+              route ever returns a key.
+            </P>
+            <DataTable
+              head={['Column', 'Sealed on save in', 'Unsealed in']}
+              rows={[
+                ['platform_secrets.value (anthropic_api_key)', 'saveKey() (ai/apiKey.js)', 'activeKey()'],
+                ['platform_secrets.value (kiosk_preview_key)', 'previewSecret() (kioskSvc.js)', 'previewSecret()'],
+                ['loyverse_connections.access_token', 'POST / PATCH /api/loyverse/connections', 'ownConnection(), loadLink() (routes/loyverse.js)'],
+                ['gloriafood_venue_links.poll_key', 'PUT /api/gloriafood/venues/:id/link', 'pollVenue() (gloriafoodSvc.js); the link route compares a typed key with the unsealed one'],
+                ['venue_email_settings.provider_api_key, provider_secret, smtp_pass', 'POST / PATCH /api/email-templates/settings/:venueId', 'emailCredentials() (emailSvc.js), loadSendgridKey() (emailMonitoring.js)'],
+              ]}
+            />
+            <P>
+              <Mono>unseal()</Mono> returns a value without the prefix as it is: keys saved before 179 are
+              sealed by <Mono>sealStoredSecrets()</Mono>, run at API start in system mode (each row is
+              updated only if it still holds the plain value, so several processes doing it at once is
+              harmless). <Mono>checkVault()</Mono> runs first: in production the API exits without a valid{' '}
+              <Mono>SECRETS_KEY</Mono>; in development and tests a fixed key derived from a constant is used,
+              so every process agrees. Every deploy runs <Mono>scripts/ensure-secrets-key.sh</Mono> before
+              migrating: it adds a random <Mono>SECRETS_KEY</Mono> to <Mono>api/.env</Mono> when there is none
+              (chmod 600) and never changes an existing one. The preload (<Mono>src/preload.js</Mono>) reads{' '}
+              <Mono>api/.env</Mono> on every start, so PM2 picks it up without a restart flag.
+            </P>
+            <InfoBox type="warn">
+              Back up <Mono>api/.env</Mono> with the key in it. Changing or losing <Mono>SECRETS_KEY</Mono>{' '}
+              makes every stored key unreadable: <Mono>unseal()</Mono> throws &quot;A stored key could not be
+              read&quot;, and the keys have to be typed in again where they were set up (Platform page, Cash Recon
+              settings, Booking emails). There is no rotation yet; the <Mono>v1:</Mono> prefix leaves room for one.
+            </InfoBox>
+          </section>
+
           {/* ── AUTH ──────────────────────────────────────── */}
           <section id="auth" data-doc="">
             <H2>Authentication</H2>
@@ -847,10 +888,18 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['sendgrid', 'Default. Free 100/day for trial. Provides Email Activity API for monitoring.', 'provider_api_key (or SENDGRID_API_KEY env)'],
                 ['postmark', 'Recommended for transactional. Strong deliverability, $15/10k. Click tracking via shared click.pstmrk.it (no custom tracking domains supported by Postmark).', 'provider_api_key (Server Token), provider_domain (message stream, defaults to "outbound")'],
                 ['mailgun',  'High-volume option. EU/US regions are different endpoints — use the dropdown.', 'provider_api_key, provider_domain (sending domain), provider_region (us|eu)'],
-                ['ses',      'Cheapest at scale. AWS Lightsail account already in place. Production access required.', 'provider_api_key (access key id), provider_domain (secret access key — overloaded), provider_region'],
+                ['ses',      'Cheapest at scale. AWS Lightsail account already in place. Production access required.', 'provider_api_key (access key id), provider_secret (secret access key; it was kept in provider_domain until migration 179), provider_region'],
                 ['smtp',     'Fallback / self-hosted.', 'smtp_host, smtp_port, smtp_user, smtp_pass, smtp_secure'],
               ]}
             />
+            <P>
+              provider_api_key, provider_secret and smtp_pass are stored sealed (migration 179, see Stored keys)
+              and never sent back: <Mono>GET .../settings/:venueId</Mono> returns them as null with{' '}
+              <Mono>*_hint</Mono> (last four) for Manage, nothing for View (<Mono>secrets_hidden</Mono>). On
+              save a string replaces the key, null removes it, empty or left out keeps it.{' '}
+              <Mono>emailCredentials()</Mono> in <Mono>emailSvc.js</Mono> is the one place they are
+              unsealed (booking, order and purchase order emails, the test send).
+            </P>
             <P>
               The <Mono>provider_domain</Mono> column is overloaded across providers (Mailgun
               sending domain, Postmark message stream name, SES secret access key). The UI
@@ -3820,7 +3869,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               head={['Channel', 'Entry point', 'Who / scope', 'Model']}
               rows={[
                 ['staff_chat', 'POST /api/ai/chat (Ask Pepper drawer, /ai page, /mobile/assistant)', 'A logged-in staff member, their tenant', 'Ours (Claude, platform pays)'],
-                ['staff_mcp', 'POST /mcp/staff/:tenantSlug (routes/mcp.js)', 'Bearer access token (mcp_...) or Auth0 JWT, one tenant', 'The client\'s own AI app'],
+                ['staff_mcp', 'POST /mcp/staff/:tenantSlug (routes/mcp.js)', 'Bearer access token (mcp_..., expires; can be read only) or Auth0 JWT, one tenant. Lists only the tools the person can use: toolAllowed() in tools/index.js (View on one of the area\'s SECTION_MODULES, Manage for a change tool, via permissionLevels() in auth.js), and for a read-only token no change tools (a call to one is refused)', 'The client\'s own AI app'],
                 ['guest_chat', 'POST /ai-api/chat (website ai_chat block, routes/aiApi.js)', 'A guest on one tenant\'s site', 'Ours'],
                 ['guest_mcp', 'POST /mcp (routes/mcp.js)', 'Anyone, every tenant with guest_mcp_enabled', 'The guest\'s own AI app'],
               ]}
@@ -4372,9 +4421,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['ai_pending_actions', 'Confirm cards: tool_use_id, tool, input, card {title, lines, confirmLabel, destructive}, status pending | done | cancelled | failed, result, expires_at, decided_at (claim).'],
                 ['ai_actions', 'Audit log of every change through AI (all channels): tool, input, ok, result, booking_id (null for anything but bookings), actor. Shown on /ai Activity. redacted_at (migration 174): input and result cleared after a year, or the guest\'s details replaced on erasure.'],
                 ['ai_booking_codes / ai_booking_grants', 'Emailed codes and access keys (hashes only).'],
-                ['ai_access_tokens', 'Staff MCP tokens: sha256 of mcp_ + 40 hex, prefix, user_id, revoked_at. No RLS (read during auth before any tenant context); every query filters tenant_id.'],
+                ['ai_access_tokens', 'Staff MCP tokens: sha256 of mcp_ + 40 hex, prefix, user_id, revoked_at, expires_at (migration 179: 30, 90, 180 or 365 days from making it; 90 by default) and read_only (the connector lists and runs only tools without confirm). Forced RLS like every tenant table: auth.js finds the token in system mode; every query filters tenant_id.'],
                 ['bookings.source', 'Which AI channel made the booking (NULL = not AI).'],
-                ['platform_secrets (migration 149)', 'Global, no RLS: name, value, hint (last 4), updated_by, updated_at. Row anthropic_api_key = the chat key saved on the Platform page. value is never returned by any route.'],
+                ['platform_secrets (migration 149)', 'Global, no RLS: name, value (sealed since migration 179), hint (last 4), updated_by, updated_at. Rows: anthropic_api_key = the chat key saved on the Platform page; kiosk_preview_key = the key kiosk preview links are signed with. value is never returned by any route.'],
                 ['ai_attachments (migration 150)', 'Files attached in staff chats: tenant_id, conversation_id (NULL until sent; ON DELETE CASCADE), user_sub (uploader, the only one who can see or send it), kind image | pdf | text, media_type, filename, bytes, data bytea. Every query filters tenant_id.'],
               ]}
             />

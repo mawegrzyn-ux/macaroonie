@@ -78,11 +78,15 @@ async function authenticateAccessToken(req, reply, token) {
   }
   // System mode: the token is what says which tenant this is.
   const [row] = await systemSql`
-    SELECT id, tenant_id, user_id FROM ai_access_tokens
+    SELECT id, tenant_id, user_id, expires_at, read_only FROM ai_access_tokens
      WHERE token_hash = ${hashAccessToken(token)} AND revoked_at IS NULL
      LIMIT 1
   `
   if (!row) return reply.code(401).send({ error: 'Invalid or revoked access token' })
+  // Tokens expire (migration 179): 30 to 365 days after they were made.
+  if (row.expires_at && new Date(row.expires_at) <= new Date()) {
+    return reply.code(401).send({ error: 'This access token has expired. Make a new one on the Pepper page (Connect).' })
+  }
   const [tenant] = await sql`SELECT id FROM tenants WHERE id = ${row.tenant_id} AND is_active = true LIMIT 1`
   if (!tenant) return reply.code(401).send({ error: 'Invalid or revoked access token' })
   const [user] = await withTenant(row.tenant_id, tx => tx`
@@ -95,7 +99,7 @@ async function authenticateAccessToken(req, reply, token) {
   }
   req.user = {
     sub: user.auth0_user_id, email: user.email, role: user.role,
-    isPlatformAdmin: false, accessTokenId: row.id,
+    isPlatformAdmin: false, accessTokenId: row.id, accessTokenReadOnly: !!row.read_only,
   }
   req.tenantId        = row.tenant_id
   req.auth0OrgId      = null
@@ -411,6 +415,37 @@ export async function permissionLevel(req, moduleKey) {
   // role has no explicit entry (e.g. a module added after the role existed,
   // before its data migration ran).
   return resolvePermission(moduleKey, permRow?.permissions, permRow?.role_key)
+}
+
+/**
+ * permissionLevel() for several modules at once (two queries, not two per
+ * module): { [moduleKey]: 'none' | 'view' | 'manage' }. The MCP connector
+ * uses it to list only the tools a person can use.
+ */
+export async function permissionLevels(req, moduleKeys) {
+  const keys = [...new Set(moduleKeys)]
+  if (req.isPlatformAdmin) return Object.fromEntries(keys.map(k => [k, 'manage']))
+  if (!req.tenantId) return Object.fromEntries(keys.map(k => [k, 'none']))
+  const { off, permRow } = await withTenant(req.tenantId, async tx => {
+    const rows = await tx`
+      SELECT module_key FROM tenant_modules
+       WHERE tenant_id = ${req.tenantId} AND module_key = ANY(${keys}::text[]) AND NOT is_enabled`
+    const [permRow] = await tx`
+      SELECT COALESCE(r_custom.permissions, r_builtin.permissions, '{}'::jsonb) AS permissions,
+             COALESCE(r_custom.key, r_builtin.key, u.role::text) AS role_key
+        FROM users u
+   LEFT JOIN tenant_roles r_custom  ON r_custom.id  = u.custom_role_id
+   LEFT JOIN tenant_roles r_builtin ON r_builtin.tenant_id = u.tenant_id
+                                   AND r_builtin.key       = u.role::text
+                                   AND r_builtin.is_builtin = true
+       WHERE u.auth0_user_id = ${req.user.sub}
+         AND u.tenant_id     = ${req.tenantId}
+         AND u.is_active     = true
+       LIMIT 1`
+    return { off: new Set(rows.map(r => r.module_key)), permRow }
+  })
+  return Object.fromEntries(keys.map(k => [k,
+    off.has(k) ? 'none' : resolvePermission(k, permRow?.permissions, permRow?.role_key)]))
 }
 
 export function requirePermission(moduleKey, requiredLevel = 'view') {

@@ -1290,7 +1290,7 @@ export default function Help() {
             <DataTable
               head={['Step', 'What to do']}
               rows={[
-                ['1. Add the account', 'In the Loyverse Back Office open Integrations > Access tokens, add a token, then paste it under Loyverse accounts > Add account. It is checked with Loyverse before it is saved and is never shown again. One account can serve several venues; add more accounts if your venues use different Loyverse logins.'],
+                ['1. Add the account', 'In the Loyverse Back Office open Integrations > Access tokens, add a token, then paste it under Loyverse accounts > Add account. It is checked with Loyverse before it is saved, stored encrypted and never shown again. One account can serve several venues; add more accounts if your venues use different Loyverse logins.'],
                 ['2. Pick the store', 'Under This venue, choose the account and the Loyverse store that is this venue.'],
                 ['3. Trading day start', 'Sales before this time count on the day before. Leave 00:00 if you close before midnight; set e.g. 04:00 if you trade past midnight.'],
                 ['4. Map the lines', 'Each income source, service charge source and payment channel gets a list of Loyverse figures. Tap Add, choose Add (+) or Subtract (-), then a figure. The line is filled with the sum. Tap + or - on a figure to flip it, or x to remove it. Lines with nothing mapped are never changed.'],
@@ -1342,7 +1342,7 @@ export default function Help() {
             <DataTable
               head={['Step', 'What to do']}
               rows={[
-                ['1. Choose how orders arrive', '"GloriaFood sends them" (recommended): tap Link this venue, copy the address shown, then in the GloriaFood admin panel for that restaurant open Others > 3rd party integrations, add Push Accepted Order, paste the address as the endpoint and choose JSON. Or "Collect them every minute": add Poll Accepted Order v2 in GloriaFood, copy its key, paste it here and save. The key is checked with GloriaFood and never shown again.'],
+                ['1. Choose how orders arrive', '"GloriaFood sends them" (recommended): tap Link this venue, copy the address shown, then in the GloriaFood admin panel for that restaurant open Others > 3rd party integrations, add Push Accepted Order, paste the address as the endpoint and choose JSON. Or "Collect them every minute": add Poll Accepted Order v2 in GloriaFood, copy its key, paste it here and save. The key is checked with GloriaFood, stored encrypted and never shown again.'],
                 ['2. Check it works', 'Place or accept a test order in GloriaFood. It shows under Latest orders received within a minute (test orders from GloriaFood\'s menu preview are marked and never counted). The first order also sets which GloriaFood restaurant this venue takes orders from; orders from any other restaurant are refused and the reason shows in red.'],
                 ['3. Pick the day rule', 'An order counts on the day it is collected or delivered (or, if you prefer, the day it was accepted). Orders before the trading day start count on the day before.'],
                 ['4. Map the lines', 'Same as Loyverse: each income source, service charge source and payment channel gets a list of GloriaFood figures, added or subtracted. Lines with nothing mapped are never changed.'],
@@ -4233,17 +4233,23 @@ export default function Help() {
             </InfoBox>
             <H3>Using your own AI app</H3>
             <P>
-              On the Pepper page, open <strong>Connect</strong>. Type a name and press{' '}
-              <strong>Make token</strong>, then copy the token: it is shown once. In your AI app,
-              add a custom MCP connector with the address shown and send the token as the header
-              {' '}<Mono>Authorization: Bearer mcp_...</Mono>. Revoke a token with its bin button when
-              you no longer need it.
+              On the Pepper page, open <strong>Connect</strong>. Type a name, pick how long it works
+              for (<strong>Works for</strong>: 30, 90 or 180 days, or a year; 90 to start with), tick{' '}
+              <strong>Read only</strong> if the app should only look things up, and press{' '}
+              <strong>Make token</strong>. Copy the token: it is shown once. In your AI app, add a
+              custom MCP connector with the address shown and send the token as the header
+              {' '}<Mono>Authorization: Bearer mcp_...</Mono>. The list shows until when each token
+              works; after that it says <strong>Expired</strong> and the app gets an error asking for
+              a new one. Revoke a token with its bin button when you no longer need it.
             </P>
             <P>
-              Your AI app then has every one of Pepper&apos;s tools, with your permissions. There are
+              Your AI app then has Pepper&apos;s tools for the areas you can use, with your
+              permissions: only the tools for areas your role can see, and only the ones that change
+              things where your role can change them (a read-only token gets none of those). There are
               no Pepper cards there: most apps ask you before running a tool that changes something,
               so read what it is about to do before you allow it, and don&apos;t set the app to allow
-              changes without asking.
+              changes without asking. A read-only token is the safe choice for an app you only ask
+              questions.
             </P>
             <H3>The chat on your website</H3>
             <P>
@@ -4311,7 +4317,7 @@ export default function Help() {
               The chats need an Anthropic API key. On the <strong>Platform</strong> page, open the{' '}
               <strong>AI usage</strong> tab, paste the key into <strong>Anthropic API key</strong>{' '}
               and press <strong>Check and save</strong>. The key is checked with Anthropic before it
-              is saved, and afterwards only its last four characters are shown. The chats use it
+              is saved (stored encrypted), and afterwards only its last four characters are shown. The chats use it
               straight away (within a few seconds on every server). <strong>Check the key now</strong>{' '}
               tests the key in use; <strong>Remove saved key</strong> (asks you to confirm) goes back
               to the key in the server's settings file, if there is one. If a key stops working, staff
@@ -4736,7 +4742,7 @@ export default function Help() {
               head={['Tab', 'What it does']}
               rows={[
                 ['Templates', 'Edit the subject and HTML body for each email type. Insert merge fields, preview with sample data, reset to the built-in default.'],
-                ['Settings',  'Choose email provider (SendGrid, Mailgun, SES, SMTP), configure sender identity, reminder timing, and guest self-service permissions.'],
+                ['Settings',  'Choose email provider (SendGrid, Mailgun, SES, SMTP), configure sender identity, reminder timing, and guest self-service permissions. Keys and passwords are stored encrypted and never shown again: a saved one shows as "Saved, ends 1a2b". Leave the box empty to keep it, type a new one to replace it, or press Remove (then Save) to take it off.'],
                 ['Sent emails', 'Audit log of recent deliveries — see what was sent, when, to whom, and whether it succeeded or failed.'],
               ]}
             />

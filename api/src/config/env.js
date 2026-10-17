@@ -45,6 +45,11 @@ const schema = z.object({
   // AI chat (migration 148). Unset = the assistant and the website chat are
   // off; the MCP connectors work without it (the client's AI does the talking).
   ANTHROPIC_API_KEY:     z.string().optional(),
+  // Seals stored integration keys (services/vault.js, migration 179): 32
+  // bytes, base64 or hex. Required in production; the deploy adds one to
+  // api/.env when missing (scripts/ensure-secrets-key.sh). Back it up with
+  // the .env: without it the stored keys can't be read.
+  SECRETS_KEY:           z.string().optional(),
   // The main model, and the everyday one chats start on (src/ai/chat.js
   // moves a chat to the main model for files, big jobs and long chats).
   // AI_MODEL_FAST empty (or the same as AI_MODEL) = every chat on AI_MODEL.

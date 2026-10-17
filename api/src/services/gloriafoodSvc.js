@@ -21,6 +21,7 @@ import { sql, withTenant, systemSql } from '../config/db.js'
 import { env } from '../config/env.js'
 import { broadcast } from '../config/ws.js'
 import { tradingDay } from './loyverseSvc.js'
+import { unseal } from './vault.js'
 import { zonedToUtc } from './orderSvc.js'
 import {
   orderFromPayload, summariseOrders, countsInRecon, paymentLabel, typeLabel, isValidTerm, termLabel,
@@ -225,7 +226,7 @@ export async function pollVenue(tenantId, venueId, log) {
       if (!link || link.method !== 'poll' || !link.poll_key) return { skipped: 'not_polling' }
       const [{ locked }] = await tx`SELECT pg_try_advisory_xact_lock(hashtextextended('gloriafood:' || ${link.id}::text, 0)) AS locked`
       if (!locked) return { busy: true }
-      popped = await popOrders(link.poll_key)
+      popped = await popOrders(unseal(link.poll_key))   // stored sealed (migration 179)
       const r = popped.length
         ? await ingestWithTx(tx, { tenantId, venueId, orders: popped, via: 'poll' })
         : { stored: 0, updated: 0, refused: 0, skipped: 0, link: null, ids: [] }

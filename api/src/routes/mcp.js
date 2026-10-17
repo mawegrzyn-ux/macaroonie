@@ -15,7 +15,13 @@
 //                                   Needs the ai_assistant module and
 //                                   ai_settings.staff_enabled; each tool then
 //                                   checks the person's permission for its area
-//                                   (Pepper's tools, src/ai/tools).
+//                                   (Pepper's tools, src/ai/tools). The list
+//                                   holds only the tools the person can use
+//                                   (toolAllowed(): View on one of the area's
+//                                   modules, Manage for a change tool), and a
+//                                   read-only access token gets and runs only
+//                                   the reading tools (migration 179). Tokens
+//                                   expire (auth.js).
 //   GET  /.well-known/oauth-protected-resource/mcp/staff/:tenantSlug
 //                                   OAuth protected-resource metadata pointing
 //                                   at Auth0, for clients that log in with OAuth.
@@ -27,20 +33,24 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 import { sql } from '../config/db.js'
 import { env } from '../config/env.js'
-import { requireAuth, permissionLevel, ACCESS_TOKEN_PREFIX } from '../middleware/auth.js'
+import { requireAuth, permissionLevel, permissionLevels, ACCESS_TOKEN_PREFIX } from '../middleware/auth.js'
 import { makeContext, addUsage, ToolError } from '../ai/context.js'
-import { audienceTools, jsonSchemaOf, parseInput, errorText } from '../ai/tools/index.js'
+import { audienceTools, jsonSchemaOf, parseInput, errorText, toolAllowed, SECTION_MODULES } from '../ai/tools/index.js'
 import { getAiSettings } from '../ai/settings.js'
 import { guestInstructions, staffInstructions } from '../ai/prompts.js'
 import { ASSISTANT_NAME } from '../../../shared/assistant.js'
 
 const VERSION = '1.0.0'
 
-function buildServer({ name, instructions, tools, makeCtx, onCall }) {
+/**
+ * listed(tools) -> the tools to list (default all). refuse(tool) -> a
+ * message when this caller may not run the tool, else null.
+ */
+function buildServer({ name, instructions, tools, makeCtx, onCall, listed = async t => t, refuse = () => null }) {
   const server = new Server({ name, version: VERSION }, { capabilities: { tools: {} }, instructions })
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: tools.map(t => ({
+    tools: (await listed(tools)).map(t => ({
       name:        t.name,
       title:       t.title,
       description: t.description,
@@ -61,6 +71,8 @@ function buildServer({ name, instructions, tools, makeCtx, onCall }) {
     let result
     try {
       if (!tool) throw new ToolError('Unknown tool ' + request.params.name, 404)
+      const why = refuse(tool)
+      if (why) throw new ToolError(why, 403)
       const out = await tool.run(ctx, parseInput(tool, request.params.arguments))
       result = { content: [{ type: 'text', text: JSON.stringify(out, null, 2) }], structuredContent: out }
     } catch (err) {
@@ -172,10 +184,21 @@ export default async function mcpRoutes(app) {
     }
 
     const principal = { sub: req.user.sub, email: req.user.email, isPlatformAdmin: !!req.isPlatformAdmin }
+    const readOnly = !!req.user.accessTokenReadOnly
     const server = buildServer({
       name: 'macaroonie-staff-' + tenant.slug,
       instructions: staffInstructions({ tenant: tenant.name }),
       tools: audienceTools('staff'),
+      // Only the tools this person can use (their module levels, the same
+      // check each tool makes when it runs), and only the reading ones for a
+      // read-only access token (migration 179).
+      listed: async tools => {
+        const levels = await permissionLevels(req, Object.values(SECTION_MODULES).flat())
+        return tools.filter(t => toolAllowed(t, levels) && !(readOnly && t.confirm))
+      },
+      refuse: tool => (readOnly && tool.confirm
+        ? 'This access token can only read. To make changes, make a token without "Read only" on the ' + ASSISTANT_NAME + ' page (Connect).'
+        : null),
       makeCtx: () => makeContext({
         app, channel: 'staff_mcp', tenantId: tenant.id, log: req.log,
         auth: { authorization: req.headers.authorization }, principal,

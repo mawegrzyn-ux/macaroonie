@@ -279,7 +279,8 @@ export default async function aiRoutes(app) {
   app.get('/tokens', { preHandler: requirePermission('ai_assistant', 'view') }, async req => {
     const manage = await permissionLevel(req, 'ai_assistant') === 'manage'
     return withTenant(req.tenantId, tx => tx`
-      SELECT k.id, k.name, k.token_prefix, k.created_at, k.last_used_at, k.revoked_at,
+      SELECT k.id, k.name, k.token_prefix, k.created_at, k.last_used_at, k.revoked_at, k.expires_at, k.read_only,
+             (k.expires_at <= now()) AS expired,
              u.email AS user_email, (u.auth0_user_id = ${req.user.sub}) AS mine
         FROM ai_access_tokens k
         JOIN users u ON u.id = k.user_id
@@ -290,16 +291,23 @@ export default async function aiRoutes(app) {
   })
 
   app.post('/tokens', { preHandler: requirePermission('ai_assistant', 'view') }, async (req, reply) => {
-    const { name } = z.object({ name: z.string().trim().min(1).max(80) }).parse(req.body)
+    // Every token expires (migration 179); a read-only one offers and runs
+    // only the tools that read.
+    const { name, expires_in_days, read_only } = z.object({
+      name:            z.string().trim().min(1).max(80),
+      expires_in_days: z.union([z.literal(30), z.literal(90), z.literal(180), z.literal(365)]).default(90),
+      read_only:       z.boolean().default(false),
+    }).parse(req.body)
     const [user] = await withTenant(req.tenantId, tx => tx`
       SELECT id FROM users WHERE tenant_id = ${req.tenantId} AND auth0_user_id = ${req.user.sub} AND is_active = true LIMIT 1
     `)
     if (!user) throw httpError(422, 'Access tokens are for team members of this restaurant group. Ask an owner to invite you.')
     const { token, hash, prefix } = newAccessToken()
     const [row] = await tenantSql(req.tenantId)`
-      INSERT INTO ai_access_tokens (tenant_id, user_id, name, token_prefix, token_hash)
-      VALUES (${req.tenantId}, ${user.id}, ${name}, ${prefix}, ${hash})
-      RETURNING id, name, token_prefix, created_at
+      INSERT INTO ai_access_tokens (tenant_id, user_id, name, token_prefix, token_hash, expires_at, read_only)
+      VALUES (${req.tenantId}, ${user.id}, ${name}, ${prefix}, ${hash},
+              now() + make_interval(days => ${expires_in_days}), ${read_only})
+      RETURNING id, name, token_prefix, created_at, expires_at, read_only
     `
     return reply.code(201).send({ ...row, token })
   })

@@ -28,6 +28,7 @@ import { requireAuth, requireRole, requirePermission } from '../middleware/auth.
 import { httpError }  from '../middleware/error.js'
 import { checkToken, tokenHint, loadCatalog, loadStores, venueDays, datesBetween, LoyverseError } from '../services/loyverseSvc.js'
 import { fillReconDay, reconFields } from '../services/reconFill.js'
+import { seal, unseal } from '../services/vault.js'
 import { isValidTerm, sumTerms, MAPPING_GROUPS } from '../../../shared/loyverse.js'
 
 const UUID = z.string().uuid()
@@ -93,7 +94,7 @@ async function ownVenue(tx, tenantId, venueId) {
 async function ownConnection(tx, tenantId, id) {
   const [c] = await tx`SELECT * FROM loyverse_connections WHERE id = ${id} AND tenant_id = ${tenantId}`
   if (!c) throw httpError(404, 'Loyverse account not found')
-  return c
+  return { ...c, access_token: unseal(c.access_token) }   // stored sealed (migration 179)
 }
 
 /** The venue's active Cash Recon fields, in day-view order. */
@@ -143,7 +144,7 @@ async function loadLink(tx, tenantId, venueId) {
       JOIN loyverse_connections c ON c.id = l.connection_id AND c.tenant_id = l.tenant_id
      WHERE l.tenant_id = ${tenantId} AND l.venue_id = ${venueId}
   `
-  return link || null
+  return link ? { ...link, access_token: unseal(link.access_token) } : null
 }
 
 function linkView(link) {
@@ -210,7 +211,7 @@ export default async function loyverseRoutes(app) {
     const row = await withTenant(req.tenantId, async tx => {
       const [c] = await tx`
         INSERT INTO loyverse_connections (tenant_id, name, access_token, token_hint, merchant_id, business_name, currency, last_checked_at, created_by)
-        VALUES (${req.tenantId}, ${body.name}, ${body.access_token}, ${tokenHint(body.access_token)},
+        VALUES (${req.tenantId}, ${body.name}, ${seal(body.access_token)}, ${tokenHint(body.access_token)},
                 ${info.merchant_id}, ${info.business_name}, ${info.currency}, now(), ${by(req)})
         RETURNING *
       `
@@ -233,7 +234,7 @@ export default async function loyverseRoutes(app) {
         ? await tx`
             UPDATE loyverse_connections
                SET name = COALESCE(${body.name ?? null}, name),
-                   access_token = ${body.access_token}, token_hint = ${tokenHint(body.access_token)},
+                   access_token = ${seal(body.access_token)}, token_hint = ${tokenHint(body.access_token)},
                    merchant_id = ${info.merchant_id}, business_name = ${info.business_name}, currency = ${info.currency},
                    last_checked_at = now(), last_error = NULL, updated_at = now()
              WHERE id = ${id} AND tenant_id = ${req.tenantId}

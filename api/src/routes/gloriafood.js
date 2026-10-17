@@ -37,6 +37,7 @@ import { httpError }  from '../middleware/error.js'
 import { officeOrigin } from '../services/platformHost.js'
 import { datesBetween } from '../services/loyverseSvc.js'
 import { fillReconDay, reconFields } from '../services/reconFill.js'
+import { seal, unseal } from '../services/vault.js'
 import {
   GloriaFoodError, keyHint, newPushToken, pollVenue, ingestOrders, ordersOf, venueDays, seenValues,
   importExport, importedStats, removeImported, dayOrders,
@@ -242,13 +243,15 @@ export default async function gloriafoodRoutes(app) {
       }
       const fields = await reconFields(tx, req.tenantId, venueId)
       const mappings = cleanMappings(fields, body.mappings)
-      const key = body.poll_key ?? old?.poll_key ?? null
+      // Stored sealed (migration 179); the hint is from the key as typed.
+      const key = body.poll_key ? seal(body.poll_key) : old?.poll_key ?? null
+      const hint = body.poll_key ? keyHint(body.poll_key) : old?.poll_key_hint ?? null
       await tx`
         INSERT INTO gloriafood_venue_links (
           tenant_id, venue_id, method, push_token, poll_key, poll_key_hint,
           day_basis, day_starts_at, show_on_board, mappings, created_by
         ) VALUES (
-          ${req.tenantId}, ${venueId}, ${body.method}, ${newPushToken()}, ${key}, ${key ? keyHint(key) : null},
+          ${req.tenantId}, ${venueId}, ${body.method}, ${newPushToken()}, ${key}, ${key ? hint : null},
           ${body.day_basis}, ${body.day_starts_at}, ${body.show_on_board}, ${tx.json(mappings)}, ${by(req)}
         )
         ON CONFLICT (venue_id) DO UPDATE SET
@@ -267,7 +270,7 @@ export default async function gloriafoodRoutes(app) {
     // A new poll key is checked by polling with it. GloriaFood hands over any
     // waiting orders at the same time, so they are stored straight away.
     let checked = null
-    if (body.method === 'poll' && body.poll_key && body.poll_key !== before?.poll_key) {
+    if (body.method === 'poll' && body.poll_key && body.poll_key !== unseal(before?.poll_key)) {
       try {
         checked = await pollVenue(req.tenantId, venueId, req.log)
       } catch (e) {
