@@ -50,10 +50,10 @@ export async function loadStations(tx, tenantId, venueId, { activeOnly = true } 
      ORDER BY sort_order, name`
 }
 
-/** A venue's kitchen flows, in their order: [{ id, name, layout, sort_order }]. */
+/** A venue's kitchen flows, in their order: [{ id, name, layout, sort_order, off_station_ids }]. */
 export async function loadFlows(tx, tenantId, venueId) {
   return tx`
-    SELECT id, name, layout, sort_order FROM kds_flows
+    SELECT id, name, layout, sort_order, off_station_ids FROM kds_flows
      WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}
      ORDER BY sort_order, created_at`
 }

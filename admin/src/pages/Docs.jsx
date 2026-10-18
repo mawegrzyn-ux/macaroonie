@@ -3284,7 +3284,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
           <section id="kds" data-doc="">
             <H2>Kitchen screens (KDS)</H2>
             <P>
-              Migrations 168, 169 (kitchen flow) and 177 (several kitchen flows). Design in <Mono>docs/POS.md</Mono> section 9. A kitchen screen is a till device of
+              Migrations 168, 169 (kitchen flow), 177 (several kitchen flows) and 182 (stations out of a flow). Design in <Mono>docs/POS.md</Mono> section 9. A kitchen screen is a till device of
               kind <Mono>kds</Mono> (<Mono>pos_devices</Mono>, short code K1, K2 ...), paired with a one-time
               code like a till. The same app at <Mono>pos.&lt;domain&gt;</Mono> boots{' '}
               <Mono>pos/src/kitchen/KitchenApp.jsx</Mono> (lazy) when the device's kind is <Mono>kds</Mono>.
@@ -3334,6 +3334,19 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               already sent: they keep <Mono>item.route</Mono>.
             </P>
             <P>
+              <strong>Stations out of a flow</strong> (migration 182): <Mono>kds_flows.off_station_ids</Mono>{' '}
+              (uuid[], default empty) are the venue&apos;s stations a flow leaves out. The designer doesn&apos;t
+              draw them (Not in this flow lists them with Put back) and{' '}
+              <Mono>PUT /api/pos/kds-flows/:id</Mono> refuses a link to or from one (422 &quot;X is out of this
+              flow: put it back before linking it&quot;) and any id that isn&apos;t one of the venue&apos;s stations,
+              so routing needs no change: with no link reaching it, <Mono>itemRoute()</Mono> never sends a dish
+              there, and the kitchen screen&apos;s flow list (<Mono>station_ids</Mono>, from the links) leaves it
+              out. <Mono>flowWarnings()</Mono> is given only the stations in the flow, so an out station
+              isn&apos;t reported as off every dish&apos;s way. Copying a flow copies the list; ids of stations
+              deleted later are ignored when read. A station out of every flow is simply never reached; it
+              keeps its screens and settings.
+            </P>
+            <P>
               A dish <em>arrives</em> at a node when every node before it is done (<Mono>flowTimes()</Mono>;{' '}
               <Mono>item.reset[node]</Mono> moves the arrival on after a remake) and is <em>done</em> there when
               that station bumps it (<Mono>item.done[node]</Mono>); a board is done when reached.{' '}
@@ -3376,7 +3389,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               head={['Table', 'What it holds']}
               rows={[
                 ['kds_stations', 'Per venue: name, kind prep | expo | runner | board, colour, settings jsonb { target_mins, late_mins, show_held, show_upcoming, summary_groups: [{ id, name, members: [{ kind dish | option, id | label, qty }] }] }, sort_order, is_active.'],
-                ['kds_flows', 'A venue\'s kitchen flows (177): name (1-40, unique per venue ignoring case and spaces), layout jsonb { [stationId | start]: { x, y } } (where the designer draws each box), sort_order (the kitchen screen\'s list). Forced RLS like every tenant table. The migration made one "Main flow" per venue with stations or links, holding its links and layout, in use. A venue without one gets it from GET .../setup (ensureFlows()).'],
+                ['kds_flows', 'A venue\'s kitchen flows (177): name (1-40, unique per venue ignoring case and spaces), layout jsonb { [stationId | start]: { x, y } } (where the designer draws each box), sort_order (the kitchen screen\'s list), off_station_ids uuid[] (182: the venue\'s stations this flow leaves out). Forced RLS like every tenant table. The migration made one "Main flow" per venue with stations or links, holding its links and layout, in use. A venue without one gets it from GET .../setup (ensureFlows()).'],
                 ['kds_flow_edges', 'A flow\'s links (169, flow_id NOT NULL since 177, ON DELETE CASCADE with the flow): from_station_id (NULL = Orders in), to_station_id (both ON DELETE CASCADE), targets jsonb, sort_order. One link per pair per flow (unique index on flow_id, from, to). Read them by flow_id, never by venue alone. Replaced kds_routes: each station\'s routes became one link from Orders in, every prep station got a link to every expo.'],
                 ['kds_orders', 'Projection (like pos_checks): id text (a check id, web-<orders.id> or gf-<gloriafood_orders.id>), source till | online | gloriafood (178; taken from the id prefix by applyKitchenEvent(), never from the payload), check_id / order_id, status active | ready | collected | cancelled, state jsonb (the whole kitchen order), last_seq.'],
                 ['kds_log', 'One row per bump and remake: station (id, name, kind), seconds since the dishes arrived or were fired, items, order source / type / number, reason, recalled_at (a recalled bump is left out of the report). Feeds the Kitchen report and its CSV.'],
@@ -3393,7 +3406,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['GET /pos-api/kitchen/sync?since=', 'Kitchen orders changed since a seq (reset with every live order when far behind) and server_time for the screen\'s clock.'],
                 ['POST /pos-api/events', 'Takes kitchen events from kds devices (server-only types refused). The answer has kitchen (orders touched). Broadcasts pos.seq with kinds [checks | kitchen] (tills skip kitchen-only changes) and kitchen.board to screens:<venue>.'],
                 ['/api/pos/venues/:id/kds-stations, /kds-stations/:id, .../kds-stations/order', 'Stations (pos_setup manage). Turning a station into a board drops its links onward and takes it off kitchen screens; a kitchen screen can\'t show a board (422).'],
-                ['PUT /api/pos/kds-flows/:id', '{ links: [{ from, to, targets }], layout } replaces one flow\'s links and layout (pos_setup manage). 422 with the first flowProblems() message (links name the flow\'s venue\'s stations); dish / section / revenue stream / order type ids must be the tenant\'s; layout keys that aren\'t start or a station are dropped. Returns { id, links, layout, warnings }. GET /api/pos/venues/:id/setup returns kds_flows [{ id, name, sort_order, layout, links }], kds_active_flow_id, kds_flow_switched_at / _by. Deleting a revenue centre takes it out of every filter of every flow (a link left with no filter goes).'],
+                ['PUT /api/pos/kds-flows/:id', '{ links: [{ from, to, targets }], layout, off_station_ids } replaces one flow\'s links, layout and the stations it leaves out (182; no list = none out; a link touching one is 422) (pos_setup manage). 422 with the first flowProblems() message (links name the flow\'s venue\'s stations); dish / section / revenue stream / order type ids must be the tenant\'s; layout keys that aren\'t start or a station are dropped. Returns { id, links, layout, off_station_ids, warnings }. GET /api/pos/venues/:id/setup returns kds_flows [{ id, name, sort_order, layout, off_station_ids, links }], kds_active_flow_id, kds_flow_switched_at / _by. Deleting a revenue centre takes it out of every filter of every flow (a link left with no filter goes).'],
                 ['POST /api/pos/venues/:id/kds-flows', '{ name, copy_from? } a new flow at the end: empty, or with the links and layout of copy_from (one of this venue\'s flows, else 404). 422 when the name is taken.'],
                 ['PATCH / DELETE /api/pos/kds-flows/:id', 'Rename ({ name }, 422 when taken); delete (422 for the flow in use: put another in use first; takes the till lock so it can\'t race a switch).'],
                 ['PUT /api/pos/venues/:id/kds-flows/order, .../kds-flows/active', 'order: { ids } sort order (keeps the flow in use in use, writing its id down if it was only "the first"); active: { flow_id } switchFlow() with the person\'s email as switched_by. Both pos_setup manage; both broadcast pos.config.'],

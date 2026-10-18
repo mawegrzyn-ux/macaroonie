@@ -36,6 +36,7 @@
 //   POST   /venues/:venueId/kds-flows             a kitchen flow (empty, or a copy of another; migration 177)
 //   PATCH  /kds-flows/:id                         rename;  DELETE /kds-flows/:id (not the one in use)
 //   PUT    /kds-flows/:id                         a flow's links + where the designer draws each box
+//                                                 + the stations it leaves out (off_station_ids, migration 182)
 //   PUT    /venues/:venueId/kds-flows/order       the flows' order (the kitchen screen's flow list)
 //   PUT    /venues/:venueId/kds-flows/active      put a flow in use (also from a kitchen screen: PUT /pos-api/kitchen/flow)
 //   POST   /venues/:venueId/kitchen-test          a signed link to the kitchen test bench (every screen on one page)
@@ -227,6 +228,8 @@ const NewFlowBody = z.object({
   copy_from: UUID.nullable().optional(),
 })
 const KdsFlowBody = z.object({
+  // The venue's stations this flow leaves out (migration 182).
+  off_station_ids: z.array(UUID).max(300).default([]),
   links: z.array(z.object({
     from:    UUID.nullable(),
     to:      UUID,
@@ -310,7 +313,7 @@ async function flowsView(tx, tenantId, venueId, settings) {
      ORDER BY sort_order, created_at`
   return {
     kds_flows: flows.map(f => ({
-      id: f.id, name: f.name, sort_order: f.sort_order, layout: f.layout || {},
+      id: f.id, name: f.name, sort_order: f.sort_order, layout: f.layout || {}, off_station_ids: f.off_station_ids || [],
       links: links.filter(l => l.flow_id === f.id).map(({ flow_id, ...l }) => l),
     })),
     kds_active_flow_id: activeFlowOf(flows, settings.kds_active_flow_id)?.id || null,
@@ -321,7 +324,7 @@ async function flowsView(tx, tenantId, venueId, settings) {
 
 /** A flow of the tenant's, or 404. */
 async function ownFlow(tx, tenantId, id) {
-  const [f] = await tx`SELECT id, venue_id, name, layout, sort_order FROM kds_flows WHERE id = ${id} AND tenant_id = ${tenantId}`
+  const [f] = await tx`SELECT id, venue_id, name, layout, sort_order, off_station_ids FROM kds_flows WHERE id = ${id} AND tenant_id = ${tenantId}`
   if (!f) throw httpError(404, 'Kitchen flow not found')
   return f
 }
@@ -925,9 +928,9 @@ export default async function posSetupRoutes(app) {
       if (from && from.venue_id !== venueId) throw httpError(404, 'Kitchen flow not found')
       const [{ n }] = await tx`SELECT COALESCE(MAX(sort_order), -1)::int + 1 AS n FROM kds_flows WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}`
       const [f] = await tx`
-        INSERT INTO kds_flows (tenant_id, venue_id, name, layout, sort_order)
-        VALUES (${req.tenantId}, ${venueId}, ${body.name}, ${tx.json(from?.layout || {})}, ${n})
-        RETURNING id, name, layout, sort_order`
+        INSERT INTO kds_flows (tenant_id, venue_id, name, layout, sort_order, off_station_ids)
+        VALUES (${req.tenantId}, ${venueId}, ${body.name}, ${tx.json(from?.layout || {})}, ${n}, ${from?.off_station_ids || []})
+        RETURNING id, name, layout, sort_order, off_station_ids`
       if (from) {
         await tx`
           INSERT INTO kds_flow_edges (tenant_id, venue_id, flow_id, from_station_id, to_station_id, targets, sort_order)
@@ -1031,6 +1034,15 @@ export default async function posSetupRoutes(app) {
           return list
         })(),
       }))
+      // Stations left out of this flow: the venue's own, and nothing links to them.
+      const stationIds = new Set(stations.map(s => s.id))
+      const off = new Set(body.off_station_ids)
+      for (const sid of off) if (!stationIds.has(sid)) throw httpError(422, 'Station not found')
+      for (const l of links) {
+        const out = [l.from, l.to].find(sid => sid && off.has(sid))
+        if (out) throw httpError(422, stations.find(s => s.id === out).name + ' is out of this flow: put it back before linking it')
+      }
+      const inFlow = stations.filter(s => !off.has(s.id))
       const problems = flowProblems(stations, links)
       if (problems.length) throw httpError(422, problems[0])
       const menuIds = [...new Set(links.flatMap(l => l.targets.filter(t => t.kind === 'item' || t.kind === 'section').map(t => t.id)))]
@@ -1049,9 +1061,11 @@ export default async function posSetupRoutes(app) {
           INSERT INTO kds_flow_edges (tenant_id, venue_id, flow_id, from_station_id, to_station_id, targets, sort_order)
           VALUES (${req.tenantId}, ${venueId}, ${id}, ${l.from}, ${l.to}, ${tx.json(l.targets)}, ${i})`
       }
-      await tx`UPDATE kds_flows SET layout = ${tx.json(layout)}, updated_at = now() WHERE id = ${id} AND tenant_id = ${req.tenantId}`
+      await tx`
+        UPDATE kds_flows SET layout = ${tx.json(layout)}, off_station_ids = ${[...off]}, updated_at = now()
+         WHERE id = ${id} AND tenant_id = ${req.tenantId}`
       const saved = await loadFlowLinks(tx, req.tenantId, id)
-      return { venueId, out: { id, links: saved, layout, warnings: flowWarnings(stations, saved) } }
+      return { venueId, out: { id, links: saved, layout, off_station_ids: [...off], warnings: flowWarnings(inFlow, saved) } }
     })
     configChanged(out.venueId)
     return out.out

@@ -190,3 +190,54 @@ test('who may switch: not a till, not a screen it is turned off for, not another
   const [{ name }] = await sql`SELECT name FROM kds_flows WHERE id = ${main.id}`
   assert.equal(name, 'Main flow')
 })
+
+test('a station taken out of a flow: no links to it, no dishes, its warning gone; kept by a copy', async () => {
+  await ok(owner.put(`/api/pos/venues/${V}/kds-flows/active`, { flow_id: main.id }))
+  // Busy night never used the wok: before, the designer warned about it.
+  const before = await ok(owner.put(`/api/pos/kds-flows/${busy.id}`, { links: [{ from: null, to: grill.id, targets: [] }, { from: grill.id, to: pass.id, targets: [] }], layout: {} }))
+  assert.ok(before.warnings.some(w => w.startsWith(wok.name)), 'warned while in the flow')
+  const out = await ok(owner.put(`/api/pos/kds-flows/${busy.id}`, {
+    links: [{ from: null, to: grill.id, targets: [] }, { from: grill.id, to: pass.id, targets: [] }], layout: {}, off_station_ids: [wok.id],
+  }))
+  assert.deepEqual(out.off_station_ids, [wok.id])
+  assert.ok(!out.warnings.some(w => w.startsWith(wok.name)), 'no warning for a station out of the flow')
+  const setup = await ok(owner.get(`/api/pos/venues/${V}/setup`))
+  assert.deepEqual(setup.kds_flows.find(f => f.id === busy.id).off_station_ids, [wok.id])
+  assert.deepEqual(setup.kds_flows.find(f => f.id === main.id).off_station_ids, [], 'other flows keep it')
+  assert.ok(setup.kds_stations.some(s => s.id === wok.id), 'the station itself stays')
+
+  const linked = await owner.put(`/api/pos/kds-flows/${busy.id}`, {
+    links: [{ from: null, to: wok.id, targets: [] }], layout: {}, off_station_ids: [wok.id],
+  })
+  assert.equal(linked.status, 422)
+  assert.match(linked.json.error, /out of this flow/)
+  const unknown = await owner.put(`/api/pos/kds-flows/${busy.id}`, { links: [], layout: {}, off_station_ids: [crypto.randomUUID()] })
+  assert.equal(unknown.status, 422, 'only this venue\'s stations')
+  const hertford = (await sql`SELECT s.id FROM kds_stations s JOIN venues v ON v.id = s.venue_id WHERE v.slug = 'zqx-hertford' AND s.tenant_id = ${ids.a} LIMIT 1`)[0]
+  if (hertford) {
+    const cross = await owner.put(`/api/pos/kds-flows/${busy.id}`, { links: [], layout: {}, off_station_ids: [hertford.id] })
+    assert.equal(cross.status, 422, 'not another venue\'s station')
+  }
+  const viewer = await as(A.viewer, ids.a).put(`/api/pos/kds-flows/${busy.id}`, { links: [], layout: {}, off_station_ids: [] })
+  assert.equal(viewer.status, 403)
+  assert.equal((await as(B.owner, ids.b).put(`/api/pos/kds-flows/${busy.id}`, { links: [], layout: {}, off_station_ids: [] })).status, 404)
+  const [kept] = await sql`SELECT off_station_ids FROM kds_flows WHERE id = ${busy.id}`
+  assert.deepEqual(kept.off_station_ids, [wok.id], 'refused saves changed nothing')
+
+  const copy = await ok(owner.post(`/api/pos/venues/${V}/kds-flows`, { name: 'Busy copy', copy_from: busy.id }))
+  assert.deepEqual(copy.off_station_ids, [wok.id], 'a copy leaves the same stations out')
+  await ok(owner.delete(`/api/pos/kds-flows/${copy.id}`))
+
+  // The wok out of the flow in use: dishes sent from now skip it.
+  await ok(owner.put(`/api/pos/kds-flows/${main.id}`, { links: [{ from: null, to: pass.id, targets: [] }], layout: {}, off_station_ids: [wok.id] }))
+  assert.ok((await sequencer(ids.a, V).submit(orderIn(301))).ok)
+  assert.deepEqual(await wayOf(301), [pass.id])
+  const config = await device(screen, 'GET', '/pos-api/config')
+  assert.ok(!config.json.flows.find(f => f.id === main.id).station_ids.includes(wok.id), 'the flow button doesn\'t list it')
+
+  // Put back: linked again, dishes go there again.
+  await ok(owner.put(`/api/pos/kds-flows/${main.id}`, { links: [{ from: null, to: wok.id, targets: [] }, { from: wok.id, to: pass.id, targets: [] }], layout: {} }))
+  assert.deepEqual((await ok(owner.get(`/api/pos/venues/${V}/setup`))).kds_flows.find(f => f.id === main.id).off_station_ids, [], 'no list = none out')
+  assert.ok((await sequencer(ids.a, V).submit(orderIn(302))).ok)
+  assert.deepEqual(await wayOf(302), sorted([wok.id, pass.id]))
+})

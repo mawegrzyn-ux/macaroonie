@@ -5,6 +5,12 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-18 — Take a station out of a kitchen flow]
+
+- **A station can be taken out of one kitchen flow** without deleting it. In Till setup → Kitchen screens, tap the station's box in the flow, then **Take out of this flow**: it leaves that flow with its links, and no dish goes to it while that flow is in use. It shows under **Not in this flow** above the boxes, where **Put back** brings it back. The station, its screens and its settings stay, and your other flows still use it (e.g. a *Grill down* flow without the grill).
+- A station out of a flow no longer shows the "isn't on the way of any dish" warning, and the kitchen screens' flow list doesn't name it for that flow. Copying a flow keeps the stations it leaves out.
+- **Migration 182** (kitchen_flow_stations).
+
 ## [2026-10-18 — Connect Claude and ChatGPT to Pepper by signing in]
 
 - **Claude's custom connectors (claude.ai and the Claude apps) and ChatGPT now connect to Pepper by signing in**, instead of asking for an OAuth client ID and secret. Add the address from Pepper → Connect as a custom connector (leave any client ID and secret empty). A Macaroonie page opens: it names the app and your restaurant group, you choose Read only and how long it works (30, 90 or 180 days, or a year), and tap Allow. You're taken back to the app, connected.
