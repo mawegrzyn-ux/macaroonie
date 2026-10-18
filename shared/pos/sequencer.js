@@ -32,6 +32,11 @@
 //   loadKitchenOrders(ids)               -> { [id]: kitchen order }
 //   saveKitchenOrders({ [id]: order }, event)
 //   saveKitchenLog(rows, event, orders)  speed of service (bumps, recalls, remakes)
+// With a Balance box in the flow in use (migration 183), for events that send
+// dishes to the kitchen:
+//   loadOpenKitchenOrders()   -> { [id]: kitchen order } (still in the kitchen)
+//   loadBalanceTurns()        -> { [boxId]: station id it picked last }
+//   saveBalanceTurns({ [boxId]: station id })
 // Kitchen events (bump, recall, ...) come from kitchen screens, which nobody
 // signs in to: they need no staff member and don't open a trading day.
 
@@ -43,6 +48,16 @@ import {
   KITCHEN_EVENTS, applyKitchenEvent, kitchenEventProblem, kitchenOrdersTouched,
   kitchenForCheckEvent, kitchenOrdersForCheckEvent,
 } from './kitchen.js'
+
+// Events that can send dishes through a Balance box.
+const BALANCE_EVENTS = ['lines.sent', 'course.fired', 'kitchen.order_in']
+const hasBalanceBox = k => !!k?.enabled && Object.values(k.stations || {}).some(s => s.kind === 'balance')
+
+/** The kitchen config with what a Balance box needs (the open orders, its last picks), when it can matter. */
+async function kitchenWithBalance(store, kitchen, event) {
+  if (!hasBalanceBox(kitchen) || !BALANCE_EVENTS.includes(event.type) || !store.loadOpenKitchenOrders) return kitchen
+  return { ...kitchen, balance: { open: await store.loadOpenKitchenOrders(), last: await store.loadBalanceTurns(), picks: {} } }
+}
 
 const ORDER_NO_MAX = 999
 
@@ -89,9 +104,11 @@ export function createSequencer(store) {
       let before = {}
       let kitchen = {}
       let kitchenLog = []
+      let kcfg = ctx.kitchen
       if (isKitchen) {
         const orders = await store.loadKitchenOrders(kitchenOrdersTouched(stored))
-        const r = applyKitchenEvent(orders, stored, ctx.kitchen)
+        kcfg = await kitchenWithBalance(store, ctx.kitchen, stored)
+        const r = applyKitchenEvent(orders, stored, kcfg)
         if (!r.ok) return refuse(r.error, r.code)
         kitchen = r.orders
         kitchenLog = r.log
@@ -103,7 +120,8 @@ export function createSequencer(store) {
         const kitchenIds = ctx.kitchen?.enabled ? kitchenOrdersForCheckEvent(stored) : []
         if (kitchenIds.length) {
           const orders = await store.loadKitchenOrders(kitchenIds)
-          kitchen = kitchenForCheckEvent(stored, before, changed, orders, ctx.kitchen)
+          kcfg = await kitchenWithBalance(store, ctx.kitchen, stored)
+          kitchen = kitchenForCheckEvent(stored, before, changed, orders, kcfg)
         }
       } else if (event.type === 'drawer.opened') {
         const why = permissionProblem(ctx.staffById, event, 'open_drawer')
@@ -122,6 +140,7 @@ export function createSequencer(store) {
       if (Object.keys(changed).length) await store.saveChecks(changed, stored)
       if (Object.keys(kitchen).length) await store.saveKitchenOrders(kitchen, stored)
       if (kitchenLog.length) await store.saveKitchenLog(kitchenLog, stored, kitchen)
+      if (kcfg?.balance && Object.keys(kcfg.balance.picks).length) await store.saveBalanceTurns(kcfg.balance.picks)
       if (jobs.length) await store.saveJobs(jobs, stored)
       await store.saveVenueState({ last_seq: seq, next_check_no: nextCheckNo, next_order_no: nextOrderNo })
       if (event.type === 'day.closed') await store.closeDay(day, stored)

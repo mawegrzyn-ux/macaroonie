@@ -35,7 +35,7 @@ import {
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import {
-  flowProblems, flowWarnings, itemRoute, KIND_LABELS, START,
+  flowProblems, flowWarnings, itemRoute, KIND_LABELS, START, isBumpKind,
 } from '@shared/pos/kitchen.js'
 import { Section, Btn, ErrorNote, ConfirmDelete, inputCls, Modal, Field, SortableRows } from './shared'
 
@@ -51,9 +51,12 @@ const KIND_STYLE = {
   expo: 'border-amber-500',
   runner: 'border-violet-500',
   board: 'border-emerald-600',
+  balance: 'border-rose-500 border-dashed',
 }
-const KIND_STRIP = { start: '#71717a', prep: '#0ea5e9', expo: '#f59e0b', runner: '#8b5cf6', board: '#059669' }
-const ADD_KINDS = ['prep', 'expo', 'runner', 'board']
+const KIND_STRIP = { start: '#71717a', prep: '#0ea5e9', expo: '#f59e0b', runner: '#8b5cf6', board: '#059669', balance: '#f43f5e' }
+const ADD_KINDS = ['prep', 'expo', 'runner', 'board', 'balance']
+// What a Balance box does, said the same way in the panels.
+const BALANCE_RULE = 'each ticket\'s dishes go to one of them: the one with the fewest pieces still to cook, taking turns when they\'re level'
 
 let keySeq = 0
 const newKey = () => 'new-' + (++keySeq) + '-' + Math.random().toString(36).slice(2, 7)
@@ -266,6 +269,8 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
     const f = from === START ? null : from
     if (!to || to === START || to === f) return
     if (f && byId[f]?.kind === 'board') return
+    // A Balance box shares between stations that bump.
+    if (f && byId[f]?.kind === 'balance' && !isBumpKind(byId[to]?.kind)) return
     const existing = draft.links.find(l => (l.from || null) === f && l.to === to)
     if (existing) { setSelected({ link: existing.key }); return }
     const key = newKey()
@@ -426,12 +431,12 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
             <div key={l.key} role="button" tabIndex={0} data-testid="flow-link" data-from={nodeKey(l.from)} data-to={l.to}
               onClick={() => { setSelected({ link: l.key }); setConnectFrom(null) }}
               onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelected({ link: l.key }) } }}
-              title={nameOf(l.from) + ' to ' + nameOf(l.to) + ': ' + linkSummary(l, lk)}
+              title={nameOf(l.from) + ' to ' + nameOf(l.to) + ': ' + (byId[l.from]?.kind === 'balance' ? 'shared' : linkSummary(l, lk))}
               className={cn('absolute z-10 -translate-x-1/2 -translate-y-1/2 h-10 max-w-[150px] px-3 rounded-full border text-xs font-medium flex items-center gap-1 cursor-pointer touch-manipulation shadow-sm',
                 sel ? 'bg-zinc-900 text-white border-zinc-900' : on ? 'bg-blue-600 text-white border-blue-600' : l.targets.length ? 'bg-amber-50 border-amber-300' : 'bg-background',
                 route && !on && !sel && 'opacity-50')}
               style={{ left: mid.x, top: mid.y }}>
-              <span className="truncate">{linkSummary(l, lk)}</span>
+              <span className="truncate">{byId[l.from]?.kind === 'balance' ? 'Shared' : linkSummary(l, lk)}</span>
             </div>
           )
         })}
@@ -487,10 +492,10 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
         </div>
       )}
       {checking && (
-        <CheckPanel setup={setup} lk={lk} check={check} setCheck={setCheck} route={route} nameOf={nameOf} onClose={() => setChecking(false)} />
+        <CheckPanel kindOf={id => byId[id]?.kind} setup={setup} lk={lk} check={check} setCheck={setCheck} route={route} nameOf={nameOf} onClose={() => setChecking(false)} />
       )}
       {selLink && (
-        <LinkPanel link={selLink} lk={lk} setup={setup} canManage={canManage} nameOf={nameOf}
+        <LinkPanel link={selLink} lk={lk} setup={setup} canManage={canManage} nameOf={nameOf} fromBalance={byId[selLink.from]?.kind === 'balance'}
           siblings={draft.links.filter(l => (l.from || null) === (selLink.from || null) && l.key !== selLink.key)}
           onChange={patch => updateLink(selLink.key, patch)} onRemove={() => removeLink(selLink.key)} onClose={() => setSelected(null)} />
       )}
@@ -764,7 +769,7 @@ function Chip({ on, onClick, children }) {
   )
 }
 
-function LinkPanel({ link, lk, setup, canManage, nameOf, siblings, onChange, onRemove, onClose }) {
+function LinkPanel({ link, lk, setup, canManage, nameOf, fromBalance, siblings, onChange, onRemove, onClose }) {
   const [q, setQ] = useState('')
   const has = (kind, id) => link.targets.some(t => t.kind === kind && (t.id || null) === (id || null))
   const toggle = (kind, id) => onChange({
@@ -777,6 +782,22 @@ function LinkPanel({ link, lk, setup, canManage, nameOf, siblings, onChange, onR
   ] : []
   const streams = (setup.revenue_streams || []).filter(r => r.is_active !== false)
   const types = (setup.order_types || []).filter(t => t.is_active !== false)
+  if (fromBalance) {
+    return (
+      <PanelBox title={nameOf(link.from) + ' to ' + nameOf(link.to)} onClose={onClose} testid="flow-link-panel">
+        <p>
+          {nameOf(link.from)} shares its dishes between the stations it links to: {BALANCE_RULE}. Its links take every dish it
+          gets, so they have no filters.
+        </p>
+        {canManage && (
+          <div className="flex items-center gap-2 pt-1 border-t">
+            <span className="flex-1 text-xs text-muted-foreground">Remove this link</span>
+            <ConfirmDelete label="Remove link" confirmLabel="Yes, remove" onConfirm={onRemove} />
+          </div>
+        )}
+      </PanelBox>
+    )
+  }
   return (
     <PanelBox title={nameOf(link.from) + ' to ' + nameOf(link.to)} onClose={onClose} testid="flow-link-panel">
       <div>
@@ -854,12 +875,20 @@ function NodePanel({ id, station, links, nameOf, lk, canManage, onEdit, onLink, 
         ? (
           <p className="text-muted-foreground">
             {KIND_LABELS[station.kind]}{!station.is_active ? ' · not in use (dishes pass straight through)' : ''}
-            {station.kind !== 'board' && <> · amber {s.target_mins} min, red {s.late_mins} min{s.show_upcoming ? ' · shows dishes before they arrive' : ''}</>}
+            {isBumpKind(station.kind) && <> · amber {s.target_mins} min, red {s.late_mins} min{s.show_upcoming ? ' · shows dishes before they arrive' : ''}</>}
           </p>
         )
         : <p className="text-muted-foreground">Every dish sent from a till and every online order starts here.</p>}
       {station?.kind === 'board' && (
         <p className="text-xs text-muted-foreground">Shows on menu screens: add an Order status block to a board design and pick {station.name}. An order is ready there once every dish on its way to this board has arrived.</p>
+      )}
+      {station?.kind === 'balance' && (
+        <p className="text-xs text-muted-foreground" data-testid="flow-balance-note">
+          Shares work between the stations it goes on to: {BALANCE_RULE}.{' '}
+          {(s.pieces || []).length
+            ? 'Pieces: ' + s.pieces.map(m => m.label + ' counts ' + m.qty).join(', ') + '; any other dish counts its quantity.'
+            : 'No pieces set yet (Edit station): each dish counts its quantity.'}
+        </p>
       )}
       {station?.kind === 'runner' && (
         <p className="text-xs text-muted-foreground">Takes orders out. When the runner is the end of a dish's way, its bump hands the order over (collected).</p>
@@ -905,7 +934,7 @@ function NodePanel({ id, station, links, nameOf, lk, canManage, onEdit, onLink, 
   )
 }
 
-function CheckPanel({ setup, lk, check, setCheck, route, nameOf, onClose }) {
+function CheckPanel({ setup, lk, check, setCheck, route, nameOf, kindOf, onClose }) {
   const [q, setQ] = useState('')
   const term = q.trim().toLowerCase()
   const matches = term.length >= 2 ? (setup.items || []).filter(i => i.name.toLowerCase().includes(term)).slice(0, 8) : []
@@ -959,9 +988,16 @@ function CheckPanel({ setup, lk, check, setCheck, route, nameOf, onClose }) {
             ? <p className="text-muted-foreground">No link takes this dish: it won't show on any kitchen screen.</p>
             : (
               <p className="mt-1 leading-7">
-                Orders in{steps.map((ids, i) => <span key={i}> <span className="text-muted-foreground">&rarr;</span> <b>{ids.map(nameOf).join(' + ')}</b></span>)}
+                Orders in{steps.map((ids, i) => {
+                  // A Balance box's stations: one of them, not all.
+                  const shared = ids.length > 1 && ids.every(id => (route[id] || []).some(p => kindOf(p) === 'balance'))
+                  return <span key={i}> <span className="text-muted-foreground">&rarr;</span> <b>{ids.map(nameOf).join(shared ? ' or ' : ' + ')}</b></span>
+                })}
               </p>
             )}
+          {steps.some(ids => ids.some(id => kindOf(id) === 'balance')) && (
+            <p className="text-xs text-muted-foreground mt-1">At a Balance box {BALANCE_RULE}.</p>
+          )}
         </div>
       )}
       {!item && <p className="text-muted-foreground">Pick a dish to see its way through the kitchen highlighted.</p>}

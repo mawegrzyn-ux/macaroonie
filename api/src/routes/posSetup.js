@@ -57,7 +57,7 @@ import {
   dayReport, fillReconFromDay, DEFAULT_COURSES,
 } from '../services/posSvc.js'
 import { reconFields } from '../services/reconFill.js'
-import { stationSettings, flowProblems, flowWarnings, STATION_KINDS, FLOW_TARGET_KINDS } from '../../../shared/pos/kitchen.js'
+import { stationSettings, flowProblems, flowWarnings, STATION_KINDS, FLOW_TARGET_KINDS, BUMP_KINDS } from '../../../shared/pos/kitchen.js'
 import { deviceOrigin } from '../services/platformHost.js'
 import { ensureFlows, activeFlowOf, switchFlow, gloriaFoodTypes, GF_TYPES, kitchenTestToken } from '../services/kitchenSvc.js'
 import { checkDesign, previewToken } from '../services/kioskSvc.js'
@@ -204,6 +204,9 @@ const StationSettings = z.object({
     name:    z.string().trim().min(1).max(40),
     members: z.array(SummaryMember).max(60).default([]),
   })).max(12).default([]),
+  // A Balance box's pieces (migration 183): what a dish counts when it
+  // shares tickets between stations (a dish counts its quantity otherwise).
+  pieces: z.array(SummaryMember).max(60).default([]),
 }).refine(s => s.late_mins >= s.target_mins, { message: 'Late must be the same as or after the target time', path: ['late_mins'] })
 
 const StationBody = z.object({
@@ -352,6 +355,28 @@ async function dropFlowTarget(tx, tenantId, kind, id) {
 }
 
 /** Kitchen screens that showed a station: take it off their list. */
+/** A Balance box's pieces name the tenant's own dishes. */
+async function checkPieces(tx, tenantId, settings) {
+  const ids = [...new Set((settings.pieces || []).filter(m => m.kind === 'dish').map(m => m.id).filter(Boolean))]
+  if (!ids.length) return
+  const found = await tx`SELECT id FROM menu_items WHERE tenant_id = ${tenantId} AND id = ANY(${ids}::uuid[])`
+  if (found.length !== ids.length) throw httpError(422, 'Dish not found')
+  for (const m of settings.pieces) if (m.kind === 'dish' && !m.id) throw httpError(422, 'Pick the dish that counts')
+}
+
+/**
+ * A station that is (now) a Balance box: off every kitchen screen, and its
+ * links out of every flow go only to stations that bump, with no filters.
+ */
+async function tidyBalanceBox(tx, tenantId, venueId, stationId) {
+  await tx`
+    DELETE FROM kds_flow_edges e USING kds_stations t
+     WHERE e.tenant_id = ${tenantId} AND e.from_station_id = ${stationId} AND t.id = e.to_station_id
+       AND t.kind <> ALL(${BUMP_KINDS})`
+  await tx`UPDATE kds_flow_edges SET targets = '[]'::jsonb WHERE tenant_id = ${tenantId} AND from_station_id = ${stationId} AND targets <> '[]'::jsonb`
+  await dropDeviceStation(tx, tenantId, venueId, stationId)
+}
+
 async function dropDeviceStation(tx, tenantId, venueId, stationId) {
   const devices = await tx`SELECT id, settings FROM pos_devices WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND kind = 'kds'`
   for (const d of devices) {
@@ -697,8 +722,8 @@ export default async function posSetupRoutes(app) {
     }
     if (s.station_ids?.length) {
       const ids = [...new Set(s.station_ids)]
-      const found = await tx`SELECT id FROM kds_stations WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND kind <> 'board' AND id = ANY(${ids}::uuid[])`
-      if (found.length !== ids.length) throw httpError(422, 'Kitchen station not found (an order ready board isn\'t shown on a kitchen screen)')
+      const found = await tx`SELECT id FROM kds_stations WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND kind = ANY(${BUMP_KINDS}) AND id = ANY(${ids}::uuid[])`
+      if (found.length !== ids.length) throw httpError(422, 'Kitchen station not found (order ready boards and Balance boxes aren\'t shown on a kitchen screen)')
     }
     if (s.design_id) await checkDesign(tx, tenantId, s.design_id)
   }
@@ -853,6 +878,7 @@ export default async function posSetupRoutes(app) {
     const body = StationBody.parse(req.body)
     const row = await withTenant(req.tenantId, async tx => {
       await ownVenue(tx, req.tenantId, venueId)
+      await checkPieces(tx, req.tenantId, body.settings)
       const [{ n }] = await tx`SELECT COALESCE(MAX(sort_order), -1)::int + 1 AS n FROM kds_stations WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}`
       const [s] = await tx`
         INSERT INTO kds_stations (tenant_id, venue_id, name, kind, colour, settings, sort_order, is_active)
@@ -869,6 +895,7 @@ export default async function posSetupRoutes(app) {
     const body = StationBody.parse(req.body)
     const row = await withTenant(req.tenantId, async tx => {
       await ownRow(tx, 'kds_stations', req.tenantId, id, 'Kitchen station')
+      await checkPieces(tx, req.tenantId, body.settings)
       const [s] = await tx`
         UPDATE kds_stations
            SET name = ${body.name}, kind = ${body.kind}, colour = ${body.colour || null},
@@ -879,6 +906,13 @@ export default async function posSetupRoutes(app) {
       if (body.kind === 'board') {
         await tx`DELETE FROM kds_flow_edges WHERE tenant_id = ${req.tenantId} AND from_station_id = ${id}`
         await dropDeviceStation(tx, req.tenantId, s.venue_id, id)
+      }
+      if (body.kind === 'balance') await tidyBalanceBox(tx, req.tenantId, s.venue_id, id)
+      // Stations that stop bumping can't take a Balance box's dishes.
+      if (!BUMP_KINDS.includes(body.kind)) {
+        await tx`
+          DELETE FROM kds_flow_edges e USING kds_stations b
+           WHERE e.tenant_id = ${req.tenantId} AND e.to_station_id = ${id} AND b.id = e.from_station_id AND b.kind = 'balance'`
       }
       return s
     })

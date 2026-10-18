@@ -25,6 +25,7 @@ import { checkTotals, isActiveLine, lineGross } from '../../../shared/pos/pricin
 import { dayFigures } from '../../../shared/pos/reports.js'
 import { normalisePermissions, DEFAULT_POS_ROLES } from '../../../shared/pos/permissions.js'
 import { TENDERS } from '../../../shared/pos/checks.js'
+import { STALE_HOURS } from '../../../shared/pos/kitchen.js'
 import { kioskStaff } from '../../../shared/kiosk.js'
 import { venueNow } from '../../../shared/promotions.js'
 import { soldOutRows } from './soldOut.js'
@@ -495,6 +496,28 @@ export function sequencer(tenantId, venueId, { deviceId = null } = {}) {
             status = EXCLUDED.status, ready_at = EXCLUDED.ready_at, collected_at = EXCLUDED.collected_at,
             state = EXCLUDED.state, last_seq = EXCLUDED.last_seq, updated_at = now()
           WHERE kds_orders.tenant_id = ${tenantId}`
+      }
+    },
+    // Balance boxes (migration 183): what each station still has to cook, and
+    // the box's last pick for a tie.
+    async loadOpenKitchenOrders() {
+      const rows = await tx`
+        SELECT id, state FROM kds_orders
+         WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND status IN ('active', 'ready')
+           AND created_at > now() - make_interval(hours => ${STALE_HOURS})`
+      return Object.fromEntries(rows.map(r => [r.id, r.state]))
+    },
+    async loadBalanceTurns() {
+      const rows = await tx`SELECT station_id, last_station_id FROM kds_balance_turns WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`
+      return Object.fromEntries(rows.map(r => [r.station_id, r.last_station_id]))
+    },
+    async saveBalanceTurns(picks) {
+      for (const [box, to] of Object.entries(picks)) {
+        await tx`
+          INSERT INTO kds_balance_turns (station_id, tenant_id, venue_id, last_station_id)
+          VALUES (${box}, ${tenantId}, ${venueId}, ${to})
+          ON CONFLICT (station_id) DO UPDATE SET last_station_id = EXCLUDED.last_station_id, updated_at = now()
+          WHERE kds_balance_turns.tenant_id = ${tenantId}`
       }
     },
     async saveKitchenLog(rows, e, orders) {

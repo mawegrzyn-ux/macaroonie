@@ -246,6 +246,8 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx' } = 
   await step('printer', () => post(`/api/pos/venues/${V}/printers`, { name: mark + ' Kitchen', ip_address: '192.168.1.50' }))
   await step('till device', () => post(`/api/pos/venues/${V}/devices`, { name: mark + ' Till 1', kind: 'terminal' }))
   const station = await step('kitchen station', () => post(`/api/pos/venues/${V}/kds-stations`, { name: mark + ' Wok', kind: 'prep' }))
+  // A Balance box (migration 183) whose pieces name one of the tenant's dishes.
+  if (dish) await step('balance box', () => post(`/api/pos/venues/${V}/kds-stations`, { name: mark + ' Wings', kind: 'balance', settings: { pieces: [{ kind: 'dish', id: dish.id, label: dish.name, qty: 8 }] } }))
   // Kitchen flows (migration 177): the first comes with the setup page; a
   // second copied from it, renamed, put first and in use.
   const tillSetup = station ? await step('till setup', () => get(`/api/pos/venues/${V}/setup`)) : null

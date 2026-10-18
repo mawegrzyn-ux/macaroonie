@@ -23,15 +23,16 @@ import {
 } from './shared'
 import KitchenFlow from './KitchenFlow'
 import { PairingCode, deviceUrl } from './TillsSection'
-import { STATION_KINDS, KIND_LABELS } from '@shared/pos/kitchen.js'
+import { STATION_KINDS, KIND_LABELS, isBumpKind } from '@shared/pos/kitchen.js'
 import { TYPE_LABELS as GF_TYPE_LABELS } from '@shared/gloriafood.js'
 
-const KINDS = STATION_KINDS.map(k => ({ value: k, label: { prep: 'Prep', expo: 'Expo (pass)', runner: 'Runner', board: 'Order ready board' }[k] }))
+const KINDS = STATION_KINDS.map(k => ({ value: k, label: { prep: 'Prep', expo: 'Expo (pass)', runner: 'Runner', board: 'Order ready board', balance: 'Balance box' }[k] }))
 const KIND_HINTS = {
   prep: 'Makes dishes (Grill, Fryer, Bar...). Its bump sends them on to the next station in the kitchen flow.',
   expo: 'Checks whole orders before they go out (the pass). Its bump marks the order ready, and finishes dishes still at earlier stations.',
   runner: 'Takes orders out to tables or the counter. Last on a dish\'s way, its bump hands the order over.',
   board: 'An order ready board: shows order numbers on menu screens (Order status block). An order is ready there once every dish on its way to the board has arrived. Nothing to bump, no kitchen screen.',
+  balance: 'Shares tickets between the stations it links to in the kitchen flow (e.g. two wingmen): each ticket\'s dishes that reach it go to the one with the fewest pieces still to cook, taking turns when they\'re level. Nothing to bump, no kitchen screen.',
 }
 const VIEWS = [
   { value: 'tickets', label: 'Tickets' },
@@ -61,7 +62,7 @@ function ScreenModal({ venueId, setup, device, onClose, onPaired }) {
     can_switch_flow: s.can_switch_flow !== false,
   })
   const set = patch => setForm(f => ({ ...f, ...patch }))
-  const stations = setup.kds_stations.filter(x => x.is_active && x.kind !== 'board')
+  const stations = setup.kds_stations.filter(x => x.is_active && isBumpKind(x.kind))
   const body = () => ({
     name: form.name.trim(),
     settings: {
@@ -129,7 +130,7 @@ function statusOf(d) {
 }
 
 function ScreensCard({ venueId, setup }) {
-  const screenStations = setup.kds_stations.filter(x => x.kind !== 'board')
+  const screenStations = setup.kds_stations.filter(x => isBumpKind(x.kind))
   const api = useApi()
   const qc = useQueryClient()
   const [editing, setEditing] = useState(null)
@@ -184,49 +185,56 @@ function ScreensCard({ venueId, setup }) {
 
 // ── Stations ─────────────────────────────────────────────────────
 
+/** Dishes and options with what each counts (On order counts groups, a Balance box's pieces). */
+function MembersEditor({ setup, members, onChange }) {
+  const [search, setSearch] = useState('')
+  const q = search.trim().toLowerCase()
+  const matches = q.length >= 2 ? setup.items.filter(i => i.name.toLowerCase().includes(q) && !members.some(m => m.kind === 'dish' && m.id === i.id)).slice(0, 6) : []
+  const updateMember = (mi, patch) => onChange(members.map((m, i) => (i === mi ? { ...m, ...patch } : m)))
+  return (
+    <>
+      {members.map((m, mi) => (
+        <div key={mi} className="flex items-center gap-2 text-sm" data-testid="count-member">
+          <span className="flex-1 min-w-0 truncate">{m.kind === 'dish' ? 'Dish: ' : 'Option: '}<b>{m.label}</b></span>
+          <span className="text-xs text-muted-foreground">counts</span>
+          <NumberBox value={m.qty} min={1} max={100} onChange={v => updateMember(mi, { qty: v || 1 })} ariaLabel={'Count for ' + m.label} className="w-16" />
+          <button type="button" onClick={() => onChange(members.filter((_, i) => i !== mi))} aria-label={'Remove ' + m.label}
+            className="w-11 h-11 flex items-center justify-center rounded-lg text-muted-foreground hover:bg-muted touch-manipulation"><X className="w-4 h-4" /></button>
+        </div>
+      ))}
+      <div className="flex flex-wrap gap-2">
+        <div className="relative flex-1 min-w-[200px]">
+          <Search className="w-4 h-4 absolute left-3 top-3.5 text-muted-foreground" />
+          <input className={cn(inputCls, 'pl-9')} value={search} onChange={e => setSearch(e.target.value)} placeholder="Add a dish" aria-label="Add a dish" />
+          {matches.length > 0 && (
+            <div className="absolute z-10 mt-1 w-full rounded-lg border bg-background shadow-lg divide-y">
+              {matches.map(i => (
+                <button key={i.id} type="button" onClick={() => { onChange([...members, { kind: 'dish', id: i.id, label: i.name, qty: 1 }]); setSearch('') }}
+                  className="w-full text-left px-3 min-h-[44px] text-sm hover:bg-muted touch-manipulation">{i.name}</button>
+              ))}
+            </div>
+          )}
+        </div>
+        <OptionAdd onAdd={label => onChange([...members, { kind: 'option', label, qty: 1 }])} />
+      </div>
+    </>
+  )
+}
+
 function GroupsEditor({ setup, groups, onChange }) {
-  const [search, setSearch] = useState({})
   const update = (gi, patch) => onChange(groups.map((g, i) => (i === gi ? { ...g, ...patch } : g)))
-  const updateMember = (gi, mi, patch) => update(gi, { members: groups[gi].members.map((m, i) => (i === mi ? { ...m, ...patch } : m)) })
   return (
     <div className="space-y-3">
-      {groups.map((g, gi) => {
-        const q = (search[gi] || '').trim().toLowerCase()
-        const matches = q.length >= 2 ? setup.items.filter(i => i.name.toLowerCase().includes(q) && !g.members.some(m => m.kind === 'dish' && m.id === i.id)).slice(0, 6) : []
-        return (
-          <div key={g.id} className="rounded-lg border p-3 space-y-2" data-testid="summary-group">
-            <div className="flex items-center gap-2">
-              <input className={cn(inputCls, 'flex-1')} value={g.name} maxLength={40} onChange={e => update(gi, { name: e.target.value })} placeholder="e.g. Wings" aria-label="Group name" />
-              <button type="button" onClick={() => onChange(groups.filter((_, i) => i !== gi))} aria-label={'Remove ' + (g.name || 'group')}
-                className="w-11 h-11 flex items-center justify-center rounded-lg text-muted-foreground hover:bg-muted touch-manipulation"><Trash2 className="w-4 h-4" /></button>
-            </div>
-            {g.members.map((m, mi) => (
-              <div key={mi} className="flex items-center gap-2 text-sm">
-                <span className="flex-1 min-w-0 truncate">{m.kind === 'dish' ? 'Dish: ' : 'Option: '}<b>{m.label}</b></span>
-                <span className="text-xs text-muted-foreground">counts</span>
-                <NumberBox value={m.qty} min={1} max={100} onChange={v => updateMember(gi, mi, { qty: v || 1 })} ariaLabel={'Count for ' + m.label} className="w-16" />
-                <button type="button" onClick={() => update(gi, { members: g.members.filter((_, i) => i !== mi) })} aria-label={'Remove ' + m.label}
-                  className="w-11 h-11 flex items-center justify-center rounded-lg text-muted-foreground hover:bg-muted touch-manipulation"><X className="w-4 h-4" /></button>
-              </div>
-            ))}
-            <div className="flex flex-wrap gap-2">
-              <div className="relative flex-1 min-w-[200px]">
-                <Search className="w-4 h-4 absolute left-3 top-3.5 text-muted-foreground" />
-                <input className={cn(inputCls, 'pl-9')} value={search[gi] || ''} onChange={e => setSearch(s => ({ ...s, [gi]: e.target.value }))} placeholder="Add a dish" aria-label="Add a dish" />
-                {matches.length > 0 && (
-                  <div className="absolute z-10 mt-1 w-full rounded-lg border bg-background shadow-lg divide-y">
-                    {matches.map(i => (
-                      <button key={i.id} type="button" onClick={() => { update(gi, { members: [...g.members, { kind: 'dish', id: i.id, label: i.name, qty: 1 }] }); setSearch(s => ({ ...s, [gi]: '' })) }}
-                        className="w-full text-left px-3 min-h-[44px] text-sm hover:bg-muted touch-manipulation">{i.name}</button>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <OptionAdd onAdd={label => update(gi, { members: [...g.members, { kind: 'option', label, qty: 1 }] })} />
-            </div>
+      {groups.map((g, gi) => (
+        <div key={g.id} className="rounded-lg border p-3 space-y-2" data-testid="summary-group">
+          <div className="flex items-center gap-2">
+            <input className={cn(inputCls, 'flex-1')} value={g.name} maxLength={40} onChange={e => update(gi, { name: e.target.value })} placeholder="e.g. Wings" aria-label="Group name" />
+            <button type="button" onClick={() => onChange(groups.filter((_, i) => i !== gi))} aria-label={'Remove ' + (g.name || 'group')}
+              className="w-11 h-11 flex items-center justify-center rounded-lg text-muted-foreground hover:bg-muted touch-manipulation"><Trash2 className="w-4 h-4" /></button>
           </div>
-        )
-      })}
+          <MembersEditor setup={setup} members={g.members} onChange={members => update(gi, { members })} />
+        </div>
+      ))}
       {groups.length < 12 && (
         <Btn onClick={() => onChange([...groups, { id: newId(), name: '', members: [] }])}><Plus className="w-4 h-4" /> Add a group</Btn>
       )}
@@ -253,12 +261,13 @@ export function StationModal({ venueId, setup, station, kind: newKind, onClose }
     name: station?.name || '', kind: startKind, colour: station?.colour || null,
     target_mins: s.target_mins ?? 8, late_mins: s.late_mins ?? 12, show_held: s.show_held !== false,
     show_upcoming: s.show_upcoming ?? startKind === 'expo',
-    summary_groups: s.summary_groups || [], is_active: station ? station.is_active : true,
+    summary_groups: s.summary_groups || [], pieces: s.pieces || [], is_active: station ? station.is_active : true,
   })
   const [upcomingSet, setUpcomingSet] = useState(!!station)
   const set = patch => setForm(f => ({ ...f, ...patch }))
   const setKind = k => set({ kind: k, ...(upcomingSet ? {} : { show_upcoming: k === 'expo' }) })
   const board = form.kind === 'board'
+  const balance = form.kind === 'balance'
   const orderLevel = form.kind === 'expo' || form.kind === 'runner'
   const refresh = () => qc.invalidateQueries({ queryKey: ['pos-setup', venueId] })
   const body = () => ({
@@ -267,6 +276,7 @@ export function StationModal({ venueId, setup, station, kind: newKind, onClose }
       target_mins: form.target_mins || 8, late_mins: Math.max(form.late_mins || 12, form.target_mins || 8), show_held: form.show_held,
       show_upcoming: !!form.show_upcoming,
       summary_groups: form.summary_groups.filter(g => g.name.trim()).map(g => ({ ...g, name: g.name.trim() })),
+      pieces: balance ? form.pieces : [],
     },
   })
   const save = useMutation({
@@ -275,7 +285,7 @@ export function StationModal({ venueId, setup, station, kind: newKind, onClose }
   })
   const remove = useMutation({ mutationFn: () => api.delete(`/pos/kds-stations/${station.id}`), onSuccess: () => { refresh(); onClose() } })
   return (
-    <Modal title={station ? 'Edit ' + station.name : 'Add ' + (form.kind === 'expo' ? 'an expo' : form.kind === 'board' ? 'an order ready board' : 'a ' + KIND_LABELS[form.kind].toLowerCase())} onClose={onClose}
+    <Modal title={station ? 'Edit ' + station.name : 'Add ' + (form.kind === 'expo' ? 'an expo' : board ? 'an order ready board' : 'a ' + KIND_LABELS[form.kind].toLowerCase())} onClose={onClose}
       footer={<>
         <Btn variant="primary" className="flex-1" disabled={!form.name.trim() || save.isPending} onClick={() => save.mutate()}>
           {save.isPending && <Loader2 className="w-4 h-4 animate-spin" />} Save
@@ -284,12 +294,20 @@ export function StationModal({ venueId, setup, station, kind: newKind, onClose }
       </>}>
       <Field label="Name" hint={board ? 'Menu screens pick a board by this name, so call it the same at every venue (e.g. ORB 1).' : undefined}>
         <input className={inputCls} value={form.name} maxLength={40} onChange={e => set({ name: e.target.value })}
-          placeholder={board ? 'e.g. ORB 1' : form.kind === 'expo' ? 'e.g. Expo 1, Pass' : form.kind === 'runner' ? 'e.g. Runner' : 'e.g. Grill, Fryer, Prep 1'} />
+          placeholder={board ? 'e.g. ORB 1' : balance ? 'e.g. Wings' : form.kind === 'expo' ? 'e.g. Expo 1, Pass' : form.kind === 'runner' ? 'e.g. Runner' : 'e.g. Grill, Fryer, Prep 1'} />
       </Field>
       <Field group label="Kind" hint={KIND_HINTS[form.kind]}>
         <Segmented value={form.kind} options={KINDS} onChange={setKind} className="flex-wrap" />
       </Field>
-      {!board && <>
+      {balance && (
+        <Field group label="Pieces" hint="What a dish counts when the box weighs up who has more to cook, e.g. the 10 Wings option counts 10, the 8pc Boneless dish counts 8. A dish not listed counts its quantity.">
+          <div className="space-y-2" data-testid="balance-pieces"><MembersEditor setup={setup} members={form.pieces} onChange={pieces => set({ pieces })} /></div>
+        </Field>
+      )}
+      {balance && station?.kind && station.kind !== 'balance' && (
+        <p className="text-xs text-amber-700">As a Balance box it leaves the kitchen screens, and its links out of every flow lose their filters (links to boards go).</p>
+      )}
+      {!board && !balance && <>
       <div className="flex flex-wrap gap-4">
         <Field label="Amber after (minutes)" hint="And the on-time target.">
           <NumberBox value={form.target_mins} min={1} max={120} onChange={v => set({ target_mins: v })} ariaLabel="Amber after minutes" />
@@ -326,7 +344,7 @@ function StationsCard({ venueId, setup, onEdit }) {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-setup', venueId] }),
   })
   return (
-    <Section title="Stations" hint="Prep stations make dishes, the expo checks orders before they go out, runners take them out, order ready boards show the numbers. The order here is the order of the tabs on a kitchen screen. With no expo, an order is ready once every station on its dishes' way has bumped it."
+    <Section title="Stations" hint="Prep stations make dishes, the expo checks orders before they go out, runners take them out, order ready boards show the numbers, Balance boxes share tickets between stations. The order here is the order of the tabs on a kitchen screen. With no expo, an order is ready once every station on its dishes' way has bumped it."
       actions={<Btn variant="primary" onClick={() => onEdit({ kind: 'prep' })}><Plus className="w-4 h-4" /> Add a station</Btn>}>
       {!setup.kds_stations.length
         ? <p className="text-sm text-muted-foreground">No stations yet. Kitchen screens start working once there is one.</p>
@@ -339,8 +357,9 @@ function StationsCard({ venueId, setup, onEdit }) {
                   <p className={cn('text-sm font-medium', !st.is_active && 'text-muted-foreground line-through')}>{st.name}</p>
                   <p className="text-xs text-muted-foreground truncate">
                     {KIND_LABELS[st.kind]}
-                    {st.kind !== 'board' && <> · amber {st.settings.target_mins} min, red {st.settings.late_mins} min</>}
-                    {st.settings.summary_groups?.length ? ' · counts ' + st.settings.summary_groups.map(g => g.name).join(', ') : ''}
+                    {isBumpKind(st.kind) && <> · amber {st.settings.target_mins} min, red {st.settings.late_mins} min</>}
+                    {isBumpKind(st.kind) && st.settings.summary_groups?.length ? ' · counts ' + st.settings.summary_groups.map(g => g.name).join(', ') : ''}
+                    {st.kind === 'balance' && (st.settings.pieces?.length ? ' · ' + st.settings.pieces.map(m => m.label + ' ' + m.qty).join(', ') : ' · each dish counts its quantity')}
                   </p>
                 </div>
                 <Btn onClick={() => onEdit(st)} title={'Edit ' + st.name}><Pencil className="w-4 h-4" /></Btn>

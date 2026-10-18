@@ -5,6 +5,12 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-18 — Balance boxes: share tickets between two kitchen stations]
+
+- **A Balance box in the kitchen flow shares tickets between stations doing the same job**, e.g. two wingmen. In Till setup → Kitchen screens, **Add to the flow** → **Balance box**, list what dishes count as (the 10 Wings option counts 10, the 8pc dish counts 8), link the wings to the box and the box to both wingmen. Each ticket's wings go to the wingman with the fewest pieces still to cook, taking turns when they're level; everything else on the ticket goes where it went before (e.g. the fryer). A ticket's wings always stay together.
+- Decided when the order reaches the kitchen (a held course when it's fired), then fixed. **Check a dish** shows "Wingman 1 or Wingman 2". The box has no kitchen screen and nothing to bump; the kitchen test bench shares tickets the same way.
+- **Migration 183** (kitchen_balance).
+
 ## [2026-10-18 — Take a station out of a kitchen flow]
 
 - **A station can be taken out of one kitchen flow** without deleting it. In Till setup → Kitchen screens, tap the station's box in the flow, then **Take out of this flow**: it leaves that flow with its links, and no dish goes to it while that flow is in use. It shows under **Not in this flow** above the boxes, where **Put back** brings it back. The station, its screens and its settings stay, and your other flows still use it (e.g. a *Grill down* flow without the grill).

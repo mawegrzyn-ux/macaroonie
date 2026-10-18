@@ -3284,7 +3284,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
           <section id="kds" data-doc="">
             <H2>Kitchen screens (KDS)</H2>
             <P>
-              Migrations 168, 169 (kitchen flow), 177 (several kitchen flows) and 182 (stations out of a flow). Design in <Mono>docs/POS.md</Mono> section 9. A kitchen screen is a till device of
+              Migrations 168, 169 (kitchen flow), 177 (several kitchen flows), 182 (stations out of a flow) and 183 (Balance boxes). Design in <Mono>docs/POS.md</Mono> section 9. A kitchen screen is a till device of
               kind <Mono>kds</Mono> (<Mono>pos_devices</Mono>, short code K1, K2 ...), paired with a one-time
               code like a till. The same app at <Mono>pos.&lt;domain&gt;</Mono> boots{' '}
               <Mono>pos/src/kitchen/KitchenApp.jsx</Mono> (lazy) when the device's kind is <Mono>kds</Mono>.
@@ -3332,6 +3332,28 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               (<Mono>activeFlowSetting()</Mono>) and reloads the kitchen config when it changed, so a switch in
               the middle of another device's batch counts from its next event. A switch never touches dishes
               already sent: they keep <Mono>item.route</Mono>.
+            </P>
+            <P>
+              <strong>Balance boxes</strong> (migration 183): a station of kind <Mono>balance</Mono> shares work
+              between the stations it links to (prep, expo or runner only, links out without filters:{' '}
+              <Mono>flowProblems()</Mono>; fewer than two is a warning). <Mono>itemRoute()</Mono> still walks
+              through it (so Check a dish shows both); <Mono>resolveBalances(route, cfg, pick)</Mono> then takes
+              each box out of a dish&apos;s way, keeping only the picked station and what follows it
+              (<Mono>collapseBalance()</Mono>). <Mono>makeBalancePicker(cfg, at)</Mono> picks per event, so a
+              ticket stays together: the output with the lowest <Mono>stationLoad()</Mono> (every fired dish on
+              its way to that station not yet done, counted with the box&apos;s <Mono>settings.pieces</Mono>,
+              the same member shape and <Mono>memberCount()</Mono> as On order counts; a dish no member names
+              counts its quantity), a tie going to the first after the box&apos;s last pick. It runs in{' '}
+              <Mono>lines.sent</Mono> (held lines keep the box until <Mono>course.fired</Mono> resolves them) and{' '}
+              <Mono>kitchen.order_in</Mono> (online and GloriaFood orders, later ones too). The sequencer gives
+              those events <Mono>cfg.balance = {'{ open, last, picks }'}</Mono> through the store&apos;s{' '}
+              <Mono>loadOpenKitchenOrders()</Mono> / <Mono>loadBalanceTurns()</Mono> and saves{' '}
+              <Mono>picks</Mono> with <Mono>saveBalanceTurns()</Mono> (<Mono>kds_balance_turns</Mono>); the test
+              bench keeps both in memory. A box is never on a kitchen screen (<Mono>BUMP_KINDS</Mono> everywhere
+              stations are listed for screens), refuses bumps, and is passed straight through by{' '}
+              <Mono>flowTimes()</Mono> like a board. Making a station a box drops its links to non-bumping
+              stations and its links&apos; filters (<Mono>tidyBalanceBox()</Mono>); pieces must name the
+              tenant&apos;s dishes.
             </P>
             <P>
               <strong>Stations out of a flow</strong> (migration 182): <Mono>kds_flows.off_station_ids</Mono>{' '}
@@ -3388,7 +3410,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <DataTable
               head={['Table', 'What it holds']}
               rows={[
-                ['kds_stations', 'Per venue: name, kind prep | expo | runner | board, colour, settings jsonb { target_mins, late_mins, show_held, show_upcoming, summary_groups: [{ id, name, members: [{ kind dish | option, id | label, qty }] }] }, sort_order, is_active.'],
+                ['kds_stations', 'Per venue: name, kind prep | expo | runner | board | balance (183), colour, settings jsonb { target_mins, late_mins, show_held, show_upcoming, summary_groups: [{ id, name, members: [{ kind dish | option, id | label, qty }] }], pieces (a Balance box: members, same shape) }, sort_order, is_active.'],
+                ['kds_balance_turns', 'Each Balance box\'s last pick (183): station_id (the box, PK, ON DELETE CASCADE), last_station_id, updated_at. Written by the sequencer (saveBalanceTurns()) so a tie goes to the next station. Forced RLS.'],
                 ['kds_flows', 'A venue\'s kitchen flows (177): name (1-40, unique per venue ignoring case and spaces), layout jsonb { [stationId | start]: { x, y } } (where the designer draws each box), sort_order (the kitchen screen\'s list), off_station_ids uuid[] (182: the venue\'s stations this flow leaves out). Forced RLS like every tenant table. The migration made one "Main flow" per venue with stations or links, holding its links and layout, in use. A venue without one gets it from GET .../setup (ensureFlows()).'],
                 ['kds_flow_edges', 'A flow\'s links (169, flow_id NOT NULL since 177, ON DELETE CASCADE with the flow): from_station_id (NULL = Orders in), to_station_id (both ON DELETE CASCADE), targets jsonb, sort_order. One link per pair per flow (unique index on flow_id, from, to). Read them by flow_id, never by venue alone. Replaced kds_routes: each station\'s routes became one link from Orders in, every prep station got a link to every expo.'],
                 ['kds_orders', 'Projection (like pos_checks): id text (a check id, web-<orders.id> or gf-<gloriafood_orders.id>), source till | online | gloriafood (178; taken from the id prefix by applyKitchenEvent(), never from the payload), check_id / order_id, status active | ready | collected | cancelled, state jsonb (the whole kitchen order), last_seq.'],

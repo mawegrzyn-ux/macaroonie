@@ -241,3 +241,63 @@ test('a station taken out of a flow: no links to it, no dishes, its warning gone
   assert.ok((await sequencer(ids.a, V).submit(orderIn(302))).ok)
   assert.deepEqual(await wayOf(302), sorted([wok.id, pass.id]))
 })
+
+test('a Balance box: each order to the wingman with fewer pieces to cook, taking turns on a tie', async () => {
+  const pieces = [{ kind: 'dish', id: dish.id, label: dish.name, qty: 10 }]
+  const bad = await owner.post(`/api/pos/venues/${V}/kds-stations`, { name: 'Wings', kind: 'balance', settings: { pieces: [{ ...pieces[0], id: crypto.randomUUID() }] } })
+  assert.equal(bad.status, 422, 'pieces name the tenant\'s own dishes')
+  const box = await ok(owner.post(`/api/pos/venues/${V}/kds-stations`, { name: 'Wings', kind: 'balance', settings: { pieces } }))
+  assert.deepEqual(box.settings.pieces.map(p => p.qty), [10])
+  const w1 = await ok(owner.post(`/api/pos/venues/${V}/kds-stations`, { name: 'Wingman 1', kind: 'prep' }))
+  const w2 = await ok(owner.post(`/api/pos/venues/${V}/kds-stations`, { name: 'Wingman 2', kind: 'prep' }))
+  const flow = await ok(owner.post(`/api/pos/venues/${V}/kds-flows`, { name: 'Wings night' }))
+  const links = [
+    { from: null, to: box.id, targets: [{ kind: 'item', id: dish.id }] }, { from: null, to: wok.id, targets: [] },
+    { from: box.id, to: w1.id, targets: [] }, { from: box.id, to: w2.id, targets: [] },
+    { from: w1.id, to: pass.id, targets: [] }, { from: w2.id, to: pass.id, targets: [] }, { from: wok.id, to: pass.id, targets: [] },
+  ]
+  const filtered = await owner.put(`/api/pos/kds-flows/${flow.id}`, { links: links.map(l => (l.from === box.id && l.to === w2.id ? { ...l, targets: [{ kind: 'item', id: dish.id }] } : l)), layout: {} })
+  assert.equal(filtered.status, 422)
+  assert.match(filtered.json.error, /remove their filters/)
+  const saved = await ok(owner.put(`/api/pos/kds-flows/${flow.id}`, { links, layout: {} }))
+  assert.ok(!saved.warnings.some(w => w.startsWith('Wings')), 'two wingmen to share with: no warning')
+  await ok(owner.put(`/api/pos/venues/${V}/kds-flows/active`, { flow_id: flow.id }))
+
+  const seqr = sequencer(ids.a, V)
+  assert.ok((await seqr.submit(orderIn(401))).ok)
+  assert.deepEqual(await wayOf(401), sorted([w1.id, pass.id]), 'both empty: the first')
+  assert.ok((await seqr.submit(orderIn(402))).ok)
+  assert.deepEqual(await wayOf(402), sorted([w2.id, pass.id]), '10 pieces at Wingman 1')
+  assert.ok((await seqr.submit(orderIn(403))).ok)
+  assert.deepEqual(await wayOf(403), sorted([w1.id, pass.id]), '10 each: the next after Wingman 2')
+  const [turn] = await sql`SELECT last_station_id FROM kds_balance_turns WHERE station_id = ${box.id}`
+  assert.equal(turn.last_station_id, w1.id, 'the last pick is kept')
+
+  // The box has no screen and nothing to bump.
+  const config = await device(screen, 'GET', '/pos-api/config')
+  assert.ok(config.json.stations.some(s => s.id === box.id && s.kind === 'balance'))
+  const kid = (await sql`SELECT id FROM kds_orders WHERE tenant_id = ${ids.a} AND venue_id = ${V} AND state->>'number' = '401'`)[0].id
+  const bump = await device(screen, 'POST', '/pos-api/events', { events: [{ id: ulid(), venue_id: V, type: 'kitchen.bumped', client_at: new Date().toISOString(), payload: { order_id: kid, station_id: box.id } }] })
+  assert.equal(bump.json.results[0].ok, false)
+  assert.match(bump.json.results[0].error, /nothing to bump/)
+  const onScreen = await owner.patch(`/api/pos/devices/${screen.id}`, { name: 'Pass screen', settings: { station_ids: [box.id] } })
+  assert.equal(onScreen.status, 422, 'a Balance box isn\'t shown on a kitchen screen')
+
+  // A station turned into a Balance box loses its links' filters; links out
+  // to a station that stops bumping go.
+  const extra = await ok(owner.post(`/api/pos/venues/${V}/kds-stations`, { name: 'Sauces', kind: 'prep' }))
+  await ok(owner.put(`/api/pos/kds-flows/${flow.id}`, { links: [...links, { from: null, to: extra.id, targets: [] }, { from: extra.id, to: pass.id, targets: [{ kind: 'item', id: dish.id }] }], layout: {} }))
+  await ok(owner.patch(`/api/pos/kds-stations/${extra.id}`, { name: 'Sauces', kind: 'balance', settings: {} }))
+  const after = (await ok(owner.get(`/api/pos/venues/${V}/setup`))).kds_flows.find(f => f.id === flow.id)
+  assert.deepEqual(after.links.find(l => l.from === extra.id).targets, [], 'filters gone')
+  await ok(owner.patch(`/api/pos/kds-stations/${w2.id}`, { name: 'Wingman 2', kind: 'board', settings: {} }))
+  const after2 = (await ok(owner.get(`/api/pos/venues/${V}/setup`))).kds_flows.find(f => f.id === flow.id)
+  assert.ok(!after2.links.some(l => l.from === box.id && l.to === w2.id), 'a board can\'t take a Balance box\'s dishes')
+
+  const viewer = await as(A.viewer, ids.a).post(`/api/pos/venues/${V}/kds-stations`, { name: 'Nope', kind: 'balance' })
+  assert.equal(viewer.status, 403)
+  await ok(owner.put(`/api/pos/venues/${V}/kds-flows/active`, { flow_id: main.id }))
+  await ok(owner.delete(`/api/pos/kds-flows/${flow.id}`))
+  for (const s of [box, w1, w2, extra]) await ok(owner.delete(`/api/pos/kds-stations/${s.id}`))
+  assert.equal((await sql`SELECT count(*)::int AS n FROM kds_balance_turns WHERE station_id = ${box.id}`)[0].n, 0, 'its turns go with it')
+})

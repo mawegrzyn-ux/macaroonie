@@ -14,6 +14,7 @@ import {
   kitchenForCheckEvent, applyKitchenEvent, stationTickets, onOrderCounts, stationStats, boardNumbers,
   laterOrders, recentBumps, itemState, ageTone, clockSince, kitchenEventProblem, onlineOrderId, gloriaFoodOrderId, isOrderId,
   itemRoute, routeOrder, flowProblems, flowWarnings, readyOrders, boardState, itemWhere, START,
+  resolveBalances, stationLoad,
 } from '../kitchen.js'
 
 const uuid = () => globalThis.crypto.randomUUID()
@@ -757,4 +758,127 @@ test('combos from online orders: picks go to their own stations', () => {
     id: onlineOrderId(uuid()), order_id: uuid(), number: '1', items: [{ id: 'x', name: 'Meal', qty: 1, parts: [{ name: '' }] }],
   } }))
   assert.match(bad, /parts/)
+})
+
+// ── Balance boxes (migration 183) ──────────────────────────────
+// Wings go through a Balance box shared by two wingmen; everything else on
+// the ticket goes to the fryer. Pieces: "10 Wings" counts 10, "8 Wings" 8,
+// Boneless (the dish) 6 each.
+const W1 = uuid(), W2 = uuid(), FRY2 = uuid(), PASS2 = uuid(), BOX = uuid(), ORB2 = uuid()
+const wingKit = {
+  W1: { id: W1, name: 'Wingman 1', kind: 'prep', settings: {} },
+  W2: { id: W2, name: 'Wingman 2', kind: 'prep', settings: {} },
+  FRY2: { id: FRY2, name: 'Fryer', kind: 'prep', settings: {} },
+  PASS2: { id: PASS2, name: 'Pass', kind: 'expo', settings: {} },
+  BOX: { id: BOX, name: 'Wings', kind: 'balance', settings: { pieces: [
+    { kind: 'option', label: '10 Wings', qty: 10 }, { kind: 'option', label: '8 Wings', qty: 8 }, { kind: 'dish', id: BONELESS, qty: 6 },
+  ] } },
+}
+const wingFlow = [
+  link(null, BOX, ['section', WINGSEC]), link(null, FRY2),
+  link(BOX, W1), link(BOX, W2), link(W1, PASS2), link(W2, PASS2), link(FRY2, PASS2),
+]
+const wingLine = (n, extra = {}) => lineOf('Wings', WINGS, WINGSEC, { modifiers: [{ label: n + ' Wings', base: true, price: 0 }], ...extra })
+
+/** A till whose kitchen config carries the open orders and the box's last pick, as the sequencer gives it. */
+function balancedTill() {
+  const last = {}
+  const base = { ...common, stations: byId(Object.values(wingKit)), flow: wingFlow }
+  const t = till(base)
+  Object.defineProperty(t, 'cfg', { get() { return { ...base, balance: { open: t.orders, last, picks: last } } } })
+  return t
+}
+const wayOf = (k, checkId, lineId) => Object.keys(k[checkId].items.find(i => i.id === lineId).route).sort()
+
+test('balance: a box\'s way keeps both stations until it is decided', () => {
+  const cfg = { ...common, stations: byId(Object.values(wingKit)), flow: wingFlow }
+  const full = itemRoute({ item_id: WINGS, section_id: WINGSEC }, cfg)
+  assert.deepEqual(Object.keys(full).sort(), [BOX, W1, W2, PASS2].sort(), 'Check a dish shows both wingmen')
+  const one = resolveBalances(full, cfg, () => W2)
+  assert.deepEqual(one, { [W2]: [START], [PASS2]: [W2] }, 'the box drops out, the other wingman too')
+  assert.deepEqual(Object.keys(itemRoute({ item_id: FRIES, section_id: SIDES }, cfg)).sort(), [FRY2, PASS2].sort(), 'other dishes don\'t go near it')
+  assert.deepEqual(resolveBalances(full, cfg, () => null), {}, 'nothing to share with: nowhere')
+})
+
+test('balance: each ticket goes to the wingman with the fewest pieces to cook, taking turns on a tie', () => {
+  const t = balancedTill()
+  const c1 = openTable(t)
+  const w10 = wingLine(10), f1 = fries()
+  let k = addAndSend(t, c1, [w10, f1])
+  assert.deepEqual(wayOf(k, c1, w10.id), [W1, PASS2].sort(), 'both empty: the first')
+  assert.deepEqual(wayOf(k, c1, f1.id), [FRY2, PASS2].sort(), 'the fries go to the fryer')
+  assert.equal(t.cfg.balance.last[BOX], W1, 'the pick is kept')
+
+  const c2 = openTable(t)
+  const w8 = wingLine(8)
+  k = addAndSend(t, c2, [w8])
+  assert.deepEqual(wayOf(k, c2, w8.id), [W2, PASS2].sort(), '10 pieces at Wingman 1: Wingman 2')
+
+  const c3 = openTable(t)
+  const a = wingLine(10), b = lineOf('Boneless', BONELESS, WINGSEC)
+  k = addAndSend(t, c3, [a, b])
+  assert.deepEqual(wayOf(k, c3, a.id), [W2, PASS2].sort(), '8 is fewer than 10')
+  assert.deepEqual(wayOf(k, c3, b.id), [W2, PASS2].sort(), 'a ticket\'s wings stay together')
+  assert.equal(stationLoad(t.orders, W2, wingKit.BOX.settings.pieces, t.cfg, at()), 8 + 10 + 6)
+
+  ok(t.bump(c1, wingKit.W1))
+  assert.equal(stationLoad(t.orders, W1, wingKit.BOX.settings.pieces, t.cfg, at()), 0, 'bumped: nothing left at Wingman 1')
+  const c4 = openTable(t)
+  const w6 = wingLine(6)
+  k = addAndSend(t, c4, [w6])
+  assert.deepEqual(wayOf(k, c4, w6.id), [W1, PASS2].sort(), 'Wingman 1 is free now')
+  assert.equal(stationLoad(t.orders, W1, wingKit.BOX.settings.pieces, t.cfg, at()), 1, 'a dish no piece names counts its quantity')
+
+  // Both clear: take turns after the last pick (Wingman 1).
+  ok(t.bump(c4, wingKit.W1))
+  ok(t.bump(c2, wingKit.W2))
+  ok(t.bump(c3, wingKit.W2))
+  const c5 = openTable(t)
+  const w5 = wingLine(10)
+  k = addAndSend(t, c5, [w5])
+  assert.deepEqual(wayOf(k, c5, w5.id), [W2, PASS2].sort(), 'a tie goes to the next one')
+  assert.equal(t.tickets(wingKit.W1).filter(x => x.order.id === c5).length, 0, 'not on the other wingman\'s screen')
+  assert.equal(t.tickets(wingKit.W2).filter(x => x.order.id === c5).length, 1)
+})
+
+test('balance: a held course is decided when it is fired; online orders as they come in', () => {
+  const t = balancedTill()
+  const c1 = openTable(t)
+  const busy = wingLine(10)
+  addAndSend(t, c1, [busy])          // Wingman 1 has 10
+  const c2 = openTable(t)
+  const later = wingLine(8, { course_id: MAINS })
+  let k = addAndSend(t, c2, [later], [MAINS])
+  assert.ok(k[c2].items[0].route[BOX], 'held: still shared')
+  ok(t.bump(c1, wingKit.W1))         // Wingman 1 clears before the course is fired
+  const c3 = openTable(t)
+  const w = wingLine(8)
+  addAndSend(t, c3, [w])             // goes to Wingman 2 (turns), 8 there now
+  k = t.send(ev('course.fired', { course_id: MAINS }, { check_id: c2 }))
+  assert.deepEqual(Object.keys(k[c2].items[0].route).sort(), [W1, PASS2].sort(), 'fired: the wingman free now')
+
+  const r = ok(t.kitchen(kev('kitchen.order_in', { order: {
+    id: onlineOrderId(uuid()), order_id: uuid(), number: '41', type: OUT,
+    items: [{ id: 'a', item_id: WINGS, section_id: WINGSEC, name: 'Wings', qty: 1, options: [{ label: '10 Wings', mode: 'base' }] },
+      { id: 'b', item_id: FRIES, section_id: SIDES, name: 'Fries', qty: 1 }],
+  } })))
+  const o = Object.values(r.orders)[0]
+  assert.equal(Object.keys(o.items[0].route).length, 2, 'an online order is decided as it comes in')
+  assert.ok(!o.items[0].route[BOX])
+  assert.ok(o.items[1].route[FRY2])
+})
+
+test('balance: flow checks and nothing to bump', () => {
+  const st = Object.values(wingKit)
+  assert.deepEqual(flowProblems(st, wingFlow), [])
+  assert.match(flowProblems([...st, { id: ORB2, name: 'ORB', kind: 'board' }], [...wingFlow, link(BOX, ORB2)])[0], /link it to prep stations/)
+  assert.match(flowProblems(st, [...wingFlow.filter(l => l.from !== BOX || l.to !== W2), link(BOX, W2, ['item', WINGS])])[0], /remove their filters/)
+  assert.ok(flowWarnings(st, wingFlow.filter(l => !(l.from === BOX && l.to === W2))).some(w => /only one station to share with/.test(w)))
+  const t = balancedTill()
+  const c1 = openTable(t)
+  addAndSend(t, c1, [wingLine(10)])
+  const r = t.kitchen(kev('kitchen.bumped', { order_id: c1, station_id: BOX }))
+  assert.equal(r.ok, false)
+  assert.match(r.error, /Balance box has nothing to bump/)
+  assert.deepEqual(stationTickets(t.orders, wingKit.BOX, at(), t.cfg), [])
 })
