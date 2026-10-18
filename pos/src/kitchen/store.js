@@ -17,7 +17,7 @@
 // for the browser tab, so a test never touches a real kitchen screen's data.
 
 import { useSyncExternalStore } from 'react'
-import { applyKitchenEvent, stationSettings, nodeState, STALE_HOURS } from '@shared/pos/kitchen.js'
+import { applyKitchenEvent, stationSettings, nodeState, STALE_HOURS, BUMP_KINDS } from '@shared/pos/kitchen.js'
 import { ulid } from '@shared/pos/ids.js'
 import * as idb from '../lib/idb.js'
 import { createTransport, OfflineError } from '../lib/transport.js'
@@ -88,7 +88,7 @@ export function toast(text, kind = 'info', ms = 3500) {
 /** Stations this screen may show (device settings), in setup order. Order
  *  ready boards have nothing to bump: they show on menu screens instead. */
 export function myStations(s = state) {
-  const all = (s.config?.stations || []).filter(x => x.kind !== 'board')
+  const all = (s.config?.stations || []).filter(x => BUMP_KINDS.includes(x.kind))
   const ids = s.config?.device?.settings?.station_ids || []
   const mine = ids.length ? all.filter(x => ids.includes(x.id)) : all
   return mine.length ? mine : all

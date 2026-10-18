@@ -20,7 +20,7 @@ import { hashPin } from '@shared/pos/pin.js'
 import { ulid } from '@shared/pos/ids.js'
 import { soldOutMap as sharedSoldOutMap } from '@shared/pos/offers.js'
 import * as idb from './idb.js'
-import { createTransport, OfflineError } from './transport.js'
+import { createTransport, OfflineError, APP_VERSION } from './transport.js'
 import { printTickets } from './print.js'
 import { checkForUpdate } from './appUpdate.js'
 import { HOST_APP, takePairCode, movedTo, setMovedTo, moveDevice, tellDisconnect } from './appHost.js'
@@ -203,12 +203,52 @@ export async function pair(code) {
   const t = createTransport(null)
   // The address says what this device is (lib/appHost.js); the server
   // refuses a code for another kind, naming its address.
-  const res = await t.post('/pos-api/pair', { code, app: HOST_APP || undefined, app_version: '1.0.0', user_agent: navigator.userAgent.slice(0, 280) })
+  const res = await t.post('/pos-api/pair', { code, app: HOST_APP || undefined, app_version: APP_VERSION, user_agent: navigator.userAgent.slice(0, 280) })
+  await startPaired({ ...res, secret: res.secret })
+}
+
+async function startPaired(res) {
   setMovedTo(null)
   const device = { id: res.device_id, secret: res.secret, name: res.name, kind: res.kind || 'terminal', short_code: res.short_code, venue_id: res.venue_id, venue_name: res.venue_name }
   await Promise.all([idb.set(DEVICE_KEY, device), idb.del(SNAPSHOT_KEY), idb.del(CONFIG_KEY), idb.set(OUTBOX_KEY, [])])
   setState({ device, confirmed: {}, outbox: [], seq: 0, config: null, phase: 'loading' })
   await boot()
+}
+
+/**
+ * A code this device shows (with a QR code to the installer app) until
+ * someone signed in links it (migration 184): { id, code, secret,
+ * expires_at, link_url }. The secret stays on this device; once linked the
+ * device signs in with it.
+ */
+export async function requestLinkCode() {
+  const t = createTransport(null)
+  const device = {
+    width: Math.round(window.screen?.width || window.innerWidth || 0),
+    height: Math.round(window.screen?.height || window.innerHeight || 0),
+    dpr: Math.min(10, Number(window.devicePixelRatio) || 1),
+    ua: navigator.userAgent.slice(0, 300),
+    app_version: APP_VERSION,
+  }
+  return t.post('/pos-api/pairings', { app: HOST_APP || undefined, device })
+}
+
+/**
+ * Has the code been linked? 'waiting' | 'expired' | 'paired' (then this
+ * device is set up and starts). A code the server no longer knows is expired.
+ */
+export async function checkLinkCode(p) {
+  const t = createTransport(null)
+  let res
+  try {
+    res = await t.get('/pos-api/pairings/' + encodeURIComponent(p.id), { headers: { Authorization: 'Pairing ' + p.secret } })
+  } catch (err) {
+    if (err.status === 404) return 'expired'
+    throw err
+  }
+  if (res?.status !== 'paired') return res?.status === 'waiting' ? 'waiting' : 'expired'
+  await startPaired({ ...res, secret: p.secret })
+  return 'paired'
 }
 
 /** Forget the pairing (the till must be paired again with a new code). Pairing again clears unsent events. */

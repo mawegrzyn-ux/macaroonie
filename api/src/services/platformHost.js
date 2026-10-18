@@ -12,11 +12,14 @@
 //   kiosk  kiosk.macaroonie.com      the self-order kiosks: the same build, as the kiosk app
 //   screens screens.macaroonie.com   the menu screens' player (screen/, served by
 //                                    routes/screenSite.js)
+//   installer installer.macaroonie.com  the admin build again, opened on /install: a
+//                                    phone app for linking the devices at a venue
+//                                    (served by routes/installerSite.js; migration 184)
 // Each device app has its own address so it installs as its own app and keeps
 // its own pairing; a pairing code only works on its kind's address
 // (POST /pos-api/pair).
 // Tenant sites live on every other subdomain (routes/siteRenderer.js), which
-// is why office and ops are in RESERVED_SUBDOMAINS.
+// is why these names are in RESERVED_SUBDOMAINS.
 
 import { env } from '../config/env.js'
 
@@ -27,6 +30,7 @@ export const KITCHEN_SUBDOMAIN = 'kitchen'
 export const KIOSK_SUBDOMAIN = 'kiosk'
 export const KDS_SUBDOMAIN = 'kds'          // forwards to kitchen.
 export const SCREENS_SUBDOMAIN = 'screens'
+export const INSTALLER_SUBDOMAIN = 'installer'
 
 // The device app each host runs, as pos_devices.kind.
 export const DEVICE_KIND_OF_HOST = { pos: 'terminal', kitchen: 'kds', kiosk: 'kiosk' }
@@ -34,7 +38,7 @@ const SUBDOMAIN_OF_KIND = { terminal: POS_SUBDOMAIN, kds: KITCHEN_SUBDOMAIN, kio
 
 const root = () => env.PUBLIC_ROOT_DOMAIN.toLowerCase()
 
-/** 'apex' | 'office' | 'ops' | 'pos' | 'kitchen' | 'kiosk' | 'kds' | 'screens' | null for a Host header. */
+/** 'apex' | 'office' | 'ops' | 'pos' | 'kitchen' | 'kiosk' | 'kds' | 'screens' | 'installer' | null for a Host header. */
 export function platformHostKind(host) {
   if (!host) return null
   const h = String(host).split(':')[0].toLowerCase()
@@ -46,6 +50,7 @@ export function platformHostKind(host) {
   if (h === KIOSK_SUBDOMAIN + '.' + root()) return 'kiosk'
   if (h === KDS_SUBDOMAIN + '.' + root()) return 'kds'
   if (h === SCREENS_SUBDOMAIN + '.' + root()) return 'screens'
+  if (h === INSTALLER_SUBDOMAIN + '.' + root()) return 'installer'
   return null
 }
 
@@ -64,6 +69,10 @@ export function deviceOrigin(kind) {
 
 export function screensOrigin() {
   return `${env.PUBLIC_SITE_SCHEME}://${SCREENS_SUBDOMAIN}.${root()}`
+}
+
+export function installerOrigin() {
+  return `${env.PUBLIC_SITE_SCHEME}://${INSTALLER_SUBDOMAIN}.${root()}`
 }
 
 export function opsOrigin() {

@@ -24,6 +24,14 @@
   .panel p { margin: 0; font-size: 2.6vmin; color: #bdbdbd; max-width: 70ch; line-height: 1.4; }
   .code { font-size: 15vmin; font-weight: 800; letter-spacing: 0.08em; color: #f5b301; font-variant-numeric: tabular-nums; line-height: 1; }
   .small { font-size: 2vmin !important; color: #8a8a8a !important; }
+  .pair { display: flex; align-items: center; justify-content: center; gap: 6vmin; text-align: left; }
+  .pair-text { display: flex; flex-direction: column; gap: 2.2vmin; }
+  .qr { width: 36vmin; height: 36vmin; flex: none; background: #fff; border-radius: 2vmin; padding: 1vmin; }
+  .qr svg { display: block; width: 100%; height: 100%; }
+  @media (orientation: portrait) {
+    .pair { flex-direction: column; text-align: center; }
+    .qr { width: 52vmin; height: 52vmin; }
+  }
   #identify { position: fixed; inset: 0; z-index: 20; display: none; align-items: center; justify-content: center;
     background: rgba(0, 0, 0, 0.72); }
   #identify.on { display: flex; }

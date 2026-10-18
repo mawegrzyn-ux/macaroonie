@@ -718,6 +718,7 @@ const TOOL_LABELS = {
   list_hs_actions: 'Looked at the action log',
   find_inventory_items: 'Searched the inventory', list_suppliers: 'Looked up suppliers',
   order_lists: 'Looked at the order lists', order_form: 'Opened the order', purchase_orders: 'Looked up supplier orders',
+  order_requests: 'Looked at orders waiting for approval',
   list_menus: 'Looked at the menus', get_menu: 'Opened the menu', find_dishes: 'Searched the menus',
   open_page: 'Found the page',
   how_do_i: 'Looked it up in Help',

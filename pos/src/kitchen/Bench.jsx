@@ -18,7 +18,7 @@ import {
   ChevronRight, RefreshCw, Flame, Search, ListChecks, Activity, AlertTriangle,
 } from 'lucide-react'
 import { createBench, benchScreens } from '@shared/pos/kitchenBench.js'
-import { routeOrder, nodeState, boardNumbers } from '@shared/pos/kitchen.js'
+import { routeOrder, nodeState, boardNumbers, BUMP_KINDS } from '@shared/pos/kitchen.js'
 
 const cx = (...p) => p.filter(Boolean).join(' ')
 
@@ -87,7 +87,7 @@ export default function Bench({ token }) {
 
   if (error) return <Message icon={AlertTriangle} title="Can't open the kitchen test" text={error} />
   if (!data) return <div className="h-full flex items-center justify-center text-muted">Loading the kitchen setup...</div>
-  if (!data.stations.some(s => s.kind !== 'board')) {
+  if (!data.stations.some(s => BUMP_KINDS.includes(s.kind))) {
     return <Message icon={Workflow} title="No kitchen stations yet" text="Add stations (Grill, Fryer, Pass...) in Till setup, Kitchen screens, then open Test the kitchen again." />
   }
   return <BenchPage key={loadKey} data={data} token={token} onReload={() => { setData(null); setLoadKey(k => k + 1) }} />
@@ -315,7 +315,7 @@ function BenchPage({ data, token, onReload }) {
           <div ref={gridRef} className="grid" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gap }}>
             {gridW > 0 && shown.map(s => {
               const off = offline.has(s.id)
-              const ids = s.settings?.station_ids?.length ? s.settings.station_ids : data.stations.filter(x => x.kind !== 'board').map(x => x.id)
+              const ids = s.settings?.station_ids?.length ? s.settings.station_ids : data.stations.filter(x => BUMP_KINDS.includes(x.kind)).map(x => x.id)
               return (
                 <div key={s.id} className="card overflow-hidden" data-testid="bench-screen">
                   <div className="flex items-center gap-2 px-3 py-1.5 border-b border-line">

@@ -9,6 +9,11 @@
 //   POST /pair                  { code, app? } -> { device_id, secret, ... }   (no auth). `app` is the
 //                               kind the address runs (pos. till, kitchen. kitchen screen, kiosk.
 //                               kiosk): a code for another kind is refused, naming its address
+//   POST /pairings              { app?, device? } (no auth) a code for this device to show, with a
+//                               QR code to the installer app: { id, code, secret, expires_at, link_url }
+//                               (migration 184; someone signed in links it: POST /api/pos/venues/:id/link)
+//   GET  /pairings/:id          `Authorization: Pairing <secret>`: { status: 'waiting' | 'paired' |
+//                               'expired' }; once paired the device signs in as `Device <id>.<the same secret>`
 //   POST /disconnect            the device forgets its pairing (its settings): the secret stops
 //                               working, Till setup shows it not paired, a new code pairs it again
 //   POST /move                  a kitchen screen or kiosk still on another address moves to its
@@ -50,6 +55,7 @@ import {
   tillConfig, sequencer, sha256, normaliseCode, newDeviceSecret, loadDayChecks, fillReconFromDay, dayReport, loadTillStaff, openPairing,
 } from '../services/posSvc.js'
 import { deviceOrigin } from '../services/platformHost.js'
+import { LINK_MINUTES, newLinkCode, linkCodeHash, linkCodeTaken, linkUrl } from '../services/linkCodes.js'
 import { dayFigures } from '../../../shared/pos/reports.js'
 import { permissionProblem } from '../../../shared/pos/permissions.js'
 import { KITCHEN_SERVER_EVENTS } from '../../../shared/pos/kitchen.js'
@@ -105,6 +111,15 @@ const lastSeen = new Map()
 const KIOSK_ROUTES = new Set(['GET /pos-api/me', 'GET /pos-api/config', 'POST /pos-api/events', 'POST /pos-api/disconnect', 'POST /pos-api/move'])
 
 const KIND_NAME = { terminal: 'a till', kds: 'a kitchen screen', kiosk: 'a self-order kiosk', hub: 'a venue hub' }
+
+// What a device says about itself with its link code (shown in the installer).
+const LinkDeviceInfo = z.object({
+  width: z.number().int().min(0).max(20000).optional(),
+  height: z.number().int().min(0).max(20000).optional(),
+  dpr: z.number().min(0).max(10).optional(),
+  ua: z.string().max(300).optional(),
+  app_version: z.string().max(40).optional(),
+}).partial()
 const DEVICE_APPS = ['terminal', 'kds', 'kiosk']
 
 async function requireDevice(req, reply) {
@@ -193,6 +208,51 @@ export default async function posApiRoutes(app) {
     deviceCache.delete(d.id)
     const [v] = await tenantSql(d.tenant_id)`SELECT name FROM venues WHERE id = ${d.venue_id} AND tenant_id = ${d.tenant_id}`
     return { device_id: d.id, secret, name: d.name, kind: d.kind, short_code: d.short_code, venue_id: d.venue_id, venue_name: v?.name || null }
+  })
+
+  // ── Link codes (migration 184; services/linkCodes.js) ───────────
+  // The device shows a code and a QR code to the installer app; someone
+  // signed in links it (POST /api/pos/venues/:venueId/link). The secret is
+  // made here, given to the device only, and kept as its hash.
+  // Limits are per address, and a venue's devices share one: room for a
+  // dozen being set up at once, each polling every 4 s.
+  app.post('/pairings', { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async req => {
+    const body = z.object({ app: z.enum(DEVICE_APPS).optional(), device: LinkDeviceInfo.optional() }).parse(req.body || {})
+    const secret = newDeviceSecret()
+    await systemSql`DELETE FROM pos_pairings WHERE expires_at < now() - interval '1 day'`
+    for (let i = 0; i < 6; i++) {
+      const code = newLinkCode()
+      const hash = linkCodeHash(code)
+      if (await linkCodeTaken(systemSql, hash)) continue
+      const [row] = await systemSql`
+        INSERT INTO pos_pairings (code_hash, secret_hash, app, device_info, expires_at)
+        VALUES (${hash}, ${sha256(secret)}, ${body.app ?? null}, ${systemSql.json(body.device || {})},
+                now() + make_interval(mins => ${LINK_MINUTES}))
+        ON CONFLICT (code_hash) DO NOTHING
+        RETURNING id, expires_at`
+      if (row) return { id: row.id, code, secret, expires_at: row.expires_at, link_url: linkUrl(code) }
+    }
+    throw httpError(503, 'Couldn\'t make a code, try again')
+  })
+
+  app.get('/pairings/:id', { config: { rateLimit: { max: 240, timeWindow: '1 minute' } } }, async (req, reply) => {
+    if (!UUID.safeParse(req.params.id).success) throw httpError(404, 'Not found')
+    const m = /^Pairing ([A-Za-z0-9_-]{20,})$/.exec(req.headers.authorization || '')
+    const [p] = await systemSql`SELECT id, secret_hash, expires_at, device_id FROM pos_pairings WHERE id = ${req.params.id}`
+    if (!p || !m || !sameHash(sha256(m[1]), p.secret_hash)) return reply.code(404).send({ error: 'Not found', status: 'expired' })
+    if (p.device_id) {
+      const [d] = await systemSql`
+        SELECT d.id, d.venue_id, d.kind, d.name, d.short_code, d.secret_hash, d.revoked_at, v.name AS venue_name
+          FROM pos_devices d JOIN venues v ON v.id = d.venue_id AND v.tenant_id = d.tenant_id
+         WHERE d.id = ${p.device_id}`
+      // Linked, and still with this code's secret (not linked again or removed since).
+      if (d && !d.revoked_at && sameHash(d.secret_hash, p.secret_hash)) {
+        return { status: 'paired', device_id: d.id, name: d.name, kind: d.kind, short_code: d.short_code, venue_id: d.venue_id, venue_name: d.venue_name }
+      }
+      return { status: 'expired' }
+    }
+    if (new Date(p.expires_at) <= new Date()) return { status: 'expired' }
+    return { status: 'waiting', expires_at: p.expires_at }
   })
 
   // The kiosk design editor's live preview (Till setup > Kiosks): the link

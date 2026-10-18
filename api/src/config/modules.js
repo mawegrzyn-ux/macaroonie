@@ -269,6 +269,13 @@ export const MODULES = [
     default: { owner: 'manage', admin: 'manage', operator: 'none', viewer: 'none' },
   },
   {
+    key:    'purchasing_approve',
+    label:  'Purchasing approval',
+    group:  'purchasing',
+    description: 'Manage: change and place orders, and change, split or cancel purchase orders. People who can order but not approve send their orders for approval.',
+    default: { owner: 'manage', admin: 'manage', operator: 'manage', viewer: 'none' },
+  },
+  {
     key:    'pos_setup',
     label:  'Till setup',
     group:  'pos',
@@ -411,7 +418,7 @@ export const MODULE_GROUPS = [
     key:    'purchasing',
     label:  'Purchasing',
     description: 'Inventory, suppliers, order lists and purchase orders.',
-    moduleKeys: ['purchasing', 'purchasing_setup'],
+    moduleKeys: ['purchasing', 'purchasing_setup', 'purchasing_approve'],
   },
   {
     key:    'pos',

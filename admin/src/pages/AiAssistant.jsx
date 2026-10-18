@@ -157,12 +157,21 @@ function ConnectTab({ info }) {
           group: bookings, customers, the rota and staff, cash up, orders and the till, H&amp;S, menus, purchasing and the website. It can do what {ASSISTANT_NAME} does, with your own permissions.
         </p>
         <CopyField label="MCP server address" value={info.staff_mcp_url} />
+        <p className="text-sm font-medium">Claude (claude.ai and the Claude apps), ChatGPT and other apps that sign in</p>
+        <ol className="list-decimal pl-5 text-sm space-y-1">
+          <li>In your AI app, add a custom connector with the address above. Leave any OAuth client ID and secret empty.</li>
+          <li>Connect it: a Macaroonie page opens. Sign in if asked, choose Read only and how long it works, and tap Allow.</li>
+          <li>The app shows here under Access tokens as a connected app; revoke it there to disconnect it.</li>
+        </ol>
+        <p className="text-sm font-medium">Claude Code, Cursor and other apps that send a header</p>
         <ol className="list-decimal pl-5 text-sm space-y-1">
           <li>Make an access token below. Copy it: it is shown once.</li>
-          <li>In your AI app, add a custom MCP connector with the address above, and send the token as a header:
+          <li>Add the address above as an MCP server and send the token as a header:
             <code className="text-xs bg-muted/60 rounded px-1 ml-1">Authorization: Bearer mcp_...</code></li>
-          <li>Ask it about anything you can do in this app, from tonight's bookings to the rota and cash up. Changes are made as you, and listed in Activity.</li>
         </ol>
+        <p className="text-sm text-muted-foreground">
+          Then ask it about anything you can do in this app, from tonight's bookings to the rota and cash up. Changes are made as you, and listed in Activity.
+        </p>
         {!info.settings.staff_enabled && (
           <p className="text-sm text-amber-700 flex items-center gap-2"><CircleAlert className="w-4 h-4" /> {ASSISTANT_NAME} is switched off, so this connector is off too.</p>
         )}
@@ -492,7 +501,8 @@ const TOOL_LABELS = {
   add_supplier_price: 'Added a supplier price', update_supplier_price: 'Changed a supplier price',
   set_preferred_supplier: 'Chose a supplier', add_supplier: 'Added a supplier', update_supplier: 'Changed a supplier',
   create_order_list: 'Made an order list', update_order_list: 'Changed an order list', set_pars: 'Set pars',
-  import_price_list: 'Imported a price list', update_order: 'Changed a draft order', place_order: 'Placed an order',
+  import_price_list: 'Imported a price list', update_order: 'Changed an order', place_order: 'Placed an order',
+  request_order: 'Sent an order for approval', send_back_order: 'Sent an order back', split_order: 'Split an order',
   send_purchase_order: 'Sent a purchase order', change_purchase_order: 'Changed a purchase order',
   cancel_purchase_order: 'Cancelled a purchase order', receive_delivery: 'Booked in a delivery',
   create_menu: 'Made a menu', update_menu: 'Changed a menu', duplicate_menu: 'Copied a menu',
@@ -538,6 +548,8 @@ function changeDetail(r) {
     case 'import_price_list':     return x.rows != null ? x.rows + ' rows' : null
     case 'update_order':          return [x.venue, x.list].filter(Boolean).join(', ')
     case 'place_order':           return (x.purchase_orders || []).map(p => p.po + ' ' + p.supplier).join(', ') || null
+    case 'request_order':         return x.venue || null
+    case 'split_order':           return x.new_po ? x.po + ' and ' + x.new_po : null
     case 'send_purchase_order':
     case 'change_purchase_order':
     case 'cancel_purchase_order':

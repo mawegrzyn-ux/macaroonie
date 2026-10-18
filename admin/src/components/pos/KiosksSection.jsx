@@ -16,7 +16,7 @@ import { designProblems } from '@shared/kiosk.js'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { Section, Modal, Field, inputCls, ErrorNote, ConfirmDelete, Segmented, Btn, ago } from './shared'
-import { PairingCode, status, deviceUrl } from './TillsSection'
+import { PairingCode, status, deviceUrl, LinkShownCode, InstallerLine } from './TillsSection'
 
 const READERS = [
   { value: 'none', label: 'None' },
@@ -161,6 +161,8 @@ function KioskDevices({ venueId, setup }) {
         <p className="text-xs text-muted-foreground">Removed: {removed.map(d => d.name + ' (' + d.short_code + ')').join(', ')}</p>
       )}
       <p className="text-xs text-muted-foreground">Kiosk address: <span className="font-medium text-foreground break-all" data-testid="kiosk-address">{deviceUrl(setup, 'kiosk')}</span> (set it as the start page of the kiosk browser)</p>
+      <div><LinkShownCode venueId={venueId} kind="kiosk" /></div>
+      <InstallerLine setup={setup} />
       <ErrorNote error={newCode.error} />
       {editing && (
         <KioskModal venueId={venueId} setup={setup} device={editing === 'new' ? null : editing}

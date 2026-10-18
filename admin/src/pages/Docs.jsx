@@ -32,6 +32,7 @@ const SECTIONS = [
   { id: 'pos', label: 'Till (POS)' },
   { id: 'kds', label: 'Kitchen screens (KDS)' },
   { id: 'kiosks', label: 'Self-order kiosks' },
+  { id: 'installer', label: 'Installer app & link codes' },
   { id: 'web-ordering', label: 'Web Ordering' },
   { id: 'ai-assistant', label: 'Pepper (AI assistant) & MCP' },
   { id: 'menus',        label: 'Menus' },
@@ -2949,8 +2950,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['inv_price_history', 'Every price a quote had (venue_id null = company price), source manual | import.'],
                 ['inv_preferred', 'Chosen quote per item: venue_id null = company default, else per venue. Partial unique indexes.'],
                 ['order_lists / order_list_venues / order_list_items / order_list_pars', 'Mixed-supplier lists, the venues on each, items in order, par per venue in BASE units (so a pack change keeps it).'],
-                ['supply_orders / supply_order_lines', 'A venue filling in a list: draft then submitted. Lines keep qty in packs of quote_id (null = the resolved choice).'],
-                ['purchase_orders', 'One per supplier per submitted order. number (per tenant, PO-00012), status to_send | sent | received | cancelled, delivery_date, totals, sent_at/by/via/to, send_error, received_at/by, is_generated.'],
+                ['supply_orders / supply_order_lines', 'A venue filling in a list: draft, requested (waiting for approval, migration 180) or submitted. requested_by / requested_at, requested_lines ({ item_id: { qty, quote_id } }: what was asked for), supplier_options ({ supplier_id: { delivery_date, notes } } wanted), returned_by / returned_at / return_note (last sent back), split_from. Lines keep qty in packs of quote_id (null = the resolved choice).'],
+                ['purchase_orders', 'One per supplier per submitted order. number (per tenant, PO-00012), status to_send | sent | received | cancelled, delivery_date, totals, sent_at/by/via/to, send_error, received_at/by, is_generated; requested_by (who asked, when it went through approval), amended_at / amended_by (changed after sending: a split), split_from (migration 180).'],
                 ['purchase_order_lines', 'Copies of name, category, storage, pack label, pack_base_qty, price, VAT at ordering time; qty; received_qty, receive_status, receive_note.'],
                 ['fs_delivery_checks.purchase_order_id', 'The H&S delivery check written by receiving (unique per PO).'],
               ]}
@@ -2977,7 +2978,52 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>shared/procurement.js</Mono>, starting from <Mono>next_delivery</Mono>) next to the date
               button for any other date from today on. After the transaction commits, suppliers
               with <Mono>send_method = email</Mono> are emailed (<Mono>emailPo()</Mono>); a failure is kept
-              in <Mono>send_error</Mono> and the PO stays <Mono>to_send</Mono>.
+              in <Mono>send_error</Mono> and the PO stays <Mono>to_send</Mono>. <Mono>orderLines()</Mono>{' '}
+              (lines with a quantity, each with its quote, grouped by supplier) and <Mono>emailNew()</Mono>{' '}
+              (email after commit) are shared by submit, request and split.
+            </P>
+            <H3>Approval (migration 180)</H3>
+            <P>
+              Module <Mono>purchasing_approve</Mono> (Purchasing approval; owner, admin and operator manage by
+              default; the migration gave every role with its own Purchasing level the same level here).{' '}
+              <Mono>POST /orders/:id/submit</Mono> needs it. Without it, <Mono>POST /orders/:id/request</Mono>{' '}
+              (Purchasing manage, draft only) sets status <Mono>requested</Mono> with <Mono>requested_lines</Mono>,{' '}
+              <Mono>supplier_options</Mono> (days must not be past) and the note (<Mono>notes</Mono>).
+              A request changes only through an approver: <Mono>assertEditable()</Mono> on{' '}
+              <Mono>PUT /orders/:id/lines</Mono>, <Mono>PATCH</Mono>, line and order <Mono>DELETE</Mono> (draft:
+              Purchasing manage; requested: Purchasing approval). <Mono>POST /orders/:id/return</Mono>{' '}
+              (approval, a reason is required) makes it a draft with <Mono>return_note</Mono>;{' '}
+              <Mono>POST /orders/:id/withdraw</Mono> (the person who asked, or an approver) makes it a draft
+              without one. Placing a request starts from its <Mono>supplier_options</Mono> (the body's days
+              and notes win) and copies <Mono>requested_by</Mono> onto the POs. <Mono>orderActions()</Mono>{' '}
+              puts <Mono>can_edit</Mono>, <Mono>can_request</Mono>, <Mono>can_place</Mono>,{' '}
+              <Mono>can_return</Mono>, <Mono>can_split</Mono>, <Mono>can_withdraw</Mono>,{' '}
+              <Mono>can_delete</Mono> on every order the API returns; the admin shows only those.{' '}
+              <Mono>GET /orders?status=requested</Mono> lists them oldest first; <Mono>/meta</Mono> has{' '}
+              <Mono>can_approve</Mono>. On POs: <Mono>PUT /pos/:id/lines</Mono>, <Mono>/cancel</Mono> and{' '}
+              <Mono>/split</Mono> need approval; <Mono>PATCH /pos/:id</Mono> (date, notes),{' '}
+              <Mono>/send</Mono>, <Mono>/mark-sent</Mono> and <Mono>/receive</Mono> take Purchasing or
+              Purchasing approval (manage).
+            </P>
+            <H3>Splitting (migration 180)</H3>
+            <P>
+              <Mono>POST /orders/:id/split</Mono> (a request only; approval):{' '}
+              <Mono>{'{ lines: [{ item_id, qty }], suppliers: { [supplier_id]: { delivery_date, notes? } } }'}</Mono>,
+              a day for every supplier of a moved line, not past and not the first order's day (its{' '}
+              <Mono>supplier_options</Mono> date, else <Mono>next_delivery</Mono>). Refuses moving more than a
+              line holds or the whole order. The moved quantities become a new <Mono>requested</Mono> order
+              (same list, notes, <Mono>requested_by</Mono> / <Mono>_at</Mono>, <Mono>split_from</Mono>); both
+              orders' <Mono>requested_lines</Mono> are split the same way. <Mono>POST /pos/:id/split</Mono>{' '}
+              (<Mono>to_send</Mono> or <Mono>sent</Mono>; approval): <Mono>{'{ lines: [{ id, qty }], delivery_date }'}</Mono>{' '}
+              makes a new PO (new number, same supplier, supply order, notes, delivery charge,{' '}
+              <Mono>requested_by</Mono>, the lines' copied prices, <Mono>split_from</Mono>) and takes the
+              quantities off the original (a line moved in full is deleted); both totals are recalculated. A{' '}
+              <Mono>sent</Mono> original goes back to <Mono>to_send</Mono> with <Mono>amended_at</Mono> /{' '}
+              <Mono>amended_by</Mono>, and when the supplier takes email both are emailed after commit
+              (<Mono>results</Mono>). <Mono>poChangeNotes()</Mono> puts "Amended ... replaces any earlier copy"
+              and "Split off PO-..." on the HTML, PDF and Excel copies; <Mono>emailPo()</Mono>'s subject says
+              Amended order. <Mono>GET /pos/:id</Mono> adds <Mono>delivery_choices</Mono>,{' '}
+              <Mono>split_from_po</Mono> and <Mono>split_into</Mono>.
             </P>
             <H3>Sending and documents</H3>
             <P>
@@ -3004,8 +3050,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             </P>
             <H3>Permissions and prices</H3>
             <P>
-              Module group <Mono>purchasing</Mono>: <Mono>purchasing</Mono> (place orders, send, receive;
-              operators manage by default) and <Mono>purchasing_setup</Mono> (inventory, suppliers, order
+              Module group <Mono>purchasing</Mono>: <Mono>purchasing</Mono> (fill in orders, send, receive;
+              operators manage by default), <Mono>purchasing_approve</Mono> (place orders and change, split or
+              cancel them; see Approval) and <Mono>purchasing_setup</Mono> (inventory, suppliers, order
               lists; owner/admin). Restaurant staff see prices only with <Mono>purchasing_setup</Mono> view:
               the order form, PO list and detail strip <Mono>price</Mono> and totals otherwise (
               <Mono>showPrices()</Mono>, <Mono>hideMoney()</Mono>). The PO files always carry prices: they
@@ -3027,7 +3074,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['/inventory', 'pages/Inventory.jsx: list, item drawer (item form, supplier prices with star, venue prices, which price each venue orders, history), import, categories.'],
                 ['/suppliers', 'pages/Suppliers.jsx: cards, drawer with Supplier, Ordering, Per venue, Products.'],
                 ['/purchasing/lists', 'pages/OrderLists.jsx: lists (drag), venues, items grouped by category (drag within a category), pars per venue in packs.'],
-                ['/purchasing, /mobile/purchasing', 'pages/Purchasing.jsx, pages/mobile/MobilePurchasing.jsx around PurchasingApp in components/purchasing/ordering.jsx (Order and Deliveries tabs, OrderForm, PoDetail, ReceiveForm). View in the URL: ?order=, ?po=, ?tab=deliveries.'],
+                ['/purchasing, /mobile/purchasing', 'pages/Purchasing.jsx, pages/mobile/MobilePurchasing.jsx around PurchasingApp in components/purchasing/ordering.jsx (Order and Deliveries tabs, OrderForm, PoDetail, ReceiveForm; approval: RequestCard, RequestPanel, ReviewModal mode request / place, SplitRequestModal, SendBackModal, SplitPoModal, DeliveryDayPicker). View in the URL: ?order=, ?po=, ?tab=deliveries.'],
               ]}
             />
             <P>
@@ -3238,7 +3285,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
           <section id="kds" data-doc="">
             <H2>Kitchen screens (KDS)</H2>
             <P>
-              Migrations 168, 169 (kitchen flow) and 177 (several kitchen flows). Design in <Mono>docs/POS.md</Mono> section 9. A kitchen screen is a till device of
+              Migrations 168, 169 (kitchen flow), 177 (several kitchen flows), 182 (stations out of a flow) and 183 (Balance boxes). Design in <Mono>docs/POS.md</Mono> section 9. A kitchen screen is a till device of
               kind <Mono>kds</Mono> (<Mono>pos_devices</Mono>, short code K1, K2 ...), paired with a one-time
               code like a till. The same app at <Mono>pos.&lt;domain&gt;</Mono> boots{' '}
               <Mono>pos/src/kitchen/KitchenApp.jsx</Mono> (lazy) when the device's kind is <Mono>kds</Mono>.
@@ -3288,6 +3335,47 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               already sent: they keep <Mono>item.route</Mono>.
             </P>
             <P>
+              <strong>Balance boxes</strong> (migration 183): a station of kind <Mono>balance</Mono> shares work
+              between the stations it links to (prep, expo or runner only, links out without filters:{' '}
+              <Mono>flowProblems()</Mono>; fewer than two is a warning). <Mono>itemRoute()</Mono> still walks
+              through it (so Check a dish shows both); <Mono>resolveBalances(route, cfg, pick)</Mono> then takes
+              each box out of a dish&apos;s way, keeping only the picked station and what follows it
+              (<Mono>collapseBalance()</Mono>, also used by the tests). <Mono>balanceTicket(items, cfg, at)</Mono>{' '}
+              decides every box on the dishes one event sends or fires, upstream boxes first
+              (<Mono>flowBoxes()</Mono>), changing their ways in place: by default the whole ticket goes to the
+              output with the lowest <Mono>stationLoad()</Mono> (every fired dish on its way to that station not
+              yet done, counted with the box&apos;s <Mono>settings.pieces</Mono>, the same member shape and{' '}
+              <Mono>memberCount()</Mono> as On order counts; a dish no member names counts its quantity), a tie
+              going to the first after the box&apos;s last pick. With <Mono>settings.split_above = N</Mono> and
+              more than N pieces of the ticket reaching the box, each unit (a dish line, or a meal deal part; the
+              deal&apos;s own options count with its first part there; <Mono>unitPieces()</Mono>) goes, biggest
+              first, to the output with the lowest load plus what this ticket already put there, ties taking
+              turns; a line&apos;s quantity is never split. A meal deal&apos;s way is its parts&apos; ways merged.
+              It runs in <Mono>lines.sent</Mono> (held lines keep the box until <Mono>course.fired</Mono>{' '}
+              decides them) and <Mono>kitchen.order_in</Mono> (online and GloriaFood orders, later ones too). The sequencer gives
+              those events <Mono>cfg.balance = {'{ open, last, picks }'}</Mono> through the store&apos;s{' '}
+              <Mono>loadOpenKitchenOrders()</Mono> / <Mono>loadBalanceTurns()</Mono> and saves{' '}
+              <Mono>picks</Mono> with <Mono>saveBalanceTurns()</Mono> (<Mono>kds_balance_turns</Mono>); the test
+              bench keeps both in memory. A box is never on a kitchen screen (<Mono>BUMP_KINDS</Mono> everywhere
+              stations are listed for screens), refuses bumps, and is passed straight through by{' '}
+              <Mono>flowTimes()</Mono> like a board. Making a station a box drops its links to non-bumping
+              stations and its links&apos; filters (<Mono>tidyBalanceBox()</Mono>); pieces must name the
+              tenant&apos;s dishes.
+            </P>
+            <P>
+              <strong>Stations out of a flow</strong> (migration 182): <Mono>kds_flows.off_station_ids</Mono>{' '}
+              (uuid[], default empty) are the venue&apos;s stations a flow leaves out. The designer doesn&apos;t
+              draw them (Not in this flow lists them with Put back) and{' '}
+              <Mono>PUT /api/pos/kds-flows/:id</Mono> refuses a link to or from one (422 &quot;X is out of this
+              flow: put it back before linking it&quot;) and any id that isn&apos;t one of the venue&apos;s stations,
+              so routing needs no change: with no link reaching it, <Mono>itemRoute()</Mono> never sends a dish
+              there, and the kitchen screen&apos;s flow list (<Mono>station_ids</Mono>, from the links) leaves it
+              out. <Mono>flowWarnings()</Mono> is given only the stations in the flow, so an out station
+              isn&apos;t reported as off every dish&apos;s way. Copying a flow copies the list; ids of stations
+              deleted later are ignored when read. A station out of every flow is simply never reached; it
+              keeps its screens and settings.
+            </P>
+            <P>
               A dish <em>arrives</em> at a node when every node before it is done (<Mono>flowTimes()</Mono>;{' '}
               <Mono>item.reset[node]</Mono> moves the arrival on after a remake) and is <em>done</em> there when
               that station bumps it (<Mono>item.done[node]</Mono>); a board is done when reached.{' '}
@@ -3329,8 +3417,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <DataTable
               head={['Table', 'What it holds']}
               rows={[
-                ['kds_stations', 'Per venue: name, kind prep | expo | runner | board, colour, settings jsonb { target_mins, late_mins, show_held, show_upcoming, summary_groups: [{ id, name, members: [{ kind dish | option, id | label, qty }] }] }, sort_order, is_active.'],
-                ['kds_flows', 'A venue\'s kitchen flows (177): name (1-40, unique per venue ignoring case and spaces), layout jsonb { [stationId | start]: { x, y } } (where the designer draws each box), sort_order (the kitchen screen\'s list). Forced RLS like every tenant table. The migration made one "Main flow" per venue with stations or links, holding its links and layout, in use. A venue without one gets it from GET .../setup (ensureFlows()).'],
+                ['kds_stations', 'Per venue: name, kind prep | expo | runner | board | balance (183), colour, settings jsonb { target_mins, late_mins, show_held, show_upcoming, summary_groups: [{ id, name, members: [{ kind dish | option, id | label, qty }] }], pieces (a Balance box: members, same shape), split_above (a Balance box: null = each ticket on one station, N = share a ticket with more than N pieces) }, sort_order, is_active.'],
+                ['kds_balance_turns', 'Each Balance box\'s last pick (183): station_id (the box, PK, ON DELETE CASCADE), last_station_id, updated_at. Written by the sequencer (saveBalanceTurns()) so a tie goes to the next station. Forced RLS.'],
+                ['kds_flows', 'A venue\'s kitchen flows (177): name (1-40, unique per venue ignoring case and spaces), layout jsonb { [stationId | start]: { x, y } } (where the designer draws each box), sort_order (the kitchen screen\'s list), off_station_ids uuid[] (182: the venue\'s stations this flow leaves out). Forced RLS like every tenant table. The migration made one "Main flow" per venue with stations or links, holding its links and layout, in use. A venue without one gets it from GET .../setup (ensureFlows()).'],
                 ['kds_flow_edges', 'A flow\'s links (169, flow_id NOT NULL since 177, ON DELETE CASCADE with the flow): from_station_id (NULL = Orders in), to_station_id (both ON DELETE CASCADE), targets jsonb, sort_order. One link per pair per flow (unique index on flow_id, from, to). Read them by flow_id, never by venue alone. Replaced kds_routes: each station\'s routes became one link from Orders in, every prep station got a link to every expo.'],
                 ['kds_orders', 'Projection (like pos_checks): id text (a check id, web-<orders.id> or gf-<gloriafood_orders.id>), source till | online | gloriafood (178; taken from the id prefix by applyKitchenEvent(), never from the payload), check_id / order_id, status active | ready | collected | cancelled, state jsonb (the whole kitchen order), last_seq.'],
                 ['kds_log', 'One row per bump and remake: station (id, name, kind), seconds since the dishes arrived or were fired, items, order source / type / number, reason, recalled_at (a recalled bump is left out of the report). Feeds the Kitchen report and its CSV.'],
@@ -3347,7 +3436,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['GET /pos-api/kitchen/sync?since=', 'Kitchen orders changed since a seq (reset with every live order when far behind) and server_time for the screen\'s clock.'],
                 ['POST /pos-api/events', 'Takes kitchen events from kds devices (server-only types refused). The answer has kitchen (orders touched). Broadcasts pos.seq with kinds [checks | kitchen] (tills skip kitchen-only changes) and kitchen.board to screens:<venue>.'],
                 ['/api/pos/venues/:id/kds-stations, /kds-stations/:id, .../kds-stations/order', 'Stations (pos_setup manage). Turning a station into a board drops its links onward and takes it off kitchen screens; a kitchen screen can\'t show a board (422).'],
-                ['PUT /api/pos/kds-flows/:id', '{ links: [{ from, to, targets }], layout } replaces one flow\'s links and layout (pos_setup manage). 422 with the first flowProblems() message (links name the flow\'s venue\'s stations); dish / section / revenue stream / order type ids must be the tenant\'s; layout keys that aren\'t start or a station are dropped. Returns { id, links, layout, warnings }. GET /api/pos/venues/:id/setup returns kds_flows [{ id, name, sort_order, layout, links }], kds_active_flow_id, kds_flow_switched_at / _by. Deleting a revenue centre takes it out of every filter of every flow (a link left with no filter goes).'],
+                ['PUT /api/pos/kds-flows/:id', '{ links: [{ from, to, targets }], layout, off_station_ids } replaces one flow\'s links, layout and the stations it leaves out (182; no list = none out; a link touching one is 422) (pos_setup manage). 422 with the first flowProblems() message (links name the flow\'s venue\'s stations); dish / section / revenue stream / order type ids must be the tenant\'s; layout keys that aren\'t start or a station are dropped. Returns { id, links, layout, off_station_ids, warnings }. GET /api/pos/venues/:id/setup returns kds_flows [{ id, name, sort_order, layout, off_station_ids, links }], kds_active_flow_id, kds_flow_switched_at / _by. Deleting a revenue centre takes it out of every filter of every flow (a link left with no filter goes).'],
                 ['POST /api/pos/venues/:id/kds-flows', '{ name, copy_from? } a new flow at the end: empty, or with the links and layout of copy_from (one of this venue\'s flows, else 404). 422 when the name is taken.'],
                 ['PATCH / DELETE /api/pos/kds-flows/:id', 'Rename ({ name }, 422 when taken); delete (422 for the flow in use: put another in use first; takes the till lock so it can\'t race a switch).'],
                 ['PUT /api/pos/venues/:id/kds-flows/order, .../kds-flows/active', 'order: { ids } sort order (keeps the flow in use in use, writing its id down if it was only "the first"); active: { flow_id } switchFlow() with the person\'s email as switched_by. Both pos_setup manage; both broadcast pos.config.'],
@@ -3626,6 +3715,78 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               from migration 172). Option groups: <Mono>components/menus/VariantGroupsManager.jsx</Mono>; combo
               steps: <Mono>components/menus/ComboEditor.jsx</Mono>; pictures in those rows:{' '}
               <Mono>components/media/PicturePick.jsx</Mono> (pick from Media or drop a file).
+            </P>
+          </section>
+
+          <section id="installer" data-doc="">
+            <H2>Installer app &amp; link codes</H2>
+            <P>
+              Migration 184. A till, kitchen screen, kiosk or menu screen that isn't set up shows a code of its
+              own and a QR code; someone signed in links it from a phone (the installer app,{' '}
+              <Mono>installer.&lt;domain&gt;</Mono>) or from the admin. Typing a code made in Till setup into
+              the device still works for tills, kitchen screens and kiosks.
+            </P>
+            <H3>Link codes</H3>
+            <DataTable
+              head={['Piece', 'What it does']}
+              rows={[
+                ['pos_pairings', 'A code a till / kitchen screen / kiosk shows: code_hash (sha256 of the normalised code, unique), secret_hash, app (the address it was shown on: terminal | kds | kiosk, null on a test address), device_info, expires_at (15 minutes), claimed_at, device_id, tenant_id. No tenant until linked; forced RLS lets anyone see unclaimed rows (like screen_pairings).'],
+                ['services/linkCodes.js', 'LINK_MINUTES, newLinkCode() (the screen alphabet, ABC-DEF), linkCodeHash(), linkUrl(code) = installerOrigin() + /link/<code>, linkCodeTaken() (a code is never live in both tables, so a typed code finds one device), findLinkCode() (screen first, then device).'],
+                ['POST /pos-api/pairings', 'No auth, 30/min per address. { app?, device? } -> { id, code, secret, expires_at, link_url }. The secret stays on the device; only its hash is kept.'],
+                ['GET /pos-api/pairings/:id', 'Authorization: Pairing <secret>, 240/min per address (a venue\'s devices share one). waiting | expired | paired (with device_id, name, kind, short_code, venue). Paired only while the device row still holds this code\'s secret_hash and isn\'t removed.'],
+                ['POST /api/pos/venues/:id/link', 'Till setup manage. { code, device_id? | name, kind?, settings? }. Locks the code row, refuses run-out and used codes, a kind other than the code\'s app (422), another venue\'s or tenant\'s device (404). New device: 201 with a short code; device_id: 200, the existing row takes the code\'s secret_hash (the old device stops, forgetDevice() + the 30 s device cache), keeps name and settings. Marks the code claimed with the tenant.'],
+                ['POST /screen-api/pairings', 'Menu screens, as before, now also returns link_url and skips codes live in pos_pairings. Linked by POST /api/screens/screens/claim.'],
+              ]}
+            />
+            <H3>The devices</H3>
+            <P>
+              Till app <Mono>pos/src/screens/Pair.jsx</Mono>: <Mono>useLinkCode()</Mono> asks for a code on
+              mount (<Mono>requestLinkCode()</Mono> in <Mono>pos/src/lib/store.js</Mono>, with the screen size and
+              the address's kind), shows it with a QR code (<Mono>qrSvg()</Mono> from{' '}
+              <Mono>shared/qr.js</Mono>) and checks it every 4 s (<Mono>checkLinkCode()</Mono>, which saves the
+              device through <Mono>startPaired()</Mono>, the same as <Mono>pair()</Mono>); a run-out code is
+              replaced. <strong>Have a code from Till setup?</strong> opens the typed form. The menu screen player
+              (<Mono>screen/player.js</Mono> <Mono>showCode()</Mono>) draws the QR code beside its code;{' '}
+              <Mono>qr.js</Mono> is in <Mono>PLAYER_LIBS</Mono> and the player's <Mono>SHELL_FILES</Mono>.
+            </P>
+            <P>
+              <Mono>shared/qr.js</Mono>: a dependency-free QR encoder (Model 2, byte mode, versions 1-10, levels L
+              / M / Q / H, Reed-Solomon over GF(256), all 8 masks with the standard's penalty).{' '}
+              <Mono>qrMatrix(text, {'{ ecc }'})</Mono> and <Mono>qrSvg(text, {'{ margin, dark, light, title }'})</Mono>.
+              Tests: <Mono>shared/test/qr.test.mjs</Mono> (capacities, patterns, format bits, a known code);
+              checked against a QR reader when written.
+            </P>
+            <H3>The installer app</H3>
+            <P>
+              The admin build on <Mono>installer.&lt;domain&gt;</Mono>: <Mono>routes/installerSite.js</Mono>{' '}
+              (fastify-plugin onRequest hook, host kind <Mono>installer</Mono> from{' '}
+              <Mono>platformHostKind()</Mono>) serves <Mono>admin/dist</Mono> with <Mono>/manifest.webmanifest</Mono>{' '}
+              answered by <Mono>installer.webmanifest</Mono> (start <Mono>/install</Mono>), redirects http to https,
+              lets <Mono>/api/</Mono>, <Mono>/ws</Mono> and <Mono>/uploads/</Mono> through. The wildcard nginx block
+              already sends the host to the API; <Mono>installer</Mono> is in <Mono>RESERVED_SUBDOMAINS</Mono>.
+              Auth0 must list the address in Allowed Callback URLs, Logout URLs and Web Origins.
+            </P>
+            <DataTable
+              head={['Route', 'Page', 'Calls']}
+              rows={[
+                ['/install', 'pages/installer/InstallerHome.jsx: venue (maca_installer_venue), Link / Add, the four lists with state', 'GET /api/installer/venues/:id (pos_setup or screens view; devices with their whole settings, stations, kiosk designs, menu screens, boards, playlists, can, addresses), every 10 s'],
+                ['/install/link[/:code]', 'pages/installer/InstallerLink.jsx: code box, Scan (components/installer/QrScanner.jsx, BarcodeDetector), what the code is, new or one already here (?replace=&kind=), name and settings', 'POST /api/installer/lookup (pos_setup or screens manage), POST /api/pos/venues/:id/link, POST /api/screens/screens/claim'],
+                ['/link/:code', 'LinkRedirect in main.jsx: what a device\'s QR code opens', '-'],
+                ['/install/add', 'pages/installer/InstallerAdd.jsx: kind, the address (with a QR code), a code made here', 'POST /api/pos/venues/:id/devices'],
+                ['/install/device/:kind/:id', 'pages/installer/InstallerDevice.jsx: state, name and settings (Save sends the whole settings), Identify / Reload (menu screens), move to a new device, remove (asks twice)', 'PATCH /api/pos/devices/:id, PATCH /api/screens/screens/:id, POST .../pairing-code, identify, reload, DELETE'],
+              ]}
+            />
+            <P>
+              <Mono>components/installer/InstallerShell.jsx</Mono> (header with back, the restaurant group switch and
+              sign out; swaps the apple-touch-icon, theme colour and title while mounted).{' '}
+              <Mono>pages/installer/shared.jsx</Mono>: <Mono>KINDS</Mono>, <Mono>useInstallerVenues()</Mono>,{' '}
+              <Mono>useOverview()</Mono>, <Mono>deviceState()</Mono>, <Mono>KindSettings</Mono>,{' '}
+              <Mono>tidyCode()</Mono> / <Mono>codeFromScan()</Mono>. <Mono>lib/hosts.js</Mono>:{' '}
+              <Mono>IS_INSTALLER_HOST</Mono> (the AppShell and /mobile trees go to /install there),{' '}
+              <Mono>installerHref()</Mono>. In the admin: <Mono>LinkShownCode</Mono> and{' '}
+              <Mono>InstallerLine</Mono> in <Mono>components/pos/TillsSection.jsx</Mono>, on the Tills, Kitchen
+              screens and Kiosks tabs. Tests: <Mono>api/test/installer.test.mjs</Mono>, the system-paths test and
+              the sweep's fixtures link a kitchen screen.
             </P>
           </section>
 
@@ -4142,12 +4303,16 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['add_supplier / update_supplier', 'setup manage', 'POST, PATCH /suppliers, PUT /suppliers/:id/venues', 'Days as names; a venue setting is merged into the full PUT list (the route replaces all)'],
                 ['create_order_list / update_order_list / set_pars', 'setup manage', 'POST, PATCH /lists, PUT /lists/:id/venues|items|pars', 'Items by name or code, every unknown name in one error; pars in packs (company-choice quote) or g/kg/ml/cl/l/each, stored in base units'],
                 ['import_price_list', 'setup manage', 'POST /inventory/import (dry_run on the card)', 'rows (up to 100 per call, read by the model from a PDF, photo or email; a longer list is one call and one card per 100) become a CSV with the template headings; attached_file is a text/CSV ai_attachments row of this conversation and this user (chat only). All rows bad = refused'],
-                ['update_order', 'purchasing manage', 'PUT /orders/:id/lines', 'planOrder(): lines (on the order by code/name, else GET /venues/:id/catalog), supplier/pack switch (quote_id sent only then), fill_to_par (packsToPar), clear_all; only changed lines are sent'],
-                ['place_order', 'purchasing manage', 'PUT /orders/:id/lines, POST /orders/:id/submit', 'Card per supplier: delivery date (next delivery or deliveries[].date), how it is sent, lines at fitQty(); warns on rounding, minimum order, a missed cutoff, a date off the delivery days, no email address. Only overrides and notes are sent, so the route still picks the date at run time. The card pins planned_delivery { supplierId: date } for suppliers without a date given; run() refuses (409) when a supplier\'s first delivery day has moved since (a cutoff passed), so the order is never placed for a day the card didn\'t show'],
-                ['send_purchase_order', 'purchasing manage', 'POST /pos/:id/send | /mark-sent', 'email needs an address (resend allowed, warned); other ways need To send'],
-                ['change_purchase_order', 'purchasing manage', 'PATCH /pos/:id, PUT /pos/:id/lines', 'Lines and add only while To send; add only from the PO\'s supplier (catalog quotes); an empty order is refused'],
-                ['cancel_purchase_order', 'purchasing manage', 'POST /pos/:id/cancel', 'Warns to tell the supplier when already sent'],
-                ['receive_delivery', 'purchasing manage', 'POST /pos/:id/receive', 'Lines not named arrived as ordered (or keep what an earlier booking-in recorded); chilled/frozen temperature asked for when such goods arrived; writes fs_delivery_checks'],
+                ['update_order', 'purchasing or approve manage', 'PUT /orders/:id/lines', 'planOrder(): the venue\'s draft, or order_id (orderVenue(), openOrder()); lines (on the order by code/name, else GET /venues/:id/catalog), supplier/pack switch (quote_id sent only then), fill_to_par (packsToPar), clear_all; only changed lines are sent. assertCanEdit(): a request waiting for approval only for an approver'],
+                ['request_order', 'purchasing manage', 'PUT /orders/:id/lines, POST /orders/:id/request', 'Card per supplier: the day wanted (deliveries[].date, else "next delivery day when placed": only given days are stored), lines, note for the manager'],
+                ['order_requests', 'any view', 'GET /orders?status=requested|draft, /orders/:id', 'Waiting orders (up to 15 in full: lines with asked_for), sent-back drafts with the reason, you_can_approve. Also a day_briefing part (orders_to_approve)'],
+                ['send_back_order', 'approve manage', 'POST /orders/:id/return', 'order_id + reason'],
+                ['split_order', 'approve manage', 'POST /pos/:id/split | /orders/:id/split', 'po or order_id; lines (item, packs) to move; delivery_date (deliveries[] per supplier for a request); splitPlan() refuses the same day, a past day, more than a line holds and the whole order; the card warns when the supplier already has the PO'],
+                ['place_order', 'approve manage (requirePlace(): else "use request_order")', 'PUT /orders/:id/lines, POST /orders/:id/submit', 'The draft, or order_id for a request. Card per supplier: delivery date (deliveries[].date, else the day the request asked for, "(as asked)", else next delivery), how it is sent, lines at fitQty(); warns on rounding, minimum order, a missed cutoff, a date off the delivery days, no email address. Only overrides and notes are sent, so the route still picks the date at run time. The card pins planned_delivery { supplierId: date } for suppliers without a date given; run() refuses (409) when a supplier\'s first delivery day has moved since (a cutoff passed), so the order is never placed for a day the card didn\'t show'],
+                ['send_purchase_order', 'purchasing or approve manage', 'POST /pos/:id/send | /mark-sent', 'email needs an address (resend allowed, warned); other ways need To send'],
+                ['change_purchase_order', 'purchasing or approve manage; lines and add: approve', 'PATCH /pos/:id, PUT /pos/:id/lines', 'Lines and add only while To send; add only from the PO\'s supplier (catalog quotes); an empty order is refused'],
+                ['cancel_purchase_order', 'approve manage', 'POST /pos/:id/cancel', 'Warns to tell the supplier when already sent'],
+                ['receive_delivery', 'purchasing or approve manage', 'POST /pos/:id/receive', 'Lines not named arrived as ordered (or keep what an earlier booking-in recorded); chilled/frozen temperature asked for when such goods arrived; writes fs_delivery_checks'],
               ]}
             />
             <P>
@@ -4601,7 +4766,12 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['GET/PUT/DELETE /api/ai/platform/key, POST /api/ai/platform/key/test', 'Platform admin: the Anthropic key. GET = source (platform | env | null), saved hint/by/at, env_hint, model, fast_model (null when routing is off). PUT { api_key } checks it with Anthropic (models.retrieve of AI_MODEL and AI_MODEL_FAST, free) and saves it, 422 with the reason if rejected, warning naming the setting if the key can\'t use a model. DELETE goes back to .env. Never returns the key.'],
                 ['/ai-api/*', 'Website chat: tenants/:id/status, chat (streams with Accept: text/event-stream; the start event carries guest_key), conversations/:id?key= (with running), actions/:id/confirm | cancel. Rate limited per IP.'],
                 ['POST /mcp, POST /mcp/staff/:tenantSlug', 'MCP Streamable HTTP, stateless (a server per request, JSON responses). GET/DELETE 405. Staff: route config allowAccessToken; a JWT gets X-Tenant-Id from the slug; ai_assistant view + staff_enabled.'],
-                ['GET /.well-known/oauth-protected-resource/mcp/staff/:slug', 'RFC 9728 metadata pointing at Auth0, for OAuth MCP clients (not verified end to end yet).'],
+                ['GET /.well-known/oauth-protected-resource/mcp/staff/:slug', 'RFC 9728 metadata: authorization_servers is the connector\'s own origin (Macaroonie signs apps in itself, migration 181).'],
+                ['GET /.well-known/oauth-authorization-server (also openid-configuration, and with a path after it)', 'RFC 8414 metadata from routes/mcpOauth.js: issuer = the origin the app used (publicOrigin()), code flow only, S256 PKCE, public clients (auth method none), scope pepper.'],
+                ['POST /oauth/register', 'Dynamic client registration (RFC 7591): redirect_uris (1-10, https, or http on localhost / 127.0.0.1 / [::1], no fragment), client_name; a secret-based auth method is refused. ai_oauth_clients (global, no tenant). 20 a minute per IP.'],
+                ['GET /oauth/authorize', 'Unknown client_id or a redirect_uri it didn\'t register: a plain page (never a redirect). Then errors go back to the app (unsupported_response_type, invalid_request without S256 PKCE, invalid_target for a resource that isn\'t /mcp/staff/<an active slug>). Otherwise an ai_oauth_grants row (15 minutes; tenant from resource) and 302 to office /connect-ai?request=<id>.'],
+                ['GET /api/ai/oauth/requests/:id, POST .../allow | .../deny', 'The Connect page, as the person (requireAuth). GET: client_name, redirect_host, tenant, member (an active users row in the grant\'s tenant), needs_switch (the selected tenant is another one), problem (Pepper off, no ai_assistant, not a team member), days. allow { read_only, expires_in_days 30 | 90 | 180 | 365 } (409 for another tenant, 403 with problem) stores the person, a code hash and a 5-minute expiry and returns the redirect with code, state and iss (RFC 9207). deny returns error=access_denied. A request is answered once (409), expires (410).'],
+                ['POST /oauth/token', 'Form or JSON; grant_type authorization_code only. client_id, redirect_uri and the code must match, code_verifier must hash (S256) to the challenge, the person and tenant must still be active. Makes an ordinary ai_access_tokens row (name "<app> (connected app)", the chosen days and read only, oauth_client_id, oauth_grant_id) and returns it as access_token with expires_in. A code used twice gets invalid_grant and revokes the token the first use made. No refresh tokens: the app signs in again when the token expires. Cache-Control no-store.'],
               ]}
             />
             <H3>Admin and site</H3>
@@ -4630,11 +4800,21 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <Code>{'# api/.env (optional fallback; a key saved on the Platform page wins)\nANTHROPIC_API_KEY=sk-ant-...\n# AI_MODEL=...        (the main model; default in src/config/env.js)\n# AI_MODEL_FAST=...   (the everyday model chats start on; empty = all on AI_MODEL)\nAI_EFFORT=medium'}</Code>
             <P>
               The connectors live on the apex (<Mono>https://macaroonie.com/mcp</Mono>), which is
-              proxied to the API (<Mono>/mcp</Mono>, <Mono>/ai-api</Mono> and{' '}
-              <Mono>/.well-known/oauth-protected-resource</Mono> are in platformSite.js's{' '}
+              proxied to the API (<Mono>/mcp</Mono>, <Mono>/ai-api</Mono>,{' '}
+              <Mono>/.well-known/oauth-protected-resource</Mono>,{' '}
+              <Mono>/.well-known/oauth-authorization-server</Mono>,{' '}
+              <Mono>/.well-known/openid-configuration</Mono> and <Mono>/oauth/</Mono> are in platformSite.js's{' '}
               <Mono>PASS_PREFIXES</Mono>). Tenant sites proxy everything, so the website chat calls{' '}
-              <Mono>/ai-api</Mono> on its own host. A client that sends headers (Claude Code, Cursor)
-              connects with an access token today, for example:
+              <Mono>/ai-api</Mono> on its own host. Apps that can only connect with OAuth (Claude's
+              custom connectors, ChatGPT) sign in through Macaroonie itself (migration 181, see the
+              routes above): the app is sent to <Mono>office/connect-ai</Mono>{' '}
+              (<Mono>pages/ConnectAi.jsx</Mono>, outside the app shell, inside the login and tenant
+              gate), the person taps Allow, and the app gets an ordinary access token. A login that
+              starts there comes back there: <Mono>RequireAuth</Mono> passes{' '}
+              <Mono>appState.returnTo</Mono> and <Mono>onRedirectCallback</Mono> in{' '}
+              <Mono>main.jsx</Mono> goes to it. Expired and used sign-in requests are deleted by the
+              hourly <Mono>cleanUpAi()</Mono>. A client that sends headers (Claude Code, Cursor)
+              connects with an access token, for example:
             </P>
             <Code>{'claude mcp add --transport http macaroonie https://macaroonie.com/mcp/staff/<slug> \\\n  --header "Authorization: Bearer mcp_..."'}</Code>
           </section>

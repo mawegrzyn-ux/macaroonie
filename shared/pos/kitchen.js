@@ -28,6 +28,19 @@
 // worked out and kept on the item, so a flow changed during service only
 // affects dishes sent after the change.
 //
+// A Balance box (station kind 'balance', migration 183) shares work between
+// the stations it links to: each ticket's dishes that reach it go on to just
+// one of them, the one with the fewest pieces still to cook there (the box's
+// pieces list, like On order counts: an 8pc dish counts 8, a "10 Wings"
+// option 10), taking turns on a tie. A box can share big tickets instead
+// (settings.split_above): when more than that many pieces of one ticket reach
+// it, each dish line goes, biggest first, to whichever station has the fewest
+// pieces counting what this ticket already put there. The choice is made when
+// the dishes are sent (a held till course: when it's fired, balanceTicket())
+// and the box then drops out of the dish's way, so nothing after that knows
+// it was there. The sequencer passes the open kitchen orders and the box's
+// last pick in cfg.balance; without them every station counts as empty.
+//
 // A dish reaches a station when every station before it on its way has done
 // it, and is done there when that station bumps it. Expo and runner stations
 // work on whole orders: their bump also finishes what is still at earlier
@@ -59,10 +72,15 @@ export const KITCHEN_CHECK_EVENTS = [
 // order carries the type's id (type) and name (type_name) as sent.
 
 // Station kinds. prep: makes dishes; expo: checks whole orders (the pass);
-// runner: takes orders out; board: an order ready board (no bumping).
-export const STATION_KINDS = ['prep', 'expo', 'runner', 'board']
-export const KIND_LABELS = { prep: 'Prep station', expo: 'Expo (pass)', runner: 'Runner', board: 'Order ready board' }
+// runner: takes orders out; board: an order ready board (no bumping);
+// balance: a Balance box in the flow (shares tickets between the stations it
+// links to; no screen, nothing to bump).
+export const STATION_KINDS = ['prep', 'expo', 'runner', 'board', 'balance']
+export const KIND_LABELS = { prep: 'Prep station', expo: 'Expo (pass)', runner: 'Runner', board: 'Order ready board', balance: 'Balance box' }
 export const BUMP_KINDS = ['prep', 'expo', 'runner']
+export const isBumpKind = kind => BUMP_KINDS.includes(kind)
+// Nodes nobody bumps: done as soon as a dish reaches them.
+const noBump = kind => kind === 'board' || kind === 'balance'
 export const isOrderLevel = st => st?.kind === 'expo' || st?.kind === 'runner'
 
 // Where an item comes from before its first station.
@@ -71,7 +89,7 @@ export const START = 'start'
 export const FLOW_TARGET_KINDS = ['item', 'section', 'revenue_stream', 'order_type', 'default']
 const RANK = { item: 0, section: 1, revenue_stream: 2, order_type: 3, default: 4 }
 
-export const STATION_DEFAULTS = { target_mins: 8, late_mins: 12, show_held: true, summary_groups: [] }
+export const STATION_DEFAULTS = { target_mins: 8, late_mins: 12, show_held: true, summary_groups: [], pieces: [], split_above: null }
 
 // Kitchen orders older than this drop off the screens even if nobody bumped
 // them (a table left open overnight, a test order).
@@ -301,6 +319,190 @@ function ancestors(route, node) {
   return [...out]
 }
 
+// ── Balance boxes ──────────────────────────────────────────────
+
+const lower = s => String(s || '').trim().toLowerCase()
+
+/** How many a list of dish / option members counts in some dishes (On order counts, Balance box pieces). */
+function memberCount(units, members, qty) {
+  let count = 0
+  for (const u of units) {
+    for (const m of members || []) {
+      const per = Number(m.qty) || 1
+      if (m.kind === 'dish' && m.id && u.item_id === m.id) count += per * qty
+      if (m.kind === 'option' && m.label) {
+        for (const mod of u.mods || []) if (mod.kind !== 'remove' && lower(mod.label) === lower(m.label)) count += per * qty
+      }
+    }
+  }
+  return count
+}
+
+/** The stations a Balance box shares between, in station order. */
+export function balanceOutputs(boxId, cfg) {
+  const order = Object.keys(cfg.stations || {})
+  const outs = new Set((cfg.flow || []).filter(l => l.from === boxId && isBumpKind(cfg.stations?.[l.to]?.kind)).map(l => l.to))
+  return order.filter(id => outs.has(id))
+}
+
+/**
+ * Pieces still to cook at a station: every fired dish on its way there not
+ * yet done (here or still on its way), counted with `members` (a dish counts
+ * its quantity when no member names it; a meal deal counts its parts that go
+ * there).
+ */
+export function stationLoad(orders, stationId, members, cfg, at) {
+  let load = 0
+  for (const o of Object.values(orders || {})) {
+    if (!['active', 'ready'].includes(o.status) || isStale(o, at)) continue
+    for (const i of o.items) {
+      const s = nodeState(i, stationId, cfg, at)
+      if (s !== 'active' && s !== 'upcoming') continue
+      const qty = Number(i.qty) || 0
+      const parts = i.parts ? i.parts.filter(pt => pt.route?.[stationId]) : null
+      const units = parts && parts.length ? parts.map(pt => ({ item_id: pt.item_id, mods: pt.mods })) : [{ item_id: i.item_id, mods: i.mods }]
+      if (parts && parts.length) units.push({ item_id: null, mods: i.mods })
+      load += memberCount(units, members, qty) || qty * (parts && parts.length ? parts.length : 1)
+    }
+  }
+  return load
+}
+
+/** The Balance boxes in a flow, upstream ones first. */
+function flowBoxes(cfg) {
+  const graph = {}
+  for (const l of cfg.flow || []) {
+    if (!cfg.stations?.[l.to] || (l.from && !cfg.stations?.[l.from])) continue
+    const preds = graph[l.to] || (graph[l.to] = [])
+    preds.push(l.from || START)
+  }
+  return routeOrder(graph).filter(id => cfg.stations?.[id]?.kind === 'balance')
+}
+
+/** The pieces one part of a ticket counts at a Balance box (a dish its quantity when no piece names it). */
+function unitPieces(u, members) {
+  const qty = Number(u.item.qty) || 0
+  const units = [u.part ? { item_id: u.part.item_id, mods: u.part.mods } : { item_id: u.item.item_id, mods: u.item.mods }]
+  // A meal deal's own options count with its first part that reaches the box.
+  if (u.part && u.first) units.push({ item_id: null, mods: u.item.mods })
+  return memberCount(units, members, qty) || qty
+}
+
+/**
+ * Decides every Balance box on a ticket's dishes (the dishes sent or fired
+ * together; held ones are left for course.fired), changing their ways in
+ * place. Each box sends what reaches it to the station with the fewest pieces
+ * still to cook (stationLoad over cfg.balance.open), a tie going to the first
+ * after the box's last pick (cfg.balance.last), so they take turns. The whole
+ * ticket goes to one station unless the box shares big tickets
+ * (settings.split_above = N) and more than N pieces reach it: then each dish
+ * line (or meal deal part) goes, biggest first, to the station with the fewest
+ * pieces counting what this ticket has already put there. One line is never
+ * split. Records each box's last pick in cfg.balance.picks for the caller to
+ * keep.
+ */
+export function balanceTicket(items, cfg, at) {
+  const units = []
+  for (const item of items || []) {
+    if (item.parts && item.parts.length) item.parts.forEach(part => units.push({ item, part, route: part.route }))
+    else units.push({ item, part: null, route: item.route })
+  }
+  if (!units.some(u => routeHasBalance(u.route, cfg))) return
+  const b = cfg.balance || {}
+  for (const box of flowBoxes(cfg)) {
+    const here = units.filter(u => u.route && u.route[box])
+    if (!here.length) continue
+    const outs = balanceOutputs(box, cfg)
+    if (!outs.length) {
+      // Nothing to share with: the dishes go nowhere past the box.
+      for (const u of here) u.route = collapseBalance(u.route, box, null)
+      continue
+    }
+    const settings = stationSettings(cfg.stations?.[box])
+    const members = settings.pieces || []
+    let last = outs.indexOf(b.last?.[box] || '')
+    const loads = outs.map(id => stationLoad(b.open || {}, id, members, cfg, at))
+    // Lowest load, a tie to the first station after the last pick.
+    const next = () => {
+      const low = Math.min(...loads)
+      const ring = [...outs.slice(last + 1), ...outs.slice(0, last + 1)]
+      const to = ring.find(id => loads[outs.indexOf(id)] === low)
+      last = outs.indexOf(to)
+      return to
+    }
+    const seen = new Set()
+    for (const u of here) {
+      u.first = !!u.part && !seen.has(u.item)
+      seen.add(u.item)
+      u.pieces = unitPieces(u, members)
+    }
+    const total = here.reduce((t, u) => t + u.pieces, 0)
+    const share = outs.length > 1 && settings.split_above != null && total > Number(settings.split_above)
+    if (!share) {
+      const to = next()
+      for (const u of here) u.route = collapseBalance(u.route, box, to)
+    } else {
+      // Biggest first; a dish's parts keep their order among equals.
+      const order = here.map((u, i) => [u, i]).sort((x, y) => y[0].pieces - x[0].pieces || x[1] - y[1]).map(([u]) => u)
+      for (const u of order) {
+        const to = next()
+        loads[outs.indexOf(to)] += u.pieces
+        u.route = collapseBalance(u.route, box, to)
+      }
+    }
+    if (b.picks) b.picks[box] = outs[last]
+  }
+  for (const item of items) {
+    const mine = units.filter(u => u.item === item)
+    if (item.parts && item.parts.length) {
+      for (const u of mine) u.part.route = u.route
+      item.route = mergeRoutes(item.parts.map(pt => pt.route))
+    } else if (mine.length) {
+      item.route = mine[0].route
+    }
+  }
+}
+
+/** A dish's way with a Balance box taken out: its dishes go on to `to` only. */
+function collapseBalance(route, box, to) {
+  const out = {}
+  for (const [n, preds] of Object.entries(route)) if (n !== box) out[n] = [...preds]
+  const boxPreds = route[box] || []
+  for (const [n, preds] of Object.entries(out)) {
+    const i = preds.indexOf(box)
+    if (i < 0) continue
+    preds.splice(i, 1)
+    if (n === to) for (const p of boxPreds) if (!preds.includes(p)) preds.push(p)
+  }
+  // Drop what only the stations not picked led to.
+  for (let gone = true; gone;) {
+    gone = false
+    for (const n of Object.keys(out)) {
+      if (out[n].length) continue
+      delete out[n]
+      gone = true
+      for (const preds of Object.values(out)) { const j = preds.indexOf(n); if (j >= 0) preds.splice(j, 1) }
+    }
+  }
+  return out
+}
+
+/** Does this way still go through a Balance box (a held course not fired yet)? */
+export function routeHasBalance(route, cfg) {
+  return Object.keys(route || {}).some(id => cfg.stations?.[id]?.kind === 'balance')
+}
+
+/** A dish's way with every Balance box on it decided (`pick(boxId)` -> station id | null). */
+export function resolveBalances(route, cfg, pick) {
+  let r = route
+  for (let n = 0; n < 20; n++) {
+    const box = routeOrder(r).find(id => cfg.stations?.[id]?.kind === 'balance')
+    if (!box) return r
+    r = collapseBalance(r, box, pick(box))
+  }
+  return r
+}
+
 /**
  * What is wrong with a flow (blocks saving): [message].
  *   stations  [{ id, name, kind }]
@@ -316,6 +518,10 @@ export function flowProblems(stations, links) {
     if (l.from && !byId[l.from]) { out.push('A link comes from a station that isn\'t there any more'); continue }
     if (l.from && l.from === l.to) out.push(name(l.to) + ' links to itself')
     if (l.from && byId[l.from].kind === 'board') out.push(name(l.from) + ' is an order ready board: nothing goes on from it')
+    if (l.from && byId[l.from].kind === 'balance') {
+      if (!isBumpKind(byId[l.to].kind)) out.push(name(l.from) + ' shares dishes between kitchen stations: link it to prep stations, an expo or runners')
+      if ((l.targets || []).length) out.push('Links out of ' + name(l.from) + ' take every dish it gets: remove their filters')
+    }
     const key = (l.from || START) + '>' + l.to
     if (pairs.has(key)) out.push(name(l.from) + ' links to ' + name(l.to) + ' twice')
     pairs.add(key)
@@ -361,6 +567,11 @@ export function flowWarnings(stations, links) {
     }
   }
   for (const s of live) if (!reach.has(s.id)) out.push(s.name + ' isn\'t on the way of any dish.')
+  for (const s of live) {
+    if (s.kind !== 'balance') continue
+    const outs = new Set((links || []).filter(l => l.from === s.id).map(l => l.to))
+    if (outs.size < 2) out.push(s.name + (outs.size ? ' has only one station to share with: link it to another.' : ' shares with no stations yet: link it to two or more.'))
+  }
   return out
 }
 
@@ -409,6 +620,8 @@ function newOrder(fields, at) {
 
 function itemFromLine(line, check, cfg, at, held, type) {
   const rs = line.revenue_stream_id ?? check.revenue_stream_id
+  // Balance boxes stay on the way until balanceTicket() decides them.
+  const way = target => itemRoute(target, cfg)
   let parts = null
   let route
   if (line.combo && line.combo.length) {
@@ -416,13 +629,13 @@ function itemFromLine(line, check, cfg, at, held, type) {
     // goes where the combo itself goes.
     parts = line.combo.map(p => ({
       item_id: p.item_id || null, name: p.kitchen_name || p.name, mods: kitchenMods(p.modifiers),
-      route: itemRoute(p.item_id
+      route: way(p.item_id
         ? { item_id: p.item_id, section_id: p.section_id, revenue_stream_id: rs, order_type_id: type }
-        : { item_id: line.item_id, section_id: line.section_id, revenue_stream_id: rs, order_type_id: type }, cfg),
+        : { item_id: line.item_id, section_id: line.section_id, revenue_stream_id: rs, order_type_id: type }),
     }))
     route = mergeRoutes(parts.map(p => p.route))
   } else {
-    route = itemRoute({ item_id: line.item_id, section_id: line.section_id, revenue_stream_id: rs, order_type_id: type }, cfg)
+    route = way({ item_id: line.item_id, section_id: line.section_id, revenue_stream_id: rs, order_type_id: type })
   }
   const course = line.course_id ? cfg.courses?.[line.course_id] : null
   return {
@@ -440,17 +653,18 @@ function itemFromOnline(i, cfg, at, fireAt, type) {
   const onlineMods = opts => (opts || []).map(o => ({ text: o.label, label: o.label, kind: o.mode === 'base' ? 'base' : 'add', depth: 0 }))
   const rs = i.revenue_stream_id || null
   const own = { item_id: i.item_id, section_id: i.section_id, revenue_stream_id: rs, order_type_id: type }
+  const way = target => itemRoute(target, cfg)
   // A combo's picks, each to its own stations (a typed-in choice goes with the combo).
   const parts = Array.isArray(i.parts) && i.parts.length ? i.parts.map(p => ({
     item_id: p.item_id || null, name: p.kitchen_name || p.name, mods: onlineMods(p.options),
-    route: itemRoute(p.item_id ? { item_id: p.item_id, section_id: p.section_id || null, revenue_stream_id: rs, order_type_id: type } : own, cfg),
+    route: way(p.item_id ? { item_id: p.item_id, section_id: p.section_id || null, revenue_stream_id: rs, order_type_id: type } : own),
   })) : null
   return {
     id: String(i.id), item_id: i.item_id || null, name: i.name, qty: i.qty,
     mods: onlineMods(i.options),
     parts, note: i.note || null, allergies: [], seat: null,
     course_id: null, course: null, course_sort: null,
-    route: parts ? mergeRoutes(parts.map(p => p.route)) : itemRoute(own, cfg),
+    route: parts ? mergeRoutes(parts.map(p => p.route)) : way(own),
     sent_at: at, fired_at: fireAt ? null : at, fire_at: fireAt || null, since: fireAt ? null : at,
     done: {}, reset: {}, voided_at: null, void_reason: null, void_seen: {}, remakes: 0, added: false,
   }
@@ -492,7 +706,7 @@ export function flowTimes(item, cfg, at) {
   }
   const done = (id, n = 0) => {
     if (item.done?.[id]) return item.done[id]
-    if (gone(id) || cfg?.stations?.[id]?.kind === 'board') return arrived(id, n)
+    if (gone(id) || noBump(cfg?.stations?.[id]?.kind)) return arrived(id, n)
     return null
   }
   return { arrived: id => arrived(id), done: id => done(id) }
@@ -509,7 +723,7 @@ export function nodeState(item, nodeId, cfg, at) {
   if (!isFired(item, at)) return 'held'
   const f = flowTimes(item, cfg, at)
   if (item.done?.[nodeId]) return 'done'
-  if (f.arrived(nodeId)) return cfg?.stations?.[nodeId]?.kind === 'board' ? 'done' : 'active'
+  if (f.arrived(nodeId)) return noBump(cfg?.stations?.[nodeId]?.kind) ? 'done' : 'active'
   return 'upcoming'
 }
 
@@ -523,7 +737,7 @@ export function itemWhere(item, cfg, at) {
   if (item.voided_at || !isFired(item, at)) return []
   const f = flowTimes(item, cfg, at)
   return Object.keys(item.route || {}).filter(id =>
-    cfg?.stations?.[id] && cfg.stations[id].kind !== 'board' && f.arrived(id) && !f.done(id))
+    cfg?.stations?.[id] && !noBump(cfg.stations[id].kind) && f.arrived(id) && !f.done(id))
 }
 
 const liveItems = o => o.items.filter(i => !i.voided_at)
@@ -550,7 +764,7 @@ export function orderFacts(o, cfg, at) {
     any = true
     const f = flowTimes(i, cfg, at)
     const ends = nodes.filter(id => ['board', 'runner'].includes(kindOf(cfg, id)))
-    const bumpNodes = nodes.filter(id => kindOf(cfg, id) !== 'board')
+    const bumpNodes = nodes.filter(id => !noBump(kindOf(cfg, id)))
     const allDone = bumpNodes.every(id => f.done(id))
     if (ends.length ? !ends.every(id => f.arrived(id)) : !allDone) ready = false
     if (!allDone) finished = false
@@ -646,12 +860,16 @@ export function kitchenForCheckEvent(e, before = {}, after = {}, orders = {}, cf
       const o = ensure(check)
       refreshHeader(o, check)
       const hadItems = o.items.length > 0
+      const sent = []
       for (const l of lines) {
         if (o.items.some(i => i.id === l.id)) continue
         const item = itemFromLine(l, check, cfg, at, l.held, o.type)
         item.added = hadItems
         o.items.push(item)
+        sent.push(item)
       }
+      // Balance boxes for what goes now; a held course keeps its boxes until it's fired.
+      balanceTicket(sent.filter(i => i.fired_at), cfg, at)
       if (hadItems) o.changed_at = at
       refreshStatus(o, cfg, at, e.id)
       touch(o, at)
@@ -661,15 +879,17 @@ export function kitchenForCheckEvent(e, before = {}, after = {}, orders = {}, cf
     case 'course.fired': {
       const o = get(e.check_id)
       if (!o) return {}
-      let fired = 0
+      const fired = []
       for (const i of o.items) {
         if (i.course_id === p.course_id && !i.fired_at && !i.voided_at) {
           i.fired_at = at
           i.since = at
-          fired++
+          fired.push(i)
         }
       }
-      if (!fired) return {}
+      if (!fired.length) return {}
+      // Balance boxes on the course's way are decided now, with the kitchen as it is.
+      balanceTicket(fired, cfg, at)
       o.changed_at = at
       refreshStatus(o, cfg, at, e.id)
       touch(o, at)
@@ -826,6 +1046,8 @@ export function applyKitchenEvent(orders, e, cfg = {}) {
       promised_at: src.promised_at || null, note: src.note || null, allergy: src.allergy || null,
     }, at)
     o.items = src.items.map(i => itemFromOnline(i, cfg, at, fireAt, src.type))
+    // Balance boxes are decided as the order comes in, an order for later too.
+    balanceTicket(o.items, cfg, at)
     refreshStatus(o, cfg, at, e.id)
     touch(o, at)
     return { ok: true, orders: { [o.id]: o }, log }
@@ -837,6 +1059,7 @@ export function applyKitchenEvent(orders, e, cfg = {}) {
   const station = p.station_id ? cfg.stations?.[p.station_id] : null
   if (p.station_id && !station) return fail('Kitchen station not found', 'station')
   if (station && station.kind === 'board') return fail('An order ready board has nothing to bump', 'station')
+  if (station && station.kind === 'balance') return fail('A Balance box has nothing to bump', 'station')
   const st = station ? stationSettings(station) : null
 
   switch (e.type) {
@@ -981,7 +1204,7 @@ export function applyKitchenEvent(orders, e, cfg = {}) {
       if (o.status === p.status) return fail('No change', 'nothing')
       const finishAll = () => {
         for (const i of o.items) if (!i.fired_at && !i.voided_at) { i.fired_at = at; i.since = i.since || at }
-        for (const i of liveItems(o)) for (const n of Object.keys(i.route || {})) if (!i.done[n] && kindOf(cfg, n) !== 'board') i.done[n] = at
+        for (const i of liveItems(o)) for (const n of Object.keys(i.route || {})) if (!i.done[n] && !noBump(kindOf(cfg, n))) i.done[n] = at
       }
       if (p.status === 'cancelled') {
         o.status = 'cancelled'
@@ -1035,7 +1258,7 @@ const minTime = list => {
  * (show_upcoming) dishes still at earlier stations, or a void to see.
  */
 export function stationTickets(orders, station, now, cfg) {
-  if (!station || station.kind === 'board') return []
+  if (!station || noBump(station.kind)) return []
   const st = stationSettings(station)
   const orderLevel = isOrderLevel(station)
   const out = []
@@ -1175,22 +1398,13 @@ export function onOrderCounts(orders, station, now, cfg) {
     }
     return [...byName.entries()].map(([name, count]) => ({ id: name, name, count })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
   }
-  const lower = s => String(s || '').trim().toLowerCase()
   return groups.map(g => {
     let count = 0
     for (const { item, parts } of todo) {
       const qty = Number(item.qty) || 0
       const units = parts && parts.length ? parts.map(pt => ({ item_id: pt.item_id, mods: pt.mods })) : [{ item_id: item.item_id, mods: item.mods }]
       if (parts && parts.length) units.push({ item_id: null, mods: item.mods })
-      for (const u of units) {
-        for (const m of g.members || []) {
-          const per = Number(m.qty) || 1
-          if (m.kind === 'dish' && m.id && u.item_id === m.id) count += per * qty
-          if (m.kind === 'option' && m.label) {
-            for (const mod of u.mods || []) if (mod.kind !== 'remove' && lower(mod.label) === lower(m.label)) count += per * qty
-          }
-        }
-      }
+      count += memberCount(units, g.members, qty)
     }
     return { id: g.id, name: g.name, count }
   })

@@ -50,10 +50,10 @@ export async function loadStations(tx, tenantId, venueId, { activeOnly = true } 
      ORDER BY sort_order, name`
 }
 
-/** A venue's kitchen flows, in their order: [{ id, name, layout, sort_order }]. */
+/** A venue's kitchen flows, in their order: [{ id, name, layout, sort_order, off_station_ids }]. */
 export async function loadFlows(tx, tenantId, venueId) {
   return tx`
-    SELECT id, name, layout, sort_order FROM kds_flows
+    SELECT id, name, layout, sort_order, off_station_ids FROM kds_flows
      WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}
      ORDER BY sort_order, created_at`
 }
@@ -373,7 +373,7 @@ export async function kitchenOnOnlineOrder(order) {
     const venueId = order.venue_id
     const kid = onlineOrderId(order.id)
     const plan = await withTenant(tenantId, async tx => {
-      const [{ n }] = await tx`SELECT count(*)::int AS n FROM kds_stations WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND is_active AND kind <> 'board'`
+      const [{ n }] = await tx`SELECT count(*)::int AS n FROM kds_stations WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND is_active AND kind = ANY(${BUMP_KINDS})`
       if (!n) return null
       const [s] = await tx`SELECT kds_online_orders FROM pos_settings WHERE venue_id = ${venueId} AND tenant_id = ${tenantId}`
       const [existing] = await tx`SELECT status FROM kds_orders WHERE id = ${kid} AND tenant_id = ${tenantId}`
@@ -526,7 +526,7 @@ export async function kitchenOnGloriaFood(tenantId, venueId, ids) {
   try {
     await withTenant(tenantId, async tx => {
       await tx`SELECT pg_advisory_xact_lock(hashtext('gf-kitchen:' || ${venueId}::text))`
-      const [{ n }] = await tx`SELECT count(*)::int AS n FROM kds_stations WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND is_active AND kind <> 'board'`
+      const [{ n }] = await tx`SELECT count(*)::int AS n FROM kds_stations WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND is_active AND kind = ANY(${BUMP_KINDS})`
       if (!n) return
       const [s] = await tx`
         SELECT kds_gloriafood, kds_gloriafood_types, kds_gloriafood_lead_mins FROM pos_settings

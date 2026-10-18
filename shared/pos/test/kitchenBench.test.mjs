@@ -207,3 +207,29 @@ test('made-up orders, clearing, and a venue with no stations', () => {
   assert.deepEqual(benchScreens({ ...data, screens: [] }).map(s => s.name), ['Grill', 'Fryer', 'Pass'])
   assert.deepEqual(benchScreens(data, 'stations').map(s => s.settings.station_ids[0]), [GRILL, FRYER, PASS])
 })
+
+test('a Balance box on the bench shares the wings between two wingmen, and its screens leave it out', () => {
+  const data = benchData()
+  const W1 = uuid(), W2 = uuid(), BOX = uuid(), BAL_FLOW = uuid()
+  data.stations.push(
+    { id: W1, name: 'Wingman 1', kind: 'prep', settings: {} },
+    { id: W2, name: 'Wingman 2', kind: 'prep', settings: {} },
+    { id: BOX, name: 'Wings', kind: 'balance', settings: { pieces: [{ kind: 'dish', id: WINGS, label: 'Wings', qty: 10 }] } },
+  )
+  data.flows.push({ id: BAL_FLOW, name: 'Wings night', station_ids: [W1, W2, GRILL], links: [
+    link(null, BOX, [{ kind: 'item', id: WINGS }]), link(null, GRILL), link(BOX, W1), link(BOX, W2),
+  ] })
+  data.active_flow_id = BAL_FLOW
+  data.screens = []
+  const bench = createBench(data, { now: clock(), rng: seeded() })
+  assert.ok(!benchScreens(data, 'stations').some(s => s.settings.station_ids.includes(BOX)), 'no screen for the box')
+  const ways = []
+  for (let n = 0; n < 3; n++) {
+    const r = bench.sendOrder({ source: 'online', order_type_id: OUT, lines: [{ item_id: WINGS, qty: 1 }, { item_id: BURGER, qty: 1 }] })
+    assert.ok(r.ok, r.error)
+    const o = bench.orders()[r.id]
+    ways.push(Object.keys(o.items[0].route).join())
+    assert.deepEqual(Object.keys(o.items[1].route), [GRILL], 'the burger goes to the grill')
+  }
+  assert.deepEqual(ways, [W1, W2, W1], 'empty, then the other, then turns')
+})

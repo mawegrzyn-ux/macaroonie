@@ -20,19 +20,22 @@
 //
 // Drag a box to move it (always-visible grip). Drag a box's dot onto another
 // box to link them, or tap the dot then tap the next box. Tap a link's label
-// to choose which dishes take it or to remove it. Check a dish shows the way
-// one dish would take. Nothing is saved until Save flow.
+// to choose which dishes take it or to remove it. Tap a station's box to take
+// it out of this flow (off_station_ids, migration 182: not drawn, nothing
+// links to it, no dish goes there while the flow is in use); Not in this
+// flow puts it back. Check a dish shows the way one dish would take. Nothing
+// is saved until Save flow.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Plus, Loader2, Pencil, Maximize2, Minimize2, Wand2, Route, X, Search, GripVertical, AlertTriangle, Info, Link2,
-  ArrowUpDown, Copy, CheckCircle2,
+  ArrowUpDown, Copy, CheckCircle2, MinusCircle,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import {
-  flowProblems, flowWarnings, itemRoute, KIND_LABELS, START,
+  flowProblems, flowWarnings, itemRoute, KIND_LABELS, START, isBumpKind,
 } from '@shared/pos/kitchen.js'
 import { Section, Btn, ErrorNote, ConfirmDelete, inputCls, Modal, Field, SortableRows } from './shared'
 
@@ -48,9 +51,12 @@ const KIND_STYLE = {
   expo: 'border-amber-500',
   runner: 'border-violet-500',
   board: 'border-emerald-600',
+  balance: 'border-rose-500 border-dashed',
 }
-const KIND_STRIP = { start: '#71717a', prep: '#0ea5e9', expo: '#f59e0b', runner: '#8b5cf6', board: '#059669' }
-const ADD_KINDS = ['prep', 'expo', 'runner', 'board']
+const KIND_STRIP = { start: '#71717a', prep: '#0ea5e9', expo: '#f59e0b', runner: '#8b5cf6', board: '#059669', balance: '#f43f5e' }
+const ADD_KINDS = ['prep', 'expo', 'runner', 'board', 'balance']
+// What a Balance box does, said the same way in the panels.
+const BALANCE_RULE = 'each ticket\'s dishes go to one of them: the one with the fewest pieces still to cook, taking turns when they\'re level'
 
 let keySeq = 0
 const newKey = () => 'new-' + (++keySeq) + '-' + Math.random().toString(36).slice(2, 7)
@@ -58,10 +64,14 @@ const nodeKey = id => id || START
 
 function seedDraft(setup, flow) {
   const ids = new Set(setup.kds_stations.map(s => s.id))
+  // Stations this flow leaves out (deleted ones forgotten).
+  const off = (flow?.off_station_ids || []).filter(id => ids.has(id))
+  const here = id => ids.has(id) && !off.includes(id)
   const links = (flow?.links || [])
-    .filter(l => ids.has(l.to) && (!l.from || ids.has(l.from)))
+    .filter(l => here(l.to) && (!l.from || here(l.from)))
     .map(l => ({ key: l.id, from: l.from || null, to: l.to, targets: l.targets || [] }))
-  return { links, layout: placeMissing({ ...(flow?.layout || {}) }, setup.kds_stations, links) }
+  const inFlow = setup.kds_stations.filter(s => !off.includes(s.id))
+  return { links, off, layout: placeMissing({ ...(flow?.layout || {}) }, inFlow, links) }
 }
 
 /**
@@ -202,8 +212,11 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
   const stations = setup.kds_stations
   const byId = useMemo(() => Object.fromEntries(stations.map(s => [s.id, s])), [stations])
   const nameOf = id => (id && id !== START ? byId[id]?.name || 'a removed station' : 'Orders in')
+  const inFlowOf = off => stations.filter(s => !off.includes(s.id))
 
   const [draft, setDraft] = useState(() => seedDraft(setup, flow))
+  const inFlow = useMemo(() => inFlowOf(draft.off), [stations, draft.off]) // eslint-disable-line react-hooks/exhaustive-deps
+  const offStations = useMemo(() => stations.filter(s => draft.off.includes(s.id)), [stations, draft.off])
   const [dirty, setDirty] = useState(false)
   const [selected, setSelected] = useState(null)     // { link: key } | { node: id }
   const [connectFrom, setConnectFrom] = useState(null)
@@ -220,12 +233,13 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
 
   // A change from elsewhere (station added, removed, saved flow): take it in,
   // keeping an unsaved draft but dropping links to stations that are gone.
-  const flowKey = JSON.stringify({ links: flow.links, layout: flow.layout }) + '|' + stations.map(s => s.id).join(',')
+  const flowKey = JSON.stringify({ links: flow.links, layout: flow.layout, off: flow.off_station_ids }) + '|' + stations.map(s => s.id).join(',')
   useEffect(() => {
     if (!dirty) { setDraft(seedDraft(setup, flow)); return }
     setDraft(d => {
+      const off = d.off.filter(id => byId[id])
       const links = d.links.filter(l => byId[l.to] && (!l.from || byId[l.from]))
-      return { links, layout: placeMissing(d.layout, stations, links) }
+      return { links, off, layout: placeMissing(d.layout, inFlowOf(off), links) }
     })
   }, [flowKey]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
@@ -237,24 +251,26 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
 
   const pos = useMemo(() => {
     const out = {}
-    for (const id of [START, ...stations.map(s => s.id)]) out[id] = draft.layout[id] || { x: PAD, y: PAD }
+    for (const id of [START, ...inFlow.map(s => s.id)]) out[id] = draft.layout[id] || { x: PAD, y: PAD }
     return out
-  }, [draft.layout, stations])
+  }, [draft.layout, inFlow])
   const width = Math.max(720, ...Object.values(pos).map(p => p.x + NODE_W + PAD + 40))
   const height = Math.max(380, ...Object.values(pos).map(p => p.y + NODE_H + PAD))
 
   const problems = useMemo(() => flowProblems(stations, draft.links), [stations, draft.links])
-  const warnings = useMemo(() => flowWarnings(stations, draft.links), [stations, draft.links])
+  const warnings = useMemo(() => flowWarnings(inFlow, draft.links), [inFlow, draft.links])
 
   const change = fn => { setDraft(d => fn(d)); setDirty(true) }
   const changeLinks = fn => change(d => {
     const links = fn(d.links)
-    return { links, layout: autoTidy ? tidyLayout(stations, links) : d.layout }
+    return { ...d, links, layout: autoTidy ? tidyLayout(inFlowOf(d.off), links) : d.layout }
   })
   const addLink = (from, to) => {
     const f = from === START ? null : from
     if (!to || to === START || to === f) return
     if (f && byId[f]?.kind === 'board') return
+    // A Balance box shares between stations that bump.
+    if (f && byId[f]?.kind === 'balance' && !isBumpKind(byId[to]?.kind)) return
     const existing = draft.links.find(l => (l.from || null) === f && l.to === to)
     if (existing) { setSelected({ link: existing.key }); return }
     const key = newKey()
@@ -263,6 +279,15 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
   }
   const updateLink = (key, patch) => change(d => ({ ...d, links: d.links.map(l => (l.key === key ? { ...l, ...patch } : l)) }))
   const removeLink = key => { changeLinks(links => links.filter(l => l.key !== key)); setSelected(null) }
+  // Out of this flow: its links in this flow go; the station stays for the others.
+  const takeOut = id => {
+    change(d => ({ ...d, links: d.links.filter(l => l.to !== id && l.from !== id), off: [...d.off, id] }))
+    setSelected(null)
+  }
+  const putBack = id => change(d => {
+    const off = d.off.filter(x => x !== id)
+    return { ...d, off, layout: placeMissing(d.layout, inFlowOf(off), d.links) }
+  })
 
   // ── Pointer handling: move boxes, draw links ──
   const canvasRef = useRef(null)
@@ -334,12 +359,12 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
   const checkItem = lk.items[check.item_id]
   const route = useMemo(() => {
     if (!checking || !checkItem) return null
-    const live = Object.fromEntries(stations.filter(s => s.is_active).map(s => [s.id, s]))
+    const live = Object.fromEntries(inFlow.filter(s => s.is_active).map(s => [s.id, s]))
     return itemRoute({
       item_id: checkItem.id, section_id: checkItem.section_id,
       revenue_stream_id: check.revenue_stream_id || null, order_type_id: check.order_type_id || null,
     }, { stations: live, flow: draft.links })
-  }, [checking, checkItem, check.order_type_id, check.revenue_stream_id, stations, draft.links])
+  }, [checking, checkItem, check.order_type_id, check.revenue_stream_id, inFlow, draft.links])
   const onRoute = (from, to) => !!route?.[to]?.includes(nodeKey(from))
   const inRoute = id => !!route && (id === START ? Object.keys(route).length > 0 : !!route[id])
 
@@ -347,12 +372,13 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
     mutationFn: () => api.put(`/pos/kds-flows/${flow.id}`, {
       links: draft.links.map(l => ({ from: l.from, to: l.to, targets: l.targets })),
       layout: pos,
+      off_station_ids: draft.off,
     }),
     onSuccess: out => {
       setSaved(out.warnings || [])
       setAutoTidy(false)
       setDirty(false)
-      setDraft({ links: out.links.map(l => ({ key: l.id, from: l.from || null, to: l.to, targets: l.targets || [] })), layout: out.layout })
+      setDraft({ links: out.links.map(l => ({ key: l.id, from: l.from || null, to: l.to, targets: l.targets || [] })), off: out.off_station_ids || [], layout: out.layout })
       setSelected(null)
       qc.invalidateQueries({ queryKey: ['pos-setup', venueId] })
     },
@@ -361,7 +387,7 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
 
   const selLink = selected?.link ? draft.links.find(l => l.key === selected.link) : null
   const selNode = selected?.node || null
-  const nodes = [{ id: START, name: 'Orders in', kind: 'start', is_active: true }, ...stations]
+  const nodes = [{ id: START, name: 'Orders in', kind: 'start', is_active: true }, ...inFlow]
 
   const canvas = (
     <div ref={wrapRef} className={cn('relative min-w-0 overflow-auto rounded-xl border bg-muted/40', full ? 'flex-1' : 'h-[460px] flex-1')}
@@ -405,12 +431,12 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
             <div key={l.key} role="button" tabIndex={0} data-testid="flow-link" data-from={nodeKey(l.from)} data-to={l.to}
               onClick={() => { setSelected({ link: l.key }); setConnectFrom(null) }}
               onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelected({ link: l.key }) } }}
-              title={nameOf(l.from) + ' to ' + nameOf(l.to) + ': ' + linkSummary(l, lk)}
+              title={nameOf(l.from) + ' to ' + nameOf(l.to) + ': ' + (byId[l.from]?.kind === 'balance' ? 'shared' : linkSummary(l, lk))}
               className={cn('absolute z-10 -translate-x-1/2 -translate-y-1/2 h-10 max-w-[150px] px-3 rounded-full border text-xs font-medium flex items-center gap-1 cursor-pointer touch-manipulation shadow-sm',
                 sel ? 'bg-zinc-900 text-white border-zinc-900' : on ? 'bg-blue-600 text-white border-blue-600' : l.targets.length ? 'bg-amber-50 border-amber-300' : 'bg-background',
                 route && !on && !sel && 'opacity-50')}
               style={{ left: mid.x, top: mid.y }}>
-              <span className="truncate">{linkSummary(l, lk)}</span>
+              <span className="truncate">{byId[l.from]?.kind === 'balance' ? 'Shared' : linkSummary(l, lk)}</span>
             </div>
           )
         })}
@@ -466,16 +492,17 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
         </div>
       )}
       {checking && (
-        <CheckPanel setup={setup} lk={lk} check={check} setCheck={setCheck} route={route} nameOf={nameOf} onClose={() => setChecking(false)} />
+        <CheckPanel kindOf={id => byId[id]?.kind} setup={setup} lk={lk} check={check} setCheck={setCheck} route={route} nameOf={nameOf} onClose={() => setChecking(false)} />
       )}
       {selLink && (
-        <LinkPanel link={selLink} lk={lk} setup={setup} canManage={canManage} nameOf={nameOf}
+        <LinkPanel link={selLink} lk={lk} setup={setup} canManage={canManage} nameOf={nameOf} fromBalance={byId[selLink.from]?.kind === 'balance'}
           siblings={draft.links.filter(l => (l.from || null) === (selLink.from || null) && l.key !== selLink.key)}
           onChange={patch => updateLink(selLink.key, patch)} onRemove={() => removeLink(selLink.key)} onClose={() => setSelected(null)} />
       )}
       {selNode && (
-        <NodePanel id={selNode} station={byId[selNode]} links={draft.links} nameOf={nameOf} lk={lk} canManage={canManage}
+        <NodePanel key={selNode} id={selNode} station={byId[selNode]} links={draft.links} nameOf={nameOf} lk={lk} canManage={canManage}
           onEdit={() => onStation(byId[selNode])} onLink={() => { setConnectFrom(selNode); setSelected(null) }}
+          onTakeOut={() => takeOut(selNode)}
           onPick={key => setSelected({ link: key })} onClose={() => setSelected(null)} />
       )}
       {!connectFrom && !checking && !selLink && !selNode && flowBox}
@@ -483,7 +510,7 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
         <div className="rounded-xl border bg-background p-3 space-y-2 text-muted-foreground">
           <p className="flex gap-2"><Info className="w-4 h-4 shrink-0 mt-0.5" />
             <span>{canManage
-              ? 'Drag a box by its grip to move it. Drag its dot onto another box (or tap the dot, then the box) to send dishes on to it. Tap a link to choose which dishes take it.'
+              ? 'Drag a box by its grip to move it. Drag its dot onto another box (or tap the dot, then the box) to send dishes on to it. Tap a link to choose which dishes take it. Tap a box to take its station out of this flow.'
               : 'Tap a link to see which dishes take it, or a box to see its links.'}</span>
           </p>
           <p>From each box a dish takes the links that name it most closely: the dish itself, then its section, its revenue stream, its order type, then links for every dish. Links that tie all apply: e.g. from the expo to the board and to a runner at once.</p>
@@ -498,7 +525,7 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
       <div className="flex flex-wrap items-center gap-2">
         {canManage && <AddStationMenu onPick={kind => onStation({ kind })} />}
         {canManage && (
-          <Btn onClick={() => change(d => ({ ...d, layout: tidyLayout(stations, d.links) }))} title="Tidy the boxes into columns">
+          <Btn onClick={() => change(d => ({ ...d, layout: tidyLayout(inFlowOf(d.off), d.links) }))} title="Tidy the boxes into columns">
             <Wand2 className="w-4 h-4" /> Tidy
           </Btn>
         )}
@@ -511,6 +538,20 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
         </Btn>
         {dirty && <span className="text-xs font-medium text-amber-700">Changes not saved</span>}
       </div>
+      {offStations.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 text-sm" data-testid="flow-off">
+          <span className="text-muted-foreground">Not in this flow:</span>
+          {offStations.map(st => (
+            <span key={st.id} className="inline-flex items-center gap-1 rounded-full border bg-background pl-3 pr-0.5 min-h-[48px]">
+              <span className="font-medium">{st.name}</span>
+              {canManage && (
+                <button type="button" onClick={() => putBack(st.id)}
+                  className="min-h-[44px] min-w-[48px] px-3 rounded-full text-xs font-medium text-primary hover:bg-muted touch-manipulation">Put back</button>
+              )}
+            </span>
+          ))}
+        </div>
+      )}
       <div className={cn('flex flex-col lg:flex-row gap-3', full && 'flex-1 min-h-0')}>
         {canvas}
         {panel}
@@ -728,7 +769,7 @@ function Chip({ on, onClick, children }) {
   )
 }
 
-function LinkPanel({ link, lk, setup, canManage, nameOf, siblings, onChange, onRemove, onClose }) {
+function LinkPanel({ link, lk, setup, canManage, nameOf, fromBalance, siblings, onChange, onRemove, onClose }) {
   const [q, setQ] = useState('')
   const has = (kind, id) => link.targets.some(t => t.kind === kind && (t.id || null) === (id || null))
   const toggle = (kind, id) => onChange({
@@ -741,6 +782,22 @@ function LinkPanel({ link, lk, setup, canManage, nameOf, siblings, onChange, onR
   ] : []
   const streams = (setup.revenue_streams || []).filter(r => r.is_active !== false)
   const types = (setup.order_types || []).filter(t => t.is_active !== false)
+  if (fromBalance) {
+    return (
+      <PanelBox title={nameOf(link.from) + ' to ' + nameOf(link.to)} onClose={onClose} testid="flow-link-panel">
+        <p>
+          {nameOf(link.from)} shares its dishes between the stations it links to: {BALANCE_RULE}. Its links take every dish it
+          gets, so they have no filters.
+        </p>
+        {canManage && (
+          <div className="flex items-center gap-2 pt-1 border-t">
+            <span className="flex-1 text-xs text-muted-foreground">Remove this link</span>
+            <ConfirmDelete label="Remove link" confirmLabel="Yes, remove" onConfirm={onRemove} />
+          </div>
+        )}
+      </PanelBox>
+    )
+  }
   return (
     <PanelBox title={nameOf(link.from) + ' to ' + nameOf(link.to)} onClose={onClose} testid="flow-link-panel">
       <div>
@@ -806,22 +863,35 @@ function LinkPanel({ link, lk, setup, canManage, nameOf, siblings, onChange, onR
   )
 }
 
-function NodePanel({ id, station, links, nameOf, lk, canManage, onEdit, onLink, onPick, onClose }) {
+function NodePanel({ id, station, links, nameOf, lk, canManage, onEdit, onLink, onTakeOut, onPick, onClose }) {
   const out = links.filter(l => (l.from || START) === id)
   const into = links.filter(l => l.to === id)
   const s = station?.settings || {}
+  const [asking, setAsking] = useState(false)
+  const linkCount = out.length + into.length
   return (
     <PanelBox title={nameOf(id)} onClose={onClose} testid="flow-node-panel">
       {station
         ? (
           <p className="text-muted-foreground">
             {KIND_LABELS[station.kind]}{!station.is_active ? ' · not in use (dishes pass straight through)' : ''}
-            {station.kind !== 'board' && <> · amber {s.target_mins} min, red {s.late_mins} min{s.show_upcoming ? ' · shows dishes before they arrive' : ''}</>}
+            {isBumpKind(station.kind) && <> · amber {s.target_mins} min, red {s.late_mins} min{s.show_upcoming ? ' · shows dishes before they arrive' : ''}</>}
           </p>
         )
         : <p className="text-muted-foreground">Every dish sent from a till and every online order starts here.</p>}
       {station?.kind === 'board' && (
         <p className="text-xs text-muted-foreground">Shows on menu screens: add an Order status block to a board design and pick {station.name}. An order is ready there once every dish on its way to this board has arrived.</p>
+      )}
+      {station?.kind === 'balance' && (
+        <p className="text-xs text-muted-foreground" data-testid="flow-balance-note">
+          Shares work between the stations it goes on to: {BALANCE_RULE}.{' '}
+          {(s.pieces || []).length
+            ? 'Pieces: ' + s.pieces.map(m => m.label + ' counts ' + m.qty).join(', ') + '; any other dish counts its quantity.'
+            : 'No pieces set yet (Edit station): each dish counts its quantity.'}{' '}
+          {s.split_above != null
+            ? 'Big tickets: a ticket with more than ' + s.split_above + ' pieces is shared out, dish line by dish line.'
+            : 'Big tickets: each ticket stays on one station.'}
+        </p>
       )}
       {station?.kind === 'runner' && (
         <p className="text-xs text-muted-foreground">Takes orders out. When the runner is the end of a dish's way, its bump hands the order over (collected).</p>
@@ -845,11 +915,29 @@ function NodePanel({ id, station, links, nameOf, lk, canManage, onEdit, onLink, 
           {station && <Btn onClick={onEdit}><Pencil className="w-4 h-4" /> Edit station</Btn>}
         </div>
       )}
+      {canManage && station && (
+        <div className="space-y-2 border-t pt-2">
+          {asking ? (
+            <div className="flex flex-wrap gap-2">
+              <Btn variant="primary" onClick={onTakeOut}>
+                Yes, take it out{linkCount ? ` (its ${linkCount} link${linkCount === 1 ? '' : 's'} go)` : ''}
+              </Btn>
+              <Btn onClick={() => setAsking(false)}>Keep</Btn>
+            </div>
+          ) : (
+            <Btn onClick={() => setAsking(true)}><MinusCircle className="w-4 h-4" /> Take out of this flow</Btn>
+          )}
+          <p className="text-xs text-muted-foreground">
+            No dish goes to {station.name} while this flow is in use. The station stays, with its screens, for your other flows;
+            to remove it everywhere, delete it under Edit station.
+          </p>
+        </div>
+      )}
     </PanelBox>
   )
 }
 
-function CheckPanel({ setup, lk, check, setCheck, route, nameOf, onClose }) {
+function CheckPanel({ setup, lk, check, setCheck, route, nameOf, kindOf, onClose }) {
   const [q, setQ] = useState('')
   const term = q.trim().toLowerCase()
   const matches = term.length >= 2 ? (setup.items || []).filter(i => i.name.toLowerCase().includes(term)).slice(0, 8) : []
@@ -903,9 +991,16 @@ function CheckPanel({ setup, lk, check, setCheck, route, nameOf, onClose }) {
             ? <p className="text-muted-foreground">No link takes this dish: it won't show on any kitchen screen.</p>
             : (
               <p className="mt-1 leading-7">
-                Orders in{steps.map((ids, i) => <span key={i}> <span className="text-muted-foreground">&rarr;</span> <b>{ids.map(nameOf).join(' + ')}</b></span>)}
+                Orders in{steps.map((ids, i) => {
+                  // A Balance box's stations: one of them, not all.
+                  const shared = ids.length > 1 && ids.every(id => (route[id] || []).some(p => kindOf(p) === 'balance'))
+                  return <span key={i}> <span className="text-muted-foreground">&rarr;</span> <b>{ids.map(nameOf).join(shared ? ' or ' : ' + ')}</b></span>
+                })}
               </p>
             )}
+          {steps.some(ids => ids.some(id => kindOf(id) === 'balance')) && (
+            <p className="text-xs text-muted-foreground mt-1">At a Balance box {BALANCE_RULE}.</p>
+          )}
         </div>
       )}
       {!item && <p className="text-muted-foreground">Pick a dish to see its way through the kitchen highlighted.</p>}

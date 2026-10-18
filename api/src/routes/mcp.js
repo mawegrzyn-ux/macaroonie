@@ -24,7 +24,10 @@
 //                                   expire (auth.js).
 //   GET  /.well-known/oauth-protected-resource/mcp/staff/:tenantSlug
 //                                   OAuth protected-resource metadata pointing
-//                                   at Auth0, for clients that log in with OAuth.
+//                                   at Macaroonie's own sign-in
+//                                   (routes/mcpOauth.js, migration 181), for
+//                                   apps that can only connect with OAuth.
+//                                   Its tokens are ordinary access tokens.
 //
 // GET and DELETE on the MCP paths answer 405 (no sessions, no server push).
 
@@ -32,13 +35,13 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 import { sql } from '../config/db.js'
-import { env } from '../config/env.js'
 import { requireAuth, permissionLevel, permissionLevels, ACCESS_TOKEN_PREFIX } from '../middleware/auth.js'
 import { makeContext, addUsage, ToolError } from '../ai/context.js'
 import { audienceTools, jsonSchemaOf, parseInput, errorText, toolAllowed, SECTION_MODULES } from '../ai/tools/index.js'
 import { getAiSettings } from '../ai/settings.js'
 import { guestInstructions, staffInstructions } from '../ai/prompts.js'
 import { ASSISTANT_NAME } from '../../../shared/assistant.js'
+import { publicOrigin } from './mcpOauth.js'
 
 const VERSION = '1.0.0'
 
@@ -117,12 +120,6 @@ async function serve(req, reply, server) {
 }
 
 const notAllowed = (req, reply) => reply.code(405).header('Allow', 'POST').send({ error: 'Use POST' })
-
-function publicOrigin(req) {
-  const host = req.headers['x-forwarded-host'] || req.headers.host || env.PUBLIC_ROOT_DOMAIN
-  const proto = req.headers['x-forwarded-proto'] || env.PUBLIC_SITE_SCHEME || 'https'
-  return proto + '://' + host
-}
 
 async function tenantBySlug(slug) {
   const [t] = await sql`
@@ -215,9 +212,9 @@ export default async function mcpRoutes(app) {
   // ── OAuth protected-resource metadata (RFC 9728) ────────
   app.get('/.well-known/oauth-protected-resource/mcp/staff/:tenantSlug', async req => ({
     resource:                 publicOrigin(req) + '/mcp/staff/' + req.params.tenantSlug,
-    authorization_servers:    ['https://' + env.AUTH0_DOMAIN + '/'],
+    authorization_servers:    [publicOrigin(req)],
     bearer_methods_supported: ['header'],
-    scopes_supported:         ['openid', 'profile', 'email'],
+    scopes_supported:         ['pepper'],
     resource_name:            ASSISTANT_NAME + ' (Macaroonie staff assistant)',
   }))
 }

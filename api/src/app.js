@@ -62,6 +62,7 @@ import dashboardTilesRoutes  from './routes/dashboardTiles.js'
 import legacyImportRoutes    from './routes/legacyImport.js'
 import navRoutes             from './routes/nav.js'
 import mcpRoutes             from './routes/mcp.js'
+import mcpOauthRoutes        from './routes/mcpOauth.js'
 import aiRoutes              from './routes/ai.js'
 import aiApiRoutes           from './routes/aiApi.js'
 import posSite               from './routes/posSite.js'
@@ -69,6 +70,8 @@ import posSetupRoutes        from './routes/posSetup.js'
 import taxSetupRoutes        from './routes/taxSetup.js'
 import posApiRoutes          from './routes/posApi.js'
 import screenSite            from './routes/screenSite.js'
+import installerSite         from './routes/installerSite.js'
+import installerRoutes       from './routes/installer.js'
 import screensRoutes         from './routes/screens.js'
 import screenApiRoutes       from './routes/screenApi.js'
 
@@ -199,6 +202,8 @@ export async function buildApp() {
   await app.register(posSite)
   // Menu screens' player on screens.{root} (routes/screenSite.js).
   await app.register(screenSite)
+  // The installer app (the admin build) on installer.{root} (routes/installerSite.js).
+  await app.register(installerSite)
 
   // Stripe webhook first — must bypass JSON body parser
   await app.register(webhookRoutes)
@@ -265,6 +270,7 @@ export async function buildApp() {
   await app.register(manageBookingRoutes, { prefix: '/manage' })
   // AI: MCP connectors (guest + staff) and the chats (migration 148)
   await app.register(mcpRoutes)
+  await app.register(mcpOauthRoutes)
   await app.register(aiRoutes,    { prefix: '/api/ai' })
   await app.register(aiApiRoutes, { prefix: '/ai-api' })
   // Till (POS): admin setup + reports, and the tills' own API (device auth).
@@ -272,6 +278,7 @@ export async function buildApp() {
   await app.register(taxSetupRoutes, { prefix: '/api' })
   await app.register(posApiRoutes,   { prefix: '/pos-api' })
   await app.register(screensRoutes,   { prefix: '/api/screens' })
+  await app.register(installerRoutes, { prefix: '/api/installer' })
   await app.register(screenApiRoutes, { prefix: '/screen-api' })
 
   // ── Health check ─────────────────────────────────────────

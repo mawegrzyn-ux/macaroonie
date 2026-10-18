@@ -144,6 +144,19 @@ test('a menu screen pairs by code, is claimed, and loads its config', async () =
   assert.equal(config.status, 200, config.body.slice(0, 200))
 })
 
+test('a kitchen screen shows its own code, is linked, and signs in (migration 184)', async () => {
+  const p = await pub('POST', '/pos-api/pairings', { body: { app: 'kds', device: { width: 1280, height: 800 } } })
+  assert.equal(p.status, 200, p.body)
+  const look = await owner.post('/api/installer/lookup', { code: p.json.code })
+  assert.equal(look.json?.status, 'waiting', look.body)
+  const linked = await owner.post(`/api/pos/venues/${V}/link`, { code: p.json.code, name: 'Pass 2' })
+  assert.equal(linked.status, 201, linked.body)
+  const st = await pub('GET', '/pos-api/pairings/' + p.json.id, { headers: { authorization: 'Pairing ' + p.json.secret } })
+  assert.equal(st.json?.status, 'paired', st.body)
+  const config = await pub('GET', '/pos-api/config', { headers: { authorization: `Device ${st.json.device_id}.${p.json.secret}` } })
+  assert.equal(config.status, 200, config.body.slice(0, 200))
+})
+
 test('MCP: the guest connector finds a restaurant; an access token opens the staff connector', async () => {
   const rpc = body => ({ body, headers: { accept: 'application/json, text/event-stream' } })
   const init = { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '1' } } }

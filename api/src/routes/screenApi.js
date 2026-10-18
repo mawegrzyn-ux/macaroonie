@@ -4,7 +4,9 @@
 // paired device, not a person (services/screenAuth.js).
 //
 //   POST /pairings              (no auth) a new pairing code for the screen
-//                               to show: { id, code, secret, expires_at }
+//                               to show: { id, code, secret, expires_at, link_url }
+//                               (link_url: the installer app's page for the code, shown
+//                               as a QR code; services/linkCodes.js)
 //   GET  /pairings/:id          `Authorization: Pairing <secret>`:
 //                               { status: 'waiting' | 'paired' | 'expired', screen_id }
 //                               Once paired the screen signs in with
@@ -35,6 +37,7 @@ import {
   forgetScreen,
 } from '../services/screenAuth.js'
 import { screenConfig } from '../services/screenSvc.js'
+import { linkCodeTaken, linkUrl } from '../services/linkCodes.js'
 import { boardFor } from '../services/kitchenSvc.js'
 
 const UUID = z.string().uuid()
@@ -62,19 +65,22 @@ async function requireScreen(req, reply) {
 
 export default async function screenApiRoutes(app) {
   // ── Pairing (no auth: the code is typed into Screens by someone signed in) ──
-  app.post('/pairings', { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async req => {
+  app.post('/pairings', { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async req => {
     const body = z.object({ device: DeviceInfo.optional() }).parse(req.body || {})
     const secret = newSecret()
     await systemSql`DELETE FROM screen_pairings WHERE expires_at < now() - interval '1 day'`
     for (let i = 0; i < 6; i++) {
       const code = newScreenCode()
+      const hash = sha256(normaliseScreenCode(code))
+      // Never the code a till or kitchen screen is showing (the installer finds one device per code).
+      if (await linkCodeTaken(systemSql, hash)) continue
       const [row] = await systemSql`
         INSERT INTO screen_pairings (code_hash, secret_hash, device_info, expires_at)
-        VALUES (${sha256(normaliseScreenCode(code))}, ${sha256(secret)}, ${systemSql.json(body.device || {})},
+        VALUES (${hash}, ${sha256(secret)}, ${systemSql.json(body.device || {})},
                 now() + make_interval(mins => ${PAIRING_MINUTES}))
         ON CONFLICT (code_hash) DO NOTHING
         RETURNING id, expires_at`
-      if (row) return { id: row.id, code, secret, expires_at: row.expires_at }
+      if (row) return { id: row.id, code, secret, expires_at: row.expires_at, link_url: linkUrl(code) }
     }
     throw httpError(503, 'Couldn\'t make a code, try again')
   })
@@ -85,7 +91,7 @@ export default async function screenApiRoutes(app) {
     return { now: Date.now() }
   })
 
-  app.get('/pairings/:id', { config: { rateLimit: { max: 60, timeWindow: '1 minute' } } }, async (req, reply) => {
+  app.get('/pairings/:id', { config: { rateLimit: { max: 240, timeWindow: '1 minute' } } }, async (req, reply) => {
     if (!UUID.safeParse(req.params.id).success) throw httpError(404, 'Not found')
     const m = /^Pairing ([A-Za-z0-9_-]{20,})$/.exec(req.headers.authorization || '')
     const [p] = await systemSql`SELECT id, secret_hash, expires_at, screen_id, claimed_at FROM screen_pairings WHERE id = ${req.params.id}`

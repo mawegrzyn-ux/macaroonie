@@ -20,7 +20,7 @@
 //
 // Pure apart from the clock and random numbers it is given.
 
-import { applyKitchenEvent, kitchenForCheckEvent, stationSettings, KITCHEN_DEVICE_EVENTS } from './kitchen.js'
+import { applyKitchenEvent, kitchenForCheckEvent, stationSettings, KITCHEN_DEVICE_EVENTS, BUMP_KINDS } from './kitchen.js'
 import { resolveSteps, isCombo } from '../combos.js'
 import { ulid } from './ids.js'
 
@@ -33,7 +33,7 @@ const pick = (list, rng) => list[Math.floor(rng() * list.length)]
 
 /** The screens on the bench: the venue's kitchen screens, or one per station. */
 export function benchScreens(data, mode = 'setup') {
-  const bumpable = (data.stations || []).filter(s => s.kind !== 'board')
+  const bumpable = (data.stations || []).filter(s => BUMP_KINDS.includes(s.kind))
   if (mode === 'setup' && (data.screens || []).length) return data.screens.map(s => ({ ...s, settings: s.settings || {} }))
   return bumpable.map(s => ({ id: s.id, name: s.name, short_code: null, settings: { station_ids: [s.id] }, per_station: true }))
 }
@@ -78,6 +78,7 @@ export function createBench(data, { now = () => new Date().toISOString(), rng = 
     log: [],
     number: 0,
     webNumber: 0,
+    balanceLast: {},   // each Balance box's last pick (the sequencer keeps it in kds_balance_turns)
   }
   const by = (rows, f) => Object.fromEntries((rows || []).map(r => [r.id, f(r)]))
   const ctx = { itemsById: data.items || {}, sectionItems: data.section_items || {} }
@@ -102,6 +103,9 @@ export function createBench(data, { now = () => new Date().toISOString(), rng = 
     }
     return cfgCache
   }
+
+  // The config with what Balance boxes need: the bench's orders and their last picks.
+  const withBalance = c => ({ ...c, balance: { open: st.orders, last: st.balanceLast, picks: st.balanceLast } })
 
   function note(entry) {
     st.log = [{ at: now(), ...entry }, ...st.log].slice(0, 80)
@@ -228,7 +232,7 @@ export function createBench(data, { now = () => new Date().toISOString(), rng = 
           }
         }),
       }
-      const r = applyKitchenEvent(st.orders, { id: ulid(), type: 'kitchen.order_in', payload: { order }, received_at: at }, c)
+      const r = applyKitchenEvent(st.orders, { id: ulid(), type: 'kitchen.order_in', payload: { order }, received_at: at }, withBalance(c))
       if (!r.ok) return { ok: false, error: r.error }
       store(r.orders)
       note({ screen: 'Test bench', type: 'order_in', number: order.number, ok: true })
@@ -260,7 +264,7 @@ export function createBench(data, { now = () => new Date().toISOString(), rng = 
       }),
     }
     const e = { id: ulid(), type: 'lines.sent', check_id: checkId, payload: { line_ids: check.lines.map(l => l.id), send_id: sendId }, received_at: at }
-    const out = kitchenForCheckEvent(e, {}, { [checkId]: check }, {}, c)
+    const out = kitchenForCheckEvent(e, {}, { [checkId]: check }, {}, withBalance(c))
     if (!out[checkId]) return { ok: false, error: 'Nothing went to the kitchen' }
     st.checks[checkId] = check
     store(out)
@@ -272,7 +276,7 @@ export function createBench(data, { now = () => new Date().toISOString(), rng = 
     const check = st.checks[orderId]
     if (!check) return { ok: false, error: 'Only a till order can do this' }
     const e = { id: ulid(), type, check_id: orderId, payload, received_at: now() }
-    const out = kitchenForCheckEvent(e, { [orderId]: check }, { [orderId]: check }, { [orderId]: st.orders[orderId] }, cfg())
+    const out = kitchenForCheckEvent(e, { [orderId]: check }, { [orderId]: check }, { [orderId]: st.orders[orderId] }, withBalance(cfg()))
     if (!out[orderId]) return { ok: false, error: 'Nothing changed' }
     store(out)
     note({ screen: 'Test bench', type, number: out[orderId].number, ok: true })

@@ -143,7 +143,7 @@ async function loadNames(tx, tenantId) {
   }
 }
 
-async function loadScreens(tx, tenantId) {
+export async function loadScreens(tx, tenantId) {
   const [rows, names] = await Promise.all([
     tx`SELECT s.*, v.name AS venue_name FROM screens s
          JOIN venues v ON v.id = s.venue_id AND v.tenant_id = s.tenant_id

@@ -40,6 +40,7 @@ const SECTIONS = [
   { id: 'till',                label: 'Till (POS)' },
   { id: 'kitchen',             label: 'Kitchen screens' },
   { id: 'kiosks',              label: 'Self-order kiosks' },
+  { id: 'installer',           label: 'Installer app' },
   { id: 'emails',              label: 'Booking Emails' },
   { id: 'team',                label: 'Team Management' },
   { id: 'access',              label: 'Modules & Roles' },
@@ -3495,8 +3496,8 @@ export default function Help() {
             <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
               <li>On the screen, open the screens address shown on <strong>Screens → Add a screen</strong> (screens.your-domain) in Chrome.</li>
               <li>In Chrome&apos;s menu choose <strong>Install app</strong> (or <strong>Add to Home screen</strong>): it then opens full screen with no address bar. In Fully Kiosk, set the address as the Start URL.</li>
-              <li>The screen shows a six-letter code (it changes every 15 minutes until it&apos;s used).</li>
-              <li>In the admin press <strong>Add screen</strong>, type the code, give the screen a name (e.g. Counter left), pick the venue and what it shows. The screen shows it within a few seconds.</li>
+              <li>The screen shows a six-letter code and a QR code (both change every 15 minutes until they&apos;re used).</li>
+              <li>In the admin press <strong>Add screen</strong>, type the code, give the screen a name (e.g. Counter left), pick the venue and what it shows. Or scan the QR code with your phone: it opens the installer app (see Installer app) to do the same there. The screen shows it within a few seconds.</li>
             </ol>
             <P>
               Each screen gets an ID (S1, S2 ...). <strong>Identify</strong> shows the name and ID on the
@@ -4143,8 +4144,11 @@ export default function Help() {
                 ['Make and change order lists, set pars', 'Purchasing setup', 'Pars are in packs unless you give kg, litres or each.'],
                 ['Import a price list', 'Purchasing setup', 'Attach a CSV with the import headings, or a PDF, photo or email of the supplier\'s list: Pepper reads the products out of it. The card shows what would be added and changed, and any rows it would skip, before anything is saved.'],
                 ['See and fill in an order', 'Purchasing', 'The venue\'s draft for a list: quantities, pars, last ordered, other suppliers. Quantities are packs (cases, bags), as on the Purchasing page. Nothing is sent until you place it.'],
-                ['Place an order', 'Purchasing', 'The card lists each supplier with its delivery date, how the order gets to them and the lines, and warns about rounded-up quantities, a missed cutoff or a small order.'],
-                ['Send, change or cancel a purchase order', 'Purchasing', 'Email it, or mark it sent by printout, PDF, Excel or phone. Quantities can change while it is waiting to be sent; the date and notes until it is received.'],
+                ['Send an order for approval', 'Purchasing', 'For people without Purchasing approval: the card lists the lines and the day wanted from each supplier, and you can add a note for the manager.'],
+                ['See the orders waiting for approval', 'Any purchasing access', 'Who asked and when, the days wanted, each line with what was asked for, and drafts that were sent back with the reason.'],
+                ['Place an order', 'Purchasing approval', 'Your draft, or an order waiting for approval. The card lists each supplier with its delivery date (the day asked for, if any), how the order gets to them and the lines, and warns about rounded-up quantities, a missed cutoff or a small order.'],
+                ['Change, split or send back an order waiting for approval', 'Purchasing approval', 'Change quantities, move part of it to a second order for another day, or send it back with the reason.'],
+                ['Send, change, split or cancel a purchase order', 'Purchasing (send, date); Purchasing approval (quantities, split, cancel)', 'Email it, or mark it sent by printout, PDF, Excel or phone. Quantities can change while it is waiting to be sent; the date and notes until it is received. A split moves part of it to a second order for another day.'],
                 ['Book a delivery in', 'Purchasing', 'Say what was short or missing and the probe temperatures; everything else counts as arrived. This also saves the delivery check in Food safety.'],
               ]}
             />
@@ -4354,7 +4358,19 @@ export default function Help() {
             </InfoBox>
             <H3>Using your own AI app</H3>
             <P>
-              On the Pepper page, open <strong>Connect</strong>. Type a name, pick how long it works
+              <strong>Claude (claude.ai and the Claude apps), ChatGPT and other apps that sign in:</strong>{' '}
+              copy the address from the Pepper page's <strong>Connect</strong> tab and add it in your AI app as a
+              custom connector, leaving any OAuth client ID and secret empty. When you connect it, a Macaroonie
+              page opens: sign in if asked, check it names the right app and restaurant group, tick{' '}
+              <strong>Read only</strong> if the app should only look things up, pick how long it works for, and
+              tap <strong>Allow</strong>. You're taken back to the app, which is now connected. It shows on the
+              Connect tab with your access tokens as "(connected app)": revoke it there to disconnect it, and
+              connect again when it expires. If the page says the connection is for another restaurant group,
+              switch to it there first.
+            </P>
+            <P>
+              <strong>Claude Code, Cursor and other apps that send a header:</strong> on the Pepper page, open{' '}
+              <strong>Connect</strong>. Type a name, pick how long it works
               for (<strong>Works for</strong>: 30, 90 or 180 days, or a year; 90 to start with), tick{' '}
               <strong>Read only</strong> if the app should only look things up, and press{' '}
               <strong>Make token</strong>. Copy the token: it is shown once. In your AI app, add a
@@ -4556,6 +4572,48 @@ export default function Help() {
               If anything failed, say what was done about it. Saving writes the venue's delivery check for
               Food safety, so it doesn't need typing in twice. <strong>Correct the delivery</strong> updates it.
             </P>
+
+            <H3>6. Orders that need approval</H3>
+            <P>
+              A role's <strong>Purchasing approval</strong> permission (Access → Roles) decides who can place
+              orders. People who can order (Purchasing: Manage) but not approve fill in an order the same way,
+              then tap <strong>Send for approval</strong> instead of Place order: they pick the day they'd like
+              from each supplier and can leave a note for the manager. Nothing reaches the suppliers yet. To make
+              someone request only, set their role's Purchasing approval to None.
+            </P>
+            <DataTable
+              head={['Who', 'What they can do with an order waiting for approval']}
+              rows={[
+                ['The person who asked', 'See it under Waiting for approval on the Order tab, and Take it back to change it (it becomes a draft again).'],
+                ['Someone with Purchasing approval', 'Open it from Waiting for approval (the Order tab says how many are waiting). Change any quantity: a changed line shows what was asked for. Then Place order (the days asked for are picked already), Split for another day, Send back with a reason, or Decline (deletes it).'],
+              ]}
+            />
+            <P>
+              An order that was sent back shows <strong>Sent back</strong> on its list's tile and the reason at the
+              top: change it and send it for approval again. A placed purchase order records who asked for it and
+              who placed it. Changing a placed order's quantities, splitting it and cancelling it also need
+              Purchasing approval; sending it, moving its delivery date and booking the delivery in don't.
+            </P>
+
+            <H3>7. Splitting an order for another day</H3>
+            <P>
+              <strong>Split for another day</strong> moves part of an order to a second order with its own
+              delivery day: tap <strong>Move</strong> (or All) on the lines that should come later, then pick the
+              day from the supplier's delivery days or the calendar. It must be a different day from the first
+              order's, and something has to stay on the first one (to move everything, change its delivery day).
+            </P>
+            <DataTable
+              head={['Split', 'What happens']}
+              rows={[
+                ['An order waiting for approval', 'The moved part becomes a second request from the same person, also waiting for approval. Each is placed (or sent back) on its own.'],
+                ['A purchase order not sent yet', 'A second purchase order to the same supplier for the new day, with the same prices, note and delivery charge. Both wait under To send.'],
+                ['A purchase order the supplier already has', 'The first one goes back to To send marked Changed, and its copy says Amended and that it replaces the earlier one. Suppliers that take email get both straight away; for the others, send both again.'],
+              ]}
+            />
+            <P>
+              The two purchase orders link to each other (Split off / Part moved to), and the second one's copy
+              tells the supplier which order it was split from.
+            </P>
             <InfoBox type="info">
               All of this can also be done by chat with Pepper (Ask Pepper): ordering, booking deliveries
               in, changing prices and importing a supplier's price list from a PDF or photo. See Pepper →
@@ -4591,7 +4649,7 @@ export default function Help() {
               <li><strong>Receipts and payments</strong>: when the trading day starts, the name, address and VAT number on receipts, bill and receipt footers, the ways to pay, tips, asking for covers, and when staff are signed out. Tax rates are set on Menus → Tax rates.</li>
               <li><strong>Cash Recon</strong>: which till figures go into which Cash Recon fields when the day is closed (see End of day).</li>
               <li><strong>Floor plan</strong> (Till setup → Floor plan): add an area (e.g. Restaurant), tap tables to put them on it, drag them where they stand, drag the round corner to resize, Turn, Square / Round, and add walls, the bar, plants and labels. Save the area. Tables themselves are added on the Tables page.</li>
-              <li><strong>Tills</strong>: tap <strong>Add a till</strong>, give it a name, table service or counter, then open the till address on the tablet and type the pairing code shown. The code works once, for 30 minutes. <strong>Pair again</strong> gives a new code (the old pairing stops); removing a till signs it out for good.</li>
+              <li><strong>Tills</strong>: open the till address on the tablet: it shows a six-letter code and a QR code. Scan the QR code with your phone (the installer app), or tap <strong>Link a code shown on the till</strong> here and type it, with a name. The other way still works: tap <strong>Add a till</strong>, give it a name, table service or counter, and type the pairing code shown into the tablet (press <strong>Have a code from Till setup?</strong> there). That code works once, for 30 minutes. <strong>Pair again</strong> gives a new code (the old pairing stops); removing a till signs it out for good.</li>
             </ol>
 
             <H3>Device addresses and disconnecting</H3>
@@ -4755,8 +4813,10 @@ export default function Help() {
 
             <H3>Setting up (Till setup → Kitchen screens)</H3>
             <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
-              <li><strong>Stations</strong>, four kinds: <strong>Prep</strong> (Grill, Fryer, Bar, Prep 1...) makes dishes; <strong>Expo</strong> (the pass) checks whole orders before they go out; <strong>Runner</strong> takes orders out to tables or the counter; <strong>Order ready board</strong> shows order numbers on menu screens (nothing to bump, no kitchen screen). Each station turns a ticket amber after your target minutes and red after more. <strong>Show held courses</strong> shows dishes waiting to be fired, greyed out. <strong>Show orders before their dishes get here</strong> (on for an expo) puts a ticket up as soon as the order is sent, each dish marked where it is now (At Grill). <strong>On order counts</strong>: groups such as Wings, counting how many pieces are on order (the 8pc dish counts 8, the 6 Wings option counts 6).</li>
+              <li><strong>Stations</strong>, four kinds (plus the Balance box below): <strong>Prep</strong> (Grill, Fryer, Bar, Prep 1...) makes dishes; <strong>Expo</strong> (the pass) checks whole orders before they go out; <strong>Runner</strong> takes orders out to tables or the counter; <strong>Order ready board</strong> shows order numbers on menu screens (nothing to bump, no kitchen screen). Each station turns a ticket amber after your target minutes and red after more. <strong>Show held courses</strong> shows dishes waiting to be fired, greyed out. <strong>Show orders before their dishes get here</strong> (on for an expo) puts a ticket up as soon as the order is sent, each dish marked where it is now (At Grill). <strong>On order counts</strong>: groups such as Wings, counting how many pieces are on order (the 8pc dish counts 8, the 6 Wings option counts 6).</li>
               <li><strong>Kitchen flow</strong> (at the top): boxes for <strong>Orders in</strong> (the till and online orders) and every station, joined by links. Drag a box's dot onto another box (or tap the dot, then the box) to send dishes on to it. Tap a link's label to choose which dishes take it: dishes, sections, revenue streams or order types (your own list: Eat in, Take out...); a link with no filter takes every dish. From each box a dish takes the links that name it most closely (the dish, then its section, its revenue stream, its order type, then links for every dish), so Prep 1 to Prep 2 for burgers and Prep 1 to Expo 1 for everything else sends the bun on and the fries straight to the expo. Links that tie all apply: Expo 1 to ORB 1 and to a Runner at once, or for eat in only. <strong>Check a dish</strong> shows a dish's way. A new flow arranges itself; drag boxes by their grip, or press <strong>Tidy</strong>. A way round in a circle can't be saved. <strong>Save flow</strong>: dishes sent from then on follow it (dishes already in the kitchen keep their way).</li>
+              <li><strong>Taking a station out of a flow</strong> (the grill down tonight, one cook on the fryer): tap the station's box, then <strong>Take out of this flow</strong> and <strong>Yes, take it out</strong>. The box leaves this flow with its links, and no dish goes to that station while this flow is in use; link the stations that take over its dishes, then <strong>Save flow</strong>. It shows under <strong>Not in this flow</strong> above the boxes, where <strong>Put back</strong> brings it back (with no links: draw them again). The station itself, its screens and its settings stay, and your other flows still use it. To remove a station everywhere, delete it under <strong>Edit station</strong> instead.</li>
+              <li><strong>Sharing tickets between two stations (Balance box)</strong>: for two cooks on the same job, e.g. two wingmen. <strong>Add to the flow</strong> → <strong>Balance box</strong>, name it (Wings) and list its <strong>Pieces</strong>: what a dish counts when the box weighs up who has more to cook (the <em>10 Wings</em> option counts 10, the <em>8pc Boneless</em> dish counts 8; a dish not listed counts its quantity). Link Orders in to the box for the wings (a link naming the Wings section or the dishes), and the box to Wingman 1 and Wingman 2; leave the link for every dish going to the Fryer. Each ticket's wings then go to just one wingman, the one with the fewest pieces still to cook (a piece counts until that station bumps it), taking turns when they're level; the rest of the ticket goes to the fryer. <strong>Big tickets</strong> (in the box's window): <em>Keep each ticket on one station</em> (the usual) sends all of a ticket's wings to one wingman however many there are; <em>Share big tickets</em> with a number, e.g. 30, shares out a ticket with more than 30 pieces: each dish line goes, biggest first, to whichever wingman then has the fewest pieces (counting what this ticket has already given them), so 3 x 20 wings on one ticket can go 20 to one and 40 to the other. One dish line is never split (a line of 3 x 10 Wings stays with one wingman), and a meal deal's parts can go to different wingmen. The choice is made when the order reaches the kitchen (a held course: when it's fired), and then the dish stays with that wingman. A box's links out show <strong>Shared</strong> and have no filters; <strong>Check a dish</strong> shows <em>Wingman 1 or Wingman 2</em>. The box has no kitchen screen and nothing to bump. If one wingman is taken out of the flow in use, the other gets every ticket.</li>
               <li><strong>Several flows</strong>: the row of flow names above the boxes picks the flow you're looking at; a green dot marks the one <strong>in use</strong>. <strong>New flow</strong> starts an empty one; <strong>Copy</strong> (in the box on the right) starts from the flow you're looking at, which is the quick way to make, say, a <em>Grill down</em> flow from your normal one. <strong>Use this flow now</strong> puts the flow you're looking at in use, after a confirm. <strong>Rename</strong> and the bin (delete, after a confirm) are there too; the flow in use can't be deleted. <strong>Order</strong> sets the order kitchen screens list the flows in (drag the rows). Save or discard changes before opening another flow.</li>
               <li><strong>Kitchen screens</strong>: <strong>Add a screen</strong>, name it, tick the stations it shows (none ticked: all; order ready boards aren't shown on kitchen screens), what it opens on (tickets or the On order counts), tickets across, text size, the beep, and whether it <strong>can switch the kitchen flow</strong> (on unless you turn it off). On the screen, open the kitchen screen address (kitchen.macaroonie.com, shown on the tab) in Chrome, install it, and type the pairing code.</li>
               <li><strong>Online orders</strong>: send online orders to the kitchen when they're accepted (an order for later comes on when it's time to start it), and mark them ready when the kitchen finishes (the guest gets the ready email).</li>
@@ -4895,6 +4955,58 @@ export default function Help() {
             <P>
               Kiosk orders show in Till reports with the kiosk's name as the server.
             </P>
+          </section>
+
+          {/* ── INSTALLER APP ───────────────────────────────── */}
+          <section id="installer" data-help="">
+            <H2>Installer app</H2>
+            <P>
+              The installer is a phone app for setting up a venue&apos;s devices while you stand next to them:
+              tills, kitchen screens, self-order kiosks and menu screens. Open{' '}
+              <strong>installer.macaroonie.com</strong> on your phone and sign in as usual. In Chrome choose{' '}
+              <strong>Install app</strong> (on an iPhone, Share then <strong>Add to Home Screen</strong>) so it
+              opens like an app. It shows what you can see in Till setup (tills, kitchen screens, kiosks) and
+              Menu screens; linking and changing devices needs Manage on them.
+            </P>
+
+            <H3>Linking a device</H3>
+            <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
+              <li>On the device, open its address in Chrome: <strong>pos.macaroonie.com</strong> for a till, <strong>kitchen.macaroonie.com</strong> for a kitchen screen, <strong>kiosk.macaroonie.com</strong> for a kiosk, <strong>screens.macaroonie.com</strong> for a menu screen. It shows a six-letter code and a QR code.</li>
+              <li>Scan the QR code with your phone&apos;s camera. It opens the installer on that code. (In the installer, <strong>Link a device showing a code</strong> lets you type the code instead, or scan it with <strong>Scan the QR code</strong> where the phone offers it.)</li>
+              <li>Check the venue at the top (<strong>Change</strong> picks another), give the device a name and, for a kitchen screen, tick the stations it shows; for a menu screen, pick the board or playlist.</li>
+              <li>Tap <strong>Link</strong>. The device sets itself up within a few seconds.</li>
+            </ol>
+            <P>
+              The code is for the kind of device it was shown on: a code from the kitchen screen address can only
+              become a kitchen screen. Codes change every 15 minutes until they&apos;re used, and work once.
+            </P>
+
+            <H3>Adding a new device</H3>
+            <P>
+              <strong>Add a new device</strong> asks what it is, then shows its address (with a QR code a device
+              with a camera can scan to open it). Open it on the device and link the code it shows. For a till,
+              kitchen screen or kiosk you can instead make it in the installer: give it a name, tap{' '}
+              <strong>Make a code</strong>, and on the device press <strong>Have a code from Till setup?</strong>{' '}
+              and type it.
+            </P>
+
+            <H3>A device&apos;s page</H3>
+            <P>
+              The home page lists every till, kitchen screen, kiosk and menu screen at the venue with its state:{' '}
+              <strong>Online</strong>, <strong>Offline</strong>, <strong>Code waiting</strong> or{' '}
+              <strong>Not linked</strong>. Tap one to change its name and settings (then Save), to show a menu
+              screen&apos;s name on it (<strong>Show its name on the screen</strong>) or reload it, to move it
+              to a new device, or to remove it.
+            </P>
+            <P>
+              <strong>Move it to a new device</strong> is for a broken or replaced tablet or TV: link the new
+              device&apos;s code (or make a code to type on it) and it takes this device&apos;s name and settings;
+              the old one stops working.
+            </P>
+            <InfoBox type="info">
+              The installer only links and sets up devices. Everything else (stations and the kitchen flow, kiosk
+              designs, boards and playlists, printers) is set up in Till setup and on the Screens page.
+            </InfoBox>
           </section>
 
           {/* ── BOOKING EMAILS ──────────────────────────────── */}

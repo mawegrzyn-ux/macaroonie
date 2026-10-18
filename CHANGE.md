@@ -5,6 +5,50 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-18 — The installer app: link tills, kitchen screens, kiosks and menu screens from a phone]
+
+- **A new phone app at installer.macaroonie.com** for setting up a venue's devices while you stand next to them. Sign in, choose the venue, and see every till, kitchen screen, kiosk and menu screen there with its state (Online, Offline, Code waiting, Not linked). Install it from Chrome (or Add to Home Screen on an iPhone) and it opens like an app.
+- **Devices show their own code and a QR code.** A till, kitchen screen or kiosk that isn't set up now shows a six-letter code and a QR code (as menu screens did, now with a QR code too). Scan it with your phone's camera: the installer opens on that code, says what the device is, and you name it (and pick a kitchen screen's stations, or a menu screen's board) and tap Link. The device sets itself up within seconds. Codes change every 15 minutes until used.
+- **Add a new device** in the installer: it shows the address to open on the device (with a QR code), or makes a till, kitchen screen or kiosk and a code to type on it.
+- **A device's page** in the installer: change its name and settings (Save), show a menu screen's name on it, reload it, **move it to a new device** (the new one keeps its name and settings, the old one stops), or remove it (asks twice).
+- **Till setup** has **Link a code shown on the till** (kitchen screen, kiosk) on its device tabs, and points at the installer. Typing a code made in Till setup into a device still works: on the device press *Have a code from Till setup?*.
+- Before first use: add https://installer.macaroonie.com to the Auth0 application's Allowed Callback URLs, Allowed Logout URLs and Allowed Web Origins.
+- **Migration 184** (device_link_codes).
+
+## [2026-10-18 — Balance boxes: a choice for big tickets]
+
+- **A Balance box can share out big tickets.** In its window (Till setup → Kitchen screens → the box → Edit), **Big tickets**: *Keep each ticket on one station* (as before) or *Share big tickets* with a number of pieces. A ticket with more pieces than that is shared out: each dish line goes, biggest first, to whichever station then has the fewest pieces to cook, counting what this ticket has already given it. One dish line is never split; a meal deal's parts can go to different stations. The station list and the flow designer say which the box does.
+- No migration (a new key in the station's settings, null by default).
+
+## [2026-10-18 — Balance boxes: share tickets between two kitchen stations]
+
+- **A Balance box in the kitchen flow shares tickets between stations doing the same job**, e.g. two wingmen. In Till setup → Kitchen screens, **Add to the flow** → **Balance box**, list what dishes count as (the 10 Wings option counts 10, the 8pc dish counts 8), link the wings to the box and the box to both wingmen. Each ticket's wings go to the wingman with the fewest pieces still to cook, taking turns when they're level; everything else on the ticket goes where it went before (e.g. the fryer). A ticket's wings always stay together.
+- Decided when the order reaches the kitchen (a held course when it's fired), then fixed. **Check a dish** shows "Wingman 1 or Wingman 2". The box has no kitchen screen and nothing to bump; the kitchen test bench shares tickets the same way.
+- **Migration 183** (kitchen_balance).
+
+## [2026-10-18 — Take a station out of a kitchen flow]
+
+- **A station can be taken out of one kitchen flow** without deleting it. In Till setup → Kitchen screens, tap the station's box in the flow, then **Take out of this flow**: it leaves that flow with its links, and no dish goes to it while that flow is in use. It shows under **Not in this flow** above the boxes, where **Put back** brings it back. The station, its screens and its settings stay, and your other flows still use it (e.g. a *Grill down* flow without the grill).
+- A station out of a flow no longer shows the "isn't on the way of any dish" warning, and the kitchen screens' flow list doesn't name it for that flow. Copying a flow keeps the stations it leaves out.
+- **Migration 182** (kitchen_flow_stations).
+
+## [2026-10-18 — Connect Claude and ChatGPT to Pepper by signing in]
+
+- **Claude's custom connectors (claude.ai and the Claude apps) and ChatGPT now connect to Pepper by signing in**, instead of asking for an OAuth client ID and secret. Add the address from Pepper → Connect as a custom connector (leave any client ID and secret empty). A Macaroonie page opens: it names the app and your restaurant group, you choose Read only and how long it works (30, 90 or 180 days, or a year), and tap Allow. You're taken back to the app, connected.
+- The connected app shows on the Connect tab with your access tokens as "(connected app)": revoke it there to disconnect it. Someone who isn't in the restaurant group the connection is for can only cancel; with Pepper switched off the page says so.
+- Apps that send a header (Claude Code, Cursor) still connect with a token made on the Connect tab, which now explains both ways.
+- **Fix**: signing in from a link to any page (not just the Overview) now brings you back to that page afterwards.
+- **Migration 181** (mcp_oauth).
+
+## [2026-10-18 — Purchasing: orders that need approval, and splitting orders for another day]
+
+- **Orders can need approval.** A new role permission, **Purchasing approval** (Access → Roles), decides who can place orders. Someone who can order but not approve fills in the order as before, then taps **Send for approval**: they pick the day they'd like from each supplier and can leave a note. Nothing goes to suppliers yet. To make a role request only, set its Purchasing approval to None (owners, admins and operators have it by default, so nothing changes until you do).
+- **A second person checks it.** Orders waiting show at the top of the Order tab (the tab says how many to approve). Someone with approval can change any quantity (changed lines show what was asked for), then **Place order** (the days asked for are already picked), **Split for another day**, **Send back** with a reason, or **Decline**. The person who asked can take it back to change it while it waits. A sent-back order shows Sent back and the reason.
+- **Split an order into two for different days**: an order waiting for approval becomes two requests, each placed on its own; a placed purchase order gets a second purchase order to the same supplier for the new day, with the same prices. If the supplier already had it, the first one goes back to To send marked Changed, its copy says Amended, and suppliers that take email get both straight away. The two orders link to each other.
+- Changing a placed order's quantities, splitting it and cancelling it also need Purchasing approval; sending it, moving its delivery date and booking the delivery in don't. Purchase orders show who asked for them and who placed them.
+- **Pepper** follows the same rules: it sends orders for approval for people who can't place them (request_order), lists what's waiting (and the day briefing counts it), and approvers can change, split, send back and place by chat.
+- **Migration 180** (purchasing_approval).
+
 ## [2026-10-18 — Each device on its own address; Disconnect on every device]
 
 - **Tills, kitchen screens, kiosks and menu screens each have their own address**: tills at pos.macaroonie.com, kitchen screens at **kitchen.macaroonie.com** (kds.macaroonie.com goes there too), kiosks at **kiosk.macaroonie.com**, menu screens at screens.macaroonie.com. Each installs as its own app (Macaroonie Till, Kitchen, Kiosk) and Till setup shows the right address on each tab and in the pairing window.
