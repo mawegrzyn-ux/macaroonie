@@ -4,12 +4,12 @@
 // the restaurant's allergen notice.
 
 import { useMemo, useState } from 'react'
-import { ArrowLeft, ShieldAlert } from 'lucide-react'
+import { ShieldAlert } from 'lucide-react'
 import { noticeOf } from '@shared/menuTags.js'
 import { TK, allergenName } from '@shared/kiosk.js'
 import { configItem } from '@shared/pos/offers.js'
 import { useKiosk, textsFor, go, kioskSections, itemLevels } from './store.js'
-import { cx } from './parts.jsx'
+import { cx, BackButton } from './parts.jsx'
 
 export default function Allergens() {
   const s = useKiosk()
@@ -39,9 +39,7 @@ export default function Allergens() {
   return (
     <div className="absolute inset-0 flex flex-col" data-testid="k-allergen-list">
       <div className="shrink-0 flex items-center gap-[var(--k-gap)] px-[var(--k-pad)] py-[var(--k-gap)] bg-[var(--k-surface)] border-b-2 border-[var(--k-line)]">
-        <button className="k-btn k-btn-ghost" onClick={() => go(s.orderType ? 'menu' : 'start')}><ArrowLeft /> {ui('back')}</button>
-        <div className="k-head text-[1.5em] flex-1 text-center flex items-center justify-center gap-[.4em]"><ShieldAlert /> {ui('allergens')}</div>
-        <span className="min-w-[6em]" />
+        <div className="k-head text-[1.5em] flex-1 text-center flex items-center justify-center gap-[.4em] min-h-[max(56px,3.2em)]"><ShieldAlert /> {ui('allergens')}</div>
       </div>
       <div className="flex-1 min-h-0 k-scroll p-[var(--k-pad)] flex flex-col gap-[var(--k-gap)]">
         <div className="k-card p-[var(--k-pad)] flex flex-col gap-[.4em]">
@@ -81,6 +79,9 @@ export default function Allergens() {
             )
           })}
         </div>
+      </div>
+      <div className="k-bar shrink-0">
+        <BackButton onClick={() => go(s.orderType ? 'menu' : 'start')} label={ui('back')} />
       </div>
     </div>
   )

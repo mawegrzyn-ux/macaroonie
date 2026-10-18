@@ -3,9 +3,22 @@
 // keyboard and number pad (kiosk browsers often hide the device's own).
 
 import { useEffect, useId, useState } from 'react'
-import { UtensilsCrossed, ShoppingBag, Bike, Flame, Star, Circle, Minus, Plus, Delete } from 'lucide-react'
+import { UtensilsCrossed, ShoppingBag, Bike, Flame, Star, Circle, Minus, Plus, Delete, ArrowLeft } from 'lucide-react'
 
 export const cx = (...p) => p.filter(Boolean).join(' ')
+
+/**
+ * Every screen's way back: a solid button at the left of the screen's bottom
+ * bar, beside the main button, never at the top (out of reach on a tall
+ * kiosk, and missed by guests looking at the bottom for what to do next).
+ */
+export function BackButton({ onClick, label, testId = 'k-back' }) {
+  return (
+    <button className="k-btn k-btn-big k-btn-back" onClick={onClick} data-testid={testId}>
+      <ArrowLeft /> {label}
+    </button>
+  )
+}
 
 const PORTRAIT = '(orientation: portrait)'
 

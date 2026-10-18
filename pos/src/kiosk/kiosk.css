@@ -60,6 +60,10 @@
 .k-btn-primary { background: var(--k-primary); color: var(--k-primary-text) !important; border-color: var(--k-primary); }
 .k-btn-accent { background: var(--k-accent); color: var(--k-accent-text) !important; border-color: var(--k-accent); }
 .k-btn-ghost { background: transparent; border-color: transparent; }
+/* Back (parts.jsx BackButton): solid in the text colour on a light bar, in
+   the page colour on the dark bar, so it reads as a button on either. */
+.k-btn-back { background: var(--k-text); color: var(--k-bg) !important; border-color: var(--k-text); }
+.k-bar .k-btn-back { background: var(--k-bg); color: var(--k-text) !important; border-color: var(--k-bg); }
 .k-btn-big { min-height: max(72px, 4em); font-size: 1.2em; padding: 0 1.6em; }
 .k-btn-round { width: max(56px, 3.2em); padding: 0; border-radius: 999px; }
 .k-btn-icon { width: max(56px, 3.2em); padding: 0; }

@@ -3695,7 +3695,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['KioskApp.jsx', 'The design as CSS variables (--k-*), fonts, the idle warning and restart, reach, wake lock (not in the preview), screens.'],
                 ['Start / Menu / Builder / OptionGroup / Checkout / Allergens', 'Start screen; menu with rail, home page and dish cards; the dish and combo builder (the Add / Continue button points at the first choice still missing); one option group in its display; basket, upsell, name and table number (keyboard / number pad), pay, test card reader, order number; allergen lookup.'],
                 ['displays.jsx', 'GridDisplay, ListDisplay, SliderDisplay (sorted by level when a scale shows), WheelDisplay (up to 16 on the wheel, the rest in a grid below); the same props, so any group or step can use any.'],
-                ['parts.jsx / kiosk.css', 'Sheets (close on a click of the backdrop), number pad, level marks, photos; :where(.k-root) button keeps button colour inheritance at the lowest weight.'],
+                ['parts.jsx / kiosk.css', 'Sheets (close on a click of the backdrop), number pad, level marks, photos; :where(.k-root) button keeps button colour inheritance at the lowest weight. BackButton: every screen\'s way back, a solid button (.k-btn-back: the text colour on a light bar, the page colour on the dark .k-bar) first in the screen\'s bottom bar; no screen has a Back at the top (the builder\'s top bar is the item name and a combo\'s price).'],
               ]}
             />
             <P>

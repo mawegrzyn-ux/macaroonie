@@ -4936,6 +4936,7 @@ export default function Help() {
             <ul className="list-disc ml-5 space-y-2 text-sm text-muted-foreground mb-4">
               <li>The start screen: flags for the languages, Staying or going? (or Start your order with one order type), and Allergens to look dishes up first.</li>
               <li>The menu: sections down the side, the home page, dishes as cards. A dish with nothing to choose can be added with its + straight away.</li>
+              <li>Back is always a solid button at the bottom left, beside the main button (Add, Continue, Checkout), never at the top. In a combo it goes one step back, and out of the combo from its first step. On the order page it is Add more.</li>
               <li>A dish: its choices shown the way you set; the Add button points at anything still to choose. A combo goes step by step, with its allergens shown for what was picked.</li>
               <li>The order page: change or take off dishes, "Anything else?", then the name or table number if the stream asks, then pay. The order number shows at the end (with a receipt to print if you allow it).</li>
               <li>Nobody tapping for a while: "Still there?", then the kiosk starts again. The reach button brings everything down to the lower half of the screen. A dish marked sold out on the till greys out on the kiosk straight away.</li>

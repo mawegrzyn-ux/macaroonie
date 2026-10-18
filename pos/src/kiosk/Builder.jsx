@@ -7,7 +7,7 @@
 // Pricing and the rules are the till's: shared/pos/pricing.js priceItem().
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, Check, Plus, Info } from 'lucide-react'
+import { Check, Plus, Info } from 'lucide-react'
 import { priceItem, lineGross } from '@shared/pos/pricing.js'
 import { resolveSteps } from '@shared/combos.js'
 import { fromPrice, priceVaries } from '@shared/orderPricing.js'
@@ -16,7 +16,7 @@ import { TK, allergenName } from '@shared/kiosk.js'
 import { useKiosk, textsFor, addToBasket, closeBuilder, soldOut, itemLevels, dishLevels, mergeLevels } from './store.js'
 import OptionGroup, { missingIn, ruleText, groupName } from './OptionGroup.jsx'
 import { DISPLAYS } from './displays.jsx'
-import { cx, Photo, Stepper, bringIntoView, usePortrait } from './parts.jsx'
+import { cx, Photo, Stepper, BackButton, bringIntoView, usePortrait } from './parts.jsx'
 
 /**
  * Tags with their levels ({ code: level }) as names in the guest's language:
@@ -90,12 +90,14 @@ export default function Builder() {
     : <DishBuilder key={builder.key || builder.item_id} item={item} config={config} ctx={ctx} texts={texts} builder={builder} />
 }
 
-function TopBar({ title, onBack, texts, right = null }) {
+// The item's name (and a combo's running price). The way back is in the
+// bottom bar (BackButton), beside the main button.
+function TopBar({ title, right = null }) {
   return (
-    <div className="flex items-center gap-[var(--k-gap)] px-[var(--k-pad)] py-[calc(var(--k-gap)/1.2)] bg-[var(--k-surface)] border-b-2 border-[var(--k-line)] shrink-0">
-      <button className="k-btn k-btn-ghost" onClick={onBack} data-testid="k-back"><ArrowLeft /> {texts.ui('back')}</button>
+    <div className="flex items-center gap-[var(--k-gap)] px-[var(--k-pad)] min-h-[max(56px,3.2em)] py-[calc(var(--k-gap)/1.2)] bg-[var(--k-surface)] border-b-2 border-[var(--k-line)] shrink-0">
+      {right && <div className="min-w-[6em]" />}
       <div className="k-head text-[1.3em] flex-1 min-w-0 truncate text-center">{title}</div>
-      <div className="min-w-[6em] flex justify-end">{right}</div>
+      {right && <div className="min-w-[6em] flex justify-end">{right}</div>}
     </div>
   )
 }
@@ -139,16 +141,19 @@ function pointAtMissing() {
   el.classList.add('k-attn')
 }
 
-function AddBar({ texts, qty, setQty, priced, missing, editing, onAdd, total }) {
+function AddBar({ texts, qty, setQty, priced, missing, editing, onAdd, onBack, total }) {
   const { ui, money } = texts
   return (
-    <div className="shrink-0 bg-[var(--k-surface)] border-t-2 border-[var(--k-line)] px-[var(--k-pad)] py-[var(--k-gap)] flex items-center gap-[var(--k-pad)] flex-wrap">
-      <Stepper value={qty} onChange={setQty} labels={{ less: ui('one_less'), more: ui('one_more') }} />
-      {missing && <span className="font-bold text-[var(--k-primary)] flex-1 min-w-[10em]" data-testid="k-missing">{ui('choose_first', { name: missing })}</span>}
-      <button className={cx('k-btn k-btn-primary k-btn-big ml-auto', missing && 'k-btn-wait')} disabled={!missing && !priced.ok}
-        onClick={() => (missing ? pointAtMissing() : onAdd())} data-testid="k-add" data-ready={missing ? '0' : '1'}>
-        {editing ? ui('update_order') : ui('add_to_order')}{total != null ? ' · ' + money(total) : ''}
-      </button>
+    <div className="shrink-0 bg-[var(--k-surface)] border-t-2 border-[var(--k-line)] px-[var(--k-pad)] py-[var(--k-gap)] flex flex-col gap-[var(--k-gap)]">
+      {missing && <span className="font-bold text-[var(--k-primary)] text-right" data-testid="k-missing">{ui('choose_first', { name: missing })}</span>}
+      <div className="flex items-center gap-[var(--k-pad)]">
+        <BackButton onClick={onBack} label={ui('back')} />
+        <Stepper value={qty} onChange={setQty} labels={{ less: ui('one_less'), more: ui('one_more') }} />
+        <button className={cx('k-btn k-btn-primary k-btn-big ml-auto', missing && 'k-btn-wait')} disabled={!missing && !priced.ok}
+          onClick={() => (missing ? pointAtMissing() : onAdd())} data-testid="k-add" data-ready={missing ? '0' : '1'}>
+          {editing ? ui('update_order') : ui('add_to_order')}{total != null ? ' · ' + money(total) : ''}
+        </button>
+      </div>
     </div>
   )
 }
@@ -168,7 +173,7 @@ function DishBuilder({ item, config, ctx, texts, builder }) {
   ))
   return (
     <div className="absolute inset-0 z-30 flex flex-col bg-[var(--k-bg)] k-fade" data-testid="k-builder">
-      <TopBar title={texts.itemName(item)} onBack={closeBuilder} texts={texts} />
+      <TopBar title={texts.itemName(item)} />
       {portrait || !groups.length ? (
         <div className="flex-1 min-h-0 k-scroll p-[var(--k-pad)] flex flex-col gap-[calc(var(--k-pad)*1.2)]">
           <Hero item={item} config={config} ctx={ctx} texts={texts} />
@@ -183,7 +188,7 @@ function DishBuilder({ item, config, ctx, texts, builder }) {
         </div>
       )}
       <AddBar texts={texts} qty={qty} setQty={setQty} priced={priced} missing={missing} editing={!!builder.key} total={total}
-        onAdd={() => addToBasket({ item_id: item.id, selection: { choices: sel.choices || {} }, qty }, builder.key)} />
+        onBack={closeBuilder} onAdd={() => addToBasket({ item_id: item.id, selection: { choices: sel.choices || {} }, qty }, builder.key)} />
     </div>
   )
 }
@@ -377,7 +382,7 @@ function ComboBuilder({ item, config, ctx, texts, builder }) {
   const optionalEmpty = isStep && page.st.step.min === 0 && !(picks[page.st.step.id] || []).length
   return (
     <div className="absolute inset-0 z-30 flex flex-col bg-[var(--k-bg)] k-fade" data-testid="k-builder" data-combo="1">
-      <TopBar title={texts.itemName(item)} onBack={closeBuilder} texts={texts}
+      <TopBar title={texts.itemName(item)}
         right={<span className="k-price text-[1.2em]">{total != null ? money(total) : priceLabel(item, config, ctx, texts)}</span>} />
       <div className="flex-1 min-h-0 flex landscape:flex-row flex-col">
         <aside ref={rail} className={cx('shrink-0 bg-[var(--k-surface)] flex', portrait ? 'flex-row items-center gap-[var(--k-gap)] px-[var(--k-pad)] py-[var(--k-gap)] k-hscroll border-b-2 border-[var(--k-line)]' : 'flex-col w-[30%] max-w-[420px] k-scroll p-[var(--k-pad)] gap-[var(--k-gap)] border-r-2 border-[var(--k-line)]')}>
@@ -422,7 +427,7 @@ function ComboBuilder({ item, config, ctx, texts, builder }) {
         </main>
       </div>
       <div className="shrink-0 bg-[var(--k-surface)] border-t-2 border-[var(--k-line)] px-[var(--k-pad)] py-[var(--k-gap)] flex items-center gap-[var(--k-pad)] flex-wrap">
-        <button className="k-btn" onClick={goBack} data-testid="k-step-back"><ArrowLeft /> {ui('back')}</button>
+        <BackButton onClick={goBack} label={ui('back')} testId="k-step-back" />
         {page.kind === 'review' && <Stepper value={qty} onChange={setQty} labels={{ less: ui('one_less'), more: ui('one_more') }} />}
         {page.kind === 'review' ? (
           <button className="k-btn k-btn-primary k-btn-big ml-auto" disabled={!priced.ok} onClick={add} data-testid="k-add">

@@ -4,7 +4,7 @@
 // streams), how to pay, the card reader, sending, and the order number.
 
 import { useEffect, useMemo, useState } from 'react'
-import { Minus, Plus, Pencil, Trash2, CreditCard, Store, ArrowLeft, Printer, Check, AlertTriangle, ShoppingBag } from 'lucide-react'
+import { Minus, Plus, Pencil, Trash2, CreditCard, Store, Printer, Check, AlertTriangle, ShoppingBag } from 'lucide-react'
 import { lineGross, groupModifiers } from '@shared/pos/pricing.js'
 import { countParts } from '@shared/combos.js'
 import { configItem, comboCtx } from '@shared/pos/offers.js'
@@ -13,7 +13,7 @@ import {
   useKiosk, textsFor, go, openBuilder, setQty, addToBasket, setDetails, placeOrder, methods, restart, soldOut, printResultReceipt,
   getState as getFresh,
 } from './store.js'
-import { cx, Photo, Keyboard, NumberPad, usePortrait } from './parts.jsx'
+import { cx, Photo, Keyboard, NumberPad, BackButton, usePortrait } from './parts.jsx'
 import { TopBar, useBasketTotals } from './Menu.jsx'
 import { priceLabel } from './Builder.jsx'
 
@@ -172,7 +172,7 @@ export function Basket() {
       )}
       </div>
       <div className="k-bar shrink-0">
-        <button className="k-btn k-btn-big" style={{ background: 'transparent', color: 'inherit' }} onClick={() => go('menu')} data-testid="k-add-more"><ArrowLeft /> {ui('add_more')}</button>
+        <BackButton onClick={() => go('menu')} label={ui('add_more')} testId="k-add-more" />
         <div className="flex-1" />
         <button className="k-btn k-btn-accent k-btn-big" disabled={!s.basket.length || !!error} onClick={() => afterBasket(s)} data-testid="k-checkout">
           {ui('checkout')}{totals ? ' · ' + money(totals.total) : ''}
@@ -201,9 +201,6 @@ export function Details() {
   const ok = need !== 'required' || value.trim().length > 0
   return (
     <div className="absolute inset-0 flex flex-col" data-testid="k-details" data-step={step}>
-      <div className="shrink-0 flex items-center gap-[var(--k-gap)] px-[var(--k-pad)] py-[var(--k-gap)] bg-[var(--k-surface)] border-b-2 border-[var(--k-line)]">
-        <button className="k-btn k-btn-ghost" onClick={back}><ArrowLeft /> {ui('back')}</button>
-      </div>
       <div className="flex-1 min-h-0 k-scroll p-[var(--k-pad)] flex flex-col">
         <div className="m-auto w-full flex flex-col items-center gap-[var(--k-pad)]">
           <h2 className="k-head text-[2.2em] m-0 text-center">{isName ? ui('your_name') : ui('table_number')}</h2>
@@ -219,8 +216,9 @@ export function Details() {
         </div>
       </div>
       <div className="k-bar shrink-0">
-        {need === 'ask' && <button className="k-btn k-btn-big" style={{ background: 'transparent', color: 'inherit' }} onClick={() => { setDetails(isName ? { name: '' } : { tent: '' }); next() }} data-testid="k-details-skip">{ui('skip')}</button>}
+        <BackButton onClick={back} label={ui('back')} />
         <div className="flex-1" />
+        {need === 'ask' && <button className="k-btn k-btn-big" style={{ background: 'transparent', color: 'inherit' }} onClick={() => { setDetails(isName ? { name: '' } : { tent: '' }); next() }} data-testid="k-details-skip">{ui('skip')}</button>}
         <button className="k-btn k-btn-accent k-btn-big" disabled={!ok} onClick={next} data-testid="k-details-next">{ui('next')}</button>
       </div>
     </div>
@@ -236,9 +234,6 @@ export function Pay() {
   const { totals } = useBasketTotals(s)
   return (
     <div className="absolute inset-0 flex flex-col" data-testid="k-pay">
-      <div className="shrink-0 flex items-center gap-[var(--k-gap)] px-[var(--k-pad)] py-[var(--k-gap)] bg-[var(--k-surface)] border-b-2 border-[var(--k-line)]">
-        <button className="k-btn k-btn-ghost" onClick={() => go('basket')}><ArrowLeft /> {ui('back')}</button>
-      </div>
       <div className="flex-1 min-h-0 k-scroll p-[var(--k-pad)] flex flex-col items-center justify-center gap-[calc(var(--k-pad)*1.4)]">
         <h2 className="k-head text-[2.2em] m-0 text-center">{ui('how_to_pay')}</h2>
         <div className="k-head text-[2.6em]">{totals ? money(totals.total) : ''}</div>
@@ -255,6 +250,9 @@ export function Pay() {
             <span className="k-muted">{ui('pay_counter_hint')}</span>
           </button>
         </div>
+      </div>
+      <div className="k-bar shrink-0">
+        <BackButton onClick={() => go('basket')} label={ui('back')} />
       </div>
     </div>
   )
@@ -273,9 +271,6 @@ export function Card() {
   const counter = methods(s.config).includes('counter')
   return (
     <div className="absolute inset-0 flex flex-col" data-testid="k-card">
-      <div className="shrink-0 flex items-center gap-[var(--k-gap)] px-[var(--k-pad)] py-[var(--k-gap)] bg-[var(--k-surface)] border-b-2 border-[var(--k-line)]">
-        <button className="k-btn k-btn-ghost" onClick={() => go(methods(s.config).length > 1 ? 'pay' : 'basket')}><ArrowLeft /> {ui('back')}</button>
-      </div>
       <div className="flex-1 min-h-0 k-scroll p-[var(--k-pad)] flex flex-col items-center justify-center gap-[var(--k-pad)] text-center">
         {declined ? (
           <>
@@ -303,6 +298,9 @@ export function Card() {
             </div>
           </>
         )}
+      </div>
+      <div className="k-bar shrink-0">
+        <BackButton onClick={() => go(methods(s.config).length > 1 ? 'pay' : 'basket')} label={ui('back')} />
       </div>
     </div>
   )
