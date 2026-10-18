@@ -13,6 +13,9 @@
 //                               { unchanged: true } when the version matches
 //   POST /heartbeat             { app_version, showing, viewport, error, clock } every
 //                               minute: Screens shows online / what's on
+//   POST /disconnect            the screen forgets its pairing (its settings panel): the
+//                               secret stops working; Screens shows it not paired, and
+//                               New device for this screen pairs it again with its boards
 //   GET  /orders                order numbers for the Order status block (kitchen
 //                               screens: services/kitchenSvc.js boardFor())
 //   GET  /time                  (no auth) { now } in ms: screens set their clock
@@ -29,6 +32,7 @@ import { sql, withTenant, systemSql, tenantSql } from '../config/db.js'
 import { httpError } from '../middleware/error.js'
 import {
   sha256, newSecret, newScreenCode, normaliseScreenCode, sameHash, verifyScreen, PAIRING_MINUTES,
+  forgetScreen,
 } from '../services/screenAuth.js'
 import { screenConfig } from '../services/screenSvc.js'
 import { boardFor } from '../services/kitchenSvc.js'
@@ -101,6 +105,13 @@ export default async function screenApiRoutes(app) {
       const server_time = new Date().toISOString()
       if (req.query.version && req.query.version === config.version) return { unchanged: true, version: config.version, server_time }
       return { ...config, server_time }
+    })
+
+    scoped.post('/disconnect', async req => {
+      const s = req.screen
+      await tenantSql(s.tenant_id)`UPDATE screens SET secret_hash = NULL WHERE id = ${s.id} AND tenant_id = ${s.tenant_id}`
+      forgetScreen(s.id)
+      return { ok: true }
     })
 
     // Order numbers for the Order status block (kitchen screens; services/kitchenSvc.js).

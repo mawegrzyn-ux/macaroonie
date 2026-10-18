@@ -246,7 +246,7 @@ provision in code for the hub"). What exists:
 | Sequencer | the cloud | `services/posSvc.js` runs `createSequencer()` with a Postgres store under a per-venue advisory lock. The hub will run the same sequencer with SQLite. |
 | Till API | `/pos-api` (`routes/posApi.js`) | Pairing, device auth, config snapshot, events in, sync out, presence, reports, print queue (claim / status routes are for the hub). |
 | Admin | `/api/pos` (`routes/posSetup.js`) | Till setup, Floor plan, Till reports pages; Menus / Variant groups / Promotions till fields. |
-| Till app | `pos/` | React PWA served by the API on `pos.<domain>` (`routes/posSite.js`, no nginx change). Local-first: IndexedDB outbox, optimistic apply, socket + polling sync. Table service, tabs, counter mode, courses (hold / fire), modifiers, combos, discounts / comps / offers, service charge, split / move / merge, pay (external card, cash, voucher, ...), refunds, reopen, X / Z. |
+| Till app | `pos/` | React PWA served by the API on `pos.<domain>` (`routes/posSite.js`, no nginx change); the same build runs the kitchen screens on `kitchen.<domain>` and the kiosks on `kiosk.<domain>` (18 Oct 2026: each device app on its own address, `pos/src/lib/appHost.js`; a pairing code only works on its kind's address; `POST /pos-api/disconnect` and `/move`). Local-first: IndexedDB outbox, optimistic apply, socket + polling sync. Table service, tabs, counter mode, courses (hold / fire), modifiers, combos, discounts / comps / offers, service charge, split / move / merge, pay (external card, cash, voucher, ...), refunds, reopen, X / Z. |
 | Cash Recon | `services/reconFill.js` | Z figures fill the Cash Recon day through `recon_map` (shared with Loyverse). |
 | Sold out | `services/soldOut.js` | Hold a dish (or tap a sold out one) on the till: `PUT /pos-api/sold-out/:itemId` (role permission `sold_out`, or a manager's PIN), online only. The same `ordering_item_availability` rows as online ordering; every till, the orders board and the menu screens hear it. `tillConfig().sold_out`. Migration 166. |
 
@@ -339,6 +339,8 @@ combo" on a till line; step choices can be dishes, sections or new.
 ---
 
 ## 9. Kitchen screens (KDS)
+
+Address: `kitchen.<domain>` (`kds.<domain>` forwards there) since 18 Oct 2026; screens paired on the till address before then move with one tap (section 8, `pos/src/lib/appHost.js`).
 
 Built 16 Oct 2026, migration 168. Modelled on what a kitchen display such as ConnectSmart
 Kitchen does, not a copy of it: tickets by station, a pass (expo) that checks orders before
@@ -472,6 +474,8 @@ till screens on the bench, or GloriaFood orders as a source.
 
 
 ## 10. Self-order kiosks (migration 172, 17 Oct 2026)
+
+Address: `kiosk.<domain>` since 18 Oct 2026 (set it as the kiosk browser's start page); kiosks paired on the till address before then move with one tap.
 
 The user's brief: "a fully fledged kiosk as a PWA, inspired by the screenshots (Wingstop's start
 screen, menu with a category rail, a FLAVOR RULES combo with a step list and a card slider, a heat

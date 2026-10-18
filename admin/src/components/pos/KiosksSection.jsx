@@ -16,7 +16,7 @@ import { designProblems } from '@shared/kiosk.js'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { Section, Modal, Field, inputCls, ErrorNote, ConfirmDelete, Segmented, Btn, ago } from './shared'
-import { PairingCode, status } from './TillsSection'
+import { PairingCode, status, deviceUrl } from './TillsSection'
 
 const READERS = [
   { value: 'none', label: 'None' },
@@ -126,7 +126,7 @@ function KioskDevices({ venueId, setup }) {
       {!live.length && (
         <div className="text-sm text-muted-foreground flex items-start gap-3">
           <Tablet className="w-5 h-5 shrink-0 mt-0.5" />
-          <p>No kiosks yet. Add one, then open <span className="font-medium text-foreground">{setup.till_url}</span> on the kiosk screen in Chrome and type the pairing code. For a kiosk that guests can't leave, run Chrome in kiosk mode (or a kiosk browser such as Fully Kiosk).</p>
+          <p>No kiosks yet. Add one, then open <span className="font-medium text-foreground">{deviceUrl(setup, 'kiosk')}</span> on the kiosk screen in Chrome and type the pairing code. For a kiosk that guests can't leave, run Chrome in kiosk mode (or a kiosk browser such as Fully Kiosk).</p>
         </div>
       )}
       {!!live.length && (
@@ -160,13 +160,14 @@ function KioskDevices({ venueId, setup }) {
       {!!removed.length && (
         <p className="text-xs text-muted-foreground">Removed: {removed.map(d => d.name + ' (' + d.short_code + ')').join(', ')}</p>
       )}
+      <p className="text-xs text-muted-foreground">Kiosk address: <span className="font-medium text-foreground break-all" data-testid="kiosk-address">{deviceUrl(setup, 'kiosk')}</span> (set it as the start page of the kiosk browser)</p>
       <ErrorNote error={newCode.error} />
       {editing && (
         <KioskModal venueId={venueId} setup={setup} device={editing === 'new' ? null : editing}
           onClose={() => setEditing(null)}
           onPaired={out => { setEditing(null); setPairing(out) }} />
       )}
-      {pairing && <PairingCode code={pairing.pairing_code} device={pairing.device} tillUrl={setup.till_url} what="kiosk" onClose={() => setPairing(null)} />}
+      {pairing && <PairingCode code={pairing.pairing_code} device={pairing.device} tillUrl={deviceUrl(setup, 'kiosk')} what="kiosk" onClose={() => setPairing(null)} />}
     </Section>
   )
 }

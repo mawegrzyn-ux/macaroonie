@@ -3193,20 +3193,38 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <DataTable
               head={['Page', 'Files']}
               rows={[
-                ['Till setup /pos', 'pages/PosSetup.jsx (?tab=) + components/pos/*Section.jsx; GET /api/pos/venues/:id/setup is the one read (includes till_url = posOrigin(), sections and items for routing, recon_fields).'],
+                ['Till setup /pos', 'pages/PosSetup.jsx (?tab=) + components/pos/*Section.jsx; GET /api/pos/venues/:id/setup is the one read (includes device_urls { terminal, kds, kiosk } from deviceOrigin(), till_url = the till\'s, sections and items for routing, recon_fields). deviceUrl(setup, kind) in TillsSection.jsx; PairingCode names the kind\'s address.'],
                 ['Floor plan /pos/floor', 'pages/PosFloor.jsx: snap 0.5 unit, pointer drag / resize, explicit Save per area (PUT /api/pos/floor-areas/:id/layout replaces tables on the area + decor).'],
                 ['Till reports /pos/reports', 'pages/PosReports.jsx: days (+ fill-recon, needs cash_recon manage too), checks with events, conflicts, print queue.'],
                 ['Menus, Variant groups, Promotions', 'components/menus/TillFields.jsx (section / dish Till box), components/menus/ComboEditor.jsx (Dish / Combo, steps, comboPayload()); VariantGroupsManager pos_prefixes + child_group_id + allow_repeat / on_request; Promotions Where (channels).'],
               ]}
             />
-            <H3>Hosting</H3>
+            <H3>Hosting: one build, three addresses</H3>
             <P>
               <Mono>routes/posSite.js</Mono> (fastify-plugin, registered after the apex hook) serves{' '}
-              <Mono>pos/dist</Mono> for host kind <Mono>pos</Mono> (<Mono>platformHostKind()</Mono>) and lets{' '}
-              <Mono>/pos-api</Mono>, <Mono>/ws</Mono>, <Mono>/uploads/</Mono> and <Mono>/api/</Mono> through, so
-              the existing <Mono>*.&lt;domain&gt;</Mono> nginx block covers it. The deploy builds{' '}
-              <Mono>pos/</Mono> after the admin. <Mono>pos</Mono> is in <Mono>RESERVED_SUBDOMAINS</Mono>.
+              <Mono>pos/dist</Mono> for host kinds <Mono>pos</Mono> (tills), <Mono>kitchen</Mono> (kitchen screens)
+              and <Mono>kiosk</Mono> (kiosks) (<Mono>platformHostKind()</Mono>), forwards <Mono>kds.</Mono> to{' '}
+              <Mono>kitchen.</Mono> (301), and lets <Mono>/pos-api</Mono>, <Mono>/ws</Mono>, <Mono>/uploads/</Mono>{' '}
+              and <Mono>/api/</Mono> through, so the existing <Mono>*.&lt;domain&gt;</Mono> nginx block and wildcard
+              certificate cover all three. <Mono>/manifest.webmanifest</Mono> is the build&apos;s with the name for
+              the host (Macaroonie Till / Kitchen / Kiosk), so each installs as its own app (Android ties an installed
+              app to its address). The deploy builds <Mono>pos/</Mono> after the admin. <Mono>pos</Mono>,{' '}
+              <Mono>kitchen</Mono>, <Mono>kds</Mono> and <Mono>kiosk</Mono> are in <Mono>RESERVED_SUBDOMAINS</Mono>.{' '}
+              <Mono>deviceOrigin(kind)</Mono> and <Mono>DEVICE_KIND_OF_HOST</Mono> in{' '}
+              <Mono>services/platformHost.js</Mono>; kiosk previews are made on the kiosk address and the kitchen
+              test bench on the kitchen address.
             </P>
+            <DataTable
+              head={['Part', 'How']}
+              rows={[
+                ['pos/src/lib/appHost.js', 'HOST_APP from the address (pos -> terminal, kitchen / kds -> kds, kiosk -> kiosk, anything else null = any kind, for local and test addresses), addressFor(kind) (same scheme and port), belongsHere(kind), takePairCode() (#pair=CODE, removed from the address at once), movedTo() / setMovedTo() (localStorage maca_moved_to), moveDevice(), tellDisconnect(); sets the page title for the address.'],
+                ['POST /pos-api/pair { code, app? }', 'app = HOST_APP. A code for another kind is refused before it is used: 422 code wrong_address, errors [{ device_kind, url }]; the Pair screen shows a button to that address with #pair=<the code>, where it pairs by itself. No app (old copies, tests) takes any kind.'],
+                ['POST /pos-api/disconnect', 'Device auth (kiosks too: KIOSK_ROUTES). secret_hash, pairing_code_hash, pairing_expires_at = NULL: the device row stays (name, settings, short code), Till setup shows Not paired, New code pairs it again.'],
+                ['POST /pos-api/move', 'Device auth. openPairing(tx, tenantId, deviceId, 10) (moved to services/posSvc.js) -> { code, kind, url = deviceOrigin(kind)/#pair=code }. The old copy\'s secret works until the code is used (pairing replaces it), so a move that never arrives can be tried again.'],
+                ['Disconnect on the devices', 'Till: TillSettings Disconnect this till (manager approval, refused with unsent events) -> disconnect() in lib/store.js. Kitchen: SettingsPanel DisconnectBox -> disconnect() in kitchen/store.js (unsent taps dropped, counted first). Kiosk: StaffPanel DisconnectBox -> disconnect() in kiosk/store.js (waiting paid orders sent first, refused while any are left). Offline, the device still forgets itself and says Macaroonie couldn\'t be told.'],
+                ['Move on the devices', 'MoveNotice (components/MoveNotice.jsx) when belongsHere() is false: the till app (above its screens), the kitchen app (top) and the kiosk (top of the start screen and in the staff panel). moveTill() / moveScreen() / moveKiosk() send what is waiting, call /pos-api/move, forget the device here, set maca_moved_to and open the new address. The old address then shows MovedAway (opens the new one after 5 s; Set up another device here clears it).'],
+              ]}
+            />
             <InfoBox type="info">
               Provisioned for later, not built: the venue hub (a <Mono>hub</Mono> device kind, the print-job claim
               routes, <Mono>device.hub_url</Mono> in <Mono>pos/src/lib/transport.js</Mono>, which tries the hub
@@ -3524,7 +3542,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['POST /api/pos/kiosk-designs', 'pos_setup manage. { name, settings, copy_from? } (copy_from: another design of the tenant). Up to 50 per tenant.'],
                 ['PUT /api/pos/kiosk-designs/:id', 'pos_setup manage. { name, settings }, stored as normaliseDesign(settings). Broadcasts pos.config to every venue with a kiosk (kiosksChanged()).'],
                 ['DELETE /api/pos/kiosk-designs/:id', 'pos_setup manage. Refused (422, names the kiosks) while a kiosk picks it.'],
-                ['POST /api/pos/kiosk-designs/:id/preview', 'pos_setup view. { venue_id, revenue_stream_id? } (both the tenant\'s, the stream at that venue) -> { token, url } (posOrigin() + ?kiosk_preview=).'],
+                ['POST /api/pos/kiosk-designs/:id/preview', 'pos_setup view. { venue_id, revenue_stream_id? } (both the tenant\'s, the stream at that venue) -> { token, url } (deviceOrigin(\'kiosk\') + ?kiosk_preview=).'],
                 ['GET /api/menus/translations?lang=', 'menus view. lang optional (the first kiosk language besides the menu\'s own). -> { lang, source, designs, languages [{ code, name, on_a_kiosk }], sources [{ key, group, context, text }], texts, builtin (the kiosk\'s own words and standard allergen names in that language), ai }.'],
                 ['PUT /api/menus/translations', 'menus manage. { lang, texts: { key: text | \'\' } }: upserts, \'\' deletes; keys must match KEY_PATTERN. -> { saved, removed }.'],
                 ['POST /api/menus/translations/ai', 'menus manage. { lang, source, keys?, skip? } -> { texts, left }: Claude\'s suggestions for words without a translation, AI_BATCH (120) a call, structured output (json_schema), counted in the tenant\'s monthly AI allowance. Nothing is saved.'],
@@ -5173,11 +5191,23 @@ selection.combo = { [stepId]: [{ option_id, item_id, choices }] }   // item_id n
               (<Mono>verifyScreen()</Mono>, 15 s cache, <Mono>forgetScreen()</Mono>) checks it for the
               screen API and the WebSocket; a switched-off module answers 403 <Mono>screens_off</Mono>.
             </P>
+            <P>
+              The player&apos;s own settings: five taps within 3 s (document click), or five presses of Enter /
+              Space / Select (a remote&apos;s OK), open <Mono>#settings</Mono> in <Mono>screen/index.html</Mono>{' '}
+              (<Mono>openSettings()</Mono> in <Mono>player.js</Mono>; the opening key press is
+              preventDefault-ed, or it would press the panel&apos;s first button too). Arrows move between the
+              buttons, Escape / Back closes, 60 s idle closes. <strong>Disconnect this screen</strong> (asked
+              twice) calls <Mono>POST /screen-api/disconnect</Mono> (screen auth: <Mono>secret_hash = NULL</Mono>,{' '}
+              <Mono>forgetScreen()</Mono>), then <Mono>unpair()</Mono> shows a new code; offline it forgets itself
+              anyway. The screen row keeps its name, boards and wall place; New device for this screen pairs it
+              again.
+            </P>
             <H3>Screen API (/screen-api) and live updates</H3>
             <DataTable
               head={['Route', 'What it does']}
               rows={[
                 ['GET /config?version=', 'screenConfig() in services/screenSvc.js: player_version, screen (size, rotation, fit), venue (timezone), wall { id, name, cols, rows, col, row, gap } when the screen is on one (its board / playlist then comes from the wall), playlist (items with schedules and transitions) or design_id, designs { id: { width, height, layout } }, the LIVE versions of the menus the boards point at (boardMenuIds(), slimmed by slimMenu(), sections hidden everywhere left out), tags shown on menus, the allergen notice, sold_out item ids, version (sha256 of all of it). { unchanged: true } when the version matches.'],
+                ['POST /disconnect', 'The screen forgets its pairing (its settings panel): secret_hash = NULL; the row keeps its name, boards and wall place.'],
                 ['POST /heartbeat', 'Every minute: app_version, showing { design_id, name, playlist_item_id }, viewport, error, config_version, offline_secs, clock { offset_ms, rtt_ms }. Written at most once per 50 s per screen; the admin shows a screen online when last_seen_at is under 150 s old.'],
                 ['GET /time', '{ now } (server ms), no-store, no auth, 120 a minute. The player takes five samples and keeps the quickest round trip (offset = now + rtt / 2 - received), again every 10 minutes; a jump over 250 ms reschedules the boards.'],
                 ['/ws?screen=<id>&secret=<secret>', 'Joins screen:<id> (screens.changed, screen.identify, screen.reload, screen.removed), screens:<venueId> (screens.sold_out with the item ids), screens-t:<tenantId> (screens.changed after a board or playlist save) and menus:<tenantId> (menus.live from publishing and the minute sweep). Everything except identify / reload / sold out makes the player fetch the config again; so does the socket reopening after a drop (changes meanwhile were pushed to nobody) and the browser coming back online; it also polls every 60 s. A wall change tells each screen it touched.'],

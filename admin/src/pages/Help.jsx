@@ -3507,6 +3507,13 @@ export default function Help() {
               it back to showing a code.
             </P>
             <P>
+              On the screen itself, five quick taps (or five presses of OK on a TV remote) open its own
+              settings: its name and ID, the venue, what it is showing, whether it is online, Reload, and{' '}
+              <strong>Disconnect this screen</strong> (asked twice). A disconnected screen shows a new code and
+              is listed here as not paired, with its name and boards kept: <strong>New device for this
+              screen</strong> pairs it again.
+            </P>
+            <P>
               The list shows which screens are online (a green dot), what each is showing now, and
               when an offline screen was last seen.
             </P>
@@ -4587,6 +4594,38 @@ export default function Help() {
               <li><strong>Tills</strong>: tap <strong>Add a till</strong>, give it a name, table service or counter, then open the till address on the tablet and type the pairing code shown. The code works once, for 30 minutes. <strong>Pair again</strong> gives a new code (the old pairing stops); removing a till signs it out for good.</li>
             </ol>
 
+            <H3>Device addresses and disconnecting</H3>
+            <P>
+              Each kind of device has its own address, so each installs as its own app and keeps its own
+              pairing: tills at <strong>pos.macaroonie.com</strong>, kitchen screens at{' '}
+              <strong>kitchen.macaroonie.com</strong> (kds.macaroonie.com goes there too), self-order kiosks at{' '}
+              <strong>kiosk.macaroonie.com</strong> and menu screens at <strong>screens.macaroonie.com</strong>.
+              Till setup shows the right one on each tab and in the pairing window. A pairing code only works
+              at its own address: a kiosk code typed on the kitchen address says so and offers a button to the
+              kiosk address, where it pairs by itself.
+            </P>
+            <DataTable
+              head={['Device', 'Where Disconnect is', 'What happens']}
+              rows={[
+                ['Till', 'Till tab → Disconnect this till (a manager confirms)', 'The tablet goes back to the pairing screen. Not while sales are still waiting to be sent: get it online first.'],
+                ['Kitchen screen', 'The settings button (bottom right) → Disconnect this screen', 'Back to the pairing screen. Taps not sent yet are lost, and the screen says how many first.'],
+                ['Kiosk', 'Five quick taps in the top-left corner of the start screen → Disconnect this kiosk', 'Back to the pairing screen. Paid orders still waiting to reach the till are sent first; without the internet it waits.'],
+                ['Menu screen', 'Five quick taps on the screen (or five presses of OK on a remote) → Disconnect this screen', 'It shows a new pairing code. In Screens, use New device for this screen to pair it again with its boards.'],
+              ]}
+            />
+            <P>
+              A disconnected device keeps its name and settings in Till setup (or Screens) and shows{' '}
+              <strong>Not paired</strong>: press <strong>New code</strong> to pair it again, on the same device
+              or another one. To take a device away for good, remove it in Till setup instead.
+            </P>
+            <InfoBox type="tip">
+              A kitchen screen or kiosk set up before they had their own address shows a yellow bar:{' '}
+              <strong>Move this kitchen screen</strong> (or kiosk). One tap sends what is waiting, opens its own
+              address and pairs it there by itself, as the same device. Then change the start page of the
+              device&apos;s browser (or kiosk browser such as Fully Kiosk) to the new address. If the old address
+              is opened again, it says where the device went and opens it.
+            </InfoBox>
+
             <H3>The menu on the till</H3>
             <P>
               The till uses your menus from the Menus page. In a section's panel, <strong>Till</strong> sets its
@@ -4719,7 +4758,7 @@ export default function Help() {
               <li><strong>Stations</strong>, four kinds: <strong>Prep</strong> (Grill, Fryer, Bar, Prep 1...) makes dishes; <strong>Expo</strong> (the pass) checks whole orders before they go out; <strong>Runner</strong> takes orders out to tables or the counter; <strong>Order ready board</strong> shows order numbers on menu screens (nothing to bump, no kitchen screen). Each station turns a ticket amber after your target minutes and red after more. <strong>Show held courses</strong> shows dishes waiting to be fired, greyed out. <strong>Show orders before their dishes get here</strong> (on for an expo) puts a ticket up as soon as the order is sent, each dish marked where it is now (At Grill). <strong>On order counts</strong>: groups such as Wings, counting how many pieces are on order (the 8pc dish counts 8, the 6 Wings option counts 6).</li>
               <li><strong>Kitchen flow</strong> (at the top): boxes for <strong>Orders in</strong> (the till and online orders) and every station, joined by links. Drag a box's dot onto another box (or tap the dot, then the box) to send dishes on to it. Tap a link's label to choose which dishes take it: dishes, sections, revenue streams or order types (your own list: Eat in, Take out...); a link with no filter takes every dish. From each box a dish takes the links that name it most closely (the dish, then its section, its revenue stream, its order type, then links for every dish), so Prep 1 to Prep 2 for burgers and Prep 1 to Expo 1 for everything else sends the bun on and the fries straight to the expo. Links that tie all apply: Expo 1 to ORB 1 and to a Runner at once, or for eat in only. <strong>Check a dish</strong> shows a dish's way. A new flow arranges itself; drag boxes by their grip, or press <strong>Tidy</strong>. A way round in a circle can't be saved. <strong>Save flow</strong>: dishes sent from then on follow it (dishes already in the kitchen keep their way).</li>
               <li><strong>Several flows</strong>: the row of flow names above the boxes picks the flow you're looking at; a green dot marks the one <strong>in use</strong>. <strong>New flow</strong> starts an empty one; <strong>Copy</strong> (in the box on the right) starts from the flow you're looking at, which is the quick way to make, say, a <em>Grill down</em> flow from your normal one. <strong>Use this flow now</strong> puts the flow you're looking at in use, after a confirm. <strong>Rename</strong> and the bin (delete, after a confirm) are there too; the flow in use can't be deleted. <strong>Order</strong> sets the order kitchen screens list the flows in (drag the rows). Save or discard changes before opening another flow.</li>
-              <li><strong>Kitchen screens</strong>: <strong>Add a screen</strong>, name it, tick the stations it shows (none ticked: all; order ready boards aren't shown on kitchen screens), what it opens on (tickets or the On order counts), tickets across, text size, the beep, and whether it <strong>can switch the kitchen flow</strong> (on unless you turn it off). On the screen, open the till address in Chrome, install it, and type the pairing code. It opens as a kitchen screen.</li>
+              <li><strong>Kitchen screens</strong>: <strong>Add a screen</strong>, name it, tick the stations it shows (none ticked: all; order ready boards aren't shown on kitchen screens), what it opens on (tickets or the On order counts), tickets across, text size, the beep, and whether it <strong>can switch the kitchen flow</strong> (on unless you turn it off). On the screen, open the kitchen screen address (kitchen.macaroonie.com, shown on the tab) in Chrome, install it, and type the pairing code.</li>
               <li><strong>Online orders</strong>: send online orders to the kitchen when they're accepted (an order for later comes on when it's time to start it), and mark them ready when the kitchen finishes (the guest gets the ready email).</li>
               <li><strong>GloriaFood orders</strong> (when the venue is linked to GloriaFood in Cash Recon settings): tick <strong>Send GloriaFood orders to the kitchen screens</strong> and press Save. Accepted orders then come onto the screens as GloriaFood sends them, marked with an orange <strong>GloriaFood</strong> label and GloriaFood's order number. Dishes are matched to your menus by name (capitals and spaces don't matter) and show under your menu's name, so dish and section links in the kitchen flow apply to them; a dish with no match (a name GloriaFood spells differently) goes by the order type and the links for every dish. Pick which of your order types each GloriaFood type counts as (Pickup, Delivery, Dine in...); they start matched by name. An order for later comes on the minutes you set before its time. Ready at the pass marks it Ready on the Online orders board, Collected marks it Collected there (with <strong>Mark them ready when the kitchen finishes</strong> on; GloriaFood isn't told). Ready or Collected on the board, or a cancellation in GloriaFood, takes it off the screens. Test orders from GloriaFood come on too, with the note "GloriaFood test order". Orders that arrived while this was off, imported orders, and orders more than two hours past their time don't come on.</li>
             </ol>
@@ -4796,7 +4835,7 @@ export default function Help() {
             <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
               <li><strong>Kiosk designs</strong>: <strong>New design</strong> opens the design editor (below). Designs are shared by every venue. A kiosk uses the design picked for it, or the first design. <strong>Copy</strong> makes a copy to try changes on; a design a kiosk uses can't be deleted.</li>
               <li><strong>Add a kiosk</strong>: its name, its <strong>revenue stream</strong> (the stream's order types are the kiosk's Staying or going? buttons, and the stream decides whether it asks for a name or a table number), its design, the card reader and the receipt printer.</li>
-              <li>On the screen, open the till address in Chrome and type the pairing code: it opens as a kiosk. For a screen guests can't leave, run Chrome in kiosk mode or use a kiosk browser (such as Fully Kiosk). <strong>Pair again</strong> moves the kiosk to another screen; the old one stops.</li>
+              <li>On the screen, open the kiosk address (kiosk.macaroonie.com, shown on the tab) in Chrome and type the pairing code; set it as the kiosk browser's start page. For a screen guests can't leave, run Chrome in kiosk mode or use a kiosk browser (such as Fully Kiosk). <strong>Pair again</strong> moves the kiosk to another screen; the old one stops.</li>
             </ol>
 
             <H3>The design editor</H3>

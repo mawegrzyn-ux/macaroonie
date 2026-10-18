@@ -6,7 +6,9 @@
 
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { LayoutGrid, ShoppingBag, Receipt, BarChart3, Settings, Lock, RefreshCw, WifiOff } from 'lucide-react'
-import { useTill, boot, signOut, touch, loadConfig, getState } from './lib/store.js'
+import { useTill, boot, signOut, touch, loadConfig, getState, moveTill, stayHere } from './lib/store.js'
+import { belongsHere } from './lib/appHost.js'
+import { MoveNotice, MovedAway } from './components/MoveNotice.jsx'
 import { whenSafeToReload, idleFor } from './lib/appUpdate.js'
 import { ApprovalProvider, Toasts, cx, useTick } from './components/ui.jsx'
 import StatusDot from './components/StatusDot.jsx'
@@ -57,7 +59,7 @@ function TillApp() {
   // in and nobody is typing a PIN. The kitchen and kiosk apps set their own.
   useEffect(() => whenSafeToReload(() => {
     const t = getState()
-    if (t.phase === 'pair' || t.phase === 'update') return true
+    if (t.phase === 'pair' || t.phase === 'update' || t.phase === 'moved') return true
     return !t.staff && idleFor(10000)
   }), [])
   const s = useTill()
@@ -65,11 +67,15 @@ function TillApp() {
   if (s.phase === 'kitchen') return <Suspense fallback={<div className="h-full bg-black" />}><KitchenApp device={s.device} /></Suspense>
   if (s.phase === 'kiosk') return <Suspense fallback={<div className="h-full bg-black" />}><KioskApp device={s.device} /></Suspense>
   if (s.phase === 'update') body = <NeedsUpdate />
+  else if (s.phase === 'moved') body = <MovedAway to={s.movedTo} onStay={stayHere} />
   else if (s.phase === 'pair') body = <Pair />
   else if (s.phase === 'loading') body = <Splash />
   else if (!s.config) body = <NoConfig />
   else if (!s.staff) body = <Login />
   else body = <ApprovalProvider><Main /></ApprovalProvider>
+  // A till paired on the kitchen or kiosk address (lib/appHost.js).
+  const misplaced = s.device && s.config && !belongsHere(s.device.kind)
+  if (misplaced) body = <div className="h-full flex flex-col"><MoveNotice kind="terminal" onMove={moveTill} /><div className="flex-1 min-h-0">{body}</div></div>
   return <>{body}<Toasts /></>
 }
 

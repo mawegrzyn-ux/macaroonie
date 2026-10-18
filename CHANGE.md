@@ -5,6 +5,14 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-18 — Each device on its own address; Disconnect on every device]
+
+- **Tills, kitchen screens, kiosks and menu screens each have their own address**: tills at pos.macaroonie.com, kitchen screens at **kitchen.macaroonie.com** (kds.macaroonie.com goes there too), kiosks at **kiosk.macaroonie.com**, menu screens at screens.macaroonie.com. Each installs as its own app (Macaroonie Till, Kitchen, Kiosk) and Till setup shows the right address on each tab and in the pairing window.
+- **A pairing code only works at its own address.** Typing a kiosk's code on the kitchen address says so and offers a button to the kiosk address, where it pairs by itself.
+- **Kitchen screens and kiosks set up on the till address move with one tap**: a yellow bar offers Move this kitchen screen (or kiosk). It sends anything waiting, opens the new address and pairs it there as the same device. Then set the new address as the device browser's start page; the old address forwards there if opened again.
+- **Disconnect on every device**: the till's Till tab (Disconnect this till, a manager confirms), the kitchen screen's settings, the kiosk's staff panel (five taps in the start screen's top-left corner) and the menu screen's own settings (five taps on the screen, or five presses of OK on a remote). The device goes back to its pairing screen; Till setup or Screens shows it Not paired with its name and settings kept, ready for a new code. Tills and kiosks never disconnect with sales or paid orders still waiting to be sent.
+- No migration.
+
 ## [2026-10-18 — Online sales transactions, GloriaFood included, with tender]
 
 - **Every online sale in one list**: Online orders → **Transactions** shows each online order of the venue over the days you pick (today, 7, 30, 90 days or any range up to a year), your own online orders and GloriaFood orders together, with how each was paid: Cash, Card at the counter, Card by phone, Paid online, or not marked paid yet.

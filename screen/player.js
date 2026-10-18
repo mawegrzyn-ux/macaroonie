@@ -21,6 +21,11 @@
 // start on the second, and videos are nudged to where the clock says they
 // should be. A screen in a wall shows only its own part of the board
 // (wallRegion()), so the wall moves as one picture.
+//
+// Settings: five quick taps on the screen (or five presses of OK / Enter on
+// a remote) open a small panel: what this screen is, Reload, and Disconnect
+// this screen (asked twice), which tells Macaroonie (POST /screen-api/
+// disconnect) and goes back to showing a pairing code.
 
 import {
   boardContext, renderBoardHtml, SCREEN_LAYOUT_CSS, boardFontsUrl, boardImageUrls, boardVideoUrls, itemsOnAt, localParts,
@@ -28,7 +33,7 @@ import {
   orderChanges, keepOrderChanges, ORDER_CHANGE_KEEP_MS,
 } from '/lib/screenLayout.js'
 
-const APP_VERSION = '1.2.0'
+const APP_VERSION = '1.3.0'
 const PLAYER_VERSION = document.querySelector('meta[name="player-version"]')?.content || ''
 const KEYS = { device: 'mcrn_screen_device', config: 'mcrn_screen_config', pairing: 'mcrn_screen_pairing', reloaded: 'mcrn_screen_reloaded_at' }
 const POLL_MS = 60_000
@@ -37,6 +42,7 @@ const PAIR_POLL_MS = 3_000
 
 const stage = document.getElementById('stage')
 const identifyEl = document.getElementById('identify')
+const settingsEl = document.getElementById('settings')
 const hintEl = document.getElementById('hint')
 
 let device = load(KEYS.device)       // { id, secret }
@@ -702,6 +708,90 @@ function identify(seconds) {
 }
 identifyEl.addEventListener('click', () => identifyEl.classList.remove('on'))
 
+// ── Settings (five taps, or five OK presses) ─────────────────────
+
+let settingsTimer = null
+const taps = []
+/** Counts a tap or OK press; true when this one opened the settings. */
+function countTap() {
+  const t = Date.now()
+  while (taps.length && t - taps[0] > 3000) taps.shift()
+  taps.push(t)
+  if (taps.length < 5 || !device) return false
+  taps.length = 0
+  openSettings()
+  return true
+}
+
+function openSettings(confirm = false) {
+  if (!device) return
+  const s = config?.screen || {}
+  const online = !offlineSince && (!ws || ws.readyState === 1)
+  const facts = [
+    ['Screen', (s.name || 'Menu screen') + (s.short_code ? ' (' + s.short_code + ')' : '')],
+    ['Venue', config?.venue?.name || ''],
+    ['Showing', showing?.name || 'Nothing'],
+    ['Connection', online ? 'Online' : 'Offline'],
+    ['Player', APP_VERSION],
+  ]
+  settingsEl.querySelector('.box').innerHTML =
+    '<h2>This screen</h2>' +
+    '<div class="facts">' + facts.map(([k, v]) => '<span>' + escHtml(k) + '</span><span>' + escHtml(v) + '</span>').join('') + '</div>' +
+    (confirm
+      ? '<p class="note"><b>Disconnect this screen?</b> It stops showing boards and shows a new pairing code. In Macaroonie, Screens keeps its name and boards: use New device for this screen to pair it again.</p>' +
+        '<div class="row"><button data-act="disconnect" class="bad">Yes, disconnect</button><button data-act="back">Cancel</button></div>'
+      : '<div class="row"><button data-act="close">Close</button><button data-act="reload">Reload</button><button data-act="ask" class="bad">Disconnect this screen</button></div>')
+  settingsEl.classList.add('on')
+  settingsEl.querySelector('button')?.focus()
+  armSettingsTimer()
+}
+function closeSettings() {
+  settingsEl.classList.remove('on')
+  clearTimeout(settingsTimer)
+}
+// Nobody touching it: the panel closes by itself.
+function armSettingsTimer() {
+  clearTimeout(settingsTimer)
+  settingsTimer = setTimeout(closeSettings, 60_000)
+}
+
+async function disconnectScreen() {
+  closeSettings()
+  let told = false
+  try { await api('/screen-api/disconnect', { method: 'POST', auth: screenAuth() }); told = true } catch { /* offline: forget anyway */ }
+  unpair(told ? 'Disconnected' : 'Disconnected here (Macaroonie couldn\'t be told: remove the screen in Screens)')
+}
+
+settingsEl.addEventListener('click', e => {
+  e.stopPropagation()
+  armSettingsTimer()
+  const act = e.target.closest('button')?.dataset.act
+  if (act === 'close') closeSettings()
+  else if (act === 'reload') location.reload()
+  else if (act === 'ask') openSettings(true)
+  else if (act === 'back') openSettings(false)
+  else if (act === 'disconnect') disconnectScreen()
+  else if (e.target === settingsEl) closeSettings()
+})
+document.addEventListener('keydown', e => {
+  if (settingsEl.classList.contains('on')) {
+    armSettingsTimer()
+    if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'GoBack') { e.preventDefault(); closeSettings(); return }
+    // A remote's arrows move between the buttons.
+    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
+      e.preventDefault()
+      const btns = [...settingsEl.querySelectorAll('button')]
+      const i = btns.indexOf(document.activeElement)
+      const next = e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? i - 1 : i + 1
+      btns[(next + btns.length) % btns.length]?.focus()
+    }
+    return
+  }
+  // The press that opens the panel focuses its first button: keep that same
+  // press from also pressing it.
+  if ((e.key === 'Enter' || e.key === ' ' || e.key === 'Select') && countTap()) e.preventDefault()
+})
+
 let wakeLock = null
 async function keepAwake() {
   try {
@@ -722,6 +812,7 @@ function offerFullscreen() {
   setTimeout(() => hintEl.classList.remove('on'), 12_000)
 }
 document.addEventListener('click', () => {
+  countTap()
   hintEl.classList.remove('on')
   if (!document.fullscreenElement && document.documentElement.requestFullscreen && !standalone()) {
     document.documentElement.requestFullscreen().catch(() => {})
@@ -767,5 +858,6 @@ window.__screen = {
   get clock() { return { offset_ms: clockOffset, rtt_ms: clockRtt, now: nowMs() } },
   get current() { return current ? { index: current.index, startMs: current.startMs, endMs: current.endMs, design_id: current.design_id } : null },
   get prepared() { return prepared ? { index: prepared.index, startMs: prepared.startMs } : null },
+  openSettings: () => openSettings(),
   version: PLAYER_VERSION,
 }

@@ -22,7 +22,7 @@ import {
   Section, Modal, Field, inputCls, ErrorNote, ConfirmDelete, Segmented, Btn, NumberBox, Toggle, SortableRows, ColourPick, ago,
 } from './shared'
 import KitchenFlow from './KitchenFlow'
-import { PairingCode } from './TillsSection'
+import { PairingCode, deviceUrl } from './TillsSection'
 import { STATION_KINDS, KIND_LABELS } from '@shared/pos/kitchen.js'
 import { TYPE_LABELS as GF_TYPE_LABELS } from '@shared/gloriafood.js'
 
@@ -141,7 +141,7 @@ function ScreensCard({ venueId, setup }) {
   const screens = setup.devices.filter(d => d.kind === 'kds' && !d.revoked_at)
   const stationName = id => setup.kds_stations.find(s => s.id === id)?.name
   return (
-    <Section title="Kitchen screens" hint="Android tablets or TVs in the kitchen. Open the till address on the screen in Chrome, install it, and type the pairing code: it opens as a kitchen screen."
+    <Section title="Kitchen screens" hint="Android tablets or TVs in the kitchen. Open the kitchen screen address (below) on the screen in Chrome, install it, and type the pairing code."
       actions={<Btn variant="primary" onClick={() => setEditing('new')} disabled={!screenStations.length}><Plus className="w-4 h-4" /> Add a screen</Btn>}>
       {!screens.length && (
         <div className="text-sm text-muted-foreground flex items-start gap-3">
@@ -171,13 +171,13 @@ function ScreensCard({ venueId, setup }) {
           })}
         </div>
       )}
-      <p className="text-xs text-muted-foreground">Address: <span className="font-medium text-foreground break-all">{setup.till_url}</span></p>
+      <p className="text-xs text-muted-foreground">Kitchen screen address: <span className="font-medium text-foreground break-all" data-testid="kds-address">{deviceUrl(setup, 'kds')}</span></p>
       <ErrorNote error={newCode.error} />
       {editing && (
         <ScreenModal venueId={venueId} setup={setup} device={editing === 'new' ? null : editing}
           onClose={() => setEditing(null)} onPaired={out => { setEditing(null); setPairing(out) }} />
       )}
-      {pairing && <PairingCode code={pairing.pairing_code} device={pairing.device} tillUrl={setup.till_url} what="kitchen screen" onClose={() => setPairing(null)} />}
+      {pairing && <PairingCode code={pairing.pairing_code} device={pairing.device} tillUrl={deviceUrl(setup, 'kds')} what="kitchen screen" onClose={() => setPairing(null)} />}
     </Section>
   )
 }

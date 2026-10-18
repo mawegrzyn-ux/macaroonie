@@ -21,6 +21,7 @@ import { applyKitchenEvent, stationSettings, nodeState, STALE_HOURS } from '@sha
 import { ulid } from '@shared/pos/ids.js'
 import * as idb from '../lib/idb.js'
 import { createTransport, OfflineError } from '../lib/transport.js'
+import { moveDevice, tellDisconnect, setMovedTo } from '../lib/appHost.js'
 
 const CONFIG_KEY = 'kds_config'
 const SNAPSHOT_KEY = 'kds_snapshot'
@@ -232,6 +233,46 @@ async function forget(message) {
   stopSync()
   await Promise.all([keep.del('device'), keep.del(CONFIG_KEY), keep.del(SNAPSHOT_KEY)])
   setTimeout(() => location.reload(), 3000)
+}
+
+// ── Disconnect, move (lib/appHost.js) ────────────────────────────
+
+/** On the kitchen test bench (no pairing to disconnect or move). */
+export const inBench = () => !!bench
+
+async function clearDevice() {
+  stopSync()
+  await Promise.all([keep.del('device'), keep.del(CONFIG_KEY), keep.del(SNAPSHOT_KEY), keep.del(OUTBOX_KEY)])
+}
+
+/**
+ * Disconnect this screen (its settings): Macaroonie stops accepting its
+ * pairing, the screen forgets it and shows the pairing screen. Taps not sent
+ * yet are dropped (the caller warns first).
+ */
+export async function disconnect() {
+  if (bench) return { ok: false, error: 'Not on the test page' }
+  const told = await tellDisconnect(api)
+  await clearDevice()
+  if (!told) toast('Disconnected here. Macaroonie couldn\'t be told (offline): remove the screen in Till setup, or make it a new code.', 'bad', 8000)
+  setTimeout(() => location.reload(), told ? 300 : 4000)
+  return { ok: true, told }
+}
+
+/**
+ * A kitchen screen paired on the till's address moves to kitchen.{root}:
+ * waiting taps are sent first, then the new address pairs with a one-time code.
+ */
+export async function moveScreen() {
+  if (bench) return { ok: false, error: 'Not on the test page' }
+  if (state.outbox.length) await flush()
+  if (state.outbox.length) return { ok: false, error: state.outbox.length + ' taps haven\'t been sent yet: check the Wi-Fi first' }
+  const r = await moveDevice(api, 'kds')
+  if (!r.ok) return r
+  setMovedTo(r.url)
+  await clearDevice()
+  r.go()
+  return { ok: true }
 }
 
 // ── Taps ─────────────────────────────────────────────────────────

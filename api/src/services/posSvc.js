@@ -75,6 +75,26 @@ export function newDeviceSecret() {
   return crypto.randomBytes(32).toString('base64url')
 }
 
+/**
+ * A fresh pairing code for a device, valid `minutes` (PAIRING_MINUTES).
+ * Returns the code (shown once). Used by Till setup and by a device moving
+ * itself to its own address (POST /pos-api/move).
+ */
+export async function openPairing(tx, tenantId, deviceId, minutes = PAIRING_MINUTES) {
+  for (let i = 0; i < 5; i++) {
+    const code = newPairingCode()
+    const hash = sha256(normaliseCode(code))
+    const [clash] = await tx`SELECT 1 FROM pos_devices WHERE pairing_code_hash = ${hash}`
+    if (clash) continue
+    await tx`
+      UPDATE pos_devices
+         SET pairing_code_hash = ${hash}, pairing_expires_at = now() + make_interval(mins => ${minutes})
+       WHERE id = ${deviceId} AND tenant_id = ${tenantId}`
+    return code
+  }
+  throw httpError(500, 'Could not make a pairing code: try again')
+}
+
 // ── Settings ─────────────────────────────────────────────────────
 
 const DEFAULT_TENDERS = TENDERS.map(t => ({ key: t.key, label: t.label, enabled: ['cash', 'card_external'].includes(t.key) }))

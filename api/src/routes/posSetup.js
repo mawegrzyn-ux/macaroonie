@@ -52,12 +52,12 @@ import { requireAuth, requirePermission, permissionLevel } from '../middleware/a
 import { httpError } from '../middleware/error.js'
 import { broadcast } from '../config/ws.js'
 import {
-  ensureSettings, settingsView, ownVenue, newPairingCode, normaliseCode, sha256, PAIRING_MINUTES,
+  ensureSettings, settingsView, ownVenue, openPairing,
   dayReport, fillReconFromDay, DEFAULT_COURSES,
 } from '../services/posSvc.js'
 import { reconFields } from '../services/reconFill.js'
 import { stationSettings, flowProblems, flowWarnings, STATION_KINDS, FLOW_TARGET_KINDS } from '../../../shared/pos/kitchen.js'
-import { posOrigin } from '../services/platformHost.js'
+import { deviceOrigin } from '../services/platformHost.js'
 import { ensureFlows, activeFlowOf, switchFlow, gloriaFoodTypes, GF_TYPES, kitchenTestToken } from '../services/kitchenSvc.js'
 import { checkDesign, previewToken } from '../services/kioskSvc.js'
 import { normaliseDesign } from '../../../shared/kiosk.js'
@@ -377,22 +377,6 @@ async function nextShortCode(tx, tenantId, venueId, kind) {
   return prefix + rows.length + 1
 }
 
-/** A fresh pairing code for a device, valid PAIRING_MINUTES. Returns the code (shown once). */
-async function openPairing(tx, tenantId, deviceId) {
-  for (let i = 0; i < 5; i++) {
-    const code = newPairingCode()
-    const hash = sha256(normaliseCode(code))
-    const [clash] = await tx`SELECT 1 FROM pos_devices WHERE pairing_code_hash = ${hash}`
-    if (clash) continue
-    await tx`
-      UPDATE pos_devices
-         SET pairing_code_hash = ${hash}, pairing_expires_at = now() + make_interval(mins => ${PAIRING_MINUTES})
-       WHERE id = ${deviceId} AND tenant_id = ${tenantId}`
-    return code
-  }
-  throw httpError(500, 'Could not make a pairing code: try again')
-}
-
 export default async function posSetupRoutes(app) {
   app.addHook('preHandler', requireAuth)
 
@@ -458,7 +442,8 @@ export default async function posSetupRoutes(app) {
         kiosk_designs: kioskDesigns.map(d => ({ id: d.id, name: d.name, settings: normaliseDesign(d.settings), updated_at: d.updated_at })),
         recon_fields: await reconFields(tx, tenantId, venueId),
         gloriafood,
-        till_url: posOrigin(),
+        till_url: deviceOrigin('terminal'),
+        device_urls: { terminal: deviceOrigin('terminal'), kds: deviceOrigin('kds'), kiosk: deviceOrigin('kiosk') },
       }
     })
   })
@@ -844,7 +829,7 @@ export default async function posSetupRoutes(app) {
       }
     })
     const token = await previewToken({ tenantId: req.tenantId, venueId: body.venue_id, designId: id, streamId: body.revenue_stream_id || null })
-    return { token, url: posOrigin() + '/?kiosk_preview=' + encodeURIComponent(token) }
+    return { token, url: deviceOrigin('kiosk') + '/?kiosk_preview=' + encodeURIComponent(token) }
   })
 
   // A link to the kitchen test bench: every kitchen screen of the venue on
@@ -854,7 +839,7 @@ export default async function posSetupRoutes(app) {
     const venueId = UUID.parse(req.params.venueId)
     await withTenant(req.tenantId, tx => ownVenue(tx, req.tenantId, venueId))
     const token = await kitchenTestToken({ tenantId: req.tenantId, venueId })
-    return { token, url: posOrigin() + '/?kitchen_test=' + encodeURIComponent(token) }
+    return { token, url: deviceOrigin('kds') + '/?kitchen_test=' + encodeURIComponent(token) }
   })
 
   // ── Kitchen screens: stations and routing ───────────────────────
