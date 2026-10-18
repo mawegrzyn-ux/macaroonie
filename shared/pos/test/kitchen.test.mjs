@@ -781,9 +781,10 @@ const wingFlow = [
 const wingLine = (n, extra = {}) => lineOf('Wings', WINGS, WINGSEC, { modifiers: [{ label: n + ' Wings', base: true, price: 0 }], ...extra })
 
 /** A till whose kitchen config carries the open orders and the box's last pick, as the sequencer gives it. */
-function balancedTill() {
+function balancedTill(box = {}) {
   const last = {}
-  const base = { ...common, stations: byId(Object.values(wingKit)), flow: wingFlow }
+  const kit = { ...wingKit, BOX: { ...wingKit.BOX, settings: { ...wingKit.BOX.settings, ...box } } }
+  const base = { ...common, stations: byId(Object.values(kit)), flow: wingFlow }
   const t = till(base)
   Object.defineProperty(t, 'cfg', { get() { return { ...base, balance: { open: t.orders, last, picks: last } } } })
   return t
@@ -866,6 +867,81 @@ test('balance: a held course is decided when it is fired; online orders as they 
   assert.equal(Object.keys(o.items[0].route).length, 2, 'an online order is decided as it comes in')
   assert.ok(!o.items[0].route[BOX])
   assert.ok(o.items[1].route[FRY2])
+})
+
+test('balance: a big ticket stays on one station unless the box shares big tickets', () => {
+  // Keep together (the default): 28 pieces all on one wingman.
+  const t = balancedTill()
+  const c1 = openTable(t)
+  const a = wingLine(10), b = wingLine(10), c = wingLine(8)
+  let k = addAndSend(t, c1, [a, b, c])
+  assert.deepEqual([a, b, c].map(l => wayOf(k, c1, l.id)), [[W1, PASS2].sort(), [W1, PASS2].sort(), [W1, PASS2].sort()], 'one ticket, one wingman')
+
+  // Share above 20: 20 pieces stay together, 26 are shared, biggest first,
+  // each to the wingman with fewer pieces counting what this ticket put there.
+  const s = balancedTill({ split_above: 20 })
+  const d1 = openTable(s)
+  const x = wingLine(10), y = wingLine(10)
+  k = addAndSend(s, d1, [x, y])
+  assert.deepEqual([x, y].map(l => wayOf(k, d1, l.id)), [[W1, PASS2].sort(), [W1, PASS2].sort()], '20 is not more than 20: together')
+  const d2 = openTable(s)
+  const p = wingLine(10), q = wingLine(10), r = lineOf('Boneless', BONELESS, WINGSEC), f = fries()
+  k = addAndSend(s, d2, [r, p, q, f])
+  assert.deepEqual(wayOf(k, d2, p.id), [W2, PASS2].sort(), 'first 10 to the empty wingman')
+  assert.deepEqual(wayOf(k, d2, q.id), [W2, PASS2].sort(), 'next 10: 10 there is still fewer than 20')
+  assert.deepEqual(wayOf(k, d2, r.id), [W1, PASS2].sort(), 'the 6 boneless: level at 20, so the next in turn')
+  assert.deepEqual(wayOf(k, d2, f.id), [FRY2, PASS2].sort(), 'the fries still go to the fryer')
+  assert.equal(s.cfg.balance.last[BOX], W1, 'the last pick is kept')
+  assert.equal(stationLoad(s.orders, W1, wingKit.BOX.settings.pieces, s.cfg, at()), 26)
+  assert.equal(stationLoad(s.orders, W2, wingKit.BOX.settings.pieces, s.cfg, at()), 20)
+  assert.equal(s.tickets(wingKit.W1).filter(tk => tk.order.id === d2).length, 1, 'the ticket shows on both wingmen')
+  assert.equal(s.tickets(wingKit.W2).filter(tk => tk.order.id === d2).length, 1)
+
+  // One line is never split, however big.
+  const u = balancedTill({ split_above: 10 })
+  const e1 = openTable(u)
+  const big = wingLine(10, { qty: 3 })
+  k = addAndSend(u, e1, [big])
+  assert.deepEqual(wayOf(k, e1, big.id), [W1, PASS2].sort(), '3 x 10 wings stay on one wingman')
+
+  // Level: ties take turns as the ticket is shared.
+  const e2 = openTable(u)
+  const m = wingLine(10), n = wingLine(8), o = wingLine(6)
+  ok(u.bump(e1, wingKit.W1))
+  k = addAndSend(u, e2, [o, n, m])
+  assert.deepEqual(wayOf(k, e2, m.id), [W2, PASS2].sort(), 'both empty: the one after the last pick')
+  assert.deepEqual(wayOf(k, e2, n.id), [W1, PASS2].sort())
+  assert.deepEqual(wayOf(k, e2, o.id), [W1, PASS2].sort(), '8 at Wingman 1 is fewer than 10')
+})
+
+test('balance: a shared big ticket splits a meal deal by its parts, and online orders too', () => {
+  const t = balancedTill({ split_above: 10 })
+  const c = openTable(t)
+  const meal = lineOf('Wing feast', MEAL, WINGSEC, {
+    combo: [
+      { step: 'Wings', item_id: WINGS, section_id: WINGSEC, name: 'Wings', modifiers: [{ label: '10 Wings', base: true, price: 0 }], upcharge: 0 },
+      { step: 'More wings', item_id: WINGS, section_id: WINGSEC, name: 'Wings', modifiers: [{ label: '8 Wings', base: true, price: 0 }], upcharge: 0 },
+      { step: 'Side', item_id: FRIES, section_id: SIDES, name: 'Fries', modifiers: [], upcharge: 0 },
+    ],
+  })
+  const k = addAndSend(t, c, [meal])
+  const item = k[c].items[0]
+  assert.deepEqual(Object.keys(item.parts[0].route).sort(), [W1, PASS2].sort(), 'the 10 to one wingman')
+  assert.deepEqual(Object.keys(item.parts[1].route).sort(), [W2, PASS2].sort(), 'the 8 to the other')
+  assert.deepEqual(Object.keys(item.parts[2].route).sort(), [FRY2, PASS2].sort())
+  assert.deepEqual(Object.keys(item.route).sort(), [W1, W2, FRY2, PASS2].sort(), 'the dish goes everywhere its parts go')
+  assert.deepEqual(t.tickets(wingKit.W1).flatMap(tk => tk.items.flatMap(i => i.parts.map(pt => pt.mods[0].text))), ['10 Wings'])
+  assert.deepEqual(t.tickets(wingKit.W2).flatMap(tk => tk.items.flatMap(i => i.parts.map(pt => pt.mods[0].text))), ['8 Wings'])
+
+  const r = ok(t.kitchen(kev('kitchen.order_in', { order: {
+    id: onlineOrderId(uuid()), order_id: uuid(), number: '42', type: OUT,
+    items: [{ id: 'a', item_id: WINGS, section_id: WINGSEC, name: 'Wings', qty: 1, options: [{ label: '10 Wings', mode: 'base' }] },
+      { id: 'b', item_id: WINGS, section_id: WINGSEC, name: 'Wings', qty: 1, options: [{ label: '8 Wings', mode: 'base' }] }],
+  } })))
+  const o = Object.values(r.orders)[0]
+  // Wingman 1 has 10, Wingman 2 has 8: the 10 goes to Wingman 2 (18), then the 8 to Wingman 1 (18).
+  assert.ok(o.items[0].route[W2] && !o.items[0].route[W1])
+  assert.ok(o.items[1].route[W1] && !o.items[1].route[W2])
 })
 
 test('balance: flow checks and nothing to bump', () => {

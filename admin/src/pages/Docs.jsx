@@ -3339,13 +3339,19 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>flowProblems()</Mono>; fewer than two is a warning). <Mono>itemRoute()</Mono> still walks
               through it (so Check a dish shows both); <Mono>resolveBalances(route, cfg, pick)</Mono> then takes
               each box out of a dish&apos;s way, keeping only the picked station and what follows it
-              (<Mono>collapseBalance()</Mono>). <Mono>makeBalancePicker(cfg, at)</Mono> picks per event, so a
-              ticket stays together: the output with the lowest <Mono>stationLoad()</Mono> (every fired dish on
-              its way to that station not yet done, counted with the box&apos;s <Mono>settings.pieces</Mono>,
-              the same member shape and <Mono>memberCount()</Mono> as On order counts; a dish no member names
-              counts its quantity), a tie going to the first after the box&apos;s last pick. It runs in{' '}
-              <Mono>lines.sent</Mono> (held lines keep the box until <Mono>course.fired</Mono> resolves them) and{' '}
-              <Mono>kitchen.order_in</Mono> (online and GloriaFood orders, later ones too). The sequencer gives
+              (<Mono>collapseBalance()</Mono>, also used by the tests). <Mono>balanceTicket(items, cfg, at)</Mono>{' '}
+              decides every box on the dishes one event sends or fires, upstream boxes first
+              (<Mono>flowBoxes()</Mono>), changing their ways in place: by default the whole ticket goes to the
+              output with the lowest <Mono>stationLoad()</Mono> (every fired dish on its way to that station not
+              yet done, counted with the box&apos;s <Mono>settings.pieces</Mono>, the same member shape and{' '}
+              <Mono>memberCount()</Mono> as On order counts; a dish no member names counts its quantity), a tie
+              going to the first after the box&apos;s last pick. With <Mono>settings.split_above = N</Mono> and
+              more than N pieces of the ticket reaching the box, each unit (a dish line, or a meal deal part; the
+              deal&apos;s own options count with its first part there; <Mono>unitPieces()</Mono>) goes, biggest
+              first, to the output with the lowest load plus what this ticket already put there, ties taking
+              turns; a line&apos;s quantity is never split. A meal deal&apos;s way is its parts&apos; ways merged.
+              It runs in <Mono>lines.sent</Mono> (held lines keep the box until <Mono>course.fired</Mono>{' '}
+              decides them) and <Mono>kitchen.order_in</Mono> (online and GloriaFood orders, later ones too). The sequencer gives
               those events <Mono>cfg.balance = {'{ open, last, picks }'}</Mono> through the store&apos;s{' '}
               <Mono>loadOpenKitchenOrders()</Mono> / <Mono>loadBalanceTurns()</Mono> and saves{' '}
               <Mono>picks</Mono> with <Mono>saveBalanceTurns()</Mono> (<Mono>kds_balance_turns</Mono>); the test
@@ -3410,7 +3416,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <DataTable
               head={['Table', 'What it holds']}
               rows={[
-                ['kds_stations', 'Per venue: name, kind prep | expo | runner | board | balance (183), colour, settings jsonb { target_mins, late_mins, show_held, show_upcoming, summary_groups: [{ id, name, members: [{ kind dish | option, id | label, qty }] }], pieces (a Balance box: members, same shape) }, sort_order, is_active.'],
+                ['kds_stations', 'Per venue: name, kind prep | expo | runner | board | balance (183), colour, settings jsonb { target_mins, late_mins, show_held, show_upcoming, summary_groups: [{ id, name, members: [{ kind dish | option, id | label, qty }] }], pieces (a Balance box: members, same shape), split_above (a Balance box: null = each ticket on one station, N = share a ticket with more than N pieces) }, sort_order, is_active.'],
                 ['kds_balance_turns', 'Each Balance box\'s last pick (183): station_id (the box, PK, ON DELETE CASCADE), last_station_id, updated_at. Written by the sequencer (saveBalanceTurns()) so a tie goes to the next station. Forced RLS.'],
                 ['kds_flows', 'A venue\'s kitchen flows (177): name (1-40, unique per venue ignoring case and spaces), layout jsonb { [stationId | start]: { x, y } } (where the designer draws each box), sort_order (the kitchen screen\'s list), off_station_ids uuid[] (182: the venue\'s stations this flow leaves out). Forced RLS like every tenant table. The migration made one "Main flow" per venue with stations or links, holding its links and layout, in use. A venue without one gets it from GET .../setup (ensureFlows()).'],
                 ['kds_flow_edges', 'A flow\'s links (169, flow_id NOT NULL since 177, ON DELETE CASCADE with the flow): from_station_id (NULL = Orders in), to_station_id (both ON DELETE CASCADE), targets jsonb, sort_order. One link per pair per flow (unique index on flow_id, from, to). Read them by flow_id, never by venue alone. Replaced kds_routes: each station\'s routes became one link from Orders in, every prep station got a link to every expo.'],

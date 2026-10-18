@@ -32,7 +32,7 @@ const KIND_HINTS = {
   expo: 'Checks whole orders before they go out (the pass). Its bump marks the order ready, and finishes dishes still at earlier stations.',
   runner: 'Takes orders out to tables or the counter. Last on a dish\'s way, its bump hands the order over.',
   board: 'An order ready board: shows order numbers on menu screens (Order status block). An order is ready there once every dish on its way to the board has arrived. Nothing to bump, no kitchen screen.',
-  balance: 'Shares tickets between the stations it links to in the kitchen flow (e.g. two wingmen): each ticket\'s dishes that reach it go to the one with the fewest pieces still to cook, taking turns when they\'re level. Nothing to bump, no kitchen screen.',
+  balance: 'Shares tickets between the stations it links to in the kitchen flow (e.g. two wingmen): each ticket\'s dishes that reach it go to the one with the fewest pieces still to cook, taking turns when they\'re level (big tickets can be shared out too). Nothing to bump, no kitchen screen.',
 }
 const VIEWS = [
   { value: 'tickets', label: 'Tickets' },
@@ -262,6 +262,7 @@ export function StationModal({ venueId, setup, station, kind: newKind, onClose }
     target_mins: s.target_mins ?? 8, late_mins: s.late_mins ?? 12, show_held: s.show_held !== false,
     show_upcoming: s.show_upcoming ?? startKind === 'expo',
     summary_groups: s.summary_groups || [], pieces: s.pieces || [], is_active: station ? station.is_active : true,
+    share: s.split_above != null, split_above: s.split_above ?? 20,
   })
   const [upcomingSet, setUpcomingSet] = useState(!!station)
   const set = patch => setForm(f => ({ ...f, ...patch }))
@@ -277,6 +278,7 @@ export function StationModal({ venueId, setup, station, kind: newKind, onClose }
       show_upcoming: !!form.show_upcoming,
       summary_groups: form.summary_groups.filter(g => g.name.trim()).map(g => ({ ...g, name: g.name.trim() })),
       pieces: balance ? form.pieces : [],
+      split_above: balance && form.share ? (form.split_above ?? 20) : null,
     },
   })
   const save = useMutation({
@@ -302,6 +304,25 @@ export function StationModal({ venueId, setup, station, kind: newKind, onClose }
       {balance && (
         <Field group label="Pieces" hint="What a dish counts when the box weighs up who has more to cook, e.g. the 10 Wings option counts 10, the 8pc Boneless dish counts 8. A dish not listed counts its quantity.">
           <div className="space-y-2" data-testid="balance-pieces"><MembersEditor setup={setup} members={form.pieces} onChange={pieces => set({ pieces })} /></div>
+        </Field>
+      )}
+      {balance && (
+        <Field group label="Big tickets"
+          hint={form.share
+            ? 'A ticket with more pieces than this is shared: each dish line goes, biggest first, to whichever station then has the fewest pieces. One dish line is never split.'
+            : 'The whole ticket goes to one station, however many pieces it has.'}>
+          <div className="space-y-3" data-testid="balance-big">
+            <Segmented value={form.share ? 'share' : 'keep'} className="flex-wrap"
+              options={[{ value: 'keep', label: 'Keep each ticket on one station' }, { value: 'share', label: 'Share big tickets' }]}
+              onChange={v => set({ share: v === 'share' })} />
+            {form.share && (
+              <label className="flex flex-wrap items-center gap-2 text-sm">
+                Share a ticket with more than
+                <NumberBox value={form.split_above} min={0} max={999} onChange={v => set({ split_above: v })} ariaLabel="Share a ticket with more than this many pieces" />
+                pieces
+              </label>
+            )}
+          </div>
         </Field>
       )}
       {balance && station?.kind && station.kind !== 'balance' && (
@@ -360,6 +381,7 @@ function StationsCard({ venueId, setup, onEdit }) {
                     {isBumpKind(st.kind) && <> · amber {st.settings.target_mins} min, red {st.settings.late_mins} min</>}
                     {isBumpKind(st.kind) && st.settings.summary_groups?.length ? ' · counts ' + st.settings.summary_groups.map(g => g.name).join(', ') : ''}
                     {st.kind === 'balance' && (st.settings.pieces?.length ? ' · ' + st.settings.pieces.map(m => m.label + ' ' + m.qty).join(', ') : ' · each dish counts its quantity')}
+                    {st.kind === 'balance' && (st.settings.split_above != null ? ' · shares tickets over ' + st.settings.split_above + ' pieces' : ' · each ticket on one station')}
                   </p>
                 </div>
                 <Btn onClick={() => onEdit(st)} title={'Edit ' + st.name}><Pencil className="w-4 h-4" /></Btn>

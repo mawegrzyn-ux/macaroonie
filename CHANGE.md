@@ -5,6 +5,11 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-18 — Balance boxes: a choice for big tickets]
+
+- **A Balance box can share out big tickets.** In its window (Till setup → Kitchen screens → the box → Edit), **Big tickets**: *Keep each ticket on one station* (as before) or *Share big tickets* with a number of pieces. A ticket with more pieces than that is shared out: each dish line goes, biggest first, to whichever station then has the fewest pieces to cook, counting what this ticket has already given it. One dish line is never split; a meal deal's parts can go to different stations. The station list and the flow designer say which the box does.
+- No migration (a new key in the station's settings, null by default).
+
 ## [2026-10-18 — Balance boxes: share tickets between two kitchen stations]
 
 - **A Balance box in the kitchen flow shares tickets between stations doing the same job**, e.g. two wingmen. In Till setup → Kitchen screens, **Add to the flow** → **Balance box**, list what dishes count as (the 10 Wings option counts 10, the 8pc dish counts 8), link the wings to the box and the box to both wingmen. Each ticket's wings go to the wingman with the fewest pieces still to cook, taking turns when they're level; everything else on the ticket goes where it went before (e.g. the fryer). A ticket's wings always stay together.

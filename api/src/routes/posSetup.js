@@ -207,6 +207,9 @@ const StationSettings = z.object({
   // A Balance box's pieces (migration 183): what a dish counts when it
   // shares tickets between stations (a dish counts its quantity otherwise).
   pieces: z.array(SummaryMember).max(60).default([]),
+  // A Balance box's big tickets: null keeps each ticket on one station; N
+  // shares a ticket's dishes between them when more than N pieces reach it.
+  split_above: z.number().int().min(0).max(999).nullable().default(null),
 }).refine(s => s.late_mins >= s.target_mins, { message: 'Late must be the same as or after the target time', path: ['late_mins'] })
 
 const StationBody = z.object({
@@ -354,7 +357,6 @@ async function dropFlowTarget(tx, tenantId, kind, id) {
   }
 }
 
-/** Kitchen screens that showed a station: take it off their list. */
 /** A Balance box's pieces name the tenant's own dishes. */
 async function checkPieces(tx, tenantId, settings) {
   const ids = [...new Set((settings.pieces || []).filter(m => m.kind === 'dish').map(m => m.id).filter(Boolean))]
@@ -377,6 +379,7 @@ async function tidyBalanceBox(tx, tenantId, venueId, stationId) {
   await dropDeviceStation(tx, tenantId, venueId, stationId)
 }
 
+/** Kitchen screens that showed a station: take it off their list. */
 async function dropDeviceStation(tx, tenantId, venueId, stationId) {
   const devices = await tx`SELECT id, settings FROM pos_devices WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND kind = 'kds'`
   for (const d of devices) {

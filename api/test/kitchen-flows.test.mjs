@@ -273,6 +273,23 @@ test('a Balance box: each order to the wingman with fewer pieces to cook, taking
   const [turn] = await sql`SELECT last_station_id FROM kds_balance_turns WHERE station_id = ${box.id}`
   assert.equal(turn.last_station_id, w1.id, 'the last pick is kept')
 
+  // Share big tickets: more than 15 pieces go out dish line by dish line.
+  const tooLow = await owner.patch(`/api/pos/kds-stations/${box.id}`, { name: 'Wings', kind: 'balance', settings: { pieces, split_above: -1 } })
+  assert.equal(tooLow.status, 400)
+  const sharing = await ok(owner.patch(`/api/pos/kds-stations/${box.id}`, { name: 'Wings', kind: 'balance', settings: { pieces, split_above: 15 } }))
+  assert.equal(sharing.settings.split_above, 15)
+  const big = orderIn(404)
+  big.payload.order.items = [1, 2, 3].map(n => ({ id: 'b' + n, item_id: dish.id, section_id: dish.section_id, name: dish.name, qty: 1 }))
+  assert.ok((await sequencer(ids.a, V).submit(big)).ok)
+  const [bigRow] = await sql`SELECT state FROM kds_orders WHERE tenant_id = ${ids.a} AND venue_id = ${V} AND state->>'number' = '404'`
+  // Wingman 1 has 20, Wingman 2 has 10: the first 10 to Wingman 2, then level
+  // (20 each) so the next after Wingman 2, then Wingman 2 again (20 against 30).
+  assert.deepEqual(bigRow.state.items.map(i => Object.keys(i.route).sort()), [sorted([w2.id, pass.id]), sorted([w1.id, pass.id]), sorted([w2.id, pass.id])], 'shared out')
+  const [turn2] = await sql`SELECT last_station_id FROM kds_balance_turns WHERE station_id = ${box.id}`
+  assert.equal(turn2.last_station_id, w2.id, 'the last pick is the last line\'s')
+  const keep = await ok(owner.patch(`/api/pos/kds-stations/${box.id}`, { name: 'Wings', kind: 'balance', settings: { pieces } }))
+  assert.equal(keep.settings.split_above, null, 'no number: each ticket on one station')
+
   // The box has no screen and nothing to bump.
   const config = await device(screen, 'GET', '/pos-api/config')
   assert.ok(config.json.stations.some(s => s.id === box.id && s.kind === 'balance'))

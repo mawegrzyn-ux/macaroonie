@@ -887,7 +887,10 @@ function NodePanel({ id, station, links, nameOf, lk, canManage, onEdit, onLink, 
           Shares work between the stations it goes on to: {BALANCE_RULE}.{' '}
           {(s.pieces || []).length
             ? 'Pieces: ' + s.pieces.map(m => m.label + ' counts ' + m.qty).join(', ') + '; any other dish counts its quantity.'
-            : 'No pieces set yet (Edit station): each dish counts its quantity.'}
+            : 'No pieces set yet (Edit station): each dish counts its quantity.'}{' '}
+          {s.split_above != null
+            ? 'Big tickets: a ticket with more than ' + s.split_above + ' pieces is shared out, dish line by dish line.'
+            : 'Big tickets: each ticket stays on one station.'}
         </p>
       )}
       {station?.kind === 'runner' && (
