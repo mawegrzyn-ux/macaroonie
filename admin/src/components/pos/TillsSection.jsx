@@ -3,12 +3,15 @@
 // Till setup > Tills: the tablets and PCs that run the till app. Adding one
 // gives a one-time pairing code, typed on the device at the till address
 // (pos.<domain>). A new code pairs the device again and stops the old one.
+// A device that isn't set up also shows a code of its own (migration 184):
+// LinkShownCode links it from here, the installer app from a phone.
 
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Loader2, KeyRound, Pencil, MonitorSmartphone } from 'lucide-react'
+import { Plus, Loader2, KeyRound, Pencil, MonitorSmartphone, Link2, Smartphone } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { installerHref } from '@/lib/hosts'
 import { Section, Modal, Field, inputCls, ErrorNote, ConfirmDelete, Segmented, Btn, ago } from './shared'
 
 const MODES = [
@@ -33,6 +36,62 @@ export function PairingCode({ code, device, tillUrl, onClose, what = 'till' }) {
         Pairing again later stops the old pairing on whatever device had it. A device can also be disconnected from its own settings: it then shows Not paired here.
       </p>
     </Modal>
+  )
+}
+
+const KIND_WORDS = { terminal: 'till', kds: 'kitchen screen', kiosk: 'kiosk' }
+
+/** "Link a code shown on the device": a new device from the code it shows (POST /pos/venues/:id/link). */
+export function LinkShownCode({ venueId, kind }) {
+  const api = useApi()
+  const qc = useQueryClient()
+  const [open, setOpen] = useState(false)
+  const [code, setCode] = useState('')
+  const [name, setName] = useState('')
+  const tidy = v => {
+    const raw = v.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6)
+    return raw.length > 3 ? raw.slice(0, 3) + '-' + raw.slice(3) : raw
+  }
+  const link = useMutation({
+    mutationFn: () => api.post(`/pos/venues/${venueId}/link`, { code, kind, name: name.trim() }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['pos-setup', venueId] }); setOpen(false); setCode(''); setName('') },
+  })
+  const what = KIND_WORDS[kind]
+  return (
+    <>
+      <Btn onClick={() => setOpen(true)}><Link2 className="w-4 h-4" /> Link a code shown on the {what}</Btn>
+      {open && (
+        <Modal title={'Link a ' + what + ' showing a code'} onClose={() => setOpen(false)}
+          footer={<>
+            <Btn className="flex-1" onClick={() => setOpen(false)}>Cancel</Btn>
+            <Btn variant="primary" className="flex-1" disabled={code.length !== 7 || !name.trim() || link.isPending} onClick={() => link.mutate()}>
+              {link.isPending && <Loader2 className="w-4 h-4 animate-spin" />} Link it
+            </Btn>
+          </>}>
+          <p className="text-sm text-muted-foreground">A {what} that isn't set up shows a six-letter code and a QR code. Type the code here, or scan the QR code with a phone to use the installer.</p>
+          <Field label="Code on the device">
+            <input className={cn(inputCls, 'text-center font-mono text-2xl font-bold tracking-widest uppercase')} value={code}
+              onChange={e => setCode(tidy(e.target.value))} placeholder="ABC-DEF" autoComplete="off" spellCheck={false} />
+          </Field>
+          <Field label="Name">
+            <input className={inputCls} value={name} maxLength={60} onChange={e => setName(e.target.value)} placeholder={'e.g. ' + (kind === 'kds' ? 'Grill screen' : kind === 'kiosk' ? 'Door kiosk' : 'Bar till')} />
+          </Field>
+          <ErrorNote error={link.error} />
+        </Modal>
+      )}
+    </>
+  )
+}
+
+/** One line pointing at the installer app (installer.<domain>, or /install where everything shares one address). */
+export function InstallerLine({ setup }) {
+  const href = installerHref('/install') || '/install'
+  const label = setup?.installer_url ? setup.installer_url.replace(/^https?:\/\//, '') : 'the installer'
+  return (
+    <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+      <Smartphone className="w-3.5 h-3.5 shrink-0" />
+      <span>Setting up at the venue? Open <a href={href} target="_blank" rel="noreferrer" className="font-medium text-primary break-all">{label}</a> on a phone: it links every till, kitchen screen, kiosk and menu screen by scanning the code they show.</span>
+    </p>
   )
 }
 
@@ -176,6 +235,8 @@ export default function TillsSection({ venueId, setup }) {
         <p className="text-xs text-muted-foreground">Removed: {removed.map(d => d.name + ' (' + d.short_code + ')').join(', ')}</p>
       )}
       <p className="text-xs text-muted-foreground">Till address: <span className="font-medium text-foreground break-all">{deviceUrl(setup, 'terminal')}</span> (kitchen screens and kiosks have their own, on their tabs)</p>
+      <div><LinkShownCode venueId={venueId} kind="terminal" /></div>
+      <InstallerLine setup={setup} />
       <ErrorNote error={newCode.error} />
       {editing && (
         <TillModal venueId={venueId} setup={setup} device={editing === 'new' ? null : editing}

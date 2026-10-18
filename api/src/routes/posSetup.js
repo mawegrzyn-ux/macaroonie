@@ -11,6 +11,9 @@
 //   PUT    /venues/:venueId/routes                the whole printer routing list
 //   POST   /venues/:venueId/devices               add a till: returns a one-time pairing code
 //   POST   /devices/:id/pairing-code              a new code (pairs again, the old secret stops working)
+//   POST   /venues/:venueId/link                  { code, device_id? | name, kind?, settings? } link a device
+//                                                 showing a code (migration 184): a new till, kitchen screen
+//                                                 or kiosk, or a new device for one already here
 //   PATCH  /devices/:id                           name, settings (mode, revenue stream, receipt printer, floor area;
 //                                                 a kiosk's design and card reader)
 //   DELETE /devices/:id                           revoke
@@ -58,7 +61,9 @@ import {
 } from '../services/posSvc.js'
 import { reconFields } from '../services/reconFill.js'
 import { stationSettings, flowProblems, flowWarnings, STATION_KINDS, FLOW_TARGET_KINDS, BUMP_KINDS } from '../../../shared/pos/kitchen.js'
-import { deviceOrigin } from '../services/platformHost.js'
+import { deviceOrigin, installerOrigin } from '../services/platformHost.js'
+import { linkCodeHash } from '../services/linkCodes.js'
+import { forgetDevice } from './posApi.js'
 import { ensureFlows, activeFlowOf, switchFlow, gloriaFoodTypes, GF_TYPES, kitchenTestToken } from '../services/kitchenSvc.js'
 import { checkDesign, previewToken } from '../services/kioskSvc.js'
 import { normaliseDesign } from '../../../shared/kiosk.js'
@@ -173,6 +178,10 @@ const DeviceSettings = z.object({
   design_id:          UUID.nullable().optional(),
   card_reader:        z.enum(['none', 'test']).optional(),
 }).default({})
+
+// What a device showing a link code can become, in the words the refusals use.
+const LINK_KINDS = ['terminal', 'kds', 'kiosk']
+const LINK_KIND_NAME = { terminal: 'a till', kds: 'a kitchen screen', kiosk: 'a self-order kiosk', hub: 'a venue hub' }
 
 const DeviceBody = z.object({
   name:     z.string().trim().min(1).max(60),
@@ -474,6 +483,7 @@ export default async function posSetupRoutes(app) {
         recon_fields: await reconFields(tx, tenantId, venueId),
         gloriafood,
         till_url: deviceOrigin('terminal'),
+        installer_url: installerOrigin(),
         device_urls: { terminal: deviceOrigin('terminal'), kds: deviceOrigin('kds'), kiosk: deviceOrigin('kiosk') },
       }
     })
@@ -758,6 +768,68 @@ export default async function posSetupRoutes(app) {
       const [fresh] = await tx`SELECT * FROM pos_devices WHERE id = ${id} AND tenant_id = ${req.tenantId}`
       return { device: deviceView(fresh), pairing_code: code }
     })
+  })
+
+  // A device showing a code of its own (POST /pos-api/pairings, migration
+  // 184): a new till, kitchen screen or kiosk at this venue, or a new device
+  // for one already here (the old device stops working). The address the code
+  // was shown on decides the kind.
+  app.post('/venues/:venueId/link', { preHandler: canSetup, config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (req, reply) => {
+    const venueId = UUID.parse(req.params.venueId)
+    const body = z.object({
+      code:      z.string().min(4).max(20),
+      device_id: UUID.nullable().optional(),
+      kind:      z.enum(LINK_KINDS).optional(),
+      name:      z.string().trim().min(1).max(60).optional(),
+      settings:  DeviceSettings.optional(),
+    }).parse(req.body)
+    const out = await withTenant(req.tenantId, async tx => {
+      await ownVenue(tx, req.tenantId, venueId)
+      // Codes have no tenant until linked; lock this one.
+      const [p] = await tx`
+        SELECT id, app, secret_hash, device_info, expires_at, device_id FROM pos_pairings
+         WHERE code_hash = ${linkCodeHash(body.code)} FOR UPDATE`
+      if (!p || p.device_id || new Date(p.expires_at) <= new Date()) {
+        throw httpError(422, 'That code isn\'t right or has run out: check the device shows the same code')
+      }
+      const kind = p.app || body.kind || 'terminal'
+      if (p.app && body.kind && body.kind !== p.app) {
+        throw httpError(422, `That code is on ${LINK_KIND_NAME[p.app]}: link it as one`)
+      }
+      const info = p.device_info || {}
+      let id
+      if (body.device_id) {
+        const [d] = await tx`SELECT id, kind, venue_id, revoked_at FROM pos_devices WHERE id = ${body.device_id} AND tenant_id = ${req.tenantId}`
+        if (!d || d.venue_id !== venueId) throw httpError(404, 'Device not found')
+        if (d.revoked_at) throw httpError(422, 'That device was removed')
+        if (d.kind !== kind) throw httpError(422, `That code is on ${LINK_KIND_NAME[kind]}, not ${LINK_KIND_NAME[d.kind] || 'that device'}`)
+        await tx`
+          UPDATE pos_devices
+             SET secret_hash = ${p.secret_hash}, pairing_code_hash = NULL, pairing_expires_at = NULL, paired_at = now(),
+                 last_seen_at = NULL, app_version = ${info.app_version || null}, user_agent = ${info.ua || null}
+           WHERE id = ${d.id} AND tenant_id = ${req.tenantId}`
+        id = d.id
+      } else {
+        if (!body.name) throw httpError(422, 'Give the device a name')
+        const settings = body.settings || DeviceSettings.parse(undefined)
+        await checkDeviceSettings(tx, req.tenantId, venueId, settings)
+        const short = await nextShortCode(tx, req.tenantId, venueId, kind)
+        const [d] = await tx`
+          INSERT INTO pos_devices (tenant_id, venue_id, kind, name, short_code, settings, created_by,
+                                   secret_hash, paired_at, app_version, user_agent)
+          VALUES (${req.tenantId}, ${venueId}, ${kind}, ${body.name}, ${short}, ${tx.json(settings)}, ${by(req)},
+                  ${p.secret_hash}, now(), ${info.app_version || null}, ${info.ua || null})
+          RETURNING id`
+        id = d.id
+      }
+      await tx`UPDATE pos_pairings SET claimed_at = now(), device_id = ${id}, tenant_id = ${req.tenantId} WHERE id = ${p.id}`
+      const [fresh] = await tx`SELECT * FROM pos_devices WHERE id = ${id} AND tenant_id = ${req.tenantId}`
+      return { device: deviceView(fresh), replaced: !!body.device_id }
+    })
+    // A replaced device's old secret stops working (here at once, elsewhere within the device cache's 30 s).
+    forgetDevice(out.device.id)
+    configChanged(venueId)
+    return reply.code(out.replaced ? 200 : 201).send({ device: out.device })
   })
 
   app.patch('/devices/:id', { preHandler: canSetup }, async req => {

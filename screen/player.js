@@ -32,8 +32,9 @@ import {
   clockText, playlistPosition, replayStart, wallRegion, transitionFrames, startBoardMotion, DEFAULT_TRANSITION_MS,
   orderChanges, keepOrderChanges, ORDER_CHANGE_KEEP_MS,
 } from '/lib/screenLayout.js'
+import { qrSvg } from '/lib/qr.js'
 
-const APP_VERSION = '1.3.0'
+const APP_VERSION = '1.4.0'
 const PLAYER_VERSION = document.querySelector('meta[name="player-version"]')?.content || ''
 const KEYS = { device: 'mcrn_screen_device', config: 'mcrn_screen_config', pairing: 'mcrn_screen_pairing', reloaded: 'mcrn_screen_reloaded_at' }
 const POLL_MS = 60_000
@@ -168,13 +169,37 @@ async function startPairing() {
   pollPairing(pairing)
 }
 
+// The QR code opens the installer app on this code (link_url, migration
+// 184); a code kept from before it has none and shows without one.
+let qrFor = null
+function qrOf(url) {
+  if (!url) return ''
+  if (qrFor?.url !== url) {
+    let svg = ''
+    try { svg = qrSvg(url, { margin: 2, title: 'QR code: link this screen' }) } catch { svg = '' }
+    qrFor = { url, svg }
+  }
+  return qrFor.svg
+}
+
 function showCode(p) {
   const info = deviceInfo()
   const left = Math.max(0, Math.round((Date.parse(p.expires_at) - Date.now()) / 60000))
+  const qr = qrOf(p.link_url)
+  let host = ''
+  try { host = p.link_url ? new URL(p.link_url).host : '' } catch { host = '' }
   panel(
-    '<h1>Add this screen in Macaroonie</h1>' +
-    '<div class="code" data-code>' + escHtml(p.code) + '</div>' +
-    '<p>In the admin, open <strong>Screens</strong>, press <strong>Add screen</strong> and type this code.</p>' +
+    '<h1>Link this screen</h1>' +
+    '<div class="pair">' +
+      (qr ? '<div class="qr" data-qr>' + qr + '</div>' : '') +
+      '<div class="pair-text">' +
+        '<div class="code" data-code>' + escHtml(p.code) + '</div>' +
+        (host
+          ? '<p>Scan the code with a phone signed in to Macaroonie, or open <strong>' + escHtml(host) + '</strong> and type this code.</p>'
+          : '') +
+        '<p>Or in the admin: <strong>Screens</strong>, <strong>Add screen</strong>, and type this code.</p>' +
+      '</div>' +
+    '</div>' +
     '<p class="small">Screen ' + Math.round(info.width * info.dpr) + ' x ' + Math.round(info.height * info.dpr) + ' · code changes in about ' + Math.max(1, left) + ' min</p>'
   )
 }

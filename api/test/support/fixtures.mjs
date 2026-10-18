@@ -245,6 +245,12 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx' } = 
   await step('revenue stream', () => post(`/api/pos/venues/${V}/revenue-streams`, { name: mark + ' Bar' }))
   await step('printer', () => post(`/api/pos/venues/${V}/printers`, { name: mark + ' Kitchen', ip_address: '192.168.1.50' }))
   await step('till device', () => post(`/api/pos/venues/${V}/devices`, { name: mark + ' Till 1', kind: 'terminal' }))
+  // A kitchen screen showing its own code, linked from the installer (migration 184).
+  await step('linked kitchen screen', async () => {
+    const shown = await ok(c.post('/pos-api/pairings', { app: 'kds', device: { width: 1280, height: 800 } }), 'device code')
+    await ok(c.post('/api/installer/lookup', { code: shown.code }), 'installer lookup')
+    return post(`/api/pos/venues/${V}/link`, { code: shown.code, name: mark + ' Pass screen' })
+  })
   const station = await step('kitchen station', () => post(`/api/pos/venues/${V}/kds-stations`, { name: mark + ' Wok', kind: 'prep' }))
   // A Balance box (migration 183) whose pieces name one of the tenant's dishes.
   if (dish) await step('balance box', () => post(`/api/pos/venues/${V}/kds-stations`, { name: mark + ' Wings', kind: 'balance', settings: { pieces: [{ kind: 'dish', id: dish.id, label: dish.name, qty: 8 }] } }))

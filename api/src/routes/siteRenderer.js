@@ -48,6 +48,8 @@ export const RESERVED_SUBDOMAINS = new Set([
   'pos', 'kitchen', 'kds', 'kiosk', 'hub',
   // The menu screens' player (routes/screenSite.js).
   'screens',
+  // The installer app (routes/installerSite.js).
+  'installer',
 ])
 
 // The staging environment for a tenant always lives at

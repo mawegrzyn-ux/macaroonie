@@ -5,6 +5,16 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-18 — The installer app: link tills, kitchen screens, kiosks and menu screens from a phone]
+
+- **A new phone app at installer.macaroonie.com** for setting up a venue's devices while you stand next to them. Sign in, choose the venue, and see every till, kitchen screen, kiosk and menu screen there with its state (Online, Offline, Code waiting, Not linked). Install it from Chrome (or Add to Home Screen on an iPhone) and it opens like an app.
+- **Devices show their own code and a QR code.** A till, kitchen screen or kiosk that isn't set up now shows a six-letter code and a QR code (as menu screens did, now with a QR code too). Scan it with your phone's camera: the installer opens on that code, says what the device is, and you name it (and pick a kitchen screen's stations, or a menu screen's board) and tap Link. The device sets itself up within seconds. Codes change every 15 minutes until used.
+- **Add a new device** in the installer: it shows the address to open on the device (with a QR code), or makes a till, kitchen screen or kiosk and a code to type on it.
+- **A device's page** in the installer: change its name and settings (Save), show a menu screen's name on it, reload it, **move it to a new device** (the new one keeps its name and settings, the old one stops), or remove it (asks twice).
+- **Till setup** has **Link a code shown on the till** (kitchen screen, kiosk) on its device tabs, and points at the installer. Typing a code made in Till setup into a device still works: on the device press *Have a code from Till setup?*.
+- Before first use: add https://installer.macaroonie.com to the Auth0 application's Allowed Callback URLs, Allowed Logout URLs and Allowed Web Origins.
+- **Migration 184** (device_link_codes).
+
 ## [2026-10-18 — Balance boxes: a choice for big tickets]
 
 - **A Balance box can share out big tickets.** In its window (Till setup → Kitchen screens → the box → Edit), **Big tickets**: *Keep each ticket on one station* (as before) or *Share big tickets* with a number of pieces. A ticket with more pieces than that is shared out: each dish line goes, biggest first, to whichever station then has the fewest pieces to cook, counting what this ticket has already given it. One dish line is never split; a meal deal's parts can go to different stations. The station list and the flow designer say which the box does.

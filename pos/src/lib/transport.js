@@ -15,9 +15,10 @@ export function createTransport(device) {
   // Provision for the hub: a device setting will hold its LAN address.
   const bases = [device?.hub_url, ''].filter(v => v !== undefined && v !== null)
 
-  async function request(method, path, body, { timeoutMs = 12000 } = {}) {
+  async function request(method, path, body, { timeoutMs = 12000, headers: extra = null } = {}) {
     const headers = { 'X-Pos-Version': APP_VERSION }
     if (device?.id && device?.secret) headers.Authorization = 'Device ' + device.id + '.' + device.secret
+    if (extra) Object.assign(headers, extra)
     if (body !== undefined) headers['content-type'] = 'application/json'
     let lastErr = null
     for (const base of bases) {

@@ -1,7 +1,7 @@
 // src/main.jsx  (replace existing — adds all pages)
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useParams } from 'react-router-dom'
 import { Auth0Provider, useAuth0 } from '@auth0/auth0-react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
@@ -17,6 +17,11 @@ if (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0) {
 // as the admin (MobileShell swaps the other tags when it mounts).
 if (typeof window !== 'undefined' && window.location.hostname.startsWith('ops.')) {
   document.querySelector('link[rel="manifest"]')?.setAttribute('href', '/ops.webmanifest')
+}
+// installer.<domain> is the installer app's own origin (pages/installer):
+// its manifest from the start, so it installs as "Macaroonie Installer".
+if (typeof window !== 'undefined' && window.location.hostname.startsWith('installer.')) {
+  document.querySelector('link[rel="manifest"]')?.setAttribute('href', '/installer.webmanifest')
 }
 
 // A picture or link dropped where nothing takes it does nothing, instead of
@@ -103,7 +108,12 @@ import AiAssistant     from '@/pages/AiAssistant'
 import NavDesigner     from '@/pages/NavDesigner'
 import Launcher        from '@/pages/Launcher'
 import './index.css'
-import { IS_OPS_HOST } from '@/lib/hosts'
+import { IS_OPS_HOST, IS_INSTALLER_HOST } from '@/lib/hosts'
+import InstallerShell  from '@/components/installer/InstallerShell'
+import InstallerHome   from '@/pages/installer/InstallerHome'
+import InstallerLink   from '@/pages/installer/InstallerLink'
+import InstallerAdd    from '@/pages/installer/InstallerAdd'
+import InstallerDevice from '@/pages/installer/InstallerDevice'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -153,6 +163,12 @@ function onRedirectCallback(appState) {
   else window.history.replaceState({}, document.title, window.location.pathname)
 }
 
+// A device's QR code opens <installer>/link/<code>: the installer's Link page.
+function LinkRedirect() {
+  const { code } = useParams()
+  return <Navigate to={'/install/link/' + encodeURIComponent(code || '')} replace />
+}
+
 const Placeholder = ({ title }) => (
   <div className="flex items-center justify-center h-full">
     <p className="text-muted-foreground text-sm">{title} — coming soon</p>
@@ -185,8 +201,17 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <Routes>
               {/* An AI app's connector sign-in (migration 181): its own page, no app shell. */}
               <Route path="connect-ai" element={<ConnectAi />} />
-              {/* ops.<domain> is the phone app only (lib/hosts.js) */}
-              <Route element={IS_OPS_HOST ? <Navigate to="/mobile" replace /> : <AppShell />}>
+              {/* The installer app (installer.<domain>, migration 184) and its QR code links. */}
+              <Route path="install" element={<InstallerShell />}>
+                <Route index element={<InstallerHome />} />
+                <Route path="link" element={<InstallerLink />} />
+                <Route path="link/:code" element={<InstallerLink />} />
+                <Route path="add" element={<InstallerAdd />} />
+                <Route path="device/:kind/:id" element={<InstallerDevice />} />
+              </Route>
+              <Route path="link/:code" element={<LinkRedirect />} />
+              {/* ops.<domain> is the phone app only, installer.<domain> the installer only (lib/hosts.js) */}
+              <Route element={IS_INSTALLER_HOST ? <Navigate to="/install" replace /> : IS_OPS_HOST ? <Navigate to="/mobile" replace /> : <AppShell />}>
                 <Route index          element={<Dashboard />} />
                 <Route path="dashboards" element={<Dashboards />} />
                 <Route path="timeline" element={<Timeline />} />
@@ -251,7 +276,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 <Route path="nav-designer" element={<NavDesigner />} />
                 <Route path="launcher"     element={<Launcher />} />
               </Route>
-              <Route path="mobile" element={<MobileShell />}>
+              <Route path="mobile" element={IS_INSTALLER_HOST ? <Navigate to="/install" replace /> : <MobileShell />}>
                 <Route index          element={<MobileHub />} />
                 <Route path="hs-dashboard" element={<MobileHSDashboard />} />
                 <Route path="dashboards"   element={<MobileDashboards />} />

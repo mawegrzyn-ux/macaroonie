@@ -40,6 +40,7 @@ const SECTIONS = [
   { id: 'till',                label: 'Till (POS)' },
   { id: 'kitchen',             label: 'Kitchen screens' },
   { id: 'kiosks',              label: 'Self-order kiosks' },
+  { id: 'installer',           label: 'Installer app' },
   { id: 'emails',              label: 'Booking Emails' },
   { id: 'team',                label: 'Team Management' },
   { id: 'access',              label: 'Modules & Roles' },
@@ -3495,8 +3496,8 @@ export default function Help() {
             <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
               <li>On the screen, open the screens address shown on <strong>Screens → Add a screen</strong> (screens.your-domain) in Chrome.</li>
               <li>In Chrome&apos;s menu choose <strong>Install app</strong> (or <strong>Add to Home screen</strong>): it then opens full screen with no address bar. In Fully Kiosk, set the address as the Start URL.</li>
-              <li>The screen shows a six-letter code (it changes every 15 minutes until it&apos;s used).</li>
-              <li>In the admin press <strong>Add screen</strong>, type the code, give the screen a name (e.g. Counter left), pick the venue and what it shows. The screen shows it within a few seconds.</li>
+              <li>The screen shows a six-letter code and a QR code (both change every 15 minutes until they&apos;re used).</li>
+              <li>In the admin press <strong>Add screen</strong>, type the code, give the screen a name (e.g. Counter left), pick the venue and what it shows. Or scan the QR code with your phone: it opens the installer app (see Installer app) to do the same there. The screen shows it within a few seconds.</li>
             </ol>
             <P>
               Each screen gets an ID (S1, S2 ...). <strong>Identify</strong> shows the name and ID on the
@@ -4648,7 +4649,7 @@ export default function Help() {
               <li><strong>Receipts and payments</strong>: when the trading day starts, the name, address and VAT number on receipts, bill and receipt footers, the ways to pay, tips, asking for covers, and when staff are signed out. Tax rates are set on Menus → Tax rates.</li>
               <li><strong>Cash Recon</strong>: which till figures go into which Cash Recon fields when the day is closed (see End of day).</li>
               <li><strong>Floor plan</strong> (Till setup → Floor plan): add an area (e.g. Restaurant), tap tables to put them on it, drag them where they stand, drag the round corner to resize, Turn, Square / Round, and add walls, the bar, plants and labels. Save the area. Tables themselves are added on the Tables page.</li>
-              <li><strong>Tills</strong>: tap <strong>Add a till</strong>, give it a name, table service or counter, then open the till address on the tablet and type the pairing code shown. The code works once, for 30 minutes. <strong>Pair again</strong> gives a new code (the old pairing stops); removing a till signs it out for good.</li>
+              <li><strong>Tills</strong>: open the till address on the tablet: it shows a six-letter code and a QR code. Scan the QR code with your phone (the installer app), or tap <strong>Link a code shown on the till</strong> here and type it, with a name. The other way still works: tap <strong>Add a till</strong>, give it a name, table service or counter, and type the pairing code shown into the tablet (press <strong>Have a code from Till setup?</strong> there). That code works once, for 30 minutes. <strong>Pair again</strong> gives a new code (the old pairing stops); removing a till signs it out for good.</li>
             </ol>
 
             <H3>Device addresses and disconnecting</H3>
@@ -4954,6 +4955,58 @@ export default function Help() {
             <P>
               Kiosk orders show in Till reports with the kiosk's name as the server.
             </P>
+          </section>
+
+          {/* ── INSTALLER APP ───────────────────────────────── */}
+          <section id="installer" data-help="">
+            <H2>Installer app</H2>
+            <P>
+              The installer is a phone app for setting up a venue&apos;s devices while you stand next to them:
+              tills, kitchen screens, self-order kiosks and menu screens. Open{' '}
+              <strong>installer.macaroonie.com</strong> on your phone and sign in as usual. In Chrome choose{' '}
+              <strong>Install app</strong> (on an iPhone, Share then <strong>Add to Home Screen</strong>) so it
+              opens like an app. It shows what you can see in Till setup (tills, kitchen screens, kiosks) and
+              Menu screens; linking and changing devices needs Manage on them.
+            </P>
+
+            <H3>Linking a device</H3>
+            <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
+              <li>On the device, open its address in Chrome: <strong>pos.macaroonie.com</strong> for a till, <strong>kitchen.macaroonie.com</strong> for a kitchen screen, <strong>kiosk.macaroonie.com</strong> for a kiosk, <strong>screens.macaroonie.com</strong> for a menu screen. It shows a six-letter code and a QR code.</li>
+              <li>Scan the QR code with your phone&apos;s camera. It opens the installer on that code. (In the installer, <strong>Link a device showing a code</strong> lets you type the code instead, or scan it with <strong>Scan the QR code</strong> where the phone offers it.)</li>
+              <li>Check the venue at the top (<strong>Change</strong> picks another), give the device a name and, for a kitchen screen, tick the stations it shows; for a menu screen, pick the board or playlist.</li>
+              <li>Tap <strong>Link</strong>. The device sets itself up within a few seconds.</li>
+            </ol>
+            <P>
+              The code is for the kind of device it was shown on: a code from the kitchen screen address can only
+              become a kitchen screen. Codes change every 15 minutes until they&apos;re used, and work once.
+            </P>
+
+            <H3>Adding a new device</H3>
+            <P>
+              <strong>Add a new device</strong> asks what it is, then shows its address (with a QR code a device
+              with a camera can scan to open it). Open it on the device and link the code it shows. For a till,
+              kitchen screen or kiosk you can instead make it in the installer: give it a name, tap{' '}
+              <strong>Make a code</strong>, and on the device press <strong>Have a code from Till setup?</strong>{' '}
+              and type it.
+            </P>
+
+            <H3>A device&apos;s page</H3>
+            <P>
+              The home page lists every till, kitchen screen, kiosk and menu screen at the venue with its state:{' '}
+              <strong>Online</strong>, <strong>Offline</strong>, <strong>Code waiting</strong> or{' '}
+              <strong>Not linked</strong>. Tap one to change its name and settings (then Save), to show a menu
+              screen&apos;s name on it (<strong>Show its name on the screen</strong>) or reload it, to move it
+              to a new device, or to remove it.
+            </P>
+            <P>
+              <strong>Move it to a new device</strong> is for a broken or replaced tablet or TV: link the new
+              device&apos;s code (or make a code to type on it) and it takes this device&apos;s name and settings;
+              the old one stops working.
+            </P>
+            <InfoBox type="info">
+              The installer only links and sets up devices. Everything else (stations and the kitchen flow, kiosk
+              designs, boards and playlists, printers) is set up in Till setup and on the Screens page.
+            </InfoBox>
           </section>
 
           {/* ── BOOKING EMAILS ──────────────────────────────── */}

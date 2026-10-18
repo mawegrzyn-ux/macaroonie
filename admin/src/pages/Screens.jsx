@@ -166,8 +166,8 @@ function ScreensTab({ canManage }) {
           <li>On the screen, open <a href={data?.player_url} target="_blank" rel="noreferrer" className="font-medium text-primary break-all">{data?.player_url || 'the screens address'}</a>{' '}
             in Chrome and choose <span className="font-medium">Install app</span> (or <span className="font-medium">Add to Home screen</span>) so it opens full screen,
             or set it as the start page in Fully Kiosk.</li>
-          <li>The screen shows a six-letter code.</li>
-          <li>Press <span className="font-medium">Add screen</span> here and type the code.</li>
+          <li>The screen shows a six-letter code and a QR code.</li>
+          <li>Press <span className="font-medium">Add screen</span> here and type the code, or scan the QR code with a phone to link it in the installer app.</li>
         </ol>
         {canManage && (
           <div className="mt-3">

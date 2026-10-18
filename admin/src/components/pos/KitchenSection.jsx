@@ -22,7 +22,7 @@ import {
   Section, Modal, Field, inputCls, ErrorNote, ConfirmDelete, Segmented, Btn, NumberBox, Toggle, SortableRows, ColourPick, ago,
 } from './shared'
 import KitchenFlow from './KitchenFlow'
-import { PairingCode, deviceUrl } from './TillsSection'
+import { PairingCode, deviceUrl, LinkShownCode, InstallerLine } from './TillsSection'
 import { STATION_KINDS, KIND_LABELS, isBumpKind } from '@shared/pos/kitchen.js'
 import { TYPE_LABELS as GF_TYPE_LABELS } from '@shared/gloriafood.js'
 
@@ -173,6 +173,8 @@ function ScreensCard({ venueId, setup }) {
         </div>
       )}
       <p className="text-xs text-muted-foreground">Kitchen screen address: <span className="font-medium text-foreground break-all" data-testid="kds-address">{deviceUrl(setup, 'kds')}</span></p>
+      <div><LinkShownCode venueId={venueId} kind="kds" /></div>
+      <InstallerLine setup={setup} />
       <ErrorNote error={newCode.error} />
       {editing && (
         <ScreenModal venueId={venueId} setup={setup} device={editing === 'new' ? null : editing}
