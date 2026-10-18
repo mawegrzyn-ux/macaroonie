@@ -11,6 +11,10 @@
 //   GET    /availability/:venueId            orderable dishes with sold-out state
 //   PUT    /availability/:venueId/:itemId    { sold_out: 'today' | 'indefinite' | false }
 //   GET    /report?venue_id=&from=&to=       totals, by day, by payment, top dishes, promotions
+//   GET    /transactions?venue_id=&from=&to=[&source=&tender=&counted=1]
+//                                            every online sale (own + GloriaFood) with its
+//                                            tender, totals by tender and source
+//   GET    /transactions.csv?...             the same rows as a spreadsheet
 //   GET    /?venue_id=&date=&include_unpaid= orders for a day
 //   GET    /:id                              one order with its events and payments
 //   POST   /:id/status                       { to, reason?, prep_minutes? }
@@ -41,6 +45,7 @@ import { broadcast } from '../config/ws.js'
 import { boardOrders, boardOrder } from '../services/gloriafoodSvc.js'
 import { kitchenOnGloriaFood } from '../services/kitchenSvc.js'
 import { setSoldOut, soldOutItemIds, announceSoldOut } from '../services/soldOut.js'
+import { onlineTransactions, transactionsCsv, MAX_DAYS } from '../services/onlineSalesSvc.js'
 import { isScheduled, scheduleProblem } from '../../../shared/menuSchedule.js'
 
 const uuid = z.string().uuid()
@@ -333,6 +338,42 @@ export default async function ordersRoutes(app) {
       totals.average_pence = totals.orders ? Math.round(totals.total_pence / totals.orders) : 0
       return { totals, days, by_method: byMethod, top_items: top, promotions: promos, statuses: Object.fromEntries(statuses.map(s => [s.status, s.n])) }
     })
+  })
+
+  // ── Transactions: every online sale, own and GloriaFood, with tender ──
+  // services/onlineSalesSvc.js has the rules; the CSV is the same rows.
+
+  const TxQuery = z.object({
+    venue_id: uuid,
+    from:     ymd,
+    to:       ymd,
+    source:   z.enum(['web', 'gloriafood']).optional(),
+    tender:   z.string().min(1).max(120).optional(),
+    counted:  z.enum(['0', '1']).optional(),
+  })
+
+  async function transactions(req) {
+    const q = TxQuery.parse(req.query || {})
+    if (q.from > q.to) throw httpError(400, 'The range ends before it starts')
+    const days = Math.round((Date.parse(q.to) - Date.parse(q.from)) / 86400000) + 1
+    if (days > MAX_DAYS) throw httpError(400, `Pick at most ${MAX_DAYS} days`)
+    return withTenant(req.tenantId, async tx => {
+      const venue = await venueOf(tx, q.venue_id)
+      return onlineTransactions(tx, {
+        tenantId: req.tenantId, venue, from: q.from, to: q.to,
+        source: q.source ?? null, tender: q.tender ?? null, countedOnly: q.counted === '1',
+      })
+    })
+  }
+
+  app.get('/transactions', { preHandler: view }, async (req) => transactions(req))
+
+  app.get('/transactions.csv', { preHandler: view }, async (req, reply) => {
+    const report = await transactions(req)
+    const slug = String(report.venue.name || 'venue').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'venue'
+    reply.header('content-type', 'text/csv; charset=utf-8')
+    reply.header('content-disposition', `attachment; filename="online-sales-${slug}-${report.from}-to-${report.to}.csv"`)
+    return transactionsCsv(report)
   })
 
   // ── Orders ───────────────────────────────────────────────

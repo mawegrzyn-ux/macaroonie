@@ -39,6 +39,7 @@ export function createTransport(device) {
         const err = new Error(data?.error || res.statusText || 'Request failed')
         err.status = res.status
         err.code = data?.code || null
+        err.details = Array.isArray(data?.errors) ? data.errors : null
         throw err
       }
       return data

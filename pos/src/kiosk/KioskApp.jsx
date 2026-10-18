@@ -12,8 +12,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { RefreshCw, Wifi, WifiOff, X, Accessibility } from 'lucide-react'
 import { kioskFontsUrl, kioskFontStack } from '@shared/kiosk.js'
-import { useKiosk, bootKiosk, bootPreview, textsFor, restart, loadConfig, setReach, getState } from './store.js'
+import { useKiosk, bootKiosk, bootPreview, textsFor, restart, loadConfig, setReach, getState, disconnect, moveKiosk } from './store.js'
 import { whenSafeToReload, idleFor } from '../lib/appUpdate.js'
+import { belongsHere } from '../lib/appHost.js'
+import { MoveNotice } from '../components/MoveNotice.jsx'
 import Start from './Start.jsx'
 import Menu from './Menu.jsx'
 import Builder from './Builder.jsx'
@@ -126,9 +128,39 @@ function StaffPanel({ s, onClose }) {
           <button className="k-btn" onClick={() => loadConfig()}><RefreshCw /> Check for menu changes</button>
           <button className="k-btn" onClick={() => location.reload()}><RefreshCw /> Reload</button>
         </div>
-        <div className="k-muted text-[.8em]">To take this kiosk off, remove it in Till setup &gt; Kiosks.</div>
+        {!belongsHere(s.device?.kind || 'kiosk') && <MoveNotice kind="kiosk" onMove={moveKiosk} className="rounded-lg" />}
+        <DisconnectBox waiting={s.outbox.length} />
       </div>
     </Sheet>
+  )
+}
+
+/** Disconnect this kiosk: asked twice, never with paid orders still waiting. */
+function DisconnectBox({ waiting }) {
+  const [step, setStep] = useState(0)
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState(null)
+  const go = async () => {
+    setBusy(true)
+    setMsg(null)
+    const r = await disconnect()
+    if (!r.ok) { setMsg(r.error); setBusy(false); setStep(0); return }
+    if (!r.told) setMsg('Disconnected here. Macaroonie couldn\'t be told (offline): remove the kiosk in Till setup, or make it a new code.')
+  }
+  return (
+    <div className="flex flex-col gap-[.5em] pt-[.6em] border-t border-black/10" data-testid="k-disconnect">
+      <div className="k-muted text-[.8em]">Disconnect: this screen stops being a kiosk until it is paired again with a new code from Till setup &gt; Kiosks (it keeps its name and settings there).</div>
+      {step === 0
+        ? <button className="k-btn self-start" onClick={() => setStep(1)}>Disconnect this kiosk</button>
+        : (
+          <div className="flex gap-2 flex-wrap items-center">
+            <span className="font-semibold">Disconnect this kiosk?{waiting ? ` ${waiting} paid ${waiting === 1 ? 'order is' : 'orders are'} sent first.` : ''}</span>
+            <button className="k-btn k-btn-primary" disabled={busy} onClick={go} data-testid="k-disconnect-yes">{busy ? 'Disconnecting…' : 'Yes, disconnect'}</button>
+            <button className="k-btn" onClick={() => setStep(0)}>Cancel</button>
+          </div>
+        )}
+      {msg && <div className="text-[.9em] font-semibold" data-testid="k-disconnect-msg">{msg}</div>}
+    </div>
   )
 }
 
@@ -191,6 +223,10 @@ export default function KioskApp({ device = null, previewToken = null }) {
         </div>
       </div>
       {s.screen === 'start' && <button aria-hidden="true" tabIndex={-1} className="absolute left-0 top-0 w-[70px] h-[70px] opacity-0 z-[70]" onClick={corner} data-testid="k-corner" />}
+      {/* Paired on the till's address before kiosks had their own (lib/appHost.js). */}
+      {s.screen === 'start' && !s.preview && s.device && !belongsHere(s.device.kind || 'kiosk') && (
+        <div className="absolute inset-x-0 top-0 z-[65]"><MoveNotice kind="kiosk" onMove={moveKiosk} className="pl-[80px]" /></div>
+      )}
       {s.preview && <div className="absolute right-2 top-2 z-[70] px-3 py-1 rounded-full bg-black/75 text-white text-[13px] font-semibold pointer-events-none">{texts.ui('preview')}</div>}
       {s.toast && <div key={s.toast.id} className="k-toast" data-testid="k-toast">{s.toast.text}</div>}
       <Idle s={s} texts={texts} />

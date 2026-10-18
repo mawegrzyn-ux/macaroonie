@@ -44,8 +44,8 @@ export const RESERVED_SUBDOMAINS = new Set([
   'cdn', 'ws', 'stripe', 'webhook', 'webhooks',
   // The admin portal and the phone app (services/platformHost.js).
   'office', 'ops',
-  // Kept for the POS till app and venue hubs (docs/POS.md).
-  'pos', 'hub',
+  // The till, kitchen screen and kiosk apps (routes/posSite.js) and venue hubs (docs/POS.md).
+  'pos', 'kitchen', 'kds', 'kiosk', 'hub',
   // The menu screens' player (routes/screenSite.js).
   'screens',
 ])

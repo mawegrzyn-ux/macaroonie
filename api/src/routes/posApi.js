@@ -6,7 +6,13 @@
 // the till itself (shared/pos/pin.js); events carry their staff id and the
 // sequencer checks what their POS role allows.
 //
-//   POST /pair                  { code } -> { device_id, secret, ... }   (no auth)
+//   POST /pair                  { code, app? } -> { device_id, secret, ... }   (no auth). `app` is the
+//                               kind the address runs (pos. till, kitchen. kitchen screen, kiosk.
+//                               kiosk): a code for another kind is refused, naming its address
+//   POST /disconnect            the device forgets its pairing (its settings): the secret stops
+//                               working, Till setup shows it not paired, a new code pairs it again
+//   POST /move                  a kitchen screen or kiosk still on another address moves to its
+//                               own: a one-time pairing code (10 minutes) for its address
 //   GET  /kiosk-preview?token=  a kiosk design's preview config (the signed link is the key, services/kioskSvc.js)
 //   GET  /kitchen-test?token=   the kitchen test bench's data (signed link, services/kitchenSvc.js kitchenTestData())
 //   GET  /me                    this till and its venue
@@ -41,8 +47,9 @@ import { sql, withTenant, systemSql, tenantSql } from '../config/db.js'
 import { httpError } from '../middleware/error.js'
 import { broadcast } from '../config/ws.js'
 import {
-  tillConfig, sequencer, sha256, normaliseCode, newDeviceSecret, loadDayChecks, fillReconFromDay, dayReport, loadTillStaff,
+  tillConfig, sequencer, sha256, normaliseCode, newDeviceSecret, loadDayChecks, fillReconFromDay, dayReport, loadTillStaff, openPairing,
 } from '../services/posSvc.js'
+import { deviceOrigin } from '../services/platformHost.js'
 import { dayFigures } from '../../../shared/pos/reports.js'
 import { permissionProblem } from '../../../shared/pos/permissions.js'
 import { KITCHEN_SERVER_EVENTS } from '../../../shared/pos/kitchen.js'
@@ -95,7 +102,10 @@ export async function verifyDevice(id, secret) {
 
 const lastSeen = new Map()
 
-const KIOSK_ROUTES = new Set(['GET /pos-api/me', 'GET /pos-api/config', 'POST /pos-api/events'])
+const KIOSK_ROUTES = new Set(['GET /pos-api/me', 'GET /pos-api/config', 'POST /pos-api/events', 'POST /pos-api/disconnect', 'POST /pos-api/move'])
+
+const KIND_NAME = { terminal: 'a till', kds: 'a kitchen screen', kiosk: 'a self-order kiosk', hub: 'a venue hub' }
+const DEVICE_APPS = ['terminal', 'kds', 'kiosk']
 
 async function requireDevice(req, reply) {
   const m = /^Device ([0-9a-f-]{36})\.([A-Za-z0-9_-]{20,})$/i.exec(req.headers.authorization || '')
@@ -150,18 +160,36 @@ export default async function posApiRoutes(app) {
   app.post('/pair', { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async req => {
     const body = z.object({
       code: z.string().min(4).max(20),
+      // The kind of device the address runs (pos/src/lib/appHost.js); none
+      // (a test or local address) takes any kind.
+      app: z.enum(DEVICE_APPS).optional(),
       app_version: z.string().max(40).optional(),
       user_agent: z.string().max(300).optional(),
     }).parse(req.body)
     const hash = sha256(normaliseCode(body.code))
+    const bad = () => httpError(422, 'That code isn\'t right or has run out: make a new one in Till setup')
+    const [found] = await systemSql`
+      SELECT id, kind FROM pos_devices
+       WHERE pairing_code_hash = ${hash} AND pairing_expires_at > now() AND revoked_at IS NULL`
+    if (!found) throw bad()
+    // Each kind of device has its own address: a code for a kitchen screen
+    // typed on the till's address would leave the kitchen screen running
+    // from the wrong place. The code stays usable on the right address.
+    if (body.app && found.kind !== body.app) {
+      const url = deviceOrigin(found.kind)
+      const err = httpError(422, `This code is for ${KIND_NAME[found.kind] || 'another device'}: open ${url.replace(/^https?:\/\//, '')} on this device and type it there`)
+      err.code = 'wrong_address'
+      err.errors = [{ device_kind: found.kind, url }]
+      throw err
+    }
     const secret = newDeviceSecret()
     const [d] = await systemSql`
       UPDATE pos_devices
          SET secret_hash = ${sha256(secret)}, pairing_code_hash = NULL, pairing_expires_at = NULL, paired_at = now(),
              last_seen_at = now(), app_version = ${body.app_version ?? null}, user_agent = ${body.user_agent ?? null}
-       WHERE pairing_code_hash = ${hash} AND pairing_expires_at > now() AND revoked_at IS NULL
+       WHERE id = ${found.id} AND pairing_code_hash = ${hash} AND pairing_expires_at > now() AND revoked_at IS NULL
        RETURNING id, tenant_id, venue_id, kind, name, short_code`
-    if (!d) throw httpError(422, 'That code isn\'t right or has run out: make a new one in Till setup')
+    if (!d) throw bad()
     deviceCache.delete(d.id)
     const [v] = await tenantSql(d.tenant_id)`SELECT name FROM venues WHERE id = ${d.venue_id} AND tenant_id = ${d.tenant_id}`
     return { device_id: d.id, secret, name: d.name, kind: d.kind, short_code: d.short_code, venue_id: d.venue_id, venue_name: v?.name || null }
@@ -195,6 +223,29 @@ export default async function posApiRoutes(app) {
 
   app.register(async scoped => {
     scoped.addHook('preHandler', requireDevice)
+
+    // The device forgets its pairing (Disconnect in its settings). Its row
+    // stays, with its name and settings, so Till setup can make it a new code.
+    scoped.post('/disconnect', async req => {
+      const d = req.posDevice
+      await tenantSql(d.tenant_id)`
+        UPDATE pos_devices SET secret_hash = NULL, pairing_code_hash = NULL, pairing_expires_at = NULL
+         WHERE id = ${d.id} AND tenant_id = ${d.tenant_id}`
+      deviceCache.delete(d.id)
+      return { ok: true }
+    })
+
+    // A kitchen screen or kiosk paired before it had its own address moves
+    // there: a one-time code for its address, typed in for it by the app
+    // (pos/src/lib/appHost.js). The old copy's secret works until the code is
+    // used, so a move that never arrives can be tried again.
+    scoped.post('/move', { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async req => {
+      const d = req.posDevice
+      if (!DEVICE_APPS.includes(d.kind)) throw httpError(422, 'This device has no address of its own')
+      const code = await withTenant(d.tenant_id, tx => openPairing(tx, d.tenant_id, d.id, 10))
+      deviceCache.delete(d.id)
+      return { url: deviceOrigin(d.kind) + '/#pair=' + encodeURIComponent(code), code, kind: d.kind }
+    })
 
     scoped.get('/me', async req => {
       const d = req.posDevice

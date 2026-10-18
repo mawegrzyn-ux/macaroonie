@@ -23,6 +23,7 @@ import * as idb from './idb.js'
 import { createTransport, OfflineError } from './transport.js'
 import { printTickets } from './print.js'
 import { checkForUpdate } from './appUpdate.js'
+import { HOST_APP, takePairCode, movedTo, setMovedTo, moveDevice, tellDisconnect } from './appHost.js'
 
 const OUTBOX_KEY = 'outbox'
 // v170: checks gained order types and revenue streams (migration 170); an older snapshot is dropped and pulled again.
@@ -36,6 +37,9 @@ const PREFS_KEY = 'maca_till_prefs'
 
 let state = {
   phase: 'loading',        // 'loading' | 'pair' | 'ready' | 'kitchen' (a kitchen screen: src/kitchen) | 'kiosk' (src/kiosk)
+                           // | 'moved' (this address's device moved to its own address: lib/appHost.js)
+  pairCode: null,          // a code handed over by a move (#pair=), typed in by itself
+  movedTo: null,
   device: null,            // { id, secret, name, short_code, venue_id, venue_name }
   config: null,
   confirmed: {},
@@ -134,7 +138,16 @@ export function printConfig(config = state.config, device = state.device) {
 
 export async function boot() {
   const device = await idb.get(DEVICE_KEY)
-  if (!device?.id) { setState({ phase: 'pair' }); return }
+  const handed = takePairCode()
+  if (!device?.id) {
+    // Moved here from another address: pair with the code it brought.
+    if (handed) { setState({ phase: 'pair', pairCode: handed }); return }
+    // This address's device moved to its own: an old start page still finds it.
+    const to = movedTo()
+    if (to && HOST_APP) { setState({ phase: 'moved', movedTo: to }); return }
+    setState({ phase: 'pair' })
+    return
+  }
   if (openOtherApp(device)) return
   api = createTransport(device)
   const [config, snapshot, outbox] = await Promise.all([idb.get(CONFIG_KEY), idb.get(SNAPSHOT_KEY), idb.get(OUTBOX_KEY)])
@@ -188,18 +201,54 @@ async function relabel(device, kind) {
 
 export async function pair(code) {
   const t = createTransport(null)
-  const res = await t.post('/pos-api/pair', { code, app_version: '1.0.0', user_agent: navigator.userAgent.slice(0, 280) })
+  // The address says what this device is (lib/appHost.js); the server
+  // refuses a code for another kind, naming its address.
+  const res = await t.post('/pos-api/pair', { code, app: HOST_APP || undefined, app_version: '1.0.0', user_agent: navigator.userAgent.slice(0, 280) })
+  setMovedTo(null)
   const device = { id: res.device_id, secret: res.secret, name: res.name, kind: res.kind || 'terminal', short_code: res.short_code, venue_id: res.venue_id, venue_name: res.venue_name }
   await Promise.all([idb.set(DEVICE_KEY, device), idb.del(SNAPSHOT_KEY), idb.del(CONFIG_KEY), idb.set(OUTBOX_KEY, [])])
   setState({ device, confirmed: {}, outbox: [], seq: 0, config: null, phase: 'loading' })
   await boot()
 }
 
-/** Forget the pairing (the till must be paired again). Unsent events are kept on the device until then. */
+/** Forget the pairing (the till must be paired again with a new code). Pairing again clears unsent events. */
 export async function unpair() {
   stopSync()
   await Promise.all([idb.del(DEVICE_KEY), idb.del(CONFIG_KEY), idb.del(SNAPSHOT_KEY)])
-  setState({ device: null, config: null, confirmed: {}, seq: 0, staff: null, phase: 'pair' })
+  setState({ device: null, config: null, confirmed: {}, seq: 0, staff: null, phase: 'pair', pairCode: null })
+}
+
+/**
+ * Disconnect this till (its settings): Macaroonie stops accepting its
+ * pairing, then the till forgets it. Returns false when Macaroonie couldn't
+ * be told (offline): the till still forgets itself.
+ */
+export async function disconnect() {
+  const told = await tellDisconnect(api)
+  await unpair()
+  return told
+}
+
+/** Leave the "moved" screen and set this address up for a new device. */
+export function stayHere() {
+  setMovedTo(null)
+  setState({ phase: 'pair', movedTo: null })
+}
+
+/**
+ * A till paired on another device app's address moves to the till's own
+ * (pos.{root}). Returns { ok: false, error } when it can't; otherwise the
+ * page goes to the new address.
+ */
+export async function moveTill() {
+  if (state.outbox.length) return { ok: false, error: state.outbox.length + ' changes haven\'t been sent yet: connect first' }
+  const r = await moveDevice(api, 'terminal')
+  if (!r.ok) return r
+  setMovedTo(r.url)
+  stopSync()
+  await Promise.all([idb.del(DEVICE_KEY), idb.del(CONFIG_KEY), idb.del(SNAPSHOT_KEY)])
+  r.go()
+  return { ok: true }
 }
 
 export async function loadConfig() {

@@ -21,6 +21,7 @@ import { billOps } from '@shared/pos/printing.js'
 import * as idb from '../lib/idb.js'
 import { createTransport, OfflineError } from '../lib/transport.js'
 import { printTickets } from '../lib/print.js'
+import { moveDevice, tellDisconnect, setMovedTo } from '../lib/appHost.js'
 
 const CONFIG_KEY = 'kiosk_config'
 const OUTBOX_KEY = 'kiosk_outbox'
@@ -153,6 +154,54 @@ async function forget() {
   stopSync()
   await Promise.all([idb.del('device'), idb.del(CONFIG_KEY)])
   setTimeout(() => location.reload(), 2000)
+}
+
+// ── Disconnect, move (lib/appHost.js) ────────────────────────────
+
+/** Send what is waiting (paid orders); true when nothing is left. */
+async function sendWaiting() {
+  for (let i = 0; i < 20 && state.outbox.length; i++) {
+    const before = state.outbox.length
+    await flush()
+    if (state.outbox.length >= before) break
+  }
+  return !state.outbox.length
+}
+
+const waitingError = () => ({
+  ok: false,
+  error: state.outbox.length + (state.outbox.length === 1 ? ' paid order hasn\'t' : ' paid orders haven\'t') + ' reached the till yet: check the Wi-Fi first',
+})
+
+async function clearDevice() {
+  stopSync()
+  await Promise.all([idb.del('device'), idb.del(CONFIG_KEY), idb.del(OUTBOX_KEY)])
+}
+
+/**
+ * Disconnect this kiosk (its staff panel): never while paid orders are
+ * still waiting to reach the till. Macaroonie stops accepting its pairing,
+ * the kiosk forgets it and shows the pairing screen.
+ */
+export async function disconnect() {
+  if (state.preview) return { ok: false, error: 'Not in a preview' }
+  if (!(await sendWaiting())) return waitingError()
+  const told = await tellDisconnect(api)
+  await clearDevice()
+  setTimeout(() => location.reload(), told ? 300 : 6000)
+  return { ok: true, told }
+}
+
+/** A kiosk paired on the till's address moves to kiosk.{root}, waiting orders sent first. */
+export async function moveKiosk() {
+  if (state.preview) return { ok: false, error: 'Not in a preview' }
+  if (!(await sendWaiting())) return waitingError()
+  const r = await moveDevice(api, 'kiosk')
+  if (!r.ok) return r
+  setMovedTo(r.url)
+  await clearDevice()
+  r.go()
+  return { ok: true }
 }
 
 // ── Guest's way through ─────────────────────────────────────────

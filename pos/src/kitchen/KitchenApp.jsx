@@ -27,9 +27,11 @@ import {
 import { countParts } from '@shared/combos.js'
 import {
   useKitchen, useOrders, useCfg, bootKitchen, nowIso, myStations, currentStation, setPrefs, bump, recall, itemDone,
-  remake, priority, collected, unlockAudio, chime, loadConfig, toast, activeFlow, switchFlow,
+  remake, priority, collected, unlockAudio, chime, loadConfig, toast, activeFlow, switchFlow, disconnect, moveScreen, inBench,
 } from './store.js'
 import { whenSafeToReload, idleFor } from '../lib/appUpdate.js'
+import { belongsHere } from '../lib/appHost.js'
+import { MoveNotice } from '../components/MoveNotice.jsx'
 
 const cx = (...p) => p.filter(Boolean).join(' ')
 
@@ -98,6 +100,10 @@ export default function KitchenApp({ device, bench = null }) {
   else if (!s.config) body = <NoConfig />
   else if (!myStations(s).length) body = <NoStations />
   else body = <Kitchen />
+  // Paired on the till's address before kitchen screens had their own (lib/appHost.js).
+  if (!bench && s.device && !belongsHere(s.device.kind || 'kds')) {
+    body = <div className="h-full flex flex-col"><MoveNotice kind="kds" onMove={moveScreen} /><div className="flex-1 min-h-0">{body}</div></div>
+  }
   return <div className="h-full bg-black text-white select-none">{body}<Toasts /></div>
 }
 
@@ -726,7 +732,32 @@ function SettingsPanel({ stations, station, view, full, onFull, onKeys, onClose 
       <div className="text-sm text-white/60 px-1 pt-2">
         Tickets turn amber after {st.target_mins} min and red after {st.late_mins} min. Stations, timings and the kitchen flows (what goes where) are set in Macaroonie: Till setup, Kitchen screens.
       </div>
+      {!inBench() && <DisconnectBox waiting={s.outbox.length} />}
     </Panel>
+  )
+}
+
+/** Disconnect this screen: asked twice; taps not sent yet are named. */
+function DisconnectBox({ waiting }) {
+  const [step, setStep] = useState(0)
+  const [busy, setBusy] = useState(false)
+  return (
+    <div className="mt-3 pt-3 border-t border-white/10 space-y-2" data-testid="kds-disconnect">
+      <div className="text-xs uppercase font-bold text-white/60 px-1">Disconnect</div>
+      <div className="text-sm text-white/60 px-1">This device stops being a kitchen screen until it is paired again with a new code from Till setup. The screen keeps its name, stations and settings there.</div>
+      {step === 0 && (
+        <button onClick={() => setStep(1)} className="w-full min-h-[52px] rounded-lg bg-zinc-700 text-red-300 font-bold">Disconnect this screen</button>
+      )}
+      {step === 1 && (
+        <div className="space-y-2">
+          <div className="font-bold px-1">Disconnect this screen?{waiting ? ` ${waiting} taps haven't been sent yet and will be lost.` : ''}</div>
+          <div className="flex gap-2">
+            <button disabled={busy} onClick={async () => { setBusy(true); await disconnect() }} className="flex-1 min-h-[52px] rounded-lg bg-red-600 font-bold disabled:opacity-60" data-testid="kds-disconnect-yes">Yes, disconnect</button>
+            <button onClick={() => setStep(0)} className="flex-1 min-h-[52px] rounded-lg bg-zinc-700 font-bold">Cancel</button>
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
 

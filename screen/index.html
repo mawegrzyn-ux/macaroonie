@@ -34,12 +34,27 @@
   #hint { position: fixed; bottom: 3vmin; left: 50%; transform: translateX(-50%); z-index: 15; display: none;
     background: rgba(0,0,0,.75); color: #fff; border-radius: 999px; padding: 1.4vmin 3vmin; font-size: 2.2vmin; }
   #hint.on { display: block; }
+  #settings { position: fixed; inset: 0; z-index: 30; display: none; align-items: center; justify-content: center;
+    background: rgba(0, 0, 0, 0.78); cursor: default; }
+  #settings.on { display: flex; }
+  #settings .box { background: #1b1b1b; color: #fff; border-radius: 2.4vmin; padding: 4vmin; width: min(92vw, 90vmin);
+    display: flex; flex-direction: column; gap: 2vmin; box-shadow: 0 2vmin 8vmin rgba(0,0,0,.6); }
+  #settings h2 { margin: 0; font-size: 4vmin; }
+  #settings .facts { display: grid; grid-template-columns: auto 1fr; gap: 0.8vmin 3vmin; font-size: 2.6vmin; }
+  #settings .facts span:nth-child(odd) { color: #9a9a9a; }
+  #settings .note { font-size: 2.3vmin; color: #bdbdbd; margin: 0; line-height: 1.4; }
+  #settings .row { display: flex; flex-wrap: wrap; gap: 1.6vmin; }
+  #settings button { font: inherit; font-size: 2.8vmin; font-weight: 700; min-height: 48px; padding: 1.6vmin 3vmin; border-radius: 1.4vmin;
+    border: 0.4vmin solid transparent; background: #333; color: #fff; cursor: pointer; touch-action: manipulation; }
+  #settings button:focus { outline: none; border-color: #f5b301; }
+  #settings button.bad { background: #b42318; }
 </style>
 </head>
 <body>
 <div id="stage"></div>
 <div id="identify"><div class="box"><div class="id"></div><div class="name"></div><div class="meta"></div></div></div>
 <div id="hint">Tap the screen for full screen</div>
+<div id="settings" role="dialog" aria-label="This screen"><div class="box"></div></div>
 <noscript><div class="panel"><h1>This screen needs JavaScript switched on.</h1></div></noscript>
 <script type="module" src="/player.js"></script>
 </body>

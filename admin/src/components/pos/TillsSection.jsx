@@ -24,13 +24,13 @@ export function PairingCode({ code, device, tillUrl, onClose, what = 'till' }) {
     <Modal title={'Pair ' + (device?.name || 'the ' + what)} onClose={onClose}
       footer={<Btn variant="primary" className="flex-1" onClick={onClose}>Done</Btn>}>
       <ol className="text-sm space-y-2 list-decimal pl-5">
-        <li>On the tablet or PC, open <span className="font-semibold break-all">{tillUrl || 'the till address'}</span> in Chrome or Edge.</li>
-        <li>Type this code and press Pair this device.{what !== 'till' ? ' It opens as a ' + what + '.' : ''}</li>
+        <li>On the {what === 'till' ? 'tablet or PC' : what}, open <span className="font-semibold break-all" data-testid="pairing-address">{tillUrl || 'its address'}</span> in Chrome or Edge.</li>
+        <li>Type this code and press Pair this device. The code only works at that address.</li>
       </ol>
       <p className="text-center font-mono text-3xl sm:text-4xl font-bold tracking-widest py-4 select-all" data-testid="pairing-code">{code}</p>
       <p className="text-xs text-muted-foreground">
         The code works once{until ? ', until ' + until : ''}. It isn't shown again: if it runs out, make a new one from the till's row.
-        Pairing again later stops the old pairing on whatever device had it.
+        Pairing again later stops the old pairing on whatever device had it. A device can also be disconnected from its own settings: it then shows Not paired here.
       </p>
     </Modal>
   )
@@ -112,6 +112,9 @@ function TillModal({ venueId, setup, device, onClose, onPaired }) {
   )
 }
 
+/** The address a device of this kind opens (Till setup's device_urls). */
+export const deviceUrl = (setup, kind) => setup.device_urls?.[kind] || setup.till_url
+
 export function status(d) {
   if (d.paired) return { text: 'Paired · seen ' + ago(d.last_seen_at), tone: 'ok' }
   if (d.pairing_open) {
@@ -142,7 +145,7 @@ export default function TillsSection({ venueId, setup }) {
       {!live.length && (
         <div className="text-sm text-muted-foreground flex items-start gap-3">
           <MonitorSmartphone className="w-5 h-5 shrink-0 mt-0.5" />
-          <p>No tills yet. Add one, then open <span className="font-medium text-foreground">{setup.till_url}</span> on the tablet and type the pairing code.</p>
+          <p>No tills yet. Add one, then open <span className="font-medium text-foreground">{deviceUrl(setup, 'terminal')}</span> on the tablet and type the pairing code.</p>
         </div>
       )}
       {!!live.length && (
@@ -172,14 +175,14 @@ export default function TillsSection({ venueId, setup }) {
       {!!removed.length && (
         <p className="text-xs text-muted-foreground">Removed: {removed.map(d => d.name + ' (' + d.short_code + ')').join(', ')}</p>
       )}
-      <p className="text-xs text-muted-foreground">Till address: <span className="font-medium text-foreground break-all">{setup.till_url}</span></p>
+      <p className="text-xs text-muted-foreground">Till address: <span className="font-medium text-foreground break-all">{deviceUrl(setup, 'terminal')}</span> (kitchen screens and kiosks have their own, on their tabs)</p>
       <ErrorNote error={newCode.error} />
       {editing && (
         <TillModal venueId={venueId} setup={setup} device={editing === 'new' ? null : editing}
           onClose={() => setEditing(null)}
           onPaired={out => { setEditing(null); setPairing(out) }} />
       )}
-      {pairing && <PairingCode code={pairing.pairing_code} device={pairing.device} tillUrl={setup.till_url} onClose={() => setPairing(null)} />}
+      {pairing && <PairingCode code={pairing.pairing_code} device={pairing.device} tillUrl={deviceUrl(setup, 'terminal')} onClose={() => setPairing(null)} />}
     </Section>
   )
 }
