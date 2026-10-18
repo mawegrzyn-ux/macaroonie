@@ -5,6 +5,13 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-18 — Online sales transactions, GloriaFood included, with tender]
+
+- **Every online sale in one list**: Online orders → **Transactions** shows each online order of the venue over the days you pick (today, 7, 30, 90 days or any range up to a year), your own online orders and GloriaFood orders together, with how each was paid: Cash, Card at the counter, Card by phone, Paid online, or not marked paid yet.
+- **Totals by tender and by source**: sales, refunded, net, tips and the average order, then the net per tender split between your own online ordering and GloriaFood. Filter by source, by tender, or counted orders only. Tap an order for its type, ready time, tips, discounts, delivery and fees, and VAT.
+- **Download CSV** saves every order of the view (money in pounds) for a spreadsheet or your accountant. No guest names or contact details in the list or the file.
+- Rejected, cancelled and GloriaFood test orders are listed but not counted. GloriaFood orders sit on the same day Cash Recon puts them (your trading day from the GloriaFood link). No migration.
+
 ## [2026-10-17 — Screen designer grid; theme colours and custom colours in every builder]
 
 - **The screen designer's grid button now shows the grid.** The lines were drawn so thin they disappeared at the zoom the designer opens at. They now show at any zoom (spaced out when zoomed out, every fifth line darker), the button looks pressed while the grid is on, and your choice is remembered on the device.

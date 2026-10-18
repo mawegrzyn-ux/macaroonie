@@ -3811,13 +3811,13 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['POST /order-api/venues/:id/quote', "priceBasket() for display."],
                 ['POST /order-api/venues/:id/orders', "Place an order; returns token, status and the payment client action."],
                 ['GET /order-api/orders/:token; POST .../pay; POST .../payments/:id/confirm', "Guest status, retry, browser confirmation."],
-                ['/api/orders (admin)', "GET / (board: venue + day), GET /:id (events, payments), POST /:id/status | promised | mark-paid | refund, GET|PUT /settings/:venueId, POST /pause/:venueId (web_orders manage, no setup rights needed), GET|PUT /availability/:venueId[/:itemId], GET /report, GET /gateways."],
+                ['/api/orders (admin)', "GET / (board: venue + day), GET /:id (events, payments), POST /:id/status | promised | mark-paid | refund, GET|PUT /settings/:venueId, POST /pause/:venueId (web_orders manage, no setup rights needed), GET|PUT /availability/:venueId[/:itemId], GET /report, GET /transactions[.csv] (see Transactions below), GET /gateways."],
                 ['Site', "/order (sole ordering venue, or a location picker) and /locations/:slug/order render the tenant's built-in ordering page (website_pages.system_key = 'order', migration 126) through page.eta, passing orderView/orderVenue(s); its online_ordering block (blocks/online_ordering.eta) includes shared/ordering.eta. Sites published before 126 use DEFAULT_ORDER_PAGE (services/orderPage.js) until republished. /p/<slug> of that page redirects to /order. /order/status/:token still renders each template's order.eta around shared/ordering.eta."],
               ]}
             />
             <H3>Admin</H3>
             <P>
-              <Mono>pages/Orders.jsx</Mono> (board + report), <Mono>pages/OrderingSettings.jsx</Mono>,{' '}
+              <Mono>pages/Orders.jsx</Mono> (board, report, transactions), <Mono>pages/OrderingSettings.jsx</Mono>,{' '}
               <Mono>pages/mobile/MobileOrders.jsx</Mono>, all built on{' '}
               <Mono>components/orders/shared.jsx</Mono>: OrderBoard, OrderDetailModal,
               AvailabilityModal, PauseButton, useRealtimeOrders (venue WebSocket), printTicket
@@ -3835,6 +3835,29 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               to ready / completed also reaches the kitchen screens, and the kitchen moves the board status
               (migration 178, see Kitchen screens → GloriaFood orders).
             </P>
+            <H3>Transactions: online sales with tender</H3>
+            <P>
+              <Mono>services/onlineSalesSvc.js</Mono> is the one implementation of the online sales list:{' '}
+              <Mono>onlineTransactions(tx, {'{ tenantId, venue, from, to, source, tender, countedOnly }'})</Mono>{' '}
+              reads <Mono>orders</Mono> + <Mono>order_payments</Mono> (succeeded / partially_refunded /
+              refunded) and <Mono>gloriafood_orders</Mono> for one venue, and{' '}
+              <Mono>transactionsCsv(report)</Mono> writes the same rows as CSV. Routes in{' '}
+              <Mono>routes/orders.js</Mono>, both <Mono>web_orders</Mono> view, venue checked by{' '}
+              <Mono>venueOf()</Mono>, at most 366 days (<Mono>MAX_DAYS</Mono>), at most 20,000 rows per
+              source (<Mono>truncated</Mono>). Admin: <Mono>components/orders/TransactionsReport.jsx</Mono>{' '}
+              (the Transactions tab in <Mono>pages/Orders.jsx</Mono>), which only shows what the route returns.
+            </P>
+            <DataTable
+              head={['Part', 'Rule']}
+              rows={[
+                ['GET /api/orders/transactions?venue_id&from&to[&source=web|gloriafood&tender=<key>&counted=1]', "{ venue, currency, from, to, gloriafood: { day_basis, day_starts_at } | null, totals { orders, not_counted, sales_pence, refunded_pence, net_pence, tip_pence, discount_pence, fees_pence, tax_pence, average_pence }, by_tender [{ key, label, orders, sales_pence, refunded_pence, net_pence, web { orders, net_pence }, gloriafood { ... } }], by_source, tenders, sources, rows, truncated }. tenders / sources list the whole range whatever the filters (the page's pickers); totals and rows follow the filters."],
+                ['GET /api/orders/transactions.csv', "Same query, text/csv, filename online-sales-<venue>-<from>-to-<to>.csv. Columns Date, Time, Ready for, Source, Order, Type, Status, Counted, Tender, Tender detail, Total, Tips, Discounts, Delivery and fees, VAT / tax, Refunded, Net; pounds with two decimals; times at the venue; text cells starting with = + - @ get a leading ' so spreadsheets don't run them."],
+                ['Days', "Own orders by service_date. GloriaFood orders by the venue's GloriaFood link: day_basis fulfill (fulfill_at) or accepted (accepted_at), each trading day from day_starts_at (tradingDay() from loyverseSvc.js, dayOf() binary search), so a day matches Cash Recon's Fill from GloriaFood."],
+                ['Counted', "Own: placed / accepted / preparing / ready / completed; rejected and cancelled listed as not counted; pending_payment and expired left out. GloriaFood: countsInRecon() (accepted, source not admin); cancelled and test orders listed as not counted. Sales = counted totals (tips in, discounts off); net = total - refunded (GloriaFood refunded is always 0: refunds stay in GloriaFood)."],
+                ['Tenders', "One list for both sources (TENDERS): cash, card_counter, card_phone, online, test, unpaid, plus other:<raw>. Own orders: the largest successful payment's gateway (ownTenderKey(): cash, card_terminal, demo, a gateway with online = true), several payments named in tender_detail; no payment = unpaid with the order's payment method as detail. GloriaFood: gfTenderKey(payment) (CASH, CARD, CARD_PHONE, ONLINE; export wording kept as other:<wording>), detail = split methods, card type, Imported."],
+                ['Privacy', "No guest names, emails, phones or addresses in the rows or the CSV."],
+              ]}
+            />
             <H3>Promotions (migration 131)</H3>
             <P>
               Module <Mono>promotions</Mono> (group <Mono>web_ordering</Mono>), page{' '}

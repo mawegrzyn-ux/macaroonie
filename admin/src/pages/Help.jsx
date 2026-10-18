@@ -3809,6 +3809,37 @@ export default function Help() {
               <strong>Report</strong> tab shows orders, sales, average order, tips, refunds, money
               taken by payment method, your top dishes, discounts given and how often each promotion was used.
             </P>
+            <H3>Transactions: every online sale with its tender</H3>
+            <P>
+              The <strong>Transactions</strong> tab lists every online order of the venue over the days you
+              pick, your own online orders and GloriaFood orders together, each with its tender (how it
+              was paid): Cash, Card at the counter, Card by phone, Paid online, Not marked paid yet, or
+              the wording GloriaFood&apos;s export used for imported orders. Pick Today, 7, 30 or 90 days,
+              or <strong>Choose days</strong> for any range up to a year.
+            </P>
+            <DataTable
+              head={['Part', 'What it shows']}
+              rows={[
+                ['Totals', 'Counted orders, sales (tips included, discounts taken off), refunded, net (sales less refunds), tips and the average order.'],
+                ['By tender', 'Net and number of orders per tender, split between your own online ordering and GloriaFood, and what was refunded.'],
+                ['By source', 'The same for your own online ordering and GloriaFood.'],
+                ['Transactions', 'Each order, newest first: day and time, number, where it came from, status, tender, total, refunded and net. Tap a row for its type, ready time, tips, discounts, delivery and fees, and VAT.'],
+              ]}
+            />
+            <P>
+              Filter by source, by tender, or <strong>Counted only</strong>. Rejected and cancelled orders,
+              and GloriaFood test orders, are listed with a <strong>Not counted</strong> label and left out
+              of the totals; online orders still waiting for their online payment aren&apos;t listed. The
+              list shows 100 at a time (Show more); <strong>Download CSV</strong> saves every row of the
+              current view, with money in pounds, for a spreadsheet or your accountant. Guest names and
+              contact details are never in the report or the CSV.
+            </P>
+            <InfoBox type="info">
+              GloriaFood orders are on the same day Cash Recon puts them: by fulfil time (or accepted
+              time) with your trading day&apos;s start, as set on the GloriaFood link in Cash Recon settings.
+              Your own online orders are on the day they were for. Refunds of GloriaFood orders happen in
+              GloriaFood and aren&apos;t shown here.
+            </InfoBox>
             <H3>GloriaFood orders on the board</H3>
             <P>
               If the venue takes orders through GloriaFood and is linked in Cash Recon settings &gt;
@@ -3821,7 +3852,8 @@ export default function Help() {
               Tap one to see the dishes, notes, delivery address and totals, print a ticket, or move it to
               Preparing, Ready and Collected (Sent for deliveries). Those moves only change this board:
               GloriaFood isn&apos;t told, and payments and refunds stay in GloriaFood. An order cancelled in
-              GloriaFood shows as Cancelled. GloriaFood orders aren&apos;t in the Report tab.
+              GloriaFood shows as Cancelled. GloriaFood orders aren&apos;t in the Report tab; they are in
+              the Transactions tab.
             </P>
             <P>
               With kitchen screens, GloriaFood orders can go to the kitchen too (Till setup → Kitchen

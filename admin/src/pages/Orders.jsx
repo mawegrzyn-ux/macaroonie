@@ -1,9 +1,10 @@
 // src/pages/Orders.jsx
 //
 // Online orders (/orders, web_orders module): the live orders board for a
-// venue and day, pause / sold out, and a sales report. The board and its
-// pieces live in components/orders/shared.jsx (also used by the mobile
-// module).
+// venue and day, pause / sold out, a sales report, and Transactions (every
+// online sale, GloriaFood included, with its tender:
+// components/orders/TransactionsReport.jsx). The board and its pieces live in
+// components/orders/shared.jsx (also used by the mobile module).
 
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -14,6 +15,7 @@ import { cn, openPicker } from '@/lib/utils'
 import { OrderBoard, AvailabilityModal, PauseButton, useOrders, money, todayIn } from '@/components/orders/shared'
 import { usePermission } from '@/hooks/usePermission'
 import { usePepperPage } from '@/lib/pepperPage'
+import { TransactionsReport } from '@/components/orders/TransactionsReport'
 
 function addDays(date, n) {
   const [y, m, d] = date.split('-').map(Number)
@@ -80,7 +82,7 @@ export default function Orders() {
 
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <div className="flex gap-1">
-            {[['board', 'Orders'], ['report', 'Report']].map(([k, l]) => (
+            {[['board', 'Orders'], ['report', 'Report'], ['transactions', 'Transactions']].map(([k, l]) => (
               <button key={k} onClick={() => setTab(k)}
                 className={cn('min-h-[44px] px-4 rounded-md text-sm font-medium touch-manipulation', tab === k ? 'bg-primary text-primary-foreground' : 'border bg-background')}>
                 {l}
@@ -117,7 +119,9 @@ export default function Orders() {
 
         {!venueId ? null : tab === 'board'
           ? <OrderBoard venueId={venueId} date={date} />
-          : <OrdersReport venueId={venueId} today={today} />}
+          : tab === 'report'
+            ? <OrdersReport venueId={venueId} today={today} />
+            : <TransactionsReport key={venueId} venueId={venueId} venue={venue} today={today} />}
 
         {soldOut && <AvailabilityModal venueId={venueId} onClose={() => setSoldOut(false)} />}
       </div>
