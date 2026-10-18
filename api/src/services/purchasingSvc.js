@@ -170,7 +170,7 @@ export async function nextPoNumber(tx, tenantId) {
  * Create one purchase order (status to_send) from lines
  * [{ item, quote, qty }] (item: { id, name, category_name, storage, base_unit }).
  */
-export async function createPurchaseOrder(tx, tenantId, { venue, supplier, deliveryDate, notes, lines, supplyOrderId = null, createdBy = null }) {
+export async function createPurchaseOrder(tx, tenantId, { venue, supplier, deliveryDate, notes, lines, supplyOrderId = null, createdBy = null, requestedBy = null }) {
   const number = await nextPoNumber(tx, tenantId)
   const snap = lines.map((l, i) => ({
     tenant_id: tenantId,
@@ -191,9 +191,9 @@ export async function createPurchaseOrder(tx, tenantId, { venue, supplier, deliv
   const totals = orderTotals(snap, supplier.delivery_charge)
   const [po] = await tx`
     INSERT INTO purchase_orders (tenant_id, number, supply_order_id, venue_id, supplier_id, status, delivery_date,
-                                 notes, subtotal, vat, delivery_charge, total, created_by)
+                                 notes, subtotal, vat, delivery_charge, total, created_by, requested_by)
     VALUES (${tenantId}, ${number}, ${supplyOrderId}, ${venue.id}, ${supplier.id}, 'to_send', ${deliveryDate},
-            ${notes ?? null}, ${totals.subtotal}, ${totals.vat}, ${totals.delivery_charge}, ${totals.total}, ${createdBy})
+            ${notes ?? null}, ${totals.subtotal}, ${totals.vat}, ${totals.delivery_charge}, ${totals.total}, ${createdBy}, ${requestedBy})
     RETURNING *
   `
   if (snap.length) await tx`INSERT INTO purchase_order_lines ${tx(snap.map(l => ({ ...l, po_id: po.id })))}`
@@ -220,6 +220,7 @@ export async function loadPo(tx, tenantId, poId) {
            s.send_method, s.email_attachment, s.cc_emails, s.contact_name AS supplier_contact,
            COALESCE(sv.account_ref, s.account_ref) AS account_ref,
            v.name AS venue_name,
+           (SELECT p2.number FROM purchase_orders p2 WHERE p2.id = po.split_from AND p2.tenant_id = ${tenantId}) AS split_from_number,
            dc.id AS delivery_check_id, dc.accepted AS delivery_accepted
       FROM purchase_orders po
       JOIN suppliers s ON s.id = po.supplier_id AND s.tenant_id = ${tenantId}
@@ -251,6 +252,23 @@ const fmtDate = d => {
   return new Date(Date.UTC(y, m - 1, day)).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })
 }
 const address = v => [v.address_line1, v.address_line2, v.city, v.postcode].filter(Boolean)
+const isoOf = d => (d instanceof Date ? d.toISOString() : String(d ?? ''))
+
+/**
+ * What the supplier is told about an order that changed after they got it
+ * (split, migration 180) or that was split off another: lines for the
+ * document and the email. Empty for an ordinary order.
+ */
+export function poChangeNotes(po) {
+  const out = []
+  if (po.amended_at) {
+    out.push(`Amended ${fmtDate(isoOf(po.amended_at))}: this replaces any earlier copy of ${poNumberLabel(po.number)}.`)
+  }
+  if (po.split_from_number) {
+    out.push(`Split off ${poNumberLabel(po.split_from_number)} to come on another day.`)
+  }
+  return out
+}
 export const poFileName = (po, ext) => `${poNumberLabel(po.number)}-${String(po.supplier_name).replace(/[^\w-]+/g, '-').slice(0, 40)}.${ext}`
 
 const escapeHtml = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
@@ -274,8 +292,9 @@ export function poHtml({ po, lines, venue, tenant }, { forEmail = false } = {}) 
     <div class="head">
       <div>
         <div class="muted">${escapeHtml(tenant?.name || '')}</div>
-        <h1>Purchase order ${poNumberLabel(po.number)}</h1>
+        <h1>Purchase order ${poNumberLabel(po.number)}${po.amended_at ? ' (amended)' : ''}</h1>
         <div>Ordered ${fmtDate(String(po.created_at.toISOString?.() ?? po.created_at))}</div>
+        ${poChangeNotes(po).map(t => `<div class="change">${escapeHtml(t)}</div>`).join('')}
       </div>
       <div class="right">
         <div class="label">Delivery</div>
@@ -306,6 +325,7 @@ export function poHtml({ po, lines, venue, tenant }, { forEmail = false } = {}) 
     .right{text-align:right}.big{font-size:18px;font-weight:bold}
     .label{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:#666;margin-bottom:2px}
     .muted{color:#666}
+    .change{margin-top:4px;font-weight:bold;color:#9a3412}
     .parties{display:flex;gap:40px;margin-bottom:18px}
     table{width:100%;border-collapse:collapse}
     th,td{padding:6px 8px;border-bottom:1px solid #ddd;text-align:left;vertical-align:top}
@@ -324,7 +344,8 @@ export function poHtml({ po, lines, venue, tenant }, { forEmail = false } = {}) 
 /** The PO as an Excel workbook (Buffer). */
 export function poXlsx({ po, lines, venue, tenant }) {
   const aoa = [
-    [`Purchase order ${poNumberLabel(po.number)}`],
+    [`Purchase order ${poNumberLabel(po.number)}${po.amended_at ? ' (amended)' : ''}`],
+    ...poChangeNotes(po).map(t => [t]),
     ['From', tenant?.name || '', 'Venue', venue.name],
     ['Supplier', po.supplier_name, 'Account', po.account_ref || ''],
     ['Delivery date', po.delivery_date, 'Deliver to', address(venue).join(', ')],
@@ -352,11 +373,15 @@ export function poPdf({ po, lines, venue, tenant }) {
   let y = 50
   doc.text(L, y, tenant?.name || '', { size: 10, gray: 0.4 })
   y += 22
-  doc.text(L, y, `Purchase order ${poNumberLabel(po.number)}`, { size: 18, bold: true })
+  doc.text(L, y, `Purchase order ${poNumberLabel(po.number)}${po.amended_at ? ' (amended)' : ''}`, { size: 18, bold: true })
   doc.text(R, y - 22, 'DELIVERY', { size: 8, align: 'right', gray: 0.4 })
   doc.text(R, y, fmtDate(po.delivery_date), { size: 13, bold: true, align: 'right' })
   y += 16
   doc.text(L, y, `Ordered ${fmtDate(po.created_at instanceof Date ? po.created_at.toISOString() : po.created_at)}`, { size: 9, gray: 0.3 })
+  for (const t of poChangeNotes(po)) {
+    y += 13
+    doc.text(L, y, fitText(t, R - L, 9, true), { size: 9, bold: true })
+  }
   y += 26
   const colB = L + 260
   doc.text(L, y, 'SUPPLIER', { size: 8, gray: 0.4 })
@@ -452,9 +477,10 @@ export async function emailPo(tenantId, poId, sentBy) {
   if (po.email_attachment === 'pdf')   attachments.push({ filename: poFileName(po, 'pdf'),  contentType: 'application/pdf', content: poPdf(data) })
   if (po.email_attachment === 'excel') attachments.push({ filename: poFileName(po, 'xlsx'), contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', content: poXlsx(data) })
 
-  const intro = `<p>Please find our order ${poNumberLabel(po.number)} for delivery on <strong>${fmtDate(po.delivery_date)}</strong> to ${escapeHtml(venue.name)}.${replyTo ? ` Reply to this email with any questions.` : ''}</p>`
+  const amended = !!po.amended_at
+  const intro = `<p>${amended ? 'Please note our amended order' : 'Please find our order'} ${poNumberLabel(po.number)} for delivery on <strong>${fmtDate(po.delivery_date)}</strong> to ${escapeHtml(venue.name)}.${amended ? ' It replaces the copy we sent earlier: the quantities have changed.' : ''}${po.split_from_number ? ` It is part of ${poNumberLabel(po.split_from_number)}, split off to come on another day.` : ''}${replyTo ? ` Reply to this email with any questions.` : ''}</p>`
   const html = `${intro}${poHtml(data, { forEmail: true })}`
-  const subject = `Order ${poNumberLabel(po.number)} from ${venue.name} for ${fmtDate(po.delivery_date)}`
+  const subject = `${amended ? 'Amended order' : 'Order'} ${poNumberLabel(po.number)} from ${venue.name} for ${fmtDate(po.delivery_date)}`
 
   try {
     await sendEmail({ provider, credentials, from, to: po.supplier_email, cc, replyTo, subject, html, attachments })

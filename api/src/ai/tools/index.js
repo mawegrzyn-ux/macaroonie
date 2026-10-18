@@ -76,7 +76,7 @@ export const SECTION_MODULES = {
   orders:     ['web_orders'],
   till:       ['pos_reports'],
   menus:      ['menus'],
-  purchasing: ['purchasing', 'purchasing_setup'],
+  purchasing: ['purchasing', 'purchasing_setup', 'purchasing_approve'],
   website:    ['website', 'promotions', 'screens', 'email_templates'],
   support:    ['issue_log', 'feature_requests'],
 }

@@ -186,6 +186,23 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx' } = 
     if (order && item) {
       await step('order lines', () => put(`/api/purchasing/orders/${order.id}/lines`, { lines: [{ item_id: item.id, qty: 2 }] }))
       await step('order submit', () => post(`/api/purchasing/orders/${order.id}/submit`, {}))
+      // Approval and splitting (migration 180): a request split into a
+      // second one for another day, that one sent back; the purchase order
+      // split too. Days far enough out not to be anyone's next delivery.
+      const later = n => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10)
+      const asked = await step('order for approval', () => post('/api/purchasing/orders', { venue_id: V, list_id: list.id }))
+      if (asked && supplier) {
+        await step('approval lines', () => put(`/api/purchasing/orders/${asked.id}/lines`, { lines: [{ item_id: item.id, qty: 3 }] }))
+        await step('order request', () => post(`/api/purchasing/orders/${asked.id}/request`, { suppliers: { [supplier.id]: { delivery_date: later(20) } }, note: mark + ' please' }))
+        const split = await step('order request split', () => post(`/api/purchasing/orders/${asked.id}/split`, { lines: [{ item_id: item.id, qty: 1 }], suppliers: { [supplier.id]: { delivery_date: later(22) } } }))
+        if (split) await step('order request return', () => post(`/api/purchasing/orders/${split.new_order_id}/return`, { note: mark + ' not yet' }))
+      }
+      const pos = await step('purchase orders', () => get(`/api/purchasing/pos?venue_id=${V}`))
+      const po = pos?.[0]
+      if (po) {
+        const d = await step('purchase order', () => get(`/api/purchasing/pos/${po.id}`))
+        if (d?.lines?.[0]) await step('purchase order split', () => post(`/api/purchasing/pos/${po.id}/split`, { lines: [{ id: d.lines[0].id, qty: 1 }], delivery_date: later(21) }))
+      }
     }
   }
 

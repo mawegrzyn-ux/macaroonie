@@ -8,8 +8,10 @@
 //   list_suppliers          suppliers, or one supplier in full         purchasing_setup, view
 //   order_lists             order lists, or one list's items and pars  either module, view (a list's
 //                                                                       items: purchasing_setup, view)
-//   order_form              a venue's draft order for a list           either module, view
-//   purchase_orders         purchase orders, or one in full            either module, view
+//   order_form              a venue's draft order for a list, or any
+//                           open order by order_id                     any purchasing module, view
+//   order_requests          orders waiting for approval, sent back     any purchasing module, view
+//   purchase_orders         purchase orders, or one in full            any purchasing module, view
 //
 //   add_inventory_item      new item, optionally with prices           purchasing_setup, manage
 //   update_inventory_item   rename, category, storage, switch off ...  purchasing_setup, manage
@@ -21,14 +23,19 @@
 //   import_price_list       CSV attached in the chat, or rows read
 //                           from a PDF / photo; dry run on the card    purchasing_setup, manage
 //
-//   update_order            quantities on the draft (not sent)         purchasing, manage
+//   update_order            quantities on the draft (not sent), or on  purchasing, manage (a request
+//                           a request waiting for approval             waiting: purchasing_approve)
+//   request_order           send the draft for approval (migration 180) purchasing, manage
 //   place_order             one purchase order per supplier, emailed
-//                           to suppliers that take email               purchasing, manage
-//   send_purchase_order     email it, or mark it sent another way      purchasing, manage
-//   change_purchase_order   delivery date, notes, quantities           purchasing, manage
-//   cancel_purchase_order                                              purchasing, manage
+//                           to suppliers that take email               purchasing_approve, manage
+//   send_back_order         a request back to be changed, with a note  purchasing_approve, manage
+//   split_order             a request or purchase order into a second
+//                           one for another day                        purchasing_approve, manage
+//   send_purchase_order     email it, or mark it sent another way      purchasing or approve, manage
+//   change_purchase_order   delivery date, notes (either); quantities  purchasing_approve, manage
+//   cancel_purchase_order                                              purchasing_approve, manage
 //   receive_delivery        what arrived, checks, temperatures; also
-//                           writes the H&S delivery check              purchasing, manage
+//                           writes the H&S delivery check              purchasing or approve, manage
 //
 // Every read and change goes through the admin routes in-process (callApi)
 // with the caller's own login, so the routes' permission checks, tenant
@@ -120,19 +127,40 @@ function parText(base, quote, baseUnit) {
 
 // ── Access ─────────────────────────────────────────────────
 
-/** Read access to purchasing: either module. Says whether prices show. */
+/** Read access to purchasing: any of its modules. Says whether prices show. */
 async function requireRead(ctx) {
-  const [order, setup] = await Promise.all([
+  const [order, setup, approve] = await Promise.all([
     staffPermissionLevel(ctx, 'purchasing'), staffPermissionLevel(ctx, 'purchasing_setup'),
+    staffPermissionLevel(ctx, 'purchasing_approve'),
   ])
-  if (!levelAtLeast(order, 'view') && !levelAtLeast(setup, 'view')) {
+  if (!levelAtLeast(order, 'view') && !levelAtLeast(setup, 'view') && !levelAtLeast(approve, 'view')) {
     throw new ToolError('You don\'t have permission to see purchasing. Ask an owner or admin.', 403)
   }
-  return { prices: levelAtLeast(setup, 'view'), canOrder: order === 'manage' }
+  return { prices: levelAtLeast(setup, 'view'), canOrder: order === 'manage', canApprove: approve === 'manage' }
 }
 
 const requireSetup = ctx => requireStaffPermission(ctx, 'purchasing_setup', 'manage')
 const requireOrder = ctx => requireStaffPermission(ctx, 'purchasing', 'manage')
+// Changing what is ordered (place, split, cancel, quantities): migration 180.
+const requireApprove = ctx => requireStaffPermission(ctx, 'purchasing_approve', 'manage')
+
+/** Sending an order, booking it in, moving its day: ordering or approval. */
+async function requireOrderOrApprove(ctx) {
+  const [order, approve] = await Promise.all([
+    staffPermissionLevel(ctx, 'purchasing'), staffPermissionLevel(ctx, 'purchasing_approve'),
+  ])
+  if (order !== 'manage' && approve !== 'manage') {
+    throw new ToolError('You don\'t have permission to send or receive supplier orders. Ask an owner or admin.', 403)
+  }
+}
+
+/** Placing needs approval; without it the order goes for approval. */
+async function requirePlace(ctx) {
+  if (await staffPermissionLevel(ctx, 'purchasing_approve') !== 'manage') {
+    throw new ToolError('You can\'t place orders yourself: they need approval. Send it for approval with request_order, ' +
+      'and a manager places it.', 403)
+  }
+}
 
 /** Runs a change and writes the audit row either way. */
 async function audited(ctx, tool, input, fn) {
@@ -447,6 +475,12 @@ async function pickVenueList(ctx, venue, input) {
  * Purchasing page. Items get `id` = item_id for pickByName.
  */
 async function openOrder(ctx, venue, input, { create }) {
+  if (input.order_id) {
+    const order = await callApi(ctx, 'GET', '/api/purchasing/orders/' + input.order_id)
+    if (order.status === 'submitted') throw new ToolError('That order has already been placed. Use purchase_orders for its purchase orders.', 409)
+    order.items = order.items.map(i => ({ ...i, id: i.item_id }))
+    return order
+  }
   const list = await pickVenueList(ctx, venue, input)
   const drafts = await callApi(ctx, 'GET', '/api/purchasing/orders?venue_id=' + venue.id + '&status=draft')
   const draft = drafts.find(o => (o.list_id ?? null) === (list?.id ?? null))
@@ -507,6 +541,36 @@ function cutoffText(s) {
     : 'today\'s ' + hhmm(s.cutoff_time) + ' cutoff has passed'
 }
 
+/** The venue of an order named by order_id, else input.venue_id. */
+async function orderVenue(ctx, input) {
+  if (input.order_id) {
+    const [o] = await withTenant(ctx.tenantId, tx => tx`
+      SELECT venue_id FROM supply_orders WHERE id = ${input.order_id} AND tenant_id = ${ctx.tenantId}
+    `)
+    if (!o) throw new ToolError('There is no such order. Use order_requests or order_form.', 404)
+    return venueOf(ctx, o.venue_id)
+  }
+  if (!input.venue_id) throw new ToolError('Which venue? Give venue_id (list_venues), or order_id for a particular order.', 422)
+  return venueOf(ctx, input.venue_id)
+}
+
+const ORDER_STATUS = {
+  draft: 'draft, not sent to suppliers',
+  requested: 'waiting for approval, not sent to suppliers',
+}
+
+function requestView(order) {
+  const days = Object.entries(order.supplier_options || {}).filter(([, o]) => o?.delivery_date)
+  return {
+    ...(order.status === 'requested' ? {
+      asked_by: order.requested_by ?? 'unknown',
+      ...(days.length ? { delivery_wanted: Object.fromEntries(days.map(([sid, o]) => [order.suppliers?.[sid]?.name || sid, longDate(o.delivery_date)])) } : {}),
+    } : {}),
+    ...(order.return_note ? { sent_back: (order.returned_by || 'an approver') + ': ' + order.return_note } : {}),
+    ...(order.split_from ? { split_from_order: order.split_from } : {}),
+  }
+}
+
 function orderView(order, venue, sup, onlyQty) {
   const cur = venue.currency
   const items = order.items.filter(i => !onlyQty || i.qty > 0)
@@ -514,7 +578,15 @@ function orderView(order, venue, sup, onlyQty) {
     order_id: order.id,
     venue: order.venue_name,
     list: order.list_name ?? 'no list (items added one by one)',
-    status: 'draft, not sent to suppliers',
+    status: ORDER_STATUS[order.status] || order.status,
+    ...requestView(order),
+    you_can: [
+      order.can_edit && 'change it (update_order)',
+      order.can_place && 'place it (place_order)',
+      order.can_request && 'send it for approval (request_order)',
+      order.can_split && 'split it for another day (split_order)',
+      order.can_return && 'send it back (send_back_order)',
+    ].filter(Boolean),
     today: longDate(order.today),
     ...(order.notes ? { notes: order.notes } : {}),
     lines_with_quantity: order.items.filter(i => i.qty > 0).length,
@@ -526,6 +598,7 @@ function orderView(order, venue, sup, onlyQty) {
       supplier: i.quote ? i.quote.supplier_name : 'no supplier price',
       ...(i.quote ? { pack: i.quote.pack_label } : {}),
       quantity: i.qty,
+      ...(i.requested_qty != null && order.status === 'requested' && i.requested_qty !== i.qty ? { asked_for: i.requested_qty } : {}),
       ...(i.par_packs != null ? { par: i.par_packs } : {}),
       ...(i.last ? { last_ordered: fmtNum(i.last.qty) + ' for ' + longDate(i.last.delivery_date) } : {}),
       ...(order.show_prices && i.quote ? { price: money(i.quote.price, cur) + ' ex VAT' } : {}),
@@ -545,7 +618,8 @@ function orderView(order, venue, sup, onlyQty) {
 }
 
 const OrderTarget = {
-  venue_id:     Id,
+  venue_id:     Id.optional().describe('Needed unless order_id is given'),
+  order_id:     Id.optional().describe('A particular order, e.g. one waiting for approval (order_requests lists them); else the venue\'s draft for the list'),
   list:         z.string().max(200).optional().describe('The order list\'s name; leave out when the venue has one list'),
   without_list: z.boolean().optional().describe('The order for items that are on no list'),
 }
@@ -563,7 +637,7 @@ const OrderLine = z.object({
  * with a quantity after them. Used by describe() and run() alike.
  */
 async function planOrder(ctx, input) {
-  const venue = await venueOf(ctx, input.venue_id)
+  const venue = await orderVenue(ctx, input)
   const order = await openOrder(ctx, venue, input, { create: true })
   const eff = new Map(order.items.map(i => [i.item_id, { item: i, quote: i.quote, qty: i.qty, was: i.qty, switched: false }]))
   if (input.clear_all) for (const e of eff.values()) e.qty = 0
@@ -605,9 +679,14 @@ function changeLine(e, prices, cur) {
   return e.item.name + ': ' + (e.qty !== e.was ? fmtNum(e.was) + ' to ' : '') + fmtNum(e.qty) + what + (e.switched ? ', new supplier' : '') + price
 }
 
-/** The order split per supplier, as place_order will submit it. */
+/**
+ * The order split per supplier, as place_order will submit it: the day
+ * given here, else the one a request asked for, else the supplier's next
+ * delivery day (override: false, pinned on the card).
+ */
 function orderGroups(plan, deliveries = []) {
   const { lines, sup, order, venue } = plan
+  const asked = order.status === 'requested' ? order.supplier_options || {} : {}
   const ids = [...new Set(lines.filter(e => e.quote).map(e => e.quote.supplier_id))]
   const given = new Map()
   for (const d of deliveries) {
@@ -617,13 +696,17 @@ function orderGroups(plan, deliveries = []) {
   return ids.map(id => {
     const s = sup[id]
     const d = given.get(id)
-    const date = d?.date || s.next_delivery
+    const wanted = asked[id]?.delivery_date || null
+    const date = d?.date || wanted || s.next_delivery
     if (date < order.today) throw new ToolError('The delivery date for ' + s.name + ' (' + longDate(date) + ') is in the past.', 422)
     const gl = lines.filter(e => e.quote?.supplier_id === id).map(e => ({ ...e, fitted: fitQty(e.qty, e.quote) }))
     const totals = order.show_prices
       ? orderTotals(gl.map(e => ({ price: e.quote.price, qty: e.fitted, vat_rate: e.quote.vat_rate })))
       : null
-    return { id, s, date, override: !!d?.date, notes: d?.notes ?? null, lines: gl, totals, cur: venue.currency }
+    return {
+      id, s, date, override: !!(d?.date || wanted), given: !!d?.date, wanted,
+      notes: d?.notes ?? asked[id]?.notes ?? null, lines: gl, totals, cur: venue.currency,
+    }
   })
 }
 
@@ -868,14 +951,16 @@ export const purchasingTools = [
     name: 'order_form',
     title: 'Open an order',
     description:
-      'A venue\'s draft order for an order list, as on the Purchasing page: every item with its supplier and pack, ' +
-      'the quantity entered so far, the par, when it was last ordered and other suppliers it can come from, plus each ' +
-      'supplier\'s next delivery date and cutoff. Opening it makes an empty draft if none is open (nothing is ordered). ' +
-      'only_with_quantity: true lists just the lines being ordered. Prices show only with Purchasing setup.',
+      'A venue\'s draft order for an order list (or, with order_id, a particular order such as one waiting for ' +
+      'approval), as on the Purchasing page: every item with its supplier and pack, the quantity entered so far, what ' +
+      'was asked for when an approver changed it, the par, when it was last ordered and other suppliers it can come ' +
+      'from, plus each supplier\'s next delivery date and cutoff, and what you can do with it. Opening a list makes an ' +
+      'empty draft if none is open (nothing is ordered). only_with_quantity: true lists just the lines being ordered. ' +
+      'Prices show only with Purchasing setup.',
     input: z.object({ ...OrderTarget, only_with_quantity: z.boolean().optional() }),
     async run(ctx, input) {
       const access = await requireRead(ctx)
-      const venue = await venueOf(ctx, input.venue_id)
+      const venue = await orderVenue(ctx, input)
       const order = await openOrder(ctx, venue, input, { create: access.canOrder })
       if (!order) return { venue: venue.name, message: 'No draft order is open for that list, and starting one needs Purchasing (manage).' }
       const ids = [...new Set(order.items.map(i => i.quote?.supplier_id).filter(Boolean))]
@@ -1406,7 +1491,8 @@ export const purchasingTools = [
     description:
       'Sets quantities on a venue\'s draft order for a list without sending anything: lines (packs; 0 takes a line ' +
       'off; an item not on the list is added; supplier switches where it comes from), fill_to_par (every empty line ' +
-      'with a par gets its par), clear_all. Place it with place_order.',
+      'with a par gets its par), clear_all. With order_id it changes that order, e.g. an approver changing a request ' +
+      'waiting for approval. Then place_order, or request_order without Purchasing approval.',
     input: z.object({
       ...OrderTarget,
       lines:       z.array(OrderLine).max(300).optional(),
@@ -1415,31 +1501,34 @@ export const purchasingTools = [
     }),
     confirm: true,
     async describe(ctx, input) {
-      await requireOrder(ctx)
+      await requireOrderOrApprove(ctx)
       const p = await planOrder(ctx, input)
-      if (!p.changes.length) throw new ToolError('Nothing to change: the draft already has those quantities.', 422)
+      assertCanEdit(p.order)
+      if (!p.changes.length) throw new ToolError('Nothing to change: the order already has those quantities.', 422)
       const prices = p.order.show_prices
       const changed = new Set(p.changes.map(c => c.item_id))
       const subtotal = prices ? orderTotals(p.lines.filter(e => e.quote).map(e => ({ price: e.quote.price, qty: e.qty, vat_rate: e.quote.vat_rate }))).subtotal : null
       return {
-        title: 'Update the draft order?',
+        title: p.order.status === 'requested' ? 'Change the order waiting for approval?' : 'Update the draft order?',
         lines: [
-          p.venue.name + ', ' + (p.order.list_name || 'items on no list') + ' (not sent to suppliers)',
+          p.venue.name + ', ' + (p.order.list_name || 'items on no list') + (p.order.status === 'requested'
+            ? ' (asked for by ' + (p.order.requested_by || 'someone') + ', not sent to suppliers)' : ' (not sent to suppliers)'),
           ...p.all.filter(e => changed.has(e.item.item_id)).map(e => changeLine(e, prices, p.venue.currency)),
           plural(p.lines.length, 'line') + ' with a quantity' + (prices ? ', ' + money(subtotal, p.venue.currency) + ' ex VAT' : ''),
         ],
         ...(p.noSupplier.length ? { warningTitle: 'No supplier price', warnings: [p.noSupplier.join(', ') + ' can\'t be ordered until they have a supplier price.'] } : {}),
-        confirmLabel: 'Save draft',
+        confirmLabel: p.order.status === 'requested' ? 'Save changes' : 'Save draft',
       }
     },
     async run(ctx, input) {
-      await requireOrder(ctx)
+      await requireOrderOrApprove(ctx)
       const p = await planOrder(ctx, input)
+      assertCanEdit(p.order)
       return audited(ctx, 'update_order', input, async () => {
         if (p.changes.length) await callApi(ctx, 'PUT', '/api/purchasing/orders/' + p.order.id + '/lines', { body: { lines: p.changes } })
         return {
           order_id: p.order.id, venue: p.venue.name, list: p.order.list_name ?? 'no list', lines_with_quantity: p.lines.length,
-          message: 'Draft saved. Nothing has gone to suppliers yet.',
+          message: 'Saved. Nothing has gone to suppliers yet.',
         }
       })
     },
@@ -1449,10 +1538,11 @@ export const purchasingTools = [
     name: 'place_order',
     title: 'Place an order',
     description:
-      'Places a venue\'s draft order for a list (after applying any lines / fill_to_par, as update_order): it is split ' +
-      'into one purchase order per supplier, each for that supplier\'s next delivery day unless deliveries gives a ' +
-      'date. Suppliers that take email are emailed straight away; the rest wait in To send. Quantities are rounded ' +
-      'up to each supplier\'s minimum and steps.',
+      'Places a venue\'s draft order for a list, or with order_id an order waiting for approval (after applying any ' +
+      'lines / fill_to_par, as update_order): it is split into one purchase order per supplier, each for the day a ' +
+      'request asked for, else that supplier\'s next delivery day, unless deliveries gives a date. Suppliers that ' +
+      'take email are emailed straight away; the rest wait in To send. Quantities are rounded up to each supplier\'s ' +
+      'minimum and steps. Needs Purchasing approval: without it, use request_order.',
     input: z.object({
       ...OrderTarget,
       lines:       z.array(OrderLine).max(300).optional(),
@@ -1466,7 +1556,7 @@ export const purchasingTools = [
     }),
     confirm: true,
     async describe(ctx, input) {
-      await requireOrder(ctx)
+      await requirePlace(ctx)
       const p = await planOrder(ctx, input)
       const groups = placeChecks(p, input)
       // The first delivery day the card shows for each supplier (no date
@@ -1474,10 +1564,11 @@ export const purchasingTools = [
       const planned = Object.fromEntries(groups.filter(g => !g.override).map(g => [g.id, g.date]))
       const cur = p.venue.currency
       const prices = p.order.show_prices
-      const lines = [p.venue.name + ', ' + (p.order.list_name || 'items on no list')]
+      const lines = [p.venue.name + ', ' + (p.order.list_name || 'items on no list') +
+        (p.order.status === 'requested' ? ', asked for by ' + (p.order.requested_by || 'someone') : '')]
       const warnings = []
       for (const g of groups) {
-        lines.push(g.s.name + ': delivery ' + longDate(g.date) + ', ' + sentHow(g.s) +
+        lines.push(g.s.name + ': delivery ' + longDate(g.date) + (g.wanted && !g.given ? ' (as asked)' : '') + ', ' + sentHow(g.s) +
           (prices ? ', ' + money(g.totals.subtotal, cur) + ' ex VAT' : ''))
         for (const e of g.lines) lines.push('  ' + fmtNum(e.fitted) + ' x ' + e.item.name + ' (' + e.quote.pack_label + ')')
         if (g.notes) lines.push('  Note: ' + g.notes)
@@ -1504,7 +1595,7 @@ export const purchasingTools = [
       }
     },
     async run(ctx, input) {
-      await requireOrder(ctx)
+      await requirePlace(ctx)
       const p = await planOrder(ctx, input)
       const groups = placeChecks(p, input)
       for (const g of groups) {
@@ -1539,6 +1630,192 @@ export const purchasingTools = [
   },
 
   {
+    name: 'request_order',
+    title: 'Send an order for approval',
+    description:
+      'Sends a venue\'s draft order for a list for approval (after applying any lines / fill_to_par, as ' +
+      'update_order), for people without Purchasing approval: a manager checks it, can change or split it, then ' +
+      'places it or sends it back. deliveries gives the day wanted from each supplier (left out: their next delivery ' +
+      'day when it is placed); note is for the manager. Nothing reaches suppliers.',
+    input: z.object({
+      ...OrderTarget,
+      lines:       z.array(OrderLine).max(300).optional(),
+      fill_to_par: z.boolean().optional(),
+      deliveries:  z.array(z.object({
+        supplier: z.string().min(1).max(200),
+        date:     DateStr.optional().describe('Day wanted from this supplier'),
+        notes:    z.string().max(2000).optional().describe('Note printed on this supplier\'s order'),
+      })).max(30).optional(),
+      note:        z.string().max(2000).optional().describe('For the manager approving it'),
+    }),
+    confirm: true,
+    async describe(ctx, input) {
+      await requireOrder(ctx)
+      const p = await planOrder(ctx, input)
+      if (p.order.status !== 'draft') throw new ToolError('That order is already waiting for approval.', 409)
+      const groups = placeChecks(p, input)
+      const cur = p.venue.currency
+      const prices = p.order.show_prices
+      const lines = [p.venue.name + ', ' + (p.order.list_name || 'items on no list') + ' (nothing goes to suppliers until it is approved)']
+      for (const g of groups) {
+        lines.push(g.s.name + ': ' + (g.given ? 'wanted ' + longDate(g.date) : 'next delivery day when placed (' + longDate(g.date) + ' today)') +
+          (prices ? ', ' + money(g.totals.subtotal, cur) + ' ex VAT' : ''))
+        for (const e of g.lines) lines.push('  ' + fmtNum(e.qty) + ' x ' + e.item.name + ' (' + e.quote.pack_label + ')')
+        if (g.notes) lines.push('  Note: ' + g.notes)
+      }
+      if (input.note) lines.push('For the manager: ' + input.note)
+      return { title: 'Send this order for approval?', lines, confirmLabel: 'Send for approval' }
+    },
+    async run(ctx, input) {
+      await requireOrder(ctx)
+      const p = await planOrder(ctx, input)
+      if (p.order.status !== 'draft') throw new ToolError('That order is already waiting for approval.', 409)
+      const groups = placeChecks(p, input)
+      return audited(ctx, 'request_order', input, async () => {
+        if (p.changes.length) await callApi(ctx, 'PUT', '/api/purchasing/orders/' + p.order.id + '/lines', { body: { lines: p.changes } })
+        const suppliers = {}
+        for (const g of groups) {
+          if (g.given || g.notes) suppliers[g.id] = { ...(g.given ? { delivery_date: g.date } : {}), ...(g.notes ? { notes: g.notes } : {}) }
+        }
+        const res = await callApi(ctx, 'POST', '/api/purchasing/orders/' + p.order.id + '/request', {
+          body: { suppliers, ...(input.note !== undefined ? { note: input.note } : {}) },
+        })
+        return { order_id: res.id, venue: p.venue.name, status: 'waiting for approval', message: 'Sent for approval. A manager places it, or sends it back.' }
+      })
+    },
+  },
+
+  {
+    name: 'order_requests',
+    title: 'Orders waiting for approval',
+    description:
+      'Supplier orders waiting for approval (asked by whom and when, the days wanted, every line with what was asked ' +
+      'for), and drafts sent back with the reason. Says whether you can approve: then place_order, update_order, ' +
+      'split_order or send_back_order with the order_id.',
+    input: z.object({ venue_id: Id.optional() }),
+    readOnly: true,
+    async run(ctx, input) {
+      const access = await requireRead(ctx)
+      const vq = input.venue_id ? '&venue_id=' + (await venueOf(ctx, input.venue_id)).id : ''
+      const [waiting, drafts] = await Promise.all([
+        callApi(ctx, 'GET', '/api/purchasing/orders?status=requested' + vq),
+        callApi(ctx, 'GET', '/api/purchasing/orders?status=draft' + vq),
+      ])
+      const full = await Promise.all(waiting.slice(0, 15).map(o => callApi(ctx, 'GET', '/api/purchasing/orders/' + o.id)))
+      return {
+        you_can_approve: access.canApprove,
+        waiting_for_approval: full.map(o => ({
+          order_id: o.id,
+          venue: o.venue_name,
+          list: o.list_name ?? 'no list',
+          asked_by: o.requested_by ?? 'unknown',
+          asked_on: o.requested_at,
+          ...requestView(o),
+          ...(o.notes ? { note: o.notes } : {}),
+          lines: o.items.filter(i => i.qty > 0 || (i.requested_qty ?? 0) > 0).map(i => ({
+            item: i.name,
+            quantity: i.qty,
+            ...(i.requested_qty != null && i.requested_qty !== i.qty ? { asked_for: i.requested_qty } : {}),
+            ...(i.quote ? { supplier: i.quote.supplier_name, pack: i.quote.pack_label } : {}),
+          })),
+        })),
+        ...(waiting.length > full.length ? { more_waiting: waiting.length - full.length } : {}),
+        sent_back: drafts.filter(d => d.return_note).map(d => ({
+          order_id: d.id, venue: d.venue_name, list: d.list_name ?? 'no list',
+          by: d.returned_by ?? 'an approver', reason: d.return_note,
+        })),
+      }
+    },
+  },
+
+  {
+    name: 'send_back_order',
+    title: 'Send an order back',
+    description:
+      'Sends an order waiting for approval back to be changed (needs Purchasing approval): it becomes a draft again ' +
+      'with the note saying why. Nothing reaches suppliers.',
+    input: z.object({
+      order_id: Id.describe('From order_requests'),
+      note:     z.string().min(1).max(2000).describe('Why it is going back'),
+    }),
+    confirm: true,
+    async describe(ctx, input) {
+      await requireApprove(ctx)
+      const o = await requestOrder(ctx, input.order_id)
+      return {
+        title: 'Send this order back?',
+        lines: [
+          o.venue_name + ', ' + (o.list_name || 'items on no list') + ', asked for by ' + (o.requested_by || 'someone'),
+          plural(o.items.filter(i => i.qty > 0).length, 'line'),
+          'Reason: ' + input.note,
+        ],
+        confirmLabel: 'Send back',
+      }
+    },
+    async run(ctx, input) {
+      await requireApprove(ctx)
+      const o = await requestOrder(ctx, input.order_id)
+      return audited(ctx, 'send_back_order', input, async () => {
+        await callApi(ctx, 'POST', '/api/purchasing/orders/' + o.id + '/return', { body: { note: input.note } })
+        return { order_id: o.id, message: 'Sent back to ' + (o.requested_by || 'the person who asked') + '.' }
+      })
+    },
+  },
+
+  {
+    name: 'split_order',
+    title: 'Split an order for another day',
+    description:
+      'Splits an order into two for different days (needs Purchasing approval): po for a placed purchase order, or ' +
+      'order_id for an order waiting for approval. lines are the items and quantities (packs) that move to the second ' +
+      'order; delivery_date its day (for a request with several suppliers, deliveries gives one per supplier). The ' +
+      'second purchase order keeps the prices and goes to the same supplier; one already with the supplier goes back ' +
+      'to To send as amended, and both are emailed when the supplier takes email. A split request is a second request, ' +
+      'placed on its own.',
+    input: z.object({
+      po:            z.string().max(60).optional().describe('Purchase order number, e.g. PO-00012'),
+      order_id:      Id.optional().describe('An order waiting for approval'),
+      lines:         z.array(z.object({ item: z.string().min(1).max(200), quantity: z.number().positive().max(100000) })).min(1).max(300),
+      delivery_date: DateStr.optional().describe('Day for the second order'),
+      deliveries:    z.array(z.object({ supplier: z.string().min(1).max(200), date: DateStr })).max(30).optional(),
+    }),
+    confirm: true,
+    async describe(ctx, input) {
+      await requireApprove(ctx)
+      const p = await splitPlan(ctx, input)
+      return { ...p.card, confirmLabel: 'Split' }
+    },
+    async run(ctx, input) {
+      await requireApprove(ctx)
+      const p = await splitPlan(ctx, input)
+      return audited(ctx, 'split_order', input, async () => {
+        if (p.kind === 'po') {
+          const res = await callApi(ctx, 'POST', '/api/purchasing/pos/' + p.d.id + '/split', {
+            body: { lines: p.moves.map(m => ({ id: m.line.id, qty: m.qty })), delivery_date: p.date },
+          })
+          return {
+            po: poNumberLabel(res.po.number),
+            new_po: poNumberLabel(res.new_po.number),
+            new_po_delivery: longDate(res.new_po.delivery_date),
+            ...(res.was_sent ? {
+              sending: res.results.map(r => (r.id === res.new_po.id ? poNumberLabel(res.new_po.number) : poNumberLabel(res.po.number)) + ': ' +
+                (r.emailed ? 'emailed' : r.error ? 'not emailed (' + r.error + ')' : 'waiting in To send')),
+            } : {}),
+            message: 'Split.' + (res.was_sent ? ' The supplier needs both copies: check they went.' : ' Both wait in To send.'),
+          }
+        }
+        const res = await callApi(ctx, 'POST', '/api/purchasing/orders/' + p.order.id + '/split', {
+          body: {
+            lines: p.moves.map(m => ({ item_id: m.item.item_id, qty: m.qty })),
+            suppliers: Object.fromEntries(Object.entries(p.dates).map(([sid, d]) => [sid, { delivery_date: d }])),
+          },
+        })
+        return { order_id: p.order.id, new_order_id: res.new_order_id, message: 'Split. Both orders wait for approval; place each with place_order.' }
+      })
+    },
+  },
+
+  {
     name: 'send_purchase_order',
     title: 'Send a purchase order',
     description:
@@ -1550,7 +1827,7 @@ export const purchasingTools = [
     }),
     confirm: true,
     async describe(ctx, input) {
-      await requireOrder(ctx)
+      await requireOrderOrApprove(ctx)
       const d = await sendCheck(ctx, input)
       const cur = await poCurrency(ctx, d)
       return {
@@ -1568,7 +1845,7 @@ export const purchasingTools = [
       }
     },
     async run(ctx, input) {
-      await requireOrder(ctx)
+      await requireOrderOrApprove(ctx)
       const d = await sendCheck(ctx, input)
       return audited(ctx, 'send_purchase_order', input, async () => {
         const res = input.how === 'email'
@@ -1584,7 +1861,8 @@ export const purchasingTools = [
     title: 'Change a purchase order',
     description:
       'Changes a purchase order: delivery_date and notes (until it is received), and while it is waiting in To send ' +
-      'the quantities (lines; 0 takes a line off) or more products from the same supplier (add).',
+      'the quantities (lines; 0 takes a line off) or more products from the same supplier (add; quantities need ' +
+      'Purchasing approval). To send part of it on another day, use split_order.',
     input: z.object({
       po:            z.string().min(1).max(60),
       delivery_date: DateStr.optional(),
@@ -1598,7 +1876,8 @@ export const purchasingTools = [
     }),
     confirm: true,
     async describe(ctx, input) {
-      await requireOrder(ctx)
+      await requireOrderOrApprove(ctx)
+      if (input.lines?.length || input.add?.length) await requireApprove(ctx)
       const p = await poChangePlan(ctx, input)
       return {
         title: 'Change ' + poNumberLabel(p.d.number) + '?',
@@ -1608,7 +1887,8 @@ export const purchasingTools = [
       }
     },
     async run(ctx, input) {
-      await requireOrder(ctx)
+      await requireOrderOrApprove(ctx)
+      if (input.lines?.length || input.add?.length) await requireApprove(ctx)
       const p = await poChangePlan(ctx, input)
       return audited(ctx, 'change_purchase_order', input, async () => {
         if (Object.keys(p.body).length) await callApi(ctx, 'PATCH', '/api/purchasing/pos/' + p.d.id, { body: p.body })
@@ -1623,12 +1903,12 @@ export const purchasingTools = [
   {
     name: 'cancel_purchase_order',
     title: 'Cancel a purchase order',
-    description: 'Cancels a purchase order that hasn\'t been received. If it was already sent, the supplier must be told.',
+    description: 'Cancels a purchase order that hasn\'t been received (needs Purchasing approval). If it was already sent, the supplier must be told.',
     input: z.object({ po: z.string().min(1).max(60) }),
     confirm: true,
     destructive: true,
     async describe(ctx, input) {
-      await requireOrder(ctx)
+      await requireApprove(ctx)
       const d = await findPo(ctx, input.po)
       if (!['to_send', 'sent'].includes(d.status)) throw new ToolError(poNumberLabel(d.number) + ' is ' + PO_STATUSES[d.status].toLowerCase() + ', so it can\'t be cancelled.', 409)
       const cur = await poCurrency(ctx, d)
@@ -1643,7 +1923,7 @@ export const purchasingTools = [
       }
     },
     async run(ctx, input) {
-      await requireOrder(ctx)
+      await requireApprove(ctx)
       const d = await findPo(ctx, input.po)
       return audited(ctx, 'cancel_purchase_order', input, async () => {
         await callApi(ctx, 'POST', '/api/purchasing/pos/' + d.id + '/cancel')
@@ -1681,7 +1961,7 @@ export const purchasingTools = [
     }),
     confirm: true,
     async describe(ctx, input) {
-      await requireOrder(ctx)
+      await requireOrderOrApprove(ctx)
       const p = await receivePlan(ctx, input)
       const { d } = p
       const differ = p.lines.filter(l => l.status !== 'ok' || l.note)
@@ -1707,7 +1987,7 @@ export const purchasingTools = [
       }
     },
     async run(ctx, input) {
-      await requireOrder(ctx)
+      await requireOrderOrApprove(ctx)
       const p = await receivePlan(ctx, input)
       return audited(ctx, 'receive_delivery', input, async () => {
         await callApi(ctx, 'POST', '/api/purchasing/pos/' + p.d.id + '/receive', {
@@ -2090,6 +2370,91 @@ async function parsPlan(ctx, input) {
 }
 
 /** The groups place_order submits, after the checks that stop it. */
+/** An order waiting for approval, in full. */
+async function requestOrder(ctx, id) {
+  const o = await callApi(ctx, 'GET', '/api/purchasing/orders/' + id)
+  if (o.status !== 'requested') throw new ToolError('That order isn\'t waiting for approval (it is ' + (ORDER_STATUS[o.status] || 'placed') + ').', 409)
+  return o
+}
+
+function assertCanEdit(order) {
+  if (order.can_edit) return
+  throw new ToolError(order.status === 'requested'
+    ? 'This order is waiting for approval: only someone with Purchasing approval can change it. The person who asked can take it back on the Purchasing page.'
+    : 'You can\'t change this order.', 403)
+}
+
+/** What split_order moves where, for a purchase order or a request; with its card. */
+async function splitPlan(ctx, input) {
+  if (!!input.po === !!input.order_id) throw new ToolError('Give either po (a purchase order) or order_id (an order waiting for approval).', 422)
+  if (input.po) {
+    const d = await findPo(ctx, input.po)
+    const label = poNumberLabel(d.number)
+    if (!['to_send', 'sent'].includes(d.status)) throw new ToolError(label + ' is ' + PO_STATUSES[d.status].toLowerCase() + ', so it can\'t be split.', 409)
+    const venue = await venueOf(ctx, d.venue_id)
+    const poLines = d.lines.map(l => ({ ...l, name: l.item_name }))
+    const moves = []
+    for (const m of input.lines) {
+      const line = pickByName(poLines, m.item, x => x.name, 'line on ' + label)
+      if (m.quantity > line.qty + 1e-9) throw new ToolError('Only ' + fmtNum(line.qty) + ' of ' + line.item_name + ' are on ' + label + '.', 422)
+      moves.push({ line, qty: m.quantity })
+    }
+    if (d.lines.every(l => moves.filter(m => m.line.id === l.id).reduce((n, m) => n + m.qty, 0) >= l.qty - 1e-9)) {
+      throw new ToolError('That moves the whole order: change its delivery day with change_purchase_order instead.', 422)
+    }
+    const date = input.delivery_date
+    if (!date) throw new ToolError('Which day should the second order come? Give delivery_date.', 422)
+    if (date === d.delivery_date) throw new ToolError(label + ' already comes on ' + longDate(date) + ': pick another day.', 422)
+    if (date < venueToday(venue)) throw new ToolError('That day has passed.', 422)
+    const lines = [poTitle(d) + ', delivery ' + longDate(d.delivery_date)]
+    for (const m of moves) lines.push(m.line.item_name + ': ' + fmtNum(m.qty) + ' of ' + fmtNum(m.line.qty) + ' move to ' + longDate(date))
+    const warnings = []
+    if (d.status === 'sent') {
+      warnings.push(d.supplier_name + ' already has ' + label + '. ' + (d.send_method === 'email' && d.supplier_email
+        ? 'Both are emailed to ' + d.supplier_email + ' straight away, ' + label + ' marked as amended.'
+        : 'Both go back to To send: send them again.'))
+    }
+    return {
+      kind: 'po', d, moves, date,
+      card: { title: 'Split ' + label + '?', lines, ...(warnings.length ? { warningTitle: 'Already with the supplier', warnings } : {}) },
+    }
+  }
+  const order = await requestOrder(ctx, input.order_id)
+  const venue = await venueOf(ctx, order.venue_id)
+  const items = order.items.filter(i => i.qty > 0).map(i => ({ ...i, id: i.item_id }))
+  const moves = []
+  for (const m of input.lines) {
+    const item = pickByName(items, m.item, i => i.name, 'line on this order')
+    if (m.quantity > item.qty + 1e-9) throw new ToolError('Only ' + fmtNum(item.qty) + ' of ' + item.name + ' are on this order.', 422)
+    moves.push({ item, qty: m.quantity })
+  }
+  if (items.every(i => moves.filter(m => m.item.item_id === i.item_id).reduce((n, m) => n + m.qty, 0) >= i.qty - 1e-9)) {
+    throw new ToolError('That moves the whole order: give the delivery days when you place it instead.', 422)
+  }
+  const ids = [...new Set(moves.map(m => m.item.quote?.supplier_id).filter(Boolean))]
+  const sup = await supplierInfo(ctx, venue, ids)
+  const given = new Map()
+  for (const d of input.deliveries || []) {
+    const s = pickByName(ids.map(id => ({ id, name: sup[id]?.name || '' })), d.supplier, x => x.name, 'supplier of the moved lines')
+    given.set(s.id, d.date)
+  }
+  const dates = {}
+  const lines = [order.venue_name + ', ' + (order.list_name || 'items on no list') + ', asked for by ' + (order.requested_by || 'someone')]
+  for (const id of ids) {
+    const s = sup[id]
+    const date = given.get(id) || input.delivery_date
+    if (!date) throw new ToolError('Which day should the second order from ' + s.name + ' come? Give delivery_date.', 422)
+    const first = order.supplier_options?.[id]?.delivery_date || s.next_delivery
+    if (date === first) throw new ToolError('This order from ' + s.name + ' is already for ' + longDate(date) + ': pick another day.', 422)
+    if (date < venueToday(venue)) throw new ToolError('That day has passed.', 422)
+    dates[id] = date
+    lines.push(s.name + ': this order ' + longDate(first) + ', second order ' + longDate(date))
+    for (const m of moves.filter(x => x.item.quote?.supplier_id === id)) lines.push('  ' + m.item.name + ': ' + fmtNum(m.qty) + ' of ' + fmtNum(m.item.qty) + ' move')
+  }
+  lines.push('Both wait for approval.')
+  return { kind: 'order', order, moves, dates, card: { title: 'Split this order for another day?', lines } }
+}
+
 function placeChecks(plan, input) {
   if (plan.noSupplier.length) {
     throw new ToolError('No active supplier price for: ' + plan.noSupplier.join(', ') + '. Take them off (quantity 0) or add a price first.', 422)

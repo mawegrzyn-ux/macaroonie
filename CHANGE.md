@@ -5,6 +5,15 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-18 — Purchasing: orders that need approval, and splitting orders for another day]
+
+- **Orders can need approval.** A new role permission, **Purchasing approval** (Access → Roles), decides who can place orders. Someone who can order but not approve fills in the order as before, then taps **Send for approval**: they pick the day they'd like from each supplier and can leave a note. Nothing goes to suppliers yet. To make a role request only, set its Purchasing approval to None (owners, admins and operators have it by default, so nothing changes until you do).
+- **A second person checks it.** Orders waiting show at the top of the Order tab (the tab says how many to approve). Someone with approval can change any quantity (changed lines show what was asked for), then **Place order** (the days asked for are already picked), **Split for another day**, **Send back** with a reason, or **Decline**. The person who asked can take it back to change it while it waits. A sent-back order shows Sent back and the reason.
+- **Split an order into two for different days**: an order waiting for approval becomes two requests, each placed on its own; a placed purchase order gets a second purchase order to the same supplier for the new day, with the same prices. If the supplier already had it, the first one goes back to To send marked Changed, its copy says Amended, and suppliers that take email get both straight away. The two orders link to each other.
+- Changing a placed order's quantities, splitting it and cancelling it also need Purchasing approval; sending it, moving its delivery date and booking the delivery in don't. Purchase orders show who asked for them and who placed them.
+- **Pepper** follows the same rules: it sends orders for approval for people who can't place them (request_order), lists what's waiting (and the day briefing counts it), and approvers can change, split, send back and place by chat.
+- **Migration 180** (purchasing_approval).
+
 ## [2026-10-18 — Each device on its own address; Disconnect on every device]
 
 - **Tills, kitchen screens, kiosks and menu screens each have their own address**: tills at pos.macaroonie.com, kitchen screens at **kitchen.macaroonie.com** (kds.macaroonie.com goes there too), kiosks at **kiosk.macaroonie.com**, menu screens at screens.macaroonie.com. Each installs as its own app (Macaroonie Till, Kitchen, Kiosk) and Till setup shows the right address on each tab and in the pairing window.

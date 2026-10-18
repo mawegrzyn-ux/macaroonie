@@ -492,7 +492,8 @@ const TOOL_LABELS = {
   add_supplier_price: 'Added a supplier price', update_supplier_price: 'Changed a supplier price',
   set_preferred_supplier: 'Chose a supplier', add_supplier: 'Added a supplier', update_supplier: 'Changed a supplier',
   create_order_list: 'Made an order list', update_order_list: 'Changed an order list', set_pars: 'Set pars',
-  import_price_list: 'Imported a price list', update_order: 'Changed a draft order', place_order: 'Placed an order',
+  import_price_list: 'Imported a price list', update_order: 'Changed an order', place_order: 'Placed an order',
+  request_order: 'Sent an order for approval', send_back_order: 'Sent an order back', split_order: 'Split an order',
   send_purchase_order: 'Sent a purchase order', change_purchase_order: 'Changed a purchase order',
   cancel_purchase_order: 'Cancelled a purchase order', receive_delivery: 'Booked in a delivery',
   create_menu: 'Made a menu', update_menu: 'Changed a menu', duplicate_menu: 'Copied a menu',
@@ -538,6 +539,8 @@ function changeDetail(r) {
     case 'import_price_list':     return x.rows != null ? x.rows + ' rows' : null
     case 'update_order':          return [x.venue, x.list].filter(Boolean).join(', ')
     case 'place_order':           return (x.purchase_orders || []).map(p => p.po + ' ' + p.supplier).join(', ') || null
+    case 'request_order':         return x.venue || null
+    case 'split_order':           return x.new_po ? x.po + ' and ' + x.new_po : null
     case 'send_purchase_order':
     case 'change_purchase_order':
     case 'cancel_purchase_order':

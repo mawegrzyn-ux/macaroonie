@@ -4143,8 +4143,11 @@ export default function Help() {
                 ['Make and change order lists, set pars', 'Purchasing setup', 'Pars are in packs unless you give kg, litres or each.'],
                 ['Import a price list', 'Purchasing setup', 'Attach a CSV with the import headings, or a PDF, photo or email of the supplier\'s list: Pepper reads the products out of it. The card shows what would be added and changed, and any rows it would skip, before anything is saved.'],
                 ['See and fill in an order', 'Purchasing', 'The venue\'s draft for a list: quantities, pars, last ordered, other suppliers. Quantities are packs (cases, bags), as on the Purchasing page. Nothing is sent until you place it.'],
-                ['Place an order', 'Purchasing', 'The card lists each supplier with its delivery date, how the order gets to them and the lines, and warns about rounded-up quantities, a missed cutoff or a small order.'],
-                ['Send, change or cancel a purchase order', 'Purchasing', 'Email it, or mark it sent by printout, PDF, Excel or phone. Quantities can change while it is waiting to be sent; the date and notes until it is received.'],
+                ['Send an order for approval', 'Purchasing', 'For people without Purchasing approval: the card lists the lines and the day wanted from each supplier, and you can add a note for the manager.'],
+                ['See the orders waiting for approval', 'Any purchasing access', 'Who asked and when, the days wanted, each line with what was asked for, and drafts that were sent back with the reason.'],
+                ['Place an order', 'Purchasing approval', 'Your draft, or an order waiting for approval. The card lists each supplier with its delivery date (the day asked for, if any), how the order gets to them and the lines, and warns about rounded-up quantities, a missed cutoff or a small order.'],
+                ['Change, split or send back an order waiting for approval', 'Purchasing approval', 'Change quantities, move part of it to a second order for another day, or send it back with the reason.'],
+                ['Send, change, split or cancel a purchase order', 'Purchasing (send, date); Purchasing approval (quantities, split, cancel)', 'Email it, or mark it sent by printout, PDF, Excel or phone. Quantities can change while it is waiting to be sent; the date and notes until it is received. A split moves part of it to a second order for another day.'],
                 ['Book a delivery in', 'Purchasing', 'Say what was short or missing and the probe temperatures; everything else counts as arrived. This also saves the delivery check in Food safety.'],
               ]}
             />
@@ -4555,6 +4558,48 @@ export default function Help() {
               and frozen goods (chilled at or below 8°C, frozen at or below -15°C), and whether you accepted it.
               If anything failed, say what was done about it. Saving writes the venue's delivery check for
               Food safety, so it doesn't need typing in twice. <strong>Correct the delivery</strong> updates it.
+            </P>
+
+            <H3>6. Orders that need approval</H3>
+            <P>
+              A role's <strong>Purchasing approval</strong> permission (Access → Roles) decides who can place
+              orders. People who can order (Purchasing: Manage) but not approve fill in an order the same way,
+              then tap <strong>Send for approval</strong> instead of Place order: they pick the day they'd like
+              from each supplier and can leave a note for the manager. Nothing reaches the suppliers yet. To make
+              someone request only, set their role's Purchasing approval to None.
+            </P>
+            <DataTable
+              head={['Who', 'What they can do with an order waiting for approval']}
+              rows={[
+                ['The person who asked', 'See it under Waiting for approval on the Order tab, and Take it back to change it (it becomes a draft again).'],
+                ['Someone with Purchasing approval', 'Open it from Waiting for approval (the Order tab says how many are waiting). Change any quantity: a changed line shows what was asked for. Then Place order (the days asked for are picked already), Split for another day, Send back with a reason, or Decline (deletes it).'],
+              ]}
+            />
+            <P>
+              An order that was sent back shows <strong>Sent back</strong> on its list's tile and the reason at the
+              top: change it and send it for approval again. A placed purchase order records who asked for it and
+              who placed it. Changing a placed order's quantities, splitting it and cancelling it also need
+              Purchasing approval; sending it, moving its delivery date and booking the delivery in don't.
+            </P>
+
+            <H3>7. Splitting an order for another day</H3>
+            <P>
+              <strong>Split for another day</strong> moves part of an order to a second order with its own
+              delivery day: tap <strong>Move</strong> (or All) on the lines that should come later, then pick the
+              day from the supplier's delivery days or the calendar. It must be a different day from the first
+              order's, and something has to stay on the first one (to move everything, change its delivery day).
+            </P>
+            <DataTable
+              head={['Split', 'What happens']}
+              rows={[
+                ['An order waiting for approval', 'The moved part becomes a second request from the same person, also waiting for approval. Each is placed (or sent back) on its own.'],
+                ['A purchase order not sent yet', 'A second purchase order to the same supplier for the new day, with the same prices, note and delivery charge. Both wait under To send.'],
+                ['A purchase order the supplier already has', 'The first one goes back to To send marked Changed, and its copy says Amended and that it replaces the earlier one. Suppliers that take email get both straight away; for the others, send both again.'],
+              ]}
+            />
+            <P>
+              The two purchase orders link to each other (Split off / Part moved to), and the second one's copy
+              tells the supplier which order it was split from.
             </P>
             <InfoBox type="info">
               All of this can also be done by chat with Pepper (Ask Pepper): ordering, booking deliveries

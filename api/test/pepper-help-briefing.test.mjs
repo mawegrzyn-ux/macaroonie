@@ -97,7 +97,7 @@ test('day_briefing for an owner: every part, for the venue\'s day', async () => 
   assert.equal(json.venue, 'Ware')
   assert.equal(json.date, '2026-10-19')
   assert.equal(json.day, longDate('2026-10-19'))
-  for (const part of ['bookings', 'staff', 'health_and_safety', 'deliveries_due', 'yesterdays_cash_up', 'online_orders', 'sold_out', 'failed_emails', 'screens_offline']) {
+  for (const part of ['bookings', 'staff', 'health_and_safety', 'deliveries_due', 'orders_to_approve', 'yesterdays_cash_up', 'online_orders', 'sold_out', 'failed_emails', 'screens_offline']) {
     assert.ok(part in json, part + ' missing')
     assert.equal(json[part]?.error, undefined, part + ': ' + json[part]?.error)
   }

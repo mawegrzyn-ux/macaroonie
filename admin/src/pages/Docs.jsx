@@ -2949,8 +2949,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['inv_price_history', 'Every price a quote had (venue_id null = company price), source manual | import.'],
                 ['inv_preferred', 'Chosen quote per item: venue_id null = company default, else per venue. Partial unique indexes.'],
                 ['order_lists / order_list_venues / order_list_items / order_list_pars', 'Mixed-supplier lists, the venues on each, items in order, par per venue in BASE units (so a pack change keeps it).'],
-                ['supply_orders / supply_order_lines', 'A venue filling in a list: draft then submitted. Lines keep qty in packs of quote_id (null = the resolved choice).'],
-                ['purchase_orders', 'One per supplier per submitted order. number (per tenant, PO-00012), status to_send | sent | received | cancelled, delivery_date, totals, sent_at/by/via/to, send_error, received_at/by, is_generated.'],
+                ['supply_orders / supply_order_lines', 'A venue filling in a list: draft, requested (waiting for approval, migration 180) or submitted. requested_by / requested_at, requested_lines ({ item_id: { qty, quote_id } }: what was asked for), supplier_options ({ supplier_id: { delivery_date, notes } } wanted), returned_by / returned_at / return_note (last sent back), split_from. Lines keep qty in packs of quote_id (null = the resolved choice).'],
+                ['purchase_orders', 'One per supplier per submitted order. number (per tenant, PO-00012), status to_send | sent | received | cancelled, delivery_date, totals, sent_at/by/via/to, send_error, received_at/by, is_generated; requested_by (who asked, when it went through approval), amended_at / amended_by (changed after sending: a split), split_from (migration 180).'],
                 ['purchase_order_lines', 'Copies of name, category, storage, pack label, pack_base_qty, price, VAT at ordering time; qty; received_qty, receive_status, receive_note.'],
                 ['fs_delivery_checks.purchase_order_id', 'The H&S delivery check written by receiving (unique per PO).'],
               ]}
@@ -2977,7 +2977,52 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>shared/procurement.js</Mono>, starting from <Mono>next_delivery</Mono>) next to the date
               button for any other date from today on. After the transaction commits, suppliers
               with <Mono>send_method = email</Mono> are emailed (<Mono>emailPo()</Mono>); a failure is kept
-              in <Mono>send_error</Mono> and the PO stays <Mono>to_send</Mono>.
+              in <Mono>send_error</Mono> and the PO stays <Mono>to_send</Mono>. <Mono>orderLines()</Mono>{' '}
+              (lines with a quantity, each with its quote, grouped by supplier) and <Mono>emailNew()</Mono>{' '}
+              (email after commit) are shared by submit, request and split.
+            </P>
+            <H3>Approval (migration 180)</H3>
+            <P>
+              Module <Mono>purchasing_approve</Mono> (Purchasing approval; owner, admin and operator manage by
+              default; the migration gave every role with its own Purchasing level the same level here).{' '}
+              <Mono>POST /orders/:id/submit</Mono> needs it. Without it, <Mono>POST /orders/:id/request</Mono>{' '}
+              (Purchasing manage, draft only) sets status <Mono>requested</Mono> with <Mono>requested_lines</Mono>,{' '}
+              <Mono>supplier_options</Mono> (days must not be past) and the note (<Mono>notes</Mono>).
+              A request changes only through an approver: <Mono>assertEditable()</Mono> on{' '}
+              <Mono>PUT /orders/:id/lines</Mono>, <Mono>PATCH</Mono>, line and order <Mono>DELETE</Mono> (draft:
+              Purchasing manage; requested: Purchasing approval). <Mono>POST /orders/:id/return</Mono>{' '}
+              (approval, a reason is required) makes it a draft with <Mono>return_note</Mono>;{' '}
+              <Mono>POST /orders/:id/withdraw</Mono> (the person who asked, or an approver) makes it a draft
+              without one. Placing a request starts from its <Mono>supplier_options</Mono> (the body's days
+              and notes win) and copies <Mono>requested_by</Mono> onto the POs. <Mono>orderActions()</Mono>{' '}
+              puts <Mono>can_edit</Mono>, <Mono>can_request</Mono>, <Mono>can_place</Mono>,{' '}
+              <Mono>can_return</Mono>, <Mono>can_split</Mono>, <Mono>can_withdraw</Mono>,{' '}
+              <Mono>can_delete</Mono> on every order the API returns; the admin shows only those.{' '}
+              <Mono>GET /orders?status=requested</Mono> lists them oldest first; <Mono>/meta</Mono> has{' '}
+              <Mono>can_approve</Mono>. On POs: <Mono>PUT /pos/:id/lines</Mono>, <Mono>/cancel</Mono> and{' '}
+              <Mono>/split</Mono> need approval; <Mono>PATCH /pos/:id</Mono> (date, notes),{' '}
+              <Mono>/send</Mono>, <Mono>/mark-sent</Mono> and <Mono>/receive</Mono> take Purchasing or
+              Purchasing approval (manage).
+            </P>
+            <H3>Splitting (migration 180)</H3>
+            <P>
+              <Mono>POST /orders/:id/split</Mono> (a request only; approval):{' '}
+              <Mono>{'{ lines: [{ item_id, qty }], suppliers: { [supplier_id]: { delivery_date, notes? } } }'}</Mono>,
+              a day for every supplier of a moved line, not past and not the first order's day (its{' '}
+              <Mono>supplier_options</Mono> date, else <Mono>next_delivery</Mono>). Refuses moving more than a
+              line holds or the whole order. The moved quantities become a new <Mono>requested</Mono> order
+              (same list, notes, <Mono>requested_by</Mono> / <Mono>_at</Mono>, <Mono>split_from</Mono>); both
+              orders' <Mono>requested_lines</Mono> are split the same way. <Mono>POST /pos/:id/split</Mono>{' '}
+              (<Mono>to_send</Mono> or <Mono>sent</Mono>; approval): <Mono>{'{ lines: [{ id, qty }], delivery_date }'}</Mono>{' '}
+              makes a new PO (new number, same supplier, supply order, notes, delivery charge,{' '}
+              <Mono>requested_by</Mono>, the lines' copied prices, <Mono>split_from</Mono>) and takes the
+              quantities off the original (a line moved in full is deleted); both totals are recalculated. A{' '}
+              <Mono>sent</Mono> original goes back to <Mono>to_send</Mono> with <Mono>amended_at</Mono> /{' '}
+              <Mono>amended_by</Mono>, and when the supplier takes email both are emailed after commit
+              (<Mono>results</Mono>). <Mono>poChangeNotes()</Mono> puts "Amended ... replaces any earlier copy"
+              and "Split off PO-..." on the HTML, PDF and Excel copies; <Mono>emailPo()</Mono>'s subject says
+              Amended order. <Mono>GET /pos/:id</Mono> adds <Mono>delivery_choices</Mono>,{' '}
+              <Mono>split_from_po</Mono> and <Mono>split_into</Mono>.
             </P>
             <H3>Sending and documents</H3>
             <P>
@@ -3004,8 +3049,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             </P>
             <H3>Permissions and prices</H3>
             <P>
-              Module group <Mono>purchasing</Mono>: <Mono>purchasing</Mono> (place orders, send, receive;
-              operators manage by default) and <Mono>purchasing_setup</Mono> (inventory, suppliers, order
+              Module group <Mono>purchasing</Mono>: <Mono>purchasing</Mono> (fill in orders, send, receive;
+              operators manage by default), <Mono>purchasing_approve</Mono> (place orders and change, split or
+              cancel them; see Approval) and <Mono>purchasing_setup</Mono> (inventory, suppliers, order
               lists; owner/admin). Restaurant staff see prices only with <Mono>purchasing_setup</Mono> view:
               the order form, PO list and detail strip <Mono>price</Mono> and totals otherwise (
               <Mono>showPrices()</Mono>, <Mono>hideMoney()</Mono>). The PO files always carry prices: they
@@ -3027,7 +3073,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['/inventory', 'pages/Inventory.jsx: list, item drawer (item form, supplier prices with star, venue prices, which price each venue orders, history), import, categories.'],
                 ['/suppliers', 'pages/Suppliers.jsx: cards, drawer with Supplier, Ordering, Per venue, Products.'],
                 ['/purchasing/lists', 'pages/OrderLists.jsx: lists (drag), venues, items grouped by category (drag within a category), pars per venue in packs.'],
-                ['/purchasing, /mobile/purchasing', 'pages/Purchasing.jsx, pages/mobile/MobilePurchasing.jsx around PurchasingApp in components/purchasing/ordering.jsx (Order and Deliveries tabs, OrderForm, PoDetail, ReceiveForm). View in the URL: ?order=, ?po=, ?tab=deliveries.'],
+                ['/purchasing, /mobile/purchasing', 'pages/Purchasing.jsx, pages/mobile/MobilePurchasing.jsx around PurchasingApp in components/purchasing/ordering.jsx (Order and Deliveries tabs, OrderForm, PoDetail, ReceiveForm; approval: RequestCard, RequestPanel, ReviewModal mode request / place, SplitRequestModal, SendBackModal, SplitPoModal, DeliveryDayPicker). View in the URL: ?order=, ?po=, ?tab=deliveries.'],
               ]}
             />
             <P>
@@ -4142,12 +4188,16 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['add_supplier / update_supplier', 'setup manage', 'POST, PATCH /suppliers, PUT /suppliers/:id/venues', 'Days as names; a venue setting is merged into the full PUT list (the route replaces all)'],
                 ['create_order_list / update_order_list / set_pars', 'setup manage', 'POST, PATCH /lists, PUT /lists/:id/venues|items|pars', 'Items by name or code, every unknown name in one error; pars in packs (company-choice quote) or g/kg/ml/cl/l/each, stored in base units'],
                 ['import_price_list', 'setup manage', 'POST /inventory/import (dry_run on the card)', 'rows (up to 100 per call, read by the model from a PDF, photo or email; a longer list is one call and one card per 100) become a CSV with the template headings; attached_file is a text/CSV ai_attachments row of this conversation and this user (chat only). All rows bad = refused'],
-                ['update_order', 'purchasing manage', 'PUT /orders/:id/lines', 'planOrder(): lines (on the order by code/name, else GET /venues/:id/catalog), supplier/pack switch (quote_id sent only then), fill_to_par (packsToPar), clear_all; only changed lines are sent'],
-                ['place_order', 'purchasing manage', 'PUT /orders/:id/lines, POST /orders/:id/submit', 'Card per supplier: delivery date (next delivery or deliveries[].date), how it is sent, lines at fitQty(); warns on rounding, minimum order, a missed cutoff, a date off the delivery days, no email address. Only overrides and notes are sent, so the route still picks the date at run time. The card pins planned_delivery { supplierId: date } for suppliers without a date given; run() refuses (409) when a supplier\'s first delivery day has moved since (a cutoff passed), so the order is never placed for a day the card didn\'t show'],
-                ['send_purchase_order', 'purchasing manage', 'POST /pos/:id/send | /mark-sent', 'email needs an address (resend allowed, warned); other ways need To send'],
-                ['change_purchase_order', 'purchasing manage', 'PATCH /pos/:id, PUT /pos/:id/lines', 'Lines and add only while To send; add only from the PO\'s supplier (catalog quotes); an empty order is refused'],
-                ['cancel_purchase_order', 'purchasing manage', 'POST /pos/:id/cancel', 'Warns to tell the supplier when already sent'],
-                ['receive_delivery', 'purchasing manage', 'POST /pos/:id/receive', 'Lines not named arrived as ordered (or keep what an earlier booking-in recorded); chilled/frozen temperature asked for when such goods arrived; writes fs_delivery_checks'],
+                ['update_order', 'purchasing or approve manage', 'PUT /orders/:id/lines', 'planOrder(): the venue\'s draft, or order_id (orderVenue(), openOrder()); lines (on the order by code/name, else GET /venues/:id/catalog), supplier/pack switch (quote_id sent only then), fill_to_par (packsToPar), clear_all; only changed lines are sent. assertCanEdit(): a request waiting for approval only for an approver'],
+                ['request_order', 'purchasing manage', 'PUT /orders/:id/lines, POST /orders/:id/request', 'Card per supplier: the day wanted (deliveries[].date, else "next delivery day when placed": only given days are stored), lines, note for the manager'],
+                ['order_requests', 'any view', 'GET /orders?status=requested|draft, /orders/:id', 'Waiting orders (up to 15 in full: lines with asked_for), sent-back drafts with the reason, you_can_approve. Also a day_briefing part (orders_to_approve)'],
+                ['send_back_order', 'approve manage', 'POST /orders/:id/return', 'order_id + reason'],
+                ['split_order', 'approve manage', 'POST /pos/:id/split | /orders/:id/split', 'po or order_id; lines (item, packs) to move; delivery_date (deliveries[] per supplier for a request); splitPlan() refuses the same day, a past day, more than a line holds and the whole order; the card warns when the supplier already has the PO'],
+                ['place_order', 'approve manage (requirePlace(): else "use request_order")', 'PUT /orders/:id/lines, POST /orders/:id/submit', 'The draft, or order_id for a request. Card per supplier: delivery date (deliveries[].date, else the day the request asked for, "(as asked)", else next delivery), how it is sent, lines at fitQty(); warns on rounding, minimum order, a missed cutoff, a date off the delivery days, no email address. Only overrides and notes are sent, so the route still picks the date at run time. The card pins planned_delivery { supplierId: date } for suppliers without a date given; run() refuses (409) when a supplier\'s first delivery day has moved since (a cutoff passed), so the order is never placed for a day the card didn\'t show'],
+                ['send_purchase_order', 'purchasing or approve manage', 'POST /pos/:id/send | /mark-sent', 'email needs an address (resend allowed, warned); other ways need To send'],
+                ['change_purchase_order', 'purchasing or approve manage; lines and add: approve', 'PATCH /pos/:id, PUT /pos/:id/lines', 'Lines and add only while To send; add only from the PO\'s supplier (catalog quotes); an empty order is refused'],
+                ['cancel_purchase_order', 'approve manage', 'POST /pos/:id/cancel', 'Warns to tell the supplier when already sent'],
+                ['receive_delivery', 'purchasing or approve manage', 'POST /pos/:id/receive', 'Lines not named arrived as ordered (or keep what an earlier booking-in recorded); chilled/frozen temperature asked for when such goods arrived; writes fs_delivery_checks'],
               ]}
             />
             <P>

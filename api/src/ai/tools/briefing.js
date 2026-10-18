@@ -9,6 +9,7 @@
 //   staff        whos_working
 //   hs           hs_status (checklists, checks logged, out of range)
 //   deliveries   purchase_orders still to come today
+//   to_approve   supplier orders waiting for approval (order_requests)
 //   cash         yesterday's cash_day (status and variance)
 //   orders       online_orders still open today
 //   sold_out     sold_out
@@ -66,6 +67,16 @@ const PARTS = [
     const p = await tool('purchase_orders').run(ctx, { venue_id: v.id, status: 'open', from: date, to: date })
     return { purchase_orders: p.purchase_orders.slice(0, 15) }
   }],
+  ['orders_to_approve', async (ctx, v) => {
+    const r = await tool('order_requests').run(ctx, { venue_id: v.id })
+    return {
+      waiting: r.waiting_for_approval.length + (r.more_waiting || 0),
+      ...(r.waiting_for_approval.length ? {
+        orders: r.waiting_for_approval.slice(0, 5).map(o => ({ order_id: o.order_id, list: o.list, asked_by: o.asked_by, lines: o.lines.length })),
+        you_can_approve: r.you_can_approve,
+      } : {}),
+    }
+  }],
   ['yesterdays_cash_up', async (ctx, v, date) => {
     const c = await tool('cash_day').run(ctx, { venue: v.id, date: addDays(date, -1) })
     return { date: c.date, status: c.status, ...(c.totals?.variance ? { variance: c.totals.variance } : {}) }
@@ -95,7 +106,7 @@ export const briefingTools = [
     title: 'Day briefing',
     description:
       'A venue\'s day in one go (default today): bookings and big parties, who is working, health & safety due and out-of-range ' +
-      'readings, supplier deliveries due, yesterday\'s cash-up, open online orders, sold out dishes, failed booking emails and ' +
+      'readings, supplier deliveries due, supplier orders waiting for approval, yesterday\'s cash-up, open online orders, sold out dishes, failed booking emails and ' +
       'offline menu screens. Parts the person can\'t see are left out and listed. Use it for "what\'s on today?", "brief me" or ' +
       'the start of a shift, then summarise: the things to act on first, then the rest in a few lines.',
     input: z.object({
