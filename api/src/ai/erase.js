@@ -195,5 +195,11 @@ export async function cleanUpAi(log) {
       log?.warn({ err, tenantId: t.id }, 'AI clean-up failed for a tenant')
     }
   }
+  // Connector sign-ins (migration 181): done with once used or expired.
+  try {
+    await systemSql`DELETE FROM ai_oauth_grants WHERE expires_at < now() - interval '1 day'`
+  } catch (err) {
+    log?.warn({ err }, 'AI clean-up of connector sign-ins failed')
+  }
   return totals
 }

@@ -4651,7 +4651,12 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['GET/PUT/DELETE /api/ai/platform/key, POST /api/ai/platform/key/test', 'Platform admin: the Anthropic key. GET = source (platform | env | null), saved hint/by/at, env_hint, model, fast_model (null when routing is off). PUT { api_key } checks it with Anthropic (models.retrieve of AI_MODEL and AI_MODEL_FAST, free) and saves it, 422 with the reason if rejected, warning naming the setting if the key can\'t use a model. DELETE goes back to .env. Never returns the key.'],
                 ['/ai-api/*', 'Website chat: tenants/:id/status, chat (streams with Accept: text/event-stream; the start event carries guest_key), conversations/:id?key= (with running), actions/:id/confirm | cancel. Rate limited per IP.'],
                 ['POST /mcp, POST /mcp/staff/:tenantSlug', 'MCP Streamable HTTP, stateless (a server per request, JSON responses). GET/DELETE 405. Staff: route config allowAccessToken; a JWT gets X-Tenant-Id from the slug; ai_assistant view + staff_enabled.'],
-                ['GET /.well-known/oauth-protected-resource/mcp/staff/:slug', 'RFC 9728 metadata pointing at Auth0, for OAuth MCP clients (not verified end to end yet).'],
+                ['GET /.well-known/oauth-protected-resource/mcp/staff/:slug', 'RFC 9728 metadata: authorization_servers is the connector\'s own origin (Macaroonie signs apps in itself, migration 181).'],
+                ['GET /.well-known/oauth-authorization-server (also openid-configuration, and with a path after it)', 'RFC 8414 metadata from routes/mcpOauth.js: issuer = the origin the app used (publicOrigin()), code flow only, S256 PKCE, public clients (auth method none), scope pepper.'],
+                ['POST /oauth/register', 'Dynamic client registration (RFC 7591): redirect_uris (1-10, https, or http on localhost / 127.0.0.1 / [::1], no fragment), client_name; a secret-based auth method is refused. ai_oauth_clients (global, no tenant). 20 a minute per IP.'],
+                ['GET /oauth/authorize', 'Unknown client_id or a redirect_uri it didn\'t register: a plain page (never a redirect). Then errors go back to the app (unsupported_response_type, invalid_request without S256 PKCE, invalid_target for a resource that isn\'t /mcp/staff/<an active slug>). Otherwise an ai_oauth_grants row (15 minutes; tenant from resource) and 302 to office /connect-ai?request=<id>.'],
+                ['GET /api/ai/oauth/requests/:id, POST .../allow | .../deny', 'The Connect page, as the person (requireAuth). GET: client_name, redirect_host, tenant, member (an active users row in the grant\'s tenant), needs_switch (the selected tenant is another one), problem (Pepper off, no ai_assistant, not a team member), days. allow { read_only, expires_in_days 30 | 90 | 180 | 365 } (409 for another tenant, 403 with problem) stores the person, a code hash and a 5-minute expiry and returns the redirect with code, state and iss (RFC 9207). deny returns error=access_denied. A request is answered once (409), expires (410).'],
+                ['POST /oauth/token', 'Form or JSON; grant_type authorization_code only. client_id, redirect_uri and the code must match, code_verifier must hash (S256) to the challenge, the person and tenant must still be active. Makes an ordinary ai_access_tokens row (name "<app> (connected app)", the chosen days and read only, oauth_client_id, oauth_grant_id) and returns it as access_token with expires_in. A code used twice gets invalid_grant and revokes the token the first use made. No refresh tokens: the app signs in again when the token expires. Cache-Control no-store.'],
               ]}
             />
             <H3>Admin and site</H3>
@@ -4680,11 +4685,21 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <Code>{'# api/.env (optional fallback; a key saved on the Platform page wins)\nANTHROPIC_API_KEY=sk-ant-...\n# AI_MODEL=...        (the main model; default in src/config/env.js)\n# AI_MODEL_FAST=...   (the everyday model chats start on; empty = all on AI_MODEL)\nAI_EFFORT=medium'}</Code>
             <P>
               The connectors live on the apex (<Mono>https://macaroonie.com/mcp</Mono>), which is
-              proxied to the API (<Mono>/mcp</Mono>, <Mono>/ai-api</Mono> and{' '}
-              <Mono>/.well-known/oauth-protected-resource</Mono> are in platformSite.js's{' '}
+              proxied to the API (<Mono>/mcp</Mono>, <Mono>/ai-api</Mono>,{' '}
+              <Mono>/.well-known/oauth-protected-resource</Mono>,{' '}
+              <Mono>/.well-known/oauth-authorization-server</Mono>,{' '}
+              <Mono>/.well-known/openid-configuration</Mono> and <Mono>/oauth/</Mono> are in platformSite.js's{' '}
               <Mono>PASS_PREFIXES</Mono>). Tenant sites proxy everything, so the website chat calls{' '}
-              <Mono>/ai-api</Mono> on its own host. A client that sends headers (Claude Code, Cursor)
-              connects with an access token today, for example:
+              <Mono>/ai-api</Mono> on its own host. Apps that can only connect with OAuth (Claude's
+              custom connectors, ChatGPT) sign in through Macaroonie itself (migration 181, see the
+              routes above): the app is sent to <Mono>office/connect-ai</Mono>{' '}
+              (<Mono>pages/ConnectAi.jsx</Mono>, outside the app shell, inside the login and tenant
+              gate), the person taps Allow, and the app gets an ordinary access token. A login that
+              starts there comes back there: <Mono>RequireAuth</Mono> passes{' '}
+              <Mono>appState.returnTo</Mono> and <Mono>onRedirectCallback</Mono> in{' '}
+              <Mono>main.jsx</Mono> goes to it. Expired and used sign-in requests are deleted by the
+              hourly <Mono>cleanUpAi()</Mono>. A client that sends headers (Claude Code, Cursor)
+              connects with an access token, for example:
             </P>
             <Code>{'claude mcp add --transport http macaroonie https://macaroonie.com/mcp/staff/<slug> \\\n  --header "Authorization: Bearer mcp_..."'}</Code>
           </section>

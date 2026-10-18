@@ -62,6 +62,7 @@ import dashboardTilesRoutes  from './routes/dashboardTiles.js'
 import legacyImportRoutes    from './routes/legacyImport.js'
 import navRoutes             from './routes/nav.js'
 import mcpRoutes             from './routes/mcp.js'
+import mcpOauthRoutes        from './routes/mcpOauth.js'
 import aiRoutes              from './routes/ai.js'
 import aiApiRoutes           from './routes/aiApi.js'
 import posSite               from './routes/posSite.js'
@@ -265,6 +266,7 @@ export async function buildApp() {
   await app.register(manageBookingRoutes, { prefix: '/manage' })
   // AI: MCP connectors (guest + staff) and the chats (migration 148)
   await app.register(mcpRoutes)
+  await app.register(mcpOauthRoutes)
   await app.register(aiRoutes,    { prefix: '/api/ai' })
   await app.register(aiApiRoutes, { prefix: '/ai-api' })
   // Till (POS): admin setup + reports, and the tills' own API (device auth).

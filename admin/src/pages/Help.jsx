@@ -4357,7 +4357,19 @@ export default function Help() {
             </InfoBox>
             <H3>Using your own AI app</H3>
             <P>
-              On the Pepper page, open <strong>Connect</strong>. Type a name, pick how long it works
+              <strong>Claude (claude.ai and the Claude apps), ChatGPT and other apps that sign in:</strong>{' '}
+              copy the address from the Pepper page's <strong>Connect</strong> tab and add it in your AI app as a
+              custom connector, leaving any OAuth client ID and secret empty. When you connect it, a Macaroonie
+              page opens: sign in if asked, check it names the right app and restaurant group, tick{' '}
+              <strong>Read only</strong> if the app should only look things up, pick how long it works for, and
+              tap <strong>Allow</strong>. You're taken back to the app, which is now connected. It shows on the
+              Connect tab with your access tokens as "(connected app)": revoke it there to disconnect it, and
+              connect again when it expires. If the page says the connection is for another restaurant group,
+              switch to it there first.
+            </P>
+            <P>
+              <strong>Claude Code, Cursor and other apps that send a header:</strong> on the Pepper page, open{' '}
+              <strong>Connect</strong>. Type a name, pick how long it works
               for (<strong>Works for</strong>: 30, 90 or 180 days, or a year; 90 to start with), tick{' '}
               <strong>Read only</strong> if the app should only look things up, and press{' '}
               <strong>Make token</strong>. Copy the token: it is shown once. In your AI app, add a

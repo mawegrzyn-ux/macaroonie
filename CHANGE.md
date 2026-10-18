@@ -5,6 +5,14 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-18 — Connect Claude and ChatGPT to Pepper by signing in]
+
+- **Claude's custom connectors (claude.ai and the Claude apps) and ChatGPT now connect to Pepper by signing in**, instead of asking for an OAuth client ID and secret. Add the address from Pepper → Connect as a custom connector (leave any client ID and secret empty). A Macaroonie page opens: it names the app and your restaurant group, you choose Read only and how long it works (30, 90 or 180 days, or a year), and tap Allow. You're taken back to the app, connected.
+- The connected app shows on the Connect tab with your access tokens as "(connected app)": revoke it there to disconnect it. Someone who isn't in the restaurant group the connection is for can only cancel; with Pepper switched off the page says so.
+- Apps that send a header (Claude Code, Cursor) still connect with a token made on the Connect tab, which now explains both ways.
+- **Fix**: signing in from a link to any page (not just the Overview) now brings you back to that page afterwards.
+- **Migration 181** (mcp_oauth).
+
 ## [2026-10-18 — Purchasing: orders that need approval, and splitting orders for another day]
 
 - **Orders can need approval.** A new role permission, **Purchasing approval** (Access → Roles), decides who can place orders. Someone who can order but not approve fills in the order as before, then taps **Send for approval**: they pick the day they'd like from each supplier and can leave a note. Nothing goes to suppliers yet. To make a role request only, set its Purchasing approval to None (owners, admins and operators have it by default, so nothing changes until you do).

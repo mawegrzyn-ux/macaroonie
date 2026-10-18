@@ -157,12 +157,21 @@ function ConnectTab({ info }) {
           group: bookings, customers, the rota and staff, cash up, orders and the till, H&amp;S, menus, purchasing and the website. It can do what {ASSISTANT_NAME} does, with your own permissions.
         </p>
         <CopyField label="MCP server address" value={info.staff_mcp_url} />
+        <p className="text-sm font-medium">Claude (claude.ai and the Claude apps), ChatGPT and other apps that sign in</p>
+        <ol className="list-decimal pl-5 text-sm space-y-1">
+          <li>In your AI app, add a custom connector with the address above. Leave any OAuth client ID and secret empty.</li>
+          <li>Connect it: a Macaroonie page opens. Sign in if asked, choose Read only and how long it works, and tap Allow.</li>
+          <li>The app shows here under Access tokens as a connected app; revoke it there to disconnect it.</li>
+        </ol>
+        <p className="text-sm font-medium">Claude Code, Cursor and other apps that send a header</p>
         <ol className="list-decimal pl-5 text-sm space-y-1">
           <li>Make an access token below. Copy it: it is shown once.</li>
-          <li>In your AI app, add a custom MCP connector with the address above, and send the token as a header:
+          <li>Add the address above as an MCP server and send the token as a header:
             <code className="text-xs bg-muted/60 rounded px-1 ml-1">Authorization: Bearer mcp_...</code></li>
-          <li>Ask it about anything you can do in this app, from tonight's bookings to the rota and cash up. Changes are made as you, and listed in Activity.</li>
         </ol>
+        <p className="text-sm text-muted-foreground">
+          Then ask it about anything you can do in this app, from tonight's bookings to the rota and cash up. Changes are made as you, and listed in Activity.
+        </p>
         {!info.settings.staff_enabled && (
           <p className="text-sm text-amber-700 flex items-center gap-2"><CircleAlert className="w-4 h-4" /> {ASSISTANT_NAME} is switched off, so this connector is off too.</p>
         )}

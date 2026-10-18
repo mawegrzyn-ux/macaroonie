@@ -34,6 +34,7 @@ import MobilePurchasing from '@/pages/mobile/MobilePurchasing'
 import MobileCashUp from '@/pages/mobile/MobileCashUp'
 import MobileWages from '@/pages/mobile/MobileWages'
 import TenantGate  from '@/components/TenantGate'
+import ConnectAi   from '@/pages/ConnectAi'
 import { TimelineSettingsProvider } from '@/contexts/TimelineSettingsContext'
 import { SettingsProvider } from '@/contexts/SettingsContext'
 import Dashboard   from '@/pages/Dashboard'
@@ -137,10 +138,19 @@ function RequireAuth({ children }) {
   }
 
   if (!isAuthenticated) {
-    loginWithRedirect()
+    // Come back to the page asked for (a deep link, the connector sign-in
+    // page), not the Overview: onRedirectCallback below.
+    loginWithRedirect({ appState: { returnTo: window.location.pathname + window.location.search } })
     return null
   }
   return children
+}
+
+/** After Auth0 sends the person back: to the page they asked for. */
+function onRedirectCallback(appState) {
+  const to = appState?.returnTo
+  if (to && to !== '/' && to.startsWith('/')) window.location.replace(to)
+  else window.history.replaceState({}, document.title, window.location.pathname)
 }
 
 const Placeholder = ({ title }) => (
@@ -164,6 +174,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
       }}
       useRefreshTokens
       cacheLocation="localstorage"
+      onRedirectCallback={onRedirectCallback}
     >
       <QueryClientProvider client={queryClient}>
         <SettingsProvider>
@@ -172,6 +183,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <RequireAuth>
             <TenantGate>
             <Routes>
+              {/* An AI app's connector sign-in (migration 181): its own page, no app shell. */}
+              <Route path="connect-ai" element={<ConnectAi />} />
               {/* ops.<domain> is the phone app only (lib/hosts.js) */}
               <Route element={IS_OPS_HOST ? <Navigate to="/mobile" replace /> : <AppShell />}>
                 <Route index          element={<Dashboard />} />
