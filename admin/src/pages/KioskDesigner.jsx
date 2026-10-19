@@ -22,6 +22,7 @@ import {
   Disc3, CreditCard, Timer, ChevronDown, Image as ImageIcon, Video, Plus, X, UtensilsCrossed,
   ShoppingBag, Bike, Sparkles, AlertTriangle, Flame, Star, CircleDot, RectangleVertical,
   RectangleHorizontal, Wand2, BookOpen, LayoutDashboard, Hexagon, Circle, Square, Share2, Copy, Check, ExternalLink,
+  RefreshCw,
 } from 'lucide-react'
 import { qrSvg } from '@shared/qr.js'
 import {
@@ -44,6 +45,12 @@ import { kioskDesign } from '@/components/pos/KiosksSection'
 const FONTS = [SYSTEM_FONT, ...KIOSK_FONTS]
 const PREVIEW_SIZE = { portrait: [1080, 1920], landscape: [1920, 1080] }
 const ORIENT_KEY = 'maca_kiosk_preview'
+const MENU_KEY = 'maca_kiosk_preview_menu' // 'live' | 'draft': which menu the preview shows
+const MENU_VERSIONS = [['live', 'Published menu'], ['draft', 'Menu with unpublished changes']]
+const menuNames = list => {
+  const names = list.map(m => m.name)
+  return names.length <= 2 ? names.join(' and ') : names.slice(0, 2).join(', ') + ' and ' + (names.length - 2) + ' more'
+}
 const newId = p => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
 
 // The kiosk's own display fonts aren't in the website font list the font
@@ -798,14 +805,24 @@ function Preview({ designId, design, venueId, setup, streams, stream, onStream }
     setOrientation(o)
     try { localStorage.setItem(ORIENT_KEY, o) } catch { /* private mode */ }
   }
+  // The published menu (what the kiosks show) or the menu with the changes
+  // saved on the Menus page and not published yet (new photos, prices, dishes).
+  const [menu, setMenu] = useState(() => {
+    try { return localStorage.getItem(MENU_KEY) === 'draft' ? 'draft' : 'live' } catch { return 'live' }
+  })
+  function pickMenu(v) {
+    setMenu(v)
+    try { localStorage.setItem(MENU_KEY, v) } catch { /* private mode */ }
+  }
   const link = useQuery({
-    queryKey: ['kiosk-preview', designId, venueId, stream?.id || null],
-    queryFn: () => api.post(`/pos/kiosk-designs/${designId}/preview`, { venue_id: venueId, revenue_stream_id: stream?.id || null }),
+    queryKey: ['kiosk-preview', designId, venueId, stream?.id || null, menu],
+    queryFn: () => api.post(`/pos/kiosk-designs/${designId}/preview`, { venue_id: venueId, revenue_stream_id: stream?.id || null, menu }),
     enabled: !!venueId && !!setup,
     staleTime: 6 * 3600_000,
     refetchOnWindowFocus: false,
   })
   const url = link.data?.url
+  const changed = link.data?.menus_changed || []
   const origin = useMemo(() => { try { return new URL(url).origin } catch { return null } }, [url])
 
   // Messages go to the frame's own origin, as its 'kiosk.ready' came from it
@@ -870,8 +887,29 @@ function Preview({ designId, design, venueId, setup, streams, stream, onStream }
             {streams.map(r => <option key={r.id} value={r.id}>As {r.name}</option>)}
           </select>
         )}
+        <select value={menu} onChange={e => pickMenu(e.target.value)} aria-label="Which menu the preview shows"
+          className={cn('h-11 rounded-lg border px-2 text-sm touch-manipulation max-w-full', menu === 'draft' ? 'bg-amber-50 border-amber-300' : 'bg-background')} data-testid="kd-menu-version">
+          {MENU_VERSIONS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+        </select>
+        <Btn onClick={() => link.refetch()} disabled={link.isFetching} title="Load the menu again (after changing it on the Menus page)" data-testid="kd-reload">
+          <RefreshCw className={cn('w-4 h-4', link.isFetching && 'animate-spin')} /> <span className="hidden xl:inline">Reload</span>
+        </Btn>
         <span className="text-[11px] text-muted-foreground flex-1 min-w-[140px]">Use it like the kiosk. Orders aren't sent.</span>
       </div>
+      {link.data && (menu === 'draft' || changed.length > 0) && (
+        <div className={cn('shrink-0 flex flex-wrap items-center gap-2 px-3 py-2 border-b text-xs', menu === 'draft' ? 'bg-amber-50 text-amber-900' : 'bg-background text-muted-foreground')} data-testid="kd-menu-note">
+          <span className="flex-1 min-w-[200px]">
+            {menu === 'draft'
+              ? (changed.length
+                ? 'Showing the changes to ' + menuNames(changed) + ' not published yet. The kiosks show them once the menu is published.'
+                : 'Showing the menu with unpublished changes: there aren\'t any just now, so this is the published menu.')
+              : menuNames(changed) + (changed.length === 1 ? ' has' : ' have') + ' changes not published yet (new photos, prices or dishes). The kiosks and this preview show the published menu.'}
+          </span>
+          {menu === 'draft'
+            ? <Btn onClick={() => pickMenu('live')} data-testid="kd-menu-live">Show the published menu</Btn>
+            : <Btn onClick={() => pickMenu('draft')} data-testid="kd-menu-draft">Show the changes</Btn>}
+        </div>
+      )}
       <div ref={box} className="flex-1 min-h-0 flex items-center justify-center overflow-hidden bg-muted/40 p-4">
         {link.isLoading && <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />}
         {link.error && <div className="max-w-sm"><ErrorNote error={link.error} /></div>}
@@ -903,6 +941,7 @@ function ShareDialog({ designId, share, dirty, venues, defaultVenueId, canManage
   const qc = useQueryClient()
   const [venueId, setVenueId] = useState(share?.venue_id || defaultVenueId || '')
   const [streamId, setStreamId] = useState(share?.revenue_stream_id || '')
+  const [menu, setMenu] = useState(share?.menu || 'live')
   const [until, setUntil] = useState(share?.expires_at ? String(share.expires_at).slice(0, 10) : '')
   const [copied, setCopied] = useState(false)
   const [confirm, setConfirm] = useState(null) // 'new' | 'stop'
@@ -910,13 +949,14 @@ function ShareDialog({ designId, share, dirty, venues, defaultVenueId, canManage
   const streams = (setup?.revenue_streams || []).filter(r => r.is_active)
   const done = () => { qc.invalidateQueries({ queryKey: ['kiosk-designs'] }); setConfirm(null) }
   const save = useMutation({
-    mutationFn: () => api.put(`/pos/kiosk-designs/${designId}/share`, { venue_id: venueId, revenue_stream_id: streamId || null, expires_on: until || null }),
+    mutationFn: () => api.put(`/pos/kiosk-designs/${designId}/share`, { venue_id: venueId, revenue_stream_id: streamId || null, menu, expires_on: until || null }),
     onSuccess: done,
   })
   const renew = useMutation({ mutationFn: () => api.post(`/pos/kiosk-designs/${designId}/share/new-link`, {}), onSuccess: done })
   const stop = useMutation({ mutationFn: () => api.delete(`/pos/kiosk-designs/${designId}/share`), onSuccess: done })
   const qr = useMemo(() => { try { return share?.url ? qrSvg(share.url, { margin: 2, title: 'QR code of the preview link' }) : '' } catch { return '' } }, [share?.url])
-  const changed = share && (venueId !== share.venue_id || (streamId || null) !== (share.revenue_stream_id || null) || (until || null) !== (share.expires_at ? String(share.expires_at).slice(0, 10) : null))
+  const changed = share && (venueId !== share.venue_id || (streamId || null) !== (share.revenue_stream_id || null) || menu !== (share.menu || 'live')
+    || (until || null) !== (share.expires_at ? String(share.expires_at).slice(0, 10) : null))
   const copy = async () => {
     try { await navigator.clipboard.writeText(share.url); setCopied(true); setTimeout(() => setCopied(false), 2000) } catch { /* the field can be copied by hand */ }
   }
@@ -938,6 +978,13 @@ function ShareDialog({ designId, share, dirty, venues, defaultVenueId, canManage
           </select>
         </Field>
       )}
+      <Field label="Menu" hint={menu === 'draft'
+        ? 'Shows changes saved on the Menus page before they are published, as soon as they are saved, unfinished ones too.'
+        : 'What the kiosks show now. Changes on the Menus page appear once the menu is published.'}>
+        <select className={inputCls} value={menu} onChange={e => setMenu(e.target.value)} disabled={!canManage} data-testid="kd-share-menu">
+          {MENU_VERSIONS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+        </select>
+      </Field>
       <Field label="Works until" hint="Leave empty for a link that works until you stop sharing it.">
         <span className="flex items-center gap-2">
           <span className="relative inline-flex items-center h-11 px-3 rounded-lg border bg-background text-sm min-w-[160px] touch-manipulation">

@@ -35,7 +35,7 @@ let state = {
   device: null,
   config: null,
   preview: false,
-  shared: null,       // a shared preview's names (bootShare): { design, venue, company, expires_at }
+  shared: null,       // a shared preview's names (bootShare): { design, venue, company, expires_at, menu }
   online: true,            // false shows ordering paused (link 'down')
   link: 'up',              // 'up' | 'checking' (trying the server again) | 'down'
   photos: null,            // { total, saved, busy } pictures kept on the device; saved null = can't keep them here

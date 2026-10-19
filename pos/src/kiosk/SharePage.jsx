@@ -12,7 +12,7 @@ const SIZE = { portrait: [1080, 1920], landscape: [1920, 1080] }
 
 export default function SharePage({ token }) {
   const [shape, setShape] = useState(() => (new URLSearchParams(location.search).get('shape') === 'wide' ? 'landscape' : 'portrait'))
-  const [info, setInfo] = useState(null)   // { design, venue, company, expires_at } once the kiosk says it's ready
+  const [info, setInfo] = useState(null)   // { design, venue, company, expires_at, menu } once the kiosk says it's ready
   const [error, setError] = useState(null)
   const frame = useRef(null)
   const box = useRef(null)
@@ -66,7 +66,7 @@ export default function SharePage({ token }) {
         <div className="flex-1 min-w-[180px]">
           <p className="font-semibold leading-tight" data-testid="share-title">{info?.design || 'Kiosk preview'}</p>
           <p className="text-xs text-neutral-400 leading-tight">
-            {info ? [info.company, info.venue ? 'menu and prices at ' + info.venue : null].filter(Boolean).join(' · ') : 'Loading…'}
+            {info ? [info.company, info.venue ? 'menu and prices at ' + info.venue : null, info.menu === 'draft' ? 'includes menu changes not published yet' : null].filter(Boolean).join(' · ') : 'Loading…'}
           </p>
         </div>
         <div className="inline-flex rounded-lg overflow-hidden border border-white/15" role="group" aria-label="Screen shape">

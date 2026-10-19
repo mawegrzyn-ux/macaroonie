@@ -161,12 +161,14 @@ export async function loadTillStaff(tx, tenantId, venueId, { signIn = false } = 
 /**
  * The menus a venue's till shows, live versions (migration 165): those its
  * revenue streams name, else every menu shown to guests that it can use.
+ * version 'draft' is only for kiosk previews (the menu with changes not
+ * published yet); tills and kiosks always get 'live'.
  */
-async function tillMenus(tx, tenantId, venueId, streams) {
+export async function tillMenus(tx, tenantId, venueId, streams, version = 'live') {
   const named = [...new Set(streams.flatMap(r => r.menu_ids || []))]
   return named.length
-    ? loadMenuVersions(tx, tenantId, { menuIds: named, venueId })
-    : loadMenuVersions(tx, tenantId, { venueId, publishedOnly: true })
+    ? loadMenuVersions(tx, tenantId, { menuIds: named, venueId, version })
+    : loadMenuVersions(tx, tenantId, { venueId, publishedOnly: true, version })
 }
 
 /**
@@ -179,12 +181,12 @@ async function tillMenus(tx, tenantId, venueId, streams) {
  * venue; the till works the rate out per check (shared/tax.js), since the
  * order type and revenue stream decide it.
  */
-export async function tillMenuData(tx, tenantId, venueId, streams, { guest = false, allStreams = streams } = {}) {
+export async function tillMenuData(tx, tenantId, venueId, streams, { guest = false, allStreams = streams, version = 'live' } = {}) {
   const menus = []
   const items = {}
   let dietary = []
   const streamIds = new Set(allStreams.map(r => r.id))
-  for (const full of await tillMenus(tx, tenantId, venueId, streams)) {
+  for (const full of await tillMenus(tx, tenantId, venueId, streams, version)) {
     const menuTax = taxForVenue(full.tax, venueId, streamIds)
     dietary = full.dietary_tags || dietary
     const sections = []
