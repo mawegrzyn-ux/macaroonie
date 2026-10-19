@@ -58,7 +58,9 @@ export const KITCHEN_DEVICE_EVENTS = [
   'kitchen.item_done', 'kitchen.bumped', 'kitchen.recalled', 'kitchen.remake', 'kitchen.priority', 'kitchen.collected',
 ]
 // Made by the server only (online and GloriaFood orders), never accepted from a device.
-export const KITCHEN_SERVER_EVENTS = ['kitchen.order_in', 'kitchen.order_status']
+// kitchen.print_due (migration 191): the minute sweep's nudge when a dish's
+// time has come and a kitchen printer is waiting for it (kitchenPrint.js).
+export const KITCHEN_SERVER_EVENTS = ['kitchen.order_in', 'kitchen.order_status', 'kitchen.print_due']
 export const KITCHEN_EVENTS = [...KITCHEN_DEVICE_EVENTS, ...KITCHEN_SERVER_EVENTS]
 
 // Till events that change what the kitchen shows.
@@ -74,13 +76,14 @@ export const KITCHEN_CHECK_EVENTS = [
 // Station kinds. prep: makes dishes; expo: checks whole orders (the pass);
 // runner: takes orders out; board: an order ready board (no bumping);
 // balance: a Balance box in the flow (shares tickets between the stations it
-// links to; no screen, nothing to bump).
-export const STATION_KINDS = ['prep', 'expo', 'runner', 'board', 'balance']
-export const KIND_LABELS = { prep: 'Prep station', expo: 'Expo (pass)', runner: 'Runner', board: 'Order ready board', balance: 'Balance box' }
+// links to; no screen, nothing to bump); printer: a kitchen printer
+// (settings.printer_id; dishes reaching it print there, kitchenPrint.js).
+export const STATION_KINDS = ['prep', 'expo', 'runner', 'board', 'balance', 'printer']
+export const KIND_LABELS = { prep: 'Prep station', expo: 'Expo (pass)', runner: 'Runner', board: 'Order ready board', balance: 'Balance box', printer: 'Kitchen printer' }
 export const BUMP_KINDS = ['prep', 'expo', 'runner']
 export const isBumpKind = kind => BUMP_KINDS.includes(kind)
 // Nodes nobody bumps: done as soon as a dish reaches them.
-const noBump = kind => kind === 'board' || kind === 'balance'
+const noBump = kind => kind === 'board' || kind === 'balance' || kind === 'printer'
 export const isOrderLevel = st => st?.kind === 'expo' || st?.kind === 'runner'
 
 // Where an item comes from before its first station.
@@ -168,6 +171,7 @@ export function kitchenEventProblem(e) {
     const why = onlineOrderProblem(p.order)
     return why ? bad(why) : null
   }
+  if (e.type === 'kitchen.print_due') return null
   if (!isOrderId(p.order_id)) return bad('order_id')
   switch (e.type) {
     case 'kitchen.item_done':
@@ -196,6 +200,7 @@ export function kitchenEventProblem(e) {
 export function kitchenOrdersTouched(e) {
   const p = e.payload || {}
   if (e.type === 'kitchen.order_in') return p.order?.id ? [p.order.id] : []
+  if (e.type === 'kitchen.print_due') return []
   return p.order_id ? [p.order_id] : []
 }
 
@@ -1035,6 +1040,9 @@ export function applyKitchenEvent(orders, e, cfg = {}) {
   const p = e.payload || {}
   const log = []
 
+  // Nothing changes but the time: the sequencer prints what has come due.
+  if (e.type === 'kitchen.print_due') return { ok: true, orders: {}, log }
+
   if (e.type === 'kitchen.order_in') {
     const src = p.order
     if (orders[src.id]) return fail('This order is already in the kitchen', 'duplicate')
@@ -1483,6 +1491,11 @@ export function boardNumbers(orders, now, { clearMins = 10, max = 30, boardId = 
   }
   preparing.sort((a, b) => ms(a.at) - ms(b.at))
   ready.sort((a, b) => ms(b.at) - ms(a.at))
-  const view = ({ o, at }) => ({ id: o.id, number: o.number, name: o.guest || null, source: o.source, at })
+  // What a tile can show (shared/orderInfo.js): the guest's first name online,
+  // the name typed on a till or kiosk, the tent, table and order type.
+  const view = ({ o, at }) => ({
+    id: o.id, number: o.number, name: o.guest || o.tab || null, tent: o.tent || null, table: o.table || null,
+    type_name: o.type_name || null, source: o.source, at,
+  })
   return { preparing: preparing.slice(0, max).map(view), ready: ready.slice(0, max).map(view) }
 }

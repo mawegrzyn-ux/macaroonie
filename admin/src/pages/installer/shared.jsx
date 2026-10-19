@@ -60,11 +60,10 @@ export function canChange(can, kind) {
   return (KINDS[kind]?.area === 'screens' ? can?.screens : can?.devices) === 'manage'
 }
 
-/** A device's state, in words and a colour: Online, Offline, Code waiting, Not linked. */
+/** A device's state, in words and a colour: Online, Offline, Not linked. */
 export function deviceState(d) {
   if (d.online) return { label: 'Online', tone: 'ok' }
   if (d.paired) return { label: 'Offline', tone: 'muted' }
-  if (d.pairing_open) return { label: 'Code waiting', tone: 'warn' }
   return { label: 'Not linked', tone: 'warn' }
 }
 

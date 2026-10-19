@@ -11,6 +11,7 @@ import assert from 'node:assert/strict'
 import { as, getApp, sql, ok, closeApp } from './support/app.mjs'
 import { resetAndSeed, A, B } from './support/seed.mjs'
 import { fillTenant } from './support/fixtures.mjs'
+import { linkDevice } from './support/devices.mjs'
 import { INTERNAL_CALL_HEADER, INTERNAL_CALL_SECRET } from '../src/middleware/auth.js'
 import { kitchenOnGloriaFood } from '../src/services/kitchenSvc.js'
 import { ulid } from '../../shared/pos/ids.js'
@@ -33,17 +34,8 @@ async function device(d, method, url, body) {
   return { status: res.statusCode, json, body: res.body }
 }
 
-async function pairDevice(kind, name) {
-  const made = await ok(owner.post(`/api/pos/venues/${V}/devices`, { name, kind, settings: {} }), 'add ' + name)
-  const app = await getApp()
-  const res = await app.inject({
-    method: 'POST', url: '/pos-api/pair',
-    headers: { 'content-type': 'application/json', [INTERNAL_CALL_HEADER]: INTERNAL_CALL_SECRET },
-    payload: JSON.stringify({ code: made.pairing_code }),
-  })
-  assert.equal(res.statusCode, 200, res.body)
-  return { ...res.json(), id: made.device.id }
-}
+/** A device showing a code, linked from Till setup (support/devices.mjs). */
+const pairDevice = (kind, name) => linkDevice(owner, V, { kind, name })
 
 const minutes = n => new Date(Date.now() + n * 60_000).toISOString()
 

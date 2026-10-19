@@ -3136,11 +3136,11 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['pos_days', 'Trading days: business_date (from day_starts_at), z_number, figures jsonb at Z, declared_cash, recon_filled_at / recon_error. One open per venue.'],
                 ['pos_venue_state', 'last_seq, next_check_no, next_order_no, next_z_number.'],
                 ['pos_print_jobs', 'Print queue (ops jsonb from tickets.js), status queued | printing | printed | failed, for the hub.'],
-                ['pos_devices', 'Tills and (later) hubs: kind terminal | hub, short_code, secret_hash, pairing_code_hash + pairing_expires_at, settings jsonb (mode, revenue_stream_id, receipt_printer_id, floor_area_id), revoked_at.'],
+                ['pos_devices', 'Tills, kitchen screens, kiosks and (later) hubs: kind terminal | kds | kiosk | hub, short_code, secret_hash, pairing_code_hash + pairing_expires_at (only the move hand-over code of POST /pos-api/move), settings jsonb (mode, revenue_stream_id, receipt_printer_id, floor_area_id), revoked_at.'],
                 ['pos_settings', 'Per venue: pin_salt, day_starts_at, receipt texts, tenders jsonb, tips, require_covers, order_no_start, auto_logout_secs, recon_map, recon_auto_fill. (Migration 170 dropped the VAT defaults and counter_revenue_centre_id.)'],
                 ['pos_revenue_streams', 'Migration 170 (was pos_revenue_centres): name, menu_ids, service_charge_percent + min covers, colour, sort_order, is_active, default_order_type_id. Which order types it offers and what each asks for: pos_stream_order_types (stream_id, order_type_id, enabled, ask_name / ask_tent off | ask | required; no row = off). See Tax, Order Types & Streams.'],
                 ['pos_roles / pos_courses', 'Tenant-wide. Role permissions jsonb (shared/pos/permissions.js); courses with hold_by_default.'],
-                ['pos_printers / pos_print_routes', 'Printers (host, port, columns, backup); routes target_kind item | section | revenue_stream | default.'],
+                ['pos_printers', 'Printers (host, port, columns, backup); connection hub | device + device_id; status / status_at from the hub (migration 191). pos_print_routes was dropped: kitchen tickets come from the kitchen flow.'],
                 ['floor_areas', 'name, width x height in units, revenue_stream_id, decor jsonb. tables gains floor_area_id, pos_x/y/w/h, shape, rotation.'],
                 ['cash_staff', 'pos_pin_hash (unique per venue), pos_role_id.'],
                 ['menus', 'menu_items kind (dish | combo), kitchen_name, pos_course_id, pos_colour, combo jsonb (steps since migration 171, see Combos); menu_sections pos_course_id, pos_colour; menu_variant_groups pos_prefixes; menu_variant_options child_group_id; promotions channels text[] (online | pos).'],
@@ -3160,9 +3160,10 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             </P>
             <H3>Devices, PINs and permissions</H3>
             <P>
-              A till is a paired device, not an Auth0 user: <Mono>POST /api/pos/venues/:id/devices</Mono> returns a
-              one-time code (sha256 stored, 30 minutes), <Mono>POST /pos-api/pair</Mono> swaps it for a device
-              secret, and every call sends <Mono>Authorization: Device &lt;id&gt;.&lt;secret&gt;</Mono> (device rows
+              A till is a linked device, not an Auth0 user: the device shows a code of its own
+              (<Mono>POST /pos-api/pairings</Mono>, see Installer app &amp; link codes), someone signed in links it
+              with <Mono>POST /api/pos/venues/:id/link</Mono> (Till setup or the installer, the only way a device
+              is added), the device keeps the secret it was given with its code, and every call sends <Mono>Authorization: Device &lt;id&gt;.&lt;secret&gt;</Mono> (device rows
               cached 30 s; revoking or switching the module off stops it). People sign in on the till with a PIN:
               <Mono> hashPin()</Mono> (<Mono>shared/pos/pin.js</Mono>, PBKDF2-SHA256, 60000 rounds, the venue's
               salt, so the PIN alone finds the person) is checked on the till, offline. Events carry the person's
@@ -3217,14 +3218,78 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             </P>
             <H3>Printing</H3>
             <P>
-              <Mono>jobsForEvent()</Mono> in <Mono>shared/pos/printing.js</Mono> turns an event into print jobs
-              (kitchen tickets per printer and course on send, fire tickets, void tickets, bills, receipts,
-              drawer kicks), routed by <Mono>routeFor()</Mono>: item, then section, then revenue stream, then
-              default. Kitchen tickets, bills and receipts print the order type, customer name and tent number. The sequencer stores them in <Mono>pos_print_jobs</Mono> for the hub
-              (<Mono>POST /pos-api/print-jobs/claim</Mono> and <Mono>/:id/status</Mono>, hub devices only).
-              Until a hub exists, the till prints bills and receipts (and optionally kitchen tickets) through a
-              hidden iframe and the browser's print dialog (<Mono>pos/src/lib/print.js</Mono>). Ticket layout:
-              <Mono> shared/pos/tickets.js</Mono> (also used by <Mono>hub/</Mono>'s ESC/POS encoder).
+              Migration 191. Two sources of print jobs, both stored by the sequencer in{' '}
+              <Mono>pos_print_jobs</Mono> (with <Mono>station_id</Mono> and <Mono>kitchen_order_id</Mono> for kitchen
+              tickets): <Mono>jobsForEvent()</Mono> in <Mono>shared/pos/printing.js</Mono> makes the till&apos;s own (bills,
+              receipts, drawer kicks) for the device&apos;s receipt printer; <Mono>kitchenPrintJobs()</Mono> in{' '}
+              <Mono>shared/pos/kitchenPrint.js</Mono> makes kitchen tickets from the kitchen orders after every kitchen
+              change: a station of kind <Mono>printer</Mono> (<Mono>settings.printer_id</Mono>) prints each dish once when
+              the dish reaches it (<Mono>flowTimes().arrived()</Mono>; straight from Orders in that is when it fires),
+              grouped per order, printer and kind (<Mono>kitchen</Mono> | <Mono>fire</Mono> | <Mono>void</Mono>) by course,
+              with the venue&apos;s kitchen design (<Mono>cfg.ticket_layout</Mono>). A printer straight after Orders in also
+              lists held courses under HOLD (<Mono>item.hold_printed</Mono>), then prints FIRE; a voided dish that printed
+              prints VOID (<Mono>item.void_printed</Mono>); <Mono>item.printed</Mono> stops a second print. Printer boxes
+              never bump (<Mono>noBump()</Mono>): dishes reaching only printers are done there. Orders for later:
+              the minute sweep (<Mono>kitchenPrintsDue()</Mono> in <Mono>services/kitchenSvc.js</Mono>, from the hold sweep)
+              asks <Mono>printsDue()</Mono> and sends <Mono>kitchen.print_due</Mono>, a server event the sequencer
+              answers by printing from <Mono>loadOpenKitchenOrders()</Mono> (nothing due: no event stored).
+            </P>
+            <P>
+              Who prints: <Mono>pos_printers.connection</Mono> <Mono>hub</Mono> (a network printer) is collected by the
+              venue hub (<Mono>hub/</Mono>: <Mono>bin/hub.js</Mono>, <Mono>src/cloud.js</Mono>, <Mono>src/service.js</Mono>; a
+              device of kind <Mono>hub</Mono> linked by the code it shows, <Mono>POST /pos-api/pairings</Mono> with{' '}
+              <Mono>app: 'hub'</Mono>; its routes are only <Mono>/config</Mono> (<Mono>hubConfig()</Mono>: its printers),
+              claim, status, <Mono>POST /pos-api/hub/status</Mono> (each printer&apos;s state, shown in Till setup) and
+              disconnect); <Mono>device</Mono> (<Mono>device_id</Mono>) by that till or kitchen screen
+              (<Mono>pos/src/lib/devicePrint.js</Mono>: on <Mono>pos.print</Mono> and every 20 s, prints through the
+              browser). <Mono>POST /pos-api/print-jobs/claim</Mono> hands each device only its own printers&apos; jobs and takes
+              back a job collected over two minutes ago and never reported (<Mono>claimed_at</Mono>); only the collector
+              reports on it (a till may mark a waiting one printed by hand). A device prints its own bills and receipts in its
+              browser when its receipt printer is none or plugged into it (<Mono>receiptHere()</Mono> /{' '}
+              <Mono>printsHere()</Mono>: no job is queued then). A kiosk&apos;s printer prints its own receipts only (refused as a
+              printer box). Failed jobs: <Mono>POST /api/pos/print-jobs/:id/again</Mono>. Browser printing: a hidden iframe
+              (<Mono>pos/src/lib/print.js</Mono>, HTML from <Mono>opsHtml()</Mono> in <Mono>shared/pos/ticketHtml.js</Mono>);
+              the hub turns the same operations into ESC/POS (<Mono>hub/src/escpos.js</Mono>) and tries the printer&apos;s
+              backup when it doesn&apos;t answer.
+            </P>
+            <H3>Print designs</H3>
+            <P>
+              Migration 190. A design is a layout <Mono>{'{ blocks: [{ id, type, opts }] }'}</Mono> of kind kitchen or
+              receipt (<Mono>shared/pos/ticketLayout.js</Mono>: <Mono>BLOCK_TYPES</Mono> per kind with option
+              defaults, <Mono>normaliseLayout()</Mono> (known types and options only, unique ids, the dishes and a
+              receipt&apos;s totals added back: <Mono>REQUIRED_BLOCKS</Mono>), <Mono>defaultLayout()</Mono> (what
+              tickets printed before designs), <Mono>normaliseVariation()</Mono> / <Mono>applyVariation()</Mono>,{' '}
+              <Mono>SAMPLES</Mono> + <Mono>sampleTicket()</Mono> for the preview). <Mono>kitchenTicket(send,
+              layout)</Mono> and <Mono>receipt(bill, layout)</Mono> in <Mono>tickets.js</Mono> draw from it (no layout
+              = the built-in one; a title block uses <Mono>orderInfo()</Mono> and falls back to the usual title).{' '}
+              <Mono>jobsForEvent()</Mono> passes <Mono>cfg.layouts.kitchen</Mono>; <Mono>billOps()</Mono> uses{' '}
+              <Mono>cfg.layouts.receipt</Mono>, or <Mono>kiosk_receipt</Mono> for events from a kiosk device.
+            </P>
+            <DataTable
+              head={['Table / route', 'What']}
+              rows={[
+                ['print_designs', 'tenant, kind kitchen | receipt, name, layout jsonb (normalised on save), created / updated by. Up to 50 per company.'],
+                ['print_design_uses', 'tenant, venue_id (NULL = company), use kitchen | receipt | kiosk_receipt, design_id (ON DELETE CASCADE: deleting a design sends places back). Unique per company use and per venue use.'],
+                ['print_design_variations', 'tenant, venue_id, design_id (PK venue + design), texts { blockId: { text | receipt_text | bill_text } }, hidden [blockId]. Words only for text / heading / footer parts; the dishes and totals can\'t be hidden. A design save drops words for parts no longer in it.'],
+                ['printLayouts(tx, tenantId, venueId)', 'services/printDesignSvc.js: { kitchen, receipt, kiosk_receipt } for a venue: venue choice, else company; kiosk_receipt falls back to receipt; the venue\'s variation applied; null = built-in. In tillConfig() (print_layouts), the sequencer\'s printConfig() (layouts) and kioskConfig() (print_layouts.receipt = kiosk_receipt).'],
+                ['GET /api/pos/print-designs?venue_id=', 'pos_setup view: designs, uses { company, venue }, used_at per design, defaults.'],
+                ['POST /api/pos/print-designs', 'pos_setup manage: { kind, name, copy_from?, layout? } (copy only within a kind).'],
+                ['GET / PUT / DELETE /api/pos/print-designs/:id', 'View: the design with variations per venue and used_at. Manage: { name, layout }; delete.'],
+                ['PUT /api/pos/print-designs/:id/variations/:venueId', 'Manage: { texts, hidden }; empty deletes the row.'],
+                ['PUT /api/pos/print-design-uses', 'Manage: { venue_id | null, use, design_id | null }; the design\'s kind must fit the use (422).'],
+              ]}
+            />
+            <P>
+              Every change broadcasts <Mono>pos.config</Mono> (a company change to every venue). Admin: Till setup →
+              Printing (<Mono>components/pos/PrintingSection.jsx</Mono>) and the designer{' '}
+              <Mono>pages/PrintDesigner.jsx</Mono> (<Mono>/pos/print-designs/:id</Mono>): parts in a sortable list,
+              options per part, <em>Only at</em> a venue for its variation, explicit Save, a column-exact preview from{' '}
+              <Mono>previewHtml(ops, cols)</Mono> in <Mono>ticketHtml.js</Mono> (wrapping as <Mono>toText()</Mono>,
+              double width and height by CSS transforms). The receipt and bill footers left Till setup&apos;s settings
+              (<Mono>pos_settings.receipt_footer</Mono> / <Mono>bill_footer</Mono> dropped): the migration made a
+              design named Receipt for tenants that had any, used company wide, with each venue&apos;s footers as its
+              variation. New locations copy the template venue&apos;s uses and variations (<Mono>storeSetup.js</Mono>).
+              Tests: <Mono>shared/pos/test/tickets.test.mjs</Mono>, <Mono>api/test/print-designs.test.mjs</Mono>.
             </P>
             <H3>Trading days, Z and Cash Recon</H3>
             <P>
@@ -3241,7 +3306,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <DataTable
               head={['Page', 'Files']}
               rows={[
-                ['Till setup /pos', 'pages/PosSetup.jsx (?tab=) + components/pos/*Section.jsx; GET /api/pos/venues/:id/setup is the one read (includes device_urls { terminal, kds, kiosk } from deviceOrigin(), till_url = the till\'s, sections and items for routing, recon_fields). deviceUrl(setup, kind) in TillsSection.jsx; PairingCode names the kind\'s address.'],
+                ['Till setup /pos', 'pages/PosSetup.jsx (?tab=) + components/pos/*Section.jsx; GET /api/pos/venues/:id/setup is the one read (includes device_urls { terminal, kds, kiosk } from deviceOrigin(), till_url = the till\'s, sections and items for routing, recon_fields). deviceUrl(setup, kind) in TillsSection.jsx; ShownCodeField (the device steps with the kind\'s address + the code box), LinkDeviceModal / LinkDeviceButton (New device / Link a device on a row) and linkShownCode() there too, used by the Tills, Kitchen screens and Kiosks tabs.'],
                 ['Floor plan /pos/floor', 'pages/PosFloor.jsx: snap 0.5 unit, pointer drag / resize, explicit Save per area (PUT /api/pos/floor-areas/:id/layout replaces tables on the area + decor).'],
                 ['Till reports /pos/reports', 'pages/PosReports.jsx: days (+ fill-recon, needs cash_recon manage too), checks with events, conflicts, print queue.'],
                 ['Menus, Variant groups, Promotions', 'components/menus/TillFields.jsx (section / dish Till box), components/menus/ComboEditor.jsx (Dish / Combo, steps, comboPayload()); VariantGroupsManager pos_prefixes + child_group_id + allow_repeat / on_request; Promotions Where (channels).'],
@@ -3266,8 +3331,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               head={['Part', 'How']}
               rows={[
                 ['pos/src/lib/appHost.js', 'HOST_APP from the address (pos -> terminal, kitchen / kds -> kds, kiosk -> kiosk, anything else null = any kind, for local and test addresses), addressFor(kind) (same scheme and port), belongsHere(kind), takePairCode() (#pair=CODE, removed from the address at once), movedTo() / setMovedTo() (localStorage maca_moved_to), moveDevice(), tellDisconnect(); sets the page title for the address.'],
-                ['POST /pos-api/pair { code, app? }', 'app = HOST_APP. A code for another kind is refused before it is used: 422 code wrong_address, errors [{ device_kind, url }]; the Pair screen shows a button to that address with #pair=<the code>, where it pairs by itself. No app (old copies, tests) takes any kind.'],
-                ['POST /pos-api/disconnect', 'Device auth (kiosks too: KIOSK_ROUTES). secret_hash, pairing_code_hash, pairing_expires_at = NULL: the device row stays (name, settings, short code), Till setup shows Not paired, New code pairs it again.'],
+                ['POST /pos-api/pair { code, app? }', 'Only the move hand-over: the one-time code POST /pos-api/move makes, typed by the app at the new address itself (#pair=CODE). app = HOST_APP; a code for another kind is refused before it is used (422 code wrong_address). Nothing else makes these codes since Till setup\'s were removed (19 Oct 2026).'],
+                ['POST /pos-api/disconnect', 'Device auth (kiosks too: KIOSK_ROUTES). secret_hash, pairing_code_hash, pairing_expires_at = NULL: the device row stays (name, settings, short code), Till setup shows Not linked, Link a device on its row links the code the device then shows.'],
                 ['POST /pos-api/move', 'Device auth. openPairing(tx, tenantId, deviceId, 10) (moved to services/posSvc.js) -> { code, kind, url = deviceOrigin(kind)/#pair=code }. The old copy\'s secret works until the code is used (pairing replaces it), so a move that never arrives can be tried again.'],
                 ['Disconnect on the devices', 'Till: TillSettings Disconnect this till (manager approval, refused with unsent events) -> disconnect() in lib/store.js. Kitchen: SettingsPanel DisconnectBox -> disconnect() in kitchen/store.js (unsent taps dropped, counted first). Kiosk: StaffPanel DisconnectBox -> disconnect() in kiosk/store.js (waiting paid orders sent first, refused while any are left). Offline, the device still forgets itself and says Macaroonie couldn\'t be told.'],
                 ['Move on the devices', 'MoveNotice (components/MoveNotice.jsx) when belongsHere() is false: the till app (above its screens), the kitchen app (top) and the kiosk (top of the start screen and in the staff panel). moveTill() / moveScreen() / moveKiosk() send what is waiting, call /pos-api/move, forget the device here, set maca_moved_to and open the new address. The old address then shows MovedAway (opens the new one after 5 s; Set up another device here clears it).'],
@@ -3286,7 +3351,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
           <section id="kds" data-doc="">
             <H2>Kitchen screens (KDS)</H2>
             <P>
-              Migrations 168, 169 (kitchen flow), 177 (several kitchen flows), 182 (stations out of a flow) and 183 (Balance boxes). Design in <Mono>docs/POS.md</Mono> section 9. A kitchen screen is a till device of
+              Migrations 168, 169 (kitchen flow), 177 (several kitchen flows), 182 (stations out of a flow), 183 (Balance boxes) and 191 (kitchen printers). Design in <Mono>docs/POS.md</Mono> section 9. A kitchen screen is a till device of
               kind <Mono>kds</Mono> (<Mono>pos_devices</Mono>, short code K1, K2 ...), paired with a one-time
               code like a till. The same app at <Mono>pos.&lt;domain&gt;</Mono> boots{' '}
               <Mono>pos/src/kitchen/KitchenApp.jsx</Mono> (lazy) when the device's kind is <Mono>kds</Mono>.
@@ -3308,7 +3373,10 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <P>
               Station kinds (<Mono>STATION_KINDS</Mono>): <Mono>prep</Mono> makes dishes, <Mono>expo</Mono>{' '}
               checks whole orders, <Mono>runner</Mono> takes them out, <Mono>board</Mono> is an order ready board
-              (nothing to bump, never on a kitchen screen). The flow is links{' '}
+              (nothing to bump, never on a kitchen screen), <Mono>balance</Mono> a Balance box and <Mono>printer</Mono> a
+              kitchen printer (migration 191: prints the dishes that reach it, see Till (POS) → Printing; nothing to bump,
+              never on a kitchen screen, links out allowed; a venue with only printer boxes still has a kitchen,{' '}
+              <Mono>KITCHEN_KINDS</Mono> in <Mono>services/kitchenSvc.js</Mono>). The flow is links{' '}
               <Mono>{'{ from: stationId | null (Orders in), to, targets: [{ kind, id }] }'}</Mono>; targets are
               item, section, revenue_stream, order_type (an <Mono>order_types</Mono> id, migration 170) or
               default, and empty targets mean every dish. From each node a dish takes every link whose filter
@@ -3424,7 +3492,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['kds_flow_edges', 'A flow\'s links (169, flow_id NOT NULL since 177, ON DELETE CASCADE with the flow): from_station_id (NULL = Orders in), to_station_id (both ON DELETE CASCADE), targets jsonb, sort_order. One link per pair per flow (unique index on flow_id, from, to). Read them by flow_id, never by venue alone. Replaced kds_routes: each station\'s routes became one link from Orders in, every prep station got a link to every expo.'],
                 ['kds_orders', 'Projection (like pos_checks): id text (a check id, web-<orders.id> or gf-<gloriafood_orders.id>), source till | online | gloriafood (178; taken from the id prefix by applyKitchenEvent(), never from the payload), check_id / order_id, status active | ready | collected | cancelled, state jsonb (the whole kitchen order), last_seq.'],
                 ['kds_log', 'One row per bump and remake: station (id, name, kind), seconds since the dishes arrived or were fired, items, order source / type / number, reason, recalled_at (a recalled bump is left out of the report). Feeds the Kitchen report and its CSV.'],
-                ['pos_devices', 'kind kds; settings { station_ids, view tickets | on_order, columns, text_size, sound, can_switch_flow (absent = true: its flow button may put another flow in use) }.'],
+                ['pos_devices', 'kind kds; settings { station_ids, view tickets | on_order, columns, text_size, sound, can_switch_flow (absent = true: its flow button may put another flow in use), ticket_main auto | number | tent | table | name (the ticket header\'s title: ticketTitle() in pos/src/kitchen/KitchenApp.jsx; auto or absent = table, tab or guest name with the order number beside it; another field falls back to auto when the order lacks it) }.'],
                 ['pos_settings', 'kds_online_orders (send accepted online orders), kds_online_ready (ready in the kitchen marks the online order ready, collected completes it; for GloriaFood orders: their board status), kds_gloriafood (178, default off: send GloriaFood orders), kds_gloriafood_types jsonb ({ pickup | delivery | dine_in | order_ahead | table_reservation: order type id | null }; a key left out is matched by name by gloriaFoodTypes()), kds_gloriafood_lead_mins (0-240, default 20: an order for later comes on this long before its time), kds_active_flow_id (the flow in use, ON DELETE SET NULL; NULL = the first), kds_flow_switched_at / kds_flow_switched_by (the last switch: a screen\'s name or a person\'s email). kds_flow_layout moved to kds_flows.layout (177).'],
               ]}
             />
@@ -3533,7 +3601,10 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <H3>Order status block</H3>
             <P>
               <Mono>orderStatusHtml()</Mono> in <Mono>shared/screenLayout.js</Mono>. Options: <Mono>board</Mono>{' '}
-              (a board station's name; <Mono>orderBoardData()</Mono>), <Mono>layout</Mono> side | stacked,{' '}
+              (a board station's name; <Mono>orderBoardData()</Mono>), <Mono>tile_main</Mono> number | tent |
+              table | name and <Mono>tile_lines</Mono> (any of number, tent, table, name, type, source; what each
+              tile shows, migration 189 turned the old <Mono>show_names</Mono> into <Mono>tile_lines</Mono>{' '}
+              [&apos;name&apos;]), <Mono>layout</Mono> side | stacked,{' '}
               <Mono>ready_first</Mono>, <Mono>preparing_bg</Mono>, <Mono>change_anim</Mono> none | float | fade
               | pop | zoom (<Mono>ORDER_CHANGE_ANIMS</Mono>) and <Mono>change_ms</Mono>. The player keeps the
               changes between fetches (<Mono>orderChanges()</Mono>: numbers in and out of each column, per
@@ -3542,6 +3613,19 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>sl-och-in</Mono> and numbers going out in their old place with <Mono>sl-och-out</Mono>, a
               negative animation-delay keeping a redraw mid-animation in step, then draws plain once it is over.
               The designer's Play shows an example change.
+            </P>
+            <P>
+              A tile is drawn by <Mono>orderInfo(order, {'{ main, lines }'})</Mono> in{' '}
+              <Mono>shared/orderInfo.js</Mono> (also loaded by the player from <Mono>/lib/orderInfo.js</Mono>):
+              the big value (the chosen field, else the first of number, tent, table, name the order has; the
+              tile&apos;s <Mono>data-main</Mono> says which), a caption over a tent or table (<Mono>sl-ocap</Mono>),
+              then the lines that have a value, never the big one again (<Mono>sl-oline</Mono>, Order 57 / Tent
+              12 / Table 4 / the name / the order type / Online or GloriaFood). A name as the big value is drawn
+              smaller. The numbers come from <Mono>boardNumbers()</Mono> in <Mono>shared/pos/kitchen.js</Mono>,
+              whose entries carry <Mono>number, name</Mono> (online guest, else the till or kiosk name),{' '}
+              <Mono>tent, table, type_name, source</Mono>. <Mono>normaliseOrderInfo()</Mono> tidies a saved
+              choice; the designer&apos;s Each tile section (<Mono>TileSection</Mono> in{' '}
+              <Mono>ScreenDesigner.jsx</Mono>) keeps lines in field order.
             </P>
             <H3>The kitchen test bench</H3>
             <P>
@@ -3567,8 +3651,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>applyKitchenEvent()</Mono> for <Mono>kitchen.order_in</Mono> online orders and the
               screens&apos; taps), its own sequence numbers, sync with reset after Clear all, an activity log, and
               its own flow in use (<Mono>switchFlow()</Mono>, refusing screens with{' '}
-              <Mono>can_switch_flow: false</Mono>). Test orders are made with <Mono>sendOrder(spec)</Mono> or
-              made up by <Mono>randomSpec()</Mono>; a combo&apos;s parts come from{' '}
+              <Mono>can_switch_flow: false</Mono>). Test orders are made with <Mono>sendOrder(spec)</Mono> (spec <Mono>tent</Mono>{' '}
+              on counter till orders, <Mono>name</Mono> as the till name or the online guest) or made up by{' '}
+              <Mono>randomSpec()</Mono> (some counter orders get a tent); a combo&apos;s parts come from{' '}
               <Mono>randomComboParts()</Mono> (<Mono>resolveSteps()</Mono>). Each screen is the real kitchen app
               in a same-origin frame (<Mono>?kitchen_test=&amp;screen=&lt;id&gt;</Mono>,{' '}
               <Mono>BenchScreen.jsx</Mono>), scaled with a CSS transform from a fixed size (tablet 1280 x 800,
@@ -3590,7 +3675,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <H2>Self-order kiosks</H2>
             <P>
               Migration 172. Design in <Mono>docs/POS.md</Mono> section 10. A kiosk is a till device of kind{' '}
-              <Mono>kiosk</Mono> (<Mono>pos_devices</Mono>, short code KS1, KS2 ...), paired with a one-time code
+              <Mono>kiosk</Mono> (<Mono>pos_devices</Mono>, short code KS1, KS2 ...), linked by the code it shows
               like a till. The same app at <Mono>pos.&lt;domain&gt;</Mono> boots{' '}
               <Mono>pos/src/kiosk/KioskApp.jsx</Mono> (lazy) when the device's kind is <Mono>kiosk</Mono>, or with{' '}
               <Mono>?kiosk_preview=&lt;signed link&gt;</Mono> for the design editor's preview. A kiosk order is a
@@ -3690,7 +3775,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['languages', 'source, enabled (KIOSK_LANGUAGES: en es ca fr de it pt nl pl; the source always on)'],
                 ['menu', 'home, banners [{ id, image_url, title, link { kind none | item | section, id } }] (10), banner_secs 3-20, featured [{ id, image_url, title, subtitle, size normal | wide, link }] (12), rail images | text | none (RAIL_KINDS), section_tiles [{ section_id, image_url, title, size normal | wide }] (rail none: the tiles page order, deduped, 200), columns auto | 2-4, show_calories, show_descriptions, show_tags, quick_add, hidden_section_ids'],
                 ['options', 'display grid | list | slider | wheel (where a group or step has none), level_icon flame | star | dot, wheel_spin (the Spin button; default on), wheel_spin_picks (a spin stops on a choice that can be picked and picks it)'],
-                ['checkout', 'pay_card, pay_counter, send_counter, counter_note, upsell, upsell_title, upsell_item_ids (8), receipt off | ask | always, thanks'],
+                ['checkout', 'pay_card, pay_counter, send_counter, counter_note, upsell, upsell_title, upsell_item_ids (8), number_kind tent | table (what the number asked for when the stream\'s ask_tent is on is called: tent_number / tent_hint and the Done screen\'s tent_done line, or table_number / table_hint; the value goes as check.tent either way), receipt off | ask | always, thanks'],
                 ['behaviour', 'idle_secs 20-600, warn_secs 5-60, done_secs 5-120, reach'],
               ]}
             />
@@ -3772,8 +3857,10 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <P>
               Migration 184. A till, kitchen screen, kiosk or menu screen that isn't set up shows a code of its
               own and a QR code; someone signed in links it from a phone (the installer app,{' '}
-              <Mono>installer.&lt;domain&gt;</Mono>) or from the admin. Typing a code made in Till setup into
-              the device still works for tills, kitchen screens and kiosks.
+              <Mono>installer.&lt;domain&gt;</Mono>) or from the admin (Till setup's Add windows, Screens). That
+              is the only way a device is set up: since 19 Oct 2026 Till setup and the installer no longer make
+              codes to type into a device (<Mono>POST /api/pos/venues/:id/devices</Mono> and{' '}
+              <Mono>POST /api/pos/devices/:id/pairing-code</Mono> are gone).
             </P>
             <H3>Link codes</H3>
             <DataTable
@@ -3794,7 +3881,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               the address's kind), shows it with a QR code (<Mono>qrSvg()</Mono> from{' '}
               <Mono>shared/qr.js</Mono>) and checks it every 4 s (<Mono>checkLinkCode()</Mono>, which saves the
               device through <Mono>startPaired()</Mono>, the same as <Mono>pair()</Mono>); a run-out code is
-              replaced. <strong>Have a code from Till setup?</strong> opens the typed form. The menu screen player
+              replaced. There is no typed-code form; a device moved from another address brings a hand-over code
+              in <Mono>#pair=</Mono> and pairs with it by itself (<Mono>pair-moving</Mono>, or{' '}
+              <Mono>pair-error</Mono> above the shown code if it fails). The menu screen player
               (<Mono>screen/player.js</Mono> <Mono>showCode()</Mono>) draws the QR code beside its code;{' '}
               <Mono>qr.js</Mono> is in <Mono>PLAYER_LIBS</Mono> and the player's <Mono>SHELL_FILES</Mono>.
             </P>
@@ -3821,8 +3910,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['/install', 'pages/installer/InstallerHome.jsx: venue (maca_installer_venue), Link / Add, the four lists with state', 'GET /api/installer/venues/:id (pos_setup or screens view; devices with their whole settings, stations, kiosk designs, menu screens, boards, playlists, can, addresses), every 10 s'],
                 ['/install/link[/:code]', 'pages/installer/InstallerLink.jsx: code box, Scan (components/installer/QrScanner.jsx, BarcodeDetector), what the code is, new or one already here (?replace=&kind=), name and settings', 'POST /api/installer/lookup (pos_setup or screens manage), POST /api/pos/venues/:id/link, POST /api/screens/screens/claim'],
                 ['/link/:code', 'LinkRedirect in main.jsx: what a device\'s QR code opens', '-'],
-                ['/install/add', 'pages/installer/InstallerAdd.jsx: kind, the address (with a QR code), a code made here', 'POST /api/pos/venues/:id/devices'],
-                ['/install/device/:kind/:id', 'pages/installer/InstallerDevice.jsx: state, name and settings (Save sends the whole settings), Identify / Reload (menu screens), move to a new device, remove (asks twice)', 'PATCH /api/pos/devices/:id, PATCH /api/screens/screens/:id, POST .../pairing-code, identify, reload, DELETE'],
+                ['/install/add', 'pages/installer/InstallerAdd.jsx: kind, the address (with a QR code), then on to Link', '-'],
+                ['/install/device/:kind/:id', 'pages/installer/InstallerDevice.jsx: state, name and settings (Save sends the whole settings), Identify / Reload (menu screens), move to a new device, remove (asks twice)', 'PATCH /api/pos/devices/:id, PATCH /api/screens/screens/:id, identify, reload, DELETE; a new device goes through /install/link?replace='],
               ]}
             />
             <P>
@@ -3832,10 +3921,11 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>useOverview()</Mono>, <Mono>deviceState()</Mono>, <Mono>KindSettings</Mono>,{' '}
               <Mono>tidyCode()</Mono> / <Mono>codeFromScan()</Mono>. <Mono>lib/hosts.js</Mono>:{' '}
               <Mono>IS_INSTALLER_HOST</Mono> (the AppShell and /mobile trees go to /install there),{' '}
-              <Mono>installerHref()</Mono>. In the admin: <Mono>LinkShownCode</Mono> and{' '}
-              <Mono>InstallerLine</Mono> in <Mono>components/pos/TillsSection.jsx</Mono>, on the Tills, Kitchen
+              <Mono>installerHref()</Mono>. In the admin: <Mono>ShownCodeField</Mono>,{' '}
+              <Mono>LinkDeviceModal</Mono> and <Mono>InstallerLine</Mono> in <Mono>components/pos/TillsSection.jsx</Mono>, on the Tills, Kitchen
               screens and Kiosks tabs. Tests: <Mono>api/test/installer.test.mjs</Mono>, the system-paths test and
-              the sweep's fixtures link a kitchen screen.
+              the sweep's fixtures link a kitchen screen and a till; every API test adds devices through{' '}
+              <Mono>linkDevice()</Mono> in <Mono>api/test/support/devices.mjs</Mono> (show a code, link it).
             </P>
           </section>
 
@@ -3901,7 +3991,10 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>loadOrderingMenu()</Mono>: <Mono>hide_unpriced_variants</Mono> drops null/£0
               options from the choices (so the server rejects them too),{' '}
               <Mono>hide_zero_priced_variants</Mono> sets <Mono>hide_zero_price</Mono> on each choice
-              and <Mono>optionPriceText()</Mono> shows no price for £0 options. VAT comes from the dish's
+              and <Mono>optionPriceText()</Mono> shows no price for £0 options. Kiosks follow the same
+              settings: <Mono>tillMenuData(..., {'{ guest: true }'})</Mono> puts the menu's{' '}
+              <Mono>variant_rules</Mono> on each dish and <Mono>posChoices()</Mono> passes them to{' '}
+              <Mono>itemChoices()</Mono> (tills get no rules: staff see every option). VAT comes from the dish's
               tax levels (dish, section, menu) resolved by <Mono>taxFor()</Mono> (<Mono>shared/tax.js</Mono>)
               for the order's context, <Mono>orderContext(venueId, settings, fulfilment)</Mono>: the order
               type Ordering setup gives that fulfilment and its revenue stream. <Mono>loadOrderingMenu()</Mono>{' '}

@@ -16,8 +16,8 @@
 //                                    phone app for linking the devices at a venue
 //                                    (served by routes/installerSite.js; migration 184)
 // Each device app has its own address so it installs as its own app and keeps
-// its own pairing; a pairing code only works on its kind's address
-// (POST /pos-api/pair).
+// its own pairing; the code a device shows can only become its address's
+// kind (POST /pos-api/pairings).
 // Tenant sites live on every other subdomain (routes/siteRenderer.js), which
 // is why these names are in RESERVED_SUBDOMAINS.
 

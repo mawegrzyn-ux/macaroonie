@@ -9,6 +9,7 @@ import assert from 'node:assert/strict'
 import { as, getApp, sql, ok, closeApp } from './support/app.mjs'
 import { resetAndSeed, A, B, PLATFORM } from './support/seed.mjs'
 import { fillTenant } from './support/fixtures.mjs'
+import { linkDevice } from './support/devices.mjs'
 import { sql as appSql } from '../src/config/db.js'
 import { env } from '../src/config/env.js'
 import { INTERNAL_CALL_HEADER, INTERNAL_CALL_SECRET } from '../src/middleware/auth.js'
@@ -122,15 +123,20 @@ test('the website: published home and location pages, the menu JSON and print, t
   assert.equal(staging.status, 401, 'the staging password is asked for')
 })
 
-test('a till pairs with its code and loads its config', async () => {
-  const made = await ok(owner.post(`/api/pos/venues/${V}/devices`, { name: 'Till 2', kind: 'terminal' }))
-  const pair = await pub('POST', '/pos-api/pair', { body: { code: made.pairing_code } })
-  assert.equal(pair.status, 200, pair.body)
-  const auth = { authorization: `Device ${pair.json.device_id}.${pair.json.secret}` }
+test('a till linked by its code loads its config; its move hand-over code pairs it at the new address', async () => {
+  const till = await linkDevice(owner, V, { kind: 'terminal', name: 'Till 2' })
+  const auth = { authorization: `Device ${till.device_id}.${till.secret}` }
   const me = await pub('GET', '/pos-api/me', { headers: auth })
   assert.equal(me.status, 200, me.body)
   const config = await pub('GET', '/pos-api/config', { headers: auth })
   assert.equal(config.status, 200, config.body.slice(0, 200))
+  // POST /pos-api/pair finds its device by the hand-over code alone (system mode).
+  const move = await pub('POST', '/pos-api/move', { headers: auth, body: {} })
+  assert.equal(move.status, 200, move.body)
+  const pair = await pub('POST', '/pos-api/pair', { body: { code: move.json.code, app: 'terminal' } })
+  assert.equal(pair.status, 200, pair.body)
+  assert.equal(pair.json.device_id, till.device_id)
+  assert.equal((await pub('GET', '/pos-api/me', { headers: { authorization: `Device ${pair.json.device_id}.${pair.json.secret}` } })).status, 200)
 })
 
 test('a menu screen pairs by code, is claimed, and loads its config', async () => {

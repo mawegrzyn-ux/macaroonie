@@ -23,6 +23,8 @@
 //                           called after orders are stored (push, poll) and
 //                           after a board move; gloriaFoodTypes() is which
 //                           order type each GloriaFood type goes to
+//   kitchenPrintsDue()      the minute sweep: orders for later print at the
+//                           kitchen printers when their time comes (migration 191)
 //   announceKitchen()       tell the venue's screens to sync
 //   boardFor()              order ready board numbers for a venue (all
 //                           counter / online orders, and per board station)
@@ -32,7 +34,7 @@
 //
 // Every query filters tenant_id itself.
 
-import { withTenant } from '../config/db.js'
+import { withTenant, systemSql } from '../config/db.js'
 import { broadcast } from '../config/ws.js'
 import { httpError } from '../middleware/error.js'
 import { ulid } from '../../../shared/pos/ids.js'
@@ -40,6 +42,8 @@ import { onlineOrderId, gloriaFoodOrderId, stationSettings, boardNumbers, STALE_
 import { typeLabel as gfTypeLabel, TYPE_LABELS as GF_TYPE_LABELS } from '../../../shared/gloriafood.js'
 import { createHash } from 'node:crypto'
 import { makeLink, readLink } from './previewLinks.js'
+import { printLayouts } from './printDesignSvc.js'
+import { hasPrinters, printsDue } from '../../../shared/pos/kitchenPrint.js'
 
 const by = (rows, f = r => r) => Object.fromEntries(rows.map(r => [r.id, f(r)]))
 
@@ -92,10 +96,16 @@ async function flowSetting(tx, tenantId, venueId) {
 }
 
 const stationView = s => ({ id: s.id, name: s.name, kind: s.kind, colour: s.colour, settings: stationSettings(s) })
+// Stations that make a venue have a kitchen: something to bump, or a kitchen
+// printer in the flow (migration 191).
+const KITCHEN_KINDS = [...BUMP_KINDS, 'printer']
 
 /**
  * The sequencer's kitchen config. enabled = the venue has an active station
- * with something to bump (prep, expo or runner). A station switched off is
+ * with something to bump (prep, expo or runner) or a kitchen printer. A
+ * printer box whose printer is gone or switched off prints nothing
+ * (settings.printer_id null); ticket_layout = the venue's kitchen ticket
+ * design (print designs, migration 190). A station switched off is
  * left out, so dishes pass straight through it. flow = the links of the flow
  * in use (flow_id); active_setting = pos_settings.kds_active_flow_id as read,
  * so the sequencer can tell a switch happened (activeFlowSetting()).
@@ -104,19 +114,30 @@ export async function loadKitchenConfig(tx, tenantId, venueId) {
   const stations = await loadStations(tx, tenantId, venueId)
   const setting = await flowSetting(tx, tenantId, venueId)
   const active_setting = setting.kds_active_flow_id || null
-  if (!stations.some(s => BUMP_KINDS.includes(s.kind))) return { enabled: false, stations: {}, flow: [], flow_id: null, active_setting }
+  if (!stations.some(s => KITCHEN_KINDS.includes(s.kind))) return { enabled: false, stations: {}, flow: [], flow_id: null, active_setting }
   const flows = await loadFlows(tx, tenantId, venueId)
   const active = activeFlowOf(flows, active_setting)
-  const [flow, courses, tables, staff, types] = await Promise.all([
+  const [flow, courses, tables, staff, types, printers, layouts] = await Promise.all([
     loadFlow(tx, tenantId, active?.id, stations),
     tx`SELECT id, name, sort_order FROM pos_courses WHERE tenant_id = ${tenantId}`,
     tx`SELECT id, label FROM tables WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`,
     tx`SELECT id, name FROM cash_staff WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`,
     tx`SELECT id, name FROM order_types WHERE tenant_id = ${tenantId}`,
+    stations.some(s => s.kind === 'printer')
+      ? tx`SELECT id FROM pos_printers WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND is_active`
+      : [],
+    stations.some(s => s.kind === 'printer') ? printLayouts(tx, tenantId, venueId) : {},
   ])
+  const live = new Set(printers.map(p => p.id))
+  const view = s => {
+    const v = stationView(s)
+    if (v.kind === 'printer' && !live.has(v.settings.printer_id)) v.settings = { ...v.settings, printer_id: null }
+    return v
+  }
   return {
     enabled: true,
-    stations: by(stations, stationView),
+    stations: by(stations, view),
+    ticket_layout: layouts.kitchen || null,
     flow,
     flow_id: active?.id || null,
     active_setting,
@@ -204,6 +225,13 @@ export async function kdsConfig(tx, tenantId, venueId) {
     flow_switched_by: settings?.kds_flow_switched_by || null,
     courses,
     order_types: orderTypes,
+    // Printers plugged into kitchen screens (migration 191): a screen prints
+    // the tickets queued for its own (pos pos/src/lib/devicePrint.js).
+    printers: await tx`
+      SELECT p.id, p.name, p.connection, p.device_id, p.columns, p.is_active FROM pos_printers p
+        JOIN pos_devices d ON d.id = p.device_id AND d.tenant_id = p.tenant_id AND d.kind = 'kds'
+       WHERE p.tenant_id = ${tenantId} AND p.venue_id = ${venueId} AND p.connection = 'device' AND p.is_active
+       ORDER BY p.sort_order, p.name`,
   }
   config.version = createHash('sha256').update(JSON.stringify(config)).digest('hex').slice(0, 16)
   return config
@@ -308,8 +336,48 @@ export async function submitServerEvent(tenantId, venueId, type, payload) {
   const { sequencer } = await import('./posSvc.js')
   const e = { id: ulid(), venue_id: venueId, device_id: null, staff_id: null, type, payload, client_at: new Date().toISOString() }
   const r = await sequencer(tenantId, venueId).submit(e)
-  if (r.ok && !r.duplicate) announceKitchen(venueId, r.seq)
+  if (r.ok && !r.duplicate && !r.nothing) announceKitchen(venueId, r.seq)
+  // Kitchen printer tickets: whoever prints for those printers collects them.
+  if (r.ok && r.jobs?.length && !r.duplicate) broadcast('pos:' + venueId, { type: 'pos.print' })
   return r
+}
+
+/**
+ * The minute sweep (jobs/queues.js): at each venue with a kitchen printer,
+ * when a dish waiting for its time (an order for later) has come due for a
+ * printer, send kitchen.print_due so the sequencer prints it. Returns how
+ * many venues printed; never throws.
+ */
+export async function kitchenPrintsDue(log = console) {
+  let n = 0
+  try {
+    const venues = await systemSql`
+      SELECT DISTINCT s.tenant_id, s.venue_id FROM kds_stations s
+        JOIN kds_orders o ON o.tenant_id = s.tenant_id AND o.venue_id = s.venue_id AND o.status IN ('active', 'ready')
+       WHERE s.kind = 'printer' AND s.is_active AND s.settings->>'printer_id' IS NOT NULL
+         AND o.created_at > now() - make_interval(hours => ${STALE_HOURS})`
+    for (const v of venues) {
+      try {
+        const due = await withTenant(v.tenant_id, async tx => {
+          const cfg = await loadKitchenConfig(tx, v.tenant_id, v.venue_id)
+          if (!hasPrinters(cfg)) return false
+          const rows = await tx`
+            SELECT id, state FROM kds_orders
+             WHERE tenant_id = ${v.tenant_id} AND venue_id = ${v.venue_id} AND status IN ('active', 'ready')
+               AND created_at > now() - make_interval(hours => ${STALE_HOURS})`
+          return printsDue(Object.fromEntries(rows.map(r => [r.id, r.state])), cfg, new Date().toISOString())
+        })
+        if (!due) continue
+        const r = await submitServerEvent(v.tenant_id, v.venue_id, 'kitchen.print_due', {})
+        if (r.ok && r.jobs?.length) n++
+      } catch (e) {
+        log.warn?.({ err: e, venue: v.venue_id }, 'kitchen print sweep failed for a venue')
+      }
+    }
+  } catch (e) {
+    log.warn?.({ err: e }, 'kitchen print sweep failed')
+  }
+  return n
 }
 
 const firstName = s => String(s || '').trim().split(/\s+/)[0]?.slice(0, 40) || null
@@ -373,7 +441,7 @@ export async function kitchenOnOnlineOrder(order) {
     const venueId = order.venue_id
     const kid = onlineOrderId(order.id)
     const plan = await withTenant(tenantId, async tx => {
-      const [{ n }] = await tx`SELECT count(*)::int AS n FROM kds_stations WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND is_active AND kind = ANY(${BUMP_KINDS})`
+      const [{ n }] = await tx`SELECT count(*)::int AS n FROM kds_stations WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND is_active AND kind = ANY(${KITCHEN_KINDS})`
       if (!n) return null
       const [s] = await tx`SELECT kds_online_orders FROM pos_settings WHERE venue_id = ${venueId} AND tenant_id = ${tenantId}`
       const [existing] = await tx`SELECT status FROM kds_orders WHERE id = ${kid} AND tenant_id = ${tenantId}`
@@ -526,7 +594,7 @@ export async function kitchenOnGloriaFood(tenantId, venueId, ids) {
   try {
     await withTenant(tenantId, async tx => {
       await tx`SELECT pg_advisory_xact_lock(hashtext('gf-kitchen:' || ${venueId}::text))`
-      const [{ n }] = await tx`SELECT count(*)::int AS n FROM kds_stations WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND is_active AND kind = ANY(${BUMP_KINDS})`
+      const [{ n }] = await tx`SELECT count(*)::int AS n FROM kds_stations WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND is_active AND kind = ANY(${KITCHEN_KINDS})`
       if (!n) return
       const [s] = await tx`
         SELECT kds_gloriafood, kds_gloriafood_types, kds_gloriafood_lead_mins FROM pos_settings

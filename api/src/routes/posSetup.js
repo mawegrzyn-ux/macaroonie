@@ -7,13 +7,15 @@
 //   POST   /venues/:venueId/revenue-streams       + PATCH/DELETE /revenue-streams/:id, PUT /venues/:venueId/revenue-streams/order
 //                                                 (a stream's order types: on/off, ask for a name / tent number;
 //                                                 the order types themselves are tenant-wide, routes/taxSetup.js)
-//   POST   /venues/:venueId/printers              + PATCH/DELETE /printers/:id
-//   PUT    /venues/:venueId/routes                the whole printer routing list
-//   POST   /venues/:venueId/devices               add a till: returns a one-time pairing code
-//   POST   /devices/:id/pairing-code              a new code (pairs again, the old secret stops working)
+//   POST   /venues/:venueId/printers              + PATCH/DELETE /printers/:id (migration 191: connection 'hub'
+//                                                 = a network printer the venue hub prints to, 'device' = plugged
+//                                                 into a till or kitchen screen, printed by its browser). Kitchen
+//                                                 tickets go where the kitchen flow's printer boxes are
 //   POST   /venues/:venueId/link                  { code, device_id? | name, kind?, settings? } link a device
-//                                                 showing a code (migration 184): a new till, kitchen screen
-//                                                 or kiosk, or a new device for one already here
+//                                                 showing a code (migration 184): a new till, kitchen screen,
+//                                                 kiosk or venue hub (hub/), or a new device for one already
+//                                                 here. The only way a device is added: Till setup and the
+//                                                 installer app
 //   PATCH  /devices/:id                           name, settings (mode, revenue stream, receipt printer, floor area;
 //                                                 a kiosk's design and card reader)
 //   DELETE /devices/:id                           revoke
@@ -39,6 +41,7 @@
 //   GET    /venues/:venueId/conflicts             refused till events
 //   PATCH  /conflicts/:id                         mark resolved with a note
 //   GET    /venues/:venueId/print-jobs            the print queue
+//   POST   /print-jobs/:id/again                  print a failed job again
 //   Kitchen screens (docs/POS.md section 9; shared/pos/kitchen.js):
 //   POST   /venues/:venueId/kds-stations          + PATCH/DELETE /kds-stations/:id, PUT /venues/:venueId/kds-stations/order
 //   POST   /venues/:venueId/kds-flows             a kitchen flow (empty, or a copy of another; migration 177)
@@ -50,7 +53,7 @@
 //   POST   /venues/:venueId/kitchen-test          a signed link to the kitchen test bench (every screen on one page)
 //   GET    /venues/:venueId/kitchen-report?from=&to=   speed of service per station, by hour, remakes
 //   GET    /venues/:venueId/kitchen-report.csv?from=&to=  every bump and remake, for spreadsheets / BI
-//   (kitchen screens themselves are devices: POST /venues/:venueId/devices with kind 'kds')
+//   (kitchen screens themselves are devices of kind 'kds', added by POST /venues/:venueId/link)
 //
 // Setup needs pos_setup (view to read, manage to change); reports need
 // pos_reports. Every query filters tenant_id itself.
@@ -62,7 +65,7 @@ import { requireAuth, requirePermission, permissionLevel } from '../middleware/a
 import { httpError } from '../middleware/error.js'
 import { broadcast } from '../config/ws.js'
 import {
-  ensureSettings, settingsView, ownVenue, openPairing,
+  ensureSettings, settingsView, ownVenue,
   dayReport, fillReconFromDay, DEFAULT_COURSES,
 } from '../services/posSvc.js'
 import { reconFields } from '../services/reconFill.js'
@@ -104,8 +107,6 @@ const SettingsBody = z.object({
   vat_number:                z.string().max(40).nullable().optional(),
   receipt_name:              z.string().max(80).nullable().optional(),
   receipt_address:           z.array(z.string().max(80)).max(6).optional(),
-  receipt_footer:            z.string().max(300).nullable().optional(),
-  bill_footer:               z.string().max(300).nullable().optional(),
   service_charge_label:      z.string().max(60).nullable().optional(),
   tenders:                   z.array(z.object({ key: z.enum(TENDER_KEYS), label: z.string().min(1).max(30), enabled: z.boolean() })).optional(),
   tips_enabled:              z.boolean().optional(),
@@ -149,19 +150,15 @@ const StreamBody = z.object({
 const PrinterBody = z.object({
   name:              z.string().trim().min(1).max(60),
   kind:              z.enum(['station', 'receipt']).default('station'),
+  // 'hub': a network printer (host, port) the venue hub prints to; 'device':
+  // plugged into a till or kitchen screen (device_id), printed by its browser.
+  connection:        z.enum(['hub', 'device']).default('hub'),
+  device_id:         UUID.nullable().optional(),
   host:              z.string().trim().max(120).nullable().optional(),
   port:              z.number().int().min(1).max(65535).default(9100),
   columns:           z.number().int().min(24).max(64).default(42),
   backup_printer_id: UUID.nullable().optional(),
   is_active:         z.boolean().default(true),
-})
-
-const RoutesBody = z.object({
-  routes: z.array(z.object({
-    printer_id:  UUID,
-    target_kind: z.enum(['item', 'section', 'revenue_stream', 'default']),
-    target_id:   UUID.nullable().optional(),
-  })).max(2000),
 })
 
 const DeviceSettings = z.object({
@@ -178,6 +175,9 @@ const DeviceSettings = z.object({
   sound:              z.boolean().optional(),
   // Its flow button may put another kitchen flow in use (absent = yes).
   can_switch_flow:    z.boolean().optional(),
+  // What a ticket's title shows (shared/orderInfo.js): 'auto' = the table or
+  // the name, else the order number, tent, table or customer name picked.
+  ticket_main:        z.enum(['auto', 'number', 'tent', 'table', 'name']).optional(),
   // Self-order kiosks (kind 'kiosk', shared/kiosk.js): its design (null = the
   // tenant's first) and its card reader ('test' takes no money; real
   // terminals come as adapters later, docs/POS.md section 10).
@@ -186,14 +186,8 @@ const DeviceSettings = z.object({
 }).default({})
 
 // What a device showing a link code can become, in the words the refusals use.
-const LINK_KINDS = ['terminal', 'kds', 'kiosk']
+const LINK_KINDS = ['terminal', 'kds', 'kiosk', 'hub']
 const LINK_KIND_NAME = { terminal: 'a till', kds: 'a kitchen screen', kiosk: 'a self-order kiosk', hub: 'a venue hub' }
-
-const DeviceBody = z.object({
-  name:     z.string().trim().min(1).max(60),
-  kind:     z.enum(['terminal', 'hub', 'kds', 'kiosk']).default('terminal'),
-  settings: DeviceSettings,
-})
 
 const KioskDesignBody = z.object({
   name:     z.string().trim().min(1).max(80),
@@ -225,6 +219,8 @@ const StationSettings = z.object({
   // A Balance box's big tickets: null keeps each ticket on one station; N
   // shares a ticket's dishes between them when more than N pieces reach it.
   split_above: z.number().int().min(0).max(999).nullable().default(null),
+  // A kitchen printer box (migration 191): the printer its dishes print on.
+  printer_id: UUID.nullable().optional(),
 }).refine(s => s.late_mins >= s.target_mins, { message: 'Late must be the same as or after the target time', path: ['late_mins'] })
 
 const StationBody = z.object({
@@ -372,6 +368,32 @@ async function dropFlowTarget(tx, tenantId, kind, id) {
   }
 }
 
+/** A kitchen printer box prints on one of the venue's printers (not one plugged into a kiosk). */
+async function checkStationPrinter(tx, tenantId, venueId, settings) {
+  if (!settings.printer_id) return
+  const [p] = await tx`
+    SELECT p.id, d.kind AS device_kind FROM pos_printers p
+      LEFT JOIN pos_devices d ON d.id = p.device_id AND d.tenant_id = p.tenant_id
+     WHERE p.id = ${settings.printer_id} AND p.tenant_id = ${tenantId} AND p.venue_id = ${venueId}`
+  if (!p) throw httpError(422, 'Printer not found')
+  if (p.device_kind === 'kiosk') throw httpError(422, 'A printer plugged into a kiosk prints that kiosk\'s receipts only')
+}
+
+/**
+ * A printer plugged into a device: one of the venue's tills or kitchen
+ * screens (they collect its tickets), or a kiosk (its own receipts only).
+ */
+async function checkPrinterDevice(tx, tenantId, venueId, body) {
+  if (body.connection !== 'device') return null
+  if (!body.device_id) throw httpError(422, 'Pick the till or kitchen screen the printer is plugged into')
+  const [d] = await tx`
+    SELECT id, kind FROM pos_devices
+     WHERE id = ${body.device_id} AND tenant_id = ${tenantId} AND venue_id = ${venueId} AND revoked_at IS NULL`
+  if (!d) throw httpError(422, 'Device not found')
+  if (!['terminal', 'kds', 'kiosk'].includes(d.kind)) throw httpError(422, 'A printer can be plugged into a till, a kitchen screen or a kiosk')
+  return d.id
+}
+
 /** A Balance box's pieces name the tenant's own dishes. */
 async function checkPieces(tx, tenantId, settings) {
   const ids = [...new Set((settings.pieces || []).filter(m => m.kind === 'dish').map(m => m.id).filter(Boolean))]
@@ -410,8 +432,7 @@ function deviceView(d) {
     id: d.id, name: d.name, kind: d.kind, short_code: d.short_code, settings: d.settings || {},
     paired: !!d.secret_hash, paired_at: d.paired_at, last_seen_at: d.last_seen_at,
     app_version: d.app_version, user_agent: d.user_agent, revoked_at: d.revoked_at,
-    pairing_open: !!d.pairing_code_hash && d.pairing_expires_at && new Date(d.pairing_expires_at) > new Date(),
-    pairing_expires_at: d.pairing_expires_at, created_at: d.created_at,
+    created_at: d.created_at,
   }
 }
 
@@ -453,12 +474,11 @@ export default async function posSetupRoutes(app) {
       const venue = await ownVenue(tx, tenantId, venueId)
       const settings = await ensureSettings(tx, tenantId, venueId)
       await ensureTaxDefaults(tx, tenantId)
-      const [streams, orderTypes, printers, routes, devices, areas, tables, staff, roles, courses, menus, kdsStations, kdsFlows, kioskDesigns] = await Promise.all([
+      const [streams, orderTypes, printers, devices, areas, tables, staff, roles, courses, menus, kdsStations, kdsFlows, kioskDesigns, jobCounts] = await Promise.all([
         loadStreams(tx, tenantId, venueId),
         loadOrderTypes(tx, tenantId),
-        tx`SELECT id, name, kind, host, port, columns, backup_printer_id, sort_order, is_active
+        tx`SELECT id, name, kind, connection, device_id, host, port, columns, backup_printer_id, sort_order, is_active, status, status_at
              FROM pos_printers WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} ORDER BY sort_order, name`,
-        tx`SELECT printer_id, target_kind, target_id FROM pos_print_routes WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`,
         tx`SELECT * FROM pos_devices WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} ORDER BY revoked_at NULLS FIRST, created_at`,
         tx`SELECT id, name, width, height, revenue_stream_id, decor, sort_order FROM floor_areas
             WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} ORDER BY sort_order, name`,
@@ -477,14 +497,21 @@ export default async function posSetupRoutes(app) {
             WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} ORDER BY sort_order, name`,
         flowsView(tx, tenantId, venueId, settings),
         tx`SELECT id, name, settings, updated_at, share_token IS NOT NULL AS shared FROM kiosk_designs WHERE tenant_id = ${tenantId} ORDER BY created_at`,
+        // Each printer's waiting and failed tickets (the last day).
+        tx`SELECT printer_id, count(*) FILTER (WHERE status IN ('queued', 'printing'))::int AS waiting,
+                  count(*) FILTER (WHERE status = 'failed')::int AS failed
+             FROM pos_print_jobs
+            WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND created_at > now() - interval '1 day' AND printer_id IS NOT NULL
+            GROUP BY printer_id`,
       ])
+      const jobsOf = Object.fromEntries(jobCounts.map(j => [j.printer_id, { waiting: j.waiting, failed: j.failed }]))
       // A GloriaFood link (migration 159): its orders can go to the kitchen
       // screens (migration 178), each GloriaFood order type to one of ours.
       const [gfLink] = await tx`SELECT show_on_board FROM gloriafood_venue_links WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`
       const gloriafood = gfLink
         ? { show_on_board: gfLink.show_on_board, types: (await gloriaFoodTypes(tx, tenantId, settings.kds_gloriafood_types)).map }
         : null
-      // Sections and dishes, for printer routing.
+      // Sections and dishes, for the kitchen flow's link filters.
       const menuIds = menus.map(m => m.id)
       const [sections, items] = await Promise.all([
         tx`SELECT id, menu_id, title FROM menu_sections
@@ -496,7 +523,8 @@ export default async function posSetupRoutes(app) {
       return {
         venue: { id: venue.id, name: venue.name },
         settings: settingsView(settings),
-        revenue_streams: streams, order_types: orderTypes, printers, routes,
+        revenue_streams: streams, order_types: orderTypes,
+        printers: printers.map(p => ({ ...p, jobs: jobsOf[p.id] || { waiting: 0, failed: 0 } })),
         devices: devices.map(deviceView),
         floor_areas: areas.map(a => ({ ...a, decor: a.decor || [] })),
         tables, staff,
@@ -628,7 +656,6 @@ export default async function posSetupRoutes(app) {
       // Sales already posted to it keep pointing at it: switch it off instead.
       if (n) await tx`UPDATE pos_revenue_streams SET is_active = false WHERE id = ${id} AND tenant_id = ${req.tenantId}`
       else await tx`DELETE FROM pos_revenue_streams WHERE id = ${id} AND tenant_id = ${req.tenantId}`
-      await tx`DELETE FROM pos_print_routes WHERE tenant_id = ${req.tenantId} AND target_kind = 'revenue_stream' AND target_id = ${id}`
       await dropFlowTarget(tx, req.tenantId, 'revenue_stream', id)
       return { ...row, switched_off: n > 0 }
     })
@@ -664,11 +691,12 @@ export default async function posSetupRoutes(app) {
     const row = await withTenant(req.tenantId, async tx => {
       await ownVenue(tx, req.tenantId, venueId)
       const backup = await checkBackup(tx, req.tenantId, venueId, body.backup_printer_id)
+      const deviceId = await checkPrinterDevice(tx, req.tenantId, venueId, body)
       const [{ n }] = await tx`SELECT COALESCE(MAX(sort_order), -1)::int + 1 AS n FROM pos_printers WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}`
       const [p] = await tx`
-        INSERT INTO pos_printers (tenant_id, venue_id, name, kind, host, port, columns, backup_printer_id, sort_order, is_active)
-        VALUES (${req.tenantId}, ${venueId}, ${body.name}, ${body.kind}, ${body.host || null}, ${body.port}, ${body.columns},
-                ${backup}, ${n}, ${body.is_active})
+        INSERT INTO pos_printers (tenant_id, venue_id, name, kind, connection, device_id, host, port, columns, backup_printer_id, sort_order, is_active)
+        VALUES (${req.tenantId}, ${venueId}, ${body.name}, ${body.kind}, ${body.connection}, ${deviceId}, ${body.host || null}, ${body.port},
+                ${body.columns}, ${backup}, ${n}, ${body.is_active})
         RETURNING *`
       return p
     })
@@ -682,12 +710,22 @@ export default async function posSetupRoutes(app) {
     const row = await withTenant(req.tenantId, async tx => {
       const p = await ownRow(tx, 'pos_printers', req.tenantId, id, 'Printer')
       const backup = await checkBackup(tx, req.tenantId, p.venue_id, body.backup_printer_id, id)
+      const deviceId = await checkPrinterDevice(tx, req.tenantId, p.venue_id, body)
+      const moved = body.connection !== p.connection || deviceId !== p.device_id
       const [out] = await tx`
         UPDATE pos_printers
-           SET name = ${body.name}, kind = ${body.kind}, host = ${body.host || null}, port = ${body.port},
-               columns = ${body.columns}, backup_printer_id = ${backup}, is_active = ${body.is_active}
+           SET name = ${body.name}, kind = ${body.kind}, connection = ${body.connection}, device_id = ${deviceId},
+               host = ${body.host || null}, port = ${body.port},
+               columns = ${body.columns}, backup_printer_id = ${backup}, is_active = ${body.is_active},
+               status = CASE WHEN ${moved} THEN NULL ELSE status END,
+               status_at = CASE WHEN ${moved} THEN NULL ELSE status_at END
          WHERE id = ${id} AND tenant_id = ${req.tenantId}
          RETURNING *`
+      // Tickets waiting for it go to whoever prints for it now.
+      if (moved) {
+        await tx`UPDATE pos_print_jobs SET status = 'queued', claimed_by = NULL, claimed_at = NULL
+                  WHERE tenant_id = ${req.tenantId} AND printer_id = ${id} AND status = 'printing'`
+      }
       return out
     })
     configChanged(row.venue_id)
@@ -699,49 +737,17 @@ export default async function posSetupRoutes(app) {
     const p = await withTenant(req.tenantId, async tx => {
       const row = await ownRow(tx, 'pos_printers', req.tenantId, id, 'Printer')
       await tx`DELETE FROM pos_printers WHERE id = ${id} AND tenant_id = ${req.tenantId}`
+      // Nothing may keep printing to it: kitchen printer boxes and devices' receipt printer.
+      await tx`
+        UPDATE kds_stations SET settings = settings - 'printer_id'
+         WHERE tenant_id = ${req.tenantId} AND venue_id = ${row.venue_id} AND settings->>'printer_id' = ${id}`
+      await tx`
+        UPDATE pos_devices SET settings = settings - 'receipt_printer_id'
+         WHERE tenant_id = ${req.tenantId} AND venue_id = ${row.venue_id} AND settings->>'receipt_printer_id' = ${id}`
       return row
     })
     configChanged(p.venue_id)
     return { ok: true }
-  })
-
-  app.put('/venues/:venueId/routes', { preHandler: canSetup }, async req => {
-    const venueId = UUID.parse(req.params.venueId)
-    const { routes } = RoutesBody.parse(req.body)
-    const out = await withTenant(req.tenantId, async tx => {
-      await ownVenue(tx, req.tenantId, venueId)
-      const printers = new Set((await tx`SELECT id FROM pos_printers WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}`).map(r => r.id))
-      const streams = new Set((await tx`SELECT id FROM pos_revenue_streams WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}`).map(r => r.id))
-      const clean = []
-      const seen = new Set()
-      for (const r of routes) {
-        if (!printers.has(r.printer_id)) throw httpError(422, 'Printer not found')
-        const target = r.target_kind === 'default' ? null : (r.target_id || null)
-        if (r.target_kind !== 'default' && !target) throw httpError(422, 'A route needs a dish, section or revenue stream')
-        if (r.target_kind === 'revenue_stream' && !streams.has(target)) throw httpError(422, 'Revenue stream not found')
-        const key = r.printer_id + r.target_kind + target
-        if (seen.has(key)) continue
-        seen.add(key)
-        clean.push({ ...r, target_id: target })
-      }
-      // Dish and section targets must be the tenant's.
-      const menuIds = clean.filter(r => r.target_kind === 'item' || r.target_kind === 'section').map(r => r.target_id)
-      if (menuIds.length) {
-        const found = await tx`
-          SELECT id FROM menu_items WHERE tenant_id = ${req.tenantId} AND id = ANY(${menuIds}::uuid[])
-          UNION SELECT id FROM menu_sections WHERE tenant_id = ${req.tenantId} AND id = ANY(${menuIds}::uuid[])`
-        if (found.length !== new Set(menuIds).size) throw httpError(422, 'A dish or section wasn\'t found')
-      }
-      await tx`DELETE FROM pos_print_routes WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}`
-      for (const r of clean) {
-        await tx`
-          INSERT INTO pos_print_routes (tenant_id, venue_id, printer_id, target_kind, target_id)
-          VALUES (${req.tenantId}, ${venueId}, ${r.printer_id}, ${r.target_kind}, ${r.target_id})`
-      }
-      return tx`SELECT printer_id, target_kind, target_id FROM pos_print_routes WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}`
-    })
-    configChanged(venueId)
-    return { routes: out }
   })
 
   // ── Devices ─────────────────────────────────────────────────────
@@ -766,39 +772,11 @@ export default async function posSetupRoutes(app) {
     if (s.design_id) await checkDesign(tx, tenantId, s.design_id)
   }
 
-  app.post('/venues/:venueId/devices', { preHandler: canSetup }, async (req, reply) => {
-    const venueId = UUID.parse(req.params.venueId)
-    const body = DeviceBody.parse(req.body)
-    const out = await withTenant(req.tenantId, async tx => {
-      await ownVenue(tx, req.tenantId, venueId)
-      await checkDeviceSettings(tx, req.tenantId, venueId, body.settings)
-      const short = await nextShortCode(tx, req.tenantId, venueId, body.kind)
-      const [d] = await tx`
-        INSERT INTO pos_devices (tenant_id, venue_id, kind, name, short_code, settings, created_by)
-        VALUES (${req.tenantId}, ${venueId}, ${body.kind}, ${body.name}, ${short}, ${tx.json(body.settings)}, ${by(req)})
-        RETURNING *`
-      const code = await openPairing(tx, req.tenantId, d.id)
-      const [fresh] = await tx`SELECT * FROM pos_devices WHERE id = ${d.id} AND tenant_id = ${req.tenantId}`
-      return { device: deviceView(fresh), pairing_code: code }
-    })
-    return reply.code(201).send(out)
-  })
-
-  app.post('/devices/:id/pairing-code', { preHandler: canSetup }, async req => {
-    const id = UUID.parse(req.params.id)
-    return withTenant(req.tenantId, async tx => {
-      const d = await ownRow(tx, 'pos_devices', req.tenantId, id, 'Till')
-      if (d.revoked_at) throw httpError(422, 'This till was removed')
-      const code = await openPairing(tx, req.tenantId, id)
-      const [fresh] = await tx`SELECT * FROM pos_devices WHERE id = ${id} AND tenant_id = ${req.tenantId}`
-      return { device: deviceView(fresh), pairing_code: code }
-    })
-  })
-
-  // A device showing a code of its own (POST /pos-api/pairings, migration
-  // 184): a new till, kitchen screen or kiosk at this venue, or a new device
-  // for one already here (the old device stops working). The address the code
-  // was shown on decides the kind.
+  // The one way a till, kitchen screen or kiosk is set up: the device shows a
+  // code of its own (POST /pos-api/pairings, migration 184) and someone signed
+  // in types it here, from Till setup or the installer app. A new device at
+  // this venue, or a new device for one already here (the old device stops
+  // working). The address the code was shown on decides the kind.
   app.post('/venues/:venueId/link', { preHandler: canSetup, config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (req, reply) => {
     const venueId = UUID.parse(req.params.venueId)
     const body = z.object({
@@ -1052,6 +1030,7 @@ export default async function posSetupRoutes(app) {
     const row = await withTenant(req.tenantId, async tx => {
       await ownVenue(tx, req.tenantId, venueId)
       await checkPieces(tx, req.tenantId, body.settings)
+      await checkStationPrinter(tx, req.tenantId, venueId, body.settings)
       const [{ n }] = await tx`SELECT COALESCE(MAX(sort_order), -1)::int + 1 AS n FROM kds_stations WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}`
       const [s] = await tx`
         INSERT INTO kds_stations (tenant_id, venue_id, name, kind, colour, settings, sort_order, is_active)
@@ -1067,8 +1046,9 @@ export default async function posSetupRoutes(app) {
     const id = UUID.parse(req.params.id)
     const body = StationBody.parse(req.body)
     const row = await withTenant(req.tenantId, async tx => {
-      await ownRow(tx, 'kds_stations', req.tenantId, id, 'Kitchen station')
+      const was = await ownRow(tx, 'kds_stations', req.tenantId, id, 'Kitchen station')
       await checkPieces(tx, req.tenantId, body.settings)
+      await checkStationPrinter(tx, req.tenantId, was.venue_id, body.settings)
       const [s] = await tx`
         UPDATE kds_stations
            SET name = ${body.name}, kind = ${body.kind}, colour = ${body.colour || null},
@@ -1081,6 +1061,8 @@ export default async function posSetupRoutes(app) {
         await dropDeviceStation(tx, req.tenantId, s.venue_id, id)
       }
       if (body.kind === 'balance') await tidyBalanceBox(tx, req.tenantId, s.venue_id, id)
+      // A kitchen printer isn't on any kitchen screen.
+      if (body.kind === 'printer') await dropDeviceStation(tx, req.tenantId, s.venue_id, id)
       // Stations that stop bumping can't take a Balance box's dishes.
       if (!BUMP_KINDS.includes(body.kind)) {
         await tx`
@@ -1743,5 +1725,24 @@ export default async function posSetupRoutes(app) {
          ORDER BY j.created_at DESC
          LIMIT 200`
     })
+  })
+
+  // A ticket that didn't print (printer off, out of paper): queue it again
+  // for whoever prints for that printer now.
+  app.post('/print-jobs/:id/again', { preHandler: canSetup }, async req => {
+    const id = UUID.parse(req.params.id)
+    const row = await withTenant(req.tenantId, async tx => {
+      const [j] = await tx`
+        UPDATE pos_print_jobs SET status = 'queued', error = NULL, claimed_by = NULL, claimed_at = NULL
+         WHERE id = ${id} AND tenant_id = ${req.tenantId} AND status IN ('failed', 'cancelled')
+         RETURNING id, venue_id, status`
+      if (!j) {
+        const [any] = await tx`SELECT id FROM pos_print_jobs WHERE id = ${id} AND tenant_id = ${req.tenantId}`
+        throw any ? httpError(422, 'That ticket is printing or has printed') : httpError(404, 'Print job not found')
+      }
+      return j
+    })
+    broadcast('pos:' + row.venue_id, { type: 'pos.print' })
+    return { id: row.id, status: row.status }
   })
 }

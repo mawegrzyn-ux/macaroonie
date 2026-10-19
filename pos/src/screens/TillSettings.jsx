@@ -1,5 +1,5 @@
-// This till: connection and sync, printing here, the print queue (waiting
-// for the venue hub), events that weren't saved, and disconnecting it.
+// This till: connection and sync, printing here, the print queue (tickets
+// waiting for their printer), events that weren't saved, and disconnecting it.
 
 import { useEffect, useState } from 'react'
 import { RefreshCw, Printer, Unplug, Check, AlertTriangle } from 'lucide-react'
@@ -16,12 +16,13 @@ export default function TillSettings() {
   const loadJobs = async () => { try { setJobs(await server.printJobs('queued')) } catch { setJobs([]) } }
   useEffect(() => { loadJobs() }, [])
   const printers = Object.fromEntries((s.config.printers || []).map(p => [p.id, p]))
+  const ownPrinters = (s.config.printers || []).filter(p => p.connection === 'device' && p.device_id === s.device?.id)
   const doDisconnect = async () => {
     if (s.outbox.length) return toast(s.outbox.length + ' changes haven\'t been sent yet: connect first', 'bad')
     const a = await approve('manager', null, 'Disconnecting the till needs a manager.')
     if (a === false) return
     const told = await disconnect()
-    if (!told) toast('Disconnected here. Macaroonie couldn\'t be told (offline): remove the till in Till setup, or make it a new code.', 'bad', 9000)
+    if (!told) toast('Disconnected here. Macaroonie couldn\'t be told (offline): remove the till in Till setup, or link the code this tablet shows next.', 'bad', 9000)
   }
   return (
     <div className="h-full overflow-y-auto p-5">
@@ -42,13 +43,15 @@ export default function TillSettings() {
           <div className="flex gap-2 flex-wrap">
             <button className="btn" onClick={async () => { await flush(); await pull(); await loadConfig(); toast('Synced', 'ok') }}><RefreshCw size={18} /> Sync now</button>
           </div>
-          <div className="text-sm text-muted">The till keeps working with the internet down; changes wait here and are sent when it comes back. Kitchen tickets print through the venue hub once one is installed.</div>
+          <div className="text-sm text-muted">The till keeps working with the internet down; changes wait here and are sent when it comes back. Kitchen tickets print where the kitchen flow sends them (Till setup, Kitchen screens).</div>
         </div>
 
         <div className="card p-5 space-y-3">
           <div className="text-lg font-bold">Print from this tablet</div>
-          <Toggle on={s.prefs.print_bills} label="Bills and receipts" hint="Uses the tablet's own print dialog (a printer set up in Android or Windows)." onChange={v => setPrefs({ print_bills: v })} />
-          <Toggle on={s.prefs.print_kitchen} label="Kitchen tickets too" hint="Until the venue hub prints them to the kitchen printers." onChange={v => setPrefs({ print_kitchen: v })} />
+          <Toggle on={s.prefs.print_bills} label="Bills and receipts" hint="When this till has no receipt printer, or one plugged into it: through the tablet's own print dialog (a printer set up in Android or Windows). A receipt printer on the network prints through the venue hub." onChange={v => setPrefs({ print_bills: v })} />
+          {ownPrinters.length > 0 && (
+            <div className="text-sm" data-testid="own-printers">Plugged into this till: <b>{ownPrinters.map(p => p.name).join(', ')}</b>. Their tickets print here as they come in (start Chrome with --kiosk-printing to print without the dialog).</div>
+          )}
         </div>
 
         <div className="card p-5 space-y-3">
@@ -56,7 +59,7 @@ export default function TillSettings() {
             <div className="text-lg font-bold flex-1">Print queue</div>
             <button className="btn" onClick={loadJobs}><RefreshCw size={18} /></button>
           </div>
-          <div className="text-sm text-muted">Tickets waiting for the venue hub to print them to {Object.keys(printers).length ? 'the network printers' : 'network printers (none set up yet)'}.</div>
+          <div className="text-sm text-muted">Tickets waiting for their printer: the venue hub prints the network printers, a till or kitchen screen the printers plugged into it. Print one here if its printer is down.</div>
           <div className="divide-y divide-line">
             {jobs.slice(0, 30).map(j => (
               <div key={j.id} className="py-2 flex items-center gap-3">
@@ -81,7 +84,7 @@ export default function TillSettings() {
 
         <div className="card p-5 space-y-3" data-testid="disconnect-card">
           <div className="text-lg font-bold">Disconnect this till</div>
-          <div className="text-sm text-muted">This tablet stops being a till until it is paired again with a new code from Till setup. The till keeps its name and settings in Till setup.</div>
+          <div className="text-sm text-muted">This tablet stops being a till and shows a code. Link that code in Till setup (Tills, Link a device) or with the installer app to set it up again: the till keeps its name and settings.</div>
           {s.outbox.length > 0 && <div className="rounded-xl bg-bad-soft text-bad p-3 text-sm font-semibold">{s.outbox.length} changes haven&apos;t been sent yet. Get the till online first: they go by themselves.</div>}
           {!confirmDisconnect
             ? <button className="btn text-bad" onClick={() => setConfirmDisconnect(true)}><Unplug size={18} /> Disconnect</button>

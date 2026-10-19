@@ -43,7 +43,7 @@ const OWNED_TABLES = [
   'schedule_date_overrides', 'override_sittings', 'override_slot_caps',
   'booking_rules', 'deposit_rules',
   'cash_income_sources', 'cash_payment_channels', 'cash_sc_sources', 'cash_expense_categories', 'cash_staff',
-  'pos_revenue_streams', 'floor_areas', 'pos_printers', 'pos_print_routes',
+  'pos_revenue_streams', 'floor_areas', 'pos_printers',
   'kds_stations', 'kds_flows', 'kds_flow_edges', 'pos_devices', 'screens', 'screen_walls',
   'checklist_templates', 'fs_equipment', 'fs_capture_times', 'fs_hold_stations', 'fs_hold_capture_times',
   'fs_cooking_sessions', 'fs_cooking_settings', 'fs_cooking_items', 'hs_dashboards',
@@ -364,8 +364,9 @@ const AREAS = {
     if (mode === 'copy') {
       const streams = await copyTable(s, 'pos_revenue_streams')
       const areas = await copyTable(s, 'floor_areas')
-      const printers = await copyTable(s, 'pos_printers')
-      await copyTable(s, 'pos_print_routes', { need: ['printer_id'] })
+      // A printer plugged into one of the old location's devices waits for one
+      // of the new location's (Till setup -> Printers); the hub's last report goes.
+      const printers = await copyTable(s, 'pos_printers', { set: { device_id: null, status: null, status_at: null } })
       await copyTable(s, 'pos_settings', {
         set: {
           pin_salt: () => randomBytes(16).toString('hex'),
@@ -375,8 +376,12 @@ const AREAS = {
         },
       })
       await ensureSettings(tx, tenantId, to)
+      // Which print design prints where, and the words it changes (designs are company wide).
+      const printUses = await copyTable(s, 'print_design_uses')
+      await copyTable(s, 'print_design_variations')
       return [
         'Receipts say "' + receiptName + '"',
+        ...(printUses.length ? [plural(printUses.length, 'print design choice')] : []),
         streams.length ? 'Revenue streams: ' + streams.map(x => x.name).join(', ') : 'No revenue streams',
         plural(areas.length, 'floor area') + ', ' + plural(printers.length, 'printer') + ' (check each printer\'s address on site)',
       ]

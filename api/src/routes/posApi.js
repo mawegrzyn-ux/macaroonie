@@ -6,16 +6,17 @@
 // the till itself (shared/pos/pin.js); events carry their staff id and the
 // sequencer checks what their POS role allows.
 //
-//   POST /pair                  { code, app? } -> { device_id, secret, ... }   (no auth). `app` is the
-//                               kind the address runs (pos. till, kitchen. kitchen screen, kiosk.
-//                               kiosk): a code for another kind is refused, naming its address
 //   POST /pairings              { app?, device? } (no auth) a code for this device to show, with a
 //                               QR code to the installer app: { id, code, secret, expires_at, link_url }
-//                               (migration 184; someone signed in links it: POST /api/pos/venues/:id/link)
+//                               (migration 184; someone signed in links it: POST /api/pos/venues/:id/link,
+//                               from Till setup or the installer). The one way a device is set up
+//   POST /pair                  { code, app? } -> { device_id, secret, ... }   (no auth). Only the hand-over
+//                               code of POST /move, typed in by the app at the new address. `app` is the
+//                               kind the address runs: a code for another kind is refused, naming its address
 //   GET  /pairings/:id          `Authorization: Pairing <secret>`: { status: 'waiting' | 'paired' |
 //                               'expired' }; once paired the device signs in as `Device <id>.<the same secret>`
 //   POST /disconnect            the device forgets its pairing (its settings): the secret stops
-//                               working, Till setup shows it not paired, a new code pairs it again
+//                               working, Till setup shows it not linked; linking a device showing a code sets it up again
 //   POST /move                  a kitchen screen or kiosk still on another address moves to its
 //                               own: a one-time pairing code (10 minutes) for its address
 //   GET  /kiosk-preview?token=  a kiosk design's preview config (the signed link is the key, services/kioskSvc.js)
@@ -41,8 +42,11 @@
 //   GET  /print-jobs            the venue's print queue
 //   PUT  /sold-out/:itemId      { sold_out: 'today' | 'indefinite' | false, staff_id, approved_by? }
 //                               (role permission sold_out; services/soldOut.js, online only)
-//   POST /print-jobs/claim      a hub (later) takes queued jobs for its printers
+//   POST /print-jobs/claim      takes queued jobs for the printers it prints for (migration
+//                               191): a venue hub, the network printers (connection 'hub'); a
+//                               till or kitchen screen, the printers plugged into it
 //   POST /print-jobs/:id/status { status: 'printed' | 'failed', error }
+//   POST /hub/status            a venue hub's report: its version, each printer's state
 //
 // The cloud sequences every venue's events until a venue hub is installed;
 // the hub will serve this same API on the LAN (the till's transport picks
@@ -54,7 +58,7 @@ import { sql, withTenant, systemSql, tenantSql } from '../config/db.js'
 import { httpError } from '../middleware/error.js'
 import { broadcast } from '../config/ws.js'
 import {
-  tillConfig, sequencer, sha256, normaliseCode, newDeviceSecret, loadDayChecks, fillReconFromDay, dayReport, loadTillStaff, openPairing,
+  tillConfig, hubConfig, sequencer, sha256, normaliseCode, newDeviceSecret, loadDayChecks, fillReconFromDay, dayReport, loadTillStaff, openPairing,
 } from '../services/posSvc.js'
 import { deviceOrigin } from '../services/platformHost.js'
 import { LINK_MINUTES, newLinkCode, linkCodeHash, linkCodeTaken, linkUrl } from '../services/linkCodes.js'
@@ -111,6 +115,11 @@ export async function verifyDevice(id, secret) {
 const lastSeen = new Map()
 
 const KIOSK_ROUTES = new Set(['GET /pos-api/me', 'GET /pos-api/config', 'POST /pos-api/events', 'POST /pos-api/disconnect', 'POST /pos-api/move'])
+// A venue hub (hub/) prints and reports, nothing else.
+const HUB_ROUTES = new Set(['GET /pos-api/me', 'GET /pos-api/config', 'POST /pos-api/print-jobs/claim', 'POST /pos-api/print-jobs/:id/status',
+  'POST /pos-api/hub/status', 'POST /pos-api/disconnect'])
+// A collected ticket nobody reported on (the device went off) is collected again.
+const CLAIM_STALE = '2 minutes'
 
 const KIND_NAME = { terminal: 'a till', kds: 'a kitchen screen', kiosk: 'a self-order kiosk', hub: 'a venue hub' }
 
@@ -123,6 +132,8 @@ const LinkDeviceInfo = z.object({
   app_version: z.string().max(40).optional(),
 }).partial()
 const DEVICE_APPS = ['terminal', 'kds', 'kiosk']
+// What can show a link code: the apps, and the venue hub (it has no address of its own).
+const CODE_APPS = [...DEVICE_APPS, 'hub']
 
 async function requireDevice(req, reply) {
   const m = /^Device ([0-9a-f-]{36})\.([A-Za-z0-9_-]{20,})$/i.exec(req.headers.authorization || '')
@@ -132,8 +143,12 @@ async function requireDevice(req, reply) {
   if (!d.pos_enabled) return reply.code(403).send({ error: 'The till is switched off for this restaurant', code: 'pos_off' })
   // A kiosk is a public screen: it reads its own config and sends its own
   // orders, nothing else (no other checks, reports, print queue or sold out).
-  if (d.kind === 'kiosk' && !KIOSK_ROUTES.has(req.method + ' ' + (req.routeOptions?.url || req.routerPath))) {
+  const route = req.method + ' ' + (req.routeOptions?.url || req.routerPath)
+  if (d.kind === 'kiosk' && !KIOSK_ROUTES.has(route)) {
     return reply.code(403).send({ error: 'A kiosk can\'t do this', code: 'kiosk' })
+  }
+  if (d.kind === 'hub' && !HUB_ROUTES.has(route)) {
+    return reply.code(403).send({ error: 'A venue hub can\'t do this', code: 'hub' })
   }
   req.posDevice = d
   req.tenantId = d.tenant_id
@@ -173,7 +188,10 @@ async function currentDay(tx, tenantId, venueId) {
 }
 
 export default async function posApiRoutes(app) {
-  // ── Pairing (no auth: the one-time code is the key) ──────────────
+  // ── Move hand-over (no auth: the one-time code is the key) ───────
+  // A device moving to its own address (POST /move below) hands this code
+  // to the app there, which pairs as the same device. People never type
+  // these: a device is set up by the code it shows (/pairings).
   app.post('/pair', { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async req => {
     const body = z.object({
       code: z.string().min(4).max(20),
@@ -184,7 +202,7 @@ export default async function posApiRoutes(app) {
       user_agent: z.string().max(300).optional(),
     }).parse(req.body)
     const hash = sha256(normaliseCode(body.code))
-    const bad = () => httpError(422, 'That code isn\'t right or has run out: make a new one in Till setup')
+    const bad = () => httpError(422, 'That code isn\'t right or has run out: move the device again from its old address, or link it with the code it shows')
     const [found] = await systemSql`
       SELECT id, kind FROM pos_devices
        WHERE pairing_code_hash = ${hash} AND pairing_expires_at > now() AND revoked_at IS NULL`
@@ -219,7 +237,7 @@ export default async function posApiRoutes(app) {
   // Limits are per address, and a venue's devices share one: room for a
   // dozen being set up at once, each polling every 4 s.
   app.post('/pairings', { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async req => {
-    const body = z.object({ app: z.enum(DEVICE_APPS).optional(), device: LinkDeviceInfo.optional() }).parse(req.body || {})
+    const body = z.object({ app: z.enum(CODE_APPS).optional(), device: LinkDeviceInfo.optional() }).parse(req.body || {})
     const secret = newDeviceSecret()
     await systemSql`DELETE FROM pos_pairings WHERE expires_at < now() - interval '1 day'`
     for (let i = 0; i < 6; i++) {
@@ -312,7 +330,8 @@ export default async function posApiRoutes(app) {
     scoped.addHook('preHandler', requireDevice)
 
     // The device forgets its pairing (Disconnect in its settings). Its row
-    // stays, with its name and settings, so Till setup can make it a new code.
+    // stays, with its name and settings: linking a device showing a code to
+    // it (Till setup or the installer) sets it up again.
     scoped.post('/disconnect', async req => {
       const d = req.posDevice
       await tenantSql(d.tenant_id)`
@@ -348,7 +367,9 @@ export default async function posApiRoutes(app) {
       // own settings count towards the version, so a change made in Till
       // setup reaches it. A kiosk gets its menus, design and languages
       // (services/kioskSvc.js), no staff and no PINs.
-      const config = d.kind === 'kds'
+      const config = d.kind === 'hub'
+        ? await withTenant(d.tenant_id, tx => hubConfig(tx, d.tenant_id, d.venue_id))
+        : d.kind === 'kds'
         ? await withTenant(d.tenant_id, async tx => {
           const c = await kdsConfig(tx, d.tenant_id, d.venue_id)
           return { ...c, version: c.version + '.' + sha256(JSON.stringify(device)).slice(0, 8) }
@@ -450,6 +471,7 @@ export default async function posApiRoutes(app) {
       const kitchen = {}
       const kinds = new Set()
       let accepted = 0
+      let printing = false
       let kioskIds = null
       for (const raw of events) {
         // The till names itself and its venue by its pairing, not by the event.
@@ -481,6 +503,7 @@ export default async function posApiRoutes(app) {
         }
         const r = await seqr.submit(e)
         raw_results.push(r)
+        if (r.jobs?.length && !r.duplicate) printing = true
         if (r.ok) {
           if (!r.duplicate) accepted++
           for (const [id, c] of Object.entries(r.checks || {})) { changed[id] = c; kinds.add('checks') }
@@ -497,6 +520,8 @@ export default async function posApiRoutes(app) {
         broadcast('pos:' + d.venue_id, { type: 'pos.seq', seq, from: d.id, kinds: kinds.size ? [...kinds] : ['checks'] })
         if (kinds.has('kitchen')) broadcast('screens:' + d.venue_id, { type: 'kitchen.board' })
       }
+      // Tickets to print: whoever prints for those printers collects them now.
+      if (printing) broadcast('pos:' + d.venue_id, { type: 'pos.print' })
       afterKitchen(req, d, raw_results)
       return { results, seq, checks: Object.values(changed), kitchen: Object.values(kitchen) }
     })
@@ -563,17 +588,22 @@ export default async function posApiRoutes(app) {
          ORDER BY created_at DESC LIMIT 100`)
     })
 
-    // For the venue hub (docs/POS.md): take queued jobs for printing.
+    // Take queued jobs for printing: a venue hub the network printers', a
+    // till or kitchen screen the ones plugged into it (pos_printers.connection,
+    // migration 191). A job collected but never reported on is collected again.
     scoped.post('/print-jobs/claim', async req => {
       const d = req.posDevice
-      if (d.kind !== 'hub') throw httpError(403, 'Only a hub collects print jobs')
+      if (!['hub', 'terminal', 'kds'].includes(d.kind)) throw httpError(403, 'This device doesn\'t print tickets')
       const body = z.object({ limit: z.number().int().min(1).max(50).default(20) }).parse(req.body || {})
       return withTenant(d.tenant_id, tx => tx`
-        UPDATE pos_print_jobs SET status = 'printing', claimed_by = ${d.id}, attempts = attempts + 1
+        UPDATE pos_print_jobs SET status = 'printing', claimed_by = ${d.id}, claimed_at = now(), attempts = attempts + 1
          WHERE id IN (
-           SELECT id FROM pos_print_jobs
-            WHERE tenant_id = ${d.tenant_id} AND venue_id = ${d.venue_id} AND status = 'queued'
-            ORDER BY created_at LIMIT ${body.limit} FOR UPDATE SKIP LOCKED)
+           SELECT j.id FROM pos_print_jobs j
+             JOIN pos_printers p ON p.id = j.printer_id AND p.tenant_id = j.tenant_id AND p.venue_id = j.venue_id
+            WHERE j.tenant_id = ${d.tenant_id} AND j.venue_id = ${d.venue_id}
+              AND (j.status = 'queued' OR (j.status = 'printing' AND j.claimed_at < now() - ${CLAIM_STALE}::interval))
+              AND (${d.kind === 'hub'} AND p.connection = 'hub' OR p.connection = 'device' AND p.device_id = ${d.id})
+            ORDER BY j.created_at LIMIT ${body.limit} FOR UPDATE OF j SKIP LOCKED)
         RETURNING id, printer_id, kind, title, ops, check_id, created_at`)
     })
 
@@ -581,14 +611,46 @@ export default async function posApiRoutes(app) {
       const d = req.posDevice
       const id = UUID.parse(req.params.id)
       const body = z.object({ status: z.enum(['printed', 'failed', 'cancelled']), error: z.string().max(300).nullable().optional() }).parse(req.body)
+      // The device that collected it reports on it; a waiting one can be
+      // marked printed from a till (printed there by hand, its printer down).
       const [row] = await withTenant(d.tenant_id, tx => tx`
         UPDATE pos_print_jobs
            SET status = ${body.status}, error = ${body.error ?? null},
                printed_at = ${body.status === 'printed' ? new Date() : null}
          WHERE id = ${id} AND tenant_id = ${d.tenant_id} AND venue_id = ${d.venue_id}
+           AND (claimed_by = ${d.id} OR status = 'queued' AND ${d.kind === 'terminal'})
          RETURNING id, status`)
       if (!row) throw httpError(404, 'Print job not found')
       return row
+    })
+
+    // A venue hub's report (every minute): its version and how each of its
+    // printers is, shown in Till setup -> Printers.
+    scoped.post('/hub/status', async req => {
+      const d = req.posDevice
+      if (d.kind !== 'hub') throw httpError(403, 'Only a venue hub reports printers')
+      const body = z.object({
+        app_version: z.string().max(40).nullable().optional(),
+        printers: z.array(z.object({
+          id: UUID,
+          online: z.boolean(),
+          paper_low: z.boolean().default(false),
+          paper_out: z.boolean().default(false),
+          cover_open: z.boolean().default(false),
+          error: z.string().max(200).nullable().optional(),
+        })).max(50).default([]),
+      }).parse(req.body || {})
+      await withTenant(d.tenant_id, async tx => {
+        await tx`UPDATE pos_devices SET last_seen_at = now(), app_version = COALESCE(${body.app_version ?? null}, app_version)
+                  WHERE id = ${d.id} AND tenant_id = ${d.tenant_id}`
+        for (const p of body.printers) {
+          const status = { online: p.online, paper_low: p.paper_low, paper_out: p.paper_out, cover_open: p.cover_open, error: p.error ?? null }
+          await tx`
+            UPDATE pos_printers SET status = ${tx.json(status)}, status_at = now()
+             WHERE id = ${p.id} AND tenant_id = ${d.tenant_id} AND venue_id = ${d.venue_id} AND connection = 'hub'`
+        }
+      })
+      return { ok: true }
     })
   })
 }

@@ -1,8 +1,9 @@
 // src/components/pos/KitchenSection.jsx
 //
 // Till setup > Kitchen screens (docs/POS.md section 9):
-//   - the kitchen screens: tablets or TVs paired like a till (one-time code at
-//     the till address); each shows one or more stations
+//   - the kitchen screens: tablets or TVs set up like a till (open the
+//     kitchen screen address on it, type the code it shows, or scan its QR
+//     code with a phone); each shows one or more stations
 //   - stations: prep stations (Grill, Fryer, Bar ...) make dishes; the expo
 //     (the pass) checks whole orders and marks them ready; runners take them
 //     out; order ready boards show the numbers on menu screens. Timings
@@ -15,28 +16,36 @@
 
 import { useEffect, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Loader2, KeyRound, Pencil, ChefHat, Trash2, Search, X, MonitorPlay } from 'lucide-react'
+import { Plus, Loader2, Pencil, ChefHat, Trash2, Search, X, MonitorPlay } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import {
-  Section, Modal, Field, inputCls, ErrorNote, ConfirmDelete, Segmented, Btn, NumberBox, Toggle, SortableRows, ColourPick, ago,
+  Section, Modal, Field, inputCls, ErrorNote, ConfirmDelete, Segmented, Btn, NumberBox, Toggle, SortableRows, ColourPick,
 } from './shared'
 import KitchenFlow from './KitchenFlow'
-import { PairingCode, deviceUrl, LinkShownCode, InstallerLine } from './TillsSection'
+import { deviceUrl, InstallerLine, status, ShownCodeField, LinkDeviceModal, LinkDeviceButton, linkShownCode, codeReady } from './TillsSection'
 import { STATION_KINDS, KIND_LABELS, isBumpKind } from '@shared/pos/kitchen.js'
 import { TYPE_LABELS as GF_TYPE_LABELS } from '@shared/gloriafood.js'
 
-const KINDS = STATION_KINDS.map(k => ({ value: k, label: { prep: 'Prep', expo: 'Expo (pass)', runner: 'Runner', board: 'Order ready board', balance: 'Balance box' }[k] }))
+const KINDS = STATION_KINDS.map(k => ({ value: k, label: { prep: 'Prep', expo: 'Expo (pass)', runner: 'Runner', board: 'Order ready board', balance: 'Balance box', printer: 'Kitchen printer' }[k] }))
 const KIND_HINTS = {
   prep: 'Makes dishes (Grill, Fryer, Bar...). Its bump sends them on to the next station in the kitchen flow.',
   expo: 'Checks whole orders before they go out (the pass). Its bump marks the order ready, and finishes dishes still at earlier stations.',
   runner: 'Takes orders out to tables or the counter. Last on a dish\'s way, its bump hands the order over.',
   board: 'An order ready board: shows order numbers on menu screens (Order status block). An order is ready there once every dish on its way to the board has arrived. Nothing to bump, no kitchen screen.',
   balance: 'Shares tickets between the stations it links to in the kitchen flow (e.g. two wingmen): each ticket\'s dishes that reach it go to the one with the fewest pieces still to cook, taking turns when they\'re level (big tickets can be shared out too). Nothing to bump, no kitchen screen.',
+  printer: 'Prints a ticket of the dishes that reach it in the kitchen flow, once: straight from Orders in when they are sent (held courses as HOLD, then FIRE), or after a kitchen screen when it bumps them. Nothing to bump; it can go on to a kitchen screen. Dishes that only reach printers count as done there.',
 }
 const VIEWS = [
   { value: 'tickets', label: 'Tickets' },
   { value: 'on_order', label: 'On order counts' },
+]
+const TICKET_TITLES = [
+  { value: 'auto', label: 'Table or name' },
+  { value: 'number', label: 'Order number' },
+  { value: 'tent', label: 'Tent' },
+  { value: 'table', label: 'Table' },
+  { value: 'name', label: 'Name' },
 ]
 const TEXT_SIZES = [
   { value: 'normal', label: 'Normal' },
@@ -48,10 +57,11 @@ const newId = () => Math.random().toString(36).slice(2, 10)
 
 // ── Kitchen screens (devices) ────────────────────────────────────
 
-function ScreenModal({ venueId, setup, device, onClose, onPaired }) {
+function ScreenModal({ venueId, setup, device, onClose }) {
   const api = useApi()
   const qc = useQueryClient()
   const s = device?.settings || {}
+  const [code, setCode] = useState('')
   const [form, setForm] = useState({
     name: device?.name || '',
     station_ids: s.station_ids || [],
@@ -60,6 +70,7 @@ function ScreenModal({ venueId, setup, device, onClose, onPaired }) {
     text_size: s.text_size || 'normal',
     sound: s.sound !== false,
     can_switch_flow: s.can_switch_flow !== false,
+    ticket_main: s.ticket_main || 'auto',
   })
   const set = patch => setForm(f => ({ ...f, ...patch }))
   const stations = setup.kds_stations.filter(x => x.is_active && isBumpKind(x.kind))
@@ -67,26 +78,27 @@ function ScreenModal({ venueId, setup, device, onClose, onPaired }) {
     name: form.name.trim(),
     settings: {
       station_ids: form.station_ids, view: form.view, columns: form.columns || undefined, text_size: form.text_size, sound: form.sound,
-      can_switch_flow: form.can_switch_flow,
+      can_switch_flow: form.can_switch_flow, ticket_main: form.ticket_main,
     },
   })
   const refresh = () => qc.invalidateQueries({ queryKey: ['pos-setup', venueId] })
   const save = useMutation({
     mutationFn: () => device
       ? api.patch(`/pos/devices/${device.id}`, body())
-      : api.post(`/pos/venues/${venueId}/devices`, { ...body(), kind: 'kds' }),
-    onSuccess: out => { refresh(); if (!device) onPaired(out); else onClose() },
+      : linkShownCode(api, venueId, 'kds', code, body()),
+    onSuccess: () => { refresh(); onClose() },
   })
   const remove = useMutation({ mutationFn: () => api.delete(`/pos/devices/${device.id}`), onSuccess: () => { refresh(); onClose() } })
   const toggle = id => set({ station_ids: form.station_ids.includes(id) ? form.station_ids.filter(x => x !== id) : [...form.station_ids, id] })
   return (
     <Modal title={device ? 'Edit ' + device.name : 'Add a kitchen screen'} onClose={onClose}
       footer={<>
-        <Btn variant="primary" className="flex-1" disabled={!form.name.trim() || save.isPending} onClick={() => save.mutate()}>
-          {save.isPending && <Loader2 className="w-4 h-4 animate-spin" />} {device ? 'Save' : 'Add and get a pairing code'}
+        <Btn variant="primary" className="flex-1" disabled={!form.name.trim() || (!device && !codeReady(code)) || save.isPending} onClick={() => save.mutate()} data-testid="device-save">
+          {save.isPending && <Loader2 className="w-4 h-4 animate-spin" />} {device ? 'Save' : 'Add the screen'}
         </Btn>
         {device && <ConfirmDelete label="Remove screen" confirmLabel="Yes, remove" onConfirm={() => remove.mutate()} disabled={remove.isPending} />}
       </>}>
+      {!device && <ShownCodeField setup={setup} kind="kds" value={code} onChange={setCode} autoFocus />}
       <Field label="Name" hint="e.g. Grill screen, Pass.">
         <input className={inputCls} value={form.name} maxLength={60} onChange={e => set({ name: e.target.value })} placeholder="e.g. Grill screen" />
       </Field>
@@ -112,6 +124,11 @@ function ScreenModal({ venueId, setup, device, onClose, onPaired }) {
         </Field>
         <Field group label="Text size"><Segmented value={form.text_size} options={TEXT_SIZES} onChange={v => set({ text_size: v })} /></Field>
       </div>
+      <Field group label="Ticket title" hint={form.ticket_main === 'auto'
+        ? 'The table, or the name typed on the till or kiosk, with the order number beside it.'
+        : 'An order without one shows the table or name instead. The order number stays beside it (or the table or tent, when the title is the order number).'}>
+        <Segmented value={form.ticket_main} options={TICKET_TITLES} onChange={v => set({ ticket_main: v })} />
+      </Field>
       <Toggle label="Beep for new orders" checked={form.sound} onChange={v => set({ sound: v })} />
       <Toggle label="Can switch the kitchen flow"
         hint={(setup.kds_flows || []).length > 1
@@ -123,26 +140,14 @@ function ScreenModal({ venueId, setup, device, onClose, onPaired }) {
   )
 }
 
-function statusOf(d) {
-  if (d.paired) return { text: 'Paired · seen ' + ago(d.last_seen_at), tone: 'ok' }
-  if (d.pairing_open) return { text: 'Waiting to pair, code works until ' + new Date(d.pairing_expires_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }), tone: 'warn' }
-  return { text: 'Not paired', tone: 'muted' }
-}
-
 function ScreensCard({ venueId, setup }) {
   const screenStations = setup.kds_stations.filter(x => isBumpKind(x.kind))
-  const api = useApi()
-  const qc = useQueryClient()
   const [editing, setEditing] = useState(null)
-  const [pairing, setPairing] = useState(null)
-  const newCode = useMutation({
-    mutationFn: id => api.post(`/pos/devices/${id}/pairing-code`, {}),
-    onSuccess: out => { qc.invalidateQueries({ queryKey: ['pos-setup', venueId] }); setPairing(out) },
-  })
+  const [linking, setLinking] = useState(null) // device
   const screens = setup.devices.filter(d => d.kind === 'kds' && !d.revoked_at)
   const stationName = id => setup.kds_stations.find(s => s.id === id)?.name
   return (
-    <Section title="Kitchen screens" hint="Android tablets or TVs in the kitchen. Open the kitchen screen address (below) on the screen in Chrome, install it, and type the pairing code."
+    <Section title="Kitchen screens" hint="Android tablets or TVs in the kitchen. Open the kitchen screen address (below) on the screen in Chrome and install it: it shows a code. Press Add a screen and type it, or scan its QR code with a phone."
       actions={<Btn variant="primary" onClick={() => setEditing('new')} disabled={!screenStations.length}><Plus className="w-4 h-4" /> Add a screen</Btn>}>
       {!screens.length && (
         <div className="text-sm text-muted-foreground flex items-start gap-3">
@@ -153,7 +158,7 @@ function ScreensCard({ venueId, setup }) {
       {!!screens.length && (
         <div className="rounded-xl border divide-y">
           {screens.map(d => {
-            const st = statusOf(d)
+            const st = status(d)
             const names = (d.settings?.station_ids || []).map(stationName).filter(Boolean)
             return (
               <div key={d.id} className="flex flex-wrap items-center gap-3 px-3 py-2" data-testid="kds-screen-row">
@@ -163,9 +168,7 @@ function ScreensCard({ venueId, setup }) {
                   <p className="text-xs text-muted-foreground">{names.length ? names.join(', ') : 'All stations'} · opens on {d.settings?.view === 'on_order' ? 'On order counts' : 'Tickets'}</p>
                   <p className={cn('text-xs', st.tone === 'ok' ? 'text-green-700' : st.tone === 'warn' ? 'text-amber-700' : 'text-muted-foreground')}>{st.text}</p>
                 </div>
-                <Btn onClick={() => newCode.mutate(d.id)} disabled={newCode.isPending} title="New pairing code">
-                  <KeyRound className="w-4 h-4" /> <span className="hidden sm:inline">{d.paired ? 'Pair again' : 'New code'}</span>
-                </Btn>
+                <LinkDeviceButton device={d} onClick={() => setLinking(d)} />
                 <Btn onClick={() => setEditing(d)} title={'Edit ' + d.name}><Pencil className="w-4 h-4" /></Btn>
               </div>
             )
@@ -173,14 +176,11 @@ function ScreensCard({ venueId, setup }) {
         </div>
       )}
       <p className="text-xs text-muted-foreground">Kitchen screen address: <span className="font-medium text-foreground break-all" data-testid="kds-address">{deviceUrl(setup, 'kds')}</span></p>
-      <div><LinkShownCode venueId={venueId} kind="kds" /></div>
       <InstallerLine setup={setup} />
-      <ErrorNote error={newCode.error} />
       {editing && (
-        <ScreenModal venueId={venueId} setup={setup} device={editing === 'new' ? null : editing}
-          onClose={() => setEditing(null)} onPaired={out => { setEditing(null); setPairing(out) }} />
+        <ScreenModal venueId={venueId} setup={setup} device={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />
       )}
-      {pairing && <PairingCode code={pairing.pairing_code} device={pairing.device} tillUrl={deviceUrl(setup, 'kds')} what="kitchen screen" onClose={() => setPairing(null)} />}
+      {linking && <LinkDeviceModal venueId={venueId} setup={setup} device={linking} onClose={() => setLinking(null)} />}
     </Section>
   )
 }
@@ -265,12 +265,14 @@ export function StationModal({ venueId, setup, station, kind: newKind, onClose }
     show_upcoming: s.show_upcoming ?? startKind === 'expo',
     summary_groups: s.summary_groups || [], pieces: s.pieces || [], is_active: station ? station.is_active : true,
     share: s.split_above != null, split_above: s.split_above ?? 20,
+    printer_id: s.printer_id || '',
   })
   const [upcomingSet, setUpcomingSet] = useState(!!station)
   const set = patch => setForm(f => ({ ...f, ...patch }))
   const setKind = k => set({ kind: k, ...(upcomingSet ? {} : { show_upcoming: k === 'expo' }) })
   const board = form.kind === 'board'
   const balance = form.kind === 'balance'
+  const printerBox = form.kind === 'printer'
   const orderLevel = form.kind === 'expo' || form.kind === 'runner'
   const refresh = () => qc.invalidateQueries({ queryKey: ['pos-setup', venueId] })
   const body = () => ({
@@ -281,6 +283,7 @@ export function StationModal({ venueId, setup, station, kind: newKind, onClose }
       summary_groups: form.summary_groups.filter(g => g.name.trim()).map(g => ({ ...g, name: g.name.trim() })),
       pieces: balance ? form.pieces : [],
       split_above: balance && form.share ? (form.split_above ?? 20) : null,
+      ...(printerBox ? { printer_id: form.printer_id || null } : {}),
     },
   })
   const save = useMutation({
@@ -298,7 +301,7 @@ export function StationModal({ venueId, setup, station, kind: newKind, onClose }
       </>}>
       <Field label="Name" hint={board ? 'Menu screens pick a board by this name, so call it the same at every venue (e.g. ORB 1).' : undefined}>
         <input className={inputCls} value={form.name} maxLength={40} onChange={e => set({ name: e.target.value })}
-          placeholder={board ? 'e.g. ORB 1' : balance ? 'e.g. Wings' : form.kind === 'expo' ? 'e.g. Expo 1, Pass' : form.kind === 'runner' ? 'e.g. Runner' : 'e.g. Grill, Fryer, Prep 1'} />
+          placeholder={board ? 'e.g. ORB 1' : balance ? 'e.g. Wings' : printerBox ? 'e.g. Grill tickets' : form.kind === 'expo' ? 'e.g. Expo 1, Pass' : form.kind === 'runner' ? 'e.g. Runner' : 'e.g. Grill, Fryer, Prep 1'} />
       </Field>
       <Field group label="Kind" hint={KIND_HINTS[form.kind]}>
         <Segmented value={form.kind} options={KINDS} onChange={setKind} className="flex-wrap" />
@@ -327,10 +330,19 @@ export function StationModal({ venueId, setup, station, kind: newKind, onClose }
           </div>
         </Field>
       )}
+      {printerBox && (
+        <Field label="Printer" hint="Kitchen tickets for this box print here. Add printers on the Printers tab.">
+          <select className={inputCls} value={form.printer_id} onChange={e => set({ printer_id: e.target.value })} data-testid="station-printer">
+            <option value="">Pick a printer</option>
+            {setup.printers.filter(p => p.is_active && !(p.connection === 'device' && setup.devices.find(d => d.id === p.device_id)?.kind === 'kiosk')).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        </Field>
+      )}
+      {printerBox && !form.printer_id && <p className="text-xs text-amber-700">Until a printer is picked, nothing prints here.</p>}
       {balance && station?.kind && station.kind !== 'balance' && (
         <p className="text-xs text-amber-700">As a Balance box it leaves the kitchen screens, and its links out of every flow lose their filters (links to boards go).</p>
       )}
-      {!board && !balance && <>
+      {!board && !balance && !printerBox && <>
       <div className="flex flex-wrap gap-4">
         <Field label="Amber after (minutes)" hint="And the on-time target.">
           <NumberBox value={form.target_mins} min={1} max={120} onChange={v => set({ target_mins: v })} ariaLabel="Amber after minutes" />
@@ -384,6 +396,7 @@ function StationsCard({ venueId, setup, onEdit }) {
                     {isBumpKind(st.kind) && st.settings.summary_groups?.length ? ' · counts ' + st.settings.summary_groups.map(g => g.name).join(', ') : ''}
                     {st.kind === 'balance' && (st.settings.pieces?.length ? ' · ' + st.settings.pieces.map(m => m.label + ' ' + m.qty).join(', ') : ' · each dish counts its quantity')}
                     {st.kind === 'balance' && (st.settings.split_above != null ? ' · shares tickets over ' + st.settings.split_above + ' pieces' : ' · each ticket on one station')}
+                    {st.kind === 'printer' && ' · ' + (setup.printers.find(p => p.id === st.settings.printer_id)?.name || 'no printer picked')}
                   </p>
                 </div>
                 <Btn onClick={() => onEdit(st)} title={'Edit ' + st.name}><Pencil className="w-4 h-4" /></Btn>

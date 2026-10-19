@@ -74,10 +74,13 @@ export function groupChoice(g, { nested = false } = {}) {
 /**
  * A dish's choices on the till: its ad-hoc variants and attached groups
  * (shared with online ordering's itemChoices), plus the till extras from
- * the library: "No / Light / Extra" prefixes and nested groups.
+ * the library: "No / Light / Extra" prefixes and nested groups. A kiosk's
+ * dishes carry their menu's option display settings (item.variant_rules,
+ * services/posSvc.js tillMenuData()): unpriced options left out, £0 shown
+ * without a price, as online ordering does.
  */
 export function posChoices(item, groupsById = {}) {
-  return itemChoices(item).map(c => {
+  return itemChoices(item, item.variant_rules || {}).map(c => {
     if (c.key === 'variants') return { ...c, prefixes: false, options: c.options.map(o => ({ ...o, child_group_id: null })) }
     const lib = groupsById[c.key]
     return {

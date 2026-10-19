@@ -30,6 +30,7 @@ function uuid(rng) {
 }
 
 const pick = (list, rng) => list[Math.floor(rng() * list.length)]
+const clip = (v, max) => (v == null ? null : String(v).trim().slice(0, max) || null)
 
 /** The screens on the bench: the venue's kitchen screens, or one per station. */
 export function benchScreens(data, mode = 'setup') {
@@ -198,6 +199,8 @@ export function createBench(data, { now = () => new Date().toISOString(), rng = 
    *   source      'till' | 'online'
    *   order_type_id, revenue_stream_id
    *   table_id    a table (till orders), else a counter order with a number
+   *   tent        a tent number (till counter orders)
+   *   name        the customer's name (a till order's name, an online guest)
    *   hold_courses  dishes in later courses wait to be fired
    *   note
    *   lines       [{ item_id, qty, note, parts }] (parts: a combo's picks;
@@ -220,7 +223,7 @@ export function createBench(data, { now = () => new Date().toISOString(), rng = 
       const orderId = uuid(rng)
       const type = (data.order_types || []).find(t => t.id === typeId)
       const order = {
-        id: 'web-' + orderId, order_id: orderId, number: 'W' + st.webNumber, guest: 'Test guest',
+        id: 'web-' + orderId, order_id: orderId, number: 'W' + st.webNumber, guest: clip(spec.name, 80) || 'Test guest',
         table: null, type: typeId, type_name: type?.name || null, note: spec.note || null,
         items: lines.map((l, i) => {
           const it = items[l.item_id]
@@ -250,8 +253,8 @@ export function createBench(data, { now = () => new Date().toISOString(), rng = 
     const first = sorts.length ? Math.min(...sorts) : null
     const check = {
       id: checkId, mode: table ? 'table' : 'counter', number: st.number, order_no: table ? null : st.number,
-      table_id: table?.id || null, tab_name: null, covers: table ? 2 : null, server_id: null,
-      order_type_id: typeId, tent: null, note: spec.note || null, revenue_stream_id: streamId,
+      table_id: table?.id || null, tab_name: clip(spec.name, 60), covers: table ? 2 : null, server_id: null,
+      order_type_id: typeId, tent: table ? null : clip(spec.tent, 10), note: spec.note || null, revenue_stream_id: streamId,
       lines: lines.map(l => {
         const it = items[l.item_id]
         const sort = it.course_id ? (c.courses[it.course_id]?.sort_order ?? 0) : null
@@ -296,7 +299,7 @@ export function createBench(data, { now = () => new Date().toISOString(), rng = 
     note({ screen: 'Test bench', type: 'clear', ok: true })
   }
 
-  /** A test order made up from the menu: 1 to 4 dishes, a type, a table or the counter. */
+  /** A test order made up from the menu: 1 to 4 dishes, a type, a table or the counter (some with a tent). */
   function randomSpec({ source = null } = {}) {
     const ids = Object.keys(data.items || {})
     const lines = []
@@ -308,7 +311,7 @@ export function createBench(data, { now = () => new Date().toISOString(), rng = 
       else lines.push({ item_id: id, qty: rng() < 0.2 ? 2 : 1 })
     }
     const tables = data.tables || []
-    return {
+    const spec = {
       source: source || (rng() < 0.15 ? 'online' : 'till'),
       order_type_id: (data.order_types || []).length ? pick(data.order_types, rng).id : null,
       revenue_stream_id: (data.streams || []).length ? pick(data.streams, rng).id : null,
@@ -316,6 +319,8 @@ export function createBench(data, { now = () => new Date().toISOString(), rng = 
       hold_courses: rng() < 0.3,
       lines,
     }
+    if (spec.source === 'till' && !spec.table_id && rng() < 0.4) spec.tent = String(1 + Math.floor(rng() * 30))
+    return spec
   }
 
   return {

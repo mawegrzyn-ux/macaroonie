@@ -5,9 +5,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { ulid, isId } from '../ids.js'
-import { priceItem, checkTotals, spread, lineGross, promoLines } from '../pricing.js'
+import { priceItem, checkTotals, spread, lineGross, promoLines, posChoices } from '../pricing.js'
+import { optionPriceText } from '../../orderPricing.js'
 import { applyEvent, replay, checkLabel } from '../checks.js'
-import { routeFor, jobsForEvent } from '../printing.js'
+import { jobsForEvent, receiptHere } from '../printing.js'
 import { createSequencer } from '../sequencer.js'
 import { dayFigures, businessDate } from '../reports.js'
 import { toText } from '../tickets.js'
@@ -57,10 +58,6 @@ const itemsById = Object.fromEntries([PAD_THAI, SALAD, COLA, BURGER, DEAL].map(i
 
 const print = {
   printers: { [KITCHEN]: { id: KITCHEN, name: 'Kitchen' }, [BAR]: { id: BAR, name: 'Bar' }, [RECEIPT]: { id: RECEIPT, name: 'Till' } },
-  routes: [
-    { printer_id: KITCHEN, target_kind: 'default', target_id: null },
-    { printer_id: BAR, target_kind: 'section', target_id: DRINKS_SECTION },
-  ],
   tables: { [TABLE5]: { label: '5' } },
   staff: Object.fromEntries(Object.values(staffById).map(s => [s.id, { name: s.name }])),
   courses: { [STARTERS]: { name: 'Starters', sort_order: 1 }, [MAINS]: { name: 'Mains', sort_order: 2 } },
@@ -112,6 +109,29 @@ test('priceItem: base option sets the price, extras add, No is free, nested grou
   assert.equal(lineGross({ ...steak, qty: 1 }), 1300)
   assert.deepEqual(steak.modifiers.map(m => [m.label, m.depth]), [['Steak', 0], ['Rare', 1]])
   assert.match(priceItem(SALAD, { choices: { [STEAK_GROUP]: [STEAK_OPT] } }, { itemsById, groupsById }).error, /cooking/)
+})
+
+test('posChoices: a kiosk dish follows its menu\'s option settings (Hide unpriced, Hide £0); the till shows every option', () => {
+  const NOODLES = uuid(), RICE = uuid(), SAUCE = uuid()
+  const dish = { id: uuid(), name: 'Curry', section_id: FOOD_SECTION, price_pence: 900,
+    variants: [{ label: 'Small', price_pence: 0 }, { label: 'Large', price_pence: 200 }],
+    variant_groups: [{ group_id: PROTEIN, name: 'Base', price_mode: 'base', min_select: 1, max_select: 1,
+      options: [{ option_id: NOODLES, label: 'Noodles', price_pence: 0 }, { option_id: RICE, label: 'Rice', price_pence: null }, { option_id: SAUCE, label: 'Sauce pot', price_pence: 50 }] }] }
+  const money = p => '£' + (p / 100).toFixed(2)
+  const labels = choices => choices.map(c => c.options.map(o => o.label))
+  // The till: everything, £0 shown as a price.
+  const till = posChoices(dish, groupsById)
+  assert.deepEqual(labels(till), [['Small', 'Large'], ['Noodles', 'Rice', 'Sauce pot']])
+  assert.equal(optionPriceText(till[1], till[1].options[0], money), '£0.00')
+  // Hide £0 options: kept, without a price.
+  const zero = posChoices({ ...dish, variant_rules: { hideZeroPrice: true } }, groupsById)
+  assert.deepEqual(labels(zero), labels(till))
+  assert.equal(optionPriceText(zero[1], zero[1].options[0], money), '')
+  assert.equal(optionPriceText(zero[1], zero[1].options[2], money), '£0.50')
+  // Hide unpriced options: left out, so they can't be picked either.
+  const unpriced = { ...dish, variant_rules: { hideUnpriced: true } }
+  assert.deepEqual(labels(posChoices(unpriced, groupsById)), [['Large'], ['Sauce pot']])
+  assert.match(priceItem(unpriced, { choices: { variants: ['v:Small'] } }, { groupsById }).error || '', /no longer available|Choose/)
 })
 
 test('priceItem: meal deal with upcharge', () => {
@@ -254,56 +274,30 @@ test('promotions set by the till come off before check discounts', () => {
 
 // ── Printing ────────────────────────────────────────────────────
 
-test('routing: dish, then section, then revenue centre, then default', () => {
-  const routes = [
-    { printer_id: 'K', target_kind: 'default' },
-    { printer_id: 'B', target_kind: 'section', target_id: 'drinks' },
-    { printer_id: 'P', target_kind: 'item', target_id: 'dessert' },
-    { printer_id: 'T', target_kind: 'revenue_stream', target_id: 'takeaway' },
-  ]
-  assert.deepEqual(routeFor({ item_id: 'x', section_id: 'mains' }, routes), ['K'])
-  assert.deepEqual(routeFor({ item_id: 'x', section_id: 'drinks' }, routes), ['B'])
-  assert.deepEqual(routeFor({ item_id: 'dessert', section_id: 'drinks' }, routes), ['P'])
-  assert.deepEqual(routeFor({ item_id: 'x', section_id: 'mains', revenue_stream_id: 'takeaway' }, routes), ['T'])
-  assert.deepEqual(routeFor({ item_id: 'x' }, []), [])
-})
-
-test('jobs: kitchen and bar tickets, held course, meal deal parts split, void ticket', () => {
+test('jobs: bills and receipts go to the till\'s receipt printer, unless it is plugged into the till itself', () => {
   let c = open()
-  const [main, drink] = DEAL.combo.steps
-  const s = line(SALAD, {}, { course_id: STARTERS, allergies: ['Peanuts'], note: 'No dressing' })
-  const m = line(PAD_THAI, { choices: { [PROTEIN]: [CHICKEN], [TOPPINGS]: [{ id: ONION, prefix: 'no' }] } }, { course_id: MAINS })
-  const meal = line(DEAL, mealPicks(main, drink), { course_id: MAINS })
-  const cola = line(COLA)
-  for (const l of [s, m, meal, cola]) c = ok(apply(c, 'line.added', { line: l })).checks[c.id]
-  const send = ev('lines.sent', { send_id: ulid(), line_ids: [s.id, m.id, meal.id, cola.id], held_course_ids: [MAINS] }, { check_id: c.id })
-  const r = ok(applyEvent({ [c.id]: c }, send, { staffById }))
-  const jobs = jobsForEvent(send, { [c.id]: c }, r.checks, print)
-  assert.deepEqual(jobs.map(j => j.printer_id).sort(), [KITCHEN, BAR].sort())
-  const kitchen = toText(jobs.find(j => j.printer_id === KITCHEN).ops)
-  assert.match(kitchen, /T A B L E {3}5/)
-  assert.match(kitchen, /STARTERS/)
-  assert.match(kitchen, /MAINS {2}- HOLD/)
-  assert.match(kitchen, /- No Onion/)
-  assert.match(kitchen, /ALLERGY: PEANUTS/)
-  assert.match(kitchen, /> Burger/)
-  assert.doesNotMatch(kitchen, /Cola/)
-  const bar = toText(jobs.find(j => j.printer_id === BAR).ops)
-  assert.match(bar, /1 x Cola/)
-  assert.match(bar, /> Cola/)   // the meal deal's drink goes to the bar
-
-  c = r.checks[c.id]
-  const fire = ev('course.fired', { course_id: MAINS }, { check_id: c.id })
-  const f = ok(applyEvent({ [c.id]: c }, fire, { staffById }))
-  const fireJobs = jobsForEvent(fire, { [c.id]: c }, f.checks, print)
-  assert.match(toText(fireJobs.find(j => j.printer_id === KITCHEN).ops), /FIRE MAINS/)
-
-  c = f.checks[c.id]
-  const v = ev('line.voided', { line_id: s.id, reason: 'Changed mind' }, { check_id: c.id, staff_id: SUPER })
-  const vr = ok(applyEvent({ [c.id]: c }, v, { staffById }))
-  const voidJobs = jobsForEvent(v, { [c.id]: c }, vr.checks, print)
-  assert.equal(voidJobs.length, 1)
-  assert.match(toText(voidJobs[0].ops), /V O I D/)
+  c = ok(apply(c, 'line.added', { line: line(COLA) })).checks[c.id]
+  const bill = ev('bill.printed', {}, { check_id: c.id })
+  const r = ok(applyEvent({ [c.id]: c }, bill, { staffById }))
+  // Through the queue: a network printer (the hub) or one on another device.
+  const queued = { ...print, devices: { T1: { receipt_printer_id: RECEIPT } } }
+  const jobs = jobsForEvent(bill, { [c.id]: c }, r.checks, queued)
+  assert.deepEqual(jobs.map(j => [j.printer_id, j.kind]), [[RECEIPT, 'bill']])
+  assert.match(toText(jobs[0].ops), /1 Cola +£3\.00/)
+  assert.equal(receiptHere(queued, 'T1'), false)
+  const other = { ...queued, printers: { ...print.printers, [RECEIPT]: { id: RECEIPT, name: 'Till', connection: 'device', device_id: 'T2' } } }
+  assert.equal(jobsForEvent(bill, { [c.id]: c }, r.checks, other).length, 1)
+  // Plugged into this till: it prints there and then, no job.
+  const here = { ...queued, printers: { ...print.printers, [RECEIPT]: { id: RECEIPT, name: 'Till', connection: 'device', device_id: 'T1' } } }
+  assert.deepEqual(jobsForEvent(bill, { [c.id]: c }, r.checks, here), [])
+  assert.equal(receiptHere(here, 'T1'), true)
+  // No receipt printer: the till prints in its browser.
+  assert.deepEqual(jobsForEvent(bill, { [c.id]: c }, r.checks, print), [])
+  assert.equal(receiptHere(print, 'T1'), true)
+  // Kitchen tickets never come from here any more (kitchen printers are in the flow).
+  const send = ev('lines.sent', { send_id: ulid(), line_ids: r.checks[c.id].lines.map(l => l.id) }, { check_id: c.id })
+  const sent = ok(applyEvent(r.checks, send, { staffById }))
+  assert.deepEqual(jobsForEvent(send, r.checks, sent.checks, queued), [])
 })
 
 // ── Sequencer ───────────────────────────────────────────────────
@@ -355,8 +349,7 @@ test('sequencer: numbers events and checks, duplicates get the same answer, offl
   const l = line(COLA)
   await seq.submit(ev('line.added', { line: l }, { check_id: checkId }))
   const sent = await seq.submit(ev('lines.sent', { send_id: ulid(), line_ids: [l.id] }, { check_id: checkId }))
-  assert.equal(sent.jobs.length, 1)
-  assert.equal(sent.jobs[0].printer_id, BAR)
+  assert.equal(sent.jobs.length, 0, 'kitchen tickets come from the kitchen flow (kitchenPrint.test.mjs)')
 
   // Terminal 1 takes the payment and closes; terminal 2, offline, took
   // another payment for the same check.

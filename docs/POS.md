@@ -114,8 +114,23 @@ First event types: `check.opened`, `check.covers_set`, `check.table_moved`,
   clone accepts it). Code page WPC1252 (`ESC t 16`) so £ prints.
 - The ticket is built in `shared/pos/tickets.js` as a list of print operations, so the same
   ticket can be previewed in admin; `hub/src/escpos.js` turns it into bytes.
-- **Routing**: dish → section → revenue stream → venue default. Station printers (Kitchen,
-  Bar, Pass), a receipt printer per terminal, a backup printer per printer.
+- **Designs** (migration 190, 19 Oct 2026): what a kitchen ticket or receipt shows and in which
+  order is a layout of parts (`shared/pos/ticketLayout.js`), company wide, picked per use
+  (kitchen tickets, till receipts and bills, kiosk receipts) for the company or one venue, with
+  a venue's own words and hidden parts. Tills, kiosks and the sequencer get the resolved layouts
+  in their config (`print_layouts` / `layouts`); the admin designer previews them in the printer's
+  columns (`previewHtml()` in `shared/pos/ticketHtml.js`).
+- **Routing** (migration 191, 19 Oct 2026): kitchen tickets go where the kitchen flow sends
+  dishes: a station of kind `printer` in the flow prints each dish once when it reaches it
+  (`shared/pos/kitchenPrint.js`, run by the sequencer; held courses as HOLD then FIRE, VOID
+  after a void; orders for later through `kitchen.print_due` from the minute sweep). The
+  old routing list (`pos_print_routes`: dish → section → revenue stream → default) is gone.
+  Bills and receipts go to the device's receipt printer; a backup printer per printer.
+- **Who prints** (migration 191): a printer is `hub` (network, printed by the venue hub,
+  `hub/bin/hub.js`, a device linked by its code) or `device` (plugged into a till or kitchen
+  screen, printed by its browser: `pos/src/lib/devicePrint.js`; Chrome `--kiosk-printing` for
+  no dialog). A device prints its own bills in its browser when its receipt printer is none or
+  plugged into it. The hub reports each printer's state to Till setup.
 - Queue per printer with retries; status check so terminals see "printer offline / out of
   paper"; reprint.
 - Cash drawer opened through the receipt printer (`ESC p`).
@@ -241,7 +256,7 @@ provision in code for the hub"). What exists:
 
 | Part | Where | Notes |
 |---|---|---|
-| Rules, pricing, printing, reports | `shared/pos/` | `checks.js` (events + `applyEvent()`), `pricing.js`, `printing.js` (`jobsForEvent()`, `routeFor()`), `reports.js` (`dayFigures()`), `sequencer.js` (`createSequencer(store)`), `permissions.js`, `pin.js`, `ids.js` (ULID), `tickets.js`. Tests: `node --test shared/pos/test/*.test.mjs`. |
+| Rules, pricing, printing, reports | `shared/pos/` | `checks.js` (events + `applyEvent()`), `pricing.js`, `printing.js` (`jobsForEvent()`: bills, receipts, drawer), `kitchenPrint.js` (kitchen printers in the flow, migration 191), `reports.js` (`dayFigures()`), `sequencer.js` (`createSequencer(store)`), `permissions.js`, `pin.js`, `ids.js` (ULID), `tickets.js`. Tests: `node --test shared/pos/test/*.test.mjs`. |
 | Schema | migration 156 | Section 3's tables as built; see Docs.jsx → Till (POS) for the columns. |
 | Sequencer | the cloud | `services/posSvc.js` runs `createSequencer()` with a Postgres store under a per-venue advisory lock. The hub will run the same sequencer with SQLite. |
 | Till API | `/pos-api` (`routes/posApi.js`) | Pairing, device auth, config snapshot, events in, sync out, presence, reports, print queue (claim / status routes are for the hub). |
@@ -255,8 +270,10 @@ Changes from sections 2-3, while there is no hub:
 - **Tills talk to the cloud only.** With the internet down a till keeps trading on its own
   (outbox), but two tills don't see each other until it's back; clashes are refused and listed
   (Till reports → Refused changes). The hub removes that gap.
-- **Pairing is by one-time code**, not an Auth0 login: Till setup → Add a till shows a code
-  that `POST /pos-api/pair` swaps for a device secret. The code decides the kind (till, kitchen
+- **Linking is by the code the device shows**, not an Auth0 login: the device asks for a code
+  (`POST /pos-api/pairings`, it keeps the secret) and shows it with a QR code; someone signed in
+  types it in Till setup (Add a till / screen / kiosk) or links it in the installer app
+  (`POST /api/pos/venues/:id/link`, 19 Oct 2026: the only way). The code's address decides the kind (till, kitchen
   screen, kiosk); the app opens the matching screens, and the kind in every config reply wins over
   the one saved on the device (`relabel()` in `pos/src/lib/store.js`).
 - **App updates**: the service worker keeps the app on the device, so after a deploy a device
@@ -302,7 +319,11 @@ ordering, the Deliveroo file, Cash Recon fill through the Z, reports).
   Name and tent can be required per stream and type: the till asks at counter start, Send and
   Pay.
 - **Kitchen**: kitchen orders carry `type` (the order type id), `type_name` and `tent`; flow
-  links filter on the tenant's types; the kitchen screen's tabs are the tenant's types.
+  links filter on the tenant's types; the kitchen screen's tabs are the tenant's types. What a
+  ticket's title and an order ready board's tile show (number, tent, table, name) comes from
+  `shared/orderInfo.js` (migration 189: kitchen screen setting `ticket_main`, Order status block
+  `tile_main` / `tile_lines`). A kiosk asks for a tent number (design `checkout.number_kind`
+  tent, or table); guests take a numbered tent from a stand by the kiosk or till.
 - **Reports**: day figures by revenue stream and by order type; the Z prints both.
 - Not built: tax-inclusive vs exclusive pricing per location (all prices include VAT); a rate
   change on a date (change the % on the day, or publish a menu with another rate).
@@ -360,8 +381,8 @@ Chrome, as an installed PWA.
                     └─► pos.seq { kinds } ─► tills / kitchen screens     kitchen.board ─► menu screens
 ```
 
-- **A kitchen screen is a device** (`pos_devices.kind = 'kds'`), paired with a one-time code at
-  the till address like a till; the same `pos/` app opens the kitchen UI for it. No PIN: a
+- **A kitchen screen is a device** (`pos_devices.kind = 'kds'`), linked by the code it shows at
+  the kitchen address like a till; the same `pos/` app opens the kitchen UI for it. No PIN: a
   kitchen screen belongs to a station, not a person.
 - **Kitchen events are POS events.** Bump, done, recall, remake, rush and collected are events
   in the venue's `pos_events` log, sequenced like check events. The kitchen's state
@@ -485,8 +506,8 @@ and the ConnectSmart Kitchen guide.
 
 ### 10.1 How it fits
 
-- A kiosk is a till device of kind `kiosk`, paired at the till address with a one-time code. The
-  same PWA boots the kiosk screens (`pos/src/kiosk`) for it. There is no separate kiosk host.
+- A kiosk is a till device of kind `kiosk`, linked by the code it shows at the kiosk address
+  (`kiosk.<domain>`, 18 Oct 2026). The same PWA boots the kiosk screens (`pos/src/kiosk`) for it.
 - Its orders are counter checks made of the till's own events (`kioskOrder()` in
   `shared/kiosk.js`), sequenced by the same sequencer, so they reach the tills' Counter list, the
   kitchen (and its flow), Till reports, X / Z and Cash Recon with no special case. The kiosk is the

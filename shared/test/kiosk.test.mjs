@@ -404,3 +404,13 @@ test('configImages: every picture the kiosk can show, on its own origin, each on
   const many = { items: Object.fromEntries(Array.from({ length: MAX_SAVED_PICTURES + 50 }, (_, n) => ['i' + n, { image_url: '/uploads/p' + n + '.jpg' }])) }
   assert.equal(configImages(many, origin).length, MAX_SAVED_PICTURES, 'capped below the cache size')
 })
+
+test('the number a guest types is a tent unless the design says table', () => {
+  assert.equal(normaliseDesign({}).checkout.number_kind, 'tent')
+  assert.equal(normaliseDesign({ checkout: { number_kind: 'table' } }).checkout.number_kind, 'table')
+  assert.equal(normaliseDesign({ checkout: { number_kind: 'chair' } }).checkout.number_kind, 'tent')
+  for (const lang of Object.keys(UI_TEXT)) {
+    for (const k of ['tent_number', 'tent_hint', 'tent_done']) assert.ok(UI_TEXT[lang][k], lang + ' has ' + k)
+    assert.match(UI_TEXT[lang].tent_done, /\{n\}/, lang + ' tent_done names the tent')
+  }
+})

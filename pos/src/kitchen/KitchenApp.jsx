@@ -25,6 +25,7 @@ import {
   itemState, readyOrders, isOrderLevel, stationSettings,
 } from '@shared/pos/kitchen.js'
 import { countParts } from '@shared/combos.js'
+import { orderInfo } from '@shared/orderInfo.js'
 import {
   useKitchen, useOrders, useCfg, bootKitchen, nowIso, myStations, currentStation, setPrefs, bump, recall, itemDone,
   remake, priority, collected, unlockAudio, chime, loadConfig, toast, activeFlow, switchFlow, disconnect, moveScreen, inBench,
@@ -76,6 +77,22 @@ function filtersFor(types) {
   ]
 }
 const SOURCE_NAMES = { online: 'Online', gloriafood: 'GloriaFood' }
+
+/**
+ * A ticket's title and number badge. The screen's Ticket title setting
+ * (Till setup > Kitchen screens, device settings ticket_main) picks the
+ * order number, tent, table or customer name (shared/orderInfo.js); 'auto'
+ * (and an order without the one picked) is the table, the name, else where
+ * it came from, with the order number in the badge.
+ */
+export function ticketTitle(o, main) {
+  const auto = { text: o.table ? 'Tbl ' + o.table : o.tab || o.guest || SOURCE_NAMES[o.source] || 'Counter', badge: o.number || '' }
+  if (!main || main === 'auto') return auto
+  const info = orderInfo(o, { main })
+  if (info.key !== main) return auto
+  if (main === 'number') return { text: 'Order ' + info.value, badge: o.table ? 'Tbl ' + o.table : o.tent ? 'Tent ' + o.tent : '' }
+  return { text: info.caption ? info.caption + ' ' + info.value : info.value, badge: o.number || '' }
+}
 // Ticket badge colours by order type position (a type's own colour wins).
 const TYPE_COLOURS = ['bg-[#9be7a1] text-black', 'bg-[#25a7a7] text-white', 'bg-[#7c5cd6] text-white', 'bg-[#e0a33a] text-black', 'bg-[#d6577c] text-white']
 
@@ -312,7 +329,7 @@ function Kitchen() {
         : (
           <div className="relative flex-1 min-h-0 grid gap-1.5 p-1.5" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
             {shown.map((t, i) => (
-              <Ticket key={t.order.id} t={t} n={left + i + 1} station={station} now={now} text={text} names={names} types={s.config.order_types}
+              <Ticket key={t.order.id} t={t} n={left + i + 1} station={station} now={now} text={text} names={names} types={s.config.order_types} titleBy={dev.ticket_main}
                 selected={sel?.order.id === t.order.id} alert={s.alerts[t.order.id]}
                 onSelect={() => setSelected(t.order.id)} />
             ))}
@@ -397,8 +414,9 @@ const label = o => o.table ? 'Table ' + o.table : o.tab ? o.tab : o.guest ? o.gu
 
 // ── A ticket ─────────────────────────────────────────────────────
 
-function Ticket({ t, n, station, now, text, selected, alert, onSelect, names, types }) {
+function Ticket({ t, n, station, now, text, selected, alert, onSelect, names, types, titleBy }) {
   const o = t.order
+  const title = ticketTitle(o, titleBy)
   const tone = ageTone(t.since, now, station)
   const fresh = alert && Date.now() - alert < 30000
   // At the expo / a runner: every dish has reached it, nothing still on its way.
@@ -418,8 +436,8 @@ function Ticket({ t, n, station, now, text, selected, alert, onSelect, names, ty
         selected ? 'ring-[3px] ring-[#22d3ee]' : 'ring-1 ring-white/10')}>
       <div className={cx('shrink-0 px-2 py-1.5', headBg)}>
         <div className="flex items-center gap-1.5">
-          <span className={cx('font-bold truncate min-w-0 flex-1', text.head)}>{o.table ? 'Tbl ' + o.table : o.tab || o.guest || SOURCE_NAMES[o.source] || 'Counter'}</span>
-          {o.number && <span className="bg-white text-black font-black px-2 rounded tabular-nums text-[17px]">{o.number}</span>}
+          <span className={cx('font-bold truncate min-w-0 flex-1', text.head)} data-testid="kds-title">{title.text}</span>
+          {title.badge && <span className="bg-white text-black font-black px-2 rounded tabular-nums text-[17px] whitespace-nowrap" data-testid="kds-badge">{title.badge}</span>}
           <span className={cx('font-black px-1.5 rounded tabular-nums text-[17px]',
             tone === 'late' ? 'bg-red-600 text-white' : tone === 'warn' ? 'bg-amber-400 text-black' : 'bg-black/30 text-white')}
             data-testid="kds-timer">{clockSince(t.since, now)}</span>
@@ -744,7 +762,7 @@ function DisconnectBox({ waiting }) {
   return (
     <div className="mt-3 pt-3 border-t border-white/10 space-y-2" data-testid="kds-disconnect">
       <div className="text-xs uppercase font-bold text-white/60 px-1">Disconnect</div>
-      <div className="text-sm text-white/60 px-1">This device stops being a kitchen screen until it is paired again with a new code from Till setup. The screen keeps its name, stations and settings there.</div>
+      <div className="text-sm text-white/60 px-1">This device stops being a kitchen screen and shows a code. Link that code in Till setup (Kitchen screens, Link a device) or with the installer app to set it up again: the screen keeps its name, stations and settings.</div>
       {step === 0 && (
         <button onClick={() => setStep(1)} className="w-full min-h-[52px] rounded-lg bg-zinc-700 text-red-300 font-bold">Disconnect this screen</button>
       )}

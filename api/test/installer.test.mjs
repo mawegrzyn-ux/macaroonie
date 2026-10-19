@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url'
 import { as, getApp, ok, closeApp, sql } from './support/app.mjs'
 import { resetAndSeed, A, B } from './support/seed.mjs'
 import { fillTenant } from './support/fixtures.mjs'
+import { linkDevice } from './support/devices.mjs'
 import { INTERNAL_CALL_HEADER, INTERNAL_CALL_SECRET } from '../src/middleware/auth.js'
 import { env } from '../src/config/env.js'
 
@@ -110,18 +111,16 @@ test('a kitchen screen shows a code, someone links it from the installer, the sc
 })
 
 test('a new device for a till already here: the new one signs in, the old one stops', async () => {
-  const made = await ok(owner.post(`/api/pos/venues/${V}/devices`, { name: 'Bar till', kind: 'terminal', settings: {} }))
-  const first = await call('POST', '/pos-api/pair', { body: { code: made.pairing_code } })
-  assert.equal(first.status, 200, first.body)
-  const tillId = first.json.device_id
-  assert.equal((await call('GET', '/pos-api/me', { headers: asDevice(tillId, first.json.secret) })).status, 200)
+  const first = await linkDevice(owner, V, { kind: 'terminal', name: 'Bar till' })
+  const tillId = first.device_id
+  assert.equal((await call('GET', '/pos-api/me', { headers: asDevice(tillId, first.secret) })).status, 200)
 
   // A kitchen screen's code can't become the till.
   const kds = await showCode('kds')
   const mismatch = await owner.post(`/api/pos/venues/${V}/link`, { code: kds.code, device_id: tillId })
   assert.equal(mismatch.status, 422)
   // Another tenant's device id isn't found.
-  const theirs = await ok(other.post(`/api/pos/venues/${VB}/devices`, { name: 'Their till', kind: 'terminal', settings: {} }))
+  const theirs = await linkDevice(other, VB, { kind: 'terminal', name: 'Their till' })
   const p0 = await showCode()
   const notOurs = await owner.post(`/api/pos/venues/${V}/link`, { code: p0.code, device_id: theirs.device.id })
   assert.equal(notOurs.status, 404)
@@ -132,7 +131,7 @@ test('a new device for a till already here: the new one signs in, the old one st
   assert.equal(res.json.device.id, tillId)
   assert.equal(res.json.device.name, 'Bar till', 'the till keeps its name and settings')
   assert.equal((await call('GET', '/pos-api/me', { headers: asDevice(tillId, p.secret) })).status, 200)
-  assert.equal((await call('GET', '/pos-api/me', { headers: asDevice(tillId, first.json.secret) })).status, 401, 'the old device stops')
+  assert.equal((await call('GET', '/pos-api/me', { headers: asDevice(tillId, first.secret) })).status, 401, 'the old device stops')
 
   // A code shown on a test address (no app) takes the kind it is linked as.
   const any = await showCode()

@@ -1,7 +1,9 @@
 // src/components/pos/KiosksSection.jsx
 //
 // Till setup > Kiosks: self-order kiosks (docs/POS.md section 10). A kiosk
-// is a till device of kind 'kiosk', paired like a till at the till address.
+// is a till device of kind 'kiosk', set up like a till: open the kiosk
+// address on it, it shows a code, type the code here (or scan its QR code
+// with a phone: the installer app).
 // Guests order and pay on it; its orders are counter checks in its revenue
 // stream, so they reach the tills' Counter list, the kitchen, the reports and
 // Cash Recon like any other. How it looks and behaves is a kiosk design:
@@ -11,12 +13,12 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Loader2, KeyRound, Pencil, Copy, Tablet, Palette, AlertTriangle } from 'lucide-react'
+import { Plus, Loader2, Pencil, Copy, Tablet, Palette, AlertTriangle } from 'lucide-react'
 import { designProblems } from '@shared/kiosk.js'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { Section, Modal, Field, inputCls, ErrorNote, ConfirmDelete, Segmented, Btn, ago } from './shared'
-import { PairingCode, status, deviceUrl, LinkShownCode, InstallerLine } from './TillsSection'
+import { status, deviceUrl, InstallerLine, ShownCodeField, LinkDeviceModal, LinkDeviceButton, linkShownCode, codeReady } from './TillsSection'
 
 const READERS = [
   { value: 'none', label: 'None' },
@@ -29,10 +31,11 @@ export function kioskDesign(setup, device) {
   return designs.find(d => d.id === device?.settings?.design_id) || designs[0] || null
 }
 
-function KioskModal({ venueId, setup, device, onClose, onPaired }) {
+function KioskModal({ venueId, setup, device, onClose }) {
   const api = useApi()
   const qc = useQueryClient()
   const s = device?.settings || {}
+  const [code, setCode] = useState('')
   const [form, setForm] = useState({
     name: device?.name || '',
     revenue_stream_id: s.revenue_stream_id || '',
@@ -55,12 +58,8 @@ function KioskModal({ venueId, setup, device, onClose, onPaired }) {
   const save = useMutation({
     mutationFn: () => device
       ? api.patch(`/pos/devices/${device.id}`, body())
-      : api.post(`/pos/venues/${venueId}/devices`, { ...body(), kind: 'kiosk' }),
-    onSuccess: out => {
-      refresh()
-      if (!device) onPaired(out)
-      else onClose()
-    },
+      : linkShownCode(api, venueId, 'kiosk', code, body()),
+    onSuccess: () => { refresh(); onClose() },
   })
   const remove = useMutation({
     mutationFn: () => api.delete(`/pos/devices/${device.id}`),
@@ -71,11 +70,12 @@ function KioskModal({ venueId, setup, device, onClose, onPaired }) {
   return (
     <Modal title={device ? 'Edit ' + device.name : 'Add a kiosk'} onClose={onClose}
       footer={<>
-        <Btn variant="primary" className="flex-1" disabled={!form.name.trim() || save.isPending} onClick={() => save.mutate()}>
-          {save.isPending && <Loader2 className="w-4 h-4 animate-spin" />} {device ? 'Save' : 'Add and get a pairing code'}
+        <Btn variant="primary" className="flex-1" disabled={!form.name.trim() || (!device && !codeReady(code)) || save.isPending} onClick={() => save.mutate()} data-testid="device-save">
+          {save.isPending && <Loader2 className="w-4 h-4 animate-spin" />} {device ? 'Save' : 'Add the kiosk'}
         </Btn>
         {device && <ConfirmDelete label="Remove kiosk" confirmLabel="Yes, remove" onConfirm={() => remove.mutate()} disabled={remove.isPending} />}
       </>}>
+      {!device && <ShownCodeField setup={setup} kind="kiosk" value={code} onChange={setCode} autoFocus />}
       <Field label="Name" hint="Shown in Till setup and on the tills' Counter list, e.g. Kiosk 1, Door kiosk.">
         <input className={inputCls} value={form.name} maxLength={60} onChange={e => set({ name: e.target.value })} placeholder="e.g. Kiosk 1" />
       </Field>
@@ -109,14 +109,8 @@ function KioskModal({ venueId, setup, device, onClose, onPaired }) {
 }
 
 function KioskDevices({ venueId, setup }) {
-  const api = useApi()
-  const qc = useQueryClient()
   const [editing, setEditing] = useState(null) // device | 'new' | null
-  const [pairing, setPairing] = useState(null) // { device, pairing_code }
-  const newCode = useMutation({
-    mutationFn: id => api.post(`/pos/devices/${id}/pairing-code`, {}),
-    onSuccess: out => { qc.invalidateQueries({ queryKey: ['pos-setup', venueId] }); setPairing(out) },
-  })
+  const [linking, setLinking] = useState(null) // device
   const rcName = id => setup.revenue_streams.find(r => r.id === id)?.name
   const live = setup.devices.filter(d => !d.revoked_at && d.kind === 'kiosk')
   const removed = setup.devices.filter(d => d.revoked_at && d.kind === 'kiosk')
@@ -126,7 +120,7 @@ function KioskDevices({ venueId, setup }) {
       {!live.length && (
         <div className="text-sm text-muted-foreground flex items-start gap-3">
           <Tablet className="w-5 h-5 shrink-0 mt-0.5" />
-          <p>No kiosks yet. Add one, then open <span className="font-medium text-foreground">{deviceUrl(setup, 'kiosk')}</span> on the kiosk screen in Chrome and type the pairing code. For a kiosk that guests can't leave, run Chrome in kiosk mode (or a kiosk browser such as Fully Kiosk).</p>
+          <p>No kiosks yet. Open <span className="font-medium text-foreground">{deviceUrl(setup, 'kiosk')}</span> on the kiosk screen in Chrome: it shows a code. Press <span className="font-medium text-foreground">Add a kiosk</span> and type it, or scan its QR code with a phone. For a kiosk that guests can't leave, run Chrome in kiosk mode (or a kiosk browser such as Fully Kiosk).</p>
         </div>
       )}
       {!!live.length && (
@@ -148,9 +142,7 @@ function KioskDevices({ venueId, setup }) {
                   <p className={cn('text-xs', st.tone === 'ok' ? 'text-green-700' : st.tone === 'warn' ? 'text-amber-700' : 'text-muted-foreground')}>{st.text}</p>
                   {problems.map(p => <p key={p} className="text-xs text-amber-800 flex gap-1 items-start"><AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px" /> {p}</p>)}
                 </div>
-                <Btn onClick={() => newCode.mutate(d.id)} disabled={newCode.isPending} title="New pairing code">
-                  <KeyRound className="w-4 h-4" /> <span className="hidden sm:inline">{d.paired ? 'Pair again' : 'New code'}</span>
-                </Btn>
+                <LinkDeviceButton device={d} onClick={() => setLinking(d)} />
                 <Btn onClick={() => setEditing(d)} title={'Edit ' + d.name}><Pencil className="w-4 h-4" /></Btn>
               </div>
             )
@@ -161,15 +153,11 @@ function KioskDevices({ venueId, setup }) {
         <p className="text-xs text-muted-foreground">Removed: {removed.map(d => d.name + ' (' + d.short_code + ')').join(', ')}</p>
       )}
       <p className="text-xs text-muted-foreground">Kiosk address: <span className="font-medium text-foreground break-all" data-testid="kiosk-address">{deviceUrl(setup, 'kiosk')}</span> (set it as the start page of the kiosk browser)</p>
-      <div><LinkShownCode venueId={venueId} kind="kiosk" /></div>
       <InstallerLine setup={setup} />
-      <ErrorNote error={newCode.error} />
       {editing && (
-        <KioskModal venueId={venueId} setup={setup} device={editing === 'new' ? null : editing}
-          onClose={() => setEditing(null)}
-          onPaired={out => { setEditing(null); setPairing(out) }} />
+        <KioskModal venueId={venueId} setup={setup} device={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />
       )}
-      {pairing && <PairingCode code={pairing.pairing_code} device={pairing.device} tillUrl={deviceUrl(setup, 'kiosk')} what="kiosk" onClose={() => setPairing(null)} />}
+      {linking && <LinkDeviceModal venueId={venueId} setup={setup} device={linking} onClose={() => setLinking(null)} />}
     </Section>
   )
 }

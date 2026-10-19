@@ -21,6 +21,7 @@ import { applyKitchenEvent, stationSettings, nodeState, STALE_HOURS, BUMP_KINDS 
 import { ulid } from '@shared/pos/ids.js'
 import * as idb from '../lib/idb.js'
 import { createTransport, OfflineError } from '../lib/transport.js'
+import { startDevicePrinting, hasOwnPrinter } from '../lib/devicePrint.js'
 import { moveDevice, tellDisconnect, setMovedTo } from '../lib/appHost.js'
 
 const CONFIG_KEY = 'kds_config'
@@ -222,7 +223,7 @@ export async function switchFlow(flowId) {
 
 function handleError(err) {
   if (err instanceof OfflineError || err?.offline) { setState({ online: false }); return }
-  if (err?.status === 401) { forget('This screen was removed in Till setup. Pair it again.'); return }
+  if (err?.status === 401) { forget('This screen was removed in Till setup. Link it again with the code it shows.'); return }
   if (err?.status === 403 && err.code === 'pos_off') { toast(err.message, 'bad', 8000); return }
   console.warn(err)
 }
@@ -254,7 +255,7 @@ export async function disconnect() {
   if (bench) return { ok: false, error: 'Not on the test page' }
   const told = await tellDisconnect(api)
   await clearDevice()
-  if (!told) toast('Disconnected here. Macaroonie couldn\'t be told (offline): remove the screen in Till setup, or make it a new code.', 'bad', 8000)
+  if (!told) toast('Disconnected here. Macaroonie couldn\'t be told (offline): remove the screen in Till setup, or link the code it shows next.', 'bad', 8000)
   setTimeout(() => location.reload(), told ? 300 : 4000)
   return { ok: true, told }
 }
@@ -410,6 +411,7 @@ function saveSnapshot() {
 function onMessage(m) {
   if (m.type === 'pos.seq' && m.from !== state.device?.id && (!m.kinds || m.kinds.includes('kitchen'))) pull()
   else if (m.type === 'pos.config') loadConfig()
+  else if (m.type === 'pos.print') devicePrinting?.nudge()
   else if (m.type === 'pos.revoked' && m.device_id === state.device?.id) forget('This screen was removed in Till setup.')
 }
 
@@ -444,9 +446,16 @@ function tick() {
   else pull()
 }
 
+// A printer plugged into this screen (Till setup > Printers, migration 191):
+// it prints the tickets queued for it (lib/devicePrint.js). Never on the bench.
+let devicePrinting = null
+
 function startSync() {
   if (started) return
   started = true
+  if (!bench && !devicePrinting) {
+    devicePrinting = startDevicePrinting({ post: (p, b) => api.post(p, b) }, () => hasOwnPrinter(state.config, state.device?.id))
+  }
   window.addEventListener('online', () => { setState({ online: true }); tick() })
   window.addEventListener('offline', () => setState({ online: false }))
   document.addEventListener('visibilitychange', () => { if (!document.hidden) { tick(); loadConfig() } })
@@ -463,6 +472,8 @@ function startSync() {
 
 function stopSync() {
   started = false
+  devicePrinting?.stop()
+  devicePrinting = null
   clearTimeout(pollTimer)
   try { socket?.close() } catch { /* ignore */ }
   socket = null

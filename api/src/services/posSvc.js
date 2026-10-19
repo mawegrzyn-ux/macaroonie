@@ -22,6 +22,7 @@ import { venuePromotions, publicPromotion } from './promoSvc.js'
 import { fillReconDay, reconFields } from './reconFill.js'
 import { createSequencer } from '../../../shared/pos/sequencer.js'
 import { checkTotals, isActiveLine, lineGross } from '../../../shared/pos/pricing.js'
+import { variantRules } from '../../../shared/orderPricing.js'
 import { dayFigures } from '../../../shared/pos/reports.js'
 import { normalisePermissions, DEFAULT_POS_ROLES } from '../../../shared/pos/permissions.js'
 import { TENDERS } from '../../../shared/pos/checks.js'
@@ -31,6 +32,7 @@ import { venueNow } from '../../../shared/promotions.js'
 import { soldOutRows } from './soldOut.js'
 import { loadKitchenConfig, activeFlowSetting } from './kitchenSvc.js'
 import { ensureTaxDefaults, loadTaxRates, loadOrderTypes, loadStreams, taxForVenue } from './taxSvc.js'
+import { printLayouts } from './printDesignSvc.js'
 
 export const DEFAULT_COURSES = [
   { name: 'Drinks', short_name: 'DR', hold_by_default: false },
@@ -58,12 +60,11 @@ export async function seedPosDefaults(tx, tenantId) {
 // ── Secrets ──────────────────────────────────────────────────────
 
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
-export const PAIRING_MINUTES = 30
 
 export const sha256 = s => crypto.createHash('sha256').update(String(s)).digest('hex')
 
-/** A one-time pairing code: 8 characters, shown as ABCD-EFGH. */
-export function newPairingCode() {
+/** A one-time hand-over code: 8 characters, shown as ABCD-EFGH. */
+function newPairingCode() {
   const bytes = crypto.randomBytes(8)
   let out = ''
   for (const b of bytes) out += CODE_ALPHABET[b % CODE_ALPHABET.length]
@@ -77,11 +78,12 @@ export function newDeviceSecret() {
 }
 
 /**
- * A fresh pairing code for a device, valid `minutes` (PAIRING_MINUTES).
- * Returns the code (shown once). Used by Till setup and by a device moving
- * itself to its own address (POST /pos-api/move).
+ * A one-time code (10 minutes) a device hands to its own address when it
+ * moves there (POST /pos-api/move); the app at the new address types it in
+ * by itself (POST /pos-api/pair). Nobody types these: people set devices up
+ * by the code the device shows (POST /api/pos/venues/:id/link).
  */
-export async function openPairing(tx, tenantId, deviceId, minutes = PAIRING_MINUTES) {
+export async function openPairing(tx, tenantId, deviceId, minutes = 10) {
   for (let i = 0; i < 5; i++) {
     const code = newPairingCode()
     const hash = sha256(normaliseCode(code))
@@ -119,7 +121,7 @@ export function settingsView(s) {
   return {
     day_starts_at: s.day_starts_at,
     vat_number: s.vat_number, receipt_name: s.receipt_name, receipt_address: s.receipt_address || [],
-    receipt_footer: s.receipt_footer, bill_footer: s.bill_footer, service_charge_label: s.service_charge_label,
+    service_charge_label: s.service_charge_label,
     tenders, tips_enabled: s.tips_enabled, require_covers: s.require_covers,
     order_no_start: s.order_no_start, auto_logout_secs: s.auto_logout_secs,
     recon_map: s.recon_map || {}, recon_auto_fill: s.recon_auto_fill,
@@ -176,7 +178,9 @@ export async function tillMenus(tx, tenantId, venueId, streams, version = 'live'
  * { menus: [{ id, name, sections: [{ id, title, ..., item_ids }] }], items: { id: item },
  *   section_items, dietary }. Sections hidden everywhere stay off. `guest`
  * (a kiosk, services/kioskSvc.js): sections hidden on the website stay off
- * too, and dishes carry what guests see (photo, calories, featured).
+ * too, and dishes carry what guests see (photo, calories, featured) and the
+ * menu's option display settings (Hide £0 options, Hide unpriced options:
+ * variant_rules, read by posChoices() as online ordering reads them).
  * Tax settings travel with each dish (dish, section, menu), trimmed to this
  * venue; the till works the rate out per check (shared/tax.js), since the
  * order type and revenue stream decide it.
@@ -188,6 +192,7 @@ export async function tillMenuData(tx, tenantId, venueId, streams, { guest = fal
   const streamIds = new Set(allStreams.map(r => r.id))
   for (const full of await tillMenus(tx, tenantId, venueId, streams, version)) {
     const menuTax = taxForVenue(full.tax, venueId, streamIds)
+    const rules = variantRules(full)
     dietary = full.dietary_tags || dietary
     const sections = []
     for (const s of full.sections || []) {
@@ -208,7 +213,7 @@ export async function tillMenuData(tx, tenantId, venueId, streams, { guest = fal
           combo: it.combo || null,
           dietary: it.dietary || [], allergen_levels: it.allergen_levels || {},
           description: it.description || null,
-          ...(guest ? { image_url: it.image_url || null, calories: it.calories ?? null, is_featured: !!it.is_featured } : {}),
+          ...(guest ? { image_url: it.image_url || null, calories: it.calories ?? null, is_featured: !!it.is_featured, variant_rules: rules } : {}),
         }
       }
       sections.push({
@@ -233,7 +238,7 @@ export async function tillConfig(tx, tenantId, venueId) {
   const venue = await ownVenue(tx, tenantId, venueId)
   const settings = await ensureSettings(tx, tenantId, venueId)
   await ensureTaxDefaults(tx, tenantId)
-  const [streams, orderTypes, taxRates, courses, areas, tables, roles, printers, routes, groups, devices] = await Promise.all([
+  const [streams, orderTypes, taxRates, courses, areas, tables, roles, printers, groups, devices] = await Promise.all([
     loadStreams(tx, tenantId, venueId, { activeOnly: true }),
     loadOrderTypes(tx, tenantId),
     loadTaxRates(tx, tenantId),
@@ -246,9 +251,8 @@ export async function tillConfig(tx, tenantId, venueId) {
          FROM tables WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND is_active AND NOT COALESCE(is_unallocated, false)
         ORDER BY sort_order, label`,
     tx`SELECT id, name, permissions, sort_order FROM pos_roles WHERE tenant_id = ${tenantId} ORDER BY sort_order, name`,
-    tx`SELECT id, name, kind, host, port, columns, backup_printer_id, sort_order FROM pos_printers
+    tx`SELECT id, name, kind, connection, device_id, host, port, columns, backup_printer_id, sort_order FROM pos_printers
         WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND is_active ORDER BY sort_order, name`,
-    tx`SELECT printer_id, target_kind, target_id FROM pos_print_routes WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`,
     tx`SELECT g.id, g.name, g.price_mode, g.min_select, g.max_select, g.pos_prefixes, g.allow_repeat, g.on_request,
               COALESCE(json_agg(json_build_object('id', o.id, 'label', o.label, 'price_pence', o.price_pence, 'child_group_id', o.child_group_id)
                 ORDER BY o.sort_order, o.label) FILTER (WHERE o.id IS NOT NULL), '[]') AS options
@@ -286,8 +290,11 @@ export async function tillConfig(tx, tenantId, venueId) {
     section_items: sectionItems,
     groups: Object.fromEntries(groups.map(g => [g.id, g])),
     dietary_tags: (dietary || []).map(t => ({ code: t.code, label: t.label, kind: t.kind, colour: t.colour, glyph: t.glyph })),
+    // A printer plugged into a device (connection 'device') is printed by that
+    // device's browser; the rest by the venue hub (migration 191).
     printers,
-    routes,
+    // Print designs (migration 190): null = the built-in layout.
+    print_layouts: await printLayouts(tx, tenantId, venueId),
     promotions,
     sold_out: soldOut,
     // A kiosk's orders name the kiosk as their server (shared/kiosk.js), so
@@ -298,13 +305,26 @@ export async function tillConfig(tx, tenantId, venueId) {
   return config
 }
 
+/**
+ * A venue hub's config (hub/, migration 191): the network printers it prints
+ * to. The version changes when any of them does, and the hub loads it again.
+ */
+export async function hubConfig(tx, tenantId, venueId) {
+  const venue = await ownVenue(tx, tenantId, venueId)
+  const printers = await tx`
+    SELECT id, name, kind, host, port, columns, backup_printer_id FROM pos_printers
+     WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND is_active AND connection = 'hub'
+     ORDER BY sort_order, name`
+  const config = { kind: 'hub', venue: { id: venue.id, name: venue.name }, printers }
+  return { ...config, version: sha256(JSON.stringify(config)).slice(0, 16) }
+}
+
 /** The printing config the sequencer gives shared/pos/printing.js. */
 async function printConfig(tx, tenantId, venueId) {
   const venue = await ownVenue(tx, tenantId, venueId)
   const settings = settingsView(await ensureSettings(tx, tenantId, venueId))
-  const [printers, routes, tables, staff, courses, devices, orderTypes] = await Promise.all([
-    tx`SELECT id, name, kind, columns FROM pos_printers WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND is_active`,
-    tx`SELECT printer_id, target_kind, target_id FROM pos_print_routes WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`,
+  const [printers, tables, staff, courses, devices, orderTypes] = await Promise.all([
+    tx`SELECT id, name, kind, connection, device_id, columns FROM pos_printers WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND is_active`,
     tx`SELECT id, label FROM tables WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`,
     tx`SELECT id, name FROM cash_staff WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`,
     tx`SELECT id, name, sort_order FROM pos_courses WHERE tenant_id = ${tenantId}`,
@@ -312,17 +332,19 @@ async function printConfig(tx, tenantId, venueId) {
     tx`SELECT id, name FROM order_types WHERE tenant_id = ${tenantId}`,
   ])
   const by = (rows, f = r => r) => Object.fromEntries(rows.map(r => [r.id, f(r)]))
+  const live = new Set(printers.map(p => p.id))
   return {
     venue: { name: venue.name },
     settings,
     printers: by(printers),
-    routes,
     tables: by(tables),
     // A kiosk order's server is the kiosk.
     staff: { ...by(devices.filter(d => d.kind === 'kiosk'), d => ({ name: d.name })), ...by(staff) },
     courses: by(courses),
     order_types: by(orderTypes),
-    devices: by(devices, d => ({ receipt_printer_id: d.settings?.receipt_printer_id || null })),
+    // A receipt printer switched off or gone prints nothing (no job for it).
+    devices: by(devices, d => ({ receipt_printer_id: live.has(d.settings?.receipt_printer_id) ? d.settings.receipt_printer_id : null, kiosk: d.kind === 'kiosk' })),
+    layouts: await printLayouts(tx, tenantId, venueId),
     timezone: venue.timezone || 'Europe/London',
   }
 }
@@ -540,8 +562,9 @@ export function sequencer(tenantId, venueId, { deviceId = null } = {}) {
     async saveJobs(jobs, e) {
       for (const j of jobs) {
         await tx`
-          INSERT INTO pos_print_jobs (tenant_id, venue_id, printer_id, event_id, check_id, kind, title, ops)
-          VALUES (${tenantId}, ${venueId}, ${j.printer_id}, ${e.id}, ${j.check_id}, ${j.kind}, ${j.title || null}, ${tx.json(j.ops)})`
+          INSERT INTO pos_print_jobs (tenant_id, venue_id, printer_id, event_id, check_id, kind, title, ops, station_id, kitchen_order_id)
+          VALUES (${tenantId}, ${venueId}, ${j.printer_id}, ${e.id}, ${j.check_id}, ${j.kind}, ${j.title || null}, ${tx.json(j.ops)},
+                  ${j.station_id || null}, ${j.kitchen_order_id || null})`
       }
     },
     async saveRejection(e, error, code) {

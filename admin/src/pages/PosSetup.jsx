@@ -4,7 +4,8 @@
 // revenue streams (with the order types each offers), printers and what
 // prints where, kitchen screens (stations, the kitchen flows, pairing),
 // self-order kiosks, staff PINs, receipts and payments, the Cash Recon link.
-// Company-wide: order types, kiosk designs, till roles and courses.
+// Company-wide: order types, kiosk designs, print designs (with which prints
+// where per venue), till roles and courses.
 // The floor plan has its own page (/pos/floor). docs/POS.md.
 
 import { useSearchParams, Link } from 'react-router-dom'
@@ -17,6 +18,7 @@ import TillsSection from '@/components/pos/TillsSection'
 import RevenueStreamsSection from '@/components/pos/RevenueStreamsSection'
 import OrderTypesSection from '@/components/pos/OrderTypesSection'
 import PrintersSection from '@/components/pos/PrintersSection'
+import PrintingSection from '@/components/pos/PrintingSection'
 import KitchenSection from '@/components/pos/KitchenSection'
 import KiosksSection from '@/components/pos/KiosksSection'
 import StaffSection from '@/components/pos/StaffSection'
@@ -29,6 +31,7 @@ const TABS = [
   { key: 'streams', label: 'Revenue streams', render: p => <RevenueStreamsSection {...p} /> },
   { key: 'types', label: 'Order types', render: p => <OrderTypesSection {...p} /> },
   { key: 'printers', label: 'Printers', render: p => <PrintersSection {...p} /> },
+  { key: 'printing', label: 'Printing', render: p => <PrintingSection {...p} /> },
   { key: 'kitchen', label: 'Kitchen screens', wide: true, render: p => <KitchenSection {...p} /> },
   { key: 'kiosks', label: 'Kiosks', render: p => <KiosksSection {...p} /> },
   { key: 'staff', label: 'Staff and PINs', render: p => <StaffSection {...p} /> },

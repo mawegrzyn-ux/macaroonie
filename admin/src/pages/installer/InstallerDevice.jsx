@@ -4,12 +4,12 @@
 // name and settings (explicit Save: PATCH /api/pos/devices/:id, which takes
 // the whole settings, or PATCH /api/screens/screens/:id), Identify and
 // Reload for a menu screen, moving it to a new device (link one showing a
-// code, or a code to type on the device) and removing it (asks twice).
+// code) and removing it (asks twice).
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { formatDistanceToNowStrict } from 'date-fns'
-import { Save, Eye, RefreshCw, QrCode, KeyRound, Trash2 } from 'lucide-react'
+import { Save, Eye, RefreshCw, QrCode, Trash2 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import {
   useInstaller, useOverview, canChange, KINDS, KindIcon, Card, BigButton, ErrorNote, Field, Choice,
@@ -41,7 +41,7 @@ export default function InstallerDevice() {
       <About kind={kind} device={device} />
       {manage && <Edit key={device.id} kind={kind} device={device} overview={o} venueId={venueId} />}
       {kind === 'screen' && <FindScreen device={device} manage={manage} />}
-      {manage && <NewDevice kind={kind} device={device} venueId={venueId} />}
+      {manage && <NewDevice kind={kind} device={device} />}
       {manage && <Remove kind={kind} device={device} venueId={venueId} />}
     </div>
   )
@@ -73,9 +73,7 @@ function About({ kind, device }) {
         ))}
       </dl>
       {!device.paired && (
-        <p className="mt-2 text-sm text-amber-900">
-          {device.pairing_open ? 'A code made for it is waiting to be typed on the device.' : 'No device is linked to it. Link one below.'}
-        </p>
+        <p className="mt-2 text-sm text-amber-900">No device is linked to it. Link one below.</p>
       )}
     </Card>
   )
@@ -159,13 +157,7 @@ function FindScreen({ device, manage }) {
   )
 }
 
-function NewDevice({ kind, device, venueId }) {
-  const api = useApi()
-  const qc = useQueryClient()
-  const code = useMutation({
-    mutationFn: () => api.post(`/pos/devices/${device.id}/pairing-code`, {}),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['installer', venueId] }),
-  })
+function NewDevice({ kind, device }) {
   return (
     <Card title={device.paired ? 'Move it to a new device' : 'Link a device to it'}>
       <div className="space-y-3">
@@ -177,18 +169,6 @@ function NewDevice({ kind, device, venueId }) {
         <BigButton as={Link} to={`/install/link?replace=${device.id}&kind=${kind}`} data-testid="replace-link">
           <QrCode className="w-5 h-5" /> Link a device showing a code
         </BigButton>
-        {kind !== 'screen' && (code.data ? (
-          <div className="rounded-xl border bg-muted/40 p-3 text-center space-y-1" data-testid="device-code">
-            <p className="text-sm">On the device, press <b>Have a code from Till setup?</b> and type:</p>
-            <div className="text-3xl font-extrabold tracking-[0.15em] tabular-nums">{code.data.pairing_code}</div>
-            <p className="text-xs text-muted-foreground">It works once, for 30 minutes.</p>
-          </div>
-        ) : (
-          <BigButton disabled={code.isPending} onClick={() => code.mutate()} data-testid="make-device-code">
-            <KeyRound className="w-5 h-5" /> Make a code to type on the device
-          </BigButton>
-        ))}
-        <ErrorNote>{code.error?.message}</ErrorNote>
       </div>
     </Card>
   )

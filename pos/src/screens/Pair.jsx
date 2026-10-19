@@ -1,20 +1,21 @@
 // First start on a device. The device shows a code of its own with a QR code
 // to the installer app (installer.{root}, migration 184): someone signed in
-// scans it with a phone (or types the code there, or in Till setup) and the
-// device sets itself up. The other way is still here: type a pairing code
-// made in Till setup. Each kind of device has its own address
-// (lib/appHost.js): pos. for tills, kitchen. for kitchen screens, kiosk. for
-// kiosks; a typed code for another kind is refused with a button to its
-// address (carrying the code). A device moved here from another address
-// brings its code and pairs by itself.
+// scans it with a phone, or types the code in Till setup (Add a till, Add a
+// screen, Add a kiosk) or the installer, and the device sets itself up. That
+// is the one way a till, kitchen screen or kiosk is set up. Each kind of
+// device has its own address (lib/appHost.js): pos. for tills, kitchen. for
+// kitchen screens, kiosk. for kiosks, and a code shown on one can only become
+// that kind. A device moved here from another address brings a one-time code
+// and pairs by itself (no typing).
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { MonitorSmartphone, ArrowRight, Keyboard, QrCode, RefreshCw } from 'lucide-react'
+import { QrCode, RefreshCw } from 'lucide-react'
 import { qrSvg } from '@shared/qr.js'
 import { pair, requestLinkCode, checkLinkCode, useTill } from '../lib/store.js'
 import { HOST_APP, APP_NAMES, addressFor, shortAddress } from '../lib/appHost.js'
 
 const TITLES = { terminal: 'Set up this till', kds: 'Set up this kitchen screen', kiosk: 'Set up this kiosk' }
 const SECTIONS = { terminal: 'Tills', kds: 'Kitchen screens', kiosk: 'Kiosks' }
+const ADD_BUTTONS = { terminal: 'Add a till', kds: 'Add a screen', kiosk: 'Add a kiosk' }
 const POLL_MS = 4000
 const RETRY_MS = 10000
 
@@ -83,7 +84,7 @@ function LinkPanel({ link, problem }) {
             {link?.code || '···-···'}
           </div>
           <ol className="text-[15px] space-y-1.5 list-decimal pl-5 text-left text-ink">
-            <li>Scan the QR code with a phone signed in to Macaroonie{host ? <>, or open <b>{host}</b> and type the code</> : null}.</li>
+            <li>Scan the QR code with a phone signed in to Macaroonie{host ? <> (it opens <b>{host}</b>)</> : null}, or type the code in Macaroonie: <b>Till setup</b>, <b>{HOST_APP ? SECTIONS[HOST_APP] : 'Tills'}</b>, <b>{HOST_APP ? ADD_BUTTONS[HOST_APP] : 'Add a till'}</b>.</li>
             <li>Pick the venue and name it: this {HOST_APP ? APP_NAMES[HOST_APP] : 'device'} sets itself up.</li>
           </ol>
           <div className="text-sm text-muted flex items-center gap-2 justify-center sm:justify-start">
@@ -99,30 +100,20 @@ function LinkPanel({ link, problem }) {
 
 export default function Pair() {
   const s = useTill()
-  const [code, setCode] = useState(s.pairCode || '')
-  const [typing, setTyping] = useState(!!s.pairCode)
+  const [moving, setMoving] = useState(!!s.pairCode)
   const [error, setError] = useState(null)
-  const [elsewhere, setElsewhere] = useState(null)   // { kind, url } for a code made for another kind
-  const [busy, setBusy] = useState(false)
   const { link, problem } = useLinkCode()
-  const submit = async (e, typed = code) => {
-    e?.preventDefault()
-    setBusy(true)
-    setError(null)
-    setElsewhere(null)
-    try { await pair(typed) } catch (err) {
-      setError(err.offline ? 'No connection: check the Wi-Fi and try again' : err.message)
-      const d = err.code === 'wrong_address' && err.details?.[0]
-      const url = d && addressFor(d.device_kind)
-      if (url) setElsewhere({ kind: d.device_kind, url: url + '/#pair=' + encodeURIComponent(typed) })
-    }
-    setBusy(false)
-  }
-  // A code brought by a move is typed in by itself, once.
+  // A device moved here from another address brings a one-time code: it
+  // pairs with it by itself, once. If that fails, the code below still works.
   const auto = useRef(false)
   useEffect(() => {
-    if (s.pairCode && !auto.current) { auto.current = true; setTyping(true); submit(null, s.pairCode) }
-  }, [s.pairCode]) // eslint-disable-line react-hooks/exhaustive-deps
+    if (!s.pairCode || auto.current) return
+    auto.current = true
+    setMoving(true)
+    pair(s.pairCode)
+      .catch(err => setError(err.offline ? 'No connection: check the Wi-Fi.' : err.message))
+      .finally(() => setMoving(false))
+  }, [s.pairCode])
 
   const others = HOST_APP ? ['terminal', 'kds', 'kiosk'].filter(k => k !== HOST_APP) : []
   return (
@@ -136,38 +127,18 @@ export default function Pair() {
           </div>
         </div>
 
-        <LinkPanel link={link} problem={problem} />
+        {moving && (
+          <div className="rounded-xl bg-brand-soft p-3 text-sm font-semibold" data-testid="pair-moving">
+            Moving this {HOST_APP ? APP_NAMES[HOST_APP] : 'device'} here from its old address…
+          </div>
+        )}
+        {error && (
+          <div className="rounded-xl bg-bad-soft text-bad p-3 text-sm font-semibold" data-testid="pair-error">
+            The move didn't finish: {error} Link this {HOST_APP ? APP_NAMES[HOST_APP] : 'device'} with the code below instead.
+          </div>
+        )}
 
-        <div className="border-t border-line pt-5">
-          {!typing ? (
-            <button type="button" className="btn w-full h-14 text-base" onClick={() => setTyping(true)} data-testid="pair-type">
-              <Keyboard size={20} /> Have a code from Till setup? Type it instead
-            </button>
-          ) : (
-            <form onSubmit={submit} className="space-y-4">
-              <div className="text-[15px] text-ink">
-                {HOST_APP
-                  ? <>In Macaroonie, open <b>Till setup</b>, then <b>{SECTIONS[HOST_APP]}</b>, add this {APP_NAMES[HOST_APP]} (or press Pairing code on one already there) and type its code here. It works once, for 30 minutes.</>
-                  : <>In Macaroonie, open <b>Till setup</b>, then <b>Tills</b> (or <b>Kitchen screens</b>, or <b>Kiosks</b>), add this device and type its code here. It works once, for 30 minutes.</>}
-              </div>
-              <label className="block">
-                <span className="label">Pairing code</span>
-                <input className="input mt-1 text-2xl tracking-[0.3em] uppercase text-center font-bold" value={code}
-                  onChange={e => setCode(e.target.value.toUpperCase())} placeholder="ABCD-EFGH" autoCapitalize="characters"
-                  autoComplete="off" spellCheck={false} maxLength={12} aria-label="Pairing code" />
-              </label>
-              {error && <div className="rounded-xl bg-bad-soft text-bad p-3 text-sm font-semibold" data-testid="pair-error">{error}</div>}
-              {elsewhere && (
-                <a href={elsewhere.url} className="btn btn-primary w-full h-14 text-lg" data-testid="pair-elsewhere">
-                  Open {shortAddress(addressFor(elsewhere.kind))} <ArrowRight size={20} />
-                </a>
-              )}
-              <button className="btn btn-primary w-full h-14 text-lg" disabled={busy || code.replace(/[^A-Z0-9]/gi, '').length < 8}>
-                <MonitorSmartphone size={20} /> {busy ? 'Pairing…' : 'Pair this device'}
-              </button>
-            </form>
-          )}
-        </div>
+        <LinkPanel link={link} problem={problem} />
 
         {others.length > 0 && (
           <div className="text-sm text-muted" data-testid="pair-others">

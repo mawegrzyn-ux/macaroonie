@@ -5,6 +5,46 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-19 — Kitchen printers in the flow, printers plugged into tills, the venue hub]
+
+- **Kitchen printers in the kitchen flow**: Till setup → Kitchen screens → Add a station → **Kitchen printer**, pick its printer, and link it in the flow like a kitchen screen. Linked from the till and online orders, it prints each order when it is sent: held courses listed under HOLD, then a **FIRE** ticket when the course is fired, a **VOID** ticket when a dish is voided. After a kitchen screen it prints when that screen bumps the dish (a runner's ticket from the pass). Orders for later print when their time comes. Tickets use the venue's kitchen ticket design.
+- The old **What prints where** list (dish, section, revenue stream) is gone: the kitchen flow decides, with the same filters on its links.
+- **Printers** tab: each printer is **on the network** (printed by the venue hub) or **plugged into a device** (a till, kitchen screen or kiosk prints it through Chrome; start Chrome with --kiosk-printing to print without the dialog). Each row says how the printer is (ready, paper low, out of paper, cover open, not answering, or which device prints it) and how many tickets are waiting or didn't print; **Tickets** lists them with **Print again**.
+- **Venue hub**: a small program for a PC on the venue's network (`node hub/bin/hub.js`). It shows a code; **Link a hub** on the Printers tab. It prints the network printers' tickets, uses a printer's backup when it doesn't answer, and reports every minute how each printer is.
+- Tills print bills and receipts in their own browser only when they have no receipt printer or one plugged into them; a network receipt printer prints through the hub. The till's "Kitchen tickets too" switch is gone.
+- **Migration 191** (kitchen_printers).
+
+## [2026-10-19 — Kiosks follow the menu's option settings]
+
+- Self-order kiosks now follow the menu's own option settings (Menus → the menu's details), like the website, the printed menu and online ordering: **Don't show a price on zero-priced variants** shows a £0 option without "£0.00", and **Don't show the variant option at all if it isn't priced** leaves options with no price (or £0) off the kiosk, so guests can't pick them. The till still shows staff every option.
+- No migration. Publish the menu (or open the kiosk preview with the menu's unpublished changes) to see it on the kiosk.
+
+## [2026-10-19 — Designs for printed kitchen tickets and receipts]
+
+- Till setup has a new **Printing** tab. **What prints where** picks a design for kitchen tickets, till receipts and bills, and kiosk receipts: one for the whole company, and another at a venue if it needs one. Kiosk receipts print like till receipts until you pick a kiosk design.
+- A **design** lists the parts of a ticket from top to bottom: drag to reorder, tap a part to change it, add or take out parts. Kitchen tickets: station name, the **order title** (the table or order number as usual, or the tent number, table, order number or customer's name, big or tall, white on black), details (order type, tent, table, name, order number, covers, server, check, time), the dishes, your own words, lines and space. Receipts: your name, address and VAT number, a heading (different on bills), an order title (a big order or tent number for counter and kiosk orders), details, dishes (with or without priced extras listed), totals, VAT, payments, a footer (different on bills), words, lines and space.
+- Designs belong to the whole company. **Only at** a venue changes that venue's words and leaves parts out there, without touching the others.
+- A preview prints a made-up table order, counter order with a tent, or void (a receipt, bill or counter receipt), laid out in the printer's columns on 58 mm or 80 mm paper. Tills and kiosks get changes straight away.
+- The bill and receipt footers moved from Receipts and payments into a design named **Receipt**, with each venue's footers as its own words. A new location copied from another gets its print choices too.
+- **Migration 190** (print_designs).
+
+## [2026-10-19 — Order ready boards, kitchen tickets and kiosks show tents and names]
+
+- **Order ready boards**: the Order status block on a menu screen board has a new **Each tile** section. **Big text** picks what shows big on each tile: the order number, the tent number, the table or the customer's name. **Under it** adds small lines: order number, tent number, table, customer name, order type, where from. For counter service with tents, Big text *Tent number* with *Order number* under it shows "TENT 12 / Order 57". An order without the big one (online orders have no tent) shows its order number instead, and a line shows only when the order has it. The old switch "Show the guest's first name" becomes the Customer name line on boards that had it on.
+- **Kitchen screens**: each screen has a **Ticket title** in Till setup → Kitchen screens (Edit): *Table or name* (as before), *Order number*, *Tent*, *Table* or *Name*. With *Tent*, tickets read "Tent 12" with the order number beside it; an order without a tent shows its table or name.
+- **Kiosks**: the number a kiosk asks for when the revenue stream asks for a tent is now a **tent number**: "Your tent number", "Take a numbered tent from the stand, type its number here and put it on your table", and on the order number screen "Put tent 12 on your table: we'll bring your order to you", in all nine languages. A design whose guests sit down first can switch back to table numbers: **Number to type** in the design's Paying panel.
+- **Kitchen test bench**: test orders take a tent number (counter orders) and a customer name, and some made-up orders get a tent, so ticket titles and boards can be tried before service.
+- **Migration 189** (order_tile_fields).
+
+## [2026-10-19 — One way to set up tills, kitchen screens and kiosks]
+
+- Devices are now set up **one way**, the installer's: open the device's address (tills **pos.**, kitchen screens **kitchen.**, kiosks **kiosk.**) and it shows a six-letter code with a QR code. Type that code in Till setup (**Add a till**, **Add a screen**, **Add a kiosk**, with the name and settings in the same window), or scan the QR code with a phone and link it in the installer app. The device sets itself up.
+- Till setup and the installer no longer make codes to type into a device, and devices no longer have a **Have a code from Till setup?** form. Before, Till setup showed a code to type on the kiosk while the kiosk showed a different code to type in the installer.
+- **New device** on a row puts a till, kitchen screen or kiosk on another device (type the code that device shows; the old one stops). A disconnected device shows **Not linked** with **Link a device**.
+- A code shown on one kind of device can only become that kind: a kitchen screen's code typed in Add a kiosk is refused and says so.
+- Devices moving from the old shared address to their own still move by themselves.
+- No migration.
+
 ## [2026-10-19 — Website menu block: pictures can be switched off]
 
 - The website's **Menu (inline)** block has two new switches under Display: **Show dish photos** and **Show section pictures**. Turn both off for a menu in words only. Both are on by default, so menus already on the site are unchanged.

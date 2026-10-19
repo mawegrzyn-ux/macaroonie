@@ -763,7 +763,7 @@ function openSettings(confirm = false) {
     '<h2>This screen</h2>' +
     '<div class="facts">' + facts.map(([k, v]) => '<span>' + escHtml(k) + '</span><span>' + escHtml(v) + '</span>').join('') + '</div>' +
     (confirm
-      ? '<p class="note"><b>Disconnect this screen?</b> It stops showing boards and shows a new pairing code. In Macaroonie, Screens keeps its name and boards: use New device for this screen to pair it again.</p>' +
+      ? '<p class="note"><b>Disconnect this screen?</b> It stops showing boards and shows a new code. In Macaroonie, Screens keeps its name and boards: use New device for this screen to link it again.</p>' +
         '<div class="row"><button data-act="disconnect" class="bad">Yes, disconnect</button><button data-act="back">Cancel</button></div>'
       : '<div class="row"><button data-act="close">Close</button><button data-act="reload">Reload</button><button data-act="ask" class="bad">Disconnect this screen</button></div>')
   settingsEl.classList.add('on')
