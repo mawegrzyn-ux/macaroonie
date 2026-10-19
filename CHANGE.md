@@ -5,6 +5,12 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-19 — Website menu block: pictures can be switched off]
+
+- The website's **Menu (inline)** block has two new switches under Display: **Show dish photos** and **Show section pictures**. Turn both off for a menu in words only. Both are on by default, so menus already on the site are unchanged.
+- The builder preview follows the switches. Only that block changes: online ordering, the kiosks and the printed menu keep their pictures.
+- No migration.
+
 ## [2026-10-19 — Kiosk preview: see menu changes before publishing]
 
 - The kiosk design editor's preview shows the menu **as published**, the same as the kiosks, so a dish photo, price or dish saved on the Menus page didn't show there until the menu was published. A new list above the preview switches between **Published menu** and **Menu with unpublished changes**; the choice is remembered on this computer.

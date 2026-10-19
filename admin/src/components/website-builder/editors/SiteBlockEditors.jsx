@@ -540,6 +540,19 @@ export function MenuInlineEditor({ data, onChange }) {
                 label="Hide prices"
               />
               <Toggle
+                checked={data.show_dish_photos !== false}
+                onChange={set('show_dish_photos')}
+                label="Show dish photos"
+              />
+              <Toggle
+                checked={data.show_section_images !== false}
+                onChange={set('show_section_images')}
+                label="Show section pictures"
+              />
+              <p className="text-[11px] text-muted-foreground -mt-1">
+                The small pictures beside dishes and category headings, set on the Menus page. Turn both off for a menu in words only.
+              </p>
+              <Toggle
                 checked={data.show_allergen_notice !== false}
                 onChange={set('show_allergen_notice')}
                 label="Show allergen notice"

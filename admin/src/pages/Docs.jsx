@@ -5045,6 +5045,15 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               sites, not just one, before considering a menu-item display change done.
             </P>
             <P>
+              Pictures on the website block: block data <Mono>show_dish_photos</Mono> and{' '}
+              <Mono>show_section_images</Mono> (default on, read as <Mono>!== false</Mono> so blocks
+              saved before them keep their pictures; editor toggles Show dish photos / Show section
+              pictures under Display, defaults in <Mono>blockRegistry.js</Mono>). Off, the{' '}
+              <Mono>menu_inline.eta</Mono> partial and <Mono>MenuInlineCanvas</Mono> skip the dish{' '}
+              <Mono>image_url</Mono> and the section heading picture. Block data only: no migration, the
+              menu, online ordering, kiosks and print are unchanged.
+            </P>
+            <P>
               Dish order: each <Mono>SectionEditor</Mono> wraps its items in its own{' '}
               <Mono>DndContext</Mono> + <Mono>SortableContext</Mono> (Pointer, Touch and Keyboard
               sensors, <Mono>restrictToVerticalAxis</Mono> + <Mono>restrictToParentElement</Mono>),

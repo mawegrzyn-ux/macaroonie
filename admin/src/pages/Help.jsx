@@ -2572,6 +2572,15 @@ export default function Help() {
               Columns and Tabs can't be put inside a tab or a column.
             </P>
 
+            <H3>Menu block without pictures</H3>
+            <P>
+              The <strong>Menu (inline)</strong> block shows the dish photos and the small section pictures
+              you set on the Menus page. To show a menu in words only, select the block and, under Display,
+              switch off <strong>Show dish photos</strong> and <strong>Show section pictures</strong> (either
+              one on its own works too). It only changes that block: the same menu elsewhere on the site,
+              online ordering, the kiosks and the printed menu keep their pictures.
+            </P>
+
             <H3>Photos from your computer</H3>
             <P>
               Drag a photo from your computer onto the page: dropped on an <strong>Image</strong>,{' '}

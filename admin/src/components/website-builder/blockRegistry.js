@@ -201,6 +201,8 @@ export const BLOCKS = [
       show_subheader: true,
       subheader_text: '',      // blank = use menu.tagline
       show_allergen_notice: true,   // the allergen notice under the menu (migration 147)
+      show_dish_photos:    true,    // false = no photo beside each dish
+      show_section_images: true,    // false = no picture beside each category heading
       container:   'boxed',
     },
     editor:      MenuInlineEditor,
