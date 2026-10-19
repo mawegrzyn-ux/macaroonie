@@ -12,12 +12,17 @@
 //                     No staff and no PINs: a kiosk is a public screen.
 //   loadDesign()      the design a kiosk uses (its own, else the tenant's first)
 //   previewToken() / readPreviewToken()   a signed link for the design
-//                     editor's live preview (no pairing needed, 12 hours)
+//                     editor's live preview (no pairing needed, 12 hours),
+//                     with the menu as published or with its changes not
+//                     published yet (migration 188 for share links)
+//   menuChanges()     the menus a preview shows whose draft differs from
+//                     what is published
 //
 // Every query filters tenant_id itself.
 
 import { httpError } from '../middleware/error.js'
-import { ensureSettings, settingsView, ownVenue, tillMenuData, sha256 } from './posSvc.js'
+import { ensureSettings, settingsView, ownVenue, tillMenuData, tillMenus, sha256 } from './posSvc.js'
+import { contentKey } from '../../../shared/menuDiff.js'
 import { venuePromotions, publicPromotion } from './promoSvc.js'
 import { soldOutRows } from './soldOut.js'
 import { ensureTaxDefaults, loadTaxRates, loadOrderTypes, loadStreams } from './taxSvc.js'
@@ -69,9 +74,11 @@ export async function loadTranslations(tx, tenantId, langs) {
 /**
  * Everything a kiosk works from. device: { id, kind, name, short_code,
  * settings: { revenue_stream_id, design_id, card_reader } }. designOverride
- * (the editor's preview) replaces the stored design's settings.
+ * (the editor's preview) replaces the stored design's settings. menuVersion
+ * 'draft' (previews only) shows the menus with changes not published yet.
  */
-export async function kioskConfig(tx, tenantId, venueId, device, { designOverride = null, preview = false } = {}) {
+export async function kioskConfig(tx, tenantId, venueId, device, { designOverride = null, preview = false, menuVersion = 'live' } = {}) {
+  const version = preview && menuVersion === 'draft' ? 'draft' : 'live'
   const venue = await ownVenue(tx, tenantId, venueId)
   const settings = await ensureSettings(tx, tenantId, venueId)
   await ensureTaxDefaults(tx, tenantId)
@@ -92,7 +99,7 @@ export async function kioskConfig(tx, tenantId, venueId, device, { designOverrid
     loadDesign(tx, tenantId, ds.design_id || null),
   ])
   const stream = streams.find(r => r.id === ds.revenue_stream_id) || streams[0] || null
-  const { menus, items, section_items, dietary } = await tillMenuData(tx, tenantId, venueId, stream ? [stream] : [], { guest: true, allStreams: streams })
+  const { menus, items, section_items, dietary } = await tillMenuData(tx, tenantId, venueId, stream ? [stream] : [], { guest: true, allStreams: streams, version })
   const tz = venue.timezone || 'Europe/London'
   const soldOut = (await soldOutRows(tx, tenantId, venueId)).map(r => ({ item_id: r.item_id, until: r.sold_out_until }))
   const promotions = (await venuePromotions(tx, { id: venueId, tenant_id: tenantId }, venueNow(tz).date, 'pos'))
@@ -102,6 +109,7 @@ export async function kioskConfig(tx, tenantId, venueId, device, { designOverrid
   const config = {
     kind: 'kiosk',
     preview,
+    menu_version: version,
     venue: { id: venue.id, name: venue.name, timezone: tz },
     settings: settingsView(settings),
     stream: stream ? { id: stream.id, name: stream.name } : null,
@@ -130,15 +138,40 @@ export async function kioskConfig(tx, tenantId, venueId, device, { designOverrid
 
 const PREVIEW_HOURS = 12
 
-/** A link token for previewing a design at a venue (with one of its revenue streams). */
-export function previewToken({ tenantId, venueId, designId, streamId = null }) {
-  return makeLink('kiosk', { t: tenantId, v: venueId, d: designId, s: streamId }, PREVIEW_HOURS)
+/** A link token for previewing a design at a venue (with one of its revenue streams; menu 'live' | 'draft'). */
+export function previewToken({ tenantId, venueId, designId, streamId = null, menu = 'live' }) {
+  return makeLink('kiosk', { t: tenantId, v: venueId, d: designId, s: streamId, ...(menu === 'draft' ? { m: 'draft' } : {}) }, PREVIEW_HOURS)
 }
 
-/** { tenantId, venueId, designId, streamId } for a valid, unexpired token, else null. */
+/** { tenantId, venueId, designId, streamId, menuVersion } for a valid, unexpired token, else null. */
 export async function readPreviewToken(token) {
   const p = await readLink('kiosk', token)
-  return p ? { tenantId: p.t, venueId: p.v, designId: p.d, streamId: p.s || null } : null
+  return p ? { tenantId: p.t, venueId: p.v, designId: p.d, streamId: p.s || null, menuVersion: p.m === 'draft' ? 'draft' : 'live' } : null
+}
+
+/**
+ * The menus a kiosk preview at this venue (as this revenue stream, else the
+ * first) shows, as published or as the draft, whose draft isn't what is
+ * published: [{ id, name }]. A menu only in one of the two (new, not
+ * published yet, or no longer shown here) counts.
+ */
+export async function menuChanges(tx, tenantId, venueId, streamId) {
+  const streams = await loadStreams(tx, tenantId, venueId, { activeOnly: true })
+  const stream = streams.find(r => r.id === streamId) || streams[0] || null
+  const list = stream ? [stream] : []
+  const [live, draft] = await Promise.all([
+    tillMenus(tx, tenantId, venueId, list, 'live'),
+    tillMenus(tx, tenantId, venueId, list, 'draft'),
+  ])
+  const liveBy = new Map(live.map(m => [m.id, m]))
+  const draftBy = new Map(draft.map(m => [m.id, m]))
+  const out = []
+  for (const m of draft) {
+    const l = liveBy.get(m.id)
+    if (!l || contentKey(l) !== contentKey(m)) out.push({ id: m.id, name: m.name })
+  }
+  for (const m of live) if (!draftBy.has(m.id)) out.push({ id: m.id, name: m.name })
+  return out
 }
 
 /** The preview's device: not paired, test card reader, the stream and design the editor picked. */

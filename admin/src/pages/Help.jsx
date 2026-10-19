@@ -4994,6 +4994,13 @@ export default function Help() {
               last save, and leaving with changes not saved asks first. On a phone, Settings and Preview take
               turns.
             </P>
+            <InfoBox type="tip">
+              The preview shows the menu as published, the same as the kiosks. A photo, price or dish you have saved
+              on the Menus page but not published yet only shows once you pick <strong>Menu with unpublished
+              changes</strong> in the list above the preview (or tap <strong>Show the changes</strong> in the note
+              that names the menus with such changes). Option group pictures (flavours, sauces) show straight away
+              either way. After changing a menu in another tab, tap <strong>Reload</strong> to see it.
+            </InfoBox>
             <DataTable
               head={['Card', 'What you set']}
               rows={[
@@ -5024,6 +5031,7 @@ export default function Help() {
             <ul className="list-disc ml-5 space-y-2 text-sm text-muted-foreground mb-4">
               <li><strong>Copy link</strong>, <strong>Open</strong>, or the QR code for someone holding a phone or tablet. The dialog shows how many times the link was opened.</li>
               <li>Each design has one link. Saving the design updates what the link shows; changes you haven't saved aren't in it.</li>
+              <li><strong>Menu</strong>: the published menu (what the kiosks show), or the menu with unpublished changes, to show a new menu before it goes live. The changes show on the link as soon as they are saved on the Menus page, unfinished ones too, and the page tells whoever opens it that it includes changes not published yet.</li>
               <li><strong>Works until</strong> gives the link an end date (leave it empty for none). <strong>New link</strong> stops the old one for everyone and makes another; <strong>Stop sharing</strong> stops it.</li>
               <li>Making, moving and stopping a link needs Manage on Till setup. Shared designs are marked <strong>Preview shared</strong> in Till setup → Kiosks.</li>
             </ul>

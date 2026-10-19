@@ -5,6 +5,15 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-19 — Kiosk preview: see menu changes before publishing]
+
+- The kiosk design editor's preview shows the menu **as published**, the same as the kiosks, so a dish photo, price or dish saved on the Menus page didn't show there until the menu was published. A new list above the preview switches between **Published menu** and **Menu with unpublished changes**; the choice is remembered on this computer.
+- When a menu the preview shows has changes not published yet, a note above the preview names it, with **Show the changes**. With the changes on, the note says so, with **Show the published menu**.
+- **Reload** loads the menu again, after changing it on the Menus page in another tab.
+- Shared preview links get the same choice (**Menu** in the Share window), to show a new menu before it goes live; the shared page says when it includes changes not published yet.
+- Kiosks themselves always show the published menu. Option group pictures (flavours, sauces) were never held back by publishing.
+- **Migration 188** (kiosk_share_menu).
+
 ## [2026-10-19 — Kiosks: every picture kept on the kiosk; a lost connection noticed in seconds]
 
 - **Every picture on the menu is kept on the kiosk**: dishes, sections, choices, banners, featured and section tiles, order type cards and the logo, loaded in the background after each menu change. A guest already ordering when the internet goes still sees every picture, not only the ones someone happened to open before. Only pictures the kiosk doesn't have yet are loaded, so a menu change doesn't download them all again. Start screen videos aren't kept.

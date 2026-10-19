@@ -510,6 +510,9 @@ and the ConnectSmart Kitchen guide.
   `kiosk.<domain>/?kiosk_share=<token>`, a page that frames the kiosk at kiosk size with the
   saved design (`GET /pos-api/kiosk-share`, found in system mode). It never places an order, like
   Till setup's 12-hour previews; New link stops the old one.
+- Menu version in previews (migration 188): a preview (the editor's, or a shared link with
+  `share_menu = 'draft'`) can show the menus with changes saved and not published yet; the editor
+  lists the menus with such changes (`menuChanges()`). A kiosk itself always gets the published menu.
 - Split photo (migration 185): option groups and combo steps with it on turn the dish's photo into
   the picks' pictures side by side with torn edges between them (`splitImages()`).
 - Choices: an option group or a combo step shows as grid, list, slider (with a level scale such as

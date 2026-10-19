@@ -19,9 +19,10 @@
 //   DELETE /devices/:id                           revoke
 //   Self-order kiosks (docs/POS.md section 10; shared/kiosk.js; the kiosks themselves are devices of kind 'kiosk'):
 //   GET    /kiosk-designs  POST /kiosk-designs  PUT/DELETE /kiosk-designs/:id   tenant-wide designs
-//   POST   /kiosk-designs/:id/preview             { venue_id, revenue_stream_id } -> a signed preview link
-//   PUT    /kiosk-designs/:id/share               { venue_id, revenue_stream_id?, expires_on? } a lasting link
-//                                                  for people outside the group (migration 187)
+//   POST   /kiosk-designs/:id/preview             { venue_id, revenue_stream_id, menu? 'live' | 'draft' } -> a signed
+//                                                  preview link + menus_changed (menus with changes not published)
+//   PUT    /kiosk-designs/:id/share               { venue_id, revenue_stream_id?, menu?, expires_on? } a lasting link
+//                                                  for people outside the group (migrations 187, 188)
 //   POST   /kiosk-designs/:id/share/new-link      a new link; the old one stops working
 //   DELETE /kiosk-designs/:id/share               stop sharing
 //   POST   /venues/:venueId/floor-areas           + PATCH/DELETE /floor-areas/:id
@@ -70,7 +71,7 @@ import { deviceOrigin, installerOrigin } from '../services/platformHost.js'
 import { linkCodeHash } from '../services/linkCodes.js'
 import { forgetDevice } from './posApi.js'
 import { ensureFlows, activeFlowOf, switchFlow, gloriaFoodTypes, GF_TYPES, kitchenTestToken } from '../services/kitchenSvc.js'
-import { checkDesign, ownDesign, previewToken } from '../services/kioskSvc.js'
+import { checkDesign, ownDesign, previewToken, menuChanges } from '../services/kioskSvc.js'
 import { normaliseDesign } from '../../../shared/kiosk.js'
 import { DEFAULT_POS_ROLES, PERMISSION_KEYS, normalisePermissions } from '../../../shared/pos/permissions.js'
 import { hashPin, PIN_PATTERN, weakPin } from '../../../shared/pos/pin.js'
@@ -414,8 +415,8 @@ function deviceView(d) {
   }
 }
 
-// A kiosk design's lasting preview link (migration 187).
-const SHARE_COLS = ['share_token', 'share_venue_id', 'share_stream_id', 'share_expires_at', 'share_created_at', 'share_created_by', 'share_views', 'share_last_viewed_at']
+// A kiosk design's lasting preview link (migration 187; share_menu 188).
+const SHARE_COLS = ['share_token', 'share_venue_id', 'share_stream_id', 'share_menu', 'share_expires_at', 'share_created_at', 'share_created_by', 'share_views', 'share_last_viewed_at']
 const newShareToken = () => randomBytes(24).toString('base64url')
 function shareView(d) {
   if (!d?.share_token) return null
@@ -423,6 +424,7 @@ function shareView(d) {
     url: deviceOrigin('kiosk') + '/?kiosk_share=' + d.share_token,
     venue_id: d.share_venue_id,
     revenue_stream_id: d.share_stream_id,
+    menu: d.share_menu === 'draft' ? 'draft' : 'live',
     expires_at: d.share_expires_at,
     expired: !!d.share_expires_at && new Date(d.share_expires_at) <= new Date(),
     created_at: d.share_created_at,
@@ -943,23 +945,32 @@ export default async function posSetupRoutes(app) {
 
   // A link to the kiosk app showing this design at a venue, for the
   // editor's live preview (the app takes unsaved changes by postMessage).
+  // menu 'draft' shows the menus with changes saved and not published yet;
+  // menus_changed lists the menus the preview shows that have such changes.
   app.post('/kiosk-designs/:id/preview', { preHandler: canSetupView }, async req => {
     const id = UUID.parse(req.params.id)
-    const body = z.object({ venue_id: UUID, revenue_stream_id: UUID.nullable().optional() }).parse(req.body || {})
-    await withTenant(req.tenantId, async tx => {
+    const body = z.object({
+      venue_id: UUID,
+      revenue_stream_id: UUID.nullable().optional(),
+      menu: z.enum(['live', 'draft']).optional(),
+    }).parse(req.body || {})
+    const menusChanged = await withTenant(req.tenantId, async tx => {
       await checkDesign(tx, req.tenantId, id)
       await ownVenue(tx, req.tenantId, body.venue_id)
       if (body.revenue_stream_id) {
         const [r] = await tx`SELECT id FROM pos_revenue_streams WHERE id = ${body.revenue_stream_id} AND tenant_id = ${req.tenantId} AND venue_id = ${body.venue_id}`
         if (!r) throw httpError(422, 'Revenue stream not found')
       }
+      return menuChanges(tx, req.tenantId, body.venue_id, body.revenue_stream_id || null)
     })
-    const token = await previewToken({ tenantId: req.tenantId, venueId: body.venue_id, designId: id, streamId: body.revenue_stream_id || null })
-    return { token, url: deviceOrigin('kiosk') + '/?kiosk_preview=' + encodeURIComponent(token) }
+    const menu = body.menu || 'live'
+    const token = await previewToken({ tenantId: req.tenantId, venueId: body.venue_id, designId: id, streamId: body.revenue_stream_id || null, menu })
+    return { token, url: deviceOrigin('kiosk') + '/?kiosk_preview=' + encodeURIComponent(token), menu, menus_changed: menusChanged }
   })
 
   // A lasting preview link for people outside the group (migration 187):
-  // the design as saved, with this venue's menu, opened at
+  // the design as saved, with this venue's menu (as published, or with its
+  // changes not published yet: menu 'draft', migration 188), opened at
   // kiosk.<domain>/?kiosk_share=<token> (GET /pos-api/kiosk-share). It never
   // orders anything. Making it, moving it and stopping it need Manage.
   app.put('/kiosk-designs/:id/share', { preHandler: canSetup }, async req => {
@@ -967,6 +978,7 @@ export default async function posSetupRoutes(app) {
     const body = z.object({
       venue_id: UUID,
       revenue_stream_id: UUID.nullable().optional(),
+      menu: z.enum(['live', 'draft']).optional(),
       expires_on: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
     }).parse(req.body || {})
     return withTenant(req.tenantId, async tx => {
@@ -985,6 +997,7 @@ export default async function posSetupRoutes(app) {
                share_created_at = COALESCE(share_created_at, now()),
                share_created_by = COALESCE(share_created_by, ${by(req)}),
                share_venue_id = ${body.venue_id}, share_stream_id = ${body.revenue_stream_id || null},
+               share_menu = ${body.menu || 'live'},
                share_expires_at = ${expires}
          WHERE id = ${d.id} AND tenant_id = ${req.tenantId}
          RETURNING ${tx(SHARE_COLS)}`
@@ -1013,7 +1026,7 @@ export default async function posSetupRoutes(app) {
       await checkDesign(tx, req.tenantId, id)
       await tx`
         UPDATE kiosk_designs
-           SET share_token = NULL, share_venue_id = NULL, share_stream_id = NULL, share_expires_at = NULL,
+           SET share_token = NULL, share_venue_id = NULL, share_stream_id = NULL, share_menu = 'live', share_expires_at = NULL,
                share_created_at = NULL, share_created_by = NULL, share_views = 0, share_last_viewed_at = NULL
          WHERE id = ${id} AND tenant_id = ${req.tenantId}`
       return { ok: true }

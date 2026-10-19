@@ -268,7 +268,7 @@ export default async function posApiRoutes(app) {
       const device = previewDevice(p)
       const [d] = await tx`SELECT id FROM kiosk_designs WHERE id = ${p.designId} AND tenant_id = ${p.tenantId}`
       if (!d) throw httpError(404, 'Kiosk design not found')
-      return kioskConfig(tx, p.tenantId, p.venueId, device, { preview: true })
+      return kioskConfig(tx, p.tenantId, p.venueId, device, { preview: true, menuVersion: p.menuVersion })
     })
   })
 
@@ -281,7 +281,7 @@ export default async function posApiRoutes(app) {
     const token = String(req.query.token || '')
     if (!/^[A-Za-z0-9_-]{20,64}$/.test(token)) throw httpError(404, 'This preview link isn\'t right: check you have all of it')
     const [d] = await systemSql`
-      SELECT id, tenant_id, name, share_venue_id, share_stream_id, share_expires_at
+      SELECT id, tenant_id, name, share_venue_id, share_stream_id, share_menu, share_expires_at
         FROM kiosk_designs WHERE share_token = ${token}`
     if (!d) throw httpError(404, 'This preview link doesn\'t work any more: ask for a new one')
     if (d.share_expires_at && new Date(d.share_expires_at) <= new Date()) throw httpError(410, 'This preview link has run out: ask for a new one')
@@ -290,9 +290,9 @@ export default async function posApiRoutes(app) {
       const [v] = await tx`SELECT v.name, t.name AS company FROM venues v JOIN tenants t ON t.id = v.tenant_id WHERE v.id = ${d.share_venue_id} AND v.tenant_id = ${d.tenant_id}`
       if (!v) throw httpError(404, 'This preview isn\'t set up any more: ask for a new link')
       const device = previewDevice({ designId: d.id, streamId: d.share_stream_id })
-      const config = await kioskConfig(tx, d.tenant_id, d.share_venue_id, device, { preview: true })
+      const config = await kioskConfig(tx, d.tenant_id, d.share_venue_id, device, { preview: true, menuVersion: d.share_menu })
       await tx`UPDATE kiosk_designs SET share_views = share_views + 1, share_last_viewed_at = now() WHERE id = ${d.id} AND tenant_id = ${d.tenant_id}`
-      return { ...config, share: { design: d.name, venue: v.name, company: v.company, expires_at: d.share_expires_at } }
+      return { ...config, share: { design: d.name, venue: v.name, company: v.company, expires_at: d.share_expires_at, menu: config.menu_version } }
     })
     return out
   })
