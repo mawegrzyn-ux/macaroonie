@@ -5,6 +5,13 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-19 — Kiosks: every picture kept on the kiosk; a lost connection noticed in seconds]
+
+- **Every picture on the menu is kept on the kiosk**: dishes, sections, choices, banners, featured and section tiles, order type cards and the logo, loaded in the background after each menu change. A guest already ordering when the internet goes still sees every picture, not only the ones someone happened to open before. Only pictures the kiosk doesn't have yet are loaded, so a menu change doesn't download them all again. Start screen videos aren't kept.
+- **A lost connection is noticed in seconds**: the kiosk and Macaroonie check on each other every 15 seconds, so even a shop router that loses the internet while the Wi-Fi stays up is noticed (within about half a minute). Before pausing ordering the kiosk tries twice more straight away (after 1 and 3 seconds), so a short blip or a quick server restart doesn't pause it. Once paused, it tries every 5 seconds and opens ordering again as soon as it gets through.
+- **The staff panel** (five quick taps in the top-left corner of the start screen) shows Online, Checking or Offline, and how many of the menu's pictures are saved on the kiosk.
+- No migration.
+
 ## [2026-10-19 — Kiosk choices: words only, and centred]
 
 - **Words only** in the kiosk design editor's Choices card: choices show without pictures. Each shows its name, level and price in the choice shape you picked: a card (with the description), a circle, an oval, or a hexagon (hexagons still lock together like a honeycomb). The list and the spin wheel leave their small pictures out too. A split photo still uses the pictures.

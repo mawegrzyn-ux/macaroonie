@@ -7,7 +7,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   normaliseDesign, designProblems, payMethods, uiText, allergenName, translationSources, TK, splitImages, hexLayout,
-  kioskOrder, basketCheck, kioskStaff, kioskFontsUrl, UI_TEXT, ALLERGEN_NAMES, KIOSK_LANGUAGES,
+  configImages, MAX_SAVED_PICTURES, kioskOrder, basketCheck, kioskStaff, kioskFontsUrl, UI_TEXT, ALLERGEN_NAMES, KIOSK_LANGUAGES,
 } from '../kiosk.js'
 import { applyEvent, KIOSK_EVENTS } from '../pos/checks.js'
 import { checkTotals } from '../pos/pricing.js'
@@ -372,4 +372,35 @@ test('sequencer: takes a kiosk order, numbers it, refuses a kiosk working on a t
   await seq.submit(ev('check.opened', { mode: 'counter' }, { check_id: tillId, staff_id: TILL_PERSON, device_id: 'T1' }))
   const bad = await seq.submit(ev('line.added', { line: { ...r.check.lines[0], id: ulid() } }, { check_id: tillId }))
   assert.equal(bad.code, 'kiosk')
+})
+
+test('configImages: every picture the kiosk can show, on its own origin, each once', () => {
+  const origin = 'https://kiosk.example.test'
+  const config = {
+    design: normaliseDesign({
+      brand: { logo_url: '/uploads/logo.png' },
+      start: { media: [{ id: 'm1', type: 'image', url: '/uploads/start.jpg' }, { id: 'm2', type: 'video', url: '/uploads/start.mp4' }] },
+      menu: {
+        banners: [{ id: 'b1', image_url: '/uploads/banner.jpg', title: 'Hot', link: { kind: 'none' } }],
+        featured: [{ id: 'f1', image_url: 'https://cdn.other.test/feature.jpg', title: 'Deal', link: { kind: 'none' } }],
+      },
+    }),
+    sections: [{ id: 's1', image_url: '/uploads/section.png', item_ids: ['i1'] }],
+    items: {
+      i1: { id: 'i1', image_url: '/uploads/wings.jpg', combo: { steps: [{ id: 'st', options: [{ id: 'o', image_url: '/uploads/dip.png' }] }] } },
+      i2: { id: 'i2', image_url: origin + '/uploads/wings.jpg' },
+      i3: { id: 'i3', image_url: 'data:image/png;base64,AAAA' },
+      i4: { id: 'i4', image_url: null },
+    },
+    groups: { g1: { options: [{ id: 'x', image_url: '/uploads/flavour.png' }] } },
+  }
+  const urls = configImages(config, origin)
+  assert.deepEqual(urls.slice(0, 3), [origin + '/uploads/logo.png', origin + '/uploads/start.jpg', origin + '/uploads/banner.jpg'], 'the design first')
+  for (const u of ['section.png', 'wings.jpg', 'dip.png', 'flavour.png']) assert.ok(urls.includes(origin + '/uploads/' + u), u)
+  assert.equal(urls.filter(u => u.endsWith('wings.jpg')).length, 1, 'each picture once')
+  assert.ok(!urls.some(u => u.endsWith('.mp4')), 'no videos')
+  assert.ok(!urls.some(u => u.includes('cdn.other.test') || u.startsWith('data:')), 'only the kiosk\'s own pictures')
+  assert.deepEqual(configImages(null, origin), [])
+  const many = { items: Object.fromEntries(Array.from({ length: MAX_SAVED_PICTURES + 50 }, (_, n) => ['i' + n, { image_url: '/uploads/p' + n + '.jpg' }])) }
+  assert.equal(configImages(many, origin).length, MAX_SAVED_PICTURES, 'capped below the cache size')
 })

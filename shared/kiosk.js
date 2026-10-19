@@ -353,6 +353,42 @@ export function splitImages(config, item, selection = {}) {
   return out.length >= 2 ? out.slice(0, SPLIT_MAX) : []
 }
 
+// Below the kiosk-images cache's maxEntries (pos/vite.config.js), so saving
+// every picture never pushes out the ones saved first.
+export const MAX_SAVED_PICTURES = 1800
+
+/**
+ * Every picture a kiosk config can show, for keeping them on the device
+ * (pos/src/kiosk/photos.js): the logo, start screen pictures (not videos),
+ * and every image_url / logo_url anywhere in the config (dishes, sections,
+ * option and combo choices, banners, featured tiles, section tiles, order
+ * type cards). Absolute URLs on the kiosk's own origin only (the service
+ * worker keeps only those), each once, design first, at most MAX_SAVED_PICTURES.
+ */
+export function configImages(config, origin) {
+  const out = new Set()
+  const add = u => {
+    if (typeof u !== 'string' || !u || u.startsWith('data:')) return
+    let url
+    try { url = new URL(u, origin) } catch { return }
+    if (url.origin === origin) out.add(url.href)
+  }
+  const walk = (v, depth) => {
+    if (!v || typeof v !== 'object' || depth > 12) return
+    if (Array.isArray(v)) { for (const x of v) walk(x, depth + 1); return }
+    for (const [k, x] of Object.entries(v)) {
+      if (k === 'image_url' || k === 'logo_url') add(x)
+      else if (x && typeof x === 'object') walk(x, depth + 1)
+    }
+  }
+  const d = config?.design
+  add(d?.brand?.logo_url)
+  for (const m of d?.start?.media || []) if (m?.type !== 'video') add(m?.url)
+  walk(d, 0)
+  walk(config, 0)
+  return [...out].slice(0, MAX_SAVED_PICTURES)
+}
+
 /** Ways a guest can pay on this kiosk: ['card', 'counter'] in that order. */
 export function payMethods(design, kioskSettings = {}) {
   const out = []

@@ -75,7 +75,13 @@ export function attachWss(httpServer, jwtVerify) {
       const device = await verifyDevice(posDevice, url.searchParams.get('secret')).catch(() => null)
       if (!device) { ws.close(4003, 'Forbidden'); return }
       joinRoom(ws, 'pos:' + device.venue_id)
-      ws.send(JSON.stringify({ type: 'connected', venueId: device.venue_id }))
+      // The device's heartbeat (pos/src/kiosk/store.js): a ping answered with
+      // a pong, so a link that hangs is noticed within seconds. heartbeat: true
+      // tells the device this server answers.
+      ws.on('message', raw => {
+        if (raw.length <= 32 && String(raw) === '{"type":"ping"}' && ws.readyState === ws.OPEN) ws.send('{"type":"pong"}')
+      })
+      ws.send(JSON.stringify({ type: 'connected', venueId: device.venue_id, heartbeat: true }))
       return
     }
 

@@ -528,6 +528,15 @@ and the ConnectSmart Kitchen guide.
   counter. The check carries it as `provisional_no`.
 - A pay-at-counter order whose reply was lost is sent again with the same events; the server skips
   event ids it already has and returns the order number, so the till never gets it twice.
+- Noticing (19 Oct 2026): the live link carries a heartbeat (a ping every 15 s, 6 s for the pong),
+  so a router that loses the internet with the Wi-Fi still up is noticed, not only a link that
+  closes. Any sign of trouble (link closed or silent, a request with no reply, the browser's
+  offline event) gets two quick tries (after 1 s and 2 s) before ordering pauses; then a try
+  every 5 s until the server answers. A server restart shorter than the quick tries never pauses
+  ordering.
+- Pictures: every picture in the config is loaded into the service worker's picture cache after
+  each menu change (`pos/src/kiosk/photos.js`), so a guest mid-order sees the whole menu offline.
+  Start screen videos aren't kept.
 - With the hub (later), kiosks get `device.hub_url` like tills and keep taking orders with the
   internet down.
 

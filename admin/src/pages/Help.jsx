@@ -5046,6 +5046,9 @@ export default function Help() {
               <li>The order page: change or take off dishes, "Anything else?", then the name or table number if the stream asks, then pay. The order number shows at the end (with a receipt to print if you allow it).</li>
               <li>Nobody tapping for a while: "Still there?", then the kiosk starts again. The reach button brings everything down to the lower half of the screen. A dish marked sold out on the till greys out on the kiosk straight away.</li>
               <li>Without the internet the kiosk stops taking new orders. A card order already paid when the internet goes is kept on the kiosk and sent when it's back; the guest gets the kiosk's own number (KS1-0012) to show at the counter.</li>
+              <li>The kiosk notices a lost connection within seconds (within about half a minute when the shop's router loses the internet but the Wi-Fi stays up). It tries twice more straight away, so a short blip doesn't pause ordering; only then does the start screen say ordering is paused. It then tries every few seconds and opens ordering again as soon as it gets through.</li>
+              <li>Every picture on the menu (dishes, sections, choices, banners, the logo) is kept on the kiosk after each menu change, so a guest already ordering when the internet goes still sees them all. Start screen videos aren't kept.</li>
+              <li>The staff panel (five quick taps in the top-left corner of the start screen) shows the connection (Online, Checking or Offline) and how many of the menu's pictures are saved on the kiosk.</li>
             </ul>
 
             <H3>Translations (Menus → Translations)</H3>

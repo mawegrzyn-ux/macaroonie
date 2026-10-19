@@ -43,12 +43,15 @@ export default defineConfig({
           { urlPattern: /\/pos-api\//, handler: 'NetworkOnly' },
           // Kiosks: dish photos and the design's fonts stay on the device, so
           // the menu shows at once and still shows when the internet drops.
+          // The kiosk loads every picture its menu can show after each menu
+          // change (src/kiosk/photos.js), at most MAX_SAVED_PICTURES
+          // (shared/kiosk.js): keep maxEntries above that.
           {
             // Same-origin only (uploads under /uploads/): an opaque cross-origin
             // response takes megabytes of the device's storage quota each.
             urlPattern: ({ request, url }) => request.destination === 'image' && url.origin === self.location.origin,
             handler: 'StaleWhileRevalidate',
-            options: { cacheName: 'kiosk-images', expiration: { maxEntries: 600, maxAgeSeconds: 30 * 24 * 3600 } },
+            options: { cacheName: 'kiosk-images', expiration: { maxEntries: 2000, maxAgeSeconds: 365 * 24 * 3600 } },
           },
           {
             urlPattern: /^https:\/\/fonts\.(googleapis|gstatic)\.com\//,
