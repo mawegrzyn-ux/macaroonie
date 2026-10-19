@@ -11,12 +11,36 @@
 //   tiles     the design's choice picture style (design.layout.option_tiles):
 //             'cards' | 'round' | 'oval' | 'hexagon' (the grid lays hexagons
 //             out as a honeycomb; the rest is CSS on .k-opts-<style>)
+//   pictures  false: words only (design.layout.option_pictures), in the
+//             style's shape (.k-opt-face, HexTile words)
+//   center    the grid / honeycomb centred on the screen (design.layout.option_align)
 //   wheel     { spin, picks }: the wheel's Spin button, and whether a spin
 //             picks the choice it stops on
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Check, Minus, Plus, ChevronLeft, ChevronRight, Dices } from 'lucide-react'
 import { cx, Photo, Levels, HexGrid, HexTile } from './parts.jsx'
+
+/** The design's look for choices, as the displays' props (tiles, pictures, center). */
+export const choiceLook = design => ({
+  tiles: design.layout.option_tiles,
+  pictures: design.layout.option_pictures !== false,
+  center: design.layout.option_align === 'center',
+})
+
+// A choice's words without its picture: the name, level and description (a
+// card only shows the description), and whatever comes after (the price), in
+// the choices' shape: a card, a circle, an oval or a hexagon (.k-opt-face).
+function Face({ o, levelIcon, children }) {
+  return (
+    <span className="k-opt-face">
+      <span className="k-head k-opt-face-name">{o.label}</span>
+      {o.level != null && <Levels level={o.level} icon={levelIcon} />}
+      {o.description && <span className="k-item-desc k-opt-face-desc">{o.description}</span>}
+      {children}
+    </span>
+  )
+}
 
 function Tick({ n, repeat }) {
   if (!n) return null
@@ -26,9 +50,9 @@ function Tick({ n, repeat }) {
 // ── Grid ─────────────────────────────────────────────────────────
 
 // A choice's hexagon: the photo, its name, level and price; the tick at the top.
-function HexOption({ o, n, off, onTap, onLess, repeat, levelIcon, ui }) {
+function HexOption({ o, n, off, onTap, onLess, repeat, levelIcon, ui, pictures }) {
   return (
-    <HexTile src={o.image_url} label={o.label} on={n > 0} off={off} disabled={o.sold_out} onClick={() => !o.sold_out && onTap(o)}
+    <HexTile src={pictures ? o.image_url : null} words={!pictures} label={o.label} on={n > 0} off={off} disabled={o.sold_out} onClick={() => !o.sold_out && onTap(o)}
       testId="k-option" pressed={n > 0}
       extra={(
         <>
@@ -43,36 +67,47 @@ function HexOption({ o, n, off, onTap, onLess, repeat, levelIcon, ui }) {
   )
 }
 
-export function GridDisplay({ options, countOf, onTap, onLess, repeat, full, levelIcon, ui, tiles }) {
+export function GridDisplay({ options, countOf, onTap, onLess, repeat, full, levelIcon, ui, tiles, pictures = true, center = false }) {
   if (tiles === 'hexagon') {
     // A honeycomb even for a few choices (two rows from three on).
     const target = Math.min(Math.min(window.innerWidth, window.innerHeight) * 0.24, 200)
     return (
-      <div data-display="grid">
-        <HexGrid compact target={target} maxCell={target * 1.3} gap={8} testId="k-option-grid">
+      <div data-display="grid" data-center={center ? '1' : undefined}>
+        <HexGrid compact center={center} target={target} maxCell={target * 1.3} gap={8} testId="k-option-grid">
           {options.map(o => {
             const n = countOf(o.id)
-            return <HexOption key={o.id} o={o} n={n} off={o.sold_out || (!n && full && !repeat)} onTap={onTap} onLess={onLess} repeat={repeat} levelIcon={levelIcon} ui={ui} />
+            return <HexOption key={o.id} o={o} n={n} off={o.sold_out || (!n && full && !repeat)} onTap={onTap} onLess={onLess} repeat={repeat} levelIcon={levelIcon} ui={ui} pictures={pictures} />
           })}
         </HexGrid>
       </div>
     )
   }
+  // Centred: rows of same-width choices in the middle, a short last row too.
   return (
-    <div className="grid gap-[var(--k-gap)]" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(min(30vmin, 190px), 1fr))' }} data-display="grid">
+    <div className={center ? 'flex flex-wrap justify-center gap-[var(--k-gap)]' : 'grid gap-[var(--k-gap)]'}
+      style={center ? null : { gridTemplateColumns: 'repeat(auto-fill, minmax(min(30vmin, 190px), 1fr))' }}
+      data-display="grid" data-center={center ? '1' : undefined} data-testid="k-option-grid">
       {options.map(o => {
         const n = countOf(o.id)
         const off = o.sold_out || (!n && full && !repeat)
         return (
-          <div key={o.id} className="relative">
-            <button className={cx('k-card k-opt w-full', n > 0 && 'k-opt-on', off && 'k-opt-dis')} onClick={() => !o.sold_out && onTap(o)} disabled={o.sold_out} data-testid="k-option" aria-pressed={n > 0}>
-              <Photo src={o.image_url} label={o.label} className="k-opt-img" phClassName="k-opt-ph" />
-              <span className="p-[.6em] flex flex-col gap-[.2em]">
-                <span className="k-head text-[.95em]">{o.label}</span>
-                {o.level != null && <Levels level={o.level} icon={levelIcon} />}
-                {o.description && <span className="k-item-desc">{o.description}</span>}
-                <span className="k-price text-[.9em]">{o.sold_out ? ui('sold_out') : o.priceText}</span>
-              </span>
+          <div key={o.id} className="relative" style={center ? { width: 'min(30vmin, 200px)' } : null}>
+            <button className={cx('k-card k-opt w-full', !pictures && 'k-opt-words', n > 0 && 'k-opt-on', off && 'k-opt-dis')} onClick={() => !o.sold_out && onTap(o)} disabled={o.sold_out} data-testid="k-option" aria-pressed={n > 0}>
+              {pictures ? (
+                <>
+                  <Photo src={o.image_url} label={o.label} className="k-opt-img" phClassName="k-opt-ph" />
+                  <span className="p-[.6em] flex flex-col gap-[.2em]">
+                    <span className="k-head text-[.95em]">{o.label}</span>
+                    {o.level != null && <Levels level={o.level} icon={levelIcon} />}
+                    {o.description && <span className="k-item-desc">{o.description}</span>}
+                    <span className="k-price text-[.9em]">{o.sold_out ? ui('sold_out') : o.priceText}</span>
+                  </span>
+                </>
+              ) : (
+                <Face o={o} levelIcon={levelIcon}>
+                  {(o.sold_out || o.priceText) && <span className="k-price text-[.9em]">{o.sold_out ? ui('sold_out') : o.priceText}</span>}
+                </Face>
+              )}
               <Tick n={n} repeat={repeat} />
             </button>
             {repeat && n > 0 && (
@@ -87,7 +122,7 @@ export function GridDisplay({ options, countOf, onTap, onLess, repeat, full, lev
 
 // ── List ─────────────────────────────────────────────────────────
 
-export function ListDisplay({ options, countOf, onTap, onLess, repeat, full, levelIcon, ui }) {
+export function ListDisplay({ options, countOf, onTap, onLess, repeat, full, levelIcon, ui, pictures = true }) {
   return (
     <div className="flex flex-col gap-[calc(var(--k-gap)/1.5)]" data-display="list">
       {options.map(o => {
@@ -96,9 +131,11 @@ export function ListDisplay({ options, countOf, onTap, onLess, repeat, full, lev
         return (
           <div key={o.id} className={cx('k-card flex items-center gap-[.8em] p-[.5em] border-[3px]', n > 0 ? 'border-[var(--k-primary)]' : 'border-transparent', off && 'k-opt-dis')}>
             <button className="flex items-center gap-[.8em] flex-1 min-w-0 text-left bg-transparent border-0 p-0" onClick={() => !o.sold_out && onTap(o)} disabled={o.sold_out} data-testid="k-option" aria-pressed={n > 0}>
-              <span className="k-opt-thumb w-[4.2em] h-[4.2em] shrink-0 rounded-[calc(var(--k-radius)/1.5)] overflow-hidden">
-                <Photo src={o.image_url} label={o.label} className="w-full h-full object-cover" phClassName="k-opt-ph h-full aspect-auto text-[1.2em]" />
-              </span>
+              {pictures && (
+                <span className="k-opt-thumb w-[4.2em] h-[4.2em] shrink-0 rounded-[calc(var(--k-radius)/1.5)] overflow-hidden">
+                  <Photo src={o.image_url} label={o.label} className="w-full h-full object-cover" phClassName="k-opt-ph h-full aspect-auto text-[1.2em]" />
+                </span>
+              )}
               <span className="flex-1 min-w-0">
                 <span className="k-head block">{o.label}</span>
                 {o.description && <span className="k-item-desc block">{o.description}</span>}
@@ -126,7 +163,7 @@ export function ListDisplay({ options, countOf, onTap, onLess, repeat, full, lev
 
 // ── Slider ───────────────────────────────────────────────────────
 
-export function SliderDisplay({ options: given, countOf, onTap, onLess, repeat, full, scale, levelIcon, ui }) {
+export function SliderDisplay({ options: given, countOf, onTap, onLess, repeat, full, scale, levelIcon, ui, pictures = true }) {
   const track = useRef(null)
   const [focus, setFocus] = useState(0)
   const levels = given.some(o => o.level != null)
@@ -174,10 +211,10 @@ export function SliderDisplay({ options: given, countOf, onTap, onLess, repeat, 
             const off = o.sold_out || (!n && full && !repeat)
             return (
               <div key={o.id} className={cx('k-slide relative', i === focus && 'k-slide-focus')}>
-                <button className={cx('k-card k-opt w-full', n > 0 && 'k-opt-on', off && 'k-opt-dis')}
+                <button className={cx('k-card k-opt w-full', !pictures && 'k-opt-words', n > 0 && 'k-opt-on', off && 'k-opt-dis')}
                   onClick={() => { if (i !== focus) scrollTo(i); if (!o.sold_out) onTap(o) }} disabled={o.sold_out} data-testid="k-option" aria-pressed={n > 0}>
-                  <Photo src={o.image_url} label={o.label} className="k-opt-img" phClassName="k-opt-ph" />
-                  <span className="p-[.7em] flex flex-col gap-[.3em] items-start">
+                  {pictures && <Photo src={o.image_url} label={o.label} className="k-opt-img" phClassName="k-opt-ph" />}
+                  <span className={pictures ? 'p-[.7em] flex flex-col gap-[.3em] items-start' : 'k-opt-face'}>
                     <span className="k-head text-[1.05em]">{o.label}</span>
                     {o.level != null && <Levels level={o.level} icon={levelIcon} size={18} />}
                     {o.description && <span className="k-item-desc">{o.description}</span>}
@@ -219,7 +256,7 @@ const WHEEL_MAX = 16
 /** Text that fits a segment: cut long labels. */
 const short = (s, n) => (s.length > n ? s.slice(0, n - 1) + '…' : s)
 
-export function WheelDisplay({ options, countOf, onTap, onLess, repeat, full, levelIcon, ui, tiles, wheel = {} }) {
+export function WheelDisplay({ options, countOf, onTap, onLess, repeat, full, levelIcon, ui, tiles, pictures = true, center = false, wheel = {} }) {
   const list = options.slice(0, WHEEL_MAX)
   const n = list.length
   const seg = 360 / Math.max(1, n)
@@ -365,9 +402,11 @@ export function WheelDisplay({ options, countOf, onTap, onLess, repeat, full, le
       {current && (
         // Hidden while the wheel spins, so the choice it stops on isn't given away.
         <div className="k-card flex items-center gap-[.8em] p-[.6em] w-full max-w-[640px]" data-testid="k-wheel-current" style={spinning ? { visibility: 'hidden' } : null}>
-          <span className="k-opt-thumb w-[4.4em] h-[4.4em] shrink-0 rounded-[calc(var(--k-radius)/1.5)] overflow-hidden">
-            <Photo src={current.image_url} label={current.label} className="w-full h-full object-cover" phClassName="k-opt-ph h-full aspect-auto text-[1.2em]" />
-          </span>
+          {pictures && (
+            <span className="k-opt-thumb w-[4.4em] h-[4.4em] shrink-0 rounded-[calc(var(--k-radius)/1.5)] overflow-hidden">
+              <Photo src={current.image_url} label={current.label} className="w-full h-full object-cover" phClassName="k-opt-ph h-full aspect-auto text-[1.2em]" />
+            </span>
+          )}
           <span className="flex-1 min-w-0">
             <span className="k-head block text-[1.15em]">{current.label}</span>
             {current.level != null && <Levels level={current.level} icon={levelIcon} />}
@@ -385,7 +424,7 @@ export function WheelDisplay({ options, countOf, onTap, onLess, repeat, full, le
       )}
       </div>
     </div>
-      {options.length > WHEEL_MAX && <GridDisplay options={options.slice(WHEEL_MAX)} countOf={countOf} onTap={onTap} onLess={onLess} repeat={repeat} full={full} levelIcon={levelIcon} ui={ui} tiles={tiles} />}
+      {options.length > WHEEL_MAX && <GridDisplay options={options.slice(WHEEL_MAX)} countOf={countOf} onTap={onTap} onLess={onLess} repeat={repeat} full={full} levelIcon={levelIcon} ui={ui} tiles={tiles} pictures={pictures} center={center} />}
     </div>
   )
 }

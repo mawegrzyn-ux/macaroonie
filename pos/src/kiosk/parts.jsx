@@ -204,10 +204,11 @@ function useWidth(ref) {
  * Hexagons that lock together like a honeycomb (hexLayout()). cols: a
  * number, or 'auto' (as many as fit at about `target` px wide), at least 2.
  * The menu fills the width; compact (choices) keeps each hexagon at most
- * `maxCell` px wide and keeps a few choices together in two rows. Each child
- * is one hexagon (HexTile).
+ * `maxCell` px wide and keeps a few choices together in two rows; center puts
+ * that narrower honeycomb in the middle of the width. Each child is one
+ * hexagon (HexTile).
  */
-export function HexGrid({ children, cols = 'auto', target = 240, gap = 10, testId, compact = false, maxCell = Infinity }) {
+export function HexGrid({ children, cols = 'auto', target = 240, gap = 10, testId, compact = false, maxCell = Infinity, center = false }) {
   const ref = useRef(null)
   const width = useWidth(ref)
   const list = Children.toArray(children)
@@ -228,8 +229,8 @@ export function HexGrid({ children, cols = 'auto', target = 240, gap = 10, testI
   }))
   const columns = compact ? 'repeat(' + layout.width + ', ' + w / 2 + 'px)' : 'repeat(' + n * 2 + ', minmax(0, 1fr))'
   return (
-    <div ref={ref} className="k-hexgrid" style={{ gridTemplateColumns: columns, paddingBottom: h / 4 }}
-      data-testid={testId} data-cols={n} data-rows={layout.rows.length}>
+    <div ref={ref} className="k-hexgrid" style={{ gridTemplateColumns: columns, paddingBottom: h / 4, justifyContent: center ? 'center' : null }}
+      data-testid={testId} data-cols={n} data-rows={layout.rows.length} data-center={center ? '1' : undefined}>
       {width > 0 && cells}
     </div>
   )
@@ -237,16 +238,17 @@ export function HexGrid({ children, cols = 'auto', target = 240, gap = 10, testI
 
 /**
  * One hexagon: the photo fills it, the words sit in a band near the bottom.
- * on: picked (a ring in the button colour); off: greyed (sold out, or nothing
- * more can be picked). top: small things at the top (dietary marks); extra:
- * buttons beside the hexagon (quick add, one less), outside its shape.
+ * words: no picture at all, the words in the middle (choices shown words
+ * only). on: picked (a ring in the button colour); off: greyed (sold out, or
+ * nothing more can be picked). top: small things at the top (dietary marks);
+ * extra: buttons beside the hexagon (quick add, one less), outside its shape.
  */
-export function HexTile({ src, label, on = false, off = false, onClick, disabled, testId, attrs = null, pressed, top = null, extra = null, children }) {
+export function HexTile({ src, label, words = false, on = false, off = false, onClick, disabled, testId, attrs = null, pressed, top = null, extra = null, children }) {
   return (
     <>
       <div className={cx('k-hex-ring', on && 'k-hex-on', off && 'k-opt-dis')}>
-        <button className={cx('k-hex', !src && 'k-hex-noimg')} onClick={onClick} disabled={disabled} data-testid={testId} aria-pressed={pressed} {...(attrs || {})}>
-          {src ? <img src={src} alt="" draggable={false} loading="lazy" className="k-hex-img" /> : <span className="k-hex-ph" aria-hidden="true">{initials(label)}</span>}
+        <button className={cx('k-hex', words ? 'k-hex-words' : !src && 'k-hex-noimg')} onClick={onClick} disabled={disabled} data-testid={testId} aria-pressed={pressed} {...(attrs || {})}>
+          {words ? null : src ? <img src={src} alt="" draggable={false} loading="lazy" className="k-hex-img" /> : <span className="k-hex-ph" aria-hidden="true">{initials(label)}</span>}
           {top && <span className="k-hex-top">{top}</span>}
           <span className="k-hex-band">{children}</span>
         </button>

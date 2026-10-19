@@ -84,7 +84,7 @@ test('design: defaults, clamps, drops what it does not know', () => {
 
 test('design: layout, section tiles and the spin wheel', () => {
   const plain = normaliseDesign({})
-  assert.deepEqual(plain.layout, { tiles: 'cards', option_tiles: 'cards', header: true, icon_buttons: false })
+  assert.deepEqual(plain.layout, { tiles: 'cards', option_tiles: 'cards', option_pictures: true, option_align: 'left', header: true, icon_buttons: false })
   assert.equal(plain.menu.rail, 'images')
   assert.deepEqual(plain.menu.section_tiles, [])
   assert.equal(plain.options.wheel_spin, true)
@@ -100,7 +100,7 @@ test('design: layout, section tiles and the spin wheel', () => {
     options: { wheel_spin: false, wheel_spin_picks: 'yes' },
   })
   // Choices keep the dishes' style until the design picks their own.
-  assert.deepEqual(d.layout, { tiles: 'hexagon', option_tiles: 'hexagon', header: false, icon_buttons: true })
+  assert.deepEqual(d.layout, { tiles: 'hexagon', option_tiles: 'hexagon', option_pictures: true, option_align: 'left', header: false, icon_buttons: true })
   assert.equal(d.menu.rail, 'none')
   assert.deepEqual(d.menu.section_tiles, [
     { section_id: DRINKS, image_url: '/d.jpg', title: 'Drinks and shakes', size: 'wide' },
@@ -125,6 +125,18 @@ test('design: dishes and choices each have their own picture style', () => {
   assert.equal(normaliseDesign({ layout: { tiles: 'oval', option_tiles: 'star' } }).layout.option_tiles, 'oval')
   assert.equal(normaliseDesign({ layout: { option_tiles: 'round' } }).layout.tiles, 'cards')
   assert.deepEqual(normaliseDesign(d), d)
+})
+
+test('design: choices words only, and centred', () => {
+  const d = normaliseDesign({ layout: { option_tiles: 'hexagon', option_pictures: false, option_align: 'center' } })
+  assert.equal(d.layout.option_tiles, 'hexagon')
+  assert.equal(d.layout.option_pictures, false)
+  assert.equal(d.layout.option_align, 'center')
+  assert.deepEqual(normaliseDesign(d), d)
+  // Only false turns the pictures off; an unknown line-up is from the left.
+  const odd = normaliseDesign({ layout: { option_pictures: 0, option_align: 'middle' } }).layout
+  assert.equal(odd.option_pictures, true)
+  assert.equal(odd.option_align, 'left')
 })
 
 test('honeycomb: rows lock together; a few choices still make two rows', () => {

@@ -131,6 +131,7 @@ export const LINK_KINDS = ['none', 'item', 'section']
 // also give the whole kiosk the hexagon look (buttons, chips, badges).
 export const TILE_STYLES = ['cards', 'round', 'oval', 'hexagon']
 export const TILE_LABELS = { cards: 'Cards', round: 'Round', oval: 'Oval', hexagon: 'Hexagons' }
+export const OPTION_ALIGNS = ['left', 'center']
 /**
  * Where each hexagon of a honeycomb goes (the kiosk's HexGrid): { rows:
  * [[start, ...], ...], width } in half hexagon columns (a hexagon spans two,
@@ -228,6 +229,12 @@ export function normaliseDesign(raw) {
       tiles,
       // Choices' pictures; a design that hasn't picked one keeps the dishes' style.
       option_tiles: oneOf(y.option_tiles, TILE_STYLES, tiles),
+      // Off: choices show only their words, in the choices' shape (a card, a
+      // circle, an oval or a hexagon). The split photo still uses the pictures.
+      option_pictures: y.option_pictures !== false,
+      // A grid or honeycomb of choices (and its heading) from the left or
+      // centred on the screen.
+      option_align: oneOf(y.option_align, OPTION_ALIGNS, 'left'),
       // The bar along the top (logo, language); off, the language button
       // moves to the bottom bar.
       header: y.header !== false,

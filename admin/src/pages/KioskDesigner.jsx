@@ -484,6 +484,13 @@ const TILE_TEXT = {
     oval: 'Photos in ovals, the words under them. No cards.',
     hexagon: 'A grid of choices locks together like a honeycomb, even with only a few. The list, slider and wheel show hexagon photos.',
   },
+  // Choices with Words only.
+  words: {
+    cards: 'The words on a card.',
+    round: 'The words in a circle.',
+    oval: 'The words in an oval.',
+    hexagon: 'The words in hexagons that lock together like a honeycomb, even with only a few.',
+  },
 }
 
 function PictureStyle({ value, onChange, kind, testId }) {
@@ -659,7 +666,20 @@ function ChoicesPanel({ d, set }) {
         </div>
       </Field>
       <Field group label="Choice pictures" hint="Option groups and combo steps. Dishes have their own (Menu).">
-        <PictureStyle kind="choices" value={d.layout.option_tiles} onChange={k => set('layout', { option_tiles: k })} testId="kd-option-tiles" />
+        <PictureStyle kind={d.layout.option_pictures ? 'choices' : 'words'} value={d.layout.option_tiles} onChange={k => set('layout', { option_tiles: k })} testId="kd-option-tiles" />
+        <div className="mt-2" data-testid="kd-option-pictures">
+          <Segmented value={d.layout.option_pictures ? 'show' : 'words'} onChange={v => set('layout', { option_pictures: v === 'show' })}
+            options={[{ value: 'show', label: 'With pictures' }, { value: 'words', label: 'Words only' }]} />
+        </div>
+        {!d.layout.option_pictures && (
+          <p className="text-[11px] text-muted-foreground mt-1">The name, level and price in the shape above (cards also show the description). The list and the wheel leave the pictures out; a split photo still uses them.</p>
+        )}
+      </Field>
+      <Field group label="Line up the choices" hint="A grid or honeycomb of choices, and its heading. The list fills the width; the slider and the wheel sit in the middle anyway.">
+        <div data-testid="kd-option-align">
+          <Segmented value={d.layout.option_align} onChange={v => set('layout', { option_align: v })}
+            options={[{ value: 'left', label: 'From the left' }, { value: 'center', label: 'Centred' }]} />
+        </div>
       </Field>
       <Field group label="Spin wheel">
         <div className="space-y-1">
@@ -1019,7 +1039,7 @@ function summaryOf(id, d) {
   if (id === 'start') return (d.start.media.length ? d.start.media.length + ' picture' + (d.start.media.length === 1 ? '' : 's') : 'No pictures') + ', ' + (d.start.layout === 'full' ? 'pictures behind' : 'pictures apart')
   if (id === 'languages') return d.languages.enabled.map(c => KIOSK_LANGUAGES.find(l => l.code === c)?.name).join(', ')
   if (id === 'menu') return TILE_LABELS[d.layout.tiles] + ', ' + (d.menu.rail === 'none' ? 'section tiles, ' : '') + (d.menu.home ? d.menu.banners.length + ' banners, ' + d.menu.featured.length + ' tiles' : 'No home page') + (d.menu.hidden_section_ids.length ? ', ' + d.menu.hidden_section_ids.length + ' sections left off' : '')
-  if (id === 'choices') return DISPLAY_LABELS[d.options.display] + ', ' + TILE_LABELS[d.layout.option_tiles].toLowerCase() + (d.options.wheel_spin_picks ? ', a spin picks' : '')
+  if (id === 'choices') return DISPLAY_LABELS[d.options.display] + ', ' + TILE_LABELS[d.layout.option_tiles].toLowerCase() + (d.layout.option_pictures ? '' : ', words only') + (d.layout.option_align === 'center' ? ', centred' : '') + (d.options.wheel_spin_picks ? ', a spin picks' : '')
   if (id === 'checkout') return [d.checkout.pay_card && 'Card', d.checkout.pay_counter && 'At the counter'].filter(Boolean).join(' and ') || 'No way to pay'
   if (id === 'timing') return 'Starts again after ' + d.behaviour.idle_secs + ' s'
   return ''

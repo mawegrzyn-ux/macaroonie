@@ -5,6 +5,13 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-19 — Kiosk choices: words only, and centred]
+
+- **Words only** in the kiosk design editor's Choices card: choices show without pictures. Each shows its name, level and price in the choice shape you picked: a card (with the description), a circle, an oval, or a hexagon (hexagons still lock together like a honeycomb). The list and the spin wheel leave their small pictures out too. A split photo still uses the pictures.
+- **Line up the choices**: a grid or honeycomb of choices, with its heading, can start from the left (as before) or sit centred on the screen. Centred card grids keep each card the same width, so a short last row sits in the middle.
+- Existing designs keep pictures and line up from the left until you change them.
+- No migration.
+
 ## [2026-10-19 — Kiosk designs: a preview link for people outside the group]
 
 - **Share** in the kiosk design editor (top bar) makes a link to the design that anyone can open without signing in: a brand team, a franchise partner, a designer. Pick whose menu and prices it shows (a venue, and a revenue stream if the venue has more than one), and optionally a last day it works. The window shows the link with Copy, Open and a QR code, and how many times it has been opened.

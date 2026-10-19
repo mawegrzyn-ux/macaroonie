@@ -277,3 +277,31 @@
 .k-tiles-hexagon .k-rail-item { border-radius: 0; clip-path: polygon(.8em 0, calc(100% - .8em) 0, 100% 50%, calc(100% - .8em) 100%, .8em 100%, 0 50%); border-color: transparent; }
 .k-tiles-hexagon .k-rail-on { background: var(--k-soft); }
 .k-tiles-hexagon .k-key { border-radius: 0; border-color: transparent; background: var(--k-soft); clip-path: var(--k-hex-flat); }
+
+/* ── Choices without pictures ─────────────────────────────────────
+   design.layout.option_pictures off (the displays' pictures prop): a choice's
+   words in the choices' shape (.k-opt-face): a card, a circle, an oval or a
+   hexagon; in a honeycomb a hexagon with the words in the middle (HexTile
+   words, .k-hex-words). */
+.k-opt-face { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .25em; text-align: center; padding: .9em .7em; min-height: 6.4em; }
+.k-opt-face-name { font-size: 1.05em; overflow-wrap: anywhere; }
+.k-opts-cards .k-opt-on .k-opt-face { background: color-mix(in srgb, var(--k-primary) 10%, var(--k-surface)); }
+.k-opts-round .k-opt-face, .k-opts-oval .k-opt-face, .k-opts-hexagon .k-opt-face {
+  min-height: 0; margin: .3em auto 0; background: var(--k-surface); color: var(--k-text); box-shadow: 0 4px 14px rgba(0,0,0,.16); overflow: hidden;
+}
+.k-opts-round .k-opt-face { width: 86%; aspect-ratio: 1 / 1; border-radius: 50%; padding: 10%; }
+.k-opts-oval .k-opt-face { width: 100%; aspect-ratio: 4 / 3; border-radius: 50%; padding: 8% 14%; }
+.k-opts-hexagon .k-opt-face { width: 86%; aspect-ratio: .866 / 1; clip-path: var(--k-hex); box-shadow: none; padding: 22% 12%; }
+.k-opts-round .k-opt-face-desc, .k-opts-oval .k-opt-face-desc, .k-opts-hexagon .k-opt-face-desc { display: none; }
+.k-opts-round .k-opt-face-name, .k-opts-oval .k-opt-face-name, .k-opts-hexagon .k-opt-face-name {
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+/* Picked: a ring round circles and ovals; hexagons (no shadow through the
+   clip) are tinted, with the tick on top. */
+.k-opts-round .k-opt-on .k-opt-face, .k-opts-oval .k-opt-on .k-opt-face { box-shadow: 0 0 0 .3em var(--k-primary), 0 4px 14px rgba(0,0,0,.16); }
+.k-opts-hexagon .k-opt-on .k-opt-face { background: color-mix(in srgb, var(--k-primary) 22%, var(--k-surface)); }
+.k-hex-words { background: var(--k-surface); }
+.k-hex-words::after { display: none; }
+.k-hex-words .k-hex-band { top: 17%; bottom: 17%; left: 13%; right: 13%; justify-content: center; color: var(--k-text); text-shadow: none; }
+.k-hex-words .k-hex-name { font-size: 1.3em; -webkit-line-clamp: 3; }
+.k-hex-on .k-hex-words { background: color-mix(in srgb, var(--k-primary) 14%, var(--k-surface)); }
