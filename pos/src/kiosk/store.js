@@ -32,6 +32,7 @@ let state = {
   device: null,
   config: null,
   preview: false,
+  shared: null,       // a shared preview's names (bootShare): { design, venue, company, expires_at }
   online: navigator.onLine,
   lang: 'en',
   screen: 'start',         // start | menu | basket | details | pay | card | placing | done | failed | allergens
@@ -100,17 +101,26 @@ export async function bootKiosk(device) {
 }
 
 /** Preview from the design editor: config from the signed link, nothing is ever sent. */
-export async function bootPreview(token) {
+export const bootPreview = token => bootPreviewFrom('/pos-api/kiosk-preview?token=' + encodeURIComponent(token), { live: true })
+
+/**
+ * A design's shared preview (its lasting link, migration 187): the design as
+ * saved, nothing is ever sent, and design changes from the page around it are
+ * ignored (it is our own share page, but what is shown must be what was saved).
+ */
+export const bootShare = token => bootPreviewFrom('/pos-api/kiosk-share?token=' + encodeURIComponent(token), { live: false })
+
+async function bootPreviewFrom(path, { live }) {
   try {
-    const res = await createTransport(null).get('/pos-api/kiosk-preview?token=' + encodeURIComponent(token))
+    const res = await createTransport(null).get(path)
     const c = withDesign(res)
-    setState({ preview: true, device: c.device, config: c, lang: c.design.languages.source, phase: 'ready', online: true })
+    setState({ preview: true, shared: res.share || null, device: c.device, config: c, lang: c.design.languages.source, phase: 'ready', online: true })
   } catch (err) {
     setState({ preview: true, phase: 'ready', config: null, error: err.message || 'The preview couldn\'t load' })
   }
   window.addEventListener('message', e => {
     if (e.source !== window.parent || !e.data || typeof e.data !== 'object') return
-    if (e.data.type === 'kiosk.design' && state.config) {
+    if (live && e.data.type === 'kiosk.design' && state.config) {
       const design = { id: state.config.design.id, name: state.config.design.name, ...normaliseDesign(e.data.design) }
       const lang = design.languages.enabled.includes(state.lang) ? state.lang : design.languages.source
       setState({ config: { ...state.config, design }, lang })
@@ -123,7 +133,9 @@ export async function bootPreview(token) {
       else startOrder(state.config.order_types?.[0]?.id || null)
     }
   })
-  try { window.parent.postMessage({ type: 'kiosk.ready' }, '*') } catch { /* not framed */ }
+  try {
+    window.parent.postMessage({ type: 'kiosk.ready', ...(state.shared ? { share: state.shared } : {}), ...(!state.config ? { error: state.error } : {}) }, '*')
+  } catch { /* not framed */ }
 }
 
 export async function loadConfig() {

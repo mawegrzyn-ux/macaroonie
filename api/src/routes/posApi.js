@@ -19,6 +19,8 @@
 //   POST /move                  a kitchen screen or kiosk still on another address moves to its
 //                               own: a one-time pairing code (10 minutes) for its address
 //   GET  /kiosk-preview?token=  a kiosk design's preview config (the signed link is the key, services/kioskSvc.js)
+//   GET  /kiosk-share?token=    a kiosk design's shared preview (its lasting link, migration 187): the
+//                               config plus { share: design, venue, company names }; counts the view
 //   GET  /kitchen-test?token=   the kitchen test bench's data (signed link, services/kitchenSvc.js kitchenTestData())
 //   GET  /me                    this till and its venue
 //   GET  /config?version=       everything the till needs offline (unchanged: true when version matches);
@@ -268,6 +270,31 @@ export default async function posApiRoutes(app) {
       if (!d) throw httpError(404, 'Kiosk design not found')
       return kioskConfig(tx, p.tenantId, p.venueId, device, { preview: true })
     })
+  })
+
+  // A kiosk design's lasting link for people outside the group (Share in the
+  // kiosk designer, migration 187). The token is the key: found in system
+  // mode (it names its tenant), then everything else in that tenant. Like the
+  // editor's preview it never places an order; the app ignores design
+  // messages in this mode, so what is shown is the design as saved.
+  app.get('/kiosk-share', { config: { rateLimit: { max: 120, timeWindow: '1 minute' } } }, async req => {
+    const token = String(req.query.token || '')
+    if (!/^[A-Za-z0-9_-]{20,64}$/.test(token)) throw httpError(404, 'This preview link isn\'t right: check you have all of it')
+    const [d] = await systemSql`
+      SELECT id, tenant_id, name, share_venue_id, share_stream_id, share_expires_at
+        FROM kiosk_designs WHERE share_token = ${token}`
+    if (!d) throw httpError(404, 'This preview link doesn\'t work any more: ask for a new one')
+    if (d.share_expires_at && new Date(d.share_expires_at) <= new Date()) throw httpError(410, 'This preview link has run out: ask for a new one')
+    if (!d.share_venue_id) throw httpError(404, 'This preview isn\'t set up any more: ask for a new link')
+    const out = await withTenant(d.tenant_id, async tx => {
+      const [v] = await tx`SELECT v.name, t.name AS company FROM venues v JOIN tenants t ON t.id = v.tenant_id WHERE v.id = ${d.share_venue_id} AND v.tenant_id = ${d.tenant_id}`
+      if (!v) throw httpError(404, 'This preview isn\'t set up any more: ask for a new link')
+      const device = previewDevice({ designId: d.id, streamId: d.share_stream_id })
+      const config = await kioskConfig(tx, d.tenant_id, d.share_venue_id, device, { preview: true })
+      await tx`UPDATE kiosk_designs SET share_views = share_views + 1, share_last_viewed_at = now() WHERE id = ${d.id} AND tenant_id = ${d.tenant_id}`
+      return { ...config, share: { design: d.name, venue: v.name, company: v.company, expires_at: d.share_expires_at } }
+    })
+    return out
   })
 
   // The kitchen test bench (Till setup > Kitchen screens > Test the kitchen):

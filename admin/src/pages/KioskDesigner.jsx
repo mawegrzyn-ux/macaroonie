@@ -21,8 +21,9 @@ import {
   ArrowLeft, Loader2, Save, RotateCcw, Palette, Home, Languages, LayoutGrid, List, SlidersHorizontal,
   Disc3, CreditCard, Timer, ChevronDown, Image as ImageIcon, Video, Plus, X, UtensilsCrossed,
   ShoppingBag, Bike, Sparkles, AlertTriangle, Flame, Star, CircleDot, RectangleVertical,
-  RectangleHorizontal, Wand2, BookOpen, LayoutDashboard, Hexagon, Circle, Square,
+  RectangleHorizontal, Wand2, BookOpen, LayoutDashboard, Hexagon, Circle, Square, Share2, Copy, Check, ExternalLink,
 } from 'lucide-react'
+import { qrSvg } from '@shared/qr.js'
 import {
   normaliseDesign, designProblems, KIOSK_FONTS, KIOSK_EXTRA_FONTS, SYSTEM_FONT, COLOR_LABELS,
   DESIGN_COLORS, KIOSK_LANGUAGES, DISPLAY_LABELS, KIOSK_DISPLAYS, uiText, TILE_STYLES, TILE_LABELS,
@@ -872,6 +873,133 @@ function Preview({ designId, design, venueId, setup, streams, stream, onStream }
   )
 }
 
+// ── Sharing (migration 187) ─────────────────────────────────────
+// A lasting link for people outside the group: the design as saved, with one
+// location's menu, at kiosk.<domain>/?kiosk_share=<token>. Making, moving and
+// stopping it need Manage; anyone who can see the design can copy it.
+
+function ShareDialog({ designId, share, dirty, venues, defaultVenueId, canManage, onClose }) {
+  const api = useApi()
+  const qc = useQueryClient()
+  const [venueId, setVenueId] = useState(share?.venue_id || defaultVenueId || '')
+  const [streamId, setStreamId] = useState(share?.revenue_stream_id || '')
+  const [until, setUntil] = useState(share?.expires_at ? String(share.expires_at).slice(0, 10) : '')
+  const [copied, setCopied] = useState(false)
+  const [confirm, setConfirm] = useState(null) // 'new' | 'stop'
+  const { data: setup } = usePosSetup(venueId || null)
+  const streams = (setup?.revenue_streams || []).filter(r => r.is_active)
+  const done = () => { qc.invalidateQueries({ queryKey: ['kiosk-designs'] }); setConfirm(null) }
+  const save = useMutation({
+    mutationFn: () => api.put(`/pos/kiosk-designs/${designId}/share`, { venue_id: venueId, revenue_stream_id: streamId || null, expires_on: until || null }),
+    onSuccess: done,
+  })
+  const renew = useMutation({ mutationFn: () => api.post(`/pos/kiosk-designs/${designId}/share/new-link`, {}), onSuccess: done })
+  const stop = useMutation({ mutationFn: () => api.delete(`/pos/kiosk-designs/${designId}/share`), onSuccess: done })
+  const qr = useMemo(() => { try { return share?.url ? qrSvg(share.url, { margin: 2, title: 'QR code of the preview link' }) : '' } catch { return '' } }, [share?.url])
+  const changed = share && (venueId !== share.venue_id || (streamId || null) !== (share.revenue_stream_id || null) || (until || null) !== (share.expires_at ? String(share.expires_at).slice(0, 10) : null))
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(share.url); setCopied(true); setTimeout(() => setCopied(false), 2000) } catch { /* the field can be copied by hand */ }
+  }
+  const today = new Date().toISOString().slice(0, 10)
+  const err = save.error || renew.error || stop.error
+  const settings = (
+    <div className="space-y-3">
+      <Field label="Menu and prices from">
+        <select className={inputCls} value={venueId} onChange={e => { setVenueId(e.target.value); setStreamId('') }} disabled={!canManage} data-testid="kd-share-venue">
+          {!venueId && <option value="">Pick a location</option>}
+          {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+        </select>
+      </Field>
+      {streams.length > 1 && (
+        <Field label="Order as" hint="The revenue stream decides which menus and order types it shows.">
+          <select className={inputCls} value={streamId} onChange={e => setStreamId(e.target.value)} disabled={!canManage} data-testid="kd-share-stream">
+            <option value="">{streams[0].name} (the first)</option>
+            {streams.slice(1).map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+          </select>
+        </Field>
+      )}
+      <Field label="Works until" hint="Leave empty for a link that works until you stop sharing it.">
+        <span className="flex items-center gap-2">
+          <span className="relative inline-flex items-center h-11 px-3 rounded-lg border bg-background text-sm min-w-[160px] touch-manipulation">
+            {until || 'No end date'}
+            <input type="date" min={today} value={until} onChange={e => setUntil(e.target.value)} disabled={!canManage} aria-label="Works until"
+              onClick={e => { try { e.currentTarget.showPicker?.() } catch { /* already open */ } }} className="absolute inset-0 opacity-0 cursor-pointer" data-testid="kd-share-until" />
+          </span>
+          {until && canManage && <Btn onClick={() => setUntil('')}>No end date</Btn>}
+        </span>
+      </Field>
+    </div>
+  )
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="w-full max-w-lg max-h-[85vh] overflow-y-auto rounded-xl bg-background shadow-xl" role="dialog" aria-label="Share a preview" data-testid="kd-share-dialog">
+        <div className="section-head px-4 py-3 flex items-center gap-2">
+          <Share2 className="w-4 h-4" /><h2 className="font-semibold text-sm flex-1">Share a preview</h2>
+          <button type="button" onClick={onClose} className="p-2 -m-2 rounded-lg touch-manipulation" aria-label="Close"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="p-4 space-y-4">
+          <p className="text-sm text-muted-foreground">
+            A link anyone can open to try this kiosk, no sign-in needed: send it to a brand team, a partner or a designer. It shows the
+            design as saved, with the menu and prices of the location you pick. Nothing is ordered or paid.
+          </p>
+          {share ? (
+            <>
+              {share.expired && <Note tone="warn">This link has run out: pick a later end date, or none, and save.</Note>}
+              {dirty && <Note tone="warn">Changes you haven't saved aren't in the shared preview yet.</Note>}
+              <div className="flex gap-3 items-start">
+                <div className="flex-1 min-w-0 space-y-2">
+                  <input readOnly value={share.url} onFocus={e => e.target.select()} className={cn(inputCls, 'font-mono text-xs')} aria-label="Preview link" data-testid="kd-share-url" />
+                  <div className="flex flex-wrap gap-2">
+                    <Btn variant="primary" onClick={copy} data-testid="kd-share-copy">{copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}{copied ? 'Copied' : 'Copy link'}</Btn>
+                    <a href={share.url} target="_blank" rel="noopener" className="inline-flex items-center gap-1.5 h-11 px-3 rounded-lg border text-sm touch-manipulation hover:bg-muted"><ExternalLink className="w-4 h-4" />Open</a>
+                  </div>
+                  <p className="text-xs text-muted-foreground" data-testid="kd-share-stats">
+                    Opened {share.views} {share.views === 1 ? 'time' : 'times'}{share.last_viewed_at ? ', last on ' + new Date(share.last_viewed_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''}.
+                    {share.created_at ? ' Made ' + new Date(share.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) + (share.created_by ? ' by ' + share.created_by : '') + '.' : ''}
+                  </p>
+                </div>
+                {qr && <div className="w-24 h-24 shrink-0 rounded-lg border bg-white p-1" dangerouslySetInnerHTML={{ __html: qr }} />}
+              </div>
+              {settings}
+              {canManage && (
+                <div className="space-y-2 border-t pt-3">
+                  {changed && <Btn variant="primary" disabled={!venueId || save.isPending} onClick={() => save.mutate()} data-testid="kd-share-save">{save.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}Save</Btn>}
+                  {confirm === 'new' ? (
+                    <div className="rounded-lg border p-3 space-y-2 text-sm" data-testid="kd-share-renew-confirm">
+                      <p>Make a new link? The current one stops working straight away, for everyone you sent it to.</p>
+                      <div className="flex gap-2"><Btn variant="primary" onClick={() => renew.mutate()} data-testid="kd-share-renew-yes">New link</Btn><Btn onClick={() => setConfirm(null)}>Keep this one</Btn></div>
+                    </div>
+                  ) : confirm === 'stop' ? (
+                    <div className="rounded-lg border border-red-200 bg-red-50 p-3 space-y-2 text-sm" data-testid="kd-share-stop-confirm">
+                      <p>Stop sharing? The link stops working straight away.</p>
+                      <div className="flex gap-2"><button type="button" className="h-11 px-3 rounded-lg bg-destructive text-destructive-foreground text-sm font-medium touch-manipulation" onClick={() => stop.mutate()} data-testid="kd-share-stop-yes">Stop sharing</button><Btn onClick={() => setConfirm(null)}>Keep sharing</Btn></div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      <Btn onClick={() => setConfirm('new')} data-testid="kd-share-renew"><RotateCcw className="w-4 h-4" />New link</Btn>
+                      <Btn onClick={() => setConfirm('stop')} data-testid="kd-share-stop"><X className="w-4 h-4" />Stop sharing</Btn>
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          ) : canManage ? (
+            <>
+              {settings}
+              <Btn variant="primary" disabled={!venueId || save.isPending} onClick={() => save.mutate()} data-testid="kd-share-make">
+                {save.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Share2 className="w-4 h-4" />}Make a link
+              </Btn>
+            </>
+          ) : (
+            <p className="text-sm">This design isn't shared. Someone who can change Till setup can make a link.</p>
+          )}
+          {err && <ErrorNote error={err} />}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Page ────────────────────────────────────────────────────────
 
 const PANELS = [
@@ -949,6 +1077,7 @@ export default function KioskDesigner() {
   const [pane, setPane] = useState('settings') // phones: one pane at a time
   const [leaving, setLeaving] = useState(false)
   const [streamId, setStreamId] = useState('') // the preview's revenue stream ('' = the first)
+  const [sharing, setSharing] = useState(false)
 
   useEffect(() => {
     const link = document.createElement('link')
@@ -1005,6 +1134,9 @@ export default function KioskDesigner() {
           </p>
         </div>
         <VenueSelect venues={venues} venueId={venueId} onChange={setVenueId} />
+        <Btn onClick={() => setSharing(true)} data-testid="kd-share">
+          <Share2 className="w-4 h-4" /> <span className="hidden sm:inline">{row.share ? 'Shared' : 'Share'}</span>
+        </Btn>
         {canManage ? (
           <>
             {dirty && <Btn onClick={discard}>Discard</Btn>}
@@ -1015,6 +1147,7 @@ export default function KioskDesigner() {
         ) : <span className="text-xs text-muted-foreground px-2">View only</span>}
       </div>
       {save.isError && <div className="shrink-0 bg-destructive/10 text-destructive text-sm px-4 py-2 border-b">Save failed: {save.error?.message || String(save.error)}</div>}
+      {sharing && <ShareDialog designId={id} share={row.share} dirty={dirty} venues={venues} defaultVenueId={venueId} canManage={canManage} onClose={() => setSharing(false)} />}
 
       <div className="md:hidden shrink-0 px-4 py-2 border-b bg-background">
         <Segmented value={pane} onChange={setPane} className="w-full [&>button]:flex-1"

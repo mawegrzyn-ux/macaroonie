@@ -7,7 +7,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Plus, Building2, ChevronRight, Globe, Check, X } from 'lucide-react'
+import { Plus, Building2, ChevronRight, Globe, Check, X, Sparkles } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { ASSISTANT_NAME } from '@shared/assistant.js'
 import { useApi } from '@/lib/api'
 import { usePermission } from '@/hooks/usePermission'
 import { cn } from '@/lib/utils'
@@ -142,12 +144,17 @@ export default function Venues() {
       <div className="flex items-center justify-between px-6 h-14 border-b shrink-0 bg-background">
         <h1 className="font-semibold">Venues</h1>
         {canManage && (
-          <button
-            onClick={() => setEditing('new')}
-            className="flex items-center gap-1.5 text-sm px-3 py-1.5 bg-primary text-primary-foreground rounded-lg"
-          >
-            <Plus className="w-4 h-4" /> Add venue
-          </button>
+          <div className="flex items-center gap-2">
+            <Link to="/new-location" className="flex items-center gap-1.5 text-sm px-3 py-1.5 border rounded-lg bg-background" data-testid="venues-new-location">
+              <Sparkles className="w-4 h-4 text-primary" /> New location with {ASSISTANT_NAME}
+            </Link>
+            <button
+              onClick={() => setEditing('new')}
+              className="flex items-center gap-1.5 text-sm px-3 py-1.5 bg-primary text-primary-foreground rounded-lg"
+            >
+              <Plus className="w-4 h-4" /> Add venue
+            </button>
+          </div>
         )}
       </div>
 

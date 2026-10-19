@@ -212,7 +212,10 @@ function KioskDesigns({ venueId, setup, canManage }) {
                   <span style={{ background: c.background }} /><span style={{ background: c.surface }} />
                 </span>
                 <div className="flex-1 min-w-[180px]">
-                  <p className="text-sm font-medium">{d.name}{i === 0 && <span className="ml-2 text-[11px] font-normal text-muted-foreground">(first: kiosks without a design use it)</span>}</p>
+                  <p className="text-sm font-medium">
+                    {d.name}{i === 0 && <span className="ml-2 text-[11px] font-normal text-muted-foreground">(first: kiosks without a design use it)</span>}
+                    {d.shared && <span className="ml-2 text-[11px] font-normal px-1.5 py-0.5 rounded bg-sky-100 text-sky-900" data-testid="design-shared">Preview shared</span>}
+                  </p>
                   <p className="text-xs text-muted-foreground">
                     {using.length ? 'Here: ' + using.map(k => k.name).join(', ') : 'No kiosk here uses it'} · changed {ago(d.updated_at)}
                   </p>

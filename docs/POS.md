@@ -504,6 +504,11 @@ and the ConnectSmart Kitchen guide.
   (sections down the side, or a page of section tiles), how choices show, paying and timing;
   `normaliseDesign()` is the one checker, `ownDesign()` keeps only the tenant's own ids. The editor
   shows the real kiosk in a frame and posts the unsaved design to it.
+- Shared previews (migration 187): a design can have one lasting link for people outside the
+  group (`kiosk_designs.share_token`, venue, stream, optional end date). The link opens
+  `kiosk.<domain>/?kiosk_share=<token>`, a page that frames the kiosk at kiosk size with the
+  saved design (`GET /pos-api/kiosk-share`, found in system mode). It never places an order, like
+  Till setup's 12-hour previews; New link stops the old one.
 - Split photo (migration 185): option groups and combo steps with it on turn the dish's photo into
   the picks' pictures side by side with torn edges between them (`splitImages()`).
 - Choices: an option group or a combo step shows as grid, list, slider (with a level scale such as

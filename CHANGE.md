@@ -5,6 +5,24 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-19 — Kiosk designs: a preview link for people outside the group]
+
+- **Share** in the kiosk design editor (top bar) makes a link to the design that anyone can open without signing in: a brand team, a franchise partner, a designer. Pick whose menu and prices it shows (a venue, and a revenue stream if the venue has more than one), and optionally a last day it works. The window shows the link with Copy, Open and a QR code, and how many times it has been opened.
+- The link opens a page with the kiosk at a real kiosk's size, scaled to fit, with **Upright** / **Wide**, **Start again** and **Full screen**. It shows the design **as last saved**, with the venue's live menu. Nothing is ordered or paid from it.
+- **New link** stops the old one and makes another (the view count starts again). **Stop sharing** switches it off. Both ask first. Till setup's Kiosks tab marks shared designs.
+- **Migration 187** (kiosk_share_links).
+
+## [2026-10-19 — New location with Pepper]
+
+- **Venues → New location with Pepper** (also **New location** in the menu, after Venues): describe the new location in your own words. Its name, address, when it opens, which location it's most like, and what's different are enough. Pepper works out the plan.
+- **The scope**: one card for each area: opening hours, tables, booking rules, website page, booking emails, online ordering, the Deliveroo file, tax, the till, kitchen screens, devices, Cash Recon, food safety, checklists, dashboards, purchasing and staff. For each, Pepper picks **Copy** (from a location you already have), **New** (start simple, from what you said) or **Later** (leave it out). Change any card yourself. Areas your role can't set up are marked and left for someone who can.
+- **Questions only where needed**: Pepper asks a few things it can't guess (up to three rounds), with choices to tap where it can. Leave any of them to Pepper, or skip them all. **Look closer** on a card has Pepper go through that one area in more detail.
+- **The brief**: a short summary of the deployment: what gets set up, the assumptions Pepper made, the risks, and what's left for people to do. Ask for a change in plain words, edit the name, web address, address and opening date directly, or print it.
+- **Create** makes the location and every area in one go: copies are taken from the location you picked, with their own new ids, never pointing back at the original. A location that opens later gets a "Not open yet" closure on its booking calendar until then, and online ordering stays off until you switch it on. Afterwards a **to-do list** shows what's left (linking devices, printers, the website, the supplier accounts, the team, anything left for later), each with a link and a tick box.
+- **Pepper does the same in a chat** (and through the staff connector): ask it to plan a new location, answer its questions there, and it shows a Create card to confirm.
+- Uses the monthly AI allowance and each person's daily share like any Pepper chat. Needs Venues manage (Cash Recon also needs an owner or admin).
+- **Migration 186** (store_openings).
+
 ## [2026-10-19 — Kiosk: dish and choice pictures set apart; choice hexagons lock together]
 
 - **Dish pictures and choice pictures each have their own style** in the kiosk design editor. *Dish pictures* (Menu card) covers the menu's dishes, the section tiles, the dish's own photo and the basket. *Choice pictures* (Choices card) covers option groups and combo steps. Each can be Cards, Round, Oval or Hexagons, so you can have round dishes with hexagon choices, or hexagon dishes with plain card choices. Designs you've already made keep the look they had until you change one. Hexagon dishes still give buttons and chips the hexagon look across the kiosk.

@@ -9,6 +9,7 @@ const SECTIONS = [
   { id: 'getting-started',     label: 'Getting Started' },
   { id: 'overview',            label: 'The Overview Page' },
   { id: 'venues',              label: 'Managing Venues' },
+  { id: 'new-location',        label: 'Opening a New Location' },
   { id: 'tables',              label: 'Tables & Combinations' },
   { id: 'schedule',            label: 'Setting Your Schedule' },
   { id: 'schedule-exceptions', label: 'Schedule Exceptions' },
@@ -275,6 +276,91 @@ export default function Help() {
               <strong>Deposit Rules</strong> — shortcut links are shown below the venue details.
               These settings are per-venue, so each location can have different rules.
             </P>
+          </section>
+
+          {/* ── NEW LOCATION ──────────────────────────────── */}
+          <section id="new-location" data-help="">
+            <H2>Opening a New Location</H2>
+            <P>
+              <strong>New location</strong> (under Venues in the sidebar, or <strong>New location with Pepper</strong>{' '}
+              on the Venues page) sets up a whole new store in one go. You describe it in your own words; Pepper looks
+              at the locations you already have, works out area by area what to copy and what to set up new, asks only
+              what it needs to, and writes a short brief. Nothing is created until you press <strong>Create</strong>.
+              It needs Manage on Venues and access to Pepper.
+            </P>
+
+            <H3>Describing it</H3>
+            <P>
+              A few sentences are enough: where it is, what kind of site it is, roughly how many seats, when it opens,
+              and anything that's different from your other locations ("like Ware but with a terrace, takeaway only on
+              Sundays, two kiosks"). Tap one of the examples to start from it. <strong>Copy from</strong> picks the
+              location to copy; leave it to Pepper and it picks the most similar one and says why.
+            </P>
+
+            <H3>The scope</H3>
+            <P>
+              Each area gets a card saying what will happen to it: <strong>Copy</strong> (brought across from the
+              location copied from: the card says what it has), <strong>New</strong> (set up from what Pepper worked out
+              with you) or <strong>Later</strong> (left for someone to set up on its page). Tap to change any of them:
+              your choice always wins over Pepper's. A card marked <strong>Worth a closer look</strong> is one Pepper
+              thinks needs more than a copy; <strong>Ask Pepper about this</strong> on any card gets a few questions about
+              just that area.
+            </P>
+            <DataTable
+              head={['Area', 'Copy brings', 'New sets up']}
+              rows={[
+                ['Opening hours', 'Each day\'s booking times, sittings and covers, and dated changes still to come (Christmas, a private hire)', 'The hours you gave, day by day'],
+                ['Tables', 'Rooms, tables, combinations, pairs kept apart, floor plan places', 'The rooms and tables you described'],
+                ['Booking rules', 'Booking length, party sizes, how far ahead, deposits', 'Those you gave, the rest standard'],
+                ['Location page', 'The page layout, pictures, PDF menus, its own pages, with this location\'s address', 'A page with the address and contact details'],
+                ['Booking emails', 'How they\'re sent, the sender, reminders, the location\'s own emails', ''],
+                ['Online ordering', 'Menus, hours, slots, tips, payment (switched off until opening)', 'Set up, switched off'],
+                ['Deliveroo menu file', 'Price uplift, allergen codes, dish matches', ''],
+                ['Tax rates', 'Rates of its own that differ from the company\'s', ''],
+                ['Till setup', 'Settings, receipts (with the new name and address), revenue streams, floor areas, printers and where tickets print', 'Settings, receipts, revenue streams'],
+                ['Kitchen screens', 'Stations and kitchen flows, the flow in use', ''],
+                ['Devices to link', 'The same tills, kitchen screens, kiosks and menu screens, with their settings, waiting to be linked', 'As many as you said'],
+                ['Cash reconciliation', 'Income sources, payment channels, tips sources, expense categories', 'A standard set'],
+                ['Food safety', 'Fridges and freezers, hold stations, check times, cooking sessions and dishes', 'The equipment and check times you gave'],
+                ['Checklists', 'Every checklist with its tasks', 'Opening, closing and cleaning lists Pepper drafts'],
+                ['Dashboards', 'H&S, cash, rota and other dashboards with their widgets', ''],
+                ['Purchasing', 'Suppliers\' delivery days and cutoffs, order lists, pars (scaled if trade will differ), its own prices', ''],
+                ['Team', '', 'The people you named, with their role and pay'],
+              ]}
+            />
+            <P>
+              Some things are never copied because they belong to one place: supplier account numbers, the team,
+              links to Loyverse or GloriaFood, and paired devices (the new ones wait to be linked). An area your role
+              can't set up is left for someone who can, and goes on the list of things still to do.
+            </P>
+
+            <H3>Questions and the brief</H3>
+            <P>
+              Pepper asks at most a few rounds of questions, grouped by area, with its suggestion picked to start with.
+              Tick <strong>Leave it to Pepper</strong> on any question, or <strong>Skip these: write the brief</strong>{' '}
+              to have it decide the rest. The brief says in a few lines what the location is and how it's set up, what
+              Pepper assumed, what could go wrong around opening, and what people need to do outside the app.{' '}
+              <strong>Ask Pepper for a change</strong> takes a change in words ("don't copy the kitchen flows, the
+              kitchen there is different"). <strong>The location</strong> card holds the name, web address, time zone,
+              opening date, the location to copy from, the address and contact details: change any of them and Save.{' '}
+              <strong>Print</strong> gives the brief as a page for whoever needs it.
+            </P>
+
+            <H3>Creating it</H3>
+            <P>
+              <strong>Create</strong> asks first, then makes the location and every area at once: if anything fails,
+              nothing is made and the message says which area. Before the opening date the location stays{' '}
+              <strong>closed for bookings</strong> (a "Not open yet" closure on the Schedule page) and online ordering
+              stays off. Afterwards the page shows what each area got and a <strong>Still to do</strong> list (link the
+              devices with the installer app, check the printers' addresses, check and publish the location page,
+              switch online ordering on, add supplier account numbers, add the team and their PINs, and Pepper's own
+              points): tick each off as it's done, and <strong>Open</strong> goes to its page.
+            </P>
+            <InfoBox type="tip">
+              You can do all of this in a chat too: ask Pepper "plan a new store in Leeds like Ware". It passes on the
+              questions, shows the brief, and creates it from a card you confirm. Openings started in the chat are on
+              the New location page as well.
+            </InfoBox>
           </section>
 
           {/* ── TABLES ────────────────────────────────────── */}
@@ -4925,6 +5011,22 @@ export default function Help() {
               Words you leave empty use the kiosk's own words, which come in all nine languages. Words you type
               show as typed: translate them on <strong>Menus → Translations</strong>.
             </InfoBox>
+
+            <H3>Sharing a preview</H3>
+            <P>
+              <strong>Share</strong> in the design editor's top bar makes a link to this design that anyone can open,
+              with no sign-in: send it to a brand team, a franchise partner or a designer. It opens the kiosk at a real
+              kiosk's size, scaled to fit their screen, with <strong>Upright</strong>, <strong>Wide</strong>,{' '}
+              <strong>Start again</strong> and <strong>Full screen</strong> (for trying it on a tablet). They see the
+              design as saved, with the menu and prices of the location you pick (and, where a location has more than
+              one, the revenue stream it orders as). Nothing is ordered or paid.
+            </P>
+            <ul className="list-disc ml-5 space-y-2 text-sm text-muted-foreground mb-4">
+              <li><strong>Copy link</strong>, <strong>Open</strong>, or the QR code for someone holding a phone or tablet. The dialog shows how many times the link was opened.</li>
+              <li>Each design has one link. Saving the design updates what the link shows; changes you haven't saved aren't in it.</li>
+              <li><strong>Works until</strong> gives the link an end date (leave it empty for none). <strong>New link</strong> stops the old one for everyone and makes another; <strong>Stop sharing</strong> stops it.</li>
+              <li>Making, moving and stopping a link needs Manage on Till setup. Shared designs are marked <strong>Preview shared</strong> in Till setup → Kiosks.</li>
+            </ul>
 
             <H3>How choices show (Menus)</H3>
             <ul className="list-disc ml-5 space-y-2 text-sm text-muted-foreground mb-4">

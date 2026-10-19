@@ -20,6 +20,10 @@
 //   Self-order kiosks (docs/POS.md section 10; shared/kiosk.js; the kiosks themselves are devices of kind 'kiosk'):
 //   GET    /kiosk-designs  POST /kiosk-designs  PUT/DELETE /kiosk-designs/:id   tenant-wide designs
 //   POST   /kiosk-designs/:id/preview             { venue_id, revenue_stream_id } -> a signed preview link
+//   PUT    /kiosk-designs/:id/share               { venue_id, revenue_stream_id?, expires_on? } a lasting link
+//                                                  for people outside the group (migration 187)
+//   POST   /kiosk-designs/:id/share/new-link      a new link; the old one stops working
+//   DELETE /kiosk-designs/:id/share               stop sharing
 //   POST   /venues/:venueId/floor-areas           + PATCH/DELETE /floor-areas/:id
 //   PUT    /floor-areas/:id/layout                tables' positions + decor in one save
 //   PUT    /venues/:venueId/staff/:staffId/pos    PIN (or null to remove) and POS role
@@ -51,6 +55,7 @@
 // pos_reports. Every query filters tenant_id itself.
 
 import { z } from 'zod'
+import { randomBytes } from 'node:crypto'
 import { withTenant } from '../config/db.js'
 import { requireAuth, requirePermission, permissionLevel } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
@@ -409,6 +414,24 @@ function deviceView(d) {
   }
 }
 
+// A kiosk design's lasting preview link (migration 187).
+const SHARE_COLS = ['share_token', 'share_venue_id', 'share_stream_id', 'share_expires_at', 'share_created_at', 'share_created_by', 'share_views', 'share_last_viewed_at']
+const newShareToken = () => randomBytes(24).toString('base64url')
+function shareView(d) {
+  if (!d?.share_token) return null
+  return {
+    url: deviceOrigin('kiosk') + '/?kiosk_share=' + d.share_token,
+    venue_id: d.share_venue_id,
+    revenue_stream_id: d.share_stream_id,
+    expires_at: d.share_expires_at,
+    expired: !!d.share_expires_at && new Date(d.share_expires_at) <= new Date(),
+    created_at: d.share_created_at,
+    created_by: d.share_created_by,
+    views: d.share_views || 0,
+    last_viewed_at: d.share_last_viewed_at,
+  }
+}
+
 async function nextShortCode(tx, tenantId, venueId, kind) {
   const rows = await tx`SELECT short_code FROM pos_devices WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`
   const used = new Set(rows.map(r => r.short_code))
@@ -451,7 +474,7 @@ export default async function posSetupRoutes(app) {
         tx`SELECT id, name, kind, colour, settings, sort_order, is_active FROM kds_stations
             WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} ORDER BY sort_order, name`,
         flowsView(tx, tenantId, venueId, settings),
-        tx`SELECT id, name, settings, updated_at FROM kiosk_designs WHERE tenant_id = ${tenantId} ORDER BY created_at`,
+        tx`SELECT id, name, settings, updated_at, share_token IS NOT NULL AS shared FROM kiosk_designs WHERE tenant_id = ${tenantId} ORDER BY created_at`,
       ])
       // A GloriaFood link (migration 159): its orders can go to the kitchen
       // screens (migration 178), each GloriaFood order type to one of ours.
@@ -479,7 +502,7 @@ export default async function posSetupRoutes(app) {
         courses, menus, sections, items,
         kds_stations: kdsStations.map(s => ({ ...s, settings: stationSettings(s) })),
         ...kdsFlows,
-        kiosk_designs: kioskDesigns.map(d => ({ id: d.id, name: d.name, settings: normaliseDesign(d.settings), updated_at: d.updated_at })),
+        kiosk_designs: kioskDesigns.map(d => ({ id: d.id, name: d.name, settings: normaliseDesign(d.settings), updated_at: d.updated_at, shared: d.shared })),
         recon_fields: await reconFields(tx, tenantId, venueId),
         gloriafood,
         till_url: deviceOrigin('terminal'),
@@ -868,8 +891,8 @@ export default async function posSetupRoutes(app) {
   // always normalised, so kiosks never get a value they don't know.
   app.get('/kiosk-designs', { preHandler: canSetupView }, async req => {
     const rows = await withTenant(req.tenantId, tx => tx`
-      SELECT id, name, settings, created_at, updated_at FROM kiosk_designs WHERE tenant_id = ${req.tenantId} ORDER BY created_at`)
-    return rows.map(d => ({ ...d, settings: normaliseDesign(d.settings) }))
+      SELECT id, name, settings, created_at, updated_at, ${tx(SHARE_COLS)} FROM kiosk_designs WHERE tenant_id = ${req.tenantId} ORDER BY created_at`)
+    return rows.map(d => ({ id: d.id, name: d.name, settings: normaliseDesign(d.settings), created_at: d.created_at, updated_at: d.updated_at, share: shareView(d) }))
   })
 
   app.post('/kiosk-designs', { preHandler: canSetup }, async (req, reply) => {
@@ -933,6 +956,68 @@ export default async function posSetupRoutes(app) {
     })
     const token = await previewToken({ tenantId: req.tenantId, venueId: body.venue_id, designId: id, streamId: body.revenue_stream_id || null })
     return { token, url: deviceOrigin('kiosk') + '/?kiosk_preview=' + encodeURIComponent(token) }
+  })
+
+  // A lasting preview link for people outside the group (migration 187):
+  // the design as saved, with this venue's menu, opened at
+  // kiosk.<domain>/?kiosk_share=<token> (GET /pos-api/kiosk-share). It never
+  // orders anything. Making it, moving it and stopping it need Manage.
+  app.put('/kiosk-designs/:id/share', { preHandler: canSetup }, async req => {
+    const id = UUID.parse(req.params.id)
+    const body = z.object({
+      venue_id: UUID,
+      revenue_stream_id: UUID.nullable().optional(),
+      expires_on: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+    }).parse(req.body || {})
+    return withTenant(req.tenantId, async tx => {
+      const d = await checkDesign(tx, req.tenantId, id)
+      await ownVenue(tx, req.tenantId, body.venue_id)
+      if (body.revenue_stream_id) {
+        const [r] = await tx`SELECT id FROM pos_revenue_streams WHERE id = ${body.revenue_stream_id} AND tenant_id = ${req.tenantId} AND venue_id = ${body.venue_id}`
+        if (!r) throw httpError(422, 'Revenue stream not found')
+      }
+      // The link ends at the end of the day it is set to (UTC, a day's grace).
+      const expires = body.expires_on ? new Date(body.expires_on + 'T23:59:59Z') : null
+      if (expires && expires <= new Date()) throw httpError(422, 'Pick an end date after today')
+      const [row] = await tx`
+        UPDATE kiosk_designs
+           SET share_token = COALESCE(share_token, ${newShareToken()}),
+               share_created_at = COALESCE(share_created_at, now()),
+               share_created_by = COALESCE(share_created_by, ${by(req)}),
+               share_venue_id = ${body.venue_id}, share_stream_id = ${body.revenue_stream_id || null},
+               share_expires_at = ${expires}
+         WHERE id = ${d.id} AND tenant_id = ${req.tenantId}
+         RETURNING ${tx(SHARE_COLS)}`
+      return shareView(row)
+    })
+  })
+
+  app.post('/kiosk-designs/:id/share/new-link', { preHandler: canSetup }, async req => {
+    const id = UUID.parse(req.params.id)
+    return withTenant(req.tenantId, async tx => {
+      await checkDesign(tx, req.tenantId, id)
+      const [row] = await tx`
+        UPDATE kiosk_designs
+           SET share_token = ${newShareToken()}, share_created_at = now(), share_created_by = ${by(req)},
+               share_views = 0, share_last_viewed_at = NULL
+         WHERE id = ${id} AND tenant_id = ${req.tenantId} AND share_token IS NOT NULL
+         RETURNING ${tx(SHARE_COLS)}`
+      if (!row) throw httpError(422, 'This design isn\'t shared yet')
+      return shareView(row)
+    })
+  })
+
+  app.delete('/kiosk-designs/:id/share', { preHandler: canSetup }, async req => {
+    const id = UUID.parse(req.params.id)
+    return withTenant(req.tenantId, async tx => {
+      await checkDesign(tx, req.tenantId, id)
+      await tx`
+        UPDATE kiosk_designs
+           SET share_token = NULL, share_venue_id = NULL, share_stream_id = NULL, share_expires_at = NULL,
+               share_created_at = NULL, share_created_by = NULL, share_views = 0, share_last_viewed_at = NULL
+         WHERE id = ${id} AND tenant_id = ${req.tenantId}`
+      return { ok: true }
+    })
   })
 
   // A link to the kitchen test bench: every kitchen screen of the venue on
