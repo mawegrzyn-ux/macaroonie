@@ -123,12 +123,49 @@ export const COLOR_LABELS = {
 }
 export const TYPE_ICONS = ['eat_in', 'take_away', 'delivery', 'none']
 export const LINK_KINDS = ['none', 'item', 'section']
-// How dishes, choices and section tiles are drawn: cards (photo on top of a
-// card), round or oval photos with the words under them (no card behind),
-// or hexagons that fit together like a honeycomb (the whole kiosk then takes
-// the hexagon look: buttons, chips, badges).
+// How pictures are drawn, set apart for dishes (layout.tiles: the menu, the
+// section tiles, the dish's own photo, the basket) and for choices
+// (layout.option_tiles: option groups and combo steps): cards (photo on top
+// of a card), round or oval photos with the words under them (no card
+// behind), or hexagons that fit together like a honeycomb. Hexagon dishes
+// also give the whole kiosk the hexagon look (buttons, chips, badges).
 export const TILE_STYLES = ['cards', 'round', 'oval', 'hexagon']
 export const TILE_LABELS = { cards: 'Cards', round: 'Round', oval: 'Oval', hexagon: 'Hexagons' }
+/**
+ * Where each hexagon of a honeycomb goes (the kiosk's HexGrid): { rows:
+ * [[start, ...], ...], width } in half hexagon columns (a hexagon spans two,
+ * starting at `start`, 1-based). Rows in turn sit half a hexagon to the
+ * right, which is what locks them together; a row may only move by whole
+ * hexagons.
+ *   full (dishes): rows of `max` and `max - 1`, filled from the left.
+ *   compact (choices): from three hexagons on at least two rows, however few
+ *   there are (3 = 2 + 1, 4 = 2 + 2, 5 = 3 + 2), else rows of `max` and
+ *   `max - 1` with a last row that isn't full centred.
+ */
+export function hexLayout(total, max, compact = false) {
+  const rows = []
+  const row = (count, odd, shift = 0) => rows.push(Array.from({ length: count }, (_, j) => (odd ? 2 : 1) + 2 * (shift + j)))
+  if (compact && total <= 2) {
+    row(total, false)
+    return { rows, width: 2 * Math.max(1, total) }
+  }
+  const top = Math.ceil(total / 2)
+  if (compact && top <= max) {
+    row(top, false)
+    row(total - top, true)
+    return { rows, width: 2 * top + (total - top === top ? 1 : 0) }
+  }
+  let left = total
+  for (let r = 0; left > 0; r++) {
+    const odd = r % 2 === 1
+    const room = odd ? max - 1 : max
+    const count = Math.min(room, left)
+    row(count, odd, compact ? Math.floor((room - count) / 2) : 0)
+    left -= count
+  }
+  return { rows, width: 2 * max }
+}
+
 // Sections down the side with photos or words, or none: the menu opens on a
 // page of section tiles instead.
 export const RAIL_KINDS = ['images', 'text', 'none']
@@ -172,6 +209,7 @@ export function normaliseDesign(raw) {
   for (const [k, def] of Object.entries(DESIGN_COLORS)) colors[k] = isHex(b.colors?.[k]) ? b.colors[k].toLowerCase() : def
   const source = oneOf(l.source, LANG_CODES, 'en')
   const enabled = [...new Set([source, ...asList(l.enabled).filter(x => LANG_CODES.includes(x))])]
+  const tiles = oneOf(y.tiles, TILE_STYLES, 'cards')
   const typeCards = {}
   for (const [id, v] of Object.entries(s.type_cards && typeof s.type_cards === 'object' ? s.type_cards : {})) {
     if (!isUuid(id) || !v || typeof v !== 'object') continue
@@ -187,7 +225,9 @@ export function normaliseDesign(raw) {
       heading_case: oneOf(b.heading_case, ['upper', 'normal'], 'upper'),
     },
     layout: {
-      tiles: oneOf(y.tiles, TILE_STYLES, 'cards'),
+      tiles,
+      // Choices' pictures; a design that hasn't picked one keeps the dishes' style.
+      option_tiles: oneOf(y.option_tiles, TILE_STYLES, tiles),
       // The bar along the top (logo, language); off, the language button
       // moves to the bottom bar.
       header: y.header !== false,

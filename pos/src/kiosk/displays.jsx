@@ -8,8 +8,9 @@
 //   scale     { low, high } words at the ends of the level scale, or null
 //   levelIcon 'flame' | 'star' | 'dot'
 //   ui        the kiosk's words (store.js textsFor().ui)
-//   tiles     the design's tile style: 'cards' | 'round' | 'oval' | 'hexagon'
-//             (the grid lays hexagons out as a honeycomb; the rest is CSS)
+//   tiles     the design's choice picture style (design.layout.option_tiles):
+//             'cards' | 'round' | 'oval' | 'hexagon' (the grid lays hexagons
+//             out as a honeycomb; the rest is CSS on .k-opts-<style>)
 //   wheel     { spin, picks }: the wheel's Spin button, and whether a spin
 //             picks the choice it stops on
 
@@ -44,9 +45,11 @@ function HexOption({ o, n, off, onTap, onLess, repeat, levelIcon, ui }) {
 
 export function GridDisplay({ options, countOf, onTap, onLess, repeat, full, levelIcon, ui, tiles }) {
   if (tiles === 'hexagon') {
+    // A honeycomb even for a few choices (two rows from three on).
+    const target = Math.min(Math.min(window.innerWidth, window.innerHeight) * 0.24, 200)
     return (
       <div data-display="grid">
-        <HexGrid target={Math.min(Math.min(window.innerWidth, window.innerHeight) * 0.24, 200)} gap={8} testId="k-option-grid">
+        <HexGrid compact target={target} maxCell={target * 1.3} gap={8} testId="k-option-grid">
           {options.map(o => {
             const n = countOf(o.id)
             return <HexOption key={o.id} o={o} n={n} off={o.sold_out || (!n && full && !repeat)} onTap={onTap} onLess={onLess} repeat={repeat} levelIcon={levelIcon} ui={ui} />
@@ -93,7 +96,7 @@ export function ListDisplay({ options, countOf, onTap, onLess, repeat, full, lev
         return (
           <div key={o.id} className={cx('k-card flex items-center gap-[.8em] p-[.5em] border-[3px]', n > 0 ? 'border-[var(--k-primary)]' : 'border-transparent', off && 'k-opt-dis')}>
             <button className="flex items-center gap-[.8em] flex-1 min-w-0 text-left bg-transparent border-0 p-0" onClick={() => !o.sold_out && onTap(o)} disabled={o.sold_out} data-testid="k-option" aria-pressed={n > 0}>
-              <span className="k-thumb w-[4.2em] h-[4.2em] shrink-0 rounded-[calc(var(--k-radius)/1.5)] overflow-hidden">
+              <span className="k-opt-thumb w-[4.2em] h-[4.2em] shrink-0 rounded-[calc(var(--k-radius)/1.5)] overflow-hidden">
                 <Photo src={o.image_url} label={o.label} className="w-full h-full object-cover" phClassName="k-opt-ph h-full aspect-auto text-[1.2em]" />
               </span>
               <span className="flex-1 min-w-0">
@@ -362,7 +365,7 @@ export function WheelDisplay({ options, countOf, onTap, onLess, repeat, full, le
       {current && (
         // Hidden while the wheel spins, so the choice it stops on isn't given away.
         <div className="k-card flex items-center gap-[.8em] p-[.6em] w-full max-w-[640px]" data-testid="k-wheel-current" style={spinning ? { visibility: 'hidden' } : null}>
-          <span className="k-thumb w-[4.4em] h-[4.4em] shrink-0 rounded-[calc(var(--k-radius)/1.5)] overflow-hidden">
+          <span className="k-opt-thumb w-[4.4em] h-[4.4em] shrink-0 rounded-[calc(var(--k-radius)/1.5)] overflow-hidden">
             <Photo src={current.image_url} label={current.label} className="w-full h-full object-cover" phClassName="k-opt-ph h-full aspect-auto text-[1.2em]" />
           </span>
           <span className="flex-1 min-w-0">
