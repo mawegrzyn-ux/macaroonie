@@ -131,6 +131,7 @@ export function printConfig(config = state.config, device = state.device) {
     courses: by(config.courses),
     order_types: by(config.order_types, t => ({ name: t.name })),
     devices: device ? { [device.id]: { receipt_printer_id: config.device?.settings?.receipt_printer_id || null } } : {},
+    layouts: config.print_layouts || {},
   }
 }
 

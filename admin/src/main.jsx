@@ -100,6 +100,7 @@ import PosSetup from '@/pages/PosSetup'
 import PosFloor from '@/pages/PosFloor'
 import PosReports from '@/pages/PosReports'
 import KioskDesigner from '@/pages/KioskDesigner'
+import PrintDesigner from '@/pages/PrintDesigner'
 import Promotions from '@/pages/Promotions'
 import MobileOrders    from '@/pages/mobile/MobileOrders'
 import MobileAllergens from '@/pages/mobile/MobileAllergens'
@@ -224,6 +225,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 <Route path="pos/floor" element={<PosFloor />} />
                 <Route path="pos/reports" element={<PosReports />} />
                 <Route path="pos/kiosk-designs/:id" element={<KioskDesigner />} />
+                <Route path="pos/print-designs/:id" element={<PrintDesigner />} />
                 <Route path="promotions" element={<Promotions />} />
                 <Route path="venues"    element={<Venues />} />
                 <Route path="new-location"     element={<NewLocation />} />

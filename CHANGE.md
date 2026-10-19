@@ -5,6 +5,15 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-19 — Designs for printed kitchen tickets and receipts]
+
+- Till setup has a new **Printing** tab. **What prints where** picks a design for kitchen tickets, till receipts and bills, and kiosk receipts: one for the whole company, and another at a venue if it needs one. Kiosk receipts print like till receipts until you pick a kiosk design.
+- A **design** lists the parts of a ticket from top to bottom: drag to reorder, tap a part to change it, add or take out parts. Kitchen tickets: station name, the **order title** (the table or order number as usual, or the tent number, table, order number or customer's name, big or tall, white on black), details (order type, tent, table, name, order number, covers, server, check, time), the dishes, your own words, lines and space. Receipts: your name, address and VAT number, a heading (different on bills), an order title (a big order or tent number for counter and kiosk orders), details, dishes (with or without priced extras listed), totals, VAT, payments, a footer (different on bills), words, lines and space.
+- Designs belong to the whole company. **Only at** a venue changes that venue's words and leaves parts out there, without touching the others.
+- A preview prints a made-up table order, counter order with a tent, or void (a receipt, bill or counter receipt), laid out in the printer's columns on 58 mm or 80 mm paper. Tills and kiosks get changes straight away.
+- The bill and receipt footers moved from Receipts and payments into a design named **Receipt**, with each venue's footers as its own words. A new location copied from another gets its print choices too.
+- **Migration 190** (print_designs).
+
 ## [2026-10-19 — Order ready boards, kitchen tickets and kiosks show tents and names]
 
 - **Order ready boards**: the Order status block on a menu screen board has a new **Each tile** section. **Big text** picks what shows big on each tile: the order number, the tent number, the table or the customer's name. **Under it** adds small lines: order number, tent number, table, customer name, order type, where from. For counter service with tents, Big text *Tent number* with *Order number* under it shows "TENT 12 / Order 57". An order without the big one (online orders have no tent) shows its order number instead, and a line shows only when the order has it. The old switch "Show the guest's first name" becomes the Customer name line on boards that had it on.

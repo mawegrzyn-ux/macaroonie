@@ -381,7 +381,7 @@ function printReceipt(check) {
     venue: { name: c.venue?.name }, settings: c.settings, printers: {}, routes: [], tables: {},
     staff: { [state.device.id]: { name: state.device.name } }, courses: {},
     order_types: by((c.all_order_types || []).map(t => ({ id: t.id, name: t.name }))), devices: {},
-  })])
+  }, { layout: c.print_layouts?.receipt || null })])
 }
 
 /**

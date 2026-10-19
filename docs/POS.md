@@ -114,6 +114,12 @@ First event types: `check.opened`, `check.covers_set`, `check.table_moved`,
   clone accepts it). Code page WPC1252 (`ESC t 16`) so £ prints.
 - The ticket is built in `shared/pos/tickets.js` as a list of print operations, so the same
   ticket can be previewed in admin; `hub/src/escpos.js` turns it into bytes.
+- **Designs** (migration 190, 19 Oct 2026): what a kitchen ticket or receipt shows and in which
+  order is a layout of parts (`shared/pos/ticketLayout.js`), company wide, picked per use
+  (kitchen tickets, till receipts and bills, kiosk receipts) for the company or one venue, with
+  a venue's own words and hidden parts. Tills, kiosks and the sequencer get the resolved layouts
+  in their config (`print_layouts` / `layouts`); the admin designer previews them in the printer's
+  columns (`previewHtml()` in `shared/pos/ticketHtml.js`).
 - **Routing**: dish → section → revenue stream → venue default. Station printers (Kitchen,
   Bar, Pass), a receipt printer per terminal, a backup printer per printer.
 - Queue per printer with retries; status check so terminals see "printer offline / out of

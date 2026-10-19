@@ -4741,11 +4741,28 @@ export default function Help() {
               <li><strong>Till roles</strong> (shared by every venue): what Server, Supervisor and Manager may do: void sent items, refund, comp, discounts up to a %, open the drawer, reopen checks, take over other people's checks, change prices, move items between checks, see reports, close the day, approve for others.</li>
               <li><strong>Staff and PINs</strong>: give each person a till role and a 4 to 6 digit PIN (not 1111 or 1234, and different from everyone else's at the venue). People come from the Staff page.</li>
               <li><strong>Printers</strong>: the venue's Epson network printers (IP address, port 9100) and <strong>What prints where</strong>: a dish prints on the printers set for it, else for its section, else for its revenue stream, else Everything. Then Save printing.</li>
-              <li><strong>Receipts and payments</strong>: when the trading day starts, the name, address and VAT number on receipts, bill and receipt footers, the ways to pay, tips, asking for covers, and when staff are signed out. Tax rates are set on Menus → Tax rates.</li>
+              <li><strong>Printing</strong>: how kitchen tickets, receipts and bills look (see Ticket and receipt designs below).</li>
+              <li><strong>Receipts and payments</strong>: when the trading day starts, the name, address and VAT number on receipts, the ways to pay, tips, asking for covers, and when staff are signed out. Tax rates are set on Menus → Tax rates.</li>
               <li><strong>Cash Recon</strong>: which till figures go into which Cash Recon fields when the day is closed (see End of day).</li>
               <li><strong>Floor plan</strong> (Till setup → Floor plan): add an area (e.g. Restaurant), tap tables to put them on it, drag them where they stand, drag the round corner to resize, Turn, Square / Round, and add walls, the bar, plants and labels. Save the area. Tables themselves are added on the Tables page.</li>
               <li><strong>Tills</strong>: open the till address on the tablet: it shows a six-letter code and a QR code. Tap <strong>Add a till</strong>, type the code, give it a name, table service or counter, and <strong>Add the till</strong>: the tablet sets itself up. Or scan the QR code with your phone and do the same in the installer app. <strong>New device</strong> on a till's row puts it on another tablet (type the code that tablet shows; the old one stops); removing a till signs it out for good.</li>
             </ol>
+
+            <H3>Ticket and receipt designs</H3>
+            <P>
+              Till setup → <strong>Printing</strong> decides how printed kitchen tickets, receipts and bills look. Designs
+              belong to the whole company; each venue picks which one it prints and can change a design&apos;s words or
+              leave parts out. Without a design, tickets print the usual way.
+            </P>
+            <ul className="list-disc ml-5 space-y-2 text-sm text-muted-foreground mb-4">
+              <li><strong>What prints where</strong>: for <em>Kitchen tickets</em>, <em>Till receipts and bills</em> and <em>Kiosk receipts</em>, pick a design for the whole company (<strong>Company</strong>) and, if this venue needs another, for the venue picked at the top of Till setup. Kiosk receipts print like till receipts until you pick a kiosk design.</li>
+              <li><strong>New design</strong> starts from the usual layout. A design is a list of parts from top to bottom: drag the grips to change the order, tap a part to change it, <strong>Add a part</strong> for more, and the bin (in the part&apos;s box) to take one out. The dishes, and a receipt&apos;s total, always stay.</li>
+              <li><strong>Kitchen ticket parts</strong>: Station name; <strong>Order title</strong> (what prints big: the table or order number as usual, or the tent number, the table, the order number or the customer&apos;s name; an order without it prints the usual title), its size and white on black; <strong>Details</strong> (order type, tent, table, name, order number, covers, server, check number, time sent; plain or a white-on-black band); <strong>Dishes</strong> (normal or tall, seat numbers on or off); your own <strong>Text</strong>; <strong>Line</strong>; <strong>Space</strong>.</li>
+              <li><strong>Receipt parts</strong>: your name, address and VAT number (from Receipts and payments); a <strong>heading</strong> with different words on a receipt and on a bill (e.g. VAT RECEIPT / YOUR BILL); <strong>Order title</strong> (a big order number or tent, handy for counter and kiosk orders); <strong>Details</strong> (table, check, served by, covers, order type and name, tent, date and time); <strong>Dishes</strong> (with options and meal parts priced under each, or one line each); <strong>Totals</strong>; <strong>VAT</strong>; <strong>Payments</strong>; a <strong>footer</strong> with its own words on receipts and bills; Text; Line; Space.</li>
+              <li><strong>One venue&apos;s own version</strong>: pick <em>Only at</em> a venue at the top of the design. Untick a part to leave it out there, and change the words of text, heading and footer parts for that venue (<strong>Use the words for all locations</strong> puts them back). Everything else is set for all locations.</li>
+              <li>The preview prints a made-up order (a table order, a counter order with a tent, a void; a receipt, a bill, a counter receipt) laid out in the printer&apos;s columns: pick 58 mm or 80 mm paper. Save when you&apos;re done; tills and kiosks get the change straight away.</li>
+              <li>The receipt and bill footers that used to be in Receipts and payments are now in a design called <strong>Receipt</strong>, with each venue&apos;s own words.</li>
+            </ul>
 
             <H3>Device addresses and disconnecting</H3>
             <P>

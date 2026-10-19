@@ -281,6 +281,15 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx' } = 
   }
   await step('floor area', () => post(`/api/pos/venues/${V}/floor-areas`, { name: mark + ' Patio' }))
   await step('kiosk design', () => post('/api/pos/kiosk-designs', { name: mark + ' Kiosk' }))
+  // Print designs (migration 190): a kitchen ticket design used at Ware with its own words.
+  const printDesign = await step('print design', () => post('/api/pos/print-designs', { kind: 'kitchen', name: mark + ' Tickets' }))
+  if (printDesign) {
+    await step('print design layout', () => put(`/api/pos/print-designs/${printDesign.id}`, { name: mark + ' Tickets', layout: { blocks: [
+      { id: 'tt', type: 'title', opts: { main: 'tent' } }, { id: 'tx', type: 'text', opts: { text: mark + ' thanks' } }, { id: 'it', type: 'items', opts: {} },
+    ] } }))
+    await step('print design use', () => put('/api/pos/print-design-uses', { venue_id: V, use: 'kitchen', design_id: printDesign.id }))
+    await step('print design words', () => put(`/api/pos/print-designs/${printDesign.id}/variations/${V}`, { texts: { tx: { text: mark + ' Ware words' } }, hidden: [] }))
+  }
   const design = await step('screen design', () => post('/api/screens/designs', { name: mark + ' Board' }))
   const playlist = await step('screen playlist', () => post('/api/screens/playlists', { name: mark + ' Day' }))
   if (playlist && design) await step('playlist boards', () => put(`/api/screens/playlists/${playlist.id}`, { name: mark + ' Day', items: [{ design_id: design.id, duration_secs: 10 }] }))

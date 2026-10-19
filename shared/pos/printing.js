@@ -100,6 +100,9 @@ function header(check, cfg, at) {
     tab: table ? null : (check.order_no != null ? 'ORDER ' + check.order_no : (check.tab_name || 'TAB ' + checkLabel(check))),
     // Counter orders show their number big; the name taken goes under it.
     name: table || check.order_no == null ? null : (check.tab_name || null),
+    // For designs that pick the order number, tent, table or name (ticketLayout.js).
+    number: check.order_no ?? null,
+    tabName: check.tab_name || null,
     type: cfg.order_types?.[check.order_type_id]?.name || null,
     tent: check.tent || null,
     covers: check.covers || null,
@@ -131,8 +134,11 @@ export function lineName(l) {
   return l.name + (bases.length ? ' (' + bases.join(', ') + ')' : '')
 }
 
-/** The bill or receipt for a check, as print operations. */
-export function billOps(check, cfg, { preBill = false, at = null, drawer = false } = {}) {
+/**
+ * The bill or receipt for a check, as print operations: the location's
+ * receipt design (cfg.layouts.receipt), or `layout` (a kiosk's).
+ */
+export function billOps(check, cfg, { preBill = false, at = null, drawer = false, layout = null } = {}) {
   const t = checkTotals(check)
   const s = cfg.settings || {}
   // The dish price on its own row; priced add-ons and meal-deal parts under it.
@@ -150,7 +156,7 @@ export function billOps(check, cfg, { preBill = false, at = null, drawer = false
   const h = header(check, cfg, at || check.closed_at || check.updated_at)
   return receipt({
     venue: { name: s.receipt_name || cfg.venue?.name || '', address: s.receipt_address || [], vatNumber: s.vat_number || null },
-    table: h.table, tab: h.tab, name: h.name, type: h.type, tent: h.tent,
+    table: h.table, tab: h.tab, name: h.name, tabName: h.tabName, number: h.number, type: h.type, tent: h.tent,
     checkNo: h.checkNo, server: h.server, covers: h.covers, at: h.sentAt, preBill,
     lines,
     discounts: t.discounts.filter(d => d.amount > 0).map(d => ({ name: d.name, amount: d.amount })),
@@ -159,9 +165,8 @@ export function billOps(check, cfg, { preBill = false, at = null, drawer = false
     vat: t.vat.map(v => ({ rate: v.rate, net: v.net, vat: v.vat })),
     payments: preBill ? [] : payments,
     change: preBill ? 0 : change,
-    footer: preBill ? (s.bill_footer || null) : (s.receipt_footer || 'Thank you'),
     drawer,
-  })
+  }, layout || cfg.layouts?.receipt)
 }
 
 /**
@@ -169,13 +174,15 @@ export function billOps(check, cfg, { preBill = false, at = null, drawer = false
  *   e       the event
  *   before  { [id]: check } as they were
  *   after   { [id]: check } the checks the event changed
- *   cfg     { printers, routes, tables, staff, courses, settings, venue, devices }
+ *   cfg     { printers, routes, tables, staff, courses, settings, venue, devices, layouts: { kitchen, receipt, kiosk_receipt } }
  */
 export function jobsForEvent(e, before = {}, after = {}, cfg = {}) {
   const p = e.payload || {}
   const check = after[e.check_id] || before[e.check_id]
   const jobs = []
   const receiptPrinter = p.printer_id || cfg.devices?.[e.device_id]?.receipt_printer_id || null
+  // A kiosk's receipts print in the kiosk receipt design.
+  const receiptLayout = cfg.devices?.[e.device_id]?.kiosk ? cfg.layouts?.kiosk_receipt || null : null
 
   if (e.type === 'lines.sent' && check) {
     const ids = new Set(p.line_ids)
@@ -186,7 +193,7 @@ export function jobsForEvent(e, before = {}, after = {}, cfg = {}) {
       jobs.push({
         printer_id: pid, kind: 'kitchen', check_id: check.id,
         title: 'Order ' + checkLabel(check),
-        ops: kitchenTicket({ ...header(check, cfg, e.client_at), station: printerName(cfg, pid), courses: coursesFor(byCourse, cfg, { hold }) }),
+        ops: kitchenTicket({ ...header(check, cfg, e.client_at), station: printerName(cfg, pid), courses: coursesFor(byCourse, cfg, { hold }) }, cfg.layouts?.kitchen),
       })
     }
   }
@@ -198,7 +205,7 @@ export function jobsForEvent(e, before = {}, after = {}, cfg = {}) {
       jobs.push({
         printer_id: pid, kind: 'fire', check_id: check.id,
         title: 'Fire ' + (cfg.courses?.[p.course_id]?.name || 'course'),
-        ops: kitchenTicket({ ...header(check, cfg, e.client_at), station: printerName(cfg, pid), courses: coursesFor(byCourse, cfg, { fire: true }) }),
+        ops: kitchenTicket({ ...header(check, cfg, e.client_at), station: printerName(cfg, pid), courses: coursesFor(byCourse, cfg, { fire: true }) }, cfg.layouts?.kitchen),
       })
     }
   }
@@ -209,7 +216,7 @@ export function jobsForEvent(e, before = {}, after = {}, cfg = {}) {
       for (const [pid, byCourse] of linesByPrinter([target], check, cfg)) {
         jobs.push({
           printer_id: pid, kind: 'void', check_id: check.id, title: 'Void ' + target.name,
-          ops: kitchenTicket({ ...header(check, cfg, e.client_at), void: true, station: printerName(cfg, pid), courses: coursesFor(byCourse, cfg) }),
+          ops: kitchenTicket({ ...header(check, cfg, e.client_at), void: true, station: printerName(cfg, pid), courses: coursesFor(byCourse, cfg) }, cfg.layouts?.kitchen),
         })
       }
     }
@@ -220,12 +227,12 @@ export function jobsForEvent(e, before = {}, after = {}, cfg = {}) {
     jobs.push({
       printer_id: receiptPrinter, kind: preBill ? 'bill' : 'receipt', check_id: check.id,
       title: (preBill ? 'Bill ' : 'Receipt ') + checkLabel(check),
-      ops: billOps(check, cfg, { preBill, at: e.client_at }),
+      ops: billOps(check, cfg, { preBill, at: e.client_at, layout: receiptLayout }),
     })
   }
 
   if (e.type === 'check.closed' && check && receiptPrinter && p.print_receipt) {
-    jobs.push({ printer_id: receiptPrinter, kind: 'receipt', check_id: check.id, title: 'Receipt ' + checkLabel(check), ops: billOps(check, cfg, { at: e.client_at }) })
+    jobs.push({ printer_id: receiptPrinter, kind: 'receipt', check_id: check.id, title: 'Receipt ' + checkLabel(check), ops: billOps(check, cfg, { at: e.client_at, layout: receiptLayout }) })
   }
 
   const cashIn = e.type === 'payment.added' && p.payment?.tender === 'cash'

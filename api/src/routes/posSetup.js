@@ -103,8 +103,6 @@ const SettingsBody = z.object({
   vat_number:                z.string().max(40).nullable().optional(),
   receipt_name:              z.string().max(80).nullable().optional(),
   receipt_address:           z.array(z.string().max(80)).max(6).optional(),
-  receipt_footer:            z.string().max(300).nullable().optional(),
-  bill_footer:               z.string().max(300).nullable().optional(),
   service_charge_label:      z.string().max(60).nullable().optional(),
   tenders:                   z.array(z.object({ key: z.enum(TENDER_KEYS), label: z.string().min(1).max(30), enabled: z.boolean() })).optional(),
   tips_enabled:              z.boolean().optional(),

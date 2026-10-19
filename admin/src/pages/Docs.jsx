@@ -3224,8 +3224,48 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               default. Kitchen tickets, bills and receipts print the order type, customer name and tent number. The sequencer stores them in <Mono>pos_print_jobs</Mono> for the hub
               (<Mono>POST /pos-api/print-jobs/claim</Mono> and <Mono>/:id/status</Mono>, hub devices only).
               Until a hub exists, the till prints bills and receipts (and optionally kitchen tickets) through a
-              hidden iframe and the browser's print dialog (<Mono>pos/src/lib/print.js</Mono>). Ticket layout:
+              hidden iframe and the browser's print dialog (<Mono>pos/src/lib/print.js</Mono>, HTML from{' '}
+              <Mono>opsHtml()</Mono> in <Mono>shared/pos/ticketHtml.js</Mono>). Ticket layout:
               <Mono> shared/pos/tickets.js</Mono> (also used by <Mono>hub/</Mono>'s ESC/POS encoder).
+            </P>
+            <H3>Print designs</H3>
+            <P>
+              Migration 190. A design is a layout <Mono>{'{ blocks: [{ id, type, opts }] }'}</Mono> of kind kitchen or
+              receipt (<Mono>shared/pos/ticketLayout.js</Mono>: <Mono>BLOCK_TYPES</Mono> per kind with option
+              defaults, <Mono>normaliseLayout()</Mono> (known types and options only, unique ids, the dishes and a
+              receipt&apos;s totals added back: <Mono>REQUIRED_BLOCKS</Mono>), <Mono>defaultLayout()</Mono> (what
+              tickets printed before designs), <Mono>normaliseVariation()</Mono> / <Mono>applyVariation()</Mono>,{' '}
+              <Mono>SAMPLES</Mono> + <Mono>sampleTicket()</Mono> for the preview). <Mono>kitchenTicket(send,
+              layout)</Mono> and <Mono>receipt(bill, layout)</Mono> in <Mono>tickets.js</Mono> draw from it (no layout
+              = the built-in one; a title block uses <Mono>orderInfo()</Mono> and falls back to the usual title).{' '}
+              <Mono>jobsForEvent()</Mono> passes <Mono>cfg.layouts.kitchen</Mono>; <Mono>billOps()</Mono> uses{' '}
+              <Mono>cfg.layouts.receipt</Mono>, or <Mono>kiosk_receipt</Mono> for events from a kiosk device.
+            </P>
+            <DataTable
+              head={['Table / route', 'What']}
+              rows={[
+                ['print_designs', 'tenant, kind kitchen | receipt, name, layout jsonb (normalised on save), created / updated by. Up to 50 per company.'],
+                ['print_design_uses', 'tenant, venue_id (NULL = company), use kitchen | receipt | kiosk_receipt, design_id (ON DELETE CASCADE: deleting a design sends places back). Unique per company use and per venue use.'],
+                ['print_design_variations', 'tenant, venue_id, design_id (PK venue + design), texts { blockId: { text | receipt_text | bill_text } }, hidden [blockId]. Words only for text / heading / footer parts; the dishes and totals can\'t be hidden. A design save drops words for parts no longer in it.'],
+                ['printLayouts(tx, tenantId, venueId)', 'services/printDesignSvc.js: { kitchen, receipt, kiosk_receipt } for a venue: venue choice, else company; kiosk_receipt falls back to receipt; the venue\'s variation applied; null = built-in. In tillConfig() (print_layouts), the sequencer\'s printConfig() (layouts) and kioskConfig() (print_layouts.receipt = kiosk_receipt).'],
+                ['GET /api/pos/print-designs?venue_id=', 'pos_setup view: designs, uses { company, venue }, used_at per design, defaults.'],
+                ['POST /api/pos/print-designs', 'pos_setup manage: { kind, name, copy_from?, layout? } (copy only within a kind).'],
+                ['GET / PUT / DELETE /api/pos/print-designs/:id', 'View: the design with variations per venue and used_at. Manage: { name, layout }; delete.'],
+                ['PUT /api/pos/print-designs/:id/variations/:venueId', 'Manage: { texts, hidden }; empty deletes the row.'],
+                ['PUT /api/pos/print-design-uses', 'Manage: { venue_id | null, use, design_id | null }; the design\'s kind must fit the use (422).'],
+              ]}
+            />
+            <P>
+              Every change broadcasts <Mono>pos.config</Mono> (a company change to every venue). Admin: Till setup →
+              Printing (<Mono>components/pos/PrintingSection.jsx</Mono>) and the designer{' '}
+              <Mono>pages/PrintDesigner.jsx</Mono> (<Mono>/pos/print-designs/:id</Mono>): parts in a sortable list,
+              options per part, <em>Only at</em> a venue for its variation, explicit Save, a column-exact preview from{' '}
+              <Mono>previewHtml(ops, cols)</Mono> in <Mono>ticketHtml.js</Mono> (wrapping as <Mono>toText()</Mono>,
+              double width and height by CSS transforms). The receipt and bill footers left Till setup&apos;s settings
+              (<Mono>pos_settings.receipt_footer</Mono> / <Mono>bill_footer</Mono> dropped): the migration made a
+              design named Receipt for tenants that had any, used company wide, with each venue&apos;s footers as its
+              variation. New locations copy the template venue&apos;s uses and variations (<Mono>storeSetup.js</Mono>).
+              Tests: <Mono>shared/pos/test/tickets.test.mjs</Mono>, <Mono>api/test/print-designs.test.mjs</Mono>.
             </P>
             <H3>Trading days, Z and Cash Recon</H3>
             <P>

@@ -375,8 +375,12 @@ const AREAS = {
         },
       })
       await ensureSettings(tx, tenantId, to)
+      // Which print design prints where, and the words it changes (designs are company wide).
+      const printUses = await copyTable(s, 'print_design_uses')
+      await copyTable(s, 'print_design_variations')
       return [
         'Receipts say "' + receiptName + '"',
+        ...(printUses.length ? [plural(printUses.length, 'print design choice')] : []),
         streams.length ? 'Revenue streams: ' + streams.map(x => x.name).join(', ') : 'No revenue streams',
         plural(areas.length, 'floor area') + ', ' + plural(printers.length, 'printer') + ' (check each printer\'s address on site)',
       ]

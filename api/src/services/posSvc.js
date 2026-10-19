@@ -31,6 +31,7 @@ import { venueNow } from '../../../shared/promotions.js'
 import { soldOutRows } from './soldOut.js'
 import { loadKitchenConfig, activeFlowSetting } from './kitchenSvc.js'
 import { ensureTaxDefaults, loadTaxRates, loadOrderTypes, loadStreams, taxForVenue } from './taxSvc.js'
+import { printLayouts } from './printDesignSvc.js'
 
 export const DEFAULT_COURSES = [
   { name: 'Drinks', short_name: 'DR', hold_by_default: false },
@@ -119,7 +120,7 @@ export function settingsView(s) {
   return {
     day_starts_at: s.day_starts_at,
     vat_number: s.vat_number, receipt_name: s.receipt_name, receipt_address: s.receipt_address || [],
-    receipt_footer: s.receipt_footer, bill_footer: s.bill_footer, service_charge_label: s.service_charge_label,
+    service_charge_label: s.service_charge_label,
     tenders, tips_enabled: s.tips_enabled, require_covers: s.require_covers,
     order_no_start: s.order_no_start, auto_logout_secs: s.auto_logout_secs,
     recon_map: s.recon_map || {}, recon_auto_fill: s.recon_auto_fill,
@@ -288,6 +289,8 @@ export async function tillConfig(tx, tenantId, venueId) {
     dietary_tags: (dietary || []).map(t => ({ code: t.code, label: t.label, kind: t.kind, colour: t.colour, glyph: t.glyph })),
     printers,
     routes,
+    // Print designs (migration 190): null = the built-in layout.
+    print_layouts: await printLayouts(tx, tenantId, venueId),
     promotions,
     sold_out: soldOut,
     // A kiosk's orders name the kiosk as their server (shared/kiosk.js), so
@@ -322,7 +325,8 @@ async function printConfig(tx, tenantId, venueId) {
     staff: { ...by(devices.filter(d => d.kind === 'kiosk'), d => ({ name: d.name })), ...by(staff) },
     courses: by(courses),
     order_types: by(orderTypes),
-    devices: by(devices, d => ({ receipt_printer_id: d.settings?.receipt_printer_id || null })),
+    devices: by(devices, d => ({ receipt_printer_id: d.settings?.receipt_printer_id || null, kiosk: d.kind === 'kiosk' })),
+    layouts: await printLayouts(tx, tenantId, venueId),
     timezone: venue.timezone || 'Europe/London',
   }
 }

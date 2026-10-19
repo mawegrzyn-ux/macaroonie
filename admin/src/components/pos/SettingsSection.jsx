@@ -6,6 +6,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { Link } from 'react-router-dom'
 import { Loader2 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -35,8 +36,6 @@ function fromSettings(s) {
     vat_number: s.vat_number || '',
     receipt_name: s.receipt_name || '',
     receipt_address: (s.receipt_address || []).join('\n'),
-    receipt_footer: s.receipt_footer || '',
-    bill_footer: s.bill_footer || '',
     service_charge_label: s.service_charge_label || '',
     tenders: s.tenders.map(t => ({ ...t })),
     tips_enabled: !!s.tips_enabled,
@@ -61,8 +60,6 @@ export function ReceiptSettingsSection({ venueId, setup }) {
       vat_number: form.vat_number.trim() || null,
       receipt_name: form.receipt_name.trim() || null,
       receipt_address: form.receipt_address.split('\n').map(l => l.trim()).filter(Boolean).slice(0, 6),
-      receipt_footer: form.receipt_footer.trim() || null,
-      bill_footer: form.bill_footer.trim() || null,
       service_charge_label: form.service_charge_label.trim() || null,
       tenders: form.tenders.map(t => ({ key: t.key, label: t.label.trim() || t.key, enabled: t.enabled })),
       tips_enabled: form.tips_enabled,
@@ -92,14 +89,10 @@ export function ReceiptSettingsSection({ venueId, setup }) {
       <Field label="Address on receipts" hint="One line each, up to 6.">
         <textarea className={cn(inputCls, 'h-auto py-2')} rows={3} value={form.receipt_address} onChange={e => set({ receipt_address: e.target.value })} />
       </Field>
-      <div className="grid sm:grid-cols-2 gap-4">
-        <Field label="Bill footer" hint="At the bottom of a bill, before payment.">
-          <textarea className={cn(inputCls, 'h-auto py-2')} rows={2} maxLength={300} value={form.bill_footer} onChange={e => set({ bill_footer: e.target.value })} />
-        </Field>
-        <Field label="Receipt footer" hint="At the bottom of a receipt, after payment.">
-          <textarea className={cn(inputCls, 'h-auto py-2')} rows={2} maxLength={300} value={form.receipt_footer} onChange={e => set({ receipt_footer: e.target.value })} />
-        </Field>
-      </div>
+      <p className="text-xs text-muted-foreground">
+        What receipts, bills and kitchen tickets say and how they look (headings, footers, the order number big) is on the{' '}
+        <Link to="/pos?tab=printing" className="font-medium text-foreground underline">Printing</Link> tab.
+      </p>
       <Field label="Service charge name" hint="As printed, e.g. Discretionary service charge.">
         <input className={inputCls} value={form.service_charge_label} maxLength={60} onChange={e => set({ service_charge_label: e.target.value })} placeholder="Service charge" />
       </Field>

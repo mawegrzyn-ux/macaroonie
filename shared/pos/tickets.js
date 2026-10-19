@@ -12,6 +12,9 @@
 //   { t: 'cut' }
 //   { t: 'drawer' }                              open the cash drawer (receipt printer)
 
+import { orderInfo } from '../orderInfo.js'
+import { defaultLayout } from './ticketLayout.js'
+
 export const DEFAULT_COLS = 42 // 80mm paper, Font A: TM-T88 = 42, TM-m30 = 48
 
 export function money(pence) {
@@ -30,95 +33,167 @@ function dateLabel(at) {
   return String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0') + '/' + d.getFullYear()
 }
 
+// How big a line prints: normal, tall (double height) or big (double height and width).
+const SIZE_STYLE = { normal: {}, tall: { bold: true, tall: true }, big: { bold: true, tall: true, wide: true } }
+const SMALLER = { big: 'tall', tall: 'normal', normal: 'normal' }
+const sized = size => SIZE_STYLE[size] || {}
+
+/** The big line of a ticket (title block): what shared/orderInfo.js picks, else null for the usual one. */
+function titleText(main, o) {
+  if (!main || main === 'auto') return null
+  const info = orderInfo(o, { main })
+  if (info.key !== main || !info.value) return null
+  if (main === 'number') return 'ORDER ' + info.value
+  if (main === 'tent') return 'TENT ' + info.value
+  if (main === 'table') return 'TABLE ' + info.value
+  return info.value
+}
+
+function textLines(ops, text, style) {
+  for (const line of String(text || '').split('\n')) if (line.trim()) ops.push({ t: 'text', text: line, ...style })
+}
+
 /**
- * Kitchen / bar ticket for one send.
- * send: { station, table, tab, name, type, tent, covers, server, checkNo, sentAt, reprint, void,
+ * Kitchen / bar ticket for one send, drawn from a layout (shared/pos/ticketLayout.js;
+ * none = the built-in one).
+ * send: { station, table, tab, name, tabName, number, type, tent, covers, server, checkNo, sentAt, reprint, void,
  *         courses: [{ name, hold, lines: [{ qty, name, seat, modifiers: [{ kind: 'add'|'remove'|'note', text }], note, allergies }] }] }
  */
-export function kitchenTicket(send) {
+export function kitchenTicket(send, layout = null) {
+  const L = layout?.blocks ? layout : defaultLayout('kitchen')
   const ops = []
   if (send.void) ops.push({ t: 'text', text: ' VOID ', align: 'center', bold: true, tall: true, wide: true, invert: true })
   if (send.reprint) ops.push({ t: 'text', text: '** REPRINT **', align: 'center', bold: true })
-  ops.push({ t: 'text', text: (send.station || 'KITCHEN').toUpperCase(), align: 'center', bold: true })
-  ops.push({ t: 'text', text: send.table ? 'TABLE ' + send.table : (send.tab || 'TAB'), align: 'center', bold: true, tall: true, wide: true })
-  if (send.name) ops.push({ t: 'text', text: send.name, align: 'center', bold: true, tall: true })
-  if (send.type || send.tent) {
-    ops.push({ t: 'text', text: ' ' + [send.type, send.tent ? 'TENT ' + send.tent : null].filter(Boolean).join('  ').toUpperCase() + ' ', align: 'center', bold: true, tall: true, invert: true })
-  }
-  const info = [send.covers ? send.covers + ' covers' : null, send.server, send.checkNo ? '#' + send.checkNo : null].filter(Boolean).join('  ')
-  if (info) ops.push({ t: 'text', text: info, align: 'center' })
-  ops.push({ t: 'text', text: (send.void ? 'Voided ' : 'Sent ') + hhmm(send.sentAt || new Date()), align: 'center' })
-
-  for (const course of send.courses || []) {
-    ops.push({ t: 'rule', char: '=' })
-    const name = (course.name || '').toUpperCase()
-    const head = course.fire ? ' FIRE ' + name + ' ' : name + (course.hold ? '  - HOLD' : '')
-    ops.push({ t: 'text', text: head, align: 'center', bold: true, invert: !!(course.hold || course.fire), tall: !!course.fire })
-    for (const line of course.lines || []) {
-      const seat = line.seat ? '  S' + line.seat : ''
-      ops.push({ t: 'text', text: line.qty + ' x ' + line.name + seat, bold: true, tall: true })
-      for (const m of line.modifiers || []) {
-        const mark = m.kind === 'remove' ? '- ' : m.kind === 'note' ? '* ' : m.kind === 'part' ? '> ' : '+ '
-        ops.push({ t: 'text', text: mark + m.text, indent: m.kind === 'part' ? 2 : 4 + (m.depth || 0) * 2, tall: true, bold: m.kind === 'part' })
+  const who = { number: send.number, tent: send.tent, table: send.table, name: send.tabName ?? send.name, type_name: send.type }
+  for (const b of L.blocks) {
+    const o = b.opts || {}
+    if (b.type === 'station') {
+      ops.push({ t: 'text', text: (send.station || 'KITCHEN').toUpperCase(), align: 'center', bold: true, ...sized(o.size) })
+    } else if (b.type === 'title') {
+      const own = titleText(o.main, who)
+      if (own) {
+        ops.push({ t: 'text', text: own, align: 'center', bold: true, ...sized(o.size), ...(o.invert ? { invert: true } : {}) })
+      } else {
+        ops.push({ t: 'text', text: send.table ? 'TABLE ' + send.table : (send.tab || 'TAB'), align: 'center', bold: true, ...sized(o.size), ...(o.invert ? { invert: true } : {}) })
+        if (send.name) ops.push({ t: 'text', text: send.name, align: 'center', bold: true, ...sized(SMALLER[o.size] || 'normal') })
       }
-      if (line.note) ops.push({ t: 'text', text: '* ' + line.note, indent: 4, tall: true })
-      if (line.allergies?.length) {
-        ops.push({ t: 'text', text: ' ALLERGY: ' + line.allergies.join(', ').toUpperCase() + ' ', indent: 4, bold: true, invert: true })
+    } else if (b.type === 'details') {
+      const value = k => ({
+        type: send.type,
+        tent: send.tent ? 'TENT ' + send.tent : null,
+        table: send.table ? 'TABLE ' + send.table : null,
+        name: who.name,
+        number: send.number != null ? 'ORDER ' + send.number : null,
+        covers: send.covers ? send.covers + ' covers' : null,
+        server: send.server,
+        check: send.checkNo ? '#' + send.checkNo : null,
+        time: (send.void ? 'Voided ' : 'Sent ') + hhmm(send.sentAt || new Date()),
+      })[k]
+      const parts = (o.fields || []).map(value).filter(Boolean)
+      if (!parts.length) continue
+      if (o.style === 'band') ops.push({ t: 'text', text: ' ' + parts.join('  ').toUpperCase() + ' ', align: 'center', bold: true, ...sized(o.size), invert: true })
+      else ops.push({ t: 'text', text: parts.join('  '), align: 'center', ...sized(o.size) })
+    } else if (b.type === 'items') {
+      const tall = o.size !== 'normal'
+      for (const course of send.courses || []) {
+        ops.push({ t: 'rule', char: '=' })
+        const name = (course.name || '').toUpperCase()
+        const head = course.fire ? ' FIRE ' + name + ' ' : name + (course.hold ? '  - HOLD' : '')
+        ops.push({ t: 'text', text: head, align: 'center', bold: true, invert: !!(course.hold || course.fire), tall: !!course.fire })
+        for (const line of course.lines || []) {
+          const seat = o.seats !== false && line.seat ? '  S' + line.seat : ''
+          ops.push({ t: 'text', text: line.qty + ' x ' + line.name + seat, bold: true, tall })
+          for (const m of line.modifiers || []) {
+            const mark = m.kind === 'remove' ? '- ' : m.kind === 'note' ? '* ' : m.kind === 'part' ? '> ' : '+ '
+            ops.push({ t: 'text', text: mark + m.text, indent: m.kind === 'part' ? 2 : 4 + (m.depth || 0) * 2, tall, bold: m.kind === 'part' })
+          }
+          if (line.note) ops.push({ t: 'text', text: '* ' + line.note, indent: 4, tall })
+          if (line.allergies?.length) {
+            ops.push({ t: 'text', text: ' ALLERGY: ' + line.allergies.join(', ').toUpperCase() + ' ', indent: 4, bold: true, invert: true })
+          }
+        }
       }
+      ops.push({ t: 'rule', char: '=' })
+    } else {
+      commonBlock(ops, b)
     }
   }
-  ops.push({ t: 'rule', char: '=' })
   ops.push({ t: 'cut' })
   return ops
 }
 
+/** Text, line and space blocks, the same on every kind of ticket. */
+function commonBlock(ops, b) {
+  const o = b.opts || {}
+  if (b.type === 'text') textLines(ops, o.text, { align: o.align || 'center', ...sized(o.size), ...(o.bold ? { bold: true } : {}) })
+  else if (b.type === 'rule') ops.push({ t: 'rule', char: o.char || '-' })
+  else if (b.type === 'space') ops.push({ t: 'feed', lines: o.lines || 1 })
+}
+
 /**
- * Customer receipt (or pre-bill with bill.preBill).
- * bill: { venue: { name, address: [], vatNumber }, table, tab, name, type, tent, checkNo, server, covers, at, preBill,
+ * Customer receipt (or pre-bill with bill.preBill), drawn from a layout
+ * (shared/pos/ticketLayout.js; none = the built-in one).
+ * bill: { venue: { name, address: [], vatNumber }, table, tab, name, tabName, number, type, tent, checkNo, server, covers, at, preBill,
  *         lines: [{ qty, name, total, modifiers: [{ text, price }] }],   total = dish x qty, add-ons priced separately
  *         discounts: [{ name, amount }], serviceCharge: { label, amount },
- *         vat: [{ rate, net, vat }], total, payments: [{ tender, amount }], change, footer, drawer }
+ *         vat: [{ rate, net, vat }], total, payments: [{ tender, amount }], change, drawer }
  */
-export function receipt(bill) {
+export function receipt(bill, layout = null) {
+  const L = layout?.blocks ? layout : defaultLayout('receipt')
   const ops = []
   const v = bill.venue || {}
-  ops.push({ t: 'text', text: v.name || '', align: 'center', bold: true, tall: true, wide: true })
-  for (const a of v.address || []) ops.push({ t: 'text', text: a, align: 'center' })
-  if (v.vatNumber) ops.push({ t: 'text', text: 'VAT no. ' + v.vatNumber, align: 'center' })
-  ops.push({ t: 'feed', lines: 1 })
-  if (bill.preBill) ops.push({ t: 'text', text: 'BILL - NOT A RECEIPT', align: 'center', bold: true })
-  const where = bill.table ? 'Table ' + bill.table : (bill.tab || '')
-  ops.push({ t: 'pair', left: where, right: bill.checkNo ? 'Check ' + bill.checkNo : '' })
-  ops.push({ t: 'pair', left: bill.server ? 'Served by ' + bill.server : '', right: bill.covers ? bill.covers + ' covers' : '' })
-  if (bill.name || bill.type || bill.tent) {
-    ops.push({ t: 'pair', left: [bill.type, bill.name].filter(Boolean).join(' - '), right: bill.tent ? 'Tent ' + bill.tent : '' })
-  }
-  ops.push({ t: 'pair', left: dateLabel(bill.at || new Date()), right: hhmm(bill.at || new Date()) })
-  ops.push({ t: 'rule', char: '-' })
-  for (const l of bill.lines || []) {
-    ops.push({ t: 'pair', left: l.qty + ' ' + l.name, right: money(l.total) })
-    for (const m of l.modifiers || []) {
-      ops.push({ t: 'pair', left: '   ' + m.text, right: m.price ? money(m.price) : '' })
+  const who = { number: bill.number, tent: bill.tent, table: bill.table, name: bill.tabName ?? bill.name, type_name: bill.type }
+  const pair = (left, right, extra = {}) => { if (left || right) ops.push({ t: 'pair', left: left || '', right: right || '', ...extra }) }
+  for (const b of L.blocks) {
+    const o = b.opts || {}
+    if (b.type === 'venue') {
+      if (o.name !== false && v.name) ops.push({ t: 'text', text: v.name, align: 'center', bold: true, ...sized(o.size) })
+      if (o.address !== false) for (const a of v.address || []) ops.push({ t: 'text', text: a, align: 'center' })
+      if (o.vat !== false && v.vatNumber) ops.push({ t: 'text', text: 'VAT no. ' + v.vatNumber, align: 'center' })
+    } else if (b.type === 'heading') {
+      textLines(ops, bill.preBill ? o.bill_text : o.receipt_text, { align: 'center', bold: true, ...sized(o.size) })
+    } else if (b.type === 'title') {
+      const own = titleText(o.main, who)
+        || (o.main === 'auto' || !o.main ? (bill.number != null ? 'ORDER ' + bill.number : bill.table ? 'TABLE ' + bill.table : null) : null)
+      if (own) ops.push({ t: 'text', text: own, align: 'center', bold: true, ...sized(o.size), ...(o.invert ? { invert: true } : {}) })
+    } else if (b.type === 'details') {
+      const f = new Set(o.fields || [])
+      const at = bill.at || new Date()
+      pair(f.has('where') ? (bill.table ? 'Table ' + bill.table : (bill.tab || '')) : '', f.has('check') && bill.checkNo ? 'Check ' + bill.checkNo : '')
+      pair(f.has('server') && bill.server ? 'Served by ' + bill.server : '', f.has('covers') && bill.covers ? bill.covers + ' covers' : '')
+      pair(f.has('type') ? [bill.type, bill.name].filter(Boolean).join(' - ') : '', f.has('tent') && bill.tent ? 'Tent ' + bill.tent : '')
+      if (f.has('date')) pair(dateLabel(at), hhmm(at))
+    } else if (b.type === 'items') {
+      for (const l of bill.lines || []) {
+        if (o.extras === false) {
+          pair(l.qty + ' ' + l.name, money((l.total || 0) + (l.modifiers || []).reduce((x, m) => x + (m.price || 0), 0)))
+          continue
+        }
+        pair(l.qty + ' ' + l.name, money(l.total))
+        for (const m of l.modifiers || []) pair('   ' + m.text, m.price ? money(m.price) : '')
+      }
+    } else if (b.type === 'totals') {
+      if (o.subtotal !== false) pair('Subtotal', money(billSubtotal(bill.lines)))
+      for (const d of bill.discounts || []) pair(d.name, money(-Math.abs(d.amount)))
+      if (bill.serviceCharge?.amount) pair(bill.serviceCharge.label || 'Service charge', money(bill.serviceCharge.amount))
+      ops.push({ t: 'pair', left: 'TOTAL', right: money(bill.total), bold: true, tall: o.size !== 'normal' })
+    } else if (b.type === 'vat') {
+      if (bill.vat?.length) {
+        ops.push({ t: 'feed', lines: 1 })
+        for (const r of bill.vat) pair('VAT ' + r.rate + '% on ' + money(r.net), money(r.vat))
+      }
+    } else if (b.type === 'payments') {
+      if (bill.payments?.length) {
+        ops.push({ t: 'rule', char: '-' })
+        for (const p of bill.payments) pair(p.tender, money(p.amount))
+        if (bill.change) pair('Change', money(bill.change), { bold: true })
+      }
+    } else if (b.type === 'footer') {
+      textLines(ops, bill.preBill ? o.bill_text : o.receipt_text, { align: 'center' })
+    } else {
+      commonBlock(ops, b)
     }
   }
-  ops.push({ t: 'rule', char: '-' })
-  ops.push({ t: 'pair', left: 'Subtotal', right: money(billSubtotal(bill.lines)) })
-  for (const d of bill.discounts || []) ops.push({ t: 'pair', left: d.name, right: money(-Math.abs(d.amount)) })
-  if (bill.serviceCharge?.amount) ops.push({ t: 'pair', left: bill.serviceCharge.label || 'Service charge', right: money(bill.serviceCharge.amount) })
-  ops.push({ t: 'pair', left: 'TOTAL', right: money(bill.total), bold: true, tall: true })
-  if (bill.vat?.length) {
-    ops.push({ t: 'feed', lines: 1 })
-    for (const r of bill.vat) {
-      ops.push({ t: 'pair', left: 'VAT ' + r.rate + '% on ' + money(r.net), right: money(r.vat) })
-    }
-  }
-  if (bill.payments?.length) {
-    ops.push({ t: 'rule', char: '-' })
-    for (const p of bill.payments) ops.push({ t: 'pair', left: p.tender, right: money(p.amount) })
-    if (bill.change) ops.push({ t: 'pair', left: 'Change', right: money(bill.change), bold: true })
-  }
-  ops.push({ t: 'feed', lines: 1 })
-  if (bill.footer) ops.push({ t: 'text', text: bill.footer, align: 'center' })
   if (bill.drawer) ops.push({ t: 'drawer' })
   ops.push({ t: 'cut' })
   return ops

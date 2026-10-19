@@ -31,6 +31,7 @@ import { normaliseDesign, LANG_CODES } from '../../../shared/kiosk.js'
 import { menuTags } from '../../../shared/menuTags.js'
 import { venueNow } from '../../../shared/promotions.js'
 import { makeLink, readLink } from './previewLinks.js'
+import { printLayouts } from './printDesignSvc.js'
 
 // The device id a preview runs as (never a real device).
 export const PREVIEW_DEVICE_ID = '00000000-0000-4000-8000-00000000000a'
@@ -127,6 +128,8 @@ export async function kioskConfig(tx, tenantId, venueId, device, { designOverrid
     promotions,
     sold_out: soldOut,
     design: finalDesign,
+    // The kiosk receipt design (migration 190): null = the built-in layout.
+    print_layouts: { receipt: (await printLayouts(tx, tenantId, venueId)).kiosk_receipt },
     translations: await loadTranslations(tx, tenantId, finalDesign.languages.enabled),
     device: { id: device.id, kind: 'kiosk', name: device.name, short_code: device.short_code, venue_id: venueId, settings: ds },
   }
