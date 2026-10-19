@@ -95,7 +95,7 @@ test('layout options round trip; a design keeps only the tenant\'s own sections,
   const saved = await ok(owner.put(`/api/pos/kiosk-designs/${design.id}`, {
     name: design.name,
     settings: {
-      layout: { tiles: 'hexagon', header: false, icon_buttons: true },
+      layout: { tiles: 'hexagon', option_tiles: 'round', header: false, icon_buttons: true },
       start: { type_cards: { [myType.id]: { label: 'Stay' }, [theirType.id]: { label: 'Theirs' } } },
       menu: {
         rail: 'none',
@@ -109,7 +109,7 @@ test('layout options round trip; a design keeps only the tenant\'s own sections,
     },
   }))
   const s = saved.settings
-  assert.deepEqual(s.layout, { tiles: 'hexagon', header: false, icon_buttons: true })
+  assert.deepEqual(s.layout, { tiles: 'hexagon', option_tiles: 'round', header: false, icon_buttons: true })
   assert.equal(s.menu.rail, 'none')
   assert.deepEqual(s.menu.section_tiles.map(t => t.section_id), [mySection])
   assert.equal(s.menu.section_tiles[0].size, 'wide')
@@ -128,5 +128,6 @@ test('layout options round trip; a design keeps only the tenant\'s own sections,
   const link = await ok(owner.post(`/api/pos/kiosk-designs/${design.id}/preview`, { venue_id: mine.ids.venue }))
   const cfg = (await preview(link.token)).json
   assert.equal(cfg.design.layout.tiles, 'hexagon')
+  assert.equal(cfg.design.layout.option_tiles, 'round')
   assert.equal(cfg.design.menu.rail, 'none')
 })

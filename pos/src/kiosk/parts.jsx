@@ -4,6 +4,7 @@
 
 import { Children, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { UtensilsCrossed, ShoppingBag, Bike, Flame, Star, Circle, Minus, Plus, Delete, ArrowLeft } from 'lucide-react'
+import { hexLayout } from '@shared/kiosk.js'
 
 export const cx = (...p) => p.filter(Boolean).join(' ')
 
@@ -200,35 +201,35 @@ function useWidth(ref) {
 }
 
 /**
- * Rows of `cols` and `cols - 1` hexagons in turn, every other row moved over
- * by half a hexagon so they lock together. cols: a number, or 'auto' (as many
- * as fit at about `target` px wide), at least 2. Each child is one hexagon
- * (HexTile).
+ * Hexagons that lock together like a honeycomb (hexLayout()). cols: a
+ * number, or 'auto' (as many as fit at about `target` px wide), at least 2.
+ * The menu fills the width; compact (choices) keeps each hexagon at most
+ * `maxCell` px wide and keeps a few choices together in two rows. Each child
+ * is one hexagon (HexTile).
  */
-export function HexGrid({ children, cols = 'auto', target = 240, gap = 10, testId }) {
+export function HexGrid({ children, cols = 'auto', target = 240, gap = 10, testId, compact = false, maxCell = Infinity }) {
   const ref = useRef(null)
   const width = useWidth(ref)
   const list = Children.toArray(children)
   const n = Math.max(2, Math.min(8, cols === 'auto' ? Math.floor(width / target) : Number(cols) || 2))
-  const w = width / n
+  const layout = hexLayout(list.length, n, compact)
+  const w = compact ? Math.min(width * 2 / layout.width, maxCell) : width / n
   const h = w / 0.8660254
   const cells = []
-  let row = 0
-  let col = 0
-  for (const child of list) {
-    if (col >= (row % 2 ? n - 1 : n)) { row++; col = 0 }
-    const start = (row % 2 ? 2 : 1) + col * 2
+  let i = 0
+  layout.rows.forEach((starts, r) => starts.forEach(start => {
+    const child = list[i++]
     cells.push(
-      <div key={child.key} className="k-hex-cell"
-        style={{ gridColumn: start + ' / span 2', gridRow: row + 1, height: h, marginBottom: -h / 4, padding: gap / 2, fontSize: Math.round(Math.max(12, Math.min(26, w * 0.075))) }}>
+      <div key={child.key} className="k-hex-cell" data-row={r} data-start={start}
+        style={{ gridColumn: start + ' / span 2', gridRow: r + 1, height: h, marginBottom: -h / 4, padding: gap / 2, fontSize: Math.round(Math.max(12, Math.min(26, w * 0.075))) }}>
         {child}
       </div>,
     )
-    col++
-  }
+  }))
+  const columns = compact ? 'repeat(' + layout.width + ', ' + w / 2 + 'px)' : 'repeat(' + n * 2 + ', minmax(0, 1fr))'
   return (
-    <div ref={ref} className="k-hexgrid" style={{ gridTemplateColumns: 'repeat(' + n * 2 + ', minmax(0, 1fr))', paddingBottom: h / 4 }}
-      data-testid={testId} data-cols={n}>
+    <div ref={ref} className="k-hexgrid" style={{ gridTemplateColumns: columns, paddingBottom: h / 4 }}
+      data-testid={testId} data-cols={n} data-rows={layout.rows.length}>
       {width > 0 && cells}
     </div>
   )

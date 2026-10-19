@@ -6,7 +6,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  normaliseDesign, designProblems, payMethods, uiText, allergenName, translationSources, TK, splitImages,
+  normaliseDesign, designProblems, payMethods, uiText, allergenName, translationSources, TK, splitImages, hexLayout,
   kioskOrder, basketCheck, kioskStaff, kioskFontsUrl, UI_TEXT, ALLERGEN_NAMES, KIOSK_LANGUAGES,
 } from '../kiosk.js'
 import { applyEvent, KIOSK_EVENTS } from '../pos/checks.js'
@@ -84,7 +84,7 @@ test('design: defaults, clamps, drops what it does not know', () => {
 
 test('design: layout, section tiles and the spin wheel', () => {
   const plain = normaliseDesign({})
-  assert.deepEqual(plain.layout, { tiles: 'cards', header: true, icon_buttons: false })
+  assert.deepEqual(plain.layout, { tiles: 'cards', option_tiles: 'cards', header: true, icon_buttons: false })
   assert.equal(plain.menu.rail, 'images')
   assert.deepEqual(plain.menu.section_tiles, [])
   assert.equal(plain.options.wheel_spin, true)
@@ -99,7 +99,8 @@ test('design: layout, section tiles and the spin wheel', () => {
     ] },
     options: { wheel_spin: false, wheel_spin_picks: 'yes' },
   })
-  assert.deepEqual(d.layout, { tiles: 'hexagon', header: false, icon_buttons: true })
+  // Choices keep the dishes' style until the design picks their own.
+  assert.deepEqual(d.layout, { tiles: 'hexagon', option_tiles: 'hexagon', header: false, icon_buttons: true })
   assert.equal(d.menu.rail, 'none')
   assert.deepEqual(d.menu.section_tiles, [
     { section_id: DRINKS, image_url: '/d.jpg', title: 'Drinks and shakes', size: 'wide' },
@@ -114,6 +115,49 @@ test('design: layout, section tiles and the spin wheel', () => {
   const keys = translationSources({ designs: [{ id: 'd2', name: 'Hex', settings: d }] }).map(x => x.key)
   assert.ok(keys.includes(TK.design('d2', 'tile:' + DRINKS)))
   assert.ok(!keys.includes(TK.design('d2', 'tile:' + SECTION)))
+})
+
+test('design: dishes and choices each have their own picture style', () => {
+  const d = normaliseDesign({ layout: { tiles: 'round', option_tiles: 'hexagon' } })
+  assert.equal(d.layout.tiles, 'round')
+  assert.equal(d.layout.option_tiles, 'hexagon')
+  assert.equal(normaliseDesign({ layout: { tiles: 'hexagon', option_tiles: 'cards' } }).layout.option_tiles, 'cards')
+  assert.equal(normaliseDesign({ layout: { tiles: 'oval', option_tiles: 'star' } }).layout.option_tiles, 'oval')
+  assert.equal(normaliseDesign({ layout: { option_tiles: 'round' } }).layout.tiles, 'cards')
+  assert.deepEqual(normaliseDesign(d), d)
+})
+
+test('honeycomb: rows lock together; a few choices still make two rows', () => {
+  const shape = (n, max, compact) => hexLayout(n, max, compact).rows.map(r => r.length)
+  // Every other row sits half a hexagon over (odd starts, then even starts).
+  const locked = ({ rows }) => rows.every((r, i) => r.every(x => x % 2 === (i % 2 ? 0 : 1)))
+  // Dishes: rows of max and max - 1, filled from the left.
+  assert.deepEqual(shape(4, 5, false), [4])
+  assert.deepEqual(shape(9, 3, false), [3, 2, 3, 1])
+  assert.deepEqual(hexLayout(9, 3).rows[3], [2])
+  // Choices: two rows from three on, while they fit.
+  assert.deepEqual(shape(1, 5, true), [1])
+  assert.deepEqual(shape(2, 5, true), [2])
+  assert.deepEqual(shape(3, 5, true), [2, 1])
+  assert.deepEqual(shape(4, 5, true), [2, 2])
+  assert.deepEqual(shape(5, 5, true), [3, 2])
+  assert.deepEqual(shape(7, 5, true), [4, 3])
+  assert.deepEqual(hexLayout(3, 5, true), { rows: [[1, 3], [2]], width: 4 })
+  assert.deepEqual(hexLayout(4, 5, true), { rows: [[1, 3], [2, 4]], width: 5 })
+  // More than two rows' worth: rows of max and max - 1, the last centred.
+  assert.deepEqual(shape(7, 3, true), [3, 2, 2])
+  assert.deepEqual(hexLayout(12, 5, true).rows, [[1, 3, 5, 7, 9], [2, 4, 6, 8], [3, 5, 7]])
+  for (let n = 0; n <= 20; n++) {
+    for (const max of [2, 3, 5]) {
+      for (const compact of [false, true]) {
+        const l = hexLayout(n, max, compact)
+        assert.equal(l.rows.flat().length, n, `all placed (${n}, ${max}, ${compact})`)
+        assert.ok(locked(l), `rows interlock (${n}, ${max}, ${compact})`)
+        assert.ok(l.rows.flat().every(x => x + 1 <= l.width), `inside the width (${n}, ${max}, ${compact})`)
+        if (compact && n >= 3) assert.ok(l.rows.length >= 2, `two rows or more (${n}, ${max})`)
+      }
+    }
+  }
 })
 
 test('split photo: the picks of groups and steps with it on, two or more pictures', () => {

@@ -181,29 +181,33 @@
 .k-split-tears { position: absolute; inset: 0; pointer-events: none; filter: drop-shadow(0 0 1.5px rgba(0,0,0,.45)) drop-shadow(0 1px 3px rgba(0,0,0,.25)); }
 .k-split-tears span { position: absolute; inset: 0; background: #fbfaf6; }
 
-/* ── Tile styles (design.layout.tiles) ───────────────────────────
+/* ── Picture styles ──────────────────────────────────────────────
+   Dishes (design.layout.tiles, .k-tiles-<style> on the root: menu cards,
+   section tiles, the dish's photo, basket thumbs) and choices
+   (design.layout.option_tiles, .k-opts-<style>: option and combo step
+   cards, list and wheel thumbs) each follow their own style.
    Round and oval: the photo in a circle or an ellipse with the words under
    it on the page, no card behind. Hexagon takes the same open look for
    cards outside a honeycomb (the slider, "Anything else?"). */
 .k-tiles-round .k-item, .k-tiles-oval .k-item, .k-tiles-hexagon .k-item,
-.k-tiles-round .k-opt, .k-tiles-oval .k-opt, .k-tiles-hexagon .k-opt {
+.k-opts-round .k-opt, .k-opts-oval .k-opt, .k-opts-hexagon .k-opt {
   background: transparent; box-shadow: none; overflow: visible; align-items: center; text-align: center; border: 0;
 }
-.k-tiles-round .k-item-img, .k-tiles-round .k-item-ph, .k-tiles-round .k-opt-img, .k-tiles-round .k-opt-ph {
+.k-tiles-round .k-item-img, .k-tiles-round .k-item-ph, .k-opts-round .k-opt-img, .k-opts-round .k-opt-ph {
   width: 86%; margin: .3em auto 0; aspect-ratio: 1 / 1; border-radius: 50%; box-shadow: 0 4px 14px rgba(0,0,0,.16);
 }
-.k-tiles-oval .k-item-img, .k-tiles-oval .k-item-ph, .k-tiles-oval .k-opt-img, .k-tiles-oval .k-opt-ph {
+.k-tiles-oval .k-item-img, .k-tiles-oval .k-item-ph, .k-opts-oval .k-opt-img, .k-opts-oval .k-opt-ph {
   width: 100%; aspect-ratio: 4 / 3; border-radius: 50%; box-shadow: 0 4px 14px rgba(0,0,0,.16);
 }
 .k-tiles-oval .k-tile-wide .k-item-img, .k-tiles-oval .k-tile-wide .k-item-ph { aspect-ratio: 8 / 3; }
 .k-tiles-round .k-item-body, .k-tiles-oval .k-item-body, .k-tiles-hexagon .k-item-body { align-items: center; padding: .6em .3em .2em; }
 .k-tiles-round .k-item-body > *, .k-tiles-oval .k-item-body > *, .k-tiles-hexagon .k-item-body > * { justify-content: center; }
-.k-tiles-round .k-opt > span, .k-tiles-oval .k-opt > span, .k-tiles-hexagon .k-opt > span { align-items: center; }
-.k-tiles-round .k-opt-on .k-opt-img, .k-tiles-round .k-opt-on .k-opt-ph,
-.k-tiles-oval .k-opt-on .k-opt-img, .k-tiles-oval .k-opt-on .k-opt-ph { box-shadow: 0 0 0 .3em var(--k-primary), 0 4px 14px rgba(0,0,0,.16); }
+.k-opts-round .k-opt > span, .k-opts-oval .k-opt > span, .k-opts-hexagon .k-opt > span { align-items: center; }
+.k-opts-round .k-opt-on .k-opt-img, .k-opts-round .k-opt-on .k-opt-ph,
+.k-opts-oval .k-opt-on .k-opt-img, .k-opts-oval .k-opt-on .k-opt-ph { box-shadow: 0 0 0 .3em var(--k-primary), 0 4px 14px rgba(0,0,0,.16); }
 .k-tiles-round .k-sold, .k-tiles-oval .k-sold, .k-tiles-hexagon .k-sold { background: color-mix(in srgb, var(--k-bg) 65%, transparent); }
-.k-tiles-round .k-slide-focus, .k-tiles-oval .k-slide-focus, .k-tiles-hexagon .k-slide-focus { box-shadow: none; }
-.k-tiles-round .k-thumb, .k-tiles-oval .k-thumb { border-radius: 50%; }
+.k-opts-round .k-slide-focus, .k-opts-oval .k-slide-focus, .k-opts-hexagon .k-slide-focus { box-shadow: none; }
+.k-tiles-round .k-thumb, .k-tiles-oval .k-thumb, .k-opts-round .k-opt-thumb, .k-opts-oval .k-opt-thumb { border-radius: 50%; }
 .k-tiles-round .k-hero-img { aspect-ratio: 1 / 1; border-radius: 50%; }
 .k-tiles-round .k-hero-img > *, .k-tiles-hexagon .k-hero-img > * { height: 100%; aspect-ratio: auto; }
 .k-tiles-oval .k-hero-img { border-radius: 50%; }
@@ -255,20 +259,20 @@
   clip-path: polygon(.75em 0, calc(100% - .75em) 0, 100% 50%, calc(100% - .75em) 100%, .75em 100%, 0 50%);
 }
 .k-tiles-hexagon .k-chip-on { background: var(--k-text); }
-.k-tiles-hexagon .k-badge, .k-tiles-hexagon .k-opt-tick, .k-tiles-hexagon .k-plus, .k-tiles-hexagon .k-opt-less { border-radius: 0; clip-path: var(--k-hex-flat); }
-.k-tiles-hexagon .k-opt-tick, .k-tiles-hexagon .k-opt-less { width: 2.4em; }
+.k-tiles-hexagon .k-badge, .k-tiles-hexagon .k-plus, .k-opts-hexagon .k-opt-tick, .k-opts-hexagon .k-opt-less { border-radius: 0; clip-path: var(--k-hex-flat); }
+.k-opts-hexagon .k-opt-tick, .k-opts-hexagon .k-opt-less { width: 2.4em; }
 .k-tiles-hexagon .k-card {
   border-radius: 0; box-shadow: none;
   clip-path: polygon(.9em 0, calc(100% - .9em) 0, 100% 50%, calc(100% - .9em) 100%, .9em 100%, 0 50%);
 }
 .k-tiles-hexagon .k-item.k-card, .k-tiles-hexagon .k-opt.k-card { clip-path: none; }
-.k-tiles-hexagon .k-item-img, .k-tiles-hexagon .k-item-ph, .k-tiles-hexagon .k-opt-img, .k-tiles-hexagon .k-opt-ph {
+.k-tiles-hexagon .k-item-img, .k-tiles-hexagon .k-item-ph, .k-opts-hexagon .k-opt-img, .k-opts-hexagon .k-opt-ph {
   width: 80%; margin: .2em auto 0; aspect-ratio: .866 / 1; border-radius: 0; clip-path: var(--k-hex);
 }
 /* Picked: a hexagon ring in the button colour (padding around the photo). */
-.k-tiles-hexagon .k-opt-on .k-opt-img { padding: .3em; background: var(--k-primary); }
-.k-tiles-hexagon .k-opt-on .k-opt-ph { background: var(--k-primary); color: var(--k-primary-text); }
-.k-tiles-hexagon .k-thumb, .k-tiles-hexagon .k-rail-img { border-radius: 0; clip-path: var(--k-hex); aspect-ratio: .866 / 1; }
+.k-opts-hexagon .k-opt-on .k-opt-img { padding: .3em; background: var(--k-primary); }
+.k-opts-hexagon .k-opt-on .k-opt-ph { background: var(--k-primary); color: var(--k-primary-text); }
+.k-tiles-hexagon .k-thumb, .k-tiles-hexagon .k-rail-img, .k-opts-hexagon .k-opt-thumb { border-radius: 0; clip-path: var(--k-hex); aspect-ratio: .866 / 1; }
 .k-tiles-hexagon .k-hero-img { border-radius: 0; clip-path: var(--k-hex); aspect-ratio: .866 / 1; }
 .k-tiles-hexagon .k-rail-item { border-radius: 0; clip-path: polygon(.8em 0, calc(100% - .8em) 0, 100% 50%, calc(100% - .8em) 100%, .8em 100%, 0 50%); border-color: transparent; }
 .k-tiles-hexagon .k-rail-on { background: var(--k-soft); }

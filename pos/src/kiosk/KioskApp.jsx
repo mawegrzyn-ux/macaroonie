@@ -209,8 +209,8 @@ export default function KioskApp({ device = null, previewToken = null }) {
   }[s.screen] || Start
   const Screen = screen
   return (
-    <div className={cx('k-root', design.brand.heading_case === 'upper' && 'k-upper', s.reach && 'k-reach', 'k-tiles-' + design.layout.tiles, design.layout.icon_buttons && 'k-icons')}
-      style={style} data-testid="kiosk" data-screen={s.screen} data-tiles={design.layout.tiles}>
+    <div className={cx('k-root', design.brand.heading_case === 'upper' && 'k-upper', s.reach && 'k-reach', 'k-tiles-' + design.layout.tiles, 'k-opts-' + design.layout.option_tiles, design.layout.icon_buttons && 'k-icons')}
+      style={style} data-testid="kiosk" data-screen={s.screen} data-tiles={design.layout.tiles} data-option-tiles={design.layout.option_tiles}>
       {s.reach && (
         <div className="k-reach-band">
           <Accessibility size={48} />

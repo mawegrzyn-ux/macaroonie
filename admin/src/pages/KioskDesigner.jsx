@@ -468,35 +468,49 @@ function FeaturedList({ items, onChange, setup, venueName, locked }) {
   )
 }
 
-const TILE_INFO = {
-  cards: { icon: Square, text: 'The photo on top of a card, the words under it.' },
-  round: { icon: Circle, text: 'Photos in circles, the words under them on the page. No cards.' },
-  oval: { icon: Circle, text: 'Photos in ovals, the words under them on the page. No cards.' },
-  hexagon: { icon: Hexagon, text: 'Hexagons that fit together like a honeycomb. Buttons, chips and cards take the hexagon look too.' },
+// Picture styles, set apart for dishes (Menu panel) and choices (Choices panel).
+const TILE_ICONS = { cards: Square, round: Circle, oval: Circle, hexagon: Hexagon }
+const TILE_TEXT = {
+  dishes: {
+    cards: 'The photo on top of a card, the words under it.',
+    round: 'Photos in circles, the words under them on the page. No cards.',
+    oval: 'Photos in ovals, the words under them on the page. No cards.',
+    hexagon: 'Hexagons that lock together like a honeycomb. Buttons, chips and cards across the kiosk take the hexagon look too.',
+  },
+  choices: {
+    cards: 'The photo on top of a card, the words under it.',
+    round: 'Photos in circles, the words under them. No cards.',
+    oval: 'Photos in ovals, the words under them. No cards.',
+    hexagon: 'A grid of choices locks together like a honeycomb, even with only a few. The list, slider and wheel show hexagon photos.',
+  },
+}
+
+function PictureStyle({ value, onChange, kind, testId }) {
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      {TILE_STYLES.map(k => {
+        const Icon = TILE_ICONS[k]
+        const on = value === k
+        return (
+          <button key={k} type="button" aria-pressed={on} onClick={() => onChange(k)} data-testid={testId} data-tiles={k}
+            className={cn('rounded-xl border p-3 text-left flex flex-col gap-1.5 touch-manipulation min-h-[96px]',
+              on ? 'border-primary ring-2 ring-primary/40 bg-primary/5' : 'bg-background hover:bg-muted')}>
+            <span className="flex items-center gap-2 text-sm font-semibold">
+              <Icon className={cn('w-5 h-5', k === 'oval' && 'scale-x-125')} /> {TILE_LABELS[k]}
+            </span>
+            <span className="text-[11px] text-muted-foreground leading-snug">{TILE_TEXT[kind][k]}</span>
+          </button>
+        )
+      })}
+    </div>
+  )
 }
 
 function LayoutPanel({ d, set }) {
   const y = d.layout
   return (
     <>
-      <Field group label="Dishes, choices and section tiles" hint="How the menu, the choices shown as a grid and the section tiles are drawn.">
-        <div className="grid grid-cols-2 gap-2">
-          {TILE_STYLES.map(k => {
-            const info = TILE_INFO[k]
-            const on = y.tiles === k
-            return (
-              <button key={k} type="button" aria-pressed={on} onClick={() => set('layout', { tiles: k })} data-testid="kd-tiles" data-tiles={k}
-                className={cn('rounded-xl border p-3 text-left flex flex-col gap-1.5 touch-manipulation min-h-[96px]',
-                  on ? 'border-primary ring-2 ring-primary/40 bg-primary/5' : 'bg-background hover:bg-muted')}>
-                <span className="flex items-center gap-2 text-sm font-semibold">
-                  <info.icon className={cn('w-5 h-5', k === 'oval' && 'scale-x-125')} /> {TILE_LABELS[k]}
-                </span>
-                <span className="text-[11px] text-muted-foreground leading-snug">{info.text}</span>
-              </button>
-            )
-          })}
-        </div>
-      </Field>
+      <p className="text-xs text-muted-foreground">How pictures are drawn is set apart for dishes (Menu) and for choices (Choices).</p>
       <Toggle label="Bar along the top" hint="The logo (or the venue's name) and the language button. Off: more room for the menu, and the language button moves to the bottom bar."
         checked={y.header} onChange={v => set('layout', { header: v })} />
       <Field group label="Back and Start again" hint="In each screen's bottom bar. Start again asks first when the order has something in it.">
@@ -579,6 +593,9 @@ function MenuPanel({ s, d, set, setup, venueName, canManage }) {
   const m = d.menu
   return (
     <>
+      <Field group label="Dish pictures" hint="The menu's dishes, the section tiles, the dish's own photo and the basket. Choices have their own (Choices).">
+        <PictureStyle kind="dishes" value={d.layout.tiles} onChange={k => set('layout', { tiles: k })} testId="kd-tiles" />
+      </Field>
       <Toggle label="Home page" hint="First in the list of sections, with the banners and tiles below. Shown when it has at least one."
         checked={m.home} onChange={v => set('menu', { home: v })} />
       {m.home && (
@@ -639,6 +656,9 @@ function ChoicesPanel({ d, set }) {
             )
           })}
         </div>
+      </Field>
+      <Field group label="Choice pictures" hint="Option groups and combo steps. Dishes have their own (Menu).">
+        <PictureStyle kind="choices" value={d.layout.option_tiles} onChange={k => set('layout', { option_tiles: k })} testId="kd-option-tiles" />
       </Field>
       <Field group label="Spin wheel">
         <div className="space-y-1">
@@ -867,11 +887,11 @@ const PANELS = [
 
 function summaryOf(id, d) {
   if (id === 'brand') return d.brand.font_heading + ' / ' + d.brand.font_body
-  if (id === 'layout') return [TILE_LABELS[d.layout.tiles], d.layout.header ? 'top bar' : 'no top bar', d.layout.icon_buttons ? 'icon buttons' : null].filter(Boolean).join(', ')
+  if (id === 'layout') return [d.layout.header ? 'Top bar' : 'No top bar', d.layout.icon_buttons ? 'icon buttons' : null].filter(Boolean).join(', ')
   if (id === 'start') return (d.start.media.length ? d.start.media.length + ' picture' + (d.start.media.length === 1 ? '' : 's') : 'No pictures') + ', ' + (d.start.layout === 'full' ? 'pictures behind' : 'pictures apart')
   if (id === 'languages') return d.languages.enabled.map(c => KIOSK_LANGUAGES.find(l => l.code === c)?.name).join(', ')
-  if (id === 'menu') return (d.menu.rail === 'none' ? 'Section tiles, ' : '') + (d.menu.home ? d.menu.banners.length + ' banners, ' + d.menu.featured.length + ' tiles' : 'No home page') + (d.menu.hidden_section_ids.length ? ', ' + d.menu.hidden_section_ids.length + ' sections left off' : '')
-  if (id === 'choices') return DISPLAY_LABELS[d.options.display] + (d.options.wheel_spin_picks ? ', a spin picks' : '')
+  if (id === 'menu') return TILE_LABELS[d.layout.tiles] + ', ' + (d.menu.rail === 'none' ? 'section tiles, ' : '') + (d.menu.home ? d.menu.banners.length + ' banners, ' + d.menu.featured.length + ' tiles' : 'No home page') + (d.menu.hidden_section_ids.length ? ', ' + d.menu.hidden_section_ids.length + ' sections left off' : '')
+  if (id === 'choices') return DISPLAY_LABELS[d.options.display] + ', ' + TILE_LABELS[d.layout.option_tiles].toLowerCase() + (d.options.wheel_spin_picks ? ', a spin picks' : '')
   if (id === 'checkout') return [d.checkout.pay_card && 'Card', d.checkout.pay_counter && 'At the counter'].filter(Boolean).join(' and ') || 'No way to pay'
   if (id === 'timing') return 'Starts again after ' + d.behaviour.idle_secs + ' s'
   return ''

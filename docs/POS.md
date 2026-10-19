@@ -499,7 +499,8 @@ and the ConnectSmart Kitchen guide.
 - Card payments: a test reader only (Approve / Decline, no money). A real terminal plugs in at the
   card step: it must give back a reference the `payment.added` event carries.
 - The design (`kiosk_designs`, tenant-wide) sets brand, layout (cards, round or oval photos, or
-  hexagons; the top bar; icon-only Back and Start again), start screen, languages, menu home page
+  hexagons, set apart for dishes and for choices; the top bar; icon-only Back and Start again),
+  start screen, languages, menu home page
   (sections down the side, or a page of section tiles), how choices show, paying and timing;
   `normaliseDesign()` is the one checker, `ownDesign()` keeps only the tenant's own ids. The editor
   shows the real kiosk in a frame and posts the unsaved design to it.

@@ -325,7 +325,7 @@ function ComboBuilder({ item, config, ctx, texts, builder }) {
         data-missing={got.length < step.min ? '1' : undefined}>
         <div className="k-muted font-semibold">{ruleText(ui, step.min, step.max)}{step.max > 1 ? ' · ' + got.length + '/' + step.max : ''}{step.repeat ? ' · ' + ui('tap_again') : ''}</div>
         <Display options={choices} countOf={countOf} onTap={onTap} onLess={onLess} repeat={step.repeat} full={full}
-          scale={null} levelIcon={config.design.options.level_icon} ui={ui} tiles={config.design.layout.tiles} wheel={wheelOf(config)} />
+          scale={null} levelIcon={config.design.options.level_icon} ui={ui} tiles={config.design.layout.option_tiles} wheel={wheelOf(config)} />
       </div>
     )
   }

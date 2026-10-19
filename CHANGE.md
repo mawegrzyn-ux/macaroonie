@@ -5,6 +5,12 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-19 — Kiosk: dish and choice pictures set apart; choice hexagons lock together]
+
+- **Dish pictures and choice pictures each have their own style** in the kiosk design editor. *Dish pictures* (Menu card) covers the menu's dishes, the section tiles, the dish's own photo and the basket. *Choice pictures* (Choices card) covers option groups and combo steps. Each can be Cards, Round, Oval or Hexagons, so you can have round dishes with hexagon choices, or hexagon dishes with plain card choices. Designs you've already made keep the look they had until you change one. Hexagon dishes still give buttons and chips the hexagon look across the kiosk.
+- **Hexagon choices lock together like a honeycomb, even when there are only a few.** Before, a group of four or fewer sat in one straight row; now three choices make two over one, four make two over two and five make three over two. Bigger groups fill rows that take turns being one shorter, with the last row centred.
+- No migration.
+
 ## [2026-10-19 — Kiosk designs: layout, hexagons, section tiles, split photo]
 
 - **Start again is in the bottom bar**, after Back, on the menu, the order page, the name and table number pages and How to pay (not on the card reader). It still asks first when the order has something in it.
