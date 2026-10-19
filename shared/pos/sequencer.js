@@ -39,6 +39,10 @@
 //   saveBalanceTurns({ [boxId]: station id })
 // Kitchen events (bump, recall, ...) come from kitchen screens, which nobody
 // signs in to: they need no staff member and don't open a trading day.
+// Kitchen printers in the flow (kitchenPrint.js, migration 191): after every
+// kitchen change the changed orders print what has reached a printer; the
+// jobs carry station_id and kitchen_order_id. kitchen.print_due (the minute
+// sweep, when a dish's time has come) prints from loadOpenKitchenOrders().
 
 import { applyEvent, checksTouched, eventProblem, CHECK_EVENTS } from './checks.js'
 import { permissionProblem } from './permissions.js'
@@ -48,6 +52,7 @@ import {
   KITCHEN_EVENTS, applyKitchenEvent, kitchenEventProblem, kitchenOrdersTouched,
   kitchenForCheckEvent, kitchenOrdersForCheckEvent,
 } from './kitchen.js'
+import { kitchenPrintJobs, hasPrinters } from './kitchenPrint.js'
 
 // Events that can send dishes through a Balance box.
 const BALANCE_EVENTS = ['lines.sent', 'course.fired', 'kitchen.order_in']
@@ -105,7 +110,16 @@ export function createSequencer(store) {
       let kitchen = {}
       let kitchenLog = []
       let kcfg = ctx.kitchen
-      if (isKitchen) {
+      let kitchenJobs = null
+      if (event.type === 'kitchen.print_due') {
+        // Nothing to bump or change: only what a printer is waiting for.
+        if (!hasPrinters(ctx.kitchen) || !store.loadOpenKitchenOrders) return { ok: true, nothing: true, checks: {}, jobs: [] }
+        const open = await store.loadOpenKitchenOrders()
+        const due = kitchenPrintJobs(open, ctx.kitchen, stored.received_at)
+        if (!due.jobs.length) return { ok: true, nothing: true, checks: {}, jobs: [] }
+        kitchen = Object.fromEntries(due.changed.map(id => [id, open[id]]))
+        kitchenJobs = due.jobs
+      } else if (isKitchen) {
         const orders = await store.loadKitchenOrders(kitchenOrdersTouched(stored))
         kcfg = await kitchenWithBalance(store, ctx.kitchen, stored)
         const r = applyKitchenEvent(orders, stored, kcfg)
@@ -134,6 +148,9 @@ export function createSequencer(store) {
       }
 
       const jobs = jobsForEvent(stored, before, changed, ctx.print || {})
+      // The kitchen's own printers: what has reached them now.
+      if (!kitchenJobs && hasPrinters(kcfg) && Object.keys(kitchen).length) kitchenJobs = kitchenPrintJobs(kitchen, kcfg, stored.received_at).jobs
+      if (kitchenJobs) jobs.push(...kitchenJobs)
       const seq = (Number(vs.last_seq) || 0) + 1
       stored.seq = seq
       await store.saveEvent(stored)

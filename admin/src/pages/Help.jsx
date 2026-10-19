@@ -4729,9 +4729,9 @@ export default function Help() {
             </P>
             <InfoBox type="info">
               Card payments are taken on your own card machine for now: the till records them as Card. Links
-              to card machines (Dojo, SumUp, Zettle, Stripe, Adyen) and the venue hub that prints to the kitchen
-              printers come later. Until the hub is set up, tills print bills and receipts through their own
-              browser, and kitchen tickets wait in the print queue (Till reports → Print queue).
+              to card machines (Dojo, SumUp, Zettle, Stripe, Adyen) come later. Printers are set up on the
+              Printers tab: a network printer prints through the venue hub, a printer plugged into a till or
+              kitchen screen prints from that device (see Printers and the venue hub below).
             </InfoBox>
 
             <H3>Setting up (Till setup)</H3>
@@ -4741,13 +4741,45 @@ export default function Help() {
               <li><strong>Courses</strong> (shared by every venue): Starters, Mains, Desserts, in the order they go to the kitchen. A course <strong>held by default</strong> waits to be fired when it goes with an earlier course.</li>
               <li><strong>Till roles</strong> (shared by every venue): what Server, Supervisor and Manager may do: void sent items, refund, comp, discounts up to a %, open the drawer, reopen checks, take over other people's checks, change prices, move items between checks, see reports, close the day, approve for others.</li>
               <li><strong>Staff and PINs</strong>: give each person a till role and a 4 to 6 digit PIN (not 1111 or 1234, and different from everyone else's at the venue). People come from the Staff page.</li>
-              <li><strong>Printers</strong>: the venue's Epson network printers (IP address, port 9100) and <strong>What prints where</strong>: a dish prints on the printers set for it, else for its section, else for its revenue stream, else Everything. Then Save printing.</li>
+              <li><strong>Printers</strong>: each printer, on the network or plugged into a till, kitchen screen or kiosk, and the venue hub that prints the network ones (see Printers and the venue hub below). Kitchen tickets print where the kitchen flow sends dishes: a <strong>Kitchen printer</strong> box in Kitchen screens.</li>
               <li><strong>Printing</strong>: how kitchen tickets, receipts and bills look (see Ticket and receipt designs below).</li>
               <li><strong>Receipts and payments</strong>: when the trading day starts, the name, address and VAT number on receipts, the ways to pay, tips, asking for covers, and when staff are signed out. Tax rates are set on Menus → Tax rates.</li>
               <li><strong>Cash Recon</strong>: which till figures go into which Cash Recon fields when the day is closed (see End of day).</li>
               <li><strong>Floor plan</strong> (Till setup → Floor plan): add an area (e.g. Restaurant), tap tables to put them on it, drag them where they stand, drag the round corner to resize, Turn, Square / Round, and add walls, the bar, plants and labels. Save the area. Tables themselves are added on the Tables page.</li>
               <li><strong>Tills</strong>: open the till address on the tablet: it shows a six-letter code and a QR code. Tap <strong>Add a till</strong>, type the code, give it a name, table service or counter, and <strong>Add the till</strong>: the tablet sets itself up. Or scan the QR code with your phone and do the same in the installer app. <strong>New device</strong> on a till's row puts it on another tablet (type the code that tablet shows; the old one stops); removing a till signs it out for good.</li>
             </ol>
+
+            <H3>Printers and the venue hub</H3>
+            <P>
+              Till setup → <strong>Printers</strong> lists the venue&apos;s printers. <strong>Add</strong> one, say whether it is for
+              the kitchen or bar or for receipts, and how it is connected:
+            </P>
+            <ul className="list-disc ml-5 space-y-2 text-sm text-muted-foreground mb-4">
+              <li><strong>On the network</strong>: an Epson (or other ESC/POS) printer with a network cable or Wi-Fi. Give it a fixed address on the router and type it here (port 9100). The <strong>venue hub</strong> prints to it, and can use a <strong>backup printer</strong> when it doesn&apos;t answer.</li>
+              <li><strong>Plugged into a device</strong>: a USB or Bluetooth printer set up as the printer of a till, kitchen screen or kiosk. That device prints its tickets through Chrome. Start Chrome with <strong>--kiosk-printing</strong> so it prints without asking each time. A kiosk&apos;s printer prints that kiosk&apos;s receipts only.</li>
+            </ul>
+            <P>
+              The <strong>venue hub</strong> is a small program for a PC (or a mini PC) on the venue&apos;s network, next to the
+              printers. Install Node.js 22 on it, copy the hub folder and run <strong>node hub/bin/hub.js</strong>: it shows a
+              six-letter code. Tap <strong>Link a hub</strong> under Venue hub and type the code. Every minute the hub tells
+              Macaroonie how each network printer is (ready, paper low, out of paper, cover open, not answering), shown on
+              the printer&apos;s row. A printer&apos;s <strong>Tickets</strong> button lists the last day&apos;s tickets; one that
+              didn&apos;t print can be printed again with <strong>Print again</strong>.
+            </P>
+            <P>
+              <strong>Kitchen tickets</strong> print where the kitchen flow sends dishes: add a station of kind
+              <strong> Kitchen printer</strong> in Kitchen screens, pick its printer and link it in the flow. Linked from the till
+              and online orders it prints each order when it is sent (held courses under HOLD, then a FIRE ticket when the course
+              is fired; a VOID ticket when a dish is voided); after a kitchen screen it prints when that screen bumps the dish
+              (a ticket for the runner, say). Orders for later print when their time comes. <strong>Bills and receipts</strong> go
+              to each till&apos;s receipt printer (Tills → Edit); a till with none, or with one plugged into it, prints them through
+              its own browser.
+            </P>
+            <InfoBox type="warning">
+              Kitchen printers only, no kitchen screens? Dishes that only reach printers count as done there, so online
+              orders would show as ready at once. Switch off <strong>Mark them ready when the kitchen finishes</strong> in
+              Kitchen screens → Online orders, and move them on from the Online orders board.
+            </InfoBox>
 
             <H3>Ticket and receipt designs</H3>
             <P>
@@ -4900,7 +4932,7 @@ export default function Help() {
                 ['Days', 'Each trading day: sales, payments, cash expected and counted, revenue streams, order types, VAT, staff, discounts and comps, voids, refunds, best sellers, open checks. The open day is shown as it stands now.'],
                 ['Checks', 'Every check of a day with its items, totals and full history: who did what, when, and who approved it.'],
                 ['Refused changes', 'Changes a till made offline that couldn\'t be applied when it caught up. Note what was done and mark them dealt with.'],
-                ['Print queue', 'Kitchen tickets and other jobs waiting for the venue hub.'],
+                ['Print queue', 'Tickets and other jobs, waiting or printed, with the reason when one didn\'t print.'],
                 ['Kitchen', 'Speed of service from the kitchen screens: per station, tickets, dishes, average, middle and slowest times, how many were on time and late, the average by hour, and every remake with its reason. Download CSV for every bump and remake.'],
               ]}
             />
@@ -4927,7 +4959,7 @@ export default function Help() {
 
             <H3>Setting up (Till setup → Kitchen screens)</H3>
             <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
-              <li><strong>Stations</strong>, four kinds (plus the Balance box below): <strong>Prep</strong> (Grill, Fryer, Bar, Prep 1...) makes dishes; <strong>Expo</strong> (the pass) checks whole orders before they go out; <strong>Runner</strong> takes orders out to tables or the counter; <strong>Order ready board</strong> shows order numbers on menu screens (nothing to bump, no kitchen screen). Each station turns a ticket amber after your target minutes and red after more. <strong>Show held courses</strong> shows dishes waiting to be fired, greyed out. <strong>Show orders before their dishes get here</strong> (on for an expo) puts a ticket up as soon as the order is sent, each dish marked where it is now (At Grill). <strong>On order counts</strong>: groups such as Wings, counting how many pieces are on order (the 8pc dish counts 8, the 6 Wings option counts 6).</li>
+              <li><strong>Stations</strong>, four kinds (plus the Balance box below and <strong>Kitchen printer</strong>, which prints the dishes that reach it: see Printers and the venue hub): <strong>Prep</strong> (Grill, Fryer, Bar, Prep 1...) makes dishes; <strong>Expo</strong> (the pass) checks whole orders before they go out; <strong>Runner</strong> takes orders out to tables or the counter; <strong>Order ready board</strong> shows order numbers on menu screens (nothing to bump, no kitchen screen). Each station turns a ticket amber after your target minutes and red after more. <strong>Show held courses</strong> shows dishes waiting to be fired, greyed out. <strong>Show orders before their dishes get here</strong> (on for an expo) puts a ticket up as soon as the order is sent, each dish marked where it is now (At Grill). <strong>On order counts</strong>: groups such as Wings, counting how many pieces are on order (the 8pc dish counts 8, the 6 Wings option counts 6).</li>
               <li><strong>Kitchen flow</strong> (at the top): boxes for <strong>Orders in</strong> (the till and online orders) and every station, joined by links. Drag a box's dot onto another box (or tap the dot, then the box) to send dishes on to it. Tap a link's label to choose which dishes take it: dishes, sections, revenue streams or order types (your own list: Eat in, Take out...); a link with no filter takes every dish. From each box a dish takes the links that name it most closely (the dish, then its section, its revenue stream, its order type, then links for every dish), so Prep 1 to Prep 2 for burgers and Prep 1 to Expo 1 for everything else sends the bun on and the fries straight to the expo. Links that tie all apply: Expo 1 to ORB 1 and to a Runner at once, or for eat in only. <strong>Check a dish</strong> shows a dish's way. A new flow arranges itself; drag boxes by their grip, or press <strong>Tidy</strong>. A way round in a circle can't be saved. <strong>Save flow</strong>: dishes sent from then on follow it (dishes already in the kitchen keep their way).</li>
               <li><strong>Taking a station out of a flow</strong> (the grill down tonight, one cook on the fryer): tap the station's box, then <strong>Take out of this flow</strong> and <strong>Yes, take it out</strong>. The box leaves this flow with its links, and no dish goes to that station while this flow is in use; link the stations that take over its dishes, then <strong>Save flow</strong>. It shows under <strong>Not in this flow</strong> above the boxes, where <strong>Put back</strong> brings it back (with no links: draw them again). The station itself, its screens and its settings stay, and your other flows still use it. To remove a station everywhere, delete it under <strong>Edit station</strong> instead.</li>
               <li><strong>Sharing tickets between two stations (Balance box)</strong>: for two cooks on the same job, e.g. two wingmen. <strong>Add to the flow</strong> → <strong>Balance box</strong>, name it (Wings) and list its <strong>Pieces</strong>: what a dish counts when the box weighs up who has more to cook (the <em>10 Wings</em> option counts 10, the <em>8pc Boneless</em> dish counts 8; a dish not listed counts its quantity). Link Orders in to the box for the wings (a link naming the Wings section or the dishes), and the box to Wingman 1 and Wingman 2; leave the link for every dish going to the Fryer. Each ticket's wings then go to just one wingman, the one with the fewest pieces still to cook (a piece counts until that station bumps it), taking turns when they're level; the rest of the ticket goes to the fryer. <strong>Big tickets</strong> (in the box's window): <em>Keep each ticket on one station</em> (the usual) sends all of a ticket's wings to one wingman however many there are; <em>Share big tickets</em> with a number, e.g. 30, shares out a ticket with more than 30 pieces: each dish line goes, biggest first, to whichever wingman then has the fewest pieces (counting what this ticket has already given them), so 3 x 20 wings on one ticket can go 20 to one and 40 to the other. One dish line is never split (a line of 3 x 10 Wings stays with one wingman), and a meal deal's parts can go to different wingmen. The choice is made when the order reaches the kitchen (a held course: when it's fired), and then the dish stays with that wingman. A box's links out show <strong>Shared</strong> and have no filters; <strong>Check a dish</strong> shows <em>Wingman 1 or Wingman 2</em>. The box has no kitchen screen and nothing to bump. If one wingman is taken out of the flow in use, the other gets every ticket.</li>

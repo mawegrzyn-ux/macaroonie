@@ -56,6 +56,10 @@ export function startHoldSweepWorker(sql, log) {
     const { announceDueReleases } = await import('../services/menuReleases.js')
     const announced = await announceDueReleases(log)
     if (announced) log.info({ announced }, 'Menu publishes went live')
+    // Orders for later whose time has come print at the kitchen printers (migration 191).
+    const { kitchenPrintsDue } = await import('../services/kitchenSvc.js')
+    const printed = await kitchenPrintsDue(log)
+    if (printed) log.info({ printed }, 'Kitchen tickets came due')
     log.debug('Hold sweep complete')
   }, { connection })
 

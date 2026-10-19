@@ -1,97 +1,28 @@
 // shared/pos/printing.js
 //
-// Which printer an item goes to, and the print jobs an event makes. ONE
-// implementation for the sequencer (cloud now, venue hub later) and for the
-// till's own previews and browser printing.
+// The print jobs a till event makes (bills, receipts, the cash drawer) and
+// the bill / receipt itself. ONE implementation for the sequencer and for the
+// till's and kiosk's own browser printing.
 //
-// Routing (pos_print_routes): an item goes to every printer routed at its
-// most specific level that has routes: the dish, else its menu section,
-// else its revenue centre, else the venue default. A meal deal's parts route
-// on their own (burger to the kitchen, drink to the bar).
+// Kitchen tickets come from the kitchen flow: printer boxes in it
+// (shared/pos/kitchenPrint.js, migration 191). This file makes the till's
+// own jobs: bills, receipts and the cash drawer.
 //
 // A job: { printer_id, kind, title, ops, check_id }
-//   kind: 'kitchen' | 'fire' | 'void' | 'bill' | 'receipt' | 'drawer'
+//   kind: 'bill' | 'receipt' | 'drawer' here; 'kitchen' | 'fire' | 'void' from kitchenPrint.js
 //   ops:  print operations (shared/pos/tickets.js), turned into ESC/POS by
 //         the hub (hub/src/escpos.js) or into a page by the till.
-// The cloud stores jobs (pos_print_jobs, status 'queued'); the venue hub will
-// collect and print them. Until a hub is installed the till prints bills and
-// receipts in the browser.
+// The cloud stores jobs (pos_print_jobs, status 'queued'); whoever prints for
+// that printer collects them: the venue hub for a network printer, a till or
+// kitchen screen for a printer plugged into it (pos_printers.connection).
+// A device prints its own bills and receipts straight away, in its browser,
+// when its receipt printer is plugged into it (or it has none): no job is
+// queued for those (printsHere()).
 
-import { kitchenTicket, receipt } from './tickets.js'
+import { receipt } from './tickets.js'
 import { checkTotals, isActiveLine, modifierText, groupModifiers } from './pricing.js'
 import { countParts } from '../combos.js'
 import { TENDERS, checkLabel } from './checks.js'
-
-const LEVELS = ['item', 'section', 'revenue_stream', 'default']
-
-/**
- * Printer ids for something with { item_id, section_id, revenue_stream_id }.
- * (Kitchen screens use the kitchen flow instead: itemRoute() in kitchen.js.)
- */
-export function routeFor(target, routes = [], key = 'printer_id') {
-  for (const level of LEVELS) {
-    const id = level === 'item' ? target.item_id
-      : level === 'section' ? target.section_id
-        : level === 'revenue_stream' ? target.revenue_stream_id : null
-    const hits = routes.filter(r => r.target_kind === level && (level === 'default' || (id && r.target_id === id)))
-    if (hits.length) return [...new Set(hits.map(r => r[key]))]
-  }
-  return []
-}
-
-function kitchenModifiers(mods = []) {
-  return groupModifiers(mods).filter(m => !m.base || m.label).map(m => ({
-    kind: m.prefix === 'no' ? 'remove' : 'add', text: modifierText(m), depth: m.depth || 0,
-  }))
-}
-
-/** Kitchen lines per printer for some check lines. */
-function linesByPrinter(lines, check, cfg) {
-  const out = new Map()
-  const add = (printerId, courseId, entry) => {
-    const byCourse = out.get(printerId) || new Map()
-    const list = byCourse.get(courseId ?? '') || []
-    list.push(entry)
-    byCourse.set(courseId ?? '', list)
-    out.set(printerId, byCourse)
-  }
-  for (const l of lines) {
-    const rs = l.revenue_stream_id ?? check.revenue_stream_id
-    const base = {
-      seat: l.seat || null, note: l.note || null, allergies: l.allergies || [],
-    }
-    if (l.combo && l.combo.length) {
-      // Each part goes to its own printers; the deal's name heads the parts.
-      const parts = new Map()
-      for (const part of l.combo) {
-        // A typed-in choice (no dish) prints where the combo itself does.
-        const target = part.item_id ? { item_id: part.item_id, section_id: part.section_id, revenue_stream_id: rs } : { item_id: l.item_id, section_id: l.section_id, revenue_stream_id: rs }
-        for (const pid of routeFor(target, cfg.routes)) {
-          const list = parts.get(pid) || []
-          list.push(part)
-          parts.set(pid, list)
-        }
-      }
-      for (const [pid, list] of parts) {
-        add(pid, l.course_id, {
-          ...base, qty: l.qty, name: l.kitchen_name || l.name,
-          modifiers: [
-            ...kitchenModifiers(l.modifiers),
-            ...countParts(list).flatMap(({ part, count }) => [
-              { kind: 'part', text: (count > 1 ? count + ' x ' : '') + (part.kitchen_name || part.name) },
-              ...kitchenModifiers(part.modifiers).map(m => ({ ...m, depth: (m.depth || 0) + 1 })),
-            ]),
-          ],
-        })
-      }
-      continue
-    }
-    for (const pid of routeFor({ item_id: l.item_id, section_id: l.section_id, revenue_stream_id: rs }, cfg.routes)) {
-      add(pid, l.course_id, { ...base, qty: l.qty, name: l.kitchen_name || l.name, modifiers: kitchenModifiers(l.modifiers) })
-    }
-  }
-  return out
-}
 
 function header(check, cfg, at) {
   const table = check.table_id ? (cfg.tables?.[check.table_id]?.label || null) : null
@@ -110,22 +41,6 @@ function header(check, cfg, at) {
     checkNo: checkLabel(check),
     sentAt: at ? new Date(at) : new Date(),
   }
-}
-
-function coursesFor(byCourse, cfg, flags = {}) {
-  const sortOf = id => (id ? (cfg.courses?.[id]?.sort_order ?? 99) : -1)
-  return [...byCourse.entries()]
-    .sort((a, b) => sortOf(a[0]) - sortOf(b[0]))
-    .map(([courseId, lines]) => ({
-      name: courseId ? (cfg.courses?.[courseId]?.name || 'Course') : '',
-      hold: !!flags.hold?.has(courseId),
-      fire: !!flags.fire,
-      lines,
-    }))
-}
-
-function printerName(cfg, id) {
-  return cfg.printers?.[id]?.name || 'Kitchen'
 }
 
 /** A line's name with its base choice: "Pad Thai (Chicken)". */
@@ -170,57 +85,37 @@ export function billOps(check, cfg, { preBill = false, at = null, drawer = false
 }
 
 /**
+ * Whether a device prints this printer's tickets itself: the printer is
+ * plugged into it (connection 'device'). A device with no receipt printer
+ * prints its bills in its browser too (receiptHere()).
+ */
+export function printsHere(cfg, deviceId, printerId) {
+  const pr = cfg.printers?.[printerId]
+  return !!(pr && deviceId && pr.connection === 'device' && pr.device_id === deviceId)
+}
+
+/** Whether a device prints its own bills and receipts (in its browser). */
+export function receiptHere(cfg, deviceId) {
+  const pid = cfg.devices?.[deviceId]?.receipt_printer_id || null
+  return !pid || printsHere(cfg, deviceId, pid)
+}
+
+/**
  * The print jobs one sequenced event makes.
  *   e       the event
  *   before  { [id]: check } as they were
  *   after   { [id]: check } the checks the event changed
- *   cfg     { printers, routes, tables, staff, courses, settings, venue, devices, layouts: { kitchen, receipt, kiosk_receipt } }
+ *   cfg     { printers, tables, staff, courses, settings, venue, devices, layouts: { receipt, kiosk_receipt } }
  */
 export function jobsForEvent(e, before = {}, after = {}, cfg = {}) {
   const p = e.payload || {}
   const check = after[e.check_id] || before[e.check_id]
   const jobs = []
-  const receiptPrinter = p.printer_id || cfg.devices?.[e.device_id]?.receipt_printer_id || null
+  const picked = p.printer_id || cfg.devices?.[e.device_id]?.receipt_printer_id || null
+  // Printed by the device itself, in its browser (no job).
+  const receiptPrinter = picked && !printsHere(cfg, e.device_id, picked) ? picked : null
   // A kiosk's receipts print in the kiosk receipt design.
   const receiptLayout = cfg.devices?.[e.device_id]?.kiosk ? cfg.layouts?.kiosk_receipt || null : null
-
-  if (e.type === 'lines.sent' && check) {
-    const ids = new Set(p.line_ids)
-    const was = before[e.check_id]
-    const lines = check.lines.filter(l => ids.has(l.id) && l.send_id === p.send_id && (was?.lines.find(x => x.id === l.id)?.status ?? 'new') === 'new')
-    const hold = new Set(p.held_course_ids || [])
-    for (const [pid, byCourse] of linesByPrinter(lines, check, cfg)) {
-      jobs.push({
-        printer_id: pid, kind: 'kitchen', check_id: check.id,
-        title: 'Order ' + checkLabel(check),
-        ops: kitchenTicket({ ...header(check, cfg, e.client_at), station: printerName(cfg, pid), courses: coursesFor(byCourse, cfg, { hold }) }, cfg.layouts?.kitchen),
-      })
-    }
-  }
-
-  if (e.type === 'course.fired' && check) {
-    const was = before[e.check_id]
-    const fired = check.lines.filter(l => l.course_id === p.course_id && l.status === 'sent' && was?.lines.find(x => x.id === l.id)?.held)
-    for (const [pid, byCourse] of linesByPrinter(fired, check, cfg)) {
-      jobs.push({
-        printer_id: pid, kind: 'fire', check_id: check.id,
-        title: 'Fire ' + (cfg.courses?.[p.course_id]?.name || 'course'),
-        ops: kitchenTicket({ ...header(check, cfg, e.client_at), station: printerName(cfg, pid), courses: coursesFor(byCourse, cfg, { fire: true }) }, cfg.layouts?.kitchen),
-      })
-    }
-  }
-
-  if (e.type === 'line.voided' && check) {
-    const target = p.qty != null ? check.lines.find(l => l.id === p.new_line_id) : check.lines.find(l => l.id === p.line_id)
-    if (target) {
-      for (const [pid, byCourse] of linesByPrinter([target], check, cfg)) {
-        jobs.push({
-          printer_id: pid, kind: 'void', check_id: check.id, title: 'Void ' + target.name,
-          ops: kitchenTicket({ ...header(check, cfg, e.client_at), void: true, station: printerName(cfg, pid), courses: coursesFor(byCourse, cfg) }, cfg.layouts?.kitchen),
-        })
-      }
-    }
-  }
 
   if (e.type === 'bill.printed' && check && receiptPrinter) {
     const preBill = check.status === 'open'

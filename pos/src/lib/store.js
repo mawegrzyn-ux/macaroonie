@@ -13,15 +13,16 @@
 //   checks     confirmed + outbox applied: what the screens show
 
 import { useSyncExternalStore } from 'react'
-import { applyEvent, eventProblem, CHECK_EVENTS, checksTouched } from '@shared/pos/checks.js'
+import { applyEvent, eventProblem, CHECK_EVENTS } from '@shared/pos/checks.js'
 import { permissionProblem } from '@shared/pos/permissions.js'
-import { jobsForEvent, billOps } from '@shared/pos/printing.js'
+import { billOps, receiptHere } from '@shared/pos/printing.js'
 import { hashPin } from '@shared/pos/pin.js'
 import { ulid } from '@shared/pos/ids.js'
 import { soldOutMap as sharedSoldOutMap } from '@shared/pos/offers.js'
 import * as idb from './idb.js'
 import { createTransport, OfflineError, APP_VERSION } from './transport.js'
 import { printTickets } from './print.js'
+import { startDevicePrinting, hasOwnPrinter } from './devicePrint.js'
 import { checkForUpdate } from './appUpdate.js'
 import { HOST_APP, takePairCode, movedTo, setMovedTo, moveDevice, tellDisconnect } from './appHost.js'
 
@@ -68,8 +69,8 @@ const subscribe = fn => { listeners.add(fn); return () => listeners.delete(fn) }
 export function useTill() { return useSyncExternalStore(subscribe, getState) }
 
 function loadPrefs() {
-  try { return { print_bills: true, print_kitchen: false, ...(JSON.parse(localStorage.getItem(PREFS_KEY)) || {}) } }
-  catch { return { print_bills: true, print_kitchen: false } }
+  try { return { print_bills: true, ...(JSON.parse(localStorage.getItem(PREFS_KEY)) || {}) } }
+  catch { return { print_bills: true } }
 }
 export function setPrefs(patch) {
   const prefs = { ...state.prefs, ...patch }
@@ -124,7 +125,6 @@ export function printConfig(config = state.config, device = state.device) {
     venue: { name: config.venue?.name },
     settings: config.settings,
     printers: by(config.printers),
-    routes: config.routes || [],
     tables: by(config.tables, t => ({ label: t.label })),
     // A kiosk order's server is the kiosk (shared/kiosk.js).
     staff: { ...by((config.devices || []).filter(d => d.kind === 'kiosk'), d => ({ name: d.name })), ...by(config.staff, s => ({ name: s.name })) },
@@ -428,30 +428,31 @@ export function dispatch(type, payload, opts = {}) {
   return dispatchMany([[type, payload, opts]])
 }
 
-// Bills, receipts and (if this till prints for the kitchen) tickets, in the
-// browser, from the same shared code the sequencer uses for its print jobs.
+// Bills and receipts in the browser, from the same shared code the
+// sequencer uses for its print jobs: when this till has no receipt printer,
+// or its receipt printer is plugged into it (receiptHere()). A receipt
+// printer on the network or on another device gets a print job instead.
+// Kitchen tickets come from the kitchen flow's printer boxes (migration 191).
 function printLocally(events, before, after) {
-  const prefs = state.prefs
-  if (!prefs.print_bills && !prefs.print_kitchen) return
+  if (!state.prefs.print_bills) return
   const cfg = printConfig()
+  if (!receiptHere(cfg, state.device?.id)) return
   const tickets = []
-  let prev = before
   for (const e of events) {
-    const ids = checksTouched(e)
-    const was = Object.fromEntries(ids.filter(id => prev[id]).map(id => [id, prev[id]]))
-    const now = Object.fromEntries(ids.filter(id => after[id]).map(id => [id, after[id]]))
-    if (prefs.print_bills) {
-      if (e.type === 'bill.printed' && now[e.check_id]) {
-        tickets.push(billOps(now[e.check_id], cfg, { preBill: now[e.check_id].status === 'open' }))
-      }
-      if (e.type === 'check.closed' && e.payload?.print_receipt && now[e.check_id]) tickets.push(billOps(now[e.check_id], cfg))
-    }
-    if (prefs.print_kitchen) {
-      for (const j of jobsForEvent(e, was, now, cfg)) if (['kitchen', 'fire', 'void'].includes(j.kind)) tickets.push(j.ops)
-    }
-    prev = { ...prev, ...now }
+    const now = after[e.check_id]
+    if (!now) continue
+    if (e.type === 'bill.printed') tickets.push(billOps(now, cfg, { preBill: now.status === 'open' }))
+    if (e.type === 'check.closed' && e.payload?.print_receipt) tickets.push(billOps(now, cfg))
   }
   printTickets(tickets)
+}
+
+// Printers plugged into this till (Till setup > Printers): it prints what is
+// queued for them, kitchen tickets included (lib/devicePrint.js).
+let devicePrinting = null
+function ensureDevicePrinting() {
+  if (devicePrinting || !state.device) return
+  devicePrinting = startDevicePrinting({ post: (p, b) => api.post(p, b) }, () => hasOwnPrinter(state.config, state.device?.id))
 }
 
 /** Print the bill or receipt of a check here, without an event (reprint). */
@@ -590,6 +591,7 @@ function connectSocket() {
     if (m.type === 'pos.seq' && m.from !== state.device?.id && (!m.kinds || m.kinds.includes('checks'))) pull()
     else if (m.type === 'pos.presence') pull()
     else if (m.type === 'pos.config') loadConfig()
+    else if (m.type === 'pos.print') devicePrinting?.nudge()
     else if (m.type === 'pos.revoked' && m.device_id === state.device?.id) { toast('This till was removed in Till setup.', 'bad', 8000); unpair() }
   }
   socket.onclose = () => {
@@ -614,6 +616,7 @@ export function startSync() {
   window.addEventListener('offline', () => setState({ online: false }))
   document.addEventListener('visibilitychange', () => { if (!document.hidden) { tick(); loadConfig() } })
   connectSocket()
+  ensureDevicePrinting()
   const loop = () => {
     // Without the push socket, ask every 4 s; with it, every 30 s as a check.
     const ms = state.socket === 'open' ? 30000 : 4000
@@ -625,6 +628,8 @@ export function startSync() {
 }
 function stopSync() {
   started = false
+  devicePrinting?.stop()
+  devicePrinting = null
   clearTimeout(pollTimer)
   try { socket?.close() } catch { /* ignore */ }
   socket = null

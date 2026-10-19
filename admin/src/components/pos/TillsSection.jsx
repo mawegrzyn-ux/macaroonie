@@ -21,8 +21,8 @@ const MODES = [
   { value: 'counter', label: 'Counter' },
 ]
 
-const KIND_WORDS = { terminal: 'till', kds: 'kitchen screen', kiosk: 'kiosk' }
-const KIND_DEVICE = { terminal: 'tablet or PC', kds: 'kitchen screen', kiosk: 'kiosk screen' }
+const KIND_WORDS = { terminal: 'till', kds: 'kitchen screen', kiosk: 'kiosk', hub: 'venue hub' }
+const KIND_DEVICE = { terminal: 'tablet or PC', kds: 'kitchen screen', kiosk: 'kiosk screen', hub: 'PC' }
 
 /** A code as the device shows it: ABC-DEF. */
 export const tidyCode = v => {
@@ -42,10 +42,17 @@ export function ShownCodeField({ setup, kind, value, onChange, autoFocus = false
   const what = KIND_WORDS[kind]
   return (
     <div className="rounded-xl border bg-muted/40 p-3 space-y-3" data-testid="shown-code">
-      <ol className="text-sm space-y-1.5 list-decimal pl-5">
-        <li>On the {KIND_DEVICE[kind]}, open <span className="font-semibold break-all" data-testid="device-address">{url}</span> in Chrome. It shows a six-letter code and a QR code.</li>
-        <li>Type the code here. Or scan the QR code with a phone to link it in the installer app instead.</li>
-      </ol>
+      {kind === 'hub' ? (
+        <ol className="text-sm space-y-1.5 list-decimal pl-5">
+          <li>On the PC by the printers, run <span className="font-mono font-semibold">node hub/bin/hub.js</span>. It shows a six-letter code.</li>
+          <li>Type the code here.</li>
+        </ol>
+      ) : (
+        <ol className="text-sm space-y-1.5 list-decimal pl-5">
+          <li>On the {KIND_DEVICE[kind]}, open <span className="font-semibold break-all" data-testid="device-address">{url}</span> in Chrome. It shows a six-letter code and a QR code.</li>
+          <li>Type the code here. Or scan the QR code with a phone to link it in the installer app instead.</li>
+        </ol>
+      )}
       <Field label={'Code on the ' + what}>
         <input className={cn(inputCls, 'text-center font-mono text-2xl font-bold tracking-widest uppercase')} value={value}
           onChange={e => onChange(tidyCode(e.target.value))} placeholder="ABC-DEF" autoComplete="off" spellCheck={false}
@@ -177,7 +184,7 @@ function TillModal({ venueId, setup, device, onClose }) {
           </select>
         </Field>
       )}
-      <Field label="Receipt printer" hint="Bills and receipts from this till. Until the venue hub is set up, the till prints them through its own browser.">
+      <Field label="Receipt printer" hint="Bills and receipts from this till. With none, or one plugged into this till, it prints them through its own browser; a network printer prints through the venue hub (Printers tab).">
         <select className={inputCls} value={form.receipt_printer_id} onChange={e => set({ receipt_printer_id: e.target.value })}>
           <option value="">None</option>
           {receiptPrinters.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -200,8 +207,8 @@ export default function TillsSection({ venueId, setup }) {
   const [editing, setEditing] = useState(null) // device | 'new' | null
   const [linking, setLinking] = useState(null) // device
   const rcName = id => setup.revenue_streams.find(r => r.id === id)?.name
-  // Kitchen screens and kiosks are listed on their own tabs.
-  const isTill = d => d.kind !== 'kds' && d.kind !== 'kiosk'
+  // Kitchen screens and kiosks are listed on their own tabs, venue hubs on Printers.
+  const isTill = d => d.kind === 'terminal'
   const live = setup.devices.filter(d => !d.revoked_at && isTill(d))
   const removed = setup.devices.filter(d => d.revoked_at && isTill(d))
 

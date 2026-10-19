@@ -5,6 +5,15 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-19 — Kitchen printers in the flow, printers plugged into tills, the venue hub]
+
+- **Kitchen printers in the kitchen flow**: Till setup → Kitchen screens → Add a station → **Kitchen printer**, pick its printer, and link it in the flow like a kitchen screen. Linked from the till and online orders, it prints each order when it is sent: held courses listed under HOLD, then a **FIRE** ticket when the course is fired, a **VOID** ticket when a dish is voided. After a kitchen screen it prints when that screen bumps the dish (a runner's ticket from the pass). Orders for later print when their time comes. Tickets use the venue's kitchen ticket design.
+- The old **What prints where** list (dish, section, revenue stream) is gone: the kitchen flow decides, with the same filters on its links.
+- **Printers** tab: each printer is **on the network** (printed by the venue hub) or **plugged into a device** (a till, kitchen screen or kiosk prints it through Chrome; start Chrome with --kiosk-printing to print without the dialog). Each row says how the printer is (ready, paper low, out of paper, cover open, not answering, or which device prints it) and how many tickets are waiting or didn't print; **Tickets** lists them with **Print again**.
+- **Venue hub**: a small program for a PC on the venue's network (`node hub/bin/hub.js`). It shows a code; **Link a hub** on the Printers tab. It prints the network printers' tickets, uses a printer's backup when it doesn't answer, and reports every minute how each printer is.
+- Tills print bills and receipts in their own browser only when they have no receipt printer or one plugged into them; a network receipt printer prints through the hub. The till's "Kitchen tickets too" switch is gone.
+- **Migration 191** (kitchen_printers).
+
 ## [2026-10-19 — Kiosks follow the menu's option settings]
 
 - Self-order kiosks now follow the menu's own option settings (Menus → the menu's details), like the website, the printed menu and online ordering: **Don't show a price on zero-priced variants** shows a £0 option without "£0.00", and **Don't show the variant option at all if it isn't priced** leaves options with no price (or £0) off the kiosk, so guests can't pick them. The till still shows staff every option.

@@ -243,12 +243,20 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx' } = 
 
   // ── Till, kitchen, kiosks, screens ──
   await step('revenue stream', () => post(`/api/pos/venues/${V}/revenue-streams`, { name: mark + ' Bar' }))
-  await step('printer', () => post(`/api/pos/venues/${V}/printers`, { name: mark + ' Kitchen', ip_address: '192.168.1.50' }))
+  const printer = await step('printer', () => post(`/api/pos/venues/${V}/printers`, { name: mark + ' Kitchen', host: '192.168.1.50' }))
   // Devices show a code of their own and are linked by it (migration 184):
   // a till from Till setup, a kitchen screen from the installer.
-  await step('till device', async () => {
+  const tillDevice = await step('till device', async () => {
     const shown = await ok(c.post('/pos-api/pairings', { app: 'terminal' }), 'device code')
     return post(`/api/pos/venues/${V}/link`, { code: shown.code, name: mark + ' Till 1', settings: { mode: 'table' } })
+  })
+  // Printers (migration 191): one plugged into the till, and a venue hub for the network ones.
+  if (tillDevice?.device) {
+    await step('device printer', () => post(`/api/pos/venues/${V}/printers`, { name: mark + ' Till printer', kind: 'receipt', connection: 'device', device_id: tillDevice.device.id }))
+  }
+  await step('venue hub', async () => {
+    const shown = await ok(c.post('/pos-api/pairings', { app: 'hub' }), 'hub code')
+    return post(`/api/pos/venues/${V}/link`, { code: shown.code, name: mark + ' Hub' })
   })
   await step('linked kitchen screen', async () => {
     const shown = await ok(c.post('/pos-api/pairings', { app: 'kds', device: { width: 1280, height: 800 } }), 'device code')
@@ -256,6 +264,8 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx' } = 
     return post(`/api/pos/venues/${V}/link`, { code: shown.code, name: mark + ' Pass screen' })
   })
   const station = await step('kitchen station', () => post(`/api/pos/venues/${V}/kds-stations`, { name: mark + ' Wok', kind: 'prep' }))
+  // A kitchen printer in the flow (migration 191).
+  const printerBox = printer ? await step('kitchen printer box', () => post(`/api/pos/venues/${V}/kds-stations`, { name: mark + ' Ticket printer', kind: 'printer', settings: { printer_id: printer.id } })) : null
   // A Balance box (migration 183) whose pieces name one of the tenant's dishes.
   if (dish) await step('balance box', () => post(`/api/pos/venues/${V}/kds-stations`, { name: mark + ' Wings', kind: 'balance', settings: { pieces: [{ kind: 'dish', id: dish.id, label: dish.name, qty: 8 }] } }))
   // Kitchen flows (migration 177): the first comes with the setup page; a
@@ -263,7 +273,10 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx' } = 
   const tillSetup = station ? await step('till setup', () => get(`/api/pos/venues/${V}/setup`)) : null
   const mainFlow = tillSetup?.kds_flows?.[0]
   if (station && mainFlow) {
-    await step('kitchen flow', () => put(`/api/pos/kds-flows/${mainFlow.id}`, { links: [{ from: null, to: station.id, targets: [] }], layout: { start: { x: 28, y: 28 }, [station.id]: { x: 378, y: 28 } } }))
+    await step('kitchen flow', () => put(`/api/pos/kds-flows/${mainFlow.id}`, {
+      links: [{ from: null, to: station.id, targets: [] }, ...(printerBox ? [{ from: null, to: printerBox.id, targets: [] }] : [])],
+      layout: { start: { x: 28, y: 28 }, [station.id]: { x: 378, y: 28 } },
+    }))
     const busy = await step('second kitchen flow', () => post(`/api/pos/venues/${V}/kds-flows`, { name: mark + ' Busy', copy_from: mainFlow.id }))
     if (busy) {
       await step('rename kitchen flow', () => patch(`/api/pos/kds-flows/${busy.id}`, { name: mark + ' Busy night' }))

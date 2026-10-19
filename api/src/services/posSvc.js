@@ -238,7 +238,7 @@ export async function tillConfig(tx, tenantId, venueId) {
   const venue = await ownVenue(tx, tenantId, venueId)
   const settings = await ensureSettings(tx, tenantId, venueId)
   await ensureTaxDefaults(tx, tenantId)
-  const [streams, orderTypes, taxRates, courses, areas, tables, roles, printers, routes, groups, devices] = await Promise.all([
+  const [streams, orderTypes, taxRates, courses, areas, tables, roles, printers, groups, devices] = await Promise.all([
     loadStreams(tx, tenantId, venueId, { activeOnly: true }),
     loadOrderTypes(tx, tenantId),
     loadTaxRates(tx, tenantId),
@@ -251,9 +251,8 @@ export async function tillConfig(tx, tenantId, venueId) {
          FROM tables WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND is_active AND NOT COALESCE(is_unallocated, false)
         ORDER BY sort_order, label`,
     tx`SELECT id, name, permissions, sort_order FROM pos_roles WHERE tenant_id = ${tenantId} ORDER BY sort_order, name`,
-    tx`SELECT id, name, kind, host, port, columns, backup_printer_id, sort_order FROM pos_printers
+    tx`SELECT id, name, kind, connection, device_id, host, port, columns, backup_printer_id, sort_order FROM pos_printers
         WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND is_active ORDER BY sort_order, name`,
-    tx`SELECT printer_id, target_kind, target_id FROM pos_print_routes WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`,
     tx`SELECT g.id, g.name, g.price_mode, g.min_select, g.max_select, g.pos_prefixes, g.allow_repeat, g.on_request,
               COALESCE(json_agg(json_build_object('id', o.id, 'label', o.label, 'price_pence', o.price_pence, 'child_group_id', o.child_group_id)
                 ORDER BY o.sort_order, o.label) FILTER (WHERE o.id IS NOT NULL), '[]') AS options
@@ -291,8 +290,9 @@ export async function tillConfig(tx, tenantId, venueId) {
     section_items: sectionItems,
     groups: Object.fromEntries(groups.map(g => [g.id, g])),
     dietary_tags: (dietary || []).map(t => ({ code: t.code, label: t.label, kind: t.kind, colour: t.colour, glyph: t.glyph })),
+    // A printer plugged into a device (connection 'device') is printed by that
+    // device's browser; the rest by the venue hub (migration 191).
     printers,
-    routes,
     // Print designs (migration 190): null = the built-in layout.
     print_layouts: await printLayouts(tx, tenantId, venueId),
     promotions,
@@ -305,13 +305,26 @@ export async function tillConfig(tx, tenantId, venueId) {
   return config
 }
 
+/**
+ * A venue hub's config (hub/, migration 191): the network printers it prints
+ * to. The version changes when any of them does, and the hub loads it again.
+ */
+export async function hubConfig(tx, tenantId, venueId) {
+  const venue = await ownVenue(tx, tenantId, venueId)
+  const printers = await tx`
+    SELECT id, name, kind, host, port, columns, backup_printer_id FROM pos_printers
+     WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND is_active AND connection = 'hub'
+     ORDER BY sort_order, name`
+  const config = { kind: 'hub', venue: { id: venue.id, name: venue.name }, printers }
+  return { ...config, version: sha256(JSON.stringify(config)).slice(0, 16) }
+}
+
 /** The printing config the sequencer gives shared/pos/printing.js. */
 async function printConfig(tx, tenantId, venueId) {
   const venue = await ownVenue(tx, tenantId, venueId)
   const settings = settingsView(await ensureSettings(tx, tenantId, venueId))
-  const [printers, routes, tables, staff, courses, devices, orderTypes] = await Promise.all([
-    tx`SELECT id, name, kind, columns FROM pos_printers WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND is_active`,
-    tx`SELECT printer_id, target_kind, target_id FROM pos_print_routes WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`,
+  const [printers, tables, staff, courses, devices, orderTypes] = await Promise.all([
+    tx`SELECT id, name, kind, connection, device_id, columns FROM pos_printers WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND is_active`,
     tx`SELECT id, label FROM tables WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`,
     tx`SELECT id, name FROM cash_staff WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`,
     tx`SELECT id, name, sort_order FROM pos_courses WHERE tenant_id = ${tenantId}`,
@@ -319,17 +332,18 @@ async function printConfig(tx, tenantId, venueId) {
     tx`SELECT id, name FROM order_types WHERE tenant_id = ${tenantId}`,
   ])
   const by = (rows, f = r => r) => Object.fromEntries(rows.map(r => [r.id, f(r)]))
+  const live = new Set(printers.map(p => p.id))
   return {
     venue: { name: venue.name },
     settings,
     printers: by(printers),
-    routes,
     tables: by(tables),
     // A kiosk order's server is the kiosk.
     staff: { ...by(devices.filter(d => d.kind === 'kiosk'), d => ({ name: d.name })), ...by(staff) },
     courses: by(courses),
     order_types: by(orderTypes),
-    devices: by(devices, d => ({ receipt_printer_id: d.settings?.receipt_printer_id || null, kiosk: d.kind === 'kiosk' })),
+    // A receipt printer switched off or gone prints nothing (no job for it).
+    devices: by(devices, d => ({ receipt_printer_id: live.has(d.settings?.receipt_printer_id) ? d.settings.receipt_printer_id : null, kiosk: d.kind === 'kiosk' })),
     layouts: await printLayouts(tx, tenantId, venueId),
     timezone: venue.timezone || 'Europe/London',
   }
@@ -548,8 +562,9 @@ export function sequencer(tenantId, venueId, { deviceId = null } = {}) {
     async saveJobs(jobs, e) {
       for (const j of jobs) {
         await tx`
-          INSERT INTO pos_print_jobs (tenant_id, venue_id, printer_id, event_id, check_id, kind, title, ops)
-          VALUES (${tenantId}, ${venueId}, ${j.printer_id}, ${e.id}, ${j.check_id}, ${j.kind}, ${j.title || null}, ${tx.json(j.ops)})`
+          INSERT INTO pos_print_jobs (tenant_id, venue_id, printer_id, event_id, check_id, kind, title, ops, station_id, kitchen_order_id)
+          VALUES (${tenantId}, ${venueId}, ${j.printer_id}, ${e.id}, ${j.check_id}, ${j.kind}, ${j.title || null}, ${tx.json(j.ops)},
+                  ${j.station_id || null}, ${j.kitchen_order_id || null})`
       }
     },
     async saveRejection(e, error, code) {

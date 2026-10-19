@@ -120,8 +120,17 @@ First event types: `check.opened`, `check.covers_set`, `check.table_moved`,
   a venue's own words and hidden parts. Tills, kiosks and the sequencer get the resolved layouts
   in their config (`print_layouts` / `layouts`); the admin designer previews them in the printer's
   columns (`previewHtml()` in `shared/pos/ticketHtml.js`).
-- **Routing**: dish → section → revenue stream → venue default. Station printers (Kitchen,
-  Bar, Pass), a receipt printer per terminal, a backup printer per printer.
+- **Routing** (migration 191, 19 Oct 2026): kitchen tickets go where the kitchen flow sends
+  dishes: a station of kind `printer` in the flow prints each dish once when it reaches it
+  (`shared/pos/kitchenPrint.js`, run by the sequencer; held courses as HOLD then FIRE, VOID
+  after a void; orders for later through `kitchen.print_due` from the minute sweep). The
+  old routing list (`pos_print_routes`: dish → section → revenue stream → default) is gone.
+  Bills and receipts go to the device's receipt printer; a backup printer per printer.
+- **Who prints** (migration 191): a printer is `hub` (network, printed by the venue hub,
+  `hub/bin/hub.js`, a device linked by its code) or `device` (plugged into a till or kitchen
+  screen, printed by its browser: `pos/src/lib/devicePrint.js`; Chrome `--kiosk-printing` for
+  no dialog). A device prints its own bills in its browser when its receipt printer is none or
+  plugged into it. The hub reports each printer's state to Till setup.
 - Queue per printer with retries; status check so terminals see "printer offline / out of
   paper"; reprint.
 - Cash drawer opened through the receipt printer (`ESC p`).
@@ -247,7 +256,7 @@ provision in code for the hub"). What exists:
 
 | Part | Where | Notes |
 |---|---|---|
-| Rules, pricing, printing, reports | `shared/pos/` | `checks.js` (events + `applyEvent()`), `pricing.js`, `printing.js` (`jobsForEvent()`, `routeFor()`), `reports.js` (`dayFigures()`), `sequencer.js` (`createSequencer(store)`), `permissions.js`, `pin.js`, `ids.js` (ULID), `tickets.js`. Tests: `node --test shared/pos/test/*.test.mjs`. |
+| Rules, pricing, printing, reports | `shared/pos/` | `checks.js` (events + `applyEvent()`), `pricing.js`, `printing.js` (`jobsForEvent()`: bills, receipts, drawer), `kitchenPrint.js` (kitchen printers in the flow, migration 191), `reports.js` (`dayFigures()`), `sequencer.js` (`createSequencer(store)`), `permissions.js`, `pin.js`, `ids.js` (ULID), `tickets.js`. Tests: `node --test shared/pos/test/*.test.mjs`. |
 | Schema | migration 156 | Section 3's tables as built; see Docs.jsx → Till (POS) for the columns. |
 | Sequencer | the cloud | `services/posSvc.js` runs `createSequencer()` with a Postgres store under a per-venue advisory lock. The hub will run the same sequencer with SQLite. |
 | Till API | `/pos-api` (`routes/posApi.js`) | Pairing, device auth, config snapshot, events in, sync out, presence, reports, print queue (claim / status routes are for the hub). |

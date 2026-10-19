@@ -52,9 +52,10 @@ const KIND_STYLE = {
   runner: 'border-violet-500',
   board: 'border-emerald-600',
   balance: 'border-rose-500 border-dashed',
+  printer: 'border-stone-600',
 }
-const KIND_STRIP = { start: '#71717a', prep: '#0ea5e9', expo: '#f59e0b', runner: '#8b5cf6', board: '#059669', balance: '#f43f5e' }
-const ADD_KINDS = ['prep', 'expo', 'runner', 'board', 'balance']
+const KIND_STRIP = { start: '#71717a', prep: '#0ea5e9', expo: '#f59e0b', runner: '#8b5cf6', board: '#059669', balance: '#f43f5e', printer: '#57534e' }
+const ADD_KINDS = ['prep', 'expo', 'runner', 'board', 'balance', 'printer']
 // What a Balance box does, said the same way in the panels.
 const BALANCE_RULE = 'each ticket\'s dishes go to one of them: the one with the fewest pieces still to cook, taking turns when they\'re level'
 
@@ -500,7 +501,7 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
           onChange={patch => updateLink(selLink.key, patch)} onRemove={() => removeLink(selLink.key)} onClose={() => setSelected(null)} />
       )}
       {selNode && (
-        <NodePanel key={selNode} id={selNode} station={byId[selNode]} links={draft.links} nameOf={nameOf} lk={lk} canManage={canManage}
+        <NodePanel key={selNode} id={selNode} station={byId[selNode]} setup={setup} links={draft.links} nameOf={nameOf} lk={lk} canManage={canManage}
           onEdit={() => onStation(byId[selNode])} onLink={() => { setConnectFrom(selNode); setSelected(null) }}
           onTakeOut={() => takeOut(selNode)}
           onPick={key => setSelected({ link: key })} onClose={() => setSelected(null)} />
@@ -863,7 +864,7 @@ function LinkPanel({ link, lk, setup, canManage, nameOf, fromBalance, siblings, 
   )
 }
 
-function NodePanel({ id, station, links, nameOf, lk, canManage, onEdit, onLink, onTakeOut, onPick, onClose }) {
+function NodePanel({ id, station, setup, links, nameOf, lk, canManage, onEdit, onLink, onTakeOut, onPick, onClose }) {
   const out = links.filter(l => (l.from || START) === id)
   const into = links.filter(l => l.to === id)
   const s = station?.settings || {}
@@ -891,6 +892,12 @@ function NodePanel({ id, station, links, nameOf, lk, canManage, onEdit, onLink, 
           {s.split_above != null
             ? 'Big tickets: a ticket with more than ' + s.split_above + ' pieces is shared out, dish line by dish line.'
             : 'Big tickets: each ticket stays on one station.'}
+        </p>
+      )}
+      {station?.kind === 'printer' && (
+        <p className="text-xs text-muted-foreground" data-testid="flow-printer-note">
+          Prints a ticket of the dishes that reach it, once ({(setup.printers || []).find(p => p.id === s.printer_id)?.name || 'no printer picked yet: Edit station'}).
+          Straight after the till and online orders it prints them when they are sent, held courses as HOLD then FIRE; after a kitchen screen, when that screen bumps them. It can go on to a kitchen screen.
         </p>
       )}
       {station?.kind === 'runner' && (

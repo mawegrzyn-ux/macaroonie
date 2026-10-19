@@ -3140,7 +3140,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['pos_settings', 'Per venue: pin_salt, day_starts_at, receipt texts, tenders jsonb, tips, require_covers, order_no_start, auto_logout_secs, recon_map, recon_auto_fill. (Migration 170 dropped the VAT defaults and counter_revenue_centre_id.)'],
                 ['pos_revenue_streams', 'Migration 170 (was pos_revenue_centres): name, menu_ids, service_charge_percent + min covers, colour, sort_order, is_active, default_order_type_id. Which order types it offers and what each asks for: pos_stream_order_types (stream_id, order_type_id, enabled, ask_name / ask_tent off | ask | required; no row = off). See Tax, Order Types & Streams.'],
                 ['pos_roles / pos_courses', 'Tenant-wide. Role permissions jsonb (shared/pos/permissions.js); courses with hold_by_default.'],
-                ['pos_printers / pos_print_routes', 'Printers (host, port, columns, backup); routes target_kind item | section | revenue_stream | default.'],
+                ['pos_printers', 'Printers (host, port, columns, backup); connection hub | device + device_id; status / status_at from the hub (migration 191). pos_print_routes was dropped: kitchen tickets come from the kitchen flow.'],
                 ['floor_areas', 'name, width x height in units, revenue_stream_id, decor jsonb. tables gains floor_area_id, pos_x/y/w/h, shape, rotation.'],
                 ['cash_staff', 'pos_pin_hash (unique per venue), pos_role_id.'],
                 ['menus', 'menu_items kind (dish | combo), kitchen_name, pos_course_id, pos_colour, combo jsonb (steps since migration 171, see Combos); menu_sections pos_course_id, pos_colour; menu_variant_groups pos_prefixes; menu_variant_options child_group_id; promotions channels text[] (online | pos).'],
@@ -3218,15 +3218,39 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             </P>
             <H3>Printing</H3>
             <P>
-              <Mono>jobsForEvent()</Mono> in <Mono>shared/pos/printing.js</Mono> turns an event into print jobs
-              (kitchen tickets per printer and course on send, fire tickets, void tickets, bills, receipts,
-              drawer kicks), routed by <Mono>routeFor()</Mono>: item, then section, then revenue stream, then
-              default. Kitchen tickets, bills and receipts print the order type, customer name and tent number. The sequencer stores them in <Mono>pos_print_jobs</Mono> for the hub
-              (<Mono>POST /pos-api/print-jobs/claim</Mono> and <Mono>/:id/status</Mono>, hub devices only).
-              Until a hub exists, the till prints bills and receipts (and optionally kitchen tickets) through a
-              hidden iframe and the browser's print dialog (<Mono>pos/src/lib/print.js</Mono>, HTML from{' '}
-              <Mono>opsHtml()</Mono> in <Mono>shared/pos/ticketHtml.js</Mono>). Ticket layout:
-              <Mono> shared/pos/tickets.js</Mono> (also used by <Mono>hub/</Mono>'s ESC/POS encoder).
+              Migration 191. Two sources of print jobs, both stored by the sequencer in{' '}
+              <Mono>pos_print_jobs</Mono> (with <Mono>station_id</Mono> and <Mono>kitchen_order_id</Mono> for kitchen
+              tickets): <Mono>jobsForEvent()</Mono> in <Mono>shared/pos/printing.js</Mono> makes the till&apos;s own (bills,
+              receipts, drawer kicks) for the device&apos;s receipt printer; <Mono>kitchenPrintJobs()</Mono> in{' '}
+              <Mono>shared/pos/kitchenPrint.js</Mono> makes kitchen tickets from the kitchen orders after every kitchen
+              change: a station of kind <Mono>printer</Mono> (<Mono>settings.printer_id</Mono>) prints each dish once when
+              the dish reaches it (<Mono>flowTimes().arrived()</Mono>; straight from Orders in that is when it fires),
+              grouped per order, printer and kind (<Mono>kitchen</Mono> | <Mono>fire</Mono> | <Mono>void</Mono>) by course,
+              with the venue&apos;s kitchen design (<Mono>cfg.ticket_layout</Mono>). A printer straight after Orders in also
+              lists held courses under HOLD (<Mono>item.hold_printed</Mono>), then prints FIRE; a voided dish that printed
+              prints VOID (<Mono>item.void_printed</Mono>); <Mono>item.printed</Mono> stops a second print. Printer boxes
+              never bump (<Mono>noBump()</Mono>): dishes reaching only printers are done there. Orders for later:
+              the minute sweep (<Mono>kitchenPrintsDue()</Mono> in <Mono>services/kitchenSvc.js</Mono>, from the hold sweep)
+              asks <Mono>printsDue()</Mono> and sends <Mono>kitchen.print_due</Mono>, a server event the sequencer
+              answers by printing from <Mono>loadOpenKitchenOrders()</Mono> (nothing due: no event stored).
+            </P>
+            <P>
+              Who prints: <Mono>pos_printers.connection</Mono> <Mono>hub</Mono> (a network printer) is collected by the
+              venue hub (<Mono>hub/</Mono>: <Mono>bin/hub.js</Mono>, <Mono>src/cloud.js</Mono>, <Mono>src/service.js</Mono>; a
+              device of kind <Mono>hub</Mono> linked by the code it shows, <Mono>POST /pos-api/pairings</Mono> with{' '}
+              <Mono>app: 'hub'</Mono>; its routes are only <Mono>/config</Mono> (<Mono>hubConfig()</Mono>: its printers),
+              claim, status, <Mono>POST /pos-api/hub/status</Mono> (each printer&apos;s state, shown in Till setup) and
+              disconnect); <Mono>device</Mono> (<Mono>device_id</Mono>) by that till or kitchen screen
+              (<Mono>pos/src/lib/devicePrint.js</Mono>: on <Mono>pos.print</Mono> and every 20 s, prints through the
+              browser). <Mono>POST /pos-api/print-jobs/claim</Mono> hands each device only its own printers&apos; jobs and takes
+              back a job collected over two minutes ago and never reported (<Mono>claimed_at</Mono>); only the collector
+              reports on it (a till may mark a waiting one printed by hand). A device prints its own bills and receipts in its
+              browser when its receipt printer is none or plugged into it (<Mono>receiptHere()</Mono> /{' '}
+              <Mono>printsHere()</Mono>: no job is queued then). A kiosk&apos;s printer prints its own receipts only (refused as a
+              printer box). Failed jobs: <Mono>POST /api/pos/print-jobs/:id/again</Mono>. Browser printing: a hidden iframe
+              (<Mono>pos/src/lib/print.js</Mono>, HTML from <Mono>opsHtml()</Mono> in <Mono>shared/pos/ticketHtml.js</Mono>);
+              the hub turns the same operations into ESC/POS (<Mono>hub/src/escpos.js</Mono>) and tries the printer&apos;s
+              backup when it doesn&apos;t answer.
             </P>
             <H3>Print designs</H3>
             <P>
@@ -3327,7 +3351,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
           <section id="kds" data-doc="">
             <H2>Kitchen screens (KDS)</H2>
             <P>
-              Migrations 168, 169 (kitchen flow), 177 (several kitchen flows), 182 (stations out of a flow) and 183 (Balance boxes). Design in <Mono>docs/POS.md</Mono> section 9. A kitchen screen is a till device of
+              Migrations 168, 169 (kitchen flow), 177 (several kitchen flows), 182 (stations out of a flow), 183 (Balance boxes) and 191 (kitchen printers). Design in <Mono>docs/POS.md</Mono> section 9. A kitchen screen is a till device of
               kind <Mono>kds</Mono> (<Mono>pos_devices</Mono>, short code K1, K2 ...), paired with a one-time
               code like a till. The same app at <Mono>pos.&lt;domain&gt;</Mono> boots{' '}
               <Mono>pos/src/kitchen/KitchenApp.jsx</Mono> (lazy) when the device's kind is <Mono>kds</Mono>.
@@ -3349,7 +3373,10 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <P>
               Station kinds (<Mono>STATION_KINDS</Mono>): <Mono>prep</Mono> makes dishes, <Mono>expo</Mono>{' '}
               checks whole orders, <Mono>runner</Mono> takes them out, <Mono>board</Mono> is an order ready board
-              (nothing to bump, never on a kitchen screen). The flow is links{' '}
+              (nothing to bump, never on a kitchen screen), <Mono>balance</Mono> a Balance box and <Mono>printer</Mono> a
+              kitchen printer (migration 191: prints the dishes that reach it, see Till (POS) → Printing; nothing to bump,
+              never on a kitchen screen, links out allowed; a venue with only printer boxes still has a kitchen,{' '}
+              <Mono>KITCHEN_KINDS</Mono> in <Mono>services/kitchenSvc.js</Mono>). The flow is links{' '}
               <Mono>{'{ from: stationId | null (Orders in), to, targets: [{ kind, id }] }'}</Mono>; targets are
               item, section, revenue_stream, order_type (an <Mono>order_types</Mono> id, migration 170) or
               default, and empty targets mean every dish. From each node a dish takes every link whose filter

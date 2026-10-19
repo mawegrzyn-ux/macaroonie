@@ -378,7 +378,7 @@ function printReceipt(check) {
   const c = state.config
   const by = rows => Object.fromEntries((rows || []).map(r => [r.id, r]))
   printTickets([billOps(check, {
-    venue: { name: c.venue?.name }, settings: c.settings, printers: {}, routes: [], tables: {},
+    venue: { name: c.venue?.name }, settings: c.settings, printers: {}, tables: {},
     staff: { [state.device.id]: { name: state.device.name } }, courses: {},
     order_types: by((c.all_order_types || []).map(t => ({ id: t.id, name: t.name }))), devices: {},
   }, { layout: c.print_layouts?.receipt || null })])

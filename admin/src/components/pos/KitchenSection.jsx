@@ -27,13 +27,14 @@ import { deviceUrl, InstallerLine, status, ShownCodeField, LinkDeviceModal, Link
 import { STATION_KINDS, KIND_LABELS, isBumpKind } from '@shared/pos/kitchen.js'
 import { TYPE_LABELS as GF_TYPE_LABELS } from '@shared/gloriafood.js'
 
-const KINDS = STATION_KINDS.map(k => ({ value: k, label: { prep: 'Prep', expo: 'Expo (pass)', runner: 'Runner', board: 'Order ready board', balance: 'Balance box' }[k] }))
+const KINDS = STATION_KINDS.map(k => ({ value: k, label: { prep: 'Prep', expo: 'Expo (pass)', runner: 'Runner', board: 'Order ready board', balance: 'Balance box', printer: 'Kitchen printer' }[k] }))
 const KIND_HINTS = {
   prep: 'Makes dishes (Grill, Fryer, Bar...). Its bump sends them on to the next station in the kitchen flow.',
   expo: 'Checks whole orders before they go out (the pass). Its bump marks the order ready, and finishes dishes still at earlier stations.',
   runner: 'Takes orders out to tables or the counter. Last on a dish\'s way, its bump hands the order over.',
   board: 'An order ready board: shows order numbers on menu screens (Order status block). An order is ready there once every dish on its way to the board has arrived. Nothing to bump, no kitchen screen.',
   balance: 'Shares tickets between the stations it links to in the kitchen flow (e.g. two wingmen): each ticket\'s dishes that reach it go to the one with the fewest pieces still to cook, taking turns when they\'re level (big tickets can be shared out too). Nothing to bump, no kitchen screen.',
+  printer: 'Prints a ticket of the dishes that reach it in the kitchen flow, once: straight from Orders in when they are sent (held courses as HOLD, then FIRE), or after a kitchen screen when it bumps them. Nothing to bump; it can go on to a kitchen screen. Dishes that only reach printers count as done there.',
 }
 const VIEWS = [
   { value: 'tickets', label: 'Tickets' },
@@ -264,12 +265,14 @@ export function StationModal({ venueId, setup, station, kind: newKind, onClose }
     show_upcoming: s.show_upcoming ?? startKind === 'expo',
     summary_groups: s.summary_groups || [], pieces: s.pieces || [], is_active: station ? station.is_active : true,
     share: s.split_above != null, split_above: s.split_above ?? 20,
+    printer_id: s.printer_id || '',
   })
   const [upcomingSet, setUpcomingSet] = useState(!!station)
   const set = patch => setForm(f => ({ ...f, ...patch }))
   const setKind = k => set({ kind: k, ...(upcomingSet ? {} : { show_upcoming: k === 'expo' }) })
   const board = form.kind === 'board'
   const balance = form.kind === 'balance'
+  const printerBox = form.kind === 'printer'
   const orderLevel = form.kind === 'expo' || form.kind === 'runner'
   const refresh = () => qc.invalidateQueries({ queryKey: ['pos-setup', venueId] })
   const body = () => ({
@@ -280,6 +283,7 @@ export function StationModal({ venueId, setup, station, kind: newKind, onClose }
       summary_groups: form.summary_groups.filter(g => g.name.trim()).map(g => ({ ...g, name: g.name.trim() })),
       pieces: balance ? form.pieces : [],
       split_above: balance && form.share ? (form.split_above ?? 20) : null,
+      ...(printerBox ? { printer_id: form.printer_id || null } : {}),
     },
   })
   const save = useMutation({
@@ -297,7 +301,7 @@ export function StationModal({ venueId, setup, station, kind: newKind, onClose }
       </>}>
       <Field label="Name" hint={board ? 'Menu screens pick a board by this name, so call it the same at every venue (e.g. ORB 1).' : undefined}>
         <input className={inputCls} value={form.name} maxLength={40} onChange={e => set({ name: e.target.value })}
-          placeholder={board ? 'e.g. ORB 1' : balance ? 'e.g. Wings' : form.kind === 'expo' ? 'e.g. Expo 1, Pass' : form.kind === 'runner' ? 'e.g. Runner' : 'e.g. Grill, Fryer, Prep 1'} />
+          placeholder={board ? 'e.g. ORB 1' : balance ? 'e.g. Wings' : printerBox ? 'e.g. Grill tickets' : form.kind === 'expo' ? 'e.g. Expo 1, Pass' : form.kind === 'runner' ? 'e.g. Runner' : 'e.g. Grill, Fryer, Prep 1'} />
       </Field>
       <Field group label="Kind" hint={KIND_HINTS[form.kind]}>
         <Segmented value={form.kind} options={KINDS} onChange={setKind} className="flex-wrap" />
@@ -326,10 +330,19 @@ export function StationModal({ venueId, setup, station, kind: newKind, onClose }
           </div>
         </Field>
       )}
+      {printerBox && (
+        <Field label="Printer" hint="Kitchen tickets for this box print here. Add printers on the Printers tab.">
+          <select className={inputCls} value={form.printer_id} onChange={e => set({ printer_id: e.target.value })} data-testid="station-printer">
+            <option value="">Pick a printer</option>
+            {setup.printers.filter(p => p.is_active && !(p.connection === 'device' && setup.devices.find(d => d.id === p.device_id)?.kind === 'kiosk')).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        </Field>
+      )}
+      {printerBox && !form.printer_id && <p className="text-xs text-amber-700">Until a printer is picked, nothing prints here.</p>}
       {balance && station?.kind && station.kind !== 'balance' && (
         <p className="text-xs text-amber-700">As a Balance box it leaves the kitchen screens, and its links out of every flow lose their filters (links to boards go).</p>
       )}
-      {!board && !balance && <>
+      {!board && !balance && !printerBox && <>
       <div className="flex flex-wrap gap-4">
         <Field label="Amber after (minutes)" hint="And the on-time target.">
           <NumberBox value={form.target_mins} min={1} max={120} onChange={v => set({ target_mins: v })} ariaLabel="Amber after minutes" />
@@ -383,6 +396,7 @@ function StationsCard({ venueId, setup, onEdit }) {
                     {isBumpKind(st.kind) && st.settings.summary_groups?.length ? ' · counts ' + st.settings.summary_groups.map(g => g.name).join(', ') : ''}
                     {st.kind === 'balance' && (st.settings.pieces?.length ? ' · ' + st.settings.pieces.map(m => m.label + ' ' + m.qty).join(', ') : ' · each dish counts its quantity')}
                     {st.kind === 'balance' && (st.settings.split_above != null ? ' · shares tickets over ' + st.settings.split_above + ' pieces' : ' · each ticket on one station')}
+                    {st.kind === 'printer' && ' · ' + (setup.printers.find(p => p.id === st.settings.printer_id)?.name || 'no printer picked')}
                   </p>
                 </div>
                 <Btn onClick={() => onEdit(st)} title={'Edit ' + st.name}><Pencil className="w-4 h-4" /></Btn>
