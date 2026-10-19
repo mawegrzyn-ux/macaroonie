@@ -38,10 +38,13 @@ export default function Allergens() {
   const shown = dishes.filter(it => free.every(code => { const lv = levelOf(it, code); return !lv || lv === 'removable' }))
   return (
     <div className="absolute inset-0 flex flex-col" data-testid="k-allergen-list">
-      <div className="shrink-0 flex items-center gap-[var(--k-gap)] px-[var(--k-pad)] py-[var(--k-gap)] bg-[var(--k-surface)] border-b-2 border-[var(--k-line)]">
-        <div className="k-head text-[1.5em] flex-1 text-center flex items-center justify-center gap-[.4em] min-h-[max(56px,3.2em)]"><ShieldAlert /> {ui('allergens')}</div>
-      </div>
+      {config.design.layout.header && (
+        <div className="shrink-0 flex items-center gap-[var(--k-gap)] px-[var(--k-pad)] py-[var(--k-gap)] bg-[var(--k-surface)] border-b-2 border-[var(--k-line)]">
+          <div className="k-head text-[1.5em] flex-1 text-center flex items-center justify-center gap-[.4em] min-h-[max(56px,3.2em)]"><ShieldAlert /> {ui('allergens')}</div>
+        </div>
+      )}
       <div className="flex-1 min-h-0 k-scroll p-[var(--k-pad)] flex flex-col gap-[var(--k-gap)]">
+        {!config.design.layout.header && <h2 className="k-head text-[2em] m-0 flex items-center gap-[.4em]"><ShieldAlert /> {ui('allergens')}</h2>}
         <div className="k-card p-[var(--k-pad)] flex flex-col gap-[.4em]">
           <div className="k-head text-[1.3em]">{t(TK.notice('title'), notice.title)}</div>
           <div>{t(TK.notice('body'), notice.body)}</div>

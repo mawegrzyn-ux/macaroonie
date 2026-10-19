@@ -11,6 +11,8 @@
 // spin wheel, empty = the kiosk design's choice), scale_low / scale_high (the
 // words at the ends of a level scale) and, per option, a picture, a line of
 // words and a level (0-5 on that scale). Options drag into order.
+// Migration 185: kiosk_split (the picks' pictures make the dish's split photo
+// on kiosks, a torn edge between them).
 
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
@@ -35,7 +37,7 @@ const newOption = () => ({ _key: newKey(), label: '', price_pence: 0, child_grou
 function emptyGroup() {
   return {
     name: '', price_mode: 'base', min_select: 1, max_select: 1, pos_prefixes: false, allow_repeat: false, on_request: false,
-    kiosk_display: null, scale_low: '', scale_high: '', options: [newOption()],
+    kiosk_display: null, scale_low: '', scale_high: '', kiosk_split: false, options: [newOption()],
   }
 }
 
@@ -110,6 +112,7 @@ export function VariantGroupsManager() {
         kiosk_display: draft.kiosk_display || null,
         scale_low: (draft.scale_low || '').trim() || null,
         scale_high: (draft.scale_high || '').trim() || null,
+        kiosk_split: !!draft.kiosk_split,
         sort_order: draft.id ? (groups.find(g => g.id === draft.id)?.sort_order ?? 0) : groups.length,
         options: (draft.options || [])
           .filter(o => o.label.trim())
@@ -156,6 +159,7 @@ export function VariantGroupsManager() {
       kiosk_display: g.kiosk_display || null,
       scale_low: g.scale_low || '',
       scale_high: g.scale_high || '',
+      kiosk_split: !!g.kiosk_split,
       options: (g.options || []).map(o => ({ ...o, _key: o.id || newKey(), description: o.description || '' })),
     })
   }
@@ -299,6 +303,15 @@ export function VariantGroupsManager() {
               Give options a level (0 to 5) and the kiosk marks each with flames (or the design's marks) and, on the slider, shows the scale from one end to the other.
               {hasLevels && !(draft.scale_low || '').trim() && !(draft.scale_high || '').trim() && ' Add the words for the two ends to show the scale.'}
             </p>
+            <label className="flex items-start gap-2 text-sm min-h-[40px] touch-manipulation">
+              <input type="checkbox" className="mt-1" checked={!!draft.kiosk_split} data-testid="vg-split"
+                onChange={e => setDraft(d => ({ ...d, kiosk_split: e.target.checked }))} />
+              <span>Split photo from the picks
+                <span className="block text-[11px] text-muted-foreground">
+                  Once a guest picks two or more options with pictures, the dish's photo becomes those pictures side by side with a torn edge between them: three picks show the left third of the first, the middle of the second and the right third of the third. Also on the order line. Give every option a picture of the same shape (the same dish, made each way).
+                </span>
+              </span>
+            </label>
           </div>
           <div className="space-y-1.5">
             <p className="text-[10px] uppercase font-semibold text-muted-foreground tracking-wide">Options + default price</p>

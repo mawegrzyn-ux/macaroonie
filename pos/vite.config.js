@@ -71,6 +71,8 @@ export default defineConfig({
     fs: { allow: [path.resolve(__dirname), path.resolve(__dirname, '../shared')] },
     proxy: {
       '/pos-api': 'http://localhost:3000',
+      // Menu photos and kiosk pictures saved as /uploads/... (same origin in production).
+      '/uploads': 'http://localhost:3000',
       '/ws': { target: 'ws://localhost:3000', ws: true },
     },
   },

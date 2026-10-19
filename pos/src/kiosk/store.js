@@ -36,7 +36,7 @@ let state = {
   lang: 'en',
   screen: 'start',         // start | menu | basket | details | pay | card | placing | done | failed | allergens
   orderType: null,
-  section: null,           // section id on the menu screen, 'home' for the home page
+  section: null,           // section id on the menu screen, 'home' for the home page, 'tiles' for the section tiles page
   basket: [],              // [{ key, item_id, selection, qty }]
   builder: null,           // { item_id, key (editing a basket entry), selection, qty }
   details: { name: '', tent: '' },
@@ -240,7 +240,8 @@ export function hasHome(config) {
 /** Start an order: the order type picked on the start screen. */
 export function startOrder(orderTypeId) {
   const config = state.config
-  const first = hasHome(config) ? 'home' : kioskSections(config)[0]?.id || null
+  // No sections down the side: the menu opens on the section tiles page.
+  const first = config?.design?.menu?.rail === 'none' ? 'tiles' : hasHome(config) ? 'home' : kioskSections(config)[0]?.id || null
   setState({
     screen: 'menu', orderType: orderTypeId, section: first, basket: [], builder: null,
     details: { name: '', tent: '' }, method: null, result: null, error: null,

@@ -8,13 +8,13 @@ import { Minus, Plus, Pencil, Trash2, CreditCard, Store, Printer, Check, AlertTr
 import { lineGross, groupModifiers } from '@shared/pos/pricing.js'
 import { countParts } from '@shared/combos.js'
 import { configItem, comboCtx } from '@shared/pos/offers.js'
-import { TK } from '@shared/kiosk.js'
+import { TK, splitImages } from '@shared/kiosk.js'
 import {
   useKiosk, textsFor, go, openBuilder, setQty, addToBasket, setDetails, placeOrder, methods, restart, soldOut, printResultReceipt,
   getState as getFresh,
 } from './store.js'
-import { cx, Photo, Keyboard, NumberPad, BackButton, usePortrait } from './parts.jsx'
-import { TopBar, useBasketTotals } from './Menu.jsx'
+import { cx, Photo, PickPhoto, Keyboard, NumberPad, BackButton, usePortrait } from './parts.jsx'
+import { TopBar, useBasketTotals, RestartButton, LanguageButton } from './Menu.jsx'
 import { priceLabel } from './Builder.jsx'
 
 // ── Where the order goes next ───────────────────────────────────
@@ -126,7 +126,7 @@ export function Basket() {
   // "Anything else?" in a column of their own on the right.
   return (
     <div className="absolute inset-0 flex flex-col" data-testid="k-basket">
-      <TopBar texts={texts} config={config} s={s} />
+      <TopBar texts={texts} config={config} />
       <div className="flex-1 min-h-0 flex">
       <div className="flex-1 min-w-0 min-h-0 k-scroll p-[var(--k-pad)] flex flex-col gap-[var(--k-gap)]">
         <h2 className="k-head text-[2.2em] m-0">{ui('your_order')}</h2>
@@ -137,8 +137,9 @@ export function Basket() {
           if (!it) return null
           return (
             <div key={e.key} className="k-card p-[.7em] flex gap-[.8em] items-start" data-testid="k-line">
-              <span className="w-[4.6em] h-[4.6em] shrink-0 rounded-[calc(var(--k-radius)/1.5)] overflow-hidden">
-                <Photo src={it.image_url} label={texts.itemName(it)} className="w-full h-full object-cover" phClassName="k-item-ph h-full aspect-auto text-[1.2em]" />
+              <span className="k-thumb w-[4.6em] h-[4.6em] shrink-0 rounded-[calc(var(--k-radius)/1.5)] overflow-hidden">
+                <PickPhoto srcs={splitImages(config, it, e.selection)} src={it.image_url} label={texts.itemName(it)} className="w-full h-full object-cover"
+                  phClassName="k-item-ph h-full aspect-auto text-[1.2em]" splitClassName="w-full h-full" />
               </span>
               <div className="flex-1 min-w-0 flex flex-col gap-[.3em]">
                 <div className="flex items-start gap-[.6em]">
@@ -173,6 +174,8 @@ export function Basket() {
       </div>
       <div className="k-bar shrink-0">
         <BackButton onClick={() => go('menu')} label={ui('add_more')} testId="k-add-more" />
+        <RestartButton s={s} texts={texts} />
+        {!config.design.layout.header && <LanguageButton config={config} texts={texts} onBar />}
         <div className="flex-1" />
         <button className="k-btn k-btn-accent k-btn-big" disabled={!s.basket.length || !!error} onClick={() => afterBasket(s)} data-testid="k-checkout">
           {ui('checkout')}{totals ? ' · ' + money(totals.total) : ''}
@@ -217,6 +220,7 @@ export function Details() {
       </div>
       <div className="k-bar shrink-0">
         <BackButton onClick={back} label={ui('back')} />
+        <RestartButton s={s} texts={texts} />
         <div className="flex-1" />
         {need === 'ask' && <button className="k-btn k-btn-big" style={{ background: 'transparent', color: 'inherit' }} onClick={() => { setDetails(isName ? { name: '' } : { tent: '' }); next() }} data-testid="k-details-skip">{ui('skip')}</button>}
         <button className="k-btn k-btn-accent k-btn-big" disabled={!ok} onClick={next} data-testid="k-details-next">{ui('next')}</button>
@@ -253,6 +257,7 @@ export function Pay() {
       </div>
       <div className="k-bar shrink-0">
         <BackButton onClick={() => go('basket')} label={ui('back')} />
+        <RestartButton s={s} texts={texts} />
       </div>
     </div>
   )

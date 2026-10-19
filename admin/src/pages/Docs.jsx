@@ -3629,7 +3629,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['GET /pos-api/kiosk-preview?token=', 'The preview\'s config: kioskConfig() with previewDevice() (the editor\'s stream and design, the test card reader). The token is the key: readPreviewToken(), HMAC with platform_secrets kiosk_preview_key, 12 hours.'],
                 ['GET /api/pos/kiosk-designs', 'pos_setup view. Normalised settings.'],
                 ['POST /api/pos/kiosk-designs', 'pos_setup manage. { name, settings, copy_from? } (copy_from: another design of the tenant). Up to 50 per tenant.'],
-                ['PUT /api/pos/kiosk-designs/:id', 'pos_setup manage. { name, settings }, stored as normaliseDesign(settings). Broadcasts pos.config to every venue with a kiosk (kiosksChanged()).'],
+                ['PUT /api/pos/kiosk-designs/:id', 'pos_setup manage. { name, settings }, stored as ownDesign(settings) (services/kioskSvc.js: normaliseDesign(), then only the tenant\'s own sections (left off, section tiles, banner and tile links), dishes (links, "Anything else?") and order types (type buttons) are kept; another tenant\'s ids are dropped, a link becomes none). POST does the same. Broadcasts pos.config to every venue with a kiosk (kiosksChanged()).'],
                 ['DELETE /api/pos/kiosk-designs/:id', 'pos_setup manage. Refused (422, names the kiosks) while a kiosk picks it.'],
                 ['POST /api/pos/kiosk-designs/:id/preview', 'pos_setup view. { venue_id, revenue_stream_id? } (both the tenant\'s, the stream at that venue) -> { token, url } (deviceOrigin(\'kiosk\') + ?kiosk_preview=).'],
                 ['GET /api/menus/translations?lang=', 'menus view. lang optional (the first kiosk language besides the menu\'s own). -> { lang, source, designs, languages [{ code, name, on_a_kiosk }], sources [{ key, group, context, text }], texts, builtin (the kiosk\'s own words and standard allergen names in that language), ai }.'],
@@ -3658,10 +3658,11 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               head={['Part', 'Fields']}
               rows={[
                 ['brand', 'logo_url, colors { background, surface, text, muted, primary, primary_text, accent, accent_text }, font_heading / font_body (System or KIOSK_FONTS: the website fonts plus Oswald, Bebas Neue, Anton, Barlow Condensed, Archivo Black), radius 0-32, heading_case upper | normal'],
+                ['layout', 'tiles cards | round | oval | hexagon (TILE_STYLES), header (the bar along the top; default on), icon_buttons (Back and Start again as icons)'],
                 ['start', 'layout split | full, media [{ id, type image | video, url }] (8), media_secs 3-30, headline, question, type_cards { [orderTypeId]: { label, icon eat_in | take_away | delivery | none, image_url } }, show_allergens'],
                 ['languages', 'source, enabled (KIOSK_LANGUAGES: en es ca fr de it pt nl pl; the source always on)'],
-                ['menu', 'home, banners [{ id, image_url, title, link { kind none | item | section, id } }] (10), banner_secs 3-20, featured [{ id, image_url, title, subtitle, size normal | wide, link }] (12), rail images | text, columns auto | 2-4, show_calories, show_descriptions, show_tags, quick_add, hidden_section_ids'],
-                ['options', 'display grid | list | slider | wheel (where a group or step has none), level_icon flame | star | dot'],
+                ['menu', 'home, banners [{ id, image_url, title, link { kind none | item | section, id } }] (10), banner_secs 3-20, featured [{ id, image_url, title, subtitle, size normal | wide, link }] (12), rail images | text | none (RAIL_KINDS), section_tiles [{ section_id, image_url, title, size normal | wide }] (rail none: the tiles page order, deduped, 200), columns auto | 2-4, show_calories, show_descriptions, show_tags, quick_add, hidden_section_ids'],
+                ['options', 'display grid | list | slider | wheel (where a group or step has none), level_icon flame | star | dot, wheel_spin (the Spin button; default on), wheel_spin_picks (a spin stops on a choice that can be picked and picks it)'],
                 ['checkout', 'pay_card, pay_counter, send_counter, counter_note, upsell, upsell_title, upsell_item_ids (8), receipt off | ask | always, thanks'],
                 ['behaviour', 'idle_secs 20-600, warn_secs 5-60, done_secs 5-120, reach'],
               ]}
@@ -3681,6 +3682,23 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               allergens of what was picked.
             </P>
             <P>
+              Split photo (migration 185): <Mono>menu_variant_groups.kiosk_split</Mono> (boolean, default
+              false; live like the rest of the library, in <Mono>kioskConfig()</Mono>'s groups) and a combo
+              step's <Mono>split</Mono> (in <Mono>menu_items.combo</Mono>, published with the menu; the Zod{' '}
+              <Mono>ComboStep</Mono> takes it, <Mono>cleanCombo()</Mono> stores it only when true and the
+              editor's <Mono>comboPayload()</Mono> sends it only when on, so steps saved before it don't read
+              as changed; <Mono>normaliseCombo()</Mono> fills <Mono>false</Mono>).{' '}
+              <Mono>splitImages(config, item, selection)</Mono> in <Mono>shared/kiosk.js</Mono> is the one
+              rule: steps with it on (a picked dish's photo, a typed-in choice's picture), then groups with it
+              on (the library option's picture), each in pick order, an option once; two or more pictures (at
+              most <Mono>SPLIT_MAX</Mono>, 6), else none and the dish's photo shows. The app draws them with{' '}
+              <Mono>SplitPhoto</Mono> (<Mono>parts.jsx</Mono>): every picture covers the whole box
+              (object-fit cover) and is clipped to its part with a percent <Mono>polygon()</Mono>; the tears are
+              seeded jagged lines (the same for the same number of parts), the parts overlap 0.4% under a paper
+              band of 0.44% to 1.45% with a drop shadow, so no gap shows. Used on the dish page's photo, a
+              combo's photo (and its review page when upright) and the order line's thumbnail.
+            </P>
+            <P>
               <Mono>menu_translations</Mono> (tenant, lang, key, text) holds the menu's words in other languages.
               Keys come from <Mono>TK</Mono> (item / variant / section / group / option / combo step and choice /
               order type / tag / notice / design / ui) and point at stable ids, so a translation follows its dish
@@ -3691,11 +3709,11 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <DataTable
               head={['File', 'What it does']}
               rows={[
-                ['store.js', 'State; bootKiosk() (IndexedDB kiosk_config, kiosk_outbox), bootPreview() (listens for kiosk.design, kiosk.restart, kiosk.show { screen: menu } from the parent window, then posts kiosk.ready); loadConfig() with version; socket (pos.config reloads, pos.revoked forgets); placeOrder(); the outbox for card orders paid but not sent (sent again until accepted; the guest gets the provisional number short_code-NNNN); textsFor() (translations, then UI_TEXT, money with narrowSymbol); allergen levels (itemLevels(): a combo is the union of its dishes).'],
-                ['KioskApp.jsx', 'The design as CSS variables (--k-*), fonts, the idle warning and restart, reach, wake lock (not in the preview), screens.'],
-                ['Start / Menu / Builder / OptionGroup / Checkout / Allergens', 'Start screen; menu with rail, home page and dish cards; the dish and combo builder (the Add / Continue button points at the first choice still missing); one option group in its display; basket, upsell, name and table number (keyboard / number pad), pay, test card reader, order number; allergen lookup.'],
-                ['displays.jsx', 'GridDisplay, ListDisplay, SliderDisplay (sorted by level when a scale shows), WheelDisplay (up to 16 on the wheel, the rest in a grid below); the same props, so any group or step can use any.'],
-                ['parts.jsx / kiosk.css', 'Sheets (close on a click of the backdrop), number pad, level marks, photos; :where(.k-root) button keeps button colour inheritance at the lowest weight. BackButton: every screen\'s way back, a solid button (.k-btn-back: the text colour on a light bar, the page colour on the dark .k-bar) first in the screen\'s bottom bar; no screen has a Back at the top (the builder\'s top bar is the item name and a combo\'s price).'],
+                ['store.js', 'State (section: a section id, \'home\', or \'tiles\' for the section tiles page; startOrder() opens the tiles when the design has no rail); bootKiosk() (IndexedDB kiosk_config, kiosk_outbox), bootPreview() (listens for kiosk.design, kiosk.restart, kiosk.show { screen: menu } from the parent window, then posts kiosk.ready); loadConfig() with version; socket (pos.config reloads, pos.revoked forgets); placeOrder(); the outbox for card orders paid but not sent (sent again until accepted; the guest gets the provisional number short_code-NNNN); textsFor() (translations, then UI_TEXT, money with narrowSymbol); allergen levels (itemLevels(): a combo is the union of its dishes).'],
+                ['KioskApp.jsx', 'The design as CSS variables (--k-*), fonts, the idle warning and restart, reach, wake lock (not in the preview), screens. Root classes k-tiles-<style> (data-tiles) and k-icons drive the layout options in kiosk.css.'],
+                ['Start / Menu / Builder / OptionGroup / Checkout / Allergens', 'Start screen; menu with rail (or SectionTiles: the home page above a tile per section, the design\'s order first; a section opened from it gets Back in the order bar), home page and dish cards (ItemHex in a HexGrid for hexagons); TopBar (logo and LanguageButton, none with layout.header off: the language button moves to the bottom bar), RestartButton (Start again with its confirm sheet, after Back in the bottom bars of the menu, basket, name / table number and pay; not on the card reader or in the builder); the dish and combo builder (the Add / Continue button points at the first choice still missing; no title bar with the header off, a combo then shows its name and price in the page); one option group in its display; basket, upsell, name and table number (keyboard / number pad), pay, test card reader, order number; allergen lookup.'],
+                ['displays.jsx', 'GridDisplay (a HexGrid of HexOption with tiles hexagon), ListDisplay, SliderDisplay (sorted by level when a scale shows), WheelDisplay (up to 16 on the wheel, the rest in a grid below; Spin only with wheel.spin; with wheel.picks a spin turns to a random choice that can be picked and calls onTap when it stops, the card under the pointer hidden while it spins); the same props (plus tiles and wheel), so any group or step can use any.'],
+                ['parts.jsx / kiosk.css', 'Sheets (close on a click of the backdrop), number pad, level marks, photos; :where(.k-root) button keeps button colour inheritance at the lowest weight. BackButton: every screen\'s way back, a solid button (.k-btn-back: the text colour on a light bar, the page colour on the dark .k-bar) first in the screen\'s bottom bar; no screen has a Back at the top (the builder\'s top bar is the item name and a combo\'s price). Back and Start again put their words in .k-btn-label with aria-label (.k-icons hides the label and makes them square). SplitPhoto / PickPhoto (the split photo). HexGrid: measured width, n columns (a number or as many as fit at about target px), rows of n and n - 1 in turn on 2n half-columns, every other row moved over half a hexagon, cells w wide and w / 0.866 high with -h/4 bottom margin so rows lock together; HexTile: a clip-path hexagon (the ring in the button colour when picked) with the photo, a band of words, marks at the top and extra buttons outside the shape. Round / oval / hexagon in kiosk.css: no card behind (.k-item / .k-opt transparent), photos in a circle, ellipse or hexagon (.k-item-img, .k-opt-img, .k-thumb, .k-hero-img, .k-rail-img); hexagon also gives buttons, chips and cards hexagon ends, round buttons and badges flat hexagons, and a faint honeycomb behind the screens (a masked ::before).'],
               ]}
             />
             <P>
@@ -3711,9 +3729,12 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               (<Mono>/pos/kiosk-designs/:id</Mono>): panels over the raw draft (text) and the normalised design
               (everything else), the preview frame at 1080 x 1920 or 1920 x 1080 scaled to fit, the design posted
               to the frame's own origin after <Mono>kiosk.ready</Mono>, Save / Discard / leave confirm, view only.
+              Panels: Brand, Layout (<Mono>LayoutPanel</Mono>: tile style, top bar, icon buttons), Start screen,
+              Languages, Menu (rail with <Mono>SectionTilesList</Mono> for none: every section the kiosk shows,
+              drag order, picture, words, width), Choices (display, wheel spin, level marks), Paying, Timing.
               Translations: <Mono>pages/MenuTranslations.jsx</Mono> (<Mono>/menus/translations</Mono>, nav link
               from migration 172). Option groups: <Mono>components/menus/VariantGroupsManager.jsx</Mono>; combo
-              steps: <Mono>components/menus/ComboEditor.jsx</Mono>; pictures in those rows:{' '}
+              steps: <Mono>components/menus/ComboEditor.jsx</Mono> (both with a Split photo from the picks switch); pictures in those rows:{' '}
               <Mono>components/media/PicturePick.jsx</Mono> (pick from Media or drop a file).
             </P>
           </section>
