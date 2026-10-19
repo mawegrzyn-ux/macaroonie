@@ -105,6 +105,7 @@ import MobileOrders    from '@/pages/mobile/MobileOrders'
 import MobileAllergens from '@/pages/mobile/MobileAllergens'
 import MobileAssistant from '@/pages/mobile/MobileAssistant'
 import AiAssistant     from '@/pages/AiAssistant'
+import NewLocation     from '@/pages/NewLocation'
 import NavDesigner     from '@/pages/NavDesigner'
 import Launcher        from '@/pages/Launcher'
 import './index.css'
@@ -225,6 +226,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 <Route path="pos/kiosk-designs/:id" element={<KioskDesigner />} />
                 <Route path="promotions" element={<Promotions />} />
                 <Route path="venues"    element={<Venues />} />
+                <Route path="new-location"     element={<NewLocation />} />
+                <Route path="new-location/:id" element={<NewLocation />} />
                 <Route path="tables"   element={<Tables />} />
                 <Route path="schedule" element={<Schedule />} />
                 <Route path="rules"       element={<Rules />} />

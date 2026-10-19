@@ -131,6 +131,7 @@ export const LINK_KINDS = ['none', 'item', 'section']
 // also give the whole kiosk the hexagon look (buttons, chips, badges).
 export const TILE_STYLES = ['cards', 'round', 'oval', 'hexagon']
 export const TILE_LABELS = { cards: 'Cards', round: 'Round', oval: 'Oval', hexagon: 'Hexagons' }
+export const OPTION_ALIGNS = ['left', 'center']
 /**
  * Where each hexagon of a honeycomb goes (the kiosk's HexGrid): { rows:
  * [[start, ...], ...], width } in half hexagon columns (a hexagon spans two,
@@ -228,6 +229,12 @@ export function normaliseDesign(raw) {
       tiles,
       // Choices' pictures; a design that hasn't picked one keeps the dishes' style.
       option_tiles: oneOf(y.option_tiles, TILE_STYLES, tiles),
+      // Off: choices show only their words, in the choices' shape (a card, a
+      // circle, an oval or a hexagon). The split photo still uses the pictures.
+      option_pictures: y.option_pictures !== false,
+      // A grid or honeycomb of choices (and its heading) from the left or
+      // centred on the screen.
+      option_align: oneOf(y.option_align, OPTION_ALIGNS, 'left'),
       // The bar along the top (logo, language); off, the language button
       // moves to the bottom bar.
       header: y.header !== false,
@@ -344,6 +351,42 @@ export function splitImages(config, item, selection = {}) {
     }
   }
   return out.length >= 2 ? out.slice(0, SPLIT_MAX) : []
+}
+
+// Below the kiosk-images cache's maxEntries (pos/vite.config.js), so saving
+// every picture never pushes out the ones saved first.
+export const MAX_SAVED_PICTURES = 1800
+
+/**
+ * Every picture a kiosk config can show, for keeping them on the device
+ * (pos/src/kiosk/photos.js): the logo, start screen pictures (not videos),
+ * and every image_url / logo_url anywhere in the config (dishes, sections,
+ * option and combo choices, banners, featured tiles, section tiles, order
+ * type cards). Absolute URLs on the kiosk's own origin only (the service
+ * worker keeps only those), each once, design first, at most MAX_SAVED_PICTURES.
+ */
+export function configImages(config, origin) {
+  const out = new Set()
+  const add = u => {
+    if (typeof u !== 'string' || !u || u.startsWith('data:')) return
+    let url
+    try { url = new URL(u, origin) } catch { return }
+    if (url.origin === origin) out.add(url.href)
+  }
+  const walk = (v, depth) => {
+    if (!v || typeof v !== 'object' || depth > 12) return
+    if (Array.isArray(v)) { for (const x of v) walk(x, depth + 1); return }
+    for (const [k, x] of Object.entries(v)) {
+      if (k === 'image_url' || k === 'logo_url') add(x)
+      else if (x && typeof x === 'object') walk(x, depth + 1)
+    }
+  }
+  const d = config?.design
+  add(d?.brand?.logo_url)
+  for (const m of d?.start?.media || []) if (m?.type !== 'video') add(m?.url)
+  walk(d, 0)
+  walk(config, 0)
+  return [...out].slice(0, MAX_SAVED_PICTURES)
 }
 
 /** Ways a guest can pay on this kiosk: ['card', 'counter'] in that order. */

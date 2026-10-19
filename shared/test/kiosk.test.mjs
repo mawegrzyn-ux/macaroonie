@@ -7,7 +7,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   normaliseDesign, designProblems, payMethods, uiText, allergenName, translationSources, TK, splitImages, hexLayout,
-  kioskOrder, basketCheck, kioskStaff, kioskFontsUrl, UI_TEXT, ALLERGEN_NAMES, KIOSK_LANGUAGES,
+  configImages, MAX_SAVED_PICTURES, kioskOrder, basketCheck, kioskStaff, kioskFontsUrl, UI_TEXT, ALLERGEN_NAMES, KIOSK_LANGUAGES,
 } from '../kiosk.js'
 import { applyEvent, KIOSK_EVENTS } from '../pos/checks.js'
 import { checkTotals } from '../pos/pricing.js'
@@ -84,7 +84,7 @@ test('design: defaults, clamps, drops what it does not know', () => {
 
 test('design: layout, section tiles and the spin wheel', () => {
   const plain = normaliseDesign({})
-  assert.deepEqual(plain.layout, { tiles: 'cards', option_tiles: 'cards', header: true, icon_buttons: false })
+  assert.deepEqual(plain.layout, { tiles: 'cards', option_tiles: 'cards', option_pictures: true, option_align: 'left', header: true, icon_buttons: false })
   assert.equal(plain.menu.rail, 'images')
   assert.deepEqual(plain.menu.section_tiles, [])
   assert.equal(plain.options.wheel_spin, true)
@@ -100,7 +100,7 @@ test('design: layout, section tiles and the spin wheel', () => {
     options: { wheel_spin: false, wheel_spin_picks: 'yes' },
   })
   // Choices keep the dishes' style until the design picks their own.
-  assert.deepEqual(d.layout, { tiles: 'hexagon', option_tiles: 'hexagon', header: false, icon_buttons: true })
+  assert.deepEqual(d.layout, { tiles: 'hexagon', option_tiles: 'hexagon', option_pictures: true, option_align: 'left', header: false, icon_buttons: true })
   assert.equal(d.menu.rail, 'none')
   assert.deepEqual(d.menu.section_tiles, [
     { section_id: DRINKS, image_url: '/d.jpg', title: 'Drinks and shakes', size: 'wide' },
@@ -125,6 +125,18 @@ test('design: dishes and choices each have their own picture style', () => {
   assert.equal(normaliseDesign({ layout: { tiles: 'oval', option_tiles: 'star' } }).layout.option_tiles, 'oval')
   assert.equal(normaliseDesign({ layout: { option_tiles: 'round' } }).layout.tiles, 'cards')
   assert.deepEqual(normaliseDesign(d), d)
+})
+
+test('design: choices words only, and centred', () => {
+  const d = normaliseDesign({ layout: { option_tiles: 'hexagon', option_pictures: false, option_align: 'center' } })
+  assert.equal(d.layout.option_tiles, 'hexagon')
+  assert.equal(d.layout.option_pictures, false)
+  assert.equal(d.layout.option_align, 'center')
+  assert.deepEqual(normaliseDesign(d), d)
+  // Only false turns the pictures off; an unknown line-up is from the left.
+  const odd = normaliseDesign({ layout: { option_pictures: 0, option_align: 'middle' } }).layout
+  assert.equal(odd.option_pictures, true)
+  assert.equal(odd.option_align, 'left')
 })
 
 test('honeycomb: rows lock together; a few choices still make two rows', () => {
@@ -360,4 +372,35 @@ test('sequencer: takes a kiosk order, numbers it, refuses a kiosk working on a t
   await seq.submit(ev('check.opened', { mode: 'counter' }, { check_id: tillId, staff_id: TILL_PERSON, device_id: 'T1' }))
   const bad = await seq.submit(ev('line.added', { line: { ...r.check.lines[0], id: ulid() } }, { check_id: tillId }))
   assert.equal(bad.code, 'kiosk')
+})
+
+test('configImages: every picture the kiosk can show, on its own origin, each once', () => {
+  const origin = 'https://kiosk.example.test'
+  const config = {
+    design: normaliseDesign({
+      brand: { logo_url: '/uploads/logo.png' },
+      start: { media: [{ id: 'm1', type: 'image', url: '/uploads/start.jpg' }, { id: 'm2', type: 'video', url: '/uploads/start.mp4' }] },
+      menu: {
+        banners: [{ id: 'b1', image_url: '/uploads/banner.jpg', title: 'Hot', link: { kind: 'none' } }],
+        featured: [{ id: 'f1', image_url: 'https://cdn.other.test/feature.jpg', title: 'Deal', link: { kind: 'none' } }],
+      },
+    }),
+    sections: [{ id: 's1', image_url: '/uploads/section.png', item_ids: ['i1'] }],
+    items: {
+      i1: { id: 'i1', image_url: '/uploads/wings.jpg', combo: { steps: [{ id: 'st', options: [{ id: 'o', image_url: '/uploads/dip.png' }] }] } },
+      i2: { id: 'i2', image_url: origin + '/uploads/wings.jpg' },
+      i3: { id: 'i3', image_url: 'data:image/png;base64,AAAA' },
+      i4: { id: 'i4', image_url: null },
+    },
+    groups: { g1: { options: [{ id: 'x', image_url: '/uploads/flavour.png' }] } },
+  }
+  const urls = configImages(config, origin)
+  assert.deepEqual(urls.slice(0, 3), [origin + '/uploads/logo.png', origin + '/uploads/start.jpg', origin + '/uploads/banner.jpg'], 'the design first')
+  for (const u of ['section.png', 'wings.jpg', 'dip.png', 'flavour.png']) assert.ok(urls.includes(origin + '/uploads/' + u), u)
+  assert.equal(urls.filter(u => u.endsWith('wings.jpg')).length, 1, 'each picture once')
+  assert.ok(!urls.some(u => u.endsWith('.mp4')), 'no videos')
+  assert.ok(!urls.some(u => u.includes('cdn.other.test') || u.startsWith('data:')), 'only the kiosk\'s own pictures')
+  assert.deepEqual(configImages(null, origin), [])
+  const many = { items: Object.fromEntries(Array.from({ length: MAX_SAVED_PICTURES + 50 }, (_, n) => ['i' + n, { image_url: '/uploads/p' + n + '.jpg' }])) }
+  assert.equal(configImages(many, origin).length, MAX_SAVED_PICTURES, 'capped below the cache size')
 })

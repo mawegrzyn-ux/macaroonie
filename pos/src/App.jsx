@@ -2,7 +2,7 @@
 // check, counter service, closed checks, reports and till settings. A device
 // paired as a kitchen screen opens the kitchen screen instead, one paired as
 // a self-order kiosk the kiosk (and ?kiosk_preview= the kiosk design preview,
-// ?kitchen_test= the kitchen test bench).
+// ?kiosk_share= a design's shared preview, ?kitchen_test= the kitchen test bench).
 
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { LayoutGrid, ShoppingBag, Receipt, BarChart3, Settings, Lock, RefreshCw, WifiOff } from 'lucide-react'
@@ -33,11 +33,23 @@ const Bench = lazy(() => import('./kitchen/Bench.jsx'))
 const BenchScreen = lazy(() => import('./kitchen/BenchScreen.jsx'))
 const QUERY = new URLSearchParams(location.search)
 const PREVIEW = QUERY.get('kiosk_preview')
+// A kiosk design's shared preview (its lasting link): the share page, which
+// frames the kiosk itself (&frame=1).
+const SHARE = QUERY.get('kiosk_share')
+const SHARE_FRAME = QUERY.get('frame') === '1'
+const SharePage = lazy(() => import('./kiosk/SharePage.jsx'))
 const KITCHEN_TEST = QUERY.get('kitchen_test')
 const BENCH_SCREEN = QUERY.get('screen')
 
 export default function App() {
   if (PREVIEW) return <Suspense fallback={<div className="h-full bg-black" />}><KioskApp previewToken={PREVIEW} /></Suspense>
+  if (SHARE) {
+    return (
+      <Suspense fallback={<div className="h-full bg-neutral-900" />}>
+        {SHARE_FRAME ? <KioskApp shareToken={SHARE} /> : <SharePage token={SHARE} />}
+      </Suspense>
+    )
+  }
   if (KITCHEN_TEST) {
     return (
       <Suspense fallback={<div className="h-full bg-black" />}>

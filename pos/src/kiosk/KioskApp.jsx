@@ -12,7 +12,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { RefreshCw, Wifi, WifiOff, X, Accessibility } from 'lucide-react'
 import { kioskFontsUrl, kioskFontStack } from '@shared/kiosk.js'
-import { useKiosk, bootKiosk, bootPreview, textsFor, restart, loadConfig, setReach, getState, disconnect, moveKiosk } from './store.js'
+import { useKiosk, bootKiosk, bootPreview, bootShare, textsFor, restart, loadConfig, setReach, getState, disconnect, moveKiosk } from './store.js'
 import { whenSafeToReload, idleFor } from '../lib/appUpdate.js'
 import { belongsHere } from '../lib/appHost.js'
 import { MoveNotice } from '../components/MoveNotice.jsx'
@@ -106,6 +106,15 @@ function Idle({ s, texts }) {
   )
 }
 
+// The menu's pictures kept on the device for when the internet is down (photos.js).
+function photosText(p) {
+  if (!p) return 'Checking…'
+  if (!p.total) return 'None in the menu'
+  if (p.saved == null) return 'Not kept on this screen (no offline storage)'
+  if (p.busy) return 'Saving: ' + p.saved + ' of ' + p.total
+  return p.saved === p.total ? 'All ' + p.total + ' saved' : p.saved + ' of ' + p.total + ' saved (the rest when the connection allows)'
+}
+
 function StaffPanel({ s, onClose }) {
   const c = s.config
   return (
@@ -120,7 +129,13 @@ function StaffPanel({ s, onClose }) {
           <span className="k-muted">Revenue stream</span><span>{c?.stream?.name || 'None'}</span>
           <span className="k-muted">Design</span><span>{c?.design?.name}</span>
           <span className="k-muted">Card reader</span><span>{c?.device?.settings?.card_reader === 'test' ? 'Test (no money is taken)' : 'None'}</span>
-          <span className="k-muted">Connection</span><span className="flex items-center gap-1">{s.online ? <><Wifi size={16} /> Online</> : <><WifiOff size={16} /> Offline</>}</span>
+          <span className="k-muted">Connection</span>
+          <span className="flex items-center gap-1" data-testid="k-staff-link">
+            {s.link === 'down' ? <><WifiOff size={16} /> Offline: ordering paused, trying every few seconds</>
+              : s.link === 'checking' ? <><Wifi size={16} /> Checking the connection…</>
+                : <><Wifi size={16} /> Online</>}
+          </span>
+          <span className="k-muted">Pictures on this kiosk</span><span data-testid="k-staff-photos">{photosText(s.photos)}</span>
           <span className="k-muted">Orders waiting to send</span><span>{s.outbox.length}</span>
           <span className="k-muted">Menu version</span><span>{c?.version}</span>
         </div>
@@ -164,21 +179,23 @@ function DisconnectBox({ waiting }) {
   )
 }
 
-export default function KioskApp({ device = null, previewToken = null }) {
+export default function KioskApp({ device = null, previewToken = null, shareToken = null }) {
+  const preview = !!(previewToken || shareToken)
   useEffect(() => {
     if (previewToken) bootPreview(previewToken)
+    else if (shareToken) bootShare(shareToken)
     else bootKiosk(device)
-  }, [device, previewToken])
-  useWakeLock(!!previewToken)
+  }, [device, previewToken, shareToken])
+  useWakeLock(preview)
   // A new copy of the app (lib/appUpdate.js) goes in on the start screen,
   // with nothing in the basket and nobody touching it.
   useEffect(() => {
-    if (previewToken) return undefined
+    if (preview) return undefined
     return whenSafeToReload(() => {
       const k = getState()
       return k.screen === 'start' && !k.basket.length && !k.builder && idleFor(10000)
     })
-  }, [previewToken])
+  }, [preview])
   const s = useKiosk()
   const texts = textsFor(s)
   const design = s.config?.design
@@ -210,7 +227,8 @@ export default function KioskApp({ device = null, previewToken = null }) {
   const Screen = screen
   return (
     <div className={cx('k-root', design.brand.heading_case === 'upper' && 'k-upper', s.reach && 'k-reach', 'k-tiles-' + design.layout.tiles, 'k-opts-' + design.layout.option_tiles, design.layout.icon_buttons && 'k-icons')}
-      style={style} data-testid="kiosk" data-screen={s.screen} data-tiles={design.layout.tiles} data-option-tiles={design.layout.option_tiles}>
+      style={style} data-testid="kiosk" data-screen={s.screen} data-tiles={design.layout.tiles} data-option-tiles={design.layout.option_tiles}
+      data-option-pictures={design.layout.option_pictures ? '1' : '0'} data-option-align={design.layout.option_align}>
       {s.reach && (
         <div className="k-reach-band">
           <Accessibility size={48} />

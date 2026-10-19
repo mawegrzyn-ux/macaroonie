@@ -89,6 +89,7 @@ export const DEFAULT_NAV_TREE = [
   {
     label: 'Setup', children: [
       { label: 'Venues', icon: 'Building2', route: '/venues', module: 'venues' },
+      { label: 'New location', icon: 'Store', route: '/new-location', module: 'venues' },
       { label: 'Tables', icon: 'Table2', route: '/tables', module: 'tables' },
       { label: 'Schedule', icon: 'Clock', route: '/schedule', module: 'schedule' },
       { label: 'Rules', icon: 'Settings', route: '/rules', module: 'rules' },

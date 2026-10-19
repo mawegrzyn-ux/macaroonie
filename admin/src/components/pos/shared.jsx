@@ -73,9 +73,9 @@ export function Toggle({ label, hint, checked, onChange, disabled }) {
   )
 }
 
-export function Btn({ children, onClick, variant = 'default', disabled, type = 'button', className, title }) {
+export function Btn({ children, onClick, variant = 'default', disabled, type = 'button', className, title, ...rest }) {
   return (
-    <button type={type} title={title} aria-label={title} onClick={onClick} disabled={disabled}
+    <button {...rest} type={type} title={title} aria-label={title} onClick={onClick} disabled={disabled}
       className={cn('inline-flex items-center justify-center gap-2 h-11 px-4 rounded-lg text-sm font-medium touch-manipulation disabled:opacity-50 shrink-0',
         variant === 'primary' ? 'bg-primary text-primary-foreground hover:bg-primary/90'
           : variant === 'danger' ? 'bg-destructive text-destructive-foreground'

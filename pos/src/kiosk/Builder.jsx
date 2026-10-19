@@ -17,7 +17,7 @@ import { configItem, comboCtx } from '@shared/pos/offers.js'
 import { TK, allergenName, splitImages } from '@shared/kiosk.js'
 import { useKiosk, textsFor, addToBasket, closeBuilder, soldOut, itemLevels, dishLevels, mergeLevels } from './store.js'
 import OptionGroup, { missingIn, ruleText, groupName } from './OptionGroup.jsx'
-import { DISPLAYS } from './displays.jsx'
+import { DISPLAYS, choiceLook } from './displays.jsx'
 import { cx, PickPhoto, Stepper, BackButton, bringIntoView, usePortrait } from './parts.jsx'
 
 /**
@@ -251,6 +251,7 @@ function ComboBuilder({ item, config, ctx, texts, builder }) {
   const total = priced.ok ? lineGross({ ...priced, qty }) : null
   const sold = soldOut(config)
   const display = st => DISPLAYS[st.step.display || config.design.options.display] || DISPLAYS.grid
+  const look = choiceLook(config.design)
   const stepName = step => t(TK.step(item.id, step.id), step.name)
 
   // A single pick on a one-choice step moves on by itself.
@@ -323,9 +324,9 @@ function ComboBuilder({ item, config, ctx, texts, builder }) {
     return (
       <div key={p.key} className="flex flex-col gap-[var(--k-gap)]" data-testid="k-step" data-step={step.id}
         data-missing={got.length < step.min ? '1' : undefined}>
-        <div className="k-muted font-semibold">{ruleText(ui, step.min, step.max)}{step.max > 1 ? ' · ' + got.length + '/' + step.max : ''}{step.repeat ? ' · ' + ui('tap_again') : ''}</div>
+        <div className={cx('k-muted font-semibold', look.center && 'text-center')}>{ruleText(ui, step.min, step.max)}{step.max > 1 ? ' · ' + got.length + '/' + step.max : ''}{step.repeat ? ' · ' + ui('tap_again') : ''}</div>
         <Display options={choices} countOf={countOf} onTap={onTap} onLess={onLess} repeat={step.repeat} full={full}
-          scale={null} levelIcon={config.design.options.level_icon} ui={ui} tiles={config.design.layout.option_tiles} wheel={wheelOf(config)} />
+          scale={null} levelIcon={config.design.options.level_icon} ui={ui} {...look} wheel={wheelOf(config)} />
       </div>
     )
   }

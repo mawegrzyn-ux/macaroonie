@@ -64,6 +64,7 @@ export const ROUTE_CATALOG = [
   { route: '/media', label: 'Media', icon: 'FolderOpen', module: 'website' },
   { route: '/reviews', label: 'Reviews', icon: 'MessageSquare', module: 'website' },
   { route: '/venues', label: 'Venues', icon: 'Building2', module: 'venues' },
+  { route: '/new-location', label: 'New location', icon: 'Store', module: 'venues' },
   { route: '/tables', label: 'Tables', icon: 'Table2', module: 'tables' },
   { route: '/schedule', label: 'Schedule', icon: 'Clock', module: 'schedule' },
   { route: '/rules', label: 'Rules', icon: 'Settings', module: 'rules' },

@@ -6,7 +6,9 @@
 // a guest's order lives here only until it is placed (a reload starts
 // again), and placing it needs a connection: the order number comes from the
 // sequencer. A card payment that went through but couldn't be sent waits in
-// an outbox and is sent again until it arrives.
+// an outbox and is sent again until it arrives. Every picture the menu can
+// show is kept on the device (photos.js); the connection is watched as
+// described under Connection below.
 //
 // Preview (Till setup > Kiosks, the design editor): the app runs from a
 // signed link without pairing, takes design changes from the editor by
@@ -22,6 +24,7 @@ import * as idb from '../lib/idb.js'
 import { createTransport, OfflineError } from '../lib/transport.js'
 import { printTickets } from '../lib/print.js'
 import { moveDevice, tellDisconnect, setMovedTo } from '../lib/appHost.js'
+import { savePhotos } from './photos.js'
 
 const CONFIG_KEY = 'kiosk_config'
 const OUTBOX_KEY = 'kiosk_outbox'
@@ -32,7 +35,10 @@ let state = {
   device: null,
   config: null,
   preview: false,
-  online: navigator.onLine,
+  shared: null,       // a shared preview's names (bootShare): { design, venue, company, expires_at }
+  online: true,            // false shows ordering paused (link 'down')
+  link: 'up',              // 'up' | 'checking' (trying the server again) | 'down'
+  photos: null,            // { total, saved, busy } pictures kept on the device; saved null = can't keep them here
   lang: 'en',
   screen: 'start',         // start | menu | basket | details | pay | card | placing | done | failed | allergens
   orderType: null,
@@ -94,23 +100,33 @@ export async function bootKiosk(device) {
   const [config, outbox] = await Promise.all([idb.get(CONFIG_KEY), idb.get(OUTBOX_KEY)])
   const c = withDesign(config || null)
   setState({ device, config: c, outbox: outbox || [], lang: c?.design?.languages?.source || 'en', phase: c ? 'ready' : 'loading' })
+  startSync()
   await loadConfig()
   setState({ phase: 'ready' })
-  startSync()
+  savePhotosSoon(0)
 }
 
 /** Preview from the design editor: config from the signed link, nothing is ever sent. */
-export async function bootPreview(token) {
+export const bootPreview = token => bootPreviewFrom('/pos-api/kiosk-preview?token=' + encodeURIComponent(token), { live: true })
+
+/**
+ * A design's shared preview (its lasting link, migration 187): the design as
+ * saved, nothing is ever sent, and design changes from the page around it are
+ * ignored (it is our own share page, but what is shown must be what was saved).
+ */
+export const bootShare = token => bootPreviewFrom('/pos-api/kiosk-share?token=' + encodeURIComponent(token), { live: false })
+
+async function bootPreviewFrom(path, { live }) {
   try {
-    const res = await createTransport(null).get('/pos-api/kiosk-preview?token=' + encodeURIComponent(token))
+    const res = await createTransport(null).get(path)
     const c = withDesign(res)
-    setState({ preview: true, device: c.device, config: c, lang: c.design.languages.source, phase: 'ready', online: true })
+    setState({ preview: true, shared: res.share || null, device: c.device, config: c, lang: c.design.languages.source, phase: 'ready', online: true })
   } catch (err) {
     setState({ preview: true, phase: 'ready', config: null, error: err.message || 'The preview couldn\'t load' })
   }
   window.addEventListener('message', e => {
     if (e.source !== window.parent || !e.data || typeof e.data !== 'object') return
-    if (e.data.type === 'kiosk.design' && state.config) {
+    if (live && e.data.type === 'kiosk.design' && state.config) {
       const design = { id: state.config.design.id, name: state.config.design.name, ...normaliseDesign(e.data.design) }
       const lang = design.languages.enabled.includes(state.lang) ? state.lang : design.languages.source
       setState({ config: { ...state.config, design }, lang })
@@ -123,31 +139,52 @@ export async function bootPreview(token) {
       else startOrder(state.config.order_types?.[0]?.id || null)
     }
   })
-  try { window.parent.postMessage({ type: 'kiosk.ready' }, '*') } catch { /* not framed */ }
+  try {
+    window.parent.postMessage({ type: 'kiosk.ready', ...(state.shared ? { share: state.shared } : {}), ...(!state.config ? { error: state.error } : {}) }, '*')
+  } catch { /* not framed */ }
 }
 
+/** Get the config (only when it changed) and note whether the server answered. */
 export async function loadConfig() {
   if (state.preview) return
+  if (await fetchConfig()) linkOk()
+  else linkTrouble()
+}
+
+// True when the server answered (a 4xx is an answer; 5xx and no reply aren't).
+async function fetchConfig(opts) {
   try {
     const v = state.config?.version
-    const res = await api.get('/pos-api/config' + (v ? '?version=' + encodeURIComponent(v) : ''))
+    const res = await api.get('/pos-api/config' + (v ? '?version=' + encodeURIComponent(v) : ''), opts)
     if (!res.unchanged) {
       await idb.set(CONFIG_KEY, res)
       const c = withDesign(res)
       const keep = c.design.languages.enabled.includes(state.lang)
-      setState({ config: c, online: true, ...(keep ? {} : { lang: c.design.languages.source }) })
-    } else {
-      setState({ online: true })
+      setState({ config: c, ...(keep ? {} : { lang: c.design.languages.source }) })
+      savePhotosSoon()
     }
+    return true
   } catch (err) {
-    handleError(err)
+    if (err instanceof OfflineError || err?.offline || err?.status >= 500) return false
+    if (err?.status === 401) forget()
+    else console.warn(err)
+    return true
   }
 }
 
 function handleError(err) {
-  if (err instanceof OfflineError || err?.offline) { setState({ online: false }); return }
+  if (err instanceof OfflineError || err?.offline) { linkTrouble(); return }
   if (err?.status === 401) { forget(); return }
   console.warn(err)
+}
+
+let photoTimer = null
+function savePhotosSoon(ms = 3000) {
+  if (state.preview) return
+  clearTimeout(photoTimer)
+  photoTimer = setTimeout(() => {
+    if (state.config) savePhotos(state.config, photos => setState({ photos }))
+  }, ms)
 }
 
 async function forget() {
@@ -396,11 +433,12 @@ export async function placeOrder(method, payment = null) {
     const sent = (res.checks || []).find(c => c.id === r.check.id)
     const orderNo = res.results[0]?.assigned?.order_no ?? sent?.order_no ?? null
     const check = sent || { ...r.check, order_no: orderNo }
-    setState({ screen: 'done', online: true, result: { order_no: orderNo, provisional, check, totals: r.totals, pending: false } })
+    linkOk()
+    setState({ screen: 'done', result: { order_no: orderNo, provisional, check, totals: r.totals, pending: false } })
     if (design.checkout.receipt === 'always') printReceipt(check)
   } catch (err) {
-    if (method === 'card') return paidButNotSent(r, provisional, null)
     handleError(err)
+    if (method === 'card') return paidButNotSent(r, provisional, null)
     setState({ screen: 'failed', error: null })
   }
 }
@@ -441,7 +479,8 @@ async function flush() {
     // Sent (or refused: then it is listed in Till reports as a conflict, and
     // sending it again would only be refused again).
     if (res.results.some(x => !x.ok && !x.duplicate)) console.warn('kiosk order refused', res.results.filter(x => !x.ok))
-    setState({ outbox: rest, online: true })
+    linkOk()
+    setState({ outbox: rest })
     await idb.set(OUTBOX_KEY, rest)
   } catch (err) {
     handleError(err)
@@ -451,32 +490,145 @@ async function flush() {
   }
 }
 
+// ── Connection ───────────────────────────────────────────────────
+//
+// The live link (a WebSocket) brings menu changes as they happen, and its
+// heartbeat notices a lost connection within seconds: a router that loses
+// the internet leaves the link hanging rather than closing it. When the link
+// drops, misses its heartbeat or a request gets no reply, the kiosk tries
+// the server twice more, quickly; only when neither try gets through does it
+// show ordering paused (link 'down'), and then it tries every few seconds
+// until the server answers again.
+
+const QUICK_TRIES_MS = [1000, 2000]   // the wait before each of the two quick tries
+const CHECK_EVERY_MS = 5000           // while offline
+const TRY_TIMEOUT_MS = 4000
+const HEARTBEAT_MS = 15000
+const HEARTBEAT_WAIT_MS = 6000
+
+let checkTimer = null
+let socketTimer = null
+let beat = null
+let beatWait = null
+
+function setLink(link) {
+  if (state.link !== link || state.online !== (link !== 'down')) setState({ link, online: link !== 'down' })
+}
+
+/** The server answered: online again (a link that was down comes straight back). */
+function linkOk() {
+  if (!started) return
+  const was = state.link
+  clearTimeout(checkTimer)
+  checkTimer = null
+  setLink('up')
+  if (was === 'down') {
+    clearTimeout(socketTimer)
+    socketTimer = null
+    socketRetry = 1000
+    scheduleFlush(0)
+    savePhotosSoon(0)
+  }
+  if (!socket && !socketTimer) connectSocket()
+}
+
+/** Something didn't get through: two quick tries before ordering pauses. */
+function linkTrouble() {
+  if (!started || state.link !== 'up') return
+  setLink('checking')
+  quickTry(0)
+}
+
+function quickTry(n) {
+  clearTimeout(checkTimer)
+  checkTimer = setTimeout(async () => {
+    const ok = await fetchConfig({ timeoutMs: TRY_TIMEOUT_MS })
+    if (!started || state.link !== 'checking') return
+    if (ok) return linkOk()
+    if (n + 1 < QUICK_TRIES_MS.length) return quickTry(n + 1)
+    setLink('down')
+    keepChecking(CHECK_EVERY_MS)
+  }, QUICK_TRIES_MS[n])
+}
+
+function keepChecking(ms) {
+  clearTimeout(checkTimer)
+  checkTimer = setTimeout(async () => {
+    const ok = await fetchConfig({ timeoutMs: TRY_TIMEOUT_MS })
+    if (!started || state.link !== 'down') return
+    if (ok) linkOk()
+    else keepChecking(CHECK_EVERY_MS)
+  }, ms)
+}
+
 function connectSocket() {
   const url = api.socketUrl()
-  if (!url || socket) return
-  try { socket = new WebSocket(url) } catch { socket = null; return }
-  socket.onopen = () => { socketRetry = 1000; setState({ online: true }); loadConfig() }
-  socket.onmessage = msg => {
+  if (!url || socket || !started) return
+  clearTimeout(socketTimer)
+  socketTimer = null
+  let ws
+  try { ws = new WebSocket(url) } catch { return linkDropped() }
+  socket = ws
+  ws.onopen = () => { socketRetry = 1000; loadConfig() }
+  ws.onmessage = msg => {
+    heard()
     let m
     try { m = JSON.parse(msg.data) } catch { return }
-    if (m.type === 'pos.config') loadConfig()
+    if (m.type === 'connected' && m.heartbeat) startHeartbeat(ws)
+    else if (m.type === 'pos.config') loadConfig()
     else if (m.type === 'pos.revoked' && m.device_id === state.device?.id) forget()
   }
-  socket.onclose = () => {
-    socket = null
-    if (started) setTimeout(connectSocket, socketRetry = Math.min(socketRetry * 2, 30000))
-  }
-  socket.onerror = () => { try { socket?.close() } catch { /* ignore */ } }
+  ws.onclose = () => { if (socket === ws) { socket = null; linkDropped() } }
+  ws.onerror = () => { try { ws.close() } catch { /* ignore */ } }
 }
+
+// The link closed (or failed to open, or stopped answering): try the server,
+// and open the link again later (straight away once the server answers after
+// being down: linkOk()).
+function linkDropped() {
+  stopHeartbeat()
+  if (!started) return
+  linkTrouble()
+  if (state.link === 'down' || socketTimer) return
+  socketTimer = setTimeout(() => { socketTimer = null; connectSocket() }, socketRetry)
+  socketRetry = Math.min(socketRetry * 2, 30000)
+}
+
+// Only once the server said it answers pings (its 'connected' message), so a
+// server without them never looks like a dead link.
+function startHeartbeat(ws) {
+  stopHeartbeat()
+  beat = setInterval(() => {
+    if (socket !== ws || ws.readyState !== 1) return
+    try { ws.send('{"type":"ping"}') } catch { return }
+    if (beatWait) return
+    beatWait = setTimeout(() => {
+      beatWait = null
+      if (socket !== ws) return
+      // No answer: drop the link without waiting for it to close (a hanging
+      // link may take minutes to report it has gone).
+      socket = null
+      ws.onclose = ws.onmessage = ws.onerror = null
+      try { ws.close() } catch { /* ignore */ }
+      linkDropped()
+    }, HEARTBEAT_WAIT_MS)
+  }, HEARTBEAT_MS)
+}
+
+function heard() { clearTimeout(beatWait); beatWait = null }
+function stopHeartbeat() { clearInterval(beat); beat = null; heard() }
+
+const onBrowserOnline = () => { if (state.link === 'down') keepChecking(0); else loadConfig() }
+const onBrowserOffline = () => linkTrouble()
 
 function startSync() {
   if (started) return
   started = true
-  window.addEventListener('online', () => { setState({ online: true }); loadConfig(); scheduleFlush(0) })
-  window.addEventListener('offline', () => setState({ online: false }))
+  window.addEventListener('online', onBrowserOnline)
+  window.addEventListener('offline', onBrowserOffline)
   connectSocket()
-  // A check every 3 minutes: the connection (for the "ordering paused"
-  // notice), the menu (sold out, prices) and any order waiting to be sent.
+  // A check every 3 minutes as well: the menu (sold out, prices) in case a
+  // push was missed, and any order waiting to be sent.
   const loop = () => { pollTimer = setTimeout(() => { loadConfig(); scheduleFlush(0); loop() }, 180_000) }
   loop()
   scheduleFlush(0)
@@ -484,9 +636,16 @@ function startSync() {
 
 function stopSync() {
   started = false
-  clearTimeout(pollTimer)
-  try { socket?.close() } catch { /* ignore */ }
+  window.removeEventListener('online', onBrowserOnline)
+  window.removeEventListener('offline', onBrowserOffline)
+  for (const t of [pollTimer, checkTimer, socketTimer, flushTimer, photoTimer]) clearTimeout(t)
+  stopHeartbeat()
+  const ws = socket
   socket = null
+  if (ws) {
+    ws.onclose = ws.onmessage = ws.onerror = null
+    try { ws.close() } catch { /* ignore */ }
+  }
 }
 
 export { uiText }

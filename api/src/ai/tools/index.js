@@ -26,7 +26,8 @@
 // orders, sold out, till and kitchen reports), tools/venue.js (customers,
 // opening times, tables, booking rules), tools/site.js (website,
 // promotions, reviews, menu screens, booking emails, support) and
-// tools/general.js (open_page, how_do_i) and tools/briefing.js (day_briefing).
+// tools/general.js (open_page, how_do_i), tools/briefing.js (day_briefing) and
+// tools/locations.js (opening a new location).
 
 import { zodToJsonSchema } from 'zod-to-json-schema'
 import { ZodError } from 'zod'
@@ -44,6 +45,7 @@ import { venueTools } from './venue.js'
 import { siteTools } from './site.js'
 import { generalTools } from './general.js'
 import { briefingTools } from './briefing.js'
+import { locationTools } from './locations.js'
 
 // The areas Pepper covers, in the order its prompt lists them.
 export const SECTIONS = {
@@ -59,6 +61,7 @@ export const SECTIONS = {
   menus:      'Menus, dishes, prices and allergens',
   purchasing: 'Purchasing: inventory, suppliers and supplier orders',
   website:    'Website, promotions, reviews, menu screens and booking emails',
+  locations:  'Opening a new location: scoping, questions, a brief, creating it',
   support:    'Reporting problems and asking for features',
 }
 
@@ -78,6 +81,7 @@ export const SECTION_MODULES = {
   menus:      ['menus'],
   purchasing: ['purchasing', 'purchasing_setup', 'purchasing_approve'],
   website:    ['website', 'promotions', 'screens', 'email_templates'],
+  locations:  ['venues'],
   support:    ['issue_log', 'feature_requests'],
 }
 // Tools anyone with Pepper can use (no area's permission).
@@ -102,7 +106,7 @@ const staffTools = [
   ...withSection(hsTools, 'hs'),
   ...withSection(purchasingTools, 'purchasing'),
   ...withSection(menuTools, 'menus'),
-  ...rotaTools, ...cashTools, ...orderTools, ...venueTools, ...siteTools,
+  ...rotaTools, ...cashTools, ...orderTools, ...venueTools, ...siteTools, ...locationTools,
 ]
 const BY_AUDIENCE = { guest: guestTools, staff: staffTools }
 

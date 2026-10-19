@@ -35,6 +35,7 @@ const SECTIONS = [
   { id: 'installer', label: 'Installer app & link codes' },
   { id: 'web-ordering', label: 'Web Ordering' },
   { id: 'ai-assistant', label: 'Pepper (AI assistant) & MCP' },
+  { id: 'store-openings', label: 'New locations (store openings)' },
   { id: 'menus',        label: 'Menus' },
   { id: 'combos',       label: 'Combos' },
   { id: 'tax',          label: 'Tax, Order Types & Streams' },
@@ -3632,6 +3633,10 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['PUT /api/pos/kiosk-designs/:id', 'pos_setup manage. { name, settings }, stored as ownDesign(settings) (services/kioskSvc.js: normaliseDesign(), then only the tenant\'s own sections (left off, section tiles, banner and tile links), dishes (links, "Anything else?") and order types (type buttons) are kept; another tenant\'s ids are dropped, a link becomes none). POST does the same. Broadcasts pos.config to every venue with a kiosk (kiosksChanged()).'],
                 ['DELETE /api/pos/kiosk-designs/:id', 'pos_setup manage. Refused (422, names the kiosks) while a kiosk picks it.'],
                 ['POST /api/pos/kiosk-designs/:id/preview', 'pos_setup view. { venue_id, revenue_stream_id? } (both the tenant\'s, the stream at that venue) -> { token, url } (deviceOrigin(\'kiosk\') + ?kiosk_preview=).'],
+                ['PUT /api/pos/kiosk-designs/:id/share', 'pos_setup manage. Migration 187: a lasting link for people outside the group. { venue_id, revenue_stream_id?, expires_on? } (the tenant\'s venue, a stream at it, a date after today). Makes the token once (24 random bytes, base64url, kiosk_designs.share_token, unique), then only moves it. -> share { url (deviceOrigin(\'kiosk\') + ?kiosk_share=), venue_id, revenue_stream_id, expires_at, expired, views, last_viewed_at, created_at, created_by }. GET /kiosk-designs carries share on each design; the setup snapshot carries shared.'],
+                ['POST /api/pos/kiosk-designs/:id/share/new-link', 'pos_setup manage. A new token (the old link stops), views back to 0. 422 when not shared.'],
+                ['DELETE /api/pos/kiosk-designs/:id/share', 'pos_setup manage. Clears every share column.'],
+                ['GET /pos-api/kiosk-share?token=', 'No login: the token is the key, looked up in system mode, then kioskConfig() in the design\'s tenant with previewDevice() (the share\'s stream, the test card reader) plus share { design, venue, company, expires_at }. 404 when unknown or the venue is gone, 410 when past its end. Counts the view.'],
                 ['GET /api/menus/translations?lang=', 'menus view. lang optional (the first kiosk language besides the menu\'s own). -> { lang, source, designs, languages [{ code, name, on_a_kiosk }], sources [{ key, group, context, text }], texts, builtin (the kiosk\'s own words and standard allergen names in that language), ai }.'],
                 ['PUT /api/menus/translations', 'menus manage. { lang, texts: { key: text | \'\' } }: upserts, \'\' deletes; keys must match KEY_PATTERN. -> { saved, removed }.'],
                 ['POST /api/menus/translations/ai', 'menus manage. { lang, source, keys?, skip? } -> { texts, left }: Claude\'s suggestions for words without a translation, AI_BATCH (120) a call, structured output (json_schema), counted in the tenant\'s monthly AI allowance. Nothing is saved.'],
@@ -3644,6 +3649,20 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               manage (<Mono>routes/media.js</Mono>); kiosk pictures use scope <Mono>kiosk</Mono>. Till reports'
               checks list, check history, refused changes and day names show the kiosk's name (a{' '}
               <Mono>pos_devices</Mono> join on the server / staff id).
+            </P>
+            <H3>Shared preview links</H3>
+            <P>
+              Migration 187. Each design can have one lasting link (Share in the design editor:{' '}
+              <Mono>ShareDialog</Mono> in <Mono>KioskDesigner.jsx</Mono>, with a QR code from <Mono>shared/qr.js</Mono>).{' '}
+              <Mono>?kiosk_share=&lt;token&gt;</Mono> on the kiosk address opens <Mono>pos/src/kiosk/SharePage.jsx</Mono>:
+              the kiosk in a frame at 1080 x 1920 (or 1920 x 1080), scaled to fit, with Upright / Wide, Start again
+              (postMessage <Mono>kiosk.restart</Mono> to its own origin) and Full screen (the frame's own address).
+              The frame (<Mono>&amp;frame=1</Mono>) runs <Mono>KioskApp</Mono> with <Mono>shareToken</Mono>:{' '}
+              <Mono>bootShare()</Mono> in <Mono>pos/src/kiosk/store.js</Mono> is <Mono>bootPreview()</Mono>'s twin
+              (both <Mono>bootPreviewFrom()</Mono>) that ignores <Mono>kiosk.design</Mono> messages, so the page shows
+              the design as saved, and posts <Mono>kiosk.ready</Mono> with the names (or an error) to the share page.
+              Nothing is sent from either: it is a preview. Neither registers for app updates; the service worker
+              leaves both to the network.
             </P>
             <H3>Designs</H3>
             <P>
@@ -3658,7 +3677,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               head={['Part', 'Fields']}
               rows={[
                 ['brand', 'logo_url, colors { background, surface, text, muted, primary, primary_text, accent, accent_text }, font_heading / font_body (System or KIOSK_FONTS: the website fonts plus Oswald, Bebas Neue, Anton, Barlow Condensed, Archivo Black), radius 0-32, heading_case upper | normal'],
-                ['layout', 'tiles (dishes: the menu, section tiles, the dish\'s photo, basket thumbs) and option_tiles (choices: option groups and combo steps), each cards | round | oval | hexagon (TILE_STYLES; option_tiles defaults to tiles when not set). Hexagon dishes also give the whole kiosk the hexagon look. header (the bar along the top; default on), icon_buttons (Back and Start again as icons). The editor sets tiles in the Menu panel and option_tiles in the Choices panel.'],
+                ['layout', 'tiles (dishes: the menu, section tiles, the dish\'s photo, basket thumbs) and option_tiles (choices: option groups and combo steps), each cards | round | oval | hexagon (TILE_STYLES; option_tiles defaults to tiles when not set). Hexagon dishes also give the whole kiosk the hexagon look. header (the bar along the top; default on), icon_buttons (Back and Start again as icons), option_pictures (default on; off = choices show only their words, in option_tiles\' shape; the split photo still uses the pictures), option_align left | center (OPTION_ALIGNS: a grid or honeycomb of choices and its heading). The editor sets tiles in the Menu panel and option_tiles, option_pictures and option_align in the Choices panel.'],
                 ['start', 'layout split | full, media [{ id, type image | video, url }] (8), media_secs 3-30, headline, question, type_cards { [orderTypeId]: { label, icon eat_in | take_away | delivery | none, image_url } }, show_allergens'],
                 ['languages', 'source, enabled (KIOSK_LANGUAGES: en es ca fr de it pt nl pl; the source always on)'],
                 ['menu', 'home, banners [{ id, image_url, title, link { kind none | item | section, id } }] (10), banner_secs 3-20, featured [{ id, image_url, title, subtitle, size normal | wide, link }] (12), rail images | text | none (RAIL_KINDS), section_tiles [{ section_id, image_url, title, size normal | wide }] (rail none: the tiles page order, deduped, 200), columns auto | 2-4, show_calories, show_descriptions, show_tags, quick_add, hidden_section_ids'],
@@ -3709,10 +3728,11 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <DataTable
               head={['File', 'What it does']}
               rows={[
-                ['store.js', 'State (section: a section id, \'home\', or \'tiles\' for the section tiles page; startOrder() opens the tiles when the design has no rail); bootKiosk() (IndexedDB kiosk_config, kiosk_outbox), bootPreview() (listens for kiosk.design, kiosk.restart, kiosk.show { screen: menu } from the parent window, then posts kiosk.ready); loadConfig() with version; socket (pos.config reloads, pos.revoked forgets); placeOrder(); the outbox for card orders paid but not sent (sent again until accepted; the guest gets the provisional number short_code-NNNN); textsFor() (translations, then UI_TEXT, money with narrowSymbol); allergen levels (itemLevels(): a combo is the union of its dishes).'],
-                ['KioskApp.jsx', 'The design as CSS variables (--k-*), fonts, the idle warning and restart, reach, wake lock (not in the preview), screens. Root classes k-tiles-<style> (data-tiles) and k-icons drive the layout options in kiosk.css.'],
+                ['store.js', 'State (section: a section id, \'home\', or \'tiles\' for the section tiles page; startOrder() opens the tiles when the design has no rail); bootKiosk() (IndexedDB kiosk_config, kiosk_outbox), bootPreview() (listens for kiosk.design, kiosk.restart, kiosk.show { screen: menu } from the parent window, then posts kiosk.ready); loadConfig() with version (fetchConfig(): true when the server answered, a 4xx counts, 5xx and no reply don\'t); the connection: link up | checking | down (state.link, state.online = not down). A dropped or failed live link, a heartbeat with no pong (a ping every 15 s on the socket, 6 s to answer; only once the server\'s connected message says heartbeat: true, answered in config/ws.js), a request with no reply or the browser\'s offline event: linkTrouble() makes two quick tries (after 1 s and 2 s more, 4 s timeout each) and only then link down (ordering paused), then keepChecking() every 5 s until linkOk(); the online event checks at once; socket pos.config reloads, pos.revoked forgets; placeOrder(); the outbox for card orders paid but not sent (sent again until accepted; the guest gets the provisional number short_code-NNNN); textsFor() (translations, then UI_TEXT, money with narrowSymbol); allergen levels (itemLevels(): a combo is the union of its dishes).'],
+                ['photos.js', 'savePhotos(config, report): every picture the config can show (configImages() in shared/kiosk.js: logo, start pictures (not videos), every image_url / logo_url, own origin only, each once, at most MAX_SAVED_PICTURES) that the kiosk-images cache (service worker, StaleWhileRevalidate, 2000 entries, a year) doesn\'t have yet, loaded as <img> three at a time (a fetch() wouldn\'t match the picture rule); counted again from the cache after. Run after each config change, at boot and when the link comes back; previews never run it. state.photos { total, saved, busy } for the staff panel (saved null = no service worker).'],
+                ['KioskApp.jsx', 'The design as CSS variables (--k-*), fonts, the idle warning and restart, reach, wake lock (not in the preview), screens. Root classes k-tiles-<style> (data-tiles) and k-icons drive the layout options in kiosk.css; data-option-pictures and data-option-align say how choices show (for tests; the displays read the design themselves).'],
                 ['Start / Menu / Builder / OptionGroup / Checkout / Allergens', 'Start screen; menu with rail (or SectionTiles: the home page above a tile per section, the design\'s order first; a section opened from it gets Back in the order bar), home page and dish cards (ItemHex in a HexGrid for hexagons); TopBar (logo and LanguageButton, none with layout.header off: the language button moves to the bottom bar), RestartButton (Start again with its confirm sheet, after Back in the bottom bars of the menu, basket, name / table number and pay; not on the card reader or in the builder); the dish and combo builder (the Add / Continue button points at the first choice still missing; no title bar with the header off, a combo then shows its name and price in the page); one option group in its display; basket, upsell, name and table number (keyboard / number pad), pay, test card reader, order number; allergen lookup.'],
-                ['displays.jsx', 'GridDisplay (a compact HexGrid of HexOption when the choices\' style, layout.option_tiles, is hexagon), ListDisplay, SliderDisplay (sorted by level when a scale shows), WheelDisplay (up to 16 on the wheel, the rest in a grid below; Spin only with wheel.spin; with wheel.picks a spin turns to a random choice that can be picked and calls onTap when it stops, the card under the pointer hidden while it spins); the same props (plus tiles and wheel), so any group or step can use any.'],
+                ['displays.jsx', 'GridDisplay (a compact HexGrid of HexOption when the choices\' style, layout.option_tiles, is hexagon), ListDisplay, SliderDisplay (sorted by level when a scale shows), WheelDisplay (up to 16 on the wheel, the rest in a grid below; Spin only with wheel.spin; with wheel.picks a spin turns to a random choice that can be picked and calls onTap when it stops, the card under the pointer hidden while it spins); the same props (plus wheel), so any group or step can use any. choiceLook(design) gives every display tiles (layout.option_tiles), pictures (layout.option_pictures) and center (layout.option_align === \'center\'); OptionGroup and Builder spread it into the display and centre their heading with it. Without pictures a card is a Face (name, level marks, description) above the price, round / oval / hexagon cards draw the face in that shape (.k-opt-face in kiosk.css), a hexagon grid uses HexTile words (.k-hex-words: no photo, the name in the middle), and the list, slider and wheel leave their thumbnails and photos out. Centred: the compact HexGrid takes center (justify-content), cards wrap in a centred flex row of fixed-width cards instead of the grid.'],
                 ['parts.jsx / kiosk.css', 'Sheets (close on a click of the backdrop), number pad, level marks, photos; :where(.k-root) button keeps button colour inheritance at the lowest weight. BackButton: every screen\'s way back, a solid button (.k-btn-back: the text colour on a light bar, the page colour on the dark .k-bar) first in the screen\'s bottom bar; no screen has a Back at the top (the builder\'s top bar is the item name and a combo\'s price). Back and Start again put their words in .k-btn-label with aria-label (.k-icons hides the label and makes them square). SplitPhoto / PickPhoto (the split photo). HexGrid: measured width, n columns (a number or as many as fit at about target px), positions from hexLayout() in shared/kiosk.js (half-hexagon columns; every other row moved over half a hexagon, a row only moved by whole hexagons): dishes fill the width with rows of n and n - 1; compact (choices) makes two rows from three hexagons on (3 = 2 + 1, 4 = 2 + 2, 5 = 3 + 2) while they fit, else rows of n and n - 1 with the last one centred, cells at most maxCell px in fixed columns; cells w wide and w / 0.866 high with -h/4 bottom margin so rows lock together; HexTile: a clip-path hexagon (the ring in the button colour when picked) with the photo, a band of words, marks at the top and extra buttons outside the shape. Round / oval / hexagon in kiosk.css, on two root classes: .k-tiles-<style> for dishes (.k-item, .k-item-img, .k-thumb in the basket, .k-hero-img, .k-rail-img) and .k-opts-<style> for choices (.k-opt, .k-opt-img, .k-opt-thumb in the list and wheel, .k-opt-tick / .k-opt-less): no card behind, photos in a circle, ellipse or hexagon; hexagon dishes also give buttons, chips and cards hexagon ends, round buttons and badges flat hexagons, and a faint honeycomb behind the screens (a masked ::before).'],
               ]}
             />
@@ -4838,6 +4858,68 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               connects with an access token, for example:
             </P>
             <Code>{'claude mcp add --transport http macaroonie https://macaroonie.com/mcp/staff/<slug> \\\n  --header "Authorization: Bearer mcp_..."'}</Code>
+          </section>
+
+          <section id="store-openings" data-doc="">
+            <H2>New locations (store openings)</H2>
+            <P>
+              Migration 186. The New location page (<Mono>/new-location</Mono>, <Mono>pages/NewLocation.jsx</Mono>) and
+              five Pepper tools (<Mono>ai/tools/locations.js</Mono>) plan a new location with Pepper and create it in one
+              transaction. Pepper only plans: its answer is a structured JSON plan the server checks, and the location is
+              made by plain code from the checked plan.
+            </P>
+            <H3>Pieces</H3>
+            <DataTable
+              head={['File', 'What it holds']}
+              rows={[
+                ['shared/storeOpening.js', 'OPENING_AREAS (key, label, icon, modules needed with Manage, admin flag, the ways allowed: copy / new / skip), normalisePlan(raw, overrides, { templates, today }) (never throws; the person\'s overrides win; copy without a location to copy from becomes new where allowed, else skip; new with nothing to set up becomes skip), planProblems(), previewPlan(plan, templateSummary) (one line per area), buildFollowups() (the Still to do list), AREA_LINKS, hoursText(), slugify(), MAX_ROUNDS (3).'],
+                ['services/storeSetup.js', 'venueSummary() (what a location has, area by area: counts and words, used for the preview and for Pepper), tenantContext() (every location\'s summary and the company-wide lists Pepper reads), freeSlug(), createStore(tx, { tenantId, plan, by, allowed, allowedModule, today }).'],
+                ['services/storeOpeningAi.js', 'askPepper(): one model call per step (AI_MODEL, output_config.format json_schema ANSWER_SCHEMA, streamed, cached system prompt and context block); the answer\'s questions trimmed and numbered r<round>-<id>; on a 400 about the schema it asks again for the same JSON as text. Counted in the AI allowance and the person\'s daily share (addUsage staff_chat).'],
+                ['routes/storeOpenings.js', '/api/ai/store-openings (under /api/ai for the 5-minute proxy timeout). Reads need venues view; steps venues manage + ai_assistant view + Pepper on for the tenant; creating venues manage.'],
+              ]}
+            />
+            <H3>API</H3>
+            <DataTable
+              head={['Route', 'What it does']}
+              rows={[
+                ['GET /', 'The openings (title, status, the location made, who, when, busy).'],
+                ['GET /:id', 'One opening: the checked plan (venue.slug_final = the address it will get), area cards (mode, chosen by the person, Pepper\'s note, deep_dive, preview, can_set_up, result), questions, brief, problems, history, results, followups.'],
+                ['POST /', '{ input, template_venue_id? }: makes the row and runs the scope step. A failed step keeps the draft (status draft) and returns it with error.'],
+                ['POST /:id/scope', 'Runs the scope step again on a draft.'],
+                ['POST /:id/answers', '{ answers: { id: text } } (empty = leave it to Pepper). A round: the last round (MAX_ROUNDS) always ends ready.'],
+                ['POST /:id/deep-dive', '{ area }: questions about one area (not a round).'],
+                ['POST /:id/change', '{ request }: Pepper changes the plan.'],
+                ['PATCH /:id', '{ title?, overrides: { venue, location, opening_date, template_venue_id, modes } }: the person\'s own choices, merged into overrides.'],
+                ['POST /:id/create', 'createStore() in one transaction with the row update (status created, venue_id, plan, results, followups). Any area failing rolls everything back (422 naming the area).'],
+                ['PATCH /:id/followups/:key', '{ done }.'],
+                ['DELETE /:id', 'A draft only.'],
+              ]}
+            />
+            <H3>Copying a location</H3>
+            <P>
+              <Mono>copyTable()</Mono> copies whole rows of the location copied from: every column but its id,
+              tenant, venue and timestamps. Ids are moved: uuid columns, uuid arrays and every uuid inside jsonb
+              (values and keys) go to the copy's new id (<Mono>remapDeep()</Mono>); an id of something that belongs
+              to the location copied from (<Mono>OWNED_TABLES</Mono>, plus its menus) but wasn't copied is dropped
+              (null, or left out of its array or object); company-wide ids (menus, dishes, order types, tip pots,
+              kiosk designs, suppliers) stay. Areas run in an order that lets later ones point at earlier ones
+              (<Mono>AREA_ORDER</Mono>: tax, cash, till, tables, hours, booking rules, kitchen, devices, ordering,
+              Deliveroo, website, emails, food safety, checklists, dashboards, purchasing, team). Never copied:
+              the PIN salt (new), receipt address (the new one), printers' place in the floor plan is kept but
+              their addresses need checking, supplier account numbers (blank), paired devices (copies are unpaired,
+              ready for the installer; menu screens get new short codes), the location's address and map (from
+              the plan), Loyverse / GloriaFood links, staff. Before the opening date a "Not open yet" closure
+              covers today to the day before, and online ordering is off.
+            </P>
+            <H3>Pepper tools</H3>
+            <P>
+              <Mono>plan_new_location</Mono>, <Mono>answer_location_questions</Mono>,{' '}
+              <Mono>change_location_plan</Mono> (direct overrides, a closer look, or a change in words),{' '}
+              <Mono>location_openings</Mono> (read) and <Mono>create_location</Mono> (a card; its describe() shows the
+              areas being set up and those the person can't). Section <Mono>locations</Mono>, module{' '}
+              <Mono>venues</Mono>. They call the routes above with <Mono>callApi()</Mono>, so a planning step in a chat
+              is a model call inside a tool call.
+            </P>
           </section>
 
           <section id="menus" data-doc="">

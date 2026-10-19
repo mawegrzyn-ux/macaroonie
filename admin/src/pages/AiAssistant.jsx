@@ -521,6 +521,7 @@ const TOOL_LABELS = {
   close_dates: 'Closed for dates', remove_closure: 'Removed a closure', update_booking_rules: 'Changed booking rules',
   publish_website: 'Published the website', set_website_banner: 'Changed the website banner', switch_promotion: 'Turned a promotion on or off',
   moderate_review: 'Changed a review', reload_screen: 'Reloaded a menu screen', report_issue: 'Logged an issue', request_feature: 'Requested a feature',
+  create_location: 'Created a new location',
 }
 
 /** What an H&S, purchasing or menu change was about, from its stored result. */
@@ -557,6 +558,7 @@ function changeDetail(r) {
     case 'create_menu':
     case 'update_menu':
     case 'duplicate_menu':        return x.name
+    case 'create_location':       return x.created || null
     case 'add_dishes':            return [x.menu, x.added != null ? x.added + ' added' : null].filter(Boolean).join(', ')
     case 'update_dish':           return [x.dish, x.menu].filter(Boolean).join(', ')
     case 'remove_dishes':         return [(x.removed || []).join(', '), x.menu].filter(Boolean).join(' from ')

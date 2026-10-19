@@ -10,7 +10,7 @@ import { Plus, Check } from 'lucide-react'
 import { groupChoice } from '@shared/pos/pricing.js'
 import { optionPriceText } from '@shared/orderPricing.js'
 import { TK } from '@shared/kiosk.js'
-import { DISPLAYS } from './displays.jsx'
+import { DISPLAYS, choiceLook } from './displays.jsx'
 import { cx } from './parts.jsx'
 
 /** "Choose 1", "Choose 1 to 3", "Choose up to 2", "Optional". */
@@ -49,6 +49,7 @@ export default function OptionGroup({ choice, value = [], onChange, config, text
   const lib = config.groups?.[choice.key] || null
   const [open, setOpen] = useState(!choice.on_request || value.length > 0)
   const design = config.design
+  const look = choiceLook(design)
   const display = lib?.kiosk_display || design.options.display
   const Display = DISPLAYS[display] || DISPLAYS.grid
   const counted = value.length
@@ -98,7 +99,7 @@ export default function OptionGroup({ choice, value = [], onChange, config, text
   return (
     <section className={cx('flex flex-col gap-[var(--k-gap)]', depth > 0 && 'pl-[var(--k-gap)] border-l-[4px] border-[var(--k-soft)]')} data-testid="k-group" data-group={choice.key}
       data-missing={counted < choice.min ? '1' : undefined}>
-      <header className="flex items-center gap-[.6em] flex-wrap">
+      <header className={cx('flex items-center gap-[.6em] flex-wrap', look.center && 'justify-center text-center')}>
         <h3 className="k-head text-[1.25em] m-0">{name}</h3>
         <span className={cx('k-chip min-h-0 py-[.15em] text-[.8em]', done && 'k-chip-on')}>
           {done && <Check size={14} strokeWidth={3} />}
@@ -107,7 +108,7 @@ export default function OptionGroup({ choice, value = [], onChange, config, text
         {choice.repeat && <span className="k-muted text-[.8em]">{ui('tap_again')}</span>}
       </header>
       <Display options={options} countOf={countOf} onTap={onTap} onLess={onLess} repeat={choice.repeat} full={full}
-        scale={scale} levelIcon={design.options.level_icon} ui={ui} tiles={design.layout.option_tiles}
+        scale={scale} levelIcon={design.options.level_icon} ui={ui} {...look}
         wheel={{ spin: design.options.wheel_spin, picks: design.options.wheel_spin_picks }} />
       {value.map((e, idx) => {
         const o = choice.options.find(x => x.id === e.id)

@@ -144,6 +144,16 @@ test('a menu screen pairs by code, is claimed, and loads its config', async () =
   assert.equal(config.status, 200, config.body.slice(0, 200))
 })
 
+test('a kiosk design\'s shared preview opens by its link alone (migration 187)', async () => {
+  const design = await ok(owner.post('/api/pos/kiosk-designs', { name: 'Shared look', settings: {} }))
+  const share = await ok(owner.put(`/api/pos/kiosk-designs/${design.id}/share`, { venue_id: V }))
+  const token = new URL(share.url).searchParams.get('kiosk_share')
+  const res = await pub('GET', '/pos-api/kiosk-share?token=' + token)
+  assert.equal(res.status, 200, res.body.slice(0, 200))
+  assert.equal(res.json.share.design, 'Shared look')
+  assert.ok(res.json.items?.length || res.json.menus?.length, 'the venue\'s menu came along')
+})
+
 test('a kitchen screen shows its own code, is linked, and signs in (migration 184)', async () => {
   const p = await pub('POST', '/pos-api/pairings', { body: { app: 'kds', device: { width: 1280, height: 800 } } })
   assert.equal(p.status, 200, p.body)

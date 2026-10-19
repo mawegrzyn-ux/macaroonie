@@ -37,6 +37,7 @@ export function staffInstructions({ tenant, person, chat = false } = {}) {
 - Online orders and the till: online_orders, update_online_order, refund_online_order, pause_online_orders, online_orders_report, sold_out / set_sold_out (till, online and menu screens), till_day (X / Z figures), till_checks, kitchen_report.
 - Menus: list_menus, get_menu, find_dishes (allergy questions), create_menu from a photo or PDF, dish and price changes, publish_menu.
 - Purchasing: the inventory and supplier prices, suppliers, order lists and pars, price list imports, filling and placing orders, sending, changing and receiving supplier orders.
+- Opening a new location: plan_new_location (from the person's description; it asks questions), answer_location_questions, change_location_plan, location_openings, create_location. Pass on the planner's questions in your own words, a few at a time, and show the brief before creating.
 - Website and more: website_status, publish_website, set_website_banner, list_promotions / switch_promotion, list_reviews / moderate_review, screens_status / reload_screen, email_log, report_issue, list_issues, request_feature.
 - open_page gives a link to any page of the app the person can open.
 - how_do_i answers "how do I...", "where is..." and "what does... mean" questions about the app from its Help guide, with a link to the steps.

@@ -9,6 +9,7 @@ const SECTIONS = [
   { id: 'getting-started',     label: 'Getting Started' },
   { id: 'overview',            label: 'The Overview Page' },
   { id: 'venues',              label: 'Managing Venues' },
+  { id: 'new-location',        label: 'Opening a New Location' },
   { id: 'tables',              label: 'Tables & Combinations' },
   { id: 'schedule',            label: 'Setting Your Schedule' },
   { id: 'schedule-exceptions', label: 'Schedule Exceptions' },
@@ -275,6 +276,91 @@ export default function Help() {
               <strong>Deposit Rules</strong> — shortcut links are shown below the venue details.
               These settings are per-venue, so each location can have different rules.
             </P>
+          </section>
+
+          {/* ── NEW LOCATION ──────────────────────────────── */}
+          <section id="new-location" data-help="">
+            <H2>Opening a New Location</H2>
+            <P>
+              <strong>New location</strong> (under Venues in the sidebar, or <strong>New location with Pepper</strong>{' '}
+              on the Venues page) sets up a whole new store in one go. You describe it in your own words; Pepper looks
+              at the locations you already have, works out area by area what to copy and what to set up new, asks only
+              what it needs to, and writes a short brief. Nothing is created until you press <strong>Create</strong>.
+              It needs Manage on Venues and access to Pepper.
+            </P>
+
+            <H3>Describing it</H3>
+            <P>
+              A few sentences are enough: where it is, what kind of site it is, roughly how many seats, when it opens,
+              and anything that's different from your other locations ("like Ware but with a terrace, takeaway only on
+              Sundays, two kiosks"). Tap one of the examples to start from it. <strong>Copy from</strong> picks the
+              location to copy; leave it to Pepper and it picks the most similar one and says why.
+            </P>
+
+            <H3>The scope</H3>
+            <P>
+              Each area gets a card saying what will happen to it: <strong>Copy</strong> (brought across from the
+              location copied from: the card says what it has), <strong>New</strong> (set up from what Pepper worked out
+              with you) or <strong>Later</strong> (left for someone to set up on its page). Tap to change any of them:
+              your choice always wins over Pepper's. A card marked <strong>Worth a closer look</strong> is one Pepper
+              thinks needs more than a copy; <strong>Ask Pepper about this</strong> on any card gets a few questions about
+              just that area.
+            </P>
+            <DataTable
+              head={['Area', 'Copy brings', 'New sets up']}
+              rows={[
+                ['Opening hours', 'Each day\'s booking times, sittings and covers, and dated changes still to come (Christmas, a private hire)', 'The hours you gave, day by day'],
+                ['Tables', 'Rooms, tables, combinations, pairs kept apart, floor plan places', 'The rooms and tables you described'],
+                ['Booking rules', 'Booking length, party sizes, how far ahead, deposits', 'Those you gave, the rest standard'],
+                ['Location page', 'The page layout, pictures, PDF menus, its own pages, with this location\'s address', 'A page with the address and contact details'],
+                ['Booking emails', 'How they\'re sent, the sender, reminders, the location\'s own emails', ''],
+                ['Online ordering', 'Menus, hours, slots, tips, payment (switched off until opening)', 'Set up, switched off'],
+                ['Deliveroo menu file', 'Price uplift, allergen codes, dish matches', ''],
+                ['Tax rates', 'Rates of its own that differ from the company\'s', ''],
+                ['Till setup', 'Settings, receipts (with the new name and address), revenue streams, floor areas, printers and where tickets print', 'Settings, receipts, revenue streams'],
+                ['Kitchen screens', 'Stations and kitchen flows, the flow in use', ''],
+                ['Devices to link', 'The same tills, kitchen screens, kiosks and menu screens, with their settings, waiting to be linked', 'As many as you said'],
+                ['Cash reconciliation', 'Income sources, payment channels, tips sources, expense categories', 'A standard set'],
+                ['Food safety', 'Fridges and freezers, hold stations, check times, cooking sessions and dishes', 'The equipment and check times you gave'],
+                ['Checklists', 'Every checklist with its tasks', 'Opening, closing and cleaning lists Pepper drafts'],
+                ['Dashboards', 'H&S, cash, rota and other dashboards with their widgets', ''],
+                ['Purchasing', 'Suppliers\' delivery days and cutoffs, order lists, pars (scaled if trade will differ), its own prices', ''],
+                ['Team', '', 'The people you named, with their role and pay'],
+              ]}
+            />
+            <P>
+              Some things are never copied because they belong to one place: supplier account numbers, the team,
+              links to Loyverse or GloriaFood, and paired devices (the new ones wait to be linked). An area your role
+              can't set up is left for someone who can, and goes on the list of things still to do.
+            </P>
+
+            <H3>Questions and the brief</H3>
+            <P>
+              Pepper asks at most a few rounds of questions, grouped by area, with its suggestion picked to start with.
+              Tick <strong>Leave it to Pepper</strong> on any question, or <strong>Skip these: write the brief</strong>{' '}
+              to have it decide the rest. The brief says in a few lines what the location is and how it's set up, what
+              Pepper assumed, what could go wrong around opening, and what people need to do outside the app.{' '}
+              <strong>Ask Pepper for a change</strong> takes a change in words ("don't copy the kitchen flows, the
+              kitchen there is different"). <strong>The location</strong> card holds the name, web address, time zone,
+              opening date, the location to copy from, the address and contact details: change any of them and Save.{' '}
+              <strong>Print</strong> gives the brief as a page for whoever needs it.
+            </P>
+
+            <H3>Creating it</H3>
+            <P>
+              <strong>Create</strong> asks first, then makes the location and every area at once: if anything fails,
+              nothing is made and the message says which area. Before the opening date the location stays{' '}
+              <strong>closed for bookings</strong> (a "Not open yet" closure on the Schedule page) and online ordering
+              stays off. Afterwards the page shows what each area got and a <strong>Still to do</strong> list (link the
+              devices with the installer app, check the printers' addresses, check and publish the location page,
+              switch online ordering on, add supplier account numbers, add the team and their PINs, and Pepper's own
+              points): tick each off as it's done, and <strong>Open</strong> goes to its page.
+            </P>
+            <InfoBox type="tip">
+              You can do all of this in a chat too: ask Pepper "plan a new store in Leeds like Ware". It passes on the
+              questions, shows the brief, and creates it from a card you confirm. Openings started in the chat are on
+              the New location page as well.
+            </InfoBox>
           </section>
 
           {/* ── TABLES ────────────────────────────────────── */}
@@ -4916,7 +5002,7 @@ export default function Help() {
                 ['Start screen', 'Pictures apart from the buttons or behind them; pictures and videos taking turns (drag to order, up to 8); the headline and the question; each order type\'s words, icon or picture; the Allergens button.'],
                 ['Languages', 'The language your menu is written in, and the languages guests can pick (flags on the start screen).'],
                 ['Menu', 'Dish pictures: how the menu\'s dishes, the section tiles, the dish\'s own photo and the basket are drawn: Cards (photo on a card), Round or Oval (the photo in a circle or an ellipse, the words under it, no card), or Hexagons (they lock together like a honeycomb, and buttons, chips and cards across the kiosk take the hexagon look too). A home page with banners and featured tiles (each can open a section or a dish); sections down the side with pictures or words only, or none (the menu opens on a page of section tiles: drag them into order, give each a picture, words and a width); dishes per row; descriptions, calories, dietary badges and quick add; sections left off the kiosk.'],
-                ['Choices', 'How choices show where an option group or combo step doesn\'t pick its own: grid, list, slider or spin wheel. Choice pictures, set apart from the dishes\': Cards, Round, Oval or Hexagons. Hexagon choices in a grid lock together like a honeycomb even when there are only a few (three make two over one, four make two over two); the list, slider and wheel show hexagon photos. The spin wheel\'s Spin button, and whether a spin picks the choice it stops on. The marks for levels: flames, stars or dots.'],
+                ['Choices', 'How choices show where an option group or combo step doesn\'t pick its own: grid, list, slider or spin wheel. Choice pictures, set apart from the dishes\': Cards, Round, Oval or Hexagons. Hexagon choices in a grid lock together like a honeycomb even when there are only a few (three make two over one, four make two over two); the list, slider and wheel show hexagon photos. Words only leaves the pictures out: each choice shows its name, level and price in the shape you picked (a card also shows the description), so hexagons become hexagons of words; the list and the wheel leave their small pictures out too, and a split photo still uses the pictures. Line up the choices: a grid or honeycomb of choices, with its heading, from the left or centred on the screen. The spin wheel\'s Spin button, and whether a spin picks the choice it stops on. The marks for levels: flames, stars or dots.'],
                 ['Paying', 'By card, at the counter (and whether the kitchen starts on a pay-at-counter order straight away or once it\'s paid), the note on the order number screen, "Anything else?" dishes before paying, receipts, the heading over the order number.'],
                 ['Timing and access', 'When the kiosk starts again if nobody taps, how long "Still there?" waits, how long the order number shows, and the reach button.'],
               ]}
@@ -4925,6 +5011,22 @@ export default function Help() {
               Words you leave empty use the kiosk's own words, which come in all nine languages. Words you type
               show as typed: translate them on <strong>Menus → Translations</strong>.
             </InfoBox>
+
+            <H3>Sharing a preview</H3>
+            <P>
+              <strong>Share</strong> in the design editor's top bar makes a link to this design that anyone can open,
+              with no sign-in: send it to a brand team, a franchise partner or a designer. It opens the kiosk at a real
+              kiosk's size, scaled to fit their screen, with <strong>Upright</strong>, <strong>Wide</strong>,{' '}
+              <strong>Start again</strong> and <strong>Full screen</strong> (for trying it on a tablet). They see the
+              design as saved, with the menu and prices of the location you pick (and, where a location has more than
+              one, the revenue stream it orders as). Nothing is ordered or paid.
+            </P>
+            <ul className="list-disc ml-5 space-y-2 text-sm text-muted-foreground mb-4">
+              <li><strong>Copy link</strong>, <strong>Open</strong>, or the QR code for someone holding a phone or tablet. The dialog shows how many times the link was opened.</li>
+              <li>Each design has one link. Saving the design updates what the link shows; changes you haven't saved aren't in it.</li>
+              <li><strong>Works until</strong> gives the link an end date (leave it empty for none). <strong>New link</strong> stops the old one for everyone and makes another; <strong>Stop sharing</strong> stops it.</li>
+              <li>Making, moving and stopping a link needs Manage on Till setup. Shared designs are marked <strong>Preview shared</strong> in Till setup → Kiosks.</li>
+            </ul>
 
             <H3>How choices show (Menus)</H3>
             <ul className="list-disc ml-5 space-y-2 text-sm text-muted-foreground mb-4">
@@ -4944,6 +5046,9 @@ export default function Help() {
               <li>The order page: change or take off dishes, "Anything else?", then the name or table number if the stream asks, then pay. The order number shows at the end (with a receipt to print if you allow it).</li>
               <li>Nobody tapping for a while: "Still there?", then the kiosk starts again. The reach button brings everything down to the lower half of the screen. A dish marked sold out on the till greys out on the kiosk straight away.</li>
               <li>Without the internet the kiosk stops taking new orders. A card order already paid when the internet goes is kept on the kiosk and sent when it's back; the guest gets the kiosk's own number (KS1-0012) to show at the counter.</li>
+              <li>The kiosk notices a lost connection within seconds (within about half a minute when the shop's router loses the internet but the Wi-Fi stays up). It tries twice more straight away, so a short blip doesn't pause ordering; only then does the start screen say ordering is paused. It then tries every few seconds and opens ordering again as soon as it gets through.</li>
+              <li>Every picture on the menu (dishes, sections, choices, banners, the logo) is kept on the kiosk after each menu change, so a guest already ordering when the internet goes still sees them all. Start screen videos aren't kept.</li>
+              <li>The staff panel (five quick taps in the top-left corner of the start screen) shows the connection (Online, Checking or Offline) and how many of the menu's pictures are saved on the kiosk.</li>
             </ul>
 
             <H3>Translations (Menus → Translations)</H3>
