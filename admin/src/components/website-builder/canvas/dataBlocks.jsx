@@ -767,6 +767,8 @@ export function MenuInlineCanvas({ data, onChange }) {
   const direction       = data.direction === 'rows' ? 'rows' : 'columns'
   const showHeaders     = data.show_section_headers !== false
   const showSubheader   = data.show_subheader      !== false
+  const showDishPhotos    = data.show_dish_photos    !== false
+  const showSectionImages = data.show_section_images !== false
   const subheaderText   = (data.subheader_text || '').trim() || (menu && menu.tagline) || ''
 
   // Block-level filters — match the SSR partial exactly so the canvas
@@ -837,7 +839,7 @@ export function MenuInlineCanvas({ data, onChange }) {
                       alignItems: 'baseline', justifyContent: 'space-between', gap: 12,
                     }}>
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                        {s.image_url && (
+                        {showSectionImages && s.image_url && (
                           <img src={s.image_url} alt="" style={{ width: '1.3em', height: '1.3em', objectFit: 'cover', borderRadius: 6, flexShrink: 0 }} />
                         )}
                         <span>{s.title}</span>
@@ -859,7 +861,7 @@ export function MenuInlineCanvas({ data, onChange }) {
                     return (
                     <div key={item.id} style={{ padding: '10px 0', borderBottom: '1px dotted var(--c-border)' }}>
                       <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                        {item.image_url && (
+                        {showDishPhotos && item.image_url && (
                           <img src={item.image_url} alt=""
                             style={{ width: 52, height: 52, objectFit: 'cover', borderRadius: 8, flexShrink: 0, background: 'var(--c-surface)' }} />
                         )}
