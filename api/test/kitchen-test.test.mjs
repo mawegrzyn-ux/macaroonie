@@ -7,6 +7,7 @@ import assert from 'node:assert/strict'
 import { as, getApp, sql, ok, closeApp } from './support/app.mjs'
 import { resetAndSeed, A, B } from './support/seed.mjs'
 import { fillTenant } from './support/fixtures.mjs'
+import { linkDevice } from './support/devices.mjs'
 import { INTERNAL_CALL_HEADER, INTERNAL_CALL_SECRET } from '../src/middleware/auth.js'
 import { makeLink } from '../src/services/previewLinks.js'
 import { previewToken } from '../src/services/kioskSvc.js'
@@ -32,7 +33,7 @@ before(async () => {
   V = filled.ids.venue
   other = await fillTenant(B.owner, ids.b, { mark: 'Yyb', slug: 'yyb' })
   assert.deepEqual(other.failed, [], 'fixtures B')
-  await ok(owner.post(`/api/pos/venues/${V}/devices`, { name: 'Grill screen', kind: 'kds', settings: {} }), 'a kitchen screen')
+  await linkDevice(owner, V, { kind: 'kds', name: 'Grill screen' })
 })
 after(closeApp)
 

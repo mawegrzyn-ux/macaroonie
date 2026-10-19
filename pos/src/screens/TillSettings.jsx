@@ -21,7 +21,7 @@ export default function TillSettings() {
     const a = await approve('manager', null, 'Disconnecting the till needs a manager.')
     if (a === false) return
     const told = await disconnect()
-    if (!told) toast('Disconnected here. Macaroonie couldn\'t be told (offline): remove the till in Till setup, or make it a new code.', 'bad', 9000)
+    if (!told) toast('Disconnected here. Macaroonie couldn\'t be told (offline): remove the till in Till setup, or link the code this tablet shows next.', 'bad', 9000)
   }
   return (
     <div className="h-full overflow-y-auto p-5">
@@ -81,7 +81,7 @@ export default function TillSettings() {
 
         <div className="card p-5 space-y-3" data-testid="disconnect-card">
           <div className="text-lg font-bold">Disconnect this till</div>
-          <div className="text-sm text-muted">This tablet stops being a till until it is paired again with a new code from Till setup. The till keeps its name and settings in Till setup.</div>
+          <div className="text-sm text-muted">This tablet stops being a till and shows a code. Link that code in Till setup (Tills, Link a device) or with the installer app to set it up again: the till keeps its name and settings.</div>
           {s.outbox.length > 0 && <div className="rounded-xl bg-bad-soft text-bad p-3 text-sm font-semibold">{s.outbox.length} changes haven&apos;t been sent yet. Get the till online first: they go by themselves.</div>}
           {!confirmDisconnect
             ? <button className="btn text-bad" onClick={() => setConfirmDisconnect(true)}><Unplug size={18} /> Disconnect</button>

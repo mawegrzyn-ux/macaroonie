@@ -6,16 +6,17 @@
 // the till itself (shared/pos/pin.js); events carry their staff id and the
 // sequencer checks what their POS role allows.
 //
-//   POST /pair                  { code, app? } -> { device_id, secret, ... }   (no auth). `app` is the
-//                               kind the address runs (pos. till, kitchen. kitchen screen, kiosk.
-//                               kiosk): a code for another kind is refused, naming its address
 //   POST /pairings              { app?, device? } (no auth) a code for this device to show, with a
 //                               QR code to the installer app: { id, code, secret, expires_at, link_url }
-//                               (migration 184; someone signed in links it: POST /api/pos/venues/:id/link)
+//                               (migration 184; someone signed in links it: POST /api/pos/venues/:id/link,
+//                               from Till setup or the installer). The one way a device is set up
+//   POST /pair                  { code, app? } -> { device_id, secret, ... }   (no auth). Only the hand-over
+//                               code of POST /move, typed in by the app at the new address. `app` is the
+//                               kind the address runs: a code for another kind is refused, naming its address
 //   GET  /pairings/:id          `Authorization: Pairing <secret>`: { status: 'waiting' | 'paired' |
 //                               'expired' }; once paired the device signs in as `Device <id>.<the same secret>`
 //   POST /disconnect            the device forgets its pairing (its settings): the secret stops
-//                               working, Till setup shows it not paired, a new code pairs it again
+//                               working, Till setup shows it not linked; linking a device showing a code sets it up again
 //   POST /move                  a kitchen screen or kiosk still on another address moves to its
 //                               own: a one-time pairing code (10 minutes) for its address
 //   GET  /kiosk-preview?token=  a kiosk design's preview config (the signed link is the key, services/kioskSvc.js)
@@ -173,7 +174,10 @@ async function currentDay(tx, tenantId, venueId) {
 }
 
 export default async function posApiRoutes(app) {
-  // ── Pairing (no auth: the one-time code is the key) ──────────────
+  // ── Move hand-over (no auth: the one-time code is the key) ───────
+  // A device moving to its own address (POST /move below) hands this code
+  // to the app there, which pairs as the same device. People never type
+  // these: a device is set up by the code it shows (/pairings).
   app.post('/pair', { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async req => {
     const body = z.object({
       code: z.string().min(4).max(20),
@@ -184,7 +188,7 @@ export default async function posApiRoutes(app) {
       user_agent: z.string().max(300).optional(),
     }).parse(req.body)
     const hash = sha256(normaliseCode(body.code))
-    const bad = () => httpError(422, 'That code isn\'t right or has run out: make a new one in Till setup')
+    const bad = () => httpError(422, 'That code isn\'t right or has run out: move the device again from its old address, or link it with the code it shows')
     const [found] = await systemSql`
       SELECT id, kind FROM pos_devices
        WHERE pairing_code_hash = ${hash} AND pairing_expires_at > now() AND revoked_at IS NULL`
@@ -312,7 +316,8 @@ export default async function posApiRoutes(app) {
     scoped.addHook('preHandler', requireDevice)
 
     // The device forgets its pairing (Disconnect in its settings). Its row
-    // stays, with its name and settings, so Till setup can make it a new code.
+    // stays, with its name and settings: linking a device showing a code to
+    // it (Till setup or the installer) sets it up again.
     scoped.post('/disconnect', async req => {
       const d = req.posDevice
       await tenantSql(d.tenant_id)`

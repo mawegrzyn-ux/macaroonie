@@ -9,11 +9,10 @@
 //                                                 the order types themselves are tenant-wide, routes/taxSetup.js)
 //   POST   /venues/:venueId/printers              + PATCH/DELETE /printers/:id
 //   PUT    /venues/:venueId/routes                the whole printer routing list
-//   POST   /venues/:venueId/devices               add a till: returns a one-time pairing code
-//   POST   /devices/:id/pairing-code              a new code (pairs again, the old secret stops working)
 //   POST   /venues/:venueId/link                  { code, device_id? | name, kind?, settings? } link a device
 //                                                 showing a code (migration 184): a new till, kitchen screen
-//                                                 or kiosk, or a new device for one already here
+//                                                 or kiosk, or a new device for one already here. The only
+//                                                 way a device is added: Till setup and the installer app
 //   PATCH  /devices/:id                           name, settings (mode, revenue stream, receipt printer, floor area;
 //                                                 a kiosk's design and card reader)
 //   DELETE /devices/:id                           revoke
@@ -50,7 +49,7 @@
 //   POST   /venues/:venueId/kitchen-test          a signed link to the kitchen test bench (every screen on one page)
 //   GET    /venues/:venueId/kitchen-report?from=&to=   speed of service per station, by hour, remakes
 //   GET    /venues/:venueId/kitchen-report.csv?from=&to=  every bump and remake, for spreadsheets / BI
-//   (kitchen screens themselves are devices: POST /venues/:venueId/devices with kind 'kds')
+//   (kitchen screens themselves are devices of kind 'kds', added by POST /venues/:venueId/link)
 //
 // Setup needs pos_setup (view to read, manage to change); reports need
 // pos_reports. Every query filters tenant_id itself.
@@ -62,7 +61,7 @@ import { requireAuth, requirePermission, permissionLevel } from '../middleware/a
 import { httpError } from '../middleware/error.js'
 import { broadcast } from '../config/ws.js'
 import {
-  ensureSettings, settingsView, ownVenue, openPairing,
+  ensureSettings, settingsView, ownVenue,
   dayReport, fillReconFromDay, DEFAULT_COURSES,
 } from '../services/posSvc.js'
 import { reconFields } from '../services/reconFill.js'
@@ -188,12 +187,6 @@ const DeviceSettings = z.object({
 // What a device showing a link code can become, in the words the refusals use.
 const LINK_KINDS = ['terminal', 'kds', 'kiosk']
 const LINK_KIND_NAME = { terminal: 'a till', kds: 'a kitchen screen', kiosk: 'a self-order kiosk', hub: 'a venue hub' }
-
-const DeviceBody = z.object({
-  name:     z.string().trim().min(1).max(60),
-  kind:     z.enum(['terminal', 'hub', 'kds', 'kiosk']).default('terminal'),
-  settings: DeviceSettings,
-})
 
 const KioskDesignBody = z.object({
   name:     z.string().trim().min(1).max(80),
@@ -410,8 +403,7 @@ function deviceView(d) {
     id: d.id, name: d.name, kind: d.kind, short_code: d.short_code, settings: d.settings || {},
     paired: !!d.secret_hash, paired_at: d.paired_at, last_seen_at: d.last_seen_at,
     app_version: d.app_version, user_agent: d.user_agent, revoked_at: d.revoked_at,
-    pairing_open: !!d.pairing_code_hash && d.pairing_expires_at && new Date(d.pairing_expires_at) > new Date(),
-    pairing_expires_at: d.pairing_expires_at, created_at: d.created_at,
+    created_at: d.created_at,
   }
 }
 
@@ -766,39 +758,11 @@ export default async function posSetupRoutes(app) {
     if (s.design_id) await checkDesign(tx, tenantId, s.design_id)
   }
 
-  app.post('/venues/:venueId/devices', { preHandler: canSetup }, async (req, reply) => {
-    const venueId = UUID.parse(req.params.venueId)
-    const body = DeviceBody.parse(req.body)
-    const out = await withTenant(req.tenantId, async tx => {
-      await ownVenue(tx, req.tenantId, venueId)
-      await checkDeviceSettings(tx, req.tenantId, venueId, body.settings)
-      const short = await nextShortCode(tx, req.tenantId, venueId, body.kind)
-      const [d] = await tx`
-        INSERT INTO pos_devices (tenant_id, venue_id, kind, name, short_code, settings, created_by)
-        VALUES (${req.tenantId}, ${venueId}, ${body.kind}, ${body.name}, ${short}, ${tx.json(body.settings)}, ${by(req)})
-        RETURNING *`
-      const code = await openPairing(tx, req.tenantId, d.id)
-      const [fresh] = await tx`SELECT * FROM pos_devices WHERE id = ${d.id} AND tenant_id = ${req.tenantId}`
-      return { device: deviceView(fresh), pairing_code: code }
-    })
-    return reply.code(201).send(out)
-  })
-
-  app.post('/devices/:id/pairing-code', { preHandler: canSetup }, async req => {
-    const id = UUID.parse(req.params.id)
-    return withTenant(req.tenantId, async tx => {
-      const d = await ownRow(tx, 'pos_devices', req.tenantId, id, 'Till')
-      if (d.revoked_at) throw httpError(422, 'This till was removed')
-      const code = await openPairing(tx, req.tenantId, id)
-      const [fresh] = await tx`SELECT * FROM pos_devices WHERE id = ${id} AND tenant_id = ${req.tenantId}`
-      return { device: deviceView(fresh), pairing_code: code }
-    })
-  })
-
-  // A device showing a code of its own (POST /pos-api/pairings, migration
-  // 184): a new till, kitchen screen or kiosk at this venue, or a new device
-  // for one already here (the old device stops working). The address the code
-  // was shown on decides the kind.
+  // The one way a till, kitchen screen or kiosk is set up: the device shows a
+  // code of its own (POST /pos-api/pairings, migration 184) and someone signed
+  // in types it here, from Till setup or the installer app. A new device at
+  // this venue, or a new device for one already here (the old device stops
+  // working). The address the code was shown on decides the kind.
   app.post('/venues/:venueId/link', { preHandler: canSetup, config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (req, reply) => {
     const venueId = UUID.parse(req.params.venueId)
     const body = z.object({

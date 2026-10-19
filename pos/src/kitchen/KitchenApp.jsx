@@ -744,7 +744,7 @@ function DisconnectBox({ waiting }) {
   return (
     <div className="mt-3 pt-3 border-t border-white/10 space-y-2" data-testid="kds-disconnect">
       <div className="text-xs uppercase font-bold text-white/60 px-1">Disconnect</div>
-      <div className="text-sm text-white/60 px-1">This device stops being a kitchen screen until it is paired again with a new code from Till setup. The screen keeps its name, stations and settings there.</div>
+      <div className="text-sm text-white/60 px-1">This device stops being a kitchen screen and shows a code. Link that code in Till setup (Kitchen screens, Link a device) or with the installer app to set it up again: the screen keeps its name, stations and settings.</div>
       {step === 0 && (
         <button onClick={() => setStep(1)} className="w-full min-h-[52px] rounded-lg bg-zinc-700 text-red-300 font-bold">Disconnect this screen</button>
       )}

@@ -5,6 +5,15 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-19 — One way to set up tills, kitchen screens and kiosks]
+
+- Devices are now set up **one way**, the installer's: open the device's address (tills **pos.**, kitchen screens **kitchen.**, kiosks **kiosk.**) and it shows a six-letter code with a QR code. Type that code in Till setup (**Add a till**, **Add a screen**, **Add a kiosk**, with the name and settings in the same window), or scan the QR code with a phone and link it in the installer app. The device sets itself up.
+- Till setup and the installer no longer make codes to type into a device, and devices no longer have a **Have a code from Till setup?** form. Before, Till setup showed a code to type on the kiosk while the kiosk showed a different code to type in the installer.
+- **New device** on a row puts a till, kitchen screen or kiosk on another device (type the code that device shows; the old one stops). A disconnected device shows **Not linked** with **Link a device**.
+- A code shown on one kind of device can only become that kind: a kitchen screen's code typed in Add a kiosk is refused and says so.
+- Devices moving from the old shared address to their own still move by themselves.
+- No migration.
+
 ## [2026-10-19 — Website menu block: pictures can be switched off]
 
 - The website's **Menu (inline)** block has two new switches under Display: **Show dish photos** and **Show section pictures**. Turn both off for a menu in words only. Both are on by default, so menus already on the site are unchanged.

@@ -1,8 +1,9 @@
 // src/components/pos/KitchenSection.jsx
 //
 // Till setup > Kitchen screens (docs/POS.md section 9):
-//   - the kitchen screens: tablets or TVs paired like a till (one-time code at
-//     the till address); each shows one or more stations
+//   - the kitchen screens: tablets or TVs set up like a till (open the
+//     kitchen screen address on it, type the code it shows, or scan its QR
+//     code with a phone); each shows one or more stations
 //   - stations: prep stations (Grill, Fryer, Bar ...) make dishes; the expo
 //     (the pass) checks whole orders and marks them ready; runners take them
 //     out; order ready boards show the numbers on menu screens. Timings
@@ -15,14 +16,14 @@
 
 import { useEffect, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Loader2, KeyRound, Pencil, ChefHat, Trash2, Search, X, MonitorPlay } from 'lucide-react'
+import { Plus, Loader2, Pencil, ChefHat, Trash2, Search, X, MonitorPlay } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import {
-  Section, Modal, Field, inputCls, ErrorNote, ConfirmDelete, Segmented, Btn, NumberBox, Toggle, SortableRows, ColourPick, ago,
+  Section, Modal, Field, inputCls, ErrorNote, ConfirmDelete, Segmented, Btn, NumberBox, Toggle, SortableRows, ColourPick,
 } from './shared'
 import KitchenFlow from './KitchenFlow'
-import { PairingCode, deviceUrl, LinkShownCode, InstallerLine } from './TillsSection'
+import { deviceUrl, InstallerLine, status, ShownCodeField, LinkDeviceModal, LinkDeviceButton, linkShownCode, codeReady } from './TillsSection'
 import { STATION_KINDS, KIND_LABELS, isBumpKind } from '@shared/pos/kitchen.js'
 import { TYPE_LABELS as GF_TYPE_LABELS } from '@shared/gloriafood.js'
 
@@ -48,10 +49,11 @@ const newId = () => Math.random().toString(36).slice(2, 10)
 
 // ── Kitchen screens (devices) ────────────────────────────────────
 
-function ScreenModal({ venueId, setup, device, onClose, onPaired }) {
+function ScreenModal({ venueId, setup, device, onClose }) {
   const api = useApi()
   const qc = useQueryClient()
   const s = device?.settings || {}
+  const [code, setCode] = useState('')
   const [form, setForm] = useState({
     name: device?.name || '',
     station_ids: s.station_ids || [],
@@ -74,19 +76,20 @@ function ScreenModal({ venueId, setup, device, onClose, onPaired }) {
   const save = useMutation({
     mutationFn: () => device
       ? api.patch(`/pos/devices/${device.id}`, body())
-      : api.post(`/pos/venues/${venueId}/devices`, { ...body(), kind: 'kds' }),
-    onSuccess: out => { refresh(); if (!device) onPaired(out); else onClose() },
+      : linkShownCode(api, venueId, 'kds', code, body()),
+    onSuccess: () => { refresh(); onClose() },
   })
   const remove = useMutation({ mutationFn: () => api.delete(`/pos/devices/${device.id}`), onSuccess: () => { refresh(); onClose() } })
   const toggle = id => set({ station_ids: form.station_ids.includes(id) ? form.station_ids.filter(x => x !== id) : [...form.station_ids, id] })
   return (
     <Modal title={device ? 'Edit ' + device.name : 'Add a kitchen screen'} onClose={onClose}
       footer={<>
-        <Btn variant="primary" className="flex-1" disabled={!form.name.trim() || save.isPending} onClick={() => save.mutate()}>
-          {save.isPending && <Loader2 className="w-4 h-4 animate-spin" />} {device ? 'Save' : 'Add and get a pairing code'}
+        <Btn variant="primary" className="flex-1" disabled={!form.name.trim() || (!device && !codeReady(code)) || save.isPending} onClick={() => save.mutate()} data-testid="device-save">
+          {save.isPending && <Loader2 className="w-4 h-4 animate-spin" />} {device ? 'Save' : 'Add the screen'}
         </Btn>
         {device && <ConfirmDelete label="Remove screen" confirmLabel="Yes, remove" onConfirm={() => remove.mutate()} disabled={remove.isPending} />}
       </>}>
+      {!device && <ShownCodeField setup={setup} kind="kds" value={code} onChange={setCode} autoFocus />}
       <Field label="Name" hint="e.g. Grill screen, Pass.">
         <input className={inputCls} value={form.name} maxLength={60} onChange={e => set({ name: e.target.value })} placeholder="e.g. Grill screen" />
       </Field>
@@ -123,26 +126,14 @@ function ScreenModal({ venueId, setup, device, onClose, onPaired }) {
   )
 }
 
-function statusOf(d) {
-  if (d.paired) return { text: 'Paired · seen ' + ago(d.last_seen_at), tone: 'ok' }
-  if (d.pairing_open) return { text: 'Waiting to pair, code works until ' + new Date(d.pairing_expires_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }), tone: 'warn' }
-  return { text: 'Not paired', tone: 'muted' }
-}
-
 function ScreensCard({ venueId, setup }) {
   const screenStations = setup.kds_stations.filter(x => isBumpKind(x.kind))
-  const api = useApi()
-  const qc = useQueryClient()
   const [editing, setEditing] = useState(null)
-  const [pairing, setPairing] = useState(null)
-  const newCode = useMutation({
-    mutationFn: id => api.post(`/pos/devices/${id}/pairing-code`, {}),
-    onSuccess: out => { qc.invalidateQueries({ queryKey: ['pos-setup', venueId] }); setPairing(out) },
-  })
+  const [linking, setLinking] = useState(null) // device
   const screens = setup.devices.filter(d => d.kind === 'kds' && !d.revoked_at)
   const stationName = id => setup.kds_stations.find(s => s.id === id)?.name
   return (
-    <Section title="Kitchen screens" hint="Android tablets or TVs in the kitchen. Open the kitchen screen address (below) on the screen in Chrome, install it, and type the pairing code."
+    <Section title="Kitchen screens" hint="Android tablets or TVs in the kitchen. Open the kitchen screen address (below) on the screen in Chrome and install it: it shows a code. Press Add a screen and type it, or scan its QR code with a phone."
       actions={<Btn variant="primary" onClick={() => setEditing('new')} disabled={!screenStations.length}><Plus className="w-4 h-4" /> Add a screen</Btn>}>
       {!screens.length && (
         <div className="text-sm text-muted-foreground flex items-start gap-3">
@@ -153,7 +144,7 @@ function ScreensCard({ venueId, setup }) {
       {!!screens.length && (
         <div className="rounded-xl border divide-y">
           {screens.map(d => {
-            const st = statusOf(d)
+            const st = status(d)
             const names = (d.settings?.station_ids || []).map(stationName).filter(Boolean)
             return (
               <div key={d.id} className="flex flex-wrap items-center gap-3 px-3 py-2" data-testid="kds-screen-row">
@@ -163,9 +154,7 @@ function ScreensCard({ venueId, setup }) {
                   <p className="text-xs text-muted-foreground">{names.length ? names.join(', ') : 'All stations'} · opens on {d.settings?.view === 'on_order' ? 'On order counts' : 'Tickets'}</p>
                   <p className={cn('text-xs', st.tone === 'ok' ? 'text-green-700' : st.tone === 'warn' ? 'text-amber-700' : 'text-muted-foreground')}>{st.text}</p>
                 </div>
-                <Btn onClick={() => newCode.mutate(d.id)} disabled={newCode.isPending} title="New pairing code">
-                  <KeyRound className="w-4 h-4" /> <span className="hidden sm:inline">{d.paired ? 'Pair again' : 'New code'}</span>
-                </Btn>
+                <LinkDeviceButton device={d} onClick={() => setLinking(d)} />
                 <Btn onClick={() => setEditing(d)} title={'Edit ' + d.name}><Pencil className="w-4 h-4" /></Btn>
               </div>
             )
@@ -173,14 +162,11 @@ function ScreensCard({ venueId, setup }) {
         </div>
       )}
       <p className="text-xs text-muted-foreground">Kitchen screen address: <span className="font-medium text-foreground break-all" data-testid="kds-address">{deviceUrl(setup, 'kds')}</span></p>
-      <div><LinkShownCode venueId={venueId} kind="kds" /></div>
       <InstallerLine setup={setup} />
-      <ErrorNote error={newCode.error} />
       {editing && (
-        <ScreenModal venueId={venueId} setup={setup} device={editing === 'new' ? null : editing}
-          onClose={() => setEditing(null)} onPaired={out => { setEditing(null); setPairing(out) }} />
+        <ScreenModal venueId={venueId} setup={setup} device={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />
       )}
-      {pairing && <PairingCode code={pairing.pairing_code} device={pairing.device} tillUrl={deviceUrl(setup, 'kds')} what="kitchen screen" onClose={() => setPairing(null)} />}
+      {linking && <LinkDeviceModal venueId={venueId} setup={setup} device={linking} onClose={() => setLinking(null)} />}
     </Section>
   )
 }

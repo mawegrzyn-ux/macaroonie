@@ -160,11 +160,11 @@ function DisconnectBox({ waiting }) {
     setMsg(null)
     const r = await disconnect()
     if (!r.ok) { setMsg(r.error); setBusy(false); setStep(0); return }
-    if (!r.told) setMsg('Disconnected here. Macaroonie couldn\'t be told (offline): remove the kiosk in Till setup, or make it a new code.')
+    if (!r.told) setMsg('Disconnected here. Macaroonie couldn\'t be told (offline): remove the kiosk in Till setup, or link the code it shows next.')
   }
   return (
     <div className="flex flex-col gap-[.5em] pt-[.6em] border-t border-black/10" data-testid="k-disconnect">
-      <div className="k-muted text-[.8em]">Disconnect: this screen stops being a kiosk until it is paired again with a new code from Till setup &gt; Kiosks (it keeps its name and settings there).</div>
+      <div className="k-muted text-[.8em]">Disconnect: this screen stops being a kiosk and shows a code. Link that code in Till setup &gt; Kiosks (Link a device) or with the installer app to set it up again (it keeps its name and settings).</div>
       {step === 0
         ? <button className="k-btn self-start" onClick={() => setStep(1)}>Disconnect this kiosk</button>
         : (

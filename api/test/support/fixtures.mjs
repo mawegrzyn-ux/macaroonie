@@ -244,8 +244,12 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx' } = 
   // ── Till, kitchen, kiosks, screens ──
   await step('revenue stream', () => post(`/api/pos/venues/${V}/revenue-streams`, { name: mark + ' Bar' }))
   await step('printer', () => post(`/api/pos/venues/${V}/printers`, { name: mark + ' Kitchen', ip_address: '192.168.1.50' }))
-  await step('till device', () => post(`/api/pos/venues/${V}/devices`, { name: mark + ' Till 1', kind: 'terminal' }))
-  // A kitchen screen showing its own code, linked from the installer (migration 184).
+  // Devices show a code of their own and are linked by it (migration 184):
+  // a till from Till setup, a kitchen screen from the installer.
+  await step('till device', async () => {
+    const shown = await ok(c.post('/pos-api/pairings', { app: 'terminal' }), 'device code')
+    return post(`/api/pos/venues/${V}/link`, { code: shown.code, name: mark + ' Till 1', settings: { mode: 'table' } })
+  })
   await step('linked kitchen screen', async () => {
     const shown = await ok(c.post('/pos-api/pairings', { app: 'kds', device: { width: 1280, height: 800 } }), 'device code')
     await ok(c.post('/api/installer/lookup', { code: shown.code }), 'installer lookup')

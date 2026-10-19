@@ -58,12 +58,11 @@ export async function seedPosDefaults(tx, tenantId) {
 // ── Secrets ──────────────────────────────────────────────────────
 
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
-export const PAIRING_MINUTES = 30
 
 export const sha256 = s => crypto.createHash('sha256').update(String(s)).digest('hex')
 
-/** A one-time pairing code: 8 characters, shown as ABCD-EFGH. */
-export function newPairingCode() {
+/** A one-time hand-over code: 8 characters, shown as ABCD-EFGH. */
+function newPairingCode() {
   const bytes = crypto.randomBytes(8)
   let out = ''
   for (const b of bytes) out += CODE_ALPHABET[b % CODE_ALPHABET.length]
@@ -77,11 +76,12 @@ export function newDeviceSecret() {
 }
 
 /**
- * A fresh pairing code for a device, valid `minutes` (PAIRING_MINUTES).
- * Returns the code (shown once). Used by Till setup and by a device moving
- * itself to its own address (POST /pos-api/move).
+ * A one-time code (10 minutes) a device hands to its own address when it
+ * moves there (POST /pos-api/move); the app at the new address types it in
+ * by itself (POST /pos-api/pair). Nobody types these: people set devices up
+ * by the code the device shows (POST /api/pos/venues/:id/link).
  */
-export async function openPairing(tx, tenantId, deviceId, minutes = PAIRING_MINUTES) {
+export async function openPairing(tx, tenantId, deviceId, minutes = 10) {
   for (let i = 0; i < 5; i++) {
     const code = newPairingCode()
     const hash = sha256(normaliseCode(code))

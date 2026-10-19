@@ -222,7 +222,7 @@ export async function switchFlow(flowId) {
 
 function handleError(err) {
   if (err instanceof OfflineError || err?.offline) { setState({ online: false }); return }
-  if (err?.status === 401) { forget('This screen was removed in Till setup. Pair it again.'); return }
+  if (err?.status === 401) { forget('This screen was removed in Till setup. Link it again with the code it shows.'); return }
   if (err?.status === 403 && err.code === 'pos_off') { toast(err.message, 'bad', 8000); return }
   console.warn(err)
 }
@@ -254,7 +254,7 @@ export async function disconnect() {
   if (bench) return { ok: false, error: 'Not on the test page' }
   const told = await tellDisconnect(api)
   await clearDevice()
-  if (!told) toast('Disconnected here. Macaroonie couldn\'t be told (offline): remove the screen in Till setup, or make it a new code.', 'bad', 8000)
+  if (!told) toast('Disconnected here. Macaroonie couldn\'t be told (offline): remove the screen in Till setup, or link the code it shows next.', 'bad', 8000)
   setTimeout(() => location.reload(), told ? 300 : 4000)
   return { ok: true, told }
 }

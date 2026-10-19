@@ -199,10 +199,14 @@ async function relabel(device, kind) {
   openOtherApp(fixed)
 }
 
+/**
+ * Pair with the one-time code a move brought (#pair=, POST /pos-api/move on
+ * the old address). Nobody types codes: a device is set up by the code it
+ * shows (requestLinkCode()). The address says what this device is
+ * (lib/appHost.js); the server refuses a code for another kind.
+ */
 export async function pair(code) {
   const t = createTransport(null)
-  // The address says what this device is (lib/appHost.js); the server
-  // refuses a code for another kind, naming its address.
   const res = await t.post('/pos-api/pair', { code, app: HOST_APP || undefined, app_version: APP_VERSION, user_agent: navigator.userAgent.slice(0, 280) })
   await startPaired({ ...res, secret: res.secret })
 }
@@ -251,7 +255,7 @@ export async function checkLinkCode(p) {
   return 'paired'
 }
 
-/** Forget the pairing (the till must be paired again with a new code). Pairing again clears unsent events. */
+/** Forget the pairing: the setup screen shows a new code to link it again. Pairing again clears unsent events. */
 export async function unpair() {
   stopSync()
   await Promise.all([idb.del(DEVICE_KEY), idb.del(CONFIG_KEY), idb.del(SNAPSHOT_KEY)])
@@ -316,7 +320,7 @@ export async function loadConfig() {
 function handleError(err) {
   if (err instanceof OfflineError || err?.offline) { setState({ online: false }); return }
   if (err?.status === 401) {
-    toast('This till was removed in Till setup. Pair it again.', 'bad', 8000)
+    toast('This till was removed in Till setup. Link it again with the code it shows.', 'bad', 8000)
     unpair()
     return
   }

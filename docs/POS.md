@@ -255,8 +255,10 @@ Changes from sections 2-3, while there is no hub:
 - **Tills talk to the cloud only.** With the internet down a till keeps trading on its own
   (outbox), but two tills don't see each other until it's back; clashes are refused and listed
   (Till reports → Refused changes). The hub removes that gap.
-- **Pairing is by one-time code**, not an Auth0 login: Till setup → Add a till shows a code
-  that `POST /pos-api/pair` swaps for a device secret. The code decides the kind (till, kitchen
+- **Linking is by the code the device shows**, not an Auth0 login: the device asks for a code
+  (`POST /pos-api/pairings`, it keeps the secret) and shows it with a QR code; someone signed in
+  types it in Till setup (Add a till / screen / kiosk) or links it in the installer app
+  (`POST /api/pos/venues/:id/link`, 19 Oct 2026: the only way). The code's address decides the kind (till, kitchen
   screen, kiosk); the app opens the matching screens, and the kind in every config reply wins over
   the one saved on the device (`relabel()` in `pos/src/lib/store.js`).
 - **App updates**: the service worker keeps the app on the device, so after a deploy a device
@@ -360,8 +362,8 @@ Chrome, as an installed PWA.
                     └─► pos.seq { kinds } ─► tills / kitchen screens     kitchen.board ─► menu screens
 ```
 
-- **A kitchen screen is a device** (`pos_devices.kind = 'kds'`), paired with a one-time code at
-  the till address like a till; the same `pos/` app opens the kitchen UI for it. No PIN: a
+- **A kitchen screen is a device** (`pos_devices.kind = 'kds'`), linked by the code it shows at
+  the kitchen address like a till; the same `pos/` app opens the kitchen UI for it. No PIN: a
   kitchen screen belongs to a station, not a person.
 - **Kitchen events are POS events.** Bump, done, recall, remake, rush and collected are events
   in the venue's `pos_events` log, sequenced like check events. The kitchen's state
@@ -485,8 +487,8 @@ and the ConnectSmart Kitchen guide.
 
 ### 10.1 How it fits
 
-- A kiosk is a till device of kind `kiosk`, paired at the till address with a one-time code. The
-  same PWA boots the kiosk screens (`pos/src/kiosk`) for it. There is no separate kiosk host.
+- A kiosk is a till device of kind `kiosk`, linked by the code it shows at the kiosk address
+  (`kiosk.<domain>`, 18 Oct 2026). The same PWA boots the kiosk screens (`pos/src/kiosk`) for it.
 - Its orders are counter checks made of the till's own events (`kioskOrder()` in
   `shared/kiosk.js`), sequenced by the same sequencer, so they reach the tills' Counter list, the
   kitchen (and its flow), Till reports, X / Z and Cash Recon with no special case. The kiosk is the

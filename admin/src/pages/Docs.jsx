@@ -3136,7 +3136,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['pos_days', 'Trading days: business_date (from day_starts_at), z_number, figures jsonb at Z, declared_cash, recon_filled_at / recon_error. One open per venue.'],
                 ['pos_venue_state', 'last_seq, next_check_no, next_order_no, next_z_number.'],
                 ['pos_print_jobs', 'Print queue (ops jsonb from tickets.js), status queued | printing | printed | failed, for the hub.'],
-                ['pos_devices', 'Tills and (later) hubs: kind terminal | hub, short_code, secret_hash, pairing_code_hash + pairing_expires_at, settings jsonb (mode, revenue_stream_id, receipt_printer_id, floor_area_id), revoked_at.'],
+                ['pos_devices', 'Tills, kitchen screens, kiosks and (later) hubs: kind terminal | kds | kiosk | hub, short_code, secret_hash, pairing_code_hash + pairing_expires_at (only the move hand-over code of POST /pos-api/move), settings jsonb (mode, revenue_stream_id, receipt_printer_id, floor_area_id), revoked_at.'],
                 ['pos_settings', 'Per venue: pin_salt, day_starts_at, receipt texts, tenders jsonb, tips, require_covers, order_no_start, auto_logout_secs, recon_map, recon_auto_fill. (Migration 170 dropped the VAT defaults and counter_revenue_centre_id.)'],
                 ['pos_revenue_streams', 'Migration 170 (was pos_revenue_centres): name, menu_ids, service_charge_percent + min covers, colour, sort_order, is_active, default_order_type_id. Which order types it offers and what each asks for: pos_stream_order_types (stream_id, order_type_id, enabled, ask_name / ask_tent off | ask | required; no row = off). See Tax, Order Types & Streams.'],
                 ['pos_roles / pos_courses', 'Tenant-wide. Role permissions jsonb (shared/pos/permissions.js); courses with hold_by_default.'],
@@ -3160,9 +3160,10 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             </P>
             <H3>Devices, PINs and permissions</H3>
             <P>
-              A till is a paired device, not an Auth0 user: <Mono>POST /api/pos/venues/:id/devices</Mono> returns a
-              one-time code (sha256 stored, 30 minutes), <Mono>POST /pos-api/pair</Mono> swaps it for a device
-              secret, and every call sends <Mono>Authorization: Device &lt;id&gt;.&lt;secret&gt;</Mono> (device rows
+              A till is a linked device, not an Auth0 user: the device shows a code of its own
+              (<Mono>POST /pos-api/pairings</Mono>, see Installer app &amp; link codes), someone signed in links it
+              with <Mono>POST /api/pos/venues/:id/link</Mono> (Till setup or the installer, the only way a device
+              is added), the device keeps the secret it was given with its code, and every call sends <Mono>Authorization: Device &lt;id&gt;.&lt;secret&gt;</Mono> (device rows
               cached 30 s; revoking or switching the module off stops it). People sign in on the till with a PIN:
               <Mono> hashPin()</Mono> (<Mono>shared/pos/pin.js</Mono>, PBKDF2-SHA256, 60000 rounds, the venue's
               salt, so the PIN alone finds the person) is checked on the till, offline. Events carry the person's
@@ -3241,7 +3242,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <DataTable
               head={['Page', 'Files']}
               rows={[
-                ['Till setup /pos', 'pages/PosSetup.jsx (?tab=) + components/pos/*Section.jsx; GET /api/pos/venues/:id/setup is the one read (includes device_urls { terminal, kds, kiosk } from deviceOrigin(), till_url = the till\'s, sections and items for routing, recon_fields). deviceUrl(setup, kind) in TillsSection.jsx; PairingCode names the kind\'s address.'],
+                ['Till setup /pos', 'pages/PosSetup.jsx (?tab=) + components/pos/*Section.jsx; GET /api/pos/venues/:id/setup is the one read (includes device_urls { terminal, kds, kiosk } from deviceOrigin(), till_url = the till\'s, sections and items for routing, recon_fields). deviceUrl(setup, kind) in TillsSection.jsx; ShownCodeField (the device steps with the kind\'s address + the code box), LinkDeviceModal / LinkDeviceButton (New device / Link a device on a row) and linkShownCode() there too, used by the Tills, Kitchen screens and Kiosks tabs.'],
                 ['Floor plan /pos/floor', 'pages/PosFloor.jsx: snap 0.5 unit, pointer drag / resize, explicit Save per area (PUT /api/pos/floor-areas/:id/layout replaces tables on the area + decor).'],
                 ['Till reports /pos/reports', 'pages/PosReports.jsx: days (+ fill-recon, needs cash_recon manage too), checks with events, conflicts, print queue.'],
                 ['Menus, Variant groups, Promotions', 'components/menus/TillFields.jsx (section / dish Till box), components/menus/ComboEditor.jsx (Dish / Combo, steps, comboPayload()); VariantGroupsManager pos_prefixes + child_group_id + allow_repeat / on_request; Promotions Where (channels).'],
@@ -3266,8 +3267,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               head={['Part', 'How']}
               rows={[
                 ['pos/src/lib/appHost.js', 'HOST_APP from the address (pos -> terminal, kitchen / kds -> kds, kiosk -> kiosk, anything else null = any kind, for local and test addresses), addressFor(kind) (same scheme and port), belongsHere(kind), takePairCode() (#pair=CODE, removed from the address at once), movedTo() / setMovedTo() (localStorage maca_moved_to), moveDevice(), tellDisconnect(); sets the page title for the address.'],
-                ['POST /pos-api/pair { code, app? }', 'app = HOST_APP. A code for another kind is refused before it is used: 422 code wrong_address, errors [{ device_kind, url }]; the Pair screen shows a button to that address with #pair=<the code>, where it pairs by itself. No app (old copies, tests) takes any kind.'],
-                ['POST /pos-api/disconnect', 'Device auth (kiosks too: KIOSK_ROUTES). secret_hash, pairing_code_hash, pairing_expires_at = NULL: the device row stays (name, settings, short code), Till setup shows Not paired, New code pairs it again.'],
+                ['POST /pos-api/pair { code, app? }', 'Only the move hand-over: the one-time code POST /pos-api/move makes, typed by the app at the new address itself (#pair=CODE). app = HOST_APP; a code for another kind is refused before it is used (422 code wrong_address). Nothing else makes these codes since Till setup\'s were removed (19 Oct 2026).'],
+                ['POST /pos-api/disconnect', 'Device auth (kiosks too: KIOSK_ROUTES). secret_hash, pairing_code_hash, pairing_expires_at = NULL: the device row stays (name, settings, short code), Till setup shows Not linked, Link a device on its row links the code the device then shows.'],
                 ['POST /pos-api/move', 'Device auth. openPairing(tx, tenantId, deviceId, 10) (moved to services/posSvc.js) -> { code, kind, url = deviceOrigin(kind)/#pair=code }. The old copy\'s secret works until the code is used (pairing replaces it), so a move that never arrives can be tried again.'],
                 ['Disconnect on the devices', 'Till: TillSettings Disconnect this till (manager approval, refused with unsent events) -> disconnect() in lib/store.js. Kitchen: SettingsPanel DisconnectBox -> disconnect() in kitchen/store.js (unsent taps dropped, counted first). Kiosk: StaffPanel DisconnectBox -> disconnect() in kiosk/store.js (waiting paid orders sent first, refused while any are left). Offline, the device still forgets itself and says Macaroonie couldn\'t be told.'],
                 ['Move on the devices', 'MoveNotice (components/MoveNotice.jsx) when belongsHere() is false: the till app (above its screens), the kitchen app (top) and the kiosk (top of the start screen and in the staff panel). moveTill() / moveScreen() / moveKiosk() send what is waiting, call /pos-api/move, forget the device here, set maca_moved_to and open the new address. The old address then shows MovedAway (opens the new one after 5 s; Set up another device here clears it).'],
@@ -3590,7 +3591,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <H2>Self-order kiosks</H2>
             <P>
               Migration 172. Design in <Mono>docs/POS.md</Mono> section 10. A kiosk is a till device of kind{' '}
-              <Mono>kiosk</Mono> (<Mono>pos_devices</Mono>, short code KS1, KS2 ...), paired with a one-time code
+              <Mono>kiosk</Mono> (<Mono>pos_devices</Mono>, short code KS1, KS2 ...), linked by the code it shows
               like a till. The same app at <Mono>pos.&lt;domain&gt;</Mono> boots{' '}
               <Mono>pos/src/kiosk/KioskApp.jsx</Mono> (lazy) when the device's kind is <Mono>kiosk</Mono>, or with{' '}
               <Mono>?kiosk_preview=&lt;signed link&gt;</Mono> for the design editor's preview. A kiosk order is a
@@ -3772,8 +3773,10 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <P>
               Migration 184. A till, kitchen screen, kiosk or menu screen that isn't set up shows a code of its
               own and a QR code; someone signed in links it from a phone (the installer app,{' '}
-              <Mono>installer.&lt;domain&gt;</Mono>) or from the admin. Typing a code made in Till setup into
-              the device still works for tills, kitchen screens and kiosks.
+              <Mono>installer.&lt;domain&gt;</Mono>) or from the admin (Till setup's Add windows, Screens). That
+              is the only way a device is set up: since 19 Oct 2026 Till setup and the installer no longer make
+              codes to type into a device (<Mono>POST /api/pos/venues/:id/devices</Mono> and{' '}
+              <Mono>POST /api/pos/devices/:id/pairing-code</Mono> are gone).
             </P>
             <H3>Link codes</H3>
             <DataTable
@@ -3794,7 +3797,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               the address's kind), shows it with a QR code (<Mono>qrSvg()</Mono> from{' '}
               <Mono>shared/qr.js</Mono>) and checks it every 4 s (<Mono>checkLinkCode()</Mono>, which saves the
               device through <Mono>startPaired()</Mono>, the same as <Mono>pair()</Mono>); a run-out code is
-              replaced. <strong>Have a code from Till setup?</strong> opens the typed form. The menu screen player
+              replaced. There is no typed-code form; a device moved from another address brings a hand-over code
+              in <Mono>#pair=</Mono> and pairs with it by itself (<Mono>pair-moving</Mono>, or{' '}
+              <Mono>pair-error</Mono> above the shown code if it fails). The menu screen player
               (<Mono>screen/player.js</Mono> <Mono>showCode()</Mono>) draws the QR code beside its code;{' '}
               <Mono>qr.js</Mono> is in <Mono>PLAYER_LIBS</Mono> and the player's <Mono>SHELL_FILES</Mono>.
             </P>
@@ -3821,8 +3826,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['/install', 'pages/installer/InstallerHome.jsx: venue (maca_installer_venue), Link / Add, the four lists with state', 'GET /api/installer/venues/:id (pos_setup or screens view; devices with their whole settings, stations, kiosk designs, menu screens, boards, playlists, can, addresses), every 10 s'],
                 ['/install/link[/:code]', 'pages/installer/InstallerLink.jsx: code box, Scan (components/installer/QrScanner.jsx, BarcodeDetector), what the code is, new or one already here (?replace=&kind=), name and settings', 'POST /api/installer/lookup (pos_setup or screens manage), POST /api/pos/venues/:id/link, POST /api/screens/screens/claim'],
                 ['/link/:code', 'LinkRedirect in main.jsx: what a device\'s QR code opens', '-'],
-                ['/install/add', 'pages/installer/InstallerAdd.jsx: kind, the address (with a QR code), a code made here', 'POST /api/pos/venues/:id/devices'],
-                ['/install/device/:kind/:id', 'pages/installer/InstallerDevice.jsx: state, name and settings (Save sends the whole settings), Identify / Reload (menu screens), move to a new device, remove (asks twice)', 'PATCH /api/pos/devices/:id, PATCH /api/screens/screens/:id, POST .../pairing-code, identify, reload, DELETE'],
+                ['/install/add', 'pages/installer/InstallerAdd.jsx: kind, the address (with a QR code), then on to Link', '-'],
+                ['/install/device/:kind/:id', 'pages/installer/InstallerDevice.jsx: state, name and settings (Save sends the whole settings), Identify / Reload (menu screens), move to a new device, remove (asks twice)', 'PATCH /api/pos/devices/:id, PATCH /api/screens/screens/:id, identify, reload, DELETE; a new device goes through /install/link?replace='],
               ]}
             />
             <P>
@@ -3832,10 +3837,11 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>useOverview()</Mono>, <Mono>deviceState()</Mono>, <Mono>KindSettings</Mono>,{' '}
               <Mono>tidyCode()</Mono> / <Mono>codeFromScan()</Mono>. <Mono>lib/hosts.js</Mono>:{' '}
               <Mono>IS_INSTALLER_HOST</Mono> (the AppShell and /mobile trees go to /install there),{' '}
-              <Mono>installerHref()</Mono>. In the admin: <Mono>LinkShownCode</Mono> and{' '}
-              <Mono>InstallerLine</Mono> in <Mono>components/pos/TillsSection.jsx</Mono>, on the Tills, Kitchen
+              <Mono>installerHref()</Mono>. In the admin: <Mono>ShownCodeField</Mono>,{' '}
+              <Mono>LinkDeviceModal</Mono> and <Mono>InstallerLine</Mono> in <Mono>components/pos/TillsSection.jsx</Mono>, on the Tills, Kitchen
               screens and Kiosks tabs. Tests: <Mono>api/test/installer.test.mjs</Mono>, the system-paths test and
-              the sweep's fixtures link a kitchen screen.
+              the sweep's fixtures link a kitchen screen and a till; every API test adds devices through{' '}
+              <Mono>linkDevice()</Mono> in <Mono>api/test/support/devices.mjs</Mono> (show a code, link it).
             </P>
           </section>
 

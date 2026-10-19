@@ -4744,7 +4744,7 @@ export default function Help() {
               <li><strong>Receipts and payments</strong>: when the trading day starts, the name, address and VAT number on receipts, bill and receipt footers, the ways to pay, tips, asking for covers, and when staff are signed out. Tax rates are set on Menus → Tax rates.</li>
               <li><strong>Cash Recon</strong>: which till figures go into which Cash Recon fields when the day is closed (see End of day).</li>
               <li><strong>Floor plan</strong> (Till setup → Floor plan): add an area (e.g. Restaurant), tap tables to put them on it, drag them where they stand, drag the round corner to resize, Turn, Square / Round, and add walls, the bar, plants and labels. Save the area. Tables themselves are added on the Tables page.</li>
-              <li><strong>Tills</strong>: open the till address on the tablet: it shows a six-letter code and a QR code. Scan the QR code with your phone (the installer app), or tap <strong>Link a code shown on the till</strong> here and type it, with a name. The other way still works: tap <strong>Add a till</strong>, give it a name, table service or counter, and type the pairing code shown into the tablet (press <strong>Have a code from Till setup?</strong> there). That code works once, for 30 minutes. <strong>Pair again</strong> gives a new code (the old pairing stops); removing a till signs it out for good.</li>
+              <li><strong>Tills</strong>: open the till address on the tablet: it shows a six-letter code and a QR code. Tap <strong>Add a till</strong>, type the code, give it a name, table service or counter, and <strong>Add the till</strong>: the tablet sets itself up. Or scan the QR code with your phone and do the same in the installer app. <strong>New device</strong> on a till's row puts it on another tablet (type the code that tablet shows; the old one stops); removing a till signs it out for good.</li>
             </ol>
 
             <H3>Device addresses and disconnecting</H3>
@@ -4753,9 +4753,9 @@ export default function Help() {
               pairing: tills at <strong>pos.macaroonie.com</strong>, kitchen screens at{' '}
               <strong>kitchen.macaroonie.com</strong> (kds.macaroonie.com goes there too), self-order kiosks at{' '}
               <strong>kiosk.macaroonie.com</strong> and menu screens at <strong>screens.macaroonie.com</strong>.
-              Till setup shows the right one on each tab and in the pairing window. A pairing code only works
-              at its own address: a kiosk code typed on the kitchen address says so and offers a button to the
-              kiosk address, where it pairs by itself.
+              Till setup shows the right one on each tab and in the Add window. The code a device shows can
+              only become that kind of device: a kitchen screen's code typed in Add a kiosk is refused and says
+              so.
             </P>
             <DataTable
               head={['Device', 'Where Disconnect is', 'What happens']}
@@ -4763,13 +4763,14 @@ export default function Help() {
                 ['Till', 'Till tab → Disconnect this till (a manager confirms)', 'The tablet goes back to the pairing screen. Not while sales are still waiting to be sent: get it online first.'],
                 ['Kitchen screen', 'The settings button (bottom right) → Disconnect this screen', 'Back to the pairing screen. Taps not sent yet are lost, and the screen says how many first.'],
                 ['Kiosk', 'Five quick taps in the top-left corner of the start screen → Disconnect this kiosk', 'Back to the pairing screen. Paid orders still waiting to reach the till are sent first; without the internet it waits.'],
-                ['Menu screen', 'Five quick taps on the screen (or five presses of OK on a remote) → Disconnect this screen', 'It shows a new pairing code. In Screens, use New device for this screen to pair it again with its boards.'],
+                ['Menu screen', 'Five quick taps on the screen (or five presses of OK on a remote) → Disconnect this screen', 'It shows a new code. In Screens, use New device for this screen to link it again with its boards.'],
               ]}
             />
             <P>
               A disconnected device keeps its name and settings in Till setup (or Screens) and shows{' '}
-              <strong>Not paired</strong>: press <strong>New code</strong> to pair it again, on the same device
-              or another one. To take a device away for good, remove it in Till setup instead.
+              <strong>Not linked</strong>: press <strong>Link a device</strong> on its row and type the code the
+              device shows (the same device or another one). To take a device away for good, remove it in Till
+              setup instead.
             </P>
             <InfoBox type="tip">
               A kitchen screen or kiosk set up before they had their own address shows a yellow bar:{' '}
@@ -4913,7 +4914,7 @@ export default function Help() {
               <li><strong>Taking a station out of a flow</strong> (the grill down tonight, one cook on the fryer): tap the station's box, then <strong>Take out of this flow</strong> and <strong>Yes, take it out</strong>. The box leaves this flow with its links, and no dish goes to that station while this flow is in use; link the stations that take over its dishes, then <strong>Save flow</strong>. It shows under <strong>Not in this flow</strong> above the boxes, where <strong>Put back</strong> brings it back (with no links: draw them again). The station itself, its screens and its settings stay, and your other flows still use it. To remove a station everywhere, delete it under <strong>Edit station</strong> instead.</li>
               <li><strong>Sharing tickets between two stations (Balance box)</strong>: for two cooks on the same job, e.g. two wingmen. <strong>Add to the flow</strong> → <strong>Balance box</strong>, name it (Wings) and list its <strong>Pieces</strong>: what a dish counts when the box weighs up who has more to cook (the <em>10 Wings</em> option counts 10, the <em>8pc Boneless</em> dish counts 8; a dish not listed counts its quantity). Link Orders in to the box for the wings (a link naming the Wings section or the dishes), and the box to Wingman 1 and Wingman 2; leave the link for every dish going to the Fryer. Each ticket's wings then go to just one wingman, the one with the fewest pieces still to cook (a piece counts until that station bumps it), taking turns when they're level; the rest of the ticket goes to the fryer. <strong>Big tickets</strong> (in the box's window): <em>Keep each ticket on one station</em> (the usual) sends all of a ticket's wings to one wingman however many there are; <em>Share big tickets</em> with a number, e.g. 30, shares out a ticket with more than 30 pieces: each dish line goes, biggest first, to whichever wingman then has the fewest pieces (counting what this ticket has already given them), so 3 x 20 wings on one ticket can go 20 to one and 40 to the other. One dish line is never split (a line of 3 x 10 Wings stays with one wingman), and a meal deal's parts can go to different wingmen. The choice is made when the order reaches the kitchen (a held course: when it's fired), and then the dish stays with that wingman. A box's links out show <strong>Shared</strong> and have no filters; <strong>Check a dish</strong> shows <em>Wingman 1 or Wingman 2</em>. The box has no kitchen screen and nothing to bump. If one wingman is taken out of the flow in use, the other gets every ticket.</li>
               <li><strong>Several flows</strong>: the row of flow names above the boxes picks the flow you're looking at; a green dot marks the one <strong>in use</strong>. <strong>New flow</strong> starts an empty one; <strong>Copy</strong> (in the box on the right) starts from the flow you're looking at, which is the quick way to make, say, a <em>Grill down</em> flow from your normal one. <strong>Use this flow now</strong> puts the flow you're looking at in use, after a confirm. <strong>Rename</strong> and the bin (delete, after a confirm) are there too; the flow in use can't be deleted. <strong>Order</strong> sets the order kitchen screens list the flows in (drag the rows). Save or discard changes before opening another flow.</li>
-              <li><strong>Kitchen screens</strong>: <strong>Add a screen</strong>, name it, tick the stations it shows (none ticked: all; order ready boards aren't shown on kitchen screens), what it opens on (tickets or the On order counts), tickets across, text size, the beep, and whether it <strong>can switch the kitchen flow</strong> (on unless you turn it off). On the screen, open the kitchen screen address (kitchen.macaroonie.com, shown on the tab) in Chrome, install it, and type the pairing code.</li>
+              <li><strong>Kitchen screens</strong>: <strong>Add a screen</strong>, name it, tick the stations it shows (none ticked: all; order ready boards aren't shown on kitchen screens), what it opens on (tickets or the On order counts), tickets across, text size, the beep, and whether it <strong>can switch the kitchen flow</strong> (on unless you turn it off). On the screen, open the kitchen screen address (kitchen.macaroonie.com, shown on the tab) in Chrome and install it: it shows a code. Type that code in the Add a screen window (or scan its QR code with a phone).</li>
               <li><strong>Online orders</strong>: send online orders to the kitchen when they're accepted (an order for later comes on when it's time to start it), and mark them ready when the kitchen finishes (the guest gets the ready email).</li>
               <li><strong>GloriaFood orders</strong> (when the venue is linked to GloriaFood in Cash Recon settings): tick <strong>Send GloriaFood orders to the kitchen screens</strong> and press Save. Accepted orders then come onto the screens as GloriaFood sends them, marked with an orange <strong>GloriaFood</strong> label and GloriaFood's order number. Dishes are matched to your menus by name (capitals and spaces don't matter) and show under your menu's name, so dish and section links in the kitchen flow apply to them; a dish with no match (a name GloriaFood spells differently) goes by the order type and the links for every dish. Pick which of your order types each GloriaFood type counts as (Pickup, Delivery, Dine in...); they start matched by name. An order for later comes on the minutes you set before its time. Ready at the pass marks it Ready on the Online orders board, Collected marks it Collected there (with <strong>Mark them ready when the kitchen finishes</strong> on; GloriaFood isn't told). Ready or Collected on the board, or a cancellation in GloriaFood, takes it off the screens. Test orders from GloriaFood come on too, with the note "GloriaFood test order". Orders that arrived while this was off, imported orders, and orders more than two hours past their time don't come on.</li>
             </ol>
@@ -4990,7 +4991,7 @@ export default function Help() {
             <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
               <li><strong>Kiosk designs</strong>: <strong>New design</strong> opens the design editor (below). Designs are shared by every venue. A kiosk uses the design picked for it, or the first design. <strong>Copy</strong> makes a copy to try changes on; a design a kiosk uses can't be deleted.</li>
               <li><strong>Add a kiosk</strong>: its name, its <strong>revenue stream</strong> (the stream's order types are the kiosk's Staying or going? buttons, and the stream decides whether it asks for a name or a table number), its design, the card reader and the receipt printer.</li>
-              <li>On the screen, open the kiosk address (kiosk.macaroonie.com, shown on the tab) in Chrome and type the pairing code; set it as the kiosk browser's start page. For a screen guests can't leave, run Chrome in kiosk mode or use a kiosk browser (such as Fully Kiosk). <strong>Pair again</strong> moves the kiosk to another screen; the old one stops.</li>
+              <li>On the screen, open the kiosk address (kiosk.macaroonie.com, shown on the tab) in Chrome: it shows a code. Type that code in the Add a kiosk window (or scan its QR code with a phone), and set the address as the kiosk browser's start page. For a screen guests can't leave, run Chrome in kiosk mode or use a kiosk browser (such as Fully Kiosk). <strong>New device</strong> on the kiosk's row moves it to another screen; the old one stops.</li>
             </ol>
 
             <H3>The design editor</H3>
@@ -5110,23 +5111,20 @@ export default function Help() {
             <H3>Adding a new device</H3>
             <P>
               <strong>Add a new device</strong> asks what it is, then shows its address (with a QR code a device
-              with a camera can scan to open it). Open it on the device and link the code it shows. For a till,
-              kitchen screen or kiosk you can instead make it in the installer: give it a name, tap{' '}
-              <strong>Make a code</strong>, and on the device press <strong>Have a code from Till setup?</strong>{' '}
-              and type it.
+              with a camera can scan to open it). Open it on the device and link the code it shows. That is the
+              only way a device is set up, here and in Till setup: devices never take a code typed into them.
             </P>
 
             <H3>A device&apos;s page</H3>
             <P>
               The home page lists every till, kitchen screen, kiosk and menu screen at the venue with its state:{' '}
-              <strong>Online</strong>, <strong>Offline</strong>, <strong>Code waiting</strong> or{' '}
-              <strong>Not linked</strong>. Tap one to change its name and settings (then Save), to show a menu
+              <strong>Online</strong>, <strong>Offline</strong> or <strong>Not linked</strong>. Tap one to change its name and settings (then Save), to show a menu
               screen&apos;s name on it (<strong>Show its name on the screen</strong>) or reload it, to move it
               to a new device, or to remove it.
             </P>
             <P>
               <strong>Move it to a new device</strong> is for a broken or replaced tablet or TV: link the new
-              device&apos;s code (or make a code to type on it) and it takes this device&apos;s name and settings;
+              device&apos;s code and it takes this device&apos;s name and settings;
               the old one stops working.
             </P>
             <InfoBox type="info">

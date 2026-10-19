@@ -1,14 +1,16 @@
 // src/components/pos/TillsSection.jsx
 //
-// Till setup > Tills: the tablets and PCs that run the till app. Adding one
-// gives a one-time pairing code, typed on the device at the till address
-// (pos.<domain>). A new code pairs the device again and stops the old one.
-// A device that isn't set up also shows a code of its own (migration 184):
-// LinkShownCode links it from here, the installer app from a phone.
+// Till setup > Tills: the tablets and PCs that run the till app. Devices are
+// set up one way, the installer's (migration 184): open the device's address
+// (pos.<domain> for tills) and it shows a code and a QR code; type the code
+// here with a name and settings (Add a till), or scan the QR code with a
+// phone (the installer app). Link a device puts a new device on a till that
+// is already here; the old device stops. ShownCodeField, LinkDeviceModal and
+// linkShownCode() are shared with the Kitchen screens and Kiosks tabs.
 
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Loader2, KeyRound, Pencil, MonitorSmartphone, Link2, Smartphone } from 'lucide-react'
+import { Plus, Loader2, Pencil, MonitorSmartphone, Link2, Smartphone } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { installerHref } from '@/lib/hosts'
@@ -19,67 +21,84 @@ const MODES = [
   { value: 'counter', label: 'Counter' },
 ]
 
-export function PairingCode({ code, device, tillUrl, onClose, what = 'till' }) {
-  const until = device?.pairing_expires_at
-    ? new Date(device.pairing_expires_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
-    : null
+const KIND_WORDS = { terminal: 'till', kds: 'kitchen screen', kiosk: 'kiosk' }
+const KIND_DEVICE = { terminal: 'tablet or PC', kds: 'kitchen screen', kiosk: 'kiosk screen' }
+
+/** A code as the device shows it: ABC-DEF. */
+export const tidyCode = v => {
+  const raw = String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6)
+  return raw.length > 3 ? raw.slice(0, 3) + '-' + raw.slice(3) : raw
+}
+export const codeReady = c => /^[A-Z0-9]{3}-[A-Z0-9]{3}$/.test(c || '')
+
+/**
+ * The code the device shows, and how to get it: open the kind's address on
+ * the device (it shows a six-letter code and a QR code), type the code here.
+ * The same steps as the installer app; scanning the QR code with a phone
+ * opens the installer instead.
+ */
+export function ShownCodeField({ setup, kind, value, onChange, autoFocus = false }) {
+  const url = deviceUrl(setup, kind)
+  const what = KIND_WORDS[kind]
   return (
-    <Modal title={'Pair ' + (device?.name || 'the ' + what)} onClose={onClose}
-      footer={<Btn variant="primary" className="flex-1" onClick={onClose}>Done</Btn>}>
-      <ol className="text-sm space-y-2 list-decimal pl-5">
-        <li>On the {what === 'till' ? 'tablet or PC' : what}, open <span className="font-semibold break-all" data-testid="pairing-address">{tillUrl || 'its address'}</span> in Chrome or Edge.</li>
-        <li>Type this code and press Pair this device. The code only works at that address.</li>
+    <div className="rounded-xl border bg-muted/40 p-3 space-y-3" data-testid="shown-code">
+      <ol className="text-sm space-y-1.5 list-decimal pl-5">
+        <li>On the {KIND_DEVICE[kind]}, open <span className="font-semibold break-all" data-testid="device-address">{url}</span> in Chrome. It shows a six-letter code and a QR code.</li>
+        <li>Type the code here. Or scan the QR code with a phone to link it in the installer app instead.</li>
       </ol>
-      <p className="text-center font-mono text-3xl sm:text-4xl font-bold tracking-widest py-4 select-all" data-testid="pairing-code">{code}</p>
-      <p className="text-xs text-muted-foreground">
-        The code works once{until ? ', until ' + until : ''}. It isn't shown again: if it runs out, make a new one from the till's row.
-        Pairing again later stops the old pairing on whatever device had it. A device can also be disconnected from its own settings: it then shows Not paired here.
+      <Field label={'Code on the ' + what}>
+        <input className={cn(inputCls, 'text-center font-mono text-2xl font-bold tracking-widest uppercase')} value={value}
+          onChange={e => onChange(tidyCode(e.target.value))} placeholder="ABC-DEF" autoComplete="off" spellCheck={false}
+          autoFocus={autoFocus} aria-label={'Code on the ' + what} data-testid="shown-code-input" />
+      </Field>
+    </div>
+  )
+}
+
+/** Links a code a device shows: a new device ({ name, settings }) or a new one for a device already here ({ device_id }). */
+export function linkShownCode(api, venueId, kind, code, rest) {
+  return api.post(`/pos/venues/${venueId}/link`, { code, kind, ...rest })
+}
+
+/**
+ * Link a device to a till, kitchen screen or kiosk already here: one that
+ * isn't linked (new, disconnected) or a replacement for a broken one. It
+ * keeps its name and settings; the device it was on stops working.
+ */
+export function LinkDeviceModal({ venueId, setup, device, onClose }) {
+  const api = useApi()
+  const qc = useQueryClient()
+  const [code, setCode] = useState('')
+  const link = useMutation({
+    mutationFn: () => linkShownCode(api, venueId, device.kind, code, { device_id: device.id }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['pos-setup', venueId] }); onClose() },
+  })
+  const what = KIND_WORDS[device.kind] || 'device'
+  return (
+    <Modal title={(device.paired ? 'New device for ' : 'Link a device to ') + device.name} onClose={onClose}
+      footer={<>
+        <Btn className="flex-1" onClick={onClose}>Cancel</Btn>
+        <Btn variant="primary" className="flex-1" disabled={!codeReady(code) || link.isPending} onClick={() => link.mutate()} data-testid="link-device-submit">
+          {link.isPending && <Loader2 className="w-4 h-4 animate-spin" />} Link it
+        </Btn>
+      </>}>
+      <p className="text-sm text-muted-foreground">
+        {device.paired
+          ? `For a broken or replaced ${what}: the new device keeps the name ${device.name} and its settings, and the device it is on now stops working.`
+          : `The device keeps the name ${device.name} and its settings.`}
       </p>
+      <ShownCodeField setup={setup} kind={device.kind} value={code} onChange={setCode} autoFocus />
+      <ErrorNote error={link.error} />
     </Modal>
   )
 }
 
-const KIND_WORDS = { terminal: 'till', kds: 'kitchen screen', kiosk: 'kiosk' }
-
-/** "Link a code shown on the device": a new device from the code it shows (POST /pos/venues/:id/link). */
-export function LinkShownCode({ venueId, kind }) {
-  const api = useApi()
-  const qc = useQueryClient()
-  const [open, setOpen] = useState(false)
-  const [code, setCode] = useState('')
-  const [name, setName] = useState('')
-  const tidy = v => {
-    const raw = v.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6)
-    return raw.length > 3 ? raw.slice(0, 3) + '-' + raw.slice(3) : raw
-  }
-  const link = useMutation({
-    mutationFn: () => api.post(`/pos/venues/${venueId}/link`, { code, kind, name: name.trim() }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['pos-setup', venueId] }); setOpen(false); setCode(''); setName('') },
-  })
-  const what = KIND_WORDS[kind]
+/** The row button that opens LinkDeviceModal. */
+export function LinkDeviceButton({ device, onClick }) {
   return (
-    <>
-      <Btn onClick={() => setOpen(true)}><Link2 className="w-4 h-4" /> Link a code shown on the {what}</Btn>
-      {open && (
-        <Modal title={'Link a ' + what + ' showing a code'} onClose={() => setOpen(false)}
-          footer={<>
-            <Btn className="flex-1" onClick={() => setOpen(false)}>Cancel</Btn>
-            <Btn variant="primary" className="flex-1" disabled={code.length !== 7 || !name.trim() || link.isPending} onClick={() => link.mutate()}>
-              {link.isPending && <Loader2 className="w-4 h-4 animate-spin" />} Link it
-            </Btn>
-          </>}>
-          <p className="text-sm text-muted-foreground">A {what} that isn't set up shows a six-letter code and a QR code. Type the code here, or scan the QR code with a phone to use the installer.</p>
-          <Field label="Code on the device">
-            <input className={cn(inputCls, 'text-center font-mono text-2xl font-bold tracking-widest uppercase')} value={code}
-              onChange={e => setCode(tidy(e.target.value))} placeholder="ABC-DEF" autoComplete="off" spellCheck={false} />
-          </Field>
-          <Field label="Name">
-            <input className={inputCls} value={name} maxLength={60} onChange={e => setName(e.target.value)} placeholder={'e.g. ' + (kind === 'kds' ? 'Grill screen' : kind === 'kiosk' ? 'Door kiosk' : 'Bar till')} />
-          </Field>
-          <ErrorNote error={link.error} />
-        </Modal>
-      )}
-    </>
+    <Btn onClick={onClick} title={device.paired ? 'Put it on a new device' : 'Link a device showing a code'} data-testid="link-device">
+      <Link2 className="w-4 h-4" /> <span className="hidden sm:inline">{device.paired ? 'New device' : 'Link a device'}</span>
+    </Btn>
   )
 }
 
@@ -90,15 +109,16 @@ export function InstallerLine({ setup }) {
   return (
     <p className="text-xs text-muted-foreground flex items-center gap-1.5">
       <Smartphone className="w-3.5 h-3.5 shrink-0" />
-      <span>Setting up at the venue? Open <a href={href} target="_blank" rel="noreferrer" className="font-medium text-primary break-all">{label}</a> on a phone: it links every till, kitchen screen, kiosk and menu screen by scanning the code they show.</span>
+      <span>Setting up at the venue? Open <a href={href} target="_blank" rel="noreferrer" className="font-medium text-primary break-all">{label}</a> on a phone: it links every till, kitchen screen, kiosk and menu screen by scanning the QR code they show, the same codes as here.</span>
     </p>
   )
 }
 
-function TillModal({ venueId, setup, device, onClose, onPaired }) {
+function TillModal({ venueId, setup, device, onClose }) {
   const api = useApi()
   const qc = useQueryClient()
   const s = device?.settings || {}
+  const [code, setCode] = useState('')
   const [form, setForm] = useState({
     name: device?.name || '',
     mode: s.mode || 'table',
@@ -120,12 +140,8 @@ function TillModal({ venueId, setup, device, onClose, onPaired }) {
   const save = useMutation({
     mutationFn: () => device
       ? api.patch(`/pos/devices/${device.id}`, body())
-      : api.post(`/pos/venues/${venueId}/devices`, { ...body(), kind: 'terminal' }),
-    onSuccess: out => {
-      refresh()
-      if (!device) onPaired(out)
-      else onClose()
-    },
+      : linkShownCode(api, venueId, 'terminal', code, body()),
+    onSuccess: () => { refresh(); onClose() },
   })
   const remove = useMutation({
     mutationFn: () => api.delete(`/pos/devices/${device.id}`),
@@ -135,11 +151,12 @@ function TillModal({ venueId, setup, device, onClose, onPaired }) {
   return (
     <Modal title={device ? 'Edit ' + device.name : 'Add a till'} onClose={onClose}
       footer={<>
-        <Btn variant="primary" className="flex-1" disabled={!form.name.trim() || save.isPending} onClick={() => save.mutate()}>
-          {save.isPending && <Loader2 className="w-4 h-4 animate-spin" />} {device ? 'Save' : 'Add and get a pairing code'}
+        <Btn variant="primary" className="flex-1" disabled={!form.name.trim() || (!device && !codeReady(code)) || save.isPending} onClick={() => save.mutate()} data-testid="device-save">
+          {save.isPending && <Loader2 className="w-4 h-4 animate-spin" />} {device ? 'Save' : 'Add the till'}
         </Btn>
         {device && <ConfirmDelete label="Remove till" confirmLabel="Yes, remove" onConfirm={() => remove.mutate()} disabled={remove.isPending} />}
       </>}>
+      {!device && <ShownCodeField setup={setup} kind="terminal" value={code} onChange={setCode} autoFocus />}
       <Field label="Name" hint="Shown on the till and in reports, e.g. Front till, Bar.">
         <input className={inputCls} value={form.name} maxLength={60} onChange={e => set({ name: e.target.value })} placeholder="e.g. Front till" />
       </Field>
@@ -175,23 +192,13 @@ function TillModal({ venueId, setup, device, onClose, onPaired }) {
 export const deviceUrl = (setup, kind) => setup.device_urls?.[kind] || setup.till_url
 
 export function status(d) {
-  if (d.paired) return { text: 'Paired · seen ' + ago(d.last_seen_at), tone: 'ok' }
-  if (d.pairing_open) {
-    const t = new Date(d.pairing_expires_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
-    return { text: 'Waiting to pair, code works until ' + t, tone: 'warn' }
-  }
-  return { text: 'Not paired', tone: 'muted' }
+  if (d.paired) return { text: 'Linked · seen ' + ago(d.last_seen_at), tone: 'ok' }
+  return { text: 'Not linked: no device is using it', tone: 'warn' }
 }
 
 export default function TillsSection({ venueId, setup }) {
-  const api = useApi()
-  const qc = useQueryClient()
   const [editing, setEditing] = useState(null) // device | 'new' | null
-  const [pairing, setPairing] = useState(null) // { device, pairing_code }
-  const newCode = useMutation({
-    mutationFn: id => api.post(`/pos/devices/${id}/pairing-code`, {}),
-    onSuccess: out => { qc.invalidateQueries({ queryKey: ['pos-setup', venueId] }); setPairing(out) },
-  })
+  const [linking, setLinking] = useState(null) // device
   const rcName = id => setup.revenue_streams.find(r => r.id === id)?.name
   // Kitchen screens and kiosks are listed on their own tabs.
   const isTill = d => d.kind !== 'kds' && d.kind !== 'kiosk'
@@ -204,7 +211,7 @@ export default function TillsSection({ venueId, setup }) {
       {!live.length && (
         <div className="text-sm text-muted-foreground flex items-start gap-3">
           <MonitorSmartphone className="w-5 h-5 shrink-0 mt-0.5" />
-          <p>No tills yet. Add one, then open <span className="font-medium text-foreground">{deviceUrl(setup, 'terminal')}</span> on the tablet and type the pairing code.</p>
+          <p>No tills yet. Open <span className="font-medium text-foreground">{deviceUrl(setup, 'terminal')}</span> on the tablet: it shows a code. Press <span className="font-medium text-foreground">Add a till</span> and type it, or scan its QR code with a phone.</p>
         </div>
       )}
       {!!live.length && (
@@ -212,7 +219,7 @@ export default function TillsSection({ venueId, setup }) {
           {live.map(d => {
             const st = status(d)
             return (
-              <div key={d.id} className="flex flex-wrap items-center gap-3 px-3 py-2">
+              <div key={d.id} className="flex flex-wrap items-center gap-3 px-3 py-2" data-testid="till-row">
                 <span className="w-11 h-11 rounded-lg bg-muted flex items-center justify-center text-xs font-semibold shrink-0">{d.short_code}</span>
                 <div className="flex-1 min-w-[160px]">
                   <p className="text-sm font-medium">{d.name}</p>
@@ -222,9 +229,7 @@ export default function TillsSection({ venueId, setup }) {
                   </p>
                   <p className={cn('text-xs', st.tone === 'ok' ? 'text-green-700' : st.tone === 'warn' ? 'text-amber-700' : 'text-muted-foreground')}>{st.text}</p>
                 </div>
-                <Btn onClick={() => newCode.mutate(d.id)} disabled={newCode.isPending} title="New pairing code">
-                  <KeyRound className="w-4 h-4" /> <span className="hidden sm:inline">{d.paired ? 'Pair again' : 'New code'}</span>
-                </Btn>
+                <LinkDeviceButton device={d} onClick={() => setLinking(d)} />
                 <Btn onClick={() => setEditing(d)} title={'Edit ' + d.name}><Pencil className="w-4 h-4" /></Btn>
               </div>
             )
@@ -235,15 +240,11 @@ export default function TillsSection({ venueId, setup }) {
         <p className="text-xs text-muted-foreground">Removed: {removed.map(d => d.name + ' (' + d.short_code + ')').join(', ')}</p>
       )}
       <p className="text-xs text-muted-foreground">Till address: <span className="font-medium text-foreground break-all">{deviceUrl(setup, 'terminal')}</span> (kitchen screens and kiosks have their own, on their tabs)</p>
-      <div><LinkShownCode venueId={venueId} kind="terminal" /></div>
       <InstallerLine setup={setup} />
-      <ErrorNote error={newCode.error} />
       {editing && (
-        <TillModal venueId={venueId} setup={setup} device={editing === 'new' ? null : editing}
-          onClose={() => setEditing(null)}
-          onPaired={out => { setEditing(null); setPairing(out) }} />
+        <TillModal venueId={venueId} setup={setup} device={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />
       )}
-      {pairing && <PairingCode code={pairing.pairing_code} device={pairing.device} tillUrl={deviceUrl(setup, 'terminal')} onClose={() => setPairing(null)} />}
+      {linking && <LinkDeviceModal venueId={venueId} setup={setup} device={linking} onClose={() => setLinking(null)} />}
     </Section>
   )
 }

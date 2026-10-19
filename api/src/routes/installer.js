@@ -41,7 +41,6 @@ function deviceView(d) {
     paired: !!d.secret_hash, paired_at: d.paired_at, last_seen_at: d.last_seen_at,
     online: !!d.secret_hash && !!d.last_seen_at && Date.now() - new Date(d.last_seen_at).getTime() < DEVICE_ONLINE_MS,
     app_version: d.app_version,
-    pairing_open: !!d.pairing_code_hash && !!d.pairing_expires_at && new Date(d.pairing_expires_at) > new Date(),
     // Whole: PATCH /api/pos/devices/:id replaces the settings, so a change
     // made here is sent back with everything else the device has.
     settings: s,
