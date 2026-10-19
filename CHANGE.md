@@ -5,6 +5,11 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-19 — Kiosks follow the menu's option settings]
+
+- Self-order kiosks now follow the menu's own option settings (Menus → the menu's details), like the website, the printed menu and online ordering: **Don't show a price on zero-priced variants** shows a £0 option without "£0.00", and **Don't show the variant option at all if it isn't priced** leaves options with no price (or £0) off the kiosk, so guests can't pick them. The till still shows staff every option.
+- No migration. Publish the menu (or open the kiosk preview with the menu's unpublished changes) to see it on the kiosk.
+
 ## [2026-10-19 — Designs for printed kitchen tickets and receipts]
 
 - Till setup has a new **Printing** tab. **What prints where** picks a design for kitchen tickets, till receipts and bills, and kiosk receipts: one for the whole company, and another at a venue if it needs one. Kiosk receipts print like till receipts until you pick a kiosk design.

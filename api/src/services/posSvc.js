@@ -22,6 +22,7 @@ import { venuePromotions, publicPromotion } from './promoSvc.js'
 import { fillReconDay, reconFields } from './reconFill.js'
 import { createSequencer } from '../../../shared/pos/sequencer.js'
 import { checkTotals, isActiveLine, lineGross } from '../../../shared/pos/pricing.js'
+import { variantRules } from '../../../shared/orderPricing.js'
 import { dayFigures } from '../../../shared/pos/reports.js'
 import { normalisePermissions, DEFAULT_POS_ROLES } from '../../../shared/pos/permissions.js'
 import { TENDERS } from '../../../shared/pos/checks.js'
@@ -177,7 +178,9 @@ export async function tillMenus(tx, tenantId, venueId, streams, version = 'live'
  * { menus: [{ id, name, sections: [{ id, title, ..., item_ids }] }], items: { id: item },
  *   section_items, dietary }. Sections hidden everywhere stay off. `guest`
  * (a kiosk, services/kioskSvc.js): sections hidden on the website stay off
- * too, and dishes carry what guests see (photo, calories, featured).
+ * too, and dishes carry what guests see (photo, calories, featured) and the
+ * menu's option display settings (Hide £0 options, Hide unpriced options:
+ * variant_rules, read by posChoices() as online ordering reads them).
  * Tax settings travel with each dish (dish, section, menu), trimmed to this
  * venue; the till works the rate out per check (shared/tax.js), since the
  * order type and revenue stream decide it.
@@ -189,6 +192,7 @@ export async function tillMenuData(tx, tenantId, venueId, streams, { guest = fal
   const streamIds = new Set(allStreams.map(r => r.id))
   for (const full of await tillMenus(tx, tenantId, venueId, streams, version)) {
     const menuTax = taxForVenue(full.tax, venueId, streamIds)
+    const rules = variantRules(full)
     dietary = full.dietary_tags || dietary
     const sections = []
     for (const s of full.sections || []) {
@@ -209,7 +213,7 @@ export async function tillMenuData(tx, tenantId, venueId, streams, { guest = fal
           combo: it.combo || null,
           dietary: it.dietary || [], allergen_levels: it.allergen_levels || {},
           description: it.description || null,
-          ...(guest ? { image_url: it.image_url || null, calories: it.calories ?? null, is_featured: !!it.is_featured } : {}),
+          ...(guest ? { image_url: it.image_url || null, calories: it.calories ?? null, is_featured: !!it.is_featured, variant_rules: rules } : {}),
         }
       }
       sections.push({

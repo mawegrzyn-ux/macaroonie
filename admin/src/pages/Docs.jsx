@@ -3964,7 +3964,10 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>loadOrderingMenu()</Mono>: <Mono>hide_unpriced_variants</Mono> drops null/£0
               options from the choices (so the server rejects them too),{' '}
               <Mono>hide_zero_priced_variants</Mono> sets <Mono>hide_zero_price</Mono> on each choice
-              and <Mono>optionPriceText()</Mono> shows no price for £0 options. VAT comes from the dish's
+              and <Mono>optionPriceText()</Mono> shows no price for £0 options. Kiosks follow the same
+              settings: <Mono>tillMenuData(..., {'{ guest: true }'})</Mono> puts the menu's{' '}
+              <Mono>variant_rules</Mono> on each dish and <Mono>posChoices()</Mono> passes them to{' '}
+              <Mono>itemChoices()</Mono> (tills get no rules: staff see every option). VAT comes from the dish's
               tax levels (dish, section, menu) resolved by <Mono>taxFor()</Mono> (<Mono>shared/tax.js</Mono>)
               for the order's context, <Mono>orderContext(venueId, settings, fulfilment)</Mono>: the order
               type Ordering setup gives that fulfilment and its revenue stream. <Mono>loadOrderingMenu()</Mono>{' '}

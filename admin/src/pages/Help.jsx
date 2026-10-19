@@ -3850,7 +3850,8 @@ export default function Help() {
             </P>
             <P>
               The menu&apos;s own option settings (in the menu&apos;s details) apply to online ordering
-              too, the same as on your website and printed menu. <strong>Don&apos;t show the variant
+              and the self-order kiosks too, the same as on your website and printed menu (the till
+              shows staff every option). <strong>Don&apos;t show the variant
               option at all if it isn&apos;t priced</strong> leaves options with no price (or £0) out, so
               guests can&apos;t pick them. <strong>Don&apos;t show a price on zero-priced variants</strong>{' '}
               keeps a £0 option but shows no price next to it.

@@ -5,7 +5,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { ulid, isId } from '../ids.js'
-import { priceItem, checkTotals, spread, lineGross, promoLines } from '../pricing.js'
+import { priceItem, checkTotals, spread, lineGross, promoLines, posChoices } from '../pricing.js'
+import { optionPriceText } from '../../orderPricing.js'
 import { applyEvent, replay, checkLabel } from '../checks.js'
 import { routeFor, jobsForEvent } from '../printing.js'
 import { createSequencer } from '../sequencer.js'
@@ -112,6 +113,29 @@ test('priceItem: base option sets the price, extras add, No is free, nested grou
   assert.equal(lineGross({ ...steak, qty: 1 }), 1300)
   assert.deepEqual(steak.modifiers.map(m => [m.label, m.depth]), [['Steak', 0], ['Rare', 1]])
   assert.match(priceItem(SALAD, { choices: { [STEAK_GROUP]: [STEAK_OPT] } }, { itemsById, groupsById }).error, /cooking/)
+})
+
+test('posChoices: a kiosk dish follows its menu\'s option settings (Hide unpriced, Hide £0); the till shows every option', () => {
+  const NOODLES = uuid(), RICE = uuid(), SAUCE = uuid()
+  const dish = { id: uuid(), name: 'Curry', section_id: FOOD_SECTION, price_pence: 900,
+    variants: [{ label: 'Small', price_pence: 0 }, { label: 'Large', price_pence: 200 }],
+    variant_groups: [{ group_id: PROTEIN, name: 'Base', price_mode: 'base', min_select: 1, max_select: 1,
+      options: [{ option_id: NOODLES, label: 'Noodles', price_pence: 0 }, { option_id: RICE, label: 'Rice', price_pence: null }, { option_id: SAUCE, label: 'Sauce pot', price_pence: 50 }] }] }
+  const money = p => '£' + (p / 100).toFixed(2)
+  const labels = choices => choices.map(c => c.options.map(o => o.label))
+  // The till: everything, £0 shown as a price.
+  const till = posChoices(dish, groupsById)
+  assert.deepEqual(labels(till), [['Small', 'Large'], ['Noodles', 'Rice', 'Sauce pot']])
+  assert.equal(optionPriceText(till[1], till[1].options[0], money), '£0.00')
+  // Hide £0 options: kept, without a price.
+  const zero = posChoices({ ...dish, variant_rules: { hideZeroPrice: true } }, groupsById)
+  assert.deepEqual(labels(zero), labels(till))
+  assert.equal(optionPriceText(zero[1], zero[1].options[0], money), '')
+  assert.equal(optionPriceText(zero[1], zero[1].options[2], money), '£0.50')
+  // Hide unpriced options: left out, so they can't be picked either.
+  const unpriced = { ...dish, variant_rules: { hideUnpriced: true } }
+  assert.deepEqual(labels(posChoices(unpriced, groupsById)), [['Large'], ['Sauce pot']])
+  assert.match(priceItem(unpriced, { choices: { variants: ['v:Small'] } }, { groupsById }).error || '', /no longer available|Choose/)
 })
 
 test('priceItem: meal deal with upcharge', () => {
