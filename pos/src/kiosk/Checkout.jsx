@@ -185,7 +185,7 @@ export function Basket() {
   )
 }
 
-// ── Name and table number ───────────────────────────────────────
+// ── Name and tent (or table) number ─────────────────────────────
 
 export function Details() {
   const s = useKiosk()
@@ -202,12 +202,13 @@ export function Details() {
   }
   const back = () => (!isName && p.ask_name !== 'off' ? go('details', { detailStep: 'name' }) : go('basket'))
   const ok = need !== 'required' || value.trim().length > 0
+  const tent = s.config.design.checkout.number_kind !== 'table'
   return (
     <div className="absolute inset-0 flex flex-col" data-testid="k-details" data-step={step}>
       <div className="flex-1 min-h-0 k-scroll p-[var(--k-pad)] flex flex-col">
         <div className="m-auto w-full flex flex-col items-center gap-[var(--k-pad)]">
-          <h2 className="k-head text-[2.2em] m-0 text-center">{isName ? ui('your_name') : ui('table_number')}</h2>
-          <div className="k-muted text-center">{isName ? ui('name_hint') : ui('table_hint')}</div>
+          <h2 className="k-head text-[2.2em] m-0 text-center">{isName ? ui('your_name') : ui(tent ? 'tent_number' : 'table_number')}</h2>
+          <div className="k-muted text-center max-w-[760px]" data-testid="k-details-hint">{isName ? ui('name_hint') : ui(tent ? 'tent_hint' : 'table_hint')}</div>
           <div className={cx('k-card w-full min-h-[2.4em] px-[.6em] flex items-center justify-center k-head text-[2.2em]', isName ? 'max-w-[720px]' : 'max-w-[11em]')} data-testid="k-details-value">
             <span data-testid="k-details-text">{value}</span><span className="k-caret" aria-hidden="true" />
           </div>
@@ -347,6 +348,9 @@ export function Done() {
       <div className="k-muted font-semibold text-[1.2em]">{ui('order_number')}</div>
       <div className="k-head text-[7em] leading-none text-[var(--k-primary)]" data-testid="k-order-number">{r.order_no ?? r.provisional ?? ''}</div>
       <div className="max-w-[760px] text-[1.2em]" data-testid="k-done-note">{note}</div>
+      {d.checkout.number_kind !== 'table' && s.details?.tent && (
+        <div className="max-w-[760px] text-[1.2em] font-semibold" data-testid="k-done-tent">{ui('tent_done', { n: s.details.tent })}</div>
+      )}
       <div className="flex gap-[var(--k-gap)] flex-wrap justify-center mt-[var(--k-pad)]">
         {d.checkout.receipt === 'ask' && !r.pending && <button className="k-btn k-btn-big" onClick={printResultReceipt} data-testid="k-receipt"><Printer /> {ui('print_receipt')}</button>}
         <button className="k-btn k-btn-primary k-btn-big" onClick={restart} data-testid="k-done-button">{ui('done')} ({Math.max(0, left)})</button>

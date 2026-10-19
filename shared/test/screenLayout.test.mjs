@@ -272,13 +272,38 @@ test('order status: one board by name, changes animate in and out, layout and co
   assert.match(html, /sl-orders[^"]*is-stacked[^"]*sl-och-float/)
   assert.match(html, /--opb:\s*#123456/)
   assert.ok(html.indexOf('is-ready') < html.indexOf('is-prep'), 'ready first')
-  assert.match(html, /sl-onum is-ready sl-och-in" style="animation-delay:-300ms"><span>41/)
-  assert.match(html, /sl-onum is-prep sl-och-out" style="animation-delay:-300ms"><span>41/, '41 fades out of preparing')
+  assert.match(html, /sl-onum is-ready sl-och-in" style="animation-delay:-300ms" data-main="number"><span class="sl-oval">41/)
+  assert.match(html, /sl-onum is-prep sl-och-out" style="animation-delay:-300ms" data-main="number"><span class="sl-oval">41/, '41 fades out of preparing')
   const later = draw({ board: 'ORB 1', change_anim: 'float', change_ms: 1000 }, 1200)
   assert.doesNotMatch(later, /sl-och-(in|out)"/, 'over once the animation has played')
   assert.doesNotMatch(draw({ board: 'ORB 1' }, 300), /sl-och-in/, 'no animation unless chosen')
   const sameMs = renderBlockInner(layout({ board: 'ORB 1', change_anim: 'fade' }).blocks[0], boardContext(layout({ board: 'ORB 1', change_anim: 'fade' }), {
     width: 1920, height: 1080, now: new Date(at), orders: { ...after, changes: changes.map(c => ({ ...c, at: at + 0.6 })) },
   }))
-  assert.match(sameMs, /sl-onum is-ready sl-och-in"><span>41/, 'a draw in the same millisecond still animates')
+  assert.match(sameMs, /sl-onum is-ready sl-och-in" data-main="number"><span class="sl-oval">41/, 'a draw in the same millisecond still animates')
+})
+
+test('order status tiles show the fields picked: a big value and lines under it', () => {
+  const at = Date.parse('2026-10-19T12:00:00Z')
+  const orders = {
+    preparing: [
+      { id: 'a', number: '41', tent: '12', name: 'Sam', type_name: 'Eat in', source: 'till', at: new Date(at).toISOString() },
+      { id: 'b', number: '42', type_name: 'Take out', source: 'online', at: new Date(at).toISOString() },
+    ],
+    ready: [],
+  }
+  const block = opts => ({ id: 'o1', type: 'order_status', x: 0, y: 0, w: 1, h: 1, opts })
+  const draw = opts => {
+    const l = normalizeBoard({ width: 1920, height: 1080, blocks: [block(opts)] }, 1920, 1080)
+    return renderBlockInner(l.blocks[0], boardContext(l, { width: 1920, height: 1080, now: new Date(at), orders }))
+  }
+  const plain = draw({})
+  assert.match(plain, /data-main="number"><span class="sl-oval">41<\/span><\/div>/, 'the number alone by default')
+  const tent = draw({ tile_main: 'tent', tile_lines: ['number', 'name', 'type', 'source'] })
+  assert.match(tent, /data-main="tent"><span class="sl-ocap">Tent<\/span><span class="sl-oval">12<\/span><span class="sl-oline" data-k="number">Order 41<\/span><span class="sl-oline" data-k="name">Sam<\/span><span class="sl-oline" data-k="type">Eat in<\/span><\/div>/)
+  assert.match(tent, /data-main="number"><span class="sl-oval">42<\/span><span class="sl-oline" data-k="type">Take out<\/span><span class="sl-oline" data-k="source">Online<\/span>/, 'no tent: the number, lines it has')
+  const named = draw({ tile_main: 'name', tile_lines: ['name', 'tent'] })
+  assert.match(named, /data-main="name"><span class="sl-oval">Sam<\/span><span class="sl-oline" data-k="tent">Tent 12<\/span>/, 'the big field is not repeated as a line')
+  const safe = draw({ tile_main: 'name', tile_lines: ['nonsense'] })
+  assert.doesNotMatch(safe, /nonsense/)
 })

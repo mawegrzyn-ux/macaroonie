@@ -177,6 +177,9 @@ const DeviceSettings = z.object({
   sound:              z.boolean().optional(),
   // Its flow button may put another kitchen flow in use (absent = yes).
   can_switch_flow:    z.boolean().optional(),
+  // What a ticket's title shows (shared/orderInfo.js): 'auto' = the table or
+  // the name, else the order number, tent, table or customer name picked.
+  ticket_main:        z.enum(['auto', 'number', 'tent', 'table', 'name']).optional(),
   // Self-order kiosks (kind 'kiosk', shared/kiosk.js): its design (null = the
   // tenant's first) and its card reader ('test' takes no money; real
   // terminals come as adapters later, docs/POS.md section 10).

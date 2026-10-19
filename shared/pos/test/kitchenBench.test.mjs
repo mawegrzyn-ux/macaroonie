@@ -233,3 +233,23 @@ test('a Balance box on the bench shares the wings between two wingmen, and its s
   }
   assert.deepEqual(ways, [W1, W2, W1], 'empty, then the other, then turns')
 })
+
+test('test orders carry a tent and a name to the kitchen and the order ready board', () => {
+  const data = benchData()
+  const b = createBench(data, { now: clock(), rng: seeded(5) })
+  const counter = b.sendOrder({ source: 'till', order_type_id: OUT, tent: ' 14 ', name: 'Sam', lines: [{ item_id: BURGER, qty: 1 }] })
+  assert.ok(counter.ok, counter.error)
+  const o = b.orders()[counter.id]
+  assert.equal(o.tent, '14')
+  assert.equal(o.tab, 'Sam')
+  const table = b.sendOrder({ source: 'till', order_type_id: EAT, table_id: TABLE5, tent: '9', lines: [{ item_id: BURGER, qty: 1 }] })
+  assert.equal(b.orders()[table.id].tent, null, 'a table order has no tent')
+  const web = b.sendOrder({ source: 'online', order_type_id: OUT, name: 'Ali', lines: [{ item_id: FRIES, qty: 1 }] })
+  assert.equal(b.orders()[web.id].guest, 'Ali')
+  const plain = b.sendOrder({ source: 'online', order_type_id: OUT, lines: [{ item_id: FRIES, qty: 1 }] })
+  assert.equal(b.orders()[plain.id].guest, 'Test guest')
+  const made = []
+  for (let i = 0; i < 40; i++) made.push(b.randomSpec({ source: 'till' }))
+  assert.ok(made.some(s => s.tent), 'some made-up counter orders have a tent')
+  assert.ok(made.every(s => !s.tent || !s.table_id), 'never a tent with a table')
+})

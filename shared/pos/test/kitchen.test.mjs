@@ -508,6 +508,9 @@ test('remake puts a dish back, priority, collected, the all-orders board', () =>
   assert.equal(t.orders[id].board, true)
   assert.equal(t.orders[id].type, OUT)
   assert.deepEqual(boardNumbers(t.orders, at()).preparing.map(x => x.number), ['57'])
+  const tile = boardNumbers(t.orders, at()).preparing[0]
+  assert.equal(tile.tent, '14', 'a board number carries the tent')
+  assert.equal(tile.type_name, t.orders[id].type_name)
   ok(t.kitchen(kev('kitchen.priority', { order_id: id, on: true })))
   ok(t.bump(id, simple.GRILL))
   ok(t.bump(id, simple.PASS))

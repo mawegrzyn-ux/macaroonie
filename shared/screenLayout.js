@@ -39,6 +39,7 @@ import { FONT_WEIGHTS, FONT_OPTIONS } from './fonts.js'
 import { allergenKey, isRemovable, menuTags } from './menuTags.js'
 import { itemChoices, variantRules, fromPrice, comboMenuPrice } from './orderPricing.js'
 import { comboGuide, menuCtx } from './combos.js'
+import { orderInfo } from './orderInfo.js'
 
 // ── Constants ───────────────────────────────────────────────
 
@@ -181,7 +182,9 @@ export const BLOCK_DEFAULTS = {
     w: 0.6, h: 0.8,
     opts: {
       board: '', show_preparing: true, preparing_title: 'Preparing', ready_title: 'Ready', title_size: 56, number_size: 72,
-      columns: 1, max: 12, clear_mins: 10, show_names: false, layout: 'side', ready_first: false,
+      columns: 1, max: 12, clear_mins: 10, layout: 'side', ready_first: false,
+      // Each tile (shared/orderInfo.js): the big value and the small lines under it.
+      tile_main: 'number', tile_lines: [],
       change_anim: 'none', change_ms: 900,
       title_color: '', ready_bg: '#2e8b57', ready_color: '#ffffff', preparing_color: '', preparing_bg: '',
     },
@@ -819,8 +822,15 @@ export function renderBlockInner(block, ctx) {
 }
 
 const SAMPLE_ORDERS = {
-  preparing: [{ id: 's57', number: '57' }, { id: 's58', number: '58', name: 'Sam' }, { id: 's61', number: '61' }],
-  ready: [{ id: 's54', number: '54', name: 'Alex' }, { id: 's55', number: '55' }],
+  preparing: [
+    { id: 's57', number: '57', tent: '12', type_name: 'Eat in' },
+    { id: 's58', number: '58', name: 'Sam', type_name: 'Take out', source: 'online' },
+    { id: 's61', number: '61', tent: '4', name: 'Jo', type_name: 'Eat in' },
+  ],
+  ready: [
+    { id: 's54', number: '54', name: 'Alex', type_name: 'Take out' },
+    { id: 's55', number: '55', tent: '9', type_name: 'Eat in' },
+  ],
 }
 
 // Order status block: how a number moves when its status changes.
@@ -905,8 +915,8 @@ function orderStatusHtml(o, ctx) {
     if (!ctx.orders && !ctx.still) {
       // Designer Play: 58 is ready, and a new 62 comes in.
       changes = [{ at: nowMs, prep_in: ['s62'], ready_in: ['s58'], prep_out: [{ ...SAMPLE_ORDERS.preparing[1], index: 1 }], ready_out: [] }]
-      preparing = [SAMPLE_ORDERS.preparing[0], SAMPLE_ORDERS.preparing[2], { id: 's62', number: '62' }]
-      ready = [{ id: 's58', number: '58', name: 'Sam' }, ...SAMPLE_ORDERS.ready]
+      preparing = [SAMPLE_ORDERS.preparing[0], SAMPLE_ORDERS.preparing[2], { id: 's62', number: '62', tent: '7', type_name: 'Eat in' }]
+      ready = [SAMPLE_ORDERS.preparing[1], ...SAMPLE_ORDERS.ready]
     }
     for (const c of changes) {
       // A draw in the same millisecond as the change can read a hair earlier
@@ -920,8 +930,14 @@ function orderStatusHtml(o, ctx) {
     }
   }
   const delay = t => (t ? ' style="animation-delay:-' + Math.round(t) + 'ms"' : '')
-  const tile = (x, cls, extra = '', t = 0) => '<div class="sl-onum ' + cls + extra + '"' + delay(t) + '><span>' + esc(x.number) + '</span>' +
-    (o.show_names && x.name ? '<span class="sl-oname">' + esc(x.name) + '</span>' : '') + '</div>'
+  const info = { main: o.tile_main, lines: o.tile_lines }
+  const tile = (x, cls, extra = '', t = 0) => {
+    const v = orderInfo(x, info)
+    return '<div class="sl-onum ' + cls + extra + '"' + delay(t) + ' data-main="' + v.key + '">' +
+      (v.caption ? '<span class="sl-ocap">' + esc(v.caption) + '</span>' : '') +
+      '<span class="sl-oval">' + esc(v.value) + '</span>' +
+      v.lines.map(l => '<span class="sl-oline" data-k="' + l.key + '">' + esc(l.text) + '</span>').join('') + '</div>'
+  }
   const column = (title, list, cls, side) => {
     const tiles = list.map(x => {
       const t = into.get(side + ':' + x.id)
@@ -1136,7 +1152,10 @@ export const SCREEN_LAYOUT_CSS = `
 @keyframes sl-och-float-in { from { opacity: 0.2; transform: translate(calc(var(--ofx) * -1), calc(var(--ofy) * -1)); } to { opacity: 1; transform: none; } }
 @keyframes sl-och-float-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: translate(var(--ofx), var(--ofy)); } }
 .sl-onum.is-ready { background: var(--orb); color: var(--orc); border-radius: 0.08em; }
-.sl-oname { font-size: 0.35em; font-weight: 600; }
+.sl-ocap { font-size: 0.26em; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; line-height: 1.2; opacity: 0.85; }
+.sl-oval { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sl-onum[data-main="name"] .sl-oval { font-size: 0.7em; }
+.sl-oline { font-size: 0.32em; font-weight: 600; line-height: 1.25; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sl-t-video { display: block; }
 .sl-video { display: block; width: 100%; height: 100%; max-width: none; background: transparent; }
 .sl-ticker { width: 100%; height: 100%; overflow: hidden; display: flex; align-items: center; white-space: nowrap; }

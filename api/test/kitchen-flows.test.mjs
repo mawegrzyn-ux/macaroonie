@@ -310,3 +310,48 @@ test('a Balance box: each order to the wingman with fewer pieces to cook, taking
   for (const s of [box, w1, w2, extra]) await ok(owner.delete(`/api/pos/kds-stations/${s.id}`))
   assert.equal((await sql`SELECT count(*)::int AS n FROM kds_balance_turns WHERE station_id = ${box.id}`)[0].n, 0, 'its turns go with it')
 })
+
+test('a kitchen screen\'s ticket title: saved with its settings, sent to the screen, nonsense refused', async () => {
+  const keep = { station_ids: [grill.id], can_switch_flow: true }
+  ok(await owner.patch(`/api/pos/devices/${screen.id}`, { name: 'Pass screen', settings: { ...keep, ticket_main: 'tent' } }), 'ticket title')
+  const config = await device(screen, 'GET', '/pos-api/config')
+  assert.equal(config.status, 200, config.body)
+  assert.equal(config.json.device.settings.ticket_main, 'tent')
+  const bad = await owner.patch(`/api/pos/devices/${screen.id}`, { name: 'Pass screen', settings: { ...keep, ticket_main: 'chair' } })
+  assert.equal(bad.status, 400)
+  ok(await owner.patch(`/api/pos/devices/${screen.id}`, { name: 'Pass screen', settings: keep }), 'back to auto')
+})
+
+test('an order ready board sends a menu screen each order\'s name, table and type, not only its number', async () => {
+  const board = await ok(owner.post(`/api/pos/venues/${V}/kds-stations`, { name: 'Pick up here', kind: 'board' }))
+  await ok(owner.put(`/api/pos/kds-flows/${main.id}`, { links: [
+    { from: null, to: wok.id, targets: [] }, { from: wok.id, to: pass.id, targets: [] }, { from: pass.id, to: board.id, targets: [] },
+  ], layout: {} }))
+  await ok(owner.put(`/api/pos/venues/${V}/kds-flows/active`, { flow_id: main.id }))
+  const types = (await ok(owner.get(`/api/pos/venues/${V}/setup`))).order_types
+  const ev = orderIn(301)
+  Object.assign(ev.payload.order, { guest: 'Ali', table: '7', type: types[0].id, type_name: types[0].name })
+  const sent = await sequencer(ids.a, V).submit(ev)
+  assert.ok(sent.ok, sent.error)
+
+  const app = await getApp()
+  const call = (method, url, body, headers = {}) => app.inject({
+    method, url, headers: { [INTERNAL_CALL_HEADER]: INTERNAL_CALL_SECRET, ...(body ? { 'content-type': 'application/json' } : {}), ...headers },
+    payload: body ? JSON.stringify(body) : undefined,
+  })
+  const p = (await call('POST', '/screen-api/pairings', { device: { width: 1920, height: 1080 } })).json()
+  const scr = await ok(owner.post('/api/screens/screens/claim', { code: p.code, name: 'Pick up screen', venue_id: V }))
+  const res = await call('GET', '/screen-api/orders', null, { authorization: `Screen ${scr.id}.${p.secret}` })
+  assert.equal(res.statusCode, 200, res.body)
+  const tile = res.json().orders.boards['pick up here'].preparing.find(t => t.number === '301')
+  assert.ok(tile, 'the order is on its board')
+  assert.equal(tile.name, 'Ali')
+  assert.equal(tile.table, '7')
+  assert.equal(tile.type_name, types[0].name)
+  assert.equal(tile.tent, null)
+  assert.equal(tile.source, 'online')
+
+  await ok(owner.delete(`/api/screens/screens/${scr.id}`))
+  await ok(owner.put(`/api/pos/kds-flows/${main.id}`, { links: [{ from: null, to: wok.id, targets: [] }, { from: wok.id, to: pass.id, targets: [] }], layout: {} }))
+  await ok(owner.delete(`/api/pos/kds-stations/${board.id}`))
+})

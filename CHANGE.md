@@ -5,6 +5,14 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-19 — Order ready boards, kitchen tickets and kiosks show tents and names]
+
+- **Order ready boards**: the Order status block on a menu screen board has a new **Each tile** section. **Big text** picks what shows big on each tile: the order number, the tent number, the table or the customer's name. **Under it** adds small lines: order number, tent number, table, customer name, order type, where from. For counter service with tents, Big text *Tent number* with *Order number* under it shows "TENT 12 / Order 57". An order without the big one (online orders have no tent) shows its order number instead, and a line shows only when the order has it. The old switch "Show the guest's first name" becomes the Customer name line on boards that had it on.
+- **Kitchen screens**: each screen has a **Ticket title** in Till setup → Kitchen screens (Edit): *Table or name* (as before), *Order number*, *Tent*, *Table* or *Name*. With *Tent*, tickets read "Tent 12" with the order number beside it; an order without a tent shows its table or name.
+- **Kiosks**: the number a kiosk asks for when the revenue stream asks for a tent is now a **tent number**: "Your tent number", "Take a numbered tent from the stand, type its number here and put it on your table", and on the order number screen "Put tent 12 on your table: we'll bring your order to you", in all nine languages. A design whose guests sit down first can switch back to table numbers: **Number to type** in the design's Paying panel.
+- **Kitchen test bench**: test orders take a tent number (counter orders) and a customer name, and some made-up orders get a tent, so ticket titles and boards can be tried before service.
+- **Migration 189** (order_tile_fields).
+
 ## [2026-10-19 — One way to set up tills, kitchen screens and kiosks]
 
 - Devices are now set up **one way**, the installer's: open the device's address (tills **pos.**, kitchen screens **kitchen.**, kiosks **kiosk.**) and it shows a six-letter code with a QR code. Type that code in Till setup (**Add a till**, **Add a screen**, **Add a kiosk**, with the name and settings in the same window), or scan the QR code with a phone and link it in the installer app. The device sets itself up.

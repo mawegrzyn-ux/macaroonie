@@ -39,6 +39,13 @@ const VIEWS = [
   { value: 'tickets', label: 'Tickets' },
   { value: 'on_order', label: 'On order counts' },
 ]
+const TICKET_TITLES = [
+  { value: 'auto', label: 'Table or name' },
+  { value: 'number', label: 'Order number' },
+  { value: 'tent', label: 'Tent' },
+  { value: 'table', label: 'Table' },
+  { value: 'name', label: 'Name' },
+]
 const TEXT_SIZES = [
   { value: 'normal', label: 'Normal' },
   { value: 'large', label: 'Large' },
@@ -62,6 +69,7 @@ function ScreenModal({ venueId, setup, device, onClose }) {
     text_size: s.text_size || 'normal',
     sound: s.sound !== false,
     can_switch_flow: s.can_switch_flow !== false,
+    ticket_main: s.ticket_main || 'auto',
   })
   const set = patch => setForm(f => ({ ...f, ...patch }))
   const stations = setup.kds_stations.filter(x => x.is_active && isBumpKind(x.kind))
@@ -69,7 +77,7 @@ function ScreenModal({ venueId, setup, device, onClose }) {
     name: form.name.trim(),
     settings: {
       station_ids: form.station_ids, view: form.view, columns: form.columns || undefined, text_size: form.text_size, sound: form.sound,
-      can_switch_flow: form.can_switch_flow,
+      can_switch_flow: form.can_switch_flow, ticket_main: form.ticket_main,
     },
   })
   const refresh = () => qc.invalidateQueries({ queryKey: ['pos-setup', venueId] })
@@ -115,6 +123,11 @@ function ScreenModal({ venueId, setup, device, onClose }) {
         </Field>
         <Field group label="Text size"><Segmented value={form.text_size} options={TEXT_SIZES} onChange={v => set({ text_size: v })} /></Field>
       </div>
+      <Field group label="Ticket title" hint={form.ticket_main === 'auto'
+        ? 'The table, or the name typed on the till or kiosk, with the order number beside it.'
+        : 'An order without one shows the table or name instead. The order number stays beside it (or the table or tent, when the title is the order number).'}>
+        <Segmented value={form.ticket_main} options={TICKET_TITLES} onChange={v => set({ ticket_main: v })} />
+      </Field>
       <Toggle label="Beep for new orders" checked={form.sound} onChange={v => set({ sound: v })} />
       <Toggle label="Can switch the kitchen flow"
         hint={(setup.kds_flows || []).length > 1

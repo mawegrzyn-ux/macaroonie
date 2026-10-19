@@ -304,7 +304,11 @@ ordering, the Deliveroo file, Cash Recon fill through the Z, reports).
   Name and tent can be required per stream and type: the till asks at counter start, Send and
   Pay.
 - **Kitchen**: kitchen orders carry `type` (the order type id), `type_name` and `tent`; flow
-  links filter on the tenant's types; the kitchen screen's tabs are the tenant's types.
+  links filter on the tenant's types; the kitchen screen's tabs are the tenant's types. What a
+  ticket's title and an order ready board's tile show (number, tent, table, name) comes from
+  `shared/orderInfo.js` (migration 189: kitchen screen setting `ticket_main`, Order status block
+  `tile_main` / `tile_lines`). A kiosk asks for a tent number (design `checkout.number_kind`
+  tent, or table); guests take a numbered tent from a stand by the kiosk or till.
 - **Reports**: day figures by revenue stream and by order type; the Z prints both.
 - Not built: tax-inclusive vs exclusive pricing per location (all prices include VAT); a rate
   change on a date (change the % on the day, or publish a menu with another rate).

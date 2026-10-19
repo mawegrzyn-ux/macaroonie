@@ -763,6 +763,13 @@ function CheckoutPanel({ s, d, set, setup, canManage }) {
           </Field>
         </>
       )}
+      <Field group label="Number to type" hint={c.number_kind === 'table'
+        ? 'Guests sit down first and type the number on their table.'
+        : 'Guests take a numbered tent from a stand beside the kiosk, type its number and put it on their table; the order number screen reminds them.'}>
+        <Segmented value={c.number_kind} onChange={v => set('checkout', { number_kind: v })}
+          options={[{ value: 'tent', label: 'Tent number' }, { value: 'table', label: 'Table number' }]} />
+        <p className="text-xs text-muted-foreground mt-1">Asked only for order types whose revenue stream asks for a tent (Till setup &gt; Revenue streams).</p>
+      </Field>
       <Field group label="Receipts" hint="Print on the kiosk's receipt printer (Till setup > Kiosks > Edit).">
         <Segmented value={c.receipt} onChange={v => set('checkout', { receipt: v })}
           options={[{ value: 'off', label: 'None' }, { value: 'ask', label: 'Guest can print one' }, { value: 'always', label: 'Always' }]} />

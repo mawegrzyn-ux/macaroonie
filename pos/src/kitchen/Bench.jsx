@@ -427,7 +427,7 @@ function OrdersPanel({ bench, data, onChange, say }) {
             <div className="flex items-center gap-2">
               <div className="font-bold text-lg">#{o.number}</div>
               <div className="text-sm text-muted truncate flex-1">
-                {[o.table ? 'Table ' + o.table : o.source === 'online' ? 'Online' : 'Counter', o.type_name].filter(Boolean).join(' · ')}
+                {[o.table ? 'Table ' + o.table : o.source === 'online' ? 'Online' : 'Counter', o.tent && 'Tent ' + o.tent, o.guest || o.tab, o.type_name].filter(Boolean).join(' · ')}
               </div>
               <span className={cx('text-xs font-bold px-2 py-1 rounded-full',
                 o.status === 'ready' ? 'bg-ok text-white' : o.status === 'collected' ? 'bg-ink text-white' : o.status === 'cancelled' ? 'bg-bad text-white' : 'bg-page text-ink')}>
@@ -508,6 +508,8 @@ function OrderBuilder({ data, onClose, onSend }) {
   const [typeId, setTypeId] = useState(data.order_types?.[0]?.id || null)
   const [streamId, setStreamId] = useState(data.streams?.[0]?.id || null)
   const [tableId, setTableId] = useState(null)
+  const [tent, setTent] = useState('')
+  const [name, setName] = useState('')
   const [holdCourses, setHoldCourses] = useState(false)
   const [lines, setLines] = useState([])
   const [q, setQ] = useState('')
@@ -588,6 +590,18 @@ function OrderBuilder({ data, onClose, onSend }) {
                 </select>
               </label>
             )}
+            {source === 'till' && !tableId && (
+              <label className="block">
+                <span className="label">Tent number</span>
+                <input className="input mt-1" inputMode="numeric" maxLength={10} placeholder="None" value={tent}
+                  onChange={e => setTent(e.target.value)} data-testid="bench-tent" />
+              </label>
+            )}
+            <label className="block">
+              <span className="label">Customer name</span>
+              <input className="input mt-1" maxLength={60} placeholder={source === 'online' ? 'Test guest' : 'None'} value={name}
+                onChange={e => setName(e.target.value)} data-testid="bench-name" />
+            </label>
             {source === 'till' && hasCourses && (
               <button className={cx('chip w-full', holdCourses && 'chip-on')} aria-pressed={holdCourses} onClick={() => setHoldCourses(v => !v)}>
                 Hold later courses (fire them from the order)
@@ -615,7 +629,10 @@ function OrderBuilder({ data, onClose, onSend }) {
         <div className="flex justify-end gap-2 px-4 py-3 border-t border-line">
           <button className="btn" onClick={onClose}>Cancel</button>
           <button className="btn btn-primary" disabled={!lines.length} data-testid="bench-send"
-            onClick={() => onSend({ source, order_type_id: typeId, revenue_stream_id: streamId, table_id: source === 'till' ? tableId : null, hold_courses: holdCourses, lines })}>
+            onClick={() => onSend({
+              source, order_type_id: typeId, revenue_stream_id: streamId, table_id: source === 'till' ? tableId : null,
+              tent: source === 'till' && !tableId ? tent : null, name, hold_courses: holdCourses, lines,
+            })}>
             Send to the kitchen
           </button>
         </div>

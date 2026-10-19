@@ -1483,6 +1483,11 @@ export function boardNumbers(orders, now, { clearMins = 10, max = 30, boardId = 
   }
   preparing.sort((a, b) => ms(a.at) - ms(b.at))
   ready.sort((a, b) => ms(b.at) - ms(a.at))
-  const view = ({ o, at }) => ({ id: o.id, number: o.number, name: o.guest || null, source: o.source, at })
+  // What a tile can show (shared/orderInfo.js): the guest's first name online,
+  // the name typed on a till or kiosk, the tent, table and order type.
+  const view = ({ o, at }) => ({
+    id: o.id, number: o.number, name: o.guest || o.tab || null, tent: o.tent || null, table: o.table || null,
+    type_name: o.type_name || null, source: o.source, at,
+  })
   return { preparing: preparing.slice(0, max).map(view), ready: ready.slice(0, max).map(view) }
 }

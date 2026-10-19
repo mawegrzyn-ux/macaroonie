@@ -33,7 +33,7 @@ export const SHARED_DIR = path.resolve(__dirname, '..', '..', '..', 'shared')
 // The shared files the player imports (served as /lib/<name> by
 // routes/screenSite.js). screenLayout.js imports the others by relative
 // path, so they must all be served from the same folder.
-export const PLAYER_LIBS = ['screenLayout.js', 'fonts.js', 'menuTags.js', 'orderPricing.js', 'promotions.js', 'menuSchedule.js', 'combos.js', 'qr.js']
+export const PLAYER_LIBS = ['screenLayout.js', 'fonts.js', 'menuTags.js', 'orderPricing.js', 'promotions.js', 'menuSchedule.js', 'combos.js', 'qr.js', 'orderInfo.js']
 
 let versionCache = null
 export function playerVersion() {

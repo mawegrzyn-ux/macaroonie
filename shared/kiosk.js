@@ -289,6 +289,10 @@ export function normaliseDesign(raw) {
       upsell_item_ids: ids(c.upsell_item_ids, MAX.upsell),
       receipt: oneOf(c.receipt, ['off', 'ask', 'always'], 'off'),
       thanks: text(c.thanks, 60),
+      // What the number a stream's order type asks for is (Till setup >
+      // Revenue streams, Tent): a numbered tent picked up beside the kiosk
+      // and put on the table, or the number already on the table.
+      number_kind: oneOf(c.number_kind, ['tent', 'table'], 'tent'),
     },
     behaviour: {
       idle_secs: num(h.idle_secs, 20, 600, 60),

@@ -39,6 +39,7 @@ import {
   normalizeBoard, boardContext, renderBlockInner, blockStyle, boardStyle, toReactStyle, dishOptionLabels,
   wrapMotion, startBoardMotion, wallRegion, ORDER_CHANGE_ANIMS,
 } from '@shared/screenLayout.js'
+import { ORDER_FIELDS, MAIN_FIELDS, normaliseOrderInfo } from '@shared/orderInfo.js'
 
 const ICONS = {
   heading: Heading, text: Type, menu: ListOrdered, dish: Star, price: PoundSterling,
@@ -657,6 +658,42 @@ function Seg({ value, options, onChange }) {
   )
 }
 
+// What each order status tile shows (shared/orderInfo.js): a big value and
+// small lines under it, in the fields' own order.
+function TileSection({ o, onOpts }) {
+  const info = normaliseOrderInfo(o.tile_main, o.tile_lines)
+  const toggle = key => {
+    const on = info.lines.includes(key)
+    const next = ORDER_FIELDS.map(f => f.key).filter(k => k !== info.main && (k === key ? !on : info.lines.includes(k)))
+    onOpts({ tile_lines: next })
+  }
+  const mainLabel = ORDER_FIELDS.find(f => f.key === info.main)?.label.toLowerCase()
+  return (
+    <Section title="Each tile">
+      <Sel label="Big text" value={info.main} onChange={v => onOpts({ tile_main: v, tile_lines: info.lines.filter(k => k !== v) })}>
+        {MAIN_FIELDS.map(k => <option key={k} value={k}>{ORDER_FIELDS.find(f => f.key === k).label}</option>)}
+      </Sel>
+      {info.main !== 'number' && (
+        <p className="text-[11px] text-muted-foreground">An order with no {mainLabel} shows its order number instead.</p>
+      )}
+      <div className="text-xs font-medium">Under it</div>
+      <div className="flex flex-wrap gap-1.5" role="group" aria-label="Under it" data-testid="tile-lines">
+        {ORDER_FIELDS.filter(f => f.key !== info.main).map(f => (
+          <button key={f.key} type="button" onClick={() => toggle(f.key)} aria-pressed={info.lines.includes(f.key)} data-k={f.key}
+            className={cn('min-h-[44px] px-3 rounded-lg border text-sm touch-manipulation',
+              info.lines.includes(f.key) ? 'bg-primary text-primary-foreground border-primary' : 'bg-background hover:bg-muted')}>
+            {f.label}
+          </button>
+        ))}
+      </div>
+      <p className="text-[11px] text-muted-foreground">
+        A line shows only when the order has it. Tent numbers come from counter tills and kiosks that ask for one (Till setup &gt; Revenue streams);
+        names are the name typed on a till or kiosk, or an online guest's first name, and show on a public screen.
+      </p>
+    </Section>
+  )
+}
+
 function Check({ label, checked, onChange }) {
   return (
     <label className="flex items-center gap-2 text-sm min-h-[36px] cursor-pointer touch-manipulation">
@@ -1059,7 +1096,6 @@ function BlockPanel({ block, board, data, canManage, onUpdate, onOpts, onDuplica
             {o.show_preparing !== false && (
               <Check label={o.layout === 'stacked' ? 'Ready at the top' : 'Ready on the left'} checked={!!o.ready_first} onChange={v => onOpts({ ready_first: v })} />
             )}
-            <Check label="Show the guest's first name under online orders" checked={!!o.show_names} onChange={v => onOpts({ show_names: v })} />
             <div className="grid grid-cols-2 gap-2">
               <PxBox label="Numbers per row" suffix="" value={o.columns ?? 1} min={1} max={6} onChange={v => onOpts({ columns: v })} />
               <PxBox label="Most shown" suffix="" value={o.max ?? 12} min={1} max={60} onChange={v => onOpts({ max: v })} />
@@ -1067,6 +1103,7 @@ function BlockPanel({ block, board, data, canManage, onUpdate, onOpts, onDuplica
             <PxBox label="Ready numbers stay for" suffix="min" value={o.clear_mins ?? 10} min={0} max={120} onChange={v => onOpts({ clear_mins: v })} />
             <p className="text-[11px] text-muted-foreground">Or until the pass marks the order collected. 0: until collected.</p>
           </Section>
+          <TileSection o={o} onOpts={onOpts} />
           <Section title="Style">
             <div className="grid grid-cols-2 gap-2">
               <PxBox label="Title size" value={o.title_size ?? 56} min={6} max={400} onChange={v => onOpts({ title_size: v })} />

@@ -3425,7 +3425,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['kds_flow_edges', 'A flow\'s links (169, flow_id NOT NULL since 177, ON DELETE CASCADE with the flow): from_station_id (NULL = Orders in), to_station_id (both ON DELETE CASCADE), targets jsonb, sort_order. One link per pair per flow (unique index on flow_id, from, to). Read them by flow_id, never by venue alone. Replaced kds_routes: each station\'s routes became one link from Orders in, every prep station got a link to every expo.'],
                 ['kds_orders', 'Projection (like pos_checks): id text (a check id, web-<orders.id> or gf-<gloriafood_orders.id>), source till | online | gloriafood (178; taken from the id prefix by applyKitchenEvent(), never from the payload), check_id / order_id, status active | ready | collected | cancelled, state jsonb (the whole kitchen order), last_seq.'],
                 ['kds_log', 'One row per bump and remake: station (id, name, kind), seconds since the dishes arrived or were fired, items, order source / type / number, reason, recalled_at (a recalled bump is left out of the report). Feeds the Kitchen report and its CSV.'],
-                ['pos_devices', 'kind kds; settings { station_ids, view tickets | on_order, columns, text_size, sound, can_switch_flow (absent = true: its flow button may put another flow in use) }.'],
+                ['pos_devices', 'kind kds; settings { station_ids, view tickets | on_order, columns, text_size, sound, can_switch_flow (absent = true: its flow button may put another flow in use), ticket_main auto | number | tent | table | name (the ticket header\'s title: ticketTitle() in pos/src/kitchen/KitchenApp.jsx; auto or absent = table, tab or guest name with the order number beside it; another field falls back to auto when the order lacks it) }.'],
                 ['pos_settings', 'kds_online_orders (send accepted online orders), kds_online_ready (ready in the kitchen marks the online order ready, collected completes it; for GloriaFood orders: their board status), kds_gloriafood (178, default off: send GloriaFood orders), kds_gloriafood_types jsonb ({ pickup | delivery | dine_in | order_ahead | table_reservation: order type id | null }; a key left out is matched by name by gloriaFoodTypes()), kds_gloriafood_lead_mins (0-240, default 20: an order for later comes on this long before its time), kds_active_flow_id (the flow in use, ON DELETE SET NULL; NULL = the first), kds_flow_switched_at / kds_flow_switched_by (the last switch: a screen\'s name or a person\'s email). kds_flow_layout moved to kds_flows.layout (177).'],
               ]}
             />
@@ -3534,7 +3534,10 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <H3>Order status block</H3>
             <P>
               <Mono>orderStatusHtml()</Mono> in <Mono>shared/screenLayout.js</Mono>. Options: <Mono>board</Mono>{' '}
-              (a board station's name; <Mono>orderBoardData()</Mono>), <Mono>layout</Mono> side | stacked,{' '}
+              (a board station's name; <Mono>orderBoardData()</Mono>), <Mono>tile_main</Mono> number | tent |
+              table | name and <Mono>tile_lines</Mono> (any of number, tent, table, name, type, source; what each
+              tile shows, migration 189 turned the old <Mono>show_names</Mono> into <Mono>tile_lines</Mono>{' '}
+              [&apos;name&apos;]), <Mono>layout</Mono> side | stacked,{' '}
               <Mono>ready_first</Mono>, <Mono>preparing_bg</Mono>, <Mono>change_anim</Mono> none | float | fade
               | pop | zoom (<Mono>ORDER_CHANGE_ANIMS</Mono>) and <Mono>change_ms</Mono>. The player keeps the
               changes between fetches (<Mono>orderChanges()</Mono>: numbers in and out of each column, per
@@ -3543,6 +3546,19 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>sl-och-in</Mono> and numbers going out in their old place with <Mono>sl-och-out</Mono>, a
               negative animation-delay keeping a redraw mid-animation in step, then draws plain once it is over.
               The designer's Play shows an example change.
+            </P>
+            <P>
+              A tile is drawn by <Mono>orderInfo(order, {'{ main, lines }'})</Mono> in{' '}
+              <Mono>shared/orderInfo.js</Mono> (also loaded by the player from <Mono>/lib/orderInfo.js</Mono>):
+              the big value (the chosen field, else the first of number, tent, table, name the order has; the
+              tile&apos;s <Mono>data-main</Mono> says which), a caption over a tent or table (<Mono>sl-ocap</Mono>),
+              then the lines that have a value, never the big one again (<Mono>sl-oline</Mono>, Order 57 / Tent
+              12 / Table 4 / the name / the order type / Online or GloriaFood). A name as the big value is drawn
+              smaller. The numbers come from <Mono>boardNumbers()</Mono> in <Mono>shared/pos/kitchen.js</Mono>,
+              whose entries carry <Mono>number, name</Mono> (online guest, else the till or kiosk name),{' '}
+              <Mono>tent, table, type_name, source</Mono>. <Mono>normaliseOrderInfo()</Mono> tidies a saved
+              choice; the designer&apos;s Each tile section (<Mono>TileSection</Mono> in{' '}
+              <Mono>ScreenDesigner.jsx</Mono>) keeps lines in field order.
             </P>
             <H3>The kitchen test bench</H3>
             <P>
@@ -3568,8 +3584,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>applyKitchenEvent()</Mono> for <Mono>kitchen.order_in</Mono> online orders and the
               screens&apos; taps), its own sequence numbers, sync with reset after Clear all, an activity log, and
               its own flow in use (<Mono>switchFlow()</Mono>, refusing screens with{' '}
-              <Mono>can_switch_flow: false</Mono>). Test orders are made with <Mono>sendOrder(spec)</Mono> or
-              made up by <Mono>randomSpec()</Mono>; a combo&apos;s parts come from{' '}
+              <Mono>can_switch_flow: false</Mono>). Test orders are made with <Mono>sendOrder(spec)</Mono> (spec <Mono>tent</Mono>{' '}
+              on counter till orders, <Mono>name</Mono> as the till name or the online guest) or made up by{' '}
+              <Mono>randomSpec()</Mono> (some counter orders get a tent); a combo&apos;s parts come from{' '}
               <Mono>randomComboParts()</Mono> (<Mono>resolveSteps()</Mono>). Each screen is the real kitchen app
               in a same-origin frame (<Mono>?kitchen_test=&amp;screen=&lt;id&gt;</Mono>,{' '}
               <Mono>BenchScreen.jsx</Mono>), scaled with a CSS transform from a fixed size (tablet 1280 x 800,
@@ -3691,7 +3708,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['languages', 'source, enabled (KIOSK_LANGUAGES: en es ca fr de it pt nl pl; the source always on)'],
                 ['menu', 'home, banners [{ id, image_url, title, link { kind none | item | section, id } }] (10), banner_secs 3-20, featured [{ id, image_url, title, subtitle, size normal | wide, link }] (12), rail images | text | none (RAIL_KINDS), section_tiles [{ section_id, image_url, title, size normal | wide }] (rail none: the tiles page order, deduped, 200), columns auto | 2-4, show_calories, show_descriptions, show_tags, quick_add, hidden_section_ids'],
                 ['options', 'display grid | list | slider | wheel (where a group or step has none), level_icon flame | star | dot, wheel_spin (the Spin button; default on), wheel_spin_picks (a spin stops on a choice that can be picked and picks it)'],
-                ['checkout', 'pay_card, pay_counter, send_counter, counter_note, upsell, upsell_title, upsell_item_ids (8), receipt off | ask | always, thanks'],
+                ['checkout', 'pay_card, pay_counter, send_counter, counter_note, upsell, upsell_title, upsell_item_ids (8), number_kind tent | table (what the number asked for when the stream\'s ask_tent is on is called: tent_number / tent_hint and the Done screen\'s tent_done line, or table_number / table_hint; the value goes as check.tent either way), receipt off | ask | always, thanks'],
                 ['behaviour', 'idle_secs 20-600, warn_secs 5-60, done_secs 5-120, reach'],
               ]}
             />
