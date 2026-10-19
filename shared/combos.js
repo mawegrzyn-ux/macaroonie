@@ -23,6 +23,8 @@
 //                         // earlier step has one of these picked (empty = anything)
 //       display,          // kiosks (migration 172): 'grid' | 'list' | 'slider' |
 //                         // 'wheel', null = the kiosk design's default
+//       split,            // kiosks: the picks' pictures make the combo's split
+//                         // photo (stored only when true)
 //       options: [{
 //         id, type: 'item' | 'section' | 'custom',
 //         item_id,        // type item: a menu item
@@ -71,6 +73,7 @@ export function normaliseCombo(raw) {
       ask: s.ask === 'button' && min === 0 ? 'button' : 'always',
       when,
       display: STEP_DISPLAYS.includes(s.display) ? s.display : null,
+      split: !!s.split,
       options: asList(s.options).map((o, j) => ({
         id: String(o.id || 'opt-' + i + '-' + j),
         type: OPTION_TYPES.includes(o.type) ? o.type : 'item',

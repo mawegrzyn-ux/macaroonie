@@ -498,9 +498,13 @@ and the ConnectSmart Kitchen guide.
   `shared/pos/offers.js`), so the kiosk shows exactly what the till charges.
 - Card payments: a test reader only (Approve / Decline, no money). A real terminal plugs in at the
   card step: it must give back a reference the `payment.added` event carries.
-- The design (`kiosk_designs`, tenant-wide) sets brand, start screen, languages, menu home page,
-  how choices show, paying and timing; `normaliseDesign()` is the one checker. The editor shows the
-  real kiosk in a frame and posts the unsaved design to it.
+- The design (`kiosk_designs`, tenant-wide) sets brand, layout (cards, round or oval photos, or
+  hexagons; the top bar; icon-only Back and Start again), start screen, languages, menu home page
+  (sections down the side, or a page of section tiles), how choices show, paying and timing;
+  `normaliseDesign()` is the one checker, `ownDesign()` keeps only the tenant's own ids. The editor
+  shows the real kiosk in a frame and posts the unsaved design to it.
+- Split photo (migration 185): option groups and combo steps with it on turn the dish's photo into
+  the picks' pictures side by side with torn edges between them (`splitImages()`).
 - Choices: an option group or a combo step shows as grid, list, slider (with a level scale such as
   heat) or spin wheel; the group / step picks, else the design. Options have a picture, a line of
   words and a level 0-5.

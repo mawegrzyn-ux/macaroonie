@@ -81,7 +81,7 @@ export async function kioskConfig(tx, tenantId, venueId, device, { designOverrid
     loadOrderTypes(tx, tenantId),
     loadTaxRates(tx, tenantId),
     tx`SELECT g.id, g.name, g.price_mode, g.min_select, g.max_select, g.pos_prefixes, g.allow_repeat, g.on_request,
-              g.kiosk_display, g.scale_low, g.scale_high,
+              g.kiosk_display, g.scale_low, g.scale_high, g.kiosk_split,
               COALESCE(json_agg(json_build_object('id', o.id, 'label', o.label, 'price_pence', o.price_pence, 'child_group_id', o.child_group_id,
                                                   'image_url', o.image_url, 'description', o.description, 'level', o.level)
                 ORDER BY o.sort_order, o.label) FILTER (WHERE o.id IS NOT NULL), '[]') AS options
@@ -144,6 +144,41 @@ export async function readPreviewToken(token) {
 /** The preview's device: not paired, test card reader, the stream and design the editor picked. */
 export function previewDevice({ designId, streamId }) {
   return { id: PREVIEW_DEVICE_ID, kind: 'kiosk', name: 'Preview', short_code: 'KS', settings: { revenue_stream_id: streamId, design_id: designId, card_reader: 'test' } }
+}
+
+/**
+ * A design as saved: normalised, with the sections, dishes and order types it
+ * names kept only when they are the tenant's (sections left off, section
+ * tiles, banner and tile links, "Anything else?" dishes, order type buttons).
+ */
+export async function ownDesign(tx, tenantId, raw) {
+  const d = normaliseDesign(raw)
+  const m = d.menu
+  const links = [...m.banners, ...m.featured].map(x => x.link)
+  const sectionIds = [...new Set([...m.hidden_section_ids, ...m.section_tiles.map(t => t.section_id), ...links.filter(l => l.kind === 'section').map(l => l.id)])]
+  const itemIds = [...new Set([...d.checkout.upsell_item_ids, ...links.filter(l => l.kind === 'item').map(l => l.id)])]
+  const typeIds = Object.keys(d.start.type_cards)
+  const [sections, items, types] = await Promise.all([
+    sectionIds.length ? tx`SELECT id FROM menu_sections WHERE tenant_id = ${tenantId} AND id = ANY(${sectionIds}::uuid[])` : [],
+    itemIds.length ? tx`SELECT id FROM menu_items WHERE tenant_id = ${tenantId} AND id = ANY(${itemIds}::uuid[])` : [],
+    typeIds.length ? tx`SELECT id FROM order_types WHERE tenant_id = ${tenantId} AND id = ANY(${typeIds}::uuid[])` : [],
+  ])
+  const okSection = new Set(sections.map(r => r.id))
+  const okItem = new Set(items.map(r => r.id))
+  const okType = new Set(types.map(r => r.id))
+  const keepLink = l => ((l.kind === 'section' ? okSection : okItem).has(l.id) || l.kind === 'none' ? l : { kind: 'none', id: null })
+  return {
+    ...d,
+    start: { ...d.start, type_cards: Object.fromEntries(Object.entries(d.start.type_cards).filter(([id]) => okType.has(id))) },
+    menu: {
+      ...m,
+      hidden_section_ids: m.hidden_section_ids.filter(id => okSection.has(id)),
+      section_tiles: m.section_tiles.filter(t => okSection.has(t.section_id)),
+      banners: m.banners.map(b => ({ ...b, link: keepLink(b.link) })),
+      featured: m.featured.map(f => ({ ...f, link: keepLink(f.link) })),
+    },
+    checkout: { ...d.checkout, upsell_item_ids: d.checkout.upsell_item_ids.filter(id => okItem.has(id)) },
+  }
 }
 
 export async function checkDesign(tx, tenantId, id) {

@@ -10,6 +10,7 @@
 // (services/kioskSvc.js, routes/posSetup.js, routes/menus.js) and the admin
 // (Till setup > Kiosks, Menus > Translations) share:
 //   normaliseDesign(), designProblems()   a kiosk design (kiosk_designs.settings)
+//   splitImages()                         the pictures of a dish's split photo
 //   KIOSK_LANGUAGES, uiText(), allergenName()   words in the guest's language
 //                                               (built-in words: shared/kioskText.js)
 //   TK, translationSources()              the menu's own words a person translates
@@ -122,12 +123,33 @@ export const COLOR_LABELS = {
 }
 export const TYPE_ICONS = ['eat_in', 'take_away', 'delivery', 'none']
 export const LINK_KINDS = ['none', 'item', 'section']
+// How dishes, choices and section tiles are drawn: cards (photo on top of a
+// card), round or oval photos with the words under them (no card behind),
+// or hexagons that fit together like a honeycomb (the whole kiosk then takes
+// the hexagon look: buttons, chips, badges).
+export const TILE_STYLES = ['cards', 'round', 'oval', 'hexagon']
+export const TILE_LABELS = { cards: 'Cards', round: 'Round', oval: 'Oval', hexagon: 'Hexagons' }
+// Sections down the side with photos or words, or none: the menu opens on a
+// page of section tiles instead.
+export const RAIL_KINDS = ['images', 'text', 'none']
 
-const MAX = { media: 8, banners: 10, featured: 12, upsell: 8, hidden: 200 }
+const MAX = { media: 8, banners: 10, featured: 12, upsell: 8, hidden: 200, tiles: 200 }
 
 function link(v) {
   const kind = oneOf(v?.kind, LINK_KINDS, 'none')
   return kind !== 'none' && isUuid(v?.id) ? { kind, id: v.id } : { kind: 'none', id: null }
+}
+
+function sectionTiles(v) {
+  const seen = new Set()
+  const out = []
+  for (const x of asList(v)) {
+    if (!isUuid(x?.section_id) || seen.has(x.section_id)) continue
+    seen.add(x.section_id)
+    out.push({ section_id: x.section_id, image_url: url(x.image_url), title: text(x.title, 60), size: oneOf(x.size, ['normal', 'wide'], 'normal') })
+    if (out.length >= MAX.tiles) break
+  }
+  return out
 }
 
 /**
@@ -145,6 +167,7 @@ export function normaliseDesign(raw) {
   const o = d.options || {}
   const c = d.checkout || {}
   const h = d.behaviour || {}
+  const y = d.layout || {}
   const colors = {}
   for (const [k, def] of Object.entries(DESIGN_COLORS)) colors[k] = isHex(b.colors?.[k]) ? b.colors[k].toLowerCase() : def
   const source = oneOf(l.source, LANG_CODES, 'en')
@@ -162,6 +185,14 @@ export function normaliseDesign(raw) {
       font_body: oneOf(b.font_body, [SYSTEM_FONT, ...KIOSK_FONTS], 'Inter'),
       radius: num(b.radius, 0, 32, 18),
       heading_case: oneOf(b.heading_case, ['upper', 'normal'], 'upper'),
+    },
+    layout: {
+      tiles: oneOf(y.tiles, TILE_STYLES, 'cards'),
+      // The bar along the top (logo, language); off, the language button
+      // moves to the bottom bar.
+      header: y.header !== false,
+      // Back and Start again as icons only (the words stay for screen readers).
+      icon_buttons: !!y.icon_buttons,
     },
     start: {
       layout: oneOf(s.layout, ['split', 'full'], 'split'),
@@ -183,7 +214,10 @@ export function normaliseDesign(raw) {
         id: shortId(x?.id, i), image_url: url(x?.image_url), title: text(x?.title, 60), subtitle: text(x?.subtitle, 80),
         size: oneOf(x?.size, ['normal', 'wide'], 'normal'), link: link(x?.link),
       })).filter(x => x.image_url || x.title || x.link.kind !== 'none').slice(0, MAX.featured),
-      rail: oneOf(m.rail, ['images', 'text'], 'images'),
+      rail: oneOf(m.rail, RAIL_KINDS, 'images'),
+      // With no rail: the section tiles page, in this order (sections not
+      // listed follow in menu order), with a picture, words and a width each.
+      section_tiles: sectionTiles(m.section_tiles),
       columns: m.columns === 'auto' || m.columns == null ? 'auto' : num(m.columns, 2, 4, 3),
       show_calories: m.show_calories !== false,
       show_descriptions: m.show_descriptions !== false,
@@ -194,6 +228,9 @@ export function normaliseDesign(raw) {
     options: {
       display: oneOf(o.display, KIOSK_DISPLAYS, 'grid'),
       level_icon: oneOf(o.level_icon, ['flame', 'star', 'dot'], 'flame'),
+      // The spin wheel's Spin button, and whether a spin picks where it stops.
+      wheel_spin: o.wheel_spin !== false,
+      wheel_spin_picks: !!o.wheel_spin_picks,
     },
     checkout: {
       pay_card: c.pay_card !== false,
@@ -228,6 +265,45 @@ export function designProblems(design, kiosk = null) {
   if (!d.checkout.pay_counter && !d.checkout.pay_card) out.push('Pick at least one way to pay: by card or at the counter.')
   else if (kiosk && !card && !d.checkout.pay_counter) out.push('This kiosk has no card reader and the design doesn\'t let guests pay at the counter.')
   return out
+}
+
+export const SPLIT_MAX = 6
+
+/**
+ * The pictures of a dish's split photo on the kiosk (the dish page, the
+ * order line): the picks of option groups with Split photo on
+ * (menu_variant_groups.kiosk_split, migration 185) and, on a combo, of steps
+ * with it on (steps[].split; a picked dish shows its own photo). Steps
+ * first, then groups, each in pick order; an option picked twice shows once.
+ * Two or more pictures (at most SPLIT_MAX), else [] and the dish's own photo
+ * shows. selection: { choices, combo } as the builder keeps it.
+ */
+export function splitImages(config, item, selection = {}) {
+  if (!item) return []
+  const out = []
+  const seen = new Set()
+  const add = (key, src) => {
+    if (!src || seen.has(key)) return
+    seen.add(key)
+    out.push(src)
+  }
+  const combo = comboOf(item)
+  for (const st of combo?.steps || []) {
+    if (!st.split) continue
+    for (const e of asList(selection?.combo?.[st.id])) {
+      const opt = st.options.find(o => o.id === e.option_id)
+      add('s:' + st.id + ':' + e.option_id + ':' + (e.item_id || ''), e.item_id ? configItem(config, e.item_id)?.image_url : opt?.image_url)
+    }
+  }
+  for (const c of item.pos_choices || []) {
+    const lib = config?.groups?.[c.key]
+    if (!lib?.kiosk_split) continue
+    for (const e of asList(selection?.choices?.[c.key])) {
+      const o = (lib.options || []).find(x => (x.option_id ?? x.id) === e.id)
+      add('g:' + c.key + ':' + e.id, o?.image_url)
+    }
+  }
+  return out.length >= 2 ? out.slice(0, SPLIT_MAX) : []
 }
 
 /** Ways a guest can pay on this kiosk: ['card', 'counter'] in that order. */
@@ -326,6 +402,7 @@ export function translationSources({ menus = [], groups = [], types = [], tags =
       add(TK.design(d.id, 'featured:' + x.id + ':title'), g, 'Featured tile', x.title)
       add(TK.design(d.id, 'featured:' + x.id + ':subtitle'), g, 'Featured tile, second line', x.subtitle)
     }
+    for (const x of s.menu.section_tiles) add(TK.design(d.id, 'tile:' + x.section_id), g, 'Section tile', x.title)
     add(TK.design(d.id, 'counter_note'), g, 'Pay at the counter note', s.checkout.counter_note)
     add(TK.design(d.id, 'upsell_title'), g, '"Anything else?" heading', s.checkout.upsell_title)
     add(TK.design(d.id, 'thanks'), g, 'Order placed heading', s.checkout.thanks)

@@ -65,7 +65,7 @@ import { deviceOrigin, installerOrigin } from '../services/platformHost.js'
 import { linkCodeHash } from '../services/linkCodes.js'
 import { forgetDevice } from './posApi.js'
 import { ensureFlows, activeFlowOf, switchFlow, gloriaFoodTypes, GF_TYPES, kitchenTestToken } from '../services/kitchenSvc.js'
-import { checkDesign, previewToken } from '../services/kioskSvc.js'
+import { checkDesign, ownDesign, previewToken } from '../services/kioskSvc.js'
 import { normaliseDesign } from '../../../shared/kiosk.js'
 import { DEFAULT_POS_ROLES, PERMISSION_KEYS, normalisePermissions } from '../../../shared/pos/permissions.js'
 import { hashPin, PIN_PATTERN, weakPin } from '../../../shared/pos/pin.js'
@@ -880,7 +880,7 @@ export default async function posSetupRoutes(app) {
       if (n >= 50) throw httpError(422, 'A restaurant can have up to 50 kiosk designs')
       const [d] = await tx`
         INSERT INTO kiosk_designs (tenant_id, name, settings, created_by)
-        VALUES (${req.tenantId}, ${body.name}, ${tx.json(normaliseDesign(from ? from.settings : body.settings))}, ${by(req)})
+        VALUES (${req.tenantId}, ${body.name}, ${tx.json(await ownDesign(tx, req.tenantId, from ? from.settings : body.settings))}, ${by(req)})
         RETURNING id, name, settings, created_at, updated_at`
       return d
     })
@@ -893,7 +893,7 @@ export default async function posSetupRoutes(app) {
     return withTenant(req.tenantId, async tx => {
       await checkDesign(tx, req.tenantId, id)
       const [d] = await tx`
-        UPDATE kiosk_designs SET name = ${body.name}, settings = ${tx.json(normaliseDesign(body.settings))}, updated_at = now()
+        UPDATE kiosk_designs SET name = ${body.name}, settings = ${tx.json(await ownDesign(tx, req.tenantId, body.settings))}, updated_at = now()
          WHERE id = ${id} AND tenant_id = ${req.tenantId}
          RETURNING id, name, settings, created_at, updated_at`
       await kiosksChanged(tx, req.tenantId)

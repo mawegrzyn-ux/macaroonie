@@ -21,11 +21,11 @@ import {
   ArrowLeft, Loader2, Save, RotateCcw, Palette, Home, Languages, LayoutGrid, List, SlidersHorizontal,
   Disc3, CreditCard, Timer, ChevronDown, Image as ImageIcon, Video, Plus, X, UtensilsCrossed,
   ShoppingBag, Bike, Sparkles, AlertTriangle, Flame, Star, CircleDot, RectangleVertical,
-  RectangleHorizontal, Wand2, BookOpen,
+  RectangleHorizontal, Wand2, BookOpen, LayoutDashboard, Hexagon, Circle, Square,
 } from 'lucide-react'
 import {
   normaliseDesign, designProblems, KIOSK_FONTS, KIOSK_EXTRA_FONTS, SYSTEM_FONT, COLOR_LABELS,
-  DESIGN_COLORS, KIOSK_LANGUAGES, DISPLAY_LABELS, KIOSK_DISPLAYS, uiText,
+  DESIGN_COLORS, KIOSK_LANGUAGES, DISPLAY_LABELS, KIOSK_DISPLAYS, uiText, TILE_STYLES, TILE_LABELS,
 } from '@shared/kiosk.js'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -468,6 +468,84 @@ function FeaturedList({ items, onChange, setup, venueName, locked }) {
   )
 }
 
+const TILE_INFO = {
+  cards: { icon: Square, text: 'The photo on top of a card, the words under it.' },
+  round: { icon: Circle, text: 'Photos in circles, the words under them on the page. No cards.' },
+  oval: { icon: Circle, text: 'Photos in ovals, the words under them on the page. No cards.' },
+  hexagon: { icon: Hexagon, text: 'Hexagons that fit together like a honeycomb. Buttons, chips and cards take the hexagon look too.' },
+}
+
+function LayoutPanel({ d, set }) {
+  const y = d.layout
+  return (
+    <>
+      <Field group label="Dishes, choices and section tiles" hint="How the menu, the choices shown as a grid and the section tiles are drawn.">
+        <div className="grid grid-cols-2 gap-2">
+          {TILE_STYLES.map(k => {
+            const info = TILE_INFO[k]
+            const on = y.tiles === k
+            return (
+              <button key={k} type="button" aria-pressed={on} onClick={() => set('layout', { tiles: k })} data-testid="kd-tiles" data-tiles={k}
+                className={cn('rounded-xl border p-3 text-left flex flex-col gap-1.5 touch-manipulation min-h-[96px]',
+                  on ? 'border-primary ring-2 ring-primary/40 bg-primary/5' : 'bg-background hover:bg-muted')}>
+                <span className="flex items-center gap-2 text-sm font-semibold">
+                  <info.icon className={cn('w-5 h-5', k === 'oval' && 'scale-x-125')} /> {TILE_LABELS[k]}
+                </span>
+                <span className="text-[11px] text-muted-foreground leading-snug">{info.text}</span>
+              </button>
+            )
+          })}
+        </div>
+      </Field>
+      <Toggle label="Bar along the top" hint="The logo (or the venue's name) and the language button. Off: more room for the menu, and the language button moves to the bottom bar."
+        checked={y.header} onChange={v => set('layout', { header: v })} />
+      <Field group label="Back and Start again" hint="In each screen's bottom bar. Start again asks first when the order has something in it.">
+        <Segmented value={y.icon_buttons ? 'icons' : 'words'} onChange={v => set('layout', { icon_buttons: v === 'icons' })}
+          options={[{ value: 'words', label: 'Icon and words' }, { value: 'icons', label: 'Icons only' }]} />
+        <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground" aria-hidden="true">
+          <span className="h-10 px-3 rounded-lg bg-foreground text-background inline-flex items-center gap-1.5 font-semibold"><ArrowLeft className="w-4 h-4" />{!y.icon_buttons && 'Back'}</span>
+          <span className="h-10 px-3 rounded-lg border-2 border-foreground/40 inline-flex items-center gap-1.5 font-semibold text-foreground"><RotateCcw className="w-4 h-4" />{!y.icon_buttons && 'Start again'}</span>
+        </div>
+      </Field>
+    </>
+  )
+}
+
+/**
+ * The section tiles page (no sections down the side): every section the
+ * kiosk shows, in the design's order, each with a picture, words and a
+ * width. Sections not listed yet follow in menu order.
+ */
+function SectionTilesList({ s, d, set, setup, locked }) {
+  const off = new Set(d.menu.hidden_section_ids)
+  const sections = (setup?.sections || []).filter(x => !off.has(x.id))
+  const saved = (s.menu.section_tiles || []).filter(t => sections.some(x => x.id === t.section_id))
+  const rows = [...saved, ...sections.filter(x => !saved.some(t => t.section_id === x.id)).map(x => ({ section_id: x.id, image_url: null, title: '', size: 'normal' }))]
+    .map(t => ({ ...t, id: t.section_id }))
+  const title = id => sections.find(x => x.id === id)?.title || 'Section'
+  const save = list => set('menu', { section_tiles: list.map(({ id, ...t }) => t) })
+  const patch = (id, p) => save(rows.map(x => (x.id === id ? { ...x, ...p } : x)))
+  if (!rows.length) return <p className="text-xs text-muted-foreground">No sections on this venue's menus yet.</p>
+  return (
+    <SortableRows items={rows} locked={locked} onReorder={ids => save(ids.map(id => rows.find(x => x.id === id)))}
+      renderItem={t => (
+        <div className="space-y-2 py-1" data-testid="kd-section-tile" data-section={t.section_id}>
+          <div className="flex items-center gap-2 flex-wrap">
+            <ImagePick value={t.image_url || null} onChange={v => patch(t.id, { image_url: v })} />
+            <span className="flex-1" />
+            {d.layout.tiles !== 'hexagon' && d.layout.tiles !== 'round' && (
+              <Segmented value={t.size || 'normal'} onChange={v => patch(t.id, { size: v })}
+                options={[{ value: 'normal', label: 'Normal' }, { value: 'wide', label: 'Two wide' }]} />
+            )}
+          </div>
+          <input className={inputCls} maxLength={60} value={t.title || ''} placeholder={title(t.section_id)} aria-label={'Words on the ' + title(t.section_id) + ' tile'}
+            onChange={e => patch(t.id, { title: e.target.value })} />
+          {!t.image_url && <p className="text-[11px] text-muted-foreground">No picture: the section's own, else its first dish's.</p>}
+        </div>
+      )} />
+  )
+}
+
 function SectionsShown({ setup, hidden, onChange }) {
   const menus = setup?.menus || []
   const sections = setup?.sections || []
@@ -516,10 +594,15 @@ function MenuPanel({ s, d, set, setup, venueName, canManage }) {
           </Field>
         </>
       )}
-      <Field group label="Sections down the side">
+      <Field group label="Sections down the side" hint={m.rail === 'none' ? 'The menu opens on a page of section tiles (with the home page\'s banners and tiles above them); a section has a Back button in the bottom bar.' : null}>
         <Segmented value={m.rail} onChange={v => set('menu', { rail: v })}
-          options={[{ value: 'images', label: 'With pictures' }, { value: 'text', label: 'Words only' }]} />
+          options={[{ value: 'images', label: 'With pictures' }, { value: 'text', label: 'Words only' }, { value: 'none', label: 'None: section tiles' }]} />
       </Field>
+      {m.rail === 'none' && (
+        <Field group label="Section tiles" hint="Drag into order. Words left empty show the section's name, translated on the Translations page when typed in.">
+          <SectionTilesList s={s} d={d} set={set} setup={setup} locked={!canManage} />
+        </Field>
+      )}
       <Field group label="Dishes per row" hint="Fit the screen: two on an upright screen, three or four on a wide one.">
         <Segmented value={String(m.columns)} onChange={v => set('menu', { columns: v === 'auto' ? 'auto' : Number(v) })}
           options={[{ value: 'auto', label: 'Fit the screen' }, { value: '2', label: '2' }, { value: '3', label: '3' }, { value: '4', label: '4' }]} />
@@ -555,6 +638,16 @@ function ChoicesPanel({ d, set }) {
               </button>
             )
           })}
+        </div>
+      </Field>
+      <Field group label="Spin wheel">
+        <div className="space-y-1">
+          <Toggle label="Spin button" hint="Turns the wheel two turns or more and stops on a choice at random."
+            checked={d.options.wheel_spin} onChange={v => set('options', { wheel_spin: v })} />
+          {d.options.wheel_spin && (
+            <Toggle label="A spin picks the choice it stops on" hint="Off: the guest still taps Pick. On: the wheel only stops on a choice that can be picked and picks it."
+              checked={d.options.wheel_spin_picks} onChange={v => set('options', { wheel_spin_picks: v })} />
+          )}
         </div>
       </Field>
       <Field group label="Level marks" hint="On choices with a level (Menus > Variant groups, e.g. 1 to 5 for heat) and on the slider's scale.">
@@ -763,6 +856,7 @@ function Preview({ designId, design, venueId, setup, streams, stream, onStream }
 
 const PANELS = [
   { id: 'brand', title: 'Brand', icon: Palette },
+  { id: 'layout', title: 'Layout', icon: LayoutDashboard },
   { id: 'start', title: 'Start screen', icon: Home },
   { id: 'languages', title: 'Languages', icon: Languages },
   { id: 'menu', title: 'Menu', icon: LayoutGrid },
@@ -773,10 +867,11 @@ const PANELS = [
 
 function summaryOf(id, d) {
   if (id === 'brand') return d.brand.font_heading + ' / ' + d.brand.font_body
+  if (id === 'layout') return [TILE_LABELS[d.layout.tiles], d.layout.header ? 'top bar' : 'no top bar', d.layout.icon_buttons ? 'icon buttons' : null].filter(Boolean).join(', ')
   if (id === 'start') return (d.start.media.length ? d.start.media.length + ' picture' + (d.start.media.length === 1 ? '' : 's') : 'No pictures') + ', ' + (d.start.layout === 'full' ? 'pictures behind' : 'pictures apart')
   if (id === 'languages') return d.languages.enabled.map(c => KIOSK_LANGUAGES.find(l => l.code === c)?.name).join(', ')
-  if (id === 'menu') return (d.menu.home ? d.menu.banners.length + ' banners, ' + d.menu.featured.length + ' tiles' : 'No home page') + (d.menu.hidden_section_ids.length ? ', ' + d.menu.hidden_section_ids.length + ' sections left off' : '')
-  if (id === 'choices') return DISPLAY_LABELS[d.options.display]
+  if (id === 'menu') return (d.menu.rail === 'none' ? 'Section tiles, ' : '') + (d.menu.home ? d.menu.banners.length + ' banners, ' + d.menu.featured.length + ' tiles' : 'No home page') + (d.menu.hidden_section_ids.length ? ', ' + d.menu.hidden_section_ids.length + ' sections left off' : '')
+  if (id === 'choices') return DISPLAY_LABELS[d.options.display] + (d.options.wheel_spin_picks ? ', a spin picks' : '')
   if (id === 'checkout') return [d.checkout.pay_card && 'Card', d.checkout.pay_counter && 'At the counter'].filter(Boolean).join(' and ') || 'No way to pay'
   if (id === 'timing') return 'Starts again after ' + d.behaviour.idle_secs + ' s'
   return ''
@@ -920,6 +1015,7 @@ export default function KioskDesigner() {
               <Panel key={p.id} id={p.id} icon={p.icon} title={p.title} summary={summaryOf(p.id, design)}
                 open={open.has(p.id)} onToggle={() => toggle(p.id)} canManage={canManage}>
                 {p.id === 'brand' && <BrandPanel {...panelProps} />}
+                {p.id === 'layout' && <LayoutPanel {...panelProps} />}
                 {p.id === 'start' && <StartPanel {...panelProps} />}
                 {p.id === 'languages' && <LanguagesPanel {...panelProps} />}
                 {p.id === 'menu' && <MenuPanel {...panelProps} />}

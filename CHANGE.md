@@ -5,6 +5,19 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-19 — Kiosk designs: layout, hexagons, section tiles, split photo]
+
+- **Start again is in the bottom bar**, after Back, on the menu, the order page, the name and table number pages and How to pay (not on the card reader). It still asks first when the order has something in it.
+- **New Layout card in the kiosk design editor:**
+  - *Dishes, choices and section tiles* drawn as **Cards**, **Round** or **Oval** photos (the words under them on the page, no card behind), or **Hexagons** that fit together like a honeycomb. With hexagons, buttons, chips and cards take hexagon ends too, and a faint honeycomb sits behind the screens.
+  - **Bar along the top** on or off. Off, the menu starts at the top of the screen and the language button moves to the bottom bar.
+  - **Back and Start again** with their words, or as **icons only**.
+- **No sections down the side** (Menu card, *None: section tiles*): the menu opens on a page of section tiles, under the home page's banners and tiles. Drag the tiles into order and give each a picture, its own words and a width. A section opened from a tile has Back in the bottom bar.
+- **Spin wheel** (Choices card): turn the Spin button off, or have a spin **pick the choice it stops on**. While the wheel turns, the card under the pointer is hidden, so the result isn't given away.
+- **Split photo from the picks** (Menus → Variant groups, and each combo step): once a guest picks two or more options with pictures, the dish's photo becomes those pictures side by side with a torn edge between them. Three picks show the left third of the first, the middle of the second and the right third of the third. It shows on the dish page and on the order line.
+- A design now keeps only your own sections, dishes and order types when saved.
+- **Migration 185** (kiosk_split_photo).
+
 ## [2026-10-18 — Kiosk: Back at the bottom]
 
 - **Every kiosk screen's Back is now a solid button at the bottom left**, beside the main button, instead of a plain link at the top: a dish and a combo (where Back goes one step back, and out of the combo from its first step), the name and table number pages, how to pay, the card reader and the allergen list. On the order page, Add more is the same solid button. The dish page's top bar now just shows the dish's name.

@@ -107,7 +107,8 @@ export default function OptionGroup({ choice, value = [], onChange, config, text
         {choice.repeat && <span className="k-muted text-[.8em]">{ui('tap_again')}</span>}
       </header>
       <Display options={options} countOf={countOf} onTap={onTap} onLess={onLess} repeat={choice.repeat} full={full}
-        scale={scale} levelIcon={design.options.level_icon} ui={ui} />
+        scale={scale} levelIcon={design.options.level_icon} ui={ui} tiles={design.layout.tiles}
+        wheel={{ spin: design.options.wheel_spin, picks: design.options.wheel_spin_picks }} />
       {value.map((e, idx) => {
         const o = choice.options.find(x => x.id === e.id)
         const childLib = o?.child_group_id && config.groups?.[o.child_group_id]

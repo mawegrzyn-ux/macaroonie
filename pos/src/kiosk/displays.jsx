@@ -8,10 +8,14 @@
 //   scale     { low, high } words at the ends of the level scale, or null
 //   levelIcon 'flame' | 'star' | 'dot'
 //   ui        the kiosk's words (store.js textsFor().ui)
+//   tiles     the design's tile style: 'cards' | 'round' | 'oval' | 'hexagon'
+//             (the grid lays hexagons out as a honeycomb; the rest is CSS)
+//   wheel     { spin, picks }: the wheel's Spin button, and whether a spin
+//             picks the choice it stops on
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Check, Minus, Plus, ChevronLeft, ChevronRight, Dices } from 'lucide-react'
-import { cx, Photo, Levels } from './parts.jsx'
+import { cx, Photo, Levels, HexGrid, HexTile } from './parts.jsx'
 
 function Tick({ n, repeat }) {
   if (!n) return null
@@ -20,7 +24,37 @@ function Tick({ n, repeat }) {
 
 // ── Grid ─────────────────────────────────────────────────────────
 
-export function GridDisplay({ options, countOf, onTap, onLess, repeat, full, levelIcon, ui }) {
+// A choice's hexagon: the photo, its name, level and price; the tick at the top.
+function HexOption({ o, n, off, onTap, onLess, repeat, levelIcon, ui }) {
+  return (
+    <HexTile src={o.image_url} label={o.label} on={n > 0} off={off} disabled={o.sold_out} onClick={() => !o.sold_out && onTap(o)}
+      testId="k-option" pressed={n > 0}
+      extra={(
+        <>
+          {n > 0 && <span className="k-opt-tick k-hex-tick">{repeat && n > 1 ? n : <Check size={18} strokeWidth={3} />}</span>}
+          {repeat && n > 0 && <button className="k-opt-less k-hex-less" onClick={() => onLess(o)} aria-label={ui('one_less') + ' ' + o.label}><Minus size={18} /></button>}
+        </>
+      )}>
+      <span className="k-head k-hex-name">{o.label}</span>
+      {o.level != null && <Levels level={o.level} icon={levelIcon} size={14} />}
+      {(o.sold_out || o.priceText) && <span className="k-hex-price">{o.sold_out ? ui('sold_out') : o.priceText}</span>}
+    </HexTile>
+  )
+}
+
+export function GridDisplay({ options, countOf, onTap, onLess, repeat, full, levelIcon, ui, tiles }) {
+  if (tiles === 'hexagon') {
+    return (
+      <div data-display="grid">
+        <HexGrid target={Math.min(Math.min(window.innerWidth, window.innerHeight) * 0.24, 200)} gap={8} testId="k-option-grid">
+          {options.map(o => {
+            const n = countOf(o.id)
+            return <HexOption key={o.id} o={o} n={n} off={o.sold_out || (!n && full && !repeat)} onTap={onTap} onLess={onLess} repeat={repeat} levelIcon={levelIcon} ui={ui} />
+          })}
+        </HexGrid>
+      </div>
+    )
+  }
   return (
     <div className="grid gap-[var(--k-gap)]" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(min(30vmin, 190px), 1fr))' }} data-display="grid">
       {options.map(o => {
@@ -59,7 +93,7 @@ export function ListDisplay({ options, countOf, onTap, onLess, repeat, full, lev
         return (
           <div key={o.id} className={cx('k-card flex items-center gap-[.8em] p-[.5em] border-[3px]', n > 0 ? 'border-[var(--k-primary)]' : 'border-transparent', off && 'k-opt-dis')}>
             <button className="flex items-center gap-[.8em] flex-1 min-w-0 text-left bg-transparent border-0 p-0" onClick={() => !o.sold_out && onTap(o)} disabled={o.sold_out} data-testid="k-option" aria-pressed={n > 0}>
-              <span className="w-[4.2em] h-[4.2em] shrink-0 rounded-[calc(var(--k-radius)/1.5)] overflow-hidden">
+              <span className="k-thumb w-[4.2em] h-[4.2em] shrink-0 rounded-[calc(var(--k-radius)/1.5)] overflow-hidden">
                 <Photo src={o.image_url} label={o.label} className="w-full h-full object-cover" phClassName="k-opt-ph h-full aspect-auto text-[1.2em]" />
               </span>
               <span className="flex-1 min-w-0">
@@ -182,7 +216,7 @@ const WHEEL_MAX = 16
 /** Text that fits a segment: cut long labels. */
 const short = (s, n) => (s.length > n ? s.slice(0, n - 1) + '…' : s)
 
-export function WheelDisplay({ options, countOf, onTap, onLess, repeat, full, levelIcon, ui }) {
+export function WheelDisplay({ options, countOf, onTap, onLess, repeat, full, levelIcon, ui, tiles, wheel = {} }) {
   const list = options.slice(0, WHEEL_MAX)
   const n = list.length
   const seg = 360 / Math.max(1, n)
@@ -191,6 +225,8 @@ export function WheelDisplay({ options, countOf, onTap, onLess, repeat, full, le
   const drag = useRef(null)
   const wrap = useRef(null)
   const frame = useRef(null)
+  const landing = useRef(null)    // the pick a spin makes when it stops
+  const [spinning, setSpinning] = useState(false)
 
   // The choice under the pointer (top): the segment whose middle is at -90deg.
   const current = useMemo(() => {
@@ -212,6 +248,9 @@ export function WheelDisplay({ options, countOf, onTap, onLess, repeat, full, le
   }
   const onDown = e => {
     if (!n) return
+    // Taking hold of the wheel stops a spin from picking.
+    clearTimeout(landing.current)
+    setSpinning(false)
     e.currentTarget.setPointerCapture?.(e.pointerId)
     cancelAnimationFrame(frame.current)
     setAnim(false)
@@ -254,12 +293,29 @@ export function WheelDisplay({ options, countOf, onTap, onLess, repeat, full, le
     }
     frame.current = requestAnimationFrame(step)
   }
-  useEffect(() => () => cancelAnimationFrame(frame.current), [])
+  useEffect(() => () => { cancelAnimationFrame(frame.current); clearTimeout(landing.current) }, [])
 
+  // Spin: two turns or more, stopping on a choice at random. With the
+  // design's "a spin picks", it stops only on a choice that can be picked
+  // and picks it when the wheel comes to rest.
+  const SPIN_MS = 2600
   const spin = () => {
-    if (!n) return
-    const target = snap(rot - 720 - Math.floor(Math.random() * n) * seg - seg * Math.random())
-    turnTo(target, 2600)
+    if (!n || spinning) return
+    const can = o => !o.sold_out && !full && !countOf(o.id)
+    const pool = wheel.picks ? list.map((o, i) => ({ o, i })).filter(x => can(x.o)) : null
+    if (pool && pool.length) {
+      const { o, i } = pool[Math.floor(Math.random() * pool.length)]
+      const base = rot - 720 - Math.floor(Math.random() * 2) * 360
+      turnTo(base - (((base + i * seg) % 360) + 360) % 360, SPIN_MS)
+      setSpinning(true)
+      clearTimeout(landing.current)
+      landing.current = setTimeout(() => { setSpinning(false); onTap(o) }, SPIN_MS + 80)
+      return
+    }
+    turnTo(snap(rot - 720 - Math.floor(Math.random() * n) * seg - seg * Math.random()), SPIN_MS)
+    setSpinning(true)
+    clearTimeout(landing.current)
+    landing.current = setTimeout(() => setSpinning(false), SPIN_MS + 80)
   }
 
   const r = 100
@@ -304,8 +360,9 @@ export function WheelDisplay({ options, countOf, onTap, onLess, repeat, full, le
       </div>
       <div className="flex flex-col items-center gap-[var(--k-gap)] w-full landscape:flex-1 landscape:min-w-0">
       {current && (
-        <div className="k-card flex items-center gap-[.8em] p-[.6em] w-full max-w-[640px]" data-testid="k-wheel-current">
-          <span className="w-[4.4em] h-[4.4em] shrink-0 rounded-[calc(var(--k-radius)/1.5)] overflow-hidden">
+        // Hidden while the wheel spins, so the choice it stops on isn't given away.
+        <div className="k-card flex items-center gap-[.8em] p-[.6em] w-full max-w-[640px]" data-testid="k-wheel-current" style={spinning ? { visibility: 'hidden' } : null}>
+          <span className="k-thumb w-[4.4em] h-[4.4em] shrink-0 rounded-[calc(var(--k-radius)/1.5)] overflow-hidden">
             <Photo src={current.image_url} label={current.label} className="w-full h-full object-cover" phClassName="k-opt-ph h-full aspect-auto text-[1.2em]" />
           </span>
           <span className="flex-1 min-w-0">
@@ -315,15 +372,17 @@ export function WheelDisplay({ options, countOf, onTap, onLess, repeat, full, le
             <span className="k-price">{current.sold_out ? ui('sold_out') : current.priceText}</span>
           </span>
           {repeat && cn > 0 && <button className="k-btn k-btn-round" onClick={() => onLess(current)} aria-label={ui('one_less')}><Minus /></button>}
-          <button className={cx('k-btn', cn && !repeat ? '' : 'k-btn-primary')} onClick={() => onTap(current)} disabled={!canPick} data-testid="k-wheel-pick">
+          <button className={cx('k-btn', cn && !repeat ? '' : 'k-btn-primary')} onClick={() => onTap(current)} disabled={!canPick || spinning} data-testid="k-wheel-pick">
             {cn && !repeat ? <><Check /> {ui('picked')}</> : <>{repeat && cn ? cn + ' x ' : ''}{ui('pick')}</>}
           </button>
         </div>
       )}
-      <button className="k-btn k-btn-accent" onClick={spin} data-testid="k-wheel-spin"><Dices /> {ui('spin')}</button>
+      {wheel.spin !== false && (
+        <button className="k-btn k-btn-accent" onClick={spin} disabled={spinning} data-testid="k-wheel-spin" data-picks={wheel.picks ? '1' : undefined}><Dices /> {ui('spin')}</button>
+      )}
       </div>
     </div>
-      {options.length > WHEEL_MAX && <GridDisplay options={options.slice(WHEEL_MAX)} countOf={countOf} onTap={onTap} onLess={onLess} repeat={repeat} full={full} levelIcon={levelIcon} ui={ui} />}
+      {options.length > WHEEL_MAX && <GridDisplay options={options.slice(WHEEL_MAX)} countOf={countOf} onTap={onTap} onLess={onLess} repeat={repeat} full={full} levelIcon={levelIcon} ui={ui} tiles={tiles} />}
     </div>
   )
 }

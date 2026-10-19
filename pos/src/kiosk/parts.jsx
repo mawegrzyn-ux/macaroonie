@@ -2,7 +2,7 @@
 // with a stand-in, heat levels, the quantity stepper, sheets, the on-screen
 // keyboard and number pad (kiosk browsers often hide the device's own).
 
-import { useEffect, useId, useState } from 'react'
+import { Children, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { UtensilsCrossed, ShoppingBag, Bike, Flame, Star, Circle, Minus, Plus, Delete, ArrowLeft } from 'lucide-react'
 
 export const cx = (...p) => p.filter(Boolean).join(' ')
@@ -11,11 +11,13 @@ export const cx = (...p) => p.filter(Boolean).join(' ')
  * Every screen's way back: a solid button at the left of the screen's bottom
  * bar, beside the main button, never at the top (out of reach on a tall
  * kiosk, and missed by guests looking at the bottom for what to do next).
+ * With the design's icons-only buttons the words hide (.k-icons) and stay
+ * the button's name for screen readers.
  */
 export function BackButton({ onClick, label, testId = 'k-back' }) {
   return (
-    <button className="k-btn k-btn-big k-btn-back" onClick={onClick} data-testid={testId}>
-      <ArrowLeft /> {label}
+    <button className="k-btn k-btn-big k-btn-back" onClick={onClick} data-testid={testId} aria-label={label}>
+      <ArrowLeft /><span className="k-btn-label">{label}</span>
     </button>
   )
 }
@@ -107,6 +109,150 @@ const initials = s => String(s || '').split(/\s+/).filter(Boolean).slice(0, 2).m
 export function Photo({ src, label, className, phClassName }) {
   if (src) return <img src={src} alt="" className={className} loading="lazy" draggable={false} />
   return <div className={phClassName} aria-hidden="true">{initials(label)}</div>
+}
+
+// ── Split photo ──────────────────────────────────────────────────
+// The pictures of the guest's picks side by side (shared/kiosk.js
+// splitImages()): each one covers the whole photo and shows only its own
+// part (left, middle, right), with a torn paper edge between the parts.
+
+// The same tear every time for the same number of parts.
+function seeded(seed) {
+  let a = seed >>> 0
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0
+    let t = Math.imul(a ^ (a >>> 15), 1 | a)
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+const pct = ([x, y]) => x.toFixed(2) + '% ' + y.toFixed(2) + '%'
+
+/** clip-paths for n parts: { slices: [n], tears: [n - 1] } (percent polygons). */
+function splitShapes(n) {
+  const tears = []
+  for (let k = 1; k < n; k++) {
+    const rnd = seeded(k * 7919 + n * 104729)
+    const x = (k / n) * 100
+    const line = []
+    for (let y = -2; y <= 102; y += 3.25) {
+      const jag = (rnd() - 0.5) * 4.2 + (rnd() < 0.18 ? (rnd() - 0.5) * 5 : 0)
+      // The paper's width varies along the tear.
+      line.push({ x: x + jag, y, w: 0.55 + rnd() * 0.9 })
+    }
+    tears.push(line)
+  }
+  // Neighbouring parts overlap a little under the paper, so no gap shows.
+  const edge = (k, side) => (k < 0 || k >= tears.length
+    ? [[side < 0 ? -2 : 102, -2], [side < 0 ? -2 : 102, 102]]
+    : tears[k].map(p => [p.x + side * 0.4, p.y]))
+  const slices = []
+  for (let i = 0; i < n; i++) {
+    const left = edge(i - 1, -1)
+    const right = edge(i, 1)
+    slices.push('polygon(' + [...right, ...left.slice().reverse()].map(pct).join(', ') + ')')
+  }
+  const bands = tears.map(line => 'polygon(' + [
+    ...line.map(p => [p.x + p.w, p.y]),
+    ...line.slice().reverse().map(p => [p.x - p.w * 0.8, p.y]),
+  ].map(pct).join(', ') + ')')
+  return { slices, bands }
+}
+
+export function SplitPhoto({ srcs, className }) {
+  const n = srcs.length
+  const shapes = useMemo(() => splitShapes(n), [n])
+  return (
+    <div className={cx('k-split', className)} data-testid="k-split" data-parts={n}>
+      {srcs.map((src, i) => (
+        <img key={i + ':' + src} src={src} alt="" draggable={false} style={{ clipPath: shapes.slices[i] }} />
+      ))}
+      <div className="k-split-tears" aria-hidden="true">
+        {shapes.bands.map((b, i) => <span key={i} style={{ clipPath: b }} />)}
+      </div>
+    </div>
+  )
+}
+
+/** The split photo when there are pictures for it (two or more), else the photo. */
+export function PickPhoto({ srcs, src, label, className, phClassName, splitClassName }) {
+  if (srcs?.length >= 2) return <SplitPhoto srcs={srcs} className={splitClassName || className} />
+  return <Photo src={src} label={label} className={className} phClassName={phClassName} />
+}
+
+// ── Hexagons ─────────────────────────────────────────────────────
+// The design's hexagon tiles (design.layout.tiles 'hexagon'): pointy-top
+// hexagons fitting together like a honeycomb.
+
+function useWidth(ref) {
+  const [w, setW] = useState(0)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return undefined
+    setW(el.clientWidth)
+    if (typeof ResizeObserver === 'undefined') return undefined
+    const ro = new ResizeObserver(([e]) => setW(e.contentRect.width))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [ref])
+  return w
+}
+
+/**
+ * Rows of `cols` and `cols - 1` hexagons in turn, every other row moved over
+ * by half a hexagon so they lock together. cols: a number, or 'auto' (as many
+ * as fit at about `target` px wide), at least 2. Each child is one hexagon
+ * (HexTile).
+ */
+export function HexGrid({ children, cols = 'auto', target = 240, gap = 10, testId }) {
+  const ref = useRef(null)
+  const width = useWidth(ref)
+  const list = Children.toArray(children)
+  const n = Math.max(2, Math.min(8, cols === 'auto' ? Math.floor(width / target) : Number(cols) || 2))
+  const w = width / n
+  const h = w / 0.8660254
+  const cells = []
+  let row = 0
+  let col = 0
+  for (const child of list) {
+    if (col >= (row % 2 ? n - 1 : n)) { row++; col = 0 }
+    const start = (row % 2 ? 2 : 1) + col * 2
+    cells.push(
+      <div key={child.key} className="k-hex-cell"
+        style={{ gridColumn: start + ' / span 2', gridRow: row + 1, height: h, marginBottom: -h / 4, padding: gap / 2, fontSize: Math.round(Math.max(12, Math.min(26, w * 0.075))) }}>
+        {child}
+      </div>,
+    )
+    col++
+  }
+  return (
+    <div ref={ref} className="k-hexgrid" style={{ gridTemplateColumns: 'repeat(' + n * 2 + ', minmax(0, 1fr))', paddingBottom: h / 4 }}
+      data-testid={testId} data-cols={n}>
+      {width > 0 && cells}
+    </div>
+  )
+}
+
+/**
+ * One hexagon: the photo fills it, the words sit in a band near the bottom.
+ * on: picked (a ring in the button colour); off: greyed (sold out, or nothing
+ * more can be picked). top: small things at the top (dietary marks); extra:
+ * buttons beside the hexagon (quick add, one less), outside its shape.
+ */
+export function HexTile({ src, label, on = false, off = false, onClick, disabled, testId, attrs = null, pressed, top = null, extra = null, children }) {
+  return (
+    <>
+      <div className={cx('k-hex-ring', on && 'k-hex-on', off && 'k-opt-dis')}>
+        <button className={cx('k-hex', !src && 'k-hex-noimg')} onClick={onClick} disabled={disabled} data-testid={testId} aria-pressed={pressed} {...(attrs || {})}>
+          {src ? <img src={src} alt="" draggable={false} loading="lazy" className="k-hex-img" /> : <span className="k-hex-ph" aria-hidden="true">{initials(label)}</span>}
+          {top && <span className="k-hex-top">{top}</span>}
+          <span className="k-hex-band">{children}</span>
+        </button>
+      </div>
+      {extra}
+    </>
+  )
 }
 
 // ── Levels (heat) ────────────────────────────────────────────────

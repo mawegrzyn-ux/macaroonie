@@ -62,6 +62,8 @@ export function comboPayload(item) {
         ask: min === 0 && s.ask === 'button' ? 'button' : 'always',
         when: s.when && s.when.step_id ? { step_id: s.when.step_id, option_ids: s.when.option_ids || [] } : null,
         display: STEP_DISPLAYS.includes(s.display) ? s.display : null,
+        // Sent only when on: a step saved without it isn't a change to publish.
+        ...(s.split ? { split: true } : {}),
         options: (s.options || []).filter(o => (o.type === 'custom' ? (o.label || '').trim() : o.item_id || o.section_id)).map(o => ({
           id: o.id, type: o.type,
           item_id: o.type === 'item' ? o.item_id : null,
@@ -352,6 +354,8 @@ function StepCard({ step, index, steps, itemIndex, readOnly, handle, open, onTog
                 </button>
               ))}
             </div>
+            <Check checked={!!step.split} onChange={v => onChange({ split: v })} label="Split photo from the picks"
+              hint="With two or more picks that have pictures (in this step or others with this on), the kiosk shows them side by side with a torn edge between them in place of the combo's photo" />
           </Field>
           {earlier.length > 0 && (
             <Field label="When it shows">
