@@ -5,6 +5,10 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-18 — Kiosk: Back at the bottom]
+
+- **Every kiosk screen's Back is now a solid button at the bottom left**, beside the main button, instead of a plain link at the top: a dish and a combo (where Back goes one step back, and out of the combo from its first step), the name and table number pages, how to pay, the card reader and the allergen list. On the order page, Add more is the same solid button. The dish page's top bar now just shows the dish's name.
+
 ## [2026-10-18 — The installer app: link tills, kitchen screens, kiosks and menu screens from a phone]
 
 - **A new phone app at installer.macaroonie.com** for setting up a venue's devices while you stand next to them. Sign in, choose the venue, and see every till, kitchen screen, kiosk and menu screen there with its state (Online, Offline, Code waiting, Not linked). Install it from Chrome (or Add to Home Screen on an iPhone) and it opens like an app.
