@@ -289,32 +289,56 @@ function HubModal({ venueId, setup, hub, onClose }) {
 }
 
 /** The command that installs (or updates) the hub on a mini PC, with Copy. */
+/** A copy button that says Copied for two seconds. */
+function CopyButton({ text, title, testid }) {
+  const [copied, setCopied] = useState(false)
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2000) } catch { /* the text is on screen to copy by hand */ }
+  }
+  return <Btn onClick={copy} title={title} data-testid={testid}>{copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}</Btn>
+}
+
 function InstallCommands({ setup }) {
   const api = (setup.device_urls?.terminal || setup.till_url || '').replace(/\/+$/, '')
-  const [os, setOs] = useState('linux')
-  const [copied, setCopied] = useState(false)
+  const page = api + '/hub'
+  const [os, setOs] = useState('windows')
   const cmd = os === 'linux'
     ? `curl -fsSL ${api}/pos-api/hub/install.sh | sudo sh`
     : `irm ${api}/pos-api/hub/install.ps1 | iex`
-  const copy = async () => {
-    try { await navigator.clipboard.writeText(cmd); setCopied(true); setTimeout(() => setCopied(false), 2000) } catch { /* the command is on screen to copy by hand */ }
-  }
+  const link = 'inline-flex items-center gap-1.5 min-h-[40px] px-3 rounded-lg border text-sm hover:bg-accent touch-manipulation'
   return (
-    <div className="rounded-xl border p-3 space-y-2" data-testid="hub-install">
-      <div className="flex flex-wrap items-center gap-3">
+    <div className="rounded-xl border p-3 space-y-3" data-testid="hub-install">
+      <div className="flex items-center gap-3">
         <Download className="w-4 h-4 shrink-0" />
-        <p className="text-sm font-medium flex-1 min-w-[160px]">Set up a hub on a mini PC</p>
-        <Segmented value={os} options={[{ value: 'linux', label: 'Linux' }, { value: 'windows', label: 'Windows' }]} onChange={setOs} />
+        <p className="text-sm font-medium flex-1">Set up a hub on a mini PC</p>
       </div>
-      <p className="text-xs text-muted-foreground">
-        {os === 'linux'
-          ? 'On the mini PC (Ubuntu or Debian), with the internet on, open a terminal and run:'
-          : 'On the mini PC (Windows 10 or 11), open PowerShell as administrator and run:'}
-      </p>
-      <div className="flex items-stretch gap-2">
-        <code className="flex-1 min-w-0 rounded-lg bg-muted px-3 py-2 text-xs font-mono break-all select-all" data-testid="hub-install-command">{cmd}</code>
-        <Btn onClick={copy} title="Copy the command" data-testid="hub-install-copy">{copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}</Btn>
+      <div className="space-y-1.5">
+        <p className="text-xs text-muted-foreground">On the mini PC, with the internet on, open this address in its browser and download the installer:</p>
+        <div className="flex items-stretch gap-2">
+          <code className="flex-1 min-w-0 rounded-lg bg-muted px-3 py-2 text-sm font-mono font-semibold break-all select-all" data-testid="hub-install-page">{page.replace(/^https?:\/\//, '')}</code>
+          <CopyButton text={page} title="Copy the address" testid="hub-install-page-copy" />
+        </div>
+        <p className="text-xs text-muted-foreground flex flex-wrap items-center gap-2">
+          <span>On the mini PC already?</span>
+          <a className={link} href={api + '/pos-api/hub/setup.cmd'} download data-testid="hub-download-windows"><Download className="w-4 h-4" /> Windows installer</a>
+          <a className={link} href={api + '/pos-api/hub/setup.sh'} download data-testid="hub-download-linux"><Download className="w-4 h-4" /> Linux installer</a>
+        </p>
       </div>
+      <details className="group">
+        <summary className="text-xs text-muted-foreground cursor-pointer touch-manipulation min-h-[32px] flex items-center">Or run a command</summary>
+        <div className="space-y-2 pt-1">
+          <Segmented value={os} options={[{ value: 'windows', label: 'Windows' }, { value: 'linux', label: 'Linux' }]} onChange={setOs} />
+          <p className="text-xs text-muted-foreground">
+            {os === 'linux'
+              ? 'On the mini PC (Ubuntu or Debian), open a terminal and run:'
+              : 'On the mini PC (Windows 10 or 11), open PowerShell as administrator and run:'}
+          </p>
+          <div className="flex items-stretch gap-2">
+            <code className="flex-1 min-w-0 rounded-lg bg-muted px-3 py-2 text-xs font-mono break-all select-all" data-testid="hub-install-command">{cmd}</code>
+            <CopyButton text={cmd} title="Copy the command" testid="hub-install-copy" />
+          </div>
+        </div>
+      </details>
       <p className="text-xs text-muted-foreground">
         It installs the hub as a service that starts with the computer, then shows a code: link it here with Link a hub.
         Running it again updates the hub and keeps its link. Help → Till → Venue hub has the details.

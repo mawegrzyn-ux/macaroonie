@@ -38,7 +38,7 @@ export default defineConfig({
         navigateFallback: '/index.html',
         // A kiosk design preview (shown inside the admin) comes from the
         // server, which lets the admin frame it (api/src/routes/posSite.js).
-        navigateFallbackDenylist: [/^\/pos-api/, /^\/ws/, /^\/uploads/, /[?&]kiosk_preview=/, /[?&]kiosk_share=/],
+        navigateFallbackDenylist: [/^\/pos-api/, /^\/hub\/?$/, /^\/ws/, /^\/uploads/, /[?&]kiosk_preview=/, /[?&]kiosk_share=/],
         runtimeCaching: [
           { urlPattern: /\/pos-api\//, handler: 'NetworkOnly' },
           // Kiosks: dish photos and the design's fonts stay on the device, so

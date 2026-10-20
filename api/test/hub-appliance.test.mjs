@@ -12,6 +12,8 @@
 //   - the hub's report (info) shown in Till setup and the installer; Update now
 //     sets requested in its config until it runs the latest version
 //   - refusals: a till isn't updated this way, viewers, another tenant
+//   - the installer people download on the mini PC: pos.<domain>/hub, the
+//     page, the Windows setup file and the Linux file (runs itself with sudo)
 
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
@@ -27,6 +29,7 @@ import { linkDevice } from './support/devices.mjs'
 import { INTERNAL_CALL_HEADER, INTERNAL_CALL_SECRET } from '../src/middleware/auth.js'
 import { hubRelease } from '../src/services/hubRelease.js'
 import { deviceOrigin } from '../src/services/platformHost.js'
+import { env } from '../src/config/env.js'
 
 let ids, owner, V, hub, till, other
 
@@ -219,4 +222,73 @@ test('updates: automatic by default, off in settings, Update now until it runs t
   // A hub can't ask for another hub's things or act as a till.
   assert.equal((await device(hub, 'POST', '/pos-api/events', { events: [] })).status, 403)
   await ok(owner.patch(`/api/pos/devices/${hub.id}`, { name: 'Back office hub', settings: { auto_update: true } }))
+})
+
+test('the installer to download on the mini PC: pos.<domain>/hub, the page, the Windows and Linux files', async () => {
+  const api = deviceOrigin('terminal')
+  const pos = 'pos.' + env.PUBLIC_ROOT_DOMAIN.toLowerCase()
+
+  // The short address on the till host goes to the page; other hosts don't have it.
+  const short = await plain('/hub', { host: pos })
+  assert.equal(short.statusCode, 302)
+  assert.equal(short.headers.location, '/pos-api/hub/setup')
+  assert.equal((await plain('/hub/', { host: pos })).headers.location, '/pos-api/hub/setup')
+  assert.notEqual((await plain('/hub', { host: 'kiosk.' + env.PUBLIC_ROOT_DOMAIN.toLowerCase() })).statusCode, 302)
+
+  // The page: the download for the computer's own system first, no scripts.
+  const win = await plain('/pos-api/hub/setup', { host: pos, 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/130' })
+  assert.equal(win.statusCode, 200)
+  assert.match(win.headers['content-type'], /^text\/html/)
+  assert.match(win.headers['content-security-policy'], /default-src 'none'/)
+  assert.ok(!/<script/i.test(win.body))
+  assert.ok(win.body.indexOf('id="windows"') < win.body.indexOf('id="linux"'), 'Windows first on Windows')
+  assert.ok(win.body.includes('href="/pos-api/hub/setup.cmd"') && win.body.includes('href="/pos-api/hub/setup.sh"'))
+  assert.ok(win.body.includes(`curl -fsSL ${api}/pos-api/hub/install.sh | sudo sh`))
+  const lin = await plain('/pos-api/hub/setup', { host: pos, 'user-agent': 'Mozilla/5.0 (X11; Ubuntu; Linux x86_64) Firefox/131' })
+  assert.ok(lin.body.indexOf('id="linux"') < lin.body.indexOf('id="windows"'), 'Linux first on Linux')
+
+  // The Windows file: a download, Windows line endings, plain ASCII, this
+  // cloud's installer, asks to run as administrator, opens the hub's page.
+  const cmd = await plain('/pos-api/hub/setup.cmd', { host: pos })
+  assert.equal(cmd.statusCode, 200)
+  assert.equal(cmd.headers['content-disposition'], 'attachment; filename="macaroonie-hub-setup.cmd"')
+  assert.equal(cmd.headers['content-type'], 'application/octet-stream')
+  assert.ok(!/[^\r]\n/.test(cmd.body) && cmd.body.endsWith('\r\n'), 'every line ends \\r\\n')
+  assert.ok(/^[\x00-\x7f]*$/.test(cmd.body), 'plain ASCII')
+  assert.ok(!cmd.body.includes('__MACAROONIE_API__'))
+  assert.ok(cmd.body.includes(`-Uri '${api}/pos-api/hub/install.ps1'`))
+  assert.ok(cmd.body.includes('-Verb RunAs') && cmd.body.includes('fltmc'))
+  assert.ok(cmd.body.includes('$global:MacaroonieHubFailed'))
+  assert.ok(cmd.body.includes('start "" "http://localhost:9180/"'))
+  // install.ps1 tells it whether the install worked.
+  const ps1 = (await plain('/pos-api/hub/install.ps1', { host: pos })).body
+  assert.ok(ps1.includes('$global:MacaroonieHubFailed = $true'))
+  assert.ok(/^[\x00-\x7f]*$/.test(ps1), 'install.ps1 is plain ASCII (Windows PowerShell reads a file with no BOM as ANSI)')
+
+  // The Linux file is the installer, as a download.
+  const sh = await plain('/pos-api/hub/setup.sh', { host: pos })
+  assert.equal(sh.headers['content-disposition'], 'attachment; filename="macaroonie-hub-setup.sh"')
+  assert.equal(sh.body, (await plain('/pos-api/hub/install.sh', { host: pos })).body)
+
+  // Run from the file without root, it runs itself again with sudo: a stand-in
+  // `id` says "not root" and a stand-in `sudo` writes down what it was asked.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hub-setup-'))
+  const bin = path.join(dir, 'bin')
+  fs.mkdirSync(bin)
+  fs.writeFileSync(path.join(bin, 'id'), '#!/bin/sh\necho 1000\n', { mode: 0o755 })
+  fs.writeFileSync(path.join(bin, 'sudo'), `#!/bin/sh\nprintf '%s\\n' "$@" > "${dir}/sudo-args"\n`, { mode: 0o755 })
+  const file = path.join(dir, 'macaroonie-hub-setup.sh')
+  fs.writeFileSync(file, sh.body)
+  const out = execFileSync('sh', [file, '--uninstall'], { cwd: dir, env: { ...process.env, PATH: bin + ':' + process.env.PATH } }).toString()
+  assert.match(out, /password/)
+  assert.deepEqual(fs.readFileSync(path.join(dir, 'sudo-args'), 'utf8').trim().split('\n'), ['sh', file, '--uninstall'])
+  // Piped into sh (no file), it doesn't: it says to put sudo before sh.
+  fs.rmSync(path.join(dir, 'sudo-args'))
+  let piped = ''
+  try {
+    execFileSync('sh', ['-s'], { input: sh.body, cwd: dir, env: { ...process.env, PATH: bin + ':' + process.env.PATH }, stdio: ['pipe', 'pipe', 'pipe'] })
+  } catch (e) { piped = String(e.stderr) }
+  assert.match(piped, /put sudo before sh/)
+  assert.ok(!fs.existsSync(path.join(dir, 'sudo-args')), 'piped, it never calls sudo')
+  fs.rmSync(dir, { recursive: true, force: true })
 })
