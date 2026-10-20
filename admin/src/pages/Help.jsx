@@ -2672,6 +2672,37 @@ export default function Help() {
               The kiosk designer also has a <strong>Website colours</strong> set to start from.
             </P>
 
+            <H3>Make a theme from a picture</H3>
+            <P>
+              <strong>Make a theme</strong> builds a whole look (colours, fonts, corners and capitals)
+              from a picture and a few words. It is on Website &gt; Brand &amp; theme (Theme ideas),
+              in the kiosk designer (Brand), in the menu screen designer (Board &gt; Theme maker) and
+              in the printed menu designer (Page setup &gt; Colours). You need Manage on that page.
+            </P>
+            <DataTable
+              head={['Step', 'What to do']}
+              rows={[
+                ['1. A picture', 'Upload one, drop it on the box, pick one from Media, or tap Use my logo. A logo, a photo of the restaurant or the food, or anything with the look you want. Its main colours show under it, and three themes made straight from them (light, dark and bold) show at once.'],
+                ['2. The look you want', 'Optional. Say it in your own words ("relaxed Italian, terracotta and olive"), or tap an example. "Make it warmer" works from what you have now.'],
+                ['3. Make themes', 'Pepper makes three themes from the picture and the words (it takes a few seconds). Try again for three more; More like this on a theme for three close to it.'],
+                ['4. Show on', 'See every theme on the website, a kiosk, a menu screen or a printed menu, so one theme can go everywhere.'],
+                ['5. Use this', 'Fills in the page\'s colours and fonts. Nothing changes until you save, as usual: check it, then Save.'],
+              ]}
+            />
+            <P>
+              Every theme is checked before you see it: words are made dark or light enough to read on
+              what they sit on, the website&apos;s buttons always carry white words, and a menu screen
+              gets a deep background with light words, which reads from across the room. A printed menu
+              keeps its cream paper and takes the theme&apos;s fonts and inks. The window also lists{' '}
+              <strong>Themes you used</strong> (on this device), so the theme you gave the website can
+              go on the kiosks and screens too.
+            </P>
+            <InfoBox type="tip">
+              Without Pepper (switched off, or no AI key on the server) the window still makes the three
+              themes from the picture&apos;s colours. Pepper&apos;s themes count towards your AI allowance
+              like a chat; the picture isn&apos;t kept.
+            </InfoBox>
+
             <H3>Boxed inset (margins) — customisable per step</H3>
             <P>
               The <strong>Layout</strong> card (Brand &amp; theme, tenant-wide — applies to every
@@ -3377,6 +3408,7 @@ export default function Help() {
                 ['Design a folded menu', 'Page setup > Folded sheet: "Fold left | right" or "Fold top / bottom", and the gap at the fold (for example 10 mm). The page splits into two halves with a striped FOLD strip between them. Blocks snap to either side of the gap and new blocks are kept off it; a block can still stretch across both halves. Tick "Print a fold line" for a faint dashed line to fold along.'],
                 ['Put variant options side by side', 'Page setup has "Variant options per row" (1, 2 or 3) for every dish. A dish block, or a section showing its dishes, can pick its own number or use the default.'],
                 ['Change the fonts', 'Page setup > Fonts: one font for headings and prices, one for text, one for the handwritten lines (taglines, handwritten text). Any font from the website builder can be used. "Use website fonts" copies the headings and text fonts from Website > Brand & theme; "Standard fonts" goes back to the usual three.'],
+                ['Change the colours', 'Page setup > Colours: the text, the prices, lines and handwriting (the menu\'s own colour unless you pick one), and the descriptions. The paper stays cream. Make a theme fills in the fonts and colours from a picture and a few words (see Make a theme from a picture); Standard colours goes back.'],
                 ['Choose which footer notes print', 'Select the Footer notes block and untick "Show all notes", then tick the notes you want in that spot. Put a second Footer notes block elsewhere to print the others there. With "Show all notes" ticked, notes you add to the menu later appear automatically; with your own pick, they don\'t until you tick them.'],
                 ['Make another design for the same menu', 'Use the Designs bar under the top bar. "Copy" starts a new design from the one open (handy for an A3 poster and an A5 table card of the same menu); "New design" starts a blank one. Name it in the panel on the right (with nothing selected) and tap Save. Tap a design\'s name to open it; save or undo your changes first.'],
                 ['Choose which design prints', 'Open the design and tap "Use this design for printing" in the panel on the right. The design used for printing has a Printing badge. "Use the automatic layout instead" goes back to the automatic layout.'],
@@ -3642,6 +3674,11 @@ export default function Help() {
               square below them for your device&apos;s colour picker, or type a code like
               #f5b301. A ticked swatch means that theme colour is in use; a ring round the square
               means a custom colour.
+            </P>
+            <P>
+              <strong>Theme maker</strong> (board panel): the background, colours and fonts from a
+              picture and a few words. A light theme gives the board a deep background with light words,
+              which reads best from across the room. See Website Builder → Make a theme from a picture.
             </P>
             <P>
               <strong>Photos and videos from your computer</strong>: drag them straight onto the board.
@@ -5101,7 +5138,7 @@ export default function Help() {
             <DataTable
               head={['Card', 'What you set']}
               rows={[
-                ['Brand', 'Logo, colours (start from a set: Website colours (your website theme\'s), Fresh, Red and gold, Night, Ocean, Plain, then change any: each colour offers the website\'s colours as swatches, or a custom one), the fonts for headings and text, headings in capitals, rounded corners. Colours that are hard to read together are pointed out.'],
+                ['Brand', 'Logo, colours (start from a set: Website colours (your website theme\'s), Fresh, Red and gold, Night, Ocean, Plain, then change any: each colour offers the website\'s colours as swatches, or a custom one), the fonts for headings and text, headings in capitals, rounded corners. Colours that are hard to read together are pointed out. Make a theme (at the top) fills all of these from a picture and a few words (see Website Builder, Make a theme from a picture).'],
                 ['Layout', 'The bar along the top (logo and language) on or off. Back and Start again with their words, or icons only. How pictures are drawn is set apart for dishes (Menu card) and for choices (Choices card).'],
                 ['Start screen', 'Pictures apart from the buttons or behind them; pictures and videos taking turns (drag to order, up to 8); the headline and the question; each order type\'s words, icon or picture; the Allergens button.'],
                 ['Languages', 'The language your menu is written in, and the languages guests can pick (flags on the start screen).'],
