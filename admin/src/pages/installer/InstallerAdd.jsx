@@ -40,7 +40,45 @@ export default function InstallerAdd() {
   )
 }
 
+/** A venue hub is installed on its mini PC by a command, then shows a code like the others. */
+function HubSteps({ overview }) {
+  const api = String(overview.addresses?.terminal || '').replace(/\/+$/, '')
+  return (
+    <Card title="1. On the mini PC">
+      <div className="space-y-3">
+        <p className="text-sm">With the mini PC on the venue's network and the internet on, run one of these on it. It installs the hub, starts it with the computer, and shows a code.</p>
+        <CommandBox label="Linux (Ubuntu, Debian): in a terminal" text={`curl -fsSL ${api}/pos-api/hub/install.sh | sudo sh`} testid="add-hub-linux" />
+        <CommandBox label="Windows 10 or 11: in PowerShell as administrator" text={`irm ${api}/pos-api/hub/install.ps1 | iex`} testid="add-hub-windows" />
+        <p className="text-sm">Its page, http://(its address):9180 on the venue's network, shows the code and a QR code too. Scan it with this phone, or type the code:</p>
+        <BigButton as={Link} to="/install/link?kind=hub" primary data-testid="add-go-link">
+          <QrCode className="w-5 h-5" /> Link a device showing a code
+        </BigButton>
+      </div>
+    </Card>
+  )
+}
+
+function CommandBox({ label, text, testid }) {
+  const [copied, setCopied] = useState(false)
+  async function copy() {
+    try { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2000) } catch { /* not allowed */ }
+  }
+  return (
+    <div className="space-y-1">
+      <div className="text-xs font-semibold text-muted-foreground">{label}</div>
+      <div className="rounded-xl border bg-muted/40 p-2 flex items-center gap-2">
+        <code className="flex-1 min-w-0 font-mono text-xs break-all select-all" data-testid={testid}>{text}</code>
+        <button type="button" onClick={copy} aria-label={'Copy: ' + label}
+          className="w-12 h-12 shrink-0 rounded-xl border bg-background flex items-center justify-center touch-manipulation">
+          {copied ? <Check className="w-5 h-5 text-emerald-600" /> : <Copy className="w-5 h-5" />}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function AddSteps({ kind, overview }) {
+  if (kind === 'hub') return <HubSteps overview={overview} />
   const address = overview.addresses?.[KINDS[kind].address]
   return (
     <>

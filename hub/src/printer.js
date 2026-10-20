@@ -58,24 +58,33 @@ export function printerStatus({ host, port = 9100, timeoutMs = 3000 }) {
     const socket = net.createConnection({ host, port })
     const replies = []
     let done = false
+    let connected = false
     const finish = (err, value) => {
       if (done) return
       done = true
       socket.destroy()
       err ? reject(err) : resolve(value)
     }
-    socket.setTimeout(timeoutMs, () => finish(null, replies.length ? decode(replies) : null))
+    // Connected but no answer: some clones don't answer status questions.
+    // Never connected: the printer isn't there.
+    socket.setTimeout(timeoutMs, () => connected
+      ? finish(null, replies.length ? decodeStatus(replies) : null)
+      : finish(new Error(`Printer ${host}:${port} didn't answer in ${timeoutMs / 1000}s`)))
     socket.on('error', e => finish(new Error(`Printer ${host}:${port}: ${e.code || e.message}`)))
     socket.on('data', chunk => {
       replies.push(...chunk)
-      if (replies.length >= 3) finish(null, decode(replies))
+      if (replies.length >= 3) finish(null, decodeStatus(replies))
     })
     // DLE EOT 1 (printer), 2 (offline cause), 4 (paper roll sensor)
-    socket.on('connect', () => socket.write(Buffer.from([0x10, 0x04, 1, 0x10, 0x04, 2, 0x10, 0x04, 4])))
+    socket.on('connect', () => {
+      connected = true
+      socket.write(Buffer.from([0x10, 0x04, 1, 0x10, 0x04, 2, 0x10, 0x04, 4]))
+    })
   })
 }
 
-function decode([printer = 0, offline = 0, paper = 0]) {
+/** An Epson printer's answers to DLE EOT 1, 2 and 4, in words. */
+export function decodeStatus([printer = 0, offline = 0, paper = 0]) {
   return {
     online: !(printer & 0x08),
     coverOpen: !!(offline & 0x04),

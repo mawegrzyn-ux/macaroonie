@@ -55,7 +55,10 @@ function About({ kind, device }) {
     ['Last seen', seen || 'Not yet'],
     kind === 'screen' && ['Size', `${device.width} x ${device.height}${device.rotation ? ', turned ' + device.rotation + '°' : ''}`],
     kind === 'screen' && ['Shows', device.wall ? `The wall ${device.wall.name}` + (device.shows?.name ? ': ' + device.shows.name : '') : device.shows?.name || 'Nothing yet'],
-    device.app_version && ['App', device.app_version],
+    device.app_version && [kind === 'hub' ? 'Version' : 'App', device.app_version],
+    kind === 'hub' && device.info?.hostname && ['Computer', [device.info.hostname, device.info.os].filter(Boolean).join(' · ')],
+    kind === 'hub' && device.info?.status_port && device.info.addresses?.length && ['Its page', device.info.addresses.map(a => `http://${a}:${device.info.status_port}`).join(', ')],
+    kind === 'hub' && device.info && ['USB printers', (device.info.local_printers || []).map(p => p.name).join(', ') || 'None plugged in'],
   ].filter(Boolean)
   return (
     <Card>

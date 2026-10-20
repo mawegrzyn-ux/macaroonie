@@ -9,15 +9,17 @@
 //                                                 the order types themselves are tenant-wide, routes/taxSetup.js)
 //   POST   /venues/:venueId/printers              + PATCH/DELETE /printers/:id (migration 191: connection 'hub'
 //                                                 = a network printer the venue hub prints to, 'device' = plugged
-//                                                 into a till or kitchen screen, printed by its browser). Kitchen
-//                                                 tickets go where the kitchen flow's printer boxes are
+//                                                 into a till or kitchen screen, printed by its browser, or into the
+//                                                 venue hub's computer with local_id = which USB printer, migration
+//                                                 195). Kitchen tickets go where the kitchen flow's printer boxes are
 //   POST   /venues/:venueId/link                  { code, device_id? | name, kind?, settings? } link a device
 //                                                 showing a code (migration 184): a new till, kitchen screen,
 //                                                 kiosk or venue hub (hub/), or a new device for one already
 //                                                 here. The only way a device is added: Till setup and the
 //                                                 installer app
 //   PATCH  /devices/:id                           name, settings (mode, revenue stream, receipt printer, floor area;
-//                                                 a kiosk's design and card reader)
+//                                                 a kiosk's design and card reader; a hub's auto_update)
+//   POST   /devices/:id/update                    a venue hub installs its latest version at its next quiet moment
 //   DELETE /devices/:id                           revoke
 //   Self-order kiosks (docs/POS.md section 10; shared/kiosk.js; the kiosks themselves are devices of kind 'kiosk'):
 //   GET    /kiosk-designs  POST /kiosk-designs  PUT/DELETE /kiosk-designs/:id   tenant-wide designs
@@ -75,6 +77,7 @@ import {
 } from '../../../shared/pos/kitchen.js'
 import { deviceOrigin, installerOrigin } from '../services/platformHost.js'
 import { linkCodeHash } from '../services/linkCodes.js'
+import { hubRelease } from '../services/hubRelease.js'
 import { forgetDevice } from './posApi.js'
 import {
   ensureFlows, loadFlows, activeFlowOf, switchFlow, flowPlace, pinActiveFlows, gloriaFoodTypes, GF_TYPES, kitchenTestToken,
@@ -156,9 +159,12 @@ const PrinterBody = z.object({
   name:              z.string().trim().min(1).max(60),
   kind:              z.enum(['station', 'receipt']).default('station'),
   // 'hub': a network printer (host, port) the venue hub prints to; 'device':
-  // plugged into a till or kitchen screen (device_id), printed by its browser.
+  // plugged into a till or kitchen screen (device_id), printed by its browser,
+  // or into the venue hub's computer (device_id = the hub, migration 195),
+  // with local_id naming which of its USB printers.
   connection:        z.enum(['hub', 'device']).default('hub'),
   device_id:         UUID.nullable().optional(),
+  local_id:          z.string().trim().max(200).nullable().optional(),
   host:              z.string().trim().max(120).nullable().optional(),
   port:              z.number().int().min(1).max(65535).default(9100),
   columns:           z.number().int().min(24).max(64).default(42),
@@ -189,6 +195,8 @@ const DeviceSettings = z.object({
   // A till's or kiosk's card machine (migration 193): a pos_card_readers id
   // at its venue, or 'none'.
   card_reader:        z.union([z.literal('none'), UUID]).optional(),
+  // A venue hub (migration 195): installs its new versions by itself (absent = yes).
+  auto_update:        z.boolean().optional(),
 }).default({})
 
 // What a device showing a link code can become, in the words the refusals use.
@@ -503,17 +511,21 @@ async function checkStationPrinter(tx, tenantId, venueId, settings) {
 
 /**
  * A printer plugged into a device: one of the venue's tills or kitchen
- * screens (they collect its tickets), or a kiosk (its own receipts only).
+ * screens (they collect its tickets), a kiosk (its own receipts only), or
+ * the venue hub's computer (migration 195; local_id = which USB printer).
+ * Returns { deviceId, localId }.
  */
 async function checkPrinterDevice(tx, tenantId, venueId, body) {
-  if (body.connection !== 'device') return null
+  if (body.connection !== 'device') return { deviceId: null, localId: null }
   if (!body.device_id) throw httpError(422, 'Pick the till or kitchen screen the printer is plugged into')
   const [d] = await tx`
     SELECT id, kind FROM pos_devices
      WHERE id = ${body.device_id} AND tenant_id = ${tenantId} AND venue_id = ${venueId} AND revoked_at IS NULL`
   if (!d) throw httpError(422, 'Device not found')
-  if (!['terminal', 'kds', 'kiosk'].includes(d.kind)) throw httpError(422, 'A printer can be plugged into a till, a kitchen screen or a kiosk')
-  return d.id
+  if (!['terminal', 'kds', 'kiosk', 'hub'].includes(d.kind)) throw httpError(422, 'A printer can be plugged into a till, a kitchen screen, a kiosk or the venue hub')
+  if (d.kind !== 'hub') return { deviceId: d.id, localId: null }
+  if (!body.local_id) throw httpError(422, 'Pick which printer plugged into the hub this is')
+  return { deviceId: d.id, localId: body.local_id }
 }
 
 /** A Balance box's pieces name the tenant's own dishes. */
@@ -555,6 +567,8 @@ function deviceView(d) {
     paired: !!d.secret_hash, paired_at: d.paired_at, last_seen_at: d.last_seen_at,
     app_version: d.app_version, user_agent: d.user_agent, revoked_at: d.revoked_at,
     created_at: d.created_at,
+    // A venue hub (migration 195): what it last said about itself, and Update now.
+    ...(d.kind === 'hub' ? { info: d.info || null, info_at: d.info_at || null, update_requested_at: d.update_requested_at || null } : {}),
   }
 }
 
@@ -575,6 +589,11 @@ function shareView(d) {
     views: d.share_views || 0,
     last_viewed_at: d.share_last_viewed_at,
   }
+}
+
+/** { version } of the hub's code on this server, or null when its files aren't here. */
+function latestHub() {
+  try { return { version: hubRelease().version } } catch { return null }
 }
 
 async function nextShortCode(tx, tenantId, venueId, kind) {
@@ -599,7 +618,7 @@ export default async function posSetupRoutes(app) {
       const [streams, orderTypes, printers, devices, areas, tables, staff, roles, courses, menus, kdsStations, kdsFlows, kioskDesigns, jobCounts] = await Promise.all([
         loadStreams(tx, tenantId, venueId),
         loadOrderTypes(tx, tenantId),
-        tx`SELECT id, name, kind, connection, device_id, host, port, columns, backup_printer_id, sort_order, is_active, status, status_at
+        tx`SELECT id, name, kind, connection, device_id, local_id, host, port, columns, backup_printer_id, sort_order, is_active, status, status_at
              FROM pos_printers WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} ORDER BY sort_order, name`,
         tx`SELECT * FROM pos_devices WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} ORDER BY revoked_at NULLS FIRST, created_at`,
         tx`SELECT id, name, width, height, revenue_stream_id, decor, sort_order FROM floor_areas
@@ -660,6 +679,8 @@ export default async function posSetupRoutes(app) {
         till_url: deviceOrigin('terminal'),
         installer_url: installerOrigin(),
         device_urls: { terminal: deviceOrigin('terminal'), kds: deviceOrigin('kds'), kiosk: deviceOrigin('kiosk') },
+        // The venue hub's latest version (migration 195), to say whether a hub is up to date.
+        hub_release: latestHub(),
       }
     })
   })
@@ -813,11 +834,12 @@ export default async function posSetupRoutes(app) {
     const row = await withTenant(req.tenantId, async tx => {
       await ownVenue(tx, req.tenantId, venueId)
       const backup = await checkBackup(tx, req.tenantId, venueId, body.backup_printer_id)
-      const deviceId = await checkPrinterDevice(tx, req.tenantId, venueId, body)
+      const { deviceId, localId } = await checkPrinterDevice(tx, req.tenantId, venueId, body)
       const [{ n }] = await tx`SELECT COALESCE(MAX(sort_order), -1)::int + 1 AS n FROM pos_printers WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}`
       const [p] = await tx`
-        INSERT INTO pos_printers (tenant_id, venue_id, name, kind, connection, device_id, host, port, columns, backup_printer_id, sort_order, is_active)
-        VALUES (${req.tenantId}, ${venueId}, ${body.name}, ${body.kind}, ${body.connection}, ${deviceId}, ${body.host || null}, ${body.port},
+        INSERT INTO pos_printers (tenant_id, venue_id, name, kind, connection, device_id, local_id, host, port, columns, backup_printer_id, sort_order, is_active)
+        VALUES (${req.tenantId}, ${venueId}, ${body.name}, ${body.kind}, ${body.connection}, ${deviceId}, ${localId},
+                ${body.connection === 'hub' ? body.host || null : null}, ${body.port},
                 ${body.columns}, ${backup}, ${n}, ${body.is_active})
         RETURNING *`
       return p
@@ -832,12 +854,12 @@ export default async function posSetupRoutes(app) {
     const row = await withTenant(req.tenantId, async tx => {
       const p = await ownRow(tx, 'pos_printers', req.tenantId, id, 'Printer')
       const backup = await checkBackup(tx, req.tenantId, p.venue_id, body.backup_printer_id, id)
-      const deviceId = await checkPrinterDevice(tx, req.tenantId, p.venue_id, body)
-      const moved = body.connection !== p.connection || deviceId !== p.device_id
+      const { deviceId, localId } = await checkPrinterDevice(tx, req.tenantId, p.venue_id, body)
+      const moved = body.connection !== p.connection || deviceId !== p.device_id || localId !== p.local_id
       const [out] = await tx`
         UPDATE pos_printers
-           SET name = ${body.name}, kind = ${body.kind}, connection = ${body.connection}, device_id = ${deviceId},
-               host = ${body.host || null}, port = ${body.port},
+           SET name = ${body.name}, kind = ${body.kind}, connection = ${body.connection}, device_id = ${deviceId}, local_id = ${localId},
+               host = ${body.connection === 'hub' ? body.host || null : null}, port = ${body.port},
                columns = ${body.columns}, backup_printer_id = ${backup}, is_active = ${body.is_active},
                status = CASE WHEN ${moved} THEN NULL ELSE status END,
                status_at = CASE WHEN ${moved} THEN NULL ELSE status_at END
@@ -976,6 +998,20 @@ export default async function posSetupRoutes(app) {
     })
     configChanged(out.venue_id)
     return deviceView(out)
+  })
+
+  // Update now (migration 195): the hub installs its latest version at its
+  // next quiet moment, even with automatic updates off.
+  app.post('/devices/:id/update', { preHandler: canSetup }, async req => {
+    const id = UUID.parse(req.params.id)
+    const d = await withTenant(req.tenantId, async tx => {
+      const row = await ownRow(tx, 'pos_devices', req.tenantId, id, 'Hub')
+      if (row.kind !== 'hub' || row.revoked_at) throw httpError(422, 'Only a venue hub updates this way')
+      const [out] = await tx`UPDATE pos_devices SET update_requested_at = now() WHERE id = ${id} AND tenant_id = ${req.tenantId} RETURNING *`
+      return out
+    })
+    configChanged(d.venue_id)
+    return deviceView(d)
   })
 
   app.delete('/devices/:id', { preHandler: canSetup }, async req => {

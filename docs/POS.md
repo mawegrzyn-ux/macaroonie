@@ -1,6 +1,7 @@
 # Macaroonie POS — design
 
-Status: **Phases 1-5 built cloud-first; the hub and printer trials are parked** (11 Oct 2026).
+Status: **Phases 1-5 built cloud-first; the hub prints (mini PC appliance, 20 Oct 2026, section
+2.6); its offline role and the printer trials on real hardware are still to do.**
 Decisions agreed 11 Oct 2026. What runs today, and what's provisioned for the hub, is in
 section 8. Kitchen screens (KDS, 16 Oct 2026): section 9. Self-order kiosks (17 Oct 2026):
 section 10.
@@ -130,7 +131,9 @@ First event types: `check.opened`, `check.covers_set`, `check.table_moved`,
   `hub/bin/hub.js`, a device linked by its code) or `device` (plugged into a till or kitchen
   screen, printed by its browser: `pos/src/lib/devicePrint.js`; Chrome `--kiosk-printing` for
   no dialog). A device prints its own bills in its browser when its receipt printer is none or
-  plugged into it. The hub reports each printer's state to Till setup.
+  plugged into it. The hub reports each printer's state to Till setup. A USB printer plugged
+  into the hub's mini PC (migration 195) is `device` with `device_id` = the hub and `local_id`
+  = its id on that computer; the hub prints it (section 2.6).
 - Queue per printer with retries; status check so terminals see "printer offline / out of
   paper"; reprint.
 - Cash drawer opened through the receipt printer (`ESC p`).
@@ -164,6 +167,32 @@ Built as designed, with these names and choices:
   settings (`card_reader`). Kiosks pay before their order exists (the attempt carries the
   payment id the order's event will use).
 - Card data never touches Macaroonie (PCI scope stays with the provider).
+
+### 2.6 The hub on a mini PC (migration 195, 20 Oct 2026)
+
+Hardware: a fanless mini PC (Intel N100 class, 8 GB, wired Ethernet), one per venue, on a
+cable to the router with a fixed address; Linux (Ubuntu / Debian) preferred, Windows 10/11
+supported. Android stays for tills, kiosks and kitchen screens: a hub needs raw TCP and USB
+access, a service that starts with the computer, and (later) a LAN server, which a PC gives
+without app-store packaging.
+
+- **Install**: one command shown in Till setup → Printers (`curl … /pos-api/hub/install.sh |
+  sudo sh`, or `irm … /pos-api/hub/install.ps1 | iex`). Its own Node 22 (checked against
+  nodejs.org's SHASUMS), the hub from the cloud (checked against its sha256), a systemd
+  service as its own user (in `lp`) or a Windows scheduled task as SYSTEM, then the link code.
+- **Link**: the code on the console, on the hub's page (`http://<hub>:9180`, with a QR code for
+  the installer app) and in `state.json`; linked like any device. Removed in Till setup, the
+  hub shows a new code by itself.
+- **Printers**: network (TCP 9100) and USB on the hub: Linux `/dev/usb/lp*` (found again by
+  USB vendor, product and serial, never by device file), Windows printers by name (RAW spooler
+  job). The hub lists the USB printers it finds every minute; Till setup offers them.
+- **Updates**: the cloud serves the hub's code as one file (`hubRelease()`, version = the
+  source version + a hash of the files). The hub installs a new version at a quiet moment
+  (download, sha256, unpack, `--self-test`, switch), keeps the version before, and the launcher
+  goes back to it when a new one stops three times within a minute. Automatic by default;
+  off = Update now in Till setup.
+- **Not yet**: the offline role (SQLite sequencer, serving `/pos-api` on the LAN with a venue
+  certificate, tills using `hub_url`); serial printers on Linux; a cash drawer kick on its own.
 
 ---
 
@@ -306,7 +335,10 @@ Provisioned for the hub (no other change needed when it comes):
 - `pos/src/lib/transport.js` tries `device.hub_url` before the cloud.
 - The sequencer takes a store object; the hub supplies a SQLite one.
 
-Still to do: Trials 1-3 on real hardware, the hub service, Adyen / Zettle card machines
+The hub service prints since migration 191 and installs, links and updates itself on a mini PC
+since migration 195 (section 2.6).
+
+Still to do: Trials 1-3 on real hardware, the hub's offline role, Adyen / Zettle card machines
 (Dojo, Stripe Terminal and SumUp are built, section 2.5), the till layout designer (Phase 7), online orders into the till, bookings on the floor plan.
 Kitchen screens: section 9.
 
