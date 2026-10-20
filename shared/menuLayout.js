@@ -96,6 +96,14 @@ export const DEFAULT_FONTS = { body: 'Inter', heading: 'Fraunces', script: 'Cave
 
 function knownFont(v, dflt) { return FONT_WEIGHTS[v] ? v : dflt }
 
+function hexOr(v) { return typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v) ? v.toLowerCase() : null }
+
+// '#rrggbb' at an opacity, for the accent's lighter uses.
+function rgba(hex, a) {
+  const n = parseInt(hex.slice(1), 16)
+  return 'rgba(' + (n >> 16) + ', ' + ((n >> 8) & 255) + ', ' + (n & 255) + ', ' + a + ')'
+}
+
 // Every font a layout uses, for its Google Fonts stylesheet.
 export function layoutFonts(layout) {
   const l = normalizeLayout(layout)
@@ -124,6 +132,11 @@ export function normalizeLayout(layout) {
     font_body:    knownFont(l.font_body, DEFAULT_FONTS.body),
     font_heading: knownFont(l.font_heading, DEFAULT_FONTS.heading),
     font_script:  knownFont(l.font_script, DEFAULT_FONTS.script),
+    // Ink colours (the theme maker, shared/themeKit.js printFromKit()); null
+    // = the standard ink, and the menu's own colour for prices and accents.
+    ink_color:    hexOr(l.ink_color),
+    accent_color: hexOr(l.accent_color),
+    muted_color:  hexOr(l.muted_color),
     master:      Array.isArray(l.master) ? l.master : [],
     pages:       Array.isArray(l.pages) && l.pages.length ? l.pages : [{ id: 'p1', blocks: [] }],
   }
@@ -210,7 +223,10 @@ export function pageStyle(layout, menu) {
   const g = layoutGeometry(l)
   return {
     width: mm(g.pageW), height: mm(g.pageH),
-    '--plum': (menu && menu.primary_colour) || '#630812',
+    '--plum': l.accent_color || (menu && menu.primary_colour) || '#630812',
+    ...(l.accent_color ? { '--plum-soft': rgba(l.accent_color, 0.6), '--line': rgba(l.accent_color, 0.18) } : {}),
+    ...(l.ink_color ? { '--ink': l.ink_color, color: l.ink_color } : {}),
+    ...(l.muted_color ? { '--muted': l.muted_color } : {}),
     '--fs': String(g.fontScale),
     '--ml-body': fontStack(l.font_body),
     '--ml-heading': fontStack(l.font_heading),

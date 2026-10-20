@@ -25,6 +25,8 @@ import {
   RefreshCw,
 } from 'lucide-react'
 import { qrSvg } from '@shared/qr.js'
+import { kioskBrandFromKit } from '@shared/themeKit.js'
+import { ThemeMakerButton } from '@/components/themes/ThemeMaker'
 import {
   normaliseDesign, designProblems, KIOSK_FONTS, KIOSK_EXTRA_FONTS, SYSTEM_FONT, COLOR_LABELS,
   DESIGN_COLORS, KIOSK_LANGUAGES, DISPLAY_LABELS, KIOSK_DISPLAYS, uiText, TILE_STYLES, TILE_LABELS,
@@ -245,8 +247,14 @@ function BrandPanel({ d, set }) {
   const poor = CONTRAST_PAIRS.filter(([a, b]) => contrast(c[a], c[b]) < 3)
   const theme = useThemeColours()
   const sets = useMemo(() => [websiteColours(theme), ...PRESETS].filter(Boolean), [theme])
+  const locked = useContext(LockedCtx)
   return (
     <>
+      {!locked && (
+        <Field group label="Theme maker" hint="Colours, fonts, corners and capitals from your logo or a photo and a few words.">
+          <ThemeMakerButton target="kiosk" current={d.brand} onApply={kit => set('brand', b => kioskBrandFromKit(kit, b))} />
+        </Field>
+      )}
       <Field group label="Logo" hint="On the start screen and at the top of the menu. A PNG or SVG with a see-through background looks best.">
         <ImagePick value={d.brand.logo_url} onChange={v => set('brand', { logo_url: v })} label="logo" contain testId="kd-logo" />
       </Field>

@@ -88,6 +88,8 @@ const ThemeSchema = z.object({
     text:       z.string().regex(HEX_COLOUR).optional(),
     muted:      z.string().regex(HEX_COLOUR).optional(),
     border:     z.string().regex(HEX_COLOUR).optional(),
+    // Behind the page colour (head.eta); was missing here, so Zod dropped it on save.
+    background_image: z.string().max(2000).nullable().optional(),
   }).partial().optional(),
   typography: z.object({
     heading_font:    z.string().max(100).optional(),

@@ -40,6 +40,8 @@ import {
   wrapMotion, startBoardMotion, wallRegion, ORDER_CHANGE_ANIMS,
 } from '@shared/screenLayout.js'
 import { ORDER_FIELDS, MAIN_FIELDS, normaliseOrderInfo } from '@shared/orderInfo.js'
+import { boardFromKit } from '@shared/themeKit.js'
+import { ThemeMakerButton } from '@/components/themes/ThemeMaker'
 
 const ICONS = {
   heading: Heading, text: Type, menu: ListOrdered, dish: Star, price: PoundSterling,
@@ -1223,6 +1225,12 @@ function BoardPanel({ board, name, setName, canManage, onPatch, venues, version,
             <Seg value={board.background_fit} options={[['cover', 'Fill'], ['contain', 'Whole'], ['fill', 'Stretch']]} onChange={v => onPatch({ background_fit: v })} />
           )}
         </Section>
+        {canManage && (
+          <Section title="Theme maker">
+            <ThemeMakerButton target="board" current={board} onApply={kit => onPatch(boardFromKit(kit, {}))} />
+            <p className="text-[11px] text-muted-foreground">Background, colours and fonts from your logo or a photo and a few words.</p>
+          </Section>
+        )}
         <Section title="Colours">
           <ColourField label="Text" value={board.text_color} onChange={v => onPatch({ text_color: v })} />
           <ColourField label="Accent (section titles, prices)" value={board.accent_color} onChange={v => onPatch({ accent_color: v })} />

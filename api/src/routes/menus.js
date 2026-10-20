@@ -227,6 +227,10 @@ const LayoutBody = z.object({
   font_body:    z.enum(FONT_OPTIONS).default('Inter'),
   font_heading: z.enum(FONT_OPTIONS).default('Fraunces'),
   font_script:  z.enum(FONT_OPTIONS).default('Caveat'),
+  // Ink colours from the theme maker (shared/themeKit.js); null = standard.
+  ink_color:    z.string().regex(/^#[0-9a-f]{6}$/i).nullable().default(null),
+  accent_color: z.string().regex(/^#[0-9a-f]{6}$/i).nullable().default(null),
+  muted_color:  z.string().regex(/^#[0-9a-f]{6}$/i).nullable().default(null),
   master:      z.array(LayoutBlock).max(100).default([]),
   pages:       z.array(z.object({
     id:          z.string().min(1).max(64),

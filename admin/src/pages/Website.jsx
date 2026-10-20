@@ -40,7 +40,9 @@ import ReservationsWidget from '@/pages/ReservationsWidget'
 import { BrandLayoutSection } from '@/components/website-builder/BrandLayoutSection'
 import { BrandHeaderSection } from '@/components/website-builder/BrandHeaderSection'
 import { BrandFooterSection } from '@/components/website-builder/BrandFooterSection'
-import { FONT_OPTIONS } from '@shared/fonts.js'
+import { FONT_OPTIONS, googleFontsUrl } from '@shared/fonts.js'
+import { websiteThemeFromKit } from '@shared/themeKit.js'
+import { ThemeMakerButton, useFontLink } from '@/components/themes/ThemeMaker'
 
 // ── Section lists ────────────────────────────────────────────
 //
@@ -1998,6 +2000,7 @@ const THEME_PRESETS = [
 
 function ThemePreview({ theme, siteName }) {
   const t = mergeTheme(theme)
+  useFontLink(googleFontsUrl([t.typography.heading_font, t.typography.body_font]))
   const style = {
     '--c-primary':    t.colors.primary,
     '--c-accent':     t.colors.accent,
@@ -2092,200 +2095,6 @@ function SliderField({ label, value, onChange, min, max, step = 1, unit = 'px', 
         onChange={e => onChange(Number(e.target.value))}
         className="w-full accent-primary" />
       {hint && <p className="text-xs text-muted-foreground mt-1">{hint}</p>}
-    </div>
-  )
-}
-
-function ThemeSection({ config }) {
-  const api = useApi()
-  const qc  = useQueryClient()
-  const [theme, setTheme] = useState(() => mergeTheme(config.theme))
-  const baseline = useMemo(() => mergeTheme(config.theme), [config.theme])
-  const dirty = JSON.stringify(theme) !== JSON.stringify(baseline)
-
-  const save = useMutation({
-    mutationFn: () => api.patch('/website/config', { venue_id: config.venue_id, theme }),
-    onSuccess:  (cfg) => qc.setQueryData(['website-config', cfg.venue_id], cfg),
-  })
-
-  function setPath(section, key, value) {
-    setTheme(t => ({ ...t, [section]: { ...t[section], [key]: value } }))
-  }
-
-  return (
-    <div className="space-y-5">
-      {/* Live preview always visible at the top */}
-      <ThemePreview theme={theme} siteName={config.site_name || 'Your Restaurant'} />
-
-      {/* Preset library — one click to load a curated theme */}
-      <SectionCard title="Presets"
-        description="Quick starting points. Click to load — your custom tweaks below override preset values.">
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-          {THEME_PRESETS.map(p => (
-            <button key={p.key} type="button"
-              onClick={() => setTheme(t => mergeTheme({ ...t, ...p.theme }))}
-              className="border rounded-lg p-3 text-left hover:border-primary hover:shadow-sm transition-all">
-              <div className="flex gap-1 mb-2">
-                <div className="w-6 h-6 rounded" style={{ background: p.theme.colors.primary }} />
-                <div className="w-6 h-6 rounded" style={{ background: p.theme.colors.accent }} />
-                <div className="w-6 h-6 rounded border" style={{ background: p.theme.colors.background }} />
-                <div className="w-6 h-6 rounded" style={{ background: p.theme.colors.text }} />
-              </div>
-              <p className="text-sm font-medium">{p.label}</p>
-              <p className="text-xs text-muted-foreground">{p.description}</p>
-            </button>
-          ))}
-        </div>
-      </SectionCard>
-
-      <SectionCard title="Colours"
-        description="Apply instantly to both templates once saved.">
-        <ColourField label="Primary (brand / CTA)"
-          value={theme.colors.primary}
-          onChange={v => setPath('colors', 'primary', v)} />
-        <ColourField label="Accent (highlights)"
-          value={theme.colors.accent}
-          onChange={v => setPath('colors', 'accent', v)} />
-        <ColourField label="Background"
-          value={theme.colors.background}
-          onChange={v => setPath('colors', 'background', v)} />
-        <ColourField label="Surface (alt band bg)"
-          value={theme.colors.surface}
-          onChange={v => setPath('colors', 'surface', v)} />
-        <ColourField label="Body text"
-          value={theme.colors.text}
-          onChange={v => setPath('colors', 'text', v)} />
-        <ColourField label="Muted text"
-          value={theme.colors.muted}
-          onChange={v => setPath('colors', 'muted', v)} />
-        <ColourField label="Borders & dividers"
-          value={theme.colors.border}
-          onChange={v => setPath('colors', 'border', v)} />
-      </SectionCard>
-
-      <SectionCard title="Typography"
-        description="Common Google Fonts load automatically.">
-        <FormRow label="Heading font">
-          <select value={theme.typography.heading_font}
-            onChange={e => setPath('typography', 'heading_font', e.target.value)}
-            className="w-full border rounded-md px-3 py-2 text-sm min-h-[44px] touch-manipulation bg-background">
-            {FONT_OPTIONS.map(f => <option key={f} value={f}>{f}</option>)}
-          </select>
-        </FormRow>
-        <FormRow label="Body font">
-          <select value={theme.typography.body_font}
-            onChange={e => setPath('typography', 'body_font', e.target.value)}
-            className="w-full border rounded-md px-3 py-2 text-sm min-h-[44px] touch-manipulation bg-background">
-            {FONT_OPTIONS.map(f => <option key={f} value={f}>{f}</option>)}
-          </select>
-        </FormRow>
-        <SliderField label="Base font size" unit="px"
-          min={12} max={22} value={theme.typography.base_size_px}
-          onChange={v => setPath('typography', 'base_size_px', v)} />
-        <SliderField label="Heading scale" unit="×"
-          min={1.0} max={1.8} step={0.05} value={theme.typography.heading_scale}
-          onChange={v => setPath('typography', 'heading_scale', v)}
-          hint="Multiplier applied per heading level (h1 = base × scale³)." />
-        <SliderField label="Heading weight" unit=""
-          min={300} max={900} step={100}
-          value={theme.typography.heading_weight}
-          onChange={v => setPath('typography', 'heading_weight', v)} />
-        <SliderField label="Body weight" unit=""
-          min={300} max={700} step={100}
-          value={theme.typography.body_weight}
-          onChange={v => setPath('typography', 'body_weight', v)} />
-        <SliderField label="Line height" unit=""
-          min={1.0} max={2.2} step={0.05}
-          value={theme.typography.line_height}
-          onChange={v => setPath('typography', 'line_height', v)} />
-      </SectionCard>
-
-      <SectionCard title="Spacing">
-        <SliderField label="Container max width"
-          min={640} max={1600} step={20}
-          value={theme.spacing.container_max_px}
-          onChange={v => setPath('spacing', 'container_max_px', v)} />
-        <SliderField label="Section vertical padding (desktop)"
-          min={16} max={160}
-          value={theme.spacing.section_y_px}
-          onChange={v => setPath('spacing', 'section_y_px', v)} />
-        <SliderField label="Section vertical padding (mobile)"
-          min={12} max={120}
-          value={theme.spacing.section_y_mobile_px}
-          onChange={v => setPath('spacing', 'section_y_mobile_px', v)} />
-        <SliderField label="Grid gap"
-          min={4} max={60}
-          value={theme.spacing.gap_px}
-          onChange={v => setPath('spacing', 'gap_px', v)} />
-      </SectionCard>
-
-      <SectionCard title="Corners">
-        <SliderField label="Small radius" min={0} max={24}
-          value={theme.radii.sm_px}
-          onChange={v => setPath('radii', 'sm_px', v)} />
-        <SliderField label="Medium radius" min={0} max={40}
-          value={theme.radii.md_px}
-          onChange={v => setPath('radii', 'md_px', v)} />
-        <SliderField label="Large radius" min={0} max={60}
-          value={theme.radii.lg_px}
-          onChange={v => setPath('radii', 'lg_px', v)} />
-      </SectionCard>
-
-      <SectionCard title="Logo">
-        <SliderField label="Logo height (header)" min={20} max={96}
-          value={theme.logo.height_px}
-          onChange={v => setPath('logo', 'height_px', v)} />
-      </SectionCard>
-
-      <SectionCard title="Buttons">
-        <SliderField label="Button radius" min={0} max={40}
-          value={theme.buttons.radius_px}
-          onChange={v => setPath('buttons', 'radius_px', v)} />
-        <SliderField label="Vertical padding" min={4} max={24}
-          value={theme.buttons.padding_y_px}
-          onChange={v => setPath('buttons', 'padding_y_px', v)} />
-        <SliderField label="Horizontal padding" min={8} max={48}
-          value={theme.buttons.padding_x_px}
-          onChange={v => setPath('buttons', 'padding_x_px', v)} />
-        <SliderField label="Font weight" min={300} max={900} step={100}
-          value={theme.buttons.weight}
-          onChange={v => setPath('buttons', 'weight', v)} />
-      </SectionCard>
-
-      <SectionCard title="Hero section">
-        <SliderField label="Overlay opacity" unit=""
-          min={0} max={0.9} step={0.05}
-          value={theme.hero.overlay_opacity}
-          onChange={v => setPath('hero', 'overlay_opacity', v)}
-          hint="Darkens the hero image so text stays readable." />
-        <SliderField label="Minimum height"
-          min={240} max={900} step={10}
-          value={theme.hero.min_height_px}
-          onChange={v => setPath('hero', 'min_height_px', v)} />
-      </SectionCard>
-
-      <div className="flex items-center justify-between pt-2 border-t">
-        <button type="button"
-          onClick={() => setTheme(structuredClone(DEFAULT_THEME))}
-          className="text-xs text-muted-foreground hover:text-foreground px-3 py-1.5"
-        >Reset to defaults</button>
-        <div className="flex items-center gap-2">
-          {dirty && (
-            <button type="button"
-              onClick={() => setTheme(baseline)}
-              className="text-xs text-muted-foreground hover:text-foreground px-3 py-1.5"
-            >Undo changes</button>
-          )}
-          <button type="button"
-            onClick={() => save.mutate()}
-            disabled={!dirty || save.isPending}
-            className="bg-primary text-primary-foreground text-sm font-medium rounded-md px-4 py-2 min-h-[40px] inline-flex items-center gap-2 disabled:opacity-50"
-          >
-            {save.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-            Save theme
-          </button>
-        </div>
-      </div>
     </div>
   )
 }
@@ -4067,6 +3876,7 @@ function BrandIdentitySection({ venueId = null }) {
 function BrandThemeSection({ venueId = null }) {
   const api = useApi()
   const qc  = useQueryClient()
+  const { canManage } = usePermission('website')
   const isVenue  = !!venueId
   const queryKey = isVenue ? ['website-config', venueId] : ['brand-defaults']
   const { data: brand = {} } = useQuery({
@@ -4105,9 +3915,40 @@ function BrandThemeSection({ venueId = null }) {
   function setPath(section, key, value) {
     setTheme(t => ({ ...t, [section]: { ...t[section], [key]: value } }))
   }
+  // A preset sets colours and fonts only (the background picture stays).
+  function applyPreset(p) {
+    setTheme(t => mergeTheme({
+      ...t,
+      colors:     { ...t.colors, ...p.theme.colors },
+      typography: { ...t.typography, ...p.theme.typography },
+    }))
+  }
 
   return (
     <div className="space-y-5">
+      <SectionCard title="Theme ideas"
+        description="Make a theme from your logo or a photo and a few words, or start from a ready-made one. It fills in the fields below; nothing changes on the site until you save.">
+        {canManage && (
+          <ThemeMakerButton target="website" current={theme}
+            onApply={kit => setTheme(t => mergeTheme(websiteThemeFromKit(kit, t)))} />
+        )}
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3" data-testid="theme-presets">
+          {THEME_PRESETS.map(p => (
+            <button key={p.key} type="button" onClick={() => applyPreset(p)}
+              className="border rounded-lg p-3 text-left hover:border-primary min-h-[48px] touch-manipulation">
+              <div className="flex gap-1 mb-2">
+                <div className="w-6 h-6 rounded" style={{ background: p.theme.colors.primary }} />
+                <div className="w-6 h-6 rounded" style={{ background: p.theme.colors.accent }} />
+                <div className="w-6 h-6 rounded border" style={{ background: p.theme.colors.background }} />
+                <div className="w-6 h-6 rounded" style={{ background: p.theme.colors.text }} />
+              </div>
+              <p className="text-sm font-medium">{p.label}</p>
+              <p className="text-xs text-muted-foreground">{p.description}</p>
+            </button>
+          ))}
+        </div>
+      </SectionCard>
+      <ThemePreview theme={theme} siteName={brand.site_name || brand.brand_name || 'Your restaurant'} />
       <SectionCard title="Brand theme"
         description={isVenue
           ? "This venue's own theme — independent of the tenant default."

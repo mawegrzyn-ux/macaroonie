@@ -5,6 +5,19 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-20 — Make a theme from a picture and a few words]
+
+- **Make a theme** builds a whole look (colours, fonts, corners, capitals) from a picture and a few words. It is on Website → Brand & theme (new **Theme ideas** card), in the kiosk designer (Brand), in the menu screen designer (board panel) and in the printed menu designer (Page setup → Colours).
+- Add a picture (upload, drop, pick from Media, or **Use my logo**): its main colours are measured and three themes made straight from them (light, dark, bold) show at once, without any AI.
+- Say the look you want in your own words (or tap an example) and **Make themes**: Pepper makes three themes from the picture, its measured colours and the words. **Try again** for three more, **More like this** for three close to one you like.
+- **Show on** previews every theme on the website, a kiosk, a menu screen and a printed menu. **Use this** fills in the page's settings; nothing changes until you save, as usual. **Themes you used** lists them on the device, so one theme can go everywhere.
+- Every theme is made readable before you see it: words on what they sit on, white button words on the website, a deep background with light words on menu screens, inks that read on the printed menu's cream paper.
+- Without Pepper the window still makes the themes from the picture's colours. Pepper's themes count towards the AI allowance; the picture isn't kept.
+- Brand & theme now shows the six ready-made themes and the live preview above the colour fields.
+- Printed menu designs have their own **colours** in Page setup: text, prices / lines / handwriting, and descriptions (**Standard colours** goes back).
+- Fixed: the website's background picture (Brand & theme) was dropped every time the theme was saved.
+- No migration.
+
 ## [2026-10-20 — Rota printout and image look like the grid]
 
 - **Rota → Print / PDF** and **Save image** now look like the rota grid on screen: a tile per shift in the same colours (green ON, grey OFF, SICK / PTO / UTO / ABS in their own colours, hatched LEFT and AWAY), each day's shifts under the day, closed days marked. Hourly rotas show each period in a tinted box with its times. A line under the sheet gives the shift times and what the time-off codes mean.

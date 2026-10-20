@@ -50,6 +50,9 @@ import {
   colAtMm, rowAtMm, crossesFold, foldGapBox, pickedCallouts,
 } from '@shared/menuLayout.js'
 import { FONT_OPTIONS } from '@shared/fonts.js'
+import { printFromKit } from '@shared/themeKit.js'
+import { ThemeMakerButton } from '@/components/themes/ThemeMaker'
+import { ColourPicker } from '@/components/ColourPicker'
 import { FontPicker } from '@/components/website-builder/FontPicker'
 
 const PX_PER_MM = 96 / 25.4
@@ -628,7 +631,7 @@ export default function MenuDesigner() {
               <button onClick={() => setZoom(Math.min(2, +(scale + 0.1).toFixed(2)))} className="w-10 h-10 flex items-center justify-center touch-manipulation" title="Zoom in"><Plus className="w-4 h-4" /></button>
               <button onClick={() => setZoom(null)} className={cn('w-10 h-10 flex items-center justify-center touch-manipulation', zoom === null && 'text-primary')} title="Fit to width"><Maximize2 className="w-4 h-4" /></button>
             </div>
-            <button onClick={() => setSettingsOpen(true)}
+            <button onClick={() => setSettingsOpen(true)} aria-label="Page setup" title="Page setup"
               className="inline-flex items-center gap-1.5 text-sm border rounded-md px-3 min-h-[44px] touch-manipulation hover:bg-accent">
               <SettingsIcon className="w-4 h-4" /> <span className="hidden lg:inline">Page setup</span>
             </button>
@@ -756,7 +759,7 @@ export default function MenuDesigner() {
       )}
 
       {settingsOpen && layout && (
-        <PageSetupModal layout={layout} siteFonts={menu.site_fonts} onClose={() => setSettingsOpen(false)}
+        <PageSetupModal layout={layout} siteFonts={menu.site_fonts} canManage={canManage} onClose={() => setSettingsOpen(false)}
           onApply={next => { setLayout(l => regrid(l, next)); setSettingsOpen(false) }} />
       )}
     </div>
@@ -1548,13 +1551,18 @@ function StartScreen({ menu, onStart }) {
   )
 }
 
-function PageSetupModal({ layout, siteFonts, onClose, onApply }) {
+// What the theme maker sets on a printed menu design (the paper stays).
+const PRINT_KIT_KEYS = ['font_heading', 'font_body', 'font_script', 'ink_color', 'accent_color', 'muted_color']
+const pick = (o, keys) => Object.fromEntries(keys.map(k => [k, o[k]]))
+
+function PageSetupModal({ layout, siteFonts, canManage, onClose, onApply }) {
   const [f, setF] = useState({
     paper_size: layout.paper_size, orientation: layout.orientation, margin_mm: layout.margin_mm,
     cols: layout.cols, row_mm: layout.row_mm, font_scale: layout.font_scale,
     variant_columns: layout.variant_columns || 1,
     fold: layout.fold || 'none', fold_gap_mm: layout.fold_gap_mm ?? 10, fold_line: !!layout.fold_line,
     font_body: layout.font_body, font_heading: layout.font_heading, font_script: layout.font_script,
+    ink_color: layout.ink_color || null, accent_color: layout.accent_color || null, muted_color: layout.muted_color || null,
   })
   const set = (k, v) => setF(s => ({ ...s, [k]: v }))
   // The website's Brand & theme fonts, when it has any we can load.
@@ -1653,6 +1661,23 @@ function PageSetupModal({ layout, siteFonts, onClose, onApply }) {
               </button>
             </div>
             <p className="text-[11px] text-muted-foreground">Any block can use its own font instead (block panel, Look).</p>
+          </div>
+          <div className="space-y-2" data-testid="page-colours">
+            <p className="text-xs font-medium">Colours</p>
+            {canManage && (
+              <ThemeMakerButton target="print" current={f}
+                onApply={kit => setF(s => ({ ...s, ...pick(printFromKit(kit, {}), PRINT_KIT_KEYS) }))} />
+            )}
+            <ColourPicker label="Text" optional placeholder="Standard (near black)" value={f.ink_color} onChange={v => set('ink_color', v)} />
+            <ColourPicker label="Prices, lines and handwriting" optional placeholder="The menu's colour" value={f.accent_color} onChange={v => set('accent_color', v)} />
+            <ColourPicker label="Descriptions" optional placeholder="Standard (warm grey)" value={f.muted_color} onChange={v => set('muted_color', v)} />
+            {(f.ink_color || f.accent_color || f.muted_color) && (
+              <button onClick={() => setF(s => ({ ...s, ink_color: null, accent_color: null, muted_color: null }))}
+                className="text-xs border rounded-md px-3 min-h-[40px] hover:bg-accent touch-manipulation">
+                Standard colours
+              </button>
+            )}
+            <p className="text-[11px] text-muted-foreground">The paper stays cream. Dark colours read best on it.</p>
           </div>
           <p className="text-[11px] text-muted-foreground">
             Grid: {g.cols} columns x {g.rows} rows on {next.paper_size} {next.orientation}. Changing the grid keeps

@@ -5013,6 +5013,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               head={['Route', 'Notes']}
               rows={[
                 ['GET /api/ai/status', 'configured, enabled, permission, can_chat, units_left (the tenant\'s month), share_left (the caller\'s day; null = no daily share). Drives the Ask Pepper button.'],
+                ['POST /api/ai/themes', 'The theme maker: { target, prompt, image, palette, current, like, count } -> { kits, notes }. ai_assistant view + Manage on the target\'s page; counts like a chat. See Website CMS -> Theme maker.'],
                 ['GET/DELETE /api/ai/conversations[/:id], POST /api/ai/chat', 'The caller\'s own chats (user_sub); the list and a chat carry closed (erased, read only), a chat also running (a turn or card holds it). chat { conversation_id?, message, attachments?, page? } returns the whole conversation as display items plus stop_reason and notice; with Accept: text/event-stream it streams (see Streaming above). conversation_id null = a new chat\'s only message was refused and the chat removed. 409 while another turn or a card holds the chat, or when it is closed.'],
                 ['POST /api/ai/attachments, GET/DELETE /api/ai/attachments/:id', 'Upload one file (multipart field file) -> { id, name, kind, media_type, bytes }; the file itself, uploader only; remove an unsent upload. See Attached files above.'],
                 ['POST /api/ai/actions/:id/confirm | cancel', 'Confirm cards; hold the chat like a turn (409 while it is busy). The reply carries closed: an anonymise card closes the chat it ran in.'],
@@ -6154,6 +6155,62 @@ GET /robots.txt`}</Code>
               A new block colour field that uses <Mono>ThemeColourPicker</Mono> must accept both
               shapes in its SSR partial and its canvas (or pass <Mono>allowCustom={'{false}'}</Mono>):
               a reader that only maps role names silently drops a custom colour on the live site.
+            </InfoBox>
+
+            <H3>Theme maker (a picture and words to a theme)</H3>
+            <P>
+              One look for four designers: Website &gt; Brand &amp; theme (Theme ideas card), the kiosk
+              designer&apos;s Brand panel, the menu screen designer&apos;s board panel and the printed
+              menu designer&apos;s Page setup (Colours). <Mono>shared/themeKit.js</Mono> holds the
+              rules; a <strong>kit</strong> is <Mono>{'{ name, about, colors: { background, surface, text, muted, border, primary, primary_text, accent, accent_text }, fonts: { heading, body, script, display }, shape: square | soft | round, heading_case: upper | normal, source }'}</Mono>.
+            </P>
+            <DataTable
+              head={['Piece', 'What it does']}
+              rows={[
+                ['normaliseKit(raw)', 'The only way a kit is made: unknown fonts replaced (website list, display faces DISPLAY_FONTS), and contrast fixed by readableOn() (moves lightness, keeps the hue): text 4.5 on page and surface, muted 3, primary_text / accent_text 4.5, primary 3 against the page.'],
+                ['extractPalette(rgba)', 'A picture\'s main colours from canvas pixels: median cut to 16 boxes, colours closer than 26 merged, see-through pixels (alpha < 128) ignored; [{ hex, share, h, s, l }].'],
+                ['kitsFromPalette(palette)', 'Light, dark and bold kits from the palette alone (no AI): used when Pepper isn\'t available and shown at once while it works.'],
+                ['websiteThemeFromKit / kioskBrandFromKit / boardFromKit / printFromKit', 'A kit into each designer\'s own settings, keeping everything a kit doesn\'t cover (background picture, spacing, logo...). Website: the primary carries white button text (head.eta .btn) and stands out 3:1 from the page when any shade can (websitePrimary()). Board: a light kit gets a deep background with words at 7:1. Print: inks readable on the paper (PRINT_PAPER) at 7 / 4.5.'],
+                ['kitFrom*(current) / kitFromCurrent(target, current)', 'A designer\'s current look as a kit, sent to Pepper so "make it warmer" starts from it.'],
+              ]}
+            />
+            <P>
+              <Mono>POST /api/ai/themes</Mono> (<Mono>routes/themes.js</Mono>, under /api/ai for the longer
+              proxy timeout): body <Mono>{'{ target: website | kiosk | board | print, prompt, image: { media_type, data (base64) }, palette: [{ hex, share }], current, like, count (1-4) }'}</Mono>,
+              answer <Mono>{'{ kits, notes }'}</Mono>. Needs Pepper (ai_assistant view, staff_enabled, a key)
+              and Manage on the target&apos;s page (<Mono>TARGET_MODULE</Mono>: website, pos_setup, screens,
+              menus). The picture is checked by its bytes (<Mono>detectFile()</Mono>, 5 MB) and never stored.{' '}
+              <Mono>services/themeAi.js</Mono> <Mono>suggestThemes()</Mono>: one call to the main model with the
+              picture, the measured colours (exact, so the model doesn&apos;t guess them), the brand name,
+              current / liked kits; structured output (<Mono>THEMES_SCHEMA</Mono>, every property required,
+              fonts as enums), falling back to plain JSON if the schema is refused; counted with{' '}
+              <Mono>addUsage()</Mono> (channel staff_chat, the person&apos;s daily share); every theme goes
+              through <Mono>normaliseKit()</Mono>.
+            </P>
+            <P>
+              Admin: <Mono>components/themes/ThemeMaker.jsx</Mono>. <Mono>ThemeMakerButton</Mono> (shown only
+              with Manage) opens <Mono>ThemeMaker</Mono> in a portal in <Mono>{'<body>'}</Mono> (designers sit in
+              fieldsets and scrolled panels). <Mono>readPicture()</Mono> shrinks the picture to 1024 px on a
+              canvas, measures the palette before a white backing, sends a JPEG; From Media and Use my logo
+              fetch the file first (same origin). Previews per place (<Mono>KitPreview</Mono>) draw through the
+              same mappers, so a preview is what Use this gives. Use this calls the designer&apos;s{' '}
+              <Mono>onApply(kit)</Mono>, which fills its form; Save stays the designer&apos;s. Kits used are kept
+              in <Mono>maca_theme_kits</Mono> (8, this device) for the other designers.
+            </P>
+            <P>
+              Alongside: the website <Mono>ThemeSchema</Mono> now keeps <Mono>colors.background_image</Mono> (Zod
+              dropped it on every theme save); Brand &amp; theme shows the ready-made themes and the live preview
+              (the unreferenced <Mono>ThemeSection</Mono> that held them was removed); printed menu designs take{' '}
+              <Mono>ink_color</Mono> / <Mono>accent_color</Mono> / <Mono>muted_color</Mono> (null = standard),
+              which <Mono>pageStyle()</Mono> in <Mono>shared/menuLayout.js</Mono> writes as <Mono>--ink</Mono>,{' '}
+              <Mono>--plum</Mono> (+ <Mono>--plum-soft</Mono>, <Mono>--line</Mono>) and <Mono>--muted</Mono>.
+            </P>
+            <InfoBox type="warn">
+              A new designer that takes themes needs a mapper and a <Mono>kitFrom*</Mono> in{' '}
+              <Mono>themeKit.js</Mono> (checked against that designer&apos;s own normaliser in{' '}
+              <Mono>shared/test/themeKit.test.mjs</Mono>), a target in <Mono>KIT_TARGETS</Mono>,{' '}
+              <Mono>TARGET_MODULE</Mono> and the prompt&apos;s <Mono>TARGETS</Mono>, and a preview in{' '}
+              <Mono>KitPreview</Mono>.
             </InfoBox>
 
             <H3>Heading block (heading)</H3>
