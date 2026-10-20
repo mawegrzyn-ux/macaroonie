@@ -91,7 +91,7 @@ function clean(e) {
     : { staff_id: e.staff_id, work_date: e.work_date, start_time: hhmm(e.start_time), end_time: hhmm(e.end_time), status }
 }
 
-// Grid colours per status (print colours live in rotaExport.js).
+// Grid colours per status; the print and image use the same colours (ENTRY_STATUSES in rotaExport.js).
 const STATUS_CLS = {
   on:   'bg-green-600 text-white hover:bg-green-700',
   sick: 'bg-red-600 text-white hover:bg-red-700',
@@ -404,7 +404,7 @@ export function RotaGrid({ venueId, weekStart, canEdit, selectedDay, onSelectDay
   function sheet() {
     const venueName = venues.find(v => v.id === venueId)?.name ?? ''
     return buildRotaSheet({ week: { ...week, staff }, entries, mode, venueName, unsaved: dirty,
-      hideClosed: !!week.settings?.hide_closed_on_print, hideTotals: !!week.settings?.hide_totals_on_print })
+      hideClosed: !!week.settings?.hide_closed_on_print })
   }
   async function exportImage() {
     setExportError(null)

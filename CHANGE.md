@@ -5,6 +5,25 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-20 — Rota printout and image look like the grid]
+
+- **Rota → Print / PDF** and **Save image** now look like the rota grid on screen: a tile per shift in the same colours (green ON, grey OFF, SICK / PTO / UTO / ABS in their own colours, hatched LEFT and AWAY), each day's shifts under the day, closed days marked. Hourly rotas show each period in a tinted box with its times. A line under the sheet gives the shift times and what the time-off codes mean.
+- The printout and image leave out the Week hours column, the On shift row, the role under each name and the grid's buttons.
+- **Save image** saves a JPG instead of a PNG (smaller, opens everywhere).
+- Rota setup's **Hide totals on printouts and images** is gone: totals are never printed now.
+- **Migration 194** (rota_print_like_grid) drops the old setting.
+
+## [2026-10-20 — Card machines: Dojo, Stripe Terminal and SumUp on the till and kiosks]
+
+- **Till setup → Card machines**: add your Dojo, Stripe or SumUp account with its secret key (checked with the provider before saving, stored sealed, never shown again), then add each machine at a location: pick it from the account's machines, or pair a new one with the code it shows (Stripe and SumUp). A **Test card machine** pretends to take cards, with Approve and Decline buttons on the till and kiosk.
+- Each till and kiosk picks its card machine in its settings on the Tills and Kiosks tabs (the installer keeps the choice when it saves a device). A till's Pay window then offers **Card machine**: the amount (and any tip) goes to the machine, the till waits while the guest taps or inserts, and the payment goes on the bill only once the machine approves it, with the card shown (Visa •••• 4242). **Cancel** stops the machine; a declined card says so with **Try again**. A Dojo machine asking for a signature asks staff to check it on the till.
+- If the till loses track (closed, reloaded, lost its connection), reopening Pay picks the payment up where it was; a payment the machine took that never reached the bill is listed with **Add it to the bill**.
+- Taking a card machine payment off a bill, and refunds of closed checks to **Card machine**, refund the card through the provider first (same manager approval as before).
+- Kiosks with a card machine take the card there and then; a declined card offers to try again or pay at the counter. The kiosk preview and shared links keep the pretend card step and never charge.
+- Every attempt is kept: Till setup → Card machines → **Recent payments**, with any approved payment that never reached a bill marked. Payments a till stopped watching are checked every minute, and given up after 15 minutes.
+- Cash Recon: card machine payments count with card payments in each venue's takings mapping.
+- **Migration 193** (card_machines). Kiosks that used the old "test card reader" setting get a Test card machine at their location.
+
 ## [2026-10-20 — Kitchen flows shared by every location; Screens page per location]
 
 - **Shared kitchen flows**: Till setup → Kitchen screens → **New flow** (or **Copy**) → **Every location**. A shared flow shows at every location after its own flows, with a globe on its tab; each location puts it in use itself. Its boxes are station names: at each location a box is that location's station of the same name (capitals and spaces don't matter), so one flow sends each location's dishes to its own Grill, Fryer and Pass. A location without a box's station skips that box's links, and its dishes take the next closest link.

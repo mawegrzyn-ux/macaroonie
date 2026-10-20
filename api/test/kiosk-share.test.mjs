@@ -51,7 +51,7 @@ test('a link: made once, opens without signing in, counts its views', async () =
   assert.equal(res.json.share.design, 'Summer look 2')
   assert.equal(res.json.share.venue, 'Ware')
   assert.equal(res.json.device.settings.revenue_stream_id, stream.id, 'orders as the stream picked')
-  assert.equal(res.json.device.settings.card_reader, 'test')
+  assert.equal(res.json.device.settings.card_reader, 'preview', 'a shared preview never takes a card')
   await pub('/pos-api/kiosk-share?token=' + token)
   const list = await ok(owner.get('/api/pos/kiosk-designs'))
   const s = list.find(d => d.id === design.id).share

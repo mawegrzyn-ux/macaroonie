@@ -314,7 +314,7 @@ export function designProblems(design, kiosk = null) {
   const out = []
   const card = d.checkout.pay_card && (!kiosk || (kiosk.card_reader && kiosk.card_reader !== 'none'))
   if (!d.checkout.pay_counter && !d.checkout.pay_card) out.push('Pick at least one way to pay: by card or at the counter.')
-  else if (kiosk && !card && !d.checkout.pay_counter) out.push('This kiosk has no card reader and the design doesn\'t let guests pay at the counter.')
+  else if (kiosk && !card && !d.checkout.pay_counter) out.push('This kiosk has no card machine and the design doesn\'t let guests pay at the counter.')
   return out
 }
 
@@ -538,11 +538,13 @@ export function kioskLine(config, entry, check, id, ctx = null) {
  *                  guest's name (tab_name) and table number (tent)
  *   line.added     one per basket entry
  *   promotions.set when automatic combos or promotions apply
- *   then for a card payment: payment.added (card_external, the whole total),
+ *   then for a card payment: payment.added (the whole total: card_integrated
+ *   naming its card machine attempt when payment.card_payment_id is given,
+ *   migration 193; else card_external, the preview's pretend reader),
  *   lines.sent, check.closed; for pay at the counter: lines.sent only when
  *   the design sends counter orders straight away (send).
  * opts: { device, checkId, newId(), at, order_type_id, name, tent,
- *         provisional_no, payment: { ref, label } | null, send, receipt }
+ *         provisional_no, payment: { id?, card_payment_id?, ref, label } | null, send, receipt }
  * Returns { ok, events, check, totals } or { ok: false, error, index }.
  */
 export function kioskOrder(config, basket, opts) {
@@ -579,9 +581,11 @@ export function kioskOrder(config, basket, opts) {
   const sendAll = () => events.push(ev('lines.sent', { send_id: newId(), line_ids: state.check.lines.map(l => l.id), held_course_ids: [] }))
   if (opts.payment) {
     if (totals.total > 0) {
+      const card = opts.payment.card_payment_id || null
       events.push(ev('payment.added', { payment: {
-        id: newId(), tender: 'card_external', amount: totals.total,
+        id: opts.payment.id || newId(), tender: card ? 'card_integrated' : 'card_external', amount: totals.total,
         ref: text(opts.payment.ref, 120), label: text(opts.payment.label, 80),
+        ...(card ? { card_payment_id: card } : {}),
       } }))
     }
     sendAll()

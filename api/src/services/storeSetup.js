@@ -44,7 +44,7 @@ const OWNED_TABLES = [
   'booking_rules', 'deposit_rules',
   'cash_income_sources', 'cash_payment_channels', 'cash_sc_sources', 'cash_expense_categories', 'cash_staff',
   'pos_revenue_streams', 'floor_areas', 'pos_printers',
-  'kds_stations', 'kds_flows', 'kds_flow_edges', 'pos_devices', 'screens', 'screen_walls',
+  'kds_stations', 'kds_flows', 'kds_flow_edges', 'pos_devices', 'pos_card_readers', 'screens', 'screen_walls',
   'checklist_templates', 'fs_equipment', 'fs_capture_times', 'fs_hold_stations', 'fs_hold_capture_times',
   'fs_cooking_sessions', 'fs_cooking_settings', 'fs_cooking_items', 'hs_dashboards',
   'website_config', 'website_pages', 'email_templates', 'venue_email_settings', 'menus', 'deliveroo_item_links',
@@ -175,7 +175,7 @@ export async function venueSummary(tx, tenantId, venueId) {
   const [
     days, sittings, sections, tables, combos, rules, deposit, site, pages, email, emailTpls, ordering,
     deliveroo, tax, pos, streams, floorAreas, printers, stations, flows, devices, screens, income, channels, sc, cats,
-    equipment, times, holds, sessions, cookItems, checklists, dashboards, supplierVenues, lists, pars, staff, loyverse, gloria,
+    equipment, times, holds, sessions, cookItems, checklists, dashboards, supplierVenues, lists, pars, staff, loyverse, gloria, cardMachines,
   ] = await Promise.all([
     tx`SELECT id, day_of_week, is_open, slot_interval_mins FROM venue_schedule_templates WHERE tenant_id = ${T} AND venue_id = ${V}`,
     tx`SELECT template_id, opens_at::text, closes_at::text, name FROM venue_sittings WHERE tenant_id = ${T} AND venue_id = ${V} ORDER BY opens_at`,
@@ -216,6 +216,7 @@ export async function venueSummary(tx, tenantId, venueId) {
     tx`SELECT count(*)::int AS n FROM cash_staff WHERE tenant_id = ${T} AND venue_id = ${V} AND is_active AND (left_on IS NULL OR left_on >= current_date)`,
     tx`SELECT 1 FROM loyverse_venue_links WHERE tenant_id = ${T} AND venue_id = ${V}`,
     tx`SELECT 1 FROM gloriafood_venue_links WHERE tenant_id = ${T} AND venue_id = ${V}`,
+    tx`SELECT 1 FROM pos_card_readers WHERE tenant_id = ${T} AND venue_id = ${V} AND removed_at IS NULL AND provider <> 'test' LIMIT 1`,
   ])
 
   const byTemplate = new Map()
@@ -252,7 +253,7 @@ export async function venueSummary(tx, tenantId, venueId) {
     id: venue.id, name: venue.name, slug: venue.slug, timezone: venue.timezone, currency: venue.currency,
     is_active: venue.is_active, city: venue.city || null, postcode: venue.postcode || null,
     areas,
-    links: { loyverse: loyverse.length > 0, gloriafood: gloria.length > 0 },
+    links: { loyverse: loyverse.length > 0, gloriafood: gloria.length > 0, card_machines: cardMachines.length > 0 },
   }
 }
 
@@ -503,6 +504,8 @@ const AREAS = {
           secret_hash: null, pairing_code_hash: null, pairing_expires_at: null, paired_at: null, last_seen_at: null,
           app_version: null, user_agent: null, revoked_at: null, created_by: by,
         },
+        // Card machines are paired to the template location: none here yet.
+        edit: row => { if (row.settings?.card_reader) row.settings = { ...row.settings, card_reader: 'none' } },
       })
       const count = k => devs.filter(d => d.kind === k).length
       if (devs.length) lines.push([count('terminal') && plural(count('terminal'), 'till'), count('kds') && plural(count('kds'), 'kitchen screen'), count('kiosk') && plural(count('kiosk'), 'kiosk')].filter(Boolean).join(', ') + ' with the same settings, ready to link')
@@ -531,7 +534,7 @@ const AREAS = {
     const tableService = plan.modes.tables !== 'skip'
     add('terminal', d.tills, 'Till', 'T', { mode: tableService ? 'table' : 'counter' })
     add('kds', d.kitchen_screens, 'Kitchen screen', 'K', {})
-    add('kiosk', d.kiosks, 'Kiosk', 'KS', { card_reader: 'test' })
+    add('kiosk', d.kiosks, 'Kiosk', 'KS', { card_reader: 'none' })
     if (rows.length) {
       await tx`INSERT INTO pos_devices ${tx(rows.map(r => ({ ...r, settings: tx.json(r.settings) })))}`
       lines.push([d.tills && plural(d.tills, 'till'), d.kitchen_screens && plural(d.kitchen_screens, 'kitchen screen'), d.kiosks && plural(d.kiosks, 'kiosk')].filter(Boolean).join(', ') + ', ready to link')

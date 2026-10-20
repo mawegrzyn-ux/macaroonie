@@ -47,6 +47,14 @@
 //                               till or kitchen screen, the printers plugged into it
 //   POST /print-jobs/:id/status { status: 'printed' | 'failed', error }
 //   POST /hub/status            a venue hub's report: its version, each printer's state
+//   POST /card/payments         { check_id?, payment_id, amount, tip?, staff_id? } start a payment on the
+//                               device's card machine (migration 193, services/cardSvc.js); a kiosk sends
+//                               no check (it pays before its order exists)
+//   GET  /card/payments?check_id=  this check's card attempts (resume after a reload)
+//   GET  /card/payments/:id     how it is going (asks the provider at most every 1.2 s)
+//   POST /card/payments/:id/cancel | /signature { accepted } | /test { result: approve | decline }
+//   POST /card/refunds          { sale_id, check_id, refund_id, amount, staff_id, approved_by?, purpose }
+//                               money back to the card (role permission refund, or void to take it off)
 //
 // The cloud sequences every venue's events until a venue hub is installed;
 // the hub will serve this same API on the LAN (the till's transport picks
@@ -70,6 +78,9 @@ import { kioskConfig, readPreviewToken, previewDevice } from '../services/kioskS
 import { setSoldOut, soldOutItemIds, announceSoldOut } from '../services/soldOut.js'
 import { kdsConfig, kitchenSync, onlineMoves, switchFlow, readKitchenTestToken, kitchenTestData } from '../services/kitchenSvc.js'
 import { changeStatus } from '../services/orderSvc.js'
+import {
+  startSale, refreshPayment, devicePayment, devicePayments, cancelSale, answerSignature, simulateSale, startRefund, paymentView, cardMachineOf,
+} from '../services/cardSvc.js'
 
 const UUID = z.string().uuid()
 const CHECK_ID = z.string().regex(/^[0-9A-HJKMNP-TV-Z]{26}$/)
@@ -114,7 +125,8 @@ export async function verifyDevice(id, secret) {
 
 const lastSeen = new Map()
 
-const KIOSK_ROUTES = new Set(['GET /pos-api/me', 'GET /pos-api/config', 'POST /pos-api/events', 'POST /pos-api/disconnect', 'POST /pos-api/move'])
+const KIOSK_ROUTES = new Set(['GET /pos-api/me', 'GET /pos-api/config', 'POST /pos-api/events', 'POST /pos-api/disconnect', 'POST /pos-api/move',
+  'POST /pos-api/card/payments', 'GET /pos-api/card/payments/:id', 'POST /pos-api/card/payments/:id/cancel', 'POST /pos-api/card/payments/:id/test'])
 // A venue hub (hub/) prints and reports, nothing else.
 const HUB_ROUTES = new Set(['GET /pos-api/me', 'GET /pos-api/config', 'POST /pos-api/print-jobs/claim', 'POST /pos-api/print-jobs/:id/status',
   'POST /pos-api/hub/status', 'POST /pos-api/disconnect'])
@@ -376,7 +388,12 @@ export default async function posApiRoutes(app) {
         })
         : d.kind === 'kiosk'
           ? await withTenant(d.tenant_id, tx => kioskConfig(tx, d.tenant_id, d.venue_id, device))
-          : await withTenant(d.tenant_id, tx => tillConfig(tx, d.tenant_id, d.venue_id))
+          : await withTenant(d.tenant_id, async tx => {
+            const c = await tillConfig(tx, d.tenant_id, d.venue_id)
+            // The till's card machine (migration 193) counts towards the version.
+            const card = await cardMachineOf(tx, d.tenant_id, d.venue_id, device.settings.card_reader)
+            return { ...c, card_machine: card, version: card ? c.version + '.' + sha256(JSON.stringify(card)).slice(0, 8) : c.version }
+          })
       if (req.query.version && req.query.version === config.version) return { unchanged: true, version: config.version }
       return { ...config, device }
     })
@@ -430,6 +447,88 @@ export default async function posApiRoutes(app) {
       })
       announceSoldOut(venue.id, req.params.itemId, res, ids)
       return res
+    })
+
+    // ── Card machines (migration 193, services/cardSvc.js) ─────────
+    // The device asks, the server drives the card machine through its
+    // provider and keeps the attempt; the payment reaches the check only as
+    // payment.added naming the approved attempt (shared/pos/cards.js).
+    scoped.post('/card/payments', { config: { rateLimit: { max: 60, timeWindow: '1 minute' } } }, async req => {
+      const d = req.posDevice
+      if (!['terminal', 'kiosk'].includes(d.kind)) throw httpError(403, 'Only a till or a kiosk takes card payments')
+      const b = z.object({
+        check_id: CHECK_ID.nullable().optional(),
+        payment_id: CHECK_ID,
+        amount: z.number().int().min(1).max(10_000_000),
+        tip: z.number().int().min(0).max(1_000_000).default(0),
+        staff_id: UUID.nullable().optional(),
+      }).parse(req.body)
+      if (d.kind === 'kiosk' && b.tip) throw httpError(422, 'A kiosk takes no tips')
+      const [own] = await withTenant(d.tenant_id, tx => tx`SELECT settings FROM pos_devices WHERE id = ${d.id} AND tenant_id = ${d.tenant_id}`)
+      const device = { ...d, settings: own?.settings || {} }
+      return startSale(device, { ...b, reference: d.kind === 'kiosk' ? 'Kiosk ' + (d.short_code || d.name || '') : (d.name || 'Till') })
+    })
+
+    scoped.get('/card/payments', async req => {
+      const d = req.posDevice
+      const check = req.query.check_id ? CHECK_ID.parse(req.query.check_id) : null
+      return devicePayments(d, { check_id: check })
+    })
+
+    scoped.get('/card/payments/:id', async req => {
+      const d = req.posDevice
+      if (!UUID.safeParse(req.params.id).success) throw httpError(404, 'Card payment not found')
+      const row = await devicePayment(d, req.params.id)
+      if (d.kind === 'kiosk' && row.device_id !== d.id) throw httpError(404, 'Card payment not found')
+      return paymentView(await refreshPayment(d.tenant_id, row.id))
+    })
+
+    scoped.post('/card/payments/:id/cancel', async req => {
+      const d = req.posDevice
+      if (!UUID.safeParse(req.params.id).success) throw httpError(404, 'Card payment not found')
+      const row = await devicePayment(d, req.params.id)
+      if (d.kind === 'kiosk' && row.device_id !== d.id) throw httpError(404, 'Card payment not found')
+      return cancelSale(d, row.id)
+    })
+
+    scoped.post('/card/payments/:id/signature', async req => {
+      const d = req.posDevice
+      if (!UUID.safeParse(req.params.id).success) throw httpError(404, 'Card payment not found')
+      const { accepted } = z.object({ accepted: z.boolean() }).parse(req.body)
+      return answerSignature(d, req.params.id, accepted)
+    })
+
+    scoped.post('/card/payments/:id/test', async req => {
+      const d = req.posDevice
+      if (!UUID.safeParse(req.params.id).success) throw httpError(404, 'Card payment not found')
+      const { result } = z.object({ result: z.enum(['approve', 'decline']) }).parse(req.body)
+      const row = await devicePayment(d, req.params.id)
+      if (d.kind === 'kiosk' && row.device_id !== d.id) throw httpError(404, 'Card payment not found')
+      return simulateSale(d, row.id, result)
+    })
+
+    // Money back to the card: a refund (role permission refund) or taking a
+    // card payment off an open check (permission void). The till records
+    // refund.added / payment.voided naming the approved refund afterwards.
+    scoped.post('/card/refunds', { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async req => {
+      const d = req.posDevice
+      if (d.kind !== 'terminal') throw httpError(403, 'Only a till refunds')
+      const b = z.object({
+        sale_id: UUID,
+        check_id: CHECK_ID,
+        refund_id: CHECK_ID,
+        amount: z.number().int().min(1).max(10_000_000),
+        staff_id: UUID,
+        approved_by: UUID.nullable().optional(),
+        purpose: z.enum(['refund', 'void']).default('refund'),
+      }).parse(req.body)
+      await withTenant(d.tenant_id, async tx => {
+        const staff = await loadTillStaff(tx, d.tenant_id, d.venue_id, { signIn: true })
+        const problem = permissionProblem(Object.fromEntries(staff.map(s => [s.id, s])),
+          { staff_id: b.staff_id, approved_by: b.approved_by || null }, b.purpose)
+        if (problem) throw httpError(403, problem)
+      })
+      return startRefund(d, b)
     })
 
     scoped.get('/sync', async req => {

@@ -2,16 +2,17 @@
 //
 // Print / PDF and image export of a week's rota, no extra libraries.
 //
-//   buildRotaSheet()  turns the grid's entries into a printable table:
-//                     one row per person, one column per day, each cell
-//                     listing the shifts (day-parts mode) or the times
-//                     (hourly mode) that person works.
-//   printRota()       writes that table into a hidden iframe as an A4
+//   buildRotaSheet()  turns the grid's entries into the sheet: one row per
+//                     person, the days across, and per day the shift tiles
+//                     (day-parts mode) or the times (hourly mode), exactly
+//                     as the Rota grid shows them, without its buttons, the
+//                     roles and the totals.
+//   printRota()       writes that sheet into a hidden iframe as an A4
 //                     landscape page and opens the browser's print dialog,
 //                     where "Save as PDF" gives the PDF.
-//   saveRotaImage()   draws the same table on a canvas and saves it as a
-//                     PNG (or opens the share sheet on touch devices, so
-//                     it can go straight to a staff group chat).
+//   saveRotaImage()   draws the same sheet on a canvas and saves it as a
+//                     JPG (or opens the share sheet on touch devices, so it
+//                     can go straight to a staff group chat).
 //
 // Both outputs come from the one sheet, so they always match each other
 // and the grid on screen (including unsaved changes, which are flagged).
@@ -20,25 +21,35 @@ import { format, parseISO } from 'date-fns'
 
 const hhmm = t => (t ? String(t).slice(0, 5) : '')
 const toMin = t => { const [h, m] = hhmm(t).split(':').map(Number); return h * 60 + (m || 0) }
-const rangeMin = (s, e) => { let d = toMin(e) - toMin(s); if (d <= 0) d += 1440; return d }
-const hoursLabel = mins => `${Math.round((mins / 60) * 100) / 100}h`
 
 /**
  * What a rota entry records (rota_entries.status, migration 129). Order is
- * the order of the grid's per-person mode menu. `print` is the cell colour
- * on the printed sheet and the image.
+ * the order of the grid's per-person mode menu. `solid` is the tile colour
+ * (the grid's STATUS_CLS in rota.jsx, keep them the same) and `soft` the
+ * tinted box of an hourly cell (STATUS_SOFT there).
  */
 export const ENTRY_STATUSES = [
-  { key: 'on',   label: 'ON',   name: 'Working',         print: { bg: '#dcfce7', fg: '#14532d' } },
-  { key: 'sick', label: 'SICK', name: 'Sick',            print: { bg: '#fee2e2', fg: '#991b1b' } },
-  { key: 'pto',  label: 'PTO',  name: 'Paid time off',   print: { bg: '#e0f2fe', fg: '#075985' } },
-  { key: 'uto',  label: 'UTO',  name: 'Unpaid time off', print: { bg: '#ede9fe', fg: '#5b21b6' } },
-  { key: 'abs',  label: 'ABS',  name: 'Absent',          print: { bg: '#fef3c7', fg: '#92400e' } },
+  { key: 'on',   label: 'ON',   name: 'Working',         solid: '#16a34a', soft: { bg: '#e8f6ed', fg: '#14532d' } },
+  { key: 'sick', label: 'SICK', name: 'Sick',            solid: '#dc2626', soft: { bg: '#fce9e9', fg: '#7f1d1d' } },
+  { key: 'pto',  label: 'PTO',  name: 'Paid time off',   solid: '#0284c7', soft: { bg: '#e6f3f9', fg: '#0c4a6e' } },
+  { key: 'uto',  label: 'UTO',  name: 'Unpaid time off', solid: '#7c3aed', soft: { bg: '#f2ebfd', fg: '#4c1d95' } },
+  { key: 'abs',  label: 'ABS',  name: 'Absent',          solid: '#f59e0b', soft: { bg: '#fef1da', fg: '#78350f' } },
 ]
 export const STATUS_BY_KEY = Object.fromEntries(ENTRY_STATUSES.map(s => [s.key, s]))
-// A day the person is off the rota from the Staff page (left / off-rota period).
-const AWAY_PRINT = { bg: '#f3f4f6', fg: '#6b7280' }
 export const statusOf = e => (e.status && STATUS_BY_KEY[e.status] ? e.status : 'on')
+
+// The grid's own greys (index.css --muted, --border, --muted-foreground).
+const C = {
+  head:     '#eeeff2',  // bg-muted
+  subHead:  '#f4f5f7',  // bg-muted/60
+  border:   '#d7dae0',
+  text:     '#111827',
+  muted:    '#5d6371',
+  offBg:    '#f3f4f6',  // an OFF tile
+  offFg:    '#9ca3af',
+  awayBg:   '#f3f4f6',  // a day off the rota (Staff page), hatched
+  awayFg:   '#6b7280',
+}
 
 /**
  * Days to show: every day, or (hideClosed) only the days the venue is open,
@@ -59,82 +70,59 @@ export function isClosedDay(week, date) {
 
 /**
  * @param {object} p
- * @param {object} p.week       GET /rota/.../weeks/:week payload
+ * @param {object} p.week       GET /rota/.../weeks/:week payload (staff = the grid's rows)
  * @param {Array}  p.entries    entries shown on the grid (current mode, may be a draft)
  * @param {string} p.mode       'day_parts' | 'hourly'
  * @param {string} p.venueName
  * @param {boolean} p.unsaved   the grid has unsaved changes
  * @param {boolean} p.hideClosed leave out closed days (rota_settings.hide_closed_on_print)
- * @param {boolean} p.hideTotals leave out the Working count row and the Hours column
- *                               (rota_settings.hide_totals_on_print)
+ * @returns sheet: { title, subtitle, printed, fileName, mode, days, shifts, rows, legend }
+ *   rows[].cells[] per day: { away: 'LEFT' | 'AWAY' }, or day parts
+ *   { tiles: [status key | null per shift] }, or hourly { periods: [{ text, status }] }.
  */
-export function buildRotaSheet({ week, entries, mode, venueName, unsaved, hideClosed = false, hideTotals = false }) {
-  const shiftById = Object.fromEntries(week.shifts.map(s => [s.id, s]))
-  const shiftOrder = Object.fromEntries(week.shifts.map((s, i) => [s.id, i]))
+export function buildRotaSheet({ week, entries, mode, venueName, unsaved, hideClosed = false }) {
+  const usedShiftIds = new Set(entries.filter(e => e.shift_id).map(e => e.shift_id))
+  // The grid's columns: active shifts, plus any old one this week still uses.
+  const shifts = mode === 'day_parts'
+    ? week.shifts.filter(s => s.is_active || usedShiftIds.has(s.id))
+    : []
   const dates = visibleRotaDates({ week, entries, hideClosed })
-  const days = dates.map(d => ({
-    date: d, label: format(parseISO(d), 'EEE d MMM') + (isClosedDay(week, d) ? ' (closed)' : ''),
-  }))
+  const days = dates.map(d => ({ date: d, label: format(parseISO(d), 'EEE d'), closed: isClosedDay(week, d) }))
 
   const usedStatuses = new Set()
-  const rows = week.staff.map(st => {
-    let minutes = 0   // worked (ON) only
-    const tones = []  // per cell: 'on', a time-off status key, or 'off'
-    const working = []
-    const cells = dates.map(d => {
-      const mine = entries.filter(e => e.staff_id === st.id && e.work_date === d)
+  const rows = week.staff.map(st => ({
+    name: st.name,
+    cells: dates.map(d => {
       const away = st.off_days?.[d]
-      if (away && !mine.length) {
-        working.push(false)
-        tones.push('away')
-        return [away.kind === 'left' ? 'Left' : 'Off rota']
+      if (away) return { away: away.kind === 'left' ? 'LEFT' : 'AWAY' }
+      const mine = entries.filter(e => e.staff_id === st.id && e.work_date === d)
+      if (mode === 'day_parts') {
+        const byShift = new Map(mine.filter(e => e.shift_id).map(e => [e.shift_id, statusOf(e)]))
+        for (const s of byShift.values()) usedStatuses.add(s)
+        return { tiles: shifts.map(s => byShift.get(s.id) ?? null) }
       }
-      // Worked lines first (shift names or times), then one line per kind
-      // of time off, e.g. "SICK: Lunch, Dinner" or "PTO 09:00–17:00".
-      const items = mode === 'day_parts'
-        ? mine.filter(e => e.shift_id && shiftById[e.shift_id])
-            .sort((a, b) => shiftOrder[a.shift_id] - shiftOrder[b.shift_id])
-            .map(e => {
-              const s = shiftById[e.shift_id]
-              return { status: statusOf(e), text: s.name, minutes: rangeMin(s.start_time, s.end_time) }
-            })
-        : mine.filter(e => !e.shift_id)
-            .sort((a, b) => toMin(a.start_time) - toMin(b.start_time))
-            .map(e => ({ status: statusOf(e), text: `${hhmm(e.start_time)}–${hhmm(e.end_time)}`, minutes: rangeMin(e.start_time, e.end_time) }))
-      const on = items.filter(i => i.status === 'on')
-      minutes += on.reduce((t, i) => t + i.minutes, 0)
-      const lines = on.map(i => i.text)
-      for (const st of ENTRY_STATUSES.slice(1)) {
-        const off = items.filter(i => i.status === st.key)
-        if (!off.length) continue
-        usedStatuses.add(st.key)
-        lines.push(mode === 'day_parts' ? `${st.label}: ${off.map(i => i.text).join(', ')}` : off.map(i => `${st.label} ${i.text}`).join('\n'))
-      }
-      working.push(on.length > 0)
-      tones.push(on.length ? 'on' : (items[0]?.status ?? 'off'))
-      return lines.flatMap(l => l.split('\n'))
-    })
-    return { name: st.name, role: st.role_name ?? '', cells, tones, onDays: working, hours: hoursLabel(minutes), working: minutes > 0 }
-  })
+      const periods = mine.filter(e => !e.shift_id)
+        .sort((a, b) => toMin(a.start_time) - toMin(b.start_time))
+        .map(e => ({ text: `${hhmm(e.start_time)}–${hhmm(e.end_time)}`, status: statusOf(e) }))
+      for (const p of periods) usedStatuses.add(p.status)
+      return { periods }
+    }),
+  }))
 
-  const counts = dates.map((_, i) => rows.filter(r => r.onDays[i]).length)
-  const usedShiftIds = new Set(entries.filter(e => e.shift_id).map(e => e.shift_id))
-  const legend = mode === 'day_parts'
-    ? week.shifts.filter(s => s.is_active || usedShiftIds.has(s.id)).map(s => `${s.name} ${hhmm(s.start_time)}–${hhmm(s.end_time)}`)
-    : []
-  for (const st of ENTRY_STATUSES) if (usedStatuses.has(st.key)) legend.push(`${st.label} = ${st.name}`)
+  const legend = shifts.map(s => `${s.name} ${hhmm(s.start_time)}–${hhmm(s.end_time)}`)
+  for (const st of ENTRY_STATUSES) if (st.key !== 'on' && usedStatuses.has(st.key)) legend.push(`${st.label} = ${st.name}`)
 
   const weekLabel = `${format(parseISO(week.dates[0]), 'd MMM')} – ${format(parseISO(week.dates[6]), 'd MMM yyyy')}`
   return {
     title:    venueName ? `Rota: ${venueName}` : 'Rota',
     subtitle: `Week ${weekLabel}${unsaved ? ' · DRAFT, not saved' : ''}`,
     printed:  `Printed ${format(new Date(), 'd MMM yyyy HH:mm')}`,
-    days,
-    rows,
-    counts,
-    legend,
-    showTotals: !hideTotals,
     fileName: `rota-${slug(venueName)}-${week.week_start}`,
+    mode,
+    days,
+    shifts: shifts.map(s => ({ id: s.id, name: s.name })),
+    rows,
+    legend,
   }
 }
 
@@ -146,48 +134,80 @@ function esc(s) {
   return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
 }
 
+const tileText = key => (key ? STATUS_BY_KEY[key].label : 'OFF')
+
 // ── Print / PDF ───────────────────────────────────────────────
 
 export function rotaHtml(sheet) {
-  const head = sheet.days.map(d => `<th>${esc(d.label)}</th>`).join('')
+  const dayParts = sheet.mode === 'day_parts'
+  const per = dayParts ? Math.max(1, sheet.shifts.length) : 1
+
+  const dayHead = sheet.days.map(d => `
+      <th class="day" colspan="${per}">${esc(d.label)}${d.closed ? '<span class="closed">Closed</span>' : ''}</th>`).join('')
+  const shiftHead = dayParts
+    ? `<tr class="shifts">${sheet.days.map(() => sheet.shifts.map((s, i) => `<th class="${i === 0 ? 'first' : ''}">${esc(s.name)}</th>`).join('')).join('')}</tr>`
+    : ''
+
+  const cell = c => {
+    if (c.away) return `<td class="first" colspan="${per}"><div class="tile away">${c.away}</div></td>`
+    if (dayParts) {
+      if (!c.tiles.length) return '<td class="first"></td>'
+      return c.tiles.map((key, i) => `<td class="${i === 0 ? 'first' : ''}"><div class="tile ${key ? `st-${key}` : 'off'}${tileText(key).length > 3 ? ' long' : ''}">${tileText(key)}</div></td>`).join('')
+    }
+    if (!c.periods.length) return '<td class="first"></td>'
+    const tone = c.periods.some(p => p.status === 'on') ? 'on' : c.periods[0].status
+    const lines = c.periods.map(p => `<div class="time">${esc(p.text)}${p.status !== 'on' ? ` <span class="badge st-${p.status}">${STATUS_BY_KEY[p.status].label}</span>` : ''}</div>`).join('')
+    return `<td class="first"><div class="box soft-${tone}">${lines}</div></td>`
+  }
   const body = sheet.rows.map(r => `
-    <tr>
-      <td class="name"><strong>${esc(r.name)}</strong>${r.role ? `<div class="role">${esc(r.role)}</div>` : ''}</td>
-      ${r.cells.map((c, i) => `<td class="${c.length ? `st-${r.tones[i]}` : 'off'}">${c.length ? c.map(esc).join('<br>') : '–'}</td>`).join('')}
-      ${sheet.showTotals ? `<td class="hours">${esc(r.working ? r.hours : '')}</td>` : ''}
-    </tr>`).join('')
-  const foot = sheet.counts.map(n => `<td>${n || ''}</td>`).join('')
+    <tr><td class="name">${esc(r.name)}</td>${r.cells.map(cell).join('')}</tr>`).join('')
+
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(sheet.fileName)}</title>
 <style>
   /* Chrome's Margins "Minimum" / "None" replace the @page margin, so the
      body keeps its own padding too; the rota never touches the paper edge. */
   @page { size: A4 landscape; margin: 8mm; }
   * { box-sizing: border-box; }
-  body { font-family: -apple-system, system-ui, "Segoe UI", Roboto, Arial, sans-serif; color: #111; margin: 0; padding: 6mm;
+  body { font-family: -apple-system, system-ui, "Segoe UI", Roboto, Arial, sans-serif; color: ${C.text}; margin: 0; padding: 6mm;
          -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   h1 { font-size: 16pt; margin: 0 0 2pt; }
-  .sub { font-size: 10pt; color: #444; margin-bottom: 6pt; }
-  table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 9pt; }
-  th, td { border: 1px solid #999; padding: 3pt 4pt; vertical-align: top; text-align: center; }
-  th { background: #e5e7eb; font-weight: 600; }
-  th.name, td.name { text-align: left; width: 18%; }
-  th.hours, td.hours { width: 6%; text-align: right; }
-  ${ENTRY_STATUSES.map(st => `td.st-${st.key} { background: ${st.print.bg}; color: ${st.print.fg}; font-weight: 600; }`).join('\n  ')}
-  td.off { color: #9ca3af; }
-  td.st-away { background: ${AWAY_PRINT.bg}; color: ${AWAY_PRINT.fg}; font-style: italic; }
-  .role { font-size: 8pt; color: #555; font-weight: 400; }
-  tfoot td { background: #f3f4f6; font-size: 8pt; }
-  tr { page-break-inside: avoid; }
+  .sub { font-size: 10pt; color: #444; margin-bottom: 8pt; }
+  .wrap { border: 1px solid ${C.border}; border-radius: 10px; overflow: hidden; }
+  table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 10pt; }
+  th, td { padding: 2px; text-align: center; vertical-align: middle; }
+  thead th { background: ${C.head}; font-weight: 600; }
+  thead th.staff { text-align: left; padding: 6px 10px; width: ${dayParts ? 15 : 14}%; border-right: 1px solid ${C.border}; }
+  th.day { padding: 6px 2px; border-left: 1px solid ${C.border}; white-space: nowrap; }
+  .closed { display: block; font-size: 7.5pt; font-weight: 400; color: ${C.muted}; }
+  tr.shifts th { background: ${C.subHead}; font-weight: 400; font-size: 8pt; color: ${C.muted}; padding: 3px 2px;
+                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .first { border-left: 1px solid ${C.border}; }
+  tbody tr { border-top: 1px solid ${C.border}; break-inside: avoid; page-break-inside: avoid; }
+  td.name { text-align: left; padding: 4px 10px; font-weight: 500; border-right: 1px solid ${C.border};
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tile { height: 30px; border-radius: 6px; display: flex; align-items: center; justify-content: center;
+          font-weight: 700; font-size: 9.5pt; color: #fff; }
+  .tile.long { font-size: 8pt; }
+  .tile.off { background: ${C.offBg}; color: ${C.offFg}; font-weight: 600; }
+  .tile.away { background: ${C.awayBg}; color: ${C.awayFg}; font-size: 8pt;
+               background-image: repeating-linear-gradient(135deg, rgba(0,0,0,0.07) 0 6px, transparent 6px 12px); }
+  ${ENTRY_STATUSES.map(st => `.st-${st.key} { background: ${st.solid}; color: #fff; }`).join('\n  ')}
+  .box { min-height: 30px; border-radius: 6px; padding: 3px 6px; text-align: left; font-size: 8.5pt; font-variant-numeric: tabular-nums; }
+  ${ENTRY_STATUSES.map(st => `.soft-${st.key} { background: ${st.soft.bg}; color: ${st.soft.fg}; }`).join('\n  ')}
+  .time { white-space: nowrap; line-height: 1.5; }
+  .badge { display: inline-block; border-radius: 3px; padding: 0 3px; font-size: 7pt; font-weight: 700; }
   thead { display: table-header-group; }
-  .meta { display: flex; justify-content: space-between; font-size: 8pt; color: #666; margin-top: 6pt; }
+  .meta { display: flex; justify-content: space-between; gap: 12pt; font-size: 8pt; color: #666; margin-top: 6pt; }
 </style></head><body>
   <h1>${esc(sheet.title)}</h1>
   <div class="sub">${esc(sheet.subtitle)}</div>
-  <table>
-    <thead><tr><th class="name">Staff</th>${head}${sheet.showTotals ? '<th class="hours">Hours</th>' : ''}</tr></thead>
+  <div class="wrap"><table>
+    <thead>
+      <tr><th class="staff"${dayParts ? ' rowspan="2"' : ''}>Staff</th>${dayHead}</tr>
+      ${shiftHead}
+    </thead>
     <tbody>${body}</tbody>
-    ${sheet.showTotals ? `<tfoot><tr><td class="name">Working</td>${foot}<td></td></tr></tfoot>` : ''}
-  </table>
+  </table></div>
   <div class="meta"><span>${esc(sheet.legend.join('  ·  '))}</span><span>${esc(sheet.printed)}</span></div>
 </body></html>`
 }
@@ -221,149 +241,210 @@ function fit(ctx, text, maxW) {
   return t + '…'
 }
 
+function roundRect(ctx, x, y, w, h, r) {
+  const rr = Math.min(r, w / 2, h / 2)
+  ctx.beginPath()
+  ctx.moveTo(x + rr, y)
+  ctx.arcTo(x + w, y, x + w, y + h, rr)
+  ctx.arcTo(x + w, y + h, x, y + h, rr)
+  ctx.arcTo(x, y + h, x, y, rr)
+  ctx.arcTo(x, y, x + w, y, rr)
+  ctx.closePath()
+}
+
 /** Draw the sheet onto a canvas (2x for crisp text). Exported for testing. */
 export function drawRotaCanvas(sheet, scale = 2) {
-  const showTotals = sheet.showTotals !== false
-  const pad = 24, nameW = 190, dayW = 124, lineH = 17, cellPad = 7
-  const hoursW = showTotals ? 70 : 0
-  const headH = 32, titleH = 60, footH = showTotals ? 28 : 0, metaH = 30
-  const rowHeights = sheet.rows.map(r => {
-    const lines = Math.max(1, ...r.cells.map(c => c.length))
-    return Math.max(38, lines * lineH + cellPad * 2, r.role ? 38 : 0)
-  })
-  const tableW = nameW + dayW * sheet.days.length + hoursW
+  const dayParts = sheet.mode === 'day_parts'
+  const per = dayParts ? Math.max(1, sheet.shifts.length) : 1
+  const pad = 24, titleH = 64, metaH = 30
+  const nameW = 170
+  const slotW = dayParts ? 60 : 124          // one shift column, or one hourly day
+  const dayW = slotW * per
+  const tileH = 40, inset = 2
+  const lineH = 18
+  const anyClosed = sheet.days.some(d => d.closed)
+  const headH = anyClosed ? 46 : 36
+  const subH = dayParts ? 24 : 0
+  const rowHeights = sheet.rows.map(r => dayParts
+    ? tileH + inset * 2 + 4
+    : Math.max(tileH + inset * 2 + 4, ...r.cells.map(c => (c.periods?.length ?? 0) * lineH + 16)))
+  const tableW = nameW + dayW * sheet.days.length
+  const tableH = headH + subH + rowHeights.reduce((a, b) => a + b, 0)
   const width = pad * 2 + tableW
-  const height = pad + titleH + headH + rowHeights.reduce((a, b) => a + b, 0) + footH + metaH + pad
+  const height = pad + titleH + tableH + metaH + pad
 
   const canvas = document.createElement('canvas')
-  canvas.width = width * scale
-  canvas.height = height * scale
+  canvas.width = Math.round(width * scale)
+  canvas.height = Math.round(height * scale)
   const ctx = canvas.getContext('2d')
   ctx.scale(scale, scale)
+  // A JPG has no transparency: the whole sheet sits on white.
   ctx.fillStyle = '#ffffff'
   ctx.fillRect(0, 0, width, height)
   ctx.textBaseline = 'middle'
 
-  ctx.fillStyle = '#111111'
+  ctx.fillStyle = C.text
   ctx.font = `bold 20px ${FONT}`
+  ctx.textAlign = 'left'
   ctx.fillText(sheet.title, pad, pad + 14)
   ctx.fillStyle = '#444444'
   ctx.font = `13px ${FONT}`
   ctx.fillText(sheet.subtitle, pad, pad + 40)
 
-  const x0 = pad
-  let y = pad + titleH
-  const colX = [x0, x0 + nameW]
-  for (let i = 1; i < sheet.days.length; i++) colX.push(colX[colX.length - 1] + dayW)
-  colX.push(colX[colX.length - 1] + dayW) // hours column start
+  const x0 = pad, y0 = pad + titleH
+  const dayX = i => x0 + nameW + i * dayW
 
-  function cellBox(x, yy, w, h, fill) {
-    if (fill) { ctx.fillStyle = fill; ctx.fillRect(x, yy, w, h) }
-    ctx.strokeStyle = '#9ca3af'
-    ctx.lineWidth = 1
-    ctx.strokeRect(x + 0.5, yy + 0.5, w, h)
+  // Everything inside the rounded frame is clipped to it.
+  ctx.save()
+  roundRect(ctx, x0, y0, tableW, tableH, 10)
+  ctx.clip()
+
+  // Header rows
+  ctx.fillStyle = C.head
+  ctx.fillRect(x0, y0, tableW, headH)
+  if (dayParts) {
+    ctx.fillStyle = C.subHead
+    ctx.fillRect(x0 + nameW, y0 + headH, tableW - nameW, subH)
+    ctx.fillStyle = C.head
+    ctx.fillRect(x0, y0 + headH, nameW, subH)
   }
-
-  // Header
-  ctx.font = `600 13px ${FONT}`
-  cellBox(x0, y, nameW, headH, '#e5e7eb')
-  ctx.fillStyle = '#111111'
+  ctx.fillStyle = C.text
+  ctx.font = `600 14px ${FONT}`
   ctx.textAlign = 'left'
-  ctx.fillText('Staff', x0 + cellPad, y + headH / 2)
+  ctx.fillText('Staff', x0 + 12, y0 + (headH + subH) / 2)
   sheet.days.forEach((d, i) => {
-    const x = colX[i + 1]
-    cellBox(x, y, dayW, headH, '#e5e7eb')
-    ctx.fillStyle = '#111111'
+    const cx = dayX(i) + dayW / 2
     ctx.textAlign = 'center'
-    ctx.fillText(fit(ctx, d.label, dayW - 8), x + dayW / 2, y + headH / 2)
+    ctx.fillStyle = C.text
+    ctx.font = `600 14px ${FONT}`
+    ctx.fillText(fit(ctx, d.label, dayW - 6), cx, y0 + (d.closed ? 16 : headH / 2))
+    if (d.closed) {
+      ctx.fillStyle = C.muted
+      ctx.font = `10px ${FONT}`
+      ctx.fillText('Closed', cx, y0 + 33)
+    }
+    if (dayParts) {
+      ctx.fillStyle = C.muted
+      ctx.font = `11px ${FONT}`
+      sheet.shifts.forEach((s, si) => {
+        ctx.fillText(fit(ctx, s.name, slotW - 6), dayX(i) + si * slotW + slotW / 2, y0 + headH + subH / 2)
+      })
+    }
   })
-  const hx = colX[colX.length - 1]
-  if (showTotals) {
-    cellBox(hx, y, hoursW, headH, '#e5e7eb')
-    ctx.fillStyle = '#111111'
-    ctx.textAlign = 'right'
-    ctx.fillText('Hours', hx + hoursW - cellPad, y + headH / 2)
-  }
-  y += headH
 
   // Rows
+  let y = y0 + headH + subH
   sheet.rows.forEach((r, ri) => {
     const h = rowHeights[ri]
-    cellBox(x0, y, nameW, h, '#ffffff')
     ctx.textAlign = 'left'
-    ctx.fillStyle = '#111111'
-    ctx.font = `600 13px ${FONT}`
-    ctx.fillText(fit(ctx, r.name, nameW - cellPad * 2), x0 + cellPad, y + (r.role ? 14 : h / 2))
-    if (r.role) {
-      ctx.fillStyle = '#555555'
-      ctx.font = `11px ${FONT}`
-      ctx.fillText(fit(ctx, r.role, nameW - cellPad * 2), x0 + cellPad, y + 29)
-    }
-    r.cells.forEach((lines, i) => {
-      const x = colX[i + 1]
-      const tone = r.tones?.[i] === 'away' ? AWAY_PRINT : STATUS_BY_KEY[r.tones?.[i]]?.print
-      cellBox(x, y, dayW, h, lines.length && tone ? tone.bg : '#ffffff')
-      ctx.textAlign = 'center'
-      if (!lines.length) {
-        ctx.fillStyle = '#9ca3af'
-        ctx.font = `13px ${FONT}`
-        ctx.fillText('–', x + dayW / 2, y + h / 2)
+    ctx.fillStyle = C.text
+    ctx.font = `500 14px ${FONT}`
+    ctx.fillText(fit(ctx, r.name, nameW - 24), x0 + 12, y + h / 2)
+
+    r.cells.forEach((c, i) => {
+      const dx = dayX(i)
+      if (c.away) {
+        const tx = dx + inset, ty = y + inset + 2, tw = dayW - inset * 2, th = h - inset * 2 - 4
+        ctx.save()
+        roundRect(ctx, tx, ty, tw, th, 6)
+        ctx.fillStyle = C.awayBg
+        ctx.fill()
+        ctx.clip()
+        ctx.strokeStyle = 'rgba(0,0,0,0.07)'
+        ctx.lineWidth = 6
+        for (let k = -th; k < tw + th; k += 12) {
+          ctx.beginPath()
+          ctx.moveTo(tx + k, ty + th)
+          ctx.lineTo(tx + k + th, ty)
+          ctx.stroke()
+        }
+        ctx.restore()
+        ctx.textAlign = 'center'
+        ctx.fillStyle = C.awayFg
+        ctx.font = `600 11px ${FONT}`
+        ctx.fillText(c.away, tx + tw / 2, ty + th / 2)
         return
       }
-      ctx.fillStyle = tone ? tone.fg : '#14532d'
-      ctx.font = `600 12px ${FONT}`
-      const top = y + (h - lines.length * lineH) / 2 + lineH / 2
-      lines.forEach((t, li) => ctx.fillText(fit(ctx, t, dayW - 8), x + dayW / 2, top + li * lineH))
+      if (dayParts) {
+        c.tiles.forEach((key, si) => {
+          const tx = dx + si * slotW + inset, ty = y + inset + 2, tw = slotW - inset * 2, th = h - inset * 2 - 4
+          roundRect(ctx, tx, ty, tw, th, 6)
+          ctx.fillStyle = key ? STATUS_BY_KEY[key].solid : C.offBg
+          ctx.fill()
+          const label = tileText(key)
+          ctx.textAlign = 'center'
+          ctx.fillStyle = key ? '#ffffff' : C.offFg
+          ctx.font = `${key ? 700 : 600} ${label.length > 3 ? 11 : 13}px ${FONT}`
+          ctx.fillText(label, tx + tw / 2, ty + th / 2)
+        })
+        return
+      }
+      if (!c.periods.length) return
+      const tone = STATUS_BY_KEY[c.periods.some(p => p.status === 'on') ? 'on' : c.periods[0].status].soft
+      const tx = dx + inset, ty = y + inset + 2, tw = dayW - inset * 2, th = h - inset * 2 - 4
+      roundRect(ctx, tx, ty, tw, th, 6)
+      ctx.fillStyle = tone.bg
+      ctx.fill()
+      const top = ty + (th - c.periods.length * lineH) / 2 + lineH / 2
+      c.periods.forEach((p, pi) => {
+        const ly = top + pi * lineH
+        ctx.textAlign = 'left'
+        ctx.fillStyle = tone.fg
+        ctx.font = `12px ${FONT}`
+        ctx.fillText(p.text, tx + 7, ly)
+        if (p.status !== 'on') {
+          const st = STATUS_BY_KEY[p.status]
+          const bx = tx + 7 + ctx.measureText(p.text).width + 5
+          ctx.font = `bold 9px ${FONT}`
+          const bw = ctx.measureText(st.label).width + 6
+          roundRect(ctx, bx, ly - 7, bw, 14, 3)
+          ctx.fillStyle = st.solid
+          ctx.fill()
+          ctx.fillStyle = '#ffffff'
+          ctx.fillText(st.label, bx + 3, ly)
+        }
+      })
     })
-    if (showTotals) {
-      cellBox(hx, y, hoursW, h, '#ffffff')
-      ctx.textAlign = 'right'
-      ctx.fillStyle = '#111111'
-      ctx.font = `12px ${FONT}`
-      ctx.fillText(r.working ? r.hours : '', hx + hoursW - cellPad, y + h / 2)
-    }
     y += h
   })
 
-  // Footer (Working count per day)
-  if (showTotals) {
-    ctx.font = `12px ${FONT}`
-    cellBox(x0, y, nameW, footH, '#f3f4f6')
-    ctx.textAlign = 'left'
-    ctx.fillStyle = '#444444'
-    ctx.fillText('Working', x0 + cellPad, y + footH / 2)
-    sheet.counts.forEach((n, i) => {
-      const x = colX[i + 1]
-      cellBox(x, y, dayW, footH, '#f3f4f6')
-      ctx.textAlign = 'center'
-      ctx.fillStyle = '#444444'
-      ctx.fillText(n ? String(n) : '', x + dayW / 2, y + footH / 2)
-    })
-    cellBox(hx, y, hoursW, footH, '#f3f4f6')
-    y += footH
-  }
+  // Lines: name column, between days, between rows, under the header.
+  ctx.strokeStyle = C.border
+  ctx.lineWidth = 1
+  const line = (ax, ay, bx, by) => { ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke() }
+  line(x0 + nameW + 0.5, y0, x0 + nameW + 0.5, y0 + tableH)
+  sheet.days.forEach((_, i) => { if (i > 0) line(dayX(i) + 0.5, y0, dayX(i) + 0.5, y0 + tableH) })
+  let ry = y0 + headH + subH
+  line(x0, ry + 0.5, x0 + tableW, ry + 0.5)
+  rowHeights.forEach((h, i) => { ry += h; if (i < rowHeights.length - 1) line(x0, ry + 0.5, x0 + tableW, ry + 0.5) })
+  ctx.restore()
 
+  roundRect(ctx, x0 + 0.5, y0 + 0.5, tableW - 1, tableH - 1, 10)
+  ctx.strokeStyle = C.border
+  ctx.stroke()
+
+  const my = y0 + tableH + 16
   ctx.font = `11px ${FONT}`
   ctx.fillStyle = '#666666'
   ctx.textAlign = 'left'
-  ctx.fillText(fit(ctx, sheet.legend.join('  ·  '), tableW - 200), x0, y + 16)
+  ctx.fillText(fit(ctx, sheet.legend.join('  ·  '), tableW - 200), x0, my)
   ctx.textAlign = 'right'
-  ctx.fillText(sheet.printed, x0 + tableW, y + 16)
+  ctx.fillText(sheet.printed, x0 + tableW, my)
 
   return canvas
 }
 
 /**
- * Save the sheet as a PNG. On touch devices that support sharing files,
+ * Save the sheet as a JPG. On touch devices that support sharing files,
  * open the share sheet instead (e.g. to send it to a staff group chat).
  */
 export async function saveRotaImage(sheet, { preferShare = false } = {}) {
   const canvas = drawRotaCanvas(sheet)
-  const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'))
+  const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.92))
   if (!blob) throw new Error('Could not create the image')
-  const name = `${sheet.fileName}.png`
+  const name = `${sheet.fileName}.jpg`
   if (preferShare && typeof File !== 'undefined' && navigator.canShare) {
-    const file = new File([blob], name, { type: 'image/png' })
+    const file = new File([blob], name, { type: 'image/jpeg' })
     if (navigator.canShare({ files: [file] })) {
       try {
         await navigator.share({ files: [file], title: sheet.title })

@@ -32,6 +32,7 @@ import { menuTags } from '../../../shared/menuTags.js'
 import { venueNow } from '../../../shared/promotions.js'
 import { makeLink, readLink } from './previewLinks.js'
 import { printLayouts } from './printDesignSvc.js'
+import { cardMachineOf } from './cardSvc.js'
 
 // The device id a preview runs as (never a real device).
 export const PREVIEW_DEVICE_ID = '00000000-0000-4000-8000-00000000000a'
@@ -132,6 +133,9 @@ export async function kioskConfig(tx, tenantId, venueId, device, { designOverrid
     print_layouts: { receipt: (await printLayouts(tx, tenantId, venueId)).kiosk_receipt },
     translations: await loadTranslations(tx, tenantId, finalDesign.languages.enabled),
     device: { id: device.id, kind: 'kiosk', name: device.name, short_code: device.short_code, venue_id: venueId, settings: ds },
+    // Its card machine (migration 193, services/cardSvc.js). Previews take
+    // no money: their card step has its own pretend Approve and Decline.
+    card_machine: preview ? null : await cardMachineOf(tx, tenantId, venueId, ds.card_reader),
   }
   config.version = sha256(JSON.stringify(config)).slice(0, 16)
   return config
@@ -179,7 +183,7 @@ export async function menuChanges(tx, tenantId, venueId, streamId) {
 
 /** The preview's device: not paired, test card reader, the stream and design the editor picked. */
 export function previewDevice({ designId, streamId }) {
-  return { id: PREVIEW_DEVICE_ID, kind: 'kiosk', name: 'Preview', short_code: 'KS', settings: { revenue_stream_id: streamId, design_id: designId, card_reader: 'test' } }
+  return { id: PREVIEW_DEVICE_ID, kind: 'kiosk', name: 'Preview', short_code: 'KS', settings: { revenue_stream_id: streamId, design_id: designId, card_reader: 'preview' } }
 }
 
 /**

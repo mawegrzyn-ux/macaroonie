@@ -254,6 +254,12 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx' } = 
   if (tillDevice?.device) {
     await step('device printer', () => post(`/api/pos/venues/${V}/printers`, { name: mark + ' Till printer', kind: 'receipt', connection: 'device', device_id: tillDevice.device.id }))
   }
+  // A card machine (migration 193): the test machine, the till's.
+  const cardMachine = await step('card machine', () => post(`/api/pos/venues/${V}/card-readers`, { provider: 'test', name: mark + ' Test card machine' }))
+  if (cardMachine && tillDevice?.device) {
+    await step('till card machine', () => patch(`/api/pos/devices/${tillDevice.device.id}`, { settings: { mode: 'table', card_reader: cardMachine.id } }))
+    await step('card machine name', () => patch(`/api/pos/card-readers/${cardMachine.id}`, { name: mark + ' Counter card machine' }))
+  }
   await step('venue hub', async () => {
     const shown = await ok(c.post('/pos-api/pairings', { app: 'hub' }), 'hub code')
     return post(`/api/pos/venues/${V}/link`, { code: shown.code, name: mark + ' Hub' })
