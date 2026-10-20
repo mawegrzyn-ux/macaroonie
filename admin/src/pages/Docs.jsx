@@ -6511,6 +6511,21 @@ GET /robots.txt`}</Code>
               idempotent, <Mono>nginx -t</Mono> or restore. <Mono>POST /items/check-duplicate</Mono>{' '}
               returns <Mono>hash</Mono> too.
             </P>
+            <P>
+              <Mono>.ico</Mono> pictures (favicons) are taken by <Mono>/api/media/items/upload</Mono>,{' '}
+              <Mono>/items/:id/replace</Mono> and <Mono>/website/upload</Mono> (kind images):{' '}
+              <Mono>utils/icon.js</Mono> takes a file as an icon when the browser calls it{' '}
+              <Mono>image/x-icon</Mono> or <Mono>image/vnd.microsoft.icon</Mono>, or gives no useful type
+              (<Mono>application/octet-stream</Mono>) and the name ends <Mono>.ico</Mono>
+              (<Mono>mayBeIcon()</Mono>); the first bytes must then be an ICO header
+              (<Mono>isIcon()</Mono>, else 422) and it is stored as <Mono>image/x-icon</Mono> /{' '}
+              <Mono>.ico</Mono>. Media reads its size from the header (<Mono>iconSize()</Mono>, sharp
+              can&apos;t read ICO). <Mono>readUpload()</Mono> / <Mono>pictureSize()</Mono> in{' '}
+              <Mono>media.js</Mono> serve both of its upload routes. In the admin, the Media
+              library&apos;s file filter and <Mono>isImageFile()</Mono> (dropped files) take a typeless
+              file named <Mono>.ico</Mono>; the Favicon field&apos;s file picker accepts{' '}
+              <Mono>image/*,.ico</Mono>.
+            </P>
             <H3>Files dropped onto the editors</H3>
             <P>
               <Mono>lib/fileDrop.js</Mono>: <Mono>useFileDrop()</Mono> (handlers that react only to file

@@ -26,6 +26,7 @@ import { publishTenantSite, overrideStagingWithProduction, publishStatus } from 
 import { ensureOrderPage } from '../services/orderPage.js'
 import { publishQueue } from '../jobs/queues.js'
 import { hashPassword, loadStagingAccess, previewKey, stagingOrigin, MIN_PASSWORD } from '../services/stagingAccess.js'
+import { ICON_MIME, mayBeIcon, isIcon } from '../utils/icon.js'
 
 // Website permission: view reads, manage changes. GET /tenant-site stays open
 // (Ordering setup, Emails and Promotions read the site's settings), and image
@@ -463,6 +464,7 @@ function extFromMime(mime) {
     case 'image/webp':    return 'webp'
     case 'image/svg+xml': return 'svg'
     case 'image/gif':     return 'gif'
+    case ICON_MIME:       return 'ico'
     case 'application/pdf': return 'pdf'
     default:              return 'bin'
   }
@@ -1310,8 +1312,12 @@ export default async function websiteRoutes(app) {
       else if (part.type === 'field' && part.fieldname === 'scope') scope = String(part.value || 'shared').slice(0, 100)
       else if (part.type === 'file'  && part.fieldname === 'file') {
         const cfg = KIND_CONFIG[kind] ?? KIND_CONFIG.images
-        if (!cfg.mimes.has(part.mimetype)) {
-          throw httpError(422, `Unsupported file type: ${part.mimetype}`)
+        // Pictures may also be .ico files (favicons).
+        const icon = cfg === KIND_CONFIG.images && mayBeIcon(part.mimetype, part.filename)
+        if (!icon && !cfg.mimes.has(part.mimetype)) {
+          throw httpError(422, cfg === KIND_CONFIG.images
+            ? `Unsupported file type: ${part.mimetype || 'unknown'}. Use JPG, PNG, WebP, SVG, GIF or ICO.`
+            : `Unsupported file type: ${part.mimetype || 'unknown'}. Use a PDF.`)
         }
         const chunks = []
         let total = 0
@@ -1322,9 +1328,11 @@ export default async function websiteRoutes(app) {
           }
           chunks.push(chunk)
         }
+        const buffer = Buffer.concat(chunks)
+        if (icon && !isIcon(buffer)) throw httpError(422, "That file isn't an .ico picture.")
         fileData = {
-          buffer:   Buffer.concat(chunks),
-          mimetype: part.mimetype,
+          buffer,
+          mimetype: icon ? ICON_MIME : part.mimetype,
           filename: part.filename,
         }
       }

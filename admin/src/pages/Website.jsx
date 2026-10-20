@@ -298,7 +298,7 @@ function FileUpload({ kind = 'images', scope = 'shared', accept, onUploaded, lab
   )
 }
 
-function ImageField({ url, kind = 'images', onChange, hint, scope = 'shared' }) {
+function ImageField({ url, kind = 'images', onChange, hint, scope = 'shared', accept = 'image/*' }) {
   const api = useApi()
   const [pickerOpen, setPickerOpen] = useState(false)
   const [dropping, setDropping] = useState(false)
@@ -321,7 +321,7 @@ function ImageField({ url, kind = 'images', onChange, hint, scope = 'shared' }) 
         <div className="flex items-center gap-3">
           <img src={url} alt="" draggable={false} className="w-20 h-20 object-cover rounded border" />
           <div className="flex flex-col gap-1.5">
-            <FileUpload kind={kind} scope={scope} accept="image/*"
+            <FileUpload kind={kind} scope={scope} accept={accept}
               onUploaded={r => onChange(r.url)}
               label="Replace" />
             <button type="button" onClick={() => setPickerOpen(true)}
@@ -336,7 +336,7 @@ function ImageField({ url, kind = 'images', onChange, hint, scope = 'shared' }) 
         </div>
       ) : (
         <div className="flex items-center gap-2 flex-wrap">
-          <FileUpload kind={kind} scope={scope} accept="image/*"
+          <FileUpload kind={kind} scope={scope} accept={accept}
             onUploaded={r => onChange(r.url)}
             label="Upload image" />
           <span className="text-xs text-muted-foreground">or</span>
@@ -3838,7 +3838,9 @@ function BrandIdentitySection({ venueId = null }) {
           <TextInput value={state.tagline} onChange={e => setState(s => ({ ...s, tagline: e.target.value }))} />
         </FormRow>
         <FormRow label="Logo"><ImageField url={state.logo_url} onChange={v => setState(s => ({ ...s, logo_url: v || '' }))} /></FormRow>
-        <FormRow label="Favicon"><ImageField url={state.favicon_url} onChange={v => setState(s => ({ ...s, favicon_url: v || '' }))} /></FormRow>
+        <FormRow label="Favicon"><ImageField url={state.favicon_url} accept="image/*,.ico"
+          hint="The small picture in the browser tab. An .ico, PNG or SVG file, square, at least 48 x 48 pixels."
+          onChange={v => setState(s => ({ ...s, favicon_url: v || '' }))} /></FormRow>
         <FormRow label="Primary colour">
           <div className="flex items-center gap-3">
             <input type="color" value={state.primary_colour}

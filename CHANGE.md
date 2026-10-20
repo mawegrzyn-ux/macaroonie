@@ -5,8 +5,9 @@ Migrations are listed where a database change is required.
 
 ---
 
-## [2026-10-20 — Website brand saves fixed]
+## [2026-10-20 — Website brand saves fixed; .ico favicons]
 
+- The **favicon** (Website → Brand & theme → Brand identity) can be an **.ico** file, uploaded on the field, dropped on it or added through the Media library. Files that only end in .ico but aren't one are refused.
 - Fixed: saving **Brand identity** on Website → Brand & theme failed with "Internal server error" once any location had website settings (it always sends the template). The same happened to theme saves that change the template, such as **Use this** from Theme ideas.
 - Fixed: saving the group's theme cleared the colours and fonts of locations that have their **own Brand & theme**. Saving the group's brand now leaves locations' own brand alone.
 

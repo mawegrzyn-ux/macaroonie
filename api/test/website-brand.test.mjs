@@ -4,8 +4,43 @@
 // and they stripped colours and fonts from locations with their own brand.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { as, sql, ok, closeApp } from './support/app.mjs'
+import { as, getApp, sql, ok, closeApp } from './support/app.mjs'
 import { resetAndSeed, A, PLATFORM } from './support/seed.mjs'
+import { INTERNAL_CALL_HEADER, INTERNAL_CALL_SECRET } from '../src/middleware/auth.js'
+
+/** One file (plus fields) as multipart/form-data, sent as the owner of ids.a. */
+async function upload(url, { name, type, data, fields = {} }) {
+  const boundary = '----test' + Math.random().toString(16).slice(2)
+  const parts = []
+  for (const [k, v] of Object.entries(fields)) {
+    parts.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="${k}"\r\n\r\n${v}\r\n`))
+  }
+  parts.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${name}"\r\n`
+    + (type ? `Content-Type: ${type}\r\n` : '') + '\r\n'))
+  parts.push(data, Buffer.from(`\r\n--${boundary}--\r\n`))
+  const app = await getApp()
+  const res = await app.inject({
+    method: 'POST', url, payload: Buffer.concat(parts),
+    headers: {
+      authorization: 'Bearer test:' + A.owner, 'x-tenant-id': ids.a,
+      'content-type': `multipart/form-data; boundary=${boundary}`,
+      [INTERNAL_CALL_HEADER]: INTERNAL_CALL_SECRET,
+    },
+  })
+  let json = null
+  try { json = res.json() } catch { json = null }
+  return { status: res.statusCode, json }
+}
+
+/** A small .ico holding one 32 x 32 picture (the picture bytes don't matter here). */
+function icoFile() {
+  const pic = Buffer.alloc(40, 7)
+  const head = Buffer.alloc(22)
+  head.writeUInt16LE(0, 0); head.writeUInt16LE(1, 2); head.writeUInt16LE(1, 4)
+  head[6] = 32; head[7] = 32; head.writeUInt16LE(1, 10); head.writeUInt16LE(32, 12)
+  head.writeUInt32LE(pic.length, 14); head.writeUInt32LE(22, 18)
+  return Buffer.concat([head, pic])
+}
 
 let ids, owner, ware, hertford
 
@@ -65,4 +100,38 @@ test("a location's own brand is untouched by the group's saves", async () => {
   assert.equal(h.font_family, 'Fraunces')
   assert.deepEqual(h.theme.colors, OWN_THEME.colors)
   assert.deepEqual(h.theme.typography, OWN_THEME.typography)
+})
+
+test('a favicon can be an .ico file, whatever type the browser gives it', async () => {
+  for (const type of ['image/x-icon', 'image/vnd.microsoft.icon', 'application/octet-stream']) {
+    const r = await upload('/api/website/upload', { name: 'favicon.ico', type, data: icoFile(), fields: { kind: 'images', scope: 'website' } })
+    assert.equal(r.status, 201, `website upload as ${type}: ${JSON.stringify(r.json)}`)
+    assert.equal(r.json.mimetype, 'image/x-icon')
+    assert.match(r.json.url, /\.ico$/)
+    assert.ok(r.json.media_item_id, 'shows in the Media library')
+  }
+  const saved = await ok(owner.patch('/api/website/brand-defaults', { favicon_url: '/uploads/x/images/favicon.ico' }))
+  assert.equal(saved.favicon_url, '/uploads/x/images/favicon.ico')
+})
+
+test('an .ico in the Media library gets its size from the file', async () => {
+  const r = await upload('/api/media/items/upload', { name: 'favicon.ico', type: 'image/x-icon', data: icoFile() })
+  assert.equal(r.status, 201, JSON.stringify(r.json))
+  assert.equal(r.json.mimetype, 'image/x-icon')
+  assert.equal(r.json.width, 32)
+  assert.equal(r.json.height, 32)
+})
+
+test('files that only claim to be .ico, and other types, are refused', async () => {
+  const fake = await upload('/api/website/upload', { name: 'favicon.ico', type: 'image/x-icon', data: Buffer.from('<script>alert(1)</script> padding padding') })
+  assert.equal(fake.status, 422)
+  assert.match(fake.json.error, /isn't an \.ico/)
+  const fakeMedia = await upload('/api/media/items/upload', { name: 'x.ico', type: 'application/octet-stream', data: Buffer.from('not an icon at all, just words here') })
+  assert.equal(fakeMedia.status, 422)
+  const avif = await upload('/api/website/upload', { name: 'logo.avif', type: 'image/avif', data: Buffer.from('avif') })
+  assert.equal(avif.status, 422)
+  assert.match(avif.json.error, /JPG, PNG, WebP, SVG, GIF or ICO/)
+  // A file with no useful type and no .ico name isn't taken as an icon.
+  const bin = await upload('/api/website/upload', { name: 'logo.bin', type: 'application/octet-stream', data: icoFile() })
+  assert.equal(bin.status, 422)
 })

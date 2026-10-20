@@ -2836,7 +2836,7 @@ export default function Help() {
             <DataTable
               head={['File type', 'Max size', 'Formats']}
               rows={[
-                ['Images (logo, favicon, hero, about, gallery, OG image)', '8 MB each', 'JPG, PNG, WebP, SVG, GIF'],
+                ['Images (logo, favicon, hero, about, gallery, OG image)', '8 MB each', 'JPG, PNG, WebP, SVG, GIF, and ICO (for the favicon)'],
                 ['PDF menus',    '25 MB each', 'PDF'],
                 ['Allergen PDF', '25 MB',      'PDF'],
               ]}

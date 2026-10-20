@@ -33,9 +33,11 @@ import { ReadOnlyNotice } from '@/components/ReadOnlyNotice'
 
 const ALL_FORMS = '__all__'
 const VIDEO_TYPES = ['video/mp4', 'video/webm']
-const ACCEPT = { image: 'image/*', video: VIDEO_TYPES.join(','), all: 'image/*,' + VIDEO_TYPES.join(',') }
+const ACCEPT = { image: 'image/*,.ico', video: VIDEO_TYPES.join(','), all: 'image/*,.ico,' + VIDEO_TYPES.join(',') }
 const isVideo = item => String(item?.mimetype || '').startsWith('video/')
-function takes(kind, type) {
+function takes(kind, file) {
+  // Some systems give .ico files (favicons) no type.
+  const type = file.type || (/\.ico$/i.test(file.name || '') ? 'image/x-icon' : '')
   const video = VIDEO_TYPES.includes(type)
   return kind === 'video' ? video : kind === 'image' ? type.startsWith('image/') : video || type.startsWith('image/')
 }
@@ -196,7 +198,7 @@ export function MediaLibraryModal({
 
   const handleFiles = useCallback(async (files) => {
     if (!canEdit) return
-    const list = Array.from(files || []).filter(f => takes(kind, f.type))
+    const list = Array.from(files || []).filter(f => takes(kind, f))
     if (!list.length) return
 
     const targetScope = scopeFilter === ALL_FORMS ? defaultScope : scopeFilter

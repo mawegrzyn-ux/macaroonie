@@ -23,7 +23,8 @@ const VIDEO_TYPES = ['video/mp4', 'video/webm']
 const HASH_MAX_BYTES = 30 * 1024 * 1024
 
 export const isFileDrag = e => Array.from(e?.dataTransfer?.types || []).includes('Files')
-export const isImageFile = f => /^image\//.test(f?.type || '')
+// .ico files (favicons) may come with no type on some systems.
+export const isImageFile = f => /^image\//.test(f?.type || '') || (!f?.type && /\.ico$/i.test(f?.name || ''))
 export const isVideoFile = f => VIDEO_TYPES.includes(f?.type)
 
 /** The files of the kinds asked for (['image'], ['image', 'video']). */
@@ -67,7 +68,7 @@ export function useFileDrop({ onFiles, onRefused, kinds = ['image'], disabled = 
       setOver(false)
       const files = pickFiles(e.dataTransfer.files, kinds)
       if (files.length) onFiles?.(files, e)
-      else onRefused?.(`That isn't ${kindWords(kinds)}. Drop a JPG, PNG, WebP or GIF${kinds.includes('video') ? ', or an MP4 or WebM video' : ''}.`)
+      else onRefused?.(`That isn't ${kindWords(kinds)}. Drop a JPG, PNG, WebP, GIF or ICO${kinds.includes('video') ? ', or an MP4 or WebM video' : ''}.`)
     },
   }
   return { over, dropProps }
