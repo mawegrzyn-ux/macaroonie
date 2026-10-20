@@ -15,6 +15,9 @@
 #
 #   ... | sudo sh -s -- --uninstall      remove the hub (and its link)
 #
+# Or download it as a file (pos.<domain>/hub, macaroonie-hub-setup.sh) and
+# run `sh macaroonie-hub-setup.sh`: run from a file, it asks for sudo itself.
+#
 # Settings for testing (environment): MACAROONIE_API, MACAROONIE_HUB_HOME,
 # MACAROONIE_HUB_USER, MACAROONIE_NODE_DIST, MACAROONIE_SYSTEMD_DIR,
 # MACAROONIE_SYSTEMCTL, MACAROONIE_HUB_HTTP_PORT, MACAROONIE_WAIT_SECONDS.
@@ -35,6 +38,13 @@ SERVICE=macaroonie-hub
 say() { printf '%s\n' "$*"; }
 fail() { say "Install stopped: $*" >&2; exit 1; }
 
+# Run from a downloaded file without sudo: run itself again with sudo.
+if [ "$(id -u)" != 0 ] && [ -f "$0" ] && command -v sudo >/dev/null 2>&1; then
+  case "$0" in
+    *.sh) say "The hub installs for the whole computer: type this computer's password if asked."
+          exec sudo sh "$0" "$@" ;;
+  esac
+fi
 [ "$(id -u)" = 0 ] || fail "run it as root: put sudo before sh"
 [ "$(uname -s)" = Linux ] || fail "this installer is for Linux (on Windows use install.ps1)"
 

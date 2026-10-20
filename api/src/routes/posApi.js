@@ -53,6 +53,11 @@
 //   GET  /hub/release.tgz       (no auth) the hub's code (services/hubRelease.js)
 //   GET  /hub/install.sh | /hub/install.ps1   (no auth) the hub's installer for Linux / Windows,
 //                               with this cloud's address filled in
+//   GET  /hub/setup             (no auth) the page a mini PC opens to download the installer
+//                               (pos.<domain>/hub redirects here, routes/posSite.js)
+//   GET  /hub/setup.cmd | /hub/setup.sh   (no auth) the downloads: a Windows file to double-click
+//                               (asks to run as administrator, runs install.ps1, opens the hub's
+//                               page) and install.sh, which runs itself with sudo from a file
 //   POST /card/payments         { check_id?, payment_id, amount, tip?, staff_id? } start a payment on the
 //                               device's card machine (migration 193, services/cardSvc.js); a kiosk sends
 //                               no check (it pays before its order exists)
@@ -75,7 +80,7 @@ import {
   tillConfig, hubConfig, sequencer, sha256, normaliseCode, newDeviceSecret, loadDayChecks, fillReconFromDay, dayReport, loadTillStaff, openPairing,
 } from '../services/posSvc.js'
 import { deviceOrigin } from '../services/platformHost.js'
-import { hubRelease, installScript } from '../services/hubRelease.js'
+import { hubRelease, installScript, hubSetupPage } from '../services/hubRelease.js'
 import { LINK_MINUTES, newLinkCode, linkCodeHash, linkCodeTaken, linkUrl } from '../services/linkCodes.js'
 import { dayFigures } from '../../../shared/pos/reports.js'
 import { permissionProblem } from '../../../shared/pos/permissions.js'
@@ -273,6 +278,24 @@ export default async function posApiRoutes(app) {
     app.get('/hub/install.' + kind, { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (req, reply) =>
       reply.header('content-type', 'text/plain; charset=utf-8').header('cache-control', 'no-cache').send(installScript(kind, hubApi(req))))
   }
+  // The files people download on the mini PC (pos.<domain>/hub): a Windows
+  // setup file to double-click, and the Linux installer to run with sh.
+  for (const [kind, file] of [['cmd', 'macaroonie-hub-setup.cmd'], ['sh', 'macaroonie-hub-setup.sh']]) {
+    app.get('/hub/setup.' + kind, { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (req, reply) =>
+      reply
+        .header('content-type', 'application/octet-stream')
+        .header('content-disposition', `attachment; filename="${file}"`)
+        .header('cache-control', 'no-cache')
+        .send(installScript(kind, hubApi(req))))
+  }
+  app.get('/hub/setup', { config: { rateLimit: { max: 60, timeWindow: '1 minute' } } }, async (req, reply) => {
+    const ua = String(req.headers['user-agent'] || '')
+    return reply
+      .header('content-type', 'text/html; charset=utf-8')
+      .header('cache-control', 'no-cache')
+      .header('content-security-policy', "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+      .send(hubSetupPage({ api: hubApi(req), windowsFirst: /Windows/i.test(ua) || !/Linux|X11/i.test(ua) }))
+  })
 
   // ── Move hand-over (no auth: the one-time code is the key) ───────
   // A device moving to its own address (POST /move below) hands this code

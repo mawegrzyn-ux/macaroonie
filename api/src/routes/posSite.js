@@ -10,6 +10,7 @@
 // A global onRequest hook (fastify-plugin), these hosts only:
 //   /pos-api, /ws, /uploads   pass through to their routes
 //   http:// (X-Forwarded-Proto) redirected to https:// (the PIN check needs it)
+//   /hub on pos.{root}         the page with the venue hub's installer (/pos-api/hub/setup)
 //   /manifest.webmanifest     the build's manifest named for the host (Till,
 //                             Kitchen, Kiosk), so each installs as its own app
 //   a file in pos/dist        that file (hashed assets cached for a year;
@@ -79,6 +80,12 @@ async function posSite(app) {
     // https://, so a page opened over http:// (behind nginx) goes to https://.
     if (req.headers['x-forwarded-proto'] === 'http') {
       reply.code(301).header('location', 'https://' + (req.hostname || req.headers.host) + req.url).send()
+      return reply
+    }
+
+    // A short address to type on a mini PC: the page with the hub's installer.
+    if (host === 'pos' && (urlPath === '/hub' || urlPath === '/hub/')) {
+      reply.code(302).header('location', '/pos-api/hub/setup').send()
       return reply
     }
 

@@ -161,4 +161,6 @@ try {
 }
 }
 
-try { Install-MacaroonieHub } catch { Write-Host $_.Exception.Message -ForegroundColor Red }
+# $MacaroonieHubFailed tells macaroonie-hub-setup.cmd (pos.<domain>/hub) whether it worked.
+$global:MacaroonieHubFailed = $false
+try { Install-MacaroonieHub } catch { $global:MacaroonieHubFailed = $true; Write-Host $_.Exception.Message -ForegroundColor Red }

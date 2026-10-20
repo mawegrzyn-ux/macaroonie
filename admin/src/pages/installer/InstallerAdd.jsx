@@ -46,7 +46,9 @@ function HubSteps({ overview }) {
   return (
     <Card title="1. On the mini PC">
       <div className="space-y-3">
-        <p className="text-sm">With the mini PC on the venue's network and the internet on, run one of these on it. It installs the hub, starts it with the computer, and shows a code.</p>
+        <p className="text-sm">With the mini PC on the venue's network and the internet on, open this address in its browser and download the installer. It installs the hub, starts it with the computer, and shows a code.</p>
+        <AddressBox url={api + '/hub'} testid="add-hub-page" />
+        <p className="text-sm">Or run one of these on it:</p>
         <CommandBox label="Linux (Ubuntu, Debian): in a terminal" text={`curl -fsSL ${api}/pos-api/hub/install.sh | sudo sh`} testid="add-hub-linux" />
         <CommandBox label="Windows 10 or 11: in PowerShell as administrator" text={`irm ${api}/pos-api/hub/install.ps1 | iex`} testid="add-hub-windows" />
         <p className="text-sm">Its page, http://(its address):9180 on the venue's network, shows the code and a QR code too. Scan it with this phone, or type the code:</p>
@@ -99,7 +101,7 @@ function AddSteps({ kind, overview }) {
   )
 }
 
-function AddressBox({ url }) {
+function AddressBox({ url, testid = 'add-address' }) {
   const [copied, setCopied] = useState(false)
   const svg = useMemo(() => {
     try { return url ? qrSvg(url, { margin: 2, title: 'QR code of the address' }) : '' } catch { return '' }
@@ -111,7 +113,7 @@ function AddressBox({ url }) {
     <div className="rounded-xl border bg-muted/40 p-3 flex items-center gap-3">
       {svg && <div className="w-20 h-20 shrink-0 bg-white rounded-lg p-1 [&>svg]:w-full [&>svg]:h-full" dangerouslySetInnerHTML={{ __html: svg }} />}
       <div className="flex-1 min-w-0">
-        <div className="font-mono font-bold text-lg break-all" data-testid="add-address">{shortAddress(url)}</div>
+        <div className="font-mono font-bold text-lg break-all" data-testid={testid}>{shortAddress(url)}</div>
         <p className="text-xs text-muted-foreground">A device with a camera can scan this to open it.</p>
       </div>
       <button type="button" onClick={copy} aria-label="Copy the address"

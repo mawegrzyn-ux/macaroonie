@@ -4835,8 +4835,8 @@ export default function Help() {
             <DataTable
               head={['Step', 'What to do']}
               rows={[
-                ['1. Install it', 'Till setup → Printers → Venue hub shows the command, with Copy. On Linux, open a terminal on the mini PC and run it (it asks for the password); on Windows, open PowerShell as administrator and run the Windows one. It installs everything the hub needs and starts it with the computer.'],
-                ['2. Link it', 'When it finishes it shows a six-letter code. Tap Link a hub and type it, or scan the QR code on the hub\'s page with the installer app on your phone.'],
+                ['1. Install it', 'On the mini PC, open the address shown under Till setup → Printers → Venue hub (pos. and your web address, then /hub) and press Download the installer. On Windows, open the downloaded macaroonie-hub-setup.cmd; if Windows says it protected your PC, press More info, then Run anyway, and answer Yes when it asks to allow changes. On Linux, run sh ~/Downloads/macaroonie-hub-setup.sh in a terminal and type the password. It installs everything the hub needs and starts it with the computer. (The same box also has the one-line commands, under Or run a command.)'],
+                ['2. Link it', 'When it finishes it shows a six-letter code (on Windows the hub\'s page opens with it). Tap Link a hub and type it, or scan the QR code on the hub\'s page with the installer app on your phone.'],
                 ['3. Add its printers', 'Network printers: Add, On the network, type the address. USB printers: the hub lists the ones plugged into it under Venue hub; tap Add it beside one (or Add, USB on the hub, and pick it).'],
                 ['4. Check it', 'The hub\'s row shows its computer, version and a link to its page; each printer\'s row says whether it is ready. Print a test ticket from the till.'],
               ]}

@@ -25,6 +25,9 @@ the tills in sync and trading with the internet down come later. Design: [`docs/
 - `src/statusPage.js`: the hub's page, `http://<this computer>:9180`.
 - `install/install.sh`, `install/install.ps1`: the installers the cloud serves (with its
   address filled in) at `/pos-api/hub/install.sh` and `/pos-api/hub/install.ps1`.
+- `install/setup.cmd`: the Windows file people download from `pos.<domain>/hub` and
+  double-click (served as `macaroonie-hub-setup.cmd`); it asks to run as administrator,
+  runs `install.ps1` and opens the hub's page.
 - `../shared/pos/tickets.js`: the kitchen ticket and receipt layouts (shared with the
   cloud and the tills).
 - `bin/test-print.js`: prints a sample kitchen ticket and receipt.
@@ -38,6 +41,18 @@ No packages to install: it uses Node's own modules only.
 A fanless mini PC (for example an Intel N100 with 8 GB and a wired network port) with
 Ubuntu or Debian Linux, or Windows 10 / 11, on a cable to the router, with a fixed address
 on the router. Plug USB receipt printers into it.
+
+**The easy way.** On the mini PC, open `pos.macaroonie.com/hub` in the browser (Till setup
+→ Printers → Venue hub shows the address) and press **Download the installer**:
+
+- Windows: open `macaroonie-hub-setup.cmd` from the downloads. Windows warns about a file
+  from the internet: **More info**, then **Run anyway**, then **Yes** to allow changes. When
+  it has finished, the hub's page opens with the link code. To remove the hub, run
+  `macaroonie-hub-setup.cmd uninstall` in a Command Prompt.
+- Linux: `sh ~/Downloads/macaroonie-hub-setup.sh` in a terminal (it asks for the password
+  itself).
+
+Or with one command:
 
 **Linux.** In a terminal on the mini PC (Till setup → Printers → Venue hub shows the
 command with your address, and a Copy button):

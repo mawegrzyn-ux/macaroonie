@@ -5,6 +5,13 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-20 — Download the hub's installer]
+
+- The venue hub has an **installer to download** on the mini PC: open **pos.macaroonie.com/hub** in its browser and press **Download the installer**.
+- **Windows**: double-click `macaroonie-hub-setup.cmd`. Windows warns about a file from the internet (**More info**, **Run anyway**) and asks to allow changes (**Yes**). It installs the hub, and when it has finished the hub's page opens with the six-letter code. Running it again updates the hub; `macaroonie-hub-setup.cmd uninstall` removes it.
+- **Linux**: `sh ~/Downloads/macaroonie-hub-setup.sh` in a terminal; it asks for the password itself.
+- Till setup → Printers → Venue hub shows the address to open on the mini PC (with Copy), the two downloads for when you are already on it, and the one-line commands under **Or run a command**. The installer app's **Add a hub** shows the address with a QR code.
+
 ## [2026-10-20 — Website brand saves fixed; .ico favicons]
 
 - The **favicon** (Website → Brand & theme → Brand identity) can be an **.ico** file, uploaded on the field, dropped on it or added through the Media library. Files that only end in .ico but aren't one are refused.

@@ -176,8 +176,11 @@ supported. Android stays for tills, kiosks and kitchen screens: a hub needs raw 
 access, a service that starts with the computer, and (later) a LAN server, which a PC gives
 without app-store packaging.
 
-- **Install**: one command shown in Till setup → Printers (`curl … /pos-api/hub/install.sh |
-  sudo sh`, or `irm … /pos-api/hub/install.ps1 | iex`). Its own Node 22 (checked against
+- **Install**: download the installer on the mini PC from `pos.<domain>/hub` (Windows:
+  `macaroonie-hub-setup.cmd` to double-click, which asks to run as administrator; Linux:
+  `macaroonie-hub-setup.sh`, which asks for sudo itself), or one command shown in Till setup
+  → Printers (`curl … /pos-api/hub/install.sh | sudo sh`, or `irm … /pos-api/hub/install.ps1
+  | iex`). Its own Node 22 (checked against
   nodejs.org's SHASUMS), the hub from the cloud (checked against its sha256), a systemd
   service as its own user (in `lp`) or a Windows scheduled task as SYSTEM, then the link code.
 - **Link**: the code on the console, on the hub's page (`http://<hub>:9180`, with a QR code for
