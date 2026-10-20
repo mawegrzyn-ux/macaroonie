@@ -9,7 +9,7 @@ const SECTIONS = [
   { id: 'getting-started',     label: 'Getting Started' },
   { id: 'overview',            label: 'The Overview Page' },
   { id: 'venues',              label: 'Managing Venues' },
-  { id: 'new-location',        label: 'Opening a New Location' },
+  { id: 'new-location',        label: 'Setting Up a New Venue' },
   { id: 'tables',              label: 'Tables & Combinations' },
   { id: 'schedule',            label: 'Setting Your Schedule' },
   { id: 'schedule-exceptions', label: 'Schedule Exceptions' },
@@ -31,6 +31,7 @@ const SECTIONS = [
   { id: 'settings',            label: 'Settings' },
   { id: 'navigation',          label: 'Navigation & Quick Access' },
   { id: 'widget',              label: 'Booking Widget' },
+  { id: 'brand',               label: 'Brand & Theme' },
   { id: 'website',             label: 'Website Builder' },
   { id: 'menus',               label: 'Menus' },
   { id: 'tax',                 label: 'Tax, Order Types & Streams' },
@@ -131,7 +132,7 @@ export default function Help() {
 
             <div className="space-y-3 mb-6">
               {[
-                ['Create your venue', 'Give it a name, address, and timezone. The timezone is critical — all booking times display in your local time.'],
+                ['Set up your venue', 'Venues > New venue walks you through it: the name, address and timezone, your brand, the menu (read from photos or a PDF), opening hours, tables and the rest. The timezone is critical — all booking times display in your local time.'],
                 ['Add tables and sections', 'Organise your floor plan into sections (Main Floor, Terrace, Bar, etc.), then add each table with its seating capacity.'],
                 ['Set table order', 'Use the Reorder button on the Tables page to drag tables into the order they appear on your floor plan. This drives the Timeline row sequence and the smart-allocation adjacency logic.'],
                 ['Set up table combinations', 'If adjacent tables can be pushed together for larger parties, create a combination (e.g. T1 + T2 = combined table for 6).'],
@@ -247,11 +248,14 @@ export default function Help() {
 
             <H3>Creating a venue</H3>
             <ol className="space-y-2 text-sm text-muted-foreground list-decimal list-inside ml-2 mb-4">
-              <li>Go to <strong>Venues</strong> in the sidebar.</li>
-              <li>Click <strong>Add venue</strong>.</li>
-              <li>Enter the venue name, address, and — most importantly — the correct timezone.</li>
-              <li>Save. The venue will appear in the Venues list.</li>
+              <li>Go to <strong>Venues</strong> in the sidebar and tap <strong>New venue</strong> (or Venues &gt; New venue in the menu).</li>
+              <li>Pick <strong>From scratch</strong>, or <strong>Like a venue you have</strong> to copy one of your venues.</li>
+              <li>Go through the steps: the name, address and — most importantly — the correct timezone come first.</li>
+              <li>Check it on the last step and tap <strong>Create</strong>. The venue appears in the Venues list. See Setting up a new venue below.</li>
             </ol>
+            <P>
+              With no venues yet, the Overview shows a <strong>Set up your first venue</strong> card that opens the same steps.
+            </P>
 
             <InfoBox type="warn">
               Always set the correct <strong>timezone</strong> for your venue. All booking times, slot
@@ -278,43 +282,54 @@ export default function Help() {
             </P>
           </section>
 
-          {/* ── NEW LOCATION ──────────────────────────────── */}
+          {/* ── NEW VENUE ─────────────────────────────────── */}
           <section id="new-location" data-help="">
-            <H2>Opening a New Location</H2>
+            <H2>Setting Up a New Venue</H2>
             <P>
-              <strong>New location</strong> (under Venues in the sidebar, or <strong>New location with Pepper</strong>{' '}
-              on the Venues page) sets up a whole new store in one go. You describe it in your own words; Pepper looks
-              at the locations you already have, works out area by area what to copy and what to set up new, asks only
-              what it needs to, and writes a short brief. Nothing is created until you press <strong>Create</strong>.
-              It needs Manage on Venues and access to Pepper.
+              <strong>New venue</strong> (Venues &gt; New venue in the menu, or the button on the Venues page) sets up a
+              venue step by step: the venue itself, the brand, the menu, opening hours, tables and bookings, everything
+              else, then a check. Nothing is made until you press <strong>Create</strong> on the last step, and you can
+              stop at any point and come back: the draft is listed on the New venue page. It needs Manage on Venues.
+              Pepper is optional: it can fill the steps in from a description, and it reads the menu from your files.
             </P>
 
-            <H3>Describing it</H3>
+            <H3>Starting a new venue</H3>
             <P>
-              A few sentences are enough: where it is, what kind of site it is, roughly how many seats, when it opens,
-              and anything that's different from your other locations ("like Ware but with a terrace, takeaway only on
-              Sundays, two kiosks"). Tap one of the examples to start from it. <strong>Copy from</strong> picks the
-              location to copy; leave it to Pepper and it picks the most similar one and says why.
+              Pick <strong>From scratch</strong> (each area set up with sensible defaults) or{' '}
+              <strong>Like a venue you have</strong> (each area copied from that venue, then you change what&apos;s
+              different), and tap <strong>Start</strong>. Your first venue always starts from scratch. Each step has its
+              own <strong>Save and continue</strong>; the steps list at the top jumps to any step. Moving to another step
+              with changes not saved asks first: <strong>Save and go</strong>, <strong>Don&apos;t save</strong> or{' '}
+              <strong>Stay here</strong>.
             </P>
+            <DataTable
+              head={['Step', 'What you set']}
+              rows={[
+                ['The venue', 'Name, web address (follows the name until you change it), time zone, currency, opening date (empty = open now), address and contact details. Describe it to Pepper (optional) fills in the later steps from a few sentences; anything you set yourself stays as you set it.'],
+                ['Brand & theme', 'Your group\'s brand (logo, colours, fonts), shared by every venue. On your first venue you set it up here; later venues show it and can change it for everyone. A later venue\'s web page can also have a look of its own: Make its look builds one from a picture or a few words.'],
+                ['Menu', 'Read a menu from photos or a PDF (see Menus, A menu from a photo or PDF), or tick menus the group already has for this venue\'s online ordering. Menus made here can be kept for this venue only.'],
+                ['Opening hours', 'Each day open or closed with its sittings (name, from, to, covers); Same every day copies one day to the rest. Or copy them from the venue you started from, or leave them for the Schedule page.'],
+                ['Tables and bookings', 'Rooms and their tables with seats (Add 6 tables for 4 adds several at once), and the booking rules: smallest and largest party, how far ahead, when online bookings stop.'],
+                ['Everything else', 'How many tills, kitchen screens, kiosks and menu screens to get ready, online ordering on straight away or not, and a card per remaining area: copy, new or Later.'],
+                ['Check and create', 'What will be set up, what is left for later, and anything to fix first. Create asks once more, then makes it all.'],
+              ]}
+            />
 
-            <H3>The scope</H3>
+            <H3>What each area gets</H3>
             <P>
-              Each area gets a card saying what will happen to it: <strong>Copy</strong> (brought across from the
-              location copied from: the card says what it has), <strong>New</strong> (set up from what Pepper worked out
-              with you) or <strong>Later</strong> (left for someone to set up on its page). Tap to change any of them:
-              your choice always wins over Pepper's. A card marked <strong>Worth a closer look</strong> is one Pepper
-              thinks needs more than a copy; <strong>Ask Pepper about this</strong> on any card gets a few questions about
-              just that area.
+              Each area is <strong>Copy</strong> (brought across from the venue you started from: the card says what it
+              has), <strong>New</strong> (set up from what you entered, or standard settings) or <strong>Later</strong>{' '}
+              (left for someone to set up on its page). Your choice always wins.
             </P>
             <DataTable
               head={['Area', 'Copy brings', 'New sets up']}
               rows={[
-                ['Opening hours', 'Each day\'s booking times, sittings and covers, and dated changes still to come (Christmas, a private hire)', 'The hours you gave, day by day'],
-                ['Tables', 'Rooms, tables, combinations, pairs kept apart, floor plan places', 'The rooms and tables you described'],
+                ['Opening hours', 'Each day\'s booking times, sittings and covers, and dated changes still to come (Christmas, a private hire)', 'The days and sittings from the Opening hours step'],
+                ['Tables', 'Rooms, tables, combinations, pairs kept apart, floor plan places', 'The rooms and tables from the Tables step'],
                 ['Booking rules', 'Booking length, party sizes, how far ahead, deposits', 'Those you gave, the rest standard'],
-                ['Location page', 'The page layout, pictures, PDF menus, its own pages, with this location\'s address', 'A page with the address and contact details'],
-                ['Booking emails', 'How they\'re sent, the sender, reminders, the location\'s own emails', ''],
-                ['Online ordering', 'Menus, hours, slots, tips, payment (switched off until opening)', 'Set up, switched off'],
+                ['Location page', 'The page layout, pictures, PDF menus, its own pages, with this venue\'s address (and its own look if you made one)', 'A page with the address and contact details (and its own look if you made one)'],
+                ['Booking emails', 'How they\'re sent, the sender, reminders, the venue\'s own emails', ''],
+                ['Online ordering', 'Menus, hours, slots, tips, payment, plus the menus you ticked', 'Set up with the menus you ticked'],
                 ['Deliveroo menu file', 'Price uplift, allergen codes, dish matches', ''],
                 ['Tax rates', 'Rates of its own that differ from the company\'s', ''],
                 ['Till setup', 'Settings, receipts (with the new name and address), revenue streams, floor areas, printers and where tickets print', 'Settings, receipts, revenue streams'],
@@ -322,7 +337,7 @@ export default function Help() {
                 ['Devices to link', 'The same tills, kitchen screens, kiosks and menu screens, with their settings, waiting to be linked', 'As many as you said'],
                 ['Cash reconciliation', 'Income sources, payment channels, tips sources, expense categories', 'A standard set'],
                 ['Food safety', 'Fridges and freezers, hold stations, check times, cooking sessions and dishes', 'The equipment and check times you gave'],
-                ['Checklists', 'Every checklist with its tasks', 'Opening, closing and cleaning lists Pepper drafts'],
+                ['Checklists', 'Every checklist with its tasks', 'Opening, closing and cleaning lists'],
                 ['Dashboards', 'H&S, cash, rota and other dashboards with their widgets', ''],
                 ['Purchasing', 'Suppliers\' delivery days and cutoffs, order lists, pars (scaled if trade will differ), its own prices', ''],
                 ['Team', '', 'The people you named, with their role and pay'],
@@ -331,35 +346,34 @@ export default function Help() {
             <P>
               Some things are never copied because they belong to one place: supplier account numbers, the team,
               links to Loyverse or GloriaFood, card machines, and paired devices (the new ones wait to be linked). An area your role
-              can't set up is left for someone who can, and goes on the list of things still to do.
+              can&apos;t set up is left for someone who can, and goes on the list of things still to do.
             </P>
 
-            <H3>Questions and the brief</H3>
+            <H3>Letting Pepper fill it in</H3>
             <P>
-              Pepper asks at most a few rounds of questions, grouped by area, with its suggestion picked to start with.
-              Tick <strong>Leave it to Pepper</strong> on any question, or <strong>Skip these: write the brief</strong>{' '}
-              to have it decide the rest. The brief says in a few lines what the location is and how it's set up, what
-              Pepper assumed, what could go wrong around opening, and what people need to do outside the app.{' '}
-              <strong>Ask Pepper for a change</strong> takes a change in words ("don't copy the kitchen flows, the
-              kitchen there is different"). <strong>The location</strong> card holds the name, web address, time zone,
-              opening date, the location to copy from, the address and contact details: change any of them and Save.{' '}
-              <strong>Print</strong> gives the brief as a page for whoever needs it.
+              On The venue step, <strong>Describe it to Pepper</strong> takes a few sentences ("a new store in Leeds like
+              Ware, about 80 seats, two kiosks, opening 1 December"). Pepper fills in what you haven&apos;t set yourself:
+              what to copy, the hours, the tables, the devices. If it needs to know more it asks a few questions, grouped
+              by area; tick <strong>Leave it to Pepper</strong> on any of them, or <strong>Skip these</strong>. On
+              Everything else, <strong>Ask Pepper about this</strong> on an area card gets a few questions about just that
+              area. Pepper&apos;s short summary shows on the last step, and <strong>Print</strong> gives the plan as a page
+              for whoever needs it.
             </P>
 
             <H3>Creating it</H3>
             <P>
-              <strong>Create</strong> asks first, then makes the location and every area at once: if anything fails,
-              nothing is made and the message says which area. Before the opening date the location stays{' '}
+              <strong>Create</strong> asks first, then makes the venue and every area at once: if anything fails,
+              nothing is made and the message says which area. Before the opening date the venue stays{' '}
               <strong>closed for bookings</strong> (a "Not open yet" closure on the Schedule page) and online ordering
               stays off. Afterwards the page shows what each area got and a <strong>Still to do</strong> list (link the
-              devices with the installer app, check the printers' addresses, check and publish the location page,
-              switch online ordering on, add supplier account numbers, add the team and their PINs, and Pepper's own
-              points): tick each off as it's done, and <strong>Open</strong> goes to its page.
+              devices with the installer app, check the printers&apos; addresses, check and publish the menu made from
+              your files and the location page, switch online ordering on, add supplier account numbers, add the team and
+              their PINs): tick each off as it&apos;s done, and <strong>Open</strong> goes to its page.
             </P>
             <InfoBox type="tip">
-              You can do all of this in a chat too: ask Pepper "plan a new store in Leeds like Ware". It passes on the
-              questions, shows the brief, and creates it from a card you confirm. Openings started in the chat are on
-              the New location page as well.
+              You can do this in a chat too: ask Pepper "plan a new store in Leeds like Ware". It passes on the
+              questions, shows the plan, and creates it from a card you confirm. Venues started in the chat are on
+              the New venue page as well, and the steps can finish them.
             </InfoBox>
           </section>
 
@@ -2289,8 +2303,8 @@ export default function Help() {
             <P>
               Every page uses the same look as the Rota dashboard: a light grey background with
               white cards on it, and each card has a coloured header band. The band colour is
-              your website's brand accent colour (Website builder → Brand &amp; theme →
-              Colours → Accent), so it matches your brand on every page and dashboard. Changing
+              your brand's accent colour (Brand &amp; theme → Colours → Accent), so it matches
+              your brand on every page and dashboard. Changing
               the accent there changes the header bands for everyone in your business. The
               Theme colour above only changes buttons and highlights.
             </P>
@@ -2381,6 +2395,23 @@ export default function Help() {
               An owner can customise the left sidebar for everyone in the restaurant from the
               <strong> Navigation</strong> page (sidebar nav, under Account) — and can optionally
               replace the sidebar entirely with a tile-based quick-access screen instead.
+            </P>
+            <H3>The standard menu</H3>
+            <P>
+              Every group starts with the same menu, grouped by job: <strong>Home</strong> (Overview,
+              Dashboards, Pepper), <strong>Service</strong> (Timeline, Bookings, Customers, Online orders),{' '}
+              <strong>Money</strong> (Till reports, Cash recon, Cash dashboard), <strong>Health &amp; safety</strong>,{' '}
+              <strong>Stock</strong> (Purchasing, with Order lists, Inventory and Suppliers under it),{' '}
+              <strong>People</strong> (Staff, Rota), <strong>Menus</strong> (Menus and their pages, Promotions,
+              Menu screens), <strong>Brand &amp; web</strong> (Brand &amp; theme, Website, Media, Reviews,
+              Emails), <strong>Venues</strong> (Venues and New venue, Schedule, Tables, Booking rules, Till setup,
+              Ordering setup), <strong>Admin</strong> and <strong>Help</strong>. Each page is in it once.
+              Pages your role can&apos;t open, and modules switched off, don&apos;t show.
+            </P>
+            <P>
+              The standard menu replaced every group&apos;s menu once, in October 2026 (changes made on this page
+              before then went, and the menu went back to the sidebar). <strong>Reset to defaults</strong> on this
+              page brings it back at any time.
             </P>
             <H3>Editing the sidebar tree</H3>
             <P>
@@ -2489,6 +2520,49 @@ export default function Help() {
             </pre>
           </section>
 
+          {/* ── BRAND & THEME ─────────────────────────────── */}
+          <section id="brand" data-help="">
+            <H2>Brand &amp; Theme</H2>
+            <P>
+              <strong>Brand &amp; theme</strong> (under Brand &amp; web in the menu) holds your restaurant
+              group&apos;s brand: the brand name, tagline, logo and browser icon, the colours and the fonts. It is
+              more than the website: every designer offers it (kiosk designs, menu screen boards, printed menus),
+              the admin&apos;s card headers use its accent colour, and the colour swatches in every builder start
+              with it. Changing it needs Manage on Website; everyone else sees it read only.
+            </P>
+
+            <H3>Setting the brand</H3>
+            <P>
+              The <strong>Brand</strong> card takes the name, tagline, logo and browser icon; the{' '}
+              <strong>Colours</strong> and <strong>Fonts</strong> cards set the seven colours and the heading and
+              text fonts. <strong>Theme ideas</strong> makes a theme from your logo or a photo and a few words (see
+              Website Builder, Make a theme from a picture) or starts from a ready-made one. Each card has its own
+              Save. The website shows brand changes once it is published (Website &gt; Publish); the designers and
+              the admin use them straight away.
+            </P>
+
+            <H3>Putting the brand on other designs</H3>
+            <P>
+              <strong>Use the brand on other designs</strong> lists your kiosk designs, menu screen boards and printed
+              menu designs (the ones your role can change). Tick the ones that should take the brand, check the before
+              and after preview, tap <strong>Use the brand on the ticked designs</strong>, then{' '}
+              <strong>Yes, use the brand</strong>. Each design takes the brand&apos;s colours and
+              fonts and keeps everything else: its layout, pictures and words. Each one says when it is done, or why
+              it couldn&apos;t be saved.
+            </P>
+            <P>
+              In the kiosk designer, the menu screen designer and the printed menu designer, the theme maker&apos;s
+              button has <strong>Use the brand</strong> beside it: it fills that design&apos;s colours and fonts from
+              the brand, and nothing is saved until you save the design. The theme maker also shows{' '}
+              <strong>Your brand</strong> as the first theme.
+            </P>
+            <InfoBox type="info">
+              The website&apos;s own settings stay on the Website page: the template, the layout (Look &amp; layout),
+              the header and footer, the site name and the picture shared on social media, and a location&apos;s own
+              look (see Website Builder, Give a location its own look).
+            </InfoBox>
+          </section>
+
           {/* ── WEBSITE BUILDER ──────────────────────────── */}
           <section id="website" data-help="">
             <H2>Website Builder</H2>
@@ -2526,7 +2600,7 @@ export default function Help() {
                 ['Setup & domain',   'Subdomain slug, custom domain (with DNS verification), publish toggle.'],
                 ['Template',         'Visual layout. Pick Classic (warm, traditional) or Modern (editorial, full-bleed hero).'],
                 ['Theme',            'Your look & feel — independent of template. Colours, fonts, sizes, spacing, corners, buttons, hero overlay.'],
-                ['Branding',         'Site name, tagline, logo, favicon, colours, fonts, layout — see Brand & theme below. A single-venue restaurant only ever has one; a multi-venue franchise can give an individual venue its own.'],
+                ['Look & layout',    'The site name and social-preview picture, the boxed inset layout, and a location\'s own look. The logo, colours and fonts are on the Brand & theme page (see Brand & Theme); the website uses them once published.'],
                 ['Hero',             'The first screen guests see: image, heading, subheading, call-to-action button.'],
                 ['About',            'Short story / description with an optional image.'],
                 ['Gallery',          'Photo grid. Drag to reorder, add captions, upload new images.'],
@@ -2603,7 +2677,7 @@ export default function Help() {
               website menu, above Home. Underneath it says whether your live site matches staging:{' '}
               <em>Live matches staging · published 3 days ago</em>, or <em>4 changes not live yet · last published
               yesterday</em> with the number on the Publish button too (or <em>Not published yet</em>). It updates
-              by itself after each save. The publish window lists what would change: Home page, Brand &amp; theme,
+              by itself after each save. The publish window lists what would change: Home page, Brand &amp; theme (also changes made on the Brand &amp; theme page),
               each page or pop-up (new, changed, removed or hidden), each location&apos;s page and details. Gallery
               photos, PDF menus, allergens, opening hours from your schedule and menus built on the Menus page
               aren&apos;t part of publishing: they show on the live site as soon as you save them.
@@ -2634,7 +2708,8 @@ export default function Help() {
 
             <H3>Theme manager — how it works</H3>
             <P>
-              The <strong>Theme</strong> section controls the look &amp; feel of your site
+              The theme (colours and fonts on the <strong>Brand &amp; theme</strong> page, spacing
+              on Website &gt; Look &amp; layout) controls the look &amp; feel of your site
               regardless of which template you chose. A theme change to Classic instantly
               applies the same way if you switch to Modern.
             </P>
@@ -2675,7 +2750,7 @@ export default function Help() {
             <H3>Make a theme from a picture</H3>
             <P>
               <strong>Make a theme</strong> builds a whole look (colours, fonts, corners and capitals)
-              from a picture and a few words. It is on Website &gt; Brand &amp; theme (Theme ideas),
+              from a picture and a few words. It is on the Brand &amp; theme page (Theme ideas),
               in the kiosk designer (Brand), in the menu screen designer (Board &gt; Theme maker) and
               in the printed menu designer (Page setup &gt; Colours). You need Manage on that page.
             </P>
@@ -2705,7 +2780,7 @@ export default function Help() {
 
             <H3>Boxed inset (margins) — customisable per step</H3>
             <P>
-              The <strong>Layout</strong> card (Brand &amp; theme, tenant-wide — applies to every
+              The <strong>Layout</strong> card (Website &gt; Look &amp; layout, tenant-wide — applies to every
               venue's site) controls the side padding inside "boxed" and "wide" blocks. Padding is
               picked from 5 numbered <strong>steps</strong>, and you can now redefine what each
               step actually means: give it a plain pixel value (e.g. step 1 = 20px) or a
@@ -2745,35 +2820,28 @@ export default function Help() {
               a fixed width forever.
             </InfoBox>
 
-            <H3>Give a venue its own brand & theme</H3>
+            <H3>Give a location its own look</H3>
             <P>
-              Every venue starts on the tenant's shared <strong>Brand &amp; theme</strong> —
-              one set of colours, fonts, logo and layout for every location. If you run more
-              than one venue and want a specific one to look different (its own logo, colours,
-              even its own site name), open <strong>Brand &amp; theme</strong> and click{' '}
-              <strong>+ Add site override</strong>, then pick the venue. This copies today's
-              tenant settings as a starting point for that venue and adds it as its own tab —
-              from then on, editing that venue's tab only changes that venue, and editing the{' '}
-              <strong>Default</strong> tab only changes venues that haven't been given their own
-              override.
+              Every location&apos;s page starts on the group&apos;s brand (the logo, colours and fonts on the{' '}
+              <strong>Brand &amp; theme</strong> page) and the website&apos;s layout. If you run more than one
+              venue and want one location&apos;s page to look different (its own logo, colours, even its own
+              site name), open Website &gt; <strong>Look &amp; layout</strong> and tap{' '}
+              <strong>Give a location its own look</strong>, then pick the venue. This copies today&apos;s
+              settings as a starting point and adds the venue as its own pill: from then on, editing that pill
+              only changes that location, and the group&apos;s brand only changes locations without their own
+              look. A new venue can get its own look while it is set up (New venue &gt; Brand &amp; theme).
             </P>
             <P>
-              To go back to sharing the tenant default, open that venue's tab and click{' '}
-              <strong>Remove override</strong> (with an inline confirm). This selector only
-              appears once you have more than one venue — a single-venue restaurant just has the
-              one Brand &amp; theme, no tabs to manage.
+              To go back to the group&apos;s brand, open that venue&apos;s pill and tap{' '}
+              <strong>Remove override</strong> (with an inline confirm). The pills only show once you have more
+              than one venue.
             </P>
             <P>
-              The page builder previews every page in the site's template and Brand &amp; theme:
+              The page builder previews every page in the site&apos;s template and brand:
               the home page, extra pages and modals, and each location page. A location page, and
-              any page belonging to that location, previews with its own override when the
+              any page belonging to that location, previews with its own look when the
               location has one. The small label next to "Page builder" shows the template in use.
             </P>
-            <InfoBox type="info">
-              There used to be a separate "Identity" page under each venue for site name/tagline/
-              logo/favicon. It's gone — Brand &amp; theme now covers identity, colours, typography
-              and layout together, per venue if you need it.
-            </InfoBox>
 
             <H3>Custom domain</H3>
             <P>
@@ -3084,6 +3152,24 @@ export default function Help() {
               PDF of a menu to <strong>Ask Pepper</strong> and ask it to make the menu, or ask it to
               change a price, add an allergen or put a section up 5%. See <strong>Pepper → Menus by
               chat</strong>.
+            </P>
+            <H3>A menu from a photo or PDF</H3>
+            <P>
+              <strong>From a photo or PDF</strong> on the Menus page (also the Menu step when setting up a new venue)
+              makes a whole menu from the menu you already have. Add photos of each page (in order) or a PDF:
+              choose files, drop them on the box, or take a photo on a tablet or phone. Up to 10 files, photos up to
+              5 MB each and PDFs up to 10 MB. Optionally say what to know ("only the dinner pages; prices are for eat
+              in"), then tap <strong>Read the menu with Pepper</strong>; a long menu takes a minute or two.
+            </P>
+            <P>
+              Pepper lists the sections and dishes it read with their prices, descriptions, allergens, dietary tags
+              and options (sizes, extras). Check them: change a name or price, open a dish for its description, remove
+              anything that isn&apos;t right, add a dish it missed, and give the menu a name and the venue it is for.{' '}
+              <strong>Make the menu</strong> saves it as a draft, not published: check it in the menu editor, add
+              photos, then publish it. Allergens and dietary tags are matched to the ones you already have (never
+              added); options use your option groups where they match, or get a new group named after the menu. It
+              needs Manage on Menus and Pepper switched on, and counts towards your AI allowance like a chat. A
+              reading is only as good as the picture: check every price before publishing.
             </P>
             <H3>Publishing menu changes</H3>
             <P>
@@ -3407,7 +3493,7 @@ export default function Help() {
                 ['Change paper, margins or the grid', 'Page setup at the top: A4 or A3, landscape or portrait, margins, 6 / 12 / 24 columns, row height and the text size for the whole menu.'],
                 ['Design a folded menu', 'Page setup > Folded sheet: "Fold left | right" or "Fold top / bottom", and the gap at the fold (for example 10 mm). The page splits into two halves with a striped FOLD strip between them. Blocks snap to either side of the gap and new blocks are kept off it; a block can still stretch across both halves. Tick "Print a fold line" for a faint dashed line to fold along.'],
                 ['Put variant options side by side', 'Page setup has "Variant options per row" (1, 2 or 3) for every dish. A dish block, or a section showing its dishes, can pick its own number or use the default.'],
-                ['Change the fonts', 'Page setup > Fonts: one font for headings and prices, one for text, one for the handwritten lines (taglines, handwritten text). Any font from the website builder can be used. "Use website fonts" copies the headings and text fonts from Website > Brand & theme; "Standard fonts" goes back to the usual three.'],
+                ['Change the fonts', 'Page setup > Fonts: one font for headings and prices, one for text, one for the handwritten lines (taglines, handwritten text). Any font from the website builder can be used. "Use website fonts" copies the headings and text fonts from the Brand & theme page; "Standard fonts" goes back to the usual three.'],
                 ['Change the colours', 'Page setup > Colours: the text, the prices, lines and handwriting (the menu\'s own colour unless you pick one), and the descriptions. The paper stays cream. Make a theme fills in the fonts and colours from a picture and a few words (see Make a theme from a picture); Standard colours goes back.'],
                 ['Choose which footer notes print', 'Select the Footer notes block and untick "Show all notes", then tick the notes you want in that spot. Put a second Footer notes block elsewhere to print the others there. With "Show all notes" ticked, notes you add to the menu later appear automatically; with your own pick, they don\'t until you tick them.'],
                 ['Make another design for the same menu', 'Use the Designs bar under the top bar. "Copy" starts a new design from the one open (handy for an A3 poster and an A5 table card of the same menu); "New design" starts a blank one. Name it in the panel on the right (with nothing selected) and tap Save. Tap a design\'s name to open it; save or undo your changes first.'],
@@ -3669,8 +3755,8 @@ export default function Help() {
               board panel under Snap. Your choice is remembered on this device.
             </P>
             <P>
-              <strong>Colours</strong>: every colour shows your website&apos;s theme colours first
-              (Website → Brand &amp; theme): tap one to use it. To use any other colour, tap the
+              <strong>Colours</strong>: every colour shows your brand&apos;s colours first
+              (the Brand &amp; theme page): tap one to use it. To use any other colour, tap the
               square below them for your device&apos;s colour picker, or type a code like
               #f5b301. A ticked swatch means that theme colour is in use; a ring round the square
               means a custom colour.
@@ -3924,7 +4010,7 @@ export default function Help() {
               ]}
             />
             <P>
-              The wording uses your brand name from Website → Brand &amp; theme. If your site has a
+              The wording uses your brand name from the Brand &amp; theme page. If your site has a
               published Privacy Policy page (Website → Legal &amp; cookies), a link to it shows under
               the boxes. Each order keeps a record of exactly what the guest agreed to and when, and the
               order shows it under the guest&apos;s details.

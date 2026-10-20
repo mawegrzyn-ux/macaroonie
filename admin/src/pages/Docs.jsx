@@ -2760,6 +2760,17 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               re-run, so <Mono>defaultNav.js</Mono> is the only copy that matters going forward;
               keep them in sync by hand if the default tree ever changes.
             </P>
+            <P>
+              Migration 196 (20 Oct 2026) replaced every tenant's menu with the new default tree once: it
+              deletes every <Mono>nav_items</Mono> row, sets <Mono>tenants.nav_style = 'sidebar'</Mono> and
+              re-seeds each tenant from a JSON copy of <Mono>DEFAULT_NAV_TREE</Mono> through a temporary{' '}
+              <Mono>pg_temp.seed_nav()</Mono> function (so launcher tiles and designer edits went). The tree has
+              eleven sections grouped by job (Home, Service, Money, Health &amp; safety, Stock, People, Menus,
+              Brand &amp; web, Venues, Admin, Help) and names every <Mono>ROUTE_CATALOG</Mono> route exactly once.{' '}
+              <Mono>api/test/nav-default.test.mjs</Mono> fails when the migration's JSON and{' '}
+              <Mono>DEFAULT_NAV_TREE</Mono> differ, when a catalogue route is missing or doubled, or when a new
+              tenant's <Mono>/api/me</Mono> tree doesn't match: change both together.
+            </P>
             <H3>Launcher personalisation (admin/src/pages/Launcher.jsx)</H3>
             <P>
               Tile order and visibility are per-user, per-tenant, stored in
@@ -5035,6 +5046,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               rows={[
                 ['GET /api/ai/status', 'configured, enabled, permission, can_chat, units_left (the tenant\'s month), share_left (the caller\'s day; null = no daily share). Drives the Ask Pepper button.'],
                 ['POST /api/ai/themes', 'The theme maker: { target, prompt, image, palette, current, like, count } -> { kits, notes }. ai_assistant view + Manage on the target\'s page; counts like a chat. See Website CMS -> Theme maker.'],
+                ['POST /api/ai/menus/read', 'Photos or a PDF of a menu (multipart, up to 10 files) -> { menu, notes } to review; nothing saved. Menus manage + ai_assistant view; counts like a chat. See Menus -> Reading a menu from files.'],
+                ['POST /api/ai/menus/import', 'The reviewed menu -> an unpublished menu through createMenuFromSections() (Pepper\'s create_menu plan, up to 600 dishes). Menus manage.'],
+                ['POST /api/ai/store-openings/wizard, /:id/describe', 'The venue setup wizard: a draft without Pepper; Pepper filling the steps from a description. See New locations.'],
                 ['GET/DELETE /api/ai/conversations[/:id], POST /api/ai/chat', 'The caller\'s own chats (user_sub); the list and a chat carry closed (erased, read only), a chat also running (a turn or card holds it). chat { conversation_id?, message, attachments?, page? } returns the whole conversation as display items plus stop_reason and notice; with Accept: text/event-stream it streams (see Streaming above). conversation_id null = a new chat\'s only message was refused and the chat removed. 409 while another turn or a card holds the chat, or when it is closed.'],
                 ['POST /api/ai/attachments, GET/DELETE /api/ai/attachments/:id', 'Upload one file (multipart field file) -> { id, name, kind, media_type, bytes }; the file itself, uploader only; remove an unsent upload. See Attached files above.'],
                 ['POST /api/ai/actions/:id/confirm | cancel', 'Confirm cards; hold the chat like a turn (409 while it is busy). The reply carries closed: an anonymise card closes the chat it ran in.'],
@@ -5101,11 +5115,34 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
           <section id="store-openings" data-doc="">
             <H2>New locations (store openings)</H2>
             <P>
-              Migration 186. The New location page (<Mono>/new-location</Mono>, <Mono>pages/NewLocation.jsx</Mono>) and
-              five Pepper tools (<Mono>ai/tools/locations.js</Mono>) plan a new location with Pepper and create it in one
-              transaction. Pepper only plans: its answer is a structured JSON plan the server checks, and the location is
-              made by plain code from the checked plan.
+              Migration 186. The New venue page (<Mono>/new-location</Mono>, <Mono>pages/NewLocation.jsx</Mono>) and
+              five Pepper tools (<Mono>ai/tools/locations.js</Mono>) set up a new venue and create it in one
+              transaction. Since 20 Oct 2026 the page is a step-by-step wizard (below) and Pepper is optional; it
+              replaced the Venues page's Add venue form. Pepper only plans: its answer is a structured JSON plan the
+              server checks, and the venue is made by plain code from the checked plan.
             </P>
+            <H3>The setup wizard</H3>
+            <P>
+              Steps (<Mono>STEPS</Mono> in <Mono>NewLocation.jsx</Mono>, current step in <Mono>?step=</Mono>): venue,
+              brand, menu, hours, tables, rest, check; each step is a component in{' '}
+              <Mono>components/venueSetup/steps.jsx</Mono> with its own Save (a PATCH of the opening). A step registers{' '}
+              <Mono>{'{ dirty, save }'}</Mono> through <Mono>useGuard()</Mono>; moving to another step while dirty shows the
+              pending bar (Save and go / Don&apos;t save / Stay here). Pepper's questions render with{' '}
+              <Mono>QuestionsCard</Mono> (<Mono>questions.jsx</Mono>); shared buttons and <Mono>ModePick</Mono> are in{' '}
+              <Mono>ui.jsx</Mono>.
+            </P>
+            <DataTable
+              head={['Piece', 'What it does']}
+              rows={[
+                ['POST /wizard', '{ template_venue_id? } (venues manage): an opening with no description (title "New venue", input empty) and overrides.wizard = true. From scratch it also sets WIZARD_NEW (booking_rules, website, ordering, till, cash) to new; like a venue, normalisePlan() copies every area it can. No model call.'],
+                ['POST /:id/describe', '{ input } (the planning permissions + Pepper on): stores the description and runs the scope step on a draft, questions or ready opening. Pepper fills only what the person hasn\'t set.'],
+                ['PATCH /:id overrides.settings', 'Per-area settings the steps write, keyed by SETTING_KEYS (hours, tables, booking_rules, ordering, till, devices, food_safety, checklists, purchasing, staff, emails, menus, brand), up to 60 KB; a null value deletes one. normalisePlan()\'s pick() takes the override before Pepper\'s raw plan for each.'],
+                ['overrides.modes null', 'A mode set to null deletes the person\'s choice, so the area goes back to its default (the venue step does this to WIZARD_NEW when the template changes).'],
+                ['plan.menus', '{ ids, made, only_here }: ids go on the venue\'s online ordering (planMenus(): the tenant\'s menus with no venue or this one; added to copied menu_ids or set on a new ordering_settings row); with only_here, the menus made in the wizard (made) get venue_id = the new venue before the areas run (needs menus manage). A menus follow-up asks to check and publish them.'],
+                ['plan.brand', '{ kit }: a theme kit for the venue\'s own web page. ownLook() (website area, copy or new) sets use_brand_override, the theme from websiteThemeFromKit(kit, tenant theme), the identity from tenant_site, primary_colour and font_family.'],
+                ['create', 'Allowed for wizard drafts (not only ready openings). view() returns wizard.'],
+              ]}
+            />
             <H3>Pieces</H3>
             <DataTable
               head={['File', 'What it holds']}
@@ -5169,6 +5206,36 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>menu_id</Mono> — acceptable since only one admin edits a menu at a time).
               Renders on the website via the <Mono>menu_inline</Mono> block, and standalone as a
               printable page at <Mono>GET /api/menus/:id/print</Mono>.
+            </P>
+            <H3>Reading a menu from files</H3>
+            <P>
+              <Mono>/api/ai/menus</Mono> (<Mono>routes/menuImport.js</Mono>, under /api/ai for the 5-minute proxy timeout).{' '}
+              <Mono>POST /read</Mono> (menus manage + ai_assistant view, Pepper on) takes up to 10 files (multipart, kind
+              from the first bytes: images up to 5 MB each, PDFs up to 10 MB, 20 MB in all), an optional hint and{' '}
+              <Mono>venue_id</Mono> (the tenant's, else 404), and calls <Mono>readMenu()</Mono> in{' '}
+              <Mono>services/menuReadAi.js</Mono>: one streamed call to the main model (<Mono>AI_MODEL</Mono>, effort
+              medium, <Mono>max_tokens</Mono> 32,000) with the files as image / document blocks, the tenant's allergen and
+              dietary tags, option groups and currency, and structured output (<Mono>MENU_SCHEMA</Mono>: sections, dishes
+              with a price string, calories, allergens with a level, dietary, options by group with base or extra prices).
+              Counted with <Mono>addUsage()</Mono> after <Mono>chatUnitsLeft()</Mono> / <Mono>personUnitsLeft()</Mono>.
+              A refusal, a cut-off answer (max_tokens: "a few pages at a time") or no dishes is a 422; Claude busy is a 503.{' '}
+              <Mono>toSections()</Mono> turns the answer into <Mono>create_menu</Mono>'s sections (<Mono>readPrice()</Mono>{' '}
+              reads "£12.50" and "12,50"; a dish priced by base options loses its own price). Nothing is saved.
+            </P>
+            <P>
+              <Mono>POST /import</Mono> (menus manage) takes the reviewed menu (<Mono>{'{ name, venue_id?, tagline?, service_times?, sections }'}</Mono>,
+              up to <Mono>MAX_IMPORT_DISHES</Mono> 600 dishes) and runs <Mono>createMenuFromSections()</Mono> from{' '}
+              <Mono>ai/tools/menus.js</Mono> in process with a staff context (<Mono>staffContext()</Mono> in the route, built with <Mono>makeContext()</Mono>): the same plan as
+              Pepper's <Mono>create_menu</Mono> without its 50-dish batch limit (<Mono>planCreate(ctx, input, {'{ batch: false }'})</Mono>).
+              Tags are matched to existing ones only; an option group whose existing choices don't cover the menu's gets a new group
+              named "group (menu name)". The menu is made unpublished through <Mono>POST /api/menus</Mono> + the whole-tree PATCH,
+              audited as <Mono>import_menu</Mono>. Admin: <Mono>components/menus/MenuImport.jsx</Mono> (files, review, done;{' '}
+              <Mono>MenuImportModal</Mono> on the Menus page, embedded in the wizard's Menu step). Tests:{' '}
+              <Mono>api/test/menu-import.test.mjs</Mono>.
+            </P>
+            <P>
+              <Mono>GET /api/menus/print-designs</Mono> (open to signed-in staff, like the other menu reads) lists every print design of the tenant with its menu
+              (id, name, layout, menu_id, menu_name), for Brand &amp; theme's Use the brand on other designs.
             </P>
             <H3>Publishing: draft and live (migration 165)</H3>
             <P>
@@ -6016,6 +6083,30 @@ selection.combo = { [stepId]: [{ option_id, item_id, choices }] }   // item_id n
               for a while after <Mono>menu_inline.eta</Mono> already had them.
             </InfoBox>
 
+            <H3>The Brand &amp; theme page (/brand)</H3>
+            <P>
+              Since 20 Oct 2026 the group's brand has its own page, <Mono>pages/Brand.jsx</Mono> (route{' '}
+              <Mono>/brand</Mono>, catalogue entry with module <Mono>website</Mono>), because kiosks, menu screens,
+              printed menus and the admin's card headers use it too. It renders{' '}
+              <Mono>BrandIdentitySection part="brand"</Mono> (brand_name, tagline, logo_url, favicon_url) and{' '}
+              <Mono>BrandThemeSection</Mono> (Theme ideas, Colours, Fonts) from <Mono>Website.jsx</Mono>, inside a{' '}
+              <Mono>ReadOnlyFieldset</Mono> for people without Website manage. Storage is unchanged:{' '}
+              <Mono>tenant_site</Mono> through <Mono>/website/brand-defaults</Mono>, so the public site shows a change
+              after Publish, while <Mono>/api/me</Mono>'s <Mono>site_theme</Mono> (swatches, card headers) and the
+              designers' Use the brand read the saved draft straight away. Each identity part saves only its own fields
+              (<Mono>IDENTITY_PARTS</Mono>: brand, site, all). <Mono>BrandThemeSection</Mono> also writes the legacy{' '}
+              <Mono>primary_colour</Mono> / <Mono>font_family</Mono> columns from the theme.
+            </P>
+            <P>
+              <Mono>components/brand/ApplyBrand.jsx</Mono> (<Mono>ApplyBrandCard</Mono>, "Use the brand on other designs")
+              lists kiosk designs (Till setup manage), menu screen boards (Menu screens manage) and printed menu designs
+              (Menus manage, from <Mono>GET /api/menus/print-designs</Mono>); the ticked ones take{' '}
+              <Mono>kitFromBrand(tenant_site)</Mono> (<Mono>shared/themeKit.js</Mono>, source <Mono>brand</Mono>)
+              through the mappers <Mono>kioskBrandFromKit()</Mono> / <Mono>boardFromKit()</Mono> /{' '}
+              <Mono>printFromKit()</Mono>, saved with each design's own PUT (a board is read first: its list row has no
+              layout). In the designers, <Mono>ThemeMakerButton</Mono> shows Use the brand (<Mono>useBrandKit()</Mono>)
+              and the theme maker lists Your brand first for every target but the website.
+            </P>
             <H3>Brand & theme — tenant default + per-venue site overrides</H3>
             <P>
               <Mono>website_config.use_brand_override</Mono> (migration 098, boolean, default{' '}
@@ -6032,9 +6123,12 @@ selection.combo = { [stepId]: [{ option_id, item_id, choices }] }   // item_id n
             </P>
             <P>
               Admin UI: <Mono>BrandSection</Mono> in <Mono>Website.jsx</Mono> (rendered under{' '}
-              <Mono>tenant-brand</Mono>) shows a pill selector — "Default" plus one pill per venue
-              with an active override — only when the tenant has more than one venue.{' '}
-              <Mono>+ Add site override</Mono> calls <Mono>POST /website/config</Mono> (ensures the
+              <Mono>tenant-brand</Mono>, labelled Look &amp; layout) shows a pill selector — "Whole website"
+              plus one pill per venue with an active override — only when the tenant has more than one venue.
+              Whole website shows a card pointing at <Mono>/brand</Mono>, <Mono>BrandIdentitySection part="site"</Mono>{' '}
+              (site name, social picture) and <Mono>BrandLayoutSection</Mono>; a venue pill shows identity (part all),
+              theme and layout for that venue.{' '}
+              <Mono>Give a location its own look</Mono> calls <Mono>POST /website/config</Mono> (ensures the
               venue's row exists) then <Mono>PATCH /website/config?venue_id=X</Mono> with{' '}
               <Mono>use_brand_override: true</Mono> and every override field COPIED from the
               tenant's current values at that moment — a snapshot, not a live link; editing the

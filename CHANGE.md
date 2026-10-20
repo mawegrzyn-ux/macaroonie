@@ -5,6 +5,17 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-20 — New venue step by step, menus from a photo, Brand & theme page, a tidier main menu]
+
+- **New venue** (Venues → New venue, or the button on the Venues page) sets a venue up step by step: the venue (name, address, time zone, opening date), Brand & theme, the menu, opening hours, tables and booking rules, everything else (devices to get ready, online ordering, a card per remaining area), then **Check and create**. Start **From scratch** or **Like a venue you have**. Each step has its own Save; moving on with changes not saved asks first. Nothing is made until Create. It replaces the Add venue form and the Pepper-led New location page; drafts are kept and listed.
+- Pepper is optional: **Describe it to Pepper** on the first step fills in what you haven't set yourself (what to copy, hours, tables, devices) and may ask a few questions. With no venues yet, the Overview shows **Set up your first venue**.
+- On the Brand & theme step a later venue's web page can have **its own look**, made from a picture or a few words; the Menu step reads a menu from your files or picks menus the group has for the venue's online ordering (optionally keeping menus made there for that venue only).
+- **A menu from a photo or PDF**: Menus → **From a photo or PDF** (also in the wizard). Add photos of each page or a PDF (up to 10 files), and Pepper reads the sections, dishes, prices, descriptions, allergens, dietary tags and options. Check and change them, then **Make the menu**: it is saved as a draft to check, add photos to and publish. Allergens and tags are matched to yours (never added); options use your option groups or a new one named after the menu. Counts towards the AI allowance.
+- **Brand & theme** has its own page (Brand & web → Brand & theme): the brand name, tagline, logo, browser icon, colours and fonts, with Theme ideas. It applies to more than the website: **Use the brand on other designs** puts it on the kiosk designs, menu screen boards and printed menu designs you tick (each keeps its layout, pictures and words), and the kiosk, menu screen and printed menu designers have **Use the brand** beside the theme maker. The website still shows brand changes once published.
+- Website → Brand & theme is now **Look & layout**: the site name, social picture, boxed inset layout, and a location's own look (**Give a location its own look**).
+- **A new main menu** for every group, grouped by job: Home, Service, Money, Health & safety, Stock, People, Menus, Brand & web, Venues, Admin, Help, with every page once. It replaces each group's menu once (changes made on the Navigation page and launcher tiles go; the menu is back to the sidebar). Navigation → Reset to defaults brings it back later.
+- **Migration 196** (main_menu): replaces every tenant's `nav_items` with the new default tree and sets `tenants.nav_style` to sidebar.
+
 ## [2026-10-20 — Download the hub's installer]
 
 - The venue hub has an **installer to download** on the mini PC: open **pos.macaroonie.com/hub** in its browser and press **Download the installer**.

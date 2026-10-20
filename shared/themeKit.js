@@ -265,7 +265,7 @@ export function normaliseKit(raw, { source } = {}) {
     },
     shape: oneOf(r.shape, KIT_SHAPES, 'soft'),
     heading_case: oneOf(r.heading_case, HEADING_CASES, 'normal'),
-    source: oneOf(source || r.source, ['ai', 'picture', 'current', 'recent'], 'ai'),
+    source: oneOf(source || r.source, ['ai', 'picture', 'current', 'recent', 'brand'], 'ai'),
   }
 }
 
@@ -515,6 +515,15 @@ export function kitFromPrint(layout = {}) {
     },
     shape: 'soft', heading_case: 'normal',
   }, { source: 'current' })
+}
+
+/**
+ * The group's brand (Brand & theme: tenant_site's theme) as a kit, for the
+ * designers' Use the brand and the Brand page's Apply the brand.
+ */
+export function kitFromBrand(site = {}) {
+  const k = kitFromWebsiteTheme(site?.theme || {})
+  return { ...k, name: 'Your brand', about: 'The colours and fonts on Brand & theme.', source: 'brand' }
 }
 
 /** The current look of the designer named by target, as a kit. */

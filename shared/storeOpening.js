@@ -20,8 +20,21 @@
 //   checklists, purchasing, staff, emails: each area's settings for 'new'
 //   (and the few that also change a copy: ordering.enabled, till.receipt_name,
 //   purchasing.pars_percent, emails.from_name)
+//   menus          { ids, made, only_here }  menus for its online ordering;
+//                  made = menus made in the setup wizard (from a photo or PDF),
+//                  only_here = those belong to the new venue alone
+//   brand          { kit }  the venue's web page gets its own look (a theme
+//                  kit, shared/themeKit.js), else the group's brand
+//
+// The venue setup wizard (admin/src/pages/NewLocation.jsx) sets these itself
+// (overrides, SETTING_KEYS); Pepper's plan only fills what it hasn't set.
+
+import { normaliseKit } from './themeKit.js'
 
 export const MODES = ['copy', 'new', 'skip']
+
+// Settings the person can set on the opening (they win over Pepper's plan).
+export const SETTING_KEYS = ['hours', 'tables', 'booking_rules', 'ordering', 'till', 'devices', 'food_safety', 'checklists', 'purchasing', 'staff', 'emails', 'menus', 'brand']
 export const MODE_LABELS = { copy: 'Copy', new: 'Set up new', skip: 'Leave for later' }
 
 // Rounds of questions before Pepper must write the brief.
@@ -231,6 +244,14 @@ function cleanTill(t) {
   return { receipt_name: str(t?.receipt_name, 80) || null, streams }
 }
 
+function cleanMenus(m) {
+  const ids = [...new Set(list(m?.ids, 20).filter(x => typeof x === 'string' && UUID_RE.test(x)))]
+  const made = [...new Set(list(m?.made, 20).filter(x => ids.includes(x)))]
+  return { ids, made, only_here: !!m?.only_here && made.length > 0 }
+}
+
+const cleanBrand = b => ({ kit: b?.kit && typeof b.kit === 'object' ? normaliseKit(b.kit, { source: b.kit.source }) : null })
+
 const cleanDevices = d => ({
   tills: int(d?.tills, 0, 30, 0),
   kitchen_screens: int(d?.kitchen_screens, 0, 30, 0),
@@ -270,6 +291,8 @@ export function normalisePlan(raw = {}, overrides = {}, opts = {}) {
   const templates = opts.templates || new Set()
 
   const template = o.template_venue_id !== undefined ? o.template_venue_id : r.template_venue_id
+  // The person's own settings win over Pepper's.
+  const pick = k => (o[k] !== undefined && o[k] !== null ? o[k] : r[k])
   const plan = {
     venue: {
       name,
@@ -289,17 +312,19 @@ export function normalisePlan(raw = {}, overrides = {}, opts = {}) {
     opening_date: null,
     template_venue_id: typeof template === 'string' && UUID_RE.test(template) && templates.has(template) ? template : null,
     modes: {},
-    hours: cleanHours(r.hours),
-    tables: cleanTables(r.tables),
-    booking_rules: cleanRules(r.booking_rules),
-    ordering: { enabled: !!r.ordering?.enabled },
-    till: cleanTill(r.till),
-    devices: cleanDevices(r.devices),
-    food_safety: cleanFoodSafety(r.food_safety),
-    checklists: cleanChecklists(r.checklists),
-    purchasing: { pars_percent: int(r.purchasing?.pars_percent, 10, 500, 100) },
-    staff: cleanStaff(r.staff),
-    emails: { from_name: str(r.emails?.from_name, 80) || null },
+    hours: cleanHours(pick('hours')),
+    tables: cleanTables(pick('tables')),
+    booking_rules: cleanRules(pick('booking_rules')),
+    ordering: { enabled: !!pick('ordering')?.enabled },
+    till: cleanTill(pick('till')),
+    devices: cleanDevices(pick('devices')),
+    food_safety: cleanFoodSafety(pick('food_safety')),
+    checklists: cleanChecklists(pick('checklists')),
+    purchasing: { pars_percent: int(pick('purchasing')?.pars_percent, 10, 500, 100) },
+    staff: cleanStaff(pick('staff')),
+    emails: { from_name: str(pick('emails')?.from_name, 80) || null },
+    menus: cleanMenus(o.menus),
+    brand: cleanBrand(o.brand),
   }
   const opening = realDate(o.opening_date !== undefined ? o.opening_date : r.opening_date)
   plan.opening_date = opening && (!opts.today || opening >= opts.today) ? opening : null
@@ -381,8 +406,10 @@ export function previewPlan(plan, template) {
         out.booking_rules = 'Bookings last ' + b.slot_duration_mins + ' minutes, parties of ' + b.min_covers + '-' + b.max_covers + ', up to ' + b.book_until_days + ' days ahead.'
         break
       }
-      case 'website': out.website = 'A new location page with the address and contact details.'; break
-      case 'ordering': out.ordering = 'Set up and switched off: pick its menus and hours in Ordering setup.'; break
+      case 'website': out.website = 'A new location page with the address and contact details' + (plan.brand.kit ? ', with a look of its own ("' + plan.brand.kit.name + '").' : '.'); break
+      case 'ordering': out.ordering = plan.menus.ids.length
+        ? 'Set up and switched off, with ' + plural(plan.menus.ids.length, 'menu') + ': set its hours in Ordering setup.'
+        : 'Set up and switched off: pick its menus and hours in Ordering setup.'; break
       case 'till': {
         const names = plan.till.streams.map(x => x.name)
         out.till = 'Till settings' + (plan.till.receipt_name ? ' (receipts say "' + plan.till.receipt_name + '")' : '') + ', revenue streams: ' + (names.length ? names.join(', ') : 'Restaurant') + '.'
@@ -443,6 +470,7 @@ export function buildFollowups({ plan, results, template, brief, venueName }) {
       : 'Check ' + name + '\'s online ordering menus and switch it on when ready.', '/orders/settings')
   }
   if (plan.opening_date && done('hours')) add('bookings', 'Bookings open from ' + plan.opening_date + ': the "Not open yet" closure ends the day before. Move it on the Schedule page if the date changes.', '/schedule')
+  if (plan.menus?.made?.length) add('menus', 'Check the menu made from your file (photos, prices, allergens), then publish it so the till, kiosks and website show it.', '/menus')
   if (done('purchasing')) add('suppliers', 'Add ' + name + '\'s account number with each supplier.', '/suppliers')
   if (!done('staff')) add('team', 'Add the team at ' + name + ': their roles, pay and till PINs.', '/staff')
   else add('team', 'Give each person at ' + name + ' a till PIN and check their pay.', '/staff')

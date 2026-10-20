@@ -55,6 +55,7 @@ import Docs        from '@/pages/Docs'
 import Help        from '@/pages/Help'
 import Settings    from '@/pages/Settings'
 import Website     from '@/pages/Website'
+import Brand       from '@/pages/Brand'
 import CashRecon      from '@/pages/CashRecon'
 import EmailTemplates from '@/pages/EmailTemplates'
 import EmailMonitoring from '@/pages/EmailMonitoring'
@@ -234,6 +235,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 <Route path="schedule" element={<Schedule />} />
                 <Route path="rules"       element={<Rules />} />
                 <Route path="website"     element={<Website />} />
+                <Route path="brand"       element={<Brand />} />
                 <Route path="reservations-widget" element={<Navigate to="/website?section=tenant-widget" replace />} />
                 <Route path="cash-recon" element={<CashRecon />} />
                 <Route path="food-safety" element={<FoodSafety />} />

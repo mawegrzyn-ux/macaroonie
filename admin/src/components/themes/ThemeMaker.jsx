@@ -25,7 +25,7 @@ import { MediaLibraryModal } from '@/components/media/MediaLibrary'
 import { useAiStatus } from '@/components/ai/ChatView'
 import { ASSISTANT_NAME } from '@shared/assistant.js'
 import {
-  extractPalette, kitsFromPalette, normaliseKit, kitFontsUrl, kitFromCurrent,
+  extractPalette, kitsFromPalette, normaliseKit, kitFontsUrl, kitFromCurrent, kitFromBrand,
   websiteThemeFromKit, kioskBrandFromKit, boardFromKit, printFromKit, PRINT_PAPER,
 } from '@shared/themeKit.js'
 
@@ -56,6 +56,13 @@ export function useFontLink(url) {
     document.head.appendChild(link)
     return () => link.remove()
   }, [url])
+}
+
+/** The group's brand (Brand & theme) as a kit, or null while loading / when it has no colours yet. */
+export function useBrandKit() {
+  const api = useApi()
+  const { data: site } = useQuery({ queryKey: ['tenant-site'], queryFn: () => api.get('/website/tenant-site'), staleTime: 60_000 })
+  return useMemo(() => (site && site.theme?.colors ? kitFromBrand(site) : null), [site])
 }
 
 // ── Reading a picture ───────────────────────────────────────────
@@ -289,7 +296,8 @@ export function ThemeMaker({ target, current, onApply, onClose }) {
   const asked = useRef(0)
 
   const pictureKits = useMemo(() => kitsFromPalette(picture?.palette || []), [picture])
-  const fontsUrl = useMemo(() => kitFontsUrl([...aiKits, ...pictureKits, ...recent]), [aiKits, pictureKits, recent])
+  const brandKit = useMemo(() => (target !== 'website' && site?.theme?.colors ? kitFromBrand(site) : null), [target, site])
+  const fontsUrl = useMemo(() => kitFontsUrl([...aiKits, ...pictureKits, ...recent, ...(brandKit ? [brandKit] : [])]), [aiKits, pictureKits, recent, brandKit])
   useFontLink(fontsUrl)
 
   useEffect(() => {
@@ -460,6 +468,13 @@ export function ThemeMaker({ target, current, onApply, onClose }) {
                 </div>
               </div>
 
+              {brandKit && (
+                <KitGroup title="Your brand" note="The colours and fonts on Brand & theme." testId="tm-brand-kit">
+                  <KitCard kit={brandKit} view={view} name={brandName} onUse={use} canMore={canAi} busy={busy}
+                    onMore={kit => make({ like: kit })} />
+                </KitGroup>
+              )}
+
               {(busy || aiKits.length > 0) && (
                 <KitGroup title={'From ' + ASSISTANT_NAME} note={notes} testId="tm-ai-kits">
                   {busy
@@ -521,6 +536,9 @@ export function ThemeMaker({ target, current, onApply, onClose }) {
 export function ThemeMakerButton({ target, current, onApply, className, label = 'Make a theme' }) {
   const [open, setOpen] = useState(false)
   const [used, setUsed] = useState(null)
+  // Designers other than the website's can take the brand in one tap.
+  const brandKit = useBrandKit()
+  const brand = target !== 'website' ? brandKit : null
   return (
     <>
       <span className={cn('inline-flex flex-wrap items-center gap-2', className)}>
@@ -528,6 +546,13 @@ export function ThemeMakerButton({ target, current, onApply, className, label = 
           className="min-h-[44px] px-3 rounded-md border bg-background text-sm font-medium inline-flex items-center gap-1.5 touch-manipulation hover:bg-muted">
           <Wand2 className="w-4 h-4 text-primary" /> {label}
         </button>
+        {brand && (
+          <button type="button" onClick={() => { setUsed(brand.name); onApply(brand) }} data-testid="theme-use-brand"
+            title="The colours and fonts on Brand & theme"
+            className="min-h-[44px] px-3 rounded-md border bg-background text-sm font-medium inline-flex items-center gap-1.5 touch-manipulation hover:bg-muted">
+            <KitSwatches kit={brand} className="shrink-0" /> Use the brand
+          </button>
+        )}
         {used && (
           <span className="text-xs text-muted-foreground" data-testid="theme-maker-used">
             Filled in from &ldquo;{used}&rdquo;. Check it, then save.

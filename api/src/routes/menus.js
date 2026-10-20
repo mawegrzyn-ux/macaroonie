@@ -1149,6 +1149,15 @@ export default async function menusRoutes(app) {
     return d
   }
 
+  // Every menu's print designs, for Brand & theme's Apply the brand.
+  app.get('/print-designs', async (req) => {
+    return withTenant(req.tenantId, tx => tx`
+      SELECT d.id, d.name, d.layout, d.updated_at, m.id AS menu_id, m.name AS menu_name
+        FROM menu_print_designs d JOIN menus m ON m.id = d.menu_id AND m.tenant_id = d.tenant_id
+       WHERE d.tenant_id = ${req.tenantId}
+       ORDER BY m.sort_order, m.name, d.created_at`)
+  })
+
   // { name, layout } — a new design. A menu's first design is also made
   // the one used for printing.
   app.post('/:id/designs', { preHandler: PERM.manage}, async (req, reply) => {

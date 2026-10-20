@@ -583,6 +583,55 @@ function addWarnings({ unknown, book, groups, skippedNames, body }) {
   return w
 }
 
+// ── A whole menu in one go ─────────────────────────────────
+
+// A menu read from a photo or PDF (routes/menuImport.js, the venue wizard):
+// the sections the person checked, in create_menu's shape.
+export const ImportSectionIn = SectionIn
+export const MAX_IMPORT_DISHES = 600
+
+/**
+ * Makes a menu from sections in one go: create_menu without its per-call dish
+ * limit (that limit is for the model writing a tool call, not for a menu the
+ * person has already checked). Returns create_menu's result plus its warnings.
+ */
+export async function createMenuFromSections(ctx, input) {
+  await requireEdit(ctx)
+  const total = (input.sections || []).reduce((n, s) => n + s.dishes.length, 0)
+  if (total > MAX_IMPORT_DISHES) throw new ToolError('That is ' + total + ' dishes: a menu can be made with up to ' + MAX_IMPORT_DISHES + ' at a time.', 422)
+  // An existing option group missing a choice the file has would refuse the
+  // whole menu: those dishes get a new group of their own instead.
+  const existing = await callApi(ctx, 'GET', '/api/menus/variant-groups')
+  const renamed = new Map()
+  for (const s of input.sections || []) {
+    for (const d of s.dishes) {
+      for (const o of d.options || []) {
+        const g = existing.find(x => sameName(x.name, o.group))
+        if (g && o.choices.some(c => !(g.options || []).some(x => sameName(x.label, c.name)))) {
+          if (!renamed.has(o.group)) renamed.set(o.group, o.group.slice(0, 60) + ' (' + input.name.slice(0, 15) + ')')
+          o.group = renamed.get(o.group)
+        }
+      }
+    }
+  }
+  const p = await planCreate(ctx, input, { batch: false })
+  return audited(ctx, 'import_menu', summariseInput(input), async () => {
+    const groups = await makeGroups(ctx, p.book, p.body)
+    const row = await callApi(ctx, 'POST', '/api/menus', { body: p.meta })
+    try {
+      if (p.body.sections.length) await saveBody(ctx, row.id, { ...p.meta, sections: p.body.sections, callouts: [] })
+    } catch (err) {
+      await callApi(ctx, 'DELETE', '/api/menus/' + row.id).catch(() => {})
+      throw err
+    }
+    return {
+      menu_id: row.id, name: row.name, venue: p.venue?.name ?? 'all venues',
+      sections: p.body.sections.length, dishes: p.add?.added ?? 0,
+      new_option_groups: groups, warnings: p.warnings,
+    }
+  })
+}
+
 // ── Tools ──────────────────────────────────────────────────
 
 export const menuTools = [
@@ -1265,7 +1314,7 @@ function summariseInput(input) {
 
 // ── Plan functions (shared by describe and run) ────────────
 
-async function planCreate(ctx, input) {
+async function planCreate(ctx, input, { batch = true } = {}) {
   const [menus, venues, tags, groups] = await Promise.all([
     loadMenus(ctx), tenantVenues(ctx), callApi(ctx, 'GET', '/api/menus/dietary/all'), callApi(ctx, 'GET', '/api/menus/variant-groups'),
   ])
@@ -1283,7 +1332,7 @@ async function planCreate(ctx, input) {
   const book = groupBook(groups)
   const unknown = []
   const total = (input.sections || []).reduce((n, s) => n + s.dishes.length, 0)
-  if (total > BATCH_DISHES) {
+  if (batch && total > BATCH_DISHES) {
     throw new ToolError('That is ' + total + ' dishes: put up to ' + BATCH_DISHES + ' in create_menu, then add the rest with add_dishes, ' +
       'a section or two per call (you can call it straight away; the cards run in order).', 422)
   }
@@ -1323,7 +1372,7 @@ async function planUpdateMenu(ctx, input) {
 
 async function planAdd(ctx, input, { forCard = false } = {}) {
   const total = input.sections.reduce((n, s) => n + s.dishes.length, 0)
-  if (total > BATCH_DISHES) {
+  if (batch && total > BATCH_DISHES) {
     throw new ToolError('That is ' + total + ' dishes: send up to ' + BATCH_DISHES + ' per call (a section or two), then the rest in another add_dishes.', 422)
   }
   const { menu, body, tags, groups, book: newBook, waitsFor } = await loadForAdd(ctx, input.menu, forCard)
