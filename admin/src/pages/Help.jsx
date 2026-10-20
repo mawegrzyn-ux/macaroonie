@@ -1906,11 +1906,6 @@ export default function Help() {
               as closed. A closed day with someone rostered on it is always shown, marked "Closed", so nobody
               disappears from the rota. A venue with no weekly schedule set up never hides any days.
             </P>
-            <P>
-              <strong>Hide totals on printouts and images</strong> (also in Rota setup) leaves the
-              totals off Print / PDF and Save image: the Working count under each day and each
-              person's Hours column. The rota page itself still shows them.
-            </P>
             <H3>The rota</H3>
             <P>
               <strong>Rota</strong> shows names down the side and the days of the week across the top.
@@ -1944,7 +1939,7 @@ export default function Help() {
             />
             <P>
               The Week column and the bottom row count only people working. Time off shows on the
-              printout and image in its own colour, and the Rota dashboard's who's-on list shows who is
+              printout and image in the same colour as on the grid, and the Rota dashboard's who's-on list shows who is
               off that day. <strong>Copy from week</strong> copies only worked shifts, not time off.
             </P>
             <P>
@@ -1974,16 +1969,19 @@ export default function Help() {
               name has a line saying why (for example "Last day Wed 4 Nov"). Someone away the whole week is
               listed under the grid in <strong>Off the rota all week</strong>; someone who left before the
               week doesn't show at all. Both are set on the Staff page, not here. Copy from week skips
-              shifts that would land on those days, and the printout and image show them as Left or Off
-              rota.
+              shifts that would land on those days, and the printout and image show the same hatched LEFT
+              and AWAY tiles.
             </P>
             <P>
-              <strong>Print / PDF</strong> opens your device's print dialog with the week laid out on
-              one A4 landscape page (names down the side, days across, each person's shifts or times in
-              the day's box, hours per person and how many are working each day). Pick a printer, or
-              "Save as PDF" to keep a copy. <strong>Save image</strong> saves the same sheet as a picture
-              (on a tablet or phone it is <strong>Share image</strong>, which opens the share sheet so you
-              can send it straight to a staff group chat). Both print exactly what is on screen; if you
+              <strong>Print / PDF</strong> opens your device's print dialog with the week on an A4
+              landscape page that looks like the rota grid: names down the side, days across with the
+              shifts under each day, and the same green ON, grey OFF and coloured time off tiles (by
+              hours: each day's times in the same tinted boxes). It leaves out what is only for the
+              screen: the roles under the names, the take-off and tap mode buttons, each person's hours
+              and the On shift row. A line under the sheet gives the shift times. Pick a printer, or
+              "Save as PDF" to keep a copy. <strong>Save image</strong> saves the same sheet as a JPG
+              picture (on a tablet or phone it is <strong>Share image</strong>, which opens the share
+              sheet so you can send it straight to a staff group chat). Both print exactly what is on screen; if you
               have unsaved changes the sheet is marked "DRAFT, not saved". The buttons are also on the
               Rota grid dashboard widget, and anyone who can view the rota can use them.
             </P>

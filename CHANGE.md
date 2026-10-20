@@ -5,6 +5,14 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-20 — Rota printout and image look like the grid]
+
+- **Rota → Print / PDF** and **Save image** now look like the rota grid on screen: a tile per shift in the same colours (green ON, grey OFF, SICK / PTO / UTO / ABS in their own colours, hatched LEFT and AWAY), each day's shifts under the day, closed days marked. Hourly rotas show each period in a tinted box with its times. A line under the sheet gives the shift times and what the time-off codes mean.
+- The printout and image leave out the Week hours column, the On shift row, the role under each name and the grid's buttons.
+- **Save image** saves a JPG instead of a PNG (smaller, opens everywhere).
+- Rota setup's **Hide totals on printouts and images** is gone: totals are never printed now.
+- **Migration 194** (rota_print_like_grid) drops the old setting.
+
 ## [2026-10-20 — Card machines: Dojo, Stripe Terminal and SumUp on the till and kiosks]
 
 - **Till setup → Card machines**: add your Dojo, Stripe or SumUp account with its secret key (checked with the provider before saving, stored sealed, never shown again), then add each machine at a location: pick it from the account's machines, or pair a new one with the code it shows (Stripe and SumUp). A **Test card machine** pretends to take cards, with Approve and Decline buttons on the till and kiosk.

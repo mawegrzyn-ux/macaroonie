@@ -2179,7 +2179,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               head={['Table', 'Purpose']}
               rows={[
                 ['staff_roles', 'Tenant job titles: name, points_multiplier numeric(5,2) default 1, sort_order, is_active. cash_staff.role_id references it ON DELETE SET NULL.'],
-                ['rota_settings', 'One row per tenant: mode (day_parts | hourly), slot_minutes (15 | 30 | 60), tip_round_to (numeric, null = to the penny) and tip_round_mode (nearest | up | down), migration 107; hide_closed_on_rota and hide_closed_on_print (booleans, default false), migration 110; hide_totals_on_print (boolean, default false), migration 114. Missing row = day_parts / 30 / no rounding / show every day.'],
+                ['rota_settings', 'One row per tenant: mode (day_parts | hourly), slot_minutes (15 | 30 | 60), tip_round_to (numeric, null = to the penny) and tip_round_mode (nearest | up | down), migration 107; hide_closed_on_rota and hide_closed_on_print (booleans, default false), migration 110 (hide_totals_on_print, migration 114, dropped by 194). Missing row = day_parts / 30 / no rounding / show every day.'],
                 ['rota_shifts', 'Day parts: name, start_time, end_time (end <= start runs past midnight), points, sort_order, is_active. Deleting a shift used by any entry only hides it.'],
                 ['staff_shift_rates', 'Per staff per shift rate (PK staff_id, shift_id): hourly rate for hourly staff, amount per shift for fixed/shift staff. Replaced wholesale by the staff PATCH shift_rates array.'],
                 ['rota_entries', 'venue_id, staff_id, work_date, and either shift_id (day-part tick) or start_time + end_time (hourly period); CHECK enforces one or the other. Partial unique index on (staff_id, work_date, shift_id). status (text, default on, CHECK on | sick | pto | uto | abs), migration 129: working or a kind of time off.'],
@@ -2258,21 +2258,27 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               save. Each name has a <Mono>ModeButton</Mono> (per-person tap mode, module-level{' '}
               <Mono>modeCache</Mono>, menu portalled to body so the sticky name cells don't cover it);
               a day-part tap adds an entry with that status, removes one already in that status, or
-              switches another status to it. Status codes, names and print colours live in{' '}
-              <Mono>ENTRY_STATUSES</Mono> in rotaExport.js (grid colours in <Mono>STATUS_CLS</Mono>{' '}
-              in rota.jsx). Hourly cells open <Mono>PeriodEditor</Mono>, which validates overlap client-side
+              switches another status to it. Status codes, names and the colours the printout and image
+              use live in <Mono>ENTRY_STATUSES</Mono> in rotaExport.js (<Mono>solid</Mono> for tiles,{' '}
+              <Mono>soft</Mono> for hourly boxes); the grid's own Tailwind classes are{' '}
+              <Mono>STATUS_CLS</Mono> / <Mono>STATUS_SOFT</Mono> in rota.jsx, and the two must stay the
+              same colours. Hourly cells open <Mono>PeriodEditor</Mono>, which validates overlap client-side
               with the same rule as the API (<Mono>periodProblem()</Mono>). Permissions come from{' '}
               <Mono>/me</Mono> via <Mono>useRotaPerms()</Mono>.
             </P>
             <P>
               Export: <Mono>components/staff/rotaExport.js</Mono>, no libraries.{' '}
               <Mono>buildRotaSheet()</Mono> turns the grid's current entries (the draft, flagged as such
-              when unsaved) into one table model: a row per person, a column per day, each cell the
-              shift names (day parts) or periods (hourly). <Mono>printRota()</Mono> writes{' '}
+              when unsaved) into the sheet the grid shows, without its buttons, roles and totals: a row
+              per person (name only), the days across with the shifts under each day (the grid's own
+              columns: active shifts plus any old one the week uses), and per cell an ON / status tile
+              or OFF per shift (day parts), the periods in a tinted box with a status badge (hourly), or
+              one hatched LEFT / AWAY tile for a day off the rota. <Mono>printRota()</Mono> writes{' '}
               <Mono>rotaHtml(sheet)</Mono> (A4 landscape <Mono>@page</Mono>) into a hidden{' '}
               <Mono>srcdoc</Mono> iframe and calls its <Mono>print()</Mono>, so the PDF comes from the
-              browser's "Save as PDF". <Mono>saveRotaImage()</Mono> draws the same model on a 2x canvas
-              (<Mono>drawRotaCanvas()</Mono>) and downloads a PNG, or on touch devices uses{' '}
+              browser's "Save as PDF". <Mono>saveRotaImage()</Mono> draws the same sheet on a 2x canvas
+              (<Mono>drawRotaCanvas()</Mono>, white background, rounded tiles) and downloads a JPG
+              (<Mono>image/jpeg</Mono>, quality 0.92), or on touch devices uses{' '}
               <Mono>navigator.share</Mono> with the file when <Mono>canShare</Mono> allows it.
             </P>
             <P>
@@ -2286,11 +2292,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>hide_closed_on_print</Mono>. A closed day that stays visible is labelled Closed.
             </P>
             <P>
-              Totals: <Mono>buildRotaSheet({'{'} hideTotals {'}'})</Mono> (from{' '}
-              <Mono>rota_settings.hide_totals_on_print</Mono>, migration 114) sets{' '}
-              <Mono>sheet.showTotals = false</Mono>; <Mono>rotaHtml()</Mono> then omits the Hours column
-              and the Working <Mono>tfoot</Mono>, and <Mono>drawRotaCanvas()</Mono> sizes the canvas
-              without them (hours column width and footer height 0).
+              Totals: the printout and image never have them (the Week column and the On shift row
+              are on the grid only). Migration 194 dropped <Mono>rota_settings.hide_totals_on_print</Mono>{' '}
+              (migration 114), the Rota setup switch that used to leave them out.
             </P>
             <H3>Modules, nav, dashboard</H3>
             <P>
