@@ -507,6 +507,7 @@ function OrderBuilder({ data, onClose, onSend }) {
   const [source, setSource] = useState('till')
   const [typeId, setTypeId] = useState(data.order_types?.[0]?.id || null)
   const [streamId, setStreamId] = useState(data.streams?.[0]?.id || null)
+  const [deviceId, setDeviceId] = useState(null)
   const [tableId, setTableId] = useState(null)
   const [tent, setTent] = useState('')
   const [name, setName] = useState('')
@@ -581,6 +582,15 @@ function OrderBuilder({ data, onClose, onSend }) {
                 {data.streams.map(r => <button key={r.id} className={cx('chip', streamId === r.id && 'chip-on')} onClick={() => setStreamId(r.id)}>{r.name}</button>)}
               </Group>
             )}
+            {source === 'till' && (data.devices || []).length > 0 && (
+              <label className="block">
+                <span className="label">Sent from</span>
+                <select className="input mt-1" value={deviceId || ''} onChange={e => setDeviceId(e.target.value || null)} data-testid="bench-device">
+                  <option value="">Any till</option>
+                  {data.devices.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                </select>
+              </label>
+            )}
             {source === 'till' && (
               <label className="block">
                 <span className="label">Where</span>
@@ -631,6 +641,7 @@ function OrderBuilder({ data, onClose, onSend }) {
           <button className="btn btn-primary" disabled={!lines.length} data-testid="bench-send"
             onClick={() => onSend({
               source, order_type_id: typeId, revenue_stream_id: streamId, table_id: source === 'till' ? tableId : null,
+              device_id: source === 'till' ? deviceId : null,
               tent: source === 'till' && !tableId ? tent : null, name, hold_courses: holdCourses, lines,
             })}>
             Send to the kitchen

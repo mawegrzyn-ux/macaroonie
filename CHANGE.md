@@ -5,6 +5,15 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-20 — Kitchen flows shared by every location; Screens page per location]
+
+- **Shared kitchen flows**: Till setup → Kitchen screens → **New flow** (or **Copy**) → **Every location**. A shared flow shows at every location after its own flows, with a globe on its tab; each location puts it in use itself. Its boxes are station names: at each location a box is that location's station of the same name (capitals and spaces don't matter), so one flow sends each location's dishes to its own Grill, Fryer and Pass. A location without a box's station skips that box's links, and its dishes take the next closest link.
+- The designer marks boxes this location has no station for (*none here*) and lists what each location lacks, with **Add them at** that location. A box's panel names its station at every location, with **Add it** where there isn't one. Boxes can be renamed, given another kind and removed.
+- **Sent from**: a kitchen flow link can now take only the dishes sent from a given till or kiosk (the bar's till to the bar). It ranks after the dish and its section, before the revenue stream and order type. In a shared flow it goes by the till's name at each location. The kitchen test bench's Test order has a matching **Sent from** choice; **Check a dish** has one too.
+- A copy goes either way: a shared flow as this location's own, or this location's flow shared. A shared flow can't be deleted while any location uses it. A new location copied from one that uses a shared flow uses it too.
+- **Screens** page: a **Location** picker on the Screens and Walls tabs shows one location's screens and walls (or every location's), remembered on the device; new screens and walls start at the location picked. Boards and playlists stay shared by every location.
+- **Migration 192** (shared_kitchen_flows).
+
 ## [2026-10-19 — Kitchen printers in the flow, printers plugged into tills, the venue hub]
 
 - **Kitchen printers in the kitchen flow**: Till setup → Kitchen screens → Add a station → **Kitchen printer**, pick its printer, and link it in the flow like a kitchen screen. Linked from the till and online orders, it prints each order when it is sent: held courses listed under HOLD, then a **FIRE** ticket when the course is fired, a **VOID** ticket when a dish is voided. After a kitchen screen it prints when that screen bumps the dish (a runner's ticket from the pass). Orders for later print when their time comes. Tickets use the venue's kitchen ticket design.

@@ -80,7 +80,8 @@ after(closeApp)
 
 test('the setup page lists the flows, their links and the one in use', async () => {
   const setup = await ok(owner.get(`/api/pos/venues/${V}/setup`))
-  assert.deepEqual(setup.kds_flows.map(f => f.name), ['Zqx Busy night', 'Main flow'], 'in their order')
+  assert.deepEqual(setup.kds_flows.filter(f => !f.shared).map(f => f.name), ['Zqx Busy night', 'Main flow'], 'in their order')
+  assert.deepEqual(setup.kds_flows.filter(f => f.shared).map(f => f.name), ['Zqx Every site'], 'then the shared ones (migration 192)')
   assert.equal(setup.kds_active_flow_id, main.id)
   const b = setup.kds_flows.find(f => f.id === busy.id)
   assert.deepEqual(sorted(b.links.map(l => l.to)), sorted([grill.id, pass.id]))
@@ -117,7 +118,7 @@ test('the flow in use can\'t be deleted', async () => {
 test('a kitchen screen gets the flows and switches them; dishes follow the flow in use', async () => {
   const config = await device(screen, 'GET', '/pos-api/config')
   assert.equal(config.status, 200, config.body)
-  assert.deepEqual(config.json.flows.map(f => f.name), ['Zqx Busy night', 'Main flow'])
+  assert.deepEqual(config.json.flows.map(f => f.name), ['Zqx Busy night', 'Main flow', 'Zqx Every site'])
   assert.equal(config.json.active_flow_id, main.id)
   assert.deepEqual(config.json.flows.find(f => f.id === busy.id).station_ids, [grill.id, pass.id].sort((a, b) =>
     config.json.stations.findIndex(s => s.id === a) - config.json.stations.findIndex(s => s.id === b)))

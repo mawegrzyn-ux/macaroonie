@@ -89,8 +89,10 @@ export const isOrderLevel = st => st?.kind === 'expo' || st?.kind === 'runner'
 // Where an item comes from before its first station.
 export const START = 'start'
 // What a flow link's filter can name, most specific first.
-export const FLOW_TARGET_KINDS = ['item', 'section', 'revenue_stream', 'order_type', 'default']
-const RANK = { item: 0, section: 1, revenue_stream: 2, order_type: 3, default: 4 }
+export const FLOW_TARGET_KINDS = ['item', 'section', 'device', 'revenue_stream', 'order_type', 'default']
+// A till or kiosk (device) names where an order came from more closely than
+// its revenue stream (a stream groups tills).
+const RANK = { item: 0, section: 1, device: 2, revenue_stream: 3, order_type: 4, default: 5 }
 
 export const STATION_DEFAULTS = { target_mins: 8, late_mins: 12, show_held: true, summary_groups: [], pieces: [], split_above: null }
 
@@ -218,7 +220,8 @@ export function kitchenOrdersForCheckEvent(e) {
 //
 // cfg.stations  { [id]: { id, name, kind, settings } }  (stations in use)
 // cfg.flow      [{ id, from: stationId | null, to: stationId, targets: [{ kind, id }] }]
-//               from null = Orders in; targets [] = everything
+//               from null = Orders in; targets [] = everything. A shared flow
+//               (resolveSharedFlow()) arrives here already in this shape.
 
 /** How specifically a link's filter matches a dish (lower = more), or Infinity. */
 export function linkRank(link, target) {
@@ -230,6 +233,7 @@ export function linkRank(link, target) {
       case 'default': hit = true; break
       case 'item': hit = !!target.item_id && x.id === target.item_id; break
       case 'section': hit = !!target.section_id && x.id === target.section_id; break
+      case 'device': hit = !!target.device_id && x.id === target.device_id; break
       case 'revenue_stream': hit = !!target.revenue_stream_id && x.id === target.revenue_stream_id; break
       case 'order_type': hit = !!target.order_type_id && x.id === target.order_type_id; break
       default: hit = false
@@ -255,7 +259,8 @@ export function nextStations(from, target, cfg) {
 /**
  * A dish's way through the kitchen: { [stationId]: [the nodes before it] },
  * START standing for Orders in. Empty when the flow sends it nowhere.
- *   target  { item_id, section_id, revenue_stream_id, order_type_id }
+ *   target  { item_id, section_id, device_id, revenue_stream_id, order_type_id }
+ *           (device_id: the till or kiosk that sent it; online orders none)
  */
 export function itemRoute(target, cfg) {
   const route = {}
@@ -580,6 +585,113 @@ export function flowWarnings(stations, links) {
   return out
 }
 
+// ── Shared flows (migration 192) ───────────────────────────────
+//
+// A shared flow (kds_flows.venue_id NULL) is used by every location. Its
+// boxes are named stations; at a location each box is that location's
+// station with the same name (case and spaces ignored), so one flow sends
+// each location's dishes to its own Grill, Fryer and Pass. Its filters name
+// dishes, sections and order types by id (the company's) and revenue streams
+// and tills / kiosks by name (each location has its own).
+//   flow.boxes  [{ id, name, kind }]
+//   flow.links  [{ id, from: boxId | null, to: boxId, targets: [{ kind, id } | { kind, name }] }]
+
+/** A station, stream or till name as matched across locations. */
+export const flowName = v => String(v ?? '').trim().replace(/\s+/g, ' ').toLowerCase()
+/** Filters a shared flow keeps by name: each location's own streams and tills. */
+export const NAMED_TARGET_KINDS = ['device', 'revenue_stream']
+
+function byFlowName(list) {
+  const out = {}
+  for (const r of list || []) (out[flowName(r.name)] = out[flowName(r.name)] || []).push(r)
+  return out
+}
+
+/**
+ * A shared flow at one location: { links, matches: { [boxId]: stationId },
+ * missing: [box], differs: [{ box, station }] }.
+ *   place  { stations: [{ id, name, kind }], streams: [{ id, name }],
+ *            devices: [{ id, name }] } (the location's)
+ * Links to or from a box the location has no station for are left out, so no
+ * dish goes there; a filter naming a stream or till the location doesn't
+ * have matches no dish. With two stations of one name the first counts.
+ */
+export function resolveSharedFlow(flow, place = {}) {
+  const stations = byFlowName(place.stations)
+  const named = { revenue_stream: byFlowName(place.streams), device: byFlowName(place.devices) }
+  const matches = {}
+  const missing = []
+  const differs = []
+  for (const b of flow?.boxes || []) {
+    const st = stations[flowName(b.name)]?.[0]
+    if (!st) { missing.push(b); continue }
+    matches[b.id] = st.id
+    if (b.kind && st.kind !== b.kind) differs.push({ box: b, station: st })
+  }
+  const targets = list => (list || []).flatMap(t => {
+    if (!NAMED_TARGET_KINDS.includes(t.kind)) return [t]
+    const hits = named[t.kind][flowName(t.name)] || []
+    // Nothing of that name here: an id of null matches no dish.
+    return hits.length ? hits.map(h => ({ kind: t.kind, id: h.id })) : [{ kind: t.kind, id: null }]
+  })
+  const links = []
+  for (const l of flow?.links || []) {
+    const to = matches[l.to]
+    const from = l.from ? matches[l.from] : null
+    if (!to || (l.from && !from)) continue
+    links.push({ id: l.id, from, to, targets: targets(l.targets) })
+  }
+  return { links, matches, missing, differs }
+}
+
+/**
+ * A location's own flow as a shared one: { boxes, links }. Its stations
+ * become boxes (box id = station id) and its stream and till filters names.
+ *   stations  the location's stations in the flow [{ id, name, kind }]
+ *   names     { revenue_stream: { id: name }, device: { id: name } }
+ * Of two stations with one name the first is kept; links to the other go,
+ * and so do filters naming a stream or till that has gone.
+ */
+export function shareFlow(links, stations, names = {}) {
+  const boxes = []
+  const seen = new Set()
+  for (const s of stations || []) {
+    const n = flowName(s.name)
+    if (!n || seen.has(n)) continue
+    seen.add(n)
+    boxes.push({ id: s.id, name: String(s.name).trim().replace(/\s+/g, ' '), kind: s.kind })
+  }
+  const ids = new Set(boxes.map(b => b.id))
+  const out = []
+  for (const l of links || []) {
+    if (!ids.has(l.to) || (l.from && !ids.has(l.from))) continue
+    const targets = []
+    for (const t of l.targets || []) {
+      if (!NAMED_TARGET_KINDS.includes(t.kind)) { targets.push(t); continue }
+      const name = names[t.kind]?.[t.id]
+      if (name && !targets.some(x => x.kind === t.kind && flowName(x.name) === flowName(name))) targets.push({ kind: t.kind, name })
+    }
+    // A link whose every filter has gone took only those dishes: it goes too.
+    if ((l.targets || []).length && !targets.length) continue
+    out.push({ id: l.id, from: l.from || null, to: l.to, targets })
+  }
+  return { boxes, links: out }
+}
+
+/** What is wrong with a shared flow's boxes (blocks saving): [message]. */
+export function boxProblems(boxes) {
+  const out = []
+  const seen = new Set()
+  for (const b of boxes || []) {
+    const n = flowName(b.name)
+    if (!n) out.push('Every box needs a name')
+    else if (seen.has(n)) out.push('Two boxes are called ' + String(b.name).trim() + ': each location finds its station by name')
+    seen.add(n)
+    if (!STATION_KINDS.includes(b.kind)) out.push('A box has a kind the kitchen doesn\'t know')
+  }
+  return [...new Set(out)]
+}
+
 // ── Building orders and items ──────────────────────────────────
 
 const eventTime = e => e.received_at || e.client_at || null
@@ -623,10 +735,11 @@ function newOrder(fields, at) {
   }
 }
 
-function itemFromLine(line, check, cfg, at, held, type) {
+function itemFromLine(line, check, cfg, at, held, type, deviceId) {
   const rs = line.revenue_stream_id ?? check.revenue_stream_id
-  // Balance boxes stay on the way until balanceTicket() decides them.
-  const way = target => itemRoute(target, cfg)
+  // Balance boxes stay on the way until balanceTicket() decides them. The
+  // till or kiosk that sends the dish counts for links filtered by device.
+  const way = target => itemRoute({ ...target, device_id: deviceId || null }, cfg)
   let parts = null
   let route
   if (line.combo && line.combo.length) {
@@ -868,7 +981,7 @@ export function kitchenForCheckEvent(e, before = {}, after = {}, orders = {}, cf
       const sent = []
       for (const l of lines) {
         if (o.items.some(i => i.id === l.id)) continue
-        const item = itemFromLine(l, check, cfg, at, l.held, o.type)
+        const item = itemFromLine(l, check, cfg, at, l.held, o.type, e.device_id)
         item.added = hadItems
         o.items.push(item)
         sent.push(item)

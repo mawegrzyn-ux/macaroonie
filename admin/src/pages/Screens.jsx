@@ -8,6 +8,9 @@
 //   Playlists  boards taking turns, each for some seconds at the times of
 //              day it is set for, coming on with a transition
 //   Walls      several screens showing one board (or playlist) between them
+// Boards and playlists are the company's, shared by every location; screens
+// and walls belong to a location, and the Location picker (Screens and Walls
+// tabs, remembered in maca_screens_venue) shows one location's.
 // The player runs on screens.<domain> (screen/ + routes/screenSite.js).
 
 import { useMemo, useState } from 'react'
@@ -15,7 +18,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Monitor, Plus, Loader2, Pencil, RefreshCw, ScanEye, Copy, ListVideo, LayoutTemplate, Save, Clock, Grid2x2, Film,
-  Play, Pause,
+  Play, Pause, MapPin,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -58,17 +61,32 @@ function useWalls() {
   return useQuery({ queryKey: ['screen-walls'], queryFn: () => api.get('/screens/walls') })
 }
 
+// The location the Screens and Walls tabs show ('' = every location), remembered per browser.
+function useScreensPlace(venues) {
+  const [chosen, setChosen] = useState(() => { try { return localStorage.getItem('maca_screens_venue') || '' } catch { return '' } })
+  const place = venues.some(v => v.id === chosen) ? chosen : ''
+  const setPlace = id => {
+    setChosen(id)
+    try { localStorage.setItem('maca_screens_venue', id) } catch { /* private mode */ }
+  }
+  return [place, setPlace]
+}
+
 export default function Screens() {
   const [params, setParams] = useSearchParams()
   const tab = TABS.find(t => t.key === params.get('tab')) || TABS[0]
   const { canManage } = usePermission('screens')
+  const venues = useVenues()
+  const [place, setPlace] = useScreensPlace(venues)
+  const byPlace = tab.key === 'screens' || tab.key === 'walls'
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <PageHeader icon={Monitor} title="Screens" />
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-5xl mx-auto p-4 space-y-4">
-          <nav className="flex flex-wrap gap-1.5" aria-label="Screens sections">
+          <div className="flex flex-wrap items-center gap-3">
+          <nav className="flex flex-wrap gap-1.5 w-full sm:w-auto sm:flex-1 min-w-0" aria-label="Screens sections">
             {TABS.map(t => (
               <button key={t.key} type="button" onClick={() => setParams({ tab: t.key }, { replace: true })}
                 aria-current={t.key === tab.key ? 'page' : undefined}
@@ -78,11 +96,23 @@ export default function Screens() {
               </button>
             ))}
           </nav>
+          {byPlace && venues.length > 1 && (
+            <label className="flex items-center gap-2 text-sm">
+              <MapPin className="w-4 h-4 text-muted-foreground" aria-hidden="true" />
+              <span className="sr-only sm:not-sr-only font-medium">Location</span>
+              <select value={place} onChange={e => setPlace(e.target.value)} data-testid="screens-place" aria-label="Location"
+                className="h-11 rounded-lg border bg-background px-3 text-sm touch-manipulation focus:outline-none focus:ring-2 focus:ring-primary/40">
+                <option value="">Every location</option>
+                {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+              </select>
+            </label>
+          )}
+          </div>
           {!canManage && <ReadOnlyNotice what="the screens" />}
-          {tab.key === 'screens' && <ScreensTab canManage={canManage} />}
+          {tab.key === 'screens' && <ScreensTab canManage={canManage} place={place} />}
           {tab.key === 'boards' && <BoardsTab canManage={canManage} />}
           {tab.key === 'playlists' && <PlaylistsTab canManage={canManage} />}
-          {tab.key === 'walls' && <WallsTab canManage={canManage} />}
+          {tab.key === 'walls' && <WallsTab canManage={canManage} place={place} />}
         </div>
       </div>
     </div>
@@ -132,15 +162,27 @@ function ErrorLine({ error }) {
 
 // ── Screens ─────────────────────────────────────────────────────────
 
-function ScreensTab({ canManage }) {
+/**
+ * A reorder of the screens shown (one location's) as an order of all of
+ * them: the others keep their places, the shown ones take theirs in turn.
+ */
+function mergeOrder(all, shownIds) {
+  const shown = new Set(shownIds)
+  const next = [...shownIds]
+  return all.map(s => (shown.has(s.id) ? next.shift() : s.id))
+}
+
+function ScreensTab({ canManage, place }) {
   const api = useApi()
   const qc = useQueryClient()
   useTick(30_000)
   const { data, isLoading } = useQuery({
     queryKey: ['screens'], queryFn: () => api.get('/screens/screens'), refetchInterval: 30_000,
   })
-  const screens = useMemo(() => data?.screens || [], [data])
+  const all = useMemo(() => data?.screens || [], [data])
+  const screens = useMemo(() => (place ? all.filter(s => s.venue_id === place) : all), [all, place])
   const venues = useVenues()
+  const locationName = venues.find(v => v.id === place)?.name
   const { data: designs = [] } = useDesigns()
   const { data: playlists = [] } = usePlaylists()
   const [adding, setAdding] = useState(false)
@@ -148,7 +190,7 @@ function ScreensTab({ canManage }) {
   const [flash, setFlash] = useState(null)
 
   const refresh = () => qc.invalidateQueries({ queryKey: ['screens'] })
-  const reorder = useMutation({ mutationFn: ids => api.patch('/screens/screens/reorder', { ids }), onSuccess: refresh })
+  const reorder = useMutation({ mutationFn: ids => api.patch('/screens/screens/reorder', { ids: mergeOrder(all, ids) }), onSuccess: refresh })
   const remove = useMutation({ mutationFn: id => api.delete(`/screens/screens/${id}`), onSuccess: refresh })
   const identify = useMutation({
     mutationFn: id => api.post(`/screens/screens/${id}/identify`, {}),
@@ -187,18 +229,18 @@ function ScreensTab({ canManage }) {
       {isLoading ? (
         <div className="flex justify-center py-10 text-muted-foreground"><Loader2 className="w-5 h-5 animate-spin" /></div>
       ) : !screens.length ? (
-        <p className="text-sm text-muted-foreground text-center py-8">No screens yet.</p>
+        <p className="text-sm text-muted-foreground text-center py-8">{locationName ? 'No screens at ' + locationName + ' yet.' : 'No screens yet.'}</p>
       ) : (
         <SortableRows items={screens} locked={!canManage} onReorder={ids => reorder.mutate(ids)}
           renderItem={s => (
-            <ScreenRow s={s} canManage={canManage}
+            <ScreenRow s={s} canManage={canManage} showPlace={!place && venues.length > 1}
               onIdentify={() => identify.mutate(s.id)} onReload={() => reload.mutate(s.id)}
               onEdit={() => setEditing(s)} onRemove={() => remove.mutate(s.id)} />
           )} />
       )}
 
       {adding && (
-        <AddScreenModal venues={venues} designs={designs} playlists={playlists} onClose={() => setAdding(false)}
+        <AddScreenModal venues={venues} place={place} designs={designs} playlists={playlists} onClose={() => setAdding(false)}
           onAdded={() => { setAdding(false); refresh(); setFlash('Screen added. It shows its board in a few seconds.') }} />
       )}
       {editing && (
@@ -209,7 +251,7 @@ function ScreensTab({ canManage }) {
   )
 }
 
-function ScreenRow({ s, canManage, onIdentify, onReload, onEdit, onRemove }) {
+function ScreenRow({ s, canManage, showPlace, onIdentify, onReload, onEdit, onRemove }) {
   const showing = s.status?.showing?.name
   return (
     <div className="flex flex-wrap items-center gap-3 py-1" data-testid="screen-row">
@@ -219,7 +261,7 @@ function ScreenRow({ s, canManage, onIdentify, onReload, onEdit, onRemove }) {
             title={s.online ? 'Online' : 'Offline'} />
           <span className="font-medium">{s.name}</span>
           <span className="text-xs font-mono px-1.5 py-0.5 rounded bg-muted">{s.short_code}</span>
-          {s.venue_name && <span className="text-xs text-muted-foreground">{s.venue_name}</span>}
+          {showPlace && s.venue_name && <span className="text-xs text-muted-foreground">{s.venue_name}</span>}
         </div>
         <div className="text-xs text-muted-foreground mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5">
           <span>{s.width} x {s.height}{s.rotation ? `, turned ${s.rotation}°` : ''}</span>
@@ -285,11 +327,11 @@ function Field({ label, hint, children }) {
   )
 }
 
-function AddScreenModal({ venues, designs, playlists, onClose, onAdded }) {
+function AddScreenModal({ venues, place, designs, playlists, onClose, onAdded }) {
   const api = useApi()
   const [code, setCode] = useState('')
   const [name, setName] = useState('')
-  const [venueId, setVenueId] = useState(venues[0]?.id || '')
+  const [venueId, setVenueId] = useState(place || venues[0]?.id || '')
   const [content, setContent] = useState({ design_id: designs[0]?.id || null, playlist_id: null })
   const add = useMutation({
     mutationFn: () => api.post('/screens/screens/claim', { code, name: name.trim(), venue_id: venueId || venues[0]?.id, ...content }),
@@ -313,7 +355,7 @@ function AddScreenModal({ venues, designs, playlists, onClose, onAdded }) {
         <input className={inputCls} value={name} onChange={e => setName(e.target.value)} maxLength={80} />
       </Field>
       {venues.length > 1 && (
-        <Field label="Venue" hint="Sold out dishes come from this venue.">
+        <Field label="Location" hint="Sold out dishes come from this location.">
           <select className={inputCls} value={venueId} onChange={e => setVenueId(e.target.value)}>
             {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
           </select>
@@ -357,7 +399,7 @@ function EditScreenModal({ screen, venues, designs, playlists, canManage, onClos
       <ReadOnlyFieldset disabled={!canManage} className="space-y-4">
         <Field label="Name"><input className={inputCls} value={f.name} onChange={e => set({ name: e.target.value })} maxLength={80} /></Field>
         {venues.length > 1 && (
-          <Field label="Venue" hint="Sold out dishes come from this venue.">
+          <Field label="Location" hint="Sold out dishes come from this location.">
             <select className={inputCls} value={f.venue_id} onChange={e => set({ venue_id: e.target.value })}>
               {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
             </select>
@@ -443,7 +485,7 @@ function BoardsTab({ canManage }) {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
-        <p className="text-sm text-muted-foreground flex-1 min-w-[220px]">A board is one screen's worth of menu: sections, dishes, prices, photos and text, placed where you want them. Prices come from the published menus.</p>
+        <p className="text-sm text-muted-foreground flex-1 min-w-[220px]">A board is one screen's worth of menu: sections, dishes, prices, photos and text, placed where you want them. Prices come from the published menus. Boards are shared by every location: each screen shows its own location's sold out dishes and order ready board.</p>
         {canManage && <Btn primary onClick={() => setCreating(true)}><Plus className="w-4 h-4" /> New board</Btn>}
       </div>
       <ErrorLine error={copy.error || remove.error} />
@@ -564,7 +606,7 @@ function PlaylistsTab({ canManage }) {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
-        <p className="text-sm text-muted-foreground flex-1 min-w-[220px]">Boards take turns on a screen, each for some seconds, coming on with a transition. Set times of day for a board to show only then (a lunch board until 15:00, a dinner board after). Screens with the same playlist change boards together.</p>
+        <p className="text-sm text-muted-foreground flex-1 min-w-[220px]">Boards take turns on a screen, each for some seconds, coming on with a transition. Set times of day for a board to show only then (a lunch board until 15:00, a dinner board after). Screens with the same playlist change boards together. Playlists are shared by every location.</p>
         {canManage && !naming && <Btn primary onClick={() => setNaming(true)}><Plus className="w-4 h-4" /> New playlist</Btn>}
       </div>
       {naming && (
@@ -709,9 +751,10 @@ function PlaylistEditor({ playlist, designs, canManage, onDeleted }) {
 // its own part (wallRegion() in shared/screenLayout.js), and they change
 // boards and play videos together because each works it out from the clock.
 
-function WallsTab({ canManage }) {
+function WallsTab({ canManage, place }) {
   const qc = useQueryClient()
-  const { data: walls = [], isLoading } = useWalls()
+  const { data: allWalls = [], isLoading } = useWalls()
+  const walls = useMemo(() => (place ? allWalls.filter(w => w.venue_id === place) : allWalls), [allWalls, place])
   const { data: designs = [] } = useDesigns()
   const { data: playlists = [] } = usePlaylists()
   const api = useApi()
@@ -732,13 +775,13 @@ function WallsTab({ canManage }) {
         {canManage && !making && <Btn primary onClick={() => setMaking(true)}><Plus className="w-4 h-4" /> New wall</Btn>}
       </div>
       {making && (
-        <NewWallForm venues={venues} onCancel={() => setMaking(false)}
+        <NewWallForm venues={venues} place={place} onCancel={() => setMaking(false)}
           onMade={w => { qc.invalidateQueries({ queryKey: ['screen-walls'] }); setMaking(false); setOpenId(w.id) }} />
       )}
       {isLoading ? (
         <div className="flex justify-center py-10 text-muted-foreground"><Loader2 className="w-5 h-5 animate-spin" /></div>
       ) : !walls.length ? (
-        <p className="text-sm text-muted-foreground text-center py-8">No walls yet.</p>
+        <p className="text-sm text-muted-foreground text-center py-8">{place ? 'No walls at ' + (venues.find(v => v.id === place)?.name || 'this location') + ' yet.' : 'No walls yet.'}</p>
       ) : (
         <div className="grid gap-4 lg:grid-cols-[240px_minmax(0,1fr)]">
           <div className="space-y-1.5">
@@ -747,7 +790,7 @@ function WallsTab({ canManage }) {
                 className={cn('w-full text-left rounded-lg border px-3 py-2 min-h-[52px] touch-manipulation',
                   w.id === open?.id ? 'border-primary ring-2 ring-primary/30 bg-primary/5' : 'bg-background hover:bg-muted')}>
                 <span className="font-medium block truncate">{w.name}</span>
-                <span className="text-xs text-muted-foreground">{w.cols} x {w.rows} · {w.places.length} of {w.cols * w.rows} screens{venues.length > 1 ? ` · ${w.venue_name}` : ''}</span>
+                <span className="text-xs text-muted-foreground">{w.cols} x {w.rows} · {w.places.length} of {w.cols * w.rows} screens{venues.length > 1 && !place ? ` · ${w.venue_name}` : ''}</span>
               </button>
             ))}
           </div>
@@ -763,10 +806,10 @@ function WallsTab({ canManage }) {
   )
 }
 
-function NewWallForm({ venues, onCancel, onMade }) {
+function NewWallForm({ venues, place, onCancel, onMade }) {
   const api = useApi()
   const [name, setName] = useState('')
-  const [venueId, setVenueId] = useState(venues[0]?.id || '')
+  const [venueId, setVenueId] = useState(place || venues[0]?.id || '')
   const [cols, setCols] = useState(2)
   const [rows, setRows] = useState(1)
   const make = useMutation({
@@ -778,7 +821,7 @@ function NewWallForm({ venues, onCancel, onMade }) {
       <div className="space-y-3">
         <Field label="Name"><input className={inputCls} value={name} onChange={e => setName(e.target.value)} autoFocus maxLength={80} placeholder="e.g. Counter wall" /></Field>
         {venues.length > 1 && (
-          <Field label="Venue">
+          <Field label="Location">
             <select className={inputCls} value={venueId} onChange={e => setVenueId(e.target.value)}>
               {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
             </select>
@@ -880,7 +923,7 @@ function WallEditor({ wall, walls, screens, designs, playlists, venues, canManag
       <ReadOnlyFieldset disabled={!canManage} className="space-y-4">
         <Field label="Name"><input className={inputCls} value={f.name} onChange={e => set({ name: e.target.value })} maxLength={80} /></Field>
         {venues.length > 1 && (
-          <Field label="Venue" hint="Only this venue's screens can be on the wall.">
+          <Field label="Location" hint="Only this location's screens can be on the wall.">
             <select className={inputCls} value={f.venue_id} onChange={e => { set({ venue_id: e.target.value }); setPlaces({}) }}>
               {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
             </select>

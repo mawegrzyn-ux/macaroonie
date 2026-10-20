@@ -25,19 +25,29 @@
 // links to it, no dish goes there while the flow is in use); Not in this
 // flow puts it back. Check a dish shows the way one dish would take. Nothing
 // is saved until Save flow.
+//
+// A flow can be shared by every location (migration 192): its boxes are
+// named stations, and at each location a box is that location's station with
+// the same name (shared/pos/kitchen.js resolveSharedFlow()), so one flow
+// sends every location's dishes to its own Grill and Pass. A shared flow's
+// revenue stream and "sent from" (till / kiosk) filters are names too. The
+// designer draws the boxes; a box shows whether this location has its
+// station, and its panel lists every location with Add it for those that
+// don't. Links filtered by Sent from take only the dishes sent from that
+// till or kiosk (the bar's till to the bar).
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Plus, Loader2, Pencil, Maximize2, Minimize2, Wand2, Route, X, Search, GripVertical, AlertTriangle, Info, Link2,
-  ArrowUpDown, Copy, CheckCircle2, MinusCircle,
+  ArrowUpDown, Copy, CheckCircle2, MinusCircle, Globe, MapPin,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import {
-  flowProblems, flowWarnings, itemRoute, KIND_LABELS, START, isBumpKind,
+  flowProblems, flowWarnings, itemRoute, KIND_LABELS, START, isBumpKind, resolveSharedFlow, boxProblems, flowName,
 } from '@shared/pos/kitchen.js'
-import { Section, Btn, ErrorNote, ConfirmDelete, inputCls, Modal, Field, SortableRows } from './shared'
+import { Section, Btn, ErrorNote, ConfirmDelete, inputCls, Modal, Field, SortableRows, Segmented } from './shared'
 
 const NODE_W = 196
 const NODE_H = 72
@@ -62,8 +72,34 @@ const BALANCE_RULE = 'each ticket\'s dishes go to one of them: the one with the 
 let keySeq = 0
 const newKey = () => 'new-' + (++keySeq) + '-' + Math.random().toString(36).slice(2, 7)
 const nodeKey = id => id || START
+// A shared flow's new box id (the API wants a uuid).
+function newUuid() {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID()
+  const b = globalThis.crypto.getRandomValues(new Uint8Array(16))
+  b[6] = (b[6] & 0x0f) | 0x40
+  b[8] = (b[8] & 0x3f) | 0x80
+  const h = [...b].map(x => x.toString(16).padStart(2, '0')).join('')
+  return h.slice(0, 8) + '-' + h.slice(8, 12) + '-' + h.slice(12, 16) + '-' + h.slice(16, 20) + '-' + h.slice(20)
+}
+const tidyName = v => String(v || '').trim().replace(/\s+/g, ' ')
+
+/** A location's stations by flowName(), the first of each name (as resolveSharedFlow()). */
+function stationsByName(stations) {
+  const out = {}
+  for (const s of stations || []) if (!out[flowName(s.name)]) out[flowName(s.name)] = s
+  return out
+}
 
 function seedDraft(setup, flow) {
+  if (flow?.shared) {
+    // A shared flow: its own boxes, whatever this location has.
+    const boxes = flow.boxes || []
+    const ids = new Set(boxes.map(b => b.id))
+    const links = (flow.links || [])
+      .filter(l => ids.has(l.to) && (!l.from || ids.has(l.from)))
+      .map(l => ({ key: l.id, from: l.from || null, to: l.to, targets: l.targets || [] }))
+    return { boxes, links, off: [], layout: placeMissing({ ...(flow.layout || {}) }, boxes, links) }
+  }
   const ids = new Set(setup.kds_stations.map(s => s.id))
   // Stations this flow leaves out (deleted ones forgotten).
   const off = (flow?.off_station_ids || []).filter(id => ids.has(id))
@@ -138,20 +174,28 @@ function useLookups(setup) {
     const items = Object.fromEntries((setup.items || []).map(i => [i.id, i]))
     const streams = Object.fromEntries((setup.revenue_streams || []).map(r => [r.id, r]))
     const types = Object.fromEntries((setup.order_types || []).map(t => [t.id, t]))
-    return { sections, items, streams, types }
-  }, [setup.menus, setup.sections, setup.items, setup.revenue_streams, setup.order_types])
+    // This location's tills and kiosks (the Sent from filter).
+    const deviceList = (setup.devices || []).filter(d => (d.kind === 'terminal' || d.kind === 'kiosk') && !d.revoked_at)
+    const devices = Object.fromEntries(deviceList.map(d => [d.id, d]))
+    return { sections, items, streams, types, devices, deviceList }
+  }, [setup.menus, setup.sections, setup.items, setup.revenue_streams, setup.order_types, setup.devices])
 }
 
 function targetName(t, lk) {
+  // A shared flow names streams and tills: each location's own of that name.
+  if (t.name != null && t.kind !== 'default') return t.name
   switch (t.kind) {
     case 'item': return lk.items[t.id]?.name || 'A removed dish'
     case 'section': return lk.sections[t.id]?.title || 'A removed section'
     case 'revenue_stream': return lk.streams[t.id]?.name || 'A removed revenue stream'
     case 'order_type': return lk.types[t.id]?.name || 'A removed order type'
+    case 'device': return lk.devices[t.id]?.name || 'A removed till or kiosk'
     default: return 'Any dish'
   }
 }
-const KIND_WORD = { item: 'Dish', section: 'Section', revenue_stream: 'Revenue stream', order_type: 'Order type', default: '' }
+const KIND_WORD = { item: 'Dish', section: 'Section', device: 'Sent from', revenue_stream: 'Revenue stream', order_type: 'Order type', default: '' }
+// One filter entry, by id or (a shared flow's streams and tills) by name.
+const targetKey = t => t.kind + ':' + (t.name != null ? 'n:' + flowName(t.name) : (t.id || ''))
 
 function linkSummary(link, lk) {
   if (!link.targets.length) return 'Every dish'
@@ -184,19 +228,19 @@ export default function KitchenFlow({ venueId, setup, canManage, onStation }) {
       onPick={id => { setFlowId(id); useNow.reset(); remove.reset() }} onNew={() => setModal('new')} onOrder={() => setModal('order')} />
   )
   const flowBox = flow && (
-    <ThisFlow flow={flow} active={flow.id === activeId} setup={setup} canManage={canManage} dirty={dirty}
+    <ThisFlow flow={flow} active={flow.id === activeId} setup={setup} venueId={venueId} canManage={canManage} dirty={dirty}
       onUse={() => useNow.mutate(flow.id)} using={useNow.isPending} error={useNow.error || remove.error}
       onRename={() => setModal('rename')} onCopy={() => setModal('copy')} onDelete={() => remove.mutate(flow.id)} deleting={remove.isPending} />
   )
 
   return (
-    <Section title="Kitchen flows" hint="How dishes move through the kitchen: from Orders in (the till and online orders) to the stations that make them, on to the expo, runners and order ready boards. Make more than one (a busy night, one cook, the grill down) and switch between them here or with the flow button on a kitchen screen. A change or a switch counts for dishes sent after it.">
+    <Section title="Kitchen flows" hint="How dishes move through the kitchen: from Orders in (the till and online orders) to the stations that make them, on to the expo, runners and order ready boards. Make more than one (a busy night, one cook, the grill down) and switch between them here or with the flow button on a kitchen screen. A flow can be this location's own or shared by every location, each using its own stations of the same names. A change or a switch counts for dishes sent after it.">
       {flow
         ? <FlowDesigner key={flow.id} venueId={venueId} setup={setup} flow={flow} isActive={flow.id === activeId} canManage={canManage}
             onStation={onStation} bar={bar} flowBox={flowBox} full={full} setFull={setFull} onDirty={setDirty} />
         : <p className="text-sm text-muted-foreground">No kitchen flow yet.</p>}
       {(modal === 'new' || modal === 'copy' || modal === 'rename') && flow && (
-        <FlowModal mode={modal} venueId={venueId} flow={flow} onClose={() => setModal(null)}
+        <FlowModal mode={modal} venueId={venueId} venueName={setup.venue?.name || 'this location'} flow={flow} onClose={() => setModal(null)}
           onSaved={out => { setModal(null); if (modal !== 'rename') setFlowId(out.id); refresh() }} />
       )}
       {modal === 'order' && (
@@ -211,19 +255,28 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
   const qc = useQueryClient()
   const lk = useLookups(setup)
   const stations = setup.kds_stations
-  const byId = useMemo(() => Object.fromEntries(stations.map(s => [s.id, s])), [stations])
-  const nameOf = id => (id && id !== START ? byId[id]?.name || 'a removed station' : 'Orders in')
+  const shared = !!flow.shared
+  const here = useMemo(() => stationsByName(stations), [stations])
+  const [draft, setDraft] = useState(() => seedDraft(setup, flow))
+  // A shared flow's boxes as nodes: each with this location's station of its name (or none).
+  const boxNodes = useMemo(() => (shared ? draft.boxes.map(b => {
+    const st = here[flowName(b.name)] || null
+    return { id: b.id, name: b.name, kind: b.kind, is_active: st ? st.is_active : true, colour: st?.colour, settings: st?.settings || {}, here: st }
+  }) : []), [shared, draft.boxes, here])
+  const byId = useMemo(() => Object.fromEntries((shared ? boxNodes : stations).map(s => [s.id, s])), [shared, boxNodes, stations])
+  const nameOf = id => (id && id !== START ? (byId[id] ? byId[id].name || 'a box with no name' : 'a removed station') : 'Orders in')
+  // The boxes of a draft: a shared flow's own, else the location's stations not left out.
+  const nodesOf = d => (shared ? d.boxes : stations.filter(s => !d.off.includes(s.id)))
   const inFlowOf = off => stations.filter(s => !off.includes(s.id))
 
-  const [draft, setDraft] = useState(() => seedDraft(setup, flow))
-  const inFlow = useMemo(() => inFlowOf(draft.off), [stations, draft.off]) // eslint-disable-line react-hooks/exhaustive-deps
-  const offStations = useMemo(() => stations.filter(s => draft.off.includes(s.id)), [stations, draft.off])
+  const inFlow = useMemo(() => (shared ? boxNodes : inFlowOf(draft.off)), [shared, boxNodes, stations, draft.off]) // eslint-disable-line react-hooks/exhaustive-deps
+  const offStations = useMemo(() => (shared ? [] : stations.filter(s => draft.off.includes(s.id))), [shared, stations, draft.off])
   const [dirty, setDirty] = useState(false)
   const [selected, setSelected] = useState(null)     // { link: key } | { node: id }
   const [connectFrom, setConnectFrom] = useState(null)
   const [wire, setWire] = useState(null)              // { from, x, y } while dragging a new link
   const [checking, setChecking] = useState(false)
-  const [check, setCheck] = useState(() => ({ item_id: '', order_type_id: (setup.order_types || []).find(t => t.is_active)?.id || '', revenue_stream_id: '' }))
+  const [check, setCheck] = useState(() => ({ item_id: '', order_type_id: (setup.order_types || []).find(t => t.is_active)?.id || '', revenue_stream_id: '', device_id: '' }))
   const [saved, setSaved] = useState(null)            // warnings after the last save
   // A flow that has never been laid out arranges itself as links are added,
   // until a box is moved by hand (or places are saved).
@@ -234,9 +287,11 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
 
   // A change from elsewhere (station added, removed, saved flow): take it in,
   // keeping an unsaved draft but dropping links to stations that are gone.
-  const flowKey = JSON.stringify({ links: flow.links, layout: flow.layout, off: flow.off_station_ids }) + '|' + stations.map(s => s.id).join(',')
+  const flowKey = JSON.stringify({ links: flow.links, layout: flow.layout, off: flow.off_station_ids, boxes: flow.boxes }) + '|' + stations.map(s => s.id).join(',')
   useEffect(() => {
     if (!dirty) { setDraft(seedDraft(setup, flow)); return }
+    // A shared flow's boxes don't change with this location's stations.
+    if (shared) return
     setDraft(d => {
       const off = d.off.filter(id => byId[id])
       const links = d.links.filter(l => byId[l.to] && (!l.from || byId[l.from]))
@@ -258,13 +313,20 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
   const width = Math.max(720, ...Object.values(pos).map(p => p.x + NODE_W + PAD + 40))
   const height = Math.max(380, ...Object.values(pos).map(p => p.y + NODE_H + PAD))
 
-  const problems = useMemo(() => flowProblems(stations, draft.links), [stations, draft.links])
+  const problems = useMemo(() => (shared
+    ? [...boxProblems(draft.boxes), ...flowProblems(draft.boxes, draft.links)]
+    : flowProblems(stations, draft.links)), [shared, draft.boxes, stations, draft.links])
   const warnings = useMemo(() => flowWarnings(inFlow, draft.links), [inFlow, draft.links])
+  // A shared flow at every location: which boxes each has no station for.
+  const places = useMemo(() => (shared ? (setup.kds_locations || []).map(v => {
+    const r = resolveSharedFlow({ boxes: draft.boxes, links: [] }, { stations: v.stations })
+    return { ...v, missing: r.missing, differs: r.differs }
+  }) : []), [shared, setup.kds_locations, draft.boxes])
 
   const change = fn => { setDraft(d => fn(d)); setDirty(true) }
   const changeLinks = fn => change(d => {
     const links = fn(d.links)
-    return { ...d, links, layout: autoTidy ? tidyLayout(inFlowOf(d.off), links) : d.layout }
+    return { ...d, links, layout: autoTidy ? tidyLayout(nodesOf(d), links) : d.layout }
   })
   const addLink = (from, to) => {
     const f = from === START ? null : from
@@ -289,6 +351,25 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
     const off = d.off.filter(x => x !== id)
     return { ...d, off, layout: placeMissing(d.layout, inFlowOf(off), d.links) }
   })
+  // A shared flow's boxes: add (one of this location's stations, or a new
+  // name), change the name or kind, remove with its links.
+  const addBox = ({ name, kind }) => {
+    const id = newUuid()
+    change(d => {
+      const boxes = [...d.boxes, { id, name, kind }]
+      return { ...d, boxes, layout: placeMissing(d.layout, boxes, d.links) }
+    })
+    setSelected({ node: id })
+    setConnectFrom(null)
+  }
+  const updateBox = (id, patch) => change(d => ({ ...d, boxes: d.boxes.map(b => (b.id === id ? { ...b, ...patch } : b)) }))
+  const removeBox = id => {
+    change(d => {
+      const { [id]: _gone, ...layout } = d.layout
+      return { ...d, boxes: d.boxes.filter(b => b.id !== id), links: d.links.filter(l => l.to !== id && l.from !== id), layout }
+    })
+    setSelected(null)
+  }
 
   // ── Pointer handling: move boxes, draw links ──
   const canvasRef = useRef(null)
@@ -360,26 +441,51 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
   const checkItem = lk.items[check.item_id]
   const route = useMemo(() => {
     if (!checking || !checkItem) return null
-    const live = Object.fromEntries(inFlow.filter(s => s.is_active).map(s => [s.id, s]))
-    return itemRoute({
-      item_id: checkItem.id, section_id: checkItem.section_id,
+    const target = {
+      item_id: checkItem.id, section_id: checkItem.section_id, device_id: check.device_id || null,
       revenue_stream_id: check.revenue_stream_id || null, order_type_id: check.order_type_id || null,
-    }, { stations: live, flow: draft.links })
-  }, [checking, checkItem, check.order_type_id, check.revenue_stream_id, inFlow, draft.links])
+    }
+    if (!shared) {
+      const live = Object.fromEntries(inFlow.filter(s => s.is_active).map(s => [s.id, s]))
+      return itemRoute(target, { stations: live, flow: draft.links })
+    }
+    // A shared flow at this location: its stations, streams and tills; the
+    // way is then drawn on the boxes.
+    const r = resolveSharedFlow({ boxes: draft.boxes, links: draft.links.map(l => ({ ...l, id: l.key })) },
+      { stations, streams: setup.revenue_streams || [], devices: lk.deviceList })
+    const live = Object.fromEntries(stations.filter(s => s.is_active).map(s => [s.id, s]))
+    const boxOf = Object.fromEntries(Object.entries(r.matches).map(([box, st]) => [st, box]))
+    const out = {}
+    for (const [sid, preds] of Object.entries(itemRoute(target, { stations: live, flow: r.links }))) {
+      if (boxOf[sid]) out[boxOf[sid]] = preds.map(p => (p === START ? START : boxOf[p])).filter(Boolean)
+    }
+    return out
+  }, [checking, checkItem, check.order_type_id, check.revenue_stream_id, check.device_id, inFlow, draft.links, draft.boxes, shared, stations, setup.revenue_streams, lk.deviceList])
   const onRoute = (from, to) => !!route?.[to]?.includes(nodeKey(from))
   const inRoute = id => !!route && (id === START ? Object.keys(route).length > 0 : !!route[id])
 
   const save = useMutation({
-    mutationFn: () => api.put(`/pos/kds-flows/${flow.id}`, {
-      links: draft.links.map(l => ({ from: l.from, to: l.to, targets: l.targets })),
-      layout: pos,
-      off_station_ids: draft.off,
-    }),
+    mutationFn: () => api.put(`/pos/kds-flows/${flow.id}`, shared
+      ? {
+        boxes: draft.boxes.map(b => ({ id: b.id, name: tidyName(b.name), kind: b.kind })),
+        links: draft.links.map(l => ({ from: l.from, to: l.to, targets: l.targets })),
+        layout: pos,
+      }
+      : {
+        links: draft.links.map(l => ({ from: l.from, to: l.to, targets: l.targets })),
+        layout: pos,
+        off_station_ids: draft.off,
+      }),
     onSuccess: out => {
       setSaved(out.warnings || [])
       setAutoTidy(false)
       setDirty(false)
-      setDraft({ links: out.links.map(l => ({ key: l.id, from: l.from || null, to: l.to, targets: l.targets || [] })), off: out.off_station_ids || [], layout: out.layout })
+      setDraft({
+        ...(shared ? { boxes: out.boxes } : {}),
+        links: out.links.map(l => ({ key: l.id, from: l.from || null, to: l.to, targets: l.targets || [] })),
+        off: out.off_station_ids || [],
+        layout: out.layout,
+      })
       setSelected(null)
       qc.invalidateQueries({ queryKey: ['pos-setup', venueId] })
     },
@@ -451,9 +557,10 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
             <div key={n.id} data-node={n.id} data-testid="flow-node" data-kind={kind}
               onPointerDown={e => onNodeDown(e, n.id)} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onCancel}
               style={{ left: p.x, top: p.y, width: NODE_W, height: NODE_H, touchAction: canManage ? 'none' : 'auto' }}
+              data-here={shared && kind !== 'start' ? (n.here ? 'yes' : 'no') : undefined}
               className={cn('absolute rounded-xl border-2 bg-background shadow-sm flex items-stretch select-none touch-manipulation',
                 KIND_STYLE[kind], sel && 'ring-4 ring-primary/30', pickable && 'ring-4 ring-blue-400 cursor-pointer',
-                connectFrom === n.id && 'ring-4 ring-blue-600', !n.is_active && 'opacity-50',
+                connectFrom === n.id && 'ring-4 ring-blue-600', (!n.is_active || (shared && kind !== 'start' && !n.here)) && 'opacity-50',
                 route && !inRoute(n.id) && 'opacity-40', route && inRoute(n.id) && 'ring-4 ring-blue-500')}>
               <div className="w-2 rounded-l-[10px] shrink-0" style={{ background: n.colour || KIND_STRIP[kind] }} />
               {canManage && (
@@ -464,7 +571,10 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
               <div className={cn('flex-1 min-w-0 py-1.5 pr-6', !canManage && 'pl-2')}>
                 <p className="text-sm font-semibold truncate">{n.name}</p>
                 <p className="text-[11px] text-muted-foreground truncate">
-                  {kind === 'start' ? 'The till and online orders' : KIND_LABELS[kind]}{!n.is_active ? ' · not in use' : ''}
+                  {kind === 'start' ? 'The till and online orders' : KIND_LABELS[kind]}
+                  {shared && kind !== 'start' && !n.here ? ' · none here' : ''}
+                  {shared && n.here && n.here.kind !== kind ? ' · here: ' + KIND_LABELS[n.here.kind] : ''}
+                  {!n.is_active ? ' · not in use' : ''}
                 </p>
               </div>
               {kind !== 'start' && <span className="absolute -left-[7px] top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-zinc-400 border-2 border-background" aria-hidden="true" />}
@@ -493,17 +603,21 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
         </div>
       )}
       {checking && (
-        <CheckPanel kindOf={id => byId[id]?.kind} setup={setup} lk={lk} check={check} setCheck={setCheck} route={route} nameOf={nameOf} onClose={() => setChecking(false)} />
+        <CheckPanel kindOf={id => byId[id]?.kind} setup={setup} lk={lk} shared={shared} check={check} setCheck={setCheck} route={route} nameOf={nameOf} onClose={() => setChecking(false)} />
       )}
       {selLink && (
-        <LinkPanel link={selLink} lk={lk} setup={setup} canManage={canManage} nameOf={nameOf} fromBalance={byId[selLink.from]?.kind === 'balance'}
+        <LinkPanel link={selLink} lk={lk} setup={setup} shared={shared} canManage={canManage} nameOf={nameOf} fromBalance={byId[selLink.from]?.kind === 'balance'}
           siblings={draft.links.filter(l => (l.from || null) === (selLink.from || null) && l.key !== selLink.key)}
           onChange={patch => updateLink(selLink.key, patch)} onRemove={() => removeLink(selLink.key)} onClose={() => setSelected(null)} />
       )}
       {selNode && (
-        <NodePanel key={selNode} id={selNode} station={byId[selNode]} setup={setup} links={draft.links} nameOf={nameOf} lk={lk} canManage={canManage}
-          onEdit={() => onStation(byId[selNode])} onLink={() => { setConnectFrom(selNode); setSelected(null) }}
-          onTakeOut={() => takeOut(selNode)}
+        <NodePanel key={selNode} id={selNode} venueId={venueId} setup={setup} links={draft.links} nameOf={nameOf} lk={lk} canManage={canManage}
+          station={shared ? byId[selNode]?.here || null : byId[selNode]}
+          box={shared ? draft.boxes.find(b => b.id === selNode) || null : null}
+          boxes={shared ? draft.boxes : null}
+          onEdit={st => onStation(st)} onLink={() => { setConnectFrom(selNode); setSelected(null) }}
+          onTakeOut={() => (shared ? removeBox(selNode) : takeOut(selNode))}
+          onBox={patch => updateBox(selNode, patch)}
           onPick={key => setSelected({ link: key })} onClose={() => setSelected(null)} />
       )}
       {!connectFrom && !checking && !selLink && !selNode && flowBox}
@@ -511,10 +625,16 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
         <div className="rounded-xl border bg-background p-3 space-y-2 text-muted-foreground">
           <p className="flex gap-2"><Info className="w-4 h-4 shrink-0 mt-0.5" />
             <span>{canManage
-              ? 'Drag a box by its grip to move it. Drag its dot onto another box (or tap the dot, then the box) to send dishes on to it. Tap a link to choose which dishes take it. Tap a box to take its station out of this flow.'
+              ? 'Drag a box by its grip to move it. Drag its dot onto another box (or tap the dot, then the box) to send dishes on to it. Tap a link to choose which dishes take it. '
+                + (shared ? 'Tap a box to rename it, see which locations have its station, or remove it.' : 'Tap a box to take its station out of this flow.')
               : 'Tap a link to see which dishes take it, or a box to see its links.'}</span>
           </p>
-          <p>From each box a dish takes the links that name it most closely: the dish itself, then its section, its revenue stream, its order type, then links for every dish. Links that tie all apply: e.g. from the expo to the board and to a runner at once.</p>
+          {shared && (
+            <p className="flex gap-2"><Globe className="w-4 h-4 shrink-0 mt-0.5" />
+              <span>Shared with every location: each box is the location's station with that name, so dishes go to each location's own stations. A location without a station of a box's name skips that box's links.</span>
+            </p>
+          )}
+          <p>From each box a dish takes the links that name it most closely: the dish itself, then its section, the till or kiosk it was sent from, its revenue stream, its order type, then links for every dish. Links that tie all apply: e.g. from the expo to the board and to a runner at once.</p>
         </div>
       )}
     </div>
@@ -524,9 +644,12 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
     <>
       {bar}
       <div className="flex flex-wrap items-center gap-2">
-        {canManage && <AddStationMenu onPick={kind => onStation({ kind })} />}
+        {canManage && !shared && <AddStationMenu onPick={kind => onStation({ kind })} />}
+        {canManage && shared && <AddBoxMenu stations={stations.filter(st => !draft.boxes.some(b => flowName(b.name) === flowName(st.name)))}
+          onPick={st => addBox({ name: tidyName(st.name), kind: st.kind })}
+          onNew={kind => addBox({ name: freeName(KIND_LABELS[kind], draft.boxes), kind })} />}
         {canManage && (
-          <Btn onClick={() => change(d => ({ ...d, layout: tidyLayout(inFlowOf(d.off), d.links) }))} title="Tidy the boxes into columns">
+          <Btn onClick={() => change(d => ({ ...d, layout: tidyLayout(nodesOf(d), d.links) }))} title="Tidy the boxes into columns">
             <Wand2 className="w-4 h-4" /> Tidy
           </Btn>
         )}
@@ -553,6 +676,7 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
           ))}
         </div>
       )}
+      {shared && <PlacesNote places={places} venueId={venueId} canManage={canManage} />}
       <div className={cn('flex flex-col lg:flex-row gap-3', full && 'flex-1 min-h-0')}>
         {canvas}
         {panel}
@@ -605,11 +729,13 @@ function FlowBar({ flows, flow, activeId, dirty, canManage, onPick, onNew, onOrd
           return (
             <div key={f.id} role="tab" tabIndex={locked ? -1 : 0} aria-selected={on} aria-disabled={locked || undefined}
               onClick={pick} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick() } }}
-              data-testid="flow-tab" data-locked={locked ? 'true' : undefined} title={locked ? 'Save or discard the changes first' : undefined}
+              data-testid="flow-tab" data-locked={locked ? 'true' : undefined} data-shared={f.shared ? 'true' : undefined}
+              title={locked ? 'Save or discard the changes first' : f.shared ? 'Shared with every location' : undefined}
               className={cn('min-h-[44px] max-w-full px-3 rounded-lg border text-sm font-medium flex items-center gap-2 touch-manipulation select-none',
                 on ? 'bg-primary text-primary-foreground border-primary' : 'bg-background hover:bg-muted cursor-pointer',
                 locked && 'opacity-50 cursor-not-allowed hover:bg-background')}>
               {f.id === activeId && <span className="w-2.5 h-2.5 rounded-full bg-green-500 ring-2 ring-white/70 shrink-0" aria-hidden="true" />}
+              {f.shared && <Globe className="w-4 h-4 shrink-0 opacity-80" aria-label="Shared with every location" />}
               <span className="truncate max-w-[14rem]">{f.name}</span>
               {f.id === activeId && <span className="text-[11px] font-semibold opacity-80 shrink-0">In use</span>}
             </div>
@@ -626,11 +752,20 @@ function FlowBar({ flows, flow, activeId, dirty, canManage, onPick, onNew, onOrd
 
 const when = at => new Date(at).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
 
-function ThisFlow({ flow, active, setup, canManage, dirty, onUse, using, error, onRename, onCopy, onDelete, deleting }) {
+function ThisFlow({ flow, active, setup, venueId, canManage, dirty, onUse, using, error, onRename, onCopy, onDelete, deleting }) {
   const [asking, setAsking] = useState(false)
   useEffect(() => setAsking(false), [flow.id, active])
+  // A shared flow: the locations using it (it can't be deleted while any does).
+  const usedAt = flow.shared ? (setup.kds_locations || []).filter(v => v.active_flow_id === flow.id) : []
   return (
     <PanelBox title={flow.name} testid="flow-this">
+      {flow.shared && (
+        <p className="flex items-start gap-2" data-testid="flow-shared-note">
+          <Globe className="w-4 h-4 shrink-0 mt-0.5" />
+          <span>Shared with every location, each using its own stations of these names.
+            {' '}{usedAt.length ? 'In use at ' + usedAt.map(v => v.name).join(', ') + '.' : 'No location uses it yet.'}</span>
+        </p>
+      )}
       {active
         ? (
           <p className="flex items-start gap-2 text-green-800" data-testid="flow-in-use">
@@ -668,7 +803,9 @@ function ThisFlow({ flow, active, setup, canManage, dirty, onUse, using, error, 
           <span className="flex-1" />
           {active
             ? <span className="text-xs text-muted-foreground">The flow in use can't be deleted.</span>
-            : <ConfirmDelete label="Delete flow" confirmLabel="Yes, delete" onConfirm={onDelete} disabled={deleting || dirty} />}
+            : usedAt.some(v => v.id !== venueId)
+              ? <span className="text-xs text-muted-foreground">In use at {usedAt.map(v => v.name).join(', ')}: can't be deleted.</span>
+              : <ConfirmDelete label={flow.shared ? 'Delete for every location' : 'Delete flow'} confirmLabel="Yes, delete" onConfirm={onDelete} disabled={deleting || dirty} />}
         </div>
       )}
       <ErrorNote error={error} />
@@ -676,13 +813,15 @@ function ThisFlow({ flow, active, setup, canManage, dirty, onUse, using, error, 
   )
 }
 
-function FlowModal({ mode, venueId, flow, onClose, onSaved }) {
+function FlowModal({ mode, venueId, venueName, flow, onClose, onSaved }) {
   const api = useApi()
   const [name, setName] = useState(mode === 'rename' ? flow.name : mode === 'copy' ? ('Copy of ' + flow.name).slice(0, 40) : '')
+  // Where it's used: this location only, or every location (a copy starts like the flow it copies).
+  const [where, setWhere] = useState(mode === 'copy' && flow.shared ? 'all' : 'here')
   const save = useMutation({
     mutationFn: () => mode === 'rename'
       ? api.patch(`/pos/kds-flows/${flow.id}`, { name: name.trim() })
-      : api.post(`/pos/venues/${venueId}/kds-flows`, { name: name.trim(), copy_from: mode === 'copy' ? flow.id : null }),
+      : api.post(`/pos/venues/${venueId}/kds-flows`, { name: name.trim(), copy_from: mode === 'copy' ? flow.id : null, shared: where === 'all' }),
     onSuccess: onSaved,
   })
   const title = mode === 'rename' ? 'Rename ' + flow.name : mode === 'copy' ? 'Copy ' + flow.name : 'New kitchen flow'
@@ -697,8 +836,26 @@ function FlowModal({ mode, venueId, flow, onClose, onSaved }) {
         <input className={inputCls} value={name} maxLength={40} onChange={e => setName(e.target.value)} placeholder="e.g. Busy night"
           onKeyDown={e => { if (e.key === 'Enter' && name.trim() && !save.isPending) save.mutate() }} />
       </Field>
-      {mode === 'new' && <p className="text-sm text-muted-foreground">It starts empty: link Orders in to the stations, then on to the expo and boards. To start from this flow instead, use Copy.</p>}
-      {mode === 'copy' && <p className="text-sm text-muted-foreground">With the same links and boxes as {flow.name}, ready to change. It isn't in use until you put it in use.</p>}
+      {mode !== 'rename' && (
+        <Field label="Used at" group>
+          <Segmented value={where} onChange={setWhere} className="flex-wrap"
+            options={[{ value: 'here', label: 'Only at ' + venueName }, { value: 'all', label: 'Every location' }]} />
+        </Field>
+      )}
+      {mode !== 'rename' && where === 'all' && (
+        <p className="text-sm text-muted-foreground" data-testid="flow-modal-shared">
+          Every location lists it with its own flows. Each box is the location's station with that name, so dishes go to each location's own Grill, Pass and so on;
+          revenue streams and tills are matched by name too.
+        </p>
+      )}
+      {mode === 'new' && <p className="text-sm text-muted-foreground">It starts empty: link Orders in to the {where === 'all' ? 'boxes' : 'stations'}, then on to the expo and boards. To start from this flow instead, use Copy.</p>}
+      {mode === 'copy' && (
+        <p className="text-sm text-muted-foreground">
+          With the same links and boxes as {flow.name}, ready to change. It isn't in use until you put it in use.
+          {where === 'all' && !flow.shared && ' Its stations become boxes by name; filters on this location\'s tills and revenue streams go by their names.'}
+          {where === 'here' && flow.shared && ' Its boxes become ' + venueName + '\'s stations of those names; boxes it has no station for are left out.'}
+        </p>
+      )}
       <ErrorNote error={save.error} />
     </Modal>
   )
@@ -706,20 +863,34 @@ function FlowModal({ mode, venueId, flow, onClose, onSaved }) {
 
 function OrderFlowsModal({ venueId, flows, activeId, onClose, onSaved }) {
   const api = useApi()
+  const own = flows.filter(f => !f.shared)
+  const shared = flows.filter(f => f.shared)
   const reorder = useMutation({
-    mutationFn: ids => api.put(`/pos/venues/${venueId}/kds-flows/order`, { ids }),
+    mutationFn: ({ ids, isShared }) => api.put(isShared ? '/pos/kds-flows/shared/order' : `/pos/venues/${venueId}/kds-flows/order`, { ids }),
     onSuccess: onSaved,
   })
+  const row = f => (
+    <div className="flex items-center gap-2 min-h-[44px]" data-testid="flow-order-row">
+      {f.shared && <Globe className="w-4 h-4 shrink-0 text-muted-foreground" aria-hidden="true" />}
+      <span className="flex-1 min-w-0 truncate text-sm font-medium">{f.name}</span>
+      {f.id === activeId && <span className="text-[11px] font-semibold text-green-700 shrink-0">In use</span>}
+    </div>
+  )
   return (
     <Modal title="Order the kitchen flows" onClose={onClose}>
-      <p className="text-sm text-muted-foreground">Drag to change the order. Kitchen screens list the flows in this order.</p>
-      <SortableRows items={flows} onReorder={ids => reorder.mutate(ids)}
-        renderItem={f => (
-          <div className="flex items-center gap-2 min-h-[44px]" data-testid="flow-order-row">
-            <span className="flex-1 min-w-0 truncate text-sm font-medium">{f.name}</span>
-            {f.id === activeId && <span className="text-[11px] font-semibold text-green-700 shrink-0">In use</span>}
-          </div>
-        )} />
+      <p className="text-sm text-muted-foreground">Drag to change the order. Kitchen screens list this location's own flows first, then the shared ones.</p>
+      {own.length > 0 && (
+        <div className="space-y-1.5" data-testid="flow-order-own">
+          {shared.length > 0 && <p className="text-xs font-medium text-muted-foreground">This location's own</p>}
+          <SortableRows items={own} onReorder={ids => reorder.mutate({ ids, isShared: false })} renderItem={row} />
+        </div>
+      )}
+      {shared.length > 0 && (
+        <div className="space-y-1.5" data-testid="flow-order-shared">
+          <p className="text-xs font-medium text-muted-foreground">Shared with every location (the same order everywhere)</p>
+          <SortableRows items={shared} onReorder={ids => reorder.mutate({ ids, isShared: true })} renderItem={row} />
+        </div>
+      )}
       <ErrorNote error={reorder.error} />
     </Modal>
   )
@@ -740,6 +911,96 @@ function AddStationMenu({ onPick }) {
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+/** A name no box has yet: Prep station, Prep station 2, ... */
+function freeName(base, boxes) {
+  const taken = new Set((boxes || []).map(b => flowName(b.name)))
+  for (let n = 1; n < 100; n++) {
+    const name = n === 1 ? base : base + ' ' + n
+    if (!taken.has(flowName(name))) return name
+  }
+  return base
+}
+
+// A shared flow's Add: one of this location's stations (its name and kind),
+// or a new box of a kind to name in its panel.
+function AddBoxMenu({ stations, onPick, onNew }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="relative">
+      <Btn variant="primary" onClick={() => setOpen(o => !o)} data-testid="flow-add-box"><Plus className="w-4 h-4" /> Add to the flow</Btn>
+      {open && (
+        <div className="absolute z-20 mt-1 w-64 max-h-[70vh] overflow-y-auto rounded-xl border bg-background shadow-lg" role="menu">
+          {stations.length > 0 && (
+            <>
+              <p className="px-3 pt-2 pb-1 text-xs font-medium text-muted-foreground">This location's stations</p>
+              {stations.map(st => (
+                <button key={st.id} type="button" role="menuitem" onClick={() => { setOpen(false); onPick(st) }}
+                  className="w-full text-left px-3 min-h-[48px] text-sm hover:bg-muted touch-manipulation flex items-center gap-2 border-t">
+                  <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: st.colour || KIND_STRIP[st.kind] }} />
+                  <span className="flex-1 min-w-0 truncate">{st.name}</span>
+                  <span className="text-xs text-muted-foreground shrink-0">{KIND_LABELS[st.kind]}</span>
+                </button>
+              ))}
+            </>
+          )}
+          <p className="px-3 pt-2 pb-1 text-xs font-medium text-muted-foreground border-t">A new box</p>
+          {ADD_KINDS.map(k => (
+            <button key={k} type="button" role="menuitem" onClick={() => { setOpen(false); onNew(k) }}
+              className="w-full text-left px-3 min-h-[48px] text-sm hover:bg-muted touch-manipulation flex items-center gap-2 border-t">
+              <span className="w-2.5 h-2.5 rounded-full" style={{ background: KIND_STRIP[k] }} />{KIND_LABELS[k]}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Adds the stations a location lacks for a shared flow's boxes (by name, with the box's kind). */
+function useAddStations(venueId) {
+  const api = useApi()
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ placeId, boxes }) => {
+      for (const b of boxes) await api.post(`/pos/venues/${placeId}/kds-stations`, { name: tidyName(b.name), kind: b.kind })
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-setup', venueId] }),
+  })
+}
+
+// A shared flow at every location: which boxes each has no station for (its
+// links are left out there), with Add them.
+function PlacesNote({ places, venueId, canManage }) {
+  const add = useAddStations(venueId)
+  const short = places.filter(p => p.missing.length || p.differs.length)
+  if (!places.length) return null
+  return (
+    <div className={cn('rounded-xl border p-3 text-sm space-y-2', short.length ? 'border-amber-300 bg-amber-50 text-amber-900' : 'bg-background')} data-testid="flow-places">
+      {!short.length && (
+        <p className="flex items-center gap-2"><MapPin className="w-4 h-4 shrink-0" /> Every location has a station for each box.</p>
+      )}
+      {short.map(p => (
+        <div key={p.id} className="flex flex-wrap items-center gap-2" data-testid="flow-place">
+          <MapPin className="w-4 h-4 shrink-0" />
+          <span className="flex-1 min-w-[12rem]">
+            {p.missing.length > 0 && <><b>{p.name}</b> has no {p.missing.map(b => b.name).join(', ')}: those links are left out there. </>}
+            {p.differs.map(d => (
+              <span key={d.box.id}><b>{p.name}</b>: {d.station.name} is set up as {KIND_LABELS[d.station.kind]}, and works as one there. </span>
+            ))}
+          </span>
+          {canManage && p.missing.length > 0 && (
+            <Btn onClick={() => add.mutate({ placeId: p.id, boxes: p.missing })} disabled={add.isPending}>
+              {add.isPending && add.variables?.placeId === p.id && <Loader2 className="w-4 h-4 animate-spin" />}
+              <Plus className="w-4 h-4" /> Add {p.missing.length === 1 ? 'it' : 'them'} at {p.name}
+            </Btn>
+          )}
+        </div>
+      ))}
+      <ErrorNote error={add.error} />
     </div>
   )
 }
@@ -770,18 +1031,26 @@ function Chip({ on, onClick, children }) {
   )
 }
 
-function LinkPanel({ link, lk, setup, canManage, nameOf, fromBalance, siblings, onChange, onRemove, onClose }) {
+function LinkPanel({ link, lk, setup, shared, canManage, nameOf, fromBalance, siblings, onChange, onRemove, onClose }) {
   const [q, setQ] = useState('')
-  const has = (kind, id) => link.targets.some(t => t.kind === kind && (t.id || null) === (id || null))
-  const toggle = (kind, id) => onChange({
-    targets: has(kind, id) ? link.targets.filter(t => !(t.kind === kind && (t.id || null) === (id || null))) : [...link.targets, kind === 'default' ? { kind } : { kind, id }],
+  // A filter entry is { kind, id }, or (a shared flow's streams and tills) { kind, name }.
+  const has = t => link.targets.some(x => targetKey(x) === targetKey(t))
+  const toggle = t => onChange({
+    targets: has(t) ? link.targets.filter(x => targetKey(x) !== targetKey(t)) : [...link.targets, t],
   })
   const term = q.trim().toLowerCase()
   const matches = term.length >= 2 ? [
-    ...(setup.sections || []).filter(s => s.title.toLowerCase().includes(term) && !has('section', s.id)).slice(0, 6).map(s => ({ kind: 'section', id: s.id, label: s.title, sub: lk.sections[s.id]?.menu })),
-    ...(setup.items || []).filter(i => i.name.toLowerCase().includes(term) && !has('item', i.id)).slice(0, 8).map(i => ({ kind: 'item', id: i.id, label: i.name, sub: lk.sections[i.section_id]?.title })),
+    ...(setup.sections || []).filter(s => s.title.toLowerCase().includes(term) && !has({ kind: 'section', id: s.id })).slice(0, 6).map(s => ({ kind: 'section', id: s.id, label: s.title, sub: lk.sections[s.id]?.menu })),
+    ...(setup.items || []).filter(i => i.name.toLowerCase().includes(term) && !has({ kind: 'item', id: i.id })).slice(0, 8).map(i => ({ kind: 'item', id: i.id, label: i.name, sub: lk.sections[i.section_id]?.title })),
   ] : []
-  const streams = (setup.revenue_streams || []).filter(r => r.is_active !== false)
+  // Streams and tills: this location's by id, or (shared) every location's names.
+  const names = setup.kds_shared_names || {}
+  const streams = shared
+    ? (names.revenue_stream || []).map(n => ({ key: n, label: n, target: { kind: 'revenue_stream', name: n } }))
+    : (setup.revenue_streams || []).filter(r => r.is_active !== false).map(r => ({ key: r.id, label: r.name, target: { kind: 'revenue_stream', id: r.id } }))
+  const devices = shared
+    ? (names.device || []).map(n => ({ key: n, label: n, target: { kind: 'device', name: n } }))
+    : lk.deviceList.map(d => ({ key: d.id, label: d.name, target: { kind: 'device', id: d.id } }))
   const types = (setup.order_types || []).filter(t => t.is_active !== false)
   if (fromBalance) {
     return (
@@ -808,10 +1077,10 @@ function LinkPanel({ link, lk, setup, canManage, nameOf, fromBalance, siblings, 
           : (
             <div className="flex flex-wrap gap-1.5 mt-1.5">
               {link.targets.map(t => (
-                <span key={t.kind + (t.id || '')} className="inline-flex items-center gap-1 rounded-full bg-amber-100 text-amber-900 pl-3 pr-1 min-h-[36px] text-xs font-medium">
+                <span key={targetKey(t)} className="inline-flex items-center gap-1 rounded-full bg-amber-100 text-amber-900 pl-3 pr-1 min-h-[36px] text-xs font-medium">
                   {KIND_WORD[t.kind] ? KIND_WORD[t.kind] + ': ' : ''}{targetName(t, lk)}
                   {canManage && (
-                    <button type="button" onClick={() => toggle(t.kind, t.id)} aria-label={'Remove ' + targetName(t, lk)}
+                    <button type="button" onClick={() => toggle(t)} aria-label={'Remove ' + targetName(t, lk)}
                       className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-amber-200 touch-manipulation"><X className="w-3.5 h-3.5" /></button>
                   )}
                 </span>
@@ -824,14 +1093,22 @@ function LinkPanel({ link, lk, setup, canManage, nameOf, fromBalance, siblings, 
           <div className="space-y-1.5">
             <p className="text-xs font-medium text-muted-foreground">Order type</p>
             <div className="flex flex-wrap gap-1.5" role="group" aria-label="Order type">
-              {types.map(t => <Chip key={t.id} on={has('order_type', t.id)} onClick={() => toggle('order_type', t.id)}>{t.name}</Chip>)}
+              {types.map(t => <Chip key={t.id} on={has({ kind: 'order_type', id: t.id })} onClick={() => toggle({ kind: 'order_type', id: t.id })}>{t.name}</Chip>)}
             </div>
           </div>
+          {devices.length > 0 && (
+            <div className="space-y-1.5" data-testid="flow-link-devices">
+              <p className="text-xs font-medium text-muted-foreground">Sent from (till or kiosk){shared ? ': each location\'s of that name' : ''}</p>
+              <div className="flex flex-wrap gap-1.5" role="group" aria-label="Sent from">
+                {devices.map(d => <Chip key={d.key} on={has(d.target)} onClick={() => toggle(d.target)}>{d.label}</Chip>)}
+              </div>
+            </div>
+          )}
           {streams.length > 0 && (
             <div className="space-y-1.5">
-              <p className="text-xs font-medium text-muted-foreground">Revenue stream</p>
+              <p className="text-xs font-medium text-muted-foreground">Revenue stream{shared ? ': each location\'s of that name' : ''}</p>
               <div className="flex flex-wrap gap-1.5" role="group" aria-label="Revenue stream">
-                {streams.map(r => <Chip key={r.id} on={has('revenue_stream', r.id)} onClick={() => toggle('revenue_stream', r.id)}>{r.name}</Chip>)}
+                {streams.map(r => <Chip key={r.key} on={has(r.target)} onClick={() => toggle(r.target)}>{r.label}</Chip>)}
               </div>
             </div>
           )}
@@ -844,7 +1121,7 @@ function LinkPanel({ link, lk, setup, canManage, nameOf, fromBalance, siblings, 
             {matches.length > 0 && (
               <div className="rounded-lg border divide-y max-h-60 overflow-y-auto">
                 {matches.map(m => (
-                  <button key={m.kind + m.id} type="button" onClick={() => { toggle(m.kind, m.id); setQ('') }}
+                  <button key={m.kind + m.id} type="button" onClick={() => { toggle({ kind: m.kind, id: m.id }); setQ('') }}
                     className="w-full text-left px-3 min-h-[48px] hover:bg-muted touch-manipulation">
                     <span className="text-xs text-muted-foreground">{KIND_WORD[m.kind]}: </span>{m.label}
                     {m.sub && <span className="block text-xs text-muted-foreground">{m.sub}</span>}
@@ -864,22 +1141,69 @@ function LinkPanel({ link, lk, setup, canManage, nameOf, fromBalance, siblings, 
   )
 }
 
-function NodePanel({ id, station, setup, links, nameOf, lk, canManage, onEdit, onLink, onTakeOut, onPick, onClose }) {
+function NodePanel({ id, venueId, station, box, boxes, setup, links, nameOf, lk, canManage, onEdit, onLink, onTakeOut, onBox, onPick, onClose }) {
   const out = links.filter(l => (l.from || START) === id)
   const into = links.filter(l => l.to === id)
   const s = station?.settings || {}
   const [asking, setAsking] = useState(false)
   const linkCount = out.length + into.length
+  const kind = box ? box.kind : station?.kind
+  const add = useAddStations(venueId)
+  const nameClash = box && tidyName(box.name) && (boxes || []).some(b => b.id !== box.id && flowName(b.name) === flowName(box.name))
   return (
     <PanelBox title={nameOf(id)} onClose={onClose} testid="flow-node-panel">
+      {box && (
+        <div className="space-y-2" data-testid="flow-box-edit">
+          {canManage
+            ? (
+              <>
+                <Field label="Box name" hint="Each location's station with this name (case and spaces don't matter).">
+                  <input className={inputCls} value={box.name} maxLength={40} onChange={e => onBox({ name: e.target.value })} aria-label="Box name" data-testid="flow-box-name" />
+                </Field>
+                {nameClash && <p className="text-xs text-red-700">Another box has this name.</p>}
+                <Field label="Kind" group hint="Each location's station works as its own kind; this one is for drawing and checking the flow.">
+                  <div className="flex flex-wrap gap-1.5">
+                    {ADD_KINDS.map(k => <Chip key={k} on={box.kind === k} onClick={() => onBox({ kind: k })}>{KIND_LABELS[k]}</Chip>)}
+                  </div>
+                </Field>
+              </>
+            )
+            : <p className="text-muted-foreground">{KIND_LABELS[box.kind]}, shared with every location.</p>}
+          <div className="space-y-1" data-testid="flow-box-places">
+            <p className="text-xs font-medium text-muted-foreground">At each location</p>
+            {(setup.kds_locations || []).map(v => {
+              const st = v.stations.find(x => flowName(x.name) === flowName(box.name))
+              return (
+                <div key={v.id} className="flex flex-wrap items-center gap-2 rounded-lg border px-3 min-h-[44px]" data-testid="flow-box-place">
+                  <span className="flex-1 min-w-0 py-1.5">
+                    <span className="font-medium">{v.name}</span>{v.id === venueId && <span className="text-xs text-muted-foreground"> (this location)</span>}
+                    <span className="block text-xs text-muted-foreground">
+                      {st
+                        ? st.name + (st.kind !== box.kind ? ' · set up as ' + KIND_LABELS[st.kind] : '') + (!st.is_active ? ' · not in use' : '')
+                        : 'No station called ' + (tidyName(box.name) || 'this') + ': its links are left out there'}
+                    </span>
+                  </span>
+                  {!st && canManage && (
+                    <Btn onClick={() => add.mutate({ placeId: v.id, boxes: [box] })} disabled={add.isPending || !tidyName(box.name)}>
+                      {add.isPending && add.variables?.placeId === v.id && <Loader2 className="w-4 h-4 animate-spin" />}
+                      <Plus className="w-4 h-4" /> Add it
+                    </Btn>
+                  )}
+                </div>
+              )
+            })}
+            <ErrorNote error={add.error} />
+          </div>
+        </div>
+      )}
       {station
         ? (
           <p className="text-muted-foreground">
-            {KIND_LABELS[station.kind]}{!station.is_active ? ' · not in use (dishes pass straight through)' : ''}
+            {box ? 'Here: ' : ''}{KIND_LABELS[station.kind]}{!station.is_active ? ' · not in use (dishes pass straight through)' : ''}
             {isBumpKind(station.kind) && <> · amber {s.target_mins} min, red {s.late_mins} min{s.show_upcoming ? ' · shows dishes before they arrive' : ''}</>}
           </p>
         )
-        : <p className="text-muted-foreground">Every dish sent from a till and every online order starts here.</p>}
+        : !box && <p className="text-muted-foreground">Every dish sent from a till and every online order starts here.</p>}
       {station?.kind === 'board' && (
         <p className="text-xs text-muted-foreground">Shows on menu screens: add an Order status block to a board design and pick {station.name}. An order is ready there once every dish on its way to this board has arrived.</p>
       )}
@@ -918,25 +1242,27 @@ function NodePanel({ id, station, setup, links, nameOf, lk, canManage, onEdit, o
       ))}
       {canManage && (
         <div className="flex flex-wrap gap-2">
-          {station?.kind !== 'board' && <Btn onClick={onLink}><Link2 className="w-4 h-4" /> Link to...</Btn>}
-          {station && <Btn onClick={onEdit}><Pencil className="w-4 h-4" /> Edit station</Btn>}
+          {kind !== 'board' && <Btn onClick={onLink}><Link2 className="w-4 h-4" /> Link to...</Btn>}
+          {station && <Btn onClick={() => onEdit(station)}><Pencil className="w-4 h-4" /> Edit station{box ? ' here' : ''}</Btn>}
         </div>
       )}
-      {canManage && station && (
+      {canManage && (station || box) && (
         <div className="space-y-2 border-t pt-2">
           {asking ? (
             <div className="flex flex-wrap gap-2">
               <Btn variant="primary" onClick={onTakeOut}>
-                Yes, take it out{linkCount ? ` (its ${linkCount} link${linkCount === 1 ? '' : 's'} go)` : ''}
+                Yes, {box ? 'remove' : 'take'} it{box ? '' : ' out'}{linkCount ? ` (its ${linkCount} link${linkCount === 1 ? '' : 's'} go)` : ''}
               </Btn>
               <Btn onClick={() => setAsking(false)}>Keep</Btn>
             </div>
           ) : (
-            <Btn onClick={() => setAsking(true)}><MinusCircle className="w-4 h-4" /> Take out of this flow</Btn>
+            <Btn onClick={() => setAsking(true)}><MinusCircle className="w-4 h-4" /> {box ? 'Remove from this flow' : 'Take out of this flow'}</Btn>
           )}
           <p className="text-xs text-muted-foreground">
-            No dish goes to {station.name} while this flow is in use. The station stays, with its screens, for your other flows;
-            to remove it everywhere, delete it under Edit station.
+            {box
+              ? 'The box goes from this shared flow, at every location. The stations stay, with their screens, for other flows.'
+              : <>No dish goes to {station.name} while this flow is in use. The station stays, with its screens, for your other flows;
+                to remove it everywhere, delete it under Edit station.</>}
           </p>
         </div>
       )}
@@ -944,7 +1270,7 @@ function NodePanel({ id, station, setup, links, nameOf, lk, canManage, onEdit, o
   )
 }
 
-function CheckPanel({ setup, lk, check, setCheck, route, nameOf, kindOf, onClose }) {
+function CheckPanel({ setup, lk, shared, check, setCheck, route, nameOf, kindOf, onClose }) {
   const [q, setQ] = useState('')
   const term = q.trim().toLowerCase()
   const matches = term.length >= 2 ? (setup.items || []).filter(i => i.name.toLowerCase().includes(term)).slice(0, 8) : []
@@ -991,6 +1317,14 @@ function CheckPanel({ setup, lk, check, setCheck, route, nameOf, kindOf, onClose
           {setup.revenue_streams.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
         </select>
       )}
+      {lk.deviceList.length > 0 && (
+        <select value={check.device_id} onChange={e => setCheck(c => ({ ...c, device_id: e.target.value }))}
+          className={inputCls} aria-label="Sent from" data-testid="flow-check-device">
+          <option value="">Sent from any till</option>
+          {lk.deviceList.map(d => <option key={d.id} value={d.id}>Sent from {d.name}</option>)}
+        </select>
+      )}
+      {shared && <p className="text-xs text-muted-foreground">The way at this location ({setup.venue?.name}), with its own stations.</p>}
       {item && route && (
         <div className="rounded-lg bg-blue-50 border border-blue-200 p-3" data-testid="flow-check-result">
           <p className="font-medium">{item.name}</p>

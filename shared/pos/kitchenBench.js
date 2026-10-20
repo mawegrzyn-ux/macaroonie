@@ -198,6 +198,8 @@ export function createBench(data, { now = () => new Date().toISOString(), rng = 
    * A test order into the kitchen. spec:
    *   source      'till' | 'online'
    *   order_type_id, revenue_stream_id
+   *   device_id   the till or kiosk it is sent from (till orders; flow links
+   *               can be for one till)
    *   table_id    a table (till orders), else a counter order with a number
    *   tent        a tent number (till counter orders)
    *   name        the customer's name (a till order's name, an online guest)
@@ -266,7 +268,8 @@ export function createBench(data, { now = () => new Date().toISOString(), rng = 
         }
       }),
     }
-    const e = { id: ulid(), type: 'lines.sent', check_id: checkId, payload: { line_ids: check.lines.map(l => l.id), send_id: sendId }, received_at: at }
+    const device = spec.device_id && (data.devices || []).some(d => d.id === spec.device_id) ? spec.device_id : null
+    const e = { id: ulid(), type: 'lines.sent', check_id: checkId, device_id: device, payload: { line_ids: check.lines.map(l => l.id), send_id: sendId }, received_at: at }
     const out = kitchenForCheckEvent(e, {}, { [checkId]: check }, {}, withBalance(c))
     if (!out[checkId]) return { ok: false, error: 'Nothing went to the kitchen' }
     st.checks[checkId] = check

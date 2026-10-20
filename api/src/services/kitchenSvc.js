@@ -8,9 +8,16 @@
 //                           centres)
 //   kdsConfig()             what a kitchen screen downloads (/pos-api/config)
 //   loadFlows() / ensureFlows() / activeFlowOf()
-//                           a venue's kitchen flows (migration 177) and the one
-//                           in use (pos_settings.kds_active_flow_id, else the
-//                           first)
+//                           a venue's kitchen flows (migration 177): its own,
+//                           then the ones shared by every location (migration
+//                           192), and the one in use
+//                           (pos_settings.kds_active_flow_id, else the first)
+//   loadFlow() / flowPlace() a flow's links at a venue: a shared flow's named
+//                           boxes and filters become the venue's stations,
+//                           streams and tills (resolveSharedFlow())
+//   pinActiveFlows()        writes down each venue's flow in use before shared
+//                           flows are added, moved or deleted, so no venue's
+//                           "first flow" changes under it
 //   switchFlow()            put another flow in use (Till setup, or a kitchen
 //                           screen's flow button): dishes sent after it follow
 //                           it, dishes already sent keep their way (item.route)
@@ -38,7 +45,7 @@ import { withTenant, systemSql } from '../config/db.js'
 import { broadcast } from '../config/ws.js'
 import { httpError } from '../middleware/error.js'
 import { ulid } from '../../../shared/pos/ids.js'
-import { onlineOrderId, gloriaFoodOrderId, stationSettings, boardNumbers, STALE_HOURS, BUMP_KINDS } from '../../../shared/pos/kitchen.js'
+import { onlineOrderId, gloriaFoodOrderId, stationSettings, boardNumbers, STALE_HOURS, BUMP_KINDS, resolveSharedFlow } from '../../../shared/pos/kitchen.js'
 import { typeLabel as gfTypeLabel, TYPE_LABELS as GF_TYPE_LABELS } from '../../../shared/gloriafood.js'
 import { createHash } from 'node:crypto'
 import { makeLink, readLink } from './previewLinks.js'
@@ -54,15 +61,19 @@ export async function loadStations(tx, tenantId, venueId, { activeOnly = true } 
      ORDER BY sort_order, name`
 }
 
-/** A venue's kitchen flows, in their order: [{ id, name, layout, sort_order, off_station_ids }]. */
+/**
+ * A venue's kitchen flows in their order: its own, then the shared ones
+ * (venue_id NULL, migration 192). [{ id, name, layout, sort_order,
+ * off_station_ids, shared, boxes, box_links }]
+ */
 export async function loadFlows(tx, tenantId, venueId) {
   return tx`
-    SELECT id, name, layout, sort_order, off_station_ids FROM kds_flows
-     WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}
-     ORDER BY sort_order, created_at`
+    SELECT id, name, layout, sort_order, off_station_ids, venue_id IS NULL AS shared, boxes, box_links FROM kds_flows
+     WHERE tenant_id = ${tenantId} AND (venue_id = ${venueId} OR venue_id IS NULL)
+     ORDER BY (venue_id IS NULL), sort_order, created_at`
 }
 
-/** The venue's flows, making the first one ("Main flow") when it has none. */
+/** The venue's flows, making the first one ("Main flow") when there are none, shared ones included. */
 export async function ensureFlows(tx, tenantId, venueId) {
   const flows = await loadFlows(tx, tenantId, venueId)
   if (flows.length) return flows
@@ -77,15 +88,54 @@ export function activeFlowOf(flows, activeId) {
   return flows.find(f => f.id === activeId) || flows[0] || null
 }
 
-/** A flow's links between the given stations: [{ id, from, to, targets }]. */
-export async function loadFlow(tx, tenantId, flowId, stations) {
-  if (!flowId) return []
+/**
+ * What a shared flow's names are matched against at a venue: its stations
+ * (as given), revenue streams and tills / kiosks.
+ */
+export async function flowPlace(tx, tenantId, venueId, stations) {
+  const [streams, devices] = await Promise.all([
+    tx`SELECT id, name FROM pos_revenue_streams WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`,
+    tx`SELECT id, name FROM pos_devices
+        WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND kind IN ('terminal', 'kiosk') AND revoked_at IS NULL`,
+  ])
+  return { stations, streams, devices }
+}
+
+/**
+ * A flow's links between the given stations: [{ id, from, to, targets }].
+ * flow is a row from loadFlows() (or an id of the venue's own flow). A shared
+ * flow is resolved at the venue: place = flowPlace() (loaded when not given).
+ */
+export async function loadFlow(tx, tenantId, flow, stations, { venueId = null, place = null } = {}) {
+  if (!flow) return []
   const live = new Set(stations.map(s => s.id))
+  if (flow.shared) {
+    const at = place || await flowPlace(tx, tenantId, venueId, stations)
+    return resolveSharedFlow({ boxes: flow.boxes, links: flow.box_links }, at).links
+      .filter(l => live.has(l.to) && (!l.from || live.has(l.from)))
+  }
   const rows = await tx`
     SELECT id, from_station_id AS "from", to_station_id AS "to", targets
-      FROM kds_flow_edges WHERE tenant_id = ${tenantId} AND flow_id = ${flowId}
+      FROM kds_flow_edges WHERE tenant_id = ${tenantId} AND flow_id = ${flow.id || flow}
      ORDER BY sort_order, created_at`
   return rows.filter(l => live.has(l.to) && (!l.from || live.has(l.from)))
+}
+
+/**
+ * Before shared flows change (added, moved, deleted): every venue whose flow
+ * in use is "the first" gets it written down, so it doesn't change under it.
+ */
+export async function pinActiveFlows(tx, tenantId) {
+  const rows = await tx`
+    SELECT ps.venue_id,
+           (SELECT f.id FROM kds_flows f
+             WHERE f.tenant_id = ps.tenant_id AND (f.venue_id = ps.venue_id OR f.venue_id IS NULL)
+             ORDER BY (f.venue_id IS NULL), f.sort_order, f.created_at LIMIT 1) AS first
+      FROM pos_settings ps
+     WHERE ps.tenant_id = ${tenantId} AND ps.kds_active_flow_id IS NULL`
+  for (const r of rows) {
+    if (r.first) await tx`UPDATE pos_settings SET kds_active_flow_id = ${r.first} WHERE venue_id = ${r.venue_id} AND tenant_id = ${tenantId}`
+  }
 }
 
 async function flowSetting(tx, tenantId, venueId) {
@@ -118,7 +168,7 @@ export async function loadKitchenConfig(tx, tenantId, venueId) {
   const flows = await loadFlows(tx, tenantId, venueId)
   const active = activeFlowOf(flows, active_setting)
   const [flow, courses, tables, staff, types, printers, layouts] = await Promise.all([
-    loadFlow(tx, tenantId, active?.id, stations),
+    loadFlow(tx, tenantId, active, stations, { venueId }),
     tx`SELECT id, name, sort_order FROM pos_courses WHERE tenant_id = ${tenantId}`,
     tx`SELECT id, label FROM tables WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`,
     tx`SELECT id, name FROM cash_staff WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`,
@@ -163,7 +213,10 @@ export async function activeFlowSetting(tx, tenantId, venueId) {
 export async function switchFlow(tx, tenantId, venueId, flowId, by) {
   const { ensureSettings } = await import('./posSvc.js')
   await tx`SELECT pg_advisory_xact_lock(hashtext(${'pos:' + venueId}))`
-  const [flow] = await tx`SELECT id, name FROM kds_flows WHERE id = ${flowId} AND tenant_id = ${tenantId} AND venue_id = ${venueId}`
+  // The venue's own flows and the shared ones.
+  const [flow] = await tx`
+    SELECT id, name FROM kds_flows
+     WHERE id = ${flowId} AND tenant_id = ${tenantId} AND (venue_id = ${venueId} OR venue_id IS NULL)`
   if (!flow) throw httpError(404, 'Kitchen flow not found')
   const settings = await ensureSettings(tx, tenantId, venueId)
   const flows = await loadFlows(tx, tenantId, venueId)
@@ -198,10 +251,8 @@ export async function kdsConfig(tx, tenantId, venueId) {
   // stations it sends dishes to, and the one in use.
   const flows = await loadFlows(tx, tenantId, venueId)
   const active = activeFlowOf(flows, settings?.kds_active_flow_id)
-  const live = new Set(stations.map(s => s.id))
-  const edges = flows.length ? await tx`
-    SELECT flow_id, from_station_id AS "from", to_station_id AS "to" FROM kds_flow_edges
-     WHERE tenant_id = ${tenantId} AND flow_id = ANY(${flows.map(f => f.id)}::uuid[])` : []
+  const place = await flowPlace(tx, tenantId, venueId, stations)
+  const linksOf = await Promise.all(flows.map(f => loadFlow(tx, tenantId, f, stations, { place })))
   const order = Object.fromEntries(stations.map((s, i) => [s.id, i]))
   const config = {
     kind: 'kds',
@@ -214,11 +265,10 @@ export async function kdsConfig(tx, tenantId, venueId) {
     stations: stations.map(stationView),
     // The screen draws where dishes come from and go to; their ways are
     // worked out when they are sent (item.route), not on the screen.
-    flow: await loadFlow(tx, tenantId, active?.id, stations),
-    flows: flows.map(f => ({
-      id: f.id, name: f.name,
-      station_ids: [...new Set(edges.filter(e => e.flow_id === f.id && live.has(e.to) && (!e.from || live.has(e.from))).map(e => e.to))]
-        .sort((a, b) => order[a] - order[b]),
+    flow: active ? linksOf[flows.indexOf(active)] : [],
+    flows: flows.map((f, i) => ({
+      id: f.id, name: f.name, shared: f.shared,
+      station_ids: [...new Set(linksOf[i].map(e => e.to))].sort((a, b) => order[a] - order[b]),
     })),
     active_flow_id: active?.id || null,
     flow_switched_at: settings?.kds_flow_switched_at || null,
@@ -270,7 +320,8 @@ export async function kitchenTestData(tx, tenantId, venueId) {
   if (!base.venue?.id) throw httpError(404, 'Venue not found')
   const stations = await loadStations(tx, tenantId, venueId)
   const flows = await loadFlows(tx, tenantId, venueId)
-  const links = await Promise.all(flows.map(f => loadFlow(tx, tenantId, f.id, stations)))
+  const place = await flowPlace(tx, tenantId, venueId, stations)
+  const links = await Promise.all(flows.map(f => loadFlow(tx, tenantId, f, stations, { place })))
   const [screens, tables, streams] = await Promise.all([
     tx`SELECT id, name, short_code, settings FROM pos_devices
         WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND kind = 'kds' AND revoked_at IS NULL
@@ -289,7 +340,9 @@ export async function kitchenTestData(tx, tenantId, venueId) {
     stations: base.stations,
     courses: base.courses,
     order_types: base.order_types,
-    flows: flows.map((f, i) => ({ id: f.id, name: f.name, station_ids: base.flows[i]?.station_ids || [], links: links[i] })),
+    flows: flows.map((f, i) => ({ id: f.id, name: f.name, shared: f.shared, station_ids: base.flows[i]?.station_ids || [], links: links[i] })),
+    // The tills and kiosks a test order can be sent from (flow links filtered by device).
+    devices: place.devices.map(d => ({ id: d.id, name: d.name })),
     active_flow_id: base.active_flow_id,
     screens: screens.map(s => ({ id: s.id, name: s.name, short_code: s.short_code, settings: s.settings || {} })),
     tables: tables.map(t => ({ id: t.id, label: t.label })),

@@ -3404,6 +3404,39 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               already sent: they keep <Mono>item.route</Mono>.
             </P>
             <P>
+              <strong>Shared flows</strong> (migration 192): a flow with <Mono>kds_flows.venue_id</Mono> NULL is
+              shared by every location. Its boxes are named stations, <Mono>boxes</Mono> jsonb{' '}
+              <Mono>{'[{ id, name, kind }]'}</Mono>, and its links are <Mono>box_links</Mono> jsonb{' '}
+              <Mono>{'[{ id, from: box id | null, to: box id, targets }]'}</Mono> (not{' '}
+              <Mono>kds_flow_edges</Mono>). <Mono>resolveSharedFlow(flow, place)</Mono> in{' '}
+              <Mono>shared/pos/kitchen.js</Mono> turns it into one location&apos;s links: each box is the
+              location&apos;s station with the same <Mono>flowName()</Mono> (trimmed, spaces collapsed, lower case;
+              the first of two), links touching a box the location lacks are left out (so the next closest link
+              applies), and its revenue stream and device filters, stored by name, become the location&apos;s ids
+              of those names (none: <Mono>{'{ kind, id: null }'}</Mono>, which matches no dish). Dish, section and
+              order type filters stay ids (the company&apos;s). It returns <Mono>{'{ links, matches, missing, differs }'}</Mono>{' '}
+              (a station of a different kind works as its own kind there). <Mono>loadFlows()</Mono> lists a
+              venue&apos;s own flows, then the shared ones (each by sort order); <Mono>loadFlow()</Mono> resolves a
+              shared one at the venue (<Mono>flowPlace()</Mono>: its stations, revenue streams, tills and kiosks),
+              so the sequencer, kitchen screens (<Mono>kdsConfig()</Mono>, flows with <Mono>shared</Mono>) and the
+              test bench get ordinary links and nothing else changes. Because the flow in use falls back to the
+              first, <Mono>pinActiveFlows()</Mono> writes each venue&apos;s flow in use down before shared flows
+              are made, reordered or deleted; <Mono>ensureFlows()</Mono> makes Main flow only for a venue with no
+              flows at all. <Mono>shareFlow(links, stations, names)</Mono> turns a venue&apos;s flow into a shared
+              one (box id = station id, so the layout carries over; a duplicate name&apos;s links and filters on
+              streams or tills that have gone are dropped), <Mono>boxProblems()</Mono> checks boxes (a name each,
+              no two alike, a known kind).
+            </P>
+            <P>
+              <strong>Sent from</strong> (migration 192): link filter kind <Mono>device</Mono> names the till or
+              kiosk that sent the order (<Mono>pos_devices</Mono> of kind terminal | kiosk at the venue, by id; in
+              a shared flow by name). <Mono>RANK</Mono>: item 0, section 1, device 2, revenue_stream 3,
+              order_type 4, default 5. <Mono>itemFromLine()</Mono> passes the <Mono>lines.sent</Mono>{' '}
+              event&apos;s <Mono>device_id</Mono> into the route target; online and GloriaFood orders have no
+              device, so a device link never takes them. The test bench&apos;s Test order has a Sent from choice
+              (<Mono>spec.device_id</Mono>, checked against <Mono>data.devices</Mono>).
+            </P>
+            <P>
               <strong>Balance boxes</strong> (migration 183): a station of kind <Mono>balance</Mono> shares work
               between the stations it links to (prep, expo or runner only, links out without filters:{' '}
               <Mono>flowProblems()</Mono>; fewer than two is a warning). <Mono>itemRoute()</Mono> still walks
@@ -3488,7 +3521,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               rows={[
                 ['kds_stations', 'Per venue: name, kind prep | expo | runner | board | balance (183), colour, settings jsonb { target_mins, late_mins, show_held, show_upcoming, summary_groups: [{ id, name, members: [{ kind dish | option, id | label, qty }] }], pieces (a Balance box: members, same shape), split_above (a Balance box: null = each ticket on one station, N = share a ticket with more than N pieces) }, sort_order, is_active.'],
                 ['kds_balance_turns', 'Each Balance box\'s last pick (183): station_id (the box, PK, ON DELETE CASCADE), last_station_id, updated_at. Written by the sequencer (saveBalanceTurns()) so a tie goes to the next station. Forced RLS.'],
-                ['kds_flows', 'A venue\'s kitchen flows (177): name (1-40, unique per venue ignoring case and spaces), layout jsonb { [stationId | start]: { x, y } } (where the designer draws each box), sort_order (the kitchen screen\'s list), off_station_ids uuid[] (182: the venue\'s stations this flow leaves out). Forced RLS like every tenant table. The migration made one "Main flow" per venue with stations or links, holding its links and layout, in use. A venue without one gets it from GET .../setup (ensureFlows()).'],
+                ['kds_flows', 'A venue\'s kitchen flows (177): name (1-40, unique per venue ignoring case and spaces), layout jsonb { [stationId | start]: { x, y } } (where the designer draws each box), sort_order (the kitchen screen\'s list), off_station_ids uuid[] (182: the venue\'s stations this flow leaves out). Forced RLS like every tenant table. The migration made one "Main flow" per venue with stations or links, holding its links and layout, in use. A venue without any flow gets it from GET .../setup (ensureFlows()). Shared flows (192): venue_id NULL, boxes jsonb [{ id, name, kind }], box_links jsonb [{ id, from, to, targets }] (layout keys are box ids), names unique per tenant (index kds_flows_shared_name); a venue\'s own flow can\'t take a shared flow\'s name, a shared one can\'t take any flow\'s.'],
                 ['kds_flow_edges', 'A flow\'s links (169, flow_id NOT NULL since 177, ON DELETE CASCADE with the flow): from_station_id (NULL = Orders in), to_station_id (both ON DELETE CASCADE), targets jsonb, sort_order. One link per pair per flow (unique index on flow_id, from, to). Read them by flow_id, never by venue alone. Replaced kds_routes: each station\'s routes became one link from Orders in, every prep station got a link to every expo.'],
                 ['kds_orders', 'Projection (like pos_checks): id text (a check id, web-<orders.id> or gf-<gloriafood_orders.id>), source till | online | gloriafood (178; taken from the id prefix by applyKitchenEvent(), never from the payload), check_id / order_id, status active | ready | collected | cancelled, state jsonb (the whole kitchen order), last_seq.'],
                 ['kds_log', 'One row per bump and remake: station (id, name, kind), seconds since the dishes arrived or were fired, items, order source / type / number, reason, recalled_at (a recalled bump is left out of the report). Feeds the Kitchen report and its CSV.'],
@@ -3500,14 +3533,15 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <DataTable
               head={['Route', 'What it does']}
               rows={[
-                ['GET /pos-api/config (kds device)', 'kdsConfig(): stations (active only, boards too), flow (the links of the flow in use), flows [{ id, name, station_ids (the stations its links send dishes to, in station order) }], active_flow_id, flow_switched_at / flow_switched_by, the device\'s settings, courses, venue name and time zone. No staff, PINs or menus. version changes with any of them, so a switch reaches every screen through pos.config.'],
+                ['GET /pos-api/config (kds device)', 'kdsConfig(): stations (active only, boards too), flow (the links of the flow in use, a shared one resolved at the venue), flows [{ id, name, shared, station_ids (the stations its links send dishes to, in station order) }], active_flow_id, flow_switched_at / flow_switched_by, the device\'s settings, courses, venue name and time zone. No staff, PINs or menus. version changes with any of them, so a switch reaches every screen through pos.config.'],
                 ['PUT /pos-api/kitchen/flow', '{ flow_id } from a kds device\'s flow button: switchFlow() with the screen\'s name as switched_by; returns { flow_id, name, switched_at, switched_by, changed } (changed false: already in use). 403 for any other device kind or a screen with can_switch_flow false (read fresh from pos_devices), 404 for a flow not at its venue. Broadcasts pos.config. Online only (the screen says so offline).'],
                 ['GET /pos-api/kitchen/sync?since=', 'Kitchen orders changed since a seq (reset with every live order when far behind) and server_time for the screen\'s clock.'],
                 ['POST /pos-api/events', 'Takes kitchen events from kds devices (server-only types refused). The answer has kitchen (orders touched). Broadcasts pos.seq with kinds [checks | kitchen] (tills skip kitchen-only changes) and kitchen.board to screens:<venue>.'],
                 ['/api/pos/venues/:id/kds-stations, /kds-stations/:id, .../kds-stations/order', 'Stations (pos_setup manage). Turning a station into a board drops its links onward and takes it off kitchen screens; a kitchen screen can\'t show a board (422).'],
-                ['PUT /api/pos/kds-flows/:id', '{ links: [{ from, to, targets }], layout, off_station_ids } replaces one flow\'s links, layout and the stations it leaves out (182; no list = none out; a link touching one is 422) (pos_setup manage). 422 with the first flowProblems() message (links name the flow\'s venue\'s stations); dish / section / revenue stream / order type ids must be the tenant\'s; layout keys that aren\'t start or a station are dropped. Returns { id, links, layout, off_station_ids, warnings }. GET /api/pos/venues/:id/setup returns kds_flows [{ id, name, sort_order, layout, off_station_ids, links }], kds_active_flow_id, kds_flow_switched_at / _by. Deleting a revenue centre takes it out of every filter of every flow (a link left with no filter goes).'],
-                ['POST /api/pos/venues/:id/kds-flows', '{ name, copy_from? } a new flow at the end: empty, or with the links and layout of copy_from (one of this venue\'s flows, else 404). 422 when the name is taken.'],
-                ['PATCH / DELETE /api/pos/kds-flows/:id', 'Rename ({ name }, 422 when taken); delete (422 for the flow in use: put another in use first; takes the till lock so it can\'t race a switch).'],
+                ['PUT /api/pos/kds-flows/:id', '{ links: [{ from, to, targets }], layout, off_station_ids } replaces one flow\'s links, layout and the stations it leaves out (182; no list = none out; a link touching one is 422) (pos_setup manage). 422 with the first flowProblems() message (links name the flow\'s venue\'s stations); dish / section / revenue stream / order type ids must be the tenant\'s; layout keys that aren\'t start or a station are dropped. Returns { id, links, layout, off_station_ids, warnings }. Device filters name the venue\'s tills and kiosks. A shared flow takes { boxes, links, layout } instead (box ids are uuids, boxProblems() and flowProblems() on the boxes, links only between boxes, stream and device filters by name, menu ids checked) and returns { id, shared, boxes, links, layout, warnings }, warnings including each location that lacks a box\'s station or has one of another kind; it broadcasts pos.config to every venue. GET /api/pos/venues/:id/setup returns kds_flows (own then shared: [{ id, name, sort_order, layout, shared, off_station_ids, links, boxes? }]), kds_active_flow_id, kds_flow_switched_at / _by, kds_locations [{ id, name, active_flow_id, stations }] (every venue, for matching boxes) and kds_shared_names { revenue_stream, device } (every active name, once). Deleting a revenue centre takes it out of every filter of every own flow (a link left with no filter goes); shared flows name streams, so nothing to drop.'],
+                ['POST /api/pos/venues/:id/kds-flows', '{ name, copy_from?, shared? } a new flow at the end of its list: empty, or a copy of copy_from (one of this venue\'s flows or a shared one, else 404). shared true makes it shared (pinActiveFlows() first). Copies go either way: own to shared with shareFlow(); shared to own with resolveSharedFlow() (links whose stream / till filters all name nothing here are dropped, unmatched stations go to off_station_ids, the layout follows the matches). 422 when the name is taken.'],
+                ['PATCH / DELETE /api/pos/kds-flows/:id', 'Rename ({ name }, 422 when taken); delete (422 for the flow in use: put another in use first; takes the till lock so it can\'t race a switch). A shared flow: 422 "in use at X" while any venue has it in use (after pinActiveFlows()); both broadcast to every venue.'],
+                ['PUT /api/pos/kds-flows/shared/order', '{ ids } the shared flows\' order, the same at every location (pos_setup manage; pinActiveFlows() first).'],
                 ['PUT /api/pos/venues/:id/kds-flows/order, .../kds-flows/active', 'order: { ids } sort order (keeps the flow in use in use, writing its id down if it was only "the first"); active: { flow_id } switchFlow() with the person\'s email as switched_by. Both pos_setup manage; both broadcast pos.config.'],
                 ['GET /api/pos/venues/:id/kitchen-report[.csv]?from=&to=', 'Per station: tickets, items, average, median, p90, max, on time (within target_mins), late; by hour; remakes. CSV: every bump and remake (pos_reports view).'],
                 ['POST /api/pos/venues/:id/kitchen-test', 'A signed link to the kitchen test bench (pos_setup view): { token, url } (8 hours). See The kitchen test bench below.'],
@@ -5555,6 +5589,13 @@ selection.combo = { [stepId]: [{ option_id, item_id, choices }] }   // item_id n
               drawn by one renderer, <Mono>shared/screenLayout.js</Mono>, in the player and in the admin
               designer. Prices are the <strong>live</strong> menus (<Mono>menu_releases</Mono>), so a
               publish changes every screen; sold out comes from <Mono>ordering_item_availability</Mono>.
+              Boards and playlists are tenant-wide (every location uses them; each screen shows its own
+              venue&apos;s sold out dishes and order ready board); screens and walls have a{' '}
+              <Mono>venue_id</Mono>. The page&apos;s Location picker (Screens and Walls tabs,{' '}
+              <Mono>useScreensPlace()</Mono>, localStorage <Mono>maca_screens_venue</Mono>, empty = every
+              location) only filters what is shown and sets the location a new screen or wall starts at;
+              reordering one location&apos;s screens sends the whole order with the others in place
+              (<Mono>mergeOrder()</Mono>). No API change.
             </P>
             <DataTable
               head={['Table', 'Purpose']}

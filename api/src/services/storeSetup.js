@@ -478,7 +478,10 @@ const AREAS = {
     const [tpl] = await tx`SELECT kds_active_flow_id, kds_online_orders, kds_online_ready, kds_gloriafood_types, kds_gloriafood_lead_mins
                              FROM pos_settings WHERE venue_id = ${s.from} AND tenant_id = ${tenantId}`
     if (tpl) {
-      const active = tpl.kds_active_flow_id && s.ids.get(tpl.kds_active_flow_id)
+      // The template's own flow in use becomes the copy's; a shared flow (migration 192) stays as it is.
+      const [shared] = tpl.kds_active_flow_id ? await tx`
+        SELECT id FROM kds_flows WHERE id = ${tpl.kds_active_flow_id} AND tenant_id = ${tenantId} AND venue_id IS NULL` : []
+      const active = shared?.id || (tpl.kds_active_flow_id && s.ids.get(tpl.kds_active_flow_id))
       await tx`
         UPDATE pos_settings SET kds_active_flow_id = ${active || null}, kds_online_orders = ${tpl.kds_online_orders},
                kds_online_ready = ${tpl.kds_online_ready}, kds_gloriafood_types = ${tx.json(tpl.kds_gloriafood_types || {})},
