@@ -3140,11 +3140,11 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['pos_days', 'Trading days: business_date (from day_starts_at), z_number, figures jsonb at Z, declared_cash, recon_filled_at / recon_error. One open per venue.'],
                 ['pos_venue_state', 'last_seq, next_check_no, next_order_no, next_z_number.'],
                 ['pos_print_jobs', 'Print queue (ops jsonb from tickets.js), status queued | printing | printed | failed, for the hub.'],
-                ['pos_devices', 'Tills, kitchen screens, kiosks and (later) hubs: kind terminal | kds | kiosk | hub, short_code, secret_hash, pairing_code_hash + pairing_expires_at (only the move hand-over code of POST /pos-api/move), settings jsonb (mode, revenue_stream_id, receipt_printer_id, floor_area_id), revoked_at.'],
+                ['pos_devices', 'Tills, kitchen screens, kiosks and venue hubs: kind terminal | kds | kiosk | hub, short_code, secret_hash, pairing_code_hash + pairing_expires_at (only the move hand-over code of POST /pos-api/move), settings jsonb (mode, revenue_stream_id, receipt_printer_id, floor_area_id; a hub\'s auto_update), revoked_at; a hub\'s info + info_at (what it says about itself) and update_requested_at (migration 195).'],
                 ['pos_settings', 'Per venue: pin_salt, day_starts_at, receipt texts, tenders jsonb, tips, require_covers, order_no_start, auto_logout_secs, recon_map, recon_auto_fill. (Migration 170 dropped the VAT defaults and counter_revenue_centre_id.)'],
                 ['pos_revenue_streams', 'Migration 170 (was pos_revenue_centres): name, menu_ids, service_charge_percent + min covers, colour, sort_order, is_active, default_order_type_id. Which order types it offers and what each asks for: pos_stream_order_types (stream_id, order_type_id, enabled, ask_name / ask_tent off | ask | required; no row = off). See Tax, Order Types & Streams.'],
                 ['pos_roles / pos_courses', 'Tenant-wide. Role permissions jsonb (shared/pos/permissions.js); courses with hold_by_default.'],
-                ['pos_printers', 'Printers (host, port, columns, backup); connection hub | device + device_id; status / status_at from the hub (migration 191). pos_print_routes was dropped: kitchen tickets come from the kitchen flow.'],
+                ['pos_printers', 'Printers (host, port, columns, backup); connection hub | device + device_id; status / status_at from the hub (migration 191); local_id: a USB printer on the venue hub\'s computer (migration 195). pos_print_routes was dropped: kitchen tickets come from the kitchen flow.'],
                 ['floor_areas', 'name, width x height in units, revenue_stream_id, decor jsonb. tables gains floor_area_id, pos_x/y/w/h, shape, rotation.'],
                 ['cash_staff', 'pos_pin_hash (unique per venue), pos_role_id.'],
                 ['menus', 'menu_items kind (dish | combo), kitchen_name, pos_course_id, pos_colour, combo jsonb (steps since migration 171, see Combos); menu_sections pos_course_id, pos_colour; menu_variant_groups pos_prefixes; menu_variant_options child_group_id; promotions channels text[] (online | pos).'],
@@ -3256,6 +3256,26 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               the hub turns the same operations into ESC/POS (<Mono>hub/src/escpos.js</Mono>) and tries the printer&apos;s
               backup when it doesn&apos;t answer.
             </P>
+            <H3>The venue hub on a mini PC</H3>
+            <P>
+              Migration 195. The hub (<Mono>hub/</Mono>, Node 22, no packages) installs on a Linux or Windows mini PC from one
+              command, prints to network printers and to USB printers plugged into it, serves a status page on the venue&apos;s
+              network and updates itself from the cloud.
+            </P>
+            <DataTable
+              head={['Part', 'What it does']}
+              rows={[
+                ['Release', 'services/hubRelease.js: hubRelease() builds one tar.gz per API process from the files hub/bin/*.js load (importClosure() follows relative imports, so the shared ticket code comes along) plus hub/package.json, hub/README.md, shared/package.json and a release.json. Sorted names and fixed times: every process makes the same bytes. Version = hub/src/version.js VERSION + "+" + 8 hex of a hash of the files, so any change to the hub or the shared code it uses is a new version. Public routes (no auth): GET /pos-api/hub/release ({ version, sha256, size, url }), /pos-api/hub/release.tgz, /pos-api/hub/install.sh and install.ps1 (installScript(): __MACAROONIE_API__ replaced by the till address, or the request\'s own address on localhost).'],
+                ['Install (Linux)', 'hub/install/install.sh: Node 22 from nodejs.org/dist/latest-v22.x checked against SHASUMS256.txt into /opt/macaroonie-hub/node; a system user macaroonie-hub in lp and dialout; the release checked against its sha256, unpacked to releases/<version>, --self-test; launcher.mjs and current.json; a systemd unit (Restart=always, ProtectSystem=full, ReadWritePaths the home); ufw opens 9180 when active; prints the code from state.json. --uninstall removes it all. Environment overrides for tests (MACAROONIE_HUB_HOME, MACAROONIE_SYSTEMCTL, ...).'],
+                ['Install (Windows)', 'hub/install/install.ps1 (irm ... | iex; everything inside Install-MacaroonieHub so errors return to the prompt): Node 22 zip checked by Get-FileHash into C:\\ProgramData\\Macaroonie\\Hub\\node, the release unpacked with tar.exe, a scheduled task at start-up as SYSTEM (restart on failure) running the launcher with --log-file hub.log, a firewall rule for 9180 (private and domain networks). MACAROONIE_HUB_UNINSTALL=1 removes it.'],
+                ['Launcher', 'hub/bin/launcher.js, copied to <home>/launcher.mjs: runs the version in current.json, starts it again at once after exit 75 (an update), else after 2 s growing to 30 s; three stops within a minute of starting go back to current.previous and add the version to bad_versions (rolled_back_from). --log-file writes a log kept under 5 MB.'],
+                ['Updates', 'hub/src/update.js createUpdater(): the hub\'s config (hubConfig()) carries release and update { auto: settings.auto_update !== false, requested: update_requested_at set }. At a quiet moment (a claim with no jobs, at most every 30 s) it downloads, checks the sha256 and release.json\'s version, unpacks with tar into releases/<v>.part, runs --self-test, renames, copies the launcher, writes current.json (keeping the version before) and exits 75. Not again for 30 minutes after a failure (5 when asked); a version in bad_versions only when asked. A copy run from the repository (no MACAROONIE_HUB_HOME) only reports updates: manual. POST /api/pos/devices/:id/update sets update_requested_at; a report with the latest version clears it.'],
+                ['USB printers', 'hub/src/usb.js. Linux: /sys/class/usbmisc/lp*/device (ieee1284_id, and the USB device\'s idVendor, idProduct, serial or port) gives { id: usb:<vendor>:<product>:<serial | port-…>, name, escpos, path: /dev/usb/lpN }; printing writes the device file non-blocking (EAGAIN = wait), status asks DLE EOT and reads the answer back (no answer = unknown). Windows: Get-Printer (virtual printers left out), id win:<name>; a RAW job through winspool (OpenPrinter / StartDocPrinter RAW / WritePrinter) in an encoded PowerShell command, the name and a temp file in environment variables; status from PrinterStatus. Printers are found again by id at every print, never by device file. Prints and status questions to one printer are queued together.'],
+                ['Printers in the cloud', 'A USB printer on the hub is pos_printers connection device, device_id = the hub, local_id = its id (checkPrinterDevice() needs local_id for a hub, clears it otherwise; host is null). hubConfig() sends network printers and the hub\'s own USB printers with interface network | usb; the claim already matches device printers by device_id. POST /pos-api/hub/status (HubReport) stores info (computer, addresses, status_port, local_printers, update) and info_at on pos_devices and updates state for its network printers and its own USB printers. Till setup shows info, hub_release, Update now, Add it; the installer app lists hubs (KINDS.hub) with info.'],
+                ['Status page', 'hub/src/statusPage.js on port 9180 (--http-port, 0 = none): GET / (refreshes every 5 s, CSP default-src none) and /status.json. Linking: the code and qrSvg() of the installer link; then cloud, version, update state, printers in words, USB printers found, the last 20 tickets as kind, printer, printed or the reason (never titles or contents). publicState() never includes a secret. The hub also writes state.json beside hub.json for hub.js status and the installers.'],
+                ['Linking', 'bin/hub.js shows a code until linked (console, page, state.json); a 401 from the cloud (removed in Till setup) clears hub.json and shows a new code instead of stopping (a stop would make the launcher go back a version).'],
+              ]}
+            />
             <H3>Print designs</H3>
             <P>
               Migration 190. A design is a layout <Mono>{'{ blocks: [{ id, type, opts }] }'}</Mono> of kind kitchen or
@@ -6027,6 +6047,17 @@ selection.combo = { [stepId]: [{ option_id, item_id, choices }] }   // item_id n
               a venue id edits that venue's <Mono>website_config</Mono> via{' '}
               <Mono>/website/config?venue_id=X</Mono> instead, using the identical form fields.
             </P>
+            <P>
+              Saving the tenant default (<Mono>PATCH /website/tenant-site</Mono>,{' '}
+              <Mono>PATCH</Mono> / <Mono>POST /website/brand-defaults</Mono>) writes{' '}
+              <Mono>tenant_site</Mono> only and never touches a venue's{' '}
+              <Mono>website_config</Mono>. Until 20 Oct 2026 both routes also stripped{' '}
+              <Mono>colors</Mono> / <Mono>typography</Mono> from every venue's theme and set its{' '}
+              <Mono>template_key</Mono> to NULL (left over from before migration 098). The column is
+              NOT NULL, so every save that sent a template (Brand identity always does) failed with
+              a 500 once a venue had website settings, and theme saves emptied overrides' colours
+              and fonts.
+            </P>
             <InfoBox type="warn">
               This replaces an earlier per-field sparse-inheritance model (
               <Mono>BRAND_INHERITABLE</Mono>, and a <Mono>brandTheme.js</Mono> helper that forced
@@ -6479,6 +6510,21 @@ GET /robots.txt`}</Code>
               each <Mono>location /api/</Mono> block, with that block&apos;s proxy_pass and limit_req;
               idempotent, <Mono>nginx -t</Mono> or restore. <Mono>POST /items/check-duplicate</Mono>{' '}
               returns <Mono>hash</Mono> too.
+            </P>
+            <P>
+              <Mono>.ico</Mono> pictures (favicons) are taken by <Mono>/api/media/items/upload</Mono>,{' '}
+              <Mono>/items/:id/replace</Mono> and <Mono>/website/upload</Mono> (kind images):{' '}
+              <Mono>utils/icon.js</Mono> takes a file as an icon when the browser calls it{' '}
+              <Mono>image/x-icon</Mono> or <Mono>image/vnd.microsoft.icon</Mono>, or gives no useful type
+              (<Mono>application/octet-stream</Mono>) and the name ends <Mono>.ico</Mono>
+              (<Mono>mayBeIcon()</Mono>); the first bytes must then be an ICO header
+              (<Mono>isIcon()</Mono>, else 422) and it is stored as <Mono>image/x-icon</Mono> /{' '}
+              <Mono>.ico</Mono>. Media reads its size from the header (<Mono>iconSize()</Mono>, sharp
+              can&apos;t read ICO). <Mono>readUpload()</Mono> / <Mono>pictureSize()</Mono> in{' '}
+              <Mono>media.js</Mono> serve both of its upload routes. In the admin, the Media
+              library&apos;s file filter and <Mono>isImageFile()</Mono> (dropped files) take a typeless
+              file named <Mono>.ico</Mono>; the Favicon field&apos;s file picker accepts{' '}
+              <Mono>image/*,.ico</Mono>.
             </P>
             <H3>Files dropped onto the editors</H3>
             <P>

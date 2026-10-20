@@ -7,7 +7,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import net from 'node:net'
 import http from 'node:http'
-import { startHub } from '../src/service.js'
+import { startHub, newState, VERSION } from '../src/service.js'
 import { cloudClient, requestCode, codeStatus } from '../src/cloud.js'
 import { kitchenTicket } from '../../shared/pos/tickets.js'
 
@@ -36,8 +36,8 @@ function fakeCloud(state) {
         if (req.headers.authorization !== 'Pairing ' + 's'.repeat(32)) return send(404, { error: 'Not found' })
         return send(200, state.paired ? { status: 'paired', device_id: 'd1', name: 'Hub', venue_name: 'Ware' } : { status: 'waiting' })
       }
-      if (req.headers.authorization !== 'Device d1.secret') return send(401, { error: 'Not linked' })
-      if (req.url === '/pos-api/config') return send(200, { kind: 'hub', version: String(state.printers.length), printers: state.printers })
+      if (req.headers.authorization !== 'Device d1.secret' || state.unlinked) return send(401, { error: 'Not linked' })
+      if (req.url === '/pos-api/config') return send(200, { kind: 'hub', version: String(state.printers.length), printers: state.printers, release: state.release || null, update: state.update || {} })
       if (req.url === '/pos-api/print-jobs/claim') { const jobs = state.queue.splice(0); return send(200, jobs) }
       const m = /^\/pos-api\/print-jobs\/([^/]+)\/status$/.exec(req.url)
       if (m) { state.done.push({ id: m[1], ...json }); return send(200, { id: m[1], status: json.status }) }
@@ -47,6 +47,8 @@ function fakeCloud(state) {
   })
   return new Promise(resolve => server.listen(0, '127.0.0.1', () => resolve({ server, api: 'http://127.0.0.1:' + server.address().port })))
 }
+
+const noUsb = { find: async () => [], print: async () => { throw new Error('no USB') }, status: async () => null, sys: {} }
 
 const ticket = kitchenTicket({ station: 'Grill', table: '4', sentAt: new Date(), courses: [{ name: '', lines: [{ qty: 1, name: 'Pad Thai' }] }] })
 
@@ -62,7 +64,7 @@ test('jobs are collected, printed in ESC/POS and reported; unknown and offline p
   }
   const cloud = await fakeCloud(state)
   const lines = []
-  const hub = startHub({ cloud: cloudClient({ api: cloud.api, deviceId: 'd1', secret: 'secret' }), log: l => lines.push(l), pollMs: 60000, statusMs: 60000 })
+  const hub = startHub({ cloud: cloudClient({ api: cloud.api, deviceId: 'd1', secret: 'secret' }), log: l => lines.push(l), pollMs: 60000, statusMs: 60000, local: noUsb })
   await new Promise(r => setTimeout(r, 400))
   await hub.tick()
   assert.equal(printer.jobs.length, 1, 'printed once')
@@ -70,7 +72,7 @@ test('jobs are collected, printed in ESC/POS and reported; unknown and offline p
   assert.deepEqual(state.done.find(d => d.id === 'j1'), { id: 'j1', status: 'printed', error: null })
   const unknown = state.done.find(d => d.id === 'j2')
   assert.equal(unknown.status, 'failed')
-  assert.match(unknown.error, /address/)
+  assert.match(unknown.error, /know this printer/)
   assert.ok(state.calls.filter(c => c === 'GET /pos-api/config').length >= 2, 'a job for an unknown printer loads the config again')
 
   // A printer that's off: the job fails with its reason, after the retries.
@@ -95,7 +97,7 @@ test('jobs are collected, printed in ESC/POS and reported; unknown and offline p
 
   await hub.report()
   const last = state.reports.at(-1)
-  assert.equal(last.app_version, '1.0.0')
+  assert.equal(last.app_version, VERSION)
   assert.deepEqual(last.printers.map(p => [p.id, p.online]), [['pr1', true], ['pr2', false]])
   assert.ok(lines.some(l => l.startsWith('Printed Order 12 on Grill')))
   hub.stop()
@@ -113,5 +115,72 @@ test('linking: a code, then waiting until Till setup links it', async () => {
   assert.deepEqual(await codeStatus(cloud.api, pairing), { status: 'paired', device_id: 'd1', name: 'Hub', venue_name: 'Ware' })
   assert.equal((await codeStatus(cloud.api, { id: 'p1', secret: 'wrong-secret-wrong-secret' })).status, 'expired')
   await assert.rejects(cloudClient({ api: cloud.api, deviceId: 'd1', secret: 'bad' }).config(), e => e.status === 401)
+  cloud.server.close()
+})
+
+test('USB printers on the hub: printed through usb.js, checked, listed in the report; quiet moments update; unlinked stops', async () => {
+  const state = {
+    calls: [], done: [], reports: [],
+    printers: [
+      { id: 'u1', name: 'Receipts', interface: 'usb', local_id: 'usb:04b8:0e28:ABC', columns: 48 },
+      { id: 'u2', name: 'Bar', interface: 'usb', local_id: null, columns: 42 },
+    ],
+    queue: [
+      { id: 'j1', printer_id: 'u1', kind: 'receipt', title: 'Bill 4', ops: ticket },
+      { id: 'j2', printer_id: 'u2', kind: 'kitchen', title: 'Order 9', ops: ticket },
+    ],
+    release: { version: '9.9.9+abc', sha256: 'x'.repeat(64), url: '/pos-api/hub/release.tgz' },
+    update: { auto: true, requested: false },
+  }
+  const cloud = await fakeCloud(state)
+  const printed = []
+  const found = [{ id: 'usb:04b8:0e28:ABC', name: 'EPSON TM-T20III', make: 'EPSON', model: 'TM-T20III', escpos: true, path: '/dev/usb/lp0' }]
+  const local = {
+    sys: { platform: 'linux' },
+    find: async () => found,
+    print: async ({ id, data }) => { printed.push({ id, data }) },
+    status: async ({ id }) => (id === found[0].id ? { online: true, paperNearEnd: true, paperOut: false, coverOpen: false } : null),
+  }
+  const checks = []
+  const updater = { check: async (rel, upd) => { checks.push([rel.version, upd]); return false }, state: () => ({ updates: 'auto', available: '9.9.9+abc', state: 'idle' }) }
+  let unlinked = 0
+  const hubState = newState()
+  const hub = startHub({
+    cloud: cloudClient({ api: cloud.api, deviceId: 'd1', secret: 'secret' }), state: hubState, local, updater, statusPort: 9180,
+    pollMs: 60000, statusMs: 60000, onUnlinked: () => { unlinked++ },
+  })
+  await new Promise(r => setTimeout(r, 400))
+  await hub.tick()
+  assert.equal(printed.length, 1, 'the USB printer printed')
+  assert.equal(printed[0].id, 'usb:04b8:0e28:ABC')
+  assert.ok(printed[0].data.includes(Buffer.from('Pad Thai')))
+  assert.equal(state.done.find(d => d.id === 'j1').status, 'printed')
+  const noPick = state.done.find(d => d.id === 'j2')
+  assert.equal(noPick.status, 'failed')
+  assert.match(noPick.error, /Pick the USB printer/)
+  assert.deepEqual(hubState.recent.map(r => [r.kind, r.ok]), [['kitchen', false], ['receipt', true]], 'recent tickets, newest first, no titles kept')
+  assert.ok(!JSON.stringify(hubState.recent).includes('Bill 4'), 'no ticket titles on the page')
+
+  // Nothing to print: a quiet moment, the updater is asked.
+  await hub.tick()
+  assert.equal(checks.length, 1)
+  assert.deepEqual(checks[0], ['9.9.9+abc', { auto: true, requested: false }])
+  await hub.tick()
+  assert.equal(checks.length, 1, 'not asked again within 30 s')
+
+  await hub.report()
+  const rep = state.reports.at(-1)
+  assert.deepEqual(rep.printers.map(p => [p.id, p.online, p.paper_low]), [['u1', true, true]], 'only the printer with a pick is checked')
+  assert.equal(rep.info.status_port, 9180)
+  assert.equal(rep.info.local_printers[0].id, 'usb:04b8:0e28:ABC')
+  assert.equal(rep.info.update.available, '9.9.9+abc')
+  assert.ok(rep.info.hostname && rep.info.platform)
+  assert.equal(hubState.printers.find(p => p.id === 'u1').state.paperNearEnd, true)
+
+  // Removed in Till setup: the cloud answers 401, the hub hands back.
+  state.unlinked = true
+  await hub.tick()
+  assert.equal(unlinked, 1)
+  hub.stop()
   cloud.server.close()
 })

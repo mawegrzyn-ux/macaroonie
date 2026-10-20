@@ -5,6 +5,24 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-20 — Website brand saves fixed; .ico favicons]
+
+- The **favicon** (Website → Brand & theme → Brand identity) can be an **.ico** file, uploaded on the field, dropped on it or added through the Media library. Files that only end in .ico but aren't one are refused.
+- Fixed: saving **Brand identity** on Website → Brand & theme failed with "Internal server error" once any location had website settings (it always sends the template). The same happened to theme saves that change the template, such as **Use this** from Theme ideas.
+- Fixed: saving the group's theme cleared the colours and fonts of locations that have their **own Brand & theme**. Saving the group's brand now leaves locations' own brand alone.
+
+## [2026-10-20 — The venue hub on a mini PC]
+
+- The venue hub now runs on a **mini PC** by the printers (a fanless Intel N100-class box with Ubuntu / Debian Linux, or Windows 10 / 11), set up with **one command**. Till setup → Printers → Venue hub shows it with **Copy**: `curl … | sudo sh` on Linux, `irm … | iex` in PowerShell on Windows.
+- The installer brings its own Node.js, downloads the hub from Macaroonie (checked before use), installs it as a service that starts with the computer and restarts itself, and shows a **six-letter code**. Link it with **Link a hub**, or scan the QR code on the hub's page with the installer app.
+- **USB printers on the hub.** A USB receipt printer plugged into the mini PC can be printed by the hub: Add a printer → **USB on the hub** and pick it from the printers the hub found, or tap **Add it** beside one on the hub's row. It can have a backup printer and shows whether it is ready, like a network printer.
+- **The hub's page**: `http://(its address):9180` on the venue's network shows the link code (with QR code) until linked, then whether it reaches Macaroonie, its version, each printer and how it is, the USB printers plugged in and the last tickets (printed or not, never what was on them).
+- **Updates by itself** at a quiet moment (nothing printing) and goes back to the version before if a new one doesn't run. Turn **Update by itself** off in the hub's settings to choose when; its row then offers **Update now**. The row shows the hub's computer, version, update state and a link to its page.
+- Removed in Till setup, a hub shows a new code by itself; **New device** on its row moves it to a replacement mini PC with its name and printers.
+- The **installer app** lists venue hubs, shows a hub's page (computer, page link, USB printers, updates) and links a hub's code; **Add a new device → Venue hub** shows the install commands.
+- Fixed: a network printer that wasn't there at all showed as **Ready** (a connection that never opened counted as "doesn't say how it is"); it now shows **Not answering**.
+- **Migration 195** (hub_appliance): `pos_printers.local_id`, `pos_devices.info`, `info_at`, `update_requested_at`.
+
 ## [2026-10-20 — Make a theme from a picture and a few words]
 
 - **Make a theme** builds a whole look (colours, fonts, corners, capitals) from a picture and a few words. It is on Website → Brand & theme (new **Theme ideas** card), in the kiosk designer (Brand), in the menu screen designer (board panel) and in the printed menu designer (Page setup → Colours).

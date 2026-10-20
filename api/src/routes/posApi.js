@@ -43,10 +43,16 @@
 //   PUT  /sold-out/:itemId      { sold_out: 'today' | 'indefinite' | false, staff_id, approved_by? }
 //                               (role permission sold_out; services/soldOut.js, online only)
 //   POST /print-jobs/claim      takes queued jobs for the printers it prints for (migration
-//                               191): a venue hub, the network printers (connection 'hub'); a
-//                               till or kitchen screen, the printers plugged into it
+//                               191): a venue hub, the network printers (connection 'hub') and
+//                               the USB printers plugged into it (migration 195); a till or
+//                               kitchen screen, the printers plugged into it
 //   POST /print-jobs/:id/status { status: 'printed' | 'failed', error }
-//   POST /hub/status            a venue hub's report: its version, each printer's state
+//   POST /hub/status            a venue hub's report: its version, each printer's state, info
+//                               about itself (computer, USB printers found, updates)
+//   GET  /hub/release           (no auth) the hub's latest version: { version, sha256, size, url }
+//   GET  /hub/release.tgz       (no auth) the hub's code (services/hubRelease.js)
+//   GET  /hub/install.sh | /hub/install.ps1   (no auth) the hub's installer for Linux / Windows,
+//                               with this cloud's address filled in
 //   POST /card/payments         { check_id?, payment_id, amount, tip?, staff_id? } start a payment on the
 //                               device's card machine (migration 193, services/cardSvc.js); a kiosk sends
 //                               no check (it pays before its order exists)
@@ -69,6 +75,7 @@ import {
   tillConfig, hubConfig, sequencer, sha256, normaliseCode, newDeviceSecret, loadDayChecks, fillReconFromDay, dayReport, loadTillStaff, openPairing,
 } from '../services/posSvc.js'
 import { deviceOrigin } from '../services/platformHost.js'
+import { hubRelease, installScript } from '../services/hubRelease.js'
 import { LINK_MINUTES, newLinkCode, linkCodeHash, linkCodeTaken, linkUrl } from '../services/linkCodes.js'
 import { dayFigures } from '../../../shared/pos/reports.js'
 import { permissionProblem } from '../../../shared/pos/permissions.js'
@@ -144,6 +151,42 @@ const LinkDeviceInfo = z.object({
   app_version: z.string().max(40).optional(),
 }).partial()
 const DEVICE_APPS = ['terminal', 'kds', 'kiosk']
+
+// A venue hub's report (hub/src/service.js report()): what it says about itself.
+const HubReport = z.object({
+  app_version: z.string().max(40).nullable().optional(),
+  printers: z.array(z.object({
+    id: UUID,
+    online: z.boolean(),
+    paper_low: z.boolean().default(false),
+    paper_out: z.boolean().default(false),
+    cover_open: z.boolean().default(false),
+    error: z.string().max(200).nullable().optional(),
+  })).max(50).default([]),
+  info: z.object({
+    hostname: z.string().max(100).nullable().optional(),
+    os: z.string().max(120).nullable().optional(),
+    platform: z.string().max(20).nullable().optional(),
+    arch: z.string().max(20).nullable().optional(),
+    node: z.string().max(20).nullable().optional(),
+    addresses: z.array(z.string().max(60)).max(20).default([]),
+    status_port: z.number().int().min(1).max(65535).nullable().optional(),
+    local_printers: z.array(z.object({
+      id: z.string().max(200),
+      name: z.string().max(120),
+      model: z.string().max(120).nullable().optional(),
+      escpos: z.boolean().optional(),
+      path: z.string().max(200).nullable().optional(),
+    })).max(20).default([]),
+    update: z.object({
+      updates: z.enum(['auto', 'manual']).optional(),
+      available: z.string().max(40).nullable().optional(),
+      state: z.string().max(20).optional(),
+      error: z.string().max(200).nullable().optional(),
+      at: z.string().max(40).nullable().optional(),
+    }).optional(),
+  }).optional(),
+})
 // What can show a link code: the apps, and the venue hub (it has no address of its own).
 const CODE_APPS = [...DEVICE_APPS, 'hub']
 
@@ -199,7 +242,38 @@ async function currentDay(tx, tenantId, venueId) {
   return day || null
 }
 
+/**
+ * The address a hub installed from this request should use: the till
+ * address (pos.<domain>), or the address asked on a local test server.
+ */
+function hubApi(req) {
+  const host = String(req.headers.host || '')
+  if (/^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(host)) return req.protocol + '://' + host
+  return deviceOrigin('terminal')
+}
+
 export default async function posApiRoutes(app) {
+  // ── The venue hub's code and installers (no auth; services/hubRelease.js) ──
+  // The code holds no secrets (the till app's is public too); a hub checks
+  // the download against the sha256 in its own config before using it.
+  app.get('/hub/release', { config: { rateLimit: { max: 60, timeWindow: '1 minute' } } }, async () => {
+    const r = hubRelease()
+    return { version: r.version, sha256: r.sha256, size: r.size, url: '/pos-api/hub/release.tgz' }
+  })
+  app.get('/hub/release.tgz', { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (req, reply) => {
+    const r = hubRelease()
+    return reply
+      .header('content-type', 'application/gzip')
+      .header('content-disposition', `attachment; filename="macaroonie-hub-${r.version.replace(/[^\w.-]/g, '_')}.tgz"`)
+      .header('x-hub-version', r.version)
+      .header('cache-control', 'no-cache')
+      .send(r.buffer)
+  })
+  for (const kind of ['sh', 'ps1']) {
+    app.get('/hub/install.' + kind, { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (req, reply) =>
+      reply.header('content-type', 'text/plain; charset=utf-8').header('cache-control', 'no-cache').send(installScript(kind, hubApi(req))))
+  }
+
   // ── Move hand-over (no auth: the one-time code is the key) ───────
   // A device moving to its own address (POST /move below) hands this code
   // to the app there, which pairs as the same device. People never type
@@ -380,7 +454,7 @@ export default async function posApiRoutes(app) {
       // setup reaches it. A kiosk gets its menus, design and languages
       // (services/kioskSvc.js), no staff and no PINs.
       const config = d.kind === 'hub'
-        ? await withTenant(d.tenant_id, tx => hubConfig(tx, d.tenant_id, d.venue_id))
+        ? await withTenant(d.tenant_id, tx => hubConfig(tx, d.tenant_id, d.venue_id, d.id))
         : d.kind === 'kds'
         ? await withTenant(d.tenant_id, async tx => {
           const c = await kdsConfig(tx, d.tenant_id, d.venue_id)
@@ -723,30 +797,29 @@ export default async function posApiRoutes(app) {
       return row
     })
 
-    // A venue hub's report (every minute): its version and how each of its
-    // printers is, shown in Till setup -> Printers.
+    // A venue hub's report (every minute): its version, how each of its
+    // printers is (network printers and the USB printers plugged into it),
+    // and what it says about itself (migration 195: computer, USB printers
+    // found, updates), shown in Till setup -> Printers.
     scoped.post('/hub/status', async req => {
       const d = req.posDevice
       if (d.kind !== 'hub') throw httpError(403, 'Only a venue hub reports printers')
-      const body = z.object({
-        app_version: z.string().max(40).nullable().optional(),
-        printers: z.array(z.object({
-          id: UUID,
-          online: z.boolean(),
-          paper_low: z.boolean().default(false),
-          paper_out: z.boolean().default(false),
-          cover_open: z.boolean().default(false),
-          error: z.string().max(200).nullable().optional(),
-        })).max(50).default([]),
-      }).parse(req.body || {})
+      const body = HubReport.parse(req.body || {})
+      let latest = null
+      try { latest = hubRelease().version } catch { /* no release on this server */ }
       await withTenant(d.tenant_id, async tx => {
-        await tx`UPDATE pos_devices SET last_seen_at = now(), app_version = COALESCE(${body.app_version ?? null}, app_version)
+        await tx`UPDATE pos_devices
+                    SET last_seen_at = now(), app_version = COALESCE(${body.app_version ?? null}, app_version),
+                        info = COALESCE(${body.info ? tx.json(body.info) : null}, info),
+                        info_at = CASE WHEN ${!!body.info} THEN now() ELSE info_at END,
+                        update_requested_at = CASE WHEN ${!!latest && body.app_version === latest} THEN NULL ELSE update_requested_at END
                   WHERE id = ${d.id} AND tenant_id = ${d.tenant_id}`
         for (const p of body.printers) {
           const status = { online: p.online, paper_low: p.paper_low, paper_out: p.paper_out, cover_open: p.cover_open, error: p.error ?? null }
           await tx`
             UPDATE pos_printers SET status = ${tx.json(status)}, status_at = now()
-             WHERE id = ${p.id} AND tenant_id = ${d.tenant_id} AND venue_id = ${d.venue_id} AND connection = 'hub'`
+             WHERE id = ${p.id} AND tenant_id = ${d.tenant_id} AND venue_id = ${d.venue_id}
+               AND (connection = 'hub' OR connection = 'device' AND device_id = ${d.id})`
         }
       })
       return { ok: true }

@@ -33,6 +33,7 @@ import { soldOutRows } from './soldOut.js'
 import { loadKitchenConfig, activeFlowSetting } from './kitchenSvc.js'
 import { ensureTaxDefaults, loadTaxRates, loadOrderTypes, loadStreams, taxForVenue } from './taxSvc.js'
 import { printLayouts } from './printDesignSvc.js'
+import { hubRelease } from './hubRelease.js'
 
 export const DEFAULT_COURSES = [
   { name: 'Drinks', short_name: 'DR', hold_by_default: false },
@@ -309,13 +310,40 @@ export async function tillConfig(tx, tenantId, venueId) {
  * A venue hub's config (hub/, migration 191): the network printers it prints
  * to. The version changes when any of them does, and the hub loads it again.
  */
-export async function hubConfig(tx, tenantId, venueId) {
+/**
+ * A venue hub's config: the venue's network printers and the USB printers
+ * plugged into this hub (migration 195: connection 'device', device_id =
+ * the hub, local_id = the printer's id on the hub's computer), the hub's
+ * latest version (hubRelease()) and whether it may update itself.
+ */
+export async function hubConfig(tx, tenantId, venueId, hubId) {
   const venue = await ownVenue(tx, tenantId, venueId)
-  const printers = await tx`
-    SELECT id, name, kind, host, port, columns, backup_printer_id FROM pos_printers
-     WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND is_active AND connection = 'hub'
-     ORDER BY sort_order, name`
-  const config = { kind: 'hub', venue: { id: venue.id, name: venue.name }, printers }
+  const [printers, [hub]] = await Promise.all([
+    tx`
+      SELECT id, name, kind, connection, host, port, columns, backup_printer_id, local_id FROM pos_printers
+       WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND is_active
+         AND (connection = 'hub' OR connection = 'device' AND device_id = ${hubId})
+       ORDER BY sort_order, name`,
+    tx`SELECT settings, update_requested_at FROM pos_devices WHERE id = ${hubId} AND tenant_id = ${tenantId}`,
+  ])
+  let release = null
+  try {
+    const r = hubRelease()
+    release = { version: r.version, sha256: r.sha256, size: r.size, url: '/pos-api/hub/release.tgz' }
+  } catch { /* the hub's files aren't on this server: no updates offered */ }
+  const config = {
+    kind: 'hub',
+    venue: { id: venue.id, name: venue.name },
+    printers: printers.map(p => ({
+      id: p.id, name: p.name, kind: p.kind,
+      interface: p.connection === 'device' ? 'usb' : 'network',
+      host: p.connection === 'device' ? null : p.host, port: p.port, columns: p.columns,
+      local_id: p.connection === 'device' ? p.local_id : null,
+      backup_printer_id: p.backup_printer_id,
+    })),
+    release,
+    update: { auto: hub?.settings?.auto_update !== false, requested: !!hub?.update_requested_at },
+  }
   return { ...config, version: sha256(JSON.stringify(config)).slice(0, 16) }
 }
 

@@ -8,7 +8,7 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { MonitorSmartphone, ChefHat, Tablet, Tv, ChevronRight, AlertTriangle } from 'lucide-react'
+import { MonitorSmartphone, ChefHat, Tablet, Tv, Server, ChevronRight, AlertTriangle } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
@@ -20,8 +20,10 @@ export const KINDS = {
   kds:      { label: 'Kitchen screen', plural: 'Kitchen screens', a: 'a kitchen screen', icon: ChefHat, address: 'kds', area: 'devices' },
   kiosk:    { label: 'Kiosk', plural: 'Kiosks', a: 'a self-order kiosk', icon: Tablet, address: 'kiosk', area: 'devices' },
   screen:   { label: 'Menu screen', plural: 'Menu screens', a: 'a menu screen', icon: Tv, address: 'screen', area: 'screens' },
+  // A mini PC by the printers (hub/, migration 195): installed by a command, not an address.
+  hub:      { label: 'Venue hub', plural: 'Venue hubs', a: 'a venue hub', icon: Server, address: null, area: 'devices' },
 }
-export const KIND_ORDER = ['terminal', 'kds', 'kiosk', 'screen']
+export const KIND_ORDER = ['terminal', 'kds', 'kiosk', 'screen', 'hub']
 
 export const InstallerContext = createContext(null)
 /** { venues, venueId, venue, setVenueId, me } from InstallerShell. */
@@ -252,6 +254,14 @@ export function KindSettings({ kind, settings, onChange, overview, disabled }) {
           <option value="">{designs[0].name} (the first)</option>
           {designs.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
         </select>
+      </Field>
+    )
+  }
+  if (kind === 'hub') {
+    return (
+      <Field label="Updates" hint="By itself: it installs a new version at a quiet moment, and goes back to the one before if the new one doesn't run.">
+        <Choice disabled={disabled} value={settings.auto_update !== false} onChange={v => onChange({ ...settings, auto_update: v })}
+          options={[{ value: true, label: 'By itself' }, { value: false, label: 'When asked' }]} />
       </Field>
     )
   }

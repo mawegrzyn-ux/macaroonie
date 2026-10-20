@@ -2836,7 +2836,7 @@ export default function Help() {
             <DataTable
               head={['File type', 'Max size', 'Formats']}
               rows={[
-                ['Images (logo, favicon, hero, about, gallery, OG image)', '8 MB each', 'JPG, PNG, WebP, SVG, GIF'],
+                ['Images (logo, favicon, hero, about, gallery, OG image)', '8 MB each', 'JPG, PNG, WebP, SVG, GIF, and ICO (for the favicon)'],
                 ['PDF menus',    '25 MB each', 'PDF'],
                 ['Allergen PDF', '25 MB',      'PDF'],
               ]}
@@ -4784,7 +4784,7 @@ export default function Help() {
               <li><strong>Courses</strong> (shared by every venue): Starters, Mains, Desserts, in the order they go to the kitchen. A course <strong>held by default</strong> waits to be fired when it goes with an earlier course.</li>
               <li><strong>Till roles</strong> (shared by every venue): what Server, Supervisor and Manager may do: void sent items, refund, comp, discounts up to a %, open the drawer, reopen checks, take over other people's checks, change prices, move items between checks, see reports, close the day, approve for others.</li>
               <li><strong>Staff and PINs</strong>: give each person a till role and a 4 to 6 digit PIN (not 1111 or 1234, and different from everyone else's at the venue). People come from the Staff page.</li>
-              <li><strong>Printers</strong>: each printer, on the network or plugged into a till, kitchen screen or kiosk, and the venue hub that prints the network ones (see Printers and the venue hub below). Kitchen tickets print where the kitchen flow sends dishes: a <strong>Kitchen printer</strong> box in Kitchen screens.</li>
+              <li><strong>Printers</strong>: each printer, on the network, USB on the venue hub, or plugged into a till, kitchen screen or kiosk, and the venue hub that prints the network and USB ones (see Printers and the venue hub below). Kitchen tickets print where the kitchen flow sends dishes: a <strong>Kitchen printer</strong> box in Kitchen screens.</li>
               <li><strong>Printing</strong>: how kitchen tickets, receipts and bills look (see Ticket and receipt designs below).</li>
               <li><strong>Card machines</strong>: your Dojo, Stripe or SumUp account and the card machines at the venue; each till and kiosk picks its machine (see Card machines below).</li>
               <li><strong>Receipts and payments</strong>: when the trading day starts, the name, address and VAT number on receipts, the ways to pay, tips, asking for covers, and when staff are signed out. Tax rates are set on Menus → Tax rates.</li>
@@ -4800,15 +4800,15 @@ export default function Help() {
             </P>
             <ul className="list-disc ml-5 space-y-2 text-sm text-muted-foreground mb-4">
               <li><strong>On the network</strong>: an Epson (or other ESC/POS) printer with a network cable or Wi-Fi. Give it a fixed address on the router and type it here (port 9100). The <strong>venue hub</strong> prints to it, and can use a <strong>backup printer</strong> when it doesn&apos;t answer.</li>
-              <li><strong>Plugged into a device</strong>: a USB or Bluetooth printer set up as the printer of a till, kitchen screen or kiosk. That device prints its tickets through Chrome. Start Chrome with <strong>--kiosk-printing</strong> so it prints without asking each time. A kiosk&apos;s printer prints that kiosk&apos;s receipts only.</li>
+              <li><strong>USB on the hub</strong>: a USB receipt printer plugged into the venue hub&apos;s mini PC. Pick it from the printers the hub found (it lists them every minute). The hub prints to it like a network printer, can use a backup printer, and says how it is.</li>
+              <li><strong>Plugged into a till or screen</strong>: a USB or Bluetooth printer set up as the printer of a till, kitchen screen or kiosk. That device prints its tickets through Chrome. Start Chrome with <strong>--kiosk-printing</strong> so it prints without asking each time. A kiosk&apos;s printer prints that kiosk&apos;s receipts only.</li>
             </ul>
             <P>
-              The <strong>venue hub</strong> is a small program for a PC (or a mini PC) on the venue&apos;s network, next to the
-              printers. Install Node.js 22 on it, copy the hub folder and run <strong>node hub/bin/hub.js</strong>: it shows a
-              six-letter code. Tap <strong>Link a hub</strong> under Venue hub and type the code. Every minute the hub tells
-              Macaroonie how each network printer is (ready, paper low, out of paper, cover open, not answering), shown on
-              the printer&apos;s row. A printer&apos;s <strong>Tickets</strong> button lists the last day&apos;s tickets; one that
-              didn&apos;t print can be printed again with <strong>Print again</strong>.
+              The <strong>venue hub</strong> is a small program on a mini PC on the venue&apos;s network, next to the printers
+              (see Set up the venue hub on a mini PC below). Every minute it tells Macaroonie how each of its printers is (ready,
+              paper low, out of paper, cover open, not answering), shown on the printer&apos;s row. A printer&apos;s
+              <strong> Tickets</strong> button lists the last day&apos;s tickets; one that didn&apos;t print can be printed again
+              with <strong>Print again</strong>.
             </P>
             <P>
               <strong>Kitchen tickets</strong> print where the kitchen flow sends dishes: add a station of kind
@@ -4823,6 +4823,46 @@ export default function Help() {
               Kitchen printers only, no kitchen screens? Dishes that only reach printers count as done there, so online
               orders would show as ready at once. Switch off <strong>Mark them ready when the kitchen finishes</strong> in
               Kitchen screens → Online orders, and move them on from the Online orders board.
+            </InfoBox>
+
+            <H3>Set up the venue hub on a mini PC</H3>
+            <P>
+              The hub needs a small computer that stays on, on the same network as the printers. A fanless mini PC is best
+              (for example an Intel N100 with 8 GB and a wired network port), with Ubuntu or Debian Linux; a Windows 10 or 11
+              mini PC works too. Plug it into the router or switch with a cable, give it a fixed address on the router, and
+              plug any USB receipt printers into it.
+            </P>
+            <DataTable
+              head={['Step', 'What to do']}
+              rows={[
+                ['1. Install it', 'Till setup → Printers → Venue hub shows the command, with Copy. On Linux, open a terminal on the mini PC and run it (it asks for the password); on Windows, open PowerShell as administrator and run the Windows one. It installs everything the hub needs and starts it with the computer.'],
+                ['2. Link it', 'When it finishes it shows a six-letter code. Tap Link a hub and type it, or scan the QR code on the hub\'s page with the installer app on your phone.'],
+                ['3. Add its printers', 'Network printers: Add, On the network, type the address. USB printers: the hub lists the ones plugged into it under Venue hub; tap Add it beside one (or Add, USB on the hub, and pick it).'],
+                ['4. Check it', 'The hub\'s row shows its computer, version and a link to its page; each printer\'s row says whether it is ready. Print a test ticket from the till.'],
+              ]}
+            />
+            <P>
+              <strong>The hub&apos;s page.</strong> Open <strong>http://(its address):9180</strong> on any phone or computer on the
+              venue&apos;s network (the link is on the hub&apos;s row). It shows the link code and QR code until it is linked, then
+              whether it reaches Macaroonie, its version, each printer and how it is, the USB printers plugged in, and the
+              last tickets (whether they printed, not what was on them).
+            </P>
+            <P>
+              <strong>Updates.</strong> The hub installs new versions by itself at a quiet moment (nothing printing), then
+              starts again in a second or two; tickets wait in the queue meanwhile. If a new version doesn&apos;t run, it goes
+              back to the one before and says so on its row. Switch <strong>Update by itself</strong> off in the hub&apos;s
+              settings to choose when: its row then shows <strong>Update now</strong> when a new version is out.
+            </P>
+            <P>
+              <strong>A new or replaced mini PC.</strong> Run the command on it, then on the old hub&apos;s row tap
+              <strong> New device</strong> and type the new code: it keeps the hub&apos;s name and its printers (pick the USB
+              printers again if they moved). Removed in Till setup, a hub shows a new code by itself. Running the command again
+              on the same mini PC updates it and keeps its link.
+            </P>
+            <InfoBox type="info">
+              Most USB receipt printers (Epson TM-T20, TM-T88, TM-m30, Star, POS-80 and similar) work. On Windows, install the
+              printer&apos;s own driver first; it then appears in the hub&apos;s list by its Windows name. The hub needs the
+              internet: with it down, tickets wait until it is back.
             </InfoBox>
 
             <H3>Ticket and receipt designs</H3>

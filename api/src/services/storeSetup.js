@@ -367,7 +367,7 @@ const AREAS = {
       const areas = await copyTable(s, 'floor_areas')
       // A printer plugged into one of the old location's devices waits for one
       // of the new location's (Till setup -> Printers); the hub's last report goes.
-      const printers = await copyTable(s, 'pos_printers', { set: { device_id: null, status: null, status_at: null } })
+      const printers = await copyTable(s, 'pos_printers', { set: { device_id: null, local_id: null, status: null, status_at: null } })
       await copyTable(s, 'pos_settings', {
         set: {
           pin_salt: () => randomBytes(16).toString('hex'),

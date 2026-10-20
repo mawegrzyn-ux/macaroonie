@@ -39,6 +39,7 @@ import { withTenant } from '../config/db.js'
 import { requireAuth, requireAnyPermission } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
 import { getStorage } from '../services/storageSvc.js'
+import { ICON_MIME, mayBeIcon, isIcon, iconSize } from '../utils/icon.js'
 
 // The website, menus, menu screens and kiosk designs (Till setup) all build
 // with Media pictures (and videos): changes need manage on any of them.
@@ -83,9 +84,44 @@ function extFromMime(mime) {
     case 'image/webp':    return 'webp'
     case 'image/gif':     return 'gif'
     case 'image/svg+xml': return 'svg'
+    case ICON_MIME:       return 'ico'
     case 'video/mp4':     return 'mp4'
     case 'video/webm':    return 'webm'
     default:              return 'bin'
+  }
+}
+
+/** Reads an uploaded file: a picture (or .ico, for favicons) or a video
+ *  within its size limit, else a 422 / 413. */
+async function readUpload(part, fallbackName) {
+  const icon = mayBeIcon(part.mimetype, part.filename)
+  if (!icon && !ALLOWED_MIMES.has(part.mimetype)) {
+    throw httpError(422, `Unsupported file type: ${part.mimetype || 'unknown'}. Use JPG, PNG, WebP, GIF, SVG, ICO, MP4 or WebM.`)
+  }
+  const limit = icon ? MAX_BYTES : maxBytesFor(part.mimetype)
+  const chunks = []
+  let total = 0
+  for await (const chunk of part.file) {
+    total += chunk.length
+    if (total > limit) throw httpError(413, `File exceeds ${Math.round(limit / 1024 / 1024)}MB limit`)
+    chunks.push(chunk)
+  }
+  const buffer = Buffer.concat(chunks)
+  if (icon && !isIcon(buffer)) throw httpError(422, "That file isn't an .ico picture.")
+  const mimetype = icon ? ICON_MIME : part.mimetype
+  return { buffer, mimetype, filename: part.filename || fallbackName || `image.${extFromMime(mimetype)}` }
+}
+
+/** Width and height of a picture, when they can be read. */
+async function pictureSize(fileData) {
+  if (fileData.mimetype === ICON_MIME) return iconSize(fileData.buffer) || { width: null, height: null }
+  const sharp = IMAGE_MIMES.has(fileData.mimetype) ? await loadSharp() : null
+  if (!sharp) return { width: null, height: null }
+  try {
+    const meta = await sharp(fileData.buffer).metadata()
+    return { width: meta.width || null, height: meta.height || null }
+  } catch {
+    return { width: null, height: null }   // SVG / GIF may not yield metadata; non-fatal
   }
 }
 
@@ -221,22 +257,7 @@ export default async function mediaRoutes(app) {
         if (part.fieldname === 'scope')       scope = String(part.value || 'shared').slice(0, 100)
         if (part.fieldname === 'category_id') categoryId = part.value && part.value !== 'null' ? String(part.value) : null
       } else if (part.type === 'file' && part.fieldname === 'file') {
-        if (!ALLOWED_MIMES.has(part.mimetype)) {
-          throw httpError(422, `Unsupported file type: ${part.mimetype}`)
-        }
-        const limit = maxBytesFor(part.mimetype)
-        const chunks = []
-        let total = 0
-        for await (const chunk of part.file) {
-          total += chunk.length
-          if (total > limit) throw httpError(413, `File exceeds ${Math.round(limit / 1024 / 1024)}MB limit`)
-          chunks.push(chunk)
-        }
-        fileData = {
-          buffer:   Buffer.concat(chunks),
-          mimetype: part.mimetype,
-          filename: part.filename || `image.${extFromMime(part.mimetype)}`,
-        }
+        fileData = await readUpload(part)
       }
     }
     if (!fileData) throw httpError(400, 'No file provided')
@@ -251,15 +272,7 @@ export default async function mediaRoutes(app) {
 
     // Hash + dimensions
     const hash = crypto.createHash('sha256').update(fileData.buffer).digest('hex')
-    let width = null, height = null
-    const sharp = IMAGE_MIMES.has(fileData.mimetype) ? await loadSharp() : null
-    if (sharp) {
-      try {
-        const meta = await sharp(fileData.buffer).metadata()
-        width  = meta.width  || null
-        height = meta.height || null
-      } catch { /* SVG/gif may not yield metadata; non-fatal */ }
-    }
+    const { width, height } = await pictureSize(fileData)
 
     const ext = extFromMime(fileData.mimetype)
     const storage = getStorage()
@@ -297,32 +310,13 @@ export default async function mediaRoutes(app) {
     let fileData = null
     for await (const part of req.parts(UPLOAD_PARTS)) {
       if (part.type === 'file' && part.fieldname === 'file') {
-        if (!ALLOWED_MIMES.has(part.mimetype)) {
-          throw httpError(422, `Unsupported file type: ${part.mimetype}`)
-        }
-        const limit = maxBytesFor(part.mimetype)
-        const chunks = []
-        let total = 0
-        for await (const chunk of part.file) {
-          total += chunk.length
-          if (total > limit) throw httpError(413, `File exceeds ${Math.round(limit / 1024 / 1024)}MB limit`)
-          chunks.push(chunk)
-        }
-        fileData = { buffer: Buffer.concat(chunks), mimetype: part.mimetype, filename: part.filename || existing.filename }
+        fileData = await readUpload(part, existing.filename)
       }
     }
     if (!fileData) throw httpError(400, 'No file provided')
 
     const hash = crypto.createHash('sha256').update(fileData.buffer).digest('hex')
-    let width = null, height = null
-    const sharp = IMAGE_MIMES.has(fileData.mimetype) ? await loadSharp() : null
-    if (sharp) {
-      try {
-        const meta = await sharp(fileData.buffer).metadata()
-        width  = meta.width  || null
-        height = meta.height || null
-      } catch { /* non-fatal */ }
-    }
+    const { width, height } = await pictureSize(fileData)
 
     const ext = extFromMime(fileData.mimetype)
     const storage = getStorage()

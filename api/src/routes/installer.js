@@ -4,7 +4,7 @@
 // 184): a phone for linking the tills, kitchen screens, kiosks and menu
 // screens at a venue. /api/installer:
 //
-//   GET  /venues/:venueId   the venue's tills, kitchen screens, kiosks (pos_setup
+//   GET  /venues/:venueId   the venue's tills, kitchen screens, kiosks, venue hubs (pos_setup
 //                           view) and menu screens (screens view), each with its
 //                           state; kitchen stations, kiosk designs, boards and
 //                           playlists to pick from; what the person may change;
@@ -44,6 +44,8 @@ function deviceView(d) {
     // Whole: PATCH /api/pos/devices/:id replaces the settings, so a change
     // made here is sent back with everything else the device has.
     settings: s,
+    // A venue hub (migration 195): its computer and the USB printers plugged into it.
+    ...(d.kind === 'hub' ? { info: d.info || null } : {}),
   }
 }
 
@@ -63,7 +65,7 @@ export default async function installerRoutes(app) {
       const [devices, stations, kioskDesigns, screens, designs, playlists] = await Promise.all([
         canDevices ? tx`
           SELECT * FROM pos_devices
-           WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId} AND revoked_at IS NULL AND kind <> 'hub'
+           WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId} AND revoked_at IS NULL
            ORDER BY created_at` : null,
         canDevices ? tx`
           SELECT id, name FROM kds_stations

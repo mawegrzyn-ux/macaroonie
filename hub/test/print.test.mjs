@@ -131,4 +131,7 @@ test('printerStatus: decodes online, paper and cover; null when the printer says
   const silent = await fakePrinter()
   assert.equal(await printerStatus({ host: '127.0.0.1', port: silent.port, timeoutMs: 300 }), null)
   silent.server.close()
+
+  // Nothing at that address (it never connects): not answering, never "reachable".
+  await assert.rejects(printerStatus({ host: '10.255.255.1', port: 9100, timeoutMs: 500 }), /Printer 10\.255\.255\.1:9100/)
 })

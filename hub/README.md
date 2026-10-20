@@ -1,40 +1,81 @@
 # Macaroonie hub
 
-The small service that runs in each restaurant for the POS: it prints to the
-network printers, keeps the tills in sync and keeps the venue trading when the
-internet is down. Design: [`docs/POS.md`](../docs/POS.md).
+The small service that runs in each restaurant for the POS, on a mini PC next to the
+printers: it prints to the network printers and to USB printers plugged into it, tells the
+cloud how they are, shows its own page on the venue's network and updates itself. Keeping
+the tills in sync and trading with the internet down come later. Design: [`docs/POS.md`](../docs/POS.md).
 
-It prints (migration 191): it collects the tickets queued for the venue's network
-printers, prints them and tells the cloud how each printer is. Keeping the tills in sync
-and trading with the internet down come later.
-
-- `bin/hub.js`: the hub itself. Links to the venue with a code, then prints.
+- `bin/hub.js`: the hub. Shows a link code until linked, then prints. `status` prints what
+  the running hub shows; `--self-test` checks a copy works (updates use it).
+- `bin/launcher.js`: keeps an installed hub running (copied to `<home>/launcher.mjs`): runs
+  the version in `current.json`, starts it again after an update, goes back to the version
+  before when a new one keeps stopping.
 - `src/cloud.js`: the hub's side of `/pos-api` (link code, config, collect, report).
 - `src/service.js`: the print loop: collects every 2 s, prints, reports; asks each printer
-  how it is every minute; tries a printer's backup when it doesn't answer.
+  how it is every minute; tries a printer's backup when it doesn't answer; updates at a
+  quiet moment.
+- `src/usb.js`: printers plugged into this computer: Linux USB printers (`/dev/usb/lp*`,
+  found by their USB ids, not their device file) and printers installed in Windows (a RAW
+  job through the print spooler).
+- `src/printer.js`: network printers over TCP port 9100, one job at a time per printer, with
+  retries; asks the printer for its status.
 - `src/escpos.js`: turns a ticket into Epson ESC/POS bytes (code page 1252 for £).
-- `src/printer.js`: sends a job to a printer over TCP port 9100, one job at a time per
-  printer, with retries; asks the printer for its status.
+- `src/update.js`: downloads a new version from the cloud, checks it, unpacks it, tests it
+  and switches to it.
+- `src/statusPage.js`: the hub's page, `http://<this computer>:9180`.
+- `install/install.sh`, `install/install.ps1`: the installers the cloud serves (with its
+  address filled in) at `/pos-api/hub/install.sh` and `/pos-api/hub/install.ps1`.
 - `../shared/pos/tickets.js`: the kitchen ticket and receipt layouts (shared with the
   cloud and the tills).
 - `bin/test-print.js`: prints a sample kitchen ticket and receipt.
-- `test/`: tests against a fake network printer and a stand-in cloud (`npm test` in this folder).
+- `test/`: tests against a fake network printer, stand-in USB printers, a stand-in cloud
+  and PowerShell (`npm test` in this folder).
 
 No packages to install: it uses Node's own modules only.
 
-## Running the hub
+## Setting up a mini PC
 
-1. On a PC (or mini PC) on the venue's network, next to the printers, install **Node.js 22
-   LTS** and copy this repository (or just `hub/` and `shared/`) onto it.
-2. Run `node hub/bin/hub.js` (add `--api https://pos.<your domain>` if it isn't
-   `pos.macaroonie.com`). It shows a six-letter code.
-3. In Macaroonie: **Till setup → Printers → Link a hub**, type the code and a name.
-   The hub keeps its link in `hub/hub.json` (keep that file private; `--config` puts it
-   elsewhere). `--forget` links it again with a new code.
-4. Add the network printers on the same tab (on the network, with their IP address). The
-   hub picks them up within a minute and shows how each is on the printer's row.
-5. To keep it running, make it a service: on Windows with NSSM or Task Scheduler (at
-   start-up, restart on failure), on Linux a systemd unit running the same command.
+A fanless mini PC (for example an Intel N100 with 8 GB and a wired network port) with
+Ubuntu or Debian Linux, or Windows 10 / 11, on a cable to the router, with a fixed address
+on the router. Plug USB receipt printers into it.
+
+**Linux.** In a terminal on the mini PC (Till setup → Printers → Venue hub shows the
+command with your address, and a Copy button):
+
+```
+curl -fsSL https://pos.macaroonie.com/pos-api/hub/install.sh | sudo sh
+```
+
+It installs its own Node.js in `/opt/macaroonie-hub/node`, makes a `macaroonie-hub` user
+(in the `lp` group for USB printers), installs the hub as the systemd service
+`macaroonie-hub`, and shows the link code. Its log: `journalctl -u macaroonie-hub -f`.
+What it shows: `sudo -u macaroonie-hub /opt/macaroonie-hub/node/bin/node
+/opt/macaroonie-hub/releases/*/hub/bin/hub.js status --config /opt/macaroonie-hub/hub.json`,
+or its page. To remove it: `curl -fsSL .../install.sh | sudo sh -s -- --uninstall`.
+
+**Windows.** In PowerShell opened as administrator:
+
+```
+irm https://pos.macaroonie.com/pos-api/hub/install.ps1 | iex
+```
+
+It installs into `C:\ProgramData\Macaroonie\Hub` with its own Node.js, as a scheduled task
+that starts with the computer (as SYSTEM) and starts again if it stops, opens port 9180 on
+private networks, and shows the link code. Its log: `C:\ProgramData\Macaroonie\Hub\hub.log`.
+A printer installed in Windows (install the printer's own driver first) shows in the
+hub's list by its Windows name. To remove it: `$env:MACAROONIE_HUB_UNINSTALL = '1'` then
+the same `irm ... | iex`.
+
+**Then:** in Macaroonie, Till setup → Printers → **Link a hub** and type the code (or scan
+the QR code on the hub's page with the installer app). Add the network printers (On the
+network, their address) and the USB ones (Add it beside each printer the hub found). Running
+the installer again updates the hub and keeps its link. The hub updates itself after that
+(Update by itself, in the hub's settings), and goes back to the version before if a new
+one doesn't run.
+
+**Running it by hand** (a copy of this repository, Node.js 22): `node hub/bin/hub.js
+[--api https://pos.<your domain>] [--config hub.json] [--http-port 9180] [--forget]`. A copy
+run this way doesn't update itself (Till setup says when a new version is out).
 
 ## Trial 1: print on your Epson
 

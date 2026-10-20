@@ -146,3 +146,6 @@ jobs:
           node-version: 22
       - name: node --test
         run: node --test shared/test/*.test.mjs shared/pos/test/*.test.mjs
+      # The venue hub: printing, USB printers, its page, updates and the launcher.
+      - name: hub tests
+        run: node --test hub/test/*.test.mjs
