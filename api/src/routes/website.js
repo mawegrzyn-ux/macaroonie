@@ -652,30 +652,14 @@ export default async function websiteRoutes(app) {
         if (hit) throw httpError(409, 'Subdomain already taken')
       }
 
+      // Locations' own brand and theme are left alone: they apply only while
+      // a location has its own override (use_brand_override), as a whole.
       const [row] = await tx`
         UPDATE tenant_site
            SET ${tx(body, ...fields)}, updated_at = now()
          WHERE tenant_id = ${req.tenantId}
         RETURNING *
-        `
-           if (body.theme || body.template_key || body.font_family) {
-        await tx`
-          UPDATE website_config
-             SET theme = CASE
-                   WHEN theme IS NULL THEN NULL
-                   ELSE (theme - 'colors' - 'typography')
-                 END,
-                 updated_at = now()
-           WHERE tenant_id = ${req.tenantId}
-        `
-        if (body.template_key) {
-          await tx`
-            UPDATE website_config
-               SET template_key = NULL, updated_at = now()
-             WHERE tenant_id = ${req.tenantId}
-          `
-        }
-      }
+      `
       return row
     })
     // The old domain's server block comes off on the sync's next run.
@@ -905,25 +889,7 @@ export default async function websiteRoutes(app) {
            SET ${tx(body, ...fields)}, updated_at = now()
          WHERE tenant_id = ${req.tenantId}
         RETURNING *
-        `
-            if (body.theme || body.template_key || body.font_family) {
-        await tx`
-          UPDATE website_config
-             SET theme = CASE
-                   WHEN theme IS NULL THEN NULL
-                   ELSE (theme - 'colors' - 'typography')
-                 END,
-                 updated_at = now()
-           WHERE tenant_id = ${req.tenantId}
-        `
-        if (body.template_key) {
-          await tx`
-            UPDATE website_config
-               SET template_key = NULL, updated_at = now()
-             WHERE tenant_id = ${req.tenantId}
-          `
-        }
-      }
+      `
       return row
     })
   }

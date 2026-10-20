@@ -6047,6 +6047,17 @@ selection.combo = { [stepId]: [{ option_id, item_id, choices }] }   // item_id n
               a venue id edits that venue's <Mono>website_config</Mono> via{' '}
               <Mono>/website/config?venue_id=X</Mono> instead, using the identical form fields.
             </P>
+            <P>
+              Saving the tenant default (<Mono>PATCH /website/tenant-site</Mono>,{' '}
+              <Mono>PATCH</Mono> / <Mono>POST /website/brand-defaults</Mono>) writes{' '}
+              <Mono>tenant_site</Mono> only and never touches a venue's{' '}
+              <Mono>website_config</Mono>. Until 20 Oct 2026 both routes also stripped{' '}
+              <Mono>colors</Mono> / <Mono>typography</Mono> from every venue's theme and set its{' '}
+              <Mono>template_key</Mono> to NULL (left over from before migration 098). The column is
+              NOT NULL, so every save that sent a template (Brand identity always does) failed with
+              a 500 once a venue had website settings, and theme saves emptied overrides' colours
+              and fonts.
+            </P>
             <InfoBox type="warn">
               This replaces an earlier per-field sparse-inheritance model (
               <Mono>BRAND_INHERITABLE</Mono>, and a <Mono>brandTheme.js</Mono> helper that forced

@@ -5,6 +5,11 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-20 — Website brand saves fixed]
+
+- Fixed: saving **Brand identity** on Website → Brand & theme failed with "Internal server error" once any location had website settings (it always sends the template). The same happened to theme saves that change the template, such as **Use this** from Theme ideas.
+- Fixed: saving the group's theme cleared the colours and fonts of locations that have their **own Brand & theme**. Saving the group's brand now leaves locations' own brand alone.
+
 ## [2026-10-20 — The venue hub on a mini PC]
 
 - The venue hub now runs on a **mini PC** by the printers (a fanless Intel N100-class box with Ubuntu / Debian Linux, or Windows 10 / 11), set up with **one command**. Till setup → Printers → Venue hub shows it with **Copy**: `curl … | sudo sh` on Linux, `irm … | iex` in PowerShell on Windows.
