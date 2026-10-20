@@ -83,7 +83,7 @@ function Idle({ s, texts }) {
   useEffect(() => {
     const id = setInterval(() => {
       const st = getState()
-      if (IDLE_FREE.has(st.screen) || st.preview) { last.current = Date.now(); warning.current = false; setLeft(null); return }
+      if (IDLE_FREE.has(st.screen) || st.preview || st.card_waiting) { last.current = Date.now(); warning.current = false; setLeft(null); return }
       const idle = (Date.now() - last.current) / 1000
       if (idle < d.idle_secs) return
       const n = Math.ceil(d.idle_secs + d.warn_secs - idle)

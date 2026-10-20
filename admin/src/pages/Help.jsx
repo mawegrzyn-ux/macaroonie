@@ -330,7 +330,7 @@ export default function Help() {
             />
             <P>
               Some things are never copied because they belong to one place: supplier account numbers, the team,
-              links to Loyverse or GloriaFood, and paired devices (the new ones wait to be linked). An area your role
+              links to Loyverse or GloriaFood, card machines, and paired devices (the new ones wait to be linked). An area your role
               can't set up is left for someone who can, and goes on the list of things still to do.
             </P>
 
@@ -4751,6 +4751,7 @@ export default function Help() {
               <li><strong>Staff and PINs</strong>: give each person a till role and a 4 to 6 digit PIN (not 1111 or 1234, and different from everyone else's at the venue). People come from the Staff page.</li>
               <li><strong>Printers</strong>: each printer, on the network or plugged into a till, kitchen screen or kiosk, and the venue hub that prints the network ones (see Printers and the venue hub below). Kitchen tickets print where the kitchen flow sends dishes: a <strong>Kitchen printer</strong> box in Kitchen screens.</li>
               <li><strong>Printing</strong>: how kitchen tickets, receipts and bills look (see Ticket and receipt designs below).</li>
+              <li><strong>Card machines</strong>: your Dojo, Stripe or SumUp account and the card machines at the venue; each till and kiosk picks its machine (see Card machines below).</li>
               <li><strong>Receipts and payments</strong>: when the trading day starts, the name, address and VAT number on receipts, the ways to pay, tips, asking for covers, and when staff are signed out. Tax rates are set on Menus → Tax rates.</li>
               <li><strong>Cash Recon</strong>: which till figures go into which Cash Recon fields when the day is closed (see End of day).</li>
               <li><strong>Floor plan</strong> (Till setup → Floor plan): add an area (e.g. Restaurant), tap tables to put them on it, drag them where they stand, drag the round corner to resize, Turn, Square / Round, and add walls, the bar, plants and labels. Save the area. Tables themselves are added on the Tables page.</li>
@@ -4803,6 +4804,34 @@ export default function Help() {
               <li><strong>One venue&apos;s own version</strong>: pick <em>Only at</em> a venue at the top of the design. Untick a part to leave it out there, and change the words of text, heading and footer parts for that venue (<strong>Use the words for all locations</strong> puts them back). Everything else is set for all locations.</li>
               <li>The preview prints a made-up order (a table order, a counter order with a tent, a void; a receipt, a bill, a counter receipt) laid out in the printer&apos;s columns: pick 58 mm or 80 mm paper. Save when you&apos;re done; tills and kiosks get the change straight away.</li>
               <li>The receipt and bill footers that used to be in Receipts and payments are now in a design called <strong>Receipt</strong>, with each venue&apos;s own words.</li>
+            </ul>
+
+            <H3>Card machines</H3>
+            <P>
+              A till or kiosk can send the amount straight to a card machine: staff don&apos;t type it on the machine,
+              and the payment goes on the bill only once the machine approves it. Machines from{' '}
+              <strong>Dojo</strong>, <strong>Stripe</strong> (Stripe Terminal readers such as the WisePOS E and S700)
+              and <strong>SumUp</strong> (the Solo) work this way. Till setup → <strong>Card machines</strong>:
+            </P>
+            <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
+              <li><strong>Add an account</strong> (an owner or admin): the provider, a name, and the key from the provider (Dojo: the secret key from the developer portal; Stripe: a secret key, or a restricted key with Terminal and PaymentIntents; SumUp: an API key). The key is checked with the provider before it is saved and is never shown again: the list shows only its last four characters. Test keys work too (Stripe test mode, Dojo sandbox) and are marked Test.</li>
+              <li><strong>Add a card machine</strong>: pick the account, then the machine from the provider&apos;s list, or type the code a new machine shows (a SumUp Solo: Connections, API, Connect; a new Stripe reader: its registration code and the Stripe location). The <strong>Test card machine</strong> needs no account and takes no money: the till shows Approve and Decline instead of waiting for a card. Use it for training only, as its payments are recorded like real ones.</li>
+              <li>Pick each till&apos;s and kiosk&apos;s machine in its own settings (Tills or Kiosks, the pencil): <strong>Card machine</strong>.</li>
+            </ol>
+            <P>
+              On the till, <strong>Pay</strong> then <strong>Card machine</strong> (with a tip if tips are on) and{' '}
+              <strong>Send to the card machine</strong>. The till waits while the guest pays; <strong>Cancel on the card
+              machine</strong> stops it. Declined or cancelled: <strong>Try again</strong> or pay another way. A Dojo machine
+              may ask staff to check a signature: tap <strong>Signature matches</strong> or <strong>It doesn&apos;t match</strong>.
+              Closing the Pay window doesn&apos;t stop a payment: open Pay again and the till picks it up. If the till lost its
+              connection after the machine approved, Pay offers <strong>Add it to the bill</strong>.
+            </P>
+            <ul className="list-disc ml-5 space-y-2 text-sm text-muted-foreground mb-4">
+              <li><strong>Taking a card machine payment off</strong> (the X beside it, needs the void permission or a manager) first sends the money back to the card, then takes it off the bill.</li>
+              <li><strong>Refunds</strong> on a closed check (Closed, Refund) can go back to the card: pick <strong>Card machine</strong> as the way to refund.</li>
+              <li>Card machines need the internet. Without it, take the card on the machine by itself and tap <strong>Card</strong> as before.</li>
+              <li>The <strong>Card payments</strong> list on the Card machines tab shows every payment and refund with the machine, the till and the card (e.g. Visa •••• 4242). Payments that went through but aren&apos;t on any bill are flagged: add them on the till (Pay offers it) or refund them in the provider&apos;s own app. Till reports staff can see the list too.</li>
+              <li>Cash Recon: venues that counted Card into a takings field now count Card machine there too.</li>
             </ul>
 
             <H3>Device addresses and disconnecting</H3>
@@ -4876,7 +4905,7 @@ export default function Help() {
               <li><strong>Send</strong> sends new items to the kitchen. If a later course is held, <strong>Fire</strong> sends it when it's time.</li>
               <li>Tap an item on the check to change it: before it's sent you can change or delete it; after, <strong>Void</strong> it with a reason (the kitchen gets a VOID ticket), or <strong>Comp</strong> it.</li>
               <li><strong>More</strong>: guests, move table, name, order type, tent number, server, revenue stream, discount, service charge, offers, split or move items to another check, merge checks, an item not on the menu, print bill, no sale, close an empty check.</li>
-              <li><strong>Pay</strong>: cash (with change), card, voucher and so on, a tip if switched on, and as many payments as needed to split the bill. Then close with or without a receipt.</li>
+              <li><strong>Pay</strong>: cash (with change), card, card machine (the amount goes straight to the till&apos;s card machine, see Card machines), voucher and so on, a tip if switched on, and as many payments as needed to split the bill. Then close with or without a receipt.</li>
             </ol>
             <P>
               <strong>Counter</strong> takes an order with a number (from the number set in Receipts and
@@ -5050,7 +5079,7 @@ export default function Help() {
             <H3>Setting up (Till setup → Kiosks)</H3>
             <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
               <li><strong>Kiosk designs</strong>: <strong>New design</strong> opens the design editor (below). Designs are shared by every venue. A kiosk uses the design picked for it, or the first design. <strong>Copy</strong> makes a copy to try changes on; a design a kiosk uses can't be deleted.</li>
-              <li><strong>Add a kiosk</strong>: its name, its <strong>revenue stream</strong> (the stream's order types are the kiosk's Staying or going? buttons, and the stream decides whether it asks for a name or a tent number), its design, the card reader and the receipt printer.</li>
+              <li><strong>Add a kiosk</strong>: its name, its <strong>revenue stream</strong> (the stream's order types are the kiosk's Staying or going? buttons, and the stream decides whether it asks for a name or a tent number), its design, its <strong>card machine</strong> (see Card machines; none = guests pay at the counter) and the receipt printer.</li>
               <li>On the screen, open the kiosk address (kiosk.macaroonie.com, shown on the tab) in Chrome: it shows a code. Type that code in the Add a kiosk window (or scan its QR code with a phone), and set the address as the kiosk browser's start page. For a screen guests can't leave, run Chrome in kiosk mode or use a kiosk browser (such as Fully Kiosk). <strong>New device</strong> on the kiosk's row moves it to another screen; the old one stops.</li>
             </ol>
 
@@ -5124,6 +5153,7 @@ export default function Help() {
               <li>The order page: change or take off dishes, "Anything else?", then the name or tent number if the stream asks, then pay. The order number shows at the end (with a receipt to print if you allow it).</li>
               <li><strong>Tents</strong>: keep numbered tents (table stands) on a stand beside the kiosk or till. For an order type whose revenue stream asks for a tent, the kiosk says "Your tent number" and "Take a numbered tent from the stand", and the order number screen says "Put tent 12 on your table: we'll bring your order to you." The tent number goes to the kitchen screens, kitchen tickets and the order ready board. If your guests sit down first and type the number on their table instead, set <strong>Number to type</strong> to <em>Table number</em> in the design's Paying panel.</li>
               <li>Nobody tapping for a while: "Still there?", then the kiosk starts again. The reach button brings everything down to the lower half of the screen. A dish marked sold out on the till greys out on the kiosk straight away.</li>
+              <li><strong>Paying by card</strong>: the kiosk sends the order&apos;s total to its card machine and waits ("Follow the instructions on the card reader"). Once the machine approves, the order goes to the till and the kitchen. Declined: Try again, or pay at the counter if the design allows it. Back from the card step cancels the payment on the machine. On a test card machine (and in previews) Approve and Decline buttons stand in for the card.</li>
               <li>Without the internet the kiosk stops taking new orders. A card order already paid when the internet goes is kept on the kiosk and sent when it's back; the guest gets the kiosk's own number (KS1-0012) to show at the counter.</li>
               <li>The kiosk notices a lost connection within seconds (within about half a minute when the shop's router loses the internet but the Wi-Fi stays up). It tries twice more straight away, so a short blip doesn't pause ordering; only then does the start screen say ordering is paused. It then tries every few seconds and opens ordering again as soon as it gets through.</li>
               <li>Every picture on the menu (dishes, sections, choices, banners, the logo) is kept on the kiosk after each menu change, so a guest already ordering when the internet goes still sees them all. Start screen videos aren't kept.</li>

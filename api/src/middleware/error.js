@@ -46,15 +46,22 @@ export function errorResponse(err) {
     const body = { error: err.message }
     if (typeof err.code === 'string') body.code = err.code
     if (Array.isArray(err.errors)) body.errors = err.errors
+    if (err.extra) Object.assign(body, err.extra)
     return { status: err.statusCode, body }
   }
 
   return { status: 500, body: { error: 'Internal server error' } }
 }
 
-/** Throw a clean HTTP error from anywhere in the app */
-export function httpError(statusCode, message) {
+/** Throw a clean HTTP error from anywhere in the app. `extra` ({ code, ...ids })
+ *  goes into the body beside `error`: `code` and plain ids only, never data. */
+export function httpError(statusCode, message, extra) {
   const err = new Error(message)
   err.statusCode = statusCode
+  if (extra) {
+    const { code, ...rest } = extra
+    if (code) err.code = code
+    if (Object.keys(rest).length) err.extra = rest
+  }
   return err
 }

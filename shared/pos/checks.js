@@ -38,6 +38,9 @@ export const EVENT_TYPES = [...CHECK_EVENTS, ...VENUE_EVENTS]
 export const TENDERS = [
   { key: 'cash',          label: 'Cash' },
   { key: 'card_external', label: 'Card' },
+  // Taken on a card machine through its provider (migration 193): the
+  // payment names its attempt (card_payment_id), checked by the sequencer.
+  { key: 'card_integrated', label: 'Card machine' },
   { key: 'voucher',       label: 'Voucher' },
   { key: 'account',       label: 'On account' },
   { key: 'other',         label: 'Other' },
@@ -71,7 +74,7 @@ function kioskProblem(checks, e) {
   if (e.type === 'line.added' && (!p.line?.item_id || p.line.price_override || p.line.open_item)) return 'A kiosk only adds dishes from the menu'
   if (e.type === 'payment.added') {
     const x = p.payment || {}
-    if (x.tender !== 'card_external' || (x.tip || 0) > 0 || x.tendered != null) return 'A kiosk only takes card payments'
+    if (!['card_external', 'card_integrated'].includes(x.tender) || (x.tip || 0) > 0 || x.tendered != null) return 'A kiosk only takes card payments'
   }
   return null
 }
@@ -237,10 +240,13 @@ export function eventProblem(e) {
       if (x.tip != null && !isPence(x.tip)) return bad('payment.tip')
       if (x.tendered != null && !isPence(x.tendered)) return bad('payment.tendered')
       if (!optText(x.ref, 120) || !optText(x.label, 80)) return bad('payment.ref')
+      if ((x.tender === 'card_integrated') !== (x.card_payment_id != null)) return bad('payment.card_payment_id')
+      if (x.card_payment_id != null && !isUuid(x.card_payment_id)) return bad('payment.card_payment_id')
       return null
     }
     case 'payment.voided':
       if (!isId(p.payment_id)) return bad('payment_id')
+      if (p.card_refund_id != null && !isUuid(p.card_refund_id)) return bad('card_refund_id')
       return isText(p.reason, 200) && p.reason.trim() ? null : bad('reason')
     case 'check.closed':
       return null
@@ -252,6 +258,8 @@ export function eventProblem(e) {
       if (!TENDER_KEYS.includes(r.tender)) return bad('refund.tender')
       if (!isPence(r.amount) || r.amount <= 0) return bad('refund.amount')
       if (r.line_ids != null && !(Array.isArray(r.line_ids) && r.line_ids.every(isId))) return bad('refund.line_ids')
+      if ((r.tender === 'card_integrated') !== (r.card_refund_id != null)) return bad('refund.card_refund_id')
+      if (r.card_refund_id != null && !isUuid(r.card_refund_id)) return bad('refund.card_refund_id')
       return isText(r.reason, 200) && r.reason.trim() ? null : bad('refund.reason')
     }
     case 'drawer.opened':
@@ -653,7 +661,7 @@ export function applyEvent(checks, e, ctx = {}) {
       c.payments.push({
         id: x.id, tender: x.tender, label: x.label || null, amount: x.amount, tip: x.tip || 0,
         tendered: x.tendered ?? null, change: x.tendered != null ? x.tendered - x.amount : 0,
-        ref: x.ref || null, seat: x.seat ?? null,
+        ref: x.ref || null, seat: x.seat ?? null, card_payment_id: x.card_payment_id || null,
         by: e.staff_id, at: e.client_at ?? null, day_id: e.assigned?.day_id ?? null, voided: false,
       })
       break
@@ -663,8 +671,11 @@ export function applyEvent(checks, e, ctx = {}) {
       const x = c.payments.find(y => y.id === p.payment_id)
       if (!x) return fail('Payment not found', 'missing')
       if (x.voided) return fail('This payment was already taken off', 'voided')
+      // A card machine payment comes off only once its money is back on the card.
+      if (x.tender === 'card_integrated' && !p.card_refund_id) return fail('Refund it to the card first', 'card_refund')
       const no = need('void'); if (no) return no
       x.voided = true
+      if (p.card_refund_id) x.card_refund_id = p.card_refund_id
       x.void_reason = p.reason.trim()
       x.voided_by = e.staff_id
       x.voided_at = e.client_at ?? null
@@ -705,6 +716,7 @@ export function applyEvent(checks, e, ctx = {}) {
       if (r.amount > t.paid - t.refunded) return fail('That is more than was paid', 'invalid')
       c.refunds.push({
         id: r.id, tender: r.tender, amount: r.amount, reason: r.reason.trim(), line_ids: r.line_ids || [],
+        card_refund_id: r.card_refund_id || null,
         by: e.staff_id, approved_by: e.approved_by || null, at: e.client_at ?? null, day_id: e.assigned?.day_id ?? null,
       })
       c.final = summary(c)

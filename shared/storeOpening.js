@@ -432,6 +432,9 @@ export function buildFollowups({ plan, results, template, brief, venueName }) {
   if (done('devices')) {
     add('link_devices', 'On site, link each till, kitchen screen, kiosk and menu screen at ' + name + ': open the installer on a phone and type or scan the code each device shows.', '/pos?tab=tills')
   }
+  if (done('devices') && (template?.links?.card_machines || (plan.devices?.kiosks || 0) > 0)) {
+    add('card_machines', 'Add the card machines at ' + name + ' (Till setup, Card machines) and pick one for each till and kiosk that takes cards (card machines aren\'t copied).', '/pos?tab=cards')
+  }
   if (done('till') && plan.modes.till === 'copy') add('printers', 'Check each printer\'s network address at ' + name + ' (copied printers keep the old addresses).', '/pos?tab=printers')
   if (done('website')) add('website', 'Check ' + name + '\'s location page (address, words and pictures), then publish the website.', '/website')
   if (done('ordering')) {

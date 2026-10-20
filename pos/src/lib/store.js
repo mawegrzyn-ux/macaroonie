@@ -495,6 +495,65 @@ export async function setItemSoldOut(itemId, mode, approvedBy = null) {
   }
 }
 
+// ── Card machine (migration 193) ─────────────────────────────────
+// The server drives the till's card machine (config.card_machine) through
+// its provider. Before a payment starts, the check's waiting events are sent
+// so the server knows what is left to pay. A payment reaches the check as
+// payment.added naming the approved attempt (card_payment_id): the
+// sequencer refuses any other. Online only.
+
+async function cardApi(method, path, body) {
+  try {
+    const opts = { timeoutMs: 30000 }
+    const data = method === 'get' ? await api.get(path, opts) : await api.post(path, body, opts)
+    return { ok: true, data }
+  } catch (err) {
+    if (err instanceof OfflineError || err?.offline) {
+      handleError(err)
+      return { ok: false, offline: true, error: 'The card machine needs a connection: take the card on another machine and use Card' }
+    }
+    return { ok: false, error: err.message || 'The card machine didn\'t answer', code: err.code || null, data: err.data || null }
+  }
+}
+
+/** Send this check's waiting events (up to 12 s); true once none are left. */
+async function sendCheck(checkId) {
+  const until = Date.now() + 12000
+  const waiting = () => state.outbox.some(e => e.check_id === checkId)
+  while (waiting() && Date.now() < until && state.online !== false) {
+    if (flushing) await new Promise(r => setTimeout(r, 200))
+    else await flush()
+  }
+  return !waiting()
+}
+
+export async function cardStart(check, amount, tip = 0) {
+  if (!state.config?.card_machine) return { ok: false, error: 'This till has no card machine' }
+  if (state.online === false) return { ok: false, error: 'The card machine needs a connection: take the card on another machine and use Card' }
+  if (!(await sendCheck(check.id))) return { ok: false, error: 'The check hasn\'t reached the server yet: try again in a moment' }
+  const paymentId = ulid()
+  const r = await cardApi('post', '/pos-api/card/payments', { check_id: check.id, payment_id: paymentId, amount, tip, staff_id: state.staff?.id || null })
+  return r.ok ? { ok: true, payment: r.data } : r
+}
+export const cardCheck = id => cardApi('get', '/pos-api/card/payments/' + id)
+export const cardCancel = id => cardApi('post', '/pos-api/card/payments/' + id + '/cancel', {})
+export const cardSignature = (id, accepted) => cardApi('post', '/pos-api/card/payments/' + id + '/signature', { accepted })
+export const cardTest = (id, result) => cardApi('post', '/pos-api/card/payments/' + id + '/test', { result })
+export const cardPayments = checkId => cardApi('get', '/pos-api/card/payments?check_id=' + encodeURIComponent(checkId))
+
+/** Money back to the card: purpose 'refund' (a closed check) or 'void' (taking the payment off). */
+export async function cardRefund({ checkId, salePaymentId, amount, approvedBy = null, purpose = 'refund' }) {
+  if (state.online === false) return { ok: false, error: 'Refunding to the card needs a connection' }
+  const refundId = ulid()
+  const r = await cardApi('post', '/pos-api/card/refunds', {
+    sale_id: salePaymentId, check_id: checkId, refund_id: refundId, amount,
+    staff_id: state.staff?.id, approved_by: approvedBy || null, purpose,
+  })
+  if (!r.ok) return r
+  if (r.data.status !== 'approved') return { ok: false, error: r.data.message || 'The refund didn\'t go through' }
+  return { ok: true, refund: r.data, refundId }
+}
+
 export function can(key, amount = null) {
   if (!state.staff) return false
   return !permissionProblem(staffById(), { staff_id: state.staff.id }, key, amount)

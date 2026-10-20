@@ -11,8 +11,9 @@ import { configItem, comboCtx } from '@shared/pos/offers.js'
 import { TK, splitImages } from '@shared/kiosk.js'
 import {
   useKiosk, textsFor, go, openBuilder, setQty, addToBasket, setDetails, placeOrder, methods, restart, soldOut, printResultReceipt,
-  getState as getFresh,
+  getState as getFresh, cardStart, cardCheck, cardCancel, cardTest, setCardWaiting,
 } from './store.js'
+import { ulid } from '@shared/pos/ids.js'
 import { cx, Photo, PickPhoto, Keyboard, NumberPad, BackButton, usePortrait } from './parts.jsx'
 import { TopBar, useBasketTotals, RestartButton, LanguageButton } from './Menu.jsx'
 import { priceLabel } from './Builder.jsx'
@@ -265,50 +266,156 @@ export function Pay() {
 }
 
 // ── The card reader ─────────────────────────────────────────────
-// 'test' is a pretend reader for trying the kiosk (no money moves); real
-// terminals come as adapters (docs/POS.md section 10).
+// A real card machine (config.card_machine, migration 193): the kiosk asks
+// the server to take the total on it, waits, and sends the order once it is
+// approved. Previews take no money: Approve and Decline stand in for the card.
+
+const CARD_FINAL = ['approved', 'declined', 'cancelled', 'failed']
 
 export function Card() {
   const s = useKiosk()
-  const texts = textsFor(s)
-  const { ui, money } = texts
-  const { totals } = useBasketTotals(s)
-  const [declined, setDeclined] = useState(false)
-  const counter = methods(s.config).includes('counter')
+  return s.config.card_machine && !s.preview ? <MachineCard /> : <PretendCard />
+}
+
+function CardFrame({ children, onBack }) {
+  const s = useKiosk()
+  const { ui } = textsFor(s)
   return (
     <div className="absolute inset-0 flex flex-col" data-testid="k-card">
       <div className="flex-1 min-h-0 k-scroll p-[var(--k-pad)] flex flex-col items-center justify-center gap-[var(--k-pad)] text-center">
-        {declined ? (
-          <>
-            <AlertTriangle size={80} />
-            <h2 className="k-head text-[2em] m-0">{ui('card_declined')}</h2>
-            <div className="flex gap-[var(--k-gap)] flex-wrap justify-center">
-              <button className="k-btn k-btn-primary k-btn-big" onClick={() => setDeclined(false)} data-testid="k-card-retry">{ui('try_again')}</button>
-              {counter && <button className="k-btn k-btn-big" onClick={() => placeOrder('counter')}>{ui('pay_counter')}</button>}
-            </div>
-          </>
-        ) : (
-          <>
-            <CreditCard size={110} strokeWidth={1.2} className="text-[var(--k-primary)]" />
-            <div className="k-muted font-semibold">{ui('card_amount')}</div>
-            <div className="k-head text-[3em]" data-testid="k-card-amount">{totals ? money(totals.total) : ''}</div>
-            <h2 className="k-head text-[1.7em] m-0 max-w-[700px]">{ui('card_present')}</h2>
-            <div className="k-card p-[var(--k-pad)] flex flex-col gap-[.6em] items-center mt-[var(--k-pad)]">
-              <div className="k-muted text-[.85em]">{ui('test_reader')}</div>
-              <div className="flex gap-[var(--k-gap)] flex-wrap justify-center">
-                <button className="k-btn k-btn-primary" onClick={() => placeOrder('card', { ref: 'TEST-' + Date.now().toString(36).toUpperCase(), label: 'Test card' })} data-testid="k-card-approve">
-                  <Check /> {ui('approve_test')}
-                </button>
-                <button className="k-btn" onClick={() => setDeclined(true)} data-testid="k-card-decline">{ui('decline_test')}</button>
-              </div>
-            </div>
-          </>
-        )}
+        {children}
       </div>
       <div className="k-bar shrink-0">
-        <BackButton onClick={() => go(methods(s.config).length > 1 ? 'pay' : 'basket')} label={ui('back')} />
+        <BackButton onClick={onBack || (() => go(methods(s.config).length > 1 ? 'pay' : 'basket'))} label={ui('back')} />
       </div>
     </div>
+  )
+}
+
+function Declined({ title, onRetry }) {
+  const s = useKiosk()
+  const { ui } = textsFor(s)
+  const counter = methods(s.config).includes('counter')
+  return (
+    <>
+      <AlertTriangle size={80} />
+      <h2 className="k-head text-[2em] m-0" data-testid="k-card-declined">{title || ui('card_declined')}</h2>
+      <div className="flex gap-[var(--k-gap)] flex-wrap justify-center">
+        <button className="k-btn k-btn-primary k-btn-big" onClick={onRetry} data-testid="k-card-retry">{ui('try_again')}</button>
+        {counter && <button className="k-btn k-btn-big" onClick={() => placeOrder('counter')}>{ui('pay_counter')}</button>}
+      </div>
+    </>
+  )
+}
+
+function AmountDue({ totals, children }) {
+  const { ui, money } = textsFor(useKiosk())
+  return (
+    <>
+      <CreditCard size={110} strokeWidth={1.2} className="text-[var(--k-primary)]" />
+      <div className="k-muted font-semibold">{ui('card_amount')}</div>
+      <div className="k-head text-[3em]" data-testid="k-card-amount">{totals ? money(totals.total) : ''}</div>
+      {children}
+    </>
+  )
+}
+
+function PretendCard() {
+  const s = useKiosk()
+  const { ui } = textsFor(s)
+  const { totals } = useBasketTotals(s)
+  const [declined, setDeclined] = useState(false)
+  return (
+    <CardFrame>
+      {declined ? <Declined onRetry={() => setDeclined(false)} /> : (
+        <AmountDue totals={totals}>
+          <h2 className="k-head text-[1.7em] m-0 max-w-[700px]">{ui('card_present')}</h2>
+          <div className="k-card p-[var(--k-pad)] flex flex-col gap-[.6em] items-center mt-[var(--k-pad)]">
+            <div className="k-muted text-[.85em]">{ui('test_reader')}</div>
+            <div className="flex gap-[var(--k-gap)] flex-wrap justify-center">
+              <button className="k-btn k-btn-primary" onClick={() => placeOrder('card', { ref: 'TEST-' + Date.now().toString(36).toUpperCase(), label: 'Test card' })} data-testid="k-card-approve">
+                <Check /> {ui('approve_test')}
+              </button>
+              <button className="k-btn" onClick={() => setDeclined(true)} data-testid="k-card-decline">{ui('decline_test')}</button>
+            </div>
+          </div>
+        </AmountDue>
+      )}
+    </CardFrame>
+  )
+}
+
+function MachineCard() {
+  const s = useKiosk()
+  const { ui } = textsFor(s)
+  const { totals } = useBasketTotals(s)
+  const machine = s.config.card_machine
+  const [round, setRound] = useState(0)          // Try again starts a new payment
+  const [pay, setPay] = useState(null)           // the attempt from the server
+  const [failed, setFailed] = useState(null)     // 'declined' | 'unavailable'
+  const total = totals?.total || 0
+
+  // Start a payment for the total, then ask how it goes until it ends.
+  useEffect(() => {
+    if (!total) return
+    let alive = true
+    let current = null
+    let timer = null
+    const paymentId = ulid()
+    setPay(null); setFailed(null)
+    setCardWaiting(true)
+    const follow = p => {
+      if (!alive) return
+      current = p
+      setPay(p)
+      setCardWaiting(!CARD_FINAL.includes(p.status))
+      if (p.status === 'approved') {
+        current = null
+        placeOrder('card', { id: paymentId, card_payment_id: p.id, ref: p.card_text || null, label: machine.name })
+        return
+      }
+      if (CARD_FINAL.includes(p.status)) { current = null; setFailed('declined'); return }
+      timer = setTimeout(() => cardCheck(p.id).then(follow, () => { timer = setTimeout(() => follow(p), 1500) }), 1500)
+    }
+    cardStart(paymentId, total).then(follow, err => {
+      if (!alive) return
+      // The machine is still busy with an earlier payment from this kiosk: cancel that one first.
+      if (err?.code === 'busy' && err.data?.payment_id) cardCancel(err.data.payment_id).catch(() => {})
+      setCardWaiting(false)
+      setFailed('unavailable')
+    })
+    return () => {
+      alive = false
+      clearTimeout(timer)
+      setCardWaiting(false)
+      // Left the card step (Back, idle, start again): stop the machine waiting.
+      if (current && !CARD_FINAL.includes(current.status)) cardCancel(current.id).catch(() => {})
+    }
+  }, [round, total])
+
+  if (failed) {
+    return (
+      <CardFrame>
+        <Declined title={failed === 'unavailable' ? ui('card_unavailable') : null} onRetry={() => setRound(n => n + 1)} />
+      </CardFrame>
+    )
+  }
+  return (
+    <CardFrame>
+      <AmountDue totals={totals}>
+        <h2 className="k-head text-[1.7em] m-0 max-w-[700px]" data-testid="k-card-state">{pay ? ui('card_present') : ui('card_starting')}</h2>
+        {!pay && <div className="k-spinner" />}
+        {pay && machine.can_simulate && (
+          <div className="k-card p-[var(--k-pad)] flex flex-col gap-[.6em] items-center mt-[var(--k-pad)]">
+            <div className="k-muted text-[.85em]">{ui('test_reader')}</div>
+            <div className="flex gap-[var(--k-gap)] flex-wrap justify-center">
+              <button className="k-btn k-btn-primary" onClick={() => cardTest(pay.id, 'approve').catch(() => {})} data-testid="k-card-approve"><Check /> {ui('approve_test')}</button>
+              <button className="k-btn" onClick={() => cardTest(pay.id, 'decline').catch(() => {})} data-testid="k-card-decline">{ui('decline_test')}</button>
+            </div>
+          </div>
+        )}
+      </AmountDue>
+    </CardFrame>
   )
 }
 

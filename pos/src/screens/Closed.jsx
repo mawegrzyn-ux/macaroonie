@@ -2,11 +2,11 @@
 // refund. Today's are on the till; older ones come from Macaroonie.
 
 import { useEffect, useMemo, useState } from 'react'
-import { Printer, RotateCcw, Undo2, Search, RefreshCw } from 'lucide-react'
+import { Printer, RotateCcw, Undo2, Search, RefreshCw, Loader2 } from 'lucide-react'
 import { ulid } from '@shared/pos/ids.js'
 import { checkTotals, modifierText, groupModifiers } from '@shared/pos/pricing.js'
 import { checkLabel, TENDERS } from '@shared/pos/checks.js'
-import { useTill, useChecks, dispatch, toast, printBill, server, loadCheck } from '../lib/store.js'
+import { useTill, useChecks, dispatch, toast, printBill, server, loadCheck, cardRefund } from '../lib/store.js'
 import { Modal, Keypad, ReasonPicker, cx, money, poundsToPence, useApproval } from '../components/ui.jsx'
 
 export default function Closed() {
@@ -94,12 +94,26 @@ function ClosedDetail({ check, config }) {
     toast('Reopened: find it on the floor or in Counter', 'ok')
     setMode(null)
   }
+  // Card machine payments on this check: a refund to the card goes back through its provider.
+  const cardSales = (check.payments || []).filter(p => !p.voided && p.tender === 'card_integrated' && p.card_payment_id)
+  const [sale, setSale] = useState(null)
+  const [busy, setBusy] = useState(false)
   const refund = async () => {
     const approver = await approve('refund', null, 'Refunds need a manager.')
     if (approver === false) return
-    const r = dispatch('refund.added', { refund: { id: ulid(), tender, amount: poundsToPence(amount), reason: reason.trim() } }, { check_id: check.id, approved_by: approver })
+    let cardRefundId = null
+    if (tender === 'card_integrated') {
+      const from = cardSales.find(p => p.id === sale) || cardSales[0]
+      if (!from) return toast('There is no card machine payment on this check', 'bad')
+      setBusy(true)
+      const back = await cardRefund({ checkId: check.id, salePaymentId: from.card_payment_id, amount: poundsToPence(amount), approvedBy: approver })
+      setBusy(false)
+      if (!back.ok) return toast(back.error, 'bad', 7000)
+      cardRefundId = back.refund.id
+    }
+    const r = dispatch('refund.added', { refund: { id: ulid(), tender, amount: poundsToPence(amount), reason: reason.trim(), ...(cardRefundId ? { card_refund_id: cardRefundId } : {}) } }, { check_id: check.id, approved_by: approver })
     if (!r.ok) return toast(r.error, 'bad')
-    toast('Refunded ' + money(poundsToPence(amount)), 'ok')
+    toast((cardRefundId ? 'Refunded to the card: ' : 'Refunded ') + money(poundsToPence(amount)), 'ok')
     setMode(null)
   }
   return (
@@ -124,10 +138,22 @@ function ClosedDetail({ check, config }) {
         <div className="card p-4 space-y-3 border-bad border-2">
           <div className="font-semibold">Refund on check {checkLabel(check)} (paid {money(t.paid)}{t.refunded ? ', refunded ' + money(t.refunded) : ''})</div>
           <div className="flex gap-2 flex-wrap">
-            {TENDERS.filter(x => (config.settings.tenders || []).find(y => y.key === x.key)?.enabled).map(x => (
-              <button key={x.key} className={cx('chip', tender === x.key && 'chip-on')} onClick={() => setTender(x.key)}>{(config.settings.tenders || []).find(y => y.key === x.key)?.label || x.label}</button>
+            {TENDERS.filter(x => (config.settings.tenders || []).find(y => y.key === x.key)?.enabled && (x.key !== 'card_integrated' || cardSales.length)).map(x => (
+              <button key={x.key} className={cx('chip', tender === x.key && 'chip-on')} onClick={() => setTender(x.key)} data-testid={'refund-tender-' + x.key}>{(config.settings.tenders || []).find(y => y.key === x.key)?.label || x.label}</button>
             ))}
           </div>
+          {tender === 'card_integrated' && (
+            <div className="space-y-2">
+              <div className="text-sm">The money goes back to the card the guest paid with, through the card machine's provider.</div>
+              {cardSales.length > 1 && (
+                <div className="flex gap-2 flex-wrap">
+                  {cardSales.map(p => (
+                    <button key={p.id} className={cx('chip', (sale || cardSales[0].id) === p.id && 'chip-on')} onClick={() => setSale(p.id)}>{p.ref || 'Card'} · {money(p.amount + (p.tip || 0))}</button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           <div className="grid sm:grid-cols-2 gap-4">
             <div className="space-y-3">
               <div className="text-3xl font-bold tabular-nums">£{amount || '0'}</div>
@@ -135,7 +161,7 @@ function ClosedDetail({ check, config }) {
             </div>
             <Keypad value={amount} onChange={setAmount} decimal max={7} />
           </div>
-          <div className="flex gap-2"><button className="btn btn-bad" disabled={!reason.trim() || !poundsToPence(amount)} onClick={refund}><Undo2 size={18} /> Refund {money(poundsToPence(amount))}</button><button className="btn" onClick={() => setMode(null)}>Cancel</button></div>
+          <div className="flex gap-2"><button className="btn btn-bad" disabled={!reason.trim() || !poundsToPence(amount) || busy} onClick={refund} data-testid="refund-confirm">{busy ? <Loader2 size={18} className="animate-spin" /> : <Undo2 size={18} />} Refund {money(poundsToPence(amount))}{tender === 'card_integrated' ? ' to the card' : ''}</button><button className="btn" onClick={() => setMode(null)}>Cancel</button></div>
         </div>
       )}
       <div className="card divide-y divide-line">
@@ -149,7 +175,7 @@ function ClosedDetail({ check, config }) {
       <div className="card p-4 space-y-1">
         <div className="flex justify-between"><span>Total</span><b>{money(t.total)}</b></div>
         {(check.payments || []).filter(p => !p.voided).map(p => (
-          <div key={p.id} className="flex justify-between text-sm"><span>{TENDERS.find(x => x.key === p.tender)?.label}{p.tip ? ' (tip ' + money(p.tip) + ')' : ''}</span><span>{money(p.amount)}</span></div>
+          <div key={p.id} className="flex justify-between text-sm"><span>{TENDERS.find(x => x.key === p.tender)?.label}{p.tender === 'card_integrated' && p.ref ? ' · ' + p.ref : ''}{p.tip ? ' (tip ' + money(p.tip) + ')' : ''}</span><span>{money(p.amount)}</span></div>
         ))}
         {(check.refunds || []).map(r => (
           <div key={r.id} className="flex justify-between text-sm text-bad"><span>Refund · {r.reason}</span><span>−{money(r.amount)}</span></div>

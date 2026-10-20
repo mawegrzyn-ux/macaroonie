@@ -364,6 +364,21 @@ export function methods(config = state.config) {
   return payMethods(config.design, config.device?.settings || {})
 }
 
+// ── The card machine (migration 193) ────────────────────────────
+// The server drives the kiosk's card machine through its provider; the kiosk
+// starts a payment for the order's total and asks how it is going. The order
+// is sent once the machine approves (placeOrder('card', { id, card_payment_id })).
+
+async function cardCall(fn) {
+  try { return await fn() } catch (err) { handleError(err); throw err }
+}
+export const cardStart = (paymentId, amount) => cardCall(() => api.post('/pos-api/card/payments', { payment_id: paymentId, amount }, { timeoutMs: 30000 }))
+export const cardCheck = id => cardCall(() => api.get('/pos-api/card/payments/' + id, { timeoutMs: 15000 }))
+export const cardCancel = id => cardCall(() => api.post('/pos-api/card/payments/' + id + '/cancel', {}, { timeoutMs: 15000 }))
+export const cardTest = (id, result) => cardCall(() => api.post('/pos-api/card/payments/' + id + '/test', { result }, { timeoutMs: 15000 }))
+/** While the guest is at the card machine the kiosk doesn't time out (KioskApp's idle timer). */
+export const setCardWaiting = on => { if (!!state.card_waiting !== !!on) setState({ card_waiting: !!on }) }
+
 // ── Placing the order ────────────────────────────────────────────
 
 function nextProvisionalNo() {

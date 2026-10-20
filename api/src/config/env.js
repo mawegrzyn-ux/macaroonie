@@ -65,6 +65,17 @@ const schema = z.object({
   // stand-in server; keys are per venue, saved in Cash Recon settings.
   GLORIAFOOD_API_URL:    z.string().url().default('https://pos.globalfoodsoft.com'),
 
+  // Card machines on the till and kiosks (migration 193,
+  // services/cardMachines/). The URLs are only changed to test against
+  // stand-in servers; keys are per tenant, saved in Till setup. Dojo gives
+  // a software house id (and a reseller id) to the till software, so those
+  // two are the platform's, sent with every Dojo call when set.
+  DOJO_API_URL:          z.string().url().default('https://api.dojo.tech'),
+  DOJO_SOFTWARE_HOUSE_ID: z.string().optional(),
+  DOJO_RESELLER_ID:      z.string().optional(),
+  STRIPE_API_URL:        z.string().url().default('https://api.stripe.com'),
+  SUMUP_API_URL:         z.string().url().default('https://api.sumup.com'),
+
   // Storage driver — 'local' writes to UPLOAD_DIR, 's3' writes to an
   // S3-compatible bucket (AWS S3, DigitalOcean Spaces, Cloudflare R2, …).
   STORAGE_DRIVER:        z.enum(['local', 's3']).default('local'),

@@ -19,11 +19,7 @@ import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { Section, Modal, Field, inputCls, ErrorNote, ConfirmDelete, Segmented, Btn, ago } from './shared'
 import { status, deviceUrl, InstallerLine, ShownCodeField, LinkDeviceModal, LinkDeviceButton, linkShownCode, codeReady } from './TillsSection'
-
-const READERS = [
-  { value: 'none', label: 'None' },
-  { value: 'test', label: 'Test reader' },
-]
+import { CardMachinePick, useCardReaders } from './CardMachinesSection'
 
 /** The design a kiosk shows: its own pick, else the company's first design. */
 export function kioskDesign(setup, device) {
@@ -91,9 +87,7 @@ function KioskModal({ venueId, setup, device, onClose }) {
           {(setup.kiosk_designs || []).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
         </select>
       </Field>
-      <Field group label="Card reader" hint="Test reader: Approve and Decline buttons on the kiosk, no money is taken. Card terminals connect here later.">
-        <Segmented value={form.card_reader} options={READERS} onChange={v => set({ card_reader: v })} />
-      </Field>
+      <CardMachinePick venueId={venueId} kiosk value={form.card_reader} onChange={v => set({ card_reader: v })} />
       <Field label="Receipt printer" hint="Receipts the guest asks for. Until the venue hub is set up, the kiosk prints through its own browser.">
         <select className={inputCls} value={form.receipt_printer_id} onChange={e => set({ receipt_printer_id: e.target.value })}>
           <option value="">None</option>
@@ -112,6 +106,8 @@ function KioskDevices({ venueId, setup }) {
   const [editing, setEditing] = useState(null) // device | 'new' | null
   const [linking, setLinking] = useState(null) // device
   const rcName = id => setup.revenue_streams.find(r => r.id === id)?.name
+  const { data: readers = [] } = useCardReaders(venueId)
+  const machineName = id => readers.find(r => r.id === id)?.name
   const live = setup.devices.filter(d => !d.revoked_at && d.kind === 'kiosk')
   const removed = setup.devices.filter(d => d.revoked_at && d.kind === 'kiosk')
   return (
@@ -137,7 +133,7 @@ function KioskDevices({ venueId, setup }) {
                   <p className="text-xs text-muted-foreground">
                     {design ? design.name : 'Standard look'}
                     {rcName(d.settings?.revenue_stream_id) ? ' · ' + rcName(d.settings.revenue_stream_id) : ''}
-                    {' · '}{d.settings?.card_reader === 'test' ? 'Test card reader' : 'No card reader'}
+                    {' · '}{machineName(d.settings?.card_reader) ? 'Card machine: ' + machineName(d.settings.card_reader) : 'No card machine'}
                   </p>
                   <p className={cn('text-xs', st.tone === 'ok' ? 'text-green-700' : st.tone === 'warn' ? 'text-amber-700' : 'text-muted-foreground')}>{st.text}</p>
                   {problems.map(p => <p key={p} className="text-xs text-amber-800 flex gap-1 items-start"><AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px" /> {p}</p>)}

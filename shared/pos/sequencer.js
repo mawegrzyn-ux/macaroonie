@@ -43,11 +43,18 @@
 // kitchen change the changed orders print what has reached a printer; the
 // jobs carry station_id and kitchen_order_id. kitchen.print_due (the minute
 // sweep, when a dish's time has come) prints from loadOpenKitchenOrders().
+// Card machine payments (shared/pos/cards.js, migration 193): an event that
+// puts a card machine payment on a check, or refunds one, names its attempt;
+//   loadCardPayment(id)            -> the attempt (pos_card_payments row) | null
+//   useCardPayment(id, event)      the attempt is now on a check (used once)
+// A store without them (the venue hub, offline) refuses such events: card
+// machines need the internet anyway.
 
 import { applyEvent, checksTouched, eventProblem, CHECK_EVENTS } from './checks.js'
 import { permissionProblem } from './permissions.js'
 import { jobsForEvent } from './printing.js'
 import { businessDate } from './reports.js'
+import { cardNeed, cardProblem } from './cards.js'
 import {
   KITCHEN_EVENTS, applyKitchenEvent, kitchenEventProblem, kitchenOrdersTouched,
   kitchenForCheckEvent, kitchenOrdersForCheckEvent,
@@ -111,6 +118,7 @@ export function createSequencer(store) {
       let kitchenLog = []
       let kcfg = ctx.kitchen
       let kitchenJobs = null
+      let card = null
       if (event.type === 'kitchen.print_due') {
         // Nothing to bump or change: only what a printer is waiting for.
         if (!hasPrinters(ctx.kitchen) || !store.loadOpenKitchenOrders) return { ok: true, nothing: true, checks: {}, jobs: [] }
@@ -128,6 +136,12 @@ export function createSequencer(store) {
         kitchenLog = r.log
       } else if (CHECK_EVENTS.includes(event.type)) {
         before = await store.loadChecks(checksTouched(event))
+        card = cardNeed(stored, before)
+        if (card) {
+          if (!store.loadCardPayment) return refuse('Card machine payments need the internet', 'card')
+          const why = cardProblem(stored, card, await store.loadCardPayment(card.id))
+          if (why) return refuse(why, 'card')
+        }
         const r = applyEvent(before, stored, ctx)
         if (!r.ok) return refuse(r.error, r.code)
         changed = r.checks
@@ -155,6 +169,7 @@ export function createSequencer(store) {
       stored.seq = seq
       await store.saveEvent(stored)
       if (Object.keys(changed).length) await store.saveChecks(changed, stored)
+      if (card) await store.useCardPayment(card.id, stored)
       if (Object.keys(kitchen).length) await store.saveKitchenOrders(kitchen, stored)
       if (kitchenLog.length) await store.saveKitchenLog(kitchenLog, stored, kitchen)
       if (kcfg?.balance && Object.keys(kcfg.balance.picks).length) await store.saveBalanceTurns(kcfg.balance.picks)

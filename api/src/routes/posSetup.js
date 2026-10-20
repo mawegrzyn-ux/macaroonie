@@ -184,10 +184,11 @@ const DeviceSettings = z.object({
   // the name, else the order number, tent, table or customer name picked.
   ticket_main:        z.enum(['auto', 'number', 'tent', 'table', 'name']).optional(),
   // Self-order kiosks (kind 'kiosk', shared/kiosk.js): its design (null = the
-  // tenant's first) and its card reader ('test' takes no money; real
-  // terminals come as adapters later, docs/POS.md section 10).
+  // tenant's first).
   design_id:          UUID.nullable().optional(),
-  card_reader:        z.enum(['none', 'test']).optional(),
+  // A till's or kiosk's card machine (migration 193): a pos_card_readers id
+  // at its venue, or 'none'.
+  card_reader:        z.union([z.literal('none'), UUID]).optional(),
 }).default({})
 
 // What a device showing a link code can become, in the words the refusals use.
@@ -891,6 +892,10 @@ export default async function posSetupRoutes(app) {
       if (found.length !== ids.length) throw httpError(422, 'Kitchen station not found (order ready boards and Balance boxes aren\'t shown on a kitchen screen)')
     }
     if (s.design_id) await checkDesign(tx, tenantId, s.design_id)
+    if (s.card_reader && s.card_reader !== 'none') {
+      const [r] = await tx`SELECT id FROM pos_card_readers WHERE id = ${s.card_reader} AND tenant_id = ${tenantId} AND venue_id = ${venueId} AND removed_at IS NULL`
+      if (!r) throw httpError(422, 'Card machine not found at this venue')
+    }
   }
 
   // The one way a till, kitchen screen or kiosk is set up: the device shows a

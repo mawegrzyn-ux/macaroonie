@@ -41,6 +41,7 @@ export function createTransport(device) {
         err.status = res.status
         err.code = data?.code || null
         err.details = Array.isArray(data?.errors) ? data.errors : null
+        err.data = data
         throw err
       }
       return data

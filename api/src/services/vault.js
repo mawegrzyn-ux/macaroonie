@@ -17,7 +17,8 @@
 // Sealed columns: platform_secrets.value (the Anthropic key, the kiosk
 // preview signing key),
 // loyverse_connections.access_token, gloriafood_venue_links.poll_key,
-// venue_email_settings.provider_api_key / provider_secret / smtp_pass.
+// venue_email_settings.provider_api_key / provider_secret / smtp_pass,
+// pos_card_accounts.secret (card machine provider keys, migration 193).
 // Hints (last 4 characters) are kept beside them in plain text for display.
 
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto'
@@ -32,6 +33,7 @@ export const SEALED = [
   { table: 'venue_email_settings',  column: 'provider_api_key', key: 'id' },
   { table: 'venue_email_settings',  column: 'provider_secret',  key: 'id' },
   { table: 'venue_email_settings',  column: 'smtp_pass',        key: 'id' },
+  { table: 'pos_card_accounts',     column: 'secret',           key: 'id' },
 ]
 
 /** The master key from SECRETS_KEY (base64 or hex of 32 bytes), or null when unset. */

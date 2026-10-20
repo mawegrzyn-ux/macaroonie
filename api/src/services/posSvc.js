@@ -100,7 +100,7 @@ export async function openPairing(tx, tenantId, deviceId, minutes = 10) {
 
 // ── Settings ─────────────────────────────────────────────────────
 
-const DEFAULT_TENDERS = TENDERS.map(t => ({ key: t.key, label: t.label, enabled: ['cash', 'card_external'].includes(t.key) }))
+const DEFAULT_TENDERS = TENDERS.map(t => ({ key: t.key, label: t.label, enabled: ['cash', 'card_external', 'card_integrated'].includes(t.key) }))
 
 /** The venue's till settings, created with defaults the first time. */
 export async function ensureSettings(tx, tenantId, venueId) {
@@ -116,7 +116,7 @@ export async function ensureSettings(tx, tenantId, venueId) {
 export function settingsView(s) {
   const tenders = TENDERS.map(t => {
     const saved = (s.tenders || []).find(x => x.key === t.key)
-    return { key: t.key, label: saved?.label || t.label, enabled: saved ? !!saved.enabled : ['cash', 'card_external'].includes(t.key) }
+    return { key: t.key, label: saved?.label || t.label, enabled: saved ? !!saved.enabled : ['cash', 'card_external', 'card_integrated'].includes(t.key) }
   })
   return {
     day_starts_at: s.day_starts_at,
@@ -566,6 +566,22 @@ export function sequencer(tenantId, venueId, { deviceId = null } = {}) {
           VALUES (${tenantId}, ${venueId}, ${j.printer_id}, ${e.id}, ${j.check_id}, ${j.kind}, ${j.title || null}, ${tx.json(j.ops)},
                   ${j.station_id || null}, ${j.kitchen_order_id || null})`
       }
+    },
+    // Card machine attempts (shared/pos/cards.js): locked for the event, used once.
+    async loadCardPayment(id) {
+      if (!/^[0-9a-f-]{36}$/i.test(id || '')) return null
+      const [row] = await tx`
+        SELECT id, venue_id, kind, sale_id, status, amount, tip, check_id, payment_id, used_event_id
+          FROM pos_card_payments
+         WHERE id = ${id} AND tenant_id = ${tenantId} AND venue_id = ${venueId}
+         FOR UPDATE`
+      return row || null
+    },
+    async useCardPayment(id, e) {
+      await tx`
+        UPDATE pos_card_payments
+           SET used_event_id = ${e.id}, used_at = now(), check_id = COALESCE(check_id, ${e.check_id ?? null}), updated_at = now()
+         WHERE id = ${id} AND tenant_id = ${tenantId} AND venue_id = ${venueId}`
     },
     async saveRejection(e, error, code) {
       await tx`

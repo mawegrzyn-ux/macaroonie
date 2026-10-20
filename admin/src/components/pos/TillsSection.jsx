@@ -15,6 +15,7 @@ import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { installerHref } from '@/lib/hosts'
 import { Section, Modal, Field, inputCls, ErrorNote, ConfirmDelete, Segmented, Btn, ago } from './shared'
+import { CardMachinePick, useCardReaders } from './CardMachinesSection'
 
 const MODES = [
   { value: 'table', label: 'Table service' },
@@ -132,6 +133,7 @@ function TillModal({ venueId, setup, device, onClose }) {
     revenue_stream_id: s.revenue_stream_id || '',
     floor_area_id: s.floor_area_id || '',
     receipt_printer_id: s.receipt_printer_id || '',
+    card_reader: s.card_reader || 'none',
   })
   const set = patch => setForm(f => ({ ...f, ...patch }))
   const body = () => ({
@@ -141,6 +143,7 @@ function TillModal({ venueId, setup, device, onClose }) {
       revenue_stream_id: form.revenue_stream_id || null,
       floor_area_id: form.mode === 'table' ? (form.floor_area_id || null) : null,
       receipt_printer_id: form.receipt_printer_id || null,
+      card_reader: form.card_reader,
     },
   })
   const refresh = () => qc.invalidateQueries({ queryKey: ['pos-setup', venueId] })
@@ -190,6 +193,7 @@ function TillModal({ venueId, setup, device, onClose }) {
           {receiptPrinters.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
       </Field>
+      <CardMachinePick venueId={venueId} value={form.card_reader} onChange={v => set({ card_reader: v })} />
       <ErrorNote error={save.error || remove.error} />
     </Modal>
   )
@@ -207,6 +211,8 @@ export default function TillsSection({ venueId, setup }) {
   const [editing, setEditing] = useState(null) // device | 'new' | null
   const [linking, setLinking] = useState(null) // device
   const rcName = id => setup.revenue_streams.find(r => r.id === id)?.name
+  const { data: readers = [] } = useCardReaders(venueId)
+  const machineName = id => readers.find(r => r.id === id)?.name
   // Kitchen screens and kiosks are listed on their own tabs, venue hubs on Printers.
   const isTill = d => d.kind === 'terminal'
   const live = setup.devices.filter(d => !d.revoked_at && isTill(d))
@@ -233,6 +239,7 @@ export default function TillsSection({ venueId, setup }) {
                   <p className="text-xs text-muted-foreground">
                     {d.settings?.mode === 'counter' ? 'Counter' : 'Table service'}
                     {rcName(d.settings?.revenue_stream_id) ? ' · ' + rcName(d.settings.revenue_stream_id) : ''}
+                    {machineName(d.settings?.card_reader) ? ' · Card machine: ' + machineName(d.settings.card_reader) : ''}
                   </p>
                   <p className={cn('text-xs', st.tone === 'ok' ? 'text-green-700' : st.tone === 'warn' ? 'text-amber-700' : 'text-muted-foreground')}>{st.text}</p>
                 </div>

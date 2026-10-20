@@ -136,19 +136,33 @@ First event types: `check.opened`, `check.covers_set`, `check.table_moved`,
 - Cash drawer opened through the receipt printer (`ESC p`).
 - Hub down: terminals print straight to the printer with Epson ePOS-Print (later phase).
 
-### 2.5 Payments (later releases, designed now)
+### 2.5 Payments (card machines built 20 Oct 2026, migration 193)
 
-- Tenders: `cash`, `card_external`, `voucher`, `account`; `card_integrated` per provider.
-- `pos_payment_attempts` with a state machine (`pending` → `approved` / `declined` /
-  `cancelled` / `unknown`), provider reference and idempotency key.
-- One adapter interface (same idea as `services/paymentGateways/` for web ordering):
-  `start({ amount, tip, reference, reader })`, `status()`, `cancel()`, `refund()`,
-  `parseWebhook()`.
-- Providers to check when we get there: Dojo (cloud API to card machines), SumUp (Cloud API
-  for Solo readers), Stripe Terminal (server-driven), Adyen (Terminal API, cloud or local),
-  Zettle (may only offer native app SDKs, which a PWA can't use: confirm).
-- A card machine is paired to a terminal or picked per payment.
-- Integrated payments need the internet; offline the till falls back to `card_external`.
+Built as designed, with these names and choices:
+
+- Tenders: `cash`, `card_external`, `voucher`, `account`, `card_integrated` ("Card machine",
+  one tender for every provider; the provider is on the attempt).
+- Attempts are `pos_card_payments` (kind sale | refund; `pending` → `signature` →
+  `approved` / `declined` / `cancelled` / `failed`), with the provider's references, the card
+  shown (brand, last 4) and `used_event_id` once an event has put it on a check. The
+  provider's idempotency key is the attempt id.
+- The server drives every payment (`services/cardSvc.js`): the till or kiosk asks the API to
+  start one, the API writes the attempt, calls the provider outside any transaction and writes
+  the result; the device polls the attempt (at most one provider call per 1.2 s), the minute
+  sweep checks attempts devices stopped watching and gives up after 15 minutes. No webhooks yet.
+- Adapters in `services/cardMachines/` (`check`, `listReaders`, `pairReader`, `startSale`,
+  `saleStatus`, `cancelSale`, `answerSignature`, `refund`, `simulate`): Dojo (Terminal
+  Sessions API), Stripe Terminal (server-driven, the tenant's own account, not Connect), SumUp
+  (Cloud API for Solo), and a test machine. Adyen and Zettle not built.
+- The check rules hold the money: `payment.added` with `card_integrated` must name an approved
+  sale attempt of this venue for exactly its amount and tip, used once (`shared/pos/cards.js`,
+  checked by the sequencer with the store's `loadCardPayment` / `useCardPayment`); a refund
+  or taking such a payment off must name an approved refund attempt. A store without those
+  methods (the venue hub) refuses them: integrated payments need the internet, and offline the
+  till falls back to `card_external`.
+- A card machine is a venue's `pos_card_readers` row; a till or kiosk picks one in its
+  settings (`card_reader`). Kiosks pay before their order exists (the attempt carries the
+  payment id the order's event will use).
 - Card data never touches Macaroonie (PCI scope stays with the provider).
 
 ---
@@ -292,8 +306,8 @@ Provisioned for the hub (no other change needed when it comes):
 - `pos/src/lib/transport.js` tries `device.hub_url` before the cloud.
 - The sequencer takes a store object; the hub supplies a SQLite one.
 
-Still to do: Trials 1-3 on real hardware, the hub service, card terminal adapters, the
-till layout designer (Phase 7), online orders into the till, bookings on the floor plan.
+Still to do: Trials 1-3 on real hardware, the hub service, Adyen / Zettle card machines
+(Dojo, Stripe Terminal and SumUp are built, section 2.5), the till layout designer (Phase 7), online orders into the till, bookings on the floor plan.
 Kitchen screens: section 9.
 
 ### 8.1 Tax rates, order types and revenue streams (migration 170, 16 Oct 2026)
@@ -527,12 +541,15 @@ and the ConnectSmart Kitchen guide.
   kitchen (and its flow), Till reports, X / Z and Cash Recon with no special case. The kiosk is the
   check's server (`kioskStaff()`: `{ kiosk: true }`, no permissions).
 - The kiosk rules (`kioskProblem()` in `shared/pos/checks.js`) keep a kiosk to the events an order
-  needs: open a counter check, add menu dishes, automatic offers, send, take a `card_external`
-  payment, close. Nothing else (no discounts, voids, cash, tips, other checks, approvals).
+  needs: open a counter check, add menu dishes, automatic offers, send, take a card payment
+  (`card_integrated` with an approved attempt, or `card_external` from older kiosks), close. Nothing else (no discounts, voids, cash, tips, other checks, approvals).
 - Prices, tax, combos and automatic offers are the till's own (`priceItem()`, `posTax()`,
   `shared/pos/offers.js`), so the kiosk shows exactly what the till charges.
-- Card payments: a test reader only (Approve / Decline, no money). A real terminal plugs in at the
-  card step: it must give back a reference the `payment.added` event carries.
+- Card payments (20 Oct 2026): the kiosk's card machine (Till setup → Card machines, section
+  2.5). The kiosk starts a sale with the payment id its order's `payment.added` will carry, waits
+  for the machine, then sends the order; a declined card offers to try again or pay at the counter.
+  The test machine has Approve / Decline buttons; previews and shared links keep a pretend card
+  step that never charges.
 - The design (`kiosk_designs`, tenant-wide) sets brand, layout (cards, round or oval photos, or
   hexagons, set apart for dishes and for choices; choices in words only, from the left or
   centred; the top bar; icon-only Back and Start again),
@@ -580,7 +597,8 @@ and the ConnectSmart Kitchen guide.
 
 ### 10.3 Not built yet
 
-- Real card terminals (Dojo, SumUp, Zettle, Stripe Terminal, Adyen) at the kiosk.
+- Zettle and Adyen card machines (Dojo, Stripe Terminal and SumUp are built). Not tried on a real
+  machine yet.
 - Receipts go to the kiosk's browser print; the receipt printer picked in Till setup is used once
   the hub prints.
 - No loyalty, logins, vouchers or promo codes on the kiosk (automatic offers only).

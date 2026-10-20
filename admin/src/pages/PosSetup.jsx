@@ -19,6 +19,7 @@ import RevenueStreamsSection from '@/components/pos/RevenueStreamsSection'
 import OrderTypesSection from '@/components/pos/OrderTypesSection'
 import PrintersSection from '@/components/pos/PrintersSection'
 import PrintingSection from '@/components/pos/PrintingSection'
+import CardMachinesSection from '@/components/pos/CardMachinesSection'
 import KitchenSection from '@/components/pos/KitchenSection'
 import KiosksSection from '@/components/pos/KiosksSection'
 import StaffSection from '@/components/pos/StaffSection'
@@ -32,6 +33,7 @@ const TABS = [
   { key: 'types', label: 'Order types', render: p => <OrderTypesSection {...p} /> },
   { key: 'printers', label: 'Printers', render: p => <PrintersSection {...p} /> },
   { key: 'printing', label: 'Printing', render: p => <PrintingSection {...p} /> },
+  { key: 'cards', label: 'Card machines', render: p => <CardMachinesSection {...p} /> },
   { key: 'kitchen', label: 'Kitchen screens', wide: true, render: p => <KitchenSection {...p} /> },
   { key: 'kiosks', label: 'Kiosks', render: p => <KiosksSection {...p} /> },
   { key: 'staff', label: 'Staff and PINs', render: p => <StaffSection {...p} /> },

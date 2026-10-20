@@ -3291,6 +3291,83 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               variation. New locations copy the template venue&apos;s uses and variations (<Mono>storeSetup.js</Mono>).
               Tests: <Mono>shared/pos/test/tickets.test.mjs</Mono>, <Mono>api/test/print-designs.test.mjs</Mono>.
             </P>
+            <H3>Card machines</H3>
+            <P>
+              Migration 193. A card machine payment is started by the server, never by the device: the till or
+              kiosk asks <Mono>POST /pos-api/card/payments</Mono>, the server writes a <Mono>pos_card_payments</Mono>{' '}
+              row (pending) and asks the provider (<Mono>services/cardMachines/</Mono>: <Mono>dojo.js</Mono>,{' '}
+              <Mono>stripe.js</Mono>, <Mono>sumup.js</Mono>, <Mono>test.js</Mono>; one interface in{' '}
+              <Mono>index.js</Mono>, the HTTP call and errors in <Mono>http.js</Mono>) to show the amount on the
+              machine; the device then polls <Mono>GET /pos-api/card/payments/:id</Mono>, which asks the provider at
+              most every 1.2 s (<Mono>refreshPayment()</Mono> in <Mono>services/cardSvc.js</Mono>). Provider calls
+              never run inside a database transaction. Statuses: pending, signature (Dojo asks staff to check a
+              signature), approved, declined, cancelled, failed. A sale left pending is asked about by the minute
+              sweep (<Mono>sweepPending()</Mono>) and given up after 15 minutes.
+            </P>
+            <P>
+              A payment reaches a check only as <Mono>payment.added</Mono> with tender <Mono>card_integrated</Mono>{' '}
+              and <Mono>card_payment_id</Mono> (the shape check requires one and refuses it on any other tender).
+              The sequencer (<Mono>shared/pos/cards.js</Mono>: <Mono>cardNeed()</Mono>, <Mono>cardProblem()</Mono>)
+              loads the attempt with the store&apos;s <Mono>loadCardPayment()</Mono> (FOR UPDATE) and refuses it unless
+              it is an approved sale of this venue, for exactly the payment&apos;s amount and tip, for this check (or no
+              check yet: a kiosk pays before its order exists), for this payment id, not used by another event; then{' '}
+              <Mono>useCardPayment()</Mono> records the event. A refund (<Mono>refund.added</Mono> with{' '}
+              <Mono>card_refund_id</Mono>) needs an approved refund of a card payment on the check, for its amount;
+              taking a card machine payment off (<Mono>payment.voided</Mono>) needs <Mono>card_refund_id</Mono> for the
+              whole amount and tip (<Mono>applyEvent()</Mono> refuses it without one: <Mono>card_refund</Mono>). A store
+              without these methods (the hub) refuses card machine events.
+            </P>
+            <DataTable
+              head={['Table / route', 'What']}
+              rows={[
+                ['pos_card_accounts', 'tenant, provider dojo | stripe | sumup, name, secret (sealed, services/vault.js SEALED), hint (last 4), mode test | live, settings { merchant_code, merchant_name (SumUp, learned from the key), software_house_id, reseller_id (Dojo, else env), locations (Stripe) }, checked_at, removed_at (key cleared, machines removed; payments keep pointing at it).'],
+                ['pos_card_readers', 'tenant, venue, account_id (NULL only for provider test), provider, provider_reader_id (Dojo terminalId, Stripe tmr_, SumUp reader id), name, model, serial, removed_at. pos_devices.settings.card_reader = its id (or none) on a till or kiosk.'],
+                ['pos_card_payments', 'tenant, venue, reader, account, provider, kind sale | refund (sale_id), device, staff, check_id, payment_id (the ULID the event will carry; unique per venue), amount, tip, status, message, provider_ref / provider_ref2 (payment intent + session / checkout / charge / transaction), card_brand, card_last4, refunded, used_event_id / used_at, checked_at, finished_at.'],
+                ['POST /pos-api/card/payments', 'Till or kiosk: { check_id? (till: open, on the server, amount ≤ what is left, so the till sends its outbox first; 409 not_synced), payment_id, amount, tip (till only), staff_id }. One open payment per machine (409 busy with payment_id).'],
+                ['GET /pos-api/card/payments[/:id]', '?check_id= lists a check\'s attempts (Pay picks up a pending one and offers approved ones not on the bill). /:id refreshes from the provider.'],
+                ['POST /pos-api/card/payments/:id/cancel | /signature | /test', 'Cancel on the machine (the provider has the last word: a card tapped just before counts); answer a Dojo signature check; a test card (the test machine, or Stripe test mode\'s present_payment_method).'],
+                ['POST /pos-api/card/refunds', 'Till only: { sale_id, check_id, refund_id, amount, staff_id, approved_by?, purpose refund | void }, role permission refund or void (or a manager). The sale must be approved, on this check, with enough left; the refund is approved or failed when it returns.'],
+                ['/api/pos/card-accounts[...]', 'Till setup view to list; manage + owner/admin to add, change (a new key or settings is checked first), remove. POST /:id/check asks again; GET /:id/readers is the provider\'s list, each marked where it is added.'],
+                ['/api/pos/venues/:venueId/card-readers', 'View: the venue\'s machines and which tills and kiosks use them. Manage: add from the list ({ account_id, provider_reader_id, name }), by code ({ account_id, code, name, location? }: SumUp Solo pairing, Stripe registration code), or { provider: \'test\', name }.'],
+                ['PATCH / DELETE /api/pos/card-readers/:id', 'Rename; remove (devices using it go back to none).'],
+                ['GET /api/pos/venues/:venueId/card-payments?days=&status=', 'Till setup or Till reports view: attempts with machine, device and staff names; not_on_check flags an approved sale no event used.'],
+              ]}
+            />
+            <P>
+              Providers. <strong>Stripe Terminal</strong> (server-driven, from the shapes in Stripe&apos;s own Node SDK
+              23.0.0): a PaymentIntent (card_present, automatic capture, idempotency key per attempt), then{' '}
+              <Mono>POST /v1/terminal/readers/:id/process_payment_intent</Mono> with <Mono>skip_tipping</Mono> (tips are
+              taken on the till); the result is the intent&apos;s status, or the reader&apos;s action (failed with a
+              failure message = declined); cancel = cancel_action + cancel the intent; refunds through{' '}
+              <Mono>POST /v1/refunds</Mono>. The key is the tenant&apos;s own (they are the merchant), not Stripe Connect.{' '}
+              <strong>SumUp</strong> (Cloud API, from SumUp&apos;s TypeScript SDK 0.2.0): merchant code from{' '}
+              <Mono>GET /v0.1/memberships</Mono>, readers paired by the Solo&apos;s code, a reader checkout, its state from{' '}
+              <Mono>GET .../readers/:id/checkout/:checkout_id</Mono> and the transaction by{' '}
+              <Mono>client_transaction_id</Mono> (card, and the id refunds need); terminate to cancel; refunds{' '}
+              <Mono>POST /v1.0/merchants/:code/payments/:txn/refunds</Mono> (a full refund sends no amount, a part one
+              sends pounds). <strong>Dojo</strong>: payment intent + terminal session (sessionType Sale), the session&apos;s
+              status, signature answers, cancel, refunds on the payment intent; built from Dojo&apos;s API as known
+              (docs.dojo.tech and an SDK weren&apos;t reachable), replies read loosely: check against a Dojo sandbox
+              first. Base URLs <Mono>STRIPE_API_URL</Mono>, <Mono>SUMUP_API_URL</Mono>, <Mono>DOJO_API_URL</Mono>{' '}
+              (tests point them at <Mono>api/test/support/fake-card-providers.mjs</Mono>); Dojo&apos;s{' '}
+              <Mono>DOJO_SOFTWARE_HOUSE_ID</Mono> / <Mono>DOJO_RESELLER_ID</Mono> are the platform&apos;s.
+            </P>
+            <P>
+              Devices. The till&apos;s config carries <Mono>card_machine</Mono> ({'{ id, name, provider, test, can_simulate, signature }'}, part of
+              its version) from <Mono>cardMachineOf()</Mono>; the kiosk&apos;s too (<Mono>kioskConfig()</Mono>; previews
+              none, they keep the pretend reader). Till: <Mono>cardStart()</Mono> / <Mono>cardCheck()</Mono> /{' '}
+              <Mono>cardRefund()</Mono> in <Mono>pos/src/lib/store.js</Mono> (sends the check&apos;s outbox first),{' '}
+              <Mono>CardPanel</Mono> in <Mono>PayModal.jsx</Mono>, refunds to the card in <Mono>Closed.jsx</Mono>. Kiosk:{' '}
+              <Mono>MachineCard</Mono> in <Mono>pos/src/kiosk/Checkout.jsx</Mono> starts a payment for the order&apos;s total
+              with the payment id it will use, then <Mono>placeOrder(&apos;card&apos;, {'{ id, card_payment_id }'})</Mono>{' '}
+              (<Mono>kioskOrder()</Mono> makes the payment card_integrated); leaving the step cancels it; the idle
+              timer waits while the guest pays (<Mono>card_waiting</Mono>). Admin: Till setup → Card machines
+              (<Mono>components/pos/CardMachinesSection.jsx</Mono>, <Mono>CardMachinePick</Mono> in the till and kiosk
+              windows). Tender <Mono>card_integrated</Mono> (&quot;Card machine&quot;) is on by default; the migration
+              added it wherever Cash Recon&apos;s takings mapping had <Mono>card_external</Mono>, and moved kiosks
+              that used the old on-screen test reader to a test card machine. Tests:{' '}
+              <Mono>shared/pos/test/cards.test.mjs</Mono>, <Mono>api/test/card-machines.test.mjs</Mono>.
+            </P>
             <H3>Trading days, Z and Cash Recon</H3>
             <P>
               The first event after a Z opens a day (<Mono>business_date</Mono> by <Mono>day_starts_at</Mono> in
