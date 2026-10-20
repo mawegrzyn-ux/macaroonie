@@ -422,6 +422,15 @@ Chrome, as an installed PWA.
   flow in use. A switch takes the venue's sequencer lock and the sequencer re-reads the setting per
   event, so it falls between two events, and it only affects dishes sent after it (dishes keep
   `item.route`). Switching needs the cloud for now (the hub would sequence it locally).
+- **Shared flows and Sent from** (migration 192, 20 Oct 2026): a flow can belong to the company
+  (`kds_flows.venue_id` NULL) instead of one venue. Its boxes are station *names*; at each venue
+  `resolveSharedFlow()` turns them into that venue's stations of the same names (and stream and
+  till filters into that venue's ids by name), leaving out links to boxes the venue lacks. The
+  sequencer, kitchen screens and the bench only ever see ordinary links, so the rules didn't
+  change. Each venue lists its own flows then the shared ones and puts one in use itself. A
+  link can also filter on the till or kiosk that sent the order (`device`, ranked after section),
+  so Till 1 at a location can send to that location's bar station: decided by names, Till 1 at
+  Ware goes to Ware's Bar and Till 1 at Hertford to Hertford's.
 - **Order-ready boards**: the menu screens' `order_status` block shows numbers preparing and
   ready (`/screen-api/orders`), pushed on `kitchen.board`: every counter and online order, or one
   board station of the flow by name (`boards[name]`, ready once every dish on its way there has
@@ -477,6 +486,11 @@ nothing changes for the devices.
   their own ways.
 - Kitchen flows switch by hand only: no switching by time of day or day of the week, and dishes
   already sent are never moved to the new flow's stations (finish them where they are).
+- Shared flows match stations, revenue streams and tills by name only: a location naming its
+  Grill "Grill 1" doesn't get the Grill box (rename the station or the box). There is no
+  per-location exception inside a shared flow (copy it as the location's own instead), no
+  "switch every location now", and Sent from can't tell online orders apart (they have no
+  device; use the order type or revenue stream).
 - Tested in Chromium on desktop sizes (tablet, TV, portrait) only; not yet on a real Android
   tablet, a TV box, or with a real bump bar. Sound needs one tap on the screen first (browser
   autoplay rule).

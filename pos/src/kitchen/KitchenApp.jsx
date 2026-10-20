@@ -810,7 +810,7 @@ function FlowPanel({ config, names, onClose }) {
           <div key={f.id} className={cx('rounded-lg p-3', on ? 'bg-[#0e6b33]' : 'bg-zinc-800')} data-testid="kds-flow" data-active={on ? 'true' : 'false'}>
             <div className="flex items-center gap-3">
               <div className="flex-1 min-w-0">
-                <div className="font-bold text-lg truncate">{f.name}</div>
+                <div className="font-bold text-lg truncate">{f.name}{f.shared && <span className="ml-2 text-xs font-semibold text-white/60 align-middle" data-testid="kds-flow-shared">SHARED</span>}</div>
                 <div className="text-sm text-white/70 truncate">{where.length ? where.join(', ') : 'No stations in it yet'}</div>
               </div>
               {on
