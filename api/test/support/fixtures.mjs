@@ -202,6 +202,14 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx' } = 
       if (po) {
         const d = await step('purchase order', () => get(`/api/purchasing/pos/${po.id}`))
         if (d?.lines?.[0]) await step('purchase order split', () => post(`/api/purchasing/pos/${po.id}/split`, { lines: [{ id: d.lines[0].id, qty: 1 }], delivery_date: later(21) }))
+        // Booked in with a line that wasn't ordered (migration 197), whose
+        // invoice price then goes into the price list as a new supplier price.
+        const got = d && await step('purchase order receive', () => post(`/api/purchasing/pos/${po.id}/receive`, {
+          lines: [], add: [{ item_id: item.id, pack: { name: 'Bag', qty: 5, unit: 'kg' }, received_qty: 1, invoice_price: 6.5, note: mark + ' extra' }],
+          check: { packaging_ok: true, damage_ok: true, quality_ok: true, accepted: true },
+        }))
+        const extra = got?.lines?.find(l => l.added_on_receipt)
+        if (extra) await step('price list from invoice', () => post(`/api/purchasing/pos/${po.id}/price-list`, { changes: [{ line_id: extra.id, action: 'add', product_name: mark + ' Rice 5kg' }] }))
       }
     }
   }

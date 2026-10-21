@@ -1,7 +1,8 @@
 // src/routes/inventory.js
 //
 // The purchasing catalogue (migration 153), mounted at /api/inventory:
-// categories, items, supplier quotes, per-venue prices, preferred quotes,
+// categories, items, supplier quotes (product_name: the supplier's own name
+// or brand for it, migration 197), per-venue prices, preferred quotes,
 // price history and spreadsheet import. Reading needs purchasing_setup view
 // (catalogue prices are setup data); restaurant staff see items through
 // /api/purchasing. Every query filters tenant_id itself.
@@ -34,6 +35,7 @@ const ItemBody = z.object({
 const QuoteBody = z.object({
   supplier_id:    uuid,
   supplier_code:  optText(100),
+  product_name:   optText(200),
   pack_name:      text(60).optional(),
   pack_count:     z.number().positive().max(100000).optional(),
   pack_qty:       z.number().positive().max(10000000),
@@ -64,7 +66,7 @@ const canView   = requirePermission('purchasing_setup', 'view')
 const canManage = requirePermission('purchasing_setup', 'manage')
 
 const QUOTE_COLS = (tx, tenantId) => tx`
-  q.id, q.item_id, q.supplier_id, q.supplier_code, q.pack_name, q.pack_unit, q.is_active, q.notes,
+  q.id, q.item_id, q.supplier_id, q.supplier_code, q.product_name, q.pack_name, q.pack_unit, q.is_active, q.notes,
   q.pack_count::float8 AS pack_count, q.pack_qty::float8 AS pack_qty, q.pack_base_qty::float8 AS pack_base_qty,
   q.price::float8 AS price, q.vat_rate::float8 AS vat_rate,
   q.min_qty::float8 AS min_qty, q.order_multiple::float8 AS order_multiple, q.updated_at,
@@ -153,6 +155,7 @@ function quoteValues(body, baseUnit) {
   if (!pbq) throw httpError(422, `A ${body.pack_unit} pack doesn't fit an item counted in ${baseUnit === 'each' ? 'each' : baseUnit}`)
   return {
     supplier_code:  body.supplier_code ?? null,
+    product_name:   body.product_name ?? null,
     pack_name:      body.pack_name || 'pack',
     pack_count:     body.pack_count ?? 1,
     pack_qty:       body.pack_qty,
@@ -177,6 +180,7 @@ const HEADERS = {
   itemcode: 'code',
   supplier: 'supplier', vendor: 'supplier',
   suppliercode: 'supplier_code', sku: 'supplier_code', productcode: 'supplier_code',
+  productname: 'product_name', supplierproduct: 'product_name', brand: 'product_name',
   pack: 'pack_name', packname: 'pack_name',
   packcount: 'pack_count', count: 'pack_count',
   packsize: 'pack_qty', size: 'pack_qty',
@@ -224,7 +228,7 @@ async function runImport(tx, tenantId, rows, by) {
   const cats = await tx`SELECT id, name FROM inv_categories WHERE tenant_id = ${tenantId}`
   const sups = await tx`SELECT id, name FROM suppliers WHERE tenant_id = ${tenantId}`
   const quotes = await tx`
-    SELECT id, item_id, supplier_id, supplier_code, lower(pack_name) AS pack_name,
+    SELECT id, item_id, supplier_id, supplier_code, product_name, lower(pack_name) AS pack_name,
            pack_base_qty::float8 AS pack_base_qty, price::float8 AS price
       FROM inv_quotes WHERE tenant_id = ${tenantId}
   `
@@ -294,18 +298,21 @@ async function runImport(tx, tenantId, rows, by) {
       out.suppliers_created++
     }
     const code = r.supplier_code || null
+    const productName = r.product_name ? r.product_name.slice(0, 200) : null
     const packName = (r.pack_name || 'pack').slice(0, 60)
     const match = quotes.find(q => q.item_id === item.id && q.supplier_id === sup.id && (code
       ? (q.supplier_code || '').toLowerCase() === code.toLowerCase()
-      : !q.supplier_code && q.pack_name === packName.toLowerCase() && Math.abs(q.pack_base_qty - pbq) < 1e-6))
+      : !q.supplier_code && q.pack_name === packName.toLowerCase() && Math.abs(q.pack_base_qty - pbq) < 1e-6
+        && (!productName || !q.product_name || q.product_name.toLowerCase() === productName.toLowerCase())))
     if (match) {
       await tx`
         UPDATE inv_quotes SET pack_name = ${packName}, pack_count = ${packCount}, pack_qty = ${packQty},
                pack_unit = ${packUnit}, pack_base_qty = ${pbq}, price = ${price},
-               vat_rate = ${vat ?? 0}, updated_at = now()
+               vat_rate = ${vat ?? 0}, product_name = COALESCE(${productName}, product_name), updated_at = now()
          WHERE id = ${match.id} AND tenant_id = ${tenantId}
       `
       out.quotes_updated++
+      if (productName) match.product_name = productName
       if (Math.abs(match.price - price) > 1e-9) {
         await recordPrice(tx, tenantId, match.id, null, price, by, 'import')
         out.prices_changed++
@@ -313,14 +320,14 @@ async function runImport(tx, tenantId, rows, by) {
       }
     } else {
       const [q] = await tx`
-        INSERT INTO inv_quotes (tenant_id, item_id, supplier_id, supplier_code, pack_name, pack_count, pack_qty,
+        INSERT INTO inv_quotes (tenant_id, item_id, supplier_id, supplier_code, product_name, pack_name, pack_count, pack_qty,
                                 pack_unit, pack_base_qty, price, vat_rate)
-        VALUES (${tenantId}, ${item.id}, ${sup.id}, ${code}, ${packName}, ${packCount}, ${packQty},
+        VALUES (${tenantId}, ${item.id}, ${sup.id}, ${code}, ${productName}, ${packName}, ${packCount}, ${packQty},
                 ${packUnit}, ${pbq}, ${price}, ${vat ?? 0})
         RETURNING id
       `
       await recordPrice(tx, tenantId, q.id, null, price, by, 'import')
-      quotes.push({ id: q.id, item_id: item.id, supplier_id: sup.id, supplier_code: code, pack_name: packName.toLowerCase(), pack_base_qty: pbq, price })
+      quotes.push({ id: q.id, item_id: item.id, supplier_id: sup.id, supplier_code: code, product_name: productName, pack_name: packName.toLowerCase(), pack_base_qty: pbq, price })
       out.quotes_created++
     }
   }
@@ -328,10 +335,10 @@ async function runImport(tx, tenantId, rows, by) {
 }
 
 export const IMPORT_TEMPLATE = [
-  'Item,Category,Base unit,Storage,Item code,Supplier,Supplier code,Pack,Pack count,Pack size,Pack unit,Price,VAT %',
-  'Tomatoes,Vegetables,g,chilled,,Fresh Direct,FD-1001,Box,1,6,kg,12.50,0',
-  'Rapeseed oil,"Oils, Sauces & Condiments",ml,ambient,,Brakes,BR-220,Case,2,5,l,18.40,0',
-  'Takeaway boxes,Packaging,each,ambient,,Brakes,BR-901,Case,1,250,each,21.00,20',
+  'Item,Category,Base unit,Storage,Item code,Supplier,Supplier code,Product name,Pack,Pack count,Pack size,Pack unit,Price,VAT %',
+  'Tomatoes,Vegetables,g,chilled,,Fresh Direct,FD-1001,Vine tomatoes class 1,Box,1,6,kg,12.50,0',
+  'Rapeseed oil,"Oils, Sauces & Condiments",ml,ambient,,Brakes,BR-220,Pure rapeseed oil,Case,2,5,l,18.40,0',
+  'Takeaway boxes,Packaging,each,ambient,,Brakes,BR-901,,Case,1,250,each,21.00,20',
 ].join('\n')
 
 // ── Plugin ──────────────────────────────────────────────────────
@@ -483,7 +490,7 @@ export default async function inventoryRoutes(app) {
       const q = await ownQuote(tx, req.tenantId, req.params.id)
       if (b.supplier_id) await checkSupplier(tx, req.tenantId, b.supplier_id)
       const merged = {
-        supplier_code: q.supplier_code, pack_name: q.pack_name, pack_count: Number(q.pack_count),
+        supplier_code: q.supplier_code, product_name: q.product_name, pack_name: q.pack_name, pack_count: Number(q.pack_count),
         pack_qty: Number(q.pack_qty), pack_unit: q.pack_unit, price: q.price, vat_rate: Number(q.vat_rate),
         min_qty: q.min_qty == null ? null : Number(q.min_qty),
         order_multiple: q.order_multiple == null ? null : Number(q.order_multiple),

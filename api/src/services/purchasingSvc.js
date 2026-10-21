@@ -98,6 +98,7 @@ export function quoteView(q, venueId, withPrice) {
     supplier_id: q.supplier_id,
     supplier_name: q.supplier_name,
     supplier_code: q.supplier_code,
+    product_name: q.product_name ?? null,
     pack_label: packLabel(q),
     pack_name: packParts(q).name,
     pack_size: packParts(q).size,
@@ -107,6 +108,28 @@ export function quoteView(q, venueId, withPrice) {
     vat_rate: num(q.vat_rate),
     ...(withPrice ? { price: quotePrice(q, venueId) } : {}),
   }
+}
+
+// ── Invoices (migration 197) ─────────────────────────────────────
+
+const INVOICE_LINE_MONEY = ['unit_price', 'line_total', 'price_pack']
+const INVOICE_MONEY = ['subtotal', 'vat', 'delivery_charge', 'total']
+
+/** An invoice reading as the admin sees it (no prices without price access). */
+export function invoiceView(row, prices) {
+  const lines = (row.lines || []).map(l => {
+    if (prices) return l
+    const out = { ...l }
+    for (const k of INVOICE_LINE_MONEY) delete out[k]
+    return out
+  })
+  const head = {
+    id: row.id, po_id: row.po_id, files: row.files || [], supplier_name: row.supplier_name,
+    invoice_number: row.invoice_number, invoice_date: row.invoice_date, prices_include_vat: row.prices_include_vat,
+    notes: row.notes, read_by: row.read_by, read_at: row.read_at, applied_by: row.applied_by, applied_at: row.applied_at,
+  }
+  if (prices) for (const k of INVOICE_MONEY) head[k] = row[k] == null ? null : Number(row[k])
+  return { ...head, lines }
 }
 
 // ── Venues and suppliers ─────────────────────────────────────────
@@ -181,6 +204,7 @@ export async function createPurchaseOrder(tx, tenantId, { venue, supplier, deliv
     storage: l.item.storage || 'ambient',
     base_unit: l.item.base_unit,
     supplier_code: l.quote.supplier_code ?? null,
+    product_name: l.quote.product_name ?? null,
     pack_label: packLabel(l.quote),
     pack_base_qty: num(l.quote.pack_base_qty),
     price: quotePrice(l.quote, venue.id),
@@ -204,7 +228,8 @@ export async function createPurchaseOrder(tx, tenantId, { venue, supplier, deliv
 export async function loadPoLines(tx, tenantId, poId) {
   return tx`
     SELECT l.*, l.pack_base_qty::float8 AS pack_base_qty, l.price::float8 AS price, l.vat_rate::float8 AS vat_rate,
-           l.qty::float8 AS qty, l.received_qty::float8 AS received_qty
+           l.qty::float8 AS qty, l.received_qty::float8 AS received_qty,
+           l.invoice_price::float8 AS invoice_price, l.invoice_vat_rate::float8 AS invoice_vat_rate
       FROM purchase_order_lines l
      WHERE l.po_id = ${poId} AND l.tenant_id = ${tenantId}
      ORDER BY l.sort_order, l.item_name
@@ -235,10 +260,12 @@ export async function loadPo(tx, tenantId, poId) {
 
 // ── Documents ────────────────────────────────────────────────────
 
+// The supplier's copy lists what was ordered: lines added when the delivery
+// was booked in (added_on_receipt, ordered 0) aren't on it.
 async function documentData(tenantId, poId) {
   return withTenant(tenantId, async tx => {
     const po = await loadPo(tx, tenantId, poId)
-    const lines = await loadPoLines(tx, tenantId, poId)
+    const lines = (await loadPoLines(tx, tenantId, poId)).filter(l => !l.added_on_receipt)
     const venue = await loadVenue(tx, tenantId, po.venue_id)
     const [tenant] = await tx`SELECT name FROM tenants WHERE id = ${tenantId}`
     return { po, lines, venue, tenant }
@@ -273,13 +300,16 @@ export const poFileName = (po, ext) => `${poNumberLabel(po.number)}-${String(po.
 
 const escapeHtml = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
 
+/** A line's product as the supplier knows it: their product name, else our item name. */
+export const productOf = l => (l.product_name && l.product_name.trim()) || l.item_name
+
 /** The PO as an HTML page (print, and the email body table). */
 export function poHtml({ po, lines, venue, tenant }, { forEmail = false } = {}) {
   const rows = lines.map(l => {
     const a = lineAmounts(l)
     return `<tr>
       <td>${escapeHtml(l.supplier_code || '')}</td>
-      <td>${escapeHtml(l.item_name)}</td>
+      <td>${escapeHtml(productOf(l))}</td>
       <td>${escapeHtml(l.pack_label)}</td>
       <td class="n">${fmtNum(l.qty)}</td>
       <td class="n">${money(l.price)}</td>
@@ -351,7 +381,7 @@ export function poXlsx({ po, lines, venue, tenant }) {
     ['Delivery date', po.delivery_date, 'Deliver to', address(venue).join(', ')],
     [],
     ['Code', 'Product', 'Pack', 'Qty', 'Price', 'VAT %', 'Total ex VAT'],
-    ...lines.map(l => [l.supplier_code || '', l.item_name, l.pack_label, num(l.qty), num(l.price), num(l.vat_rate), lineAmounts(l).net]),
+    ...lines.map(l => [l.supplier_code || '', productOf(l), l.pack_label, num(l.qty), num(l.price), num(l.vat_rate), lineAmounts(l).net]),
     [],
     ['', '', '', '', '', 'Subtotal', num(po.subtotal)],
     ['', '', '', '', '', 'VAT', num(po.vat)],
@@ -413,7 +443,7 @@ export function poPdf({ po, lines, venue, tenant }) {
   for (const l of lines) {
     if (y > A4.h - 120) { doc.newPage(); y = 50; header() }
     const a = lineAmounts(l)
-    const vals = { code: l.supplier_code || '', name: l.item_name, pack: l.pack_label, qty: fmtNum(l.qty), price: money(l.price), total: money(a.net) }
+    const vals = { code: l.supplier_code || '', name: productOf(l), pack: l.pack_label, qty: fmtNum(l.qty), price: money(l.price), total: money(a.net) }
     for (const c of cols) {
       const v = c.w ? fitText(vals[c.key], c.w, 9) : vals[c.key]
       doc.text(c.x, y, v, { size: 9, align: c.right ? 'right' : 'left' })

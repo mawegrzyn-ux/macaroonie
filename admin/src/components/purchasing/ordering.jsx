@@ -18,7 +18,10 @@
 //                  sent / change quantities / split for another day /
 //                  cancel / book the delivery in.
 //   ReceiveForm    what arrived, the checks and temperatures; writes the
-//                  venue's H&S delivery check.
+//                  venue's H&S delivery check. Pepper can read the invoice
+//                  first (components/purchasing/invoice.jsx, migration 197):
+//                  quantities and invoice prices filled in, what wasn't
+//                  ordered added; then the price list can be updated.
 //
 // The view lives in the URL (?order=, ?po=, ?tab=) so a refresh keeps it.
 // Prices show only for people with purchasing_setup view (meta.show_prices).
@@ -43,6 +46,10 @@ import {
   fitQty, qtyProblem, packsToPar, orderTotals, lineAmounts, fmtNum, poNumberLabel, receiveStatusFor,
   deliveryTempOk, RECEIVE_STATUSES, DELIVERY_TEMP_MAX, deliveryDateChoices, addDays,
 } from '@shared/procurement.js'
+import { ASSISTANT_NAME } from '@shared/assistant.js'
+import {
+  InvoiceReader, readingToForm, extraOf, extraProblem, InvoiceLineNote, ExtrasSection, PriceListModal, InvoiceList,
+} from '@/components/purchasing/invoice'
 
 const SENT_VIA = [
   { key: 'print', label: 'Printed and handed over' },
@@ -606,6 +613,7 @@ function OrderRow({ it, quote, qty, view, hasPars, hasExtras, readOnly, asked, o
         <div className="flex-1 min-w-0">
           <p className="font-medium text-sm">{it.name} <StorageBadge storage={it.storage} /></p>
           {!quote && <p className="text-xs text-amber-700">No supplier sells this: ask a manager</p>}
+          {quote?.product_name && <p className="text-xs">{quote.product_name}</p>}
           {details && <p className="text-xs text-muted-foreground">{details}</p>}
           {view.last && last && (
             <p className="text-xs text-muted-foreground">
@@ -677,6 +685,7 @@ function SwitchSupplierModal({ it, current, prices, order, onPick, onClose }) {
                 {q.id === it.default_quote_id && <span className="text-[11px] px-1.5 py-0.5 rounded bg-muted">Usual</span>}
                 {q.id === current?.id && <Check className="w-4 h-4 text-primary" />}
               </span>
+              {q.product_name && <span className="block text-sm font-medium">{q.product_name}</span>}
               <span className="block text-sm">{q.pack_label}{prices && q.price != null ? ` · ${money(q.price)}` : ''}</span>
               {s && <span className="block text-xs text-muted-foreground">{deliveryHint(s)}</span>}
             </button>
@@ -1041,6 +1050,7 @@ function PoDetail({ poId, meta, phone, onBack, onOpenPo }) {
   const [fileErr, setFileErr] = useState(null)
   const [splitting, setSplitting] = useState(false)
   const [splitDone, setSplitDone] = useState(null)
+  const [priceList, setPriceList] = useState(false)
   const done = saved => {
     qc.setQueryData(['purchase-order', poId], saved)
     qc.invalidateQueries({ queryKey: ['purchase-orders'] })
@@ -1180,9 +1190,16 @@ function PoDetail({ poId, meta, phone, onBack, onOpenPo }) {
           {po.lines.map(l => (
             <div key={l.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5">
               <div className="flex-1 min-w-[160px]">
-                <p className="text-sm font-medium">{l.item_name} <StorageBadge storage={l.storage} /></p>
+                <p className="text-sm font-medium">{l.item_name} <StorageBadge storage={l.storage} />{l.added_on_receipt && <NotOrderedBadge />}</p>
+                {l.product_name && <p className="text-xs">{l.product_name}</p>}
                 <p className="text-xs text-muted-foreground">{[l.supplier_code, l.pack_label].filter(Boolean).join(' · ')}</p>
-                {l.receive_status && l.receive_status !== 'ok' && (
+                {l.invoice_name && (l.invoice_name !== l.product_name || (prices && l.invoice_price != null && Math.abs(l.invoice_price - l.price) >= 0.005)) && (
+                  <p className="text-xs text-blue-900">
+                    Invoiced as {l.invoice_name}{prices && l.invoice_price != null ? ` at ${money(l.invoice_price)}` : ''}
+                  </p>
+                )}
+                {l.added_on_receipt && <p className="text-xs text-blue-900">Arrived: {fmtNum(l.received_qty ?? 0)}</p>}
+                {l.receive_status && l.receive_status !== 'ok' && !l.added_on_receipt && (
                   <p className="text-xs text-amber-800">
                     {RECEIVE_STATUSES.find(s => s.key === l.receive_status)?.label}: received {fmtNum(l.received_qty ?? 0)}{l.receive_note ? ` (${l.receive_note})` : ''}
                   </p>
@@ -1190,10 +1207,10 @@ function PoDetail({ poId, meta, phone, onBack, onOpenPo }) {
               </div>
               {editQty ? (
                 <QtyStepper value={editQty[l.id]} onChange={v => setEditQty(e => ({ ...e, [l.id]: v }))} label={l.item_name} />
-              ) : (
+              ) : !l.added_on_receipt && (
                 <span className="text-sm tabular-nums font-medium">× {fmtNum(l.qty)}</span>
               )}
-              {prices && l.price != null && <span className="w-24 text-right text-sm tabular-nums">{money(lineAmounts(l).net)}</span>}
+              {prices && l.price != null && !l.added_on_receipt && <span className="w-24 text-right text-sm tabular-nums">{money(lineAmounts(l).net)}</span>}
             </div>
           ))}
         </div>
@@ -1208,6 +1225,15 @@ function PoDetail({ poId, meta, phone, onBack, onOpenPo }) {
       </section>
 
       {po.delivery_check && <CheckSummary check={po.delivery_check} />}
+      <InvoiceList invoices={po.invoices} prices={prices} />
+      {meta?.can_setup && po.status === 'received' && po.price_list?.length > 0 && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 flex flex-wrap items-center gap-2 text-sm" data-testid="po-price-list">
+          <span className="flex-1 min-w-[200px]">
+            The invoice differs from the price list on {po.price_list.length} line{po.price_list.length === 1 ? '' : 's'}.
+          </span>
+          <button type="button" className={btn.outline} onClick={() => setPriceList(true)}>Update the price list</button>
+        </div>
+      )}
 
       {canOrder && po.status === 'received' && (
         <button type="button" className={btn.outline} onClick={() => setReceiving(true)}>Correct the delivery</button>
@@ -1222,7 +1248,13 @@ function PoDetail({ poId, meta, phone, onBack, onOpenPo }) {
       {markSent && (
         <MarkSentModal po={po} onClose={() => setMarkSent(false)} onSaved={saved => { done(saved); setMarkSent(false) }} />
       )}
-      {receiving && <ReceiveForm po={po} onClose={() => setReceiving(false)} onSaved={saved => { done(saved); setReceiving(false); qc.invalidateQueries({ queryKey: ['fs-deliveries'] }) }} />}
+      {receiving && <ReceiveForm po={po} meta={meta} onClose={() => setReceiving(false)} onSaved={saved => {
+        done(saved); setReceiving(false); qc.invalidateQueries({ queryKey: ['fs-deliveries'] })
+        if (meta?.can_setup && saved.price_list?.length) setPriceList(true)
+      }} />}
+      {priceList && <PriceListModal po={po} onClose={() => setPriceList(false)} onSaved={saved => {
+        done(saved); setPriceList(false); qc.invalidateQueries({ queryKey: ['inv-items'] }); qc.invalidateQueries({ queryKey: ['inv-item'] })
+      }} />}
       {splitting && (
         <SplitPoModal po={po} onClose={() => setSplitting(false)}
           onSplit={res => { setSplitting(false); done(res.po); setSplitDone(res) }} />
@@ -1353,11 +1385,13 @@ function TempField({ label, icon: Icon, value, onChange, max }) {
   )
 }
 
-function ReceiveForm({ po, onClose, onSaved }) {
+function ReceiveForm({ po, meta, onClose, onSaved }) {
   const api = useApi()
   const prev = po.delivery_check
+  const prices = !!po.show_prices
+  const canSetup = !!meta?.can_setup
   const [rows, setRows] = useState(() => Object.fromEntries(po.lines.map(l => [l.id, {
-    received_qty: l.received_qty ?? l.qty, status: l.receive_status || null, note: l.receive_note || '',
+    received_qty: l.received_qty ?? (l.added_on_receipt ? 0 : l.qty), status: l.receive_status || null, note: l.receive_note || '',
   }])))
   const [chk, setChk] = useState(() => ({
     packaging_ok: prev?.packaging_ok ?? true, damage_ok: prev?.damage_ok ?? true, quality_ok: prev?.quality_ok ?? true,
@@ -1366,21 +1400,76 @@ function ReceiveForm({ po, onClose, onSaved }) {
     frozen_temp_c: prev?.items?.find(i => i.temp_c != null && po.lines.find(l => l.item_name === i.name)?.storage === 'frozen')?.temp_c ?? null,
   }))
   const [notes, setNotes] = useState(po.receive_notes || '')
+  // The invoice Pepper read (migration 197): what it says per order line,
+  // the lines that weren't ordered, the order lines it doesn't mention.
+  const [reading, setReading] = useState(null)
+  const [lineInv, setLineInv] = useState({})
+  const [extras, setExtras] = useState([])
+  const [missing, setMissing] = useState([])
+  // A line the form hasn't seen (the order reloaded with lines added on
+  // receipt while the form closes) reads as what was saved for it.
+  const rowOf = l => rows[l.id] || { received_qty: l.received_qty ?? 0, status: l.receive_status || null, note: l.receive_note || '' }
   const setRow = (id, k, v) => setRows(r => ({ ...r, [id]: { ...r[id], [k]: v } }))
   const setC = (k, v) => setChk(c => ({ ...c, [k]: v }))
-  const arrived = po.lines.filter(l => Number(rows[l.id].received_qty) > 0)
+
+  function applyReading(res) {
+    const f = readingToForm(po, res)
+    setReading(res)
+    setRows(r => {
+      const next = { ...r }
+      for (const [id, v] of Object.entries(f.rows)) next[id] = { ...next[id], ...v, note: v.note ?? next[id].note }
+      return next
+    })
+    setLineInv(f.lineInv)
+    setExtras(f.extras)
+    setMissing(f.missing)
+  }
+  function unlink(lineId) {
+    const inv = lineInv[lineId]
+    if (!inv) return
+    const lines = reading.invoice.lines
+    setLineInv(m => { const n = { ...m }; delete n[lineId]; return n })
+    setExtras(xs => [...xs, ...[inv.idx, ...(inv.others || [])].map(i => extraOf(lines[i]))])
+    setRows(r => ({ ...r, [lineId]: { ...r[lineId], status: null, note: '' } }))
+    setMissing(m => [...m, lineId])
+  }
+  // An invoice line said to have come instead of an ordered line.
+  function cameInstead(lineId, x) {
+    setLineInv(m => ({ ...m, [lineId]: { idx: x.idx, price: x.price, description: x.description, code: x.code, pack_text: x.pack_text, qty: x.qty, substitute: true, others: [] } }))
+    setRows(r => ({ ...r, [lineId]: { ...r[lineId], received_qty: x.qty, status: 'substituted', note: 'Came as ' + x.description } }))
+    setMissing(m => m.filter(id => id !== lineId))
+  }
+
+  const added = extras.filter(x => x.mode === 'add' && x.item)
+  const arrived = [
+    ...po.lines.filter(l => Number(rowOf(l).received_qty) > 0),
+    ...added.filter(x => x.qty > 0).map(x => ({ storage: x.item.storage })),
+  ]
   const hasChilled = arrived.some(l => l.storage === 'chilled')
   const hasFrozen = arrived.some(l => l.storage === 'frozen')
   const tempBad = (hasChilled && !deliveryTempOk('chilled', chk.chilled_temp_c)) || (hasFrozen && !deliveryTempOk('frozen', chk.frozen_temp_c))
   const problem = !chk.packaging_ok || !chk.damage_ok || !chk.quality_ok || tempBad || !chk.accepted
   const missingTemp = (hasChilled && chk.chilled_temp_c == null) || (hasFrozen && chk.frozen_temp_c == null)
+  const undecided = extras.filter(x => extraProblem(x)).length
   const save = useMutation({
     mutationFn: () => api.post(`/purchasing/pos/${po.id}/receive`, {
       notes,
-      lines: po.lines.map(l => ({
-        id: l.id, received_qty: Number(rows[l.id].received_qty) || 0,
-        status: rows[l.id].status || receiveStatusFor(l.qty, rows[l.id].received_qty),
-        note: rows[l.id].note,
+      ...(reading ? { invoice_id: reading.invoice.id } : {}),
+      lines: po.lines.map(l => {
+        const inv = lineInv[l.id]
+        const r = rowOf(l)
+        return {
+          id: l.id, received_qty: Number(r.received_qty) || 0,
+          status: r.status || receiveStatusFor(l.qty, r.received_qty),
+          note: r.note,
+          ...(inv ? { invoice_idx: inv.idx, ...(prices ? { invoice_price: inv.price } : {}) } : {}),
+        }
+      }),
+      add: added.map(x => ({
+        item_id: x.item.id, quote_id: x.quote_id || null,
+        pack: x.quote_id ? null : { name: x.pack.name || 'pack', count: x.pack.count || 1, qty: x.pack.qty, unit: x.pack.unit },
+        received_qty: x.qty, invoice_idx: x.idx, ...(prices ? { invoice_price: x.price } : {}),
+        note: `Not ordered: invoiced as ${x.description}`.slice(0, 500),
       })),
       check: {
         packaging_ok: chk.packaging_ok, damage_ok: chk.damage_ok, quality_ok: chk.quality_ok, accepted: chk.accepted,
@@ -1390,6 +1479,8 @@ function ReceiveForm({ po, onClose, onSaved }) {
     }),
     onSuccess: onSaved,
   })
+  const inv = reading?.invoice
+  const charges = reading ? reading.invoice.lines.filter(l => l.is_charge) : []
   return (
     <div className="fixed inset-0 z-40 bg-page flex flex-col" role="dialog" aria-modal="true" aria-label="Book in delivery">
       <div className="flex items-center gap-2 px-4 h-14 border-b bg-background shrink-0">
@@ -1398,28 +1489,60 @@ function ReceiveForm({ po, onClose, onSaved }) {
           <p className="font-semibold truncate">Book in: {po.supplier_name}</p>
           <p className="text-xs text-muted-foreground">{poNumberLabel(po.number)} · due {fmtDate(po.delivery_date)}</p>
         </div>
-        <button type="button" className={btn.primary} disabled={save.isPending || missingTemp || (problem && !chk.corrective_action.trim())} onClick={() => save.mutate()}>
+        <button type="button" className={btn.primary} disabled={save.isPending || missingTemp || undecided > 0 || (problem && !chk.corrective_action.trim())} onClick={() => save.mutate()} data-testid="receive-save">
           {save.isPending && <Loader2 className="w-4 h-4 animate-spin" />}Save
         </button>
       </div>
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-3xl mx-auto p-4 space-y-4">
           <section className="rounded-xl border bg-background overflow-hidden">
+            <div className="section-head px-4 py-2"><h3 className="text-sm font-semibold">Invoice or delivery note</h3></div>
+            <div className="p-4 space-y-3">
+              {!inv ? (
+                <InvoiceReader po={po} onRead={applyReading} />
+              ) : (
+                <div className="space-y-2" data-testid="inv-summary">
+                  <p className="text-sm">
+                    {ASSISTANT_NAME} read {inv.supplier_name ? <strong>{inv.supplier_name}</strong> : 'the invoice'}
+                    {inv.invoice_number ? ` no. ${inv.invoice_number}` : ''}{inv.invoice_date ? `, ${fmtDate(inv.invoice_date)}` : ''}
+                    {prices && inv.total != null ? `, total ${money(inv.total)}` : ''}: {inv.lines.filter(l => !l.is_charge).length} lines.
+                    {' '}Check each line below before saving.
+                  </p>
+                  {inv.notes && <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">{inv.notes}</p>}
+                  {prices && charges.length > 0 && (
+                    <p className="text-xs text-muted-foreground">Charges on the invoice: {charges.map(c => `${c.description}${c.line_total != null ? ' ' + money(c.line_total) : ''}`).join(', ')}</p>
+                  )}
+                  <button type="button" className={btn.ghost} onClick={() => { setReading(null); setLineInv({}); setExtras([]); setMissing([]) }}>Read another file</button>
+                </div>
+              )}
+            </div>
+          </section>
+
+          <section className="rounded-xl border bg-background overflow-hidden">
             <div className="section-head px-4 py-2"><h3 className="text-sm font-semibold">What arrived</h3></div>
             <div className="divide-y">
               {po.lines.map(l => {
-                const r = rows[l.id]
+                const r = rowOf(l)
                 const auto = receiveStatusFor(l.qty, r.received_qty)
                 const status = r.status || auto
                 return (
-                  <div key={l.id} className="px-4 py-3 space-y-2">
+                  <div key={l.id} className="px-4 py-3 space-y-2" data-testid="receive-line">
                     <div className="flex flex-wrap items-center gap-3">
                       <div className="flex-1 min-w-[160px]">
-                        <p className="text-sm font-medium">{l.item_name} <StorageBadge storage={l.storage} /></p>
+                        <p className="text-sm font-medium">{l.item_name} <StorageBadge storage={l.storage} />{l.added_on_receipt && <NotOrderedBadge />}</p>
+                        {l.product_name && <p className="text-xs">{l.product_name}</p>}
                         <p className="text-xs text-muted-foreground">{l.pack_label} · ordered {fmtNum(l.qty)}</p>
                       </div>
                       <QtyStepper value={r.received_qty} onChange={v => setRow(l.id, 'received_qty', v)} label={l.item_name} />
                     </div>
+                    {lineInv[l.id] && (
+                      <InvoiceLineNote inv={lineInv[l.id]} line={l} prices={prices}
+                        onPrice={v => setLineInv(m => ({ ...m, [l.id]: { ...m[l.id], price: v } }))}
+                        onUnlink={() => unlink(l.id)} />
+                    )}
+                    {reading && missing.includes(l.id) && (
+                      <p className="text-xs text-amber-800 flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5" />Not on the invoice: check it arrived</p>
+                    )}
                     <div className="flex flex-wrap gap-1.5">
                       {RECEIVE_STATUSES.map(s => (
                         <button key={s.key} type="button" onClick={() => setRow(l.id, 'status', s.key === auto ? null : s.key)}
@@ -1437,6 +1560,11 @@ function ReceiveForm({ po, onClose, onSaved }) {
               })}
             </div>
           </section>
+
+          {extras.length > 0 && (
+            <ExtrasSection po={po} extras={extras} setExtras={setExtras} prices={prices} canSetup={canSetup}
+              lineInv={lineInv} onCameInstead={cameInstead} />
+          )}
 
           <section className="rounded-xl border bg-background overflow-hidden">
             <div className="section-head px-4 py-2"><h3 className="text-sm font-semibold">Checks</h3></div>
@@ -1459,6 +1587,7 @@ function ReceiveForm({ po, onClose, onSaved }) {
               )}
               <Field label="Notes"><input className={inputCls} value={notes} onChange={e => setNotes(e.target.value)} /></Field>
               <p className="text-xs text-muted-foreground">Saving records the delivery check under Food safety → Deliveries for {fmtDate(new Date().toISOString())}.</p>
+              {undecided > 0 && <p className="text-sm text-amber-800" data-testid="receive-undecided">{undecided} line{undecided === 1 ? '' : 's'} on the invoice need{undecided === 1 ? 's' : ''} a decision above.</p>}
               <ErrorNote error={save.error} />
             </div>
           </section>
@@ -1466,4 +1595,8 @@ function ReceiveForm({ po, onClose, onSaved }) {
       </div>
     </div>
   )
+}
+
+function NotOrderedBadge() {
+  return <span className="ml-1 text-[11px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-900 font-normal align-middle">Not ordered</span>
 }

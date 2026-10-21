@@ -142,7 +142,7 @@ function SupplierDrawer({ id, canEdit, onCreated, onClose }) {
                 {s.quotes.map(q => (
                   <Link key={q.id} to={`/inventory?item=${q.item_id}`} className={cn('flex items-center gap-3 px-4 py-2.5 hover:bg-muted/40', (!q.is_active || !q.item_active) && 'opacity-60')}>
                     <span className="flex-1 min-w-0">
-                      <span className="text-sm font-medium block truncate">{q.item_name}</span>
+                      <span className="text-sm font-medium block truncate">{q.item_name}{q.product_name && <span className="font-normal text-muted-foreground"> · {q.product_name}</span>}</span>
                       <span className="text-xs text-muted-foreground">{packLabel(q)}{q.supplier_code ? ` · ${q.supplier_code}` : ''}</span>
                     </span>
                     <span className="text-right">

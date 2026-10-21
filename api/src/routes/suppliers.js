@@ -71,7 +71,7 @@ async function loadSupplier(tx, tenantId, id) {
   `
   s.quotes = await tx`
     SELECT q.id, q.item_id, i.name AS item_name, i.base_unit, i.is_active AS item_active,
-           q.supplier_code, q.pack_name, q.pack_unit, q.is_active,
+           q.supplier_code, q.product_name, q.pack_name, q.pack_unit, q.is_active,
            q.pack_count::float8 AS pack_count, q.pack_qty::float8 AS pack_qty, q.pack_base_qty::float8 AS pack_base_qty,
            q.price::float8 AS price, q.vat_rate::float8 AS vat_rate, q.updated_at
       FROM inv_quotes q JOIN inv_items i ON i.id = q.item_id AND i.tenant_id = ${tenantId}

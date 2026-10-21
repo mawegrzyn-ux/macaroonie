@@ -67,6 +67,7 @@ import aiRoutes              from './routes/ai.js'
 import storeOpeningRoutes    from './routes/storeOpenings.js'
 import themeRoutes           from './routes/themes.js'
 import menuImportRoutes      from './routes/menuImport.js'
+import documentReadRoutes    from './routes/documentRead.js'
 import aiApiRoutes           from './routes/aiApi.js'
 import posSite               from './routes/posSite.js'
 import posSetupRoutes        from './routes/posSetup.js'
@@ -280,6 +281,7 @@ export async function buildApp() {
   await app.register(storeOpeningRoutes, { prefix: '/api/ai/store-openings' })
   await app.register(themeRoutes,        { prefix: '/api/ai/themes' })
   await app.register(menuImportRoutes,   { prefix: '/api/ai/menus' })
+  await app.register(documentReadRoutes, { prefix: '/api/ai' })
   await app.register(aiApiRoutes, { prefix: '/ai-api' })
   // Till (POS): admin setup + reports, and the tills' own API (device auth).
   await app.register(posSetupRoutes, { prefix: '/api/pos' })

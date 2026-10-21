@@ -17,6 +17,7 @@ import { cn, openPicker } from '@/lib/utils'
 import { PaidByCardToggle, CardBadge, useReconWeek, getMonday } from '@/pages/CashRecon'
 import { usePermission } from '@/hooks/usePermission'
 import { ReadOnlyNotice } from '@/components/ReadOnlyNotice'
+import { ReadReceiptButton, ReceiptNote } from '@/components/cashRecon/ReceiptRead'
 
 function todayStr() {
   return format(new Date(), 'yyyy-MM-dd')
@@ -35,6 +36,8 @@ function ExpenseModal({ venueId, date, categories, initial, onClose, onSave, onD
   const [notes, setNotes] = useState(initial?.notes ?? '')
   const [paidByCard, setPaidByCard] = useState(!!initial?.paid_by_card)
   const [photo, setPhoto] = useState(null) // { file, preview }
+  const [read, setRead] = useState(null)    // what Pepper read off the receipt
+  const [onReceiptDay, setOnReceiptDay] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const fileRef = useRef(null)
 
@@ -46,7 +49,19 @@ function ExpenseModal({ venueId, date, categories, initial, onClose, onSave, onD
     setPhoto({ file, preview: URL.createObjectURL(file) })
   }
 
+  function takeReceipt(r, file) {
+    if (r.description) setDescription(r.description)
+    if (r.amount != null) setAmount(String(r.amount))
+    if (r.vat_amount != null) setVatAmount(String(r.vat_amount))
+    if (r.paid_by_card != null) setPaidByCard(r.paid_by_card)
+    if (r.category_id) setCategoryId(r.category_id)
+    pickPhoto(file)
+    setRead(r)
+    setOnReceiptDay(false)
+  }
+
   const canSave = description.trim().length > 0 && amount !== ''
+  const otherDay = !isEdit && read?.date && read.date !== date ? read.date : null
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
@@ -57,6 +72,14 @@ function ExpenseModal({ venueId, date, categories, initial, onClose, onSave, onD
         </div>
 
         <div className="space-y-4">
+          <ReadReceiptButton venueId={venueId} onRead={takeReceipt} />
+          <ReceiptNote read={read} date={date} />
+          {otherDay && (
+            <label className="flex items-center gap-2 text-sm min-h-[44px] touch-manipulation">
+              <input type="checkbox" checked={onReceiptDay} onChange={e => setOnReceiptDay(e.target.checked)} className="w-5 h-5" />
+              Put it on {format(parseISO(otherDay), 'EEE d MMM')} instead
+            </label>
+          )}
           <div>
             <label className="block text-sm font-medium mb-1">Description *</label>
             <input value={description} onChange={e => setDescription(e.target.value)} autoFocus
@@ -133,7 +156,7 @@ function ExpenseModal({ venueId, date, categories, initial, onClose, onSave, onD
           </div>
 
           <button type="button" disabled={!canSave || isSaving}
-            onClick={() => onSave({ description: description.trim(), category_id: categoryId, amount: Number(amount) || 0, vat_amount: Number(vatAmount) || 0, paid_by_card: paidByCard, notes: notes.trim() || null }, photo?.file)}
+            onClick={() => onSave({ description: description.trim(), category_id: categoryId, amount: Number(amount) || 0, vat_amount: Number(vatAmount) || 0, paid_by_card: paidByCard, notes: notes.trim() || null }, photo?.file, onReceiptDay ? otherDay : null)}
             className="w-full bg-primary text-primary-foreground rounded-lg px-4 py-2.5 text-sm font-medium min-h-[44px] disabled:opacity-50 touch-manipulation">
             {isSaving ? 'Saving…' : isEdit ? 'Save changes' : 'Add expense'}
           </button>
@@ -215,9 +238,9 @@ function ExpenseEditor({ venueId, categories, target, onClose, actions }) {
       categories={categories}
       initial={expense}
       onClose={onClose}
-      onSave={(body, photoFile) => expense
+      onSave={(body, photoFile, onDate) => expense
         ? actions.update.mutate({ id: expense.id, date, body, photoFile })
-        : actions.create.mutate({ date, body, photoFile })}
+        : actions.create.mutate({ date: onDate || date, body, photoFile })}
       onDelete={id => actions.remove.mutate({ id, date })}
       isSaving={actions.create.isPending || actions.update.isPending}
       isDeleting={actions.remove.isPending}

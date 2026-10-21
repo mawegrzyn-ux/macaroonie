@@ -27,6 +27,7 @@ import { useTimelineSettings } from '@/contexts/TimelineSettingsContext'
 import { WeekWagesEditor } from '@/components/cashRecon/WagesTable'
 import { LoyverseSettings, LoyverseFillButton } from '@/components/cashRecon/Loyverse'
 import { GloriaFoodSettings, GloriaFoodFillButton, GloriaFoodOrdersButton } from '@/components/cashRecon/GloriaFood'
+import { ReadReceiptButton, ReceiptNote, applyReceipt } from '@/components/cashRecon/ReceiptRead'
 import { splitPay } from '@shared/payMethod.js'
 import { usePepperPage } from '@/lib/pepperPage'
 
@@ -1711,6 +1712,8 @@ function ExpensesSection({ venueId, date, expenses, setExpenses, onSaved, config
   const [newPhoto,  setNewPhoto]  = useState(null)   // { file, preview }
   const [editForm,  setEditForm]  = useState({})
   const [editPhoto, setEditPhoto] = useState(null)   // { file, preview }
+  const [newRead,   setNewRead]   = useState(null)   // what Pepper read off the receipt
+  const [editRead,  setEditRead]  = useState(null)
   const [uploading, setUploading] = useState({})
   const newFileRef  = useRef(null)
   const editFileRef = useRef(null)
@@ -1744,6 +1747,7 @@ function ExpensesSection({ venueId, date, expenses, setExpenses, onSaved, config
       setNewForm({ description: '', category_id: null, amount: '', vat_amount: '', paid_by_card: false, notes: '' })
       if (newPhoto?.preview) URL.revokeObjectURL(newPhoto.preview)
       setNewPhoto(null)
+      setNewRead(null)
       setAddOpen(false)
       onSaved?.()
     } catch {}
@@ -1876,6 +1880,10 @@ function ExpensesSection({ venueId, date, expenses, setExpenses, onSaved, config
           if (editId === exp.id) {
             return (
               <div key={exp.id} className="rounded-xl border p-3 bg-muted/20 space-y-2">
+                <ReadReceiptButton venueId={venueId} onRead={(r, file) => {
+                  setEditForm(p => applyReceipt(p, r)); pickPhoto(file, setEditPhoto); setEditRead(r)
+                }} />
+                <ReceiptNote read={editRead} date={date} />
                 <TextInput placeholder="Description *" value={editForm.description ?? ''} onChange={v => setEditForm(p => ({ ...p, description: v }))} />
                 <CategoryChips selected={editForm.category_id ?? null} onSelect={id => setEditForm(p => ({ ...p, category_id: id }))} />
                 <div className="grid grid-cols-2 gap-2">
@@ -1891,7 +1899,7 @@ function ExpensesSection({ venueId, date, expenses, setExpenses, onSaved, config
                     className="flex-1 h-10 rounded-xl bg-primary text-primary-foreground text-sm font-medium touch-manipulation disabled:opacity-50 flex items-center justify-center gap-2">
                     {uploading[exp.id] ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Save'}
                   </button>
-                  <button type="button" onClick={() => { setEditId(null); setEditPhoto(null) }}
+                  <button type="button" onClick={() => { setEditId(null); setEditPhoto(null); setEditRead(null) }}
                     className="flex-1 h-10 rounded-xl border text-sm touch-manipulation hover:bg-muted">Cancel</button>
                 </div>
               </div>
@@ -1963,6 +1971,7 @@ function ExpensesSection({ venueId, date, expenses, setExpenses, onSaved, config
                   <IconBtn onClick={() => {
                     setEditId(exp.id)
                     setEditPhoto(null)
+                    setEditRead(null)
                     setEditForm({ description: exp.description, category_id: exp.category_id ?? null, amount: exp.amount ?? '', vat_amount: exp.vat_amount ?? '', paid_by_card: !!exp.paid_by_card, notes: exp.notes ?? '' })
                   }} title="Edit">
                     <Pencil className="w-4 h-4" />
@@ -1980,6 +1989,10 @@ function ExpensesSection({ venueId, date, expenses, setExpenses, onSaved, config
         {/* Add expense form */}
         {readOnly ? null : addOpen ? (
           <div className="rounded-xl border p-3 bg-muted/20 space-y-2">
+            <ReadReceiptButton venueId={venueId} onRead={(r, file) => {
+              setNewForm(p => applyReceipt(p, r)); pickPhoto(file, setNewPhoto); setNewRead(r)
+            }} />
+            <ReceiptNote read={newRead} date={date} />
             <TextInput placeholder="Description *" value={newForm.description} onChange={v => setNewForm(p => ({ ...p, description: v }))} />
             <CategoryChips selected={newForm.category_id} onSelect={id => setNewForm(p => ({ ...p, category_id: id }))} />
             <div className="grid grid-cols-2 gap-2">
@@ -1997,6 +2010,7 @@ function ExpensesSection({ venueId, date, expenses, setExpenses, onSaved, config
                 setNewForm({ description: '', category_id: null, amount: '', vat_amount: '', paid_by_card: false, notes: '' })
                 if (newPhoto?.preview) URL.revokeObjectURL(newPhoto.preview)
                 setNewPhoto(null)
+                setNewRead(null)
               }} className="flex-1 h-10 rounded-xl border text-sm touch-manipulation hover:bg-muted">Cancel</button>
             </div>
           </div>
