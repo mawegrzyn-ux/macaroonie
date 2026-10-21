@@ -1,28 +1,44 @@
 // src/config/defaultNav.js
 //
-// Canonical default nav tree — mirrors migration 091's one-time seed for
-// existing tenants. This module is what NEW tenants get seeded from (see
-// platform.js's tenant creation route) and what "Reset to defaults" in the
-// nav designer restores. Keep this in sync with the migration's seed if
-// you ever change what a fresh tenant should start with — the migration
-// itself is never re-run, so this is the only copy that matters going
-// forward.
+// The default main menu: what new tenants are seeded with (platform.js's
+// tenant creation route) and what "Reset to defaults" in the nav designer
+// restores. Grouped by job, each page once. Migration 196 put every tenant
+// on this tree; it holds the same tree as JSON, and api/test/nav-default.test.mjs
+// checks the two match, so change both together.
 
 export const DEFAULT_NAV_TREE = [
   {
-    label: 'Service', children: [
+    label: 'Home', children: [
       { label: 'Overview', icon: 'LayoutDashboard', route: '/', module: 'dashboard' },
       { label: 'Dashboards', icon: 'LayoutTemplate', route: '/dashboards', module: 'custom_dashboard' },
+      { label: 'Pepper', icon: 'Sparkles', route: '/ai', module: 'ai_assistant' },
+    ],
+  },
+  {
+    label: 'Service', children: [
       { label: 'Timeline', icon: 'CalendarDays', route: '/timeline', module: 'bookings' },
       { label: 'Bookings', icon: 'BookOpen', route: '/bookings', module: 'bookings' },
       { label: 'Customers', icon: 'UserRound', route: '/customers', module: 'customers' },
-      {
-        label: 'Online orders', icon: 'ShoppingBag', route: '/orders', module: 'web_orders',
-        children: [
-          { label: 'Ordering setup', icon: 'Settings2', route: '/orders/settings', module: 'web_ordering_setup' },
-          { label: 'Promotions', icon: 'BadgePercent', route: '/promotions', module: 'promotions' },
-        ],
-      },
+      { label: 'Online orders', icon: 'ShoppingBag', route: '/orders', module: 'web_orders' },
+    ],
+  },
+  {
+    label: 'Money', children: [
+      { label: 'Till reports', icon: 'BarChart3', route: '/pos/reports', module: 'pos_reports' },
+      { label: 'Cash recon', icon: 'Wallet', route: '/cash-recon', module: 'cash_recon' },
+      { label: 'Cash dashboard', icon: 'LayoutGrid', route: '/cash-dashboard', module: 'cash_dashboard' },
+    ],
+  },
+  {
+    label: 'Health & safety', children: [
+      { label: 'Food safety', icon: 'Thermometer', route: '/food-safety', module: 'food_safety' },
+      { label: 'Checklists', icon: 'ListChecks', route: '/checklists', module: 'checklists' },
+      { label: 'H&S dashboard', icon: 'LayoutGrid', route: '/hs-dashboard', module: 'hs_dashboard' },
+      { label: 'Action log', icon: 'ClipboardCheck', route: '/hs-action-log', module: 'hs_action_log' },
+    ],
+  },
+  {
+    label: 'Stock', children: [
       {
         label: 'Purchasing', icon: 'ShoppingCart', route: '/purchasing', module: 'purchasing',
         children: [
@@ -31,27 +47,10 @@ export const DEFAULT_NAV_TREE = [
           { label: 'Suppliers', icon: 'Truck', route: '/suppliers', module: 'purchasing_setup' },
         ],
       },
-      { label: 'Cash recon', icon: 'Wallet', route: '/cash-recon', module: 'cash_recon' },
-      { label: 'Cash dashboard', icon: 'LayoutGrid', route: '/cash-dashboard', module: 'cash_dashboard' },
-      { label: 'Food safety', icon: 'Thermometer', route: '/food-safety', module: 'food_safety' },
-      { label: 'Checklists', icon: 'ListChecks', route: '/checklists', module: 'checklists' },
-      { label: 'H&S Dashboard', icon: 'LayoutGrid', route: '/hs-dashboard', module: 'hs_dashboard' },
-      { label: 'Action log', icon: 'ClipboardCheck', route: '/hs-action-log', module: 'hs_action_log' },
     ],
   },
   {
-    label: 'Till', children: [
-      {
-        label: 'Till setup', icon: 'MonitorSmartphone', route: '/pos', module: 'pos_setup',
-        children: [
-          { label: 'Floor plan', icon: 'LayoutPanelTop', route: '/pos/floor', module: 'pos_setup' },
-        ],
-      },
-      { label: 'Till reports', icon: 'BarChart3', route: '/pos/reports', module: 'pos_reports' },
-    ],
-  },
-  {
-    label: 'Staff', children: [
+    label: 'People', children: [
       {
         label: 'Staff', icon: 'UsersRound', route: '/staff', module: 'staff',
         children: [
@@ -68,8 +67,7 @@ export const DEFAULT_NAV_TREE = [
     ],
   },
   {
-    label: 'Website', children: [
-      { label: 'Website', icon: 'Globe', route: '/website', module: 'website' },
+    label: 'Menus', children: [
       {
         label: 'Menus', icon: 'ChefHat', route: '/menus', module: 'menus',
         children: [
@@ -77,49 +75,66 @@ export const DEFAULT_NAV_TREE = [
           { label: 'Allergens & dietary', icon: 'Tag', route: '/menus/dietary-tags', module: 'menus' },
           { label: 'Allergen matrix', icon: 'Grid3x3', route: '/menus/allergens', module: 'menus' },
           { label: 'Tax rates', icon: 'Percent', route: '/menus/tax', module: 'menus' },
-          { label: 'Deliveroo menu', icon: 'Bike', route: '/menus/deliveroo', module: 'menus' },
           { label: 'Translations', icon: 'Languages', route: '/menus/translations', module: 'menus' },
+          { label: 'Deliveroo menu', icon: 'Bike', route: '/menus/deliveroo', module: 'menus' },
         ],
       },
-      { label: 'Screens', icon: 'Monitor', route: '/screens', module: 'screens' },
+      { label: 'Promotions', icon: 'BadgePercent', route: '/promotions', module: 'promotions' },
+      { label: 'Menu screens', icon: 'Monitor', route: '/screens', module: 'screens' },
+    ],
+  },
+  {
+    label: 'Brand & web', children: [
+      { label: 'Brand & theme', icon: 'Palette', route: '/brand', module: 'website' },
+      { label: 'Website', icon: 'Globe', route: '/website', module: 'website' },
       { label: 'Media', icon: 'FolderOpen', route: '/media', module: 'website' },
       { label: 'Reviews', icon: 'MessageSquare', route: '/reviews', module: 'website' },
-    ],
-  },
-  {
-    label: 'Setup', children: [
-      { label: 'Venues', icon: 'Building2', route: '/venues', module: 'venues' },
-      { label: 'New location', icon: 'Store', route: '/new-location', module: 'venues' },
-      { label: 'Tables', icon: 'Table2', route: '/tables', module: 'tables' },
-      { label: 'Schedule', icon: 'Clock', route: '/schedule', module: 'schedule' },
-      { label: 'Rules', icon: 'Settings', route: '/rules', module: 'rules' },
-    ],
-  },
-  {
-    label: 'Account', children: [
       {
         label: 'Emails', icon: 'Mail', route: '/email-templates', module: 'email_templates',
         children: [
           { label: 'Monitor', icon: 'Activity', route: '/email-monitoring', module: 'email_templates' },
         ],
       },
+    ],
+  },
+  {
+    label: 'Venues', children: [
+      {
+        label: 'Venues', icon: 'Building2', route: '/venues', module: 'venues',
+        children: [
+          { label: 'New venue', icon: 'Store', route: '/new-location', module: 'venues' },
+        ],
+      },
+      { label: 'Schedule', icon: 'Clock', route: '/schedule', module: 'schedule' },
+      { label: 'Tables', icon: 'Table2', route: '/tables', module: 'tables' },
+      { label: 'Booking rules', icon: 'Settings', route: '/rules', module: 'rules' },
+      {
+        label: 'Till setup', icon: 'MonitorSmartphone', route: '/pos', module: 'pos_setup',
+        children: [
+          { label: 'Floor plan', icon: 'LayoutPanelTop', route: '/pos/floor', module: 'pos_setup' },
+        ],
+      },
+      { label: 'Ordering setup', icon: 'Settings2', route: '/orders/settings', module: 'web_ordering_setup' },
+    ],
+  },
+  {
+    label: 'Admin', children: [
       { label: 'Team', icon: 'Users', route: '/team', module: 'team' },
       { label: 'Access', icon: 'Shield', route: '/access', module: 'team' },
       { label: 'Settings', icon: 'SlidersHorizontal', route: '/settings', module: 'settings' },
-      { label: 'Pepper', icon: 'Sparkles', route: '/ai', module: 'ai_assistant' },
+      { label: 'Navigation', icon: 'Compass', route: '/nav-designer', module: 'nav_designer' },
       { label: 'Widget test', icon: 'LayoutTemplate', route: '/widget-test', module: 'widget_test' },
       { label: 'Test data', icon: 'FlaskConical', route: '/test-data', module: 'test_data' },
       { label: 'Legacy import', icon: 'FileSpreadsheet', route: '/legacy-import', module: 'test_data' },
-      { label: 'Navigation', icon: 'Compass', route: '/nav-designer', module: 'nav_designer' },
     ],
   },
   {
     label: 'Help', children: [
+      { label: 'Help', icon: 'HelpCircle', route: '/help', module: 'documentation' },
+      { label: 'Documentation', icon: 'BookMarked', route: '/docs', module: 'documentation' },
+      { label: "What's new", icon: 'Newspaper', route: '/changelog', module: 'changelog' },
       { label: 'Issues', icon: 'AlertCircle', route: '/issues', module: 'issue_log' },
       { label: 'Feature requests', icon: 'Lightbulb', route: '/feature-requests', module: 'feature_requests' },
-      { label: "What's new", icon: 'Newspaper', route: '/changelog', module: 'changelog' },
-      { label: 'Documentation', icon: 'BookMarked', route: '/docs', module: 'documentation' },
-      { label: 'Help', icon: 'HelpCircle', route: '/help', module: 'documentation' },
     ],
   },
 ]

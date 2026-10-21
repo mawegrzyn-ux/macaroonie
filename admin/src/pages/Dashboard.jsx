@@ -62,7 +62,7 @@ const SHORTCUT_OPTIONS = [
   { to: '/promotions',           label: 'Promotions',           icon: LucideIcons.BadgePercent, colour: 'bg-rose-100 text-rose-700' },
   { to: '/pos',                  label: 'Till setup',           icon: LucideIcons.MonitorSmartphone, colour: 'bg-teal-100 text-teal-700' },
   { to: '/pos/reports',          label: 'Till reports',         icon: LucideIcons.BarChart3, colour: 'bg-teal-100 text-teal-700' },
-  { to: '/screens',              label: 'Screens',              icon: LucideIcons.Monitor,   colour: 'bg-zinc-100 text-zinc-700' },
+  { to: '/screens',              label: 'Menu screens',         icon: LucideIcons.Monitor,   colour: 'bg-zinc-100 text-zinc-700' },
   { to: '/purchasing',           label: 'Purchasing',           icon: LucideIcons.ShoppingCart, colour: 'bg-violet-100 text-violet-600' },
   { to: '/inventory',            label: 'Inventory',            icon: LucideIcons.Package,      colour: 'bg-purple-100 text-purple-600' },
   { to: '/suppliers',            label: 'Suppliers',            icon: LucideIcons.Truck,        colour: 'bg-fuchsia-100 text-fuchsia-700' },
@@ -81,6 +81,7 @@ const SHORTCUT_OPTIONS = [
   { to: '/tables',               label: 'Tables',               icon: Table2,          colour: 'bg-cyan-100 text-cyan-600' },
   { to: '/schedule',             label: 'Schedule',             icon: Clock,           colour: 'bg-amber-100 text-amber-600' },
   { to: '/rules',                label: 'Rules',                icon: Settings,        colour: 'bg-yellow-100 text-yellow-600' },
+  { to: '/brand',                label: 'Brand & theme',        icon: LucideIcons.Palette, colour: 'bg-rose-100 text-rose-600' },
   { to: '/website',              label: 'Website',              icon: Globe,           colour: 'bg-lime-100 text-lime-600' },
   { to: '/website?section=tenant-widget', label: 'Widget', icon: LayoutTemplate,  colour: 'bg-green-100 text-green-600' },
   { to: '/menus',                label: 'Menus',                icon: ChefHat,         colour: 'bg-fuchsia-100 text-fuchsia-600' },
@@ -585,6 +586,7 @@ function VisibilityModal({ tile, roles, onClose, onSave, isSaving }) {
 export default function Dashboard() {
   const api = useApi()
   const qc  = useQueryClient()
+  const navigate = useNavigate()
   const today = format(new Date(), 'yyyy-MM-dd')
 
   const [editing, setEditing] = useState(false)
@@ -594,7 +596,7 @@ export default function Dashboard() {
   const { data: me } = useQuery({ queryKey: ['me'], queryFn: () => api.get('/me'), staleTime: 60_000 })
   const canManage = me?.permissions?.dashboard === 'manage' || me?.is_platform_admin
 
-  const { data: venues = [] } = useQuery({
+  const { data: venues = [], isSuccess: venuesLoaded } = useQuery({
     queryKey: ['venues'],
     queryFn:  () => api.get('/venues'),
   })
@@ -696,6 +698,17 @@ export default function Dashboard() {
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 sm:p-6">
+        {venuesLoaded && venues.length === 0 && (me?.is_platform_admin || me?.permissions?.venues === 'manage') && (
+          <div className="mb-4 rounded-xl border bg-background p-4 flex flex-wrap items-center gap-3" data-testid="overview-first-venue">
+            <LucideIcons.Store className="w-6 h-6 text-primary shrink-0" />
+            <div className="flex-1 min-w-[220px]">
+              <p className="font-semibold">Set up your first venue</p>
+              <p className="text-sm text-muted-foreground">Step by step: the venue, your brand and theme, the menu from photos or a PDF, opening hours and tables.</p>
+            </div>
+            <button type="button" onClick={() => navigate('/new-location')}
+              className="min-h-[44px] px-4 rounded-lg bg-primary text-primary-foreground text-sm font-medium touch-manipulation">Start</button>
+          </div>
+        )}
         {tiles.length === 0 && !editing && (
           <p className="text-sm text-muted-foreground text-center py-12">
             {canManage ? 'No tiles on this page yet — click "Customise layout" to add some.' : 'Nothing to show here yet.'}

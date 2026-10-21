@@ -9,12 +9,18 @@
 //                                brief, results, follow-ups                  venues view
 //   POST   /                     { input, template_venue_id? } start: Pepper
 //                                scopes it and asks its first questions      venues manage + Pepper
+//   POST   /wizard               { template_venue_id? } a draft for the venue
+//                                setup wizard, without Pepper                venues manage
+//   POST   /:id/describe         { input }  Pepper fills in what the person
+//                                hasn't set (the wizard's optional help)     venues manage + Pepper
 //   POST   /:id/answers          { answers: { questionId: text } }           venues manage + Pepper
 //   POST   /:id/deep-dive        { area }  more questions on one area        venues manage + Pepper
 //   POST   /:id/change           { request }  change a finished brief        venues manage + Pepper
-//   PATCH  /:id                  { title?, overrides? }  the person's own
-//                                choices (name, address, date, the location
-//                                to copy from, each area's way)              venues manage
+//   PATCH  /:id                  { title?, overrides?, settings? }  the
+//                                person's own choices (name, address, date,
+//                                the location to copy from, each area's way,
+//                                and settings: an area's whole settings,
+//                                SETTING_KEYS, replacing Pepper's)           venues manage
 //   POST   /:id/create           creates the location (one transaction)      venues manage
 //   PATCH  /:id/followups/:key   { done }                                    venues manage
 //   DELETE /:id                  a draft (not one already created)           venues manage
@@ -32,12 +38,15 @@ import { getAiSettings } from '../ai/settings.js'
 import { askPepper } from '../services/storeOpeningAi.js'
 import { createStore, venueSummary, tenantContext, freeSlug } from '../services/storeSetup.js'
 import {
-  OPENING_AREAS, AREA_KEYS, MODES, MAX_ROUNDS, normalisePlan, planProblems, previewPlan, buildFollowups,
+  OPENING_AREAS, AREA_KEYS, MODES, MAX_ROUNDS, SETTING_KEYS, normalisePlan, planProblems, previewPlan, buildFollowups,
 } from '../../../shared/storeOpening.js'
 import { ASSISTANT_NAME } from '../../../shared/assistant.js'
 
 const UUID = z.string().uuid()
 const LEASE_SECS = 300
+
+// Areas a venue set up from scratch gets new without any settings.
+export const WIZARD_NEW = ['booking_rules', 'website', 'ordering', 'till', 'cash']
 
 const canView = requirePermission('venues', 'view')
 const canManage = requirePermission('venues', 'manage')
@@ -95,6 +104,7 @@ async function view(tx, req, o, acc = null) {
     id: o.id,
     title: o.title,
     status: o.status,
+    wizard: !!o.overrides?.wizard,
     busy,
     input: o.input,
     rounds: o.rounds,
@@ -221,8 +231,12 @@ const OverridesBody = z.object({
       .map(k => [k, z.string().trim().max(120).optional()]))).optional(),
     opening_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).or(z.literal('')).nullable().optional(),
     template_venue_id: UUID.nullable().optional(),
-    modes: z.record(z.enum(AREA_KEYS), z.enum(MODES)).optional(),
+    // null takes the person's choice back (the plan's default applies again).
+    modes: z.record(z.enum(AREA_KEYS), z.enum(MODES).nullable()).optional(),
   }).optional(),
+  // An area's whole settings (normalisePlan() checks them).
+  settings: z.record(z.enum(SETTING_KEYS), z.any())
+    .refine(v => JSON.stringify(v).length <= 60_000, 'Those settings are too big').optional(),
 })
 
 export default async function storeOpeningRoutes(app) {
@@ -270,6 +284,41 @@ export default async function storeOpeningRoutes(app) {
     }
   })
 
+  // The venue setup wizard: a draft the person fills in step by step.
+  app.post('/wizard', { preHandler: canManage }, async (req, reply) => {
+    const body = z.object({ template_venue_id: UUID.nullable().optional() }).parse(req.body || {})
+    const row = await withTenant(req.tenantId, async tx => {
+      if (body.template_venue_id && !(await templateIds(tx, req.tenantId)).has(body.template_venue_id)) throw httpError(404, 'Location not found')
+      // From scratch, the areas that need no settings start set up new;
+      // copying, every area starts copied (the plan's default).
+      const overrides = body.template_venue_id
+        ? { wizard: true, template_venue_id: body.template_venue_id }
+        : { wizard: true, modes: Object.fromEntries(WIZARD_NEW.map(k => [k, 'new'])) }
+      const [o] = await tx`
+        INSERT INTO store_openings (tenant_id, title, input, overrides, created_by, created_by_email)
+        VALUES (${req.tenantId}, 'New venue', '', ${tx.json(overrides)}, ${req.user?.sub || null}, ${req.user?.email || null})
+        RETURNING *`
+      return view(tx, req, o)
+    })
+    return reply.code(201).send(row)
+  })
+
+  // The wizard's optional help: Pepper reads a description and fills in what
+  // the person hasn't set themselves.
+  app.post('/:id/describe', { preHandler: canPlan, config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async req => {
+    const id = UUID.parse(req.params.id)
+    const { input } = z.object({
+      input: z.string().trim().min(10, 'Tell ' + ASSISTANT_NAME + ' a little about the new venue (a sentence or two)').max(6000),
+    }).parse(req.body)
+    await pepperReady(req.tenantId)
+    await withTenant(req.tenantId, async tx => {
+      const o = await ownOpening(tx, req.tenantId, id, true)
+      if (o.status === 'created') throw httpError(422, 'This location has already been created.')
+      await tx`UPDATE store_openings SET input = ${input}, updated_at = now() WHERE id = ${id} AND tenant_id = ${req.tenantId}`
+    })
+    return stepRoute(req, id, ['draft', 'questions', 'ready'], 'scope')
+  })
+
   // A draft whose first look failed (Claude busy): try it again.
   app.post('/:id/scope', { preHandler: canPlan }, async req => {
     const id = UUID.parse(req.params.id)
@@ -311,7 +360,14 @@ export default async function storeOpeningRoutes(app) {
         if (ov.template_venue_id && !(await templateIds(tx, req.tenantId)).has(ov.template_venue_id)) throw httpError(404, 'Location not found')
         next.template_venue_id = ov.template_venue_id
       }
-      if (ov.modes) next.modes = { ...(next.modes || {}), ...ov.modes }
+      if (ov.modes) {
+        next.modes = { ...(next.modes || {}), ...ov.modes }
+        for (const [k, v] of Object.entries(next.modes)) if (v === null) delete next.modes[k]
+      }
+      for (const [k, v] of Object.entries(body.settings || {})) {
+        if (v === null) delete next[k]
+        else next[k] = v
+      }
       if (body.title) next.title = true
       const [row] = await tx`
         UPDATE store_openings SET overrides = ${tx.json(next)}, title = ${body.title || o.title}, updated_at = now()
@@ -327,7 +383,7 @@ export default async function storeOpeningRoutes(app) {
       const o = await ownOpening(tx, req.tenantId, id, true)
       if (o.status === 'created') throw httpError(422, 'This location has already been created.')
       if (o.busy_until && new Date(o.busy_until) > new Date()) throw httpError(409, ASSISTANT_NAME + ' is still working on this. Wait a moment and try again.')
-      if (o.status === 'draft' || !o.ai?.raw_plan) throw httpError(422, ASSISTANT_NAME + ' hasn\'t scoped this location yet.')
+      if ((o.status === 'draft' || !o.ai?.raw_plan) && !o.overrides?.wizard) throw httpError(422, ASSISTANT_NAME + ' hasn\'t scoped this location yet.')
       const plan = await planOf(tx, req.tenantId, o)
       const problems = planProblems(plan)
       if (!validZone(plan.venue.timezone)) problems.push('"' + plan.venue.timezone + '" isn\'t a time zone we know.')

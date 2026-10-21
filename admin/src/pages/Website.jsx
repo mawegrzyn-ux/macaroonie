@@ -79,7 +79,7 @@ const WIDGET_ITEMS = [
   { key: 'tenant-widget', label: 'Reservations widget', icon: LayoutTemplate },
 ]
 const SITE_ITEMS = [
-  { key: 'tenant-brand',     label: 'Brand & theme',     icon: Palette },
+  { key: 'tenant-brand',     label: 'Look & layout',     icon: Palette },
   { key: 'tenant-domain',    label: 'Domain',            icon: Globe },
   { key: 'tenant-seo',       label: 'SEO',               icon: Search },
   { key: 'tenant-legal',     label: 'Legal & cookies',   icon: Shield },
@@ -3698,7 +3698,7 @@ function BrandSection({ venues, allConfigs }) {
           <button type="button" onClick={() => setTarget(null)}
             className={cn('h-9 px-3 rounded-full text-sm font-medium touch-manipulation border',
               target === null ? 'bg-primary text-primary-foreground border-primary' : 'hover:bg-accent')}>
-            Default
+            Whole website
           </button>
           {overrideVenues.map(v => (
             <button key={v.id} type="button" onClick={() => setTarget(v.id)}
@@ -3711,7 +3711,7 @@ function BrandSection({ venues, allConfigs }) {
             addingVenueId !== '__open__' ? (
               <button type="button" onClick={() => setAddingVenueId('__open__')}
                 className="h-9 px-3 rounded-full text-sm font-medium touch-manipulation border border-dashed text-muted-foreground hover:bg-accent inline-flex items-center gap-1">
-                <Plus className="w-3.5 h-3.5" /> Add site override
+                <Plus className="w-3.5 h-3.5" /> Give a location its own look
               </button>
             ) : (
               <div className="flex items-center gap-1.5">
@@ -3733,11 +3733,11 @@ function BrandSection({ venues, allConfigs }) {
       {showSelector && target != null && (
         <div className="flex items-center justify-between bg-muted/40 border rounded-xl px-4 py-2.5">
           <p className="text-xs text-muted-foreground">
-            {venues.find(v => v.id === target)?.name} has its own brand &amp; theme, independent of the tenant default.
+            {venues.find(v => v.id === target)?.name}&apos;s location page has its own look, independent of the group&apos;s brand.
           </p>
           {removing ? (
             <span className="flex items-center gap-2 text-xs">
-              Remove this site's override and use the tenant default again?
+              Stop this location's own look and use the group's brand again?
               <button type="button" onClick={() => removeOverride.mutate(target)}
                 className="text-destructive font-medium hover:underline">Yes, remove</button>
               <button type="button" onClick={() => setRemoving(false)} className="text-muted-foreground hover:underline">Cancel</button>
@@ -3749,37 +3749,56 @@ function BrandSection({ venues, allConfigs }) {
         </div>
       )}
 
-      <BrandIdentitySection venueId={target} />
-      <BrandThemeSection venueId={target} />
-      <BrandLayoutSection venueId={target} />
+      {target == null ? (
+        <>
+          <div className="bg-background border rounded-xl px-5 py-4 flex flex-wrap items-center gap-3" data-testid="website-brand-moved">
+            <Palette className="w-5 h-5 text-primary shrink-0" />
+            <p className="text-sm flex-1 min-w-[220px]">
+              The logo, colours and fonts are your brand: set them on <strong>Brand &amp; theme</strong>, where they also reach
+              kiosks, menu screens and printed menus. The website uses them after you publish it.
+            </p>
+            <Link to="/brand" className="min-h-[44px] px-4 rounded-md border bg-background text-sm font-medium inline-flex items-center gap-1.5 touch-manipulation hover:bg-muted">
+              Open Brand &amp; theme
+            </Link>
+          </div>
+          <BrandIdentitySection part="site" />
+          <BrandLayoutSection venueId={null} />
+        </>
+      ) : (
+        <>
+          <BrandIdentitySection venueId={target} part="all" />
+          <BrandThemeSection venueId={target} />
+          <BrandLayoutSection venueId={target} />
+        </>
+      )}
     </div>
   )
 }
 
 // ── Brand defaults sections ─────────────────────────────────
 
-function BrandIdentitySection({ venueId = null }) {
+// Which identity fields each place edits: the group's brand (Brand & theme
+// page), the website's own (Website > Look & layout) or a location's own
+// website look (every field but the group's name).
+const IDENTITY_PARTS = {
+  brand: ['brand_name', 'tagline', 'logo_url', 'favicon_url'],
+  site:  ['site_name', 'og_image_url'],
+  all:   ['site_name', 'tagline', 'logo_url', 'favicon_url', 'og_image_url'],
+}
+
+export function BrandIdentitySection({ venueId = null, part = 'all', title, description }) {
   const api = useApi()
   const qc  = useQueryClient()
   const isVenue  = !!venueId
+  const fields = IDENTITY_PARTS[part] || IDENTITY_PARTS.all
+  const has = k => fields.includes(k) && !(isVenue && k === 'brand_name')
   const queryKey = isVenue ? ['website-config', venueId] : ['brand-defaults']
   const { data: brand = {} } = useQuery({
     queryKey,
     queryFn: () => isVenue ? api.get(`/website/config?venue_id=${venueId}`) : api.get('/website/brand-defaults'),
   })
   const hasBrand = !!brand?.id
-  const initial = useMemo(() => ({
-    brand_name:       brand.brand_name ?? '',
-    site_name:        brand.site_name ?? '',
-    tagline:          brand.tagline ?? '',
-    logo_url:         brand.logo_url ?? '',
-    favicon_url:      brand.favicon_url ?? '',
-    primary_colour:   brand.primary_colour ?? '#630812',
-    secondary_colour: brand.secondary_colour ?? '',
-    font_family:      brand.font_family ?? 'Inter',
-    template_key:     brand.template_key ?? 'classic',
-    og_image_url:     brand.og_image_url ?? '',
-  }), [brand])
+  const initial = useMemo(() => Object.fromEntries(fields.map(k => [k, brand[k] ?? ''])), [brand, fields])
   const [state, setState] = useState(initial)
   useEffect(() => setState(initial), [initial])
   const dirty = JSON.stringify(state) !== JSON.stringify(initial)
@@ -3788,18 +3807,9 @@ function BrandIdentitySection({ venueId = null }) {
 
   const save = useMutation({
     mutationFn: () => {
+      // Only this card's fields; empty = not set.
       const body = {}
-      // Empty strings → null for nullable fields. Skip non-nullable ones
-      // (template_key + font_family are enums/strings without .nullable()
-      // in Zod, and the inspector inputs always set a real value.)
-      for (const [k, v] of Object.entries(state)) {
-        if (isVenue && k === 'brand_name') continue // tenant-only field
-        if (v === '' && k !== 'template_key' && k !== 'font_family' && k !== 'primary_colour') {
-          body[k] = null
-        } else {
-          body[k] = v
-        }
-      }
+      for (const k of fields) if (has(k)) body[k] = state[k] === '' ? null : state[k]
       if (isVenue) return api.patch(`/website/config?venue_id=${venueId}`, body)
       return hasBrand ? api.patch('/website/brand-defaults', body)
                       : api.post('/website/brand-defaults', body)
@@ -3820,44 +3830,41 @@ function BrandIdentitySection({ venueId = null }) {
     },
   })
 
+  const field = k => v => setState(s => ({ ...s, [k]: v }))
   return (
     <div className="space-y-5">
-      <SectionCard title="Brand identity"
-        description={isVenue
-          ? "This venue's own identity — independent of the tenant default."
-          : 'These values cascade to every venue website unless a venue has its own override.'}>
-        {!isVenue && (
-          <FormRow label="Brand name" hint="Franchise name shown across all venue sites.">
-            <TextInput value={state.brand_name} onChange={e => setState(s => ({ ...s, brand_name: e.target.value }))} />
+      <SectionCard title={title || (part === 'site' ? 'Website name and sharing' : 'Brand identity')}
+        description={description || (isVenue
+          ? "This location's own website identity, independent of the group's brand."
+          : part === 'site'
+            ? 'What the website calls itself, and the picture shown when a page is shared.'
+            : 'Your brand everywhere: the website, kiosks, menu screens and printed menus.')}>
+        {has('brand_name') && (
+          <FormRow label="Brand name" hint="Your restaurant group's name, shown across every location.">
+            <TextInput value={state.brand_name} data-testid="brand-name" onChange={e => field('brand_name')(e.target.value)} />
           </FormRow>
         )}
-        <FormRow label="Site name" hint="Shown in the header next to the logo and in the footer. Falls back to brand name.">
-          <TextInput value={state.site_name} onChange={e => setState(s => ({ ...s, site_name: e.target.value }))} />
-        </FormRow>
-        <FormRow label="Tagline" hint="Short subtitle under the brand name in the header / footer.">
-          <TextInput value={state.tagline} onChange={e => setState(s => ({ ...s, tagline: e.target.value }))} />
-        </FormRow>
-        <FormRow label="Logo"><ImageField url={state.logo_url} onChange={v => setState(s => ({ ...s, logo_url: v || '' }))} /></FormRow>
-        <FormRow label="Favicon"><ImageField url={state.favicon_url} accept="image/*,.ico"
-          hint="The small picture in the browser tab. An .ico, PNG or SVG file, square, at least 48 x 48 pixels."
-          onChange={v => setState(s => ({ ...s, favicon_url: v || '' }))} /></FormRow>
-        <FormRow label="Primary colour">
-          <div className="flex items-center gap-3">
-            <input type="color" value={state.primary_colour}
-              onChange={e => setState(s => ({ ...s, primary_colour: e.target.value }))}
-              className="w-12 h-10 border rounded cursor-pointer" />
-            <TextInput value={state.primary_colour} className="w-28 font-mono text-xs uppercase"
-              onChange={e => setState(s => ({ ...s, primary_colour: e.target.value }))} />
-          </div>
-        </FormRow>
-        <FormRow label="Default font">
-          <FontPicker fonts={FONT_OPTIONS}
-            value={state.font_family}
-            onChange={f => setState(s => ({ ...s, font_family: f }))} />
-        </FormRow>
-        <FormRow label="Social preview image (OG)">
-          <ImageField url={state.og_image_url} onChange={v => setState(s => ({ ...s, og_image_url: v || '' }))} />
-        </FormRow>
+        {has('site_name') && (
+          <FormRow label="Site name" hint="Shown in the website header next to the logo and in the footer. Leave empty to use the brand name.">
+            <TextInput value={state.site_name} onChange={e => field('site_name')(e.target.value)} />
+          </FormRow>
+        )}
+        {has('tagline') && (
+          <FormRow label="Tagline" hint="A short line under the brand name, e.g. in the website header.">
+            <TextInput value={state.tagline} data-testid="brand-tagline" onChange={e => field('tagline')(e.target.value)} />
+          </FormRow>
+        )}
+        {has('logo_url') && <FormRow label="Logo"><ImageField url={state.logo_url} onChange={v => field('logo_url')(v || '')} /></FormRow>}
+        {has('favicon_url') && (
+          <FormRow label="Favicon"><ImageField url={state.favicon_url} accept="image/*,.ico"
+            hint="The small picture in the browser tab. An .ico, PNG or SVG file, square, at least 48 x 48 pixels."
+            onChange={v => field('favicon_url')(v || '')} /></FormRow>
+        )}
+        {has('og_image_url') && (
+          <FormRow label="Social preview image" hint="Shown when a page is shared on social media or in a message.">
+            <ImageField url={state.og_image_url} onChange={v => field('og_image_url')(v || '')} />
+          </FormRow>
+        )}
       </SectionCard>
       {saveError && (
         <div className="bg-destructive/10 border border-destructive/30 text-destructive text-sm rounded-md px-4 py-3">
@@ -3875,7 +3882,7 @@ function BrandIdentitySection({ venueId = null }) {
   )
 }
 
-function BrandThemeSection({ venueId = null }) {
+export function BrandThemeSection({ venueId = null, onSaved }) {
   const api = useApi()
   const qc  = useQueryClient()
   const { canManage } = usePermission('website')
@@ -3895,16 +3902,21 @@ function BrandThemeSection({ venueId = null }) {
 
   const save = useMutation({
     mutationFn: () => {
-      if (isVenue) return api.patch(`/website/config?venue_id=${venueId}`, { theme })
-      return hasBrand ? api.patch('/website/brand-defaults', { theme })
-                      : api.post('/website/brand-defaults', { theme })
+      // The older single colour and font fields follow the theme (emails,
+      // the guest booking page and printed menus still read them).
+      const body = { theme, primary_colour: theme.colors.primary, font_family: theme.typography.body_font }
+      if (isVenue) return api.patch(`/website/config?venue_id=${venueId}`, body)
+      return hasBrand ? api.patch('/website/brand-defaults', body)
+                      : api.post('/website/brand-defaults', body)
     },
     onMutate: () => { setSaveError(null); setSavedFlash(false) },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey })
       qc.invalidateQueries({ queryKey: isVenue ? ['website-configs'] : ['tenant-site'] })
+      if (!isVenue) qc.invalidateQueries({ queryKey: ['me'] })
       setSavedFlash(true)
       setTimeout(() => setSavedFlash(false), 2000)
+      onSaved?.()
     },
     onError: (e) => {
       const msg = e?.body?.error || e?.message || 'Save failed'
@@ -3929,7 +3941,7 @@ function BrandThemeSection({ venueId = null }) {
   return (
     <div className="space-y-5">
       <SectionCard title="Theme ideas"
-        description="Make a theme from your logo or a photo and a few words, or start from a ready-made one. It fills in the fields below; nothing changes on the site until you save.">
+        description="Make a theme from your logo or a photo and a few words, or start from a ready-made one. It fills in the colours and fonts below; nothing changes until you save.">
         {canManage && (
           <ThemeMakerButton target="website" current={theme}
             onApply={kit => setTheme(t => mergeTheme(websiteThemeFromKit(kit, t)))} />
@@ -3951,10 +3963,10 @@ function BrandThemeSection({ venueId = null }) {
         </div>
       </SectionCard>
       <ThemePreview theme={theme} siteName={brand.site_name || brand.brand_name || 'Your restaurant'} />
-      <SectionCard title="Brand theme"
+      <SectionCard title="Colours"
         description={isVenue
-          ? "This venue's own theme — independent of the tenant default."
-          : 'Default theme for every venue site. A venue with its own site override gets an independent copy, starting from this.'}>
+          ? "This location's own website colours, independent of the group's brand."
+          : 'Your brand colours: the website uses them, and every designer (kiosks, menu screens, printed menus) offers them.'}>
         <ColourField label="Primary" value={theme.colors.primary} onChange={v => setPath('colors', 'primary', v)} />
         <ColourField label="Accent" value={theme.colors.accent} onChange={v => setPath('colors', 'accent', v)} />
         <ColourField label="Background" value={theme.colors.background} onChange={v => setPath('colors', 'background', v)} />
@@ -3968,7 +3980,7 @@ function BrandThemeSection({ venueId = null }) {
         <ColourField label="Muted" value={theme.colors.muted} onChange={v => setPath('colors', 'muted', v)} />
         <ColourField label="Border" value={theme.colors.border} onChange={v => setPath('colors', 'border', v)} />
       </SectionCard>
-      <SectionCard title="Typography">
+      <SectionCard title="Fonts">
         <FormRow label="Heading font">
           <FontPicker fonts={FONT_OPTIONS}
             value={theme.typography.heading_font}
@@ -3995,9 +4007,9 @@ function BrandThemeSection({ venueId = null }) {
       <div className="flex items-center justify-between pt-2 border-t">
         <button type="button" onClick={() => setTheme(structuredClone(DEFAULT_THEME))}
           className="text-xs text-muted-foreground hover:text-foreground px-3 py-1.5">Reset to defaults</button>
-        <button type="button" onClick={() => save.mutate()} disabled={!dirty || save.isPending}
+        <button type="button" onClick={() => save.mutate()} disabled={!dirty || save.isPending} data-testid="brand-theme-save"
           className="bg-primary text-primary-foreground text-sm font-medium rounded-md px-4 py-2 min-h-[40px] inline-flex items-center gap-2 disabled:opacity-50">
-          {save.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />} Save brand theme
+          {save.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />} {isVenue ? 'Save colours and fonts' : 'Save brand colours and fonts'}
         </button>
       </div>
     </div>

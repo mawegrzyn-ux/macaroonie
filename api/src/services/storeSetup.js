@@ -27,6 +27,16 @@ import { randomUUID, randomBytes } from 'node:crypto'
 import { httpError } from '../middleware/error.js'
 import { ensureSettings } from './posSvc.js'
 import { hoursText } from '../../../shared/storeOpening.js'
+import { websiteThemeFromKit } from '../../../shared/themeKit.js'
+
+/** The plan's menus that are the tenant's own and this venue can use. */
+async function planMenus(s, plan) {
+  const ids = plan.menus?.ids || []
+  if (!ids.length) return []
+  const rows = await s.tx`SELECT id FROM menus WHERE tenant_id = ${s.tenantId} AND id = ANY(${ids}::uuid[]) AND (venue_id IS NULL OR venue_id = ${s.to})`
+  const own = new Set(rows.map(r => r.id))
+  return ids.filter(id => own.has(id))
+}
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const DROP = Symbol('drop')
@@ -324,6 +334,28 @@ const AREA_ORDER = [
   'ordering', 'deliveroo', 'website', 'emails', 'food_safety', 'checklists', 'dashboards', 'purchasing', 'staff',
 ]
 
+/**
+ * The wizard's own look for the venue's web page (plan.brand.kit): the
+ * group's identity with the kit's colours and fonts, as Website > Look &
+ * layout's "Give a location its own look" does.
+ */
+async function ownLook(s, plan) {
+  const kit = plan.brand?.kit
+  if (!kit) return null
+  const { tx, tenantId, to } = s
+  const [site] = await tx`SELECT site_name, brand_name, tagline, logo_url, favicon_url, template_key, og_image_url, theme FROM tenant_site WHERE tenant_id = ${tenantId}`
+  const theme = websiteThemeFromKit(kit, site?.theme || {})
+  await tx`
+    UPDATE website_config
+       SET use_brand_override = true, theme = ${tx.json(theme)},
+           site_name = ${site?.site_name ?? site?.brand_name ?? null}, tagline = ${site?.tagline ?? null},
+           logo_url = ${site?.logo_url ?? null}, favicon_url = ${site?.favicon_url ?? null},
+           template_key = ${site?.template_key || 'classic'}, og_image_url = ${site?.og_image_url ?? null},
+           primary_colour = ${theme.colors.primary}, font_family = ${theme.typography.body_font}
+     WHERE venue_id = ${to} AND tenant_id = ${tenantId}`
+  return 'Its own look: "' + kit.name + '"'
+}
+
 const AREAS = {
   // ── Tax ──
   async tax(s) {
@@ -563,10 +595,14 @@ const AREAS = {
         return ['Nothing to copy: set up, switched off']
       }
       const lost = s.lostMenus(tpl?.menu_ids)
-      return [(enabled ? 'Switched on' : 'Switched off until opening') + ', ' + plural((rows[0].menu_ids || []).length, 'menu'), lost ? lost + ' (a menu of the location copied from only) left out' : null].filter(Boolean)
+      // Menus picked in the wizard are added to the copied ones.
+      const extra = (await planMenus(s, plan)).filter(id => !(rows[0].menu_ids || []).includes(id))
+      if (extra.length) await tx`UPDATE ordering_settings SET menu_ids = menu_ids || ${extra}::uuid[] WHERE venue_id = ${to} AND tenant_id = ${tenantId}`
+      return [(enabled ? 'Switched on' : 'Switched off until opening') + ', ' + plural((rows[0].menu_ids || []).length + extra.length, 'menu'), lost ? lost + ' (a menu of the location copied from only) left out' : null].filter(Boolean)
     }
-    await tx`INSERT INTO ordering_settings (venue_id, tenant_id, is_enabled) VALUES (${to}, ${tenantId}, false)`
-    return ['Set up, switched off: pick its menus and hours in Ordering setup']
+    const menus = await planMenus(s, plan)
+    await tx`INSERT INTO ordering_settings (venue_id, tenant_id, is_enabled, menu_ids) VALUES (${to}, ${tenantId}, false, ${menus}::uuid[])`
+    return [menus.length ? 'Set up, switched off, with ' + plural(menus.length, 'menu') + ': set its hours in Ordering setup' : 'Set up, switched off: pick its menus and hours in Ordering setup']
   },
 
   async deliveroo(s) {
@@ -595,10 +631,11 @@ const AREAS = {
       await copyTable(s, 'website_menu_documents', { parentCol: 'website_config_id', parents, need: ['website_config_id'] })
       await copyTable(s, 'website_allergen_info', { parentCol: 'website_config_id', parents, need: ['website_config_id'] })
       const pages = await copyTable(s, 'website_pages', { where: r => !r.system_key })
-      return ['Location page with the same layout' + (gallery.length ? ', ' + plural(gallery.length, 'gallery picture') : '') + ' and this location\'s address', pages.length ? plural(pages.length, 'page') + ' of its own' : null].filter(Boolean)
+      const look = await ownLook(s, plan)
+      return ['Location page with the same layout' + (gallery.length ? ', ' + plural(gallery.length, 'gallery picture') : '') + ' and this location\'s address', pages.length ? plural(pages.length, 'page') + ' of its own' : null, look].filter(Boolean)
     }
     await tx`INSERT INTO website_config ${tx({ tenant_id: tenantId, venue_id: to, ...contact })}`
-    return ['A new location page with the address and contact details']
+    return ['A new location page with the address and contact details', await ownLook(s, plan)].filter(Boolean)
   },
 
   // ── Emails ──
@@ -734,6 +771,12 @@ export async function createStore(tx, { tenantId, plan, by, allowed, allowedModu
     // How many of these menu ids were the copied location's own (left out of the copy).
     lostMenus: menuIds => (menuIds || []).filter(id => venueMenus.has(id)).length,
     venueMenus,
+  }
+
+  // Menus made in the wizard for this venue alone.
+  if (plan.menus?.only_here && plan.menus.made?.length && allowedModule('menus')) {
+    await tx`UPDATE menus SET venue_id = ${venue.id}, updated_at = now()
+              WHERE tenant_id = ${tenantId} AND id = ANY(${plan.menus.made}::uuid[]) AND venue_id IS NULL`
   }
 
   const results = {}

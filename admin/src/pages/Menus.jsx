@@ -49,6 +49,7 @@ import { SectionTillFields, ItemTillFields, useTillCourses } from '@/components/
 import { ComboBox, comboPayload } from '@/components/menus/ComboEditor'
 import { PublishButton, PublishBadges, useOpenPreview } from '@/components/menus/MenuPublish'
 import { TaxBox, useTaxLookups, taxSettingProblems } from '@/components/menus/TaxBox'
+import { MenuImportModal } from '@/components/menus/MenuImport'
 import { normTax, cleanTax } from '@shared/tax.js'
 
 const SEEDS = [
@@ -82,6 +83,7 @@ function MenuList({ onEdit }) {
   const qc  = useQueryClient()
   const { canManage } = usePermission('menus')
   const [creating, setCreating] = useState(false)
+  const [importing, setImporting] = useState(false)
 
   // ?status=1: live / changes waiting / scheduled per menu (migration 165).
   const { data: menus = [], isLoading } = useQuery({
@@ -124,7 +126,10 @@ function MenuList({ onEdit }) {
             Structured menus — sections, dishes, variants, allergens. Render on the website inline or print as PDF.
           </p>
         </div>
-        {canManage && <div className="flex gap-2">
+        {canManage && <div className="flex flex-wrap gap-2 justify-end">
+          <Btn variant="secondary" onClick={() => setImporting(true)} data-testid="menus-import">
+            <Sparkles className="w-4 h-4" /> From a photo or PDF
+          </Btn>
           <Btn variant="secondary" onClick={() => setCreating(true)}>
             <Plus className="w-4 h-4" /> New menu
           </Btn>
@@ -225,6 +230,10 @@ function MenuList({ onEdit }) {
       {creating && (
         <NewMenuModal venues={venues} onClose={() => setCreating(false)}
           onCreated={(m) => { setCreating(false); onEdit(m.id) }} />
+      )}
+      {importing && (
+        <MenuImportModal venues={venues} onClose={() => setImporting(false)}
+          onCreated={r => { setImporting(false); onEdit(r.menu_id) }} />
       )}
     </div>
     </div>

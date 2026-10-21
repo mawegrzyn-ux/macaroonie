@@ -26,13 +26,15 @@ export const isFileDrag = e => Array.from(e?.dataTransfer?.types || []).includes
 // .ico files (favicons) may come with no type on some systems.
 export const isImageFile = f => /^image\//.test(f?.type || '') || (!f?.type && /\.ico$/i.test(f?.name || ''))
 export const isVideoFile = f => VIDEO_TYPES.includes(f?.type)
+export const isPdfFile = f => f?.type === 'application/pdf' || (!f?.type && /\.pdf$/i.test(f?.name || ''))
 
-/** The files of the kinds asked for (['image'], ['image', 'video']). */
+/** The files of the kinds asked for (['image'], ['image', 'video'], ['image', 'pdf']). */
 export function pickFiles(list, kinds = ['image']) {
-  return Array.from(list || []).filter(f => (kinds.includes('image') && isImageFile(f)) || (kinds.includes('video') && isVideoFile(f)))
+  return Array.from(list || []).filter(f => (kinds.includes('image') && isImageFile(f)) || (kinds.includes('video') && isVideoFile(f))
+    || (kinds.includes('pdf') && isPdfFile(f)))
 }
 
-const kindWords = kinds => (kinds.includes('video') ? (kinds.includes('image') ? 'a picture or a video' : 'a video') : 'a picture')
+const kindWords = kinds => (kinds.includes('pdf') ? 'a photo or a PDF' : kinds.includes('video') ? (kinds.includes('image') ? 'a picture or a video' : 'a video') : 'a picture')
 
 /**
  * Drop handlers for an area. onFiles(files, event) gets only files of the
@@ -68,7 +70,7 @@ export function useFileDrop({ onFiles, onRefused, kinds = ['image'], disabled = 
       setOver(false)
       const files = pickFiles(e.dataTransfer.files, kinds)
       if (files.length) onFiles?.(files, e)
-      else onRefused?.(`That isn't ${kindWords(kinds)}. Drop a JPG, PNG, WebP, GIF or ICO${kinds.includes('video') ? ', or an MP4 or WebM video' : ''}.`)
+      else onRefused?.(`That isn't ${kindWords(kinds)}. Drop a JPG, PNG, WebP, GIF${kinds.includes('pdf') ? ' or PDF' : ' or ICO'}${kinds.includes('video') ? ', or an MP4 or WebM video' : ''}.`)
     },
   }
   return { over, dropProps }

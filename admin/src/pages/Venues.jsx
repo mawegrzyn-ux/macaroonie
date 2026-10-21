@@ -145,15 +145,9 @@ export default function Venues() {
         <h1 className="font-semibold">Venues</h1>
         {canManage && (
           <div className="flex items-center gap-2">
-            <Link to="/new-location" className="flex items-center gap-1.5 text-sm px-3 py-1.5 border rounded-lg bg-background" data-testid="venues-new-location">
-              <Sparkles className="w-4 h-4 text-primary" /> New location with {ASSISTANT_NAME}
+            <Link to="/new-location" className="flex items-center gap-1.5 text-sm px-3 min-h-[40px] bg-primary text-primary-foreground rounded-lg touch-manipulation" data-testid="venues-new-location">
+              <Plus className="w-4 h-4" /> New venue
             </Link>
-            <button
-              onClick={() => setEditing('new')}
-              className="flex items-center gap-1.5 text-sm px-3 py-1.5 bg-primary text-primary-foreground rounded-lg"
-            >
-              <Plus className="w-4 h-4" /> Add venue
-            </button>
           </div>
         )}
       </div>
@@ -161,18 +155,12 @@ export default function Venues() {
       <div className="flex-1 overflow-y-auto p-6">
         <div className="max-w-2xl space-y-3">
 
-          {/* New venue form */}
-          {editing === 'new' && (
-            <div className="border rounded-lg p-4 bg-muted/20">
-              <p className="text-sm font-semibold mb-3">New venue</p>
-              <VenueForm onSave={() => setEditing(null)} onCancel={() => setEditing(null)} />
-            </div>
-          )}
-
           {isLoading ? (
             <p className="text-sm text-muted-foreground">Loading…</p>
           ) : venues.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No venues yet.</p>
+            <p className="text-sm text-muted-foreground">
+              No venues yet. {canManage && <Link to="/new-location" className="text-primary underline">Set up your first venue</Link>}
+            </p>
           ) : (
             venues.map(venue => (
               <div key={venue.id} className="border rounded-lg overflow-hidden">
