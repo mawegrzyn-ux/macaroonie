@@ -51,7 +51,7 @@ export default function Inventory() {
       if (categoryId === 'none' ? i.category_id : categoryId && i.category_id !== categoryId) return false
       if (supplierId && !i.quotes.some(x => x.supplier_id === supplierId)) return false
       if (q && !i.name.toLowerCase().includes(q) && !(i.code || '').toLowerCase().includes(q)
-        && !i.quotes.some(x => (x.supplier_code || '').toLowerCase().includes(q))) return false
+        && !i.quotes.some(x => (x.supplier_code || '').toLowerCase().includes(q) || (x.product_name || '').toLowerCase().includes(q))) return false
       return true
     })
   }, [items, search, categoryId, supplierId, status])
@@ -342,6 +342,7 @@ function QuoteRow({ q, item, canEdit, isDefault, onStar, onEdit, onVenuePrices, 
             {!q.is_active && <span className="ml-2 text-[11px] px-1.5 py-0.5 rounded bg-muted font-normal">Off</span>}
             {q.supplier_active === false && <span className="ml-2 text-[11px] px-1.5 py-0.5 rounded bg-muted font-normal">Supplier off</span>}
           </p>
+          {q.product_name && <p className="text-sm font-medium">{q.product_name}</p>}
           <p className="text-sm">{packLabel(q)} <span className="text-muted-foreground">= {formatBase(q.pack_base_qty, item.base_unit)}</span></p>
           <p className="text-xs text-muted-foreground">
             {[q.min_qty && `min ${fmtNum(q.min_qty)}`, q.order_multiple && `in steps of ${fmtNum(q.order_multiple)}`, `VAT ${fmtNum(q.vat_rate)}%`].filter(Boolean).join(' · ')}
@@ -369,12 +370,12 @@ function QuoteModal({ item, quote, onClose, onSaved }) {
   const { data: suppliers = [] } = useSuppliers()
   const units = unitsForBase(item.base_unit)
   const [f, setF] = useState(() => quote ? {
-    supplier_id: quote.supplier_id, supplier_code: quote.supplier_code || '', pack_name: quote.pack_name || 'pack',
+    supplier_id: quote.supplier_id, supplier_code: quote.supplier_code || '', product_name: quote.product_name || '', pack_name: quote.pack_name || 'pack',
     pack_count: quote.pack_count, pack_qty: quote.pack_qty, pack_unit: quote.pack_unit, price: quote.price,
     vat_rate: quote.vat_rate, min_qty: quote.min_qty, order_multiple: quote.order_multiple, notes: quote.notes || '',
     is_active: quote.is_active,
   } : {
-    supplier_id: suppliers.find(s => s.is_active)?.id || '', supplier_code: '', pack_name: 'Case', pack_count: 1,
+    supplier_id: suppliers.find(s => s.is_active)?.id || '', supplier_code: '', product_name: '', pack_name: 'Case', pack_count: 1,
     pack_qty: null, pack_unit: units.includes('kg') ? 'kg' : units.includes('l') ? 'l' : units[0], price: null,
     vat_rate: 0, min_qty: null, order_multiple: null, notes: '', is_active: true,
   })
@@ -409,6 +410,9 @@ function QuoteModal({ item, quote, onClose, onSaved }) {
             </Field>
             <Field label="Supplier's product code"><input className={inputCls} value={f.supplier_code} onChange={e => set('supplier_code', e.target.value)} /></Field>
           </div>
+          <Field label="Supplier's product name" hint={`Optional: what ${suppliers.find(s => s.id === f.supplier_id)?.name || 'the supplier'} calls it, e.g. a brand, when it isn't just "${item.name}". It goes on their copy of the order.`}>
+            <input className={inputCls} value={f.product_name} onChange={e => set('product_name', e.target.value)} placeholder={item.name} maxLength={200} />
+          </Field>
           <Field label="Pack" hint="What one unit you order is called, how many are in it and how big each one is">
             <div className="grid grid-cols-[1.4fr_0.8fr_auto_1fr_auto] gap-2 items-center">
               <input className={inputCls} list="pack-names" value={f.pack_name} onChange={e => set('pack_name', e.target.value)} aria-label="Pack name" />

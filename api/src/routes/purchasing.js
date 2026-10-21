@@ -15,7 +15,11 @@
 //           split into a second order for another day, receive (quantities,
 //           shortages, temperatures), which writes the H&S delivery check.
 //           Changing what is ordered (quantities, cancel, split) needs
-//           Purchasing approval.
+//           Purchasing approval. Receiving can apply an invoice Pepper read
+//           (migration 197, routes/documentRead.js): invoice prices on the
+//           lines, lines added for what arrived but wasn't ordered; then
+//           POST /pos/:id/price-list updates the supplier prices from it
+//           (Purchasing setup manage).
 //
 // Restaurant staff see prices only with purchasing_setup view. Every query
 // filters tenant_id itself.
@@ -26,11 +30,12 @@ import { requireAuth, requirePermission, requireAnyPermission, permissionLevel, 
 import { httpError }  from '../middleware/error.js'
 import {
   fitQty, packsToPar, packLabel, quotePrice, orderTotals, receiveStatusFor, deliveryTempOk, poNumberLabel, fmtNum,
-  DELIVERY_TEMP_MAX, RECEIVE_STATUSES, deliveryDateChoices,
+  DELIVERY_TEMP_MAX, RECEIVE_STATUSES, deliveryDateChoices, packBaseQty, UNITS,
 } from '../../../shared/procurement.js'
 import {
   resolveQuotes, quoteView, loadVenue, venueNow, loadSuppliersForVenue, createPurchaseOrder,
   loadPo, loadPoLines, poFile, emailPo, nextPoNumber,
+  invoiceView,
 } from '../services/purchasingSvc.js'
 
 const uuid = z.string().uuid()
@@ -213,7 +218,7 @@ async function loadOrder(tx, tenantId, order, who) {
       FROM purchase_order_lines l
       JOIN purchase_orders po ON po.id = l.po_id AND po.tenant_id = ${tenantId}
      WHERE l.tenant_id = ${tenantId} AND po.venue_id = ${venue.id} AND po.status <> 'cancelled'
-       AND l.item_id = ANY(${ids}::uuid[])
+       AND l.item_id = ANY(${ids}::uuid[]) AND l.qty > 0
      ORDER BY l.item_id, po.created_at DESC
   ` : []
   const lastBy = new Map(last.map(l => [l.item_id, l]))
@@ -354,7 +359,7 @@ async function poDetail(tx, tenantId, id, prices) {
   `
   const strip = l => {
     if (prices) return l
-    const { price, ...rest } = l
+    const { price, invoice_price, ...rest } = l
     return rest
   }
   // The supplier's delivery days at this venue, for moving or splitting it.
@@ -376,7 +381,65 @@ async function poDetail(tx, tenantId, id, prices) {
     split_into: splits.filter(x => x.id !== po.split_from),
     lines: lines.map(strip),
     delivery_check: check || null,
+    invoices: (await tx`
+      SELECT *, invoice_date::text AS invoice_date FROM purchase_invoices
+       WHERE po_id = ${id} AND tenant_id = ${tenantId} AND applied_at IS NOT NULL
+       ORDER BY applied_at
+    `).map(r => { const { lines: _l, ...head } = invoiceView(r, prices); return head }),
+    price_list: prices ? await priceListRows(tx, tenantId, po, lines) : [],
   }
+}
+
+/**
+ * What an applied invoice says that the price list doesn't (prices only):
+ * one row per received line with an invoice price.
+ *   kind 'price'   the line's supplier price differs from the invoice's
+ *   kind 'new'     arrived without a supplier price (added on receipt)
+ *   kind 'product' a substitute: the supplier sent another product (its
+ *                  code or name differs from the ordered price's)
+ * Rows the price list already agrees with aren't listed.
+ */
+async function priceListRows(tx, tenantId, po, lines) {
+  const withInvoice = lines.filter(l => l.invoice_price != null && Number(l.received_qty) > 0 && l.item_id)
+  if (!withInvoice.length) return []
+  const ids = [...new Set(withInvoice.map(l => l.quote_id).filter(Boolean))]
+  const quotes = ids.length ? await tx`
+    SELECT q.id, q.price::float8 AS price, q.supplier_code, q.product_name, q.is_active,
+           q.pack_name, q.pack_count::float8 AS pack_count, q.pack_qty::float8 AS pack_qty, q.pack_unit,
+           (SELECT vp.price::float8 FROM inv_quote_venue_prices vp
+             WHERE vp.quote_id = q.id AND vp.venue_id = ${po.venue_id} AND vp.tenant_id = ${tenantId}) AS venue_price
+      FROM inv_quotes q WHERE q.id = ANY(${ids}::uuid[]) AND q.tenant_id = ${tenantId}
+  ` : []
+  const qBy = new Map(quotes.map(q => [q.id, q]))
+  const same = (a, b) => String(a ?? '').trim().toLowerCase() === String(b ?? '').trim().toLowerCase()
+  const out = []
+  for (const l of withInvoice) {
+    const q = l.quote_id ? qBy.get(l.quote_id) : null
+    const invPrice = Number(l.invoice_price)
+    const base = {
+      line_id: l.id, item_id: l.item_id, item_name: l.item_name, invoice_price: invPrice,
+      invoice_name: l.invoice_name, invoice_code: l.invoice_code, invoice_pack: l.invoice_pack,
+      vat_rate: l.invoice_vat_rate ?? Number(l.vat_rate), pack_label: l.pack_label, pack_spec: l.pack_spec || null,
+    }
+    if (!q) {
+      out.push({ ...base, kind: 'new', quote: null })
+      continue
+    }
+    const otherProduct = l.receive_status === 'substituted' && (
+      (l.invoice_code && q.supplier_code && !same(l.invoice_code, q.supplier_code)) ||
+      (!l.invoice_code && l.invoice_name && !same(l.invoice_name, q.product_name) && !same(l.invoice_name, l.item_name)))
+    const current = q.venue_price ?? q.price
+    if (!otherProduct && Math.abs(current - invPrice) < 0.005) continue
+    out.push({
+      ...base,
+      kind: otherProduct ? 'product' : 'price',
+      quote: {
+        id: q.id, price: q.price, venue_price: q.venue_price, product_name: q.product_name, supplier_code: q.supplier_code,
+        pack_label: l.pack_label, pack: { name: q.pack_name, count: q.pack_count, qty: q.pack_qty, unit: q.pack_unit },
+      },
+    })
+  }
+  return out
 }
 
 async function recalcPo(tx, tenantId, poId) {
@@ -427,6 +490,28 @@ const SplitPoBody = z.object({
   notes:         optText(2000),
 })
 
+const invoiceIdx = z.number().int().min(0).max(1000)
+const invoicePrice = z.number().min(0).max(10000000).nullable()
+const PackSpec = z.object({
+  name:  z.string().trim().max(60).optional(),
+  count: z.number().positive().max(100000).optional(),
+  qty:   z.number().positive().max(10000000),
+  unit:  z.enum(Object.keys(UNITS)),
+})
+
+const PriceListBody = z.object({
+  changes: z.array(z.object({
+    line_id:       uuid,
+    action:        z.enum(['company', 'venue', 'add']),
+    // add: the new supplier price's details (else from the invoice line).
+    pack:          PackSpec.nullable().optional(),
+    product_name:  optText(200),
+    supplier_code: optText(100),
+    vat_rate:      z.number().min(0).max(100).optional(),
+    usual:         z.enum(['venue', 'company']).nullable().optional(),
+  })).min(1).max(500),
+})
+
 const PoLinesBody = z.object({
   lines: z.array(z.object({ id: uuid, qty: qtyNum })).max(2000).optional(),
   add:   z.array(z.object({ quote_id: uuid, qty: qtyNum.positive() })).max(500).optional(),
@@ -435,12 +520,27 @@ const PoLinesBody = z.object({
 const ReceiveBody = z.object({
   received_date: date.optional(),
   notes:         optText(2000),
+  invoice_id:    uuid.nullable().optional(),
   lines: z.array(z.object({
-    id:           uuid,
-    received_qty: qtyNum,
-    status:       z.enum(RECEIVE_STATUSES.map(s => s.key)).optional(),
-    note:         optText(500),
+    id:            uuid,
+    received_qty:  qtyNum,
+    status:        z.enum(RECEIVE_STATUSES.map(s => s.key)).optional(),
+    note:          optText(500),
+    invoice_idx:   invoiceIdx.nullable().optional(),
+    invoice_price: invoicePrice.optional(),
   })).max(2000),
+  // Arrived but not ordered: an inventory item with one of this supplier's
+  // prices (quote_id), or with its pack as invoiced (no price list entry yet).
+  add: z.array(z.object({
+    item_id:       uuid,
+    quote_id:      uuid.nullable().optional(),
+    pack:          PackSpec.nullable().optional(),
+    received_qty:  qtyNum.positive(),
+    status:        z.enum(RECEIVE_STATUSES.map(s => s.key)).optional(),
+    note:          optText(500),
+    invoice_idx:   invoiceIdx.nullable().optional(),
+    invoice_price: invoicePrice.optional(),
+  })).max(200).optional(),
   check: z.object({
     packaging_ok:      z.boolean(),
     damage_ok:         z.boolean(),
@@ -612,8 +712,11 @@ export default async function purchasingRoutes(app) {
   })
 
   // ── Catalogue search for the order form (items not on the list) ──
+  // Items to add to an order (items someone sells); with ?all=1 also items
+  // without a supplier price (booking in what arrived but wasn't ordered).
   app.get('/venues/:venueId/catalog', { preHandler: canRead }, async req => {
     const search = String(req.query.search || '').trim().slice(0, 100)
+    const all = req.query.all === '1'
     const prices = await showPrices(req)
     return withTenant(req.tenantId, async tx => {
       const venue = await loadVenue(tx, req.tenantId, req.params.venueId)
@@ -622,8 +725,8 @@ export default async function purchasingRoutes(app) {
           FROM inv_items i LEFT JOIN inv_categories c ON c.id = i.category_id AND c.tenant_id = ${req.tenantId}
          WHERE i.tenant_id = ${req.tenantId} AND i.is_active
            ${search ? tx`AND (i.name ILIKE ${'%' + search + '%'} OR i.code ILIKE ${search + '%'})` : tx``}
-           AND EXISTS (SELECT 1 FROM inv_quotes q JOIN suppliers s ON s.id = q.supplier_id AND s.tenant_id = ${req.tenantId}
-                        WHERE q.item_id = i.id AND q.tenant_id = ${req.tenantId} AND q.is_active AND s.is_active)
+           ${all ? tx`` : tx`AND EXISTS (SELECT 1 FROM inv_quotes q JOIN suppliers s ON s.id = q.supplier_id AND s.tenant_id = ${req.tenantId}
+                        WHERE q.item_id = i.id AND q.tenant_id = ${req.tenantId} AND q.is_active AND s.is_active)`}
          ORDER BY lower(i.name)
          LIMIT 40
       `
@@ -1011,7 +1114,8 @@ export default async function purchasingRoutes(app) {
             INSERT INTO purchase_order_lines ${tx({
               tenant_id: req.tenantId, po_id: po.id, item_id: item.id, quote_id: q.id, item_name: item.name,
               category_name: item.category_name ?? null, storage: item.storage, base_unit: item.base_unit,
-              supplier_code: q.supplier_code ?? null, pack_label: packLabel(q), pack_base_qty: q.pack_base_qty,
+              supplier_code: q.supplier_code ?? null, product_name: q.product_name ?? null,
+              pack_label: packLabel(q), pack_base_qty: q.pack_base_qty,
               price: quotePrice(q, venue.id), vat_rate: q.vat_rate, qty: fitQty(a.qty, q), sort_order: sort++,
             })}
           `
@@ -1116,7 +1220,7 @@ export default async function purchasingRoutes(app) {
           INSERT INTO purchase_order_lines ${tx({
             tenant_id: req.tenantId, po_id: n.id, item_id: l.item_id, quote_id: l.quote_id, item_name: l.item_name,
             category_name: l.category_name, storage: l.storage, base_unit: l.base_unit, supplier_code: l.supplier_code,
-            pack_label: l.pack_label, pack_base_qty: l.pack_base_qty, price: l.price, vat_rate: l.vat_rate, qty,
+            product_name: l.product_name, pack_label: l.pack_label, pack_base_qty: l.pack_base_qty, price: l.price, vat_rate: l.vat_rate, qty,
             sort_order: l.sort_order,
           })}
         `
@@ -1151,26 +1255,122 @@ export default async function purchasingRoutes(app) {
 
   // Book a delivery in: what arrived per line, the checks and probe
   // temperatures. Writes (or updates) the venue's H&S delivery check for this
-  // order. Can be done again to correct it.
+  // order. Can be done again to correct it. With an invoice Pepper read
+  // (invoice_id), each line takes what the invoice said for it
+  // (invoice_idx: product, code, pack, price per pack ex VAT; people who see
+  // prices may correct the price), and `add` puts in lines for what arrived
+  // but wasn't ordered (ordered 0). An added line booked in again with 0
+  // received is taken off. The ordered prices and the order's totals never
+  // change; the price list changes only through /price-list.
   app.post('/pos/:id/receive', { preHandler: canOrderOrApprove }, async req => {
-    const b = ReceiveBody.parse(req.body || {})
+    const b = ReceiveBody.parse(req.body)
     const prices = await showPrices(req)
     return withTenant(req.tenantId, async tx => {
       const po = await ownPo(tx, req.tenantId, req.params.id, { lock: true })
       if (!['to_send', 'sent', 'received'].includes(po.status)) throw httpError(409, 'A cancelled order cannot be received')
       const venue = await loadVenue(tx, req.tenantId, po.venue_id)
       const [supplier] = await tx`SELECT name FROM suppliers WHERE id = ${po.supplier_id} AND tenant_id = ${req.tenantId}`
+      let invoice = null
+      if (b.invoice_id) {
+        ;[invoice] = await tx`SELECT id, lines FROM purchase_invoices WHERE id = ${b.invoice_id} AND po_id = ${po.id} AND tenant_id = ${req.tenantId}`
+        if (!invoice) throw httpError(404, 'Invoice not found for this order')
+      }
+      const invLine = idx => {
+        if (idx == null) return null
+        if (!invoice) throw httpError(422, 'Read the invoice first')
+        const l = (invoice.lines || [])[idx]
+        if (!l) throw httpError(422, 'That invoice line doesn\'t exist')
+        return l
+      }
+      // What the invoice said for a line: { invoice_* } columns to write, or {} to leave them.
+      const invoiceFields = (given, fallbackPrice) => {
+        if (!given || given.invoice_idx === undefined) {
+          return prices && given?.invoice_price !== undefined ? { invoice_price: given.invoice_price } : {}
+        }
+        if (given.invoice_idx === null) {
+          return { invoice_id: null, invoice_name: null, invoice_code: null, invoice_pack: null, invoice_price: null, invoice_vat_rate: null }
+        }
+        const il = invLine(given.invoice_idx)
+        const read = il.price_pack ?? fallbackPrice ?? null
+        return {
+          invoice_id: invoice.id, invoice_name: il.description, invoice_code: il.code ?? null, invoice_pack: il.pack_text ?? null,
+          invoice_price: prices && given.invoice_price !== undefined ? given.invoice_price : read,
+          invoice_vat_rate: il.vat_rate ?? null,
+          // The pack as invoiced, for adding it to the price list later.
+          ...(il.pack ? { pack_spec: tx.json({ name: 'pack', ...il.pack }) } : {}),
+        }
+      }
+
       const lines = await loadPoLines(tx, req.tenantId, po.id)
       const given = new Map(b.lines.map(l => [l.id, l]))
       for (const id of given.keys()) if (!lines.some(l => l.id === id)) throw httpError(404, 'Line not found')
 
+      // Lines for what arrived but wasn't ordered.
+      const added = []
+      if (b.add?.length) {
+        const itemIds = [...new Set(b.add.map(a => a.item_id))]
+        const items = await tx`
+          SELECT i.id, i.name, i.storage, i.base_unit, c.name AS category_name
+            FROM inv_items i LEFT JOIN inv_categories c ON c.id = i.category_id AND c.tenant_id = ${req.tenantId}
+           WHERE i.id = ANY(${itemIds}::uuid[]) AND i.tenant_id = ${req.tenantId}
+        `
+        const itemBy = new Map(items.map(i => [i.id, i]))
+        const quoteIds = [...new Set(b.add.map(a => a.quote_id).filter(Boolean))]
+        const { quotes } = await resolveQuotes(tx, req.tenantId, venue.id, itemIds)
+        const allQuotes = [...quotes.values()].flat()
+        const [{ n }] = await tx`SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM purchase_order_lines WHERE po_id = ${po.id} AND tenant_id = ${req.tenantId}`
+        let sort = Number(n)
+        for (const a of b.add) {
+          const item = itemBy.get(a.item_id)
+          if (!item) throw httpError(404, 'Item not found')
+          const il = a.invoice_idx != null ? invLine(a.invoice_idx) : null
+          let row
+          if (a.quote_id) {
+            const q = allQuotes.find(x => x.id === a.quote_id)
+            if (!q || !quoteIds.includes(q.id) || q.item_id !== item.id) throw httpError(404, 'Supplier price not found for ' + item.name)
+            if (q.supplier_id !== po.supplier_id) throw httpError(422, 'That product is not from this supplier')
+            row = {
+              quote_id: q.id, supplier_code: q.supplier_code ?? null, product_name: q.product_name ?? null,
+              pack_label: packLabel(q), pack_base_qty: q.pack_base_qty, price: quotePrice(q, venue.id), vat_rate: q.vat_rate,
+              pack_spec: null,
+            }
+          } else {
+            const spec = a.pack || (il?.pack ? { name: 'pack', ...il.pack } : null)
+            if (!spec) throw httpError(422, 'Say how ' + item.name + ' came packed')
+            const p = { pack_name: spec.name || 'pack', pack_count: spec.count ?? 1, pack_qty: spec.qty, pack_unit: spec.unit }
+            const pbq = packBaseQty(p, item.base_unit)
+            if (!pbq) throw httpError(422, `A ${spec.unit} pack doesn't fit ${item.name}, which is counted in ${item.base_unit === 'each' ? 'each' : item.base_unit}`)
+            row = {
+              quote_id: null, supplier_code: il?.code ?? null, product_name: il?.description ?? null,
+              pack_label: packLabel(p), pack_base_qty: pbq, price: il?.price_pack ?? 0, vat_rate: il?.vat_rate ?? 0,
+              pack_spec: tx.json({ name: p.pack_name, count: p.pack_count, qty: p.pack_qty, unit: p.pack_unit }),
+            }
+          }
+          const [ins] = await tx`
+            INSERT INTO purchase_order_lines ${tx({
+              tenant_id: req.tenantId, po_id: po.id, item_id: item.id, item_name: item.name,
+              category_name: item.category_name ?? null, storage: item.storage, base_unit: item.base_unit,
+              ...invoiceFields(a, row.price), ...row, qty: 0, added_on_receipt: true, sort_order: sort++,
+            })}
+            RETURNING id
+          `
+          added.push({ id: ins.id, given: a })
+        }
+      }
+
       const c = b.check
-      const received = lines.map(l => {
-        const g = given.get(l.id)
-        const qty = g ? g.received_qty : Number(l.qty)
-        return { ...l, received_qty: qty, receive_status: g?.status || receiveStatusFor(l.qty, qty), receive_note: g?.note ?? null }
+      const all = await loadPoLines(tx, req.tenantId, po.id)
+      const addedBy = new Map(added.map(x => [x.id, x.given]))
+      const received = all.map(l => {
+        const g = given.get(l.id) || addedBy.get(l.id)
+        const qty = g ? g.received_qty : (l.added_on_receipt ? Number(l.received_qty ?? 0) : Number(l.qty))
+        return { ...l, received_qty: qty, receive_status: g?.status || receiveStatusFor(l.qty, qty), receive_note: g?.note ?? null, g }
       })
-      const arrived = received.filter(l => l.received_qty > 0)
+      // An added line with nothing received is taken off again.
+      const dropped = received.filter(l => l.added_on_receipt && !(l.received_qty > 0))
+      for (const l of dropped) await tx`DELETE FROM purchase_order_lines WHERE id = ${l.id} AND tenant_id = ${req.tenantId}`
+      const kept = received.filter(l => !dropped.includes(l))
+      const arrived = kept.filter(l => l.received_qty > 0)
       const hasChilled = arrived.some(l => l.storage === 'chilled')
       const hasFrozen = arrived.some(l => l.storage === 'frozen')
       if (hasChilled && c.chilled_temp_c == null) throw httpError(422, 'Enter the temperature of the chilled goods')
@@ -1179,10 +1379,10 @@ export default async function purchasingRoutes(app) {
       const frozen = hasFrozen ? c.frozen_temp_c : null
       const tempOk = deliveryTempOk('chilled', chilled) && deliveryTempOk('frozen', frozen)
 
-      for (const l of received) {
+      for (const l of kept) {
+        const inv = addedBy.has(l.id) ? {} : invoiceFields(given.get(l.id), Number(l.price))
         await tx`
-          UPDATE purchase_order_lines SET received_qty = ${l.received_qty}, receive_status = ${l.receive_status},
-                 receive_note = ${l.receive_note}
+          UPDATE purchase_order_lines SET ${tx({ received_qty: l.received_qty, receive_status: l.receive_status, receive_note: l.receive_note, ...inv })}
            WHERE id = ${l.id} AND tenant_id = ${req.tenantId}
         `
       }
@@ -1192,16 +1392,25 @@ export default async function purchasingRoutes(app) {
                receive_notes = ${b.notes ?? null}, updated_at = now()
          WHERE id = ${po.id} AND tenant_id = ${req.tenantId}
       `
+      if (invoice) {
+        await tx`
+          UPDATE purchase_invoices SET applied_at = now(), applied_by = ${by(req)}
+           WHERE id = ${invoice.id} AND tenant_id = ${req.tenantId}
+        `
+      }
 
+      const ordered = kept.filter(l => !l.added_on_receipt)
       const items = arrived.map(l => ({
         name: l.item_name, qty: l.received_qty, unit: l.pack_label, category: l.category_name ?? null,
-        ordered: Number(l.qty), status: l.receive_status,
+        ordered: Number(l.qty), status: l.receive_status, ...(l.added_on_receipt ? { added: true } : {}),
         ...(l.storage === 'chilled' ? { temp_c: chilled } : l.storage === 'frozen' ? { temp_c: frozen } : {}),
       }))
-      const problems = received.filter(l => l.receive_status !== 'ok')
+      const problems = ordered.filter(l => l.receive_status !== 'ok')
+      const extra = kept.filter(l => l.added_on_receipt)
       const summary = [
-        `${poNumberLabel(po.number)}: ${arrived.length} of ${lines.length} line${lines.length === 1 ? '' : 's'} delivered`,
+        `${poNumberLabel(po.number)}: ${ordered.filter(l => l.received_qty > 0).length} of ${ordered.length} line${ordered.length === 1 ? '' : 's'} delivered`,
         ...problems.map(l => `${l.item_name}: ${RECEIVE_STATUSES.find(s => s.key === l.receive_status)?.label ?? l.receive_status}${l.receive_note ? ` (${l.receive_note})` : ''}`),
+        ...extra.map(l => `Not ordered, arrived: ${fmtNum(l.received_qty)} × ${l.item_name}${l.receive_note ? ` (${l.receive_note})` : ''}`),
         b.notes || null,
       ].filter(Boolean).join('\n')
       const check = {
@@ -1222,6 +1431,90 @@ export default async function purchasingRoutes(app) {
         await tx`INSERT INTO fs_delivery_checks ${tx({ ...check, tenant_id: req.tenantId, venue_id: po.venue_id, purchase_order_id: po.id })}`
       }
       return poDetail(tx, req.tenantId, po.id, prices)
+    })
+  })
+
+  // Update the supplier price list from a received order's invoice prices
+  // (the rows poDetail's price_list offers): company: the supplier price
+  // takes the invoice price; venue: this venue's own price does; add: a new
+  // supplier price for the line's item (a new product, or the substitute the
+  // supplier sent), with the invoice's product name, code, pack and price.
+  // usual makes the new price the one ordered at this venue / everywhere.
+  // Price history records each change as from the invoice.
+  app.post('/pos/:id/price-list', { preHandler: canSetup }, async req => {
+    const b = PriceListBody.parse(req.body || {})
+    return withTenant(req.tenantId, async tx => {
+      const po = await ownPo(tx, req.tenantId, req.params.id, { lock: true })
+      const lines = await loadPoLines(tx, req.tenantId, po.id)
+      const lineBy = new Map(lines.map(l => [l.id, l]))
+      const who = by(req)
+      const history = (quoteId, venueId, price) => tx`
+        INSERT INTO inv_price_history (tenant_id, quote_id, venue_id, price, changed_by, source, po_id)
+        VALUES (${req.tenantId}, ${quoteId}, ${venueId}, ${price}, ${who}, 'invoice', ${po.id})
+      `
+      for (const ch of b.changes) {
+        const l = lineBy.get(ch.line_id)
+        if (!l) throw httpError(404, 'Line not found')
+        if (l.invoice_price == null) throw httpError(422, `${l.item_name} has no invoice price`)
+        const price = Number(l.invoice_price)
+        if (ch.action === 'company' || ch.action === 'venue') {
+          if (!l.quote_id) throw httpError(422, `${l.item_name} has no supplier price to update: add it instead`)
+          const [q] = await tx`SELECT id FROM inv_quotes WHERE id = ${l.quote_id} AND tenant_id = ${req.tenantId}`
+          if (!q) throw httpError(404, 'Supplier price not found')
+          if (ch.action === 'company') {
+            await tx`UPDATE inv_quotes SET price = ${price}, updated_at = now() WHERE id = ${q.id} AND tenant_id = ${req.tenantId}`
+            await history(q.id, null, price)
+          } else {
+            await tx`
+              INSERT INTO inv_quote_venue_prices (quote_id, venue_id, tenant_id, price)
+              VALUES (${q.id}, ${po.venue_id}, ${req.tenantId}, ${price})
+              ON CONFLICT (quote_id, venue_id) DO UPDATE SET price = EXCLUDED.price
+            `
+            await history(q.id, po.venue_id, price)
+          }
+          continue
+        }
+        // add
+        if (!l.item_id) throw httpError(422, `${l.item_name} isn't linked to an inventory item`)
+        const [item] = await tx`SELECT id, name, base_unit FROM inv_items WHERE id = ${l.item_id} AND tenant_id = ${req.tenantId}`
+        if (!item) throw httpError(404, 'Item not found')
+        let spec = ch.pack || l.pack_spec
+        if (!spec && l.quote_id) {
+          const [oq] = await tx`
+            SELECT pack_name AS name, pack_count::float8 AS count, pack_qty::float8 AS qty, pack_unit AS unit
+              FROM inv_quotes WHERE id = ${l.quote_id} AND tenant_id = ${req.tenantId}
+          `
+          spec = oq || null
+        }
+        if (!spec) throw httpError(422, `Say how ${item.name} comes packed`)
+        const p = { pack_name: spec.name || 'pack', pack_count: spec.count ?? 1, pack_qty: spec.qty, pack_unit: spec.unit }
+        const pbq = packBaseQty(p, item.base_unit)
+        if (!pbq) throw httpError(422, `A ${spec.unit} pack doesn't fit ${item.name}, which is counted in ${item.base_unit === 'each' ? 'each' : item.base_unit}`)
+        const code = ch.supplier_code !== undefined ? ch.supplier_code : (l.invoice_code ?? null)
+        const productName = ch.product_name !== undefined ? ch.product_name : (l.invoice_name ?? null)
+        const [dupe] = await tx`
+          SELECT id FROM inv_quotes
+           WHERE tenant_id = ${req.tenantId} AND item_id = ${item.id} AND supplier_id = ${po.supplier_id}
+             AND ${code ? tx`lower(supplier_code) = lower(${code})` : tx`supplier_code IS NULL AND lower(COALESCE(product_name, '')) = lower(${productName || ''}) AND abs(pack_base_qty - ${pbq}) < 0.0001`}
+        `
+        if (dupe) throw httpError(409, `${item.name} already has this price from the supplier: update it instead`)
+        const [q] = await tx`
+          INSERT INTO inv_quotes ${tx({
+            tenant_id: req.tenantId, item_id: item.id, supplier_id: po.supplier_id, supplier_code: code, product_name: productName,
+            ...p, pack_base_qty: pbq, price, vat_rate: ch.vat_rate ?? l.invoice_vat_rate ?? Number(l.vat_rate) ?? 0,
+          })}
+          RETURNING id
+        `
+        await history(q.id, null, price)
+        // The line now points at what actually came (a substitute's own price).
+        await tx`UPDATE purchase_order_lines SET quote_id = ${q.id} WHERE id = ${l.id} AND tenant_id = ${req.tenantId}`
+        if (ch.usual) {
+          const venueId = ch.usual === 'venue' ? po.venue_id : null
+          await tx`DELETE FROM inv_preferred WHERE item_id = ${item.id} AND tenant_id = ${req.tenantId} AND venue_id IS NOT DISTINCT FROM ${venueId}`
+          await tx`INSERT INTO inv_preferred (tenant_id, item_id, venue_id, quote_id) VALUES (${req.tenantId}, ${item.id}, ${venueId}, ${q.id})`
+        }
+      }
+      return poDetail(tx, req.tenantId, po.id, true)
     })
   })
 

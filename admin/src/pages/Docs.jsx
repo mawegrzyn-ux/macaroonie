@@ -1358,6 +1358,20 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               (<Mono>CashRecon.jsx</Mono>'s <Mono>ExpensesSection</Mono> and{' '}
               <Mono>MobileExpenses.jsx</Mono>'s <Mono>ExpenseModal</Mono>).
             </P>
+            <H3>Reading a receipt (migration 197)</H3>
+            <P>
+              The expense forms (<Mono>ExpensesSection</Mono> in <Mono>CashRecon.jsx</Mono>,{' '}
+              <Mono>ExpenseModal</Mono> in <Mono>MobileExpenses.jsx</Mono>) show{' '}
+              <Mono>ReadReceiptButton</Mono> (<Mono>components/cashRecon/ReceiptRead.jsx</Mono>) when Pepper
+              can be used: the photo or PDF goes to <Mono>POST /api/ai/receipts/read</Mono>{' '}
+              (<Mono>services/receiptReadAi.js</Mono>, effort low, the venue's active expense category names
+              sent along), which returns the form's fields; <Mono>applyReceipt()</Mono> lays them over the form
+              and the photo becomes the pending receipt (uploaded by the usual receipt route on save). VAT is
+              kept only when printed and not above the total; a category only when Pepper names one of the
+              venue's exactly. <Mono>ReceiptNote</Mono> says when the receipt has another date; the phone
+              form can create the expense on that day (<Mono>onSave(body, photo, date)</Mono>). Nothing is saved
+              by reading.
+            </P>
             <H3>Expense paid by card (migration 100)</H3>
             <P>
               <Mono>cash_expenses.paid_by_card</Mono> (boolean, default false) marks an expense
@@ -2961,14 +2975,15 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['inv_items', 'name, category, base_unit (g | ml | each), storage (ambient | chilled | frozen), code, notes, is_active. No price.'],
                 ['suppliers', 'Contact, email + cc_emails, account_ref, send_method (email | print | excel | pdf), email_attachment (none | pdf | excel), cutoff_time, lead_days, delivery_days int[] (0 = Sunday), min_order, delivery_charge.'],
                 ['supplier_venues', 'Per-venue account_ref, delivery_days, cutoff_time; null = the supplier\'s own.'],
-                ['inv_quotes', 'An item as one supplier sells it: supplier_code, pack_name, pack_count x pack_qty pack_unit, pack_base_qty (base units per pack, computed by packBaseQty()), price per pack ex VAT, vat_rate, min_qty, order_multiple, is_active. Several per supplier allowed.'],
+                ['inv_quotes', 'An item as one supplier sells it: supplier_code, product_name (the supplier\'s own name or brand, migration 197; copied onto PO lines and printed on the supplier\'s copy), pack_name, pack_count x pack_qty pack_unit, pack_base_qty (base units per pack, computed by packBaseQty()), price per pack ex VAT, vat_rate, min_qty, order_multiple, is_active. Several per supplier allowed (two brands = two quotes).'],
                 ['inv_quote_venue_prices', 'A venue\'s own price for a quote.'],
-                ['inv_price_history', 'Every price a quote had (venue_id null = company price), source manual | import.'],
+                ['inv_price_history', 'Every price a quote had (venue_id null = company price), source manual | import | invoice; po_id for a change made from a delivery\'s invoice (migration 197).'],
                 ['inv_preferred', 'Chosen quote per item: venue_id null = company default, else per venue. Partial unique indexes.'],
                 ['order_lists / order_list_venues / order_list_items / order_list_pars', 'Mixed-supplier lists, the venues on each, items in order, par per venue in BASE units (so a pack change keeps it).'],
                 ['supply_orders / supply_order_lines', 'A venue filling in a list: draft, requested (waiting for approval, migration 180) or submitted. requested_by / requested_at, requested_lines ({ item_id: { qty, quote_id } }: what was asked for), supplier_options ({ supplier_id: { delivery_date, notes } } wanted), returned_by / returned_at / return_note (last sent back), split_from. Lines keep qty in packs of quote_id (null = the resolved choice).'],
                 ['purchase_orders', 'One per supplier per submitted order. number (per tenant, PO-00012), status to_send | sent | received | cancelled, delivery_date, totals, sent_at/by/via/to, send_error, received_at/by, is_generated; requested_by (who asked, when it went through approval), amended_at / amended_by (changed after sending: a split), split_from (migration 180).'],
-                ['purchase_order_lines', 'Copies of name, category, storage, pack label, pack_base_qty, price, VAT at ordering time; qty; received_qty, receive_status, receive_note.'],
+                ['purchase_order_lines', 'Copies of name, category, storage, product_name, pack label, pack_base_qty, price, VAT at ordering time; qty; received_qty, receive_status, receive_note. Migration 197: invoice_id, invoice_name, invoice_code, invoice_pack, invoice_price (per pack ex VAT), invoice_vat_rate (what the invoice said); added_on_receipt (arrived but not ordered: qty 0, the qty CHECK allows 0 only for these); pack_spec { name, count, qty, unit } (the pack as invoiced, for adding it to the price list).'],
+                ['purchase_invoices', 'An invoice read by Pepper while booking in (migration 197, forced RLS): po_id, files [{ name, url, media_type, bytes }] (storage kind invoices), supplier_name, invoice_number, invoice_date, prices_include_vat, subtotal, vat, delivery_charge, total, lines (jsonb, toInvoice() output), notes, read_by / read_at, applied_by / applied_at (set when a receive uses it).'],
                 ['fs_delivery_checks.purchase_order_id', 'The H&S delivery check written by receiving (unique per PO).'],
               ]}
             />
@@ -3063,6 +3078,41 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               (name, qty received, pack, category, ordered, status, temp_c by storage),{' '}
               <Mono>product_temp_c</Mono> = chilled else frozen, <Mono>temp_ok</Mono>, and a notes summary, so
               the Food safety page, the H&S status tiles and the AI tools see it like any other delivery.
+            </P>
+            <H3>Invoices on receiving (migration 197)</H3>
+            <P>
+              <Mono>POST /api/ai/invoices/read</Mono> (<Mono>routes/documentRead.js</Mono>; Purchasing or
+              Purchasing approval manage + <Mono>ai_assistant</Mono> view, Pepper on) takes the PO and up to 6
+              photos / PDFs. <Mono>services/invoiceReadAi.js</Mono> sends them to the main model with the
+              order's lines as refs <Mono>L1..</Mono> and the supplier's other active quotes as{' '}
+              <Mono>C1..</Mono> (up to 300), structured output <Mono>INVOICE_SCHEMA</Mono>, through{' '}
+              <Mono>askForJson()</Mono> (<Mono>services/aiJson.js</Mono>: allowance and daily share checked,
+              usage counted). <Mono>toInvoice()</Mono> turns refs back into ids (a ref not on the lists is
+              ignored), matches lines Pepper left unmatched by supplier code then exact name, converts prices
+              to ex VAT when the invoice includes it, and gives each line <Mono>qty_packs</Mono> /{' '}
+              <Mono>price_pack</Mono> in the matched pack. The files are stored and the reading saved in{' '}
+              <Mono>purchase_invoices</Mono>; the response hides prices without <Mono>purchasing_setup</Mono>{' '}
+              view (<Mono>invoiceView()</Mono>).
+            </P>
+            <P>
+              The receive body gains <Mono>invoice_id</Mono>, per line <Mono>invoice_idx</Mono> (null clears the
+              invoice fields) and <Mono>invoice_price</Mono> (taken only from people who see prices; otherwise
+              the reading's price is used), and <Mono>add[]</Mono>: <Mono>{'{ item_id, quote_id | pack, received_qty, invoice_idx, invoice_price, status, note }'}</Mono>,
+              lines with ordered qty 0 (<Mono>added_on_receipt</Mono>). An added line booked in again with 0 is
+              deleted. Ordered prices and PO totals never change. The PO detail returns{' '}
+              <Mono>invoices</Mono> (applied, without lines) and, for price viewers, <Mono>price_list</Mono>{' '}
+              (<Mono>priceListRows()</Mono>: kind <Mono>price</Mono> = the line's quote differs from the invoice
+              at this venue, <Mono>new</Mono> = no quote, <Mono>product</Mono> = a substitute whose code or name
+              differs from the ordered quote's). <Mono>POST /pos/:id/price-list</Mono> (Purchasing setup manage):{' '}
+              <Mono>company</Mono> sets the quote's price, <Mono>venue</Mono> the venue price,{' '}
+              <Mono>add</Mono> makes a quote for the line's item (product name, code, pack from the body, else
+              the invoice, else the ordered quote's pack; refused if the supplier already has it) and points
+              the line at it, <Mono>usual</Mono> venue | company sets <Mono>inv_preferred</Mono>; history source{' '}
+              <Mono>invoice</Mono> with <Mono>po_id</Mono>. The supplier's copy (<Mono>documentData()</Mono>)
+              leaves added lines out. Admin: <Mono>components/purchasing/invoice.jsx</Mono> (InvoiceReader,
+              readingToForm(), ExtrasSection, PriceListModal, InvoiceList) used by ReceiveForm and PoDetail;{' '}
+              <Mono>GET /purchasing/venues/:id/catalog?all=1</Mono> also lists items without a supplier price.
+              Tests: <Mono>api/test/invoice-reading.test.mjs</Mono>.
             </P>
             <H3>Permissions and prices</H3>
             <P>
@@ -5048,6 +5098,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['POST /api/ai/themes', 'The theme maker: { target, prompt, image, palette, current, like, count } -> { kits, notes }. ai_assistant view + Manage on the target\'s page; counts like a chat. See Website CMS -> Theme maker.'],
                 ['POST /api/ai/menus/read', 'Photos or a PDF of a menu (multipart, up to 10 files) -> { menu, notes } to review; nothing saved. Menus manage + ai_assistant view; counts like a chat. See Menus -> Reading a menu from files.'],
                 ['POST /api/ai/menus/import', 'The reviewed menu -> an unpublished menu through createMenuFromSections() (Pepper\'s create_menu plan, up to 600 dishes). Menus manage.'],
+                ['POST /api/ai/invoices/read', 'A supplier invoice while booking a delivery in: { po_id, files } -> { invoice, catalogue }; the files and reading kept in purchase_invoices. Purchasing or Purchasing approval manage + ai_assistant view. See Purchasing -> Invoices on receiving.'],
+                ['POST /api/ai/receipts/read', 'A petty cash receipt: { venue_id, file } -> { merchant, description, date, amount, vat_amount, paid_by_card, category_id, notes }; nothing saved. Cash reconciliation manage + ai_assistant view (services/receiptReadAi.js). See Cash Reconciliation.'],
                 ['POST /api/ai/store-openings/wizard, /:id/describe', 'The venue setup wizard: a draft without Pepper; Pepper filling the steps from a description. See New locations.'],
                 ['GET/DELETE /api/ai/conversations[/:id], POST /api/ai/chat', 'The caller\'s own chats (user_sub); the list and a chat carry closed (erased, read only), a chat also running (a turn or card holds it). chat { conversation_id?, message, attachments?, page? } returns the whole conversation as display items plus stop_reason and notice; with Accept: text/event-stream it streams (see Streaming above). conversation_id null = a new chat\'s only message was refused and the chat removed. 409 while another turn or a card holds the chat, or when it is closed.'],
                 ['POST /api/ai/attachments, GET/DELETE /api/ai/attachments/:id', 'Upload one file (multipart field file) -> { id, name, kind, media_type, bytes }; the file itself, uploader only; remove an unsent upload. See Attached files above.'],

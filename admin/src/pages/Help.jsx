@@ -1270,6 +1270,13 @@ export default function Help() {
               The same form is available on your phone under <strong>/mobile → Expenses</strong>.
             </P>
             <P>
+              With Pepper switched on, <strong>Photograph the receipt</strong> at the top of the form fills it in
+              for you: Pepper reads the shop and what was bought, the total paid, the VAT (only when the receipt
+              prints it), whether it was paid by card, and picks the venue's category that fits. The photo becomes
+              the expense's receipt. Check the figures and save as usual. If the receipt has another date, the
+              form says so; on the phone a new expense can go on that day instead.
+            </P>
+            <P>
               If an expense was paid with a card rather than cash from the till, tick{' '}
               <strong>Paid by card</strong> on the expense. It's still recorded, with its receipt
               and VAT, and shows a small <strong>Card</strong> tag in the list. But it's left out
@@ -4364,7 +4371,7 @@ export default function Help() {
               rows={[
                 ['Search the inventory', 'Purchasing setup', 'Each item with its supplier prices (pack, price ex VAT, price per kg, litre or each), venue prices, which supplier is chosen, and recent price changes.'],
                 ['Add or change items', 'Purchasing setup', 'Name, category, storage, code, notes, switch off. A new item can come with its first supplier prices.'],
-                ['Add or change supplier prices', 'Purchasing setup', 'Price per pack, pack, VAT, supplier code, minimum and steps, a venue\'s own price, and which supplier an item is ordered from (for every venue or one).'],
+                ['Add or change supplier prices', 'Purchasing setup', 'Price per pack, pack, VAT, supplier code, the supplier\'s product name (a brand), minimum and steps, a venue\'s own price, and which supplier an item is ordered from (for every venue or one).'],
                 ['Add or change suppliers', 'Purchasing setup', 'Contact details, how orders reach them, cutoff, delivery days, minimum order, delivery charge, and one venue\'s own account number, days or cutoff.'],
                 ['Make and change order lists, set pars', 'Purchasing setup', 'Pars are in packs unless you give kg, litres or each.'],
                 ['Import a price list', 'Purchasing setup', 'Attach a CSV with the import headings, or a PDF, photo or email of the supplier\'s list: Pepper reads the products out of it. The card shows what would be added and changed, and any rows it would skip, before anything is saved.'],
@@ -4742,13 +4749,21 @@ export default function Help() {
               ]}
             />
             <P>
+              A supplier price can carry the <strong>supplier's product name</strong>: what the supplier calls
+              it when that isn't just the item's name, such as a brand (item <em>Ketchup</em>, supplier price{' '}
+              <em>Heinz Tomato Ketchup</em>). Staff still order <em>Ketchup</em>; the product name shows under
+              it on the order form and is what the supplier sees on their copy of the order. For two brands from
+              the same supplier, give each its own supplier price with its own product name: staff pick between
+              them by tapping the pack, and the star decides which is ordered normally.
+            </P>
+            <P>
               <strong>Venue prices</strong> on a supplier price set what one venue pays when it differs from
-              the company price. Every price change (by hand or by import) is kept: tap{' '}
+              the company price. Every price change (by hand, by import or from an invoice) is kept: tap{' '}
               <strong>History</strong> to see them.
             </P>
             <InfoBox type="tip">
               <strong>Import</strong> loads a whole price list from a CSV or Excel file (download the template
-              for the headings): new items, suppliers and categories are added, existing prices updated.
+              for the headings, including Product name): new items, suppliers and categories are added, existing prices updated.
               Check file shows what would change first; rows with a problem are listed and skipped.
             </InfoBox>
             <P>
@@ -4838,6 +4853,50 @@ export default function Help() {
             <P>
               The two purchase orders link to each other (Split off / Part moved to), and the second one's copy
               tells the supplier which order it was split from.
+            </P>
+
+            <H3>8. Reading the invoice when a delivery comes</H3>
+            <P>
+              In <strong>Book in delivery</strong>, photograph the supplier's invoice or delivery note (or choose
+              photos or a PDF of it) and tap <strong>Read it with Pepper</strong>. Pepper reads every line and
+              matches it to what was ordered, or to another product you buy from that supplier; then the form
+              fills itself in. Check each line before saving: nothing is saved until you tap Save.
+            </P>
+            <DataTable
+              head={['On the invoice', 'What the form does']}
+              rows={[
+                ['A line that was ordered', 'Sets how many arrived (fewer marks it Short) and shows the line as invoiced. People who see prices get the invoice price per pack, with how much it differs from the ordered price, and can correct it.'],
+                ['Something else instead of what was ordered', 'Marks the ordered line Substituted, with what came instead.'],
+                ['Not ordered, but one of the supplier\'s products', 'Listed under On the invoice, not ordered, set to Add it: it is booked in as arrived.'],
+                ['Not ordered and not recognised', 'Listed there too, waiting for you: Add it (pick the inventory item, then one of the supplier\'s packs or the pack as invoiced; with Purchasing setup you can make a new inventory item), Came instead (of an ordered line), or Leave out. Save waits until each one is decided.'],
+                ['An ordered line not on the invoice', 'Marked Not on the invoice: check it arrived.'],
+                ['Delivery charges, deposits, discounts', 'Shown under the summary (prices only).'],
+              ]}
+            />
+            <P>
+              If Pepper matched a line wrongly, tap <strong>Not this line</strong> under it: the invoice line moves
+              to the list below to be decided again. The order keeps the prices it was placed at; the invoice's
+              prices are kept beside them. The invoice files stay with the order (Invoice, on the order's page),
+              and the supplier's copy of the order still shows only what was ordered.
+            </P>
+
+            <H3>9. Updating the price list from an invoice</H3>
+            <P>
+              With Purchasing setup (Manage), saving a delivery whose invoice differs from the price list asks{' '}
+              <strong>Update the price list from the invoice</strong>; the same button stays on the order's page
+              until nothing differs.
+            </P>
+            <DataTable
+              head={['Line', 'Choices']}
+              rows={[
+                ['A price that changed', 'Everywhere (the supplier price), this venue only (its own venue price), or Keep.'],
+                ['A product not in the price list', 'Add to price list: the supplier\'s product name, code and pack come from the invoice and can be changed. Optionally make it the one ordered from now on, at this venue or everywhere.'],
+                ['A substitute', 'Just this time, or add it as another product for the same item (another brand from that supplier).'],
+              ]}
+            />
+            <P>
+              Each change shows in the price's History as from the invoice. Updating needs Purchasing setup; staff
+              who book deliveries in without it still record the invoice prices for a manager to look at.
             </P>
             <InfoBox type="info">
               All of this can also be done by chat with Pepper (Ask Pepper): ordering, booking deliveries

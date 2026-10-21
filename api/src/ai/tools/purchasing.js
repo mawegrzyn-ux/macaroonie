@@ -97,7 +97,7 @@ function priceText(q, price, baseUnit, cur) {
 }
 
 const quoteLabel = q => q.pack_label || packLabel(q)
-const quoteName = q => q.supplier_name + ', ' + quoteLabel(q) + (q.supplier_code ? ' [' + q.supplier_code + ']' : '')
+const quoteName = q => q.supplier_name + ', ' + (q.product_name ? q.product_name + ', ' : '') + quoteLabel(q) + (q.supplier_code ? ' [' + q.supplier_code + ']' : '')
 
 function parseDays(names) {
   if (names === null || names === undefined) return names
@@ -229,13 +229,13 @@ function pickQuote(itemName, quotes, supplierText, which) {
     const w = String(which).trim().toLowerCase()
     const words = w.split(/[^a-z0-9.]+/).filter(Boolean)
     const hits = pool.filter(q => q.id === which || (q.supplier_code || '').toLowerCase() === w ||
-      words.every(x => quoteLabel(q).toLowerCase().replace(/×/g, 'x').includes(x)))
+      words.every(x => ((q.product_name || '') + ' ' + quoteLabel(q)).toLowerCase().replace(/×/g, 'x').includes(x)))
     if (!hits.length) throw new ToolError('No price for ' + itemName + ' matches "' + which + '". Its prices: ' + pool.map(quoteName).join('; ') + '.', 404)
     pool = hits
   }
   if (pool.length === 1) return pool[0]
   throw new ToolError(itemName + ' has several prices' + (supplierText ? ' from ' + pool[0].supplier_name : '') + ': ' +
-    pool.map(quoteName).join('; ') + '. Say which one (supplier, supplier code or pack).', 409)
+    pool.map(quoteName).join('; ') + '. Say which one (supplier, supplier code, product name or pack).', 409)
 }
 
 function itemView(it, { venue, venueName, cur }) {
@@ -259,6 +259,7 @@ function itemView(it, { venue, venueName, cur }) {
         quote_id: q.id,
         supplier: q.supplier_name + (q.supplier_active === false ? ' (supplier switched off)' : ''),
         ...(q.supplier_code ? { supplier_code: q.supplier_code } : {}),
+        ...(q.product_name ? { product_name: q.product_name } : {}),
         pack: packLabel(q),
         price: priceText(q, venue ? quotePrice(q, venue.id) : q.price, it.base_unit, cur),
         vat: fmtNum(q.vat_rate) + '%',
@@ -351,6 +352,7 @@ const PriceFields = {
   price:          z.number().min(0).max(10000000).describe('Price per pack, ex VAT'),
   vat_rate:       z.number().min(0).max(100).optional().describe('VAT %, default 0'),
   supplier_code:  z.string().max(100).optional().describe('The supplier\'s product code'),
+  product_name:   z.string().max(200).optional().describe('The supplier\'s own name for it when it differs from the item, e.g. a brand ("Heinz Tomato Ketchup")'),
   min_qty:        z.number().positive().max(100000).optional().describe('Fewest packs per order'),
   order_multiple: z.number().positive().max(100000).optional().describe('Packs are ordered in steps of this'),
 }
@@ -360,6 +362,7 @@ function quoteBody(p, supplierId) {
   return {
     supplier_id: supplierId,
     ...(p.supplier_code ? { supplier_code: p.supplier_code } : {}),
+    ...(p.product_name ? { product_name: p.product_name } : {}),
     ...(p.pack_name ? { pack_name: p.pack_name } : {}),
     pack_count: p.pack_count ?? 1,
     pack_qty: p.pack_size,
@@ -385,7 +388,7 @@ function priceLines(p, supplierName, baseUnit, cur) {
   const spec = specOf(p)
   const pb = packBaseQty(spec, baseUnit)
   return [
-    supplierName + ': ' + packLabel(spec) + ' at ' + priceText({ pack_base_qty: pb }, p.price, baseUnit, cur) +
+    supplierName + ': ' + (p.product_name ? p.product_name + ', ' : '') + packLabel(spec) + ' at ' + priceText({ pack_base_qty: pb }, p.price, baseUnit, cur) +
       ', VAT ' + fmtNum(p.vat_rate ?? 0) + '%' + (p.supplier_code ? ', code ' + p.supplier_code : ''),
     ...(p.min_qty || p.order_multiple
       ? ['  ' + [p.min_qty ? 'minimum ' + fmtNum(p.min_qty) + ' packs' : null, p.order_multiple ? 'in steps of ' + fmtNum(p.order_multiple) : null].filter(Boolean).join(', ')]
@@ -401,9 +404,9 @@ async function tenantCurrency(ctx) {
 // ── Import ─────────────────────────────────────────────────
 
 const IMPORT_HEADINGS = ['Item', 'Category', 'Base unit', 'Storage', 'Item code', 'Supplier', 'Supplier code',
-  'Pack', 'Pack count', 'Pack size', 'Pack unit', 'Price', 'VAT %']
+  'Product name', 'Pack', 'Pack count', 'Pack size', 'Pack unit', 'Price', 'VAT %']
 const IMPORT_KEYS = ['item', 'category', 'counted_in', 'storage', 'item_code', 'supplier', 'supplier_code',
-  'pack', 'pack_count', 'pack_size', 'pack_unit', 'price', 'vat']
+  'product_name', 'pack', 'pack_count', 'pack_size', 'pack_unit', 'price', 'vat']
 
 const ImportRow = z.object({
   item:          z.string().min(1).max(200),
@@ -413,6 +416,7 @@ const ImportRow = z.object({
   item_code:     z.string().max(60).optional(),
   supplier:      z.string().max(200).optional().describe('Leave out to add the item with no price'),
   supplier_code: z.string().max(100).optional(),
+  product_name:  z.string().max(200).optional().describe('The supplier\'s own name or brand, when it differs from the item'),
   pack:          z.string().max(60).optional().describe('Case, Box, Bag ...'),
   pack_count:    z.number().positive().max(100000).optional(),
   pack_size:     z.number().positive().max(10000000).optional(),
@@ -1171,6 +1175,7 @@ export const purchasingTools = [
       pack_size:      z.number().positive().max(10000000).optional(),
       pack_unit:      PackUnit.optional(),
       supplier_code:  z.string().max(100).nullable().optional(),
+      product_name:   z.string().max(200).nullable().optional().describe('The supplier\'s own name or brand; null clears it'),
       min_qty:        z.number().positive().max(100000).nullable().optional(),
       order_multiple: z.number().positive().max(100000).nullable().optional(),
       active:         z.boolean().optional(),
@@ -2098,7 +2103,8 @@ async function newPricePlan(ctx, input) {
   const pb = checkFits(specOf(input), item.base_unit, item.name)
   const same = item.quotes.find(q => q.supplier_id === sup.id && (input.supplier_code
     ? (q.supplier_code || '').toLowerCase() === input.supplier_code.toLowerCase()
-    : !q.supplier_code && Math.abs(Number(q.pack_base_qty) - pb) < 1e-6))
+    : !q.supplier_code && Math.abs(Number(q.pack_base_qty) - pb) < 1e-6
+      && (q.product_name || '').toLowerCase() === (input.product_name || '').toLowerCase()))
   if (same) {
     throw new ToolError(item.name + ' already has this price from ' + sup.name + ' (' + quoteName(same) + ' at ' +
       money(same.price, venues[0]?.currency) + '). Change it with update_supplier_price.', 409)
@@ -2151,7 +2157,7 @@ async function priceChangePlan(ctx, input) {
     body.vat_rate = input.vat_rate
     lines.push('VAT: ' + fmtNum(quote.vat_rate) + '% to ' + fmtNum(input.vat_rate) + '%')
   }
-  for (const [k, label] of [['supplier_code', 'Supplier code'], ['min_qty', 'Minimum packs'], ['order_multiple', 'Steps of']]) {
+  for (const [k, label] of [['supplier_code', 'Supplier code'], ['product_name', 'Product name'], ['min_qty', 'Minimum packs'], ['order_multiple', 'Steps of']]) {
     if (input[k] === undefined) continue
     const v = input[k] === '' ? null : input[k]
     if ((v ?? null) === (quote[k] ?? null)) continue
