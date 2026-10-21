@@ -1077,6 +1077,9 @@ function PoDetail({ poId, meta, phone, onBack, onOpenPo }) {
 
   if (isLoading || !po) return <div className="p-6"><ErrorNote error={error} />{!error && <Loader2 className="w-5 h-5 animate-spin mx-auto" />}</div>
   const prices = !!po.show_prices
+  // What arrived but wasn't ordered, at the invoice's prices: shown under
+  // the order's own totals, which stay as ordered.
+  const notOrdered = prices ? notOrderedTotals(po.lines) : null
   // Sending, booking in and moving the day: anyone who orders or approves.
   // Changing what is ordered (quantities, split, cancel): approvers only.
   const canOrder = !!meta?.can_order || !!meta?.can_approve
@@ -1198,7 +1201,6 @@ function PoDetail({ poId, meta, phone, onBack, onOpenPo }) {
                     Invoiced as {l.invoice_name}{prices && l.invoice_price != null ? ` at ${money(l.invoice_price)}` : ''}
                   </p>
                 )}
-                {l.added_on_receipt && <p className="text-xs text-blue-900">Arrived: {fmtNum(l.received_qty ?? 0)}</p>}
                 {l.receive_status && l.receive_status !== 'ok' && !l.added_on_receipt && (
                   <p className="text-xs text-amber-800">
                     {RECEIVE_STATUSES.find(s => s.key === l.receive_status)?.label}: received {fmtNum(l.received_qty ?? 0)}{l.receive_note ? ` (${l.receive_note})` : ''}
@@ -1207,10 +1209,14 @@ function PoDetail({ poId, meta, phone, onBack, onOpenPo }) {
               </div>
               {editQty ? (
                 <QtyStepper value={editQty[l.id]} onChange={v => setEditQty(e => ({ ...e, [l.id]: v }))} label={l.item_name} />
-              ) : !l.added_on_receipt && (
-                <span className="text-sm tabular-nums font-medium">× {fmtNum(l.qty)}</span>
+              ) : (
+                <span className="text-sm tabular-nums font-medium">× {fmtNum(l.added_on_receipt ? l.received_qty ?? 0 : l.qty)}</span>
               )}
-              {prices && l.price != null && !l.added_on_receipt && <span className="w-24 text-right text-sm tabular-nums">{money(lineAmounts(l).net)}</span>}
+              {prices && l.price != null && (
+                <span className={cn('w-24 text-right text-sm tabular-nums', l.added_on_receipt && 'text-blue-900')}>
+                  {money(lineAmounts(l.added_on_receipt ? addedAsLine(l) : l).net)}
+                </span>
+              )}
             </div>
           ))}
         </div>
@@ -1219,7 +1225,12 @@ function PoDetail({ poId, meta, phone, onBack, onOpenPo }) {
             <p>Subtotal {money(po.subtotal)}</p>
             <p>VAT {money(po.vat)}</p>
             {po.delivery_charge > 0 && <p>Delivery {money(po.delivery_charge)}</p>}
-            <p className="font-semibold">Total {money(po.total)}</p>
+            <p className="font-semibold">{notOrdered ? 'Order total' : 'Total'} {money(po.total)}</p>
+            {notOrdered && (
+              <p className="text-blue-900 pt-1" data-testid="po-not-ordered-total">
+                Not ordered, arrived {money(notOrdered.net)} + VAT {money(notOrdered.vat)}
+              </p>
+            )}
           </div>
         )}
       </section>
@@ -1599,4 +1610,21 @@ function ReceiveForm({ po, meta, onClose, onSaved }) {
 
 function NotOrderedBadge() {
   return <span className="ml-1 text-[11px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-900 font-normal align-middle">Not ordered</span>
+}
+
+/** A line added on receipt as an ordinary line: what arrived, at the invoice's price and VAT where read. */
+function addedAsLine(l) {
+  return {
+    qty: l.received_qty ?? 0,
+    price: l.invoice_price ?? l.price,
+    vat_rate: l.invoice_vat_rate ?? l.vat_rate,
+  }
+}
+
+/** Net and VAT of the lines that arrived without being ordered, or null when there are none. */
+function notOrderedTotals(lines) {
+  const added = (lines || []).filter(l => l.added_on_receipt && l.price != null)
+  if (!added.length) return null
+  const t = orderTotals(added.map(addedAsLine))
+  return { net: t.subtotal, vat: t.vat }
 }
