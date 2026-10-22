@@ -321,6 +321,55 @@ function ensureIds(menu) {
   }
 }
 
+// A copy of a dish for the draft, to go just after it: a new id, "(copy)"
+// on the name, everything else as it is (price, options with this dish's own
+// prices, tags, till and tax settings, photo). A combo's steps and choices
+// get fresh ids with their conditions following them, as remapCombo() does
+// on the server when a whole menu is copied; `map` (old id -> new id) moves
+// choices to copied dishes and sections (a section copied whole). Saved with
+// Save changes.
+function copyOfDish(item, { id = crypto.randomUUID(), rename = true, map = {} } = {}) {
+  const copy = structuredClone(item)
+  copy.id = id
+  if (rename) copy.name = (item.name || 'Dish').slice(0, 193) + ' (copy)'
+  if (copy.combo && Array.isArray(copy.combo.steps)) {
+    const ids = {}
+    const fresh = id => (id ? (ids[id] ||= crypto.randomUUID()) : id)
+    copy.combo = {
+      ...copy.combo,
+      steps: copy.combo.steps.map(st => ({
+        ...st,
+        id: fresh(st.id),
+        when: st.when && st.when.step_id
+          ? { ...st.when, step_id: fresh(st.when.step_id), option_ids: (st.when.option_ids || []).map(fresh) }
+          : st.when,
+        options: (st.options || []).map(o => ({
+          ...o, id: fresh(o.id),
+          ...(o.item_id && map[o.item_id] ? { item_id: map[o.item_id] } : {}),
+          ...(o.section_id && map[o.section_id] ? { section_id: map[o.section_id] } : {}),
+        })),
+      })),
+    }
+  }
+  return copy
+}
+
+// A copy of a section with all its dishes, to go just after it: "(copy)" on
+// the title, its settings and picture, every dish copied under its own name.
+// A combo in it offering a dish of this section, or the section itself,
+// offers the copy's.
+function copyOfSection(section) {
+  const id = crypto.randomUUID()
+  const map = { [section.id]: id }
+  for (const it of section.items || []) map[it.id] = crypto.randomUUID()
+  return {
+    ...structuredClone({ ...section, items: [] }),
+    id,
+    title: (section.title || 'Section').slice(0, 193) + ' (copy)',
+    items: (section.items || []).map(it => copyOfDish(it, { id: map[it.id], rename: false, map })),
+  }
+}
+
 function MenuEditor({ id, onBack }) {
   const api = useApi()
   const navigate = useNavigate()
@@ -474,6 +523,13 @@ function MenuEditor({ id, onBack }) {
   function removeSectionAt(sectionIndex) {
     set('sections', draft.sections.filter((_, j) => j !== sectionIndex))
   }
+  function copySectionAt(sectionIndex) {
+    const copy = copyOfSection(draft.sections[sectionIndex])
+    const sections = draft.sections.slice()
+    sections.splice(sectionIndex + 1, 0, copy)
+    set('sections', sections)
+    setSelectedSectionId(copy.id)
+  }
 
   function patchItem(sectionIndex, itemIndex, patch) {
     const sections = draft.sections.slice()
@@ -486,6 +542,15 @@ function MenuEditor({ id, onBack }) {
     const sections = draft.sections.slice()
     sections[sectionIndex] = { ...sections[sectionIndex], items: sections[sectionIndex].items.filter((_, j) => j !== itemIndex) }
     set('sections', sections)
+  }
+  function copyItemAt(sectionIndex, itemIndex) {
+    const sections = draft.sections.slice()
+    const items = sections[sectionIndex].items.slice()
+    const copy = copyOfDish(items[itemIndex])
+    items.splice(itemIndex + 1, 0, copy)
+    sections[sectionIndex] = { ...sections[sectionIndex], items }
+    set('sections', sections)
+    setSelectedItemId(copy.id)
   }
 
   return (
@@ -584,6 +649,7 @@ function MenuEditor({ id, onBack }) {
             menuTax={draft.tax}
             courses={tillCourses}
             onChange={(patch) => patchSection(selectedSectionIndex, patch)}
+            onCopy={() => copySectionAt(selectedSectionIndex)}
             onRemove={() => { removeSectionAt(selectedSectionIndex); setSelectedSectionId(null) }}
             onClose={() => setSelectedSectionId(null)} />
         )}
@@ -598,6 +664,7 @@ function MenuEditor({ id, onBack }) {
             sections={draft.sections || []}
             courses={tillCourses}
             onChange={(patch) => patchItem(selectedItem.si, selectedItem.ii, patch)}
+            onCopy={() => copyItemAt(selectedItem.si, selectedItem.ii)}
             onRemove={() => { removeItemAt(selectedItem.si, selectedItem.ii); setSelectedItemId(null) }}
             onClose={() => setSelectedItemId(null)} />
         )}
@@ -815,6 +882,11 @@ function SectionsPanel({ sections, selectedItemId, onSelectItem, selectedSection
     const next = sections.slice();[next[i], next[j]] = [next[j], next[i]]
     onChange(next)
   }
+  const copySection = (i) => {
+    const copy = copyOfSection(sections[i])
+    onChange([...sections.slice(0, i + 1), copy, ...sections.slice(i + 1)])
+    onSelectSection(copy.id)
+  }
 
   const readOnly = useContext(MenuReadOnly)
   return (
@@ -833,6 +905,7 @@ function SectionsPanel({ sections, selectedItemId, onSelectItem, selectedSection
                 onSelect={() => onSelectSection(s.id)}
                 onMoveUp={() => moveSection(i, -1)}
                 onMoveDown={() => moveSection(i, 1)}
+                onCopy={() => copySection(i)}
                 onItemsChange={(items) => setItems(i, items)} />
             ))}
           </div>
@@ -841,7 +914,7 @@ function SectionsPanel({ sections, selectedItemId, onSelectItem, selectedSection
   )
 }
 
-function SectionEditor({ section, index, total, selectedItemId, onSelectItem, selected, onSelect, onMoveUp, onMoveDown, onItemsChange }) {
+function SectionEditor({ section, index, total, selectedItemId, onSelectItem, selected, onSelect, onMoveUp, onMoveDown, onCopy, onItemsChange }) {
   const readOnly = useContext(MenuReadOnly)
   const [open, setOpen] = useState(true)
   const items = section.items || []
@@ -864,6 +937,11 @@ function SectionEditor({ section, index, total, selectedItemId, onSelectItem, se
     const removed = items[i]
     onItemsChange(items.filter((_, j) => j !== i))
     if (removed && removed.id === selectedItemId) onSelectItem(null)
+  }
+  const copyItem = (i) => {
+    const copy = copyOfDish(items[i])
+    onItemsChange([...items.slice(0, i + 1), copy, ...items.slice(i + 1)])
+    onSelectItem(copy.id)
   }
   const moveItem = (i, dir) => {
     const j = i + dir; if (j < 0 || j >= items.length) return
@@ -918,6 +996,10 @@ function SectionEditor({ section, index, total, selectedItemId, onSelectItem, se
         {!readOnly && <div className="flex items-center gap-0.5 shrink-0" onClick={e => e.stopPropagation()}>
           <button onClick={onMoveUp}   disabled={index === 0}        className="text-xs px-2 min-h-[32px] disabled:opacity-30">↑</button>
           <button onClick={onMoveDown} disabled={index === total - 1} className="text-xs px-2 min-h-[32px] disabled:opacity-30">↓</button>
+          <button onClick={onCopy} aria-label={'Copy section ' + (section.title || '')} title="Copy this section with all its dishes"
+            className="text-muted-foreground hover:text-foreground hover:bg-white/70 px-2 min-h-[32px] rounded">
+            <Copy className="w-3.5 h-3.5" />
+          </button>
         </div>}
       </div>
       {open && (
@@ -932,6 +1014,7 @@ function SectionEditor({ section, index, total, selectedItemId, onSelectItem, se
                     selected={it.id === selectedItemId}
                     onSelect={() => onSelectItem(it.id)}
                     onRemove={() => removeItem(i)}
+                    onCopy={() => copyItem(i)}
                     onMoveUp={() => moveItem(i, -1)}
                     onMoveDown={() => moveItem(i, 1)} />
                 ))}
@@ -990,7 +1073,7 @@ const SECTION_VISIBILITY = [
   { key: 'hidden',         label: 'Hide everywhere',   hint: 'Not printed, not on the website, not orderable. It stays here so you can show it again.' },
 ]
 
-function SectionDrawer({ section, menuTax, courses, onChange, onRemove, onClose }) {
+function SectionDrawer({ section, menuTax, courses, onChange, onCopy, onRemove, onClose }) {
   const readOnly = useContext(MenuReadOnly)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const count = (section.items || []).length
@@ -998,6 +1081,11 @@ function SectionDrawer({ section, menuTax, courses, onChange, onRemove, onClose 
     <aside className="border rounded-lg bg-background flex flex-col w-[380px] shrink-0 max-h-[calc(100vh-140px)] sticky top-[76px]">
       <div className="flex items-center gap-2 px-4 py-3 border-b shrink-0">
         <p className="text-sm font-semibold flex-1 truncate">{readOnly ? 'Section' : 'Edit section'}</p>
+        {!readOnly && <button onClick={onCopy} data-testid="section-copy"
+          className="inline-flex items-center gap-1 text-xs px-2 min-h-[32px] rounded border text-muted-foreground hover:text-foreground hover:bg-accent touch-manipulation"
+          title="Copy this section with all its dishes: the copy goes just after it">
+          <Copy className="w-3.5 h-3.5" /> Copy
+        </button>}
         {!readOnly && <button onClick={() => setConfirmDelete(true)} className="text-destructive hover:bg-destructive/10 p-1.5 rounded" title="Delete section">
           <Trash2 className="w-3.5 h-3.5" />
         </button>}
@@ -1091,7 +1179,7 @@ function SectionDrawer({ section, menuTax, courses, onChange, onRemove, onClose 
 // Compact row — name, price, attached-group + dietary badges. Click
 // anywhere on the row to open it in the drawer; drag the grip to reorder
 // within the section.
-function ItemRow({ item, index, total, selected, onSelect, onRemove, onMoveUp, onMoveDown }) {
+function ItemRow({ item, index, total, selected, onSelect, onRemove, onCopy, onMoveUp, onMoveDown }) {
   const groupCount = (item.variant_groups || []).length
   const readOnly = useContext(MenuReadOnly)
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({ id: item.id, disabled: readOnly })
@@ -1137,7 +1225,11 @@ function ItemRow({ item, index, total, selected, onSelect, onRemove, onMoveUp, o
       {!readOnly && <div className="flex items-center gap-0.5 shrink-0" onClick={e => e.stopPropagation()}>
         <button onClick={onMoveUp}   disabled={index === 0}        className="text-xs px-1.5 disabled:opacity-30">↑</button>
         <button onClick={onMoveDown} disabled={index === total - 1} className="text-xs px-1.5 disabled:opacity-30">↓</button>
-        <button onClick={onRemove} className="text-destructive hover:bg-destructive/10 p-1 rounded">
+        <button onClick={onCopy} aria-label={'Copy ' + (item.name || 'dish')} title="Copy dish"
+          className="text-muted-foreground hover:text-foreground hover:bg-accent p-1 rounded">
+          <Copy className="w-3 h-3" />
+        </button>
+        <button onClick={onRemove} aria-label={'Delete ' + (item.name || 'dish')} className="text-destructive hover:bg-destructive/10 p-1 rounded">
           <Trash2 className="w-3 h-3" />
         </button>
       </div>}
@@ -1334,7 +1426,7 @@ function AllergenPicker({ tags, item, onSet }) {
 
 // ── Item drawer — full dish editor, opened from a row in the middle list ──
 
-function ItemDrawer({ item, section, menuTax, sections = [], courses, dietaryTags, variantGroups = [], onChange, onRemove, onClose }) {
+function ItemDrawer({ item, section, menuTax, sections = [], courses, dietaryTags, variantGroups = [], onChange, onCopy, onRemove, onClose }) {
   const readOnly = useContext(MenuReadOnly)
   const toggleDietary = (code) => {
     const set = new Set(item.dietary || [])
@@ -1364,6 +1456,28 @@ function ItemDrawer({ item, section, menuTax, sections = [], courses, dietaryTag
   function detachGroup(groupId) {
     onChange({ variant_groups: attached.filter(g => g.group_id !== groupId) })
   }
+  // Other dishes on this menu with option groups, to copy theirs from: each
+  // of their groups comes over with that dish's prices (a group this dish
+  // already has takes those prices too); this dish's other groups stay.
+  const optionSources = sections
+    .map(sec => ({
+      id: sec.id,
+      title: sec.title || 'Untitled section',
+      items: (sec.items || []).filter(it => it.id !== item.id && (it.variant_groups || []).length),
+    }))
+    .filter(sec => sec.items.length)
+  function copyOptionsFrom(itemId) {
+    const from = sections.flatMap(sec => sec.items || []).find(it => it.id === itemId)
+    if (!from) return
+    const incoming = (from.variant_groups || []).map(g => ({
+      group_id: g.group_id, overrides: overridesOf(g).map(o => ({ ...o })),
+    }))
+    // Groups this dish had keep their place; the new ones follow in the
+    // other dish's order.
+    const merged = attached.map(g => incoming.find(x => x.group_id === g.group_id) || g)
+    const added = incoming.filter(g => !attachedIds.has(g.group_id))
+    onChange({ variant_groups: [...merged, ...added] })
+  }
   function setOverride(groupId, optionId, pence, defaultPence) {
     onChange({
       variant_groups: attached.map(g => {
@@ -1381,6 +1495,11 @@ function ItemDrawer({ item, section, menuTax, sections = [], courses, dietaryTag
     <aside className="border rounded-lg bg-background flex flex-col w-[380px] shrink-0 max-h-[calc(100vh-140px)] sticky top-[76px]">
       <div className="flex items-center gap-2 px-4 py-3 border-b shrink-0">
         <p className="text-sm font-semibold flex-1 truncate">{readOnly ? 'Dish' : 'Edit dish'}</p>
+        {!readOnly && <button onClick={onCopy} data-testid="dish-copy"
+          className="inline-flex items-center gap-1 text-xs px-2 min-h-[32px] rounded border text-muted-foreground hover:text-foreground hover:bg-accent touch-manipulation"
+          title="Copy this dish: the copy goes just after it">
+          <Copy className="w-3.5 h-3.5" /> Copy
+        </button>}
         <button onClick={onRemove} hidden={readOnly} className="text-destructive hover:bg-destructive/10 p-1.5 rounded" title="Delete dish">
           <Trash2 className="w-3.5 h-3.5" />
         </button>
@@ -1493,6 +1612,23 @@ function ItemDrawer({ item, section, menuTax, sections = [], courses, dietaryTag
               </select>
             )}
           </div>
+          {optionSources.length > 0 && (
+            <select value="" data-testid="copy-options-from" aria-label="Copy options from another dish"
+              onChange={e => { copyOptionsFrom(e.target.value); e.target.value = '' }}
+              className="w-full text-xs border rounded-md px-2 py-1 bg-background min-h-[36px]">
+              <option value="">Copy options from another dish…</option>
+              {optionSources.map(sec => (
+                <optgroup key={sec.id} label={sec.title}>
+                  {sec.items.map(it => (
+                    <option key={it.id} value={it.id}>
+                      {(it.name || 'Untitled dish') + ' (' + it.variant_groups
+                        .map(g => variantGroups.find(v => v.id === g.group_id)?.name || g.name || 'group').join(', ') + ')'}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+          )}
           {attached.length === 0 && (
             <p className="text-[11px] text-muted-foreground">
               {variantGroups.length

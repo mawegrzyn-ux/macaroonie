@@ -24,7 +24,7 @@ import {
   SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, useSortable, arrayMove,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { Plus, Trash2, X, Loader2, Layers, GripVertical } from 'lucide-react'
+import { Plus, Trash2, X, Loader2, Layers, GripVertical, Copy } from 'lucide-react'
 import { KIOSK_DISPLAYS, DISPLAY_LABELS } from '@shared/kiosk.js'
 import { useApi } from '@/lib/api'
 import { PicturePick } from '@/components/media/PicturePick'
@@ -137,6 +137,15 @@ export function VariantGroupsManager() {
       qc.invalidateQueries({ queryKey: ['menu'] })
     },
   })
+  // A copy is made on the server with every setting and option, then opened
+  // here so it can be renamed and changed.
+  const copy = useMutation({
+    mutationFn: (id) => api.post(`/menus/variant-groups/${id}/copy`),
+    onSuccess: (g) => {
+      qc.invalidateQueries({ queryKey: ['menu-variant-groups'] })
+      editGroup(g)
+    },
+  })
   const del = useMutation({
     mutationFn: (id) => api.delete(`/menus/variant-groups/${id}`),
     onSuccess: () => {
@@ -194,6 +203,10 @@ export function VariantGroupsManager() {
               {(g.options || []).map(o => o.label).join(', ') || 'No options'}
             </span>
             <button onClick={() => editGroup(g)} className="text-xs text-primary hover:underline shrink-0 min-h-[44px] px-2">Edit</button>
+            <button onClick={() => copy.mutate(g.id)} disabled={copy.isPending} aria-label={'Copy ' + g.name} title="Make a copy"
+              className="text-muted-foreground hover:bg-accent p-1.5 rounded shrink-0 min-h-[40px] min-w-[40px] flex items-center justify-center touch-manipulation">
+              {copy.isPending && copy.variables === g.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Copy className="w-3.5 h-3.5" />}
+            </button>
             {confirmDel === g.id ? (
               <span className="inline-flex items-center gap-1 shrink-0">
                 <button onClick={() => { setConfirmDel(null); del.mutate(g.id) }}
@@ -208,6 +221,9 @@ export function VariantGroupsManager() {
             )}
           </div>
         ))}
+        {copy.isError && (
+          <p className="px-3 py-2 text-xs text-destructive">{copy.error?.body?.error || 'Copy failed'}</p>
+        )}
         {groups.length === 0 && (
           <div className="px-3 py-6 text-sm text-muted-foreground text-center">
             No variant groups yet. Create "Protein" or "Size" and attach them to dishes from the menu editor.

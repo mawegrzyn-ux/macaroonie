@@ -3243,6 +3243,39 @@ export default function Help() {
               section, delete it and add it there. The small arrows still move a dish one place at
               a time. Click <strong>Save changes</strong> to keep the new order.
             </P>
+            <H3>Copying dishes, sections and options</H3>
+            <P>
+              <strong>Copy a dish</strong>: tap the copy icon on its row, or <strong>Copy</strong> at
+              the top of its panel. The copy goes just after it, named &ldquo;(copy)&rdquo;, with
+              everything the dish has: price, description, photo, options with this dish&apos;s own
+              prices, allergens and tags, till, tax and online settings, a combo&apos;s steps. Its panel
+              opens so you can rename it.
+            </P>
+            <P>
+              <strong>Copy a section</strong> (a category): tap the copy icon on the section&apos;s
+              heading, or <strong>Copy</strong> at the top of its panel. The copy goes just after it with
+              all its dishes, each keeping its own name; only the section is named &ldquo;(copy)&rdquo;.
+              A meal deal in the section that offers a dish of the section, or the whole section,
+              offers the copy&apos;s.
+            </P>
+            <P>
+              <strong>Copy options from another dish</strong>: in a dish&apos;s panel, under Variant
+              groups, pick a dish from <strong>Copy options from another dish</strong> (only dishes
+              with option groups are listed). Its groups come over with that dish&apos;s prices; a
+              group this dish already has takes those prices too, and its other groups stay.
+            </P>
+            <P>
+              Copies are part of the menu draft: nothing is kept until <strong>Save changes</strong>,
+              and guests see them once the menu is published. Translations aren&apos;t copied with a
+              dish or section; the print designer lists the copies under Not placed yet.
+            </P>
+            <P>
+              <strong>Copy an option group</strong>: on <strong>Menus &rarr; Variant groups</strong>,
+              tap the copy icon on a group. The copy, &ldquo;Name (copy)&rdquo;, is made straight away
+              just after it with every setting and option (prices, pictures, words, levels, then ask),
+              and opens so you can rename or change it. It isn&apos;t on any dish until you attach it.
+              Translations of its options come with it.
+            </P>
             <P>
               <strong>Where a section shows.</strong> In a section's panel, <strong>Where it
               shows</strong> has three choices. <strong>Everywhere</strong> is the usual.{' '}

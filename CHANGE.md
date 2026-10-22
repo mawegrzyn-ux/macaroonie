@@ -5,6 +5,14 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-22 — Copy dishes, sections and option groups]
+
+- **Copy a dish**: the copy icon on a dish's row, or **Copy** at the top of its panel. The copy goes just after it, named "(copy)", with its price, words, photo, options and their prices for this dish, allergens and tags, till, tax and online settings and a combo's steps.
+- **Copy a section** (category) with all its dishes: the copy icon on the section heading, or **Copy** in its panel. Dishes keep their names; a meal deal in the section offering its dishes or the section itself offers the copy's.
+- **Copy options from another dish**: in a dish's panel under Variant groups, pick a dish; its option groups come over with its prices (groups this dish has take those prices, its others stay).
+- Dish and section copies are part of the draft until **Save changes**, and reach guests when the menu is published.
+- **Copy an option group**: the copy icon on a group on Menus → Variant groups makes "Name (copy)" just after it with every setting and option, opens it to rename, and isn't on any dish until attached. Translations of its options come with it. No migration.
+
 ## [2026-10-21 — Lines not ordered look like the others on the order page]
 
 - On a received purchase order, lines that arrived without being ordered (Not ordered) now show the quantity that arrived and, for people who see prices, their value at the invoice's price, like every other line (they showed only "Arrived: 1").

@@ -5285,6 +5285,33 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>MenuImportModal</Mono> on the Menus page, embedded in the wizard's Menu step). Tests:{' '}
               <Mono>api/test/menu-import.test.mjs</Mono>.
             </P>
+            <H3>Copying dishes, sections and option groups</H3>
+            <P>
+              Dishes and sections are copied in the editor's draft (<Mono>Menus.jsx</Mono>), nothing on the server until
+              Save changes: <Mono>copyOfDish(item, {'{ id, rename, map }'})</Mono> is a <Mono>structuredClone</Mono> with a
+              new uuid and "(copy)" on the name, a combo's step and choice ids made fresh with <Mono>when</Mono> following
+              them (as <Mono>remapCombo()</Mono> does for <Mono>/duplicate</Mono>), and choices' <Mono>item_id</Mono> /{' '}
+              <Mono>section_id</Mono> moved through <Mono>map</Mono>. <Mono>copyOfSection()</Mono> maps the section and
+              each dish to new ids first, so a combo in a copied section offers the copy's dishes and section; dish names
+              stay. The copy goes just after the original (<Mono>copyItem()</Mono> in <Mono>SectionEditor</Mono>,{' '}
+              <Mono>copySection()</Mono> in <Mono>SectionsPanel</Mono>, <Mono>copyItemAt()</Mono> /{' '}
+              <Mono>copySectionAt()</Mono> in <Mono>MenuEditor</Mono> for the panels' Copy) and is selected. Per-dish
+              option prices come along in either shape (<Mono>overridesOf()</Mono> reads both). Not copied: translations
+              (keyed by id), sold out, print design placement. The dish panel's <Mono>copy-options-from</Mono> list
+              (<Mono>copyOptionsFrom()</Mono>) takes another dish's <Mono>variant_groups</Mono> with its overrides: groups
+              this dish has keep their place and take the other dish's prices, new ones follow.
+            </P>
+            <P>
+              <Mono>POST /api/menus/variant-groups/:id/copy</Mono> (menus manage, tenant filtered, 404 otherwise) copies the
+              group row and its options generically (every column but id and timestamps, so a new column comes along without
+              a code change), names it "name (copy)" (name cut to fit 80), moves later groups' <Mono>sort_order</Mono> down
+              one and puts the copy right after the original. An option whose <Mono>child_group_id</Mono> is the group itself
+              points at the copy. <Mono>menu_translations</Mono> rows for the options (<Mono>option:&lt;id&gt;:label</Mono>,{' '}
+              <Mono>:description</Mono>) and the scale words (<Mono>group:&lt;id&gt;:scale_low</Mono> / <Mono>scale_high</Mono>)
+              are copied to the new ids; the name's isn't (the name changed). No dish is attached. The Variant groups page
+              opens the copy in its editor (<Mono>VariantGroupsManager.jsx</Mono>). Tests:{' '}
+              <Mono>api/test/variant-group-copy.test.mjs</Mono>; the sweep's fixtures copy a group.
+            </P>
             <P>
               <Mono>GET /api/menus/print-designs</Mono> (open to signed-in staff, like the other menu reads) lists every print design of the tenant with its menu
               (id, name, layout, menu_id, menu_name), for Brand &amp; theme's Use the brand on other designs.
