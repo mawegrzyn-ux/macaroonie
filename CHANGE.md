@@ -5,6 +5,11 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-21 — Lines not ordered look like the others on the order page]
+
+- On a received purchase order, lines that arrived without being ordered (Not ordered) now show the quantity that arrived and, for people who see prices, their value at the invoice's price, like every other line (they showed only "Arrived: 1").
+- Their total shows under the order's total as **Not ordered, arrived £x + VAT £y**; the order's own total (now **Order total** when there are such lines) stays as ordered. No migration.
+
 ## [2026-10-21 — Pepper reads delivery invoices and petty cash receipts; supplier product names]
 
 - **Read the invoice when a delivery comes**: in Purchasing → Deliveries → **Book in delivery**, photograph the supplier's invoice or delivery note (or choose photos or a PDF) and tap **Read it with Pepper**. Pepper matches each line to what was ordered: how many arrived is filled in (fewer marks it Short), a different product than ordered is marked Substituted, and an ordered line missing from the invoice is flagged. People who see prices get the invoice price per pack, with how much it differs from the ordered price.

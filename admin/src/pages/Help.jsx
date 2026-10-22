@@ -4877,7 +4877,10 @@ export default function Help() {
               If Pepper matched a line wrongly, tap <strong>Not this line</strong> under it: the invoice line moves
               to the list below to be decided again. The order keeps the prices it was placed at; the invoice's
               prices are kept beside them. The invoice files stay with the order (Invoice, on the order's page),
-              and the supplier's copy of the order still shows only what was ordered.
+              and the supplier's copy of the order still shows only what was ordered. On the order's page, lines that
+              arrived without being ordered carry a Not ordered badge with the quantity that arrived and (with prices)
+              their value at the invoice's prices; their total shows as Not ordered, arrived under the order total,
+              which stays as ordered.
             </P>
 
             <H3>9. Updating the price list from an invoice</H3>
