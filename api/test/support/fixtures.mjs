@@ -8,6 +8,15 @@ export const MARK = 'Zqx'   // in names and notes, so a leak is easy to spot
 
 const MONDAY = '2026-10-19'
 
+// A hold must be for a time still ahead (the booking cutoff refuses one in
+// the past): 19:00 UTC three days from now, past the days the schedule
+// below closes.
+function holdTime() {
+  const d = new Date(Date.now() + 3 * 86400000)
+  while (['12-25', '12-26', '01-02'].includes(d.toISOString().slice(5, 10))) d.setUTCDate(d.getUTCDate() + 1)
+  return d.toISOString().slice(0, 10) + 'T19:00:00.000Z'
+}
+
 export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx' } = {}) {
   const c = as(sub, tenantId)
   const failed = []
@@ -74,13 +83,14 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx' } = 
   await step('customer', () => post('/api/customers', { name: mark + ' Alice', email: 'alice@' + slug + '.test', phone: '07700900111', notes: mark + ' likes the window' }))
   await step('booking', () => post('/api/bookings/admin-override', { venue_id: V, starts_at: MONDAY + 'T19:00:00', covers: 2, table_ids: [t1.id], guest_name: mark + ' Bob', guest_email: 'bob@' + slug + '.test', guest_phone: '07700900222', guest_notes: mark + ' nut allergy' }))
   await step('test bookings', () => post(`/api/venues/${V}/test-data/seed`, { date_from: MONDAY, date_to: '2026-10-21', occupancy_pct: 30 }))
-  await step('hold', () => post('/api/bookings/holds', { venue_id: V, table_id: t3.id, starts_at: '2026-10-22T19:00:00.000Z', covers: 2, guest_name: mark + ' Dee', guest_email: 'dee@' + slug + '.test' }))
+  await step('hold', () => post('/api/bookings/holds', { venue_id: V, table_id: t3.id, starts_at: holdTime(), covers: 2, guest_name: mark + ' Dee', guest_email: 'dee@' + slug + '.test' }))
 
   // ── Menus ──
   const menu = await step('menu', () => post('/api/menus', { name: mark + ' Lunch', slug: slug + '-lunch' }))
   ids.menu = menu?.id
   await step('dietary tag', () => post('/api/menus/dietary', { label: mark + ' Spicy', code: slug, glyph: 'S', kind: 'dietary' }))
   const vg = await step('variant group', () => post('/api/menus/variant-groups', { name: mark + ' Size', options: [{ label: 'Small', price_pence: 0 }, { label: 'Large', price_pence: 200 }] }))
+  if (vg) await step('variant group copy', () => post(`/api/menus/variant-groups/${vg.id}/copy`, {}))
   let dish = null
   if (menu) {
     const full = await step('menu load', () => get(`/api/menus/${menu.id}`))

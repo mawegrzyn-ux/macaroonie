@@ -1656,6 +1656,63 @@ export default async function menusRoutes(app) {
     return { ok: true }
   })
 
+  // A copy of a group with every setting and option, placed just after it,
+  // named "<name> (copy)". Not attached to any dish. Translations of the
+  // options (and the scale words) come along under the new ids; an option
+  // that opened the group itself opens the copy.
+  app.post('/variant-groups/:id/copy', { preHandler: PERM.manage }, async (req, reply) => {
+    const row = await withTenant(req.tenantId, async tx => {
+      const [src] = await tx`
+        SELECT * FROM menu_variant_groups WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
+      `
+      if (!src) throw httpError(404, 'Variant group not found')
+      await tx`
+        UPDATE menu_variant_groups SET sort_order = sort_order + 1
+         WHERE tenant_id = ${req.tenantId} AND sort_order > ${src.sort_order}
+      `
+      const { id: _id, created_at: _c, updated_at: _u, ...cols } = src
+      const [g] = await tx`
+        INSERT INTO menu_variant_groups ${tx({
+          ...cols,
+          name: (src.name.slice(0, 73) + ' (copy)'),
+          sort_order: src.sort_order + 1,
+        })}
+        RETURNING *
+      `
+      const opts = await tx`
+        SELECT * FROM menu_variant_options
+         WHERE group_id = ${src.id} AND tenant_id = ${req.tenantId}
+         ORDER BY sort_order, label
+      `
+      const options = []
+      const keys = [['group:' + src.id + ':scale_low', 'group:' + g.id + ':scale_low'],
+                    ['group:' + src.id + ':scale_high', 'group:' + g.id + ':scale_high']]
+      for (const o of opts) {
+        const { id: oldId, group_id: _g, ...ocols } = o
+        const [opt] = await tx`
+          INSERT INTO menu_variant_options ${tx({
+            ...ocols,
+            group_id: g.id,
+            child_group_id: o.child_group_id === src.id ? g.id : o.child_group_id,
+          })}
+          RETURNING *
+        `
+        options.push(opt)
+        for (const f of ['label', 'description']) keys.push(['option:' + oldId + ':' + f, 'option:' + opt.id + ':' + f])
+      }
+      for (const [from, to] of keys) {
+        await tx`
+          INSERT INTO menu_translations (tenant_id, lang, key, text, updated_by)
+          SELECT tenant_id, lang, ${to}, text, updated_by FROM menu_translations
+           WHERE tenant_id = ${req.tenantId} AND key = ${from}
+          ON CONFLICT DO NOTHING
+        `
+      }
+      return { ...g, options }
+    })
+    return reply.code(201).send(row)
+  })
+
   // ════════════════════════════════════════════════════════════
   //   TRANSLATIONS — the menu's words in other languages for kiosks
   //   (migration 172, services/translationSvc.js, shared/kiosk.js TK)
