@@ -73,7 +73,7 @@ import {
 import { reconFields } from '../services/reconFill.js'
 import {
   stationSettings, flowProblems, flowWarnings, boxProblems, resolveSharedFlow, shareFlow, flowName,
-  STATION_KINDS, FLOW_TARGET_KINDS, BUMP_KINDS, NAMED_TARGET_KINDS, KIND_LABELS, SLEEP_MINS_MAX,
+  STATION_KINDS, FLOW_TARGET_KINDS, BUMP_KINDS, NAMED_TARGET_KINDS, KIND_LABELS, SLEEP_MINS_MAX, STATUS_LOOKS, STATUS_ANIMS,
 } from '../../../shared/pos/kitchen.js'
 import { deviceOrigin, installerOrigin } from '../services/platformHost.js'
 import { linkCodeHash } from '../services/linkCodes.js'
@@ -237,6 +237,12 @@ const StationSettings = z.object({
   delay_mins: z.number().int().min(1).max(SLEEP_MINS_MAX).default(5),
   // A kitchen printer box (migration 191): the printer its dishes print on.
   printer_id: UUID.nullable().optional(),
+  // A Setter (migration 203): how order ready boards show its status.
+  status_look:   z.enum(STATUS_LOOKS.map(x => x.key)).default('text'),
+  status_colour: z.string().regex(/^#[0-9a-f]{6}$/i).default('#f59e0b'),
+  status_text:   z.string().trim().max(40).default(''),
+  status_anim:   z.enum(STATUS_ANIMS.map(x => x.key)).default('none'),
+  status_lamp:   z.number().int().min(1).max(3).default(2),
 }).refine(s => s.late_mins >= s.target_mins, { message: 'Late must be the same as or after the target time', path: ['late_mins'] })
 
 const StationBody = z.object({
@@ -1192,6 +1198,16 @@ export default async function posSetupRoutes(app) {
   // ── Kitchen screens: stations and routing ───────────────────────
   // A change reaches the sequencer straight away (it reads the stations per
   // event) and the kitchen screens through pos.config.
+  // A Setter's name is the status it sets: one Setter per name at a venue.
+  async function checkSetterName(tx, tenantId, venueId, body, id = null) {
+    if (body.kind !== 'setter') return
+    const [clash] = await tx`
+      SELECT 1 FROM kds_stations
+       WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND kind = 'setter'
+         AND lower(trim(name)) = lower(trim(${body.name})) AND id IS DISTINCT FROM ${id}`
+    if (clash) throw httpError(409, 'Another Setter is already called ' + body.name.trim() + ': each status needs its own name')
+  }
+
   app.post('/venues/:venueId/kds-stations', { preHandler: canSetup }, async (req, reply) => {
     const venueId = UUID.parse(req.params.venueId)
     const body = StationBody.parse(req.body)
@@ -1199,6 +1215,7 @@ export default async function posSetupRoutes(app) {
       await ownVenue(tx, req.tenantId, venueId)
       await checkPieces(tx, req.tenantId, body.settings)
       await checkStationPrinter(tx, req.tenantId, venueId, body.settings)
+      await checkSetterName(tx, req.tenantId, venueId, body)
       const [{ n }] = await tx`SELECT COALESCE(MAX(sort_order), -1)::int + 1 AS n FROM kds_stations WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}`
       const [s] = await tx`
         INSERT INTO kds_stations (tenant_id, venue_id, name, kind, colour, settings, sort_order, is_active)
@@ -1217,6 +1234,7 @@ export default async function posSetupRoutes(app) {
       const was = await ownRow(tx, 'kds_stations', req.tenantId, id, 'Kitchen station')
       await checkPieces(tx, req.tenantId, body.settings)
       await checkStationPrinter(tx, req.tenantId, was.venue_id, body.settings)
+      await checkSetterName(tx, req.tenantId, was.venue_id, body, id)
       const [s] = await tx`
         UPDATE kds_stations
            SET name = ${body.name}, kind = ${body.kind}, colour = ${body.colour || null},
@@ -1229,8 +1247,8 @@ export default async function posSetupRoutes(app) {
         await dropDeviceStation(tx, req.tenantId, s.venue_id, id)
       }
       if (body.kind === 'balance') await tidyBalanceBox(tx, req.tenantId, s.venue_id, id)
-      // A kitchen printer and a Sleeper aren't on any kitchen screen.
-      if (body.kind === 'printer' || body.kind === 'sleeper') await dropDeviceStation(tx, req.tenantId, s.venue_id, id)
+      // A kitchen printer, a Sleeper and a Setter aren't on any kitchen screen.
+      if (body.kind === 'printer' || body.kind === 'sleeper' || body.kind === 'setter') await dropDeviceStation(tx, req.tenantId, s.venue_id, id)
       // Stations that stop bumping can't take a Splitter's dishes.
       if (!BUMP_KINDS.includes(body.kind)) {
         await tx`

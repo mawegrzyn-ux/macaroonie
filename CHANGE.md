@@ -5,6 +5,13 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-23 — Order statuses from the kitchen flow (Setter)]
+
+- New kitchen flow box, **Setter**: when a dish passes it, the order's status becomes the Setter's name (Cooking, Bagging, Out for delivery). Dishes go straight through; no kitchen screen, nothing to bump. Each Setter at a location needs its own name.
+- The Setter decides how the status shows on order ready board tiles: words, a flag, a coloured border, a traffic light (lit lamp chosen), a square or a dot; a colour; and movement (pulse, turn, blink, bounce, shake, glow).
+- Screen designer → Order status block → **Statuses**: switch statuses off, or hide or restyle each one on that board only.
+- Migration 203 (the new station kind).
+
 ## [2026-10-23 — Order board tiles with fonts, shapes and pictures]
 
 - Screen designer → an Order status block → **Tile look**: the tiles' font and weight (and a font for the small lines), italic, capitals, space inside; shape (rounded, square, pill or circle), border and shadow; a picture behind ready tiles and one behind preparing tiles (fill or whole, darkened so numbers stay readable); a small picture on every tile or one per order type, left, right, above or in the corner.

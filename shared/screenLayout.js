@@ -193,6 +193,9 @@ export const BLOCK_DEFAULTS = {
       tile_shape: 'rounded', tile_radius: null, tile_padding: 8, tile_border_width: 0, tile_border_color: '#ffffff', tile_shadow: 'none',
       tile_ready_image: '', tile_prep_image: '', tile_image_fit: 'cover', tile_image_dim: 30,
       tile_icon: '', tile_type_icons: {}, tile_icon_pos: 'left', tile_icon_size: 60,
+      // Statuses from the kitchen flow's Setters (statusHtml()): shown as each
+      // Setter says, or as this block overrides per status name.
+      show_status: true, status_looks: {},
     },
   },
 }
@@ -396,6 +399,9 @@ export function boardContext(layout, data = {}) {
     // kitchen screens (services/kitchenSvc.js boardFor()); null in the
     // designer, which shows example numbers.
     orders: data.orders || null,
+    // The kitchen's Setter statuses (designer data order_statuses): the
+    // designer shows them on its example numbers.
+    statuses: Array.isArray(data.order_statuses) ? data.order_statuses : [],
     board: normalizeBoard(layout, data.width, data.height),
   }
   ctx.shownItems = shownItems(ctx.board, ctx)
@@ -951,6 +957,47 @@ export function tileLook(o) {
   }
 }
 
+// ── Order statuses (kitchen flow Setters, migration 203) ──
+
+export const ORDER_STATUS_LOOKS = ['text', 'flag', 'border', 'light', 'square', 'circle']
+export const ORDER_STATUS_ANIMS = ['none', 'pulse', 'turn', 'blink', 'bounce', 'shake', 'glow']
+
+/**
+ * How a status shows on this block: the Setter's look with the block's
+ * override for that status name (o.status_looks[name lower case]: any of
+ * hide, look, colour, text, anim, lamp). null = not shown.
+ */
+export function shownStatus(o, status) {
+  if (!status || o.show_status === false) return null
+  const looks = o.status_looks && typeof o.status_looks === 'object' ? o.status_looks : {}
+  const key = String(status.name || '').trim().toLowerCase()
+  const ov = Object.entries(looks).find(([k]) => k.trim().toLowerCase() === key)?.[1] || {}
+  if (ov.hide) return null
+  const pick = (v, list, dflt) => (list.includes(v) ? v : dflt)
+  return {
+    name: status.name,
+    text: String(ov.text || status.text || status.name || '').slice(0, 40),
+    look: pick(ov.look, ORDER_STATUS_LOOKS, pick(status.look, ORDER_STATUS_LOOKS, 'text')),
+    colour: colour(ov.colour, colour(status.colour, '#f59e0b')),
+    anim: pick(ov.anim, ORDER_STATUS_ANIMS, pick(status.anim, ORDER_STATUS_ANIMS, 'none')),
+    lamp: [1, 2, 3].includes(Number(ov.lamp)) ? Number(ov.lamp) : [1, 2, 3].includes(Number(status.lamp)) ? Number(status.lamp) : 2,
+  }
+}
+
+/** A status on a tile: [inner html (words in the tile), overlay html]. */
+function statusHtml(s) {
+  if (!s) return ['', '']
+  const attrs = ' data-look="' + s.look + '" data-anim="' + s.anim + '" style="--osc:' + s.colour + '"'
+  const cls = 'sl-ostat sl-ost-' + s.look + (s.anim !== 'none' ? ' sl-osa-' + s.anim : '')
+  if (s.look === 'text') return ['<span class="' + cls + '"' + attrs + '>' + esc(s.text) + '</span>', '']
+  if (s.look === 'flag') return ['', '<span class="' + cls + '"' + attrs + '>' + esc(s.text) + '</span>']
+  if (s.look === 'light') {
+    return ['', '<span class="' + cls + '"' + attrs + ' data-lamp="' + s.lamp + '" title="' + esc(s.text) + '">' +
+      [1, 2, 3].map(n => '<i' + (n === s.lamp ? ' class="on"' : '') + '></i>').join('') + '</span>']
+  }
+  return ['', '<span class="' + cls + '"' + attrs + ' title="' + esc(s.text) + '"></span>']
+}
+
 /**
  * The order ready board: order numbers being prepared and ready to collect,
  * side by side or one above the other. Ready numbers drop off after
@@ -964,6 +1011,12 @@ function orderStatusHtml(o, ctx) {
   const nowMs = (ctx.now instanceof Date ? ctx.now : new Date(ctx.now || Date.now())).getTime()
   let ready = (data.ready || []).filter(x => !ctx.orders || !clear || !x.at || nowMs - Date.parse(x.at) < clear * 60000).slice(0, max)
   let preparing = (data.preparing || []).slice(0, max)
+  if (!ctx.orders && ctx.statuses?.length) {
+    // The designer: the kitchen's statuses on the example numbers, in turn.
+    const give = (list, from) => list.map((x, i) => ({ ...x, status: ctx.statuses[(i + from) % ctx.statuses.length] }))
+    preparing = give(preparing, 0)
+    ready = give(ready, preparing.length)
+  }
   const cols = Math.round(num(o.columns, 1, 6, 1))
   const stacked = o.layout === 'stacked'
   const readyFirst = !!o.ready_first
@@ -999,12 +1052,15 @@ function orderStatusHtml(o, ctx) {
   const tile = (x, cls, extra = '', t = 0) => {
     const v = orderInfo(x, info)
     const icon = tileIcon(o, x)
-    return '<div class="sl-onum ' + cls + extra + '"' + delay(t) + ' data-main="' + v.key + '"' + (icon ? ' data-icon="' + iconPos + '"' : '') + '>' +
+    const st = shownStatus(o, x.status)
+    const [inTile, over] = statusHtml(st)
+    return '<div class="sl-onum ' + cls + extra + '"' + delay(t) + ' data-main="' + v.key + '"' + (icon ? ' data-icon="' + iconPos + '"' : '') +
+      (st ? ' data-status="' + esc(st.name) + '"' : '') + '>' +
       (icon ? '<img class="sl-oicon" src="' + esc(icon) + '" alt="" draggable="false">' : '') +
       '<span class="sl-otext">' +
       (v.caption ? '<span class="sl-ocap">' + esc(v.caption) + '</span>' : '') +
       '<span class="sl-oval">' + esc(v.value) + '</span>' +
-      v.lines.map(l => '<span class="sl-oline" data-k="' + l.key + '">' + esc(l.text) + '</span>').join('') + '</span></div>'
+      v.lines.map(l => '<span class="sl-oline" data-k="' + l.key + '">' + esc(l.text) + '</span>').join('') + inTile + '</span>' + over + '</div>'
   }
   const column = (title, list, cls, side) => {
     const tiles = list.map(x => {
@@ -1210,6 +1266,37 @@ export const SCREEN_LAYOUT_CSS = `
 .sl-onum[data-icon="right"] { flex-direction: row-reverse; }
 .sl-onum[data-icon="corner"] .sl-oicon { position: absolute; z-index: 2; top: 0.1em; right: 0.1em; height: calc(var(--otis, 0.6) * 0.6em); }
 .sl-oline, .sl-ocap { font-family: var(--otlf, inherit); }
+/* Order statuses (statusHtml()): words, a flag, a border, a traffic light, a square or a dot in --osc. */
+.sl-ostat { --osc: #f59e0b; }
+.sl-ost-text { display: block; margin-top: 0.12em; padding: 0.06em 0.3em; font-size: 0.26em; font-weight: 800; line-height: 1.2;
+  text-transform: uppercase; letter-spacing: 0.04em; color: #fff; background: var(--osc); border-radius: 0.3em; max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--otlf, inherit); }
+.sl-ost-flag { position: absolute; z-index: 3; top: 0.18em; left: -0.05em; padding: 0.05em 0.5em 0.05em 0.3em; font-size: 0.22em; font-weight: 800;
+  line-height: 1.25; text-transform: uppercase; color: #fff; background: var(--osc); max-width: 80%; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; clip-path: polygon(0 0, 100% 0, calc(100% - 0.45em) 50%, 100% 100%, 0 100%); font-family: var(--otlf, inherit); }
+.sl-ost-border { position: absolute; z-index: 3; inset: 0; border: 0.07em solid var(--osc); border-radius: inherit; pointer-events: none; }
+.sl-ost-square, .sl-ost-circle { position: absolute; z-index: 3; top: 0.12em; left: 0.12em; width: 0.2em; height: 0.2em; background: var(--osc);
+  box-shadow: 0 0 0 0.02em rgba(255,255,255,.8); }
+.sl-ost-square { border-radius: 0.02em; }
+.sl-ost-circle { border-radius: 50%; }
+.sl-ost-light { position: absolute; z-index: 3; top: 0.1em; left: 0.1em; display: flex; flex-direction: column; gap: 0.025em; padding: 0.035em;
+  background: #1b1b1b; border-radius: 0.06em; box-shadow: 0 0 0 0.015em rgba(255,255,255,.35); }
+.sl-ost-light i { display: block; width: 0.09em; height: 0.09em; border-radius: 50%; background: #3a3a3a; }
+.sl-ost-light i.on { background: var(--osc); box-shadow: 0 0 0.06em var(--osc); }
+/* Status movement runs on a playing board (the player; the designer's Play). */
+.sl-board.sl-play .sl-osa-pulse { animation: sl-osa-pulse 1.4s ease-in-out infinite; }
+.sl-board.sl-play .sl-osa-turn { animation: sl-osa-turn 2.4s linear infinite; }
+.sl-board.sl-play .sl-osa-blink { animation: sl-osa-blink 1.1s steps(1, end) infinite; }
+.sl-board.sl-play .sl-osa-bounce { animation: sl-osa-bounce 1.2s ease-in-out infinite; }
+.sl-board.sl-play .sl-osa-shake { animation: sl-osa-shake 1.6s ease-in-out infinite; }
+.sl-board.sl-play .sl-osa-glow { animation: sl-osa-glow 1.6s ease-in-out infinite; }
+.sl-board.sl-play .sl-ost-border.sl-osa-turn { animation-name: sl-osa-glow; }
+@keyframes sl-osa-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.18); } }
+@keyframes sl-osa-turn { to { transform: rotate(360deg); } }
+@keyframes sl-osa-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.15; } }
+@keyframes sl-osa-bounce { 0%, 100% { transform: translateY(0); } 40% { transform: translateY(-0.12em); } 60% { transform: translateY(0.02em); } }
+@keyframes sl-osa-shake { 0%, 60%, 100% { transform: translateX(0); } 10%, 30%, 50% { transform: translateX(-0.04em); } 20%, 40% { transform: translateX(0.04em); } }
+@keyframes sl-osa-glow { 0%, 100% { filter: none; } 50% { filter: drop-shadow(0 0 0.12em var(--osc)) brightness(1.25); } }
 .sl-orders.is-stacked { flex-direction: column; gap: calc(var(--on) * 0.4); }
 .sl-orders.is-stacked .sl-ocol { min-height: 0; overflow: hidden; }
 .sl-och-in, .sl-och-out { animation-duration: var(--och, 900ms); animation-timing-function: cubic-bezier(.2,.7,.3,1); animation-fill-mode: both; }

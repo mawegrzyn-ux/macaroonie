@@ -14,7 +14,7 @@ import {
   kitchenForCheckEvent, applyKitchenEvent, stationTickets, onOrderCounts, stationStats, boardNumbers,
   laterOrders, recentBumps, itemState, ageTone, clockSince, kitchenEventProblem, onlineOrderId, gloriaFoodOrderId, isOrderId,
   itemRoute, routeOrder, flowProblems, flowWarnings, readyOrders, boardState, itemWhere, START,
-  resolveBalances, stationLoad,
+  resolveBalances, stationLoad, orderStatus, statusOf, STATUS_LOOKS, STATUS_ANIMS,
 } from '../kitchen.js'
 
 const uuid = () => globalThis.crypto.randomUUID()
@@ -1061,4 +1061,63 @@ test('sleeper: an online order set ready from outside wakes it', () => {
   ok(t.kitchen(kev('kitchen.order_status', { order_id: id, status: 'ready' })))
   assert.ok(t.orders[id].items[0].done[SLEEP], 'the wait counts as over')
   assert.equal(itemState(t.orders[id].items[0], simple.GRILL, at(), t.cfg), 'done')
+})
+
+// ── Setters (migration 203) ────────────────────────────────────
+
+const SET_IN = uuid(), SET_BAG = uuid(), BOARD1 = uuid()
+const setKit = {
+  ...simple,
+  IN: { id: SET_IN, name: 'In the kitchen', kind: 'setter', settings: { status_look: 'light', status_colour: '#FF0000', status_lamp: 1, status_anim: 'pulse' } },
+  BAG: { id: SET_BAG, name: 'Bagging', kind: 'setter', settings: { status_look: 'flag', status_text: 'Nearly there', status_anim: 'nope' } },
+  ORB1: { id: BOARD1, name: 'ORB', kind: 'board', settings: {} },
+}
+// Orders in > In the kitchen > Grill > Bagging > Pass > ORB.
+const setFlow = [link(null, SET_IN), link(SET_IN, GRILL), link(GRILL, SET_BAG), link(SET_BAG, PASS), link(PASS, BOARD1)]
+const setCfg = () => ({ ...common, stations: byId(Object.values(setKit)), flow: setFlow })
+
+test('setter: passes dishes straight on and sets the order status as they pass', () => {
+  const t = till(setCfg())
+  const c = openCounter(t, 61)
+  addAndSend(t, c, [burger()])
+  // Straight through the first Setter: the grill has it at once.
+  assert.ok(t.tickets(simple.GRILL).some(tk => tk.order.id === c))
+  assert.deepEqual(stationTickets(t.orders, setKit.IN, at(), t.cfg), [])
+  assert.match(t.kitchen(kev('kitchen.bumped', { order_id: c, station_id: SET_IN })).error, /Setter only sets the order's status/)
+  let st = orderStatus(t.orders[c], t.cfg, at())
+  assert.equal(st.name, 'In the kitchen')
+  assert.deepEqual([st.text, st.look, st.colour, st.anim, st.lamp], ['In the kitchen', 'light', '#ff0000', 'pulse', 1])
+  let board = boardNumbers(t.orders, at(), { boardId: BOARD1, cfg: t.cfg })
+  assert.deepEqual(board.preparing.map(x => [x.number, x.status?.name]), [['61', 'In the kitchen']])
+  clock += 60_000
+  ok(t.bump(c, simple.GRILL))
+  st = orderStatus(t.orders[c], t.cfg, at())
+  assert.equal(st.name, 'Bagging', 'the later Setter wins')
+  assert.deepEqual([st.text, st.look, st.anim], ['Nearly there', 'flag', 'none'], 'words override the name; unknown animation is still')
+  board = boardNumbers(t.orders, at(), { boardId: BOARD1, cfg: t.cfg })
+  assert.equal(board.preparing[0].status.text, 'Nearly there')
+  clock += 60_000
+  ok(t.bump(c, simple.PASS))
+  board = boardNumbers(t.orders, at(), { boardId: BOARD1, cfg: t.cfg })
+  assert.deepEqual(board.ready.map(x => [x.number, x.status?.name]), [['61', 'Bagging']], 'ready tiles keep the last status')
+  // Without cfg (or Setters) there is no status.
+  assert.equal(boardNumbers(t.orders, at(), { boardId: BOARD1 }).ready[0]?.status, undefined)
+})
+
+test('setter: status needs a fired dish; looks and animations listed; a Setter at the end of a way', () => {
+  assert.deepEqual(STATUS_LOOKS.map(x => x.key), ['text', 'flag', 'border', 'light', 'square', 'circle'])
+  assert.ok(STATUS_ANIMS.some(x => x.key === 'pulse') && STATUS_ANIMS.some(x => x.key === 'turn'))
+  assert.deepEqual(statusOf({ id: 'x', name: 'Ready soon', settings: { status_colour: 'red', status_lamp: 7 } }),
+    { id: 'x', name: 'Ready soon', text: 'Ready soon', look: 'text', colour: '#f59e0b', anim: 'none', lamp: 2 })
+  // The pass ends at a Setter: the order is ready when the pass bumps (a Setter isn't waited on).
+  const cfg = { ...common, stations: byId(Object.values(setKit)), flow: [link(null, GRILL), link(GRILL, PASS), link(PASS, SET_BAG)] }
+  const t = till(cfg)
+  const c = openTable(t)
+  addAndSend(t, c, [burger()])
+  assert.equal(orderStatus(t.orders[c], t.cfg, at()), null)
+  ok(t.bump(c, simple.GRILL))
+  ok(t.bump(c, simple.PASS))
+  assert.equal(t.orders[c].status, 'ready')
+  assert.equal(orderStatus(t.orders[c], t.cfg, at()).name, 'Bagging')
+  assert.deepEqual(flowProblems(Object.values(setKit), setFlow), [])
 })

@@ -64,9 +64,10 @@ const KIND_STYLE = {
   balance: 'border-rose-500 border-dashed',
   printer: 'border-stone-600',
   sleeper: 'border-indigo-500 border-dotted',
+  setter: 'border-orange-500 border-double',
 }
-const KIND_STRIP = { start: '#71717a', prep: '#0ea5e9', expo: '#f59e0b', runner: '#8b5cf6', board: '#059669', balance: '#f43f5e', printer: '#57534e', sleeper: '#6366f1' }
-const ADD_KINDS = ['prep', 'expo', 'runner', 'board', 'balance', 'printer', 'sleeper']
+const KIND_STRIP = { start: '#71717a', prep: '#0ea5e9', expo: '#f59e0b', runner: '#8b5cf6', board: '#059669', balance: '#f43f5e', printer: '#57534e', sleeper: '#6366f1', setter: '#f97316' }
+const ADD_KINDS = ['prep', 'expo', 'runner', 'board', 'balance', 'printer', 'sleeper', 'setter']
 // What a Splitter does, said the same way in the panels.
 const BALANCE_RULE = 'each ticket\'s dishes go to one of them: the one with the fewest pieces still to cook, taking turns when they\'re level'
 
@@ -576,6 +577,7 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
                   {shared && kind !== 'start' && !n.here ? ' · none here' : ''}
                   {shared && n.here && n.here.kind !== kind ? ' · here: ' + KIND_LABELS[n.here.kind] : ''}
                   {kind === 'sleeper' && (n.here || n).settings?.delay_mins ? ' · ' + (n.here || n).settings.delay_mins + ' min' : ''}
+                  {kind === 'setter' ? ' · status ' + ((n.here || n).settings?.status_text || (n.here || n).name) : ''}
                   {!n.is_active ? ' · not in use' : ''}
                 </p>
               </div>
@@ -1225,6 +1227,13 @@ function NodePanel({ id, venueId, station, box, boxes, setup, links, nameOf, lk,
           Holds the dishes that reach it for {s.delay_mins} minutes{box ? ' at this location' : ''}, then sends them on by itself (Edit station to change the time).
           Which dishes come here is decided by the links into it: give them a filter (an order type, revenue stream, till, dish or section) so only those wait, and link Orders in to the same stations for everything else.
           Nothing to bump; the pass's Bump sends them on at once, and a remade dish doesn't wait again.
+        </p>
+      )}
+      {station?.kind === 'setter' && (
+        <p className="text-xs text-muted-foreground" data-testid="flow-setter-note">
+          Sets the order&apos;s status to <strong>{s.status_text || station.name}</strong> on order ready boards when a dish passes it (Edit station to change how it looks).
+          Dishes go straight on to the stations it links to. Put it before a station to say the dish is there (In the kitchen &gt; Grill), or after one to say it has left it.
+          The last Setter an order&apos;s dishes reached is its status.
         </p>
       )}
       {station?.kind === 'printer' && (

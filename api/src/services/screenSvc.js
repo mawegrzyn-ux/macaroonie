@@ -25,6 +25,7 @@ import { soldOutItemIds } from './soldOut.js'
 import { sha256 } from './screenAuth.js'
 import { boardMenuIds } from '../../../shared/screenLayout.js'
 import { menuTags } from '../../../shared/menuTags.js'
+import { statusOf } from '../../../shared/pos/kitchen.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 export const PLAYER_DIR = path.resolve(__dirname, '..', '..', '..', 'screen')
@@ -186,7 +187,21 @@ export async function designerData(tx, tenantId, { version = 'live', venueId = n
     order_boards: (await tx`
       SELECT DISTINCT trim(name) AS name FROM kds_stations
        WHERE tenant_id = ${tenantId} AND kind = 'board' AND is_active ORDER BY 1`).map(r => r.name),
+    // Statuses from the Setters in the kitchen flows (one per name across the
+    // locations, the first location's look): the Order status block's list.
+    order_statuses: orderStatuses(await tx`
+      SELECT id, name, kind, settings FROM kds_stations
+       WHERE tenant_id = ${tenantId} AND kind = 'setter' AND is_active ORDER BY created_at`),
   }
+}
+
+function orderStatuses(rows) {
+  const seen = new Map()
+  for (const r of rows) {
+    const k = r.name.trim().toLowerCase()
+    if (!seen.has(k)) seen.set(k, statusOf(r))
+  }
+  return [...seen.values()].map(({ id: _id, ...s }) => s).sort((a, b) => a.name.localeCompare(b.name))
 }
 
 /** Tell a tenant's screens that boards, playlists or screens changed. */
