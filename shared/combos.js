@@ -31,6 +31,8 @@
 //         section_id,     // type section: every item of that section
 //         label, kitchen_name,   // type custom: typed in for this combo
 //         image_url, description, // type custom: shown on kiosks (a dish shows its own)
+//         photo_url,      // kiosks, any type: the picture on the combo's split
+//                         // photo (none = image_url / the dish's photo; stored only when set)
 //         price_pence,    // extra charge for this choice (0 = included)
 //       }],
 //     }] }
@@ -82,6 +84,7 @@ export function normaliseCombo(raw) {
         label: o.label ? String(o.label) : null,
         kitchen_name: o.kitchen_name ? String(o.kitchen_name) : null,
         image_url: o.image_url ? String(o.image_url).slice(0, 2000) : null,
+        ...(o.photo_url ? { photo_url: String(o.photo_url).slice(0, 2000) } : {}),
         description: o.description ? String(o.description).slice(0, 300) : null,
         price_pence: pence(o.price_pence),
       })).filter(o => (o.type === 'item' ? o.item_id : o.type === 'section' ? o.section_id : o.label)),
@@ -132,7 +135,7 @@ export function menuCtx(menu) {
 /**
  * The choices a step offers, one per pickable thing:
  *   [{ key, option_id, item_id, section_id, label, kitchen_name, price_pence,
- *      image_url, description, item, sold_out }]
+ *      image_url, photo_url, description, item, sold_out }]
  * ctx: { itemsById, sectionItems, soldOut(itemId), selfId }. A dish that
  * isn't in itemsById (not on this till / not offered) is left out, and so
  * are combos (a combo can't be part of a combo).
@@ -150,7 +153,7 @@ export function stepChoices(step, ctx = {}) {
     out.push({
       key, option_id: o.id, item_id: id, section_id: it.section_id ?? null,
       label: it.name, kitchen_name: it.kitchen_name || null, price_pence: o.price_pence,
-      image_url: it.image_url || null, description: it.description || null,
+      image_url: it.image_url || null, photo_url: o.photo_url || null, description: it.description || null,
       item: it, sold_out: !!(it.sold_out || (ctx.soldOut && ctx.soldOut(id))),
     })
   }
@@ -160,7 +163,7 @@ export function stepChoices(step, ctx = {}) {
     else {
       out.push({
         key: o.id, option_id: o.id, item_id: null, section_id: null, label: o.label, kitchen_name: o.kitchen_name || null,
-        price_pence: o.price_pence, image_url: o.image_url || null, description: o.description || null, item: null, sold_out: false,
+        price_pence: o.price_pence, image_url: o.image_url || null, photo_url: o.photo_url || null, description: o.description || null, item: null, sold_out: false,
       })
     }
   }

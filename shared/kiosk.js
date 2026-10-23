@@ -342,7 +342,9 @@ export const SPLIT_MAX = 6
  * The pictures of a dish's split photo on the kiosk (the dish page, the
  * order line): the picks of option groups with Split photo on
  * (menu_variant_groups.kiosk_split, migration 185) and, on a combo, of steps
- * with it on (steps[].split; a picked dish shows its own photo). Steps
+ * with it on (steps[].split). Each pick shows its photo_url (migration 199:
+ * the picture made for the dish's photo), else its tile picture (image_url;
+ * a picked dish its own photo). Steps
  * first, then groups, each in pick order; an option picked twice shows once.
  * At most SPLIT_MAX; [] = the dish's own photo. How they show is the
  * design's options.pick_photos: split (one picture replaces the photo, two
@@ -363,7 +365,7 @@ export function splitImages(config, item, selection = {}) {
     if (!st.split) continue
     for (const e of asList(selection?.combo?.[st.id])) {
       const opt = st.options.find(o => o.id === e.option_id)
-      add('s:' + st.id + ':' + e.option_id + ':' + (e.item_id || ''), e.item_id ? configItem(config, e.item_id)?.image_url : opt?.image_url)
+      add('s:' + st.id + ':' + e.option_id + ':' + (e.item_id || ''), opt?.photo_url || (e.item_id ? configItem(config, e.item_id)?.image_url : opt?.image_url))
     }
   }
   for (const c of item.pos_choices || []) {
@@ -371,7 +373,7 @@ export function splitImages(config, item, selection = {}) {
     if (!lib?.kiosk_split) continue
     for (const e of asList(selection?.choices?.[c.key])) {
       const o = (lib.options || []).find(x => (x.option_id ?? x.id) === e.id)
-      add('g:' + c.key + ':' + e.id, o?.image_url)
+      add('g:' + c.key + ':' + e.id, o?.photo_url || o?.image_url)
     }
   }
   return out.slice(0, SPLIT_MAX)
@@ -384,7 +386,7 @@ export const MAX_SAVED_PICTURES = 1800
 /**
  * Every picture a kiosk config can show, for keeping them on the device
  * (pos/src/kiosk/photos.js): the logo, start screen pictures (not videos),
- * and every image_url / logo_url anywhere in the config (dishes, sections,
+ * and every image_url / logo_url / photo_url anywhere in the config (dishes, sections,
  * option and combo choices, banners, featured tiles, section tiles, order
  * type cards). Absolute URLs on the kiosk's own origin only (the service
  * worker keeps only those), each once, design first, at most MAX_SAVED_PICTURES.
@@ -401,7 +403,7 @@ export function configImages(config, origin) {
     if (!v || typeof v !== 'object' || depth > 12) return
     if (Array.isArray(v)) { for (const x of v) walk(x, depth + 1); return }
     for (const [k, x] of Object.entries(v)) {
-      if (k === 'image_url' || k === 'logo_url') add(x)
+      if (k === 'image_url' || k === 'logo_url' || k === 'photo_url') add(x)
       else if (x && typeof x === 'object') walk(x, depth + 1)
     }
   }

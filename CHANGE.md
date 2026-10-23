@@ -5,6 +5,14 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-23 — Two pictures for each choice]
+
+- Option group options (Menus → Variant groups) have two pictures: **Tile**, shown on the choice on kiosks, and **On dish**, shown on or in place of the dish's photo when the group has Split photo on (split or small in the corner, on the dish page and the order line). An option without an On dish picture uses its Tile picture there, as before.
+- Combo choices (Edit steps) get an **On meal** picture for the meal's photo: typed-in choices beside their Tile picture, single dishes beside their name (without one, a dish shows its own photo).
+- Pictures for the dish's photo are kept on the kiosk for offline use like the others.
+- On a phone, the Variant groups list shows each group's options under its name (they squeezed into the "Guests see" line).
+- **Migration 199** (choice_photo): `menu_variant_options.photo_url`.
+
 ## [2026-10-23 — Kiosk: no frame pictures, the dish page's top, picks on the photo, bundle steps; option group display names]
 
 - **No frame** picture style for dishes and for choices (kiosk designer, Menu and Choices cards): the whole picture as it is, straight on the page, with no card, corners, shadow or background; best with PNGs on a see-through background. List and wheel thumbs follow it. A picked choice glows in the button colour round its outline.

@@ -82,6 +82,16 @@ test('normaliseCombo: defaults, limits, a condition can only look back', () => {
   assert.equal(stepRule({ min: 2, max: 3 }), 'Choose 2 to 3')
 })
 
+test('normaliseCombo: a choice\'s picture on the combo\'s photo is kept only when set', () => {
+  const c = normaliseCombo({ steps: [{ id: 's', options: [
+    { id: 'x', type: 'custom', label: 'X', image_url: '/x-tile.png', photo_url: '/x-box.jpg' },
+    { id: 'y', type: 'custom', label: 'Y', photo_url: '' },
+  ] }] })
+  assert.equal(c.steps[0].options[0].photo_url, '/x-box.jpg')
+  assert.ok(!('photo_url' in c.steps[0].options[1]))
+  assert.deepEqual(stepChoices(c.steps[0], ctx).map(x => x.photo_url), ['/x-box.jpg', null])
+})
+
 test('stepChoices: dishes, a whole section, typed-in choices; no combos', () => {
   const c = normaliseCombo(MEAL.combo)
   assert.deepEqual(stepChoices(c.steps[0], ctx).map(x => x.label), ['Burger', 'Veggie burger'])

@@ -239,6 +239,38 @@ test('split photo: the picks of groups and steps with it on, in pick order', () 
   assert.deepEqual(splitImages(cfg2, null, {}), [])
 })
 
+test('split photo: a choice\'s On dish picture (photo_url) wins over its tile picture', () => {
+  const groups = {
+    [FLAVOUR]: { ...config.groups[FLAVOUR], kiosk_split: true, options: [
+      { id: LEMON, label: 'Lemon pepper', image_url: '/lemon-tile.png', photo_url: '/lemon-wings.jpg' },
+      { id: HOT, label: 'Atomic', image_url: '/hot-tile.png' },
+    ] },
+  }
+  const dish = { ...WINGS, pos_choices: [{ key: FLAVOUR }] }
+  const cfg = { ...config, groups }
+  const pick = (...ids) => ({ choices: { [FLAVOUR]: ids.map(id => ({ id })) } })
+  assert.deepEqual(splitImages(cfg, dish, pick(LEMON)), ['/lemon-wings.jpg'])
+  // Without one, the tile picture as before.
+  assert.deepEqual(splitImages(cfg, dish, pick(LEMON, HOT)), ['/lemon-wings.jpg', '/hot-tile.png'])
+  // An On dish picture alone is enough.
+  const onlyPhoto = { ...cfg, groups: { [FLAVOUR]: { ...groups[FLAVOUR], options: [{ id: LEMON, label: 'Lemon pepper', photo_url: '/lemon-wings.jpg' }] } } }
+  assert.deepEqual(splitImages(onlyPhoto, dish, pick(LEMON)), ['/lemon-wings.jpg'])
+  // Combo choices: a dish choice's On meal picture wins over the dish's photo, a typed-in one's over its tile.
+  const C1 = uuid()
+  const meal = { ...MEAL, pos_choices: [], combo: { steps: [
+    { ...MEAL.combo.steps[0], split: true, options: [
+      { id: M1, type: 'item', item_id: WINGS.id, photo_url: '/wings-in-box.jpg' },
+      { id: C1, type: 'custom', label: 'Tenders', image_url: '/tenders-tile.png', photo_url: '/tenders-in-box.jpg' },
+    ] },
+  ] } }
+  const items = { ...config.items, [WINGS.id]: { ...config.items[WINGS.id], image_url: '/wings.jpg' } }
+  assert.deepEqual(splitImages({ ...config, items }, meal, { choices: {}, combo: { [MAIN]: [{ option_id: M1, item_id: WINGS.id }, { option_id: C1, item_id: null }] } }),
+    ['/wings-in-box.jpg', '/tenders-in-box.jpg'])
+  // Pictures kept on the kiosk include On dish pictures.
+  const origin = 'https://kiosk.example.test'
+  assert.ok(configImages({ groups }, origin).includes(origin + '/lemon-wings.jpg'))
+})
+
 test('design: ways to pay and what stops a kiosk taking orders', () => {
   const both = normaliseDesign({})
   assert.deepEqual(payMethods(both, { card_reader: 'test' }), ['card', 'counter'])

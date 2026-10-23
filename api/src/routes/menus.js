@@ -76,6 +76,9 @@ const ComboOption = z.object({
   kitchen_name: z.string().max(60).nullable().optional(),
   // Kiosks (migration 172): a typed-in choice's photo and words (a dish shows its own).
   image_url:    z.string().max(2000).nullable().optional(),
+  // Migration 199: the picture on the combo's photo (Split photo), any
+  // choice type; none = image_url, or a dish's own photo. Stored only when set.
+  photo_url:    z.string().max(2000).nullable().optional(),
   description:  z.string().max(300).nullable().optional(),
   price_pence:  z.number().int().min(0).max(100000).default(0),
 }).refine(o => (o.type === 'item' ? !!o.item_id : o.type === 'section' ? !!o.section_id : !!(o.label || '').trim()),
@@ -313,6 +316,9 @@ const VariantOptionBody = z.object({
   // Kiosks (migration 172): a photo, a line of words and a level (0-5) on
   // the group's scale (heat: No spice ... Very spicy).
   image_url:      z.string().max(2000).nullable().optional(),
+  // Migration 199: the picture this option puts on the dish's photo (the
+  // group's Split photo); empty = image_url.
+  photo_url:      z.string().max(2000).nullable().optional(),
   description:    z.string().max(300).nullable().optional(),
   level:          z.number().int().min(0).max(5).nullable().optional(),
 })
@@ -407,7 +413,7 @@ async function loadVariantGroups(tx, tenantId) {
              'id', o.id, 'label', o.label,
              'price_pence', o.price_pence, 'sort_order', o.sort_order,
              'child_group_id', o.child_group_id
-             , 'image_url', o.image_url, 'description', o.description, 'level', o.level
+             , 'image_url', o.image_url, 'photo_url', o.photo_url, 'description', o.description, 'level', o.level
            ) ORDER BY o.sort_order, o.label) FILTER (WHERE o.id IS NOT NULL), '[]'::json) AS options
       FROM menu_variant_groups g
       LEFT JOIN menu_variant_options o ON o.group_id = g.id
@@ -679,6 +685,8 @@ function cleanCombo(combo, selfId, itemKinds, sectionIds) {
       o.type === 'custom' ? !!(o.label || '').trim()
         : o.type === 'item' ? (o.item_id !== selfId && itemKinds.get(o.item_id) === 'dish')
           : sectionIds.has(o.section_id))
+      // A choice's photo_url is kept only when set, like a step's split.
+      .map(({ photo_url, ...o }) => (photo_url ? { ...o, photo_url } : o))
     const ref = st.when && steps.find(x => x.id === st.when.step_id)
     const when = ref ? { step_id: ref.id, option_ids: (st.when.option_ids || []).filter(id => ref.options.some(o => o.id === id)) } : null
     steps.push({ ...st, min: Math.min(st.min, st.max), ask: st.min === 0 ? st.ask : 'always', when, options })
@@ -1587,10 +1595,10 @@ export default async function menusRoutes(app) {
       const options = []
       for (const [i, o] of (body.options || []).entries()) {
         const [opt] = await tx`
-          INSERT INTO menu_variant_options (group_id, tenant_id, label, price_pence, sort_order, child_group_id, image_url, description, level)
+          INSERT INTO menu_variant_options (group_id, tenant_id, label, price_pence, sort_order, child_group_id, image_url, photo_url, description, level)
           VALUES (${g.id}, ${req.tenantId}, ${o.label}, ${o.price_pence}, ${o.sort_order ?? i},
                   ${await childGroup(tx, req.tenantId, o.child_group_id, g.id)},
-                  ${o.image_url || null}, ${o.description || null}, ${o.level ?? null})
+                  ${o.image_url || null}, ${o.photo_url || null}, ${o.description || null}, ${o.level ?? null})
           RETURNING *
         `
         options.push(opt)
@@ -1627,17 +1635,17 @@ export default async function menusRoutes(app) {
             UPDATE menu_variant_options
                SET label = ${o.label}, price_pence = ${o.price_pence}, sort_order = ${i},
                    child_group_id = ${await childGroup(tx, req.tenantId, o.child_group_id, g.id)},
-                   image_url = ${o.image_url || null}, description = ${o.description || null}, level = ${o.level ?? null}
+                   image_url = ${o.image_url || null}, photo_url = ${o.photo_url || null}, description = ${o.description || null}, level = ${o.level ?? null}
              WHERE id = ${o.id} AND group_id = ${g.id} AND tenant_id = ${req.tenantId}
              RETURNING *
           `
           if (opt) { keepIds.push(opt.id); options.push(opt) }
         } else {
           const [opt] = await tx`
-            INSERT INTO menu_variant_options (group_id, tenant_id, label, price_pence, sort_order, child_group_id, image_url, description, level)
+            INSERT INTO menu_variant_options (group_id, tenant_id, label, price_pence, sort_order, child_group_id, image_url, photo_url, description, level)
             VALUES (${g.id}, ${req.tenantId}, ${o.label}, ${o.price_pence}, ${i},
                     ${await childGroup(tx, req.tenantId, o.child_group_id, g.id)},
-                    ${o.image_url || null}, ${o.description || null}, ${o.level ?? null})
+                    ${o.image_url || null}, ${o.photo_url || null}, ${o.description || null}, ${o.level ?? null})
             RETURNING *
           `
           keepIds.push(opt.id)
