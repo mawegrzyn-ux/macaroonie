@@ -5,6 +5,11 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-23 — Kiosk: choices that come onto the screen]
+
+- Kiosk designer → Choices → **When the choices appear**: Just there, Fade in, Slide in from the side, Bubble up or Deal like cards. A dish's choices (and each combo step's) come on one after another when the page opens: grids, honeycombs, lists and the slider; the spin wheel comes in whole.
+- Guests whose device asks for less motion see them at once. No migration.
+
 ## [2026-10-23 — Order statuses from the kitchen flow (Setter)]
 
 - New kitchen flow box, **Setter**: when a dish passes it, the order's status becomes the Setter's name (Cooking, Bagging, Out for delivery). Dishes go straight through; no kitchen screen, nothing to bump. Each Setter at a location needs its own name.

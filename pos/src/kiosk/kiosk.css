@@ -370,3 +370,54 @@
 img.k-clear { background: transparent !important; object-fit: contain; }
 .k-corner-pick.k-clear { border-radius: 0; clip-path: none; aspect-ratio: auto; box-shadow: none; filter: drop-shadow(0 2px 3px rgba(0,0,0,.35)); }
 .k-split > img.k-clear { object-fit: contain; }
+
+/* Choices coming onto the screen (design options.entrance, root data-enter):
+   each choice of a grid, honeycomb, list or slider in turn, the wheel whole.
+   backwards fill: once done, each element's own transform (the slider's
+   scale) takes over again. */
+:where(.k-root[data-enter]:not([data-enter="none"])) [data-display="grid"] > :not(.k-hexgrid),
+:where(.k-root[data-enter]:not([data-enter="none"])) [data-display] .k-hexgrid > .k-hex-cell,
+:where(.k-root[data-enter]:not([data-enter="none"])) [data-display="list"] > *,
+:where(.k-root[data-enter]:not([data-enter="none"])) .k-slider > .k-slide > :first-child,
+:where(.k-root[data-enter]:not([data-enter="none"])) [data-display="wheel"] > * {
+  animation-duration: var(--k-enter-ms, 420ms); animation-timing-function: cubic-bezier(.2, .8, .25, 1);
+  animation-fill-mode: backwards; animation-delay: calc(var(--k-ei, 0) * var(--k-enter-step, 60ms));
+}
+[data-display="grid"] > *:nth-child(n), [data-display] .k-hexgrid > *, [data-display="list"] > *, .k-slider > .k-slide { --k-ei: 0; }
+[data-display="grid"] > :nth-child(2), [data-display] .k-hexgrid > :nth-child(2), [data-display="list"] > :nth-child(2), .k-slider > .k-slide:nth-child(2) { --k-ei: 1; }
+[data-display="grid"] > :nth-child(3), [data-display] .k-hexgrid > :nth-child(3), [data-display="list"] > :nth-child(3), .k-slider > .k-slide:nth-child(3) { --k-ei: 2; }
+[data-display="grid"] > :nth-child(4), [data-display] .k-hexgrid > :nth-child(4), [data-display="list"] > :nth-child(4), .k-slider > .k-slide:nth-child(4) { --k-ei: 3; }
+[data-display="grid"] > :nth-child(5), [data-display] .k-hexgrid > :nth-child(5), [data-display="list"] > :nth-child(5), .k-slider > .k-slide:nth-child(5) { --k-ei: 4; }
+[data-display="grid"] > :nth-child(6), [data-display] .k-hexgrid > :nth-child(6), [data-display="list"] > :nth-child(6), .k-slider > .k-slide:nth-child(6) { --k-ei: 5; }
+[data-display="grid"] > :nth-child(7), [data-display] .k-hexgrid > :nth-child(7), [data-display="list"] > :nth-child(7), .k-slider > .k-slide:nth-child(7) { --k-ei: 6; }
+[data-display="grid"] > :nth-child(8), [data-display] .k-hexgrid > :nth-child(8), [data-display="list"] > :nth-child(8), .k-slider > .k-slide:nth-child(8) { --k-ei: 7; }
+[data-display="grid"] > :nth-child(9), [data-display] .k-hexgrid > :nth-child(9), [data-display="list"] > :nth-child(9), .k-slider > .k-slide:nth-child(9) { --k-ei: 8; }
+[data-display="grid"] > :nth-child(10), [data-display] .k-hexgrid > :nth-child(10), [data-display="list"] > :nth-child(10), .k-slider > .k-slide:nth-child(10) { --k-ei: 9; }
+[data-display="grid"] > :nth-child(11), [data-display] .k-hexgrid > :nth-child(11), [data-display="list"] > :nth-child(11), .k-slider > .k-slide:nth-child(11) { --k-ei: 10; }
+[data-display="grid"] > :nth-child(12), [data-display] .k-hexgrid > :nth-child(12), [data-display="list"] > :nth-child(12), .k-slider > .k-slide:nth-child(12) { --k-ei: 11; }
+[data-display="grid"] > :nth-child(13), [data-display] .k-hexgrid > :nth-child(13), [data-display="list"] > :nth-child(13), .k-slider > .k-slide:nth-child(13) { --k-ei: 12; }
+[data-display="grid"] > :nth-child(14), [data-display] .k-hexgrid > :nth-child(14), [data-display="list"] > :nth-child(14), .k-slider > .k-slide:nth-child(14) { --k-ei: 13; }
+[data-display="grid"] > :nth-child(15), [data-display] .k-hexgrid > :nth-child(15), [data-display="list"] > :nth-child(15), .k-slider > .k-slide:nth-child(15) { --k-ei: 14; }
+[data-display="grid"] > :nth-child(16), [data-display] .k-hexgrid > :nth-child(16), [data-display="list"] > :nth-child(16), .k-slider > .k-slide:nth-child(16) { --k-ei: 15; }
+[data-display="grid"] > :nth-child(17), [data-display] .k-hexgrid > :nth-child(17), [data-display="list"] > :nth-child(17), .k-slider > .k-slide:nth-child(17) { --k-ei: 16; }
+[data-display="grid"] > :nth-child(18), [data-display] .k-hexgrid > :nth-child(18), [data-display="list"] > :nth-child(18), .k-slider > .k-slide:nth-child(18) { --k-ei: 17; }
+[data-display="grid"] > :nth-child(19), [data-display] .k-hexgrid > :nth-child(19), [data-display="list"] > :nth-child(19), .k-slider > .k-slide:nth-child(19) { --k-ei: 18; }
+[data-display="grid"] > :nth-child(20), [data-display] .k-hexgrid > :nth-child(20), [data-display="list"] > :nth-child(20), .k-slider > .k-slide:nth-child(20) { --k-ei: 19; }
+[data-display="grid"] > :nth-child(21), [data-display] .k-hexgrid > :nth-child(21), [data-display="list"] > :nth-child(21), .k-slider > .k-slide:nth-child(21) { --k-ei: 20; }
+[data-display="grid"] > :nth-child(22), [data-display] .k-hexgrid > :nth-child(22), [data-display="list"] > :nth-child(22), .k-slider > .k-slide:nth-child(22) { --k-ei: 21; }
+[data-display="grid"] > :nth-child(23), [data-display] .k-hexgrid > :nth-child(23), [data-display="list"] > :nth-child(23), .k-slider > .k-slide:nth-child(23) { --k-ei: 22; }
+[data-display="grid"] > :nth-child(24), [data-display] .k-hexgrid > :nth-child(24), [data-display="list"] > :nth-child(24), .k-slider > .k-slide:nth-child(24) { --k-ei: 23; }
+.k-root[data-enter="appear"] { --k-enter-name: k-enter-appear; }
+.k-root[data-enter="slide"] { --k-enter-name: k-enter-slide; }
+.k-root[data-enter="bubble"] { --k-enter-name: k-enter-bubble; --k-enter-ms: 520ms; }
+.k-root[data-enter="deal"] { --k-enter-name: k-enter-deal; --k-enter-ms: 480ms; --k-enter-step: 90ms; }
+.k-root[data-enter]:not([data-enter="none"]) [data-display="grid"] > :not(.k-hexgrid),
+.k-root[data-enter]:not([data-enter="none"]) [data-display] .k-hexgrid > .k-hex-cell,
+.k-root[data-enter]:not([data-enter="none"]) [data-display="list"] > *,
+.k-root[data-enter]:not([data-enter="none"]) .k-slider > .k-slide > :first-child,
+.k-root[data-enter]:not([data-enter="none"]) [data-display="wheel"] > * { animation-name: var(--k-enter-name); }
+@keyframes k-enter-appear { from { opacity: 0; transform: scale(.96); } }
+@keyframes k-enter-slide { from { opacity: 0; transform: translateX(-60px); } }
+@keyframes k-enter-bubble { 0% { opacity: 0; transform: translateY(50px) scale(.55); } 70% { opacity: 1; transform: translateY(-6px) scale(1.05); } 100% { transform: none; } }
+@keyframes k-enter-deal { from { opacity: 0; transform: translate(-30vw, 45vh) rotate(-22deg) scale(.7); } 60% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .k-root[data-enter] { --k-enter-name: none; } }

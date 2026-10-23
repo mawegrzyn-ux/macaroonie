@@ -29,7 +29,7 @@ import { kioskBrandFromKit } from '@shared/themeKit.js'
 import { ThemeMakerButton } from '@/components/themes/ThemeMaker'
 import {
   normaliseDesign, designProblems, KIOSK_FONTS, KIOSK_EXTRA_FONTS, SYSTEM_FONT, COLOR_LABELS,
-  DESIGN_COLORS, CLEAR_COLORS, KIOSK_LANGUAGES, DISPLAY_LABELS, KIOSK_DISPLAYS, uiText, TILE_STYLES, TILE_LABELS,
+  DESIGN_COLORS, CLEAR_COLORS, CHOICE_ENTRANCES, KIOSK_LANGUAGES, DISPLAY_LABELS, KIOSK_DISPLAYS, uiText, TILE_STYLES, TILE_LABELS,
 } from '@shared/kiosk.js'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -743,6 +743,12 @@ function ChoicesPanel({ d, set }) {
             options={[{ value: 'left', label: 'From the left' }, { value: 'center', label: 'Centred' }]} />
         </div>
       </Field>
+      <Field group label="When the choices appear" hint="How a dish's choices come onto the screen when its page or a combo step opens: one after another, or all at once. Open a dish in the preview to see it.">
+        <div data-testid="kd-entrance">
+          <Segmented value={d.options.entrance} onChange={v => set('options', { entrance: v })} className="flex-wrap"
+            options={CHOICE_ENTRANCES.map(x => ({ value: x.key, label: x.label }))} />
+        </div>
+      </Field>
       <p className="text-[11px] text-muted-foreground" data-testid="kd-pick-photos-note">
         Picks on the dish's photo (split it, or small in the corner) are set on each option group (Menus &gt; Variant groups) and each combo step, so one dish can split its photo between flavours and show the dip in the corner.
       </p>
@@ -1165,7 +1171,7 @@ function summaryOf(id, d) {
   if (id === 'start') return (d.start.media.length ? d.start.media.length + ' picture' + (d.start.media.length === 1 ? '' : 's') : 'No pictures') + ', ' + (d.start.layout === 'full' ? 'pictures behind' : 'pictures apart')
   if (id === 'languages') return d.languages.enabled.map(c => KIOSK_LANGUAGES.find(l => l.code === c)?.name).join(', ')
   if (id === 'menu') return TILE_LABELS[d.layout.tiles] + ', ' + (d.menu.rail === 'none' ? 'section tiles, ' : '') + (d.menu.home ? d.menu.banners.length + ' banners, ' + d.menu.featured.length + ' tiles' : 'No home page') + (d.menu.hidden_section_ids.length ? ', ' + d.menu.hidden_section_ids.length + ' sections left off' : '')
-  if (id === 'choices') return DISPLAY_LABELS[d.options.display] + ', ' + TILE_LABELS[d.layout.option_tiles].toLowerCase() + (d.layout.option_pictures ? '' : ', words only') + (d.layout.option_align === 'center' ? ', centred' : '') + (d.options.wheel_spin_picks ? ', a spin picks' : '')
+  if (id === 'choices') return DISPLAY_LABELS[d.options.display] + ', ' + TILE_LABELS[d.layout.option_tiles].toLowerCase() + (d.layout.option_pictures ? '' : ', words only') + (d.layout.option_align === 'center' ? ', centred' : '') + (d.options.wheel_spin_picks ? ', a spin picks' : '') + (d.options.entrance !== 'none' ? ', ' + CHOICE_ENTRANCES.find(x => x.key === d.options.entrance).label.toLowerCase() : '')
   if (id === 'checkout') return [d.checkout.pay_card && 'Card', d.checkout.pay_counter && 'At the counter'].filter(Boolean).join(' and ') || 'No way to pay'
   if (id === 'timing') return 'Starts again after ' + d.behaviour.idle_secs + ' s' + (d.behaviour.reach && d.behaviour.reach_media.length ? ', reach pictures' : '')
   return ''
