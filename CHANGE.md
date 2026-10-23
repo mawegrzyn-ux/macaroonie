@@ -5,6 +5,11 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-23 — Kiosk: pictures with a see-through background]
+
+- A PNG or WebP with a transparent background (a cut-out dip pot, burger, bottle) now shows whole on the kiosk with nothing behind it: no shaded background behind dish and choice pictures, and in the dish photo's corner no round badge or ring round a pick, just a soft shadow under its outline.
+- The kiosk notices see-through pictures by itself; pictures without see-through parts keep their frame and badge as before. No setting, no migration.
+
 ## [2026-10-23 — Store tech in the main menu]
 
 - Till setup is now **Store tech**: its tabs (Tills, Kiosks, Kitchen screens, Printers, Printing, Card machines, Order types, Revenue streams, Courses, Staff and PINs, Till roles, Receipts and payments, Cash Recon link) are pages of their own, each a link in a new Store tech section of the left menu after Venues, with Floor plan and Menu screens (moved from Menus) beside them. The row of tabs at the top of the page is gone.
