@@ -117,10 +117,9 @@ export const FITS = [
   { value: 'stretch', label: 'Stretch' },
 ]
 
-/** Colour picker with a hex box; `optional` adds "Board colour" (null). */
-/** A board colour: the website theme's colours, then a custom one. */
-export function ColourField({ label, value, onChange, optional = false, placeholder = 'Board colour' }) {
-  return <ColourPicker label={label} value={value} onChange={onChange} optional={optional} placeholder={placeholder} />
+/** A board colour: the website theme's colours, then a custom one; `optional` allows none (null), `clear` See-through. */
+export function ColourField({ label, value, onChange, optional = false, placeholder = 'Board colour', clear = false }) {
+  return <ColourPicker label={label} value={value} onChange={onChange} optional={optional} placeholder={placeholder} clear={clear} />
 }
 
 /** Whole-number box that keeps what was typed while focused. */

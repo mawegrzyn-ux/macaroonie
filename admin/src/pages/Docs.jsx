@@ -6101,6 +6101,19 @@ selection.combo = { [stepId]: [{ option_id, item_id, choices }] }   // item_id n
               colour codes, so a theme pick is copied as its code: changing the website theme later
               doesn&apos;t change a board.
             </P>
+            <P>
+              See-through: <Mono>ColourPicker</Mono> / <Mono>ColourField</Mono> take <Mono>clear</Mono>, which
+              adds <Mono>ClearSwatch</Mono> (a <Mono>CHECKER</Mono> background, <Mono>data-testid=&quot;colour-clear&quot;</Mono>)
+              storing the word <Mono>transparent</Mono> (the code box takes it typed too). Used only on
+              background fields: the board background (the designer frame shows <Mono>CHECKER</Mono> behind it),
+              box colour, scrolling text background, order board <Mono>ready_bg</Mono> / <Mono>preparing_bg</Mono>
+              (<Mono>colour()</Mono> in <Mono>shared/screenLayout.js</Mono> already passes <Mono>transparent</Mono>,
+              and <Mono>withAlpha()</Mono> keeps it); kiosk design colours in <Mono>CLEAR_COLORS</Mono>
+              (<Mono>surface</Mono>, <Mono>primary</Mono>, <Mono>accent</Mono>; <Mono>normaliseDesign()</Mono> drops
+              <Mono>transparent</Mono> on any other colour). The kiosk sets <Mono>--k-sheet</Mono> (the page colour
+              when cards are see-through) for <Mono>.k-sheet</Mono>, and the designer&apos;s readability check
+              reads a see-through colour as the page (<Mono>solidColours()</Mono>).
+            </P>
           </section>
 
           <section id="website-cms" data-doc="">

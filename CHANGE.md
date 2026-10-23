@@ -5,6 +5,13 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-23 — See-through backgrounds in the designers]
+
+- The colour picker in the menu screen designer and the kiosk designer has a **See-through** swatch (checkered, first in the row) on background colours: nothing is drawn, so what is behind shows.
+- Menu screens: the board background (a checkerboard shows behind it in the designer), a box, a scrolling text's background, the order board's Ready and Preparing boxes.
+- Kiosk designs: Cards, Buttons and Highlights. Pop-up windows keep the page colour so they stay readable; the readability check treats see-through as the page colour.
+- Text colours and printed menu inks don't offer it. No migration.
+
 ## [2026-10-23 — Kiosk: pictures with a see-through background]
 
 - A PNG or WebP with a transparent background (a cut-out dip pot, burger, bottle) now shows whole on the kiosk with nothing behind it: no shaded background behind dish and choice pictures, and in the dish photo's corner no round badge or ring round a pick, just a soft shadow under its outline.

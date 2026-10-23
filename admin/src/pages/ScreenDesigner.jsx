@@ -34,6 +34,7 @@ import { FontPicker } from '@/components/website-builder/FontPicker'
 import {
   useScreenCss, useBoardFonts, useScreenData, ColourField, PxBox, errorText, useTick,
 } from '@/components/screens/shared'
+import { CHECKER } from '@/components/ColourPicker'
 import {
   BLOCK_TYPES, BLOCK_LABELS, BLOCK_HINTS, BLOCK_DEFAULTS, BOARD_SIZES, SCREEN_FONT_OPTIONS, ANIM_IN, ANIM_LOOP,
   normalizeBoard, boardContext, renderBlockInner, blockStyle, boardStyle, toReactStyle, dishOptionLabels,
@@ -479,7 +480,8 @@ export default function ScreenDesigner() {
 
         <div ref={canvasRef} className={cn('flex-1 min-w-0 overflow-auto p-6 flex', fileDrop.over && 'ring-4 ring-inset ring-primary/50 bg-primary/5')}
           onPointerDown={() => setSel(null)} onDragStart={noImageDrag} {...fileDrop.dropProps} data-testid="board-canvas">
-          <div className="relative m-auto shrink-0" style={{ width: W * scale, height: H * scale }}>
+          <div className="relative m-auto shrink-0" data-testid="board-frame"
+            style={{ width: W * scale, height: H * scale, background: layout.background === 'transparent' ? CHECKER : undefined }}>
             <div ref={boardRef} className={'sl-board sd-board absolute left-0 top-0 shadow-lg' + (playing ? ' sl-play' : '')}
               style={{ ...toReactStyle(boardStyle(layout)), transform: `scale(${scale})`, transformOrigin: '0 0', '--sd-scale': scale }}>
               {layout.blocks.map((b0, i) => {
@@ -1024,8 +1026,8 @@ function BlockPanel({ block, board, data, canManage, onUpdate, onOpts, onDuplica
               <PxBox label="Space between" value={o.gap ?? 160} min={0} max={4000} onChange={v => onOpts({ gap: v })} />
             </div>
             <Seg value={o.direction === 'right' ? 'right' : 'left'} options={[['left', 'Moves left'], ['right', 'Moves right']]} onChange={v => onOpts({ direction: v })} />
-            <ColourField label="Background" value={o.bg || null} optional placeholder="None" onChange={v => onOpts({ bg: v })} />
-            {o.bg && <PxBox label="Background solid" suffix="%" value={o.bg_alpha ?? 100} min={0} max={100} onChange={v => onOpts({ bg_alpha: v })} />}
+            <ColourField label="Background" value={o.bg || null} optional clear placeholder="None" onChange={v => onOpts({ bg: v })} />
+            {o.bg && o.bg !== 'transparent' && <PxBox label="Background solid" suffix="%" value={o.bg_alpha ?? 100} min={0} max={100} onChange={v => onOpts({ bg_alpha: v })} />}
             <p className="text-[11px] text-muted-foreground">It moves on the screens and when you press Play. Across a wall it runs from one screen onto the next.</p>
           </Section>
           <Section title="Style">
@@ -1036,8 +1038,8 @@ function BlockPanel({ block, board, data, canManage, onUpdate, onOpts, onDuplica
 
       {block.type === 'box' && (
         <Section title="Box or line">
-          <ColourField label="Colour" value={o.color || '#000000'} onChange={v => onOpts({ color: v })} />
-          <PxBox label="Solid" suffix="%" value={o.alpha ?? 100} min={0} max={100} onChange={v => onOpts({ alpha: v })} />
+          <ColourField label="Colour" value={o.color || '#000000'} clear onChange={v => onOpts({ color: v })} />
+          {o.color !== 'transparent' && <PxBox label="Solid" suffix="%" value={o.alpha ?? 100} min={0} max={100} onChange={v => onOpts({ alpha: v })} />}
           <PxBox label="Rounded corners" value={o.radius ?? 0} min={0} max={4000} onChange={v => onOpts({ radius: v })} />
           <div className="grid grid-cols-2 gap-2">
             <PxBox label="Border" value={o.border_width ?? 0} min={0} max={200} onChange={v => onOpts({ border_width: v })} />
@@ -1112,10 +1114,10 @@ function BlockPanel({ block, board, data, canManage, onUpdate, onOpts, onDuplica
               <PxBox label="Number size" value={o.number_size ?? 72} min={6} max={600} onChange={v => onOpts({ number_size: v })} />
             </div>
             <ColourField label="Titles" value={o.title_color || null} optional onChange={v => onOpts({ title_color: v })} />
-            <ColourField label="Ready box" value={o.ready_bg || '#2e8b57'} onChange={v => onOpts({ ready_bg: v })} />
+            <ColourField label="Ready box" value={o.ready_bg || '#2e8b57'} clear onChange={v => onOpts({ ready_bg: v })} />
             <ColourField label="Ready number" value={o.ready_color || '#ffffff'} onChange={v => onOpts({ ready_color: v })} />
             <ColourField label="Preparing number" value={o.preparing_color || null} optional onChange={v => onOpts({ preparing_color: v })} />
-            <ColourField label="Preparing box" value={o.preparing_bg || null} optional onChange={v => onOpts({ preparing_bg: v })} />
+            <ColourField label="Preparing box" value={o.preparing_bg || null} optional clear onChange={v => onOpts({ preparing_bg: v })} />
           </Section>
           <Section title="When a number changes">
             <Sel label="Animation" value={o.change_anim || 'none'} onChange={v => onOpts({ change_anim: v })}>
@@ -1210,7 +1212,7 @@ function BoardPanel({ board, name, setName, canManage, onPatch, venues, version,
           <p className="text-[11px] text-muted-foreground">Blocks keep their place in pixels when the size changes.</p>
         </Section>
         <Section title="Background">
-          <ColourField label="Colour" value={board.background} onChange={v => onPatch({ background: v })} />
+          <ColourField label="Colour" value={board.background} clear onChange={v => onPatch({ background: v })} />
           {board.background_image && <img src={board.background_image} alt="" className="w-full max-h-32 object-cover rounded-md border" />}
           <div className="flex gap-2">
             <button type="button" onClick={() => setMediaOpen(true)}

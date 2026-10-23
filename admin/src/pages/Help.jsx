@@ -2758,6 +2758,15 @@ export default function Help() {
               editor&apos;s text colour show the same theme colours as swatches, then a custom colour.
               The kiosk designer also has a <strong>Website colours</strong> set to start from.
             </P>
+            <P>
+              Background colours can also be <strong>See-through</strong> (the checkered swatch first
+              in the row): nothing is drawn, so what is behind shows. On a menu screen board: the
+              board&apos;s background (the designer shows a checkerboard behind it), a box, a scrolling
+              text&apos;s background and the order board&apos;s Ready and Preparing boxes. On a kiosk
+              design: Cards, Buttons and Highlights (the page and the words always have a colour; the
+              pop-up windows keep the page colour so they stay readable). Text colours have no
+              See-through. A printed menu&apos;s colours are inks on the paper, so they don&apos;t have it either.
+            </P>
 
             <H3>Make a theme from a picture</H3>
             <P>

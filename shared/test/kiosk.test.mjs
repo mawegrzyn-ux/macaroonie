@@ -7,7 +7,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   normaliseDesign, designProblems, payMethods, uiText, allergenName, translationSources, TK, pickImages, hexLayout,
-  configImages, MAX_SAVED_PICTURES, kioskOrder, basketCheck, kioskStaff, kioskFontsUrl, UI_TEXT, ALLERGEN_NAMES, KIOSK_LANGUAGES,
+  configImages, MAX_SAVED_PICTURES, kioskOrder, basketCheck, kioskStaff, kioskFontsUrl, UI_TEXT, ALLERGEN_NAMES, KIOSK_LANGUAGES, DESIGN_COLORS, CLEAR_COLORS,
 } from '../kiosk.js'
 import { applyEvent, KIOSK_EVENTS } from '../pos/checks.js'
 import { checkTotals } from '../pos/pricing.js'
@@ -510,4 +510,21 @@ test('the number a guest types is a tent unless the design says table', () => {
     for (const k of ['tent_number', 'tent_hint', 'tent_done']) assert.ok(UI_TEXT[lang][k], lang + ' has ' + k)
     assert.match(UI_TEXT[lang].tent_done, /\{n\}/, lang + ' tent_done names the tent')
   }
+})
+
+test('See-through colours: only cards, buttons and highlights may be transparent', () => {
+  const d = normaliseDesign({ brand: { colors: {
+    surface: 'transparent', primary: 'transparent', accent: 'transparent',
+    background: 'transparent', text: 'transparent', primary_text: 'none',
+  } } })
+  const c = d.brand.colors
+  assert.equal(c.surface, 'transparent')
+  assert.equal(c.primary, 'transparent')
+  assert.equal(c.accent, 'transparent')
+  assert.equal(c.background, DESIGN_COLORS.background)
+  assert.equal(c.text, DESIGN_COLORS.text)
+  assert.equal(c.primary_text, DESIGN_COLORS.primary_text)
+  assert.deepEqual(CLEAR_COLORS, ['surface', 'primary', 'accent'])
+  // Round trip: a saved design keeps them.
+  assert.equal(normaliseDesign(d).brand.colors.surface, 'transparent')
 })
