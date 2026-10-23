@@ -20,7 +20,7 @@ import { TK, allergenName, pickImages } from '@shared/kiosk.js'
 import { useKiosk, textsFor, addToBasket, closeBuilder, soldOut, itemLevels, dishLevels, mergeLevels } from './store.js'
 import OptionGroup, { missingIn, groupName } from './OptionGroup.jsx'
 import { DISPLAYS, choiceLook } from './displays.jsx'
-import { cx, PickPhoto, Stepper, BackButton, bringIntoView, usePortrait } from './parts.jsx'
+import { cx, Pic, PickPhoto, Stepper, BackButton, bringIntoView, usePortrait } from './parts.jsx'
 
 /**
  * Tags with their levels ({ code: level }) as names in the guest's language:
@@ -498,7 +498,7 @@ function ComboBuilder({ item, config, ctx, texts, builder }) {
                     {pk.images.length ? pk.images.map((src, j) => (
                       <span key={src} className={cx('k-opt-thumb k-step-thumb overflow-hidden rounded-[calc(var(--k-radius)/1.5)]', portrait ? 'w-[3.6em] h-[3.6em]' : 'w-[3em] h-[3em]', j > 0 && '-ml-[1.6em]')}
                         style={{ zIndex: 3 - j }}>
-                        <img src={src} alt="" draggable={false} className="w-full h-full object-cover" />
+                        <Pic src={src} className="w-full h-full object-cover" />
                       </span>
                     )) : (
                       <span className={cx('rounded-full flex items-center justify-center bg-[var(--k-primary)] text-[var(--k-primary-text)]', portrait ? 'w-[3.6em] h-[3.6em]' : 'w-[3em] h-[3em]')}>

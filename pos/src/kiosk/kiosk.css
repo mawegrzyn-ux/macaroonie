@@ -363,3 +363,10 @@
 .k-hex-words .k-hex-band { top: 17%; bottom: 17%; left: 13%; right: 13%; justify-content: center; color: var(--k-text); text-shadow: none; }
 .k-hex-words .k-hex-name { font-size: 1.3em; -webkit-line-clamp: 3; }
 .k-hex-on .k-hex-words { background: color-mix(in srgb, var(--k-primary) 14%, var(--k-surface)); }
+
+/* Pictures with see-through parts (cut-out PNGs; parts.jsx Pic, clear.js):
+   no picture background, frame, ring or badge behind them, shown whole.
+   A soft shadow follows the cut-out's own outline instead. */
+img.k-clear { background: transparent !important; object-fit: contain; }
+.k-corner-pick.k-clear { border-radius: 0; clip-path: none; aspect-ratio: auto; box-shadow: none; filter: drop-shadow(0 2px 3px rgba(0,0,0,.35)); }
+.k-split > img.k-clear { object-fit: contain; }

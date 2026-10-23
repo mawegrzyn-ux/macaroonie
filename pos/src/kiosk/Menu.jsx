@@ -14,7 +14,7 @@ import { TK, basketCheck } from '@shared/kiosk.js'
 import {
   useKiosk, textsFor, kioskSections, hasHome, openSection, openBuilder, addToBasket, go, restart, setLang, setReach, soldOut,
 } from './store.js'
-import { cx, Photo, Sheet, Flag, BackButton, HexGrid, HexTile } from './parts.jsx'
+import { cx, Pic, Photo, Sheet, Flag, BackButton, HexGrid, HexTile } from './parts.jsx'
 import { priceLabel, DietaryBadges } from './Builder.jsx'
 import { Languages } from './Start.jsx'
 
@@ -134,7 +134,7 @@ function Home({ config, texts }) {
             return (
               <button key={f.id} className={cx('k-card relative overflow-hidden border-0 p-0 text-left min-h-[22vmin]', f.size === 'wide' && 'col-span-2')}
                 onClick={() => linkTo(f.link, config, texts)} data-testid="k-featured">
-                {f.image_url && <img src={f.image_url} alt="" className="absolute inset-0 w-full h-full object-cover" draggable={false} />}
+                {f.image_url && <Pic src={f.image_url} className="absolute inset-0 w-full h-full object-cover" />}
                 <span className="absolute inset-x-0 bottom-0 p-[.8em] flex flex-col" style={f.image_url ? { background: 'linear-gradient(to top, rgba(0,0,0,.7), transparent)', color: '#fff' } : null}>
                   {title && <span className="k-head text-[1.5em]">{title}</span>}
                   {sub && <span className="text-[.9em]">{sub}</span>}
@@ -331,7 +331,7 @@ export default function Menu() {
               return (
                 <button key={sec.id} className={cx('k-rail-item flex flex-col items-center gap-[.3em] p-[.5em] rounded-[calc(var(--k-radius)/1.5)] border-2', current === sec.id ? 'k-rail-on border-[var(--k-primary)] bg-[var(--k-soft)]' : 'border-transparent')}
                   onClick={() => openSection(sec.id)} data-testid="k-rail-section" data-section={sec.id}>
-                  {img && <img src={img} alt="" className="k-rail-img w-[70%] aspect-square object-cover rounded-full" draggable={false} />}
+                  {img && <Pic src={img} className="k-rail-img w-[70%] aspect-square object-cover rounded-full" />}
                   <span className={cx('k-head text-center', rail === 'images' ? 'text-[.85em]' : 'text-[1em] py-[.4em]')}>{sectionTitle(sec)}</span>
                 </button>
               )

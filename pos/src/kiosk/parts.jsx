@@ -5,6 +5,7 @@
 import { Children, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { UtensilsCrossed, ShoppingBag, Bike, Flame, Star, Circle, Minus, Plus, Delete, ArrowLeft } from 'lucide-react'
 import { hexLayout } from '@shared/kiosk.js'
+import { useClear } from './clear.js'
 
 export const cx = (...p) => p.filter(Boolean).join(' ')
 
@@ -107,8 +108,18 @@ export function guessTypeIcon(name) {
 
 const initials = s => String(s || '').split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase()
 
+/**
+ * A kiosk picture. One with see-through parts (a cut-out PNG) gets k-clear:
+ * no picture background, frame or badge behind it, shown whole (clear.js).
+ */
+export function Pic({ src, className, lazy = false, ...rest }) {
+  const clear = useClear(src)
+  return <img src={src} alt="" draggable={false} loading={lazy ? 'lazy' : undefined} className={cx(className, clear && 'k-clear')}
+    data-clear={clear ? '1' : undefined} {...rest} />
+}
+
 export function Photo({ src, label, className, phClassName }) {
-  if (src) return <img src={src} alt="" className={className} loading="lazy" draggable={false} />
+  if (src) return <Pic src={src} className={className} lazy />
   return <div className={phClassName} aria-hidden="true">{initials(label)}</div>
 }
 
@@ -167,7 +178,7 @@ export function SplitPhoto({ srcs, className }) {
   return (
     <div className={cx('k-split', className)} data-testid="k-split" data-parts={n}>
       {srcs.map((src, i) => (
-        <img key={i + ':' + src} src={src} alt="" draggable={false} style={{ clipPath: shapes.slices[i] }} />
+        <Pic key={i + ':' + src} src={src} style={{ clipPath: shapes.slices[i] }} />
       ))}
       <div className="k-split-tears" aria-hidden="true">
         {shapes.bands.map((b, i) => <span key={i} style={{ clipPath: b }} />)}
@@ -205,7 +216,7 @@ export function CornerPicks({ srcs, className, children }) {
     <div className={cx('k-corner', className)} data-testid="k-corner" data-parts={srcs.length}>
       {children}
       <span className="k-corner-picks" aria-hidden="true">
-        {srcs.map((s, i) => <img key={i + ':' + s} src={s} alt="" draggable={false} className="k-corner-pick" style={{ width: size + '%' }} />)}
+        {srcs.map((s, i) => <Pic key={i + ':' + s} src={s} className="k-corner-pick" style={{ width: size + '%' }} />)}
       </span>
     </div>
   )
@@ -277,7 +288,7 @@ export function HexTile({ src, label, words = false, on = false, off = false, on
     <>
       <div className={cx('k-hex-ring', on && 'k-hex-on', off && 'k-opt-dis')}>
         <button className={cx('k-hex', words ? 'k-hex-words' : !src && 'k-hex-noimg')} onClick={onClick} disabled={disabled} data-testid={testId} aria-pressed={pressed} {...(attrs || {})}>
-          {words ? null : src ? <img src={src} alt="" draggable={false} loading="lazy" className="k-hex-img" /> : <span className="k-hex-ph" aria-hidden="true">{initials(label)}</span>}
+          {words ? null : src ? <Pic src={src} lazy className="k-hex-img" /> : <span className="k-hex-ph" aria-hidden="true">{initials(label)}</span>}
           {top && <span className="k-hex-top">{top}</span>}
           <span className="k-hex-band">{children}</span>
         </button>
