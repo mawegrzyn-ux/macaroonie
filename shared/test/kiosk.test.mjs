@@ -289,6 +289,23 @@ test('pick photos: the flavours split the photo, the dip small in the corner', (
     { split: ['/tenders.jpg'], corner: ['/cola.png'] })
 })
 
+test('design: pictures or videos above the kiosk while the reach button has slid it down', () => {
+  assert.deepEqual(normaliseDesign({}).behaviour.reach_media, [])
+  const d = normaliseDesign({ behaviour: { reach_media: [
+    { id: 'a', type: 'video', url: '/uploads/reach.mp4' }, { type: 'image', url: '/uploads/reach.jpg' }, { type: 'gif', url: '/uploads/x.png' },
+    { type: 'image' }, { url: '/uploads/4.jpg' }, { url: '/uploads/5.jpg' }, { url: '/uploads/6.jpg' },
+  ] } })
+  assert.equal(d.behaviour.reach_media.length, 4, 'at most 4, ones without an address dropped')
+  assert.deepEqual(d.behaviour.reach_media.slice(0, 3).map(m => [m.type, m.url]),
+    [['video', '/uploads/reach.mp4'], ['image', '/uploads/reach.jpg'], ['image', '/uploads/x.png']])
+  assert.deepEqual(normaliseDesign(d), d)
+  // Pictures (not videos) are kept on the kiosk for offline.
+  const origin = 'https://kiosk.example.test'
+  const imgs = configImages({ design: d }, origin)
+  assert.ok(imgs.includes(origin + '/uploads/reach.jpg'))
+  assert.ok(!imgs.includes(origin + '/uploads/reach.mp4'))
+})
+
 test('design: ways to pay and what stops a kiosk taking orders', () => {
   const both = normaliseDesign({})
   assert.deepEqual(payMethods(both, { card_reader: 'test' }), ['card', 'counter'])

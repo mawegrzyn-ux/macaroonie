@@ -833,7 +833,7 @@ function CheckoutPanel({ s, d, set, setup, canManage }) {
   )
 }
 
-function TimingPanel({ d, set }) {
+function TimingPanel({ s, d, set, canManage }) {
   const h = d.behaviour
   return (
     <>
@@ -848,6 +848,13 @@ function TimingPanel({ d, set }) {
       </Field>
       <Toggle label="Reach button" hint="Lets a guest who can't reach the top of the screen bring everything down to the lower half."
         checked={h.reach} onChange={v => set('behaviour', { reach: v })} />
+      {h.reach && (
+        <Field group label="Above the kiosk while it's slid down" hint="Optional. Pictures or videos filling the top part of the screen while the reach button has brought everything down; they take turns like the start screen's (videos play with no sound). None: your brand colour with the reach sign. Up to 4.">
+          <div data-testid="kd-reach-media">
+            <MediaList items={s.behaviour?.reach_media || []} onChange={reach_media => set('behaviour', { reach_media })} max={4} locked={!canManage} />
+          </div>
+        </Field>
+      )}
     </>
   )
 }
@@ -1153,7 +1160,7 @@ function summaryOf(id, d) {
   if (id === 'menu') return TILE_LABELS[d.layout.tiles] + ', ' + (d.menu.rail === 'none' ? 'section tiles, ' : '') + (d.menu.home ? d.menu.banners.length + ' banners, ' + d.menu.featured.length + ' tiles' : 'No home page') + (d.menu.hidden_section_ids.length ? ', ' + d.menu.hidden_section_ids.length + ' sections left off' : '')
   if (id === 'choices') return DISPLAY_LABELS[d.options.display] + ', ' + TILE_LABELS[d.layout.option_tiles].toLowerCase() + (d.layout.option_pictures ? '' : ', words only') + (d.layout.option_align === 'center' ? ', centred' : '') + (d.options.wheel_spin_picks ? ', a spin picks' : '')
   if (id === 'checkout') return [d.checkout.pay_card && 'Card', d.checkout.pay_counter && 'At the counter'].filter(Boolean).join(' and ') || 'No way to pay'
-  if (id === 'timing') return 'Starts again after ' + d.behaviour.idle_secs + ' s'
+  if (id === 'timing') return 'Starts again after ' + d.behaviour.idle_secs + ' s' + (d.behaviour.reach && d.behaviour.reach_media.length ? ', reach pictures' : '')
   return ''
 }
 

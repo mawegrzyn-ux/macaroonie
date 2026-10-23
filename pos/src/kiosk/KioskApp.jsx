@@ -16,7 +16,7 @@ import { useKiosk, bootKiosk, bootPreview, bootShare, textsFor, restart, loadCon
 import { whenSafeToReload, idleFor } from '../lib/appUpdate.js'
 import { belongsHere } from '../lib/appHost.js'
 import { MoveNotice } from '../components/MoveNotice.jsx'
-import Start from './Start.jsx'
+import Start, { Media } from './Start.jsx'
 import Menu from './Menu.jsx'
 import Builder from './Builder.jsx'
 import Allergens from './Allergens.jsx'
@@ -231,9 +231,12 @@ export default function KioskApp({ device = null, previewToken = null, shareToke
       data-option-pictures={design.layout.option_pictures ? '1' : '0'} data-option-align={design.layout.option_align}
       data-hero={design.layout.hero}>
       {s.reach && (
-        <div className="k-reach-band">
-          <Accessibility size={48} />
-          <button className="k-btn k-btn-big" onClick={() => setReach(false)} data-testid="k-reach-back">{texts.ui('reach_back')}</button>
+        <div className={cx('k-reach-band', design.behaviour.reach_media.length > 0 && 'k-reach-media')} data-testid="k-reach-band">
+          {/* The design's pictures or videos fill the space above; the way back stays on top of them. */}
+          {design.behaviour.reach_media.length > 0
+            ? <Media media={design.behaviour.reach_media} secs={design.start.media_secs} />
+            : <Accessibility size={48} />}
+          <button className="k-btn k-btn-big relative" onClick={() => setReach(false)} data-testid="k-reach-back">{texts.ui('reach_back')}</button>
         </div>
       )}
       <div className="k-frame">

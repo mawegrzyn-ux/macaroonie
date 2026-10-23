@@ -8,7 +8,7 @@ import { TK, KIOSK_LANGUAGES } from '@shared/kiosk.js'
 import { useKiosk, textsFor, setLang, startOrder, go, methods } from './store.js'
 import { cx, Flag, TypeIcon, guessTypeIcon } from './parts.jsx'
 
-function Media({ media, secs }) {
+export function Media({ media, secs }) {
   const [i, setI] = useState(0)
   const video = useRef(null)
   const item = media[i % Math.max(1, media.length)]

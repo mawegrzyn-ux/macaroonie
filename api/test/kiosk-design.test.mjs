@@ -113,6 +113,7 @@ test('layout options round trip; a design keeps only the tenant\'s own sections,
       },
       options: { wheel_spin: true, wheel_spin_picks: true, pick_photos: 'corner' }, // pick_photos: gone (per group now), dropped
       checkout: { upsell_item_ids: [their.item_id, myDish] },
+      behaviour: { reach: true, reach_media: [{ type: 'video', url: '/uploads/reach.mp4' }, { type: 'image', url: '/uploads/reach.jpg' }] },
     },
   }))
   const s = saved.settings
@@ -130,6 +131,7 @@ test('layout options round trip; a design keeps only the tenant\'s own sections,
   assert.deepEqual(s.checkout.upsell_item_ids, [myDish])
   assert.deepEqual(Object.keys(s.start.type_cards), [myType.id])
   assert.equal(s.options.wheel_spin_picks, true)
+  assert.deepEqual(s.behaviour.reach_media.map(m => [m.type, m.url]), [['video', '/uploads/reach.mp4'], ['image', '/uploads/reach.jpg']])
   const listed = (await ok(owner.get('/api/pos/kiosk-designs'))).find(d => d.id === design.id)
   assert.deepEqual(listed.settings, s)
   // A copy keeps it as it is.
@@ -145,4 +147,5 @@ test('layout options round trip; a design keeps only the tenant\'s own sections,
   assert.equal(cfg.design.layout.hero, 'stacked')
   assert.equal(cfg.design.options.pick_photos, undefined)
   assert.equal(cfg.design.menu.rail, 'none')
+  assert.equal(cfg.design.behaviour.reach_media.length, 2, 'the reach pictures reach the kiosk')
 })
