@@ -51,6 +51,13 @@
 // remade dish doesn't wait at a Sleeper it has already been through
 // (item.slept).
 //
+// A Setter (station kind 'setter', migration 203) sets the order's status
+// as a dish passes it: its name is the status (one per name at a venue), and
+// how the status shows on order ready boards is in its settings (look,
+// colour, words, lamp, animation). It passes dishes straight on, like a
+// board. An order's status is the Setter its dishes reached last
+// (orderStatus()); none reached = no status.
+//
 // A dish reaches a station when every station before it on its way has done
 // it, and is done there when that station bumps it. Expo and runner stations
 // work on whole orders: their bump also finishes what is still at earlier
@@ -88,14 +95,15 @@ export const KITCHEN_CHECK_EVENTS = [
 // balance: a Splitter in the flow (shares tickets between the stations it
 // links to; no screen, nothing to bump); printer: a kitchen printer
 // (settings.printer_id; dishes reaching it print there, kitchenPrint.js);
-// sleeper: a Sleeper (holds dishes settings.delay_mins, then passes them on).
-export const STATION_KINDS = ['prep', 'expo', 'runner', 'board', 'balance', 'printer', 'sleeper']
-export const KIND_LABELS = { prep: 'Prep station', expo: 'Expo (pass)', runner: 'Runner', board: 'Order ready board', balance: 'Splitter', printer: 'Kitchen printer', sleeper: 'Sleeper' }
+// sleeper: a Sleeper (holds dishes settings.delay_mins, then passes them on);
+// setter: a Setter (sets the order's status when a dish passes it).
+export const STATION_KINDS = ['prep', 'expo', 'runner', 'board', 'balance', 'printer', 'sleeper', 'setter']
+export const KIND_LABELS = { prep: 'Prep station', expo: 'Expo (pass)', runner: 'Runner', board: 'Order ready board', balance: 'Splitter', printer: 'Kitchen printer', sleeper: 'Sleeper', setter: 'Setter' }
 export const BUMP_KINDS = ['prep', 'expo', 'runner']
 export const isBumpKind = kind => BUMP_KINDS.includes(kind)
 // Nodes nobody bumps: done as soon as a dish reaches them (a Sleeper: once
 // its wait is over, flowTimes()).
-const noBump = kind => kind === 'board' || kind === 'balance' || kind === 'printer' || kind === 'sleeper'
+const noBump = kind => kind === 'board' || kind === 'balance' || kind === 'printer' || kind === 'sleeper' || kind === 'setter'
 const isSleeper = (cfg, id) => cfg?.stations?.[id]?.kind === 'sleeper'
 export const SLEEP_MINS_MAX = 240
 /** How long a Sleeper holds a dish, in ms. */
@@ -110,7 +118,56 @@ export const FLOW_TARGET_KINDS = ['item', 'section', 'device', 'revenue_stream',
 // its revenue stream (a stream groups tills).
 const RANK = { item: 0, section: 1, device: 2, revenue_stream: 3, order_type: 4, default: 5 }
 
-export const STATION_DEFAULTS = { target_mins: 8, late_mins: 12, show_held: true, summary_groups: [], pieces: [], split_above: null, delay_mins: 5 }
+export const STATION_DEFAULTS = {
+  target_mins: 8, late_mins: 12, show_held: true, summary_groups: [], pieces: [], split_above: null, delay_mins: 5,
+  // A Setter's status look (STATUS_LOOKS, STATUS_ANIMS): status_text '' = its name.
+  status_look: 'text', status_colour: '#f59e0b', status_text: '', status_anim: 'none', status_lamp: 2,
+}
+
+// How a Setter's status shows on an order ready board tile.
+export const STATUS_LOOKS = [
+  { key: 'text', label: 'Words' }, { key: 'flag', label: 'Flag' }, { key: 'border', label: 'Coloured border' },
+  { key: 'light', label: 'Traffic light' }, { key: 'square', label: 'Square' }, { key: 'circle', label: 'Dot' },
+]
+export const STATUS_ANIMS = [
+  { key: 'none', label: 'Still' }, { key: 'pulse', label: 'Pulse' }, { key: 'turn', label: 'Turn' },
+  { key: 'blink', label: 'Blink' }, { key: 'bounce', label: 'Bounce' }, { key: 'shake', label: 'Shake' }, { key: 'glow', label: 'Glow' },
+]
+const LOOK_KEYS = STATUS_LOOKS.map(x => x.key)
+const ANIM_KEYS = STATUS_ANIMS.map(x => x.key)
+const HEX6 = /^#[0-9a-f]{6}$/i
+
+/** A Setter's status as boards show it: { id, name, text, look, colour, anim, lamp }. */
+export function statusOf(station) {
+  const st = stationSettings(station)
+  return {
+    id: station.id, name: station.name,
+    text: String(st.status_text || '').trim() || station.name,
+    look: LOOK_KEYS.includes(st.status_look) ? st.status_look : 'text',
+    colour: HEX6.test(st.status_colour || '') ? st.status_colour.toLowerCase() : STATION_DEFAULTS.status_colour,
+    anim: ANIM_KEYS.includes(st.status_anim) ? st.status_anim : 'none',
+    lamp: [1, 2, 3].includes(Number(st.status_lamp)) ? Number(st.status_lamp) : 2,
+  }
+}
+
+/**
+ * An order's status: the Setter its dishes reached last (statusOf() plus
+ * at), or null. Voided dishes and dishes not fired don't count.
+ */
+export function orderStatus(o, cfg, at) {
+  let best = null
+  for (const i of liveItems(o)) {
+    if (!isFired(i, at)) continue
+    const f = flowTimes(i, cfg, at)
+    for (const id of Object.keys(i.route || {})) {
+      const station = cfg?.stations?.[id]
+      if (station?.kind !== 'setter') continue
+      const t = f.arrived(id)
+      if (t && (!best || ms(t) > ms(best.at))) best = { station, at: t }
+    }
+  }
+  return best ? { ...statusOf(best.station), at: best.at } : null
+}
 
 // Kitchen orders older than this drop off the screens even if nobody bumped
 // them (a table left open overnight, a test order).
@@ -1246,6 +1303,7 @@ export function applyKitchenEvent(orders, e, cfg = {}) {
   if (station && station.kind === 'board') return fail('An order ready board has nothing to bump', 'station')
   if (station && station.kind === 'balance') return fail('A Splitter has nothing to bump', 'station')
   if (station && station.kind === 'sleeper') return fail('A Sleeper passes dishes on by itself: nothing to bump', 'station')
+  if (station && station.kind === 'setter') return fail('A Setter only sets the order\'s status: nothing to bump', 'station')
   const st = station ? stationSettings(station) : null
 
   switch (e.type) {
@@ -1682,9 +1740,14 @@ export function boardNumbers(orders, now, { clearMins = 10, max = 30, boardId = 
   ready.sort((a, b) => ms(b.at) - ms(a.at))
   // What a tile can show (shared/orderInfo.js): the guest's first name online,
   // the name typed on a till or kiosk, the tent, table and order type.
-  const view = ({ o, at }) => ({
-    id: o.id, number: o.number, name: o.guest || o.tab || null, tent: o.tent || null, table: o.table || null,
-    type_name: o.type_name || null, source: o.source, at,
-  })
+  // The order's status from the Setters in the kitchen flow (needs cfg).
+  const view = ({ o, at }) => {
+    const status = cfg ? orderStatus(o, cfg, now) : null
+    return {
+      id: o.id, number: o.number, name: o.guest || o.tab || null, tent: o.tent || null, table: o.table || null,
+      type_name: o.type_name || null, source: o.source, at,
+      ...(status ? { status: { name: status.name, text: status.text, look: status.look, colour: status.colour, anim: status.anim, lamp: status.lamp } } : {}),
+    }
+  }
   return { preparing: preparing.slice(0, max).map(view), ready: ready.slice(0, max).map(view) }
 }

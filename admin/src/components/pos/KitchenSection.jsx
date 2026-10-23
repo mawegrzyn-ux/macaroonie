@@ -24,10 +24,11 @@ import {
 } from './shared'
 import KitchenFlow from './KitchenFlow'
 import { deviceUrl, InstallerLine, status, ShownCodeField, LinkDeviceModal, LinkDeviceButton, linkShownCode, codeReady } from './TillsSection'
-import { STATION_KINDS, KIND_LABELS, isBumpKind } from '@shared/pos/kitchen.js'
+import { STATION_KINDS, KIND_LABELS, isBumpKind, STATUS_LOOKS, STATUS_ANIMS } from '@shared/pos/kitchen.js'
+import { ColourPicker } from '@/components/ColourPicker'
 import { TYPE_LABELS as GF_TYPE_LABELS } from '@shared/gloriafood.js'
 
-const KINDS = STATION_KINDS.map(k => ({ value: k, label: { prep: 'Prep', expo: 'Expo (pass)', runner: 'Runner', board: 'Order ready board', balance: 'Splitter', printer: 'Kitchen printer', sleeper: 'Sleeper' }[k] }))
+const KINDS = STATION_KINDS.map(k => ({ value: k, label: { prep: 'Prep', expo: 'Expo (pass)', runner: 'Runner', board: 'Order ready board', balance: 'Splitter', printer: 'Kitchen printer', sleeper: 'Sleeper', setter: 'Setter' }[k] }))
 const KIND_HINTS = {
   prep: 'Makes dishes (Grill, Fryer, Bar...). Its bump sends them on to the next station in the kitchen flow.',
   expo: 'Checks whole orders before they go out (the pass). Its bump marks the order ready, and finishes dishes still at earlier stations.',
@@ -35,6 +36,7 @@ const KIND_HINTS = {
   board: 'An order ready board: shows order numbers on menu screens (Order status block). An order is ready there once every dish on its way to the board has arrived. Nothing to bump, no kitchen screen.',
   balance: 'Shares tickets between the stations it links to in the kitchen flow (e.g. two wingmen): each ticket\'s dishes that reach it go to the one with the fewest pieces still to cook, taking turns when they\'re level (big tickets can be shared out too). Nothing to bump, no kitchen screen.',
   sleeper: 'Holds the dishes that reach it for a set time, then sends them on by itself (e.g. delivery orders wait 10 minutes before the grill starts). Which dishes it holds is decided by the links into it in the kitchen flow: filter them by order type, revenue stream, till, dish or section, or leave them open for every dish. Nothing to bump, no kitchen screen; the pass\'s Bump sends them on at once.',
+  setter: 'Sets the order\'s status as a dish passes it, for order ready boards: its name is the status (e.g. Cooking, Bagging, Out for delivery). Put it in the kitchen flow where the status should change; the last Setter an order\'s dishes reached is its status. Dishes go straight on. Nothing to bump, no kitchen screen.',
   printer: 'Prints a ticket of the dishes that reach it in the kitchen flow, once: straight from Orders in when they are sent (held courses as HOLD, then FIRE), or after a kitchen screen when it bumps them. Nothing to bump; it can go on to a kitchen screen. Dishes that only reach printers count as done there.',
 }
 const VIEWS = [
@@ -268,6 +270,8 @@ export function StationModal({ venueId, setup, station, kind: newKind, onClose }
     share: s.split_above != null, split_above: s.split_above ?? 20,
     printer_id: s.printer_id || '',
     delay_mins: s.delay_mins ?? 5,
+    status_look: s.status_look || 'text', status_colour: s.status_colour || '#f59e0b', status_text: s.status_text || '',
+    status_anim: s.status_anim || 'none', status_lamp: s.status_lamp || 2,
   })
   const [upcomingSet, setUpcomingSet] = useState(!!station)
   const set = patch => setForm(f => ({ ...f, ...patch }))
@@ -276,6 +280,7 @@ export function StationModal({ venueId, setup, station, kind: newKind, onClose }
   const balance = form.kind === 'balance'
   const printerBox = form.kind === 'printer'
   const sleeper = form.kind === 'sleeper'
+  const setter = form.kind === 'setter'
   const orderLevel = form.kind === 'expo' || form.kind === 'runner'
   const refresh = () => qc.invalidateQueries({ queryKey: ['pos-setup', venueId] })
   const body = () => ({
@@ -288,6 +293,10 @@ export function StationModal({ venueId, setup, station, kind: newKind, onClose }
       split_above: balance && form.share ? (form.split_above ?? 20) : null,
       ...(printerBox ? { printer_id: form.printer_id || null } : {}),
       ...(sleeper ? { delay_mins: Math.min(240, Math.max(1, form.delay_mins || 5)) } : {}),
+      ...(setter ? {
+        status_look: form.status_look, status_colour: form.status_colour, status_text: form.status_text.trim(),
+        status_anim: form.status_anim, status_lamp: form.status_lamp,
+      } : {}),
     },
   })
   const save = useMutation({
@@ -303,9 +312,10 @@ export function StationModal({ venueId, setup, station, kind: newKind, onClose }
         </Btn>
         {station && <ConfirmDelete label="Delete station" onConfirm={() => remove.mutate()} disabled={remove.isPending} />}
       </>}>
-      <Field label="Name" hint={board ? 'Menu screens pick a board by this name, so call it the same at every venue (e.g. ORB 1).' : undefined}>
+      <Field label="Name" hint={board ? 'Menu screens pick a board by this name, so call it the same at every venue (e.g. ORB 1).'
+        : setter ? 'The status. Each Setter at a venue needs its own name; call it the same at every venue so menu screens can style it once.' : undefined}>
         <input className={inputCls} value={form.name} maxLength={40} onChange={e => set({ name: e.target.value })}
-          placeholder={board ? 'e.g. ORB 1' : balance ? 'e.g. Wings' : sleeper ? 'e.g. Delivery wait' : printerBox ? 'e.g. Grill tickets' : form.kind === 'expo' ? 'e.g. Expo 1, Pass' : form.kind === 'runner' ? 'e.g. Runner' : 'e.g. Grill, Fryer, Prep 1'} />
+          placeholder={board ? 'e.g. ORB 1' : balance ? 'e.g. Wings' : sleeper ? 'e.g. Delivery wait' : setter ? 'e.g. Cooking, Bagging' : printerBox ? 'e.g. Grill tickets' : form.kind === 'expo' ? 'e.g. Expo 1, Pass' : form.kind === 'runner' ? 'e.g. Runner' : 'e.g. Grill, Fryer, Prep 1'} />
       </Field>
       <Field group label="Kind" hint={KIND_HINTS[form.kind]}>
         <Segmented value={form.kind} options={KINDS} onChange={setKind} className="flex-wrap" />
@@ -347,6 +357,37 @@ export function StationModal({ venueId, setup, station, kind: newKind, onClose }
           <NumberBox value={form.delay_mins} min={1} max={240} onChange={v => set({ delay_mins: v })} ariaLabel="Hold dishes for minutes" />
         </Field>
       )}
+      {setter && (
+        <Field group label="On order ready boards" hint="How the status shows on each tile. A menu screen's Order status block can change this per status.">
+          <div className="space-y-3" data-testid="setter-look">
+            <Segmented value={form.status_look} className="flex-wrap" options={STATUS_LOOKS.map(x => ({ value: x.key, label: x.label }))}
+              onChange={v => set({ status_look: v })} />
+            <ColourPicker label="Colour" value={form.status_colour} onChange={v => set({ status_colour: v || '#f59e0b' })} testId="setter-colour" />
+            {(form.status_look === 'text' || form.status_look === 'flag') && (
+              <label className="block text-sm">
+                <span className="block text-xs text-muted-foreground mb-1">Words (empty: the name)</span>
+                <input className={inputCls} value={form.status_text} maxLength={40} placeholder={form.name || 'The name'}
+                  onChange={e => set({ status_text: e.target.value })} data-testid="setter-text" />
+              </label>
+            )}
+            {form.status_look === 'light' && (
+              <div>
+                <span className="block text-xs text-muted-foreground mb-1">Lamp lit</span>
+                <Segmented value={form.status_lamp} options={[{ value: 1, label: 'Top' }, { value: 2, label: 'Middle' }, { value: 3, label: 'Bottom' }]}
+                  onChange={v => set({ status_lamp: v })} />
+              </div>
+            )}
+            <div>
+              <span className="block text-xs text-muted-foreground mb-1">Movement</span>
+              <Segmented value={form.status_anim} className="flex-wrap" options={STATUS_ANIMS.map(x => ({ value: x.key, label: x.label }))}
+                onChange={v => set({ status_anim: v })} />
+            </div>
+          </div>
+        </Field>
+      )}
+      {setter && station?.kind && station.kind !== 'setter' && (
+        <p className="text-xs text-amber-700">As a Setter it leaves the kitchen screens, and links into it from a Splitter go.</p>
+      )}
       {printerBox && !form.printer_id && <p className="text-xs text-amber-700">Until a printer is picked, nothing prints here.</p>}
       {balance && station?.kind && station.kind !== 'balance' && (
         <p className="text-xs text-amber-700">As a Splitter it leaves the kitchen screens, and its links out of every flow lose their filters (links to boards go).</p>
@@ -354,7 +395,7 @@ export function StationModal({ venueId, setup, station, kind: newKind, onClose }
       {sleeper && station?.kind && station.kind !== 'sleeper' && (
         <p className="text-xs text-amber-700">As a Sleeper it leaves the kitchen screens, and links into it from a Splitter go.</p>
       )}
-      {!board && !balance && !printerBox && !sleeper && <>
+      {!board && !balance && !printerBox && !sleeper && !setter && <>
       <div className="flex flex-wrap gap-4">
         <Field label="Amber after (minutes)" hint="And the on-time target.">
           <NumberBox value={form.target_mins} min={1} max={120} onChange={v => set({ target_mins: v })} ariaLabel="Amber after minutes" />
@@ -391,7 +432,7 @@ function StationsCard({ venueId, setup, onEdit }) {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-setup', venueId] }),
   })
   return (
-    <Section title="Stations" hint="Prep stations make dishes, the expo checks orders before they go out, runners take them out, order ready boards show the numbers, Splitters share tickets between stations, Sleepers hold dishes for a set time. The order here is the order of the tabs on a kitchen screen. With no expo, an order is ready once every station on its dishes' way has bumped it."
+    <Section title="Stations" hint="Prep stations make dishes, the expo checks orders before they go out, runners take them out, order ready boards show the numbers, Splitters share tickets between stations, Sleepers hold dishes for a set time, Setters set an order's status for the boards. The order here is the order of the tabs on a kitchen screen. With no expo, an order is ready once every station on its dishes' way has bumped it."
       actions={<Btn variant="primary" onClick={() => onEdit({ kind: 'prep' })}><Plus className="w-4 h-4" /> Add a station</Btn>}>
       {!setup.kds_stations.length
         ? <p className="text-sm text-muted-foreground">No stations yet. Kitchen screens start working once there is one.</p>
@@ -409,6 +450,7 @@ function StationsCard({ venueId, setup, onEdit }) {
                     {st.kind === 'balance' && (st.settings.pieces?.length ? ' · ' + st.settings.pieces.map(m => m.label + ' ' + m.qty).join(', ') : ' · each dish counts its quantity')}
                     {st.kind === 'balance' && (st.settings.split_above != null ? ' · shares tickets over ' + st.settings.split_above + ' pieces' : ' · each ticket on one station')}
                     {st.kind === 'sleeper' && ' · holds dishes ' + st.settings.delay_mins + ' min'}
+                    {st.kind === 'setter' && ' · status ' + (st.settings.status_text || st.name) + ', ' + (STATUS_LOOKS.find(x => x.key === st.settings.status_look)?.label || 'Words').toLowerCase()}
                     {st.kind === 'printer' && ' · ' + (setup.printers.find(p => p.id === st.settings.printer_id)?.name || 'no printer picked')}
                   </p>
                 </div>

@@ -3614,6 +3614,21 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               (<Mono>spec.device_id</Mono>, checked against <Mono>data.devices</Mono>).
             </P>
             <P>
+              <strong>Setters</strong> (migration 203): a station of kind <Mono>setter</Mono> sets the order&apos;s status
+              as a dish passes it. Like a board it is done as soon as a dish reaches it (<Mono>noBump()</Mono>), so dishes
+              go straight on; no kitchen screen (not in <Mono>BUMP_KINDS</Mono>; Store tech drops it from screens when a
+              station becomes one), bumps refused. Its name is the status: the API refuses a second Setter of the same
+              name at a venue (<Mono>checkSetterName()</Mono>, case and spaces ignored, 409). Its look is in
+              settings (<Mono>status_look</Mono> from <Mono>STATUS_LOOKS</Mono>, <Mono>status_colour</Mono>,{' '}
+              <Mono>status_text</Mono> (empty = the name), <Mono>status_anim</Mono> from <Mono>STATUS_ANIMS</Mono>,{' '}
+              <Mono>status_lamp</Mono> 1-3), read through <Mono>statusOf()</Mono>. <Mono>orderStatus(o, cfg, at)</Mono>{' '}
+              is the Setter the order&apos;s live, fired dishes reached last (by <Mono>flowTimes().arrived()</Mono>), so it
+              is worked out, never stored; <Mono>boardNumbers()</Mono> puts it on each entry as <Mono>status</Mono> when
+              given <Mono>cfg</Mono> (<Mono>boardFor()</Mono> passes it for the all-orders feed and every board). The
+              screen designer gets the list as <Mono>order_statuses</Mono> from <Mono>designerData()</Mono> (one per name,
+              the first location&apos;s look).
+            </P>
+            <P>
               <strong>Sleepers</strong> (migration 200): a station of kind <Mono>sleeper</Mono> holds the dishes that
               reach it for <Mono>settings.delay_mins</Mono> (1-240, <Mono>SLEEP_MINS_MAX</Mono>; Zod in{' '}
               <Mono>StationSettings</Mono>), then passes them on by itself. Which dishes it holds is decided by the
@@ -3878,6 +3893,17 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>.sl-otext</Mono> beside an optional <Mono>img.sl-oicon</Mono> (<Mono>data-icon</Mono> on the tile).
               <Mono>tileImageUrls()</Mono> adds the pictures to <Mono>boardImageUrls()</Mono>, so screens load them before
               showing the board and keep them offline.
+            </P>
+            <P>
+              Statuses on tiles: <Mono>shownStatus(o, status)</Mono> merges an entry&apos;s <Mono>status</Mono> with the
+              block&apos;s <Mono>status_looks[name]</Mono> (any case; <Mono>hide</Mono>, <Mono>look</Mono>,{' '}
+              <Mono>colour</Mono>, <Mono>text</Mono>, <Mono>anim</Mono>, <Mono>lamp</Mono>) unless <Mono>show_status</Mono> is
+              false; <Mono>statusHtml()</Mono> draws words inside <Mono>.sl-otext</Mono> and the flag, border, traffic
+              light, square and dot over the tile, each a <Mono>.sl-ostat</Mono> with <Mono>--osc</Mono> and{' '}
+              <Mono>sl-osa-*</Mono> movement that runs only under <Mono>.sl-board.sl-play</Mono>. With no live orders
+              (the designer) the example numbers take <Mono>ctx.statuses</Mono> (designer data) in turn.
+              Admin: <Mono>StatusSection</Mono> in <Mono>ScreenDesigner.jsx</Mono>; the Setter&apos;s own look in{' '}
+              <Mono>StationModal</Mono> (<Mono>KitchenSection.jsx</Mono>).
             </P>
             <H3>The kitchen test bench</H3>
             <P>

@@ -350,3 +350,37 @@ test('order board tiles: font, shape, border, pictures and small pictures', asyn
   const plain = renderBlockInner({ ...layout.blocks[0], opts: {} }, ctx)
   assert.doesNotMatch(plain, /sl-oicon|data-icon/)
 })
+
+test('order statuses on tiles: the Setter look, the block overrides, hidden ones', async () => {
+  const { renderBlockInner, boardContext, normalizeBoard, shownStatus } = await import('../screenLayout.js')
+  const cooking = { name: 'Cooking', text: 'Cooking', look: 'light', colour: '#ff0000', anim: 'pulse', lamp: 1 }
+  const bag = { name: 'Bagging', text: 'Nearly there', look: 'flag', colour: '#00aa00', anim: 'none', lamp: 2 }
+  // As the Setter says.
+  assert.deepEqual(shownStatus({}, cooking), { ...cooking })
+  // Overrides by name (any case), and hiding.
+  const o = { status_looks: { 'cooking ': { look: 'circle', colour: '#0000ff', anim: 'turn', text: 'On the grill' }, BAGGING: { hide: true } } }
+  assert.deepEqual(shownStatus(o, cooking), { name: 'Cooking', text: 'On the grill', look: 'circle', colour: '#0000ff', anim: 'turn', lamp: 1 })
+  assert.equal(shownStatus(o, bag), null)
+  assert.equal(shownStatus({ show_status: false }, cooking), null)
+  assert.equal(shownStatus({}, null), null)
+  // Bad values fall back to the Setter's.
+  assert.equal(shownStatus({ status_looks: { Cooking: { look: 'spiral', colour: 'red' } } }, cooking).look, 'light')
+
+  const layout = normalizeBoard({ blocks: [{ id: 'o', type: 'order_status', x: 0, y: 0, w: 800, h: 600, opts: {} }] })
+  const orders = {
+    preparing: [{ id: 'a', number: '41', status: cooking }, { id: 'b', number: '42' }],
+    ready: [{ id: 'c', number: '40', status: bag, at: '2026-10-23T11:59:00Z' }],
+  }
+  const ctx = boardContext(layout, { orders, now: new Date('2026-10-23T12:00:00Z') })
+  const html = renderBlockInner(layout.blocks[0], ctx)
+  assert.match(html, /data-status="Cooking"/)
+  assert.match(html, /<span class="sl-ostat sl-ost-light sl-osa-pulse" data-look="light" data-anim="pulse" style="--osc:#ff0000" data-lamp="1" title="Cooking"><i class="on"><\/i><i><\/i><i><\/i><\/span>/)
+  assert.match(html, /<span class="sl-ostat sl-ost-flag" data-look="flag" data-anim="none" style="--osc:#00aa00">Nearly there<\/span>/)
+  assert.equal((html.match(/data-status=/g) || []).length, 2, 'the order with no status has none')
+  // Words go inside the tile's text.
+  const words = renderBlockInner({ ...layout.blocks[0], opts: { status_looks: { cooking: { look: 'text' } } } }, ctx)
+  assert.match(words, /<span class="sl-oval">41<\/span><span class="sl-ostat sl-ost-text sl-osa-pulse"[^>]*>Cooking<\/span><\/span>/)
+  // The designer shows the kitchen's statuses on its example numbers.
+  const sample = renderBlockInner(layout.blocks[0], boardContext(layout, { order_statuses: [cooking, bag] }))
+  assert.ok((sample.match(/data-status=/g) || []).length >= 3)
+})

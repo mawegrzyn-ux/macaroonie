@@ -716,7 +716,7 @@ export async function boardFor(tenantId, venueId, { clearMins = 10 } = {}) {
   })
   const orders = Object.fromEntries(rows.map(r => [r.state.id, r.state]))
   const now = new Date().toISOString()
-  const out = boardNumbers(orders, now, { clearMins, max: 40 })
+  const out = boardNumbers(orders, now, { clearMins, max: 40, cfg })
   out.boards = {}
   for (const s of Object.values(cfg.stations)) {
     if (s.kind !== 'board') continue

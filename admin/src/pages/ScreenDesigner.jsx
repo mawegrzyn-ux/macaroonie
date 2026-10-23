@@ -41,6 +41,7 @@ import {
   wrapMotion, startBoardMotion, wallRegion, ORDER_CHANGE_ANIMS, TILE_SHAPES, TILE_SHADOWS, TILE_ICON_POSITIONS,
 } from '@shared/screenLayout.js'
 import { PicturePick } from '@/components/media/PicturePick'
+import { STATUS_LOOKS, STATUS_ANIMS } from '@shared/pos/kitchen.js'
 import { ORDER_FIELDS, MAIN_FIELDS, normaliseOrderInfo } from '@shared/orderInfo.js'
 import { boardFromKit } from '@shared/themeKit.js'
 import { ThemeMakerButton } from '@/components/themes/ThemeMaker'
@@ -804,6 +805,70 @@ function TileLook({ o, onOpts }) {
   )
 }
 
+// Statuses from the kitchen flow's Setters on the tiles: on or off, and per
+// status a different look than the Setter's (status_looks by name).
+function StatusSection({ o, onOpts, statuses }) {
+  const looks = o.status_looks && typeof o.status_looks === 'object' ? o.status_looks : {}
+  const keyOf = name => Object.keys(looks).find(k => k.trim().toLowerCase() === name.trim().toLowerCase()) || name
+  const setFor = (name, patch) => {
+    const k = keyOf(name)
+    const next = { ...looks, [k]: { ...(looks[k] || {}), ...patch } }
+    for (const [f, v] of Object.entries(next[k])) if (v === '' || v == null || v === false) delete next[k][f]
+    if (!Object.keys(next[k]).length) delete next[k]
+    onOpts({ status_looks: next })
+  }
+  const on = o.show_status !== false
+  return (
+    <Section title="Statuses">
+      <div className="space-y-2" data-testid="status-section">
+        <Check label="Show order statuses" checked={on} onChange={v => onOpts({ show_status: v })} />
+        <p className="text-[11px] text-muted-foreground">
+          Statuses come from the Setters in the kitchen flow (Store tech &gt; Kitchen screens): each tile shows the last one its order passed.
+        </p>
+        {on && !statuses.length && <p className="text-xs text-muted-foreground">No Setters yet: add one in the kitchen flow.</p>}
+        {on && statuses.map(st => {
+          const ov = looks[keyOf(st.name)] || {}
+          return (
+            <div key={st.name} className="rounded-md border p-2 space-y-2" data-status={st.name}>
+              <div className="flex items-center gap-2">
+                <span className="w-3 h-3 rounded-full shrink-0" style={{ background: ov.colour || st.colour }} />
+                <span className="text-sm font-medium flex-1 truncate">{st.name}</span>
+                <Check label="Hide" checked={!!ov.hide} onChange={v => setFor(st.name, { hide: v })} />
+              </div>
+              {!ov.hide && <>
+                <Sel label="Look" value={ov.look || ''} onChange={v => setFor(st.name, { look: v })}>
+                  <option value="">As the Setter ({STATUS_LOOKS.find(x => x.key === st.look)?.label})</option>
+                  {STATUS_LOOKS.map(x => <option key={x.key} value={x.key}>{x.label}</option>)}
+                </Sel>
+                <Sel label="Movement" value={ov.anim || ''} onChange={v => setFor(st.name, { anim: v })}>
+                  <option value="">As the Setter ({STATUS_ANIMS.find(x => x.key === st.anim)?.label})</option>
+                  {STATUS_ANIMS.map(x => <option key={x.key} value={x.key}>{x.label}</option>)}
+                </Sel>
+                <ColourField label="Colour" value={ov.colour || null} optional placeholder={'As the Setter (' + st.colour + ')'}
+                  onChange={v => setFor(st.name, { colour: v })} />
+                {['text', 'flag'].includes(ov.look || st.look) && (
+                  <label className="block">
+                    <span className="block text-[11px] text-muted-foreground mb-0.5">Words</span>
+                    <input value={ov.text || ''} maxLength={40} placeholder={st.text} onChange={e => setFor(st.name, { text: e.target.value })}
+                      className="w-full text-sm border rounded-md px-2 min-h-[40px] bg-background" />
+                  </label>
+                )}
+                {(ov.look || st.look) === 'light' && (
+                  <Sel label="Lamp lit" value={String(ov.lamp || '')} onChange={v => setFor(st.name, { lamp: v ? Number(v) : '' })}>
+                    <option value="">As the Setter</option>
+                    <option value="1">Top</option><option value="2">Middle</option><option value="3">Bottom</option>
+                  </Sel>
+                )}
+              </>}
+            </div>
+          )
+        })}
+        <p className="text-[11px] text-muted-foreground">Movement runs on the screens, and here when you press Play.</p>
+      </div>
+    </Section>
+  )
+}
+
 function Check({ label, checked, onChange }) {
   return (
     <label className="flex items-center gap-2 text-sm min-h-[36px] cursor-pointer touch-manipulation">
@@ -1215,6 +1280,7 @@ function BlockPanel({ block, board, data, canManage, onUpdate, onOpts, onDuplica
           </Section>
           <TileSection o={o} onOpts={onOpts} />
           <TileLook o={o} onOpts={onOpts} />
+          <StatusSection o={o} onOpts={onOpts} statuses={data?.order_statuses || []} />
           <Section title="Style">
             <div className="grid grid-cols-2 gap-2">
               <PxBox label="Title size" value={o.title_size ?? 56} min={6} max={400} onChange={v => onOpts({ title_size: v })} />

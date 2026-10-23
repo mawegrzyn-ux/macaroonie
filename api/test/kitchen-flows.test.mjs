@@ -413,3 +413,60 @@ test('an order ready board sends a menu screen each order\'s name, table and typ
   await ok(owner.put(`/api/pos/kds-flows/${main.id}`, { links: [{ from: null, to: wok.id, targets: [] }, { from: wok.id, to: pass.id, targets: [] }], layout: {} }))
   await ok(owner.delete(`/api/pos/kds-stations/${board.id}`))
 })
+
+test('a Setter: sets the order status for the boards, one per name, styled by its settings', async () => {
+  const look = { status_look: 'light', status_colour: '#FF0000', status_lamp: 1, status_anim: 'pulse' }
+  const setIn = await ok(owner.post(`/api/pos/venues/${V}/kds-stations`, { name: 'In the kitchen', kind: 'setter', settings: look }))
+  assert.equal(setIn.settings.status_look, 'light')
+  const bag = await ok(owner.post(`/api/pos/venues/${V}/kds-stations`, { name: 'Bagging', kind: 'setter', settings: { status_look: 'flag', status_text: 'Nearly there' } }))
+  // One Setter per name at a venue (any case, spaces round it); other kinds may share it.
+  const twice = await owner.post(`/api/pos/venues/${V}/kds-stations`, { name: ' in the KITCHEN ', kind: 'setter' })
+  assert.equal(twice.status, 409)
+  assert.match(twice.json.error, /already called/)
+  ok(await owner.post(`/api/pos/venues/${V}/kds-stations`, { name: 'Bagging', kind: 'prep' }).then(r => { assert.equal(r.status, 201); return r.json }))
+  const renamed = await owner.patch(`/api/pos/kds-stations/${bag.id}`, { name: 'In the kitchen', kind: 'setter', settings: {} })
+  assert.equal(renamed.status, 409, 'renaming onto another Setter is refused')
+  // Bad looks refused; the viewer and the other tenant can't add one.
+  assert.equal((await owner.post(`/api/pos/venues/${V}/kds-stations`, { name: 'Odd', kind: 'setter', settings: { status_look: 'spiral' } })).status, 400)
+  assert.equal((await as(A.viewer, ids.a).post(`/api/pos/venues/${V}/kds-stations`, { name: 'Nope', kind: 'setter' })).status, 403)
+  assert.equal((await as(B.owner, ids.b).post(`/api/pos/venues/${V}/kds-stations`, { name: 'Nope', kind: 'setter' })).status, 404)
+  // Nothing to bump at a Setter.
+  const board = await ok(owner.post(`/api/pos/venues/${V}/kds-stations`, { name: 'Collect', kind: 'board' }))
+  await ok(owner.put(`/api/pos/kds-flows/${main.id}`, { links: [
+    { from: null, to: setIn.id, targets: [] }, { from: setIn.id, to: wok.id, targets: [] },
+    { from: wok.id, to: bag.id, targets: [] }, { from: bag.id, to: pass.id, targets: [] }, { from: pass.id, to: board.id, targets: [] },
+  ], layout: {} }))
+  await ok(owner.put(`/api/pos/venues/${V}/kds-flows/active`, { flow_id: main.id }))
+  const ev = orderIn(601)
+  assert.ok((await sequencer(ids.a, V).submit(ev)).ok)
+  const orderId = ev.payload.order.id
+  const refused = await sequencer(ids.a, V).submit({ ...ev, id: ulid(), type: 'kitchen.bumped', payload: { order_id: orderId, station_id: setIn.id } })
+  assert.equal(refused.ok, false)
+
+  const app = await getApp()
+  const call = (method, url, body, headers = {}) => app.inject({
+    method, url, headers: { [INTERNAL_CALL_HEADER]: INTERNAL_CALL_SECRET, ...(body ? { 'content-type': 'application/json' } : {}), ...headers },
+    payload: body ? JSON.stringify(body) : undefined,
+  })
+  const p = (await call('POST', '/screen-api/pairings', { device: { width: 1920, height: 1080 } })).json()
+  const scr = await ok(owner.post('/api/screens/screens/claim', { code: p.code, name: 'Status screen', venue_id: V }))
+  const feed = async () => (await call('GET', '/screen-api/orders', null, { authorization: `Screen ${scr.id}.${p.secret}` })).json().orders
+  let tile = (await feed()).boards.collect.preparing.find(t => t.number === '601')
+  assert.deepEqual(tile.status, { name: 'In the kitchen', text: 'In the kitchen', look: 'light', colour: '#ff0000', anim: 'pulse', lamp: 1 })
+  // The all-orders feed carries it too.
+  assert.equal((await feed()).preparing.find(t => t.number === '601')?.status?.name, 'In the kitchen')
+  // The wok bumps: the order passes Bagging.
+  assert.ok((await sequencer(ids.a, V).submit({ ...ev, id: ulid(), type: 'kitchen.bumped', client_at: new Date(Date.now() + 1000).toISOString(), payload: { order_id: orderId, station_id: wok.id } })).ok)
+  tile = (await feed()).boards.collect.preparing.find(t => t.number === '601')
+  assert.equal(tile.status.text, 'Nearly there')
+  assert.equal(tile.status.look, 'flag')
+  // The screen designer lists the statuses (one per name).
+  const data = await ok(owner.get('/api/screens/menu-data'))
+  assert.deepEqual(data.order_statuses.map(s => s.name), ['Bagging', 'In the kitchen'])
+  // Setters aren't on kitchen screens.
+  const bad = await owner.patch(`/api/pos/devices/${screen.id}`, { name: 'Pass screen', settings: { station_ids: [setIn.id] } })
+  assert.notEqual(bad.status, 200)
+
+  await ok(owner.delete(`/api/screens/screens/${scr.id}`))
+  await ok(owner.put(`/api/pos/kds-flows/${main.id}`, { links: [{ from: null, to: wok.id, targets: [] }, { from: wok.id, to: pass.id, targets: [] }], layout: {} }))
+})
