@@ -17,7 +17,7 @@ export default function BenchScreen({ screenId }) {
   if (!link) {
     return (
       <div className="h-full bg-black text-white flex items-center justify-center p-6 text-center">
-        This screen only works inside the kitchen test page. Open Test the kitchen from Till setup, Kitchen screens.
+        This screen only works inside the kitchen test page. Open Test the kitchen from Store tech, Kitchen screens.
       </div>
     )
   }

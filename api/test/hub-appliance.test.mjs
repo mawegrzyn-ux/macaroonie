@@ -6,10 +6,10 @@
 //   - /pos-api/hub/release, release.tgz (the files a hub needs, its sha256,
 //     a copy that unpacks and passes its own self test), install.sh / .ps1
 //     with this cloud's address
-//   - Till setup: a USB printer on the hub needs which printer; only a hub of
+//   - Store tech: a USB printer on the hub needs which printer; only a hub of
 //     this venue; the hub's config holds its USB printers and not other
 //     devices'; it collects their tickets and reports their state
-//   - the hub's report (info) shown in Till setup and the installer; Update now
+//   - the hub's report (info) shown in Store tech and the installer; Update now
 //     sets requested in its config until it runs the latest version
 //   - refusals: a till isn't updated this way, viewers, another tenant
 //   - the installer people download on the mini PC: pos.<domain>/hub, the
@@ -152,7 +152,7 @@ test('USB printers on the hub: which printer needed, only a hub of this venue, i
   await ok(owner.delete(`/api/pos/printers/${net.id}`))
 })
 
-test('the hub\'s report: its computer and USB printers in Till setup and the installer, its USB printers\' state', async () => {
+test('the hub\'s report: its computer and USB printers in Store tech and the installer, its USB printers\' state', async () => {
   const [usb] = await sql`SELECT id FROM pos_printers WHERE tenant_id = ${ids.a} AND venue_id = ${V} AND device_id = ${hub.id}`
   const info = {
     hostname: 'hub-ware', os: 'Linux 6.8.0', platform: 'linux', arch: 'x64', node: 'v22.12.0',

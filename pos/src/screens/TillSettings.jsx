@@ -22,7 +22,7 @@ export default function TillSettings() {
     const a = await approve('manager', null, 'Disconnecting the till needs a manager.')
     if (a === false) return
     const told = await disconnect()
-    if (!told) toast('Disconnected here. Macaroonie couldn\'t be told (offline): remove the till in Till setup, or link the code this tablet shows next.', 'bad', 9000)
+    if (!told) toast('Disconnected here. Macaroonie couldn\'t be told (offline): remove the till in Store tech, or link the code this tablet shows next.', 'bad', 9000)
   }
   return (
     <div className="h-full overflow-y-auto p-5">
@@ -43,7 +43,7 @@ export default function TillSettings() {
           <div className="flex gap-2 flex-wrap">
             <button className="btn" onClick={async () => { await flush(); await pull(); await loadConfig(); toast('Synced', 'ok') }}><RefreshCw size={18} /> Sync now</button>
           </div>
-          <div className="text-sm text-muted">The till keeps working with the internet down; changes wait here and are sent when it comes back. Kitchen tickets print where the kitchen flow sends them (Till setup, Kitchen screens).</div>
+          <div className="text-sm text-muted">The till keeps working with the internet down; changes wait here and are sent when it comes back. Kitchen tickets print where the kitchen flow sends them (Store tech, Kitchen screens).</div>
         </div>
 
         <div className="card p-5 space-y-3">
@@ -84,7 +84,7 @@ export default function TillSettings() {
 
         <div className="card p-5 space-y-3" data-testid="disconnect-card">
           <div className="text-lg font-bold">Disconnect this till</div>
-          <div className="text-sm text-muted">This tablet stops being a till and shows a code. Link that code in Till setup (Tills, Link a device) or with the installer app to set it up again: the till keeps its name and settings.</div>
+          <div className="text-sm text-muted">This tablet stops being a till and shows a code. Link that code in Store tech (Tills, Link a device) or with the installer app to set it up again: the till keeps its name and settings.</div>
           {s.outbox.length > 0 && <div className="rounded-xl bg-bad-soft text-bad p-3 text-sm font-semibold">{s.outbox.length} changes haven&apos;t been sent yet. Get the till online first: they go by themselves.</div>}
           {!confirmDisconnect
             ? <button className="btn text-bad" onClick={() => setConfirmDisconnect(true)}><Unplug size={18} /> Disconnect</button>

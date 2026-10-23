@@ -1,6 +1,6 @@
 // The kiosk's start screen: photos or videos from the design, the logo and
 // headline, the languages as flags, "Staying or going?" with the kiosk's
-// order types (its revenue stream's, Till setup), and the allergens list.
+// order types (its revenue stream's, Store tech), and the allergens list.
 
 import { useEffect, useRef, useState } from 'react'
 import { ShieldAlert, WifiOff } from 'lucide-react'

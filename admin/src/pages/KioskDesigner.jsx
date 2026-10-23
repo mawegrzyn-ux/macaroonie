@@ -1,7 +1,7 @@
 // src/pages/KioskDesigner.jsx
 //
-// One self-order kiosk design (Till setup > Kiosks > Kiosk designs > Edit;
-// /pos/kiosk-designs/:id; docs/POS.md section 10). Settings on the left in
+// One self-order kiosk design (Store tech > Kiosks > Kiosk designs > Edit;
+// /pos/kiosks/designs/:id; docs/POS.md section 10). Settings on the left in
 // folding cards; on the right the kiosk app itself in a frame
 // (pos.<domain>/?kiosk_preview=<signed link>, from
 // POST /pos/kiosk-designs/:id/preview). The frame shows the unsaved design as
@@ -352,7 +352,7 @@ function StartPanel({ s, d, set, setup, stream, canManage }) {
         <input className={inputCls} maxLength={60} value={s.start.question || ''} placeholder={uiText(src, 'staying_or_going')}
           onChange={e => set('start', { question: e.target.value })} />
       </Field>
-      <Field group label="Order type buttons" hint="Which order types a kiosk offers comes from its revenue stream (Till setup > Revenue streams). Empty words use the order type's name.">
+      <Field group label="Order type buttons" hint="Which order types a kiosk offers comes from its revenue stream (Store tech > Revenue streams). Empty words use the order type's name.">
         {!types.length && <p className="text-xs text-muted-foreground">No order types yet.</p>}
         <div className="space-y-3">
           {types.map(t => {
@@ -772,7 +772,7 @@ function CheckoutPanel({ s, d, set, setup, canManage }) {
   return (
     <>
       <div className="space-y-1">
-        <Toggle label="Pay by card on the kiosk" hint="Needs a card reader on the kiosk (Till setup > Kiosks > Edit)."
+        <Toggle label="Pay by card on the kiosk" hint="Needs a card reader on the kiosk (Store tech > Kiosks > Edit)."
           checked={c.pay_card} onChange={v => set('checkout', { pay_card: v })} />
         <Toggle label="Pay at the counter" hint="The order goes to the tills' Counter list with its number; staff take payment there."
           checked={c.pay_counter} onChange={v => set('checkout', { pay_counter: v })} />
@@ -819,9 +819,9 @@ function CheckoutPanel({ s, d, set, setup, canManage }) {
         : 'Guests take a numbered tent from a stand beside the kiosk, type its number and put it on their table; the order number screen reminds them.'}>
         <Segmented value={c.number_kind} onChange={v => set('checkout', { number_kind: v })}
           options={[{ value: 'tent', label: 'Tent number' }, { value: 'table', label: 'Table number' }]} />
-        <p className="text-xs text-muted-foreground mt-1">Asked only for order types whose revenue stream asks for a tent (Till setup &gt; Revenue streams).</p>
+        <p className="text-xs text-muted-foreground mt-1">Asked only for order types whose revenue stream asks for a tent (Store tech &gt; Revenue streams).</p>
       </Field>
-      <Field group label="Receipts" hint="Print on the kiosk's receipt printer (Till setup > Kiosks > Edit).">
+      <Field group label="Receipts" hint="Print on the kiosk's receipt printer (Store tech > Kiosks > Edit).">
         <Segmented value={c.receipt} onChange={v => set('checkout', { receipt: v })}
           options={[{ value: 'off', label: 'None' }, { value: 'ask', label: 'Guest can print one' }, { value: 'always', label: 'Always' }]} />
       </Field>
@@ -1130,7 +1130,7 @@ function ShareDialog({ designId, share, dirty, venues, defaultVenueId, canManage
               </Btn>
             </>
           ) : (
-            <p className="text-sm">This design isn't shared. Someone who can change Till setup can make a link.</p>
+            <p className="text-sm">This design isn't shared. Someone who can change Store tech can make a link.</p>
           )}
           {err && <ErrorNote error={err} />}
         </div>
@@ -1226,7 +1226,7 @@ export default function KioskDesigner() {
     return () => link.remove()
   }, [])
 
-  const back = () => navigate('/pos?tab=kiosks')
+  const back = () => navigate('/pos/kiosks')
 
   if (isLoading) return <div className="h-full flex items-center justify-center"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
   if (error) return <div className="p-6 max-w-lg"><ErrorNote error={error} /></div>
@@ -1298,7 +1298,7 @@ export default function KioskDesigner() {
           <div className="p-4 space-y-3">
             {!canManage && <ReadOnlyNotice what="kiosk designs" />}
             <ReadOnlyFieldset disabled={!canManage}>
-              <Field label="Design name" hint="Shown in Till setup when picking a kiosk's design.">
+              <Field label="Design name" hint="Shown in Store tech when picking a kiosk's design.">
                 <input className={inputCls} maxLength={80} value={draft.name} onChange={e => setDraft(x => ({ ...x, name: e.target.value }))} data-testid="kd-name" />
               </Field>
             </ReadOnlyFieldset>

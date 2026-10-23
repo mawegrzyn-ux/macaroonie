@@ -1,4 +1,4 @@
-// The kitchen test bench's signed link (Till setup > Kitchen screens > Test
+// The kitchen test bench's signed link (Store tech > Kitchen screens > Test
 // the kitchen): who may make one, what it reads, and that a link opens only
 // its own kind of page (a kiosk preview link never opens the kitchen bench,
 // and back) and only its own venue's setup.
@@ -57,7 +57,7 @@ test('the owner gets a link that opens the venue\'s kitchen setup', async () => 
 
 test('who may make a link', async () => {
   const viewer = await as(A.viewer, ids.a).post(`/api/pos/venues/${V}/kitchen-test`, {})
-  assert.equal(viewer.status, 403, 'Till setup is none for viewers by default')
+  assert.equal(viewer.status, 403, 'Store tech is none for viewers by default')
   const otherVenue = await as(B.owner, ids.b).post(`/api/pos/venues/${V}/kitchen-test`, {})
   assert.equal(otherVenue.status, 404, 'another tenant\'s venue')
 })

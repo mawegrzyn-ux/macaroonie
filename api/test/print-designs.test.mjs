@@ -126,10 +126,10 @@ test('which design prints where, and a location\'s own words', async () => {
   assert.equal((await sql`SELECT count(*)::int AS n FROM print_design_variations WHERE design_id = ${kr.id}`)[0].n, 0)
 })
 
-test('Till setup view reads, manage changes; others neither', async () => {
+test('Store tech view reads, manage changes; others neither', async () => {
   const k = (await ok(owner.get('/api/pos/print-designs'))).designs.find(d => d.kind === 'kitchen')
   const operator = as(A.operator, ids.a)
-  assert.equal((await operator.get('/api/pos/print-designs')).status, 403, 'operators have no Till setup access by default')
+  assert.equal((await operator.get('/api/pos/print-designs')).status, 403, 'operators have no Store tech access by default')
   await sql`UPDATE tenant_roles SET permissions = permissions || '{"pos_setup": "view"}'::jsonb WHERE tenant_id = ${ids.a} AND key = 'operator'`
   assert.equal((await operator.get('/api/pos/print-designs')).status, 200)
   assert.equal((await operator.get('/api/pos/print-designs/' + k.id)).status, 200)

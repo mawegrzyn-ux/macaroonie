@@ -6,7 +6,7 @@
 // mappers the designers' Use the brand uses (kioskBrandFromKit(),
 // boardFromKit(), printFromKit() in shared/themeKit.js), saved through each
 // design's own save route, so its own checks apply. Only designs the person
-// can change are offered (Till setup, Menu screens, Menus manage).
+// can change are offered (Store tech, Menu screens, Menus manage).
 
 import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'

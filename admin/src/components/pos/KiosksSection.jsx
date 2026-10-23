@@ -1,13 +1,13 @@
 // src/components/pos/KiosksSection.jsx
 //
-// Till setup > Kiosks: self-order kiosks (docs/POS.md section 10). A kiosk
+// Store tech > Kiosks: self-order kiosks (docs/POS.md section 10). A kiosk
 // is a till device of kind 'kiosk', set up like a till: open the kiosk
 // address on it, it shows a code, type the code here (or scan its QR code
 // with a phone: the installer app).
 // Guests order and pay on it; its orders are counter checks in its revenue
 // stream, so they reach the tills' Counter list, the kitchen, the reports and
 // Cash Recon like any other. How it looks and behaves is a kiosk design:
-// company-wide, edited on its own page (/pos/kiosk-designs/:id) with a live
+// company-wide, edited on its own page (/pos/kiosks/designs/:id) with a live
 // preview.
 
 import { useState } from 'react'
@@ -72,7 +72,7 @@ function KioskModal({ venueId, setup, device, onClose }) {
         {device && <ConfirmDelete label="Remove kiosk" confirmLabel="Yes, remove" onConfirm={() => remove.mutate()} disabled={remove.isPending} />}
       </>}>
       {!device && <ShownCodeField setup={setup} kind="kiosk" value={code} onChange={setCode} autoFocus />}
-      <Field label="Name" hint="Shown in Till setup and on the tills' Counter list, e.g. Kiosk 1, Door kiosk.">
+      <Field label="Name" hint="Shown in Store tech and on the tills' Counter list, e.g. Kiosk 1, Door kiosk.">
         <input className={inputCls} value={form.name} maxLength={60} onChange={e => set({ name: e.target.value })} placeholder="e.g. Kiosk 1" />
       </Field>
       <Field label="Revenue stream" hint="Where its sales are counted. The stream's order types are the ones the kiosk offers (Staying or going?), and the stream decides whether it asks for a name or a table number.">
@@ -169,7 +169,7 @@ function KioskDesigns({ venueId, setup, canManage }) {
     mutationFn: from => api.post('/pos/kiosk-designs', from
       ? { name: from.name.slice(0, 72) + ' (copy)', settings: {}, copy_from: from.id }
       : { name: designs.length ? 'Kiosk design ' + (designs.length + 1) : 'Kiosk design', settings: {} }),
-    onSuccess: row => { refresh(); navigate('/pos/kiosk-designs/' + row.id) },
+    onSuccess: row => { refresh(); navigate('/pos/kiosks/designs/' + row.id) },
   })
   const remove = useMutation({
     mutationFn: id => api.delete('/pos/kiosk-designs/' + id),
@@ -204,7 +204,7 @@ function KioskDesigns({ venueId, setup, canManage }) {
                     {using.length ? 'Here: ' + using.map(k => k.name).join(', ') : 'No kiosk here uses it'} · changed {ago(d.updated_at)}
                   </p>
                 </div>
-                <Btn onClick={() => navigate('/pos/kiosk-designs/' + d.id)} title={'Edit ' + d.name}><Pencil className="w-4 h-4" /> <span className="hidden sm:inline">{canManage ? 'Edit' : 'Open'}</span></Btn>
+                <Btn onClick={() => navigate('/pos/kiosks/designs/' + d.id)} title={'Edit ' + d.name}><Pencil className="w-4 h-4" /> <span className="hidden sm:inline">{canManage ? 'Edit' : 'Open'}</span></Btn>
                 {canManage && <Btn onClick={() => create.mutate(d)} disabled={create.isPending} title={'Copy ' + d.name}><Copy className="w-4 h-4" /></Btn>}
                 {canManage && <ConfirmDelete label="Delete" confirmLabel="Yes, delete" onConfirm={() => remove.mutate(d.id)} disabled={remove.isPending} />}
               </div>

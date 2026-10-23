@@ -1,6 +1,6 @@
 // src/components/pos/StaffSection.jsx
 //
-// Till setup > Staff and PINs: who can sign in on the till and what their
+// Store tech > Staff and PINs: who can sign in on the till and what their
 // till role lets them do. People come from the Staff page; a PIN is 4 to
 // 6 digits, unique per venue (the PIN alone finds the person), and is
 // checked on the till itself so sign-in works offline.

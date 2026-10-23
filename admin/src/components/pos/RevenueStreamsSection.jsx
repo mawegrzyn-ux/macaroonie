@@ -1,6 +1,6 @@
 // src/components/pos/RevenueStreamsSection.jsx
 //
-// Till setup > Revenue streams (migration 170): groups of tills for
+// Store tech > Revenue streams (migration 170): groups of tills for
 // recognising revenue by place and/or device (Restaurant, Bar, Kiosk). A
 // stream doesn't decide tax. Each one picks its menus, an optional service
 // charge, which order types it offers and, per type, whether to ask for a

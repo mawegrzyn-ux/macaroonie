@@ -34,7 +34,7 @@ async function device(d, method, url, body) {
   return { status: res.statusCode, json, body: res.body }
 }
 
-/** A device showing a code, linked from Till setup (support/devices.mjs). */
+/** A device showing a code, linked from Store tech (support/devices.mjs). */
 const pairDevice = (kind, name, settings = {}) => linkDevice(owner, V, { kind, name, settings })
 
 /** An online order reaching the kitchen (as kitchenOnOnlineOrder sends it). */
@@ -164,13 +164,13 @@ test('who may switch: not a till, not a screen it is turned off for, not another
   await ok(owner.patch(`/api/pos/devices/${screen.id}`, { name: 'Pass screen', settings: { can_switch_flow: false } }))
   const off = await device(screen, 'PUT', '/pos-api/kitchen/flow', { flow_id: main.id })
   assert.equal(off.status, 403)
-  assert.match(off.json.error, /Till setup/)
+  assert.match(off.json.error, /Store tech/)
   await ok(owner.patch(`/api/pos/devices/${screen.id}`, { name: 'Pass screen', settings: {} }))
   const hertford = (await sql`SELECT f.id FROM kds_flows f JOIN venues v ON v.id = f.venue_id WHERE v.slug = 'zqx-hertford' AND f.tenant_id = ${ids.a}`)[0]
   const otherVenue = await device(screen, 'PUT', '/pos-api/kitchen/flow', { flow_id: hertford.id })
   assert.equal(otherVenue.status, 404)
   const viewer = await as(A.viewer, ids.a).put(`/api/pos/venues/${V}/kds-flows/active`, { flow_id: main.id })
-  assert.equal(viewer.status, 403, 'putting a flow in use needs Till setup manage')
+  assert.equal(viewer.status, 403, 'putting a flow in use needs Store tech manage')
 
   const b = as(B.owner, ids.b)
   const bVenue = await ok(b.post('/api/venues', { name: 'Wvb Ware', slug: 'wvb-ware', timezone: 'Europe/London' }))

@@ -41,7 +41,7 @@ import { httpError } from '../middleware/error.js'
 import { getStorage } from '../services/storageSvc.js'
 import { ICON_MIME, mayBeIcon, isIcon, iconSize } from '../utils/icon.js'
 
-// The website, menus, menu screens and kiosk designs (Till setup) all build
+// The website, menus, menu screens and kiosk designs (Store tech) all build
 // with Media pictures (and videos): changes need manage on any of them.
 // Browsing stays open to every member of the tenant.
 const PERM = { manage: requireAnyPermission(['website', 'menus', 'screens', 'pos_setup'], 'manage') }

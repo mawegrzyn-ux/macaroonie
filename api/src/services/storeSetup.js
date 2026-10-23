@@ -398,7 +398,7 @@ const AREAS = {
       const streams = await copyTable(s, 'pos_revenue_streams')
       const areas = await copyTable(s, 'floor_areas')
       // A printer plugged into one of the old location's devices waits for one
-      // of the new location's (Till setup -> Printers); the hub's last report goes.
+      // of the new location's (Store tech -> Printers); the hub's last report goes.
       const printers = await copyTable(s, 'pos_printers', { set: { device_id: null, local_id: null, status: null, status_at: null } })
       await copyTable(s, 'pos_settings', {
         set: {

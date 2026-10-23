@@ -2785,6 +2785,20 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>DEFAULT_NAV_TREE</Mono> differ, when a catalogue route is missing or doubled, or when a new
               tenant's <Mono>/api/me</Mono> tree doesn't match: change both together.
             </P>
+            <P>
+              Migration 202 (23 Oct 2026) added the <strong>Store tech</strong> section after Venues: the old
+              Till setup page's tabs became pages of their own (<Mono>/pos/tills</Mono>, <Mono>/pos/kiosks</Mono>,{' '}
+              <Mono>/pos/kitchen</Mono>, <Mono>/pos/printers</Mono>, <Mono>/pos/printing</Mono>,{' '}
+              <Mono>/pos/cards</Mono>, <Mono>/pos/types</Mono>, <Mono>/pos/streams</Mono>, <Mono>/pos/courses</Mono>,{' '}
+              <Mono>/pos/staff</Mono>, <Mono>/pos/roles</Mono>, <Mono>/pos/receipts</Mono>, <Mono>/pos/recon</Mono>),
+              each a catalogue route, with Floor plan and Menu screens beside them. Unlike 196 it edits each
+              tenant's menu in place: it deletes the <Mono>/pos</Mono> link (with its Floor plan child) and the{' '}
+              <Mono>/screens</Mono> link wherever they are, inserts the section after the top-level item holding{' '}
+              <Mono>/venues</Mono> (else at the end), gives the new links the roles the old ones were hidden from,
+              and moves a quick-access tile to Tills / Menu screens. Other Navigation changes stay; a tenant that
+              already has <Mono>/pos/tills</Mono> is skipped. The nav test applies 202's change to 196's JSON and
+              compares the result with <Mono>DEFAULT_NAV_TREE</Mono>.
+            </P>
             <H3>Launcher personalisation (admin/src/pages/Launcher.jsx)</H3>
             <P>
               Tile order and visibility are per-user, per-tenant, stored in
@@ -3227,7 +3241,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <P>
               A till is a linked device, not an Auth0 user: the device shows a code of its own
               (<Mono>POST /pos-api/pairings</Mono>, see Installer app &amp; link codes), someone signed in links it
-              with <Mono>POST /api/pos/venues/:id/link</Mono> (Till setup or the installer, the only way a device
+              with <Mono>POST /api/pos/venues/:id/link</Mono> (Store tech or the installer, the only way a device
               is added), the device keeps the secret it was given with its code, and every call sends <Mono>Authorization: Device &lt;id&gt;.&lt;secret&gt;</Mono> (device rows
               cached 30 s; revoking or switching the module off stops it). People sign in on the till with a PIN:
               <Mono> hashPin()</Mono> (<Mono>shared/pos/pin.js</Mono>, PBKDF2-SHA256, 60000 rounds, the venue's
@@ -3304,7 +3318,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               venue hub (<Mono>hub/</Mono>: <Mono>bin/hub.js</Mono>, <Mono>src/cloud.js</Mono>, <Mono>src/service.js</Mono>; a
               device of kind <Mono>hub</Mono> linked by the code it shows, <Mono>POST /pos-api/pairings</Mono> with{' '}
               <Mono>app: 'hub'</Mono>; its routes are only <Mono>/config</Mono> (<Mono>hubConfig()</Mono>: its printers),
-              claim, status, <Mono>POST /pos-api/hub/status</Mono> (each printer&apos;s state, shown in Till setup) and
+              claim, status, <Mono>POST /pos-api/hub/status</Mono> (each printer&apos;s state, shown in Store tech) and
               disconnect); <Mono>device</Mono> (<Mono>device_id</Mono>) by that till or kitchen screen
               (<Mono>pos/src/lib/devicePrint.js</Mono>: on <Mono>pos.print</Mono> and every 20 s, prints through the
               browser). <Mono>POST /pos-api/print-jobs/claim</Mono> hands each device only its own printers&apos; jobs and takes
@@ -3329,13 +3343,13 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['Release', 'services/hubRelease.js: hubRelease() builds one tar.gz per API process from the files hub/bin/*.js load (importClosure() follows relative imports, so the shared ticket code comes along) plus hub/package.json, hub/README.md, shared/package.json and a release.json. Sorted names and fixed times: every process makes the same bytes. Version = hub/src/version.js VERSION + "+" + 8 hex of a hash of the files, so any change to the hub or the shared code it uses is a new version. Public routes (no auth): GET /pos-api/hub/release ({ version, sha256, size, url }), /pos-api/hub/release.tgz, /pos-api/hub/install.sh and install.ps1 (installScript(): __MACAROONIE_API__ replaced by the till address, or the request\'s own address on localhost).'],
                 ['Install (Linux)', 'hub/install/install.sh: Node 22 from nodejs.org/dist/latest-v22.x checked against SHASUMS256.txt into /opt/macaroonie-hub/node; a system user macaroonie-hub in lp and dialout; the release checked against its sha256, unpacked to releases/<version>, --self-test; launcher.mjs and current.json; a systemd unit (Restart=always, ProtectSystem=full, ReadWritePaths the home); ufw opens 9180 when active; prints the code from state.json. --uninstall removes it all. Environment overrides for tests (MACAROONIE_HUB_HOME, MACAROONIE_SYSTEMCTL, ...).'],
                 ['Install (Windows)', 'hub/install/install.ps1 (irm ... | iex; everything inside Install-MacaroonieHub so errors return to the prompt): Node 22 zip checked by Get-FileHash into C:\\ProgramData\\Macaroonie\\Hub\\node, the release unpacked with tar.exe, a scheduled task at start-up as SYSTEM (restart on failure) running the launcher with --log-file hub.log, a firewall rule for 9180 (private and domain networks). MACAROONIE_HUB_UNINSTALL=1 removes it. Sets $global:MacaroonieHubFailed for the setup file.'],
-                ['Download to install', 'pos.<domain>/hub (posSite.js, till host only; the till app\'s service worker leaves /hub alone) redirects to GET /pos-api/hub/setup: hubSetupPage(), plain HTML with its own CSP (no scripts), the download for the user agent\'s system first. GET /pos-api/hub/setup.cmd (attachment macaroonie-hub-setup.cmd): hub/install/setup.cmd with \\r\\n line endings, plain ASCII. Not elevated (fltmc fails) it starts itself again with Start-Process -Verb RunAs (path and argument through environment variables, so a "(1)" or an apostrophe in the path is safe); elevated it downloads install.ps1 to %TEMP% with Invoke-WebRequest and runs it (no iex), exits 1 when $global:MacaroonieHubFailed, else opens http://localhost:9180/. "uninstall" as its argument removes the hub. GET /pos-api/hub/setup.sh (attachment macaroonie-hub-setup.sh) is install.sh, which run from a file (*.sh) as a user other than root runs itself again with sudo. Till setup and the installer app\'s Add a hub show the address; Till setup also has both downloads and the commands under Or run a command. Unsigned: Windows SmartScreen and the browser ask before running it.'],
+                ['Download to install', 'pos.<domain>/hub (posSite.js, till host only; the till app\'s service worker leaves /hub alone) redirects to GET /pos-api/hub/setup: hubSetupPage(), plain HTML with its own CSP (no scripts), the download for the user agent\'s system first. GET /pos-api/hub/setup.cmd (attachment macaroonie-hub-setup.cmd): hub/install/setup.cmd with \\r\\n line endings, plain ASCII. Not elevated (fltmc fails) it starts itself again with Start-Process -Verb RunAs (path and argument through environment variables, so a "(1)" or an apostrophe in the path is safe); elevated it downloads install.ps1 to %TEMP% with Invoke-WebRequest and runs it (no iex), exits 1 when $global:MacaroonieHubFailed, else opens http://localhost:9180/. "uninstall" as its argument removes the hub. GET /pos-api/hub/setup.sh (attachment macaroonie-hub-setup.sh) is install.sh, which run from a file (*.sh) as a user other than root runs itself again with sudo. Store tech and the installer app\'s Add a hub show the address; Store tech also has both downloads and the commands under Or run a command. Unsigned: Windows SmartScreen and the browser ask before running it.'],
                 ['Launcher', 'hub/bin/launcher.js, copied to <home>/launcher.mjs: runs the version in current.json, starts it again at once after exit 75 (an update), else after 2 s growing to 30 s; three stops within a minute of starting go back to current.previous and add the version to bad_versions (rolled_back_from). --log-file writes a log kept under 5 MB.'],
                 ['Updates', 'hub/src/update.js createUpdater(): the hub\'s config (hubConfig()) carries release and update { auto: settings.auto_update !== false, requested: update_requested_at set }. At a quiet moment (a claim with no jobs, at most every 30 s) it downloads, checks the sha256 and release.json\'s version, unpacks with tar into releases/<v>.part, runs --self-test, renames, copies the launcher, writes current.json (keeping the version before) and exits 75. Not again for 30 minutes after a failure (5 when asked); a version in bad_versions only when asked. A copy run from the repository (no MACAROONIE_HUB_HOME) only reports updates: manual. POST /api/pos/devices/:id/update sets update_requested_at; a report with the latest version clears it.'],
                 ['USB printers', 'hub/src/usb.js. Linux: /sys/class/usbmisc/lp*/device (ieee1284_id, and the USB device\'s idVendor, idProduct, serial or port) gives { id: usb:<vendor>:<product>:<serial | port-…>, name, escpos, path: /dev/usb/lpN }; printing writes the device file non-blocking (EAGAIN = wait), status asks DLE EOT and reads the answer back (no answer = unknown). Windows: Get-Printer (virtual printers left out), id win:<name>; a RAW job through winspool (OpenPrinter / StartDocPrinter RAW / WritePrinter) in an encoded PowerShell command, the name and a temp file in environment variables; status from PrinterStatus. Printers are found again by id at every print, never by device file. Prints and status questions to one printer are queued together.'],
-                ['Printers in the cloud', 'A USB printer on the hub is pos_printers connection device, device_id = the hub, local_id = its id (checkPrinterDevice() needs local_id for a hub, clears it otherwise; host is null). hubConfig() sends network printers and the hub\'s own USB printers with interface network | usb; the claim already matches device printers by device_id. POST /pos-api/hub/status (HubReport) stores info (computer, addresses, status_port, local_printers, update) and info_at on pos_devices and updates state for its network printers and its own USB printers. Till setup shows info, hub_release, Update now, Add it; the installer app lists hubs (KINDS.hub) with info.'],
+                ['Printers in the cloud', 'A USB printer on the hub is pos_printers connection device, device_id = the hub, local_id = its id (checkPrinterDevice() needs local_id for a hub, clears it otherwise; host is null). hubConfig() sends network printers and the hub\'s own USB printers with interface network | usb; the claim already matches device printers by device_id. POST /pos-api/hub/status (HubReport) stores info (computer, addresses, status_port, local_printers, update) and info_at on pos_devices and updates state for its network printers and its own USB printers. Store tech shows info, hub_release, Update now, Add it; the installer app lists hubs (KINDS.hub) with info.'],
                 ['Status page', 'hub/src/statusPage.js on port 9180 (--http-port, 0 = none): GET / (refreshes every 5 s, CSP default-src none) and /status.json. Linking: the code and qrSvg() of the installer link; then cloud, version, update state, printers in words, USB printers found, the last 20 tickets as kind, printer, printed or the reason (never titles or contents). publicState() never includes a secret. The hub also writes state.json beside hub.json for hub.js status and the installers.'],
-                ['Linking', 'bin/hub.js shows a code until linked (console, page, state.json); a 401 from the cloud (removed in Till setup) clears hub.json and shows a new code instead of stopping (a stop would make the launcher go back a version).'],
+                ['Linking', 'bin/hub.js shows a code until linked (console, page, state.json); a 401 from the cloud (removed in Store tech) clears hub.json and shows a new code instead of stopping (a stop would make the launcher go back a version).'],
               ]}
             />
             <H3>Print designs</H3>
@@ -3366,12 +3380,12 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               ]}
             />
             <P>
-              Every change broadcasts <Mono>pos.config</Mono> (a company change to every venue). Admin: Till setup →
+              Every change broadcasts <Mono>pos.config</Mono> (a company change to every venue). Admin: Store tech →
               Printing (<Mono>components/pos/PrintingSection.jsx</Mono>) and the designer{' '}
               <Mono>pages/PrintDesigner.jsx</Mono> (<Mono>/pos/print-designs/:id</Mono>): parts in a sortable list,
               options per part, <em>Only at</em> a venue for its variation, explicit Save, a column-exact preview from{' '}
               <Mono>previewHtml(ops, cols)</Mono> in <Mono>ticketHtml.js</Mono> (wrapping as <Mono>toText()</Mono>,
-              double width and height by CSS transforms). The receipt and bill footers left Till setup&apos;s settings
+              double width and height by CSS transforms). The receipt and bill footers left Store tech&apos;s settings
               (<Mono>pos_settings.receipt_footer</Mono> / <Mono>bill_footer</Mono> dropped): the migration made a
               design named Receipt for tenants that had any, used company wide, with each venue&apos;s footers as its
               variation. New locations copy the template venue&apos;s uses and variations (<Mono>storeSetup.js</Mono>).
@@ -3413,10 +3427,10 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['GET /pos-api/card/payments[/:id]', '?check_id= lists a check\'s attempts (Pay picks up a pending one and offers approved ones not on the bill). /:id refreshes from the provider.'],
                 ['POST /pos-api/card/payments/:id/cancel | /signature | /test', 'Cancel on the machine (the provider has the last word: a card tapped just before counts); answer a Dojo signature check; a test card (the test machine, or Stripe test mode\'s present_payment_method).'],
                 ['POST /pos-api/card/refunds', 'Till only: { sale_id, check_id, refund_id, amount, staff_id, approved_by?, purpose refund | void }, role permission refund or void (or a manager). The sale must be approved, on this check, with enough left; the refund is approved or failed when it returns.'],
-                ['/api/pos/card-accounts[...]', 'Till setup view to list; manage + owner/admin to add, change (a new key or settings is checked first), remove. POST /:id/check asks again; GET /:id/readers is the provider\'s list, each marked where it is added.'],
+                ['/api/pos/card-accounts[...]', 'Store tech view to list; manage + owner/admin to add, change (a new key or settings is checked first), remove. POST /:id/check asks again; GET /:id/readers is the provider\'s list, each marked where it is added.'],
                 ['/api/pos/venues/:venueId/card-readers', 'View: the venue\'s machines and which tills and kiosks use them. Manage: add from the list ({ account_id, provider_reader_id, name }), by code ({ account_id, code, name, location? }: SumUp Solo pairing, Stripe registration code), or { provider: \'test\', name }.'],
                 ['PATCH / DELETE /api/pos/card-readers/:id', 'Rename; remove (devices using it go back to none).'],
-                ['GET /api/pos/venues/:venueId/card-payments?days=&status=', 'Till setup or Till reports view: attempts with machine, device and staff names; not_on_check flags an approved sale no event used.'],
+                ['GET /api/pos/venues/:venueId/card-payments?days=&status=', 'Store tech or Till reports view: attempts with machine, device and staff names; not_on_check flags an approved sale no event used.'],
               ]}
             />
             <P>
@@ -3447,7 +3461,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>MachineCard</Mono> in <Mono>pos/src/kiosk/Checkout.jsx</Mono> starts a payment for the order&apos;s total
               with the payment id it will use, then <Mono>placeOrder(&apos;card&apos;, {'{ id, card_payment_id }'})</Mono>{' '}
               (<Mono>kioskOrder()</Mono> makes the payment card_integrated); leaving the step cancels it; the idle
-              timer waits while the guest pays (<Mono>card_waiting</Mono>). Admin: Till setup → Card machines
+              timer waits while the guest pays (<Mono>card_waiting</Mono>). Admin: Store tech → Card machines
               (<Mono>components/pos/CardMachinesSection.jsx</Mono>, <Mono>CardMachinePick</Mono> in the till and kiosk
               windows). Tender <Mono>card_integrated</Mono> (&quot;Card machine&quot;) is on by default; the migration
               added it wherever Cash Recon&apos;s takings mapping had <Mono>card_external</Mono>, and moved kiosks
@@ -3469,7 +3483,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <DataTable
               head={['Page', 'Files']}
               rows={[
-                ['Till setup /pos', 'pages/PosSetup.jsx (?tab=) + components/pos/*Section.jsx; GET /api/pos/venues/:id/setup is the one read (includes device_urls { terminal, kds, kiosk } from deviceOrigin(), till_url = the till\'s, sections and items for routing, recon_fields). deviceUrl(setup, kind) in TillsSection.jsx; ShownCodeField (the device steps with the kind\'s address + the code box), LinkDeviceModal / LinkDeviceButton (New device / Link a device on a row) and linkShownCode() there too, used by the Tills, Kitchen screens and Kiosks tabs.'],
+                ['Store tech /pos/:tab', 'pages/PosSetup.jsx (TABS: one page per part, the key is the address; /pos, /pos?tab=<key> and unknown keys redirect, so store opening follow-ups saved with ?tab= links still work; kiosk and print designers at /pos/kiosks/designs/:id and /pos/printing/designs/:id so the menu link stays lit) + components/pos/*Section.jsx; GET /api/pos/venues/:id/setup is the one read (includes device_urls { terminal, kds, kiosk } from deviceOrigin(), till_url = the till\'s, sections and items for routing, recon_fields). deviceUrl(setup, kind) in TillsSection.jsx; ShownCodeField (the device steps with the kind\'s address + the code box), LinkDeviceModal / LinkDeviceButton (New device / Link a device on a row) and linkShownCode() there too, used by the Tills, Kitchen screens and Kiosks tabs.'],
                 ['Floor plan /pos/floor', 'pages/PosFloor.jsx: snap 0.5 unit, pointer drag / resize, explicit Save per area (PUT /api/pos/floor-areas/:id/layout replaces tables on the area + decor).'],
                 ['Till reports /pos/reports', 'pages/PosReports.jsx: days (+ fill-recon, needs cash_recon manage too), checks with events, conflicts, print queue.'],
                 ['Menus, Variant groups, Promotions', 'components/menus/TillFields.jsx (section / dish Till box), components/menus/ComboEditor.jsx (Dish / Combo, steps, comboPayload()); VariantGroupsManager pos_prefixes + child_group_id + allow_repeat / on_request; Promotions Where (channels).'],
@@ -3494,8 +3508,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               head={['Part', 'How']}
               rows={[
                 ['pos/src/lib/appHost.js', 'HOST_APP from the address (pos -> terminal, kitchen / kds -> kds, kiosk -> kiosk, anything else null = any kind, for local and test addresses), addressFor(kind) (same scheme and port), belongsHere(kind), takePairCode() (#pair=CODE, removed from the address at once), movedTo() / setMovedTo() (localStorage maca_moved_to), moveDevice(), tellDisconnect(); sets the page title for the address.'],
-                ['POST /pos-api/pair { code, app? }', 'Only the move hand-over: the one-time code POST /pos-api/move makes, typed by the app at the new address itself (#pair=CODE). app = HOST_APP; a code for another kind is refused before it is used (422 code wrong_address). Nothing else makes these codes since Till setup\'s were removed (19 Oct 2026).'],
-                ['POST /pos-api/disconnect', 'Device auth (kiosks too: KIOSK_ROUTES). secret_hash, pairing_code_hash, pairing_expires_at = NULL: the device row stays (name, settings, short code), Till setup shows Not linked, Link a device on its row links the code the device then shows.'],
+                ['POST /pos-api/pair { code, app? }', 'Only the move hand-over: the one-time code POST /pos-api/move makes, typed by the app at the new address itself (#pair=CODE). app = HOST_APP; a code for another kind is refused before it is used (422 code wrong_address). Nothing else makes these codes since Store tech\'s were removed (19 Oct 2026).'],
+                ['POST /pos-api/disconnect', 'Device auth (kiosks too: KIOSK_ROUTES). secret_hash, pairing_code_hash, pairing_expires_at = NULL: the device row stays (name, settings, short code), Store tech shows Not linked, Link a device on its row links the code the device then shows.'],
                 ['POST /pos-api/move', 'Device auth. openPairing(tx, tenantId, deviceId, 10) (moved to services/posSvc.js) -> { code, kind, url = deviceOrigin(kind)/#pair=code }. The old copy\'s secret works until the code is used (pairing replaces it), so a move that never arrives can be tried again.'],
                 ['Disconnect on the devices', 'Till: TillSettings Disconnect this till (manager approval, refused with unsent events) -> disconnect() in lib/store.js. Kitchen: SettingsPanel DisconnectBox -> disconnect() in kitchen/store.js (unsent taps dropped, counted first). Kiosk: StaffPanel DisconnectBox -> disconnect() in kiosk/store.js (waiting paid orders sent first, refused while any are left). Offline, the device still forgets itself and says Macaroonie couldn\'t be told.'],
                 ['Move on the devices', 'MoveNotice (components/MoveNotice.jsx) when belongsHere() is false: the till app (above its screens), the kitchen app (top) and the kiosk (top of the start screen and in the staff panel). moveTill() / moveScreen() / moveKiosk() send what is waiting, call /pos-api/move, forget the device here, set maca_moved_to and open the new address. The old address then shows MovedAway (opens the new one after 5 s; Set up another device here clears it).'],
@@ -3774,7 +3788,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               accepted / preparing) or completed, <Mono>board_status_by</Mono> &quot;Kitchen screen &lt;name&gt;&quot;,
               and broadcasts <Mono>order.updated</Mono> (source gloriafood) when <Mono>kds_online_ready</Mono> is
               on. GloriaFood itself is never told. A change to an order&apos;s dishes after it reached the kitchen
-              isn&apos;t copied. Till setup: <Mono>GET .../setup</Mono> returns <Mono>gloriafood</Mono>{' '}
+              isn&apos;t copied. Store tech: <Mono>GET .../setup</Mono> returns <Mono>gloriafood</Mono>{' '}
               (<Mono>{'{ show_on_board, types }'}</Mono>, null without a link); the PATCH checks type ids are the
               tenant&apos;s (422). Tests: <Mono>api/test/gloriafood-kitchen.test.mjs</Mono>.
             </P>
@@ -3849,7 +3863,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             </P>
             <H3>The kitchen test bench</H3>
             <P>
-              Till setup → Kitchen screens → Test the kitchen (<Mono>TestCard</Mono> in{' '}
+              Store tech → Kitchen screens → Test the kitchen (<Mono>TestCard</Mono> in{' '}
               <Mono>KitchenSection.jsx</Mono>, a <Mono>div role=&quot;button&quot;</Mono> so it works in the View
               only fieldset) calls <Mono>POST /api/pos/venues/:venueId/kitchen-test</Mono> (pos_setup view) for a
               signed link and opens <Mono>pos.&lt;domain&gt;/?kitchen_test=&lt;token&gt;</Mono> in a new window
@@ -3958,7 +3972,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>menus_changed</Mono>, and Reload (a new preview link, so the frame loads the menu again).{' '}
               <Mono>routes/posSite.js</Mono> lets a <Mono>?kiosk_preview=</Mono> page be framed by the platform's
               own hosts (<Mono>frame-ancestors</Mono>, no <Mono>X-Frame-Options</Mono>); the app's service worker
-              leaves those pages to the network. Media changes need Website, Menus, Menu screens or Till setup
+              leaves those pages to the network. Media changes need Website, Menus, Menu screens or Store tech
               manage (<Mono>routes/media.js</Mono>); kiosk pictures use scope <Mono>kiosk</Mono>. Till reports'
               checks list, check history, refused changes and day names show the kiosk's name (a{' '}
               <Mono>pos_devices</Mono> join on the server / staff id).
@@ -4071,7 +4085,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             </P>
             <H3>Admin</H3>
             <P>
-              Till setup → Kiosks: <Mono>components/pos/KiosksSection.jsx</Mono> (kiosks with their design,
+              Store tech → Kiosks: <Mono>components/pos/KiosksSection.jsx</Mono> (kiosks with their design,
               stream, card reader, receipt printer and problems; designs with copy / delete;{' '}
               <Mono>kioskDesign()</Mono>). Design editor: <Mono>pages/KioskDesigner.jsx</Mono>{' '}
               (<Mono>/pos/kiosk-designs/:id</Mono>): panels over the raw draft (text) and the normalised design
@@ -4092,8 +4106,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <P>
               Migration 184. A till, kitchen screen, kiosk or menu screen that isn't set up shows a code of its
               own and a QR code; someone signed in links it from a phone (the installer app,{' '}
-              <Mono>installer.&lt;domain&gt;</Mono>) or from the admin (Till setup's Add windows, Screens). That
-              is the only way a device is set up: since 19 Oct 2026 Till setup and the installer no longer make
+              <Mono>installer.&lt;domain&gt;</Mono>) or from the admin (Store tech's Add windows, Screens). That
+              is the only way a device is set up: since 19 Oct 2026 Store tech and the installer no longer make
               codes to type into a device (<Mono>POST /api/pos/venues/:id/devices</Mono> and{' '}
               <Mono>POST /api/pos/devices/:id/pairing-code</Mono> are gone).
             </P>
@@ -4105,7 +4119,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['services/linkCodes.js', 'LINK_MINUTES, newLinkCode() (the screen alphabet, ABC-DEF), linkCodeHash(), linkUrl(code) = installerOrigin() + /link/<code>, linkCodeTaken() (a code is never live in both tables, so a typed code finds one device), findLinkCode() (screen first, then device).'],
                 ['POST /pos-api/pairings', 'No auth, 30/min per address. { app?, device? } -> { id, code, secret, expires_at, link_url }. The secret stays on the device; only its hash is kept.'],
                 ['GET /pos-api/pairings/:id', 'Authorization: Pairing <secret>, 240/min per address (a venue\'s devices share one). waiting | expired | paired (with device_id, name, kind, short_code, venue). Paired only while the device row still holds this code\'s secret_hash and isn\'t removed.'],
-                ['POST /api/pos/venues/:id/link', 'Till setup manage. { code, device_id? | name, kind?, settings? }. Locks the code row, refuses run-out and used codes, a kind other than the code\'s app (422), another venue\'s or tenant\'s device (404). New device: 201 with a short code; device_id: 200, the existing row takes the code\'s secret_hash (the old device stops, forgetDevice() + the 30 s device cache), keeps name and settings. Marks the code claimed with the tenant.'],
+                ['POST /api/pos/venues/:id/link', 'Store tech manage. { code, device_id? | name, kind?, settings? }. Locks the code row, refuses run-out and used codes, a kind other than the code\'s app (422), another venue\'s or tenant\'s device (404). New device: 201 with a short code; device_id: 200, the existing row takes the code\'s secret_hash (the old device stops, forgetDevice() + the 30 s device cache), keeps name and settings. Marks the code claimed with the tenant.'],
                 ['POST /screen-api/pairings', 'Menu screens, as before, now also returns link_url and skips codes live in pos_pairings. Linked by POST /api/screens/screens/claim.'],
               ]}
             />
@@ -5412,7 +5426,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['Cooking check dish buttons (loadCookingPicker)', 'Live. POST /food-safety/cooking with a live dish gone from the draft logs its name with menu_item_id null.'],
                 ['Allergen lookup (AllergenLookup)', 'Live (menus with a live version only). The Allergen matrix editor stays on the draft.'],
                 ['AI menu tools', 'get_menu draft unless version live; find_dishes live (draft with include_unpublished for menus never published); change tools write the draft; publish_menu and cancel_menu_publish publish.'],
-                ['Draft readers (unchanged)', 'Menus page, allergen matrix editor, menu designer (GET /:id/design), Promotions and Till setup dish pickers, Ordering setup and sold-out lists.'],
+                ['Draft readers (unchanged)', 'Menus page, allergen matrix editor, menu designer (GET /:id/design), Promotions and Store tech dish pickers, Ordering setup and sold-out lists.'],
               ]}
             />
             <InfoBox type="warn">
@@ -5862,7 +5876,7 @@ selection.combo = { [stepId]: [{ option_id, item_id, choices }] }   // item_id n
                 ['Deliveroo file', 'loadDishes() resolves each dish for the settings\' order type (default: the type named Delivery) and stream; dishValues() writes dish.vat.'],
                 ['Kitchen', 'headerFromCheck() / onlineSnapshot() put type, type_name and tent on the kitchen order; flow links can name order types and revenue streams (linkRank()); the kitchen screen\'s filter tabs are the tenant\'s types (kdsConfig().order_types).'],
                 ['Reports', 'dayFigures() adds revenue_streams and order_types [{ id, checks, net, total }]; GET /api/pos/venues/:id/days/:dayId names them (names.revenue_streams / order_types / tax_rates); the checks list joins order_type_name and tent; GET /api/pos/checks/:id returns names for its events. Z tickets print both.'],
-                ['Admin', 'components/menus/TaxBox.jsx (menu Settings, SectionDrawer, ItemDrawer; useTaxLookups() = GET /api/tax-rates), pages/MenuTax.jsx (/menus/tax: rates + Check), components/pos/OrderTypesSection.jsx and RevenueStreamsSection.jsx (Till setup tabs types and streams), OrderingSettings.jsx and MenuDeliveroo.jsx selects, KitchenFlow.jsx chips.'],
+                ['Admin', 'components/menus/TaxBox.jsx (menu Settings, SectionDrawer, ItemDrawer; useTaxLookups() = GET /api/tax-rates), pages/MenuTax.jsx (/menus/tax: rates + Check), components/pos/OrderTypesSection.jsx and RevenueStreamsSection.jsx (Store tech tabs types and streams), OrderingSettings.jsx and MenuDeliveroo.jsx selects, KitchenFlow.jsx chips.'],
                 ['AI menu tools', 'New sections and dishes carry tax; update_section takes tax_rate (a rate name) and sets the section\'s rate.'],
               ]}
             />
@@ -6236,7 +6250,7 @@ selection.combo = { [stepId]: [{ option_id, item_id, choices }] }   // item_id n
             </P>
             <P>
               <Mono>components/brand/ApplyBrand.jsx</Mono> (<Mono>ApplyBrandCard</Mono>, "Use the brand on other designs")
-              lists kiosk designs (Till setup manage), menu screen boards (Menu screens manage) and printed menu designs
+              lists kiosk designs (Store tech manage), menu screen boards (Menu screens manage) and printed menu designs
               (Menus manage, from <Mono>GET /api/menus/print-designs</Mono>); the ticked ones take{' '}
               <Mono>kitFromBrand(tenant_site)</Mono> (<Mono>shared/themeKit.js</Mono>, source <Mono>brand</Mono>)
               through the mappers <Mono>kioskBrandFromKit()</Mono> / <Mono>boardFromKit()</Mono> /{' '}

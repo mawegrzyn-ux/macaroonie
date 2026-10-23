@@ -1,4 +1,4 @@
-// The kitchen test bench (Till setup > Kitchen screens > Test the kitchen).
+// The kitchen test bench (Store tech > Kitchen screens > Test the kitchen).
 //
 // Every kitchen screen of a venue on one page, scaled down, each the real
 // kitchen screen app in a frame (BenchScreen.jsx). The page runs a pretend
@@ -88,7 +88,7 @@ export default function Bench({ token }) {
   if (error) return <Message icon={AlertTriangle} title="Can't open the kitchen test" text={error} />
   if (!data) return <div className="h-full flex items-center justify-center text-muted">Loading the kitchen setup...</div>
   if (!data.stations.some(s => BUMP_KINDS.includes(s.kind))) {
-    return <Message icon={Workflow} title="No kitchen stations yet" text="Add stations (Grill, Fryer, Pass...) in Till setup, Kitchen screens, then open Test the kitchen again." />
+    return <Message icon={Workflow} title="No kitchen stations yet" text="Add stations (Grill, Fryer, Pass...) in Store tech, Kitchen screens, then open Test the kitchen again." />
   }
   return <BenchPage key={loadKey} data={data} token={token} onReload={() => { setData(null); setLoadKey(k => k + 1) }} />
 }

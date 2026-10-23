@@ -5,6 +5,13 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-23 — Store tech in the main menu]
+
+- Till setup is now **Store tech**: its tabs (Tills, Kiosks, Kitchen screens, Printers, Printing, Card machines, Order types, Revenue streams, Courses, Staff and PINs, Till roles, Receipts and payments, Cash Recon link) are pages of their own, each a link in a new Store tech section of the left menu after Venues, with Floor plan and Menu screens (moved from Menus) beside them. The row of tabs at the top of the page is gone.
+- Pages are at /pos/tills, /pos/kiosks, /pos/kitchen and so on; /pos and old ?tab= links open the right page. Kiosk and print designs open under their page (/pos/kiosks/designs/..., /pos/printing/designs/...), so its menu link stays lit.
+- "Till setup" is called Store tech everywhere it was named (Access, device messages, the hub, help text).
+- Migration 202 changes every group's menu in place: Till setup and Menu screens links go, the Store tech section goes in after Venues; roles hidden from the old links stay hidden from the new ones; other Navigation changes are kept.
+
 ## [2026-10-23 — Kiosk: pictures or videos above the screen in reach mode]
 
 - Kiosk designer → Timing and access: under the Reach button, optional pictures or videos (up to 4, taking turns like the start screen's, videos with no sound) that fill the top of the screen while the reach button has brought everything down. The button to move the screen back up sits at their foot. Without any, the top shows the brand colour and the reach sign as before.

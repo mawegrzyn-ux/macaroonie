@@ -78,7 +78,7 @@ export async function moveDevice(api, kind) {
 /**
  * Tell Macaroonie this device is disconnecting (its pairing stops working).
  * Returns true when it was told; offline, the device still forgets itself and
- * Till setup can remove it, or link the code it shows next.
+ * Store tech can remove it, or link the code it shows next.
  */
 export async function tellDisconnect(api) {
   try { await api.post('/pos-api/disconnect', {}); return true } catch { return false }

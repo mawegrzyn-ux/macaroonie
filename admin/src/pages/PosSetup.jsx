@@ -1,6 +1,8 @@
 // src/pages/PosSetup.jsx
 //
-// Till setup (/pos, pos_setup module). Per venue: tills and pairing,
+// Store tech (pos_setup module): one page per part, each its own link in the
+// main menu's Store tech section (/pos/<key>, TABS below; /pos opens Tills).
+// Per venue: tills and pairing,
 // revenue streams (with the order types each offers), printers and what
 // prints where, kitchen screens (stations, the kitchen flows, pairing),
 // self-order kiosks, staff PINs, receipts and payments, the Cash Recon link.
@@ -8,8 +10,11 @@
 // where per venue), till roles and courses.
 // The floor plan has its own page (/pos/floor). docs/POS.md.
 
-import { useSearchParams, Link } from 'react-router-dom'
-import { MonitorSmartphone, Loader2, LayoutPanelTop, BarChart3 } from 'lucide-react'
+import { useParams, useSearchParams, Navigate } from 'react-router-dom'
+import {
+  Loader2, MonitorSmartphone, Waypoints, ListOrdered, Printer, ReceiptText, CreditCard, CookingPot,
+  TabletSmartphone, KeyRound, ShieldCheck, UtensilsCrossed, Receipt, ArrowRightLeft,
+} from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { usePermission } from '@/hooks/usePermission'
 import { ReadOnlyNotice, ReadOnlyFieldset } from '@/components/ReadOnlyNotice'
@@ -27,56 +32,50 @@ import RolesSection from '@/components/pos/RolesSection'
 import CoursesSection from '@/components/pos/CoursesSection'
 import { ReceiptSettingsSection, ReconSection } from '@/components/pos/SettingsSection'
 
-const TABS = [
-  { key: 'tills', label: 'Tills', render: p => <TillsSection {...p} /> },
-  { key: 'streams', label: 'Revenue streams', render: p => <RevenueStreamsSection {...p} /> },
-  { key: 'types', label: 'Order types', render: p => <OrderTypesSection {...p} /> },
-  { key: 'printers', label: 'Printers', render: p => <PrintersSection {...p} /> },
-  { key: 'printing', label: 'Printing', render: p => <PrintingSection {...p} /> },
-  { key: 'cards', label: 'Card machines', render: p => <CardMachinesSection {...p} /> },
-  { key: 'kitchen', label: 'Kitchen screens', wide: true, render: p => <KitchenSection {...p} /> },
-  { key: 'kiosks', label: 'Kiosks', render: p => <KiosksSection {...p} /> },
-  { key: 'staff', label: 'Staff and PINs', render: p => <StaffSection {...p} /> },
-  { key: 'roles', label: 'Till roles', render: p => <RolesSection {...p} /> },
-  { key: 'courses', label: 'Courses', render: p => <CoursesSection {...p} /> },
-  { key: 'receipts', label: 'Receipts and payments', render: p => <ReceiptSettingsSection {...p} /> },
-  { key: 'recon', label: 'Cash Recon', render: p => <ReconSection {...p} /> },
+// The keys are the page addresses (/pos/tills ...): the main menu (ROUTE_CATALOG
+// in api/src/routes/nav.js, DEFAULT_NAV_TREE) links to each one.
+export const TABS = [
+  { key: 'tills', label: 'Tills', icon: MonitorSmartphone, render: p => <TillsSection {...p} /> },
+  { key: 'streams', label: 'Revenue streams', icon: Waypoints, render: p => <RevenueStreamsSection {...p} /> },
+  { key: 'types', label: 'Order types', icon: ListOrdered, render: p => <OrderTypesSection {...p} /> },
+  { key: 'printers', label: 'Printers', icon: Printer, render: p => <PrintersSection {...p} /> },
+  { key: 'printing', label: 'Printing', icon: ReceiptText, render: p => <PrintingSection {...p} /> },
+  { key: 'cards', label: 'Card machines', icon: CreditCard, render: p => <CardMachinesSection {...p} /> },
+  { key: 'kitchen', label: 'Kitchen screens', icon: CookingPot, wide: true, render: p => <KitchenSection {...p} /> },
+  { key: 'kiosks', label: 'Kiosks', icon: TabletSmartphone, render: p => <KiosksSection {...p} /> },
+  { key: 'staff', label: 'Staff and PINs', icon: KeyRound, render: p => <StaffSection {...p} /> },
+  { key: 'roles', label: 'Till roles', icon: ShieldCheck, render: p => <RolesSection {...p} /> },
+  { key: 'courses', label: 'Courses', icon: UtensilsCrossed, render: p => <CoursesSection {...p} /> },
+  { key: 'receipts', label: 'Receipts and payments', icon: Receipt, render: p => <ReceiptSettingsSection {...p} /> },
+  { key: 'recon', label: 'Cash Recon link', icon: ArrowRightLeft, render: p => <ReconSection {...p} /> },
 ]
 
 export default function PosSetup() {
-  const [params, setParams] = useSearchParams()
-  const tab = TABS.find(t => t.key === params.get('tab')) || TABS[0]
+  const { tab: key } = useParams()
+  const [params] = useSearchParams()
+  const tab = TABS.find(t => t.key === key)
   const { venues, venueId, setVenueId, isLoading: venuesLoading } = usePosVenue()
-  const { data: setup, isLoading, error } = usePosSetup(venueId)
+  const { data: setup, isLoading, error } = usePosSetup(tab ? venueId : null)
   const { canManage } = usePermission('pos_setup')
+
+  // /pos, an old /pos?tab=... link (store opening follow-ups keep them) or a
+  // part that doesn't exist: open the right page.
+  if (!tab) {
+    const old = TABS.find(t => t.key === params.get('tab'))
+    return <Navigate to={'/pos/' + (old || TABS[0]).key} replace />
+  }
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <PageHeader icon={MonitorSmartphone} title="Till setup">
+      <PageHeader icon={tab.icon} title={tab.label}>
         <VenueSelect venues={venues} venueId={venueId} onChange={setVenueId} />
-        <Link to="/pos/floor" className="h-10 px-3 rounded-xl border bg-background text-sm inline-flex items-center gap-1.5 hover:bg-muted touch-manipulation">
-          <LayoutPanelTop className="w-4 h-4" /> <span className="hidden sm:inline">Floor plan</span>
-        </Link>
-        <Link to="/pos/reports" className="h-10 px-3 rounded-xl border bg-background text-sm inline-flex items-center gap-1.5 hover:bg-muted touch-manipulation">
-          <BarChart3 className="w-4 h-4" /> <span className="hidden sm:inline">Reports</span>
-        </Link>
       </PageHeader>
       <div className="flex-1 overflow-y-auto">
         <div className={cn('mx-auto p-4 space-y-4', tab.wide ? 'max-w-6xl' : 'max-w-3xl')}>
-          <nav className="flex flex-wrap gap-1.5" aria-label="Till setup sections">
-            {TABS.map(t => (
-              <button key={t.key} type="button" onClick={() => setParams({ tab: t.key }, { replace: true })}
-                aria-current={t.key === tab.key ? 'page' : undefined}
-                className={cn('min-h-[44px] px-3 rounded-lg border text-sm font-medium touch-manipulation',
-                  t.key === tab.key ? 'bg-primary text-primary-foreground border-primary' : 'bg-background hover:bg-muted')}>
-                {t.label}
-              </button>
-            ))}
-          </nav>
           {!venuesLoading && !venues.length && <p className="text-sm text-muted-foreground">Add a venue first.</p>}
           <ErrorNote error={error} />
           {(isLoading || venuesLoading) && <div className="flex justify-center py-10"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>}
-          {setup && !canManage && <ReadOnlyNotice what="the till setup" />}
+          {setup && !canManage && <ReadOnlyNotice what="the store tech setup" />}
           {setup && (
             <ReadOnlyFieldset disabled={!canManage}>
               {tab.render({ venueId, setup, canManage })}

@@ -470,7 +470,7 @@ export function OrderTypeModal({ check, config, onClose, focus = null }) {
             {types.map(({ type }) => (
               <button key={type.id} className={cx('btn h-14', type.id === typeId && 'btn-primary')} onClick={() => setTypeId(type.id)}>{type.name}</button>
             ))}
-            {!types.length && <div className="text-sm text-muted col-span-2">This revenue stream has no order types switched on (Till setup, Revenue streams).</div>}
+            {!types.length && <div className="text-sm text-muted col-span-2">This revenue stream has no order types switched on (Store tech, Revenue streams).</div>}
           </div>
         )}
         <DetailFields prompts={focus === 'tent' ? { ask_name: 'off', ask_tent: prompts.ask_tent === 'off' ? 'ask' : prompts.ask_tent } : prompts}

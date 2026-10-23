@@ -3,8 +3,9 @@
 // The default main menu: what new tenants are seeded with (platform.js's
 // tenant creation route) and what "Reset to defaults" in the nav designer
 // restores. Grouped by job, each page once. Migration 196 put every tenant
-// on this tree; it holds the same tree as JSON, and api/test/nav-default.test.mjs
-// checks the two match, so change both together.
+// on this tree and migration 202 replaced Till setup and Menu screens with the
+// Store tech section; api/test/nav-default.test.mjs checks 196's tree with
+// 202's change applied matches this one, so change them together.
 
 export const DEFAULT_NAV_TREE = [
   {
@@ -80,7 +81,6 @@ export const DEFAULT_NAV_TREE = [
         ],
       },
       { label: 'Promotions', icon: 'BadgePercent', route: '/promotions', module: 'promotions' },
-      { label: 'Menu screens', icon: 'Monitor', route: '/screens', module: 'screens' },
     ],
   },
   {
@@ -108,13 +108,27 @@ export const DEFAULT_NAV_TREE = [
       { label: 'Schedule', icon: 'Clock', route: '/schedule', module: 'schedule' },
       { label: 'Tables', icon: 'Table2', route: '/tables', module: 'tables' },
       { label: 'Booking rules', icon: 'Settings', route: '/rules', module: 'rules' },
-      {
-        label: 'Till setup', icon: 'MonitorSmartphone', route: '/pos', module: 'pos_setup',
-        children: [
-          { label: 'Floor plan', icon: 'LayoutPanelTop', route: '/pos/floor', module: 'pos_setup' },
-        ],
-      },
       { label: 'Ordering setup', icon: 'Settings2', route: '/orders/settings', module: 'web_ordering_setup' },
+    ],
+  },
+  {
+    // Migration 202 holds this section as JSON (the nav test checks they match).
+    label: 'Store tech', children: [
+      { label: 'Tills', icon: 'MonitorSmartphone', route: '/pos/tills', module: 'pos_setup' },
+      { label: 'Floor plan', icon: 'LayoutPanelTop', route: '/pos/floor', module: 'pos_setup' },
+      { label: 'Kiosks', icon: 'TabletSmartphone', route: '/pos/kiosks', module: 'pos_setup' },
+      { label: 'Kitchen screens', icon: 'CookingPot', route: '/pos/kitchen', module: 'pos_setup' },
+      { label: 'Menu screens', icon: 'Monitor', route: '/screens', module: 'screens' },
+      { label: 'Printers', icon: 'Printer', route: '/pos/printers', module: 'pos_setup' },
+      { label: 'Printing', icon: 'ReceiptText', route: '/pos/printing', module: 'pos_setup' },
+      { label: 'Card machines', icon: 'CreditCard', route: '/pos/cards', module: 'pos_setup' },
+      { label: 'Order types', icon: 'ListOrdered', route: '/pos/types', module: 'pos_setup' },
+      { label: 'Revenue streams', icon: 'Waypoints', route: '/pos/streams', module: 'pos_setup' },
+      { label: 'Courses', icon: 'UtensilsCrossed', route: '/pos/courses', module: 'pos_setup' },
+      { label: 'Staff and PINs', icon: 'KeyRound', route: '/pos/staff', module: 'pos_setup' },
+      { label: 'Till roles', icon: 'ShieldCheck', route: '/pos/roles', module: 'pos_setup' },
+      { label: 'Receipts and payments', icon: 'Receipt', route: '/pos/receipts', module: 'pos_setup' },
+      { label: 'Cash Recon link', icon: 'ArrowRightLeft', route: '/pos/recon', module: 'pos_setup' },
     ],
   },
   {

@@ -1,6 +1,6 @@
 // src/components/pos/RolesSection.jsx
 //
-// Till setup > Till roles (company-wide): what each role may do on the
+// Store tech > Till roles (company-wide): what each role may do on the
 // till. Anything a role doesn't allow can still be done when someone whose
 // role has "Approve for others" types their PIN. The permission list is
 // shared/pos/permissions.js, the same one the till and the server check.

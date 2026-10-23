@@ -19,7 +19,7 @@
 //
 // Reads are open to anyone signed in (menus, the till setup, ordering setup
 // and Deliveroo all pick from them). Tax rates change with Menus manage;
-// order types with Till setup or Ordering setup manage.
+// order types with Store tech or Ordering setup manage.
 
 import { z } from 'zod'
 import { withTenant } from '../config/db.js'

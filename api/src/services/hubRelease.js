@@ -195,7 +195,7 @@ export function hubSetupPage({ api, windowsFirst }) {
   ${windowsFirst ? win + linux : linux + win}
   <section class="card" id="link">
     <h2>Then link it</h2>
-    <p>Type the six-letter code in Till setup &rarr; Printers &rarr; <b>Link a hub</b>, or scan the QR code on the hub's page with the installer app.</p>
+    <p>Type the six-letter code in Store tech &rarr; Printers &rarr; <b>Link a hub</b>, or scan the QR code on the hub's page with the installer app.</p>
     <p class="muted">The hub's page is <code>http://localhost:9180</code> on this computer. Running the installer again updates the hub and keeps its link.</p>
   </section>
 </main></body></html>

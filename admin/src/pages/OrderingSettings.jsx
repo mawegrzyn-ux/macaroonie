@@ -246,7 +246,7 @@ export default function OrderingSettings() {
                         <option value="">No revenue stream</option>
                         {streams.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
                       </select>
-                      <span className="block text-xs text-muted-foreground mt-1">A revenue stream from Till setup, for reports and stream tax exceptions.</span>
+                      <span className="block text-xs text-muted-foreground mt-1">A revenue stream from Store tech, for reports and stream tax exceptions.</span>
                     </label>
                   )}
                 </div>

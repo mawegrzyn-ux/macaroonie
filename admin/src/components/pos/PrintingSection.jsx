@@ -1,8 +1,8 @@
 // src/components/pos/PrintingSection.jsx
 //
-// Till setup → Printing (migration 190): the company's designs for printed
+// Store tech → Printing (migration 190): the company's designs for printed
 // kitchen tickets and receipts, and which design prints where, for the whole
-// company and for the venue picked at the top of Till setup. Designs are
+// company and for the venue picked at the top of Store tech. Designs are
 // edited on their own page (pages/PrintDesigner.jsx). shared/pos/ticketLayout.js.
 
 import { useState } from 'react'
@@ -41,7 +41,7 @@ export default function PrintingSection({ venueId, canManage = true }) {
   })
   const create = useMutation({
     mutationFn: body => api.post('/pos/print-designs', body),
-    onSuccess: d => { refresh(); navigate('/pos/print-designs/' + d.id) },
+    onSuccess: d => { refresh(); navigate('/pos/printing/designs/' + d.id) },
     onError: e => setErr(e),
   })
   const remove = useMutation({
@@ -126,7 +126,7 @@ export default function PrintingSection({ venueId, canManage = true }) {
                   <p className="text-sm font-medium">{d.name}</p>
                   <p className="text-xs text-muted-foreground">{where(d)}</p>
                 </div>
-                <Link to={'/pos/print-designs/' + d.id} title={(canManage ? 'Edit ' : 'Open ') + d.name}
+                <Link to={'/pos/printing/designs/' + d.id} title={(canManage ? 'Edit ' : 'Open ') + d.name}
                   className="inline-flex items-center justify-center gap-2 h-11 px-4 rounded-lg text-sm font-medium border bg-background hover:bg-muted touch-manipulation">
                   <Pencil className="w-4 h-4" /> {canManage ? 'Edit' : 'Open'}
                 </Link>

@@ -1,4 +1,4 @@
-// The floor: rooms (floor areas) with their tables where Till setup placed
+// The floor: rooms (floor areas) with their tables where Store tech placed
 // them, coloured by what is happening there; open tabs and counter orders on
 // the right. Tap a free table to open a check, a busy one to go to it.
 
@@ -169,7 +169,7 @@ function Plan({ area, tables, byTable, onTap }) {
 
 function TableGrid({ tables, byTable, onTap }) {
   if (!tables.length) {
-    return <div className="card p-6 text-muted">No tables yet. Add tables in Macaroonie (Tables) and place them on the floor plan (Till setup, Floor plan).</div>
+    return <div className="card p-6 text-muted">No tables yet. Add tables in Macaroonie (Tables) and place them on the floor plan (Store tech, Floor plan).</div>
   }
   return (
     <div className="h-full overflow-y-auto">

@@ -42,7 +42,7 @@ export async function call(name, base, path, { method = 'GET', headers = {}, bod
   let json = null
   try { json = text ? JSON.parse(text) : null } catch { json = null }
   if (res.status === 401 || res.status === 403) {
-    throw new CardMachineError(name + ' refused the key: check it in Till setup, Card machines', { code: 'auth' })
+    throw new CardMachineError(name + ' refused the key: check it in Store tech, Card machines', { code: 'auth' })
   }
   if (res.status === 429) throw new CardMachineError(name + ' is limiting requests: try again in a moment', { code: 'busy', retry: true })
   if (res.status >= 500) throw new CardMachineError(name + ' had a problem (' + res.status + '): try again', { code: 'provider', retry: true })

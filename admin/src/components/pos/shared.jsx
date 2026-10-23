@@ -1,6 +1,6 @@
 // src/components/pos/shared.jsx
 //
-// Building blocks for the Till (POS) admin pages: Till setup, Floor plan,
+// Building blocks for the Till (POS) admin pages: Store tech, Floor plan,
 // Till reports (docs/POS.md). The generic pieces (Modal, Field, sortable
 // rows, delete confirm) come from the staff pages' shared file.
 

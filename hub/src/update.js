@@ -157,7 +157,7 @@ export function createUpdater({
     const cur = readJson(path.join(home, 'current.json')) || {}
     if (!requested && (cur.bad_versions || []).includes(release.version)) {
       st.state = 'held_back'
-      st.error = 'Went back from ' + release.version + ' after it kept stopping: press Update now in Till setup to try it again'
+      st.error = 'Went back from ' + release.version + ' after it kept stopping: press Update now in Store tech to try it again'
       return false
     }
     const lastFail = failed.get(release.version)

@@ -1,6 +1,6 @@
 // src/pages/PrintDesigner.jsx
 //
-// A print design (/pos/print-designs/:id, migration 190): the blocks of a
+// A print design (/pos/printing/designs/:id, migration 190): the blocks of a
 // kitchen ticket or receipt in order (drag to reorder, add, remove), each
 // block's options, and a preview laid out in the printer's columns with a
 // made-up order. "All locations" edits the design itself; picking a venue
@@ -121,7 +121,7 @@ export default function PrintDesigner() {
   const html = previewHtml(ops, cols)
   const pickCols = n => { setCols(n); try { localStorage.setItem('maca_print_cols', String(n)) } catch { /* private mode */ } }
 
-  const back = () => (dirty ? setLeaving(true) : navigate('/pos?tab=printing'))
+  const back = () => (dirty ? setLeaving(true) : navigate('/pos/printing'))
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -145,7 +145,7 @@ export default function PrintDesigner() {
       {leaving && (
         <div className="flex flex-wrap items-center gap-2 px-4 py-2 border-b bg-amber-50 text-amber-900 text-sm" role="alert" data-testid="pd-leave">
           <span className="flex-1 min-w-[200px]">Leave without saving your changes?</span>
-          <Btn variant="danger" onClick={() => navigate('/pos?tab=printing')}>Leave</Btn>
+          <Btn variant="danger" onClick={() => navigate('/pos/printing')}>Leave</Btn>
           <Btn onClick={() => setLeaving(false)}>Stay</Btn>
         </div>
       )}
@@ -227,7 +227,7 @@ export default function PrintDesigner() {
               <div className="tk shadow-sm mx-auto" style={{ width: 'calc(' + cols + 'ch + 20px)' }} data-testid="pd-preview" dangerouslySetInnerHTML={{ __html: html }} />
             </div>
             <p className="text-xs text-muted-foreground max-w-[380px]">
-              Laid out as the receipt printer prints it. Venue name, address and VAT number come from Till setup → Receipts and payments
+              Laid out as the receipt printer prints it. Venue name, address and VAT number come from Store tech → Receipts and payments
               {where ? '' : ' (pick a venue above to see its own)'}.
             </p>
           </div>

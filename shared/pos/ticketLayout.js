@@ -61,7 +61,7 @@ export const BLOCK_TYPES = {
     space: { label: 'Space', hint: 'Blank lines.', opts: { lines: 1 } },
   },
   receipt: {
-    venue: { label: 'Location name and address', hint: 'From Till setup > Settings: receipt name, address and VAT number.', opts: { name: true, address: true, vat: true, size: 'big' } },
+    venue: { label: 'Location name and address', hint: 'From Store tech > Receipts and payments: receipt name, address and VAT number.', opts: { name: true, address: true, vat: true, size: 'big' } },
     heading: { label: 'Receipt or bill heading', hint: 'Words over the details, different on a bill and a receipt.', opts: { receipt_text: '', bill_text: 'BILL - NOT A RECEIPT', size: 'normal' } },
     title: { label: 'Order title', hint: 'A big order number, tent or table, for counter and kiosk orders.', opts: { main: 'auto', size: 'big', invert: false } },
     details: { label: 'Details', hint: 'Table, check, server, covers, order type, tent, date and time.', opts: { fields: ['where', 'check', 'server', 'covers', 'type', 'tent', 'date'] } },

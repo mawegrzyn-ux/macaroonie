@@ -8,7 +8,7 @@
 // (printer.js, TCP 9100) and the USB printers plugged into this computer
 // (usb.js). Every minute it asks each printer how it is and reports that,
 // with what it knows about itself (version, computer, USB printers found,
-// updates), so Till setup can show it. The venue's printers come from the
+// updates), so Store tech can show it. The venue's printers come from the
 // hub's config (GET /pos-api/config), fetched again when it changed; the
 // config also names the hub's latest version, which the updater installs
 // at a quiet moment (update.js).
@@ -23,7 +23,7 @@ export { VERSION }
 
 const RECENT = 20
 
-/** The computer the hub runs on, for Till setup and the status page. */
+/** The computer the hub runs on, for Store tech and the status page. */
 export function computerInfo(statusPort = null) {
   const addresses = []
   for (const list of Object.values(os.networkInterfaces())) {
@@ -115,7 +115,7 @@ export function startHub({
   async function printJob(job) {
     const p = printers.get(job.printer_id)
     if (!ready(p)) {
-      const why = !p ? 'The hub doesn\'t know this printer' : p.interface === 'usb' ? 'Pick the USB printer in Till setup' : 'The hub doesn\'t know this printer\'s address'
+      const why = !p ? 'The hub doesn\'t know this printer' : p.interface === 'usb' ? 'Pick the USB printer in Store tech' : 'The hub doesn\'t know this printer\'s address'
       await cloud.done(job.id, 'failed', why)
       remember(job, p, false, why)
       log(`Not printed: ${job.title || job.kind} (${why})`)
@@ -127,7 +127,7 @@ export function startHub({
       remember(job, p, true)
       log(`Printed ${job.title || job.kind} on ${p.name}`)
     } catch (e) {
-      // Its backup printer (Till setup > Printers), when it has one.
+      // Its backup printer (Store tech > Printers), when it has one.
       const b = p.backup_printer_id && printers.get(p.backup_printer_id)
       if (ready(b)) {
         try {

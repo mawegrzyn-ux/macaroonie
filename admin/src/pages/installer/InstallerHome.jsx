@@ -3,7 +3,7 @@
 // The installer's home (/install): the venue being set up, the two jobs
 // (link a device showing a code, add a new one) and every till, kitchen
 // screen, kiosk and menu screen at the venue with its state. Tapping one
-// opens its page. What a person sees follows Till setup (tills, kitchen
+// opens its page. What a person sees follows Store tech (tills, kitchen
 // screens, kiosks) and Menu screens (menu screens).
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -54,7 +54,7 @@ export default function InstallerHome() {
     <div className="space-y-4" data-testid="installer-home">
       <VenueButton />
 
-      {refused && <ErrorNote>You need Till setup or Menu screens access to use the installer. Ask an owner to give your role access.</ErrorNote>}
+      {refused && <ErrorNote>You need Store tech or Menu screens access to use the installer. Ask an owner to give your role access.</ErrorNote>}
       {error && !refused && <ErrorNote>{error.message}</ErrorNote>}
 
       {o && canAny && (
@@ -67,7 +67,7 @@ export default function InstallerHome() {
           </BigButton>
         </div>
       )}
-      {o && !canAny && <p className="text-sm text-muted-foreground">You can see the devices here. Linking or changing them needs Manage on Till setup or Menu screens.</p>}
+      {o && !canAny && <p className="text-sm text-muted-foreground">You can see the devices here. Linking or changing them needs Manage on Store tech or Menu screens.</p>}
 
       {loading && <Loading />}
       {groups.map(g => {

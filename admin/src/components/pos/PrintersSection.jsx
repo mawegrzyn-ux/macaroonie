@@ -1,6 +1,6 @@
 // src/components/pos/PrintersSection.jsx
 //
-// Till setup > Printers (migration 191): the venue's printers and who prints
+// Store tech > Printers (migration 191): the venue's printers and who prints
 // for them. A network printer (an address on the venue's network) is
 // printed by the venue hub, a small program on a mini PC by the printers
 // (hub/, installed by one command, linked by the code it shows). A USB
@@ -462,7 +462,7 @@ export default function PrintersSection({ venueId, setup, canManage }) {
                         </p>
                       )}
                     </div>
-                    {/* A span: the Till setup page is a disabled fieldset for View users, who may still look. */}
+                    {/* A span: the Store tech page is a disabled fieldset for View users, who may still look. */}
                     <span role="button" tabIndex={0} onClick={() => setTickets(p)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setTickets(p) } }}
                       className="h-12 px-3 rounded-lg border text-sm font-medium inline-flex items-center touch-manipulation cursor-pointer hover:bg-accent"
                       title={'Tickets for ' + p.name} data-testid="printer-tickets-open">Tickets</span>

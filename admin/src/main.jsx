@@ -223,10 +223,11 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 <Route path="orders" element={<Orders />} />
                 <Route path="orders/settings" element={<OrderingSettings />} />
                 <Route path="pos" element={<PosSetup />} />
+                <Route path="pos/:tab" element={<PosSetup />} />
                 <Route path="pos/floor" element={<PosFloor />} />
                 <Route path="pos/reports" element={<PosReports />} />
-                <Route path="pos/kiosk-designs/:id" element={<KioskDesigner />} />
-                <Route path="pos/print-designs/:id" element={<PrintDesigner />} />
+                <Route path="pos/kiosks/designs/:id" element={<KioskDesigner />} />
+                <Route path="pos/printing/designs/:id" element={<PrintDesigner />} />
                 <Route path="promotions" element={<Promotions />} />
                 <Route path="venues"    element={<Venues />} />
                 <Route path="new-location"     element={<NewLocation />} />

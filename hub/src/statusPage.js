@@ -45,7 +45,7 @@ export function printerWords(p) {
 }
 
 const UPDATE_WORDS = {
-  idle: 'Up to date', waiting: 'Waits for Update now in Till setup', downloading: 'Downloading the update',
+  idle: 'Up to date', waiting: 'Waits for Update now in Store tech', downloading: 'Downloading the update',
   checking: 'Checking the update', restarting: 'Starting the new version', failed: 'The update failed', held_back: 'Held back',
 }
 
@@ -64,13 +64,13 @@ export function renderPage(state) {
   if (s.phase === 'linking' && s.link?.code) {
     parts.push(`<section class="link">
       <h2>Link this hub</h2>
-      <p>Scan the code with a phone (the installer app), or in Macaroonie open <b>Till setup → Printers → Link a hub</b> and type:</p>
+      <p>Scan the code with a phone (the installer app), or in Macaroonie open <b>Store tech → Printers → Link a hub</b> and type:</p>
       <p class="code" data-testid="link-code">${esc(s.link.code)}</p>
       ${s.link.link_url ? `<div class="qr">${qrSvg(s.link.link_url, { title: 'Link code ' + s.link.code })}</div>` : ''}
       <p class="muted">The code works until ${esc(time(s.link.expires_at))}; a new one comes after that.</p>
     </section>`)
   } else if (s.phase === 'unlinked') {
-    parts.push('<section><h2>Unlinked</h2><p>This hub was removed or unlinked in Till setup. Run the installer again, or restart it with --forget, to link it with a new code.</p></section>')
+    parts.push('<section><h2>Unlinked</h2><p>This hub was removed or unlinked in Store tech. Run the installer again, or restart it with --forget, to link it with a new code.</p></section>')
   }
 
   const cloud = s.cloud || {}
@@ -90,7 +90,7 @@ export function renderPage(state) {
     parts.push(`<section><h2>Printers</h2>${printers.length ? `<table>${printers.map(p => {
       const [words, tone] = printerWords(p)
       return row(p.name, esc(p.interface === 'usb' ? 'USB on this hub' : (p.address || 'no address')) + ' · <span class="' + tone + '">' + esc(words) + '</span>')
-    }).join('')}</table>` : '<p class="muted">No printers for this hub yet: add them in Till setup → Printers.</p>'}</section>`)
+    }).join('')}</table>` : '<p class="muted">No printers for this hub yet: add them in Store tech → Printers.</p>'}</section>`)
   }
 
   const local = s.local_printers || []

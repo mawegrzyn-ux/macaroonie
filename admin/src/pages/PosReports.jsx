@@ -165,7 +165,7 @@ function DayDetail({ venueId, dayId, onBack, onShowChecks }) {
               : day.recon_error
                 ? <p className="flex items-center gap-2 text-amber-700"><AlertTriangle className="w-4 h-4" /> Not filled: {day.recon_error}.</p>
                 : <p className="text-muted-foreground">Not filled yet.</p>}
-            <p className="text-xs text-muted-foreground">Writes the mapped figures (Till setup, Cash Recon) into the Cash Recon day for {dayLabel(day.business_date)}. Fields that aren't mapped are left alone; a submitted Cash Recon day isn't changed.</p>
+            <p className="text-xs text-muted-foreground">Writes the mapped figures (Store tech, Cash Recon link) into the Cash Recon day for {dayLabel(day.business_date)}. Fields that aren't mapped are left alone; a submitted Cash Recon day isn't changed.</p>
             {canManage && (
               <Btn variant="primary" disabled={fill.isPending} onClick={() => fill.mutate()}>
                 {fill.isPending && <Loader2 className="w-4 h-4 animate-spin" />} {day.recon_filled_at ? 'Fill Cash Recon again' : 'Fill Cash Recon'}

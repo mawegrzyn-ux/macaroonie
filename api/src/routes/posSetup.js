@@ -15,7 +15,7 @@
 //   POST   /venues/:venueId/link                  { code, device_id? | name, kind?, settings? } link a device
 //                                                 showing a code (migration 184): a new till, kitchen screen,
 //                                                 kiosk or venue hub (hub/), or a new device for one already
-//                                                 here. The only way a device is added: Till setup and the
+//                                                 here. The only way a device is added: Store tech and the
 //                                                 installer app
 //   PATCH  /devices/:id                           name, settings (mode, revenue stream, receipt printer, floor area;
 //                                                 a kiosk's design and card reader; a hub's auto_update)
@@ -924,7 +924,7 @@ export default async function posSetupRoutes(app) {
 
   // The one way a till, kitchen screen or kiosk is set up: the device shows a
   // code of its own (POST /pos-api/pairings, migration 184) and someone signed
-  // in types it here, from Till setup or the installer app. A new device at
+  // in types it here, from Store tech or the installer app. A new device at
   // this venue, or a new device for one already here (the old device stops
   // working). The address the code was shown on decides the kind.
   app.post('/venues/:venueId/link', { preHandler: canSetup, config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (req, reply) => {
@@ -1436,7 +1436,7 @@ export default async function posSetupRoutes(app) {
     const { flow_id } = z.object({ flow_id: UUID }).parse(req.body)
     const out = await withTenant(req.tenantId, async tx => {
       await ownVenue(tx, req.tenantId, venueId)
-      return switchFlow(tx, req.tenantId, venueId, flow_id, by(req) || 'Till setup')
+      return switchFlow(tx, req.tenantId, venueId, flow_id, by(req) || 'Store tech')
     })
     if (out.changed) configChanged(venueId)
     return out

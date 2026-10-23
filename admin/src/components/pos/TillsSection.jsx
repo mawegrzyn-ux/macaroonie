@@ -1,6 +1,6 @@
 // src/components/pos/TillsSection.jsx
 //
-// Till setup > Tills: the tablets and PCs that run the till app. Devices are
+// Store tech > Tills: the tablets and PCs that run the till app. Devices are
 // set up one way, the installer's (migration 184): open the device's address
 // (pos.<domain> for tills) and it shows a code and a QR code; type the code
 // here with a name and settings (Add a till), or scan the QR code with a
@@ -199,7 +199,7 @@ function TillModal({ venueId, setup, device, onClose }) {
   )
 }
 
-/** The address a device of this kind opens (Till setup's device_urls). */
+/** The address a device of this kind opens (Store tech's device_urls). */
 export const deviceUrl = (setup, kind) => setup.device_urls?.[kind] || setup.till_url
 
 export function status(d) {

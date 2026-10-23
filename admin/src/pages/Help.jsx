@@ -332,7 +332,7 @@ export default function Help() {
                 ['Online ordering', 'Menus, hours, slots, tips, payment, plus the menus you ticked', 'Set up with the menus you ticked'],
                 ['Deliveroo menu file', 'Price uplift, allergen codes, dish matches', ''],
                 ['Tax rates', 'Rates of its own that differ from the company\'s', ''],
-                ['Till setup', 'Settings, receipts (with the new name and address), revenue streams, floor areas, printers and where tickets print', 'Settings, receipts, revenue streams'],
+                ['Store tech', 'Settings, receipts (with the new name and address), revenue streams, floor areas, printers and where tickets print', 'Settings, receipts, revenue streams'],
                 ['Kitchen screens', 'Stations and kitchen flows, the flow in use', ''],
                 ['Devices to link', 'The same tills, kitchen screens, kiosks and menu screens, with their settings, waiting to be linked', 'As many as you said'],
                 ['Cash reconciliation', 'Income sources, payment channels, tips sources, expense categories', 'A standard set'],
@@ -2409,16 +2409,21 @@ export default function Help() {
               Dashboards, Pepper), <strong>Service</strong> (Timeline, Bookings, Customers, Online orders),{' '}
               <strong>Money</strong> (Till reports, Cash recon, Cash dashboard), <strong>Health &amp; safety</strong>,{' '}
               <strong>Stock</strong> (Purchasing, with Order lists, Inventory and Suppliers under it),{' '}
-              <strong>People</strong> (Staff, Rota), <strong>Menus</strong> (Menus and their pages, Promotions,
-              Menu screens), <strong>Brand &amp; web</strong> (Brand &amp; theme, Website, Media, Reviews,
-              Emails), <strong>Venues</strong> (Venues and New venue, Schedule, Tables, Booking rules, Till setup,
-              Ordering setup), <strong>Admin</strong> and <strong>Help</strong>. Each page is in it once.
+              <strong>People</strong> (Staff, Rota), <strong>Menus</strong> (Menus and their pages, Promotions),{' '}
+              <strong>Brand &amp; web</strong> (Brand &amp; theme, Website, Media, Reviews,
+              Emails), <strong>Venues</strong> (Venues and New venue, Schedule, Tables, Booking rules,
+              Ordering setup), <strong>Store tech</strong> (Tills, Floor plan, Kiosks, Kitchen screens, Menu
+              screens, Printers, Printing, Card machines, Order types, Revenue streams, Courses, Staff and PINs,
+              Till roles, Receipts and payments, Cash Recon link), <strong>Admin</strong> and <strong>Help</strong>.
+              Each page is in it once.
               Pages your role can&apos;t open, and modules switched off, don&apos;t show.
             </P>
             <P>
               The standard menu replaced every group&apos;s menu once, in October 2026 (changes made on this page
-              before then went, and the menu went back to the sidebar). <strong>Reset to defaults</strong> on this
-              page brings it back at any time.
+              before then went, and the menu went back to the sidebar). In October 2026 the Store tech section
+              replaced the Till setup link (whose tabs are now its pages) and took Menu screens from Menus; other
+              changes made here were kept. <strong>Reset to defaults</strong> on this page brings the standard menu
+              back at any time.
             </P>
             <H3>Editing the sidebar tree</H3>
             <P>
@@ -3654,8 +3659,8 @@ export default function Help() {
               head={['What', 'Where', 'What it does']}
               rows={[
                 ['Tax rates', 'Menus → Tax rates', 'Your list of rates (Standard 20%, Zero 0%, Reduced 5%...). One is the default. A location can charge another % for a rate.'],
-                ['Order types', 'Till setup → Order types', 'How an order is served: Eat in, Take out, Delivery, Collection and any you add (Drive thru, Staff meal...). They decide how tickets behave and can change a dish\'s tax.'],
-                ['Revenue streams', 'Till setup → Revenue streams', 'Groups of tills for reporting sales by place or device (Restaurant, Bar, Kiosk). A stream picks which order types its tills offer and what each asks for. It doesn\'t decide tax.'],
+                ['Order types', 'Store tech → Order types', 'How an order is served: Eat in, Take out, Delivery, Collection and any you add (Drive thru, Staff meal...). They decide how tickets behave and can change a dish\'s tax.'],
+                ['Revenue streams', 'Store tech → Revenue streams', 'Groups of tills for reporting sales by place or device (Restaurant, Bar, Kiosk). A stream picks which order types its tills offer and what each asks for. It doesn\'t decide tax.'],
               ]}
             />
 
@@ -3704,7 +3709,7 @@ export default function Help() {
 
             <H3>Order types</H3>
             <P>
-              <strong>Till setup → Order types</strong> lists them for every location: add, rename, give
+              <strong>Store tech → Order types</strong> lists them for every location: add, rename, give
               a colour (used on the till and kitchen tickets) and drag into order. Removing one takes it
               off every till, stream and filter (<strong>Put back</strong> brings it back); checks and
               orders already taken keep it. Order types are used by the till&apos;s buttons, tax exceptions,
@@ -3715,7 +3720,7 @@ export default function Help() {
 
             <H3>Revenue streams</H3>
             <P>
-              <strong>Till setup → Revenue streams</strong>, per location: a name, which order types its
+              <strong>Store tech → Revenue streams</strong>, per location: a name, which order types its
               tills offer and, for each one, <strong>Name</strong> and <strong>Tent</strong>: No, Ask
               (can be skipped) or Must (the check can&apos;t go to the kitchen or be paid without it).
               <strong> New checks start as</strong> picks the type a new check starts with. Each stream
@@ -3992,7 +3997,7 @@ export default function Help() {
                 ['Time slots / orders per slot', "Guests pick a collection time from these slots. Set a maximum per slot and full slots are greyed out."],
                 ['Order ahead', "How many days ahead guests can order. 0 = today only."],
                 ['Minimum order, tips', "A minimum basket value, and optional tip choices at checkout."],
-                ['Collection orders are / Count online sales under', "The order type online collection orders count as (Collection to start with): it decides each dish's tax (Menus, Tax rates) and how the order shows in the kitchen. Optionally, the revenue stream online sales count under (Till setup), for reports and tax exceptions that name it."],
+                ['Collection orders are / Count online sales under', "The order type online collection orders count as (Collection to start with): it decides each dish's tax (Menus, Tax rates) and how the order shows in the kitchen. Optionally, the revenue stream online sales count under (Store tech), for reports and tax exceptions that name it."],
                 ['Accept automatically', "Off: each new order waits on the board until someone taps Accept. On: it goes straight to In progress."],
                 ['Payment methods', "Pay at the counter, and online card payment once a payment provider is connected. Test payment is for trying the flow before going live: no money moves, so turn it off before real orders."],
                 ['Messages', "Collection instructions (on the ordering page and the email) and a note for the confirmation email."],
@@ -4142,7 +4147,7 @@ export default function Help() {
               the Transactions tab.
             </P>
             <P>
-              With kitchen screens, GloriaFood orders can go to the kitchen too (Till setup → Kitchen
+              With kitchen screens, GloriaFood orders can go to the kitchen too (Store tech → Kitchen
               screens → Online orders, see Kitchen screens). The kitchen then moves them to Ready and
               Collected here, and Ready or Collected here takes them off the kitchen screens.
             </P>
@@ -4960,7 +4965,7 @@ export default function Help() {
             <P>
               The till takes orders and payments at the venue: table service (tables, tabs, courses) and
               counter service (order numbers, pay first). It runs in Chrome or Edge on an Android or Windows
-              tablet or PC, at the till address shown in <strong>Till setup → Tills</strong>. Each till keeps
+              tablet or PC, at the till address shown in <strong>Store tech → Tills</strong>. Each till keeps
               working without the internet: orders, payments and sign-ins carry on, and it catches up with
               the other tills when the connection is back.
             </P>
@@ -4971,7 +4976,12 @@ export default function Help() {
               kitchen screen prints from that device (see Printers and the venue hub below).
             </InfoBox>
 
-            <H3>Setting up (Till setup)</H3>
+            <H3>Setting up (Store tech)</H3>
+            <P>
+              Everything the till, kitchen screens, kiosks and menu screens need is in the <strong>Store tech</strong>{' '}
+              section of the main menu, one page per part. Pick the venue at the top of a page when you have
+              more than one; order types, courses, till roles and designs are shared by every venue.
+            </P>
             <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
               <li><strong>Order types</strong> (shared by every venue): Eat in, Take out, Delivery, Collection and any you add. They decide how a check is served, can change a dish's tax, and show on tickets and kitchen screens.</li>
               <li><strong>Revenue streams</strong>: groups of tills for reporting sales by place or device, e.g. Restaurant, Bar, Kiosk. Each picks the order types its tills offer (and for each, whether to ask for a customer name and a tent number: No, Ask or Must), which type new checks start as, its menus and an optional service charge (from a number of covers). A stream doesn't decide tax. Drag them into order. See Tax, Order Types &amp; Streams.</li>
@@ -4982,14 +4992,14 @@ export default function Help() {
               <li><strong>Printing</strong>: how kitchen tickets, receipts and bills look (see Ticket and receipt designs below).</li>
               <li><strong>Card machines</strong>: your Dojo, Stripe or SumUp account and the card machines at the venue; each till and kiosk picks its machine (see Card machines below).</li>
               <li><strong>Receipts and payments</strong>: when the trading day starts, the name, address and VAT number on receipts, the ways to pay, tips, asking for covers, and when staff are signed out. Tax rates are set on Menus → Tax rates.</li>
-              <li><strong>Cash Recon</strong>: which till figures go into which Cash Recon fields when the day is closed (see End of day).</li>
-              <li><strong>Floor plan</strong> (Till setup → Floor plan): add an area (e.g. Restaurant), tap tables to put them on it, drag them where they stand, drag the round corner to resize, Turn, Square / Round, and add walls, the bar, plants and labels. Save the area. Tables themselves are added on the Tables page.</li>
+              <li><strong>Cash Recon link</strong>: which till figures go into which Cash Recon fields when the day is closed (see End of day).</li>
+              <li><strong>Floor plan</strong> (Store tech → Floor plan): add an area (e.g. Restaurant), tap tables to put them on it, drag them where they stand, drag the round corner to resize, Turn, Square / Round, and add walls, the bar, plants and labels. Save the area. Tables themselves are added on the Tables page.</li>
               <li><strong>Tills</strong>: open the till address on the tablet: it shows a six-letter code and a QR code. Tap <strong>Add a till</strong>, type the code, give it a name, table service or counter, and <strong>Add the till</strong>: the tablet sets itself up. Or scan the QR code with your phone and do the same in the installer app. <strong>New device</strong> on a till's row puts it on another tablet (type the code that tablet shows; the old one stops); removing a till signs it out for good.</li>
             </ol>
 
             <H3>Printers and the venue hub</H3>
             <P>
-              Till setup → <strong>Printers</strong> lists the venue&apos;s printers. <strong>Add</strong> one, say whether it is for
+              Store tech → <strong>Printers</strong> lists the venue&apos;s printers. <strong>Add</strong> one, say whether it is for
               the kitchen or bar or for receipts, and how it is connected:
             </P>
             <ul className="list-disc ml-5 space-y-2 text-sm text-muted-foreground mb-4">
@@ -5029,7 +5039,7 @@ export default function Help() {
             <DataTable
               head={['Step', 'What to do']}
               rows={[
-                ['1. Install it', 'On the mini PC, open the address shown under Till setup → Printers → Venue hub (pos. and your web address, then /hub) and press Download the installer. On Windows, open the downloaded macaroonie-hub-setup.cmd; if Windows says it protected your PC, press More info, then Run anyway, and answer Yes when it asks to allow changes. On Linux, run sh ~/Downloads/macaroonie-hub-setup.sh in a terminal and type the password. It installs everything the hub needs and starts it with the computer. (The same box also has the one-line commands, under Or run a command.)'],
+                ['1. Install it', 'On the mini PC, open the address shown under Store tech → Printers → Venue hub (pos. and your web address, then /hub) and press Download the installer. On Windows, open the downloaded macaroonie-hub-setup.cmd; if Windows says it protected your PC, press More info, then Run anyway, and answer Yes when it asks to allow changes. On Linux, run sh ~/Downloads/macaroonie-hub-setup.sh in a terminal and type the password. It installs everything the hub needs and starts it with the computer. (The same box also has the one-line commands, under Or run a command.)'],
                 ['2. Link it', 'When it finishes it shows a six-letter code (on Windows the hub\'s page opens with it). Tap Link a hub and type it, or scan the QR code on the hub\'s page with the installer app on your phone.'],
                 ['3. Add its printers', 'Network printers: Add, On the network, type the address. USB printers: the hub lists the ones plugged into it under Venue hub; tap Add it beside one (or Add, USB on the hub, and pick it).'],
                 ['4. Check it', 'The hub\'s row shows its computer, version and a link to its page; each printer\'s row says whether it is ready. Print a test ticket from the till.'],
@@ -5050,7 +5060,7 @@ export default function Help() {
             <P>
               <strong>A new or replaced mini PC.</strong> Run the command on it, then on the old hub&apos;s row tap
               <strong> New device</strong> and type the new code: it keeps the hub&apos;s name and its printers (pick the USB
-              printers again if they moved). Removed in Till setup, a hub shows a new code by itself. Running the command again
+              printers again if they moved). Removed in Store tech, a hub shows a new code by itself. Running the command again
               on the same mini PC updates it and keeps its link.
             </P>
             <InfoBox type="info">
@@ -5061,12 +5071,12 @@ export default function Help() {
 
             <H3>Ticket and receipt designs</H3>
             <P>
-              Till setup → <strong>Printing</strong> decides how printed kitchen tickets, receipts and bills look. Designs
+              Store tech → <strong>Printing</strong> decides how printed kitchen tickets, receipts and bills look. Designs
               belong to the whole company; each venue picks which one it prints and can change a design&apos;s words or
               leave parts out. Without a design, tickets print the usual way.
             </P>
             <ul className="list-disc ml-5 space-y-2 text-sm text-muted-foreground mb-4">
-              <li><strong>What prints where</strong>: for <em>Kitchen tickets</em>, <em>Till receipts and bills</em> and <em>Kiosk receipts</em>, pick a design for the whole company (<strong>Company</strong>) and, if this venue needs another, for the venue picked at the top of Till setup. Kiosk receipts print like till receipts until you pick a kiosk design.</li>
+              <li><strong>What prints where</strong>: for <em>Kitchen tickets</em>, <em>Till receipts and bills</em> and <em>Kiosk receipts</em>, pick a design for the whole company (<strong>Company</strong>) and, if this venue needs another, for the venue picked at the top of Store tech. Kiosk receipts print like till receipts until you pick a kiosk design.</li>
               <li><strong>New design</strong> starts from the usual layout. A design is a list of parts from top to bottom: drag the grips to change the order, tap a part to change it, <strong>Add a part</strong> for more, and the bin (in the part&apos;s box) to take one out. The dishes, and a receipt&apos;s total, always stay.</li>
               <li><strong>Kitchen ticket parts</strong>: Station name; <strong>Order title</strong> (what prints big: the table or order number as usual, or the tent number, the table, the order number or the customer&apos;s name; an order without it prints the usual title), its size and white on black; <strong>Details</strong> (order type, tent, table, name, order number, covers, server, check number, time sent; plain or a white-on-black band); <strong>Dishes</strong> (normal or tall, seat numbers on or off); your own <strong>Text</strong>; <strong>Line</strong>; <strong>Space</strong>.</li>
               <li><strong>Receipt parts</strong>: your name, address and VAT number (from Receipts and payments); a <strong>heading</strong> with different words on a receipt and on a bill (e.g. VAT RECEIPT / YOUR BILL); <strong>Order title</strong> (a big order number or tent, handy for counter and kiosk orders); <strong>Details</strong> (table, check, served by, covers, order type and name, tent, date and time); <strong>Dishes</strong> (with options and meal parts priced under each, or one line each); <strong>Totals</strong>; <strong>VAT</strong>; <strong>Payments</strong>; a <strong>footer</strong> with its own words on receipts and bills; Text; Line; Space.</li>
@@ -5080,7 +5090,7 @@ export default function Help() {
               A till or kiosk can send the amount straight to a card machine: staff don&apos;t type it on the machine,
               and the payment goes on the bill only once the machine approves it. Machines from{' '}
               <strong>Dojo</strong>, <strong>Stripe</strong> (Stripe Terminal readers such as the WisePOS E and S700)
-              and <strong>SumUp</strong> (the Solo) work this way. Till setup → <strong>Card machines</strong>:
+              and <strong>SumUp</strong> (the Solo) work this way. Store tech → <strong>Card machines</strong>:
             </P>
             <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
               <li><strong>Add an account</strong> (an owner or admin): the provider, a name, and the key from the provider (Dojo: the secret key from the developer portal; Stripe: a secret key, or a restricted key with Terminal and PaymentIntents; SumUp: an API key). The key is checked with the provider before it is saved and is never shown again: the list shows only its last four characters. Test keys work too (Stripe test mode, Dojo sandbox) and are marked Test.</li>
@@ -5109,7 +5119,7 @@ export default function Help() {
               pairing: tills at <strong>pos.macaroonie.com</strong>, kitchen screens at{' '}
               <strong>kitchen.macaroonie.com</strong> (kds.macaroonie.com goes there too), self-order kiosks at{' '}
               <strong>kiosk.macaroonie.com</strong> and menu screens at <strong>screens.macaroonie.com</strong>.
-              Till setup shows the right one on each tab and in the Add window. The code a device shows can
+              Store tech shows the right one on each tab and in the Add window. The code a device shows can
               only become that kind of device: a kitchen screen's code typed in Add a kiosk is refused and says
               so.
             </P>
@@ -5123,7 +5133,7 @@ export default function Help() {
               ]}
             />
             <P>
-              A disconnected device keeps its name and settings in Till setup (or Screens) and shows{' '}
+              A disconnected device keeps its name and settings in Store tech (or Screens) and shows{' '}
               <strong>Not linked</strong>: press <strong>Link a device</strong> on its row and type the code the
               device shows (the same device or another one). To take a device away for good, remove it in Till
               setup instead.
@@ -5168,7 +5178,7 @@ export default function Help() {
 
             <H3>Taking an order</H3>
             <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
-              <li>Sign in with your PIN. The till signs you out after the time set in Receipts and payments. A PIN set or changed in Till setup works straight away; if the till is offline it needs to have been online once since.</li>
+              <li>Sign in with your PIN. The till signs you out after the time set in Receipts and payments. A PIN set or changed in Store tech works straight away; if the till is offline it needs to have been online once since.</li>
               <li><strong>Floor</strong>: tap a table (it asks for covers if set to), or <strong>New tab</strong> for a named tab. Colours show which tables are free, open, waiting for a held course, or billed.</li>
               <li>Tap dishes. Pick a <strong>seat</strong> and <strong>course</strong> at the bottom of the menu first if you want them. Dishes with choices and combos open a window to pick them, add a note or allergies.</li>
               <li><strong>Send</strong> sends new items to the kitchen. If a later course is held, <strong>Fire</strong> sends it when it's time.</li>
@@ -5226,7 +5236,7 @@ export default function Help() {
               <strong>Reports</strong> on the till shows today's figures so far (X report). <strong>Close the day (Z)</strong>{' '}
               needs every check closed: count the cash in the drawer (without the float) and type it in, then
               <strong>Print Z</strong> for the cash-up. The next sale starts a new trading day. If <strong>Fill Cash Recon when the
-              day is closed</strong> is on (Till setup → Cash Recon), the day's sales, takings by way of paying,
+              day is closed</strong> is on (Store tech → Cash Recon link), the day's sales, takings by way of paying,
               service charge and tips are written into that day of Cash Recon; otherwise use{' '}
               <strong>Fill Cash Recon</strong> on the day in Till reports. A submitted Cash Recon day isn't changed.
             </P>
@@ -5263,7 +5273,7 @@ export default function Help() {
               needs the venue hub, which comes later.
             </InfoBox>
 
-            <H3>Setting up (Till setup → Kitchen screens)</H3>
+            <H3>Setting up (Store tech → Kitchen screens)</H3>
             <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
               <li><strong>Stations</strong>, four kinds (plus the Splitter and Sleeper below and <strong>Kitchen printer</strong>, which prints the dishes that reach it: see Printers and the venue hub): <strong>Prep</strong> (Grill, Fryer, Bar, Prep 1...) makes dishes; <strong>Expo</strong> (the pass) checks whole orders before they go out; <strong>Runner</strong> takes orders out to tables or the counter; <strong>Order ready board</strong> shows order numbers on menu screens (nothing to bump, no kitchen screen). Each station turns a ticket amber after your target minutes and red after more. <strong>Show held courses</strong> shows dishes waiting to be fired, greyed out. <strong>Show orders before their dishes get here</strong> (on for an expo) puts a ticket up as soon as the order is sent, each dish marked where it is now (At Grill). <strong>On order counts</strong>: groups such as Wings, counting how many pieces are on order (the 8pc dish counts 8, the 6 Wings option counts 6).</li>
               <li><strong>Kitchen flow</strong> (at the top): boxes for <strong>Orders in</strong> (the till and online orders) and every station, joined by links. Drag a box's dot onto another box (or tap the dot, then the box) to send dishes on to it. Tap a link's label to choose which dishes take it: dishes, sections, the till or kiosk they were <strong>sent from</strong> (the bar's till to the bar), revenue streams or order types (your own list: Eat in, Take out...); a link with no filter takes every dish. From each box a dish takes the links that name it most closely (the dish, then its section, the till or kiosk it was sent from, its revenue stream, its order type, then links for every dish), so Prep 1 to Prep 2 for burgers and Prep 1 to Expo 1 for everything else sends the bun on and the fries straight to the expo. Links that tie all apply: Expo 1 to ORB 1 and to a Runner at once, or for eat in only. <strong>Check a dish</strong> shows a dish's way. A new flow arranges itself; drag boxes by their grip, or press <strong>Tidy</strong>. A way round in a circle can't be saved. <strong>Save flow</strong>: dishes sent from then on follow it (dishes already in the kitchen keep their way).</li>
@@ -5290,7 +5300,7 @@ export default function Help() {
               <li>A <strong>combo</strong> shows as its name with its parts under it ("› Burger", "› 2 x KETCHUP"). Each part goes to the station that makes it, so the grill sees the burger and the fryer the fries, each under the combo's name; a part typed in just for the combo (a sauce pot, a toy) goes where the combo itself goes.</li>
               <li>The clock button lists orders for later (held courses, and online and GloriaFood orders for a later time). They come on by themselves when it's time.</li>
               <li>The gear button: pick the station, Tickets or On order counts, text size, beep, full screen, and the bump bar keys.</li>
-              <li><strong>The flow button</strong> (top right, with the name of the flow in use, when you have more than one flow) lists your kitchen flows with the stations each uses. Tap <strong>Switch</strong> on another, then <strong>Yes, switch</strong>: dishes sent from then on go its way, for the whole kitchen. Dishes already on the screens stay where they are, so finish them as usual. Every kitchen screen shows the new flow straight away with a note saying who switched. Switching needs the internet; a screen not allowed to switch (Till setup) shows the flows without the Switch buttons.</li>
+              <li><strong>The flow button</strong> (top right, with the name of the flow in use, when you have more than one flow) lists your kitchen flows with the stations each uses. Tap <strong>Switch</strong> on another, then <strong>Yes, switch</strong>: dishes sent from then on go its way, for the whole kitchen. Dishes already on the screens stay where they are, so finish them as usual. Every kitchen screen shows the new flow straight away with a note saying who switched. Switching needs the internet; a screen not allowed to switch (Store tech) shows the flows without the Switch buttons.</li>
             </ul>
             <InfoBox type="tip">
               Bump bars and keyboards work: 1 to 9 and 0 pick a ticket, Enter or Space bumps, the arrows page
@@ -5300,7 +5310,7 @@ export default function Help() {
 
             <H3>Testing the kitchen</H3>
             <P>
-              Try a kitchen flow before service without touching the real screens. In Till setup → Kitchen
+              Try a kitchen flow before service without touching the real screens. In Store tech → Kitchen
               screens, <strong>Test the kitchen</strong> → <strong>Open the kitchen test</strong> opens a new window
               with every kitchen screen of the venue side by side, scaled down. They are the real kitchen screen,
               working on pretend orders: nothing you do there reaches the kitchen screens, the tills, the online
@@ -5312,7 +5322,7 @@ export default function Help() {
               <li>Tap and bump on the screens as you would in the kitchen. The <strong>Orders</strong> list on the right shows where each dish is on its way (green done, amber there now, grey still to come), the order ready boards' numbers, and an X to void a dish. <strong>Activity</strong> lists every tap, which screen made it, and anything refused.</li>
               <li><strong>Kitchen flow</strong> switches the flow for the test (also from a screen's flow button): orders sent after it go the new way, orders already there keep theirs. It doesn't change the flow in use in the real kitchen.</li>
               <li><strong>Screens</strong>: <strong>As set up</strong> shows your kitchen screens with their stations; <strong>One per station</strong> shows one screen for each station. <strong>Size</strong> (tablet, TV, upright), <strong>Across</strong> (screens per row) and the arrows button (one screen bigger) change the view. <strong>Online / Offline</strong> on a screen pretends its Wi-Fi went: its taps wait and go when it's back.</li>
-              <li>Changes made in Till setup while the test is open show after <strong>Reload setup</strong> (which also clears the test orders). The link works for 8 hours; open it again from Till setup after that. View on Till setup is enough.</li>
+              <li>Changes made in Store tech while the test is open show after <strong>Reload setup</strong> (which also clears the test orders). The link works for 8 hours; open it again from Store tech after that. View on Store tech is enough.</li>
             </ul>
 
             <H3>Order ready board</H3>
@@ -5346,7 +5356,7 @@ export default function Help() {
               at the counter (or offer both while you try it out).
             </InfoBox>
 
-            <H3>Setting up (Till setup → Kiosks)</H3>
+            <H3>Setting up (Store tech → Kiosks)</H3>
             <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
               <li><strong>Kiosk designs</strong>: <strong>New design</strong> opens the design editor (below). Designs are shared by every venue. A kiosk uses the design picked for it, or the first design. <strong>Copy</strong> makes a copy to try changes on; a design a kiosk uses can't be deleted.</li>
               <li><strong>Add a kiosk</strong>: its name, its <strong>revenue stream</strong> (the stream's order types are the kiosk's Staying or going? buttons, and the stream decides whether it asks for a name or a tent number), its design, its <strong>card machine</strong> (see Card machines; none = guests pay at the counter) and the receipt printer.</li>
@@ -5412,7 +5422,7 @@ export default function Help() {
               <li>Each design has one link. Saving the design updates what the link shows; changes you haven't saved aren't in it.</li>
               <li><strong>Menu</strong>: the published menu (what the kiosks show), or the menu with unpublished changes, to show a new menu before it goes live. The changes show on the link as soon as they are saved on the Menus page, unfinished ones too, and the page tells whoever opens it that it includes changes not published yet.</li>
               <li><strong>Works until</strong> gives the link an end date (leave it empty for none). <strong>New link</strong> stops the old one for everyone and makes another; <strong>Stop sharing</strong> stops it.</li>
-              <li>Making, moving and stopping a link needs Manage on Till setup. Shared designs are marked <strong>Preview shared</strong> in Till setup → Kiosks.</li>
+              <li>Making, moving and stopping a link needs Manage on Store tech. Shared designs are marked <strong>Preview shared</strong> in Store tech → Kiosks.</li>
             </ul>
 
             <H3>How choices show (Menus)</H3>
@@ -5464,7 +5474,7 @@ export default function Help() {
               tills, kitchen screens, self-order kiosks and menu screens. Open{' '}
               <strong>installer.macaroonie.com</strong> on your phone and sign in as usual. In Chrome choose{' '}
               <strong>Install app</strong> (on an iPhone, Share then <strong>Add to Home Screen</strong>) so it
-              opens like an app. It shows what you can see in Till setup (tills, kitchen screens, kiosks) and
+              opens like an app. It shows what you can see in Store tech (tills, kitchen screens, kiosks) and
               Menu screens; linking and changing devices needs Manage on them.
             </P>
 
@@ -5484,7 +5494,7 @@ export default function Help() {
             <P>
               <strong>Add a new device</strong> asks what it is, then shows its address (with a QR code a device
               with a camera can scan to open it). Open it on the device and link the code it shows. That is the
-              only way a device is set up, here and in Till setup: devices never take a code typed into them.
+              only way a device is set up, here and in Store tech: devices never take a code typed into them.
             </P>
 
             <H3>A device&apos;s page</H3>
@@ -5501,7 +5511,7 @@ export default function Help() {
             </P>
             <InfoBox type="info">
               The installer only links and sets up devices. Everything else (stations and the kitchen flow, kiosk
-              designs, boards and playlists, printers) is set up in Till setup and on the Screens page.
+              designs, boards and playlists, printers) is set up in Store tech and on the Screens page.
             </InfoBox>
           </section>
 

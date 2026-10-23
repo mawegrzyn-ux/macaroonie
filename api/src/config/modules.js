@@ -277,7 +277,7 @@ export const MODULES = [
   },
   {
     key:    'pos_setup',
-    label:  'Till setup',
+    label:  'Store tech',
     group:  'pos',
     description: 'The till (POS): tills and pairing, revenue centres, printers and routing, floor plan, courses, till roles and staff PINs, receipts.',
     default: { owner: 'manage', admin: 'manage', operator: 'none', viewer: 'none' },

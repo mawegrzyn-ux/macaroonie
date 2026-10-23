@@ -1,6 +1,6 @@
 // src/components/pos/KitchenFlow.jsx
 //
-// Till setup > Kitchen screens > Kitchen flows: a visual designer for how
+// Store tech > Kitchen screens > Kitchen flows: a visual designer for how
 // dishes move through the kitchen (docs/POS.md section 9; the rules are
 // shared/pos/kitchen.js, the API PUT /pos/kds-flows/:id).
 //
@@ -718,7 +718,7 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
 
 // ── Flows: the bar, This flow, new / copy / rename, order ─────────
 
-// The tabs aren't <button>s: Till setup wraps a View user's page in a
+// The tabs aren't <button>s: Store tech wraps a View user's page in a
 // disabled fieldset, and they must still be able to look at each flow.
 function FlowBar({ flows, flow, activeId, dirty, canManage, onPick, onNew, onOrder }) {
   return (

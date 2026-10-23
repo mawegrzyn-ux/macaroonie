@@ -61,7 +61,7 @@ export function startHoldSweepWorker(sql, log) {
     const printed = await kitchenPrintsDue(log)
     if (printed) log.info({ printed }, 'Kitchen tickets came due')
     // Card payments a till or kiosk stopped watching: ask the provider once
-    // more, so Till setup shows how they ended (migration 193).
+    // more, so Store tech shows how they ended (migration 193).
     const { sweepPending } = await import('../services/cardSvc.js')
     const cards = await sweepPending().catch(e => { log.warn({ err: e }, 'Card payment sweep failed'); return 0 })
     if (cards) log.info({ cards }, 'Card payments checked')
