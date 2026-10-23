@@ -3998,8 +3998,16 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               editor's <Mono>comboPayload()</Mono> sends it only when on, so steps saved before it don't read
               as changed; <Mono>normaliseCombo()</Mono> fills <Mono>false</Mono>).{' '}
               <Mono>splitImages(config, item, selection)</Mono> in <Mono>shared/kiosk.js</Mono> is the one
-              rule: steps with it on (a picked dish's photo, a typed-in choice's picture), then groups with it
-              on (the library option's picture), each in pick order, an option once, at most <Mono>SPLIT_MAX</Mono> (6); none = the dish's photo.{' '}
+              rule: steps with it on (a choice's <Mono>photo_url</Mono>, else a picked dish's photo or a typed-in choice's picture), then groups with it
+              on (the library option's <Mono>photo_url</Mono>, else its <Mono>image_url</Mono>), each in pick order, an option once, at most <Mono>SPLIT_MAX</Mono> (6); none = the dish's photo.
+              Two pictures per choice (migration 199): <Mono>image_url</Mono> is the choice's own tile (every
+              display, the bundle's step tabs), <Mono>photo_url</Mono> the one on the dish's photo
+              (<Mono>menu_variant_options.photo_url</Mono>, in <Mono>loadVariantGroups()</Mono>, the group POST / PATCH
+              (a PATCH without it clears it, the editor always sends it), the copy route and <Mono>kioskConfig()</Mono>'s groups;
+              a combo choice's <Mono>photo_url</Mono> in <Mono>menu_items.combo</Mono>, any type but section, stored only when set
+              by <Mono>cleanCombo()</Mono>, <Mono>normaliseCombo()</Mono> and <Mono>comboPayload()</Mono>, passed on by{' '}
+              <Mono>stepChoices()</Mono>). <Mono>configImages()</Mono> keeps both on the kiosk. Admin: <Mono>OptionPicture</Mono>{' '}
+              (Tile / On dish / On meal) in <Mono>VariantGroupsManager.jsx</Mono>, used by <Mono>ComboEditor.jsx</Mono>.{' '}
               <Mono>PickPhoto</Mono> (<Mono>parts.jsx</Mono>) draws them as the design's{' '}
               <Mono>options.pick_photos</Mono> says: <Mono>split</Mono>, one picture in place of the photo and two or
               more with <Mono>SplitPhoto</Mono>; <Mono>corner</Mono>, <Mono>CornerPhoto</Mono>: the dish's photo

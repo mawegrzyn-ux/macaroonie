@@ -32,7 +32,7 @@ import { Field, Input, Btn, PriceInput } from './shared'
 
 let keySeq = 0
 const newKey = () => 'o' + (++keySeq) + '-' + Date.now().toString(36)
-const newOption = () => ({ _key: newKey(), label: '', price_pence: 0, child_group_id: null, image_url: null, description: '', level: null })
+const newOption = () => ({ _key: newKey(), label: '', price_pence: 0, child_group_id: null, image_url: null, photo_url: null, description: '', level: null })
 
 function emptyGroup() {
   return {
@@ -42,6 +42,18 @@ function emptyGroup() {
 }
 
 const LEVELS = [0, 1, 2, 3, 4, 5]
+
+// One of an option's two kiosk pictures with a word under it: Tile (the
+// choice's own tile) and On dish (on or in place of the dish's photo, with
+// the group's Split photo on; none = the tile picture).
+export function OptionPicture({ caption, url, onChange, label, testId, disabled = false, scope = 'menu:option' }) {
+  return (
+    <span className="flex flex-col items-center shrink-0 mr-3">
+      <PicturePick url={url || null} onChange={onChange} scope={scope} size="sm" label={label} testId={testId} disabled={disabled} />
+      <span className="text-[10px] leading-tight text-muted-foreground mt-0.5">{caption}</span>
+    </span>
+  )
+}
 
 function OptionRow({ o, groups, draftId, onPatch, onRemove }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: o._key })
@@ -53,7 +65,8 @@ function OptionRow({ o, groups, draftId, onPatch, onRemove }) {
           className="w-9 h-11 shrink-0 flex items-center justify-center text-muted-foreground cursor-grab active:cursor-grabbing touch-manipulation">
           <GripVertical className="w-4 h-4" />
         </button>
-        <PicturePick url={o.image_url || null} onChange={url => onPatch({ image_url: url })} scope="menu:option" size="sm" label="option picture" />
+        <OptionPicture caption="Tile" url={o.image_url} onChange={url => onPatch({ image_url: url })} label="picture on the choice's tile" testId="vg-option-image" />
+        <OptionPicture caption="On dish" url={o.photo_url} onChange={url => onPatch({ photo_url: url })} label="picture on the dish's photo" testId="vg-option-photo" />
         <Input value={o.label} onChange={e => onPatch({ label: e.target.value })} placeholder="Label (e.g. Chicken)" className="flex-1 min-w-0" />
         <PriceInput pence={o.price_pence} onChange={pence => onPatch({ price_pence: pence ?? 0 })} placeholder="£0.00" className="w-24 font-mono" />
         <button type="button" onClick={onRemove} aria-label={'Remove ' + (o.label || 'this option')}
@@ -123,6 +136,7 @@ export function VariantGroupsManager() {
             price_pence: o.price_pence ?? 0,
             child_group_id: o.child_group_id || null,
             image_url: o.image_url || null,
+            photo_url: o.photo_url || null,
             description: (o.description || '').trim() || null,
             level: o.level ?? null,
             sort_order: i,
@@ -202,9 +216,13 @@ export function VariantGroupsManager() {
             <Layers className="w-4 h-4 text-violet-600 shrink-0" />
             <span className="flex-1 min-w-0">
               <span className="font-medium block">{g.name}</span>
-              {g.display_name && <span className="block text-xs text-muted-foreground" data-testid="vg-shown-as">Guests see: {g.display_name}</span>}
+              {g.display_name && <span className="block text-xs text-muted-foreground break-words" data-testid="vg-shown-as">Guests see: {g.display_name}</span>}
+              {/* On a phone the options go under the name. */}
+              <span className="block sm:hidden text-xs text-muted-foreground truncate">
+                {(g.options || []).map(o => o.label).join(', ') || 'No options'}
+              </span>
             </span>
-            <span className="text-xs text-muted-foreground truncate max-w-[40%]">
+            <span className="hidden sm:block text-xs text-muted-foreground truncate max-w-[40%]">
               {(g.options || []).map(o => o.label).join(', ') || 'No options'}
             </span>
             <button onClick={() => editGroup(g)} className="text-xs text-primary hover:underline shrink-0 min-h-[44px] px-2">Edit</button>
@@ -340,6 +358,7 @@ export function VariantGroupsManager() {
                   The picks' pictures show on the dish's photo as the guest picks, also on the order line. How is the kiosk design's (Choices: Picks on the dish's photo).
                   Split photo: one pick's picture takes the photo's place; two or more show side by side with a torn edge between them (three picks: the left third of the first, the middle of the second, the right third of the third), so give every option a picture of the same shape (the same dish, made each way).
                   Small in the corner: the dish's photo stays, with each pick's picture small in its corner.
+                  Each option's On dish picture is the one used here (its Tile picture when it has none), so the tile can be a cut-out of the choice and the On dish picture the dish made that way.
                 </span>
               </span>
             </label>

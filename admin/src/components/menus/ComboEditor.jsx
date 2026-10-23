@@ -37,7 +37,7 @@ import { AlertTriangle, ChevronDown, ChevronRight, GripVertical, Plus, Search, T
 import { cn } from '@/lib/utils'
 import { normaliseCombo, comboFromPrice, comboProblems, sectionItemsOf, stepRule, stepChoices, STEP_DISPLAYS } from '@shared/combos.js'
 import { DISPLAY_LABELS } from '@shared/kiosk.js'
-import { PicturePick } from '@/components/media/PicturePick'
+import { OptionPicture } from './VariantGroupsManager'
 import { Field, Input, PriceInput, formatPrice } from './shared'
 
 const newId = () => (crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
@@ -71,6 +71,8 @@ export function comboPayload(item) {
           label: o.type === 'custom' ? o.label.trim() : null,
           kitchen_name: o.type === 'custom' ? ((o.kitchen_name || '').trim() || null) : null,
           image_url: o.type === 'custom' ? (o.image_url || null) : null,
+          // Sent only when set: a choice saved without it isn't a change to publish.
+          ...(o.type !== 'section' && o.photo_url ? { photo_url: o.photo_url } : {}),
           description: o.type === 'custom' ? ((o.description || '').trim() || null) : null,
           price_pence: Math.max(0, Number(o.price_pence) || 0),
         })),
@@ -355,7 +357,7 @@ function StepCard({ step, index, steps, itemIndex, readOnly, handle, open, onTog
               ))}
             </div>
             <Check checked={!!step.split} onChange={v => onChange({ split: v })} label="Split photo from the picks"
-              hint="The picks' pictures (from this step and others with this on) show on the combo's photo on kiosks, as the kiosk design says: one in its place or several side by side with a torn edge, or small in its corner" />
+              hint="The picks' pictures (from this step and others with this on) show on the combo's photo on kiosks, as the kiosk design says: one in its place or several side by side with a torn edge, or small in its corner. Each choice's On meal picture is used (else its tile picture, or the dish's own photo)" />
           </Field>
           {earlier.length > 0 && (
             <Field label="When it shows">
@@ -398,8 +400,10 @@ function StepCard({ step, index, steps, itemIndex, readOnly, handle, open, onTog
                           <div className="flex-1 min-w-0 py-1.5 space-y-1">
                             {o.type === 'custom' ? (
                               <div className="flex items-start gap-2">
-                                <PicturePick url={o.image_url || null} onChange={url => setOption(j, { image_url: url })} scope="menu:item"
-                                  size="sm" disabled={readOnly} label="choice picture" />
+                                <OptionPicture caption="Tile" url={o.image_url} onChange={url => setOption(j, { image_url: url })} scope="menu:item"
+                                  disabled={readOnly} label="picture on the choice's tile" testId="combo-choice-image" />
+                                <OptionPicture caption="On meal" url={o.photo_url} onChange={url => setOption(j, { photo_url: url })} scope="menu:item"
+                                  disabled={readOnly} label="picture on the meal's photo" testId="combo-choice-photo" />
                                 <div className="flex-1 min-w-0 space-y-1.5">
                                   <div className="grid grid-cols-2 gap-1.5">
                                     <Input value={o.label || ''} maxLength={80} onChange={e => setOption(j, { label: e.target.value })} placeholder="Name, e.g. Surprise toy" aria-label="Choice name" />
@@ -410,10 +414,16 @@ function StepCard({ step, index, steps, itemIndex, readOnly, handle, open, onTog
                                 </div>
                               </div>
                             ) : (
-                              <p className={cn('text-sm truncate min-h-[36px] flex items-center', o.type === 'item' && !itemIndex.itemsById[o.item_id] && 'text-amber-700')}>
-                                {optionLabel(o, itemIndex)}
-                                {o.type === 'section' && <span className="ml-2 text-[11px] text-muted-foreground">({(itemIndex.sectionItems[o.section_id] || []).filter(id => itemIndex.itemsById[id]?.kind !== 'combo').length} dishes)</span>}
-                              </p>
+                              <div className="flex items-center gap-2">
+                                {o.type === 'item' && (
+                                  <OptionPicture caption="On meal" url={o.photo_url} onChange={url => setOption(j, { photo_url: url })} scope="menu:item"
+                                    disabled={readOnly} label="picture on the meal's photo (none = the dish's photo)" testId="combo-choice-photo" />
+                                )}
+                                <p className={cn('text-sm truncate min-h-[36px] flex items-center min-w-0', o.type === 'item' && !itemIndex.itemsById[o.item_id] && 'text-amber-700')}>
+                                  {optionLabel(o, itemIndex)}
+                                  {o.type === 'section' && <span className="ml-2 text-[11px] text-muted-foreground">({(itemIndex.sectionItems[o.section_id] || []).filter(id => itemIndex.itemsById[id]?.kind !== 'combo').length} dishes)</span>}
+                                </p>
+                              </div>
                             )}
                           </div>
                           <PriceInput pence={o.price_pence || null} onChange={p => setOption(j, { price_pence: p || 0 })} placeholder="+£0.00"
