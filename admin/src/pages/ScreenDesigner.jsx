@@ -689,7 +689,7 @@ function TileSection({ o, onOpts }) {
         ))}
       </div>
       <p className="text-[11px] text-muted-foreground">
-        A line shows only when the order has it. Tent numbers come from counter tills and kiosks that ask for one (Till setup &gt; Revenue streams);
+        A line shows only when the order has it. Tent numbers come from counter tills and kiosks that ask for one (Store tech &gt; Revenue streams);
         names are the name typed on a till or kiosk, or an online guest's first name, and show on a public screen.
       </p>
     </Section>
@@ -1068,7 +1068,7 @@ function BlockPanel({ block, board, data, canManage, onUpdate, onOpts, onDuplica
       {block.type === 'order_status' && (
         <>
           <Section title="Order status">
-            <p className="text-xs text-muted-foreground">Order numbers from the kitchen screens (Till setup &gt; Kitchen screens). The designer shows example numbers.</p>
+            <p className="text-xs text-muted-foreground">Order numbers from the kitchen screens (Store tech &gt; Kitchen screens). The designer shows example numbers.</p>
             <Sel label="Which orders" value={o.board || ''} onChange={v => onOpts({ board: v })}>
               <option value="">Every counter and online order</option>
               {[...new Set([...(data?.order_boards || []), ...(o.board ? [o.board] : [])])].map(n => (
@@ -1078,7 +1078,7 @@ function BlockPanel({ block, board, data, canManage, onUpdate, onOpts, onDuplica
             <p className="text-[11px] text-muted-foreground">
               {o.board
                 ? <>Orders on their way to the board station named &ldquo;{o.board}&rdquo; in the kitchen flow, ready once every dish has reached it. A screen at a venue without a board of that name shows none.</>
-                : <>Ready once the kitchen has finished the whole order. Add an order ready board to the kitchen flow (Till setup &gt; Kitchen screens) to show only the orders that come to it.</>}
+                : <>Ready once the kitchen has finished the whole order. Add an order ready board to the kitchen flow (Store tech &gt; Kitchen screens) to show only the orders that come to it.</>}
             </p>
             <Check label="Show orders being prepared" checked={o.show_preparing !== false} onChange={v => onOpts({ show_preparing: v })} />
             {o.show_preparing !== false && (

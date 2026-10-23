@@ -1,6 +1,6 @@
 // First start on a device. The device shows a code of its own with a QR code
 // to the installer app (installer.{root}, migration 184): someone signed in
-// scans it with a phone, or types the code in Till setup (Add a till, Add a
+// scans it with a phone, or types the code in Store tech (Add a till, Add a
 // screen, Add a kiosk) or the installer, and the device sets itself up. That
 // is the one way a till, kitchen screen or kiosk is set up. Each kind of
 // device has its own address (lib/appHost.js): pos. for tills, kitchen. for
@@ -84,7 +84,7 @@ function LinkPanel({ link, problem }) {
             {link?.code || '···-···'}
           </div>
           <ol className="text-[15px] space-y-1.5 list-decimal pl-5 text-left text-ink">
-            <li>Scan the QR code with a phone signed in to Macaroonie{host ? <> (it opens <b>{host}</b>)</> : null}, or type the code in Macaroonie: <b>Till setup</b>, <b>{HOST_APP ? SECTIONS[HOST_APP] : 'Tills'}</b>, <b>{HOST_APP ? ADD_BUTTONS[HOST_APP] : 'Add a till'}</b>.</li>
+            <li>Scan the QR code with a phone signed in to Macaroonie{host ? <> (it opens <b>{host}</b>)</> : null}, or type the code in Macaroonie: <b>Store tech</b>, <b>{HOST_APP ? SECTIONS[HOST_APP] : 'Tills'}</b>, <b>{HOST_APP ? ADD_BUTTONS[HOST_APP] : 'Add a till'}</b>.</li>
             <li>Pick the venue and name it: this {HOST_APP ? APP_NAMES[HOST_APP] : 'device'} sets itself up.</li>
           </ol>
           <div className="text-sm text-muted flex items-center gap-2 justify-center sm:justify-start">

@@ -2,7 +2,7 @@
 //
 // Tell a tenant's open tills to download their config again (pos.config
 // over the socket, see pos/src/lib/store.js) after something they show
-// changed outside Till setup: menus, option groups, promotions. Tills also
+// changed outside Store tech: menus, option groups, promotions. Tills also
 // refresh every 10 minutes and when brought back to the screen, so this is
 // only about speed. Fire-and-forget, at most once a second per tenant.
 // Kept apart from posSvc.js, which imports routes/menus.js.

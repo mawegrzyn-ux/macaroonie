@@ -1,6 +1,6 @@
 // src/components/pos/KitchenSection.jsx
 //
-// Till setup > Kitchen screens (docs/POS.md section 9):
+// Store tech > Kitchen screens (docs/POS.md section 9):
 //   - the kitchen screens: tablets or TVs set up like a till (open the
 //     kitchen screen address on it, type the code it shows, or scan its QR
 //     code with a phone); each shows one or more stations
@@ -513,7 +513,7 @@ function OnlineCard({ venueId, setup }) {
 // Every kitchen screen of the venue on one page in a new window (the till
 // app's /?kitchen_test=, pos/src/kitchen/Bench.jsx), with test orders that
 // never reach the real screens. View is enough, so the button isn't a
-// <button>: Till setup is a disabled fieldset for View users.
+// <button>: Store tech is a disabled fieldset for View users.
 function TestCard({ venueId }) {
   const api = useApi()
   const [busy, setBusy] = useState(false)

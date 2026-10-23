@@ -1,6 +1,6 @@
 // The kiosk's way from the order to the order number: the basket (change
 // quantities, edit, offers that apply, "Anything else?"), the guest's name
-// and table number when the order type asks for them (Till setup > revenue
+// and table number when the order type asks for them (Store tech > revenue
 // streams), how to pay, the card reader, sending, and the order number.
 
 import { useEffect, useMemo, useState } from 'react'

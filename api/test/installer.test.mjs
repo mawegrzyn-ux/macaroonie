@@ -106,7 +106,7 @@ test('a kitchen screen shows a code, someone links it from the installer, the sc
   assert.deepEqual(overview.addresses, { terminal: ORIGIN('pos'), kds: ORIGIN('kitchen'), kiosk: ORIGIN('kiosk'), screen: ORIGIN('screens') })
   assert.ok(Array.isArray(overview.stations) && overview.stations.every(s => s.id && s.name))
   assert.equal(overview.can.devices, 'manage')
-  // Till setup names the installer's address.
+  // Store tech names the installer's address.
   assert.equal((await ok(owner.get(`/api/pos/venues/${V}/setup`))).installer_url, ORIGIN('installer'))
 })
 
@@ -142,7 +142,7 @@ test('a new device for a till already here: the new one signs in, the old one st
 
 test('refusals: view only, another tenant, run-out codes; menu screens keep their own route', async () => {
   const p = await showCode('terminal')
-  assert.equal((await viewer.get(`/api/installer/venues/${V}`)).status, 403, 'no Till setup or Menu screens access')
+  assert.equal((await viewer.get(`/api/installer/venues/${V}`)).status, 403, 'no Store tech or Menu screens access')
   // An operator sees the menu screens (Menu screens view) but not the tills, and links nothing.
   const op = await ok(operator.get(`/api/installer/venues/${V}`))
   assert.deepEqual(op.can, { devices: 'none', screens: 'view' })

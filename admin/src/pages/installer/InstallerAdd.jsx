@@ -2,7 +2,7 @@
 //
 // Add a new device (/install/add): pick what it is, open its address on the
 // device (it shows a code and a QR code), then link that code on the Link
-// page. The one way devices are set up, here and in Till setup.
+// page. The one way devices are set up, here and in Store tech.
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Copy, Check, QrCode } from 'lucide-react'
@@ -22,7 +22,7 @@ export default function InstallerAdd() {
       <VenueButton />
       <Card title="What are you adding?">
         {kinds.length === 0
-          ? <p className="text-sm text-muted-foreground">Adding devices needs Manage on Till setup or Menu screens.</p>
+          ? <p className="text-sm text-muted-foreground">Adding devices needs Manage on Store tech or Menu screens.</p>
           : (
             <div className="grid grid-cols-2 gap-2">
               {kinds.map(k => (

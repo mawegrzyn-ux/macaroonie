@@ -117,8 +117,8 @@ test('accounts: the key is checked with the provider, sealed, never shown; only 
   const [row] = await sql`SELECT secret FROM pos_card_accounts WHERE id = ${stripeAcct.id}`
   assert.match(row.secret, /^v1:/, 'sealed at rest')
 
-  assert.equal((await as(A.operator, ids.a).post('/api/pos/card-accounts', { provider: 'dojo', name: 'x', secret: 'sk_sandbox_good' })).status, 403, 'operator (no Till setup)')
-  assert.equal((await as(A.viewer, ids.a).get('/api/pos/card-accounts')).status, 403, 'viewer (no Till setup)')
+  assert.equal((await as(A.operator, ids.a).post('/api/pos/card-accounts', { provider: 'dojo', name: 'x', secret: 'sk_sandbox_good' })).status, 403, 'operator (no Store tech)')
+  assert.equal((await as(A.viewer, ids.a).get('/api/pos/card-accounts')).status, 403, 'viewer (no Store tech)')
   const renamed = await ok(as(A.admin, ids.a).patch('/api/pos/card-accounts/' + dojoAcct.id, { name: 'Zqx Dojo account' }))
   assert.equal(renamed.name, 'Zqx Dojo account', 'an admin manages accounts')
   assert.equal(renamed.hint, dojoAcct.hint, 'a rename keeps the key')
@@ -341,7 +341,7 @@ test('another tenant: can\'t read, cancel or use A\'s card payments', async () =
   assert.equal((await b.delete('/api/pos/card-readers/' + stripeReader.id)).status, 404)
 })
 
-test('Till setup: payments list, removing a machine and an account', async () => {
+test('Store tech: payments list, removing a machine and an account', async () => {
   // An approved payment no check shows is flagged.
   const check = await openCheck()
   await ok(owner.patch('/api/pos/devices/' + till.id, { settings: { mode: 'counter', card_reader: testReader.id } }))

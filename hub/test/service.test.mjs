@@ -105,7 +105,7 @@ test('jobs are collected, printed in ESC/POS and reported; unknown and offline p
   printer.server.close()
 })
 
-test('linking: a code, then waiting until Till setup links it', async () => {
+test('linking: a code, then waiting until Store tech links it', async () => {
   const state = { calls: [], done: [], reports: [], printers: [], queue: [], paired: false }
   const cloud = await fakeCloud(state)
   const pairing = await requestCode(cloud.api, { version: '1.0.0' })
@@ -177,7 +177,7 @@ test('USB printers on the hub: printed through usb.js, checked, listed in the re
   assert.ok(rep.info.hostname && rep.info.platform)
   assert.equal(hubState.printers.find(p => p.id === 'u1').state.paperNearEnd, true)
 
-  // Removed in Till setup: the cloud answers 401, the hub hands back.
+  // Removed in Store tech: the cloud answers 401, the hub hands back.
   state.unlinked = true
   await hub.tick()
   assert.equal(unlinked, 1)

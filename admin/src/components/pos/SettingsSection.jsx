@@ -1,6 +1,6 @@
 // src/components/pos/SettingsSection.jsx
 //
-// Till setup > Receipts and payments, and Cash Recon. One explicit Save
+// Store tech > Receipts and payments, and Cash Recon. One explicit Save
 // each. Settings are per venue (pos_settings); tills pick changes up
 // straight away (pos.config over the socket, else on their next poll).
 
@@ -91,7 +91,7 @@ export function ReceiptSettingsSection({ venueId, setup }) {
       </Field>
       <p className="text-xs text-muted-foreground">
         What receipts, bills and kitchen tickets say and how they look (headings, footers, the order number big) is on the{' '}
-        <Link to="/pos?tab=printing" className="font-medium text-foreground underline">Printing</Link> tab.
+        <Link to="/pos/printing" className="font-medium text-foreground underline">Printing</Link> tab.
       </p>
       <Field label="Service charge name" hint="As printed, e.g. Discretionary service charge.">
         <input className={inputCls} value={form.service_charge_label} maxLength={60} onChange={e => set({ service_charge_label: e.target.value })} placeholder="Service charge" />

@@ -321,7 +321,7 @@ export async function loadConfig() {
 function handleError(err) {
   if (err instanceof OfflineError || err?.offline) { setState({ online: false }); return }
   if (err?.status === 401) {
-    toast('This till was removed in Till setup. Link it again with the code it shows.', 'bad', 8000)
+    toast('This till was removed in Store tech. Link it again with the code it shows.', 'bad', 8000)
     unpair()
     return
   }
@@ -447,7 +447,7 @@ function printLocally(events, before, after) {
   printTickets(tickets)
 }
 
-// Printers plugged into this till (Till setup > Printers): it prints what is
+// Printers plugged into this till (Store tech > Printers): it prints what is
 // queued for them, kitchen tickets included (lib/devicePrint.js).
 let devicePrinting = null
 function ensureDevicePrinting() {
@@ -651,7 +651,7 @@ function connectSocket() {
     else if (m.type === 'pos.presence') pull()
     else if (m.type === 'pos.config') loadConfig()
     else if (m.type === 'pos.print') devicePrinting?.nudge()
-    else if (m.type === 'pos.revoked' && m.device_id === state.device?.id) { toast('This till was removed in Till setup.', 'bad', 8000); unpair() }
+    else if (m.type === 'pos.revoked' && m.device_id === state.device?.id) { toast('This till was removed in Store tech.', 'bad', 8000); unpair() }
   }
   socket.onclose = () => {
     socket = null

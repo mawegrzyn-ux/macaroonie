@@ -190,7 +190,7 @@ export default function MenuTranslations() {
                 ))}
               </div>
               <p className="text-[11px] text-muted-foreground">
-                <span className="inline-block w-2 h-2 rounded-full bg-green-600 mr-1" />Offered on a kiosk (Till setup &gt; Kiosks &gt; a design &gt; Languages).
+                <span className="inline-block w-2 h-2 rounded-full bg-green-600 mr-1" />Offered on a kiosk (Store tech &gt; Kiosks &gt; a design &gt; Languages).
                 {dirty && ' Save or discard your changes to switch language.'}
                 {!data.designs && ' No kiosk designs yet: kiosks use English until a design picks other languages.'}
               </p>

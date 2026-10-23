@@ -10,7 +10,7 @@
 // show is kept on the device (photos.js); the connection is watched as
 // described under Connection below.
 //
-// Preview (Till setup > Kiosks, the design editor): the app runs from a
+// Preview (Store tech > Kiosks, the design editor): the app runs from a
 // signed link without pairing, takes design changes from the editor by
 // postMessage and never sends anything.
 

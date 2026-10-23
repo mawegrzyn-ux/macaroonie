@@ -238,7 +238,7 @@ export function KindSettings({ kind, settings, onChange, overview, disabled }) {
   }
   if (kind === 'kds') {
     return (
-      <Field label="Stations it shows" hint="None picked: it asks on the screen. Stations are set up in Till setup, Kitchen screens.">
+      <Field label="Stations it shows" hint="None picked: it asks on the screen. Stations are set up in Store tech, Kitchen screens.">
         <ChipPicker disabled={disabled} options={overview?.stations} value={settings.station_ids || []}
           onChange={station_ids => onChange({ ...settings, station_ids })} empty="This venue has no kitchen stations yet." />
       </Field>
@@ -248,7 +248,7 @@ export function KindSettings({ kind, settings, onChange, overview, disabled }) {
     const designs = overview?.kiosk_designs || []
     if (!designs.length) return null
     return (
-      <Field label="Design" hint="How the kiosk looks. Designs are made in Till setup, Kiosks.">
+      <Field label="Design" hint="How the kiosk looks. Designs are made in Store tech, Kiosks.">
         <select className={inputClass} disabled={disabled} value={settings.design_id || ''}
           onChange={e => onChange({ ...settings, design_id: e.target.value || null })}>
           <option value="">{designs[0].name} (the first)</option>

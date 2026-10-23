@@ -1,6 +1,6 @@
 // GloriaFood orders on the kitchen screens (migration 178). Orders GloriaFood
 // pushes (or a poll collects) go into the kitchen once the venue switches it
-// on in Till setup: dishes matched to the menu by name follow dish and section
+// on in Store tech: dishes matched to the menu by name follow dish and section
 // links, the rest the default links; the GloriaFood order type maps to one of
 // the tenant's. Ready / collected in the kitchen moves the order on the Online
 // orders board, the board's Ready / Collected and a cancellation in GloriaFood
@@ -34,7 +34,7 @@ async function device(d, method, url, body) {
   return { status: res.statusCode, json, body: res.body }
 }
 
-/** A device showing a code, linked from Till setup (support/devices.mjs). */
+/** A device showing a code, linked from Store tech (support/devices.mjs). */
 const pairDevice = (kind, name) => linkDevice(owner, V, { kind, name })
 
 const minutes = n => new Date(Date.now() + n * 60_000).toISOString()
@@ -109,7 +109,7 @@ before(async () => {
 })
 after(closeApp)
 
-test('Till setup: the GloriaFood settings, types matched by name until picked, refusals', async () => {
+test('Store tech: the GloriaFood settings, types matched by name until picked, refusals', async () => {
   const setup = await ok(owner.get(`/api/pos/venues/${V}/setup`))
   assert.ok(setup.gloriafood, 'the venue is linked')
   assert.equal(setup.settings.kds_gloriafood, true, 'the fixtures switched it on')

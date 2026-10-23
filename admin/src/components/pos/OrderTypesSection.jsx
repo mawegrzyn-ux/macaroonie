@@ -1,6 +1,6 @@
 // src/components/pos/OrderTypesSection.jsx
 //
-// Till setup > Order types (company-wide, migration 170): Eat in, Take out,
+// Store tech > Order types (company-wide, migration 170): Eat in, Take out,
 // Delivery, Collection and any you add (Drive thru, Staff meal...). A
 // revenue stream offers some of them and says what each asks for (customer
 // name, tent number); a tax setting can charge another rate for some of them

@@ -18,7 +18,7 @@
 //   pinActiveFlows()        writes down each venue's flow in use before shared
 //                           flows are added, moved or deleted, so no venue's
 //                           "first flow" changes under it
-//   switchFlow()            put another flow in use (Till setup, or a kitchen
+//   switchFlow()            put another flow in use (Store tech, or a kitchen
 //                           screen's flow button): dishes sent after it follow
 //                           it, dishes already sent keep their way (item.route)
 //   kitchenSync()           kitchen orders since a sequence number
@@ -289,7 +289,7 @@ export async function kdsConfig(tx, tenantId, venueId) {
 
 // ── The kitchen test bench ───────────────────────────────────────
 //
-// Till setup > Kitchen screens > Test the kitchen opens a page on the till
+// Store tech > Kitchen screens > Test the kitchen opens a page on the till
 // app (pos/src/kitchen/Bench.jsx) with every kitchen screen of a venue side
 // by side. The bench runs its own pretend kitchen in the browser with the
 // shared rules (shared/pos/kitchen.js): test orders never reach the real
@@ -538,7 +538,7 @@ export function onlineMoves(results) {
 // ── GloriaFood orders (migration 178) ────────────────────────────
 
 // The names an order type is matched by for each GloriaFood order type when
-// Till setup hasn't picked one (pos_settings.kds_gloriafood_types).
+// Store tech hasn't picked one (pos_settings.kds_gloriafood_types).
 const GF_TYPE_NAMES = {
   pickup:            ['collection', 'take out', 'takeaway'],
   delivery:          ['delivery'],
@@ -554,7 +554,7 @@ const GF_TO_KITCHEN = { ready: 'ready', completed: 'collected' }
 
 /**
  * Which of the tenant's order types each GloriaFood order type goes to:
- * { [gloriafood type]: order type id | null }. A type Till setup picked (or
+ * { [gloriafood type]: order type id | null }. A type Store tech picked (or
  * set to none) stays; one it left out is matched by name.
  */
 export async function gloriaFoodTypes(tx, tenantId, saved = {}) {

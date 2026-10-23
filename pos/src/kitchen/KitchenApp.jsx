@@ -1,5 +1,5 @@
 // The kitchen screen (KDS, docs/POS.md section 9). A device paired as a
-// kitchen screen in Till setup opens here instead of the till.
+// kitchen screen in Store tech opens here instead of the till.
 //
 // Tickets in columns, oldest first (rush orders first), with a timer that
 // turns amber at the station's target time and red when late. Tap a dish to
@@ -80,7 +80,7 @@ const SOURCE_NAMES = { online: 'Online', gloriafood: 'GloriaFood' }
 
 /**
  * A ticket's title and number badge. The screen's Ticket title setting
- * (Till setup > Kitchen screens, device settings ticket_main) picks the
+ * (Store tech > Kitchen screens, device settings ticket_main) picks the
  * order number, tent, table or customer name (shared/orderInfo.js); 'auto'
  * (and an order without the one picked) is the table, the name, else where
  * it came from, with the order number in the badge.
@@ -143,7 +143,7 @@ function NoStations() {
       <div className="max-w-md text-center space-y-4">
         <Utensils className="mx-auto text-white/60" size={44} />
         <div className="text-2xl font-bold">No kitchen stations yet</div>
-        <div className="text-white/70">In Macaroonie, open Till setup, then Kitchen screens, and add a station (Grill, Fryer, Pass...).</div>
+        <div className="text-white/70">In Macaroonie, open Store tech, then Kitchen screens, and add a station (Grill, Fryer, Pass...).</div>
         <button className="h-14 px-6 rounded-xl bg-white text-black font-bold" onClick={loadConfig}>Check again</button>
       </div>
     </div>
@@ -757,7 +757,7 @@ function SettingsPanel({ stations, station, view, full, onFull, onKeys, onClose 
         <Keyboard size={20} /> Bump bar and keyboard keys
       </button>
       <div className="text-sm text-white/60 px-1 pt-2">
-        Tickets turn amber after {st.target_mins} min and red after {st.late_mins} min. Stations, timings and the kitchen flows (what goes where) are set in Macaroonie: Till setup, Kitchen screens.
+        Tickets turn amber after {st.target_mins} min and red after {st.late_mins} min. Stations, timings and the kitchen flows (what goes where) are set in Macaroonie: Store tech, Kitchen screens.
       </div>
       {!inBench() && <DisconnectBox waiting={s.outbox.length} />}
     </Panel>
@@ -771,7 +771,7 @@ function DisconnectBox({ waiting }) {
   return (
     <div className="mt-3 pt-3 border-t border-white/10 space-y-2" data-testid="kds-disconnect">
       <div className="text-xs uppercase font-bold text-white/60 px-1">Disconnect</div>
-      <div className="text-sm text-white/60 px-1">This device stops being a kitchen screen and shows a code. Link that code in Till setup (Kitchen screens, Link a device) or with the installer app to set it up again: the screen keeps its name, stations and settings.</div>
+      <div className="text-sm text-white/60 px-1">This device stops being a kitchen screen and shows a code. Link that code in Store tech (Kitchen screens, Link a device) or with the installer app to set it up again: the screen keeps its name, stations and settings.</div>
       {step === 0 && (
         <button onClick={() => setStep(1)} className="w-full min-h-[52px] rounded-lg bg-zinc-700 text-red-300 font-bold">Disconnect this screen</button>
       )}
@@ -843,7 +843,7 @@ function FlowPanel({ config, names, onClose }) {
       {config.flow_switched_at && (
         <div className="text-sm text-white/50 px-1">Last switched {whenText(config.flow_switched_at)}{config.flow_switched_by ? ' by ' + config.flow_switched_by : ''}.</div>
       )}
-      {!canSwitch && <div className="text-sm text-amber-300 px-1">This screen can't switch flows. It can be allowed in Macaroonie: Till setup, Kitchen screens.</div>}
+      {!canSwitch && <div className="text-sm text-amber-300 px-1">This screen can't switch flows. It can be allowed in Macaroonie: Store tech, Kitchen screens.</div>}
     </Panel>
   )
 }

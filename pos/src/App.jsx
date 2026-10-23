@@ -27,7 +27,7 @@ const KitchenApp = lazy(() => import('./kitchen/KitchenApp.jsx'))
 // A self-order kiosk (and the kiosk design editor's preview) runs the kiosk
 // app (src/kiosk), loaded only there.
 const KioskApp = lazy(() => import('./kiosk/KioskApp.jsx'))
-// The kitchen test bench (Till setup > Kitchen screens > Test the kitchen):
+// The kitchen test bench (Store tech > Kitchen screens > Test the kitchen):
 // ?kitchen_test= opens the bench, &screen= one of its scaled-down screens.
 const Bench = lazy(() => import('./kitchen/Bench.jsx'))
 const BenchScreen = lazy(() => import('./kitchen/BenchScreen.jsx'))

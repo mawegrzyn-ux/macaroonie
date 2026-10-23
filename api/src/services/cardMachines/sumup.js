@@ -5,7 +5,7 @@
 // developer.sumup.com couldn't be reached from the build environment.
 //
 // A reader is paired by the code the Solo shows (Connections, API, Connect)
-// typed into Till setup: POST /v0.1/merchants/:code/readers. A sale is a
+// typed into Store tech: POST /v0.1/merchants/:code/readers. A sale is a
 // reader checkout (POST .../readers/:id/checkout) whose state we read back
 // (GET .../readers/:id/checkout/:checkout_id); once successful the
 // transaction (GET /v2.1/merchants/:code/transactions?client_transaction_id=)
@@ -31,7 +31,7 @@ function must(r, what) {
 
 const merchant = account => {
   const code = account.settings?.merchant_code
-  if (!code) throw new CardMachineError('The SumUp merchant code is missing: check the account in Till setup')
+  if (!code) throw new CardMachineError('The SumUp merchant code is missing: check the account in Store tech')
   return encodeURIComponent(code)
 }
 

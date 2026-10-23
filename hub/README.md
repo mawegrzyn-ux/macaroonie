@@ -42,7 +42,7 @@ A fanless mini PC (for example an Intel N100 with 8 GB and a wired network port)
 Ubuntu or Debian Linux, or Windows 10 / 11, on a cable to the router, with a fixed address
 on the router. Plug USB receipt printers into it.
 
-**The easy way.** On the mini PC, open `pos.macaroonie.com/hub` in the browser (Till setup
+**The easy way.** On the mini PC, open `pos.macaroonie.com/hub` in the browser (Store tech
 → Printers → Venue hub shows the address) and press **Download the installer**:
 
 - Windows: open `macaroonie-hub-setup.cmd` from the downloads. Windows warns about a file
@@ -54,7 +54,7 @@ on the router. Plug USB receipt printers into it.
 
 Or with one command:
 
-**Linux.** In a terminal on the mini PC (Till setup → Printers → Venue hub shows the
+**Linux.** In a terminal on the mini PC (Store tech → Printers → Venue hub shows the
 command with your address, and a Copy button):
 
 ```
@@ -81,7 +81,7 @@ A printer installed in Windows (install the printer's own driver first) shows in
 hub's list by its Windows name. To remove it: `$env:MACAROONIE_HUB_UNINSTALL = '1'` then
 the same `irm ... | iex`.
 
-**Then:** in Macaroonie, Till setup → Printers → **Link a hub** and type the code (or scan
+**Then:** in Macaroonie, Store tech → Printers → **Link a hub** and type the code (or scan
 the QR code on the hub's page with the installer app). Add the network printers (On the
 network, their address) and the USB ones (Add it beside each printer the hub found). Running
 the installer again updates the hub and keeps its link. The hub updates itself after that
@@ -90,7 +90,7 @@ one doesn't run.
 
 **Running it by hand** (a copy of this repository, Node.js 22): `node hub/bin/hub.js
 [--api https://pos.<your domain>] [--config hub.json] [--http-port 9180] [--forget]`. A copy
-run this way doesn't update itself (Till setup says when a new version is out).
+run this way doesn't update itself (Store tech says when a new version is out).
 
 ## Trial 1: print on your Epson
 

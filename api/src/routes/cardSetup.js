@@ -1,7 +1,7 @@
 // src/routes/cardSetup.js
 //
-// Card machines in Till setup, /api/pos (migration 193,
-// services/cardMachines/, services/cardSvc.js). Till setup view to read;
+// Card machines in Store tech, /api/pos (migration 193,
+// services/cardMachines/, services/cardSvc.js). Store tech view to read;
 // manage to add and change machines; accounts hold a provider key, so they
 // also need an owner or admin.
 //
@@ -18,7 +18,7 @@
 //   PATCH  /card-readers/:id                 { name }
 //   DELETE /card-readers/:id                 removed; tills and kiosks using it go back to no card machine
 //   GET    /venues/:venueId/card-payments?days=&status=   recent card attempts (sales and refunds;
-//                                            Till setup or Till reports view)
+//                                            Store tech or Till reports view)
 //
 // Changing a machine tells the venue's tills and kiosks to download their
 // config again (pos.config).

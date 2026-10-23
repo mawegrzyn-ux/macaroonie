@@ -263,7 +263,7 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx' } = 
   await step('revenue stream', () => post(`/api/pos/venues/${V}/revenue-streams`, { name: mark + ' Bar' }))
   const printer = await step('printer', () => post(`/api/pos/venues/${V}/printers`, { name: mark + ' Kitchen', host: '192.168.1.50' }))
   // Devices show a code of their own and are linked by it (migration 184):
-  // a till from Till setup, a kitchen screen from the installer.
+  // a till from Store tech, a kitchen screen from the installer.
   const tillDevice = await step('till device', async () => {
     const shown = await ok(c.post('/pos-api/pairings', { app: 'terminal' }), 'device code')
     return post(`/api/pos/venues/${V}/link`, { code: shown.code, name: mark + ' Till 1', settings: { mode: 'table' } })

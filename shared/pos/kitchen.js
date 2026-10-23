@@ -16,7 +16,7 @@
 // 'gf-<gloriafood_orders.id>', migration 178). Its items are the dishes sent
 // to the kitchen.
 //
-// The kitchen is a flow (Till setup > Kitchen screens > Kitchen flow):
+// The kitchen is a flow (Store tech > Kitchen screens > Kitchen flow):
 // stations are prep (Grill, Fryer, ...), expo (the pass), runner, and order
 // ready boards; links go from "Orders in" (the till and online orders) to
 // stations and from station to station. A link can carry a filter (dishes,

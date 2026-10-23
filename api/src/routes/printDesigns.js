@@ -3,7 +3,7 @@
 // Designs for printed kitchen tickets and receipts, /api/pos (migration 190;
 // shared/pos/ticketLayout.js, services/printDesignSvc.js). Company wide, with
 // which design prints where per location and each location's own words.
-// Till setup view to read, manage to change.
+// Store tech view to read, manage to change.
 //
 //   GET    /print-designs?venue_id=            designs + which prints where (company, and that venue)
 //   POST   /print-designs                      { kind, name, copy_from?, layout? }

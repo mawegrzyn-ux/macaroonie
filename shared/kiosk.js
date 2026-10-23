@@ -8,7 +8,7 @@
 //
 // ONE place for what the kiosk app (pos/src/kiosk), the API
 // (services/kioskSvc.js, routes/posSetup.js, routes/menus.js) and the admin
-// (Till setup > Kiosks, Menus > Translations) share:
+// (Store tech > Kiosks, Menus > Translations) share:
 //   normaliseDesign(), designProblems()   a kiosk design (kiosk_designs.settings)
 //   pickImages()                          the picks' pictures on a dish's photo (split / corner)
 //   KIOSK_LANGUAGES, uiText(), allergenName()   words in the guest's language
@@ -304,7 +304,7 @@ export function normaliseDesign(raw) {
       upsell_item_ids: ids(c.upsell_item_ids, MAX.upsell),
       receipt: oneOf(c.receipt, ['off', 'ask', 'always'], 'off'),
       thanks: text(c.thanks, 60),
-      // What the number a stream's order type asks for is (Till setup >
+      // What the number a stream's order type asks for is (Store tech >
       // Revenue streams, Tent): a numbered tent picked up beside the kiosk
       // and put on the table, or the number already on the table.
       number_kind: oneOf(c.number_kind, ['tent', 'table'], 'tent'),
@@ -327,7 +327,7 @@ export const DEFAULT_DESIGN = normaliseDesign({})
 
 /**
  * What stops a design (with this kiosk's set-up) taking orders, for the
- * editor and Till setup: strings, none = []. kiosk: { card_reader }.
+ * editor and Store tech: strings, none = []. kiosk: { card_reader }.
  */
 export function designProblems(design, kiosk = null) {
   const d = normaliseDesign(design)

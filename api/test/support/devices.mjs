@@ -1,7 +1,7 @@
 // Tills, kitchen screens and kiosks are set up one way (migration 184): the
 // device asks for a code to show (POST /pos-api/pairings, no sign-in),
 // someone signed in links that code at a venue (POST /api/pos/venues/:id/link,
-// from Till setup or the installer app), and the device then signs in as
+// from Store tech or the installer app), and the device then signs in as
 // `Device <id>.<the secret it was given with its code>`.
 import { getApp, ok } from './app.mjs'
 import { INTERNAL_CALL_HEADER, INTERNAL_CALL_SECRET } from '../../src/middleware/auth.js'

@@ -9,14 +9,14 @@
 //   POST /pairings              { app?, device? } (no auth) a code for this device to show, with a
 //                               QR code to the installer app: { id, code, secret, expires_at, link_url }
 //                               (migration 184; someone signed in links it: POST /api/pos/venues/:id/link,
-//                               from Till setup or the installer). The one way a device is set up
+//                               from Store tech or the installer). The one way a device is set up
 //   POST /pair                  { code, app? } -> { device_id, secret, ... }   (no auth). Only the hand-over
 //                               code of POST /move, typed in by the app at the new address. `app` is the
 //                               kind the address runs: a code for another kind is refused, naming its address
 //   GET  /pairings/:id          `Authorization: Pairing <secret>`: { status: 'waiting' | 'paired' |
 //                               'expired' }; once paired the device signs in as `Device <id>.<the same secret>`
 //   POST /disconnect            the device forgets its pairing (its settings): the secret stops
-//                               working, Till setup shows it not linked; linking a device showing a code sets it up again
+//                               working, Store tech shows it not linked; linking a device showing a code sets it up again
 //   POST /move                  a kitchen screen or kiosk still on another address moves to its
 //                               own: a one-time pairing code (10 minutes) for its address
 //   GET  /kiosk-preview?token=  a kiosk design's preview config (the signed link is the key, services/kioskSvc.js)
@@ -31,7 +31,7 @@
 //   GET  /sync?since=<seq>      events and changed checks since seq; reset: true with all open checks
 //   GET  /kitchen/sync?since=   kitchen orders since seq (shared/pos/kitchen.js; services/kitchenSvc.js)
 //   PUT  /kitchen/flow          { flow_id } a kitchen screen's flow button puts another kitchen flow in
-//                               use (migration 177; not when Till setup turned it off for that screen)
+//                               use (migration 177; not when Store tech turned it off for that screen)
 //   POST /events                { events: [...] } -> per-event results, in order (till and kitchen
 //                               events; kitchen.order_in / order_status are refused from devices)
 //   GET  /checks?status=closed  recent closed checks (reopen, refund, reprint)
@@ -384,13 +384,13 @@ export default async function posApiRoutes(app) {
     return { status: 'waiting', expires_at: p.expires_at }
   })
 
-  // The kiosk design editor's live preview (Till setup > Kiosks): the link
+  // The kiosk design editor's live preview (Store tech > Kiosks): the link
   // the admin made is the key (services/kioskSvc.js, 12 hours). A preview
   // never places orders; the editor sends unsaved changes to the preview
   // itself (postMessage), so this only gives the menu and the saved design.
   app.get('/kiosk-preview', { config: { rateLimit: { max: 60, timeWindow: '1 minute' } } }, async req => {
     const p = await readPreviewToken(req.query.token)
-    if (!p) throw httpError(401, 'This preview link has run out: open the preview again from Till setup')
+    if (!p) throw httpError(401, 'This preview link has run out: open the preview again from Store tech')
     return withTenant(p.tenantId, async tx => {
       const device = previewDevice(p)
       const [d] = await tx`SELECT id FROM kiosk_designs WHERE id = ${p.designId} AND tenant_id = ${p.tenantId}`
@@ -424,13 +424,13 @@ export default async function posApiRoutes(app) {
     return out
   })
 
-  // The kitchen test bench (Till setup > Kitchen screens > Test the kitchen):
+  // The kitchen test bench (Store tech > Kitchen screens > Test the kitchen):
   // the link the admin made is the key (8 hours). It only reads the venue's
   // kitchen setup and dishes; the bench runs its pretend kitchen in the
   // browser, so test orders never reach the real screens or the reports.
   app.get('/kitchen-test', { config: { rateLimit: { max: 60, timeWindow: '1 minute' } } }, async req => {
     const p = await readKitchenTestToken(req.query.token)
-    if (!p) throw httpError(401, 'This test link has run out: open Test the kitchen again from Till setup')
+    if (!p) throw httpError(401, 'This test link has run out: open Test the kitchen again from Store tech')
     const data = await withTenant(p.tenantId, tx => kitchenTestData(tx, p.tenantId, p.venueId))
     return { ...data, expires_at: p.expiresAt }
   })
@@ -440,7 +440,7 @@ export default async function posApiRoutes(app) {
 
     // The device forgets its pairing (Disconnect in its settings). Its row
     // stays, with its name and settings: linking a device showing a code to
-    // it (Till setup or the installer) sets it up again.
+    // it (Store tech or the installer) sets it up again.
     scoped.post('/disconnect', async req => {
       const d = req.posDevice
       await tenantSql(d.tenant_id)`
@@ -513,7 +513,7 @@ export default async function posApiRoutes(app) {
       const out = await withTenant(d.tenant_id, async tx => {
         const [own] = await tx`SELECT name, settings FROM pos_devices WHERE id = ${d.id} AND tenant_id = ${d.tenant_id}`
         if (own?.settings?.can_switch_flow === false) {
-          throw httpError(403, 'This screen can\'t switch the kitchen flow: it can be allowed in Till setup, Kitchen screens')
+          throw httpError(403, 'This screen can\'t switch the kitchen flow: it can be allowed in Store tech, Kitchen screens')
         }
         return switchFlow(tx, d.tenant_id, d.venue_id, flow_id, own?.name || 'A kitchen screen')
       })
@@ -823,7 +823,7 @@ export default async function posApiRoutes(app) {
     // A venue hub's report (every minute): its version, how each of its
     // printers is (network printers and the USB printers plugged into it),
     // and what it says about itself (migration 195: computer, USB printers
-    // found, updates), shown in Till setup -> Printers.
+    // found, updates), shown in Store tech -> Printers.
     scoped.post('/hub/status', async req => {
       const d = req.posDevice
       if (d.kind !== 'hub') throw httpError(403, 'Only a venue hub reports printers')

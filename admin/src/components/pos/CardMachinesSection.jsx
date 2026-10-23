@@ -1,6 +1,6 @@
 // src/components/pos/CardMachinesSection.jsx
 //
-// Till setup > Card machines (migration 193): the card machines at this
+// Store tech > Card machines (migration 193): the card machines at this
 // venue, the company's accounts with Dojo, Stripe Terminal or SumUp, and the
 // card payments taken lately. A till or kiosk picks its machine in its own
 // settings (CardMachinePick). The money moves on the card machine; the till
@@ -43,7 +43,7 @@ const STATUS = {
   failed: ['Failed', 'text-red-700'],
 }
 
-/** The venue's card machines (Till setup view). */
+/** The venue's card machines (Store tech view). */
 export function useCardReaders(venueId) {
   const api = useApi()
   return useQuery({
@@ -118,7 +118,7 @@ function AccountModal({ account, onClose }) {
           <Segmented value={form.provider} options={PROVIDERS} onChange={v => set({ provider: v })} />
         </Field>
       )}
-      <Field label="Name" hint="For Till setup only, e.g. Dojo, Stripe (Ware).">
+      <Field label="Name" hint="For Store tech only, e.g. Dojo, Stripe (Ware).">
         <input className={inputCls} value={form.name} maxLength={60} onChange={e => set({ name: e.target.value })} placeholder="e.g. Dojo" data-testid="card-account-name" />
       </Field>
       <Field label={account ? 'Key' : 'Key'} hint={(account ? 'Saved, ends ' + (account.hint || '…') + '. Leave empty to keep it, or type a new one. ' : '') + KEY_HINT[form.provider]}>
@@ -185,7 +185,7 @@ function AddReaderModal({ venueId, accounts, onClose }) {
           <option value="test">Test card machine (no account, no money)</option>
         </select>
       </Field>
-      <Field label="Name" hint="Shown on the till and in Till setup, e.g. Counter, Bar machine.">
+      <Field label="Name" hint="Shown on the till and in Store tech, e.g. Counter, Bar machine.">
         <input className={inputCls} value={name} maxLength={60} onChange={e => setName(e.target.value)} placeholder="e.g. Counter" data-testid="card-reader-name" />
       </Field>
       {accountId === 'test' ? (

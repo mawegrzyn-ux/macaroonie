@@ -2,7 +2,7 @@
 // pos.{root} tills, kitchen.{root} kitchen screens (kds.{root} forwards),
 // kiosk.{root} kiosks (routes/posSite.js); the code a device shows can only
 // become its address's kind (POST /api/pos/venues/:id/link); devices are only
-// set up that way (Till setup no longer makes codes to type);
+// set up that way (Store tech no longer makes codes to type);
 // POST /pos-api/disconnect and /screen-api/disconnect (a device's settings);
 // POST /pos-api/move (a device on another address moves to its own with a
 // one-time hand-over code, POST /pos-api/pair, refused on another kind's address).
@@ -50,14 +50,14 @@ before(async () => {
 })
 after(closeApp)
 
-test('Till setup names each kind\'s own address', async () => {
+test('Store tech names each kind\'s own address', async () => {
   const setup = await ok(owner.get(`/api/pos/venues/${V}/setup`))
   assert.deepEqual(setup.device_urls, { terminal: ORIGIN('pos'), kds: ORIGIN('kitchen'), kiosk: ORIGIN('kiosk') })
   const preview = await ok(owner.post(`/api/pos/venues/${V}/kitchen-test`, {}))
   assert.ok(preview.url.startsWith(ORIGIN('kitchen') + '/?kitchen_test='), preview.url)
 })
 
-test('a code shown on an address only becomes that kind; Till setup no longer makes codes', async () => {
+test('a code shown on an address only becomes that kind; Store tech no longer makes codes', async () => {
   const shown = await showCode('kds')
   const asTill = await owner.post(`/api/pos/venues/${V}/link`, { code: shown.code, kind: 'terminal', name: 'Bar till' })
   assert.equal(asTill.status, 422)
@@ -69,7 +69,7 @@ test('a code shown on an address only becomes that kind; Till setup no longer ma
   const again = await owner.post(`/api/pos/venues/${V}/link`, { code: shown.code, name: 'Grill screen 2' })
   assert.equal(again.status, 422, 'a code works once')
 
-  // The old way (Till setup making a code to type on the device) is gone.
+  // The old way (Store tech making a code to type on the device) is gone.
   assert.equal((await owner.post(`/api/pos/venues/${V}/devices`, { name: 'Old way', kind: 'terminal', settings: {} })).status, 404)
   assert.equal((await owner.post(`/api/pos/devices/${linked.json.device.id}/pairing-code`, {})).status, 404)
   // A hand-over code that isn't right is refused the same way on every address.
@@ -78,7 +78,7 @@ test('a code shown on an address only becomes that kind; Till setup no longer ma
   assert.notEqual(bad.json.code, 'wrong_address')
 })
 
-test('a device disconnects itself: its pairing stops, Till setup shows it not linked, linking a new code sets it up again', async () => {
+test('a device disconnects itself: its pairing stops, Store tech shows it not linked, linking a new code sets it up again', async () => {
   const d = await linkDevice(owner, V, { kind: 'kds', name: 'Pass screen' })
   assert.equal((await call('GET', '/pos-api/me', { headers: asDevice(d) })).status, 200)
   const off = await call('POST', '/pos-api/disconnect', { headers: asDevice(d), body: {} })

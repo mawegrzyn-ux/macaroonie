@@ -3,7 +3,7 @@
 // Card machine payments (migration 193): the one place an attempt is
 // started, checked, cancelled or refunded. Providers are in
 // services/cardMachines/; routes (posApi.js for devices, cardSetup.js for
-// Till setup) only call in here. Provider calls never run inside a database
+// Store tech) only call in here. Provider calls never run inside a database
 // transaction: a row is written first (pending), the provider is asked, and
 // the answer is written back, so a slow card machine holds no locks and a
 // crash leaves a pending row that the next check picks up.
@@ -26,7 +26,7 @@ const ROW = `id, tenant_id, venue_id, reader_id, account_id, provider, kind, sal
   reference, amount, tip, status, message, provider_ref, provider_ref2, card_brand, card_last4, refunded, used_event_id,
   used_at, checked_at, finished_at, created_at, updated_at`
 
-/** What a device or Till setup sees of an attempt. */
+/** What a device or Store tech sees of an attempt. */
 export function paymentView(r) {
   if (!r) return null
   return {
@@ -61,7 +61,7 @@ async function machineFor(tenantId, readerId) {
         LEFT JOIN pos_card_accounts a ON a.id = r.account_id AND a.tenant_id = r.tenant_id
        WHERE r.id = ${readerId} AND r.tenant_id = ${tenantId}`
     if (!reader) throw httpError(404, 'Card machine not found')
-    if (reader.provider !== 'test' && !reader.secret) throw httpError(422, 'This card machine\'s account was removed: add it again in Till setup')
+    if (reader.provider !== 'test' && !reader.secret) throw httpError(422, 'This card machine\'s account was removed: add it again in Store tech')
     const account = reader.provider === 'test'
       ? { provider: 'test', mode: 'test', settings: {} }
       : { provider: reader.provider, secret: unseal(reader.secret), settings: reader.account_settings || {}, mode: reader.mode }
@@ -92,12 +92,12 @@ async function writeResult(tenantId, id, res, { final = false } = {}) {
 async function deviceReader(tx, device) {
   const id = device.settings?.card_reader
   if (!id || !/^[0-9a-f-]{36}$/i.test(id)) {
-    throw httpError(422, 'This ' + (device.kind === 'kiosk' ? 'kiosk' : 'till') + ' has no card machine: pick one in Till setup', { code: 'no_card_machine' })
+    throw httpError(422, 'This ' + (device.kind === 'kiosk' ? 'kiosk' : 'till') + ' has no card machine: pick one in Store tech', { code: 'no_card_machine' })
   }
   const [reader] = await tx`
     SELECT id, name, provider FROM pos_card_readers
      WHERE id = ${id} AND tenant_id = ${device.tenant_id} AND venue_id = ${device.venue_id} AND removed_at IS NULL`
-  if (!reader) throw httpError(422, 'This device\'s card machine was removed: pick another in Till setup', { code: 'no_card_machine' })
+  if (!reader) throw httpError(422, 'This device\'s card machine was removed: pick another in Store tech', { code: 'no_card_machine' })
   return reader
 }
 

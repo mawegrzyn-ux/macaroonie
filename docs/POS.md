@@ -131,7 +131,7 @@ First event types: `check.opened`, `check.covers_set`, `check.table_moved`,
   `hub/bin/hub.js`, a device linked by its code) or `device` (plugged into a till or kitchen
   screen, printed by its browser: `pos/src/lib/devicePrint.js`; Chrome `--kiosk-printing` for
   no dialog). A device prints its own bills in its browser when its receipt printer is none or
-  plugged into it. The hub reports each printer's state to Till setup. A USB printer plugged
+  plugged into it. The hub reports each printer's state to Store tech. A USB printer plugged
   into the hub's mini PC (migration 195) is `device` with `device_id` = the hub and `local_id`
   = its id on that computer; the hub prints it (section 2.6).
 - Queue per printer with retries; status check so terminals see "printer offline / out of
@@ -178,22 +178,22 @@ without app-store packaging.
 
 - **Install**: download the installer on the mini PC from `pos.<domain>/hub` (Windows:
   `macaroonie-hub-setup.cmd` to double-click, which asks to run as administrator; Linux:
-  `macaroonie-hub-setup.sh`, which asks for sudo itself), or one command shown in Till setup
+  `macaroonie-hub-setup.sh`, which asks for sudo itself), or one command shown in Store tech
   → Printers (`curl … /pos-api/hub/install.sh | sudo sh`, or `irm … /pos-api/hub/install.ps1
   | iex`). Its own Node 22 (checked against
   nodejs.org's SHASUMS), the hub from the cloud (checked against its sha256), a systemd
   service as its own user (in `lp`) or a Windows scheduled task as SYSTEM, then the link code.
 - **Link**: the code on the console, on the hub's page (`http://<hub>:9180`, with a QR code for
-  the installer app) and in `state.json`; linked like any device. Removed in Till setup, the
+  the installer app) and in `state.json`; linked like any device. Removed in Store tech, the
   hub shows a new code by itself.
 - **Printers**: network (TCP 9100) and USB on the hub: Linux `/dev/usb/lp*` (found again by
   USB vendor, product and serial, never by device file), Windows printers by name (RAW spooler
-  job). The hub lists the USB printers it finds every minute; Till setup offers them.
+  job). The hub lists the USB printers it finds every minute; Store tech offers them.
 - **Updates**: the cloud serves the hub's code as one file (`hubRelease()`, version = the
   source version + a hash of the files). The hub installs a new version at a quiet moment
   (download, sha256, unpack, `--self-test`, switch), keeps the version before, and the launcher
   goes back to it when a new one stops three times within a minute. Automatic by default;
-  off = Update now in Till setup.
+  off = Update now in Store tech.
 - **Not yet**: the offline role (SQLite sequencer, serving `/pos-api` on the LAN with a venue
   certificate, tills using `hub_url`); serial printers on Linux; a cash drawer kick on its own.
 
@@ -306,7 +306,7 @@ provision in code for the hub"). What exists:
 | Schema | migration 156 | Section 3's tables as built; see Docs.jsx → Till (POS) for the columns. |
 | Sequencer | the cloud | `services/posSvc.js` runs `createSequencer()` with a Postgres store under a per-venue advisory lock. The hub will run the same sequencer with SQLite. |
 | Till API | `/pos-api` (`routes/posApi.js`) | Pairing, device auth, config snapshot, events in, sync out, presence, reports, print queue (claim / status routes are for the hub). |
-| Admin | `/api/pos` (`routes/posSetup.js`) | Till setup, Floor plan, Till reports pages; Menus / Variant groups / Promotions till fields. |
+| Admin | `/api/pos` (`routes/posSetup.js`) | Store tech, Floor plan, Till reports pages; Menus / Variant groups / Promotions till fields. |
 | Till app | `pos/` | React PWA served by the API on `pos.<domain>` (`routes/posSite.js`, no nginx change); the same build runs the kitchen screens on `kitchen.<domain>` and the kiosks on `kiosk.<domain>` (18 Oct 2026: each device app on its own address, `pos/src/lib/appHost.js`; a pairing code only works on its kind's address; `POST /pos-api/disconnect` and `/move`). Local-first: IndexedDB outbox, optimistic apply, socket + polling sync. Table service, tabs, counter mode, courses (hold / fire), modifiers, combos, discounts / comps / offers, service charge, split / move / merge, pay (external card, cash, voucher, ...), refunds, reopen, X / Z. |
 | Cash Recon | `services/reconFill.js` | Z figures fill the Cash Recon day through `recon_map` (shared with Loyverse). |
 | Sold out | `services/soldOut.js` | Hold a dish (or tap a sold out one) on the till: `PUT /pos-api/sold-out/:itemId` (role permission `sold_out`, or a manager's PIN), online only. The same `ordering_item_availability` rows as online ordering; every till, the orders board and the menu screens hear it. `tillConfig().sold_out`. Migration 166. |
@@ -318,7 +318,7 @@ Changes from sections 2-3, while there is no hub:
   (Till reports → Refused changes). The hub removes that gap.
 - **Linking is by the code the device shows**, not an Auth0 login: the device asks for a code
   (`POST /pos-api/pairings`, it keeps the secret) and shows it with a QR code; someone signed in
-  types it in Till setup (Add a till / screen / kiosk) or links it in the installer app
+  types it in Store tech (Add a till / screen / kiosk) or links it in the installer app
   (`POST /api/pos/venues/:id/link`, 19 Oct 2026: the only way). The code's address decides the kind (till, kitchen
   screen, kiosk); the app opens the matching screens, and the kind in every config reply wins over
   the one saved on the device (`relabel()` in `pos/src/lib/store.js`).
@@ -445,7 +445,7 @@ Chrome, as an installed PWA.
   when accepted on the orders board; the pass marking one ready marks the online order ready
   (the guest's email), if switched on.
 - **GloriaFood orders** (migration 178, 17 Oct 2026) enter the same way, as GloriaFood pushes
-  them (or the poll collects them), when Till setup switches it on (`kds_gloriafood`, off by
+  them (or the poll collects them), when Store tech switches it on (`kds_gloriafood`, off by
   default). Their kitchen id is `gf-<gloriafood_orders.id>` (source `gloriafood`, from the id
   prefix). GloriaFood dishes carry only a name: they are matched by name to the venue's live
   menus so dish and section links apply, and the GloriaFood order type maps to one of the
@@ -461,12 +461,12 @@ Chrome, as an installed PWA.
   Expo 2, and ORB 1 shows an order ready once both expos are done. Links that tie all apply:
   an expo can send to a board and a runner at once, or to a runner that then sends to the board.
   A dish's whole way is worked out when it is sent and kept on the dish (`item.route`), so a flow
-  change during service only affects dishes sent after it. Designer: Till setup → Kitchen
+  change during service only affects dishes sent after it. Designer: Store tech → Kitchen
   screens → Kitchen flows.
 - **Several flows** (migration 177, 17 Oct 2026): a venue keeps named flows (`kds_flows`: a busy
   night, one cook, the grill down), one in use (`pos_settings.kds_active_flow_id`). The kitchen
   screen's flow button (top right) lists them and switches the whole kitchen
-  (`PUT /pos-api/kitchen/flow`; Till setup can do the same, and can stop a screen switching). The
+  (`PUT /pos-api/kitchen/flow`; Store tech can do the same, and can stop a screen switching). The
   shared rules don't know about it: the sequencer's kitchen config simply carries the links of the
   flow in use. A switch takes the venue's sequencer lock and the sequencer re-reads the setting per
   event, so it falls between two events, and it only affects dishes sent after it (dishes keep
@@ -546,7 +546,7 @@ nothing changes for the devices.
 
 ### 9.4 The kitchen test bench (17 Oct 2026)
 
-Till setup > Kitchen screens > Test the kitchen opens every kitchen screen of a venue on one
+Store tech > Kitchen screens > Test the kitchen opens every kitchen screen of a venue on one
 page, scaled down, with a pretend kitchen in the browser (`shared/pos/kitchenBench.js`,
 `pos/src/kitchen/Bench.jsx`). The screens are the real kitchen app in frames; the bench answers
 their `/pos-api` calls and pushes with the same rules the sequencer runs, so a flow can be tried
@@ -580,7 +580,7 @@ and the ConnectSmart Kitchen guide.
   (`card_integrated` with an approved attempt, or `card_external` from older kiosks), close. Nothing else (no discounts, voids, cash, tips, other checks, approvals).
 - Prices, tax, combos and automatic offers are the till's own (`priceItem()`, `posTax()`,
   `shared/pos/offers.js`), so the kiosk shows exactly what the till charges.
-- Card payments (20 Oct 2026): the kiosk's card machine (Till setup → Card machines, section
+- Card payments (20 Oct 2026): the kiosk's card machine (Store tech → Card machines, section
   2.5). The kiosk starts a sale with the payment id its order's `payment.added` will carry, waits
   for the machine, then sends the order; a declined card offers to try again or pay at the counter.
   The test machine has Approve / Decline buttons; previews and shared links keep a pretend card
@@ -596,7 +596,7 @@ and the ConnectSmart Kitchen guide.
   group (`kiosk_designs.share_token`, venue, stream, optional end date). The link opens
   `kiosk.<domain>/?kiosk_share=<token>`, a page that frames the kiosk at kiosk size with the
   saved design (`GET /pos-api/kiosk-share`, found in system mode). It never places an order, like
-  Till setup's 12-hour previews; New link stops the old one.
+  Store tech's 12-hour previews; New link stops the old one.
 - Menu version in previews (migration 188): a preview (the editor's, or a shared link with
   `share_menu = 'draft'`) can show the menus with changes saved and not published yet; the editor
   lists the menus with such changes (`menuChanges()`). A kiosk itself always gets the published menu.
@@ -634,7 +634,7 @@ and the ConnectSmart Kitchen guide.
 
 - Zettle and Adyen card machines (Dojo, Stripe Terminal and SumUp are built). Not tried on a real
   machine yet.
-- Receipts go to the kiosk's browser print; the receipt printer picked in Till setup is used once
+- Receipts go to the kiosk's browser print; the receipt printer picked in Store tech is used once
   the hub prints.
 - No loyalty, logins, vouchers or promo codes on the kiosk (automatic offers only).
 - No "upsize" or "make it a meal" prompts beyond automatic combos and the "Anything else?" dishes.

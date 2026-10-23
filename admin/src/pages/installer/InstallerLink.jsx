@@ -73,12 +73,12 @@ export default function InstallerLink() {
       </Card>
 
       {code && look.isLoading && <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" /> Looking the code up…</div>}
-      {code && look.error && <ErrorNote>{look.error.status === 403 ? 'Linking devices needs Manage on Till setup or Menu screens.' : look.error.message}</ErrorNote>}
+      {code && look.error && <ErrorNote>{look.error.status === 403 ? 'Linking devices needs Manage on Store tech or Menu screens.' : look.error.message}</ErrorNote>}
 
       {found && found.status === 'linked' && <ErrorNote>That device is already linked. If it still shows a code, it has made a new one: type that.</ErrorNote>}
       {found && found.status === 'expired' && <ErrorNote>That code ran out. The device shows a new one by itself: type that.</ErrorNote>}
       {found && found.status === 'waiting' && !found.can_link && (
-        <ErrorNote>That is {found.kind ? KINDS[found.kind].a : 'a till, kitchen screen or kiosk'}: linking it needs Manage on {found.kind === 'screen' ? 'Menu screens' : 'Till setup'}.</ErrorNote>
+        <ErrorNote>That is {found.kind ? KINDS[found.kind].a : 'a till, kitchen screen or kiosk'}: linking it needs Manage on {found.kind === 'screen' ? 'Menu screens' : 'Store tech'}.</ErrorNote>
       )}
       {found && found.status === 'waiting' && found.can_link && o && venue && (
         <LinkForm key={code} code={code} found={found} overview={o} venueId={venueId}
@@ -200,7 +200,7 @@ function LinkForm({ code, found, overview, venueId, preset, onLinked }) {
           </>
         )}
 
-        {!canLink && <ErrorNote>Linking {KINDS[kind].plural.toLowerCase()} needs Manage on {kind === 'screen' ? 'Menu screens' : 'Till setup'}.</ErrorNote>}
+        {!canLink && <ErrorNote>Linking {KINDS[kind].plural.toLowerCase()} needs Manage on {kind === 'screen' ? 'Menu screens' : 'Store tech'}.</ErrorNote>}
         <ErrorNote>{link.error?.message}</ErrorNote>
         <BigButton primary disabled={!canLink || !ready || link.isPending} onClick={() => link.mutate()} data-testid="link-submit">
           <Link2 className="w-5 h-5" /> {link.isPending ? 'Linking…' : mode === 'replace' ? 'Link as this ' + KINDS[kind].label.toLowerCase() : 'Link ' + (name.trim() || 'it')}

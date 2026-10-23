@@ -60,7 +60,7 @@ const SHORTCUT_OPTIONS = [
   { to: '/customers',            label: 'Customers',            icon: UserRound,       colour: 'bg-indigo-100 text-indigo-600' },
   { to: '/orders',               label: 'Online orders',        icon: LucideIcons.ShoppingBag, colour: 'bg-orange-100 text-orange-700' },
   { to: '/promotions',           label: 'Promotions',           icon: LucideIcons.BadgePercent, colour: 'bg-rose-100 text-rose-700' },
-  { to: '/pos',                  label: 'Till setup',           icon: LucideIcons.MonitorSmartphone, colour: 'bg-teal-100 text-teal-700' },
+  { to: '/pos',                  label: 'Store tech',           icon: LucideIcons.MonitorSmartphone, colour: 'bg-teal-100 text-teal-700' },
   { to: '/pos/reports',          label: 'Till reports',         icon: LucideIcons.BarChart3, colour: 'bg-teal-100 text-teal-700' },
   { to: '/screens',              label: 'Menu screens',         icon: LucideIcons.Monitor,   colour: 'bg-zinc-100 text-zinc-700' },
   { to: '/purchasing',           label: 'Purchasing',           icon: LucideIcons.ShoppingCart, colour: 'bg-violet-100 text-violet-600' },

@@ -188,7 +188,7 @@ export function activeFlow(config = state.config) {
 // This screen's own switch: no "flow changed" notice for it.
 let ownSwitch = null
 
-/** Another screen (or Till setup) put another flow in use: say so here. */
+/** Another screen (or Store tech) put another flow in use: say so here. */
 function flowNotice(before, after) {
   if (!before || !after?.active_flow_id || before.active_flow_id === after.active_flow_id) return
   if (ownSwitch && ownSwitch.flowId === after.active_flow_id && Date.now() < ownSwitch.until) return
@@ -223,7 +223,7 @@ export async function switchFlow(flowId) {
 
 function handleError(err) {
   if (err instanceof OfflineError || err?.offline) { setState({ online: false }); return }
-  if (err?.status === 401) { forget('This screen was removed in Till setup. Link it again with the code it shows.'); return }
+  if (err?.status === 401) { forget('This screen was removed in Store tech. Link it again with the code it shows.'); return }
   if (err?.status === 403 && err.code === 'pos_off') { toast(err.message, 'bad', 8000); return }
   console.warn(err)
 }
@@ -255,7 +255,7 @@ export async function disconnect() {
   if (bench) return { ok: false, error: 'Not on the test page' }
   const told = await tellDisconnect(api)
   await clearDevice()
-  if (!told) toast('Disconnected here. Macaroonie couldn\'t be told (offline): remove the screen in Till setup, or link the code it shows next.', 'bad', 8000)
+  if (!told) toast('Disconnected here. Macaroonie couldn\'t be told (offline): remove the screen in Store tech, or link the code it shows next.', 'bad', 8000)
   setTimeout(() => location.reload(), told ? 300 : 4000)
   return { ok: true, told }
 }
@@ -412,7 +412,7 @@ function onMessage(m) {
   if (m.type === 'pos.seq' && m.from !== state.device?.id && (!m.kinds || m.kinds.includes('kitchen'))) pull()
   else if (m.type === 'pos.config') loadConfig()
   else if (m.type === 'pos.print') devicePrinting?.nudge()
-  else if (m.type === 'pos.revoked' && m.device_id === state.device?.id) forget('This screen was removed in Till setup.')
+  else if (m.type === 'pos.revoked' && m.device_id === state.device?.id) forget('This screen was removed in Store tech.')
 }
 
 function connectSocket() {
@@ -446,7 +446,7 @@ function tick() {
   else pull()
 }
 
-// A printer plugged into this screen (Till setup > Printers, migration 191):
+// A printer plugged into this screen (Store tech > Printers, migration 191):
 // it prints the tickets queued for it (lib/devicePrint.js). Never on the bench.
 let devicePrinting = null
 

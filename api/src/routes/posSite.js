@@ -105,7 +105,7 @@ async function posSite(app) {
     }
     const rel = '/' + path.relative(DIST, file).split(path.sep).join('/')
     const ext = path.extname(file)
-    // A kiosk design's live preview is shown inside the admin (Till setup >
+    // A kiosk design's live preview is shown inside the admin (Store tech >
     // Kiosks), so that page may be framed by the platform's own hosts. The
     // app's service worker leaves these pages to the network (pos/vite.config.js).
     if (ext === '.html' && /[?&]kiosk_preview=/.test(req.url)) {

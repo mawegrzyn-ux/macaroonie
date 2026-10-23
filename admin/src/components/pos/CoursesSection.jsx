@@ -1,6 +1,6 @@
 // src/components/pos/CoursesSection.jsx
 //
-// Till setup > Courses (company-wide): Starters, Mains, Desserts, ... A
+// Store tech > Courses (company-wide): Starters, Mains, Desserts, ... A
 // menu section sets its dishes' course (Menus page, section panel), a dish
 // can have its own, and staff can change it on the check. A course "held
 // by default" waits to be fired when an earlier course goes to the kitchen.

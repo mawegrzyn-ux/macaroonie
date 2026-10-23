@@ -1,5 +1,5 @@
 // Taking payment. Card: taken on any card machine and recorded here by hand.
-// Card machine (migration 193): the till's own card machine (Till setup) is
+// Card machine (migration 193): the till's own card machine (Store tech) is
 // sent the amount through its provider, and the payment is added once the
 // machine approves it (payment.added naming the attempt). Split the bill
 // evenly, by items, or any amounts.
@@ -28,7 +28,7 @@ export default function PayModal({ check, onClose, onClosed, counter = false }) 
   const approve = useApproval()
   const t = checkTotals(check)
   const machine = config.card_machine || null
-  // Card machine only on a till that has one (Till setup, Tills).
+  // Card machine only on a till that has one (Store tech, Tills).
   const tenders = (config.settings.tenders || []).filter(x => x.enabled && (x.key !== 'card_integrated' || machine))
   const [amount, setAmount] = useState(p2s(Math.max(0, t.balance)))
   const [tender, setTender] = useState(null)

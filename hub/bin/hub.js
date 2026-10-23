@@ -2,7 +2,7 @@
 // hub/bin/hub.js
 //
 // The venue hub. Installed on a mini PC by the printers (the installer from
-// Till setup → Printers sets it up as a service), or run by hand:
+// Store tech → Printers sets it up as a service), or run by hand:
 //
 //   node hub/bin/hub.js                          link it (first time), then print
 //   node hub/bin/hub.js --api https://pos.macaroonie.com
@@ -16,7 +16,7 @@
 // at http://<this computer>:9180 and as a QR code there): type it in Till
 // setup → Printers → Link a hub, or scan it with the installer app. The link
 // (the device id and its secret) is kept in hub.json beside this folder (or
-// --config); keep that file private. Removed in Till setup, it shows a new
+// --config); keep that file private. Removed in Store tech, it shows a new
 // code by itself.
 
 import fs from 'node:fs'
@@ -95,7 +95,7 @@ async function link(api, state) {
     state.cloud = { ok: true, at: new Date().toISOString(), error: null }
     state.link = { code: pairing.code, link_url: pairing.link_url || null, expires_at: pairing.expires_at || null }
     console.log('')
-    console.log('  Link this hub: in Till setup → Printers → Link a hub, type')
+    console.log('  Link this hub: in Store tech → Printers → Link a hub, type')
     console.log('')
     console.log('        ' + pairing.code)
     console.log('')
@@ -167,7 +167,7 @@ async function main() {
       await cloud.config()
     } catch (e) {
       if (e.status === 401) {
-        log('This hub was unlinked or removed in Till setup: showing a new code.')
+        log('This hub was unlinked or removed in Store tech: showing a new code.')
         c = {}
         writeConfig(c)
         continue
@@ -181,7 +181,7 @@ async function main() {
         onUnlinked: () => { hub.stop(); resolve() },
       })
     })
-    log('This hub was unlinked or removed in Till setup: showing a new code.')
+    log('This hub was unlinked or removed in Store tech: showing a new code.')
     state.phase = 'unlinked'
     c = {}
     writeConfig(c)

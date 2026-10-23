@@ -59,7 +59,7 @@ export const OPENING_AREAS = [
     about: 'Deliveroo price uplift, allergen codes and dish matches.' },
   { key: 'tax',           label: 'Tax rates',                icon: 'Percent',           modules: ['menus'],              modes: ['copy', 'skip'],
     about: 'Tax rates that differ at this location from the company\'s rates.' },
-  { key: 'till',          label: 'Till setup',               icon: 'MonitorSmartphone', modules: ['pos_setup'],          modes: ['copy', 'new', 'skip'],
+  { key: 'till',          label: 'Store tech',               icon: 'MonitorSmartphone', modules: ['pos_setup'],          modes: ['copy', 'new', 'skip'],
     about: 'Till settings, receipts, revenue streams, floor plan areas, printers and where tickets print.' },
   { key: 'kitchen',       label: 'Kitchen screens',          icon: 'ChefHat',           modules: ['pos_setup'],          modes: ['copy', 'skip'],
     about: 'Kitchen stations and kitchen flows.' },
@@ -441,8 +441,8 @@ export function previewPlan(plan, template) {
 // The page each area is set up on.
 export const AREA_LINKS = {
   hours: '/schedule', tables: '/tables', booking_rules: '/rules', website: '/website', emails: '/email-templates',
-  ordering: '/orders/settings', deliveroo: '/menus/deliveroo', tax: '/menus/tax', till: '/pos?tab=receipts',
-  kitchen: '/pos?tab=kitchen', devices: '/pos?tab=tills', cash: '/cash-recon', food_safety: '/food-safety',
+  ordering: '/orders/settings', deliveroo: '/menus/deliveroo', tax: '/menus/tax', till: '/pos/receipts',
+  kitchen: '/pos/kitchen', devices: '/pos/tills', cash: '/cash-recon', food_safety: '/food-safety',
   checklists: '/checklists', dashboards: '/hs-dashboard', purchasing: '/suppliers', staff: '/staff',
 }
 
@@ -457,12 +457,12 @@ export function buildFollowups({ plan, results, template, brief, venueName }) {
   const done = k => results?.[k]?.status === 'done'
   const name = venueName || plan.venue.name
   if (done('devices')) {
-    add('link_devices', 'On site, link each till, kitchen screen, kiosk and menu screen at ' + name + ': open the installer on a phone and type or scan the code each device shows.', '/pos?tab=tills')
+    add('link_devices', 'On site, link each till, kitchen screen, kiosk and menu screen at ' + name + ': open the installer on a phone and type or scan the code each device shows.', '/pos/tills')
   }
   if (done('devices') && (template?.links?.card_machines || (plan.devices?.kiosks || 0) > 0)) {
-    add('card_machines', 'Add the card machines at ' + name + ' (Till setup, Card machines) and pick one for each till and kiosk that takes cards (card machines aren\'t copied).', '/pos?tab=cards')
+    add('card_machines', 'Add the card machines at ' + name + ' (Store tech, Card machines) and pick one for each till and kiosk that takes cards (card machines aren\'t copied).', '/pos/cards')
   }
-  if (done('till') && plan.modes.till === 'copy') add('printers', 'Check each printer\'s network address at ' + name + ' (copied printers keep the old addresses).', '/pos?tab=printers')
+  if (done('till') && plan.modes.till === 'copy') add('printers', 'Check each printer\'s network address at ' + name + ' (copied printers keep the old addresses).', '/pos/printers')
   if (done('website')) add('website', 'Check ' + name + '\'s location page (address, words and pictures), then publish the website.', '/website')
   if (done('ordering')) {
     add('ordering', plan.opening_date

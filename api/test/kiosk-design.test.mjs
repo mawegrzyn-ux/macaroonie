@@ -1,4 +1,4 @@
-// Kiosk design options (Till setup > Kiosks > a design): the split photo
+// Kiosk design options (Store tech > Kiosks > a design): the split photo
 // switch on option groups (migration 185) and combo steps (stored only when
 // on, so a menu saved without touching it has nothing new to publish), the
 // layout options round trip, and a saved design keeps only the tenant's own

@@ -3,7 +3,7 @@
 // The till (POS) fields on the Menus page's section and dish panels:
 //   section: course (its dishes' default) and button colour
 //   dish:    kitchen name, course and colour of its own
-// Courses are company-wide (Till setup, Courses). These fields only
+// Courses are company-wide (Store tech, Courses). These fields only
 // matter on the till; the website, print and online ordering ignore them.
 // Combos (a dish's kind and steps) are edited in ComboEditor.jsx.
 // Saved with the menu (Menus.jsx's save payload lists them).
@@ -16,7 +16,7 @@ import { Field, Input } from './shared'
 
 const COLOURS = ['#2563eb', '#16a34a', '#d97706', '#dc2626', '#7c3aed', '#0891b2', '#db2777', '#4b5563']
 
-/** Company courses, or null when the person can't see Till setup. */
+/** Company courses, or null when the person can't see Store tech. */
 export function useTillCourses() {
   const api = useApi()
   const { canView } = usePermission('pos_setup')
@@ -55,7 +55,7 @@ export function SectionTillFields({ section, courses, onChange }) {
   return (
     <div className="rounded-md border p-3 space-y-3">
       <p className="text-xs font-medium">Till</p>
-      <Field label="Course" hint="Its dishes go in this course on the till unless a dish has its own. Courses are set up in Till setup.">
+      <Field label="Course" hint="Its dishes go in this course on the till unless a dish has its own. Courses are set up in Store tech.">
         <CourseSelect courses={courses} value={section.pos_course_id} onChange={v => onChange({ pos_course_id: v })} inheritLabel="No course" />
       </Field>
       <Field label="Button colour">

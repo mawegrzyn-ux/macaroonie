@@ -1,6 +1,6 @@
 // shared/pos/kitchenBench.js
 //
-// The kitchen test bench's pretend kitchen (Till setup > Kitchen screens >
+// The kitchen test bench's pretend kitchen (Store tech > Kitchen screens >
 // Test the kitchen; pos/src/kitchen/Bench.jsx). It stands in for the
 // sequencer and /pos-api for the screens on the bench page: test orders go
 // in as till checks (lines.sent, course.fired, line.voided) or online orders
@@ -178,7 +178,7 @@ export function createBench(data, { now = () => new Date().toISOString(), rng = 
   /** Put another flow in use. screen: the kitchen screen that asked, or null (the bench). Throws { status, message }. */
   function switchFlow(flowId, byName, screen = null) {
     if (screen && screen.settings?.can_switch_flow === false) {
-      throw Object.assign(new Error('This screen can\'t switch the kitchen flow: it can be allowed in Till setup, Kitchen screens'), { status: 403 })
+      throw Object.assign(new Error('This screen can\'t switch the kitchen flow: it can be allowed in Store tech, Kitchen screens'), { status: 403 })
     }
     const flow = (data.flows || []).find(f => f.id === flowId)
     if (!flow) throw Object.assign(new Error('Kitchen flow not found'), { status: 404 })

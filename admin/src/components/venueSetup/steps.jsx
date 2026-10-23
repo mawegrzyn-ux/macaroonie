@@ -719,7 +719,7 @@ export function RestStep({ o, readOnly, patch, guard, onNext, onBack, onDeepDive
         {devicesNew && (
           <div className="rounded-lg border p-3 space-y-2" data-testid="wz-devices">
             <p className="text-sm font-medium">Devices to get ready</p>
-            <p className="text-xs text-muted-foreground">Each one is linked on the day: it shows a code, someone links it from Till setup or the installer app.</p>
+            <p className="text-xs text-muted-foreground">Each one is linked on the day: it shows a code, someone links it from Store tech or the installer app.</p>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {DEVICE_FIELDS.map(([k, label]) => (
                 <label key={k} className="block">

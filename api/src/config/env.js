@@ -67,7 +67,7 @@ const schema = z.object({
 
   // Card machines on the till and kiosks (migration 193,
   // services/cardMachines/). The URLs are only changed to test against
-  // stand-in servers; keys are per tenant, saved in Till setup. Dojo gives
+  // stand-in servers; keys are per tenant, saved in Store tech. Dojo gives
   // a software house id (and a reseller id) to the till software, so those
   // two are the platform's, sent with every Dojo call when set.
   DOJO_API_URL:          z.string().url().default('https://api.dojo.tech'),
