@@ -4375,7 +4375,12 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>components/orders/shared.jsx</Mono>: OrderBoard, OrderDetailModal,
               AvailabilityModal, PauseButton, useRealtimeOrders (venue WebSocket), printTicket
               (80mm browser print). Menus.jsx sends is_orderable / vat_rate_* in its save payload;
-              VariantGroupsManager sends price_mode / min_select / max_select.
+              VariantGroupsManager sends price_mode / min_select / max_select. A base option's price comes
+              only from <Mono>basePrice()</Mono> in <Mono>shared/orderPricing.js</Mono>: empty or £0 = none, the
+              dish's own price stands (used by <Mono>priceChoiceSet()</Mono>, <Mono>fromPrice()</Mono>,{' '}
+              <Mono>priceVaries()</Mono> (only when the base prices differ), <Mono>isPriced()</Mono>,{' '}
+              <Mono>optionPriceText()</Mono>, the till's <Mono>priceChoices()</Mono> and the menu screens'{' '}
+              <Mono>dishPriceText()</Mono>).
               <Mono> components/orders/ScheduleEditor.jsx</Mono> (date range + times of day) is shared by
               Ordering setup and Promotions.
             </P>

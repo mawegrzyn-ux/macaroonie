@@ -292,7 +292,7 @@ export function VariantGroupsManager() {
               </label>
             </div>
             <p className="text-[11px] text-muted-foreground">
-              A protein or size choice: dish price, pick 1. Extras: added on top, at least 0, at most as many as allowed.
+              A protein or size choice: dish price, pick 1. An option left empty or at £0 keeps the dish's own price. Extras: added on top, at least 0, at most as many as allowed.
             </p>
             <label className="flex items-start gap-2 text-sm min-h-[40px] touch-manipulation">
               <input type="checkbox" className="mt-1" checked={!!draft.allow_repeat}

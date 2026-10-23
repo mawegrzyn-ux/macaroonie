@@ -4025,7 +4025,10 @@ export default function Help() {
               Choices come from <strong>Menus → Variant groups</strong>. Each group now says how it
               is priced and how many options a guest picks: a protein or size group is{' '}
               <strong>the dish price, pick 1</strong>; an extras group is{' '}
-              <strong>added on top, pick 0 to 3</strong> (for example).
+              <strong>added on top, pick 0 to 3</strong> (for example). In a dish-price group, an option
+              left empty or at £0 keeps the dish&apos;s own price: a flavour group with every flavour at £0 on
+              a £12.99 dish sells at £12.99 (not £0), and the menu doesn&apos;t say &quot;from&quot; unless the
+              options really change the price.
             </P>
             <P>
               The menu&apos;s own option settings (in the menu&apos;s details) apply to online ordering

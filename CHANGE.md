@@ -5,6 +5,14 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-23 — Dish-price options at £0 keep the dish price]
+
+- In an option group set to *Option price is the dish price*, an option left empty or at £0 now keeps the dish's own price everywhere (kiosk, till, online ordering, menu screens). Before, a £0 option replaced the price: 12 Wings at £12.99 with a flavour group whose flavours were £0 showed and sold at "from £0.00".
+- The menu shows "from" only when the options really change the price, and a £0 dish-price option shows no price beside it.
+- No migration.
+
+---
+
 ## [2026-10-23 — Kiosk: dishes with no price]
 
 - A dish the kiosk can't price (no price of its own, no option with a price to choose) is left off the kiosk menu, as online ordering already did. Before, it was listed and its page let guests pick options, then greyed out Add to order with no reason. It stays available as a meal deal part.

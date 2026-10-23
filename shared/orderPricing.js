@@ -50,6 +50,15 @@ export function variantRules(menu) {
 
 const isUnpriced = p => p == null || Number(p) === 0
 
+// The price a base option ("Option price is the dish price") sets, or null
+// when it sets none: an option left empty or at £0 keeps the dish's own
+// price (a flavour group with every flavour at £0 must not make the dish
+// free). Every price that reads a base option goes through this.
+export function basePrice(o) {
+  const p = o?.price_pence
+  return p == null || Number(p) === 0 ? null : Number(p)
+}
+
 export function itemChoices(item, rules = {}) {
   const keep = o => !(rules.hideUnpriced && isUnpriced(o.price_pence))
   const out = []
@@ -79,7 +88,8 @@ export function itemChoices(item, rules = {}) {
 export function optionPriceText(choice, option, money) {
   const p = option.price_pence
   if (p == null) return ''
-  if (Number(p) === 0 && (choice.mode === 'extra' || choice.hide_zero_price)) return ''
+  // A base option at £0 is the dish's own price: no price beside it.
+  if (Number(p) === 0 && (choice.mode === 'extra' || choice.mode === 'base' || choice.hide_zero_price)) return ''
   return choice.mode === 'extra' ? '+' + money(p) : money(p)
 }
 
@@ -100,7 +110,10 @@ export function fromPrice(item, choices = choicesOf(item), ctx = null) {
 // Does the price shown need "from"? Base options with a choice of price, or
 // a combo whose picks can cost extra.
 export function priceVaries(item, choices = choicesOf(item), ctx = null) {
-  if (choices.some(c => c.mode === 'base' && c.options.length > 1)) return true
+  // Only when the base options' prices differ (options at £0 or empty are
+  // the dish's own price, so a flavour group doesn't make "from").
+  const own = item.price_pence ?? null
+  if (choices.some(c => c.mode === 'base' && new Set(c.options.map(o => basePrice(o) ?? own)).size > 1)) return true
   return isCombo(item) && comboFromPrice(item, 0, ctx || {}).varies
 }
 
@@ -119,7 +132,7 @@ function ownFromPrice(item, choices) {
   for (const c of base) {
     if (c.min < 1) continue
     // A base option with no price leaves the dish at its own price.
-    const sorted = c.options.map(o => o.price_pence ?? item.price_pence ?? null)
+    const sorted = c.options.map(o => basePrice(o) ?? item.price_pence ?? null)
       .filter(p => p != null).sort((a, b) => a - b)
     const cheapest = c.repeat && sorted.length ? Array(c.min).fill(sorted[0]) : sorted.slice(0, c.min)
     if (cheapest.length < c.min) continue
@@ -137,7 +150,7 @@ function ownFromPrice(item, choices) {
 
 export function isPriced(item, choices = choicesOf(item)) {
   if (item.price_pence != null || isCombo(item)) return true
-  return choices.some(c => c.mode === 'base' && c.min >= 1 && c.options.some(o => o.price_pence != null))
+  return choices.some(c => c.mode === 'base' && c.min >= 1 && c.options.some(o => basePrice(o) != null))
 }
 
 // A set of choices: { ok, base, extras, options } or { ok: false, error }.
@@ -164,8 +177,8 @@ function priceChoiceSet(choices, picked) {
         group: c.name, label: (n > 1 ? n + ' x ' : '') + o.label,
         price_pence: o.price_pence == null ? o.price_pence : o.price_pence * n, mode: c.mode, ...(n > 1 ? { qty: n } : {}),
       })
-      // A base option with no price leaves the dish at its own price.
-      if (c.mode === 'base') { if (o.price_pence != null) base = (base ?? 0) + o.price_pence * n }
+      // A base option with no price (or £0) leaves the dish at its own price.
+      if (c.mode === 'base') { if (basePrice(o) != null) base = (base ?? 0) + basePrice(o) * n }
       else extras += (o.price_pence ?? 0) * n
     }
   }
