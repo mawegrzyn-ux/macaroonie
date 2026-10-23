@@ -1,7 +1,8 @@
 // The colour picker for builders that store a colour code (menu screen
 // boards, kiosk designs, tag colours): the tenant's website theme colours
 // as swatches first, then a custom colour (the device's own colour picker,
-// or a typed #rrggbb code).
+// or a typed #rrggbb code). Background fields can also offer See-through
+// (`clear`), stored as the word 'transparent'.
 //
 // The website builder stores theme role names instead and uses
 // ThemeColourPicker (website-builder/ThemeColourPicker.jsx), which has the
@@ -60,12 +61,32 @@ export function Swatch({ hex, label, active, onClick, disabled, size = 'sm' }) {
   )
 }
 
+export const CLEAR = 'transparent'
+
+/** A checkerboard: what a see-through colour looks like on a swatch. */
+export const CHECKER = 'repeating-conic-gradient(#d4d4d4 0% 25%, #ffffff 0% 50%) 50% / 10px 10px'
+
+/** The See-through swatch. */
+export function ClearSwatch({ active, onClick, disabled, label = 'See-through' }) {
+  return (
+    <button type="button" onClick={onClick} disabled={disabled} aria-pressed={!!active}
+      aria-label={label} title={label + ' (no colour: what is behind shows)'} data-testid="colour-clear"
+      className={cn('relative shrink-0 w-9 h-9 rounded-md border touch-manipulation flex items-center justify-center disabled:opacity-60',
+        active ? 'ring-2 ring-primary ring-offset-1' : 'hover:ring-1 hover:ring-primary/40')}
+      style={{ background: CHECKER }}>
+      {active && <Check className="w-4 h-4 text-black" />}
+    </button>
+  )
+}
+
 /**
- * @param value     '#rrggbb', or null / '' when optional and not set
+ * @param value     '#rrggbb', 'transparent' (with `clear`), or null / '' when optional and not set
  * @param optional  allow no colour (shows `placeholder` and a Reset button)
+ * @param clear     offer See-through (a background with nothing in it)
  */
-export function ColourPicker({ label, value, onChange, optional = false, placeholder = 'Not set', disabled = false, testId }) {
+export function ColourPicker({ label, value, onChange, optional = false, placeholder = 'Not set', disabled = false, clear = false, testId }) {
   const theme = useThemeColours()
+  const isClear = clear && value === CLEAR
   const [text, setText] = useState(value || '')
   const [focused, setFocused] = useState(false)
   useEffect(() => { if (!focused) setText(value || '') }, [value, focused])
@@ -74,8 +95,9 @@ export function ColourPicker({ label, value, onChange, optional = false, placeho
   return (
     <div data-testid={testId}>
       {label && <p className="text-[11px] text-muted-foreground mb-1">{label}</p>}
-      {theme.length > 0 && (
+      {(theme.length > 0 || clear) && (
         <div className="flex flex-wrap gap-1 mb-1.5" role="group" aria-label={(label ? label + ': ' : '') + 'theme colours'}>
+          {clear && <ClearSwatch active={isClear} disabled={disabled} onClick={() => onChange(CLEAR)} />}
           {theme.map(s => (
             <Swatch key={s.key} hex={s.hex} label={s.label} active={current === s.hex} disabled={disabled}
               onClick={() => onChange(s.hex)} />
@@ -89,13 +111,14 @@ export function ColourPicker({ label, value, onChange, optional = false, placeho
             aria-label={(label ? label + ': ' : '') + 'custom colour'} title="Custom colour"
             className="block w-11 h-10 rounded-md border bg-background p-1 cursor-pointer touch-manipulation disabled:cursor-default" />
         </span>
-        <input value={text} disabled={disabled} maxLength={7} spellCheck={false}
+        <input value={text} disabled={disabled} maxLength={clear ? 11 : 7} spellCheck={false}
           placeholder={optional ? placeholder : '#000000'} aria-label={(label || 'Colour') + ' code'}
           onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
           onChange={e => {
             const t = e.target.value.trim()
             setText(t)
             if (HEX.test(t)) onChange(t.toLowerCase())
+            else if (clear && t.toLowerCase() === CLEAR) onChange(CLEAR)
             else if (!t && optional) onChange(null)
           }}
           className="flex-1 min-w-0 h-10 rounded-md border bg-background px-2 text-sm font-mono touch-manipulation" />

@@ -33,6 +33,8 @@ function useDesignStyle(design) {
     return {
       '--k-bg': c.background, '--k-surface': c.surface, '--k-text': c.text, '--k-muted': c.muted,
       '--k-primary': c.primary, '--k-primary-text': c.primary_text, '--k-accent': c.accent, '--k-accent-text': c.accent_text,
+      // Pop-up sheets stay solid when the cards are See-through.
+      '--k-sheet': c.surface === 'transparent' ? c.background : c.surface,
       '--k-radius': design.brand.radius + 'px',
       '--k-font-head': kioskFontStack(design.brand.font_heading), '--k-font-body': kioskFontStack(design.brand.font_body),
     }

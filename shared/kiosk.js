@@ -117,6 +117,10 @@ export const DESIGN_COLORS = {
   accent:       '#ffc72c',
   accent_text:  '#1b1b1b',
 }
+// Colours that may be See-through ('transparent'): fills drawn on the page
+// (cards with no fill, outline buttons). The page and the words always have
+// a colour.
+export const CLEAR_COLORS = ['surface', 'primary', 'accent']
 export const COLOR_LABELS = {
   background: 'Page', surface: 'Cards', text: 'Text', muted: 'Quiet text',
   primary: 'Buttons', primary_text: 'Button text', accent: 'Highlights', accent_text: 'Highlight text',
@@ -216,7 +220,10 @@ export function normaliseDesign(raw) {
   const h = d.behaviour || {}
   const y = d.layout || {}
   const colors = {}
-  for (const [k, def] of Object.entries(DESIGN_COLORS)) colors[k] = isHex(b.colors?.[k]) ? b.colors[k].toLowerCase() : def
+  for (const [k, def] of Object.entries(DESIGN_COLORS)) {
+    const v = b.colors?.[k]
+    colors[k] = isHex(v) ? v.toLowerCase() : v === 'transparent' && CLEAR_COLORS.includes(k) ? v : def
+  }
   const source = oneOf(l.source, LANG_CODES, 'en')
   const enabled = [...new Set([source, ...asList(l.enabled).filter(x => LANG_CODES.includes(x))])]
   const tiles = oneOf(y.tiles, TILE_STYLES, 'cards')

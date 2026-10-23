@@ -29,7 +29,7 @@ import { kioskBrandFromKit } from '@shared/themeKit.js'
 import { ThemeMakerButton } from '@/components/themes/ThemeMaker'
 import {
   normaliseDesign, designProblems, KIOSK_FONTS, KIOSK_EXTRA_FONTS, SYSTEM_FONT, COLOR_LABELS,
-  DESIGN_COLORS, KIOSK_LANGUAGES, DISPLAY_LABELS, KIOSK_DISPLAYS, uiText, TILE_STYLES, TILE_LABELS,
+  DESIGN_COLORS, CLEAR_COLORS, KIOSK_LANGUAGES, DISPLAY_LABELS, KIOSK_DISPLAYS, uiText, TILE_STYLES, TILE_LABELS,
 } from '@shared/kiosk.js'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -143,7 +143,7 @@ function ImagePick({ value, onChange, label = 'picture', contain, testId }) {
 }
 
 function ColourRow({ name, label, value, onChange }) {
-  return <ColourPicker label={label} value={value} onChange={onChange} testId={'kd-colour-' + name} />
+  return <ColourPicker label={label} value={value} onChange={onChange} clear={CLEAR_COLORS.includes(name)} testId={'kd-colour-' + name} />
 }
 
 // The website theme as a starting set: its colours, with black or white
@@ -242,8 +242,15 @@ function Note({ children, tone = 'muted' }) {
 
 // ── Panels ──────────────────────────────────────────────────────
 
+// A See-through colour reads as whatever is behind it: the page.
+function solidColours(colors) {
+  const out = { ...colors }
+  for (const k of CLEAR_COLORS) if (out[k] === 'transparent') out[k] = out.background
+  return out
+}
+
 function BrandPanel({ d, set }) {
-  const c = d.brand.colors
+  const c = solidColours(d.brand.colors)
   const poor = CONTRAST_PAIRS.filter(([a, b]) => contrast(c[a], c[b]) < 3)
   const theme = useThemeColours()
   const sets = useMemo(() => [websiteColours(theme), ...PRESETS].filter(Boolean), [theme])
@@ -273,7 +280,7 @@ function BrandPanel({ d, set }) {
         </div>
         <div className="space-y-3">
           {Object.keys(DESIGN_COLORS).map(k => (
-            <ColourRow key={k} name={k} label={COLOR_LABELS[k]} value={c[k]}
+            <ColourRow key={k} name={k} label={COLOR_LABELS[k]} value={d.brand.colors[k]}
               onChange={v => set('brand', b => ({ colors: { ...b.colors, [k]: v } }))} />
           ))}
         </div>
