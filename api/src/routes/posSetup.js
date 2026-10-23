@@ -73,7 +73,7 @@ import {
 import { reconFields } from '../services/reconFill.js'
 import {
   stationSettings, flowProblems, flowWarnings, boxProblems, resolveSharedFlow, shareFlow, flowName,
-  STATION_KINDS, FLOW_TARGET_KINDS, BUMP_KINDS, NAMED_TARGET_KINDS, KIND_LABELS,
+  STATION_KINDS, FLOW_TARGET_KINDS, BUMP_KINDS, NAMED_TARGET_KINDS, KIND_LABELS, SLEEP_MINS_MAX,
 } from '../../../shared/pos/kitchen.js'
 import { deviceOrigin, installerOrigin } from '../services/platformHost.js'
 import { linkCodeHash } from '../services/linkCodes.js'
@@ -227,12 +227,14 @@ const StationSettings = z.object({
     name:    z.string().trim().min(1).max(40),
     members: z.array(SummaryMember).max(60).default([]),
   })).max(12).default([]),
-  // A Balance box's pieces (migration 183): what a dish counts when it
-  // shares tickets between stations (a dish counts its quantity otherwise).
+  // A Splitter's pieces (kind 'balance', migration 183): what a dish counts
+  // when it shares tickets between stations (a dish counts its quantity otherwise).
   pieces: z.array(SummaryMember).max(60).default([]),
-  // A Balance box's big tickets: null keeps each ticket on one station; N
+  // A Splitter's big tickets: null keeps each ticket on one station; N
   // shares a ticket's dishes between them when more than N pieces reach it.
   split_above: z.number().int().min(0).max(999).nullable().default(null),
+  // A Sleeper (migration 200): how long it holds the dishes that reach it.
+  delay_mins: z.number().int().min(1).max(SLEEP_MINS_MAX).default(5),
   // A kitchen printer box (migration 191): the printer its dishes print on.
   printer_id: UUID.nullable().optional(),
 }).refine(s => s.late_mins >= s.target_mins, { message: 'Late must be the same as or after the target time', path: ['late_mins'] })
@@ -528,7 +530,7 @@ async function checkPrinterDevice(tx, tenantId, venueId, body) {
   return { deviceId: d.id, localId: body.local_id }
 }
 
-/** A Balance box's pieces name the tenant's own dishes. */
+/** A Splitter's pieces name the tenant's own dishes. */
 async function checkPieces(tx, tenantId, settings) {
   const ids = [...new Set((settings.pieces || []).filter(m => m.kind === 'dish').map(m => m.id).filter(Boolean))]
   if (!ids.length) return
@@ -538,7 +540,7 @@ async function checkPieces(tx, tenantId, settings) {
 }
 
 /**
- * A station that is (now) a Balance box: off every kitchen screen, and its
+ * A station that is (now) a Splitter: off every kitchen screen, and its
  * links out of every flow go only to stations that bump, with no filters.
  */
 async function tidyBalanceBox(tx, tenantId, venueId, stationId) {
@@ -911,7 +913,7 @@ export default async function posSetupRoutes(app) {
     if (s.station_ids?.length) {
       const ids = [...new Set(s.station_ids)]
       const found = await tx`SELECT id FROM kds_stations WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND kind = ANY(${BUMP_KINDS}) AND id = ANY(${ids}::uuid[])`
-      if (found.length !== ids.length) throw httpError(422, 'Kitchen station not found (order ready boards and Balance boxes aren\'t shown on a kitchen screen)')
+      if (found.length !== ids.length) throw httpError(422, 'Kitchen station not found (order ready boards, Splitters and Sleepers aren\'t shown on a kitchen screen)')
     }
     if (s.design_id) await checkDesign(tx, tenantId, s.design_id)
     if (s.card_reader && s.card_reader !== 'none') {
@@ -1223,9 +1225,9 @@ export default async function posSetupRoutes(app) {
         await dropDeviceStation(tx, req.tenantId, s.venue_id, id)
       }
       if (body.kind === 'balance') await tidyBalanceBox(tx, req.tenantId, s.venue_id, id)
-      // A kitchen printer isn't on any kitchen screen.
-      if (body.kind === 'printer') await dropDeviceStation(tx, req.tenantId, s.venue_id, id)
-      // Stations that stop bumping can't take a Balance box's dishes.
+      // A kitchen printer and a Sleeper aren't on any kitchen screen.
+      if (body.kind === 'printer' || body.kind === 'sleeper') await dropDeviceStation(tx, req.tenantId, s.venue_id, id)
+      // Stations that stop bumping can't take a Splitter's dishes.
       if (!BUMP_KINDS.includes(body.kind)) {
         await tx`
           DELETE FROM kds_flow_edges e USING kds_stations b

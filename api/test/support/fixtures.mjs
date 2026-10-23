@@ -290,8 +290,10 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx' } = 
   const station = await step('kitchen station', () => post(`/api/pos/venues/${V}/kds-stations`, { name: mark + ' Wok', kind: 'prep' }))
   // A kitchen printer in the flow (migration 191).
   const printerBox = printer ? await step('kitchen printer box', () => post(`/api/pos/venues/${V}/kds-stations`, { name: mark + ' Ticket printer', kind: 'printer', settings: { printer_id: printer.id } })) : null
-  // A Balance box (migration 183) whose pieces name one of the tenant's dishes.
+  // A Splitter (kind balance, migration 183) whose pieces name one of the tenant's dishes.
   if (dish) await step('balance box', () => post(`/api/pos/venues/${V}/kds-stations`, { name: mark + ' Wings', kind: 'balance', settings: { pieces: [{ kind: 'dish', id: dish.id, label: dish.name, qty: 8 }] } }))
+  // A Sleeper (migration 200): holds dishes for its minutes.
+  await step('sleeper', () => post(`/api/pos/venues/${V}/kds-stations`, { name: mark + ' Delivery wait', kind: 'sleeper', settings: { delay_mins: 10 } }))
   // Kitchen flows (migration 177): the first comes with the setup page; a
   // second copied from it, renamed, put first and in use.
   const tillSetup = station ? await step('till setup', () => get(`/api/pos/venues/${V}/setup`)) : null

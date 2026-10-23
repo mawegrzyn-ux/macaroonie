@@ -28,7 +28,7 @@
 // worked out and kept on the item, so a flow changed during service only
 // affects dishes sent after the change.
 //
-// A Balance box (station kind 'balance', migration 183) shares work between
+// A Splitter (station kind 'balance', migration 183) shares work between
 // the stations it links to: each ticket's dishes that reach it go on to just
 // one of them, the one with the fewest pieces still to cook there (the box's
 // pieces list, like On order counts: an 8pc dish counts 8, a "10 Wings"
@@ -40,6 +40,16 @@
 // and the box then drops out of the dish's way, so nothing after that knows
 // it was there. The sequencer passes the open kitchen orders and the box's
 // last pick in cfg.balance; without them every station counts as empty.
+//
+// A Sleeper (station kind 'sleeper', migration 200) holds the dishes that
+// reach it for settings.delay_mins, then passes them on by itself: nobody
+// bumps it. Which dishes it holds is decided by the links into it, like any
+// station (a filter by order type, revenue stream, till, dish, section, or
+// none for every dish). Its wait counts from when a dish reaches it, so its
+// clock needs `at`: flowTimes() counts it done only once the time has come.
+// Expo's Bump (or an order set ready from outside) wakes it at once, and a
+// remade dish doesn't wait at a Sleeper it has already been through
+// (item.slept).
 //
 // A dish reaches a station when every station before it on its way has done
 // it, and is done there when that station bumps it. Expo and runner stations
@@ -75,15 +85,21 @@ export const KITCHEN_CHECK_EVENTS = [
 
 // Station kinds. prep: makes dishes; expo: checks whole orders (the pass);
 // runner: takes orders out; board: an order ready board (no bumping);
-// balance: a Balance box in the flow (shares tickets between the stations it
+// balance: a Splitter in the flow (shares tickets between the stations it
 // links to; no screen, nothing to bump); printer: a kitchen printer
-// (settings.printer_id; dishes reaching it print there, kitchenPrint.js).
-export const STATION_KINDS = ['prep', 'expo', 'runner', 'board', 'balance', 'printer']
-export const KIND_LABELS = { prep: 'Prep station', expo: 'Expo (pass)', runner: 'Runner', board: 'Order ready board', balance: 'Balance box', printer: 'Kitchen printer' }
+// (settings.printer_id; dishes reaching it print there, kitchenPrint.js);
+// sleeper: a Sleeper (holds dishes settings.delay_mins, then passes them on).
+export const STATION_KINDS = ['prep', 'expo', 'runner', 'board', 'balance', 'printer', 'sleeper']
+export const KIND_LABELS = { prep: 'Prep station', expo: 'Expo (pass)', runner: 'Runner', board: 'Order ready board', balance: 'Splitter', printer: 'Kitchen printer', sleeper: 'Sleeper' }
 export const BUMP_KINDS = ['prep', 'expo', 'runner']
 export const isBumpKind = kind => BUMP_KINDS.includes(kind)
-// Nodes nobody bumps: done as soon as a dish reaches them.
-const noBump = kind => kind === 'board' || kind === 'balance' || kind === 'printer'
+// Nodes nobody bumps: done as soon as a dish reaches them (a Sleeper: once
+// its wait is over, flowTimes()).
+const noBump = kind => kind === 'board' || kind === 'balance' || kind === 'printer' || kind === 'sleeper'
+const isSleeper = (cfg, id) => cfg?.stations?.[id]?.kind === 'sleeper'
+export const SLEEP_MINS_MAX = 240
+/** How long a Sleeper holds a dish, in ms. */
+const sleepMs = (cfg, id) => Math.min(SLEEP_MINS_MAX, Math.max(0, Number(cfg?.stations?.[id]?.settings?.delay_mins) || 0)) * 60_000
 export const isOrderLevel = st => st?.kind === 'expo' || st?.kind === 'runner'
 
 // Where an item comes from before its first station.
@@ -94,7 +110,7 @@ export const FLOW_TARGET_KINDS = ['item', 'section', 'device', 'revenue_stream',
 // its revenue stream (a stream groups tills).
 const RANK = { item: 0, section: 1, device: 2, revenue_stream: 3, order_type: 4, default: 5 }
 
-export const STATION_DEFAULTS = { target_mins: 8, late_mins: 12, show_held: true, summary_groups: [], pieces: [], split_above: null }
+export const STATION_DEFAULTS = { target_mins: 8, late_mins: 12, show_held: true, summary_groups: [], pieces: [], split_above: null, delay_mins: 5 }
 
 // Kitchen orders older than this drop off the screens even if nobody bumped
 // them (a table left open overnight, a test order).
@@ -329,11 +345,11 @@ function ancestors(route, node) {
   return [...out]
 }
 
-// ── Balance boxes ──────────────────────────────────────────────
+// ── Splitters ──────────────────────────────────────────────
 
 const lower = s => String(s || '').trim().toLowerCase()
 
-/** How many a list of dish / option members counts in some dishes (On order counts, Balance box pieces). */
+/** How many a list of dish / option members counts in some dishes (On order counts, Splitter pieces). */
 function memberCount(units, members, qty) {
   let count = 0
   for (const u of units) {
@@ -348,7 +364,7 @@ function memberCount(units, members, qty) {
   return count
 }
 
-/** The stations a Balance box shares between, in station order. */
+/** The stations a Splitter shares between, in station order. */
 export function balanceOutputs(boxId, cfg) {
   const order = Object.keys(cfg.stations || {})
   const outs = new Set((cfg.flow || []).filter(l => l.from === boxId && isBumpKind(cfg.stations?.[l.to]?.kind)).map(l => l.to))
@@ -378,7 +394,7 @@ export function stationLoad(orders, stationId, members, cfg, at) {
   return load
 }
 
-/** The Balance boxes in a flow, upstream ones first. */
+/** The Splitters in a flow, upstream ones first. */
 function flowBoxes(cfg) {
   const graph = {}
   for (const l of cfg.flow || []) {
@@ -389,7 +405,7 @@ function flowBoxes(cfg) {
   return routeOrder(graph).filter(id => cfg.stations?.[id]?.kind === 'balance')
 }
 
-/** The pieces one part of a ticket counts at a Balance box (a dish its quantity when no piece names it). */
+/** The pieces one part of a ticket counts at a Splitter (a dish its quantity when no piece names it). */
 function unitPieces(u, members) {
   const qty = Number(u.item.qty) || 0
   const units = [u.part ? { item_id: u.part.item_id, mods: u.part.mods } : { item_id: u.item.item_id, mods: u.item.mods }]
@@ -399,7 +415,7 @@ function unitPieces(u, members) {
 }
 
 /**
- * Decides every Balance box on a ticket's dishes (the dishes sent or fired
+ * Decides every Splitter on a ticket's dishes (the dishes sent or fired
  * together; held ones are left for course.fired), changing their ways in
  * place. Each box sends what reaches it to the station with the fewest pieces
  * still to cook (stationLoad over cfg.balance.open), a tie going to the first
@@ -473,7 +489,7 @@ export function balanceTicket(items, cfg, at) {
   }
 }
 
-/** A dish's way with a Balance box taken out: its dishes go on to `to` only. */
+/** A dish's way with a Splitter taken out: its dishes go on to `to` only. */
 function collapseBalance(route, box, to) {
   const out = {}
   for (const [n, preds] of Object.entries(route)) if (n !== box) out[n] = [...preds]
@@ -497,12 +513,12 @@ function collapseBalance(route, box, to) {
   return out
 }
 
-/** Does this way still go through a Balance box (a held course not fired yet)? */
+/** Does this way still go through a Splitter (a held course not fired yet)? */
 export function routeHasBalance(route, cfg) {
   return Object.keys(route || {}).some(id => cfg.stations?.[id]?.kind === 'balance')
 }
 
-/** A dish's way with every Balance box on it decided (`pick(boxId)` -> station id | null). */
+/** A dish's way with every Splitter on it decided (`pick(boxId)` -> station id | null). */
 export function resolveBalances(route, cfg, pick) {
   let r = route
   for (let n = 0; n < 20; n++) {
@@ -577,6 +593,10 @@ export function flowWarnings(stations, links) {
     }
   }
   for (const s of live) if (!reach.has(s.id)) out.push(s.name + ' isn\'t on the way of any dish.')
+  for (const s of live) {
+    if (s.kind !== 'sleeper') continue
+    if (!(links || []).some(l => l.from === s.id)) out.push(s.name + ' holds dishes but sends them nowhere: link it to the stations they go to next.')
+  }
   for (const s of live) {
     if (s.kind !== 'balance') continue
     const outs = new Set((links || []).filter(l => l.from === s.id).map(l => l.to))
@@ -737,7 +757,7 @@ function newOrder(fields, at) {
 
 function itemFromLine(line, check, cfg, at, held, type, deviceId) {
   const rs = line.revenue_stream_id ?? check.revenue_stream_id
-  // Balance boxes stay on the way until balanceTicket() decides them. The
+  // Splitters stay on the way until balanceTicket() decides them. The
   // till or kiosk that sends the dish counts for links filtered by device.
   const way = target => itemRoute({ ...target, device_id: deviceId || null }, cfg)
   let parts = null
@@ -805,7 +825,11 @@ export function liveSince(item) {
  * When a dish reached / was done at each node of its way.
  *   arrived(id)  every node before it done (or Orders in: fired), else null
  *   done(id)     bumped there; a board is done when reached; a station no
- *                longer in the flow is passed straight through
+ *                longer in the flow is passed straight through; a Sleeper
+ *                is done its delay after the dish reached it, once `at` is
+ *                that late (null before, and with no `at`)
+ *   wakes(id)    a Sleeper: when the dish leaves it (arrived + delay), even
+ *                if that is still to come; null elsewhere or not reached
  */
 export function flowTimes(item, cfg, at) {
   const route = item.route || {}
@@ -822,18 +846,33 @@ export function flowTimes(item, cfg, at) {
     }
     return later(t, item.reset?.[id] || null)
   }
+  const wakes = (id, n = 0) => {
+    const a = arrived(id, n)
+    if (!a) return null
+    if (item.slept?.[id]) return a
+    return new Date(ms(a) + sleepMs(cfg, id)).toISOString()
+  }
   const done = (id, n = 0) => {
     if (item.done?.[id]) return item.done[id]
+    if (!gone(id) && isSleeper(cfg, id)) {
+      const w = wakes(id, n)
+      return w && at && ms(w) <= ms(at) ? w : null
+    }
     if (gone(id) || noBump(cfg?.stations?.[id]?.kind)) return arrived(id, n)
     return null
   }
-  return { arrived: id => arrived(id), done: id => done(id) }
+  return {
+    arrived: id => arrived(id),
+    done: id => done(id),
+    wakes: id => (isSleeper(cfg, id) && !gone(id) ? wakes(id) : null),
+  }
 }
 
 /**
  * An item's state at one node:
  *   'voided' | 'held' (course not fired / order for later) | 'upcoming'
- *   (still at an earlier station) | 'active' | 'done' | null (not on its way)
+ *   (still at an earlier station) | 'active' | 'done' | 'sleeping' (a
+ *   Sleeper holding it now) | null (not on its way)
  */
 export function nodeState(item, nodeId, cfg, at) {
   if (!item.route?.[nodeId]) return null
@@ -841,6 +880,7 @@ export function nodeState(item, nodeId, cfg, at) {
   if (!isFired(item, at)) return 'held'
   const f = flowTimes(item, cfg, at)
   if (item.done?.[nodeId]) return 'done'
+  if (isSleeper(cfg, nodeId) && f.arrived(nodeId)) return f.done(nodeId) ? 'done' : 'sleeping'
   if (f.arrived(nodeId)) return noBump(cfg?.stations?.[nodeId]?.kind) ? 'done' : 'active'
   return 'upcoming'
 }
@@ -850,12 +890,36 @@ export function itemState(item, station, at, cfg) {
   return nodeState(item, station?.id, cfg, at)
 }
 
-/** The stations a dish is waiting at now (reached, not done; boards left out). */
+/** The stations a dish is waiting at now (reached, not done; boards left out, Sleepers holding it in). */
 export function itemWhere(item, cfg, at) {
   if (item.voided_at || !isFired(item, at)) return []
   const f = flowTimes(item, cfg, at)
   return Object.keys(item.route || {}).filter(id =>
-    cfg?.stations?.[id] && !noBump(cfg.stations[id].kind) && f.arrived(id) && !f.done(id))
+    cfg?.stations?.[id] && (!noBump(cfg.stations[id].kind) || isSleeper(cfg, id)) && f.arrived(id) && !f.done(id))
+}
+
+/** The Sleepers holding a dish now: [{ station_id, until }]. */
+export function itemSleeps(item, cfg, at) {
+  if (item.voided_at || !isFired(item, at)) return []
+  const f = flowTimes(item, cfg, at)
+  return Object.keys(item.route || {})
+    .filter(id => isSleeper(cfg, id) && f.arrived(id) && !f.done(id))
+    .map(id => ({ station_id: id, until: f.wakes(id) }))
+}
+
+/**
+ * When a dish's work can start: when it first reached a station that makes
+ * or checks dishes. Without a Sleeper on its way that is when it was fired
+ * (liveSince); a dish a Sleeper still holds starts when it wakes (a time
+ * still to come).
+ */
+export function workSince(item, cfg, at) {
+  const ids = Object.keys(item.route || {})
+  if (!ids.some(id => isSleeper(cfg, id))) return liveSince(item)
+  const f = flowTimes(item, cfg, at)
+  return minTime(ids.filter(id => isBumpKind(cfg?.stations?.[id]?.kind)).map(id => f.arrived(id)))
+    || minTime(ids.map(id => f.wakes(id)).filter(w => w && (!at || ms(w) > ms(at))))
+    || liveSince(item)
 }
 
 const liveItems = o => o.items.filter(i => !i.voided_at)
@@ -986,7 +1050,7 @@ export function kitchenForCheckEvent(e, before = {}, after = {}, orders = {}, cf
         o.items.push(item)
         sent.push(item)
       }
-      // Balance boxes for what goes now; a held course keeps its boxes until it's fired.
+      // Splitters for what goes now; a held course keeps its boxes until it's fired.
       balanceTicket(sent.filter(i => i.fired_at), cfg, at)
       if (hadItems) o.changed_at = at
       refreshStatus(o, cfg, at, e.id)
@@ -1006,7 +1070,7 @@ export function kitchenForCheckEvent(e, before = {}, after = {}, orders = {}, cf
         }
       }
       if (!fired.length) return {}
-      // Balance boxes on the course's way are decided now, with the kitchen as it is.
+      // Splitters on the course's way are decided now, with the kitchen as it is.
       balanceTicket(fired, cfg, at)
       o.changed_at = at
       refreshStatus(o, cfg, at, e.id)
@@ -1110,7 +1174,7 @@ function qtyOf(items) {
  *  elsewhere: when the dishes reached it). */
 function startedAt(items, station, cfg, at) {
   const times = items.map(i => {
-    if (station.kind === 'expo') return liveSince(i)
+    if (station.kind === 'expo') return workSince(i, cfg, at)
     return flowTimes(i, cfg, at).arrived(station.id) || liveSince(i)
   }).map(ms).filter(Number.isFinite)
   return times.length ? new Date(Math.min(...times)).toISOString() : at
@@ -1167,7 +1231,7 @@ export function applyKitchenEvent(orders, e, cfg = {}) {
       promised_at: src.promised_at || null, note: src.note || null, allergy: src.allergy || null,
     }, at)
     o.items = src.items.map(i => itemFromOnline(i, cfg, at, fireAt, src.type))
-    // Balance boxes are decided as the order comes in, an order for later too.
+    // Splitters are decided as the order comes in, an order for later too.
     balanceTicket(o.items, cfg, at)
     refreshStatus(o, cfg, at, e.id)
     touch(o, at)
@@ -1180,7 +1244,8 @@ export function applyKitchenEvent(orders, e, cfg = {}) {
   const station = p.station_id ? cfg.stations?.[p.station_id] : null
   if (p.station_id && !station) return fail('Kitchen station not found', 'station')
   if (station && station.kind === 'board') return fail('An order ready board has nothing to bump', 'station')
-  if (station && station.kind === 'balance') return fail('A Balance box has nothing to bump', 'station')
+  if (station && station.kind === 'balance') return fail('A Splitter has nothing to bump', 'station')
+  if (station && station.kind === 'sleeper') return fail('A Sleeper passes dishes on by itself: nothing to bump', 'station')
   const st = station ? stationSettings(station) : null
 
   switch (e.type) {
@@ -1292,6 +1357,10 @@ export function applyKitchenEvent(orders, e, cfg = {}) {
       if (item.voided_at) return fail('This dish was voided', 'voided')
       if (!isFired(item, at)) return fail('This dish hasn\'t been fired yet', 'held')
       if (!item.route?.[station.id]) return fail('This dish doesn\'t come to ' + station.name, 'station')
+      // A remade dish doesn't wait at a Sleeper it has already been through.
+      const f = flowTimes(item, cfg, at)
+      const slept = Object.keys(item.route).filter(n => isSleeper(cfg, n) && f.done(n))
+      if (slept.length) item.slept = { ...(item.slept || {}), ...Object.fromEntries(slept.map(n => [n, at])) }
       if (isOrderLevel(station)) {
         // From the pass or a runner: made again from the start of its way.
         item.done = {}
@@ -1325,7 +1394,7 @@ export function applyKitchenEvent(orders, e, cfg = {}) {
       if (o.status === p.status) return fail('No change', 'nothing')
       const finishAll = () => {
         for (const i of o.items) if (!i.fired_at && !i.voided_at) { i.fired_at = at; i.since = i.since || at }
-        for (const i of liveItems(o)) for (const n of Object.keys(i.route || {})) if (!i.done[n] && !noBump(kindOf(cfg, n))) i.done[n] = at
+        for (const i of liveItems(o)) for (const n of Object.keys(i.route || {})) if (!i.done[n] && (!noBump(kindOf(cfg, n)) || isSleeper(cfg, n))) i.done[n] = at
       }
       if (p.status === 'cancelled') {
         o.status = 'cancelled'
@@ -1394,7 +1463,8 @@ export function stationTickets(orders, station, now, cfg) {
       return {
         ...i, state,
         entry,
-        where: state === 'upcoming' ? itemWhere(i, cfg, now) : [],
+        where: state === 'upcoming' ? itemWhere(i, cfg, now).filter(id => !isSleeper(cfg, id)) : [],
+        sleeps: state === 'upcoming' ? itemSleeps(i, cfg, now) : [],
         from: (i.route[station.id] || []).filter(x => x !== START),
         next: routeNext(i.route, station.id),
         parts: i.parts ? (orderLevel ? i.parts : i.parts.filter(pt => pt.route?.[station.id])) : null,
@@ -1409,10 +1479,15 @@ export function stationTickets(orders, station, now, cfg) {
       if (i.state === 'held') return st.show_held && (i.entry || orderLevel)
       return true
     })
-    // The pass times the whole order; other stations from when dishes reached them.
+    // The pass times the whole order; other stations from when dishes reached
+    // them. Dishes a Sleeper holds count from when they wake.
     const since = station.kind === 'expo'
-      ? minTime(view.filter(i => ['active', 'upcoming', 'done'].includes(i.state)).map(liveSince))
-      : minTime(active.map(i => flowTimes(i, cfg, now).arrived(station.id))) || minTime(upcoming.map(liveSince))
+      ? minTime(view.filter(i => ['active', 'upcoming', 'done'].includes(i.state)).map(i => workSince(i, cfg, now)))
+      : minTime(active.map(i => flowTimes(i, cfg, now).arrived(station.id))) || minTime(upcoming.map(i => workSince(i, cfg, now)))
+    // Nothing to do here yet but dishes still asleep: when the first wakes.
+    const asleep = upcoming.filter(i => i.sleeps.length)
+    const sleeping_until = !active.length && asleep.length && asleep.length === upcoming.length
+      ? minTime(asleep.flatMap(i => i.sleeps.map(x => x.until))) : null
     let elsewhere = []
     if (orderLevel) {
       const counts = new Map()
@@ -1430,6 +1505,7 @@ export function stationTickets(orders, station, now, cfg) {
       held: items.filter(i => i.state === 'held').length,
       voids: voids.length,
       upcoming: upcoming.length,
+      sleeping_until,
       elsewhere,
     })
   }

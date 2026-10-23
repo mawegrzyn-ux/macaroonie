@@ -27,13 +27,14 @@ import { deviceUrl, InstallerLine, status, ShownCodeField, LinkDeviceModal, Link
 import { STATION_KINDS, KIND_LABELS, isBumpKind } from '@shared/pos/kitchen.js'
 import { TYPE_LABELS as GF_TYPE_LABELS } from '@shared/gloriafood.js'
 
-const KINDS = STATION_KINDS.map(k => ({ value: k, label: { prep: 'Prep', expo: 'Expo (pass)', runner: 'Runner', board: 'Order ready board', balance: 'Balance box', printer: 'Kitchen printer' }[k] }))
+const KINDS = STATION_KINDS.map(k => ({ value: k, label: { prep: 'Prep', expo: 'Expo (pass)', runner: 'Runner', board: 'Order ready board', balance: 'Splitter', printer: 'Kitchen printer', sleeper: 'Sleeper' }[k] }))
 const KIND_HINTS = {
   prep: 'Makes dishes (Grill, Fryer, Bar...). Its bump sends them on to the next station in the kitchen flow.',
   expo: 'Checks whole orders before they go out (the pass). Its bump marks the order ready, and finishes dishes still at earlier stations.',
   runner: 'Takes orders out to tables or the counter. Last on a dish\'s way, its bump hands the order over.',
   board: 'An order ready board: shows order numbers on menu screens (Order status block). An order is ready there once every dish on its way to the board has arrived. Nothing to bump, no kitchen screen.',
   balance: 'Shares tickets between the stations it links to in the kitchen flow (e.g. two wingmen): each ticket\'s dishes that reach it go to the one with the fewest pieces still to cook, taking turns when they\'re level (big tickets can be shared out too). Nothing to bump, no kitchen screen.',
+  sleeper: 'Holds the dishes that reach it for a set time, then sends them on by itself (e.g. delivery orders wait 10 minutes before the grill starts). Which dishes it holds is decided by the links into it in the kitchen flow: filter them by order type, revenue stream, till, dish or section, or leave them open for every dish. Nothing to bump, no kitchen screen; the pass\'s Bump sends them on at once.',
   printer: 'Prints a ticket of the dishes that reach it in the kitchen flow, once: straight from Orders in when they are sent (held courses as HOLD, then FIRE), or after a kitchen screen when it bumps them. Nothing to bump; it can go on to a kitchen screen. Dishes that only reach printers count as done there.',
 }
 const VIEWS = [
@@ -187,7 +188,7 @@ function ScreensCard({ venueId, setup }) {
 
 // ── Stations ─────────────────────────────────────────────────────
 
-/** Dishes and options with what each counts (On order counts groups, a Balance box's pieces). */
+/** Dishes and options with what each counts (On order counts groups, a Splitter's pieces). */
 function MembersEditor({ setup, members, onChange }) {
   const [search, setSearch] = useState('')
   const q = search.trim().toLowerCase()
@@ -266,6 +267,7 @@ export function StationModal({ venueId, setup, station, kind: newKind, onClose }
     summary_groups: s.summary_groups || [], pieces: s.pieces || [], is_active: station ? station.is_active : true,
     share: s.split_above != null, split_above: s.split_above ?? 20,
     printer_id: s.printer_id || '',
+    delay_mins: s.delay_mins ?? 5,
   })
   const [upcomingSet, setUpcomingSet] = useState(!!station)
   const set = patch => setForm(f => ({ ...f, ...patch }))
@@ -273,6 +275,7 @@ export function StationModal({ venueId, setup, station, kind: newKind, onClose }
   const board = form.kind === 'board'
   const balance = form.kind === 'balance'
   const printerBox = form.kind === 'printer'
+  const sleeper = form.kind === 'sleeper'
   const orderLevel = form.kind === 'expo' || form.kind === 'runner'
   const refresh = () => qc.invalidateQueries({ queryKey: ['pos-setup', venueId] })
   const body = () => ({
@@ -284,6 +287,7 @@ export function StationModal({ venueId, setup, station, kind: newKind, onClose }
       pieces: balance ? form.pieces : [],
       split_above: balance && form.share ? (form.split_above ?? 20) : null,
       ...(printerBox ? { printer_id: form.printer_id || null } : {}),
+      ...(sleeper ? { delay_mins: Math.min(240, Math.max(1, form.delay_mins || 5)) } : {}),
     },
   })
   const save = useMutation({
@@ -301,7 +305,7 @@ export function StationModal({ venueId, setup, station, kind: newKind, onClose }
       </>}>
       <Field label="Name" hint={board ? 'Menu screens pick a board by this name, so call it the same at every venue (e.g. ORB 1).' : undefined}>
         <input className={inputCls} value={form.name} maxLength={40} onChange={e => set({ name: e.target.value })}
-          placeholder={board ? 'e.g. ORB 1' : balance ? 'e.g. Wings' : printerBox ? 'e.g. Grill tickets' : form.kind === 'expo' ? 'e.g. Expo 1, Pass' : form.kind === 'runner' ? 'e.g. Runner' : 'e.g. Grill, Fryer, Prep 1'} />
+          placeholder={board ? 'e.g. ORB 1' : balance ? 'e.g. Wings' : sleeper ? 'e.g. Delivery wait' : printerBox ? 'e.g. Grill tickets' : form.kind === 'expo' ? 'e.g. Expo 1, Pass' : form.kind === 'runner' ? 'e.g. Runner' : 'e.g. Grill, Fryer, Prep 1'} />
       </Field>
       <Field group label="Kind" hint={KIND_HINTS[form.kind]}>
         <Segmented value={form.kind} options={KINDS} onChange={setKind} className="flex-wrap" />
@@ -338,11 +342,19 @@ export function StationModal({ venueId, setup, station, kind: newKind, onClose }
           </select>
         </Field>
       )}
+      {sleeper && (
+        <Field label="Hold dishes for (minutes)" hint="Counted from when a dish reaches it. 1 to 240 minutes. Use one Sleeper per wait: a 10 minute and a 20 minute wait are two boxes.">
+          <NumberBox value={form.delay_mins} min={1} max={240} onChange={v => set({ delay_mins: v })} ariaLabel="Hold dishes for minutes" />
+        </Field>
+      )}
       {printerBox && !form.printer_id && <p className="text-xs text-amber-700">Until a printer is picked, nothing prints here.</p>}
       {balance && station?.kind && station.kind !== 'balance' && (
-        <p className="text-xs text-amber-700">As a Balance box it leaves the kitchen screens, and its links out of every flow lose their filters (links to boards go).</p>
+        <p className="text-xs text-amber-700">As a Splitter it leaves the kitchen screens, and its links out of every flow lose their filters (links to boards go).</p>
       )}
-      {!board && !balance && !printerBox && <>
+      {sleeper && station?.kind && station.kind !== 'sleeper' && (
+        <p className="text-xs text-amber-700">As a Sleeper it leaves the kitchen screens, and links into it from a Splitter go.</p>
+      )}
+      {!board && !balance && !printerBox && !sleeper && <>
       <div className="flex flex-wrap gap-4">
         <Field label="Amber after (minutes)" hint="And the on-time target.">
           <NumberBox value={form.target_mins} min={1} max={120} onChange={v => set({ target_mins: v })} ariaLabel="Amber after minutes" />
@@ -379,7 +391,7 @@ function StationsCard({ venueId, setup, onEdit }) {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-setup', venueId] }),
   })
   return (
-    <Section title="Stations" hint="Prep stations make dishes, the expo checks orders before they go out, runners take them out, order ready boards show the numbers, Balance boxes share tickets between stations. The order here is the order of the tabs on a kitchen screen. With no expo, an order is ready once every station on its dishes' way has bumped it."
+    <Section title="Stations" hint="Prep stations make dishes, the expo checks orders before they go out, runners take them out, order ready boards show the numbers, Splitters share tickets between stations, Sleepers hold dishes for a set time. The order here is the order of the tabs on a kitchen screen. With no expo, an order is ready once every station on its dishes' way has bumped it."
       actions={<Btn variant="primary" onClick={() => onEdit({ kind: 'prep' })}><Plus className="w-4 h-4" /> Add a station</Btn>}>
       {!setup.kds_stations.length
         ? <p className="text-sm text-muted-foreground">No stations yet. Kitchen screens start working once there is one.</p>
@@ -396,6 +408,7 @@ function StationsCard({ venueId, setup, onEdit }) {
                     {isBumpKind(st.kind) && st.settings.summary_groups?.length ? ' · counts ' + st.settings.summary_groups.map(g => g.name).join(', ') : ''}
                     {st.kind === 'balance' && (st.settings.pieces?.length ? ' · ' + st.settings.pieces.map(m => m.label + ' ' + m.qty).join(', ') : ' · each dish counts its quantity')}
                     {st.kind === 'balance' && (st.settings.split_above != null ? ' · shares tickets over ' + st.settings.split_above + ' pieces' : ' · each ticket on one station')}
+                    {st.kind === 'sleeper' && ' · holds dishes ' + st.settings.delay_mins + ' min'}
                     {st.kind === 'printer' && ' · ' + (setup.printers.find(p => p.id === st.settings.printer_id)?.name || 'no printer picked')}
                   </p>
                 </div>

@@ -218,11 +218,29 @@ test('orders for later print when their time comes; the venue\'s ticket design i
   assert.equal(again.nothing, true)
 })
 
-test('flow checks: printers take links in and out; a Balance box can\'t share with a printer; no printer, no printing', () => {
+test('flow checks: printers take links in and out; a Splitter can\'t share with a printer; no printer, no printing', () => {
   const box = { id: uuid(), name: 'Wings balance', kind: 'balance', settings: {} }
   const list = [...Object.values(stations), box]
   assert.deepEqual(flowProblems(list, [link(null, KP), link(KP, PASS)]), [])
   assert.match(flowProblems(list, [link(null, box.id), link(box.id, KP)]).join(' '), /link it to prep stations/)
   assert.equal(hasPrinters(cfg), true)
   assert.equal(hasPrinters({ stations: { x: { kind: 'printer', settings: {} } } }), false, 'a printer box with no printer picked prints nothing')
+})
+
+test('a Sleeper before a printer: the ticket prints once the wait is over (the minute sweep)', () => {
+  const SLEEP = uuid()
+  const kcfg = {
+    ...cfg,
+    stations: byId([...Object.values(stations), { id: SLEEP, name: 'Hold 5', kind: 'sleeper', settings: { delay_mins: 5 } }]),
+    flow: [link(null, SLEEP, ['section', FOOD]), link(SLEEP, KP)],
+  }
+  const t = till(kcfg)
+  const c = openTable(t)
+  const jobs = addAndSend(t, c, [lineOf('Salad', SALAD, FOOD)])
+  assert.deepEqual(jobs, [], 'nothing yet: the Sleeper holds it')
+  assert.equal(printsDue(t.orders, kcfg, at()), false)
+  const wake = new Date(clock + 5 * 60_000 + 1000).toISOString()
+  assert.equal(printsDue(t.orders, kcfg, wake), true)
+  const due = kitchenPrintJobs(structuredClone(t.orders), kcfg, wake)
+  assert.deepEqual(due.jobs.map(j => [j.printer_id, j.kind]), [['pK', 'kitchen']])
 })

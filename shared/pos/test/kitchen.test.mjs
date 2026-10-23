@@ -763,8 +763,8 @@ test('combos from online orders: picks go to their own stations', () => {
   assert.match(bad, /parts/)
 })
 
-// ── Balance boxes (migration 183) ──────────────────────────────
-// Wings go through a Balance box shared by two wingmen; everything else on
+// ── Splitters (migration 183) ──────────────────────────────
+// Wings go through a Splitter shared by two wingmen; everything else on
 // the ticket goes to the fryer. Pieces: "10 Wings" counts 10, "8 Wings" 8,
 // Boneless (the dish) 6 each.
 const W1 = uuid(), W2 = uuid(), FRY2 = uuid(), PASS2 = uuid(), BOX = uuid(), ORB2 = uuid()
@@ -958,6 +958,107 @@ test('balance: flow checks and nothing to bump', () => {
   addAndSend(t, c1, [wingLine(10)])
   const r = t.kitchen(kev('kitchen.bumped', { order_id: c1, station_id: BOX }))
   assert.equal(r.ok, false)
-  assert.match(r.error, /Balance box has nothing to bump/)
+  assert.match(r.error, /Splitter has nothing to bump/)
   assert.deepEqual(stationTickets(t.orders, wingKit.BOX, at(), t.cfg), [])
+})
+
+// ── Sleepers (migration 200) ───────────────────────────────────
+
+const SLEEP = uuid()
+const sleepKit = {
+  ...simple,
+  SLEEP: { id: SLEEP, name: 'Delivery wait', kind: 'sleeper', settings: { delay_mins: 10 } },
+}
+// Delivery dishes wait 10 minutes before the grill; everything else goes straight there.
+const sleepFlow = [link(null, GRILL), link(null, SLEEP, ['order_type', DEL]), link(SLEEP, GRILL), link(GRILL, PASS)]
+const sleepCfg = () => ({ ...common, stations: byId(Object.values(sleepKit)), flow: sleepFlow })
+
+test('sleeper: holds delivery dishes for its time, then they reach the grill by themselves', () => {
+  const t = till(sleepCfg())
+  const del = openTable(t, { order_type_id: DEL })
+  const eat = openTable(t)
+  const db = burger(), eb = burger()
+  addAndSend(t, del, [db])
+  const sentAt = at()
+  addAndSend(t, eat, [eb])
+  assert.deepEqual(Object.keys(t.orders[del].items[0].route).sort(), [SLEEP, GRILL, PASS].sort())
+  assert.deepEqual(t.orders[del].items[0].route[GRILL], [SLEEP])
+  // The grill sees only the eat in order; the delivery one sleeps.
+  assert.deepEqual(t.tickets(simple.GRILL).map(tk => tk.order.id), [eat])
+  assert.equal(itemState(t.orders[del].items[0], sleepKit.SLEEP, at(), t.cfg), 'sleeping')
+  assert.deepEqual(itemWhere(t.orders[del].items[0], t.cfg, at()), [SLEEP])
+  const wake = new Date(Date.parse(sentAt) + 10 * 60_000).toISOString()
+  // The pass shows it coming, asleep until its time, with its clock from then.
+  const pass = t.tickets(simple.PASS).find(tk => tk.order.id === del)
+  assert.equal(pass.sleeping_until, wake)
+  assert.deepEqual(pass.items[0].sleeps, [{ station_id: SLEEP, until: wake }])
+  assert.deepEqual(pass.items[0].where, [])
+  assert.equal(pass.since, wake)
+  // The grill can't bump it yet.
+  const early = t.bump(del, simple.GRILL)
+  assert.equal(early.ok, false)
+  assert.match(early.error, /Still at Delivery wait/)
+  // The Sleeper itself has nothing to bump and no screen.
+  assert.match(t.kitchen(kev('kitchen.bumped', { order_id: del, station_id: SLEEP })).error, /Sleeper passes dishes on by itself/)
+  assert.deepEqual(stationTickets(t.orders, sleepKit.SLEEP, at(), t.cfg), [])
+
+  clock = Date.parse(wake) + 30_000
+  const grill = t.tickets(simple.GRILL).find(tk => tk.order.id === del)
+  assert.ok(grill, 'awake: on the grill')
+  assert.equal(grill.items[0].state, 'active')
+  assert.equal(grill.since, wake, 'its grill timer starts when it woke')
+  assert.equal(t.tickets(simple.PASS).find(tk => tk.order.id === del).sleeping_until, null)
+  ok(t.bump(del, simple.GRILL))
+  ok(t.bump(del, simple.PASS))
+  assert.equal(t.orders[del].status, 'ready')
+})
+
+test('sleeper: the pass can wake it; a remade dish does not wait again', () => {
+  const t = till(sleepCfg())
+  const c = openTable(t, { order_type_id: DEL })
+  const b = burger()
+  addAndSend(t, c, [b])
+  // The pass shows dishes before they arrive, so its bump finishes everything, the wait too.
+  ok(t.bump(c, simple.PASS))
+  assert.equal(t.orders[c].status, 'ready')
+  assert.ok(t.orders[c].items[0].done[SLEEP])
+
+  const u = till(sleepCfg())
+  const d = openTable(u, { order_type_id: DEL })
+  const b2 = burger()
+  addAndSend(u, d, [b2])
+  clock += 11 * 60_000
+  ok(u.bump(d, simple.GRILL))
+  ok(u.bump(d, simple.PASS))
+  ok(u.kitchen(kev('kitchen.remake', { order_id: d, station_id: PASS, item_id: b2.id, reason: 'Dropped' })))
+  const again = u.tickets(simple.GRILL).find(tk => tk.order.id === d)
+  assert.ok(again && again.items[0].state === 'active', 'back on the grill at once')
+  assert.ok(u.orders[d].items[0].slept[SLEEP])
+})
+
+test('sleeper: a delay of 0 passes straight through; flow warnings', () => {
+  const cfg = sleepCfg()
+  cfg.stations = { ...cfg.stations, [SLEEP]: { ...sleepKit.SLEEP, settings: { delay_mins: 0 } } }
+  const t = till(cfg)
+  const c = openTable(t, { order_type_id: DEL })
+  addAndSend(t, c, [burger()])
+  assert.ok(t.tickets(simple.GRILL).some(tk => tk.order.id === c))
+  const st = Object.values(sleepKit)
+  assert.deepEqual(flowProblems(st, sleepFlow), [])
+  assert.ok(flowWarnings(st, sleepFlow.filter(l => l.from !== SLEEP)).some(w => /Delivery wait holds dishes but sends them nowhere/.test(w)))
+  // Filters out of a Sleeper are fine (unlike a Splitter's).
+  assert.deepEqual(flowProblems(st, [...sleepFlow.filter(l => l.from !== SLEEP), link(SLEEP, GRILL, ['item', BURGER])]), [])
+})
+
+test('sleeper: an online order set ready from outside wakes it', () => {
+  const t = till(sleepCfg())
+  const id = onlineOrderId(uuid())
+  ok(t.kitchen(kev('kitchen.order_in', { order: {
+    id, order_id: uuid(), number: '7', type: DEL,
+    items: [{ id: 'a', item_id: BURGER, section_id: BURGERS, name: 'Burger', qty: 1 }],
+  } })))
+  assert.equal(itemState(t.orders[id].items[0], sleepKit.SLEEP, at(), t.cfg), 'sleeping')
+  ok(t.kitchen(kev('kitchen.order_status', { order_id: id, status: 'ready' })))
+  assert.ok(t.orders[id].items[0].done[SLEEP], 'the wait counts as over')
+  assert.equal(itemState(t.orders[id].items[0], simple.GRILL, at(), t.cfg), 'done')
 })

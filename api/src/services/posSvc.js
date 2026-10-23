@@ -550,7 +550,7 @@ export function sequencer(tenantId, venueId, { deviceId = null } = {}) {
           WHERE kds_orders.tenant_id = ${tenantId}`
       }
     },
-    // Balance boxes (migration 183): what each station still has to cook, and
+    // Splitters (migration 183): what each station still has to cook, and
     // the box's last pick for a tie.
     async loadOpenKitchenOrders() {
       const rows = await tx`

@@ -18,7 +18,7 @@ import {
   ChevronRight, RefreshCw, Flame, Search, ListChecks, Activity, AlertTriangle,
 } from 'lucide-react'
 import { createBench, benchScreens } from '@shared/pos/kitchenBench.js'
-import { routeOrder, nodeState, boardNumbers, BUMP_KINDS } from '@shared/pos/kitchen.js'
+import { routeOrder, nodeState, boardNumbers, BUMP_KINDS, flowTimes } from '@shared/pos/kitchen.js'
 
 const cx = (...p) => p.filter(Boolean).join(' ')
 
@@ -386,14 +386,21 @@ function ConfirmButton({ onConfirm, label, icon: Icon, confirmLabel }) {
 
 // ── Orders: where every dish is ────────────────────────────────────
 
+/** When a Sleeper lets a dish go, as HH:MM. */
+function wakeTime(item, id, cfg, now) {
+  const w = flowTimes(item, cfg, now).wakes(id)
+  return w ? new Date(w).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '?'
+}
+
 const STATE_STYLE = {
   done: 'bg-ok-soft text-ok border-ok/30',
   active: 'bg-warn-soft text-warn border-warn/40',
   upcoming: 'bg-page text-muted border-line',
   held: 'bg-held-soft text-held border-held/30',
   voided: 'bg-page text-muted border-line line-through',
+  sleeping: 'bg-held-soft text-held border-held/30 border-dashed',
 }
-const STATE_WORD = { done: 'done', active: 'now', upcoming: 'next', held: 'held', voided: 'voided' }
+const STATE_WORD = { done: 'done', active: 'now', upcoming: 'next', held: 'held', voided: 'voided', sleeping: 'asleep' }
 
 function OrdersPanel({ bench, data, onChange, say }) {
   const [, tick] = useState(0)
@@ -455,7 +462,7 @@ function OrdersPanel({ bench, data, onChange, say }) {
                           <span key={n} className="flex items-center gap-1">
                             {idx > 0 && <ChevronRight size={12} className="text-muted" />}
                             <span className={cx('text-xs px-2 py-0.5 rounded-full border', STATE_STYLE[st])} title={STATE_WORD[st]}>
-                              {cfg.stations[n]?.name || 'Gone'}{st === 'active' ? ' (now)' : st === 'held' ? ' (held)' : ''}
+                              {cfg.stations[n]?.name || 'Gone'}{st === 'active' ? ' (now)' : st === 'held' ? ' (held)' : st === 'sleeping' ? ' (until ' + wakeTime(i, n, cfg, now) + ')' : ''}
                             </span>
                           </span>
                         )
