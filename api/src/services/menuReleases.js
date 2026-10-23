@@ -29,7 +29,7 @@ import { httpError } from '../middleware/error.js'
 import { broadcast } from '../config/ws.js'
 import { tillsMayNeedConfig } from './posNotify.js'
 import { loadMenuFull, loadAllergenNotice } from '../routes/menus.js'
-import { releaseContent, contentKey, diffMenus } from '../../../shared/menuDiff.js'
+import { releaseContent, contentKey, diffMenus, withShownGroupNames } from '../../../shared/menuDiff.js'
 
 export const VERSIONS = ['live', 'draft']
 const MAX_AHEAD_DAYS = 400
@@ -115,7 +115,8 @@ function withExtras(content, extras, release) {
  */
 export async function loadMenuVersion(tx, menuId, tenantId, { version = 'live', releaseId = null } = {}) {
   if (version === 'draft' && !releaseId) {
-    const full = await loadMenuFull(tx, menuId, tenantId)
+    // Option groups by their display names, as a release would have them.
+    const full = withShownGroupNames(await loadMenuFull(tx, menuId, tenantId))
     if (full) full.version = 'draft'
     return full
   }
@@ -148,7 +149,7 @@ export async function loadMenuVersions(tx, tenantId, { menuIds = null, venueId =
         ${menuIds ? tx`AND id = ANY(${menuIds}::uuid[])` : tx``}`
     menus = []
     for (const r of rows) {
-      const full = await loadMenuFull(tx, r.id, tenantId)
+      const full = withShownGroupNames(await loadMenuFull(tx, r.id, tenantId))
       if (full) { full.version = 'draft'; menus.push(full) }
     }
   } else {

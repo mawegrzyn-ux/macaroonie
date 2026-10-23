@@ -176,10 +176,35 @@ export function SplitPhoto({ srcs, className }) {
   )
 }
 
-/** The split photo when there are pictures for it (two or more), else the photo. */
-export function PickPhoto({ srcs, src, label, className, phClassName, splitClassName }) {
-  if (srcs?.length >= 2) return <SplitPhoto srcs={srcs} className={splitClassName || className} />
+/**
+ * The dish's photo with the picks' pictures (shared/kiosk.js splitImages()),
+ * as the design's options.pick_photos says. split: one pick's picture in
+ * place of the photo, two or more sharing it (SplitPhoto). corner: the
+ * dish's photo with the picks small in its corner (CornerPhoto). No picks:
+ * the photo.
+ */
+export function PickPhoto({ srcs, src, label, className, phClassName, splitClassName, mode = 'split' }) {
+  const n = srcs?.length || 0
+  if (n && mode === 'corner') return <CornerPhoto srcs={srcs} src={src} label={label} className={className} phClassName={phClassName} wrapClassName={splitClassName} />
+  if (n >= 2) return <SplitPhoto srcs={srcs} className={splitClassName || className} />
+  if (n === 1) return <Photo src={srcs[0]} label={label} className={className} phClassName={phClassName} />
   return <Photo src={src} label={label} className={className} phClassName={phClassName} />
+}
+
+/**
+ * The dish's photo with the picks' pictures small in its bottom corner, in
+ * pick order, the choices' picture style (.k-corner-pick follows .k-opts-*).
+ */
+export function CornerPhoto({ srcs, src, label, className, phClassName, wrapClassName }) {
+  const size = Math.min(26, 92 / srcs.length - 3)
+  return (
+    <div className={cx('k-corner', wrapClassName)} data-testid="k-corner" data-parts={srcs.length}>
+      <Photo src={src} label={label} className={cx('k-corner-main', className)} phClassName={cx('k-corner-main', phClassName)} />
+      <span className="k-corner-picks" aria-hidden="true">
+        {srcs.map((s, i) => <img key={i + ':' + s} src={s} alt="" draggable={false} className="k-corner-pick" style={{ width: size + '%' }} />)}
+      </span>
+    </div>
+  )
 }
 
 // ── Hexagons ─────────────────────────────────────────────────────

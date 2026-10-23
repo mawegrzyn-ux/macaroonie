@@ -95,7 +95,10 @@ test('layout options round trip; a design keeps only the tenant\'s own sections,
   const saved = await ok(owner.put(`/api/pos/kiosk-designs/${design.id}`, {
     name: design.name,
     settings: {
-      layout: { tiles: 'hexagon', option_tiles: 'round', option_pictures: false, option_align: 'center', header: false, icon_buttons: true },
+      layout: {
+        tiles: 'hexagon', option_tiles: 'round', option_pictures: false, option_align: 'center', header: false, icon_buttons: true,
+        hero: 'stacked', hero_image_align: 'left', hero_text_align: 'right',
+      },
       start: { type_cards: { [myType.id]: { label: 'Stay' }, [theirType.id]: { label: 'Theirs' } } },
       menu: {
         rail: 'none',
@@ -104,12 +107,16 @@ test('layout options round trip; a design keeps only the tenant\'s own sections,
         banners: [{ image_url: '/b.jpg', link: { kind: 'section', id: their.section_id } }, { image_url: '/c.jpg', link: { kind: 'item', id: myDish } }],
         featured: [{ title: 'Theirs', link: { kind: 'item', id: their.item_id } }],
       },
-      options: { wheel_spin: true, wheel_spin_picks: true },
+      options: { wheel_spin: true, wheel_spin_picks: true, pick_photos: 'corner' },
       checkout: { upsell_item_ids: [their.item_id, myDish] },
     },
   }))
   const s = saved.settings
-  assert.deepEqual(s.layout, { tiles: 'hexagon', option_tiles: 'round', option_pictures: false, option_align: 'center', header: false, icon_buttons: true })
+  assert.deepEqual(s.layout, {
+    tiles: 'hexagon', option_tiles: 'round', option_pictures: false, option_align: 'center',
+    hero: 'stacked', hero_image_align: 'left', hero_text_align: 'right', header: false, icon_buttons: true,
+  })
+  assert.equal(s.options.pick_photos, 'corner')
   assert.equal(s.menu.rail, 'none')
   assert.deepEqual(s.menu.section_tiles.map(t => t.section_id), [mySection])
   assert.equal(s.menu.section_tiles[0].size, 'wide')
@@ -131,5 +138,7 @@ test('layout options round trip; a design keeps only the tenant\'s own sections,
   assert.equal(cfg.design.layout.option_tiles, 'round')
   assert.equal(cfg.design.layout.option_pictures, false)
   assert.equal(cfg.design.layout.option_align, 'center')
+  assert.equal(cfg.design.layout.hero, 'stacked')
+  assert.equal(cfg.design.options.pick_photos, 'corner')
   assert.equal(cfg.design.menu.rail, 'none')
 })

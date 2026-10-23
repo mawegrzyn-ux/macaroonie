@@ -138,6 +138,26 @@
 .k-wheel { width: 100%; height: 100%; display: block; }
 .k-wheel-pointer { position: absolute; left: 50%; top: -.4em; transform: translateX(-50%); width: 0; height: 0; border-left: 1.1em solid transparent; border-right: 1.1em solid transparent; border-top: 1.8em solid var(--k-text); filter: drop-shadow(0 2px 2px rgba(0,0,0,.3)); z-index: 2; }
 
+/* A combo's steps (Builder.jsx): "Step 2 of 6" beside Continue at the big
+   button's size; a done step's tab with its pick's pictures and name. */
+.k-step-count { font-size: 1.2em; font-weight: 700; white-space: nowrap; }
+.k-step-thumb { display: block; flex-shrink: 0; background: var(--k-shade); box-shadow: 0 0 0 2px var(--k-surface); }
+.k-step-thumb > img { display: block; }
+.k-step-tick {
+  position: absolute; right: -.3em; top: -.3em; width: 1.5em; height: 1.5em; border-radius: 999px; z-index: 4;
+  background: var(--k-primary); color: var(--k-primary-text); display: flex; align-items: center; justify-content: center;
+}
+.k-step-pick-name { font-weight: 700; font-size: .9em; line-height: 1.15; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.k-opts-plain .k-step-thumb { background: transparent; box-shadow: none; }
+
+/* A column of words lined up (Builder.jsx alignCls: the dish page's top);
+   rows inside (badges, price, allergens) follow. */
+.k-align-left { text-align: left; }
+.k-align-center { align-items: center; text-align: center; }
+.k-align-right { align-items: flex-end; text-align: right; }
+.k-align-center > .flex { justify-content: center; }
+.k-align-right > .flex { justify-content: flex-end; }
+
 /* Bottom bar on the menu */
 .k-bar { background: var(--k-text); color: var(--k-bg); display: flex; align-items: center; gap: var(--k-gap); padding: var(--k-gap) var(--k-pad); }
 
@@ -181,16 +201,34 @@
 .k-split-tears { position: absolute; inset: 0; pointer-events: none; filter: drop-shadow(0 0 1.5px rgba(0,0,0,.45)) drop-shadow(0 1px 3px rgba(0,0,0,.25)); }
 .k-split-tears span { position: absolute; inset: 0; background: #fbfaf6; }
 
+/* ── Corner pictures (parts.jsx CornerPhoto) ─────────────────────
+   design.options.pick_photos 'corner': the dish's photo with the picks'
+   pictures small in its bottom corner, in the choices' picture style. In a
+   round, oval or hexagon photo they sit in the middle at the bottom, where
+   the shape doesn't cut them. */
+.k-corner { position: relative; display: block; }
+.k-corner > .k-corner-main { display: block; }
+.k-corner-picks { position: absolute; left: 4%; right: 4%; bottom: 4%; display: flex; justify-content: flex-end; gap: 2%; pointer-events: none; }
+.k-corner-pick { display: block; aspect-ratio: 1 / 1; object-fit: cover; border-radius: 50%; background: var(--k-surface); box-shadow: 0 0 0 .15em var(--k-surface), 0 2px 6px rgba(0,0,0,.3); }
+.k-opts-cards .k-corner-pick { border-radius: calc(var(--k-radius) / 2); }
+.k-opts-hexagon .k-corner-pick { border-radius: 0; clip-path: var(--k-hex); aspect-ratio: .866 / 1; box-shadow: none; }
+.k-opts-plain .k-corner-pick { border-radius: 0; object-fit: contain; background: transparent; box-shadow: none; filter: drop-shadow(0 2px 3px rgba(0,0,0,.35)); }
+.k-tiles-round .k-hero-img .k-corner-picks, .k-tiles-oval .k-hero-img .k-corner-picks, .k-tiles-hexagon .k-hero-img .k-corner-picks { justify-content: center; bottom: 7%; }
+.k-tiles-plain .k-hero-img .k-corner-main, .k-tiles-plain .k-thumb .k-corner-main { object-fit: contain; }
+
 /* ── Picture styles ──────────────────────────────────────────────
    Dishes (design.layout.tiles, .k-tiles-<style> on the root: menu cards,
    section tiles, the dish's photo, basket thumbs) and choices
    (design.layout.option_tiles, .k-opts-<style>: option and combo step
    cards, list and wheel thumbs) each follow their own style.
+   (The list's rows stay cards in every style; only their thumbs follow it.)
    Round and oval: the photo in a circle or an ellipse with the words under
    it on the page, no card behind. Hexagon takes the same open look for
-   cards outside a honeycomb (the slider, "Anything else?"). */
-.k-tiles-round .k-item, .k-tiles-oval .k-item, .k-tiles-hexagon .k-item,
-.k-opts-round .k-opt, .k-opts-oval .k-opt, .k-opts-hexagon .k-opt {
+   cards outside a honeycomb (the slider, "Anything else?"). No frame
+   (plain): the same open look, and the picture whole and as it is (see
+   below). */
+.k-tiles-round .k-item, .k-tiles-oval .k-item, .k-tiles-hexagon .k-item, .k-tiles-plain .k-item,
+.k-opts-round .k-opt, .k-opts-oval .k-opt, .k-opts-hexagon .k-opt, .k-opts-plain .k-opt {
   background: transparent; box-shadow: none; overflow: visible; align-items: center; text-align: center; border: 0;
 }
 .k-tiles-round .k-item-img, .k-tiles-round .k-item-ph, .k-opts-round .k-opt-img, .k-opts-round .k-opt-ph {
@@ -200,19 +238,35 @@
   width: 100%; aspect-ratio: 4 / 3; border-radius: 50%; box-shadow: 0 4px 14px rgba(0,0,0,.16);
 }
 .k-tiles-oval .k-tile-wide .k-item-img, .k-tiles-oval .k-tile-wide .k-item-ph { aspect-ratio: 8 / 3; }
-.k-tiles-round .k-item-body, .k-tiles-oval .k-item-body, .k-tiles-hexagon .k-item-body { align-items: center; padding: .6em .3em .2em; }
-.k-tiles-round .k-item-body > *, .k-tiles-oval .k-item-body > *, .k-tiles-hexagon .k-item-body > * { justify-content: center; }
-.k-opts-round .k-opt > span, .k-opts-oval .k-opt > span, .k-opts-hexagon .k-opt > span { align-items: center; }
+.k-tiles-round .k-item-body, .k-tiles-oval .k-item-body, .k-tiles-hexagon .k-item-body, .k-tiles-plain .k-item-body { align-items: center; padding: .6em .3em .2em; }
+.k-tiles-round .k-item-body > *, .k-tiles-oval .k-item-body > *, .k-tiles-hexagon .k-item-body > *, .k-tiles-plain .k-item-body > * { justify-content: center; }
+.k-opts-round .k-opt > span, .k-opts-oval .k-opt > span, .k-opts-hexagon .k-opt > span, .k-opts-plain .k-opt > span { align-items: center; }
 .k-opts-round .k-opt-on .k-opt-img, .k-opts-round .k-opt-on .k-opt-ph,
 .k-opts-oval .k-opt-on .k-opt-img, .k-opts-oval .k-opt-on .k-opt-ph { box-shadow: 0 0 0 .3em var(--k-primary), 0 4px 14px rgba(0,0,0,.16); }
-.k-tiles-round .k-sold, .k-tiles-oval .k-sold, .k-tiles-hexagon .k-sold { background: color-mix(in srgb, var(--k-bg) 65%, transparent); }
-.k-opts-round .k-slide-focus, .k-opts-oval .k-slide-focus, .k-opts-hexagon .k-slide-focus { box-shadow: none; }
+.k-tiles-round .k-sold, .k-tiles-oval .k-sold, .k-tiles-hexagon .k-sold, .k-tiles-plain .k-sold { background: color-mix(in srgb, var(--k-bg) 65%, transparent); }
+.k-opts-round .k-slide-focus, .k-opts-oval .k-slide-focus, .k-opts-hexagon .k-slide-focus, .k-opts-plain .k-slide-focus { box-shadow: none; }
 .k-tiles-round .k-thumb, .k-tiles-oval .k-thumb, .k-opts-round .k-opt-thumb, .k-opts-oval .k-opt-thumb { border-radius: 50%; }
 .k-tiles-round .k-hero-img { aspect-ratio: 1 / 1; border-radius: 50%; }
 .k-tiles-round .k-hero-img > *, .k-tiles-hexagon .k-hero-img > * { height: 100%; aspect-ratio: auto; }
 .k-tiles-oval .k-hero-img { border-radius: 50%; }
 .k-tile-name { font-size: 1.3em; }
 .k-tile-wide .k-item-img, .k-tile-wide .k-item-ph { aspect-ratio: 8 / 3; }
+/* No frame (plain): the whole picture as it is (contain), no corners, shadow
+   or background behind it, so a PNG with a see-through background sits
+   straight on the page. A picked choice glows in the button colour round the
+   picture's own outline, its name in that colour, with the tick. */
+.k-tiles-plain .k-item-img, .k-opts-plain .k-opt-img { object-fit: contain; background: transparent; }
+.k-tiles-plain .k-item-ph, .k-opts-plain .k-opt-ph { border-radius: var(--k-radius); }
+.k-tiles-plain .k-thumb, .k-opts-plain .k-opt-thumb, .k-tiles-plain .k-hero-img { border-radius: 0; overflow: visible; }
+.k-tiles-plain .k-thumb > img, .k-opts-plain .k-opt-thumb > img, .k-tiles-plain .k-hero-img > img { object-fit: contain; }
+.k-tiles-plain .k-rail-img { border-radius: 0; object-fit: contain; }
+.k-opts-plain .k-opt-on .k-opt-img {
+  filter: drop-shadow(0 0 .1em var(--k-primary)) drop-shadow(0 0 .1em var(--k-primary)) drop-shadow(0 0 .1em var(--k-primary));
+}
+.k-opts-plain .k-opt-on .k-opt-ph { box-shadow: 0 0 0 .3em var(--k-primary); }
+.k-opts-plain .k-opt-on .k-head { color: var(--k-primary); }
+.k-opts-plain .k-opt-face { border-radius: var(--k-radius); }
+.k-opts-plain .k-opt-on .k-opt-face { background: var(--k-soft); }
 
 /* ── Hexagons ────────────────────────────────────────────────────
    Pointy-top hexagons for photos, flat-top for round buttons, hexagon ends

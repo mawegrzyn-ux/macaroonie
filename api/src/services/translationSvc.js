@@ -28,7 +28,8 @@ export async function translationSources(tx, tenantId) {
     tx`SELECT id, menu_id, title, subtitle, visibility FROM menu_sections WHERE tenant_id = ${tenantId} ORDER BY sort_order, title`,
     tx`SELECT id, section_id, name, description, kind, combo FROM menu_items WHERE tenant_id = ${tenantId} ORDER BY sort_order, name`,
     tx`SELECT item_id, label FROM menu_item_variants WHERE tenant_id = ${tenantId} ORDER BY sort_order`,
-    tx`SELECT id, name, scale_low, scale_high FROM menu_variant_groups WHERE tenant_id = ${tenantId} ORDER BY sort_order, name`,
+    // What guests read is the display name (migration 198), so that is what gets translated.
+    tx`SELECT id, COALESCE(display_name, name) AS name, scale_low, scale_high FROM menu_variant_groups WHERE tenant_id = ${tenantId} ORDER BY sort_order, name`,
     tx`SELECT id, group_id, label, description FROM menu_variant_options WHERE tenant_id = ${tenantId} ORDER BY sort_order, label`,
     tx`SELECT id, name FROM order_types WHERE tenant_id = ${tenantId} AND is_active ORDER BY sort_order, name`,
     tx`SELECT code, label, kind, standard_key, show_on_menu FROM menu_dietary_tags WHERE tenant_id = ${tenantId} ORDER BY kind = 'allergen', sort_order, label`,

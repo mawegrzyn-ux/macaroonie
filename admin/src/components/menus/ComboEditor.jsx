@@ -355,7 +355,7 @@ function StepCard({ step, index, steps, itemIndex, readOnly, handle, open, onTog
               ))}
             </div>
             <Check checked={!!step.split} onChange={v => onChange({ split: v })} label="Split photo from the picks"
-              hint="With two or more picks that have pictures (in this step or others with this on), the kiosk shows them side by side with a torn edge between them in place of the combo's photo" />
+              hint="The picks' pictures (from this step and others with this on) show on the combo's photo on kiosks, as the kiosk design says: one in its place or several side by side with a torn edge, or small in its corner" />
           </Field>
           {earlier.length > 0 && (
             <Field label="When it shows">

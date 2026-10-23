@@ -140,7 +140,7 @@ export function Basket() {
             <div key={e.key} className="k-card p-[.7em] flex gap-[.8em] items-start" data-testid="k-line">
               <span className="k-thumb w-[4.6em] h-[4.6em] shrink-0 rounded-[calc(var(--k-radius)/1.5)] overflow-hidden">
                 <PickPhoto srcs={splitImages(config, it, e.selection)} src={it.image_url} label={texts.itemName(it)} className="w-full h-full object-cover"
-                  phClassName="k-item-ph h-full aspect-auto text-[1.2em]" splitClassName="w-full h-full" />
+                  phClassName="k-item-ph h-full aspect-auto text-[1.2em]" splitClassName="w-full h-full" mode={config.design.options.pick_photos} />
               </span>
               <div className="flex-1 min-w-0 flex flex-col gap-[.3em]">
                 <div className="flex items-start gap-[.6em]">

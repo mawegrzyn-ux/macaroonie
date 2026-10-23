@@ -44,6 +44,25 @@ function dropKeys(obj, drop) {
   return out
 }
 
+/**
+ * An attached option group as guests see it: the group's display name
+ * (migration 198) as its name, else its name. A release keeps only this.
+ */
+export function shownGroup(g) {
+  if (!g?.display_name) return g
+  const { display_name: shown, ...rest } = g
+  return { ...rest, name: shown }
+}
+
+/** A loaded menu with its dishes' option groups named as guests see them (a draft read for guests: staging, previews). */
+export function withShownGroupNames(full) {
+  if (!full) return full
+  for (const s of full.sections || []) {
+    for (const i of s.items || []) if (i.variant_groups) i.variant_groups = i.variant_groups.map(shownGroup)
+  }
+  return full
+}
+
 /** The release part of a loaded menu (see the file comment). */
 export function releaseContent(full) {
   if (!full) return null
@@ -56,8 +75,9 @@ export function releaseContent(full) {
       // their ids aren't content; label, price and order are.
       ...(i.variants ? { variants: i.variants.map(v => dropKeys(v, VARIANT_DROP)) } : {}),
       // Group settings added later (migration 171) only count when on, so
-      // versions published before them read the same as the draft.
-      ...(i.variant_groups ? { variant_groups: i.variant_groups.map(g => dropOff(g, GROUP_FLAGS)) } : {}),
+      // versions published before them read the same as the draft. A group's
+      // display name is kept as its name (shownGroup()).
+      ...(i.variant_groups ? { variant_groups: i.variant_groups.map(g => dropOff(shownGroup(g), GROUP_FLAGS)) } : {}),
     })),
   }))
   menu.callouts = (full.callouts || []).map(c => dropKeys(c, ROW_DROP))
@@ -181,7 +201,7 @@ export function diffMenus(live, draft, { limit = 300 } = {}) {
     if (was.name !== it.name) add('dish', `Renamed: ${was.name} → ${it.name}`)
     if (!same(was.price_pence, it.price_pence, 'price_pence')) add('price', `${it.name}: ${money(was.price_pence)} → ${money(it.price_pence)}`)
     if (!same(optionPrices(was), optionPrices(it), 'price_pence') ||
-        !same((was.variant_groups || []).map(g => g.group_id), (it.variant_groups || []).map(g => g.group_id))) {
+        !same((was.variant_groups || []).map(g => g.group_id + ':' + g.name), (it.variant_groups || []).map(g => g.group_id + ':' + g.name))) {
       add('options', `${it.name}: options or option prices changed`)
     }
     if (was._section !== it._section) add('dish', `${it.name}: moved to ${it._section}`)

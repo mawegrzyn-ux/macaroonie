@@ -89,7 +89,7 @@ export async function kioskConfig(tx, tenantId, venueId, device, { designOverrid
     loadStreams(tx, tenantId, venueId, { activeOnly: true }),
     loadOrderTypes(tx, tenantId),
     loadTaxRates(tx, tenantId),
-    tx`SELECT g.id, g.name, g.price_mode, g.min_select, g.max_select, g.pos_prefixes, g.allow_repeat, g.on_request,
+    tx`SELECT g.id, COALESCE(g.display_name, g.name) AS name, g.price_mode, g.min_select, g.max_select, g.pos_prefixes, g.allow_repeat, g.on_request,
               g.kiosk_display, g.scale_low, g.scale_high, g.kiosk_split,
               COALESCE(json_agg(json_build_object('id', o.id, 'label', o.label, 'price_pence', o.price_pence, 'child_group_id', o.child_group_id,
                                                   'image_url', o.image_url, 'description', o.description, 'level', o.level)
