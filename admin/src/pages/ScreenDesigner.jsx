@@ -38,8 +38,9 @@ import { CHECKER } from '@/components/ColourPicker'
 import {
   BLOCK_TYPES, BLOCK_LABELS, BLOCK_HINTS, BLOCK_DEFAULTS, BOARD_SIZES, SCREEN_FONT_OPTIONS, ANIM_IN, ANIM_LOOP,
   normalizeBoard, boardContext, renderBlockInner, blockStyle, boardStyle, toReactStyle, dishOptionLabels,
-  wrapMotion, startBoardMotion, wallRegion, ORDER_CHANGE_ANIMS,
+  wrapMotion, startBoardMotion, wallRegion, ORDER_CHANGE_ANIMS, TILE_SHAPES, TILE_SHADOWS, TILE_ICON_POSITIONS,
 } from '@shared/screenLayout.js'
+import { PicturePick } from '@/components/media/PicturePick'
 import { ORDER_FIELDS, MAIN_FIELDS, normaliseOrderInfo } from '@shared/orderInfo.js'
 import { boardFromKit } from '@shared/themeKit.js'
 import { ThemeMakerButton } from '@/components/themes/ThemeMaker'
@@ -698,6 +699,111 @@ function TileSection({ o, onOpts }) {
   )
 }
 
+// How each order board tile looks: font, shape, border, shadow, a picture
+// behind the ready / preparing tiles, and small pictures (one for every
+// tile, or one per order type).
+function TileLook({ o, onOpts }) {
+  const api = useApi()
+  const { data: types = [] } = useQuery({ queryKey: ['order-types'], queryFn: () => api.get('/order-types'), staleTime: 60_000 })
+  const shape = o.tile_shape || 'rounded'
+  const icons = o.tile_type_icons && typeof o.tile_type_icons === 'object' ? o.tile_type_icons : {}
+  const setIcon = (name, url) => {
+    const next = { ...icons }
+    if (url) next[name] = url
+    else delete next[name]
+    onOpts({ tile_type_icons: next })
+  }
+  const hasImage = !!(o.tile_ready_image || o.tile_prep_image)
+  return (
+    <Section title="Tile look">
+      <div data-testid="tile-look" className="space-y-2">
+        <p className="text-xs font-medium">Words</p>
+        <FontChoice value={o.tile_font || 'heading'} onChange={v => onOpts({ tile_font: v })} />
+        <div className="grid grid-cols-2 gap-2">
+          <Sel label="Weight" value={String(o.tile_weight ?? 800)} onChange={v => onOpts({ tile_weight: Number(v) })}>
+            {[300, 400, 500, 600, 700, 800, 900].map(w => <option key={w} value={w}>{w}</option>)}
+          </Sel>
+          <PxBox label="Space inside" suffix="%" value={o.tile_padding ?? 8} min={0} max={60} onChange={v => onOpts({ tile_padding: v })} />
+        </div>
+        <div className="flex gap-4">
+          <Check label="Italic" checked={o.tile_italic} onChange={v => onOpts({ tile_italic: v })} />
+          <Check label="Capitals" checked={o.tile_upper} onChange={v => onOpts({ tile_upper: v })} />
+        </div>
+        <div>
+          <p className="text-[11px] text-muted-foreground mb-1">Small lines (name, tent, order type)</p>
+          <FontPicker fonts={SCREEN_FONT_OPTIONS} value={o.tile_line_font || ''} placeholder="Same as the big text"
+            onChange={v => onOpts({ tile_line_font: v })} />
+        </div>
+
+        <p className="text-xs font-medium pt-1">Shape</p>
+        <Seg value={shape} options={TILE_SHAPES.map(x => [x.key, x.label])} onChange={v => onOpts({ tile_shape: v })} />
+        {shape === 'rounded' && (
+          <PxBox label="Corners" value={o.tile_radius ?? 6} min={0} max={1000} onChange={v => onOpts({ tile_radius: v })} />
+        )}
+        <div className="grid grid-cols-2 gap-2">
+          <PxBox label="Border" value={o.tile_border_width ?? 0} min={0} max={100} onChange={v => onOpts({ tile_border_width: v })} />
+          <Sel label="Shadow" value={o.tile_shadow || 'none'} onChange={v => onOpts({ tile_shadow: v })}>
+            {TILE_SHADOWS.map(x => <option key={x.key} value={x.key}>{x.label}</option>)}
+          </Sel>
+        </div>
+        {Number(o.tile_border_width) > 0 && (
+          <ColourField label="Border colour" value={o.tile_border_color || '#ffffff'} onChange={v => onOpts({ tile_border_color: v })} />
+        )}
+
+        <p className="text-xs font-medium pt-1">Picture behind the tile</p>
+        <div className="grid grid-cols-2 gap-2">
+          <div data-testid="tile-ready-image">
+            <p className="text-[11px] text-muted-foreground mb-1">Ready</p>
+            <PicturePick url={o.tile_ready_image || ''} onChange={v => onOpts({ tile_ready_image: v || '' })} scope="screens" size="sm" label="ready tile picture" />
+          </div>
+          <div data-testid="tile-prep-image">
+            <p className="text-[11px] text-muted-foreground mb-1">Preparing</p>
+            <PicturePick url={o.tile_prep_image || ''} onChange={v => onOpts({ tile_prep_image: v || '' })} scope="screens" size="sm" label="preparing tile picture" />
+          </div>
+        </div>
+        {hasImage && (
+          <div className="grid grid-cols-2 gap-2">
+            <Sel label="Picture" value={o.tile_image_fit || 'cover'} onChange={v => onOpts({ tile_image_fit: v })}>
+              <option value="cover">Fill the tile</option>
+              <option value="contain">Whole picture</option>
+            </Sel>
+            <PxBox label="Darken" suffix="%" value={o.tile_image_dim ?? 30} min={0} max={90} onChange={v => onOpts({ tile_image_dim: v })} />
+          </div>
+        )}
+        <p className="text-[11px] text-muted-foreground">The box colours below still show where the picture is see-through or doesn&apos;t reach.</p>
+
+        <p className="text-xs font-medium pt-1">Small picture</p>
+        <div data-testid="tile-icon">
+          <p className="text-[11px] text-muted-foreground mb-1">On every tile</p>
+          <PicturePick url={o.tile_icon || ''} onChange={v => onOpts({ tile_icon: v || '' })} scope="screens" size="sm" contain label="tile picture" />
+        </div>
+        {types.length > 0 && (
+          <div className="space-y-1.5" data-testid="tile-type-icons">
+            <p className="text-[11px] text-muted-foreground">Or one per order type (used instead, when the order has that type)</p>
+            <div className="grid grid-cols-2 gap-2">
+              {types.filter(t => t.is_active !== false).map(t => (
+                <div key={t.id} data-type={t.name}>
+                  <p className="text-[11px] mb-1 truncate">{t.name}</p>
+                  <PicturePick url={icons[t.name] || ''} onChange={v => setIcon(t.name, v)} scope="screens" size="sm" contain label={t.name + ' picture'} />
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        {(o.tile_icon || Object.keys(icons).length > 0) && (
+          <div className="grid grid-cols-2 gap-2">
+            <Sel label="Where" value={o.tile_icon_pos || 'left'} onChange={v => onOpts({ tile_icon_pos: v })}>
+              {TILE_ICON_POSITIONS.map(x => <option key={x.key} value={x.key}>{x.label}</option>)}
+            </Sel>
+            <PxBox label="Size" suffix="%" value={o.tile_icon_size ?? 60} min={10} max={200} onChange={v => onOpts({ tile_icon_size: v })} />
+          </div>
+        )}
+        <p className="text-[11px] text-muted-foreground">Pictures with a see-through background (PNG) look best. Sizes follow the number size.</p>
+      </div>
+    </Section>
+  )
+}
+
 function Check({ label, checked, onChange }) {
   return (
     <label className="flex items-center gap-2 text-sm min-h-[36px] cursor-pointer touch-manipulation">
@@ -1108,6 +1214,7 @@ function BlockPanel({ block, board, data, canManage, onUpdate, onOpts, onDuplica
             <p className="text-[11px] text-muted-foreground">Or until the pass marks the order collected. 0: until collected.</p>
           </Section>
           <TileSection o={o} onOpts={onOpts} />
+          <TileLook o={o} onOpts={onOpts} />
           <Section title="Style">
             <div className="grid grid-cols-2 gap-2">
               <PxBox label="Title size" value={o.title_size ?? 56} min={6} max={400} onChange={v => onOpts({ title_size: v })} />

@@ -187,6 +187,12 @@ export const BLOCK_DEFAULTS = {
       tile_main: 'number', tile_lines: [],
       change_anim: 'none', change_ms: 900,
       title_color: '', ready_bg: '#2e8b57', ready_color: '#ffffff', preparing_color: '', preparing_bg: '',
+      // How each tile looks (tileLook()): font, shape, border, shadow, a
+      // picture behind the ready / preparing tiles, and small pictures.
+      tile_font: '', tile_line_font: '', tile_weight: 800, tile_italic: false, tile_upper: false,
+      tile_shape: 'rounded', tile_radius: null, tile_padding: 8, tile_border_width: 0, tile_border_color: '#ffffff', tile_shadow: 'none',
+      tile_ready_image: '', tile_prep_image: '', tile_image_fit: 'cover', tile_image_dim: 30,
+      tile_icon: '', tile_type_icons: {}, tile_icon_pos: 'left', tile_icon_size: 60,
     },
   },
 }
@@ -302,6 +308,7 @@ export function boardImageUrls(layout, ctx) {
   for (const b of (l.blocks || [])) {
     const o = b.opts || {}
     if (b.type === 'image' && safeUrl(o.url)) urls.add(safeUrl(o.url))
+    if (b.type === 'order_status') for (const u of tileImageUrls(o)) urls.add(u)
     if (b.type === 'dish' && o.show_image !== false && ctx) {
       const it = ctx.itemsById[o.item_id]
       if (it && safeUrl(it.image_url)) urls.add(safeUrl(it.image_url))
@@ -334,6 +341,7 @@ export function boardFonts(layout) {
   const out = new Set([l.font_body, l.font_heading, l.font_script])
   for (const b of l.blocks) {
     if (SCREEN_FONT_WEIGHTS[b.opts.font]) out.add(b.opts.font)
+    for (const f of [b.opts.tile_font, b.opts.tile_line_font]) if (SCREEN_FONT_WEIGHTS[f]) out.add(f)
   }
   return [...out]
 }
@@ -886,6 +894,63 @@ export function keepOrderChanges(list, nowMs) {
   return (list || []).filter(c => nowMs - c.at < ORDER_CHANGE_KEEP_MS)
 }
 
+// ── Order board tiles: how each tile looks ─────────────────
+
+export const TILE_SHAPES = [
+  { key: 'rounded', label: 'Rounded' }, { key: 'square', label: 'Square' },
+  { key: 'pill', label: 'Pill' }, { key: 'circle', label: 'Circle' },
+]
+export const TILE_SHADOWS = [
+  { key: 'none', label: 'None' }, { key: 'soft', label: 'Soft' }, { key: 'strong', label: 'Strong' }, { key: 'glow', label: 'Glow' },
+]
+export const TILE_ICON_POSITIONS = [
+  { key: 'left', label: 'Left' }, { key: 'right', label: 'Right' }, { key: 'top', label: 'Above' }, { key: 'corner', label: 'Corner' },
+]
+const SHADOW_CSS = {
+  soft: '0 0.05em 0.16em rgba(0,0,0,.35)', strong: '0 0.08em 0.32em rgba(0,0,0,.65)', glow: '0 0 0.22em currentColor',
+}
+const cssUrl = u => "url('" + u.replace(/'/g, '%27').replace(/"/g, '%22').replace(/[()\s]/g, c => encodeURIComponent(c)) + "')"
+
+/** A tile's small picture: its order type's (by name, any case), else the one for every tile. */
+export function tileIcon(o, order) {
+  const icons = o?.tile_type_icons && typeof o.tile_type_icons === 'object' ? o.tile_type_icons : {}
+  const type = String(order?.type_name || '').trim().toLowerCase()
+  for (const [k, v] of Object.entries(icons)) if (k.trim().toLowerCase() === type && safeUrl(v)) return safeUrl(v)
+  return safeUrl(o?.tile_icon) || ''
+}
+
+/** Pictures an order board block can show (tile backgrounds, small pictures). */
+export function tileImageUrls(o) {
+  const out = [o?.tile_ready_image, o?.tile_prep_image, o?.tile_icon, ...Object.values(o?.tile_type_icons || {})]
+  return out.map(safeUrl).filter(Boolean)
+}
+
+/** The tiles' look as CSS custom properties on the block. */
+export function tileLook(o) {
+  const shape = TILE_SHAPES.some(x => x.key === o.tile_shape) ? o.tile_shape : 'rounded'
+  const bw = num(o.tile_border_width, 0, 100, 0)
+  const ready = safeUrl(o.tile_ready_image), prep = safeUrl(o.tile_prep_image)
+  return {
+    '--otf': o.tile_font ? fontFamily(o.tile_font) : null,
+    '--otlf': o.tile_line_font ? fontFamily(o.tile_line_font) : null,
+    '--otw': o.tile_weight ? String(num(o.tile_weight, 100, 900, 800)) : null,
+    '--otst': o.tile_italic ? 'italic' : null,
+    '--ottt': o.tile_upper ? 'uppercase' : null,
+    '--otr': shape === 'square' ? '0' : shape === 'pill' ? '999px' : shape === 'circle' ? '50%'
+      : o.tile_radius != null && o.tile_radius !== '' ? num(o.tile_radius, 0, 1000, 0) + 'px' : null,
+    '--otar': shape === 'circle' ? '1 / 1' : null,
+    '--otpad': o.tile_padding != null && o.tile_padding !== '' ? (num(o.tile_padding, 0, 60, 8) / 100) + 'em' : null,
+    '--otb': bw > 0 ? bw + 'px solid ' + colour(o.tile_border_color, '#ffffff') : null,
+    '--otsh': SHADOW_CSS[o.tile_shadow] || null,
+    '--orimg': ready ? cssUrl(ready) : null,
+    '--opimg': prep ? cssUrl(prep) : null,
+    '--otfit': o.tile_image_fit === 'contain' ? 'contain' : null,
+    '--ordim': ready ? String(num(o.tile_image_dim, 0, 90, 30) / 100) : null,
+    '--opdim': prep ? String(num(o.tile_image_dim, 0, 90, 30) / 100) : null,
+    '--otis': tileImageUrls({ tile_icon: o.tile_icon, tile_type_icons: o.tile_type_icons }).length ? String(num(o.tile_icon_size, 10, 200, 60) / 100) : null,
+  }
+}
+
 /**
  * The order ready board: order numbers being prepared and ready to collect,
  * side by side or one above the other. Ready numbers drop off after
@@ -930,12 +995,16 @@ function orderStatusHtml(o, ctx) {
   }
   const delay = t => (t ? ' style="animation-delay:-' + Math.round(t) + 'ms"' : '')
   const info = { main: o.tile_main, lines: o.tile_lines }
+  const iconPos = TILE_ICON_POSITIONS.some(p => p.key === o.tile_icon_pos) ? o.tile_icon_pos : 'left'
   const tile = (x, cls, extra = '', t = 0) => {
     const v = orderInfo(x, info)
-    return '<div class="sl-onum ' + cls + extra + '"' + delay(t) + ' data-main="' + v.key + '">' +
+    const icon = tileIcon(o, x)
+    return '<div class="sl-onum ' + cls + extra + '"' + delay(t) + ' data-main="' + v.key + '"' + (icon ? ' data-icon="' + iconPos + '"' : '') + '>' +
+      (icon ? '<img class="sl-oicon" src="' + esc(icon) + '" alt="" draggable="false">' : '') +
+      '<span class="sl-otext">' +
       (v.caption ? '<span class="sl-ocap">' + esc(v.caption) + '</span>' : '') +
       '<span class="sl-oval">' + esc(v.value) + '</span>' +
-      v.lines.map(l => '<span class="sl-oline" data-k="' + l.key + '">' + esc(l.text) + '</span>').join('') + '</div>'
+      v.lines.map(l => '<span class="sl-oline" data-k="' + l.key + '">' + esc(l.text) + '</span>').join('') + '</span></div>'
   }
   const column = (title, list, cls, side) => {
     const tiles = list.map(x => {
@@ -958,6 +1027,7 @@ function orderStatusHtml(o, ctx) {
     '--opc': o.preparing_color ? colour(o.preparing_color, null) : null,
     '--opb': o.preparing_bg ? colour(o.preparing_bg, null) : null,
     '--och': animMs + 'ms',
+    ...tileLook(o),
     '--ofx': stacked ? '0px' : (dir * 140) + '%', '--ofy': stacked ? (dir * 140) + '%' : '0px',
   })
   const cls = 'sl-orders' + (ctx.orders ? '' : ' is-sample') + (stacked ? ' is-stacked' : '') + (anim !== 'none' ? ' sl-och-' + anim : '')
@@ -1125,9 +1195,21 @@ export const SCREEN_LAYOUT_CSS = `
 .sl-otitle { font-family: var(--sl-heading); font-size: var(--ot); font-weight: 700; text-transform: uppercase; text-align: center;
   color: var(--otc, var(--sl-text)); line-height: 1.1; margin-bottom: calc(var(--on) * 0.25); }
 .sl-olist { display: grid; grid-template-columns: repeat(var(--oc), minmax(0, 1fr)); gap: calc(var(--on) * 0.18); align-content: start; }
-.sl-onum { display: flex; flex-direction: column; align-items: center; justify-content: center; font-family: var(--sl-heading);
-  font-size: var(--on); font-weight: 800; line-height: 1.1; padding: 0.08em 0.2em; font-variant-numeric: tabular-nums; }
-.sl-onum.is-prep { color: var(--opc, var(--sl-muted)); background: var(--opb, transparent); border-radius: 0.08em; }
+.sl-onum { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.15em;
+  font-family: var(--otf, var(--sl-heading)); font-size: var(--on); font-weight: var(--otw, 800); font-style: var(--otst, normal);
+  text-transform: var(--ottt, none); line-height: 1.1; padding: var(--otpad, 0.08em 0.2em); font-variant-numeric: tabular-nums;
+  border-radius: var(--otr, 0.08em); border: var(--otb, 0 none); box-shadow: var(--otsh, none); aspect-ratio: var(--otar, auto);
+  background-size: var(--otfit, cover); background-position: center; background-repeat: no-repeat; overflow: hidden; }
+.sl-onum.is-prep { color: var(--opc, var(--sl-muted)); background-color: var(--opb, transparent); background-image: var(--opimg, none); }
+.sl-onum::before { content: ''; position: absolute; inset: 0; pointer-events: none; }
+.sl-onum.is-ready::before { background: rgba(0,0,0,var(--ordim, 0)); }
+.sl-onum.is-prep::before { background: rgba(0,0,0,var(--opdim, 0)); }
+.sl-otext { position: relative; z-index: 1; min-width: 0; max-width: 100%; display: flex; flex-direction: column; align-items: center; }
+.sl-oicon { position: relative; z-index: 1; display: block; height: calc(var(--otis, 0.6) * 1em); width: auto; max-width: 45%; object-fit: contain; flex: none; }
+.sl-onum[data-icon="left"] { flex-direction: row; }
+.sl-onum[data-icon="right"] { flex-direction: row-reverse; }
+.sl-onum[data-icon="corner"] .sl-oicon { position: absolute; z-index: 2; top: 0.1em; right: 0.1em; height: calc(var(--otis, 0.6) * 0.6em); }
+.sl-oline, .sl-ocap { font-family: var(--otlf, inherit); }
 .sl-orders.is-stacked { flex-direction: column; gap: calc(var(--on) * 0.4); }
 .sl-orders.is-stacked .sl-ocol { min-height: 0; overflow: hidden; }
 .sl-och-in, .sl-och-out { animation-duration: var(--och, 900ms); animation-timing-function: cubic-bezier(.2,.7,.3,1); animation-fill-mode: both; }
@@ -1150,7 +1232,7 @@ export const SCREEN_LAYOUT_CSS = `
 @keyframes sl-och-zoom-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: scale(2.2); } }
 @keyframes sl-och-float-in { from { opacity: 0.2; transform: translate(calc(var(--ofx) * -1), calc(var(--ofy) * -1)); } to { opacity: 1; transform: none; } }
 @keyframes sl-och-float-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: translate(var(--ofx), var(--ofy)); } }
-.sl-onum.is-ready { background: var(--orb); color: var(--orc); border-radius: 0.08em; }
+.sl-onum.is-ready { background-color: var(--orb); background-image: var(--orimg, none); color: var(--orc); }
 .sl-ocap { font-size: 0.26em; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; line-height: 1.2; opacity: 0.85; }
 .sl-oval { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sl-onum[data-main="name"] .sl-oval { font-size: 0.7em; }
