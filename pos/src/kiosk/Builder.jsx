@@ -6,10 +6,9 @@
 // the top on a portrait screen), each done one with its pick's picture and
 // name; how far along shows beside Continue.
 // Pricing and the rules are the till's: shared/pos/pricing.js priceItem().
-// With Split photo on for a group or step (shared/kiosk.js splitImages()),
-// the picks' pictures show on the dish's photo as they're picked: side by
-// side (one pick: its picture instead), or small in its corner (the design's
-// options.pick_photos; parts.jsx PickPhoto).
+// Each group or step says where its picks' pictures go on the dish's photo
+// as they're picked (shared/kiosk.js pickImages()): side by side (one pick:
+// its picture instead), or small in its corner (parts.jsx PickPhoto).
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Check, Plus, Info } from 'lucide-react'
@@ -17,7 +16,7 @@ import { priceItem, lineGross } from '@shared/pos/pricing.js'
 import { resolveSteps } from '@shared/combos.js'
 import { fromPrice, priceVaries } from '@shared/orderPricing.js'
 import { configItem, comboCtx } from '@shared/pos/offers.js'
-import { TK, allergenName, splitImages } from '@shared/kiosk.js'
+import { TK, allergenName, pickImages } from '@shared/kiosk.js'
 import { useKiosk, textsFor, addToBasket, closeBuilder, soldOut, itemLevels, dishLevels, mergeLevels } from './store.js'
 import OptionGroup, { missingIn, groupName } from './OptionGroup.jsx'
 import { DISPLAYS, choiceLook } from './displays.jsx'
@@ -139,7 +138,7 @@ export function heroTextAlign(design) {
 // (portrait): the photo on top, lined up left, centre or right
 // (hero_image_align), the words under it (hero_text_align). Landscape (side):
 // the photo above the words in a column of their own, the choices beside them.
-function Hero({ item, config, ctx, texts, side = false, split = [] }) {
+function Hero({ item, config, ctx, texts, side = false, split = null }) {
   const name = texts.itemName(item)
   const desc = item.description ? texts.t(TK.item(item.id, 'description'), item.description) : null
   const y = config.design.layout
@@ -150,8 +149,8 @@ function Hero({ item, config, ctx, texts, side = false, split = [] }) {
       data-hero={side ? 'side' : y.hero} data-image-align={stacked ? y.hero_image_align : undefined} data-text-align={align}>
       <div className={cx('k-hero-img shrink-0 overflow-hidden rounded-[var(--k-radius)]', side ? 'w-full' : stacked ? 'w-[min(64%,560px)] ' + SELF[y.hero_image_align] : 'w-[38%] max-w-[480px]')}
         data-testid="k-hero-img">
-        <PickPhoto srcs={split} src={item.image_url} label={name} className="w-full h-full object-cover aspect-[4/3]" phClassName="k-item-ph h-full"
-          splitClassName="w-full h-full aspect-[4/3]" mode={config.design.options.pick_photos} />
+        <PickPhoto picks={split} src={item.image_url} label={name} className="w-full h-full object-cover aspect-[4/3]" phClassName="k-item-ph h-full"
+          splitClassName="w-full h-full aspect-[4/3]" />
       </div>
       <div className={cx('flex flex-col gap-[.5em] min-w-0 flex-1', alignCls(align))} data-testid="k-hero-words">
         <h2 className="k-head text-[1.9em] m-0">{name}</h2>
@@ -210,7 +209,7 @@ function DishBuilder({ item, config, ctx, texts, builder }) {
   const missing = missingIn(item.pos_choices || [], sel.choices, config, c => groupName(c, texts))
   const total = priced.ok ? lineGross({ ...priced, qty }) : null
   const portrait = usePortrait()
-  const split = useMemo(() => splitImages(config, item, sel), [config, item, sel])
+  const split = useMemo(() => pickImages(config, item, sel), [config, item, sel])
   const groups = (item.pos_choices || []).map(c => (
     <OptionGroup key={c.key} choice={c} config={config} texts={texts} itemId={item.id}
       value={sel.choices?.[c.key] || []} onChange={v => setSel(x => ({ ...x, choices: { ...(x.choices || {}), [c.key]: v } }))} />
@@ -453,7 +452,7 @@ function ComboBuilder({ item, config, ctx, texts, builder }) {
   const portrait = usePortrait()
   const steps = pages
   const can = complete(page)
-  const split = splitImages(config, item, { ...sel, combo: picks })
+  const split = pickImages(config, item, { ...sel, combo: picks })
   const header = config.design.layout.header
   const priceNow = total != null ? money(total) : priceLabel(item, config, ctx, texts)
   // The step being shown stays in sight in the list of steps; the page itself starts at the top.
@@ -474,8 +473,8 @@ function ComboBuilder({ item, config, ctx, texts, builder }) {
           {!portrait && (
             <div className={cx('flex flex-col gap-[.4em] mb-[.4em]', alignCls(heroTextAlign(config.design)))}>
               <div className="k-hero-img overflow-hidden rounded-[var(--k-radius)] w-full">
-                <PickPhoto srcs={split} src={item.image_url} label={texts.itemName(item)} className="w-full aspect-[4/3] object-cover" phClassName="k-item-ph"
-                  splitClassName="w-full aspect-[4/3]" mode={config.design.options.pick_photos} />
+                <PickPhoto picks={split} src={item.image_url} label={texts.itemName(item)} className="w-full aspect-[4/3] object-cover" phClassName="k-item-ph"
+                  splitClassName="w-full aspect-[4/3]" />
               </div>
               <div className="k-head text-[1.5em]">{texts.itemName(item)}</div>
               {!header && <div className="k-price text-[1.3em]" data-testid="k-combo-price">{priceNow}</div>}
@@ -535,20 +534,20 @@ function ComboBuilder({ item, config, ctx, texts, builder }) {
           {/* No bar along the top: on an upright screen the combo's name and price go here. */}
           {!header && portrait && (
             <div className="flex items-center gap-[var(--k-gap)]" data-testid="k-combo-head">
-              {split.length > 0 && (
+              {(split.split.length + split.corner.length) > 0 && (
                 <div className="k-hero-img w-[5.5em] shrink-0 overflow-hidden rounded-[calc(var(--k-radius)/1.5)]">
-                  <PickPhoto srcs={split} src={item.image_url} label={texts.itemName(item)} className="w-full aspect-[4/3] object-cover" phClassName="k-item-ph"
-                    splitClassName="w-full aspect-[4/3]" mode={config.design.options.pick_photos} />
+                  <PickPhoto picks={split} src={item.image_url} label={texts.itemName(item)} className="w-full aspect-[4/3] object-cover" phClassName="k-item-ph"
+                    splitClassName="w-full aspect-[4/3]" />
                 </div>
               )}
               <span className="k-head text-[1.4em] flex-1 min-w-0">{texts.itemName(item)}</span>
               <span className="k-price text-[1.3em]" data-testid="k-combo-price">{priceNow}</span>
             </div>
           )}
-          {header && portrait && split.length > 0 && page.kind === 'review' && (
+          {header && portrait && (split.split.length + split.corner.length) > 0 && page.kind === 'review' && (
             <div className="k-hero-img w-[min(60%,420px)] overflow-hidden rounded-[var(--k-radius)]">
-              <PickPhoto srcs={split} src={item.image_url} label={texts.itemName(item)} className="w-full aspect-[4/3] object-cover" phClassName="k-item-ph"
-                splitClassName="w-full aspect-[4/3]" mode={config.design.options.pick_photos} />
+              <PickPhoto picks={split} src={item.image_url} label={texts.itemName(item)} className="w-full aspect-[4/3] object-cover" phClassName="k-item-ph"
+                splitClassName="w-full aspect-[4/3]" />
             </div>
           )}
           {/* The page's name just above its choices; how far along shows beside Continue. */}

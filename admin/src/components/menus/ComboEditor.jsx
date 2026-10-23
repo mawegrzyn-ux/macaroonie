@@ -63,7 +63,7 @@ export function comboPayload(item) {
         when: s.when && s.when.step_id ? { step_id: s.when.step_id, option_ids: s.when.option_ids || [] } : null,
         display: STEP_DISPLAYS.includes(s.display) ? s.display : null,
         // Sent only when on: a step saved without it isn't a change to publish.
-        ...(s.split ? { split: true } : {}),
+        ...(s.pick_photo ? { pick_photo: s.pick_photo } : {}),
         options: (s.options || []).filter(o => (o.type === 'custom' ? (o.label || '').trim() : o.item_id || o.section_id)).map(o => ({
           id: o.id, type: o.type,
           item_id: o.type === 'item' ? o.item_id : null,
@@ -356,8 +356,20 @@ function StepCard({ step, index, steps, itemIndex, readOnly, handle, open, onTog
                 </button>
               ))}
             </div>
-            <Check checked={!!step.split} onChange={v => onChange({ split: v })} label="Split photo from the picks"
-              hint="The picks' pictures (from this step and others with this on) show on the combo's photo on kiosks, as the kiosk design says: one in its place or several side by side with a torn edge, or small in its corner. Each choice's On meal picture is used (else its tile picture, or the dish's own photo)" />
+            <div className="mt-2 space-y-1.5" role="group" aria-label="Picks on the meal's photo">
+              <p className="text-xs">Picks on the meal's photo (kiosks)</p>
+              <div className="flex flex-wrap gap-2">
+                {[[null, 'No'], ['split', 'Split the photo'], ['corner', 'Small in the corner']].map(([k, l]) => (
+                  <button key={k || 'off'} type="button" aria-pressed={(step.pick_photo || null) === k} data-testid="combo-step-pick-photo" data-value={k || ''}
+                    onClick={() => onChange({ pick_photo: k })}
+                    className={cn('text-xs rounded-md border px-3 min-h-[40px] touch-manipulation',
+                      (step.pick_photo || null) === k ? 'bg-primary text-primary-foreground border-primary' : 'bg-background')}>
+                    {l}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[11px] text-muted-foreground">Split: one pick's picture in place of the photo, several side by side with a torn edge (with the other split steps). Corner: small in the photo's corner. Each choice's On meal picture is used (else its tile picture, or the dish's own photo).</p>
+            </div>
           </Field>
           {earlier.length > 0 && (
             <Field label="When it shows">

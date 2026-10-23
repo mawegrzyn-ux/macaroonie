@@ -736,17 +736,9 @@ function ChoicesPanel({ d, set }) {
             options={[{ value: 'left', label: 'From the left' }, { value: 'center', label: 'Centred' }]} />
         </div>
       </Field>
-      <Field group label="Picks on the dish's photo" hint="For option groups and combo steps with Split photo on (Menus > Variant groups, and each step of a combo).">
-        <div data-testid="kd-pick-photos">
-          <Segmented value={d.options.pick_photos} onChange={v => set('options', { pick_photos: v })}
-            options={[{ value: 'split', label: 'Split photo' }, { value: 'corner', label: 'Small in the corner' }]} />
-        </div>
-        <p className="text-[11px] text-muted-foreground mt-1">
-          {d.options.pick_photos === 'corner'
-            ? "The dish's own photo stays; each pick's picture shows small in its bottom corner, in the choices' picture style."
-            : "One pick: its picture takes the photo's place. Two or more share the photo side by side, with torn edges."}
-        </p>
-      </Field>
+      <p className="text-[11px] text-muted-foreground" data-testid="kd-pick-photos-note">
+        Picks on the dish's photo (split it, or small in the corner) are set on each option group (Menus &gt; Variant groups) and each combo step, so one dish can split its photo between flavours and show the dip in the corner.
+      </p>
       <Field group label="Spin wheel">
         <div className="space-y-1">
           <Toggle label="Spin button" hint="Turns the wheel two turns or more and stops on a choice at random."
@@ -1159,7 +1151,7 @@ function summaryOf(id, d) {
   if (id === 'start') return (d.start.media.length ? d.start.media.length + ' picture' + (d.start.media.length === 1 ? '' : 's') : 'No pictures') + ', ' + (d.start.layout === 'full' ? 'pictures behind' : 'pictures apart')
   if (id === 'languages') return d.languages.enabled.map(c => KIOSK_LANGUAGES.find(l => l.code === c)?.name).join(', ')
   if (id === 'menu') return TILE_LABELS[d.layout.tiles] + ', ' + (d.menu.rail === 'none' ? 'section tiles, ' : '') + (d.menu.home ? d.menu.banners.length + ' banners, ' + d.menu.featured.length + ' tiles' : 'No home page') + (d.menu.hidden_section_ids.length ? ', ' + d.menu.hidden_section_ids.length + ' sections left off' : '')
-  if (id === 'choices') return DISPLAY_LABELS[d.options.display] + ', ' + TILE_LABELS[d.layout.option_tiles].toLowerCase() + (d.layout.option_pictures ? '' : ', words only') + (d.layout.option_align === 'center' ? ', centred' : '') + (d.options.pick_photos === 'corner' ? ', picks in the corner' : '') + (d.options.wheel_spin_picks ? ', a spin picks' : '')
+  if (id === 'choices') return DISPLAY_LABELS[d.options.display] + ', ' + TILE_LABELS[d.layout.option_tiles].toLowerCase() + (d.layout.option_pictures ? '' : ', words only') + (d.layout.option_align === 'center' ? ', centred' : '') + (d.options.wheel_spin_picks ? ', a spin picks' : '')
   if (id === 'checkout') return [d.checkout.pay_card && 'Card', d.checkout.pay_counter && 'At the counter'].filter(Boolean).join(' and ') || 'No way to pay'
   if (id === 'timing') return 'Starts again after ' + d.behaviour.idle_secs + ' s'
   return ''

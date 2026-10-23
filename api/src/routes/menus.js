@@ -94,9 +94,10 @@ const ComboStep = z.object({
   when:    z.object({ step_id: z.string().uuid(), option_ids: z.array(z.string().uuid()).max(100).default([]) }).nullable().default(null),
   // Kiosks (migration 172): how the step's choices show; null = the design's default.
   display: z.enum(['grid', 'list', 'slider', 'wheel']).nullable().optional(),
-  // Kiosks: the picks' pictures make the combo's split photo. Stored only
-  // when true (cleanCombo()), so steps saved before it don't read as changed.
-  split:   z.boolean().optional(),
+  // Kiosks: where the picks' pictures go on the combo's photo (split or the
+  // corner, migration 201). Stored only when set (cleanCombo()), so steps
+  // without it don't read as changed.
+  pick_photo: z.enum(['split', 'corner']).nullable().optional(),
   options: z.array(ComboOption).max(200).default([]),
 })
 const ComboBody = z.object({
@@ -345,8 +346,9 @@ const VariantGroupBody = z.object({
   kiosk_display: z.enum(['grid', 'list', 'slider', 'wheel']).nullable().optional(),
   scale_low:     z.string().trim().max(40).nullable().optional(),
   scale_high:    z.string().trim().max(40).nullable().optional(),
-  // Migration 185: the picks' pictures make the dish's split photo on kiosks.
-  kiosk_split:   z.boolean().default(false),
+  // Migration 201: where the picks' pictures go on the dish's photo on
+  // kiosks: shared (split), small in its corner, or not on it (null).
+  kiosk_pick_photo: z.enum(['split', 'corner']).nullable().default(null),
   options:    z.array(VariantOptionBody).default([]),
 })
 
@@ -679,13 +681,13 @@ function checkMenuTax(body, lookups) {
 function cleanCombo(combo, selfId, itemKinds, sectionIds) {
   if (!combo) return null
   const steps = []
-  for (const { split, ...st } of combo.steps || []) {
-    if (split) st.split = true
+  for (const { pick_photo, ...st } of combo.steps || []) {
+    if (pick_photo) st.pick_photo = pick_photo
     const options = (st.options || []).filter(o =>
       o.type === 'custom' ? !!(o.label || '').trim()
         : o.type === 'item' ? (o.item_id !== selfId && itemKinds.get(o.item_id) === 'dish')
           : sectionIds.has(o.section_id))
-      // A choice's photo_url is kept only when set, like a step's split.
+      // A choice's photo_url is kept only when set, like a step's pick_photo.
       .map(({ photo_url, ...o }) => (photo_url ? { ...o, photo_url } : o))
     const ref = st.when && steps.find(x => x.id === st.when.step_id)
     const when = ref ? { step_id: ref.id, option_ids: (st.when.option_ids || []).filter(id => ref.options.some(o => o.id === id)) } : null
@@ -1585,11 +1587,11 @@ export default async function menusRoutes(app) {
     const row = await withTenant(req.tenantId, async tx => {
       const [g] = await tx`
         INSERT INTO menu_variant_groups (tenant_id, name, display_name, sort_order, price_mode, min_select, max_select, pos_prefixes, allow_repeat, on_request,
-                                         kiosk_display, scale_low, scale_high, kiosk_split)
+                                         kiosk_display, scale_low, scale_high, kiosk_pick_photo)
         VALUES (${req.tenantId}, ${body.name}, ${body.display_name || null}, ${body.sort_order}, ${body.price_mode},
                 ${Math.min(body.min_select, body.max_select)}, ${body.max_select}, ${body.pos_prefixes},
                 ${body.allow_repeat}, ${body.on_request},
-                ${body.kiosk_display ?? null}, ${body.scale_low || null}, ${body.scale_high || null}, ${body.kiosk_split})
+                ${body.kiosk_display ?? null}, ${body.scale_low || null}, ${body.scale_high || null}, ${body.kiosk_pick_photo})
         RETURNING *
       `
       const options = []
@@ -1620,7 +1622,7 @@ export default async function menusRoutes(app) {
                pos_prefixes = ${body.pos_prefixes},
                allow_repeat = ${body.allow_repeat}, on_request = ${body.on_request},
                kiosk_display = ${body.kiosk_display ?? null}, scale_low = ${body.scale_low || null}, scale_high = ${body.scale_high || null},
-               kiosk_split = ${body.kiosk_split},
+               kiosk_pick_photo = ${body.kiosk_pick_photo},
                updated_at = now()
          WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
          RETURNING *

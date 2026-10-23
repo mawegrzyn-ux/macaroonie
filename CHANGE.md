@@ -5,6 +5,14 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-23 — Kiosk: each option group decides where its picks go on the dish's photo]
+
+- **Picks on the dish's photo** is now set on each option group (Menus → Variant groups) and each combo step: **No**, **Split the photo** or **Small in the corner**. One dish can split its photo between the flavours picked and show the dip small in the corner. Corner pictures sit on top of the photo whether it is split or not; the order line shows both.
+- The kiosk design's *Picks on the dish's photo* setting is gone (the Choices panel points at the groups instead). Groups and combo steps that had Split photo on keep the look their kiosks had: small in the corner where every kiosk design used corner, otherwise split.
+- Migration 201.
+
+---
+
 ## [2026-10-23 — Dish-price options at £0 keep the dish price]
 
 - In an option group set to *Option price is the dish price*, an option left empty or at £0 now keeps the dish's own price everywhere (kiosk, till, online ordering, menu screens). Before, a £0 option replaced the price: 12 Wings at £12.99 with a flavour group whose flavours were £0 showed and sold at "from £0.00".

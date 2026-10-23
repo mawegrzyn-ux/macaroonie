@@ -3994,7 +3994,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['start', 'layout split | full, media [{ id, type image | video, url }] (8), media_secs 3-30, headline, question, type_cards { [orderTypeId]: { label, icon eat_in | take_away | delivery | none, image_url } }, show_allergens'],
                 ['languages', 'source, enabled (KIOSK_LANGUAGES: en es ca fr de it pt nl pl; the source always on)'],
                 ['menu', 'home, banners [{ id, image_url, title, link { kind none | item | section, id } }] (10), banner_secs 3-20, featured [{ id, image_url, title, subtitle, size normal | wide, link }] (12), rail images | text | none (RAIL_KINDS), section_tiles [{ section_id, image_url, title, size normal | wide }] (rail none: the tiles page order, deduped, 200), columns auto | 2-4, show_calories, show_descriptions, show_tags, quick_add, hidden_section_ids'],
-                ['options', 'display grid | list | slider | wheel (where a group or step has none), level_icon flame | star | dot, wheel_spin (the Spin button; default on), wheel_spin_picks (a spin stops on a choice that can be picked and picks it), pick_photos split | corner (PICK_PHOTOS: how splitImages()\' pictures show on the dish\'s photo, parts.jsx PickPhoto)'],
+                ['options', 'display grid | list | slider | wheel (where a group or step has none), level_icon flame | star | dot, wheel_spin (the Spin button; default on), wheel_spin_picks (a spin stops on a choice that can be picked and picks it) (picks on the dish\'s photo are set per option group and combo step since migration 201, not in the design)'],
                 ['checkout', 'pay_card, pay_counter, send_counter, counter_note, upsell, upsell_title, upsell_item_ids (8), number_kind tent | table (what the number asked for when the stream\'s ask_tent is on is called: tent_number / tent_hint and the Done screen\'s tent_done line, or table_number / table_hint; the value goes as check.tent either way), receipt off | ask | always, thanks'],
                 ['behaviour', 'idle_secs 20-600, warn_secs 5-60, done_secs 5-120, reach'],
               ]}
@@ -4014,15 +4014,19 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               allergens of what was picked.
             </P>
             <P>
-              Split photo (migration 185): <Mono>menu_variant_groups.kiosk_split</Mono> (boolean, default
-              false; live like the rest of the library, in <Mono>kioskConfig()</Mono>'s groups) and a combo
-              step's <Mono>split</Mono> (in <Mono>menu_items.combo</Mono>, published with the menu; the Zod{' '}
-              <Mono>ComboStep</Mono> takes it, <Mono>cleanCombo()</Mono> stores it only when true and the
-              editor's <Mono>comboPayload()</Mono> sends it only when on, so steps saved before it don't read
-              as changed; <Mono>normaliseCombo()</Mono> fills <Mono>false</Mono>).{' '}
-              <Mono>splitImages(config, item, selection)</Mono> in <Mono>shared/kiosk.js</Mono> is the one
-              rule: steps with it on (a choice's <Mono>photo_url</Mono>, else a picked dish's photo or a typed-in choice's picture), then groups with it
-              on (the library option's <Mono>photo_url</Mono>, else its <Mono>image_url</Mono>), each in pick order, an option once, at most <Mono>SPLIT_MAX</Mono> (6); none = the dish's photo.
+              Picks on the dish's photo (migration 201, replacing 185's on / off switch and the design's{' '}
+              <Mono>options.pick_photos</Mono>): <Mono>menu_variant_groups.kiosk_pick_photo</Mono> (NULL | split |
+              corner; live like the rest of the library, in <Mono>kioskConfig()</Mono>'s groups) and a combo
+              step's <Mono>pick_photo</Mono> (in <Mono>menu_items.combo</Mono>, published with the menu; the Zod{' '}
+              <Mono>ComboStep</Mono> takes it, <Mono>cleanCombo()</Mono> stores it only when set and the
+              editor's <Mono>comboPayload()</Mono> sends it only when set, so steps without it don't read
+              as changed; <Mono>normaliseCombo()</Mono> fills <Mono>null</Mono>). The migration gave groups and
+              steps that had the switch on <Mono>corner</Mono> where every kiosk design of the tenant said corner,
+              else <Mono>split</Mono>, rewrote release snapshots the same way (re-hashed at start) and dropped{' '}
+              <Mono>pick_photos</Mono> from designs.{' '}
+              <Mono>pickImages(config, item, selection)</Mono> in <Mono>shared/kiosk.js</Mono> is the one
+              rule, returning <Mono>{'{ split, corner }'}</Mono>: steps (a choice's <Mono>photo_url</Mono>, else a picked dish's photo or a typed-in choice's picture), then groups
+              (the library option's <Mono>photo_url</Mono>, else its <Mono>image_url</Mono>), each into the list its group or step names, in pick order, an option once, at most <Mono>SPLIT_MAX</Mono> (6) each; both empty = the dish's photo.
               Two pictures per choice (migration 199): <Mono>image_url</Mono> is the choice's own tile (every
               display, the bundle's step tabs), <Mono>photo_url</Mono> the one on the dish's photo
               (<Mono>menu_variant_options.photo_url</Mono>, in <Mono>loadVariantGroups()</Mono>, the group POST / PATCH
@@ -4031,10 +4035,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               by <Mono>cleanCombo()</Mono>, <Mono>normaliseCombo()</Mono> and <Mono>comboPayload()</Mono>, passed on by{' '}
               <Mono>stepChoices()</Mono>). <Mono>configImages()</Mono> keeps both on the kiosk. Admin: <Mono>OptionPicture</Mono>{' '}
               (Tile / On dish / On meal) in <Mono>VariantGroupsManager.jsx</Mono>, used by <Mono>ComboEditor.jsx</Mono>.{' '}
-              <Mono>PickPhoto</Mono> (<Mono>parts.jsx</Mono>) draws them as the design's{' '}
-              <Mono>options.pick_photos</Mono> says: <Mono>split</Mono>, one picture in place of the photo and two or
-              more with <Mono>SplitPhoto</Mono>; <Mono>corner</Mono>, <Mono>CornerPhoto</Mono>: the dish's photo
-              (<Mono>.k-corner-main</Mono>) with the pictures small (<Mono>.k-corner-pick</Mono>, the choices' picture
+              <Mono>PickPhoto</Mono> (<Mono>parts.jsx</Mono>, prop <Mono>picks</Mono>) draws both: the split ones
+              as one picture in place of the photo or, two or more, with <Mono>SplitPhoto</Mono>; then the corner
+              ones with <Mono>CornerPicks</Mono> on top of whatever that is (<Mono>.k-corner-main</Mono>) with the pictures small (<Mono>.k-corner-pick</Mono>, the choices' picture
               style, each min(26%, 92% / n - 3%) wide) along its bottom right, in the middle of the bottom on a
               round, oval or hexagon photo. <Mono>SplitPhoto</Mono>: every picture covers the whole box
               (object-fit cover) and is clipped to its part with a percent <Mono>polygon()</Mono>; the tears are
@@ -4079,7 +4082,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               drag order, picture, words, width), Choices (display, wheel spin, level marks), Paying, Timing.
               Translations: <Mono>pages/MenuTranslations.jsx</Mono> (<Mono>/menus/translations</Mono>, nav link
               from migration 172). Option groups: <Mono>components/menus/VariantGroupsManager.jsx</Mono>; combo
-              steps: <Mono>components/menus/ComboEditor.jsx</Mono> (both with a Split photo from the picks switch); pictures in those rows:{' '}
+              steps: <Mono>components/menus/ComboEditor.jsx</Mono> (both with a Picks on the dish's photo choice: No, Split the photo, Small in the corner); pictures in those rows:{' '}
               <Mono>components/media/PicturePick.jsx</Mono> (pick from Media or drop a file).
             </P>
           </section>
