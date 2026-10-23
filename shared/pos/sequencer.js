@@ -32,7 +32,7 @@
 //   loadKitchenOrders(ids)               -> { [id]: kitchen order }
 //   saveKitchenOrders({ [id]: order }, event)
 //   saveKitchenLog(rows, event, orders)  speed of service (bumps, recalls, remakes)
-// With a Balance box in the flow in use (migration 183), for events that send
+// With a Splitter in the flow in use (migration 183), for events that send
 // dishes to the kitchen:
 //   loadOpenKitchenOrders()   -> { [id]: kitchen order } (still in the kitchen)
 //   loadBalanceTurns()        -> { [boxId]: station id it picked last }
@@ -61,11 +61,11 @@ import {
 } from './kitchen.js'
 import { kitchenPrintJobs, hasPrinters } from './kitchenPrint.js'
 
-// Events that can send dishes through a Balance box.
+// Events that can send dishes through a Splitter.
 const BALANCE_EVENTS = ['lines.sent', 'course.fired', 'kitchen.order_in']
 const hasBalanceBox = k => !!k?.enabled && Object.values(k.stations || {}).some(s => s.kind === 'balance')
 
-/** The kitchen config with what a Balance box needs (the open orders, its last picks), when it can matter. */
+/** The kitchen config with what a Splitter needs (the open orders, its last picks), when it can matter. */
 async function kitchenWithBalance(store, kitchen, event) {
   if (!hasBalanceBox(kitchen) || !BALANCE_EVENTS.includes(event.type) || !store.loadOpenKitchenOrders) return kitchen
   return { ...kitchen, balance: { open: await store.loadOpenKitchenOrders(), last: await store.loadBalanceTurns(), picks: {} } }

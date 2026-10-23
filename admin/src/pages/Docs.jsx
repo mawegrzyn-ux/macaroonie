@@ -3514,7 +3514,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
           <section id="kds" data-doc="">
             <H2>Kitchen screens (KDS)</H2>
             <P>
-              Migrations 168, 169 (kitchen flow), 177 (several kitchen flows), 182 (stations out of a flow), 183 (Balance boxes) and 191 (kitchen printers). Design in <Mono>docs/POS.md</Mono> section 9. A kitchen screen is a till device of
+              Migrations 168, 169 (kitchen flow), 177 (several kitchen flows), 182 (stations out of a flow), 183 (Splitters), 200 (Sleepers) and 191 (kitchen printers). Design in <Mono>docs/POS.md</Mono> section 9. A kitchen screen is a till device of
               kind <Mono>kds</Mono> (<Mono>pos_devices</Mono>, short code K1, K2 ...), paired with a one-time
               code like a till. The same app at <Mono>pos.&lt;domain&gt;</Mono> boots{' '}
               <Mono>pos/src/kitchen/KitchenApp.jsx</Mono> (lazy) when the device's kind is <Mono>kds</Mono>.
@@ -3536,7 +3536,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <P>
               Station kinds (<Mono>STATION_KINDS</Mono>): <Mono>prep</Mono> makes dishes, <Mono>expo</Mono>{' '}
               checks whole orders, <Mono>runner</Mono> takes them out, <Mono>board</Mono> is an order ready board
-              (nothing to bump, never on a kitchen screen), <Mono>balance</Mono> a Balance box and <Mono>printer</Mono> a
+              (nothing to bump, never on a kitchen screen), <Mono>balance</Mono> a Splitter (called Balance box before migration 200), <Mono>sleeper</Mono> a Sleeper (migration 200) and <Mono>printer</Mono> a
               kitchen printer (migration 191: prints the dishes that reach it, see Till (POS) → Printing; nothing to bump,
               never on a kitchen screen, links out allowed; a venue with only printer boxes still has a kitchen,{' '}
               <Mono>KITCHEN_KINDS</Mono> in <Mono>services/kitchenSvc.js</Mono>). The flow is links{' '}
@@ -3600,7 +3600,30 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               (<Mono>spec.device_id</Mono>, checked against <Mono>data.devices</Mono>).
             </P>
             <P>
-              <strong>Balance boxes</strong> (migration 183): a station of kind <Mono>balance</Mono> shares work
+              <strong>Sleepers</strong> (migration 200): a station of kind <Mono>sleeper</Mono> holds the dishes that
+              reach it for <Mono>settings.delay_mins</Mono> (1-240, <Mono>SLEEP_MINS_MAX</Mono>; Zod in{' '}
+              <Mono>StationSettings</Mono>), then passes them on by itself. Which dishes it holds is decided by the
+              links into it like any station, so filters by order type, revenue stream, till, dish or section (or
+              none) need nothing new; links out may have filters. It is time based: <Mono>flowTimes(item, cfg, at)</Mono>{' '}
+              counts a Sleeper done at <Mono>wakes(id)</Mono> = arrived + delay, and only once <Mono>at</Mono> is that
+              late (no <Mono>at</Mono>: not done), so the next station&apos;s <Mono>arrived()</Mono> is null until then
+              and the screen, the bench and the board see the dish arrive as their clocks pass the time, with no event.{' '}
+              <Mono>nodeState()</Mono> at the Sleeper is <Mono>sleeping</Mono>; <Mono>itemWhere()</Mono> includes it (so
+              refusals say Still at it) and <Mono>itemSleeps()</Mono> gives <Mono>{'[{ station_id, until }]'}</Mono>;{' '}
+              <Mono>stationTickets()</Mono> puts <Mono>sleeps</Mono> on each upcoming item (and leaves the Sleeper out of{' '}
+              <Mono>where</Mono>) and <Mono>sleeping_until</Mono> on a ticket whose only dishes are asleep, and times
+              the pass with <Mono>workSince()</Mono> (first arrival at a bump station, else the wake time) instead of{' '}
+              <Mono>liveSince()</Mono>. A forced finish (the pass bumping dishes still on their way, an order set ready
+              from outside) marks the Sleeper done too; a remake records the Sleepers already passed in{' '}
+              <Mono>item.slept</Mono>, which pass straight through afterwards. No kitchen screen (<Mono>BUMP_KINDS</Mono>),
+              bumps refused, never a Splitter&apos;s output. Kitchen printers after a Sleeper print through the minute
+              sweep (<Mono>kitchenPrintsDue()</Mono> asks <Mono>printsDue()</Mono> with the time now, so a wake is
+              printed within a minute). Order status only changes on events, so a dish whose way ends at a Sleeper
+              (no station after it) makes no difference to when an order is ready. A shared flow&apos;s Sleeper box
+              takes each location&apos;s own station of that name and its own minutes.
+            </P>
+            <P>
+              <strong>Splitters</strong> (migration 183; the kind stays <Mono>balance</Mono>, and the code keeps the balance names: <Mono>balanceTicket()</Mono>, <Mono>kds_balance_turns</Mono>): a station of kind <Mono>balance</Mono> shares work
               between the stations it links to (prep, expo or runner only, links out without filters:{' '}
               <Mono>flowProblems()</Mono>; fewer than two is a warning). <Mono>itemRoute()</Mono> still walks
               through it (so Check a dish shows both); <Mono>resolveBalances(route, cfg, pick)</Mono> then takes
@@ -3682,8 +3705,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <DataTable
               head={['Table', 'What it holds']}
               rows={[
-                ['kds_stations', 'Per venue: name, kind prep | expo | runner | board | balance (183), colour, settings jsonb { target_mins, late_mins, show_held, show_upcoming, summary_groups: [{ id, name, members: [{ kind dish | option, id | label, qty }] }], pieces (a Balance box: members, same shape), split_above (a Balance box: null = each ticket on one station, N = share a ticket with more than N pieces) }, sort_order, is_active.'],
-                ['kds_balance_turns', 'Each Balance box\'s last pick (183): station_id (the box, PK, ON DELETE CASCADE), last_station_id, updated_at. Written by the sequencer (saveBalanceTurns()) so a tie goes to the next station. Forced RLS.'],
+                ['kds_stations', 'Per venue: name, kind prep | expo | runner | board | balance (183, a Splitter) | printer (191) | sleeper (200), colour, settings jsonb { target_mins, late_mins, show_held, show_upcoming, summary_groups: [{ id, name, members: [{ kind dish | option, id | label, qty }] }], pieces (a Splitter: members, same shape), split_above (a Splitter: null = each ticket on one station, N = share a ticket with more than N pieces), printer_id (a printer box), delay_mins (a Sleeper, 1-240) }, sort_order, is_active.'],
+                ['kds_balance_turns', 'Each Splitter\'s last pick (183): station_id (the box, PK, ON DELETE CASCADE), last_station_id, updated_at. Written by the sequencer (saveBalanceTurns()) so a tie goes to the next station. Forced RLS.'],
                 ['kds_flows', 'A venue\'s kitchen flows (177): name (1-40, unique per venue ignoring case and spaces), layout jsonb { [stationId | start]: { x, y } } (where the designer draws each box), sort_order (the kitchen screen\'s list), off_station_ids uuid[] (182: the venue\'s stations this flow leaves out). Forced RLS like every tenant table. The migration made one "Main flow" per venue with stations or links, holding its links and layout, in use. A venue without any flow gets it from GET .../setup (ensureFlows()). Shared flows (192): venue_id NULL, boxes jsonb [{ id, name, kind }], box_links jsonb [{ id, from, to, targets }] (layout keys are box ids), names unique per tenant (index kds_flows_shared_name); a venue\'s own flow can\'t take a shared flow\'s name, a shared one can\'t take any flow\'s.'],
                 ['kds_flow_edges', 'A flow\'s links (169, flow_id NOT NULL since 177, ON DELETE CASCADE with the flow): from_station_id (NULL = Orders in), to_station_id (both ON DELETE CASCADE), targets jsonb, sort_order. One link per pair per flow (unique index on flow_id, from, to). Read them by flow_id, never by venue alone. Replaced kds_routes: each station\'s routes became one link from Orders in, every prep station got a link to every expo.'],
                 ['kds_orders', 'Projection (like pos_checks): id text (a check id, web-<orders.id> or gf-<gloriafood_orders.id>), source till | online | gloriafood (178; taken from the id prefix by applyKitchenEvent(), never from the payload), check_id / order_id, status active | ready | collected | cancelled, state jsonb (the whole kitchen order), last_seq.'],

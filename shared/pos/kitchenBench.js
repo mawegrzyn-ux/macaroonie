@@ -79,7 +79,7 @@ export function createBench(data, { now = () => new Date().toISOString(), rng = 
     log: [],
     number: 0,
     webNumber: 0,
-    balanceLast: {},   // each Balance box's last pick (the sequencer keeps it in kds_balance_turns)
+    balanceLast: {},   // each Splitter's last pick (the sequencer keeps it in kds_balance_turns)
   }
   const by = (rows, f) => Object.fromEntries((rows || []).map(r => [r.id, f(r)]))
   const ctx = { itemsById: data.items || {}, sectionItems: data.section_items || {} }
@@ -105,7 +105,7 @@ export function createBench(data, { now = () => new Date().toISOString(), rng = 
     return cfgCache
   }
 
-  // The config with what Balance boxes need: the bench's orders and their last picks.
+  // The config with what Splitters need: the bench's orders and their last picks.
   const withBalance = c => ({ ...c, balance: { open: st.orders, last: st.balanceLast, picks: st.balanceLast } })
 
   function note(entry) {

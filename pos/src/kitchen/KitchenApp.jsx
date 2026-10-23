@@ -414,10 +414,14 @@ const label = o => o.table ? 'Table ' + o.table : o.tab ? o.tab : o.guest ? o.gu
 
 // ── A ticket ─────────────────────────────────────────────────────
 
+const hhmm = iso => new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+
 function Ticket({ t, n, station, now, text, selected, alert, onSelect, names, types, titleBy }) {
   const o = t.order
   const title = ticketTitle(o, titleBy)
-  const tone = ageTone(t.since, now, station)
+  // Only dishes a Sleeper still holds: the clock shows when they come.
+  const asleep = !!t.sleeping_until
+  const tone = asleep ? 'ok' : ageTone(t.since, now, station)
   const fresh = alert && Date.now() - alert < 30000
   // At the expo / a runner: every dish has reached it, nothing still on its way.
   const live = t.items.filter(i => i.state !== 'voided' && i.state !== 'held')
@@ -440,7 +444,7 @@ function Ticket({ t, n, station, now, text, selected, alert, onSelect, names, ty
           {title.badge && <span className="bg-white text-black font-black px-2 rounded tabular-nums text-[17px] whitespace-nowrap" data-testid="kds-badge">{title.badge}</span>}
           <span className={cx('font-black px-1.5 rounded tabular-nums text-[17px]',
             tone === 'late' ? 'bg-red-600 text-white' : tone === 'warn' ? 'bg-amber-400 text-black' : 'bg-black/30 text-white')}
-            data-testid="kds-timer">{clockSince(t.since, now)}</span>
+            data-testid="kds-timer">{asleep ? 'at ' + hhmm(t.sleeping_until) : clockSince(t.since, now)}</span>
         </div>
         <div className="flex items-center gap-1.5 mt-1 text-[12px]">
           <span className="font-semibold text-white/80 tabular-nums">#{n}</span>
@@ -514,6 +518,11 @@ function ItemRow({ item, order, station, text, names, showNext }) {
         {item.remakes > 0 && <span className="text-[11px] bg-orange-500 text-black px-1 rounded shrink-0">REMAKE</span>}
         {item.seat != null && <span className="text-[11px] bg-black/40 px-1 rounded shrink-0">S{item.seat}</span>}
       </div>
+      {st === 'upcoming' && item.sleeps?.length > 0 && (
+        <div className="px-2 pb-0.5 text-[11px] text-indigo-200 font-semibold" data-testid="kds-sleeps">
+          Waiting at {item.sleeps.map(x => names[x.station_id] || 'a Sleeper').join(', ')} until {hhmm(item.sleeps.map(x => x.until).sort().pop())}
+        </div>
+      )}
       {st === 'upcoming' && item.where?.length > 0 && (
         <div className="px-2 pb-0.5 text-[11px] text-amber-200 font-semibold" data-testid="kds-where">At {item.where.map(id => names[id] || 'another station').join(', ')}</div>
       )}

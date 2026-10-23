@@ -5,6 +5,14 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-23 — Kitchen flow: Sleeper; Balance box renamed Splitter]
+
+- **Sleeper** (Till setup → Kitchen screens → Kitchen flow → Add to the flow → Sleeper): holds the dishes that reach it for a set time (1 to 240 minutes, Edit station → Hold dishes for), then sends them on to the next stations by itself. Which dishes it holds is set on the link into it, like any station: by order type (Delivery), revenue stream, the till or kiosk it was sent from, section (Desserts), single dishes, or every dish. Links out of it can have filters too.
+- On the kitchen screens, the next station only sees a held dish once it wakes, and its timer starts then. The pass (and any station showing dishes before they arrive) shows it as *Waiting at Delivery wait until 19:42*; a ticket with only held dishes shows that time in place of its clock. The pass's Bump sends held dishes on at once; a dish remade after it woke doesn't wait again; an online order set ready from the board counts as woken. A Sleeper before a kitchen printer prints the ticket when it wakes (within a minute). Check a dish shows the wait. The test bench shows held dishes as asleep until their time.
+- A Sleeper has no kitchen screen and nothing to bump. A station changed into a Sleeper leaves its kitchen screens.
+- The **Balance box** is now called **Splitter** everywhere (how it works is unchanged).
+- **Migration 200** (kitchen_sleeper): `kds_stations.kind` takes `sleeper`.
+
 ## [2026-10-23 — Two pictures for each choice]
 
 - Option group options (Menus → Variant groups) have two pictures: **Tile**, shown on the choice on kiosks, and **On dish**, shown on or in place of the dish's photo when the group has Split photo on (split or small in the corner, on the dish page and the order line). An option without an On dish picture uses its Tile picture there, as before.

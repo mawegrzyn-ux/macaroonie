@@ -235,7 +235,7 @@ test('a station taken out of a flow: no links to it, no dishes, its warning gone
   assert.deepEqual(await wayOf(302), sorted([wok.id, pass.id]))
 })
 
-test('a Balance box: each order to the wingman with fewer pieces to cook, taking turns on a tie', async () => {
+test('a Splitter: each order to the wingman with fewer pieces to cook, taking turns on a tie', async () => {
   const pieces = [{ kind: 'dish', id: dish.id, label: dish.name, qty: 10 }]
   const bad = await owner.post(`/api/pos/venues/${V}/kds-stations`, { name: 'Wings', kind: 'balance', settings: { pieces: [{ ...pieces[0], id: crypto.randomUUID() }] } })
   assert.equal(bad.status, 422, 'pieces name the tenant\'s own dishes')
@@ -291,9 +291,9 @@ test('a Balance box: each order to the wingman with fewer pieces to cook, taking
   assert.equal(bump.json.results[0].ok, false)
   assert.match(bump.json.results[0].error, /nothing to bump/)
   const onScreen = await owner.patch(`/api/pos/devices/${screen.id}`, { name: 'Pass screen', settings: { station_ids: [box.id] } })
-  assert.equal(onScreen.status, 422, 'a Balance box isn\'t shown on a kitchen screen')
+  assert.equal(onScreen.status, 422, 'a Splitter isn\'t shown on a kitchen screen')
 
-  // A station turned into a Balance box loses its links' filters; links out
+  // A station turned into a Splitter loses its links' filters; links out
   // to a station that stops bumping go.
   const extra = await ok(owner.post(`/api/pos/venues/${V}/kds-stations`, { name: 'Sauces', kind: 'prep' }))
   await ok(owner.put(`/api/pos/kds-flows/${flow.id}`, { links: [...links, { from: null, to: extra.id, targets: [] }, { from: extra.id, to: pass.id, targets: [{ kind: 'item', id: dish.id }] }], layout: {} }))
@@ -302,7 +302,7 @@ test('a Balance box: each order to the wingman with fewer pieces to cook, taking
   assert.deepEqual(after.links.find(l => l.from === extra.id).targets, [], 'filters gone')
   await ok(owner.patch(`/api/pos/kds-stations/${w2.id}`, { name: 'Wingman 2', kind: 'board', settings: {} }))
   const after2 = (await ok(owner.get(`/api/pos/venues/${V}/setup`))).kds_flows.find(f => f.id === flow.id)
-  assert.ok(!after2.links.some(l => l.from === box.id && l.to === w2.id), 'a board can\'t take a Balance box\'s dishes')
+  assert.ok(!after2.links.some(l => l.from === box.id && l.to === w2.id), 'a board can\'t take a Splitter\'s dishes')
 
   const viewer = await as(A.viewer, ids.a).post(`/api/pos/venues/${V}/kds-stations`, { name: 'Nope', kind: 'balance' })
   assert.equal(viewer.status, 403)
@@ -310,6 +310,63 @@ test('a Balance box: each order to the wingman with fewer pieces to cook, taking
   await ok(owner.delete(`/api/pos/kds-flows/${flow.id}`))
   for (const s of [box, w1, w2, extra]) await ok(owner.delete(`/api/pos/kds-stations/${s.id}`))
   assert.equal((await sql`SELECT count(*)::int AS n FROM kds_balance_turns WHERE station_id = ${box.id}`)[0].n, 0, 'its turns go with it')
+})
+
+test('a Sleeper: holds the dishes its links send it for its minutes, then the wok can bump them', async () => {
+  for (const delay_mins of [0, 241]) {
+    const bad = await owner.post(`/api/pos/venues/${V}/kds-stations`, { name: 'Wait', kind: 'sleeper', settings: { delay_mins } })
+    assert.equal(bad.status, 400, 'from 1 to 240 minutes')
+  }
+  const sleeper = await ok(owner.post(`/api/pos/venues/${V}/kds-stations`, { name: 'Wings wait', kind: 'sleeper', settings: { delay_mins: 10 } }))
+  assert.equal(sleeper.settings.delay_mins, 10)
+  const box = await ok(owner.post(`/api/pos/venues/${V}/kds-stations`, { name: 'Splitter', kind: 'balance', settings: {} }))
+  const flow = await ok(owner.post(`/api/pos/venues/${V}/kds-flows`, { name: 'Slow wings' }))
+  const links = [
+    { from: null, to: sleeper.id, targets: [{ kind: 'item', id: dish.id }] }, { from: null, to: wok.id, targets: [] },
+    { from: sleeper.id, to: wok.id, targets: [] }, { from: wok.id, to: pass.id, targets: [] },
+  ]
+  const fromBox = await owner.put(`/api/pos/kds-flows/${flow.id}`, { links: [...links, { from: null, to: box.id, targets: [] }, { from: box.id, to: sleeper.id, targets: [] }], layout: {} })
+  assert.equal(fromBox.status, 422, 'a Splitter shares only between stations that bump')
+  const saved = await ok(owner.put(`/api/pos/kds-flows/${flow.id}`, { links, layout: {} }))
+  assert.ok(!saved.warnings.some(w => /Wings wait/.test(w)))
+  const loose = await ok(owner.put(`/api/pos/kds-flows/${flow.id}`, { links: links.filter(l => l.from !== sleeper.id), layout: {} }))
+  assert.ok(loose.warnings.some(w => /Wings wait holds dishes but sends them nowhere/.test(w)))
+  await ok(owner.put(`/api/pos/kds-flows/${flow.id}`, { links, layout: {} }))
+  await ok(owner.put(`/api/pos/venues/${V}/kds-flows/active`, { flow_id: flow.id }))
+
+  assert.ok((await sequencer(ids.a, V).submit(orderIn(501))).ok)
+  assert.deepEqual(await wayOf(501), sorted([sleeper.id, wok.id, pass.id]))
+  const [row] = await sql`SELECT id, state FROM kds_orders WHERE tenant_id = ${ids.a} AND venue_id = ${V} AND state->>'number' = '501'`
+  assert.deepEqual(row.state.items[0].route[wok.id], [sleeper.id], 'the wok gets it from the Sleeper')
+  const bumpAt = async station => (await device(screen, 'POST', '/pos-api/events', { events: [{ id: ulid(), venue_id: V, type: 'kitchen.bumped', client_at: new Date().toISOString(), payload: { order_id: row.id, station_id: station } }] })).json.results[0]
+  const early = await bumpAt(wok.id)
+  assert.equal(early.ok, false)
+  assert.match(early.error, /Still at Wings wait/)
+  assert.match((await bumpAt(sleeper.id)).error, /passes dishes on by itself/)
+  // Eleven minutes on: awake, at the wok.
+  const back = t => new Date(Date.parse(t) - 11 * 60_000).toISOString()
+  const item = row.state.items[0]
+  const moved = { ...row.state, items: [{ ...item, sent_at: back(item.sent_at), fired_at: back(item.fired_at), since: back(item.since) }] }
+  await sql`UPDATE kds_orders SET state = ${sql.json(moved)} WHERE id = ${row.id}`
+  assert.equal((await bumpAt(wok.id)).ok, true, 'awake: the wok bumps it')
+
+  // No kitchen screen shows a Sleeper; a station made a Sleeper leaves its screens.
+  const config = await device(screen, 'GET', '/pos-api/config')
+  assert.ok(config.json.stations.some(s => s.id === sleeper.id && s.settings.delay_mins === 10), 'screens know its time')
+  assert.equal((await owner.patch(`/api/pos/devices/${screen.id}`, { name: 'Pass screen', settings: { station_ids: [sleeper.id] } })).status, 422)
+  const prep = await ok(owner.post(`/api/pos/venues/${V}/kds-stations`, { name: 'Sauces 2', kind: 'prep' }))
+  await ok(owner.patch(`/api/pos/devices/${screen.id}`, { name: 'Pass screen', settings: { station_ids: [grill.id, prep.id], can_switch_flow: true } }))
+  await ok(owner.patch(`/api/pos/kds-stations/${prep.id}`, { name: 'Sauces 2', kind: 'sleeper', settings: { delay_mins: 3 } }))
+  const [dev] = await sql`SELECT settings FROM pos_devices WHERE id = ${screen.id}`
+  assert.ok(!dev.settings.station_ids.includes(prep.id), 'off the kitchen screen')
+
+  const viewer = await as(A.viewer, ids.a).post(`/api/pos/venues/${V}/kds-stations`, { name: 'Nope', kind: 'sleeper' })
+  assert.equal(viewer.status, 403)
+  const other = await as(B.owner, ids.b).patch(`/api/pos/kds-stations/${sleeper.id}`, { name: 'Mine', kind: 'sleeper', settings: { delay_mins: 1 } })
+  assert.equal(other.status, 404)
+  await ok(owner.put(`/api/pos/venues/${V}/kds-flows/active`, { flow_id: main.id }))
+  await ok(owner.delete(`/api/pos/kds-flows/${flow.id}`))
+  for (const st of [sleeper, box, prep]) await ok(owner.delete(`/api/pos/kds-stations/${st.id}`))
 })
 
 test('a kitchen screen\'s ticket title: saved with its settings, sent to the screen, nonsense refused', async () => {

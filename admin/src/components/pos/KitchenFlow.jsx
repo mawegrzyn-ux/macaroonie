@@ -63,10 +63,11 @@ const KIND_STYLE = {
   board: 'border-emerald-600',
   balance: 'border-rose-500 border-dashed',
   printer: 'border-stone-600',
+  sleeper: 'border-indigo-500 border-dotted',
 }
-const KIND_STRIP = { start: '#71717a', prep: '#0ea5e9', expo: '#f59e0b', runner: '#8b5cf6', board: '#059669', balance: '#f43f5e', printer: '#57534e' }
-const ADD_KINDS = ['prep', 'expo', 'runner', 'board', 'balance', 'printer']
-// What a Balance box does, said the same way in the panels.
+const KIND_STRIP = { start: '#71717a', prep: '#0ea5e9', expo: '#f59e0b', runner: '#8b5cf6', board: '#059669', balance: '#f43f5e', printer: '#57534e', sleeper: '#6366f1' }
+const ADD_KINDS = ['prep', 'expo', 'runner', 'board', 'balance', 'printer', 'sleeper']
+// What a Splitter does, said the same way in the panels.
 const BALANCE_RULE = 'each ticket\'s dishes go to one of them: the one with the fewest pieces still to cook, taking turns when they\'re level'
 
 let keySeq = 0
@@ -332,7 +333,7 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
     const f = from === START ? null : from
     if (!to || to === START || to === f) return
     if (f && byId[f]?.kind === 'board') return
-    // A Balance box shares between stations that bump.
+    // A Splitter shares between stations that bump.
     if (f && byId[f]?.kind === 'balance' && !isBumpKind(byId[to]?.kind)) return
     const existing = draft.links.find(l => (l.from || null) === f && l.to === to)
     if (existing) { setSelected({ link: existing.key }); return }
@@ -574,6 +575,7 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
                   {kind === 'start' ? 'The till and online orders' : KIND_LABELS[kind]}
                   {shared && kind !== 'start' && !n.here ? ' · none here' : ''}
                   {shared && n.here && n.here.kind !== kind ? ' · here: ' + KIND_LABELS[n.here.kind] : ''}
+                  {kind === 'sleeper' && (n.here || n).settings?.delay_mins ? ' · ' + (n.here || n).settings.delay_mins + ' min' : ''}
                   {!n.is_active ? ' · not in use' : ''}
                 </p>
               </div>
@@ -603,7 +605,7 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
         </div>
       )}
       {checking && (
-        <CheckPanel kindOf={id => byId[id]?.kind} setup={setup} lk={lk} shared={shared} check={check} setCheck={setCheck} route={route} nameOf={nameOf} onClose={() => setChecking(false)} />
+        <CheckPanel kindOf={id => byId[id]?.kind} minsOf={id => (byId[id]?.here || byId[id])?.settings?.delay_mins} setup={setup} lk={lk} shared={shared} check={check} setCheck={setCheck} route={route} nameOf={nameOf} onClose={() => setChecking(false)} />
       )}
       {selLink && (
         <LinkPanel link={selLink} lk={lk} setup={setup} shared={shared} canManage={canManage} nameOf={nameOf} fromBalance={byId[selLink.from]?.kind === 'balance'}
@@ -1218,6 +1220,13 @@ function NodePanel({ id, venueId, station, box, boxes, setup, links, nameOf, lk,
             : 'Big tickets: each ticket stays on one station.'}
         </p>
       )}
+      {station?.kind === 'sleeper' && (
+        <p className="text-xs text-muted-foreground" data-testid="flow-sleeper-note">
+          Holds the dishes that reach it for {s.delay_mins} minutes{box ? ' at this location' : ''}, then sends them on by itself (Edit station to change the time).
+          Which dishes come here is decided by the links into it: give them a filter (an order type, revenue stream, till, dish or section) so only those wait, and link Orders in to the same stations for everything else.
+          Nothing to bump; the pass's Bump sends them on at once, and a remade dish doesn't wait again.
+        </p>
+      )}
       {station?.kind === 'printer' && (
         <p className="text-xs text-muted-foreground" data-testid="flow-printer-note">
           Prints a ticket of the dishes that reach it, once ({(setup.printers || []).find(p => p.id === s.printer_id)?.name || 'no printer picked yet: Edit station'}).
@@ -1270,7 +1279,7 @@ function NodePanel({ id, venueId, station, box, boxes, setup, links, nameOf, lk,
   )
 }
 
-function CheckPanel({ setup, lk, shared, check, setCheck, route, nameOf, kindOf, onClose }) {
+function CheckPanel({ setup, lk, shared, check, setCheck, route, nameOf, kindOf, minsOf, onClose }) {
   const [q, setQ] = useState('')
   const term = q.trim().toLowerCase()
   const matches = term.length >= 2 ? (setup.items || []).filter(i => i.name.toLowerCase().includes(term)).slice(0, 8) : []
@@ -1333,14 +1342,15 @@ function CheckPanel({ setup, lk, shared, check, setCheck, route, nameOf, kindOf,
             : (
               <p className="mt-1 leading-7">
                 Orders in{steps.map((ids, i) => {
-                  // A Balance box's stations: one of them, not all.
+                  // A Splitter's stations: one of them, not all.
                   const shared = ids.length > 1 && ids.every(id => (route[id] || []).some(p => kindOf(p) === 'balance'))
-                  return <span key={i}> <span className="text-muted-foreground">&rarr;</span> <b>{ids.map(nameOf).join(shared ? ' or ' : ' + ')}</b></span>
+                  const label = id => nameOf(id) + (kindOf(id) === 'sleeper' ? ' (waits ' + (minsOf(id) ?? 5) + ' min)' : '')
+                  return <span key={i}> <span className="text-muted-foreground">&rarr;</span> <b>{ids.map(label).join(shared ? ' or ' : ' + ')}</b></span>
                 })}
               </p>
             )}
           {steps.some(ids => ids.some(id => kindOf(id) === 'balance')) && (
-            <p className="text-xs text-muted-foreground mt-1">At a Balance box {BALANCE_RULE}.</p>
+            <p className="text-xs text-muted-foreground mt-1">At a Splitter {BALANCE_RULE}.</p>
           )}
         </div>
       )}

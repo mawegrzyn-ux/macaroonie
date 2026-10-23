@@ -208,7 +208,7 @@ test('made-up orders, clearing, and a venue with no stations', () => {
   assert.deepEqual(benchScreens(data, 'stations').map(s => s.settings.station_ids[0]), [GRILL, FRYER, PASS])
 })
 
-test('a Balance box on the bench shares the wings between two wingmen, and its screens leave it out', () => {
+test('a Splitter on the bench shares the wings between two wingmen, and its screens leave it out', () => {
   const data = benchData()
   const W1 = uuid(), W2 = uuid(), BOX = uuid(), BAL_FLOW = uuid()
   data.stations.push(
