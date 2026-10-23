@@ -141,3 +141,29 @@ test('another tenant and people without access', async () => {
   assert.equal((await b.post(`/api/pos/kiosk-designs/${design.id}/preview`, { venue_id: mine.ids.venue, menu: 'draft' })).status, 404)
   assert.equal((await as(A.viewer, ids.a).post(`/api/pos/kiosk-designs/${design.id}/preview`, { venue_id: mine.ids.venue, menu: 'draft' })).status, 403)
 })
+
+test('a dish with no price is left off the kiosk menu, kept for combos and on the till', async () => {
+  const body = menuSaveBody(await ok(owner.get(`/api/menus/${M}`)))
+  const noPrice = { id: u(), name: 'Wings no price', price_pence: null, is_orderable: true }
+  body.sections[0].items.push(noPrice)
+  await ok(owner.patch(`/api/menus/${M}`, body))
+  const cfg = await previewConfig(await previewLink('draft'))
+  const section = cfg.menus.flatMap(m => m.sections).find(s => s.id === body.sections[0].id)
+  assert.ok(cfg.items[noPrice.id], 'still known (a combo may offer it)')
+  assert.ok(!section.item_ids.includes(noPrice.id), 'not listed on the kiosk')
+  assert.ok(section.item_ids.includes(dishId), 'priced dishes still listed')
+  assert.ok(cfg.section_items[section.id].includes(noPrice.id), 'a combo offering the section still finds it')
+  assert.equal(section.all_ids, undefined)
+  // Tills list it as before (staff can type a price-less line or see the problem).
+  await ok(owner.post(`/api/menus/${M}/publish`, {}))
+  const till = await withTenant(ids.a, tx => tillConfig(tx, ids.a, mine.ids.venue))
+  const tillSection = till.menus.flatMap(m => m.sections).find(s => s.id === body.sections[0].id)
+  assert.ok(tillSection.item_ids.includes(noPrice.id))
+})
+
+test('the design editor\'s preview link names the dishes left off for having no price', async () => {
+  const link = await previewLink('live')
+  const names = link.unpriced.map(d => d.name)
+  assert.ok(names.includes('Wings no price'), JSON.stringify(link.unpriced))
+  assert.ok(!names.includes((await ok(owner.get(`/api/menus/${M}`))).sections[0].items[0].name))
+})

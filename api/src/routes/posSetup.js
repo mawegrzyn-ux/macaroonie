@@ -82,7 +82,7 @@ import { forgetDevice } from './posApi.js'
 import {
   ensureFlows, loadFlows, activeFlowOf, switchFlow, flowPlace, pinActiveFlows, gloriaFoodTypes, GF_TYPES, kitchenTestToken,
 } from '../services/kitchenSvc.js'
-import { checkDesign, ownDesign, previewToken, menuChanges } from '../services/kioskSvc.js'
+import { checkDesign, ownDesign, previewToken, menuChanges, unpricedDishes } from '../services/kioskSvc.js'
 import { normaliseDesign } from '../../../shared/kiosk.js'
 import { DEFAULT_POS_ROLES, PERMISSION_KEYS, normalisePermissions } from '../../../shared/pos/permissions.js'
 import { hashPin, PIN_PATTERN, weakPin } from '../../../shared/pos/pin.js'
@@ -1088,7 +1088,8 @@ export default async function posSetupRoutes(app) {
   // A link to the kiosk app showing this design at a venue, for the
   // editor's live preview (the app takes unsaved changes by postMessage).
   // menu 'draft' shows the menus with changes saved and not published yet;
-  // menus_changed lists the menus the preview shows that have such changes.
+  // menus_changed lists the menus the preview shows that have such changes;
+  // unpriced the dishes it leaves off because they have no price.
   app.post('/kiosk-designs/:id/preview', { preHandler: canSetupView }, async req => {
     const id = UUID.parse(req.params.id)
     const body = z.object({
@@ -1096,18 +1097,21 @@ export default async function posSetupRoutes(app) {
       revenue_stream_id: UUID.nullable().optional(),
       menu: z.enum(['live', 'draft']).optional(),
     }).parse(req.body || {})
-    const menusChanged = await withTenant(req.tenantId, async tx => {
+    const menu = body.menu || 'live'
+    const { menusChanged, unpriced } = await withTenant(req.tenantId, async tx => {
       await checkDesign(tx, req.tenantId, id)
       await ownVenue(tx, req.tenantId, body.venue_id)
       if (body.revenue_stream_id) {
         const [r] = await tx`SELECT id FROM pos_revenue_streams WHERE id = ${body.revenue_stream_id} AND tenant_id = ${req.tenantId} AND venue_id = ${body.venue_id}`
         if (!r) throw httpError(422, 'Revenue stream not found')
       }
-      return menuChanges(tx, req.tenantId, body.venue_id, body.revenue_stream_id || null)
+      return {
+        menusChanged: await menuChanges(tx, req.tenantId, body.venue_id, body.revenue_stream_id || null),
+        unpriced: await unpricedDishes(tx, req.tenantId, body.venue_id, body.revenue_stream_id || null, menu),
+      }
     })
-    const menu = body.menu || 'live'
     const token = await previewToken({ tenantId: req.tenantId, venueId: body.venue_id, designId: id, streamId: body.revenue_stream_id || null, menu })
-    return { token, url: deviceOrigin('kiosk') + '/?kiosk_preview=' + encodeURIComponent(token), menu, menus_changed: menusChanged }
+    return { token, url: deviceOrigin('kiosk') + '/?kiosk_preview=' + encodeURIComponent(token), menu, menus_changed: menusChanged, unpriced }
   })
 
   // A lasting preview link for people outside the group (migration 187):

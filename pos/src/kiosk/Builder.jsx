@@ -186,6 +186,9 @@ function AddBar({ texts, qty, setQty, priced, missing, editing, onAdd, onBack, t
   return (
     <div className="shrink-0 bg-[var(--k-surface)] border-t-2 border-[var(--k-line)] px-[var(--k-pad)] py-[var(--k-gap)] flex flex-col gap-[var(--k-gap)]">
       {missing && <span className="font-bold text-[var(--k-primary)] text-right" data-testid="k-missing">{ui('choose_first', { name: missing })}</span>}
+      {/* Everything picked and still no price (a dish with no price set): say
+          so, never a greyed-out button with no reason. */}
+      {!missing && !priced.ok && <span className="font-bold text-[var(--k-primary)] text-right" data-testid="k-cant-order">{ui('cant_order')}</span>}
       <div className="flex items-center gap-[var(--k-pad)]">
         <BackButton onClick={onBack} label={ui('back')} />
         <Stepper value={qty} onChange={setQty} labels={{ less: ui('one_less'), more: ui('one_more') }} />
@@ -568,6 +571,7 @@ function ComboBuilder({ item, config, ctx, texts, builder }) {
       <div className="shrink-0 bg-[var(--k-surface)] border-t-2 border-[var(--k-line)] px-[var(--k-pad)] py-[var(--k-gap)] flex items-center gap-[var(--k-pad)] flex-wrap">
         <BackButton onClick={goBack} label={ui('back')} testId="k-step-back" />
         {page.kind === 'review' && <Stepper value={qty} onChange={setQty} labels={{ less: ui('one_less'), more: ui('one_more') }} />}
+        {page.kind === 'review' && !priced.ok && <span className="ml-auto font-bold text-[var(--k-primary)] text-right" data-testid="k-cant-order">{ui('cant_order')}</span>}
         {page.kind === 'review' ? (
           <button className="k-btn k-btn-primary k-btn-big ml-auto" disabled={!priced.ok} onClick={add} data-testid="k-add">
             {builder.key ? ui('update_order') : ui('add_to_order')}{total != null ? ' · ' + money(total) : ''}

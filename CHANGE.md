@@ -5,6 +5,15 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-23 — Kiosk: dishes with no price]
+
+- A dish the kiosk can't price (no price of its own, no option with a price to choose) is left off the kiosk menu, as online ordering already did. Before, it was listed and its page let guests pick options, then greyed out Add to order with no reason. It stays available as a meal deal part.
+- Reached from a banner, featured tile or "Anything else?", its page says *This can't be ordered here. Please ask at the counter.* (nine languages); a meal deal that can't be priced says the same on its last page.
+- The kiosk design editor names the dishes left off for having no price, above the preview.
+- No migration.
+
+---
+
 ## [2026-10-23 — Kitchen flow: Sleeper; Balance box renamed Splitter]
 
 - **Sleeper** (Till setup → Kitchen screens → Kitchen flow → Add to the flow → Sleeper): holds the dishes that reach it for a set time (1 to 240 minutes, Edit station → Hold dishes for), then sends them on to the next stations by itself. Which dishes it holds is set on the link into it, like any station: by order type (Delivery), revenue stream, the till or kiosk it was sent from, section (Desserts), single dishes, or every dish. Links out of it can have filters too.

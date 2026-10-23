@@ -22,7 +22,7 @@ import { venuePromotions, publicPromotion } from './promoSvc.js'
 import { fillReconDay, reconFields } from './reconFill.js'
 import { createSequencer } from '../../../shared/pos/sequencer.js'
 import { checkTotals, isActiveLine, lineGross } from '../../../shared/pos/pricing.js'
-import { variantRules } from '../../../shared/orderPricing.js'
+import { variantRules, itemChoices, isPriced } from '../../../shared/orderPricing.js'
 import { dayFigures } from '../../../shared/pos/reports.js'
 import { normalisePermissions, DEFAULT_POS_ROLES } from '../../../shared/pos/permissions.js'
 import { TENDERS } from '../../../shared/pos/checks.js'
@@ -201,8 +201,13 @@ export async function tillMenuData(tx, tenantId, venueId, streams, { guest = fal
       if (visibility === 'hidden' || (guest && visibility !== 'show')) continue
       const sectionTax = taxForVenue(s.tax, venueId, streamIds)
       const ids = []
+      const all = []
       for (const it of s.items || []) {
-        ids.push(it.id)
+        all.push(it.id)
+        // A kiosk lists only dishes it can price: one with no price of its
+        // own and no priced option to choose would be a dead end. It stays
+        // in items (and section_items) so a combo can still offer it.
+        if (!guest || isPriced(it, itemChoices(it, rules))) ids.push(it.id)
         if (items[it.id]) continue
         items[it.id] = {
           id: it.id, name: it.name, kitchen_name: it.kitchen_name || null, section_id: s.id,
@@ -218,7 +223,7 @@ export async function tillMenuData(tx, tenantId, venueId, streams, { guest = fal
         }
       }
       sections.push({
-        id: s.id, title: s.title, colour: s.pos_colour || null, course_id: s.pos_course_id || null, item_ids: ids,
+        id: s.id, title: s.title, colour: s.pos_colour || null, course_id: s.pos_course_id || null, item_ids: ids, all_ids: all,
         ...(guest ? { subtitle: s.subtitle || null, image_url: s.image_url || null } : {}),
       })
     }
@@ -227,7 +232,12 @@ export async function tillMenuData(tx, tenantId, venueId, streams, { guest = fal
   // Combos (shared/combos.js) find a section option's dishes through this:
   // every dish of the section the till knows.
   const sectionItems = {}
-  for (const m of menus) for (const s of m.sections) sectionItems[s.id] = [...new Set([...(sectionItems[s.id] || []), ...s.item_ids])]
+  for (const m of menus) {
+    for (const s of m.sections) {
+      sectionItems[s.id] = [...new Set([...(sectionItems[s.id] || []), ...s.all_ids])]
+      delete s.all_ids
+    }
+  }
   return { menus, items, section_items: sectionItems, dietary }
 }
 

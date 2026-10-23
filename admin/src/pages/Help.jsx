@@ -5385,6 +5385,16 @@ export default function Help() {
               show as typed: translate them on <strong>Menus → Translations</strong>.
             </InfoBox>
 
+            <H3>Dishes with no price</H3>
+            <P>
+              The kiosk leaves off its menu any dish it can't price: one with no price of its own and no option with a
+              price to choose (for example 12 Wings with the price left empty and flavours that don't cost anything).
+              The design editor says which dishes those are, above the preview. Set a price on the Menus page and
+              publish the menu to put them on the kiosk. A dish like that can still be part of a meal deal, which has
+              its own price. If a banner, featured tile or "Anything else?" still points at one, its page says it can't
+              be ordered on the kiosk and asks the guest to order at the counter.
+            </P>
+
             <H3>Sharing a preview</H3>
             <P>
               <strong>Share</strong> in the design editor's top bar makes a link to this design that anyone can open,
