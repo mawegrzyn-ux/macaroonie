@@ -3,10 +3,13 @@
 // till's steps, shared/combos.js): each step's choices in the step's display
 // (grid, list, slider, wheel), then the picked dish's own options, then a
 // last page with everything picked. The steps show down the side (or along
-// the top on a portrait screen) with a tick when done.
+// the top on a portrait screen), each done one with its pick's picture and
+// name; how far along shows beside Continue.
 // Pricing and the rules are the till's: shared/pos/pricing.js priceItem().
 // With Split photo on for a group or step (shared/kiosk.js splitImages()),
-// the dish's photo becomes the picks' pictures side by side as they're picked.
+// the picks' pictures show on the dish's photo as they're picked: side by
+// side (one pick: its picture instead), or small in its corner (the design's
+// options.pick_photos; parts.jsx PickPhoto).
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Check, Plus, Info } from 'lucide-react'
@@ -16,7 +19,7 @@ import { fromPrice, priceVaries } from '@shared/orderPricing.js'
 import { configItem, comboCtx } from '@shared/pos/offers.js'
 import { TK, allergenName, splitImages } from '@shared/kiosk.js'
 import { useKiosk, textsFor, addToBasket, closeBuilder, soldOut, itemLevels, dishLevels, mergeLevels } from './store.js'
-import OptionGroup, { missingIn, ruleText, groupName } from './OptionGroup.jsx'
+import OptionGroup, { missingIn, groupName } from './OptionGroup.jsx'
 import { DISPLAYS, choiceLook } from './displays.jsx'
 import { cx, PickPhoto, Stepper, BackButton, bringIntoView, usePortrait } from './parts.jsx'
 
@@ -117,19 +120,40 @@ function TopBar({ title, right = null, config }) {
   )
 }
 
-// Portrait: the photo sits beside the words, so the choices start on the
-// first screen. Landscape (side): photo above the words in a column of their
-// own, the choices beside them.
+// Lining up a column of words (k-align-<left|center|right>: text and the rows in it).
+const alignCls = a => 'k-align-' + (a || 'left')
+// A picture's place across the width.
+const SELF = { left: 'self-start', center: 'self-center', right: 'self-end' }
+
+/**
+ * The words lined up as the design's dish page says (layout.hero_text_align),
+ * for a dish page or a combo's side column on a wide screen, when the design
+ * puts the photo on top of the words; else from the left.
+ */
+export function heroTextAlign(design) {
+  return design.layout.hero === 'stacked' ? design.layout.hero_text_align : 'left'
+}
+
+// The top of a dish's page (design.layout.hero). Beside (portrait): the photo
+// sits beside the words, so the choices start on the first screen. Stacked
+// (portrait): the photo on top, lined up left, centre or right
+// (hero_image_align), the words under it (hero_text_align). Landscape (side):
+// the photo above the words in a column of their own, the choices beside them.
 function Hero({ item, config, ctx, texts, side = false, split = [] }) {
   const name = texts.itemName(item)
   const desc = item.description ? texts.t(TK.item(item.id, 'description'), item.description) : null
+  const y = config.design.layout
+  const stacked = !side && y.hero === 'stacked'
+  const align = heroTextAlign(config.design)
   return (
-    <div className={cx('flex gap-[var(--k-pad)]', side ? 'flex-col' : 'items-start')}>
-      <div className={cx('k-hero-img shrink-0 overflow-hidden rounded-[var(--k-radius)]', side ? 'w-full' : 'w-[38%] max-w-[480px]')}>
+    <div className={cx('flex gap-[var(--k-pad)]', side || stacked ? 'flex-col' : 'items-start')} data-testid="k-hero"
+      data-hero={side ? 'side' : y.hero} data-image-align={stacked ? y.hero_image_align : undefined} data-text-align={align}>
+      <div className={cx('k-hero-img shrink-0 overflow-hidden rounded-[var(--k-radius)]', side ? 'w-full' : stacked ? 'w-[min(64%,560px)] ' + SELF[y.hero_image_align] : 'w-[38%] max-w-[480px]')}
+        data-testid="k-hero-img">
         <PickPhoto srcs={split} src={item.image_url} label={name} className="w-full h-full object-cover aspect-[4/3]" phClassName="k-item-ph h-full"
-          splitClassName="w-full h-full aspect-[4/3]" />
+          splitClassName="w-full h-full aspect-[4/3]" mode={config.design.options.pick_photos} />
       </div>
-      <div className="flex flex-col gap-[.5em] min-w-0 flex-1">
+      <div className={cx('flex flex-col gap-[.5em] min-w-0 flex-1', alignCls(align))} data-testid="k-hero-words">
         <h2 className="k-head text-[1.9em] m-0">{name}</h2>
         <DietaryBadges item={item} config={config} texts={texts} />
         {desc && config.design.menu.show_descriptions && <p className="m-0 k-muted">{desc}</p>}
@@ -321,14 +345,51 @@ function ComboBuilder({ item, config, ctx, texts, builder }) {
       if (i >= 0) setStep(step.id, got.filter((_, j) => j !== i))
     }
     const Display = display(p.st)
+    // The step's name (the page's heading, just above) says what to pick: no
+    // "Choose 1" line between it and the choices.
     return (
       <div key={p.key} className="flex flex-col gap-[var(--k-gap)]" data-testid="k-step" data-step={step.id}
         data-missing={got.length < step.min ? '1' : undefined}>
-        <div className={cx('k-muted font-semibold', look.center && 'text-center')}>{ruleText(ui, step.min, step.max)}{step.max > 1 ? ' · ' + got.length + '/' + step.max : ''}{step.repeat ? ' · ' + ui('tap_again') : ''}</div>
         <Display options={choices} countOf={countOf} onTap={onTap} onLess={onLess} repeat={step.repeat} full={full}
           scale={null} levelIcon={config.design.options.level_icon} ui={ui} {...look} wheel={wheelOf(config)} />
       </div>
     )
+  }
+
+  // What a page's picks are, for its tab once done: { label: "2 x Ranch,
+  // Lemon pepper", images: the picks' pictures, each once, up to three }, or
+  // null when nothing is picked there.
+  function pickedOf(p) {
+    let list = []
+    if (p.kind === 'step') {
+      list = (picks[p.st.step.id] || []).map(e => {
+        const c = p.st.choices.find(x => sameChoice(e, x))
+        return c ? { label: c.item ? texts.itemName(c.item) : t(TK.choice(item.id, c.option_id), c.label), image: c.image_url || null } : null
+      }).filter(Boolean)
+    } else if (p.kind === 'part') list = groupPicks(p.part.pos_choices, p.entry.choices, p.part.id)
+    else if (p.kind === 'own') list = groupPicks(item.pos_choices, sel.choices, item.id)
+    if (!list.length) return null
+    const counts = new Map()
+    for (const x of list) counts.set(x.label, (counts.get(x.label) || 0) + 1)
+    return {
+      label: [...counts].map(([l, n]) => (n > 1 ? n + ' x ' : '') + l).join(', '),
+      images: [...new Set(list.map(x => x.image).filter(Boolean))].slice(0, 3),
+    }
+  }
+
+  // The picks in a dish's option groups (not the groups an option opens), as { label, image }.
+  function groupPicks(choices, value, itemId) {
+    const out = []
+    for (const c of choices || []) {
+      const lib = config.groups?.[c.key]
+      for (const e of value?.[c.key] || []) {
+        const o = c.options.find(x => x.id === e.id)
+        if (!o) continue
+        const lo = lib?.options?.find(x => (x.option_id ?? x.id) === e.id)
+        out.push({ label: c.key === 'variants' ? t(TK.variant(itemId, o.label), o.label) : t(TK.option(o.id, 'label'), o.label), image: lo?.image_url || null })
+      }
+    }
+    return out
   }
 
   function partPage(p) {
@@ -408,10 +469,10 @@ function ComboBuilder({ item, config, ctx, texts, builder }) {
       <div className="flex-1 min-h-0 flex landscape:flex-row flex-col">
         <aside ref={rail} className={cx('shrink-0 bg-[var(--k-surface)] flex', portrait ? 'flex-row items-center gap-[var(--k-gap)] px-[var(--k-pad)] py-[var(--k-gap)] k-hscroll border-b-2 border-[var(--k-line)]' : 'flex-col w-[30%] max-w-[420px] k-scroll p-[var(--k-pad)] gap-[var(--k-gap)] border-r-2 border-[var(--k-line)]')}>
           {!portrait && (
-            <div className="flex flex-col gap-[.4em] mb-[.4em]">
-              <div className="k-hero-img overflow-hidden rounded-[var(--k-radius)]">
+            <div className={cx('flex flex-col gap-[.4em] mb-[.4em]', alignCls(heroTextAlign(config.design)))}>
+              <div className="k-hero-img overflow-hidden rounded-[var(--k-radius)] w-full">
                 <PickPhoto srcs={split} src={item.image_url} label={texts.itemName(item)} className="w-full aspect-[4/3] object-cover" phClassName="k-item-ph"
-                  splitClassName="w-full aspect-[4/3]" />
+                  splitClassName="w-full aspect-[4/3]" mode={config.design.options.pick_photos} />
               </div>
               <div className="k-head text-[1.5em]">{texts.itemName(item)}</div>
               {!header && <div className="k-price text-[1.3em]" data-testid="k-combo-price">{priceNow}</div>}
@@ -421,11 +482,43 @@ function ComboBuilder({ item, config, ctx, texts, builder }) {
           )}
           {steps.map((x, i) => {
             const done = complete(x) && (x.kind !== 'step' || (picks[x.st.step.id] || []).length > 0 || x.st.step.min === 0)
+            const tab = cx('flex text-left rounded-[calc(var(--k-radius)/1.5)] border-2 shrink-0',
+              i === index ? 'border-[var(--k-primary)] bg-[var(--k-soft)]' : 'border-transparent')
+            const open = () => (i <= index || done ? setPageKey(x.key) : null)
+            // Done with something picked: the pick's picture, its name under it.
+            const pk = done ? pickedOf(x) : null
+            if (pk) {
+              return (
+                <button key={x.key} onClick={open} data-testid="k-step-tab" data-active={i === index ? '1' : undefined} data-picked="1"
+                  aria-label={pageTitle(x) + ': ' + pk.label}
+                  className={cx(tab, 'k-step-pick', portrait ? 'flex-col items-center gap-[.25em] p-[.35em] w-[clamp(6.5em,20vmin,9em)]' : 'items-center gap-[.6em] px-[.5em] py-[.35em] min-h-[3em]')}>
+                  <span className="relative flex shrink-0" data-testid="k-step-pics">
+                    {pk.images.length ? pk.images.map((src, j) => (
+                      <span key={src} className={cx('k-opt-thumb k-step-thumb overflow-hidden rounded-[calc(var(--k-radius)/1.5)]', portrait ? 'w-[3.6em] h-[3.6em]' : 'w-[3em] h-[3em]', j > 0 && '-ml-[1.6em]')}
+                        style={{ zIndex: 3 - j }}>
+                        <img src={src} alt="" draggable={false} className="w-full h-full object-cover" />
+                      </span>
+                    )) : (
+                      <span className={cx('rounded-full flex items-center justify-center bg-[var(--k-primary)] text-[var(--k-primary-text)]', portrait ? 'w-[3.6em] h-[3.6em]' : 'w-[3em] h-[3em]')}>
+                        <Check size={22} strokeWidth={3} />
+                      </span>
+                    )}
+                    {pk.images.length > 0 && <span className="k-step-tick"><Check size={12} strokeWidth={3} /></span>}
+                  </span>
+                  {portrait ? (
+                    <span className="k-step-pick-name text-center" data-testid="k-step-pick">{pk.label}</span>
+                  ) : (
+                    <span className="flex flex-col min-w-0">
+                      <span className="k-muted text-[.8em] font-semibold">{pageTitle(x)}</span>
+                      <span className="k-step-pick-name" data-testid="k-step-pick">{pk.label}</span>
+                    </span>
+                  )}
+                </button>
+              )
+            }
             return (
-              <button key={x.key} onClick={() => (i <= index || done ? setPageKey(x.key) : null)} data-testid="k-step-tab" data-active={i === index ? '1' : undefined}
-                className={cx('flex items-center gap-[.5em] text-left rounded-[calc(var(--k-radius)/1.5)] border-2 shrink-0',
-                  portrait ? 'px-[.8em] min-h-[2.8em]' : 'px-[.7em] min-h-[3em]',
-                  i === index ? 'border-[var(--k-primary)] bg-[var(--k-soft)]' : 'border-transparent')}>
+              <button key={x.key} onClick={open} data-testid="k-step-tab" data-active={i === index ? '1' : undefined}
+                className={cx(tab, 'items-center gap-[.5em]', portrait ? 'px-[.8em] min-h-[2.8em]' : 'px-[.7em] min-h-[3em]')}>
                 <span className={cx('w-[1.7em] h-[1.7em] rounded-full flex items-center justify-center shrink-0 text-[.85em] font-bold',
                   done ? 'bg-[var(--k-primary)] text-[var(--k-primary-text)]' : 'border-2 border-[var(--k-line)]')}>
                   {done ? <Check size={14} strokeWidth={3} /> : i + 1}
@@ -439,17 +532,29 @@ function ComboBuilder({ item, config, ctx, texts, builder }) {
           {/* No bar along the top: on an upright screen the combo's name and price go here. */}
           {!header && portrait && (
             <div className="flex items-center gap-[var(--k-gap)]" data-testid="k-combo-head">
-              {split.length > 0 && <div className="k-hero-img w-[5.5em] shrink-0 overflow-hidden rounded-[calc(var(--k-radius)/1.5)]"><PickPhoto srcs={split} splitClassName="w-full aspect-[4/3]" /></div>}
+              {split.length > 0 && (
+                <div className="k-hero-img w-[5.5em] shrink-0 overflow-hidden rounded-[calc(var(--k-radius)/1.5)]">
+                  <PickPhoto srcs={split} src={item.image_url} label={texts.itemName(item)} className="w-full aspect-[4/3] object-cover" phClassName="k-item-ph"
+                    splitClassName="w-full aspect-[4/3]" mode={config.design.options.pick_photos} />
+                </div>
+              )}
               <span className="k-head text-[1.4em] flex-1 min-w-0">{texts.itemName(item)}</span>
               <span className="k-price text-[1.3em]" data-testid="k-combo-price">{priceNow}</span>
             </div>
           )}
           {header && portrait && split.length > 0 && page.kind === 'review' && (
-            <div className="k-hero-img w-[min(60%,420px)] overflow-hidden rounded-[var(--k-radius)]"><PickPhoto srcs={split} splitClassName="w-full aspect-[4/3]" /></div>
+            <div className="k-hero-img w-[min(60%,420px)] overflow-hidden rounded-[var(--k-radius)]">
+              <PickPhoto srcs={split} src={item.image_url} label={texts.itemName(item)} className="w-full aspect-[4/3] object-cover" phClassName="k-item-ph"
+                splitClassName="w-full aspect-[4/3]" mode={config.design.options.pick_photos} />
+            </div>
           )}
-          <div className="flex items-baseline gap-[.6em] flex-wrap">
-            <span className="k-muted font-semibold">{ui('step_of', { n: index + 1, total: pages.length })}</span>
-            <h2 className="k-head text-[1.8em] m-0">{pageTitle(page)}</h2>
+          {/* The page's name just above its choices; how far along shows beside Continue. */}
+          <div className={cx('flex items-baseline gap-[.6em] flex-wrap', isStep && look.center && 'justify-center text-center')} data-testid="k-page-head">
+            <h2 className="k-head text-[1.8em] m-0" data-testid="k-page-title">{pageTitle(page)}</h2>
+            {isStep && page.st.step.max > 1 && (
+              <span className="k-chip min-h-0 py-[.15em] text-[.8em]" data-testid="k-step-picked">{(picks[page.st.step.id] || []).length + '/' + page.st.step.max}</span>
+            )}
+            {isStep && page.st.step.repeat && <span className="k-muted text-[.8em]">{ui('tap_again')}</span>}
           </div>
           {page.kind === 'step' && stepPage(page)}
           {page.kind === 'part' && partPage(page)}
@@ -468,10 +573,14 @@ function ComboBuilder({ item, config, ctx, texts, builder }) {
             {builder.key ? ui('update_order') : ui('add_to_order')}{total != null ? ' · ' + money(total) : ''}
           </button>
         ) : (
-          <button className={cx('k-btn k-btn-primary k-btn-big ml-auto', !can && 'k-btn-wait')} onClick={() => (can ? goNext() : pointAtMissing())}
-            data-testid="k-continue" data-ready={can ? '1' : '0'}>
-            {optionalEmpty ? ui('skip') : ui('continue')}
-          </button>
+          <>
+            {/* At the button's size, so it reads with it. */}
+            <span className="ml-auto k-step-count" data-testid="k-step-count">{ui('step_of', { n: index + 1, total: pages.length })}</span>
+            <button className={cx('k-btn k-btn-primary k-btn-big', !can && 'k-btn-wait')} onClick={() => (can ? goNext() : pointAtMissing())}
+              data-testid="k-continue" data-ready={can ? '1' : '0'}>
+              {optionalEmpty ? ui('skip') : ui('continue')}
+            </button>
+          </>
         )}
       </div>
     </div>

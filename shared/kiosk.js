@@ -127,11 +127,19 @@ export const LINK_KINDS = ['none', 'item', 'section']
 // section tiles, the dish's own photo, the basket) and for choices
 // (layout.option_tiles: option groups and combo steps): cards (photo on top
 // of a card), round or oval photos with the words under them (no card
-// behind), or hexagons that fit together like a honeycomb. Hexagon dishes
-// also give the whole kiosk the hexagon look (buttons, chips, badges).
-export const TILE_STYLES = ['cards', 'round', 'oval', 'hexagon']
-export const TILE_LABELS = { cards: 'Cards', round: 'Round', oval: 'Oval', hexagon: 'Hexagons' }
+// behind), hexagons that fit together like a honeycomb, or no frame at all
+// (plain: the picture as it is, whole, on the page; best with PNGs on a
+// see-through background). Hexagon dishes also give the whole kiosk the
+// hexagon look (buttons, chips, badges).
+export const TILE_STYLES = ['cards', 'round', 'oval', 'hexagon', 'plain']
+export const TILE_LABELS = { cards: 'Cards', round: 'Round', oval: 'Oval', hexagon: 'Hexagons', plain: 'No frame' }
 export const OPTION_ALIGNS = ['left', 'center']
+// The top of a dish's page: the photo beside the words, or on top of them
+// (stacked), with the photo and the words each lined up left, centre or right.
+export const HERO_LAYOUTS = ['beside', 'stacked']
+export const HERO_ALIGNS = ['left', 'center', 'right']
+// How the picks' pictures show on a dish's photo (splitImages()).
+export const PICK_PHOTOS = ['split', 'corner']
 /**
  * Where each hexagon of a honeycomb goes (the kiosk's HexGrid): { rows:
  * [[start, ...], ...], width } in half hexagon columns (a hexagon spans two,
@@ -235,6 +243,12 @@ export function normaliseDesign(raw) {
       // A grid or honeycomb of choices (and its heading) from the left or
       // centred on the screen.
       option_align: oneOf(y.option_align, OPTION_ALIGNS, 'left'),
+      // The top of a dish's page (HERO_LAYOUTS). On a wide screen the photo
+      // is always above the words in a column of its own: only the words'
+      // line-up applies there.
+      hero: oneOf(y.hero, HERO_LAYOUTS, 'beside'),
+      hero_image_align: oneOf(y.hero_image_align, HERO_ALIGNS, 'center'),
+      hero_text_align: oneOf(y.hero_text_align, HERO_ALIGNS, 'center'),
       // The bar along the top (logo, language); off, the language button
       // moves to the bottom bar.
       header: y.header !== false,
@@ -278,6 +292,10 @@ export function normaliseDesign(raw) {
       // The spin wheel's Spin button, and whether a spin picks where it stops.
       wheel_spin: o.wheel_spin !== false,
       wheel_spin_picks: !!o.wheel_spin_picks,
+      // How the picks' pictures (splitImages()) show on the dish's photo:
+      // the photo split between them (one pick: its picture instead), or the
+      // dish's photo with them small in its corner (PICK_PHOTOS).
+      pick_photos: oneOf(o.pick_photos, PICK_PHOTOS, 'split'),
     },
     checkout: {
       pay_card: c.pay_card !== false,
@@ -326,8 +344,10 @@ export const SPLIT_MAX = 6
  * (menu_variant_groups.kiosk_split, migration 185) and, on a combo, of steps
  * with it on (steps[].split; a picked dish shows its own photo). Steps
  * first, then groups, each in pick order; an option picked twice shows once.
- * Two or more pictures (at most SPLIT_MAX), else [] and the dish's own photo
- * shows. selection: { choices, combo } as the builder keeps it.
+ * At most SPLIT_MAX; [] = the dish's own photo. How they show is the
+ * design's options.pick_photos: split (one picture replaces the photo, two
+ * or more share it) or corner (small, on the dish's photo).
+ * selection: { choices, combo } as the builder keeps it.
  */
 export function splitImages(config, item, selection = {}) {
   if (!item) return []
@@ -354,7 +374,7 @@ export function splitImages(config, item, selection = {}) {
       add('g:' + c.key + ':' + e.id, o?.image_url)
     }
   }
-  return out.length >= 2 ? out.slice(0, SPLIT_MAX) : []
+  return out.slice(0, SPLIT_MAX)
 }
 
 // Below the kiosk-images cache's maxEntries (pos/vite.config.js), so saving

@@ -5,6 +5,15 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-23 — Kiosk: no frame pictures, the dish page's top, picks on the photo, bundle steps; option group display names]
+
+- **No frame** picture style for dishes and for choices (kiosk designer, Menu and Choices cards): the whole picture as it is, straight on the page, with no card, corners, shadow or background; best with PNGs on a see-through background. List and wheel thumbs follow it. A picked choice glows in the button colour round its outline.
+- **Top of a dish's page** (Layout card): the photo beside the words as before, or **Photo on top**, with the photo lined up left, centre or right and the name, description and price under it lined up left, centre or right.
+- **Picks on the dish's photo** (Choices card), for groups and combo steps with Split photo on: **Split photo**, or **Small in the corner** (the dish's photo stays, with each pick's picture small in its corner). With Split photo, a single pick now shows its picture in place of the dish's photo (it kept the dish's photo until there were two).
+- **Bundles**: each done step's tab shows what was picked, as its picture with its name under it; **Step 2 of 5** sits beside Continue at the button's size; the step's name sits right above its choices, with no "Choose 1" line (a step taking more than one shows 1/2 beside its name).
+- **Option group display names** (Menus → Variant groups): what guests see as a group's heading (kiosks, online ordering, the website, printed menus, menu screens) and the tills, such as Choose your flavours for a group called Flavour x2 (copy). Empty shows the group name. A menu shows a new display name once published; translate it on Menus → Translations.
+- **Migration 198** (option_group_display_name): `menu_variant_groups.display_name`.
+
 ## [2026-10-22 — Copy dishes, sections and option groups]
 
 - **Copy a dish**: the copy icon on a dish's row, or **Copy** at the top of its panel. The copy goes just after it, named "(copy)", with its price, words, photo, options and their prices for this dish, allergens and tags, till, tax and online settings and a combo's steps.

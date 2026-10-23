@@ -485,19 +485,21 @@ function FeaturedList({ items, onChange, setup, venueName, locked }) {
 }
 
 // Picture styles, set apart for dishes (Menu panel) and choices (Choices panel).
-const TILE_ICONS = { cards: Square, round: Circle, oval: Circle, hexagon: Hexagon }
+const TILE_ICONS = { cards: Square, round: Circle, oval: Circle, hexagon: Hexagon, plain: ImageIcon }
 const TILE_TEXT = {
   dishes: {
     cards: 'The photo on top of a card, the words under it.',
     round: 'Photos in circles, the words under them on the page. No cards.',
     oval: 'Photos in ovals, the words under them on the page. No cards.',
     hexagon: 'Hexagons that lock together like a honeycomb. Buttons, chips and cards across the kiosk take the hexagon look too.',
+    plain: 'The whole picture as it is, straight on the page: no card, corners or shadow. Best with PNGs on a see-through background.',
   },
   choices: {
     cards: 'The photo on top of a card, the words under it.',
     round: 'Photos in circles, the words under them. No cards.',
     oval: 'Photos in ovals, the words under them. No cards.',
     hexagon: 'A grid of choices locks together like a honeycomb, even with only a few. The list, slider and wheel show hexagon photos.',
+    plain: 'The whole picture as it is, no card or frame (the list and wheel thumbs too). A picked one glows round its outline. Best with PNGs on a see-through background.',
   },
   // Choices with Words only.
   words: {
@@ -505,6 +507,7 @@ const TILE_TEXT = {
     round: 'The words in a circle.',
     oval: 'The words in an oval.',
     hexagon: 'The words in hexagons that lock together like a honeycomb, even with only a few.',
+    plain: 'The words alone on the page; a picked one is tinted.',
   },
 }
 
@@ -544,7 +547,44 @@ function LayoutPanel({ d, set }) {
           <span className="h-10 px-3 rounded-lg border-2 border-foreground/40 inline-flex items-center gap-1.5 font-semibold text-foreground"><RotateCcw className="w-4 h-4" />{!y.icon_buttons && 'Start again'}</span>
         </div>
       </Field>
+      <Field group label="Top of a dish's page" hint="The dish's photo, name, description and price above its choices. On a wide screen the photo is always above the words, in a column of its own; there only the words' line-up applies.">
+        <div data-testid="kd-hero">
+          <Segmented value={y.hero} onChange={v => set('layout', { hero: v })}
+            options={[{ value: 'beside', label: 'Photo beside the words' }, { value: 'stacked', label: 'Photo on top' }]} />
+        </div>
+        {y.hero === 'stacked' && (
+          <div className="mt-2 space-y-2">
+            <div className="flex items-center gap-2 flex-wrap" data-testid="kd-hero-image-align">
+              <span className="text-xs font-medium w-14">Photo</span>
+              <Segmented value={y.hero_image_align} onChange={v => set('layout', { hero_image_align: v })} options={ALIGN_OPTIONS} />
+            </div>
+            <div className="flex items-center gap-2 flex-wrap" data-testid="kd-hero-text-align">
+              <span className="text-xs font-medium w-14">Words</span>
+              <Segmented value={y.hero_text_align} onChange={v => set('layout', { hero_text_align: v })} options={ALIGN_OPTIONS} />
+            </div>
+            <HeroSketch image={y.hero_image_align} text={y.hero_text_align} />
+          </div>
+        )}
+      </Field>
     </>
+  )
+}
+
+const ALIGN_OPTIONS = [{ value: 'left', label: 'Left' }, { value: 'center', label: 'Centre' }, { value: 'right', label: 'Right' }]
+const FLEX_ALIGN = { left: 'items-start text-left', center: 'items-center text-center', right: 'items-end text-right' }
+const SELF_ALIGN = { left: 'self-start', center: 'self-center', right: 'self-end' }
+
+// A small drawing of the dish page's top with the photo and the words where they'll go.
+function HeroSketch({ image, text }) {
+  return (
+    <div className="rounded-lg border p-2 flex flex-col gap-1.5 max-w-[220px]" aria-hidden="true">
+      <span className={cn('block w-20 h-12 rounded bg-muted-foreground/30', SELF_ALIGN[image])} />
+      <span className={cn('flex flex-col gap-1', FLEX_ALIGN[text])}>
+        <span className="block h-2.5 w-24 rounded bg-foreground/70" />
+        <span className="block h-1.5 w-36 rounded bg-muted-foreground/40" />
+        <span className="block h-2 w-10 rounded bg-primary/70" />
+      </span>
+    </div>
   )
 }
 
@@ -695,6 +735,17 @@ function ChoicesPanel({ d, set }) {
           <Segmented value={d.layout.option_align} onChange={v => set('layout', { option_align: v })}
             options={[{ value: 'left', label: 'From the left' }, { value: 'center', label: 'Centred' }]} />
         </div>
+      </Field>
+      <Field group label="Picks on the dish's photo" hint="For option groups and combo steps with Split photo on (Menus > Variant groups, and each step of a combo).">
+        <div data-testid="kd-pick-photos">
+          <Segmented value={d.options.pick_photos} onChange={v => set('options', { pick_photos: v })}
+            options={[{ value: 'split', label: 'Split photo' }, { value: 'corner', label: 'Small in the corner' }]} />
+        </div>
+        <p className="text-[11px] text-muted-foreground mt-1">
+          {d.options.pick_photos === 'corner'
+            ? "The dish's own photo stays; each pick's picture shows small in its bottom corner, in the choices' picture style."
+            : "One pick: its picture takes the photo's place. Two or more share the photo side by side, with torn edges."}
+        </p>
       </Field>
       <Field group label="Spin wheel">
         <div className="space-y-1">
@@ -1097,11 +1148,11 @@ const PANELS = [
 
 function summaryOf(id, d) {
   if (id === 'brand') return d.brand.font_heading + ' / ' + d.brand.font_body
-  if (id === 'layout') return [d.layout.header ? 'Top bar' : 'No top bar', d.layout.icon_buttons ? 'icon buttons' : null].filter(Boolean).join(', ')
+  if (id === 'layout') return [d.layout.header ? 'Top bar' : 'No top bar', d.layout.icon_buttons ? 'icon buttons' : null, d.layout.hero === 'stacked' ? 'dish photo on top' : null].filter(Boolean).join(', ')
   if (id === 'start') return (d.start.media.length ? d.start.media.length + ' picture' + (d.start.media.length === 1 ? '' : 's') : 'No pictures') + ', ' + (d.start.layout === 'full' ? 'pictures behind' : 'pictures apart')
   if (id === 'languages') return d.languages.enabled.map(c => KIOSK_LANGUAGES.find(l => l.code === c)?.name).join(', ')
   if (id === 'menu') return TILE_LABELS[d.layout.tiles] + ', ' + (d.menu.rail === 'none' ? 'section tiles, ' : '') + (d.menu.home ? d.menu.banners.length + ' banners, ' + d.menu.featured.length + ' tiles' : 'No home page') + (d.menu.hidden_section_ids.length ? ', ' + d.menu.hidden_section_ids.length + ' sections left off' : '')
-  if (id === 'choices') return DISPLAY_LABELS[d.options.display] + ', ' + TILE_LABELS[d.layout.option_tiles].toLowerCase() + (d.layout.option_pictures ? '' : ', words only') + (d.layout.option_align === 'center' ? ', centred' : '') + (d.options.wheel_spin_picks ? ', a spin picks' : '')
+  if (id === 'choices') return DISPLAY_LABELS[d.options.display] + ', ' + TILE_LABELS[d.layout.option_tiles].toLowerCase() + (d.layout.option_pictures ? '' : ', words only') + (d.layout.option_align === 'center' ? ', centred' : '') + (d.options.pick_photos === 'corner' ? ', picks in the corner' : '') + (d.options.wheel_spin_picks ? ', a spin picks' : '')
   if (id === 'checkout') return [d.checkout.pay_card && 'Card', d.checkout.pay_counter && 'At the counter'].filter(Boolean).join(' and ') || 'No way to pay'
   if (id === 'timing') return 'Starts again after ' + d.behaviour.idle_secs + ' s'
   return ''

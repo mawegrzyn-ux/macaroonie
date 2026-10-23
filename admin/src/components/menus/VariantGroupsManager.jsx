@@ -36,7 +36,7 @@ const newOption = () => ({ _key: newKey(), label: '', price_pence: 0, child_grou
 
 function emptyGroup() {
   return {
-    name: '', price_mode: 'base', min_select: 1, max_select: 1, pos_prefixes: false, allow_repeat: false, on_request: false,
+    name: '', display_name: '', price_mode: 'base', min_select: 1, max_select: 1, pos_prefixes: false, allow_repeat: false, on_request: false,
     kiosk_display: null, scale_low: '', scale_high: '', kiosk_split: false, options: [newOption()],
   }
 }
@@ -102,6 +102,7 @@ export function VariantGroupsManager() {
     mutationFn: () => {
       const payload = {
         name: draft.name.trim(),
+        display_name: (draft.display_name || '').trim() || null,
         // Web ordering: how the price works and how many a guest picks.
         price_mode: draft.price_mode || 'base',
         min_select: Math.max(0, Number(draft.min_select ?? 1)),
@@ -159,6 +160,7 @@ export function VariantGroupsManager() {
     setDraft({
       id: g.id,
       name: g.name,
+      display_name: g.display_name || '',
       price_mode: g.price_mode || 'base',
       min_select: g.min_select ?? 1,
       max_select: g.max_select ?? 1,
@@ -198,7 +200,10 @@ export function VariantGroupsManager() {
         {groups.map(g => (
           <div key={g.id} className="flex items-center gap-3 px-3 py-2.5 text-sm">
             <Layers className="w-4 h-4 text-violet-600 shrink-0" />
-            <span className="font-medium flex-1">{g.name}</span>
+            <span className="flex-1 min-w-0">
+              <span className="font-medium block">{g.name}</span>
+              {g.display_name && <span className="block text-xs text-muted-foreground" data-testid="vg-shown-as">Guests see: {g.display_name}</span>}
+            </span>
             <span className="text-xs text-muted-foreground truncate max-w-[40%]">
               {(g.options || []).map(o => o.label).join(', ') || 'No options'}
             </span>
@@ -236,6 +241,14 @@ export function VariantGroupsManager() {
           <Field label="Group name">
             <Input value={draft.name} onChange={e => setDraft(d => ({ ...d, name: e.target.value }))}
               placeholder="e.g. Protein" autoFocus />
+          </Field>
+          <Field label="Display name">
+            <Input value={draft.display_name || ''} maxLength={80} onChange={e => setDraft(d => ({ ...d, display_name: e.target.value }))}
+              placeholder={draft.name || 'e.g. Choose your protein'} data-testid="vg-display-name" />
+            <p className="text-[11px] text-muted-foreground mt-1">
+              What guests see (kiosks, online ordering, the website, printed menus, menu screens) and the tills. Empty: the group name.
+              The group name stays for telling groups apart here. A menu shows a new display name once it is published.
+            </p>
           </Field>
           <div className="rounded-md border bg-background p-3 space-y-2">
             <p className="text-[10px] uppercase font-semibold text-muted-foreground tracking-wide">Online ordering</p>
@@ -324,7 +337,9 @@ export function VariantGroupsManager() {
                 onChange={e => setDraft(d => ({ ...d, kiosk_split: e.target.checked }))} />
               <span>Split photo from the picks
                 <span className="block text-[11px] text-muted-foreground">
-                  Once a guest picks two or more options with pictures, the dish's photo becomes those pictures side by side with a torn edge between them: three picks show the left third of the first, the middle of the second and the right third of the third. Also on the order line. Give every option a picture of the same shape (the same dish, made each way).
+                  The picks' pictures show on the dish's photo as the guest picks, also on the order line. How is the kiosk design's (Choices: Picks on the dish's photo).
+                  Split photo: one pick's picture takes the photo's place; two or more show side by side with a torn edge between them (three picks: the left third of the first, the middle of the second, the right third of the third), so give every option a picture of the same shape (the same dish, made each way).
+                  Small in the corner: the dish's photo stays, with each pick's picture small in its corner.
                 </span>
               </span>
             </label>

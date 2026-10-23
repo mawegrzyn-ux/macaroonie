@@ -319,6 +319,9 @@ const VariantOptionBody = z.object({
 
 const VariantGroupBody = z.object({
   name:       z.string().min(1).max(80),
+  // Migration 198: what guests and the tills see; empty = the name. Left out
+  // of a PATCH = unchanged.
+  display_name: z.string().trim().max(80).nullable().optional(),
   sort_order: z.number().int().default(0),
   // Web ordering (migration 122): 'base' options are the dish price,
   // 'extra' options are added on top; how many a guest must / may pick.
@@ -356,7 +359,7 @@ export async function attachVariantGroupsToItems(tx, items) {
   if (!ids.length) return items
   const rows = await tx`
     SELECT ig.item_id, ig.group_id, ig.sort_order AS group_sort,
-           g.name AS group_name, g.price_mode, g.min_select, g.max_select, g.allow_repeat, g.on_request,
+           g.name AS group_name, g.display_name, g.price_mode, g.min_select, g.max_select, g.allow_repeat, g.on_request,
            o.id AS option_id, o.label, o.price_pence AS default_pence,
            o.sort_order AS option_sort,
            p.price_pence AS override_pence
@@ -377,6 +380,8 @@ export async function attachVariantGroupsToItems(tx, items) {
         group_id: r.group_id, name: r.group_name, sort_order: r.group_sort,
         price_mode: r.price_mode, min_select: r.min_select, max_select: r.max_select,
         allow_repeat: r.allow_repeat, on_request: r.on_request, options: [],
+        // Only when set: releases made before migration 198 have none.
+        ...(r.display_name ? { display_name: r.display_name } : {}),
       }
       list.push(g)
     }
@@ -1046,7 +1051,11 @@ export default async function menusRoutes(app) {
   app.get('/:id', async (req) => {
     if (!z.string().uuid().safeParse(req.params.id).success) throw httpError(404, 'Menu not found')
     const version = req.query?.version === 'live' ? 'live' : 'draft'
-    const data = await withTenant(req.tenantId, tx => loadMenuVersion(tx, req.params.id, req.tenantId, { version }))
+    // The draft straight from the tables: option groups by their own names
+    // (the editor), with display_name beside them.
+    const data = await withTenant(req.tenantId, tx => (version === 'live'
+      ? loadMenuVersion(tx, req.params.id, req.tenantId, { version })
+      : loadMenuFull(tx, req.params.id, req.tenantId).then(full => (full ? { ...full, version: 'draft' } : null))))
     if (!data) throw httpError(404, version === 'live' ? 'This menu has not been published yet' : 'Menu not found')
     return data
   })
@@ -1567,9 +1576,9 @@ export default async function menusRoutes(app) {
     const body = VariantGroupBody.parse(req.body)
     const row = await withTenant(req.tenantId, async tx => {
       const [g] = await tx`
-        INSERT INTO menu_variant_groups (tenant_id, name, sort_order, price_mode, min_select, max_select, pos_prefixes, allow_repeat, on_request,
+        INSERT INTO menu_variant_groups (tenant_id, name, display_name, sort_order, price_mode, min_select, max_select, pos_prefixes, allow_repeat, on_request,
                                          kiosk_display, scale_low, scale_high, kiosk_split)
-        VALUES (${req.tenantId}, ${body.name}, ${body.sort_order}, ${body.price_mode},
+        VALUES (${req.tenantId}, ${body.name}, ${body.display_name || null}, ${body.sort_order}, ${body.price_mode},
                 ${Math.min(body.min_select, body.max_select)}, ${body.max_select}, ${body.pos_prefixes},
                 ${body.allow_repeat}, ${body.on_request},
                 ${body.kiosk_display ?? null}, ${body.scale_low || null}, ${body.scale_high || null}, ${body.kiosk_split})
@@ -1597,6 +1606,7 @@ export default async function menusRoutes(app) {
       const [g] = await tx`
         UPDATE menu_variant_groups
            SET name = ${body.name}, sort_order = ${body.sort_order},
+               display_name = ${body.display_name === undefined ? tx`display_name` : (body.display_name || null)},
                price_mode = ${body.price_mode},
                min_select = ${Math.min(body.min_select, body.max_select)}, max_select = ${body.max_select},
                pos_prefixes = ${body.pos_prefixes},

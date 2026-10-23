@@ -9,8 +9,9 @@
 //   levelIcon 'flame' | 'star' | 'dot'
 //   ui        the kiosk's words (store.js textsFor().ui)
 //   tiles     the design's choice picture style (design.layout.option_tiles):
-//             'cards' | 'round' | 'oval' | 'hexagon' (the grid lays hexagons
-//             out as a honeycomb; the rest is CSS on .k-opts-<style>)
+//             'cards' | 'round' | 'oval' | 'hexagon' | 'plain' (no frame) (the
+//             grid lays hexagons out as a honeycomb; the rest is CSS on
+//             .k-opts-<style>)
 //   pictures  false: words only (design.layout.option_pictures), in the
 //             style's shape (.k-opt-face, HexTile words)
 //   center    the grid / honeycomb centred on the screen (design.layout.option_align)
