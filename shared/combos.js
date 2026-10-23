@@ -75,7 +75,7 @@ export function normaliseCombo(raw) {
       ask: s.ask === 'button' && min === 0 ? 'button' : 'always',
       when,
       display: STEP_DISPLAYS.includes(s.display) ? s.display : null,
-      split: !!s.split,
+      pick_photo: s.pick_photo === 'split' || s.pick_photo === 'corner' ? s.pick_photo : null,
       options: asList(s.options).map((o, j) => ({
         id: String(o.id || 'opt-' + i + '-' + j),
         type: OPTION_TYPES.includes(o.type) ? o.type : 'item',

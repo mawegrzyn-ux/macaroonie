@@ -5,6 +5,31 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-23 — Kiosk: each option group decides where its picks go on the dish's photo]
+
+- **Picks on the dish's photo** is now set on each option group (Menus → Variant groups) and each combo step: **No**, **Split the photo** or **Small in the corner**. One dish can split its photo between the flavours picked and show the dip small in the corner. Corner pictures sit on top of the photo whether it is split or not; the order line shows both.
+- The kiosk design's *Picks on the dish's photo* setting is gone (the Choices panel points at the groups instead). Groups and combo steps that had Split photo on keep the look their kiosks had: small in the corner where every kiosk design used corner, otherwise split.
+- Migration 201.
+
+---
+
+## [2026-10-23 — Dish-price options at £0 keep the dish price]
+
+- In an option group set to *Option price is the dish price*, an option left empty or at £0 now keeps the dish's own price everywhere (kiosk, till, online ordering, menu screens). Before, a £0 option replaced the price: 12 Wings at £12.99 with a flavour group whose flavours were £0 showed and sold at "from £0.00".
+- The menu shows "from" only when the options really change the price, and a £0 dish-price option shows no price beside it.
+- No migration.
+
+---
+
+## [2026-10-23 — Kiosk: dishes with no price]
+
+- A dish the kiosk can't price (no price of its own, no option with a price to choose) is left off the kiosk menu, as online ordering already did. Before, it was listed and its page let guests pick options, then greyed out Add to order with no reason. It stays available as a meal deal part.
+- Reached from a banner, featured tile or "Anything else?", its page says *This can't be ordered here. Please ask at the counter.* (nine languages); a meal deal that can't be priced says the same on its last page.
+- The kiosk design editor names the dishes left off for having no price, above the preview.
+- No migration.
+
+---
+
 ## [2026-10-23 — Kitchen flow: Sleeper; Balance box renamed Splitter]
 
 - **Sleeper** (Till setup → Kitchen screens → Kitchen flow → Add to the flow → Sleeper): holds the dishes that reach it for a set time (1 to 240 minutes, Edit station → Hold dishes for), then sends them on to the next stations by itself. Which dishes it holds is set on the link into it, like any station: by order type (Delivery), revenue stream, the till or kiosk it was sent from, section (Desserts), single dishes, or every dish. Links out of it can have filters too.

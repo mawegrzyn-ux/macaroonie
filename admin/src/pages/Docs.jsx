@@ -3930,14 +3930,14 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <DataTable
               head={['Route', 'What it does']}
               rows={[
-                ['GET /pos-api/config (kiosk)', 'kioskConfig() in services/kioskSvc.js: venue, settings, the kiosk\'s stream and its order types (ask_name / ask_tent), all order types, tax rates, menus / items / section_items (tillMenuData guest view), option groups with their kiosk fields, guest-visible dietary tags, the allergen notice, automatic till promotions, sold out, the design (normalised), translations for the design\'s languages, the device. No staff, no PINs. version = a hash of it.'],
+                ['GET /pos-api/config (kiosk)', 'kioskConfig() in services/kioskSvc.js: venue, settings, the kiosk\'s stream and its order types (ask_name / ask_tent), all order types, tax rates, menus / items / section_items (tillMenuData guest view: a section\'s item_ids leave out dishes isPriced() in shared/orderPricing.js says can\'t be priced, as online ordering does; they stay in items and section_items for combos), option groups with their kiosk fields, guest-visible dietary tags, the allergen notice, automatic till promotions, sold out, the design (normalised), translations for the design\'s languages, the device. No staff, no PINs. version = a hash of it.'],
                 ['Kiosk device routes', 'A kiosk may only call GET /pos-api/me, GET /pos-api/config and POST /pos-api/events (KIOSK_ROUTES); anything else is 403 code kiosk.'],
                 ['GET /pos-api/kiosk-preview?token=', 'The preview\'s config: kioskConfig() with previewDevice() (the editor\'s stream and design, the test card reader) and the token\'s menu version (m: \'draft\' = the menus with changes not published yet; menu_version in the config). The token is the key: readPreviewToken(), HMAC with platform_secrets kiosk_preview_key, 12 hours.'],
                 ['GET /api/pos/kiosk-designs', 'pos_setup view. Normalised settings.'],
                 ['POST /api/pos/kiosk-designs', 'pos_setup manage. { name, settings, copy_from? } (copy_from: another design of the tenant). Up to 50 per tenant.'],
                 ['PUT /api/pos/kiosk-designs/:id', 'pos_setup manage. { name, settings }, stored as ownDesign(settings) (services/kioskSvc.js: normaliseDesign(), then only the tenant\'s own sections (left off, section tiles, banner and tile links), dishes (links, "Anything else?") and order types (type buttons) are kept; another tenant\'s ids are dropped, a link becomes none). POST does the same. Broadcasts pos.config to every venue with a kiosk (kiosksChanged()).'],
                 ['DELETE /api/pos/kiosk-designs/:id', 'pos_setup manage. Refused (422, names the kiosks) while a kiosk picks it.'],
-                ['POST /api/pos/kiosk-designs/:id/preview', 'pos_setup view. { venue_id, revenue_stream_id?, menu? \'live\' | \'draft\' } (both the tenant\'s, the stream at that venue) -> { token, url (deviceOrigin(\'kiosk\') + ?kiosk_preview=), menu, menus_changed [{ id, name }] } (menuChanges() in services/kioskSvc.js: the menus this preview shows, published or draft, whose draft differs from what is published, contentKey() from shared/menuDiff.js).'],
+                ['POST /api/pos/kiosk-designs/:id/preview', 'pos_setup view. { venue_id, revenue_stream_id?, menu? \'live\' | \'draft\' } (both the tenant\'s, the stream at that venue) -> { token, url (deviceOrigin(\'kiosk\') + ?kiosk_preview=), menu, menus_changed [{ id, name }], unpriced [{ id, name, menu }] } (menuChanges() in services/kioskSvc.js: the menus this preview shows, published or draft, whose draft differs from what is published, contentKey() from shared/menuDiff.js; unpricedDishes(): the dishes the kiosk leaves off for having no price, shown above the editor\'s preview as kd-unpriced).'],
                 ['PUT /api/pos/kiosk-designs/:id/share', 'pos_setup manage. Migrations 187, 188: a lasting link for people outside the group. { venue_id, revenue_stream_id?, menu? \'live\' | \'draft\' (kiosk_designs.share_menu, absent = live), expires_on? } (the tenant\'s venue, a stream at it, a date after today). Makes the token once (24 random bytes, base64url, kiosk_designs.share_token, unique), then only moves it. -> share { url (deviceOrigin(\'kiosk\') + ?kiosk_share=), venue_id, revenue_stream_id, menu, expires_at, expired, views, last_viewed_at, created_at, created_by }. GET /kiosk-designs carries share on each design; the setup snapshot carries shared.'],
                 ['POST /api/pos/kiosk-designs/:id/share/new-link', 'pos_setup manage. A new token (the old link stops), views back to 0. 422 when not shared.'],
                 ['DELETE /api/pos/kiosk-designs/:id/share', 'pos_setup manage. Clears every share column.'],
@@ -3994,7 +3994,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['start', 'layout split | full, media [{ id, type image | video, url }] (8), media_secs 3-30, headline, question, type_cards { [orderTypeId]: { label, icon eat_in | take_away | delivery | none, image_url } }, show_allergens'],
                 ['languages', 'source, enabled (KIOSK_LANGUAGES: en es ca fr de it pt nl pl; the source always on)'],
                 ['menu', 'home, banners [{ id, image_url, title, link { kind none | item | section, id } }] (10), banner_secs 3-20, featured [{ id, image_url, title, subtitle, size normal | wide, link }] (12), rail images | text | none (RAIL_KINDS), section_tiles [{ section_id, image_url, title, size normal | wide }] (rail none: the tiles page order, deduped, 200), columns auto | 2-4, show_calories, show_descriptions, show_tags, quick_add, hidden_section_ids'],
-                ['options', 'display grid | list | slider | wheel (where a group or step has none), level_icon flame | star | dot, wheel_spin (the Spin button; default on), wheel_spin_picks (a spin stops on a choice that can be picked and picks it), pick_photos split | corner (PICK_PHOTOS: how splitImages()\' pictures show on the dish\'s photo, parts.jsx PickPhoto)'],
+                ['options', 'display grid | list | slider | wheel (where a group or step has none), level_icon flame | star | dot, wheel_spin (the Spin button; default on), wheel_spin_picks (a spin stops on a choice that can be picked and picks it) (picks on the dish\'s photo are set per option group and combo step since migration 201, not in the design)'],
                 ['checkout', 'pay_card, pay_counter, send_counter, counter_note, upsell, upsell_title, upsell_item_ids (8), number_kind tent | table (what the number asked for when the stream\'s ask_tent is on is called: tent_number / tent_hint and the Done screen\'s tent_done line, or table_number / table_hint; the value goes as check.tent either way), receipt off | ask | always, thanks'],
                 ['behaviour', 'idle_secs 20-600, warn_secs 5-60, done_secs 5-120, reach'],
               ]}
@@ -4014,15 +4014,19 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               allergens of what was picked.
             </P>
             <P>
-              Split photo (migration 185): <Mono>menu_variant_groups.kiosk_split</Mono> (boolean, default
-              false; live like the rest of the library, in <Mono>kioskConfig()</Mono>'s groups) and a combo
-              step's <Mono>split</Mono> (in <Mono>menu_items.combo</Mono>, published with the menu; the Zod{' '}
-              <Mono>ComboStep</Mono> takes it, <Mono>cleanCombo()</Mono> stores it only when true and the
-              editor's <Mono>comboPayload()</Mono> sends it only when on, so steps saved before it don't read
-              as changed; <Mono>normaliseCombo()</Mono> fills <Mono>false</Mono>).{' '}
-              <Mono>splitImages(config, item, selection)</Mono> in <Mono>shared/kiosk.js</Mono> is the one
-              rule: steps with it on (a choice's <Mono>photo_url</Mono>, else a picked dish's photo or a typed-in choice's picture), then groups with it
-              on (the library option's <Mono>photo_url</Mono>, else its <Mono>image_url</Mono>), each in pick order, an option once, at most <Mono>SPLIT_MAX</Mono> (6); none = the dish's photo.
+              Picks on the dish's photo (migration 201, replacing 185's on / off switch and the design's{' '}
+              <Mono>options.pick_photos</Mono>): <Mono>menu_variant_groups.kiosk_pick_photo</Mono> (NULL | split |
+              corner; live like the rest of the library, in <Mono>kioskConfig()</Mono>'s groups) and a combo
+              step's <Mono>pick_photo</Mono> (in <Mono>menu_items.combo</Mono>, published with the menu; the Zod{' '}
+              <Mono>ComboStep</Mono> takes it, <Mono>cleanCombo()</Mono> stores it only when set and the
+              editor's <Mono>comboPayload()</Mono> sends it only when set, so steps without it don't read
+              as changed; <Mono>normaliseCombo()</Mono> fills <Mono>null</Mono>). The migration gave groups and
+              steps that had the switch on <Mono>corner</Mono> where every kiosk design of the tenant said corner,
+              else <Mono>split</Mono>, rewrote release snapshots the same way (re-hashed at start) and dropped{' '}
+              <Mono>pick_photos</Mono> from designs.{' '}
+              <Mono>pickImages(config, item, selection)</Mono> in <Mono>shared/kiosk.js</Mono> is the one
+              rule, returning <Mono>{'{ split, corner }'}</Mono>: steps (a choice's <Mono>photo_url</Mono>, else a picked dish's photo or a typed-in choice's picture), then groups
+              (the library option's <Mono>photo_url</Mono>, else its <Mono>image_url</Mono>), each into the list its group or step names, in pick order, an option once, at most <Mono>SPLIT_MAX</Mono> (6) each; both empty = the dish's photo.
               Two pictures per choice (migration 199): <Mono>image_url</Mono> is the choice's own tile (every
               display, the bundle's step tabs), <Mono>photo_url</Mono> the one on the dish's photo
               (<Mono>menu_variant_options.photo_url</Mono>, in <Mono>loadVariantGroups()</Mono>, the group POST / PATCH
@@ -4031,10 +4035,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               by <Mono>cleanCombo()</Mono>, <Mono>normaliseCombo()</Mono> and <Mono>comboPayload()</Mono>, passed on by{' '}
               <Mono>stepChoices()</Mono>). <Mono>configImages()</Mono> keeps both on the kiosk. Admin: <Mono>OptionPicture</Mono>{' '}
               (Tile / On dish / On meal) in <Mono>VariantGroupsManager.jsx</Mono>, used by <Mono>ComboEditor.jsx</Mono>.{' '}
-              <Mono>PickPhoto</Mono> (<Mono>parts.jsx</Mono>) draws them as the design's{' '}
-              <Mono>options.pick_photos</Mono> says: <Mono>split</Mono>, one picture in place of the photo and two or
-              more with <Mono>SplitPhoto</Mono>; <Mono>corner</Mono>, <Mono>CornerPhoto</Mono>: the dish's photo
-              (<Mono>.k-corner-main</Mono>) with the pictures small (<Mono>.k-corner-pick</Mono>, the choices' picture
+              <Mono>PickPhoto</Mono> (<Mono>parts.jsx</Mono>, prop <Mono>picks</Mono>) draws both: the split ones
+              as one picture in place of the photo or, two or more, with <Mono>SplitPhoto</Mono>; then the corner
+              ones with <Mono>CornerPicks</Mono> on top of whatever that is (<Mono>.k-corner-main</Mono>) with the pictures small (<Mono>.k-corner-pick</Mono>, the choices' picture
               style, each min(26%, 92% / n - 3%) wide) along its bottom right, in the middle of the bottom on a
               round, oval or hexagon photo. <Mono>SplitPhoto</Mono>: every picture covers the whole box
               (object-fit cover) and is clipped to its part with a percent <Mono>polygon()</Mono>; the tears are
@@ -4079,7 +4082,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               drag order, picture, words, width), Choices (display, wheel spin, level marks), Paying, Timing.
               Translations: <Mono>pages/MenuTranslations.jsx</Mono> (<Mono>/menus/translations</Mono>, nav link
               from migration 172). Option groups: <Mono>components/menus/VariantGroupsManager.jsx</Mono>; combo
-              steps: <Mono>components/menus/ComboEditor.jsx</Mono> (both with a Split photo from the picks switch); pictures in those rows:{' '}
+              steps: <Mono>components/menus/ComboEditor.jsx</Mono> (both with a Picks on the dish's photo choice: No, Split the photo, Small in the corner); pictures in those rows:{' '}
               <Mono>components/media/PicturePick.jsx</Mono> (pick from Media or drop a file).
             </P>
           </section>
@@ -4375,7 +4378,12 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>components/orders/shared.jsx</Mono>: OrderBoard, OrderDetailModal,
               AvailabilityModal, PauseButton, useRealtimeOrders (venue WebSocket), printTicket
               (80mm browser print). Menus.jsx sends is_orderable / vat_rate_* in its save payload;
-              VariantGroupsManager sends price_mode / min_select / max_select.
+              VariantGroupsManager sends price_mode / min_select / max_select. A base option's price comes
+              only from <Mono>basePrice()</Mono> in <Mono>shared/orderPricing.js</Mono>: empty or £0 = none, the
+              dish's own price stands (used by <Mono>priceChoiceSet()</Mono>, <Mono>fromPrice()</Mono>,{' '}
+              <Mono>priceVaries()</Mono> (only when the base prices differ), <Mono>isPriced()</Mono>,{' '}
+              <Mono>optionPriceText()</Mono>, the till's <Mono>priceChoices()</Mono> and the menu screens'{' '}
+              <Mono>dishPriceText()</Mono>).
               <Mono> components/orders/ScheduleEditor.jsx</Mono> (date range + times of day) is shared by
               Ordering setup and Promotions.
             </P>

@@ -36,7 +36,7 @@ after(closeApp)
 
 test('an option\'s tile picture and dish picture save, list, copy and reach the kiosk', async () => {
   const g = await ok(owner.post('/api/menus/variant-groups', {
-    name: 'Flavour', kiosk_split: true,
+    name: 'Flavour', kiosk_pick_photo: 'corner',
     options: [
       { label: 'Lemon', price_pence: 0, image_url: '/uploads/lemon-tile.png', photo_url: '/uploads/lemon-wings.jpg' },
       { label: 'Hot', price_pence: 0, image_url: '/uploads/hot-tile.png' },
@@ -49,7 +49,7 @@ test('an option\'s tile picture and dish picture save, list, copy and reach the 
 
   // A save changes it; one without it clears it (the editor always sends it).
   const changed = await ok(owner.patch(`/api/menus/variant-groups/${g.id}`, {
-    name: 'Flavour', kiosk_split: true,
+    name: 'Flavour', kiosk_pick_photo: 'corner',
     options: g.options.map(x => ({ id: x.id, label: x.label, price_pence: 0, image_url: x.image_url, photo_url: x.label === 'Hot' ? '/uploads/hot-wings.jpg' : x.photo_url })),
   }))
   o = byLabel(changed.options)
@@ -86,7 +86,7 @@ test('a combo choice\'s meal picture is stored only when set', async () => {
   const body = menuSaveBody(full)
   body.sections.push({ id: u(), title: 'Boxes', items: [{
     id: u(), name: 'Noodle box', kind: 'combo', price_pence: 1500, is_orderable: true,
-    combo: { mode: 'manual', steps: [{ id: STEP, name: 'Your noodles', min: 1, max: 1, split: true, options: [
+    combo: { mode: 'manual', steps: [{ id: STEP, name: 'Your noodles', min: 1, max: 1, pick_photo: 'split', options: [
       { id: WITH, type: 'item', item_id: dishes[0].id, photo_url: '/uploads/noodles-in-box.jpg' },
       { id: PLAIN, type: 'item', item_id: dishes[1]?.id || dishes[0].id, photo_url: null },
       { id: CUSTOM, type: 'custom', label: 'Chef special', image_url: '/uploads/chef-tile.png', photo_url: '/uploads/chef-in-box.jpg' },

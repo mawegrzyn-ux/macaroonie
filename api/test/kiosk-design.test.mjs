@@ -34,27 +34,31 @@ before(async () => {
 })
 after(closeApp)
 
-test('an option group\'s split photo switch saves and reaches the kiosk', async () => {
+test('an option group\'s picks on the photo (split / corner / off) save and reach the kiosk', async () => {
   const g = await ok(owner.post('/api/menus/variant-groups', {
-    name: 'Flavour', kiosk_split: true,
+    name: 'Flavour', kiosk_pick_photo: 'split',
     options: [{ label: 'Lemon', price_pence: 0, image_url: '/uploads/lemon.jpg' }, { label: 'Hot', price_pence: 0, image_url: '/uploads/hot.jpg' }],
   }))
-  assert.equal(g.kiosk_split, true)
+  assert.equal(g.kiosk_pick_photo, 'split')
+  const dip = await ok(owner.post('/api/menus/variant-groups', { name: 'Dip', kiosk_pick_photo: 'corner', options: [{ label: 'Ranch', price_pence: 0, image_url: '/uploads/ranch.png' }] }))
+  assert.equal(dip.kiosk_pick_photo, 'corner')
   const plain = await ok(owner.post('/api/menus/variant-groups', { name: 'Sauce', options: [{ label: 'Ranch', price_pence: 0 }] }))
-  assert.equal(plain.kiosk_split, false, 'off unless asked for')
+  assert.equal(plain.kiosk_pick_photo, null, 'off unless asked for')
+  assert.equal((await owner.post('/api/menus/variant-groups', { name: 'Bad', kiosk_pick_photo: 'stack', options: [] })).status, 400)
   const off = await ok(owner.patch(`/api/menus/variant-groups/${g.id}`, { name: 'Flavour', options: g.options.map(o => ({ ...o })) }))
-  assert.equal(off.kiosk_split, false, 'a save without it turns it off (the editor always sends it)')
-  await ok(owner.patch(`/api/menus/variant-groups/${g.id}`, { name: 'Flavour', kiosk_split: true, options: g.options.map(o => ({ ...o })) }))
+  assert.equal(off.kiosk_pick_photo, null, 'a save without it turns it off (the editor always sends it)')
+  await ok(owner.patch(`/api/menus/variant-groups/${g.id}`, { name: 'Flavour', kiosk_pick_photo: 'split', options: g.options.map(o => ({ ...o })) }))
   const listed = (await ok(owner.get('/api/menus/variant-groups'))).find(x => x.id === g.id)
-  assert.equal(listed.kiosk_split, true)
+  assert.equal(listed.kiosk_pick_photo, 'split')
   const link = await ok(owner.post(`/api/pos/kiosk-designs/${design.id}/preview`, { venue_id: mine.ids.venue }))
   const cfg = await preview(link.token)
   assert.equal(cfg.status, 200)
-  assert.equal(cfg.json.groups[g.id].kiosk_split, true)
-  assert.equal(cfg.json.groups[plain.id].kiosk_split, false)
+  assert.equal(cfg.json.groups[g.id].kiosk_pick_photo, 'split')
+  assert.equal(cfg.json.groups[dip.id].kiosk_pick_photo, 'corner')
+  assert.equal(cfg.json.groups[plain.id].kiosk_pick_photo, null)
 })
 
-test('a combo step\'s split switch is stored only when on, and nothing else reads as changed', async () => {
+test('a combo step\'s picks on the photo are stored only when set, and nothing else reads as changed', async () => {
   const M = mine.ids.menu
   const full = await ok(owner.get(`/api/menus/${M}`))
   const dishes = full.sections[0].items
@@ -63,15 +67,15 @@ test('a combo step\'s split switch is stored only when on, and nothing else read
   body.sections.push({ id: u(), title: 'Meals', items: [{
     id: u(), name: 'Noodle meal', kind: 'combo', price_pence: 1500, is_orderable: true,
     combo: { mode: 'manual', steps: [
-      { id: MAIN, name: 'Your noodles', min: 1, max: 1, split: true, options: dishes.map(it => ({ id: u(), type: 'item', item_id: it.id })) },
-      { id: DRINK, name: 'Your drink', min: 1, max: 1, split: false, options: [{ id: u(), type: 'custom', label: 'Cola', image_url: '/uploads/cola.jpg' }] },
+      { id: MAIN, name: 'Your noodles', min: 1, max: 1, pick_photo: 'split', options: dishes.map(it => ({ id: u(), type: 'item', item_id: it.id })) },
+      { id: DRINK, name: 'Your drink', min: 1, max: 1, pick_photo: null, options: [{ id: u(), type: 'custom', label: 'Cola', image_url: '/uploads/cola.jpg' }] },
     ] },
   }] })
   await ok(owner.patch(`/api/menus/${M}`, body))
   const [row] = await sql`SELECT combo FROM menu_items WHERE tenant_id = ${ids.a} AND name = 'Noodle meal'`
   const byId = Object.fromEntries(row.combo.steps.map(s => [s.id, s]))
-  assert.equal(byId[MAIN].split, true)
-  assert.ok(!('split' in byId[DRINK]), 'off is left out of the stored step')
+  assert.equal(byId[MAIN].pick_photo, 'split')
+  assert.ok(!('pick_photo' in byId[DRINK]) && !('split' in byId[DRINK]), 'off is left out of the stored step')
   await ok(owner.post(`/api/menus/${M}/publish`, {}))
   // Saving the menu as loaded changes nothing to publish.
   await ok(owner.patch(`/api/menus/${M}`, menuSaveBody(await ok(owner.get(`/api/menus/${M}`)))))
@@ -82,7 +86,7 @@ test('a combo step\'s split switch is stored only when on, and nothing else read
   const cfg = (await preview(link.token)).json
   const meal = Object.values(cfg.items).find(it => it.name === 'Noodle meal')
   assert.ok(meal, 'the combo is on the kiosk')
-  assert.equal(meal.combo.steps.find(s => s.id === MAIN).split, true)
+  assert.equal(meal.combo.steps.find(s => s.id === MAIN).pick_photo, 'split')
 })
 
 test('layout options round trip; a design keeps only the tenant\'s own sections, dishes and order types', async () => {
@@ -107,7 +111,7 @@ test('layout options round trip; a design keeps only the tenant\'s own sections,
         banners: [{ image_url: '/b.jpg', link: { kind: 'section', id: their.section_id } }, { image_url: '/c.jpg', link: { kind: 'item', id: myDish } }],
         featured: [{ title: 'Theirs', link: { kind: 'item', id: their.item_id } }],
       },
-      options: { wheel_spin: true, wheel_spin_picks: true, pick_photos: 'corner' },
+      options: { wheel_spin: true, wheel_spin_picks: true, pick_photos: 'corner' }, // pick_photos: gone (per group now), dropped
       checkout: { upsell_item_ids: [their.item_id, myDish] },
     },
   }))
@@ -116,7 +120,7 @@ test('layout options round trip; a design keeps only the tenant\'s own sections,
     tiles: 'hexagon', option_tiles: 'round', option_pictures: false, option_align: 'center',
     hero: 'stacked', hero_image_align: 'left', hero_text_align: 'right', header: false, icon_buttons: true,
   })
-  assert.equal(s.options.pick_photos, 'corner')
+  assert.equal(s.options.pick_photos, undefined)
   assert.equal(s.menu.rail, 'none')
   assert.deepEqual(s.menu.section_tiles.map(t => t.section_id), [mySection])
   assert.equal(s.menu.section_tiles[0].size, 'wide')
@@ -139,6 +143,6 @@ test('layout options round trip; a design keeps only the tenant\'s own sections,
   assert.equal(cfg.design.layout.option_pictures, false)
   assert.equal(cfg.design.layout.option_align, 'center')
   assert.equal(cfg.design.layout.hero, 'stacked')
-  assert.equal(cfg.design.options.pick_photos, 'corner')
+  assert.equal(cfg.design.options.pick_photos, undefined)
   assert.equal(cfg.design.menu.rail, 'none')
 })

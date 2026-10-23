@@ -15,6 +15,8 @@
 //                     editor's live preview (no pairing needed, 12 hours),
 //                     with the menu as published or with its changes not
 //                     published yet (migration 188 for share links)
+//   unpricedDishes()  dishes a preview's menus list that the kiosk leaves off
+//                     (no price of their own, no priced option)
 //   menuChanges()     the menus a preview shows whose draft differs from
 //                     what is published
 //
@@ -23,6 +25,7 @@
 import { httpError } from '../middleware/error.js'
 import { ensureSettings, settingsView, ownVenue, tillMenuData, tillMenus, sha256 } from './posSvc.js'
 import { contentKey } from '../../../shared/menuDiff.js'
+import { variantRules, itemChoices, isPriced } from '../../../shared/orderPricing.js'
 import { venuePromotions, publicPromotion } from './promoSvc.js'
 import { soldOutRows } from './soldOut.js'
 import { ensureTaxDefaults, loadTaxRates, loadOrderTypes, loadStreams } from './taxSvc.js'
@@ -90,7 +93,7 @@ export async function kioskConfig(tx, tenantId, venueId, device, { designOverrid
     loadOrderTypes(tx, tenantId),
     loadTaxRates(tx, tenantId),
     tx`SELECT g.id, COALESCE(g.display_name, g.name) AS name, g.price_mode, g.min_select, g.max_select, g.pos_prefixes, g.allow_repeat, g.on_request,
-              g.kiosk_display, g.scale_low, g.scale_high, g.kiosk_split,
+              g.kiosk_display, g.scale_low, g.scale_high, g.kiosk_pick_photo,
               COALESCE(json_agg(json_build_object('id', o.id, 'label', o.label, 'price_pence', o.price_pence, 'child_group_id', o.child_group_id,
                                                   'image_url', o.image_url, 'photo_url', o.photo_url, 'description', o.description, 'level', o.level)
                 ORDER BY o.sort_order, o.label) FILTER (WHERE o.id IS NOT NULL), '[]') AS options
@@ -178,6 +181,32 @@ export async function menuChanges(tx, tenantId, venueId, streamId) {
     if (!l || contentKey(l) !== contentKey(m)) out.push({ id: m.id, name: m.name })
   }
   for (const m of live) if (!draftBy.has(m.id)) out.push({ id: m.id, name: m.name })
+  return out
+}
+
+/**
+ * The dishes a kiosk at this venue leaves off its menu because it can't
+ * price them (tillMenuData() with guest: no price of their own and no
+ * priced option to choose), in the menus it shows: [{ id, name, menu }].
+ * The design editor names them, so a dish missing from the kiosk isn't a
+ * mystery.
+ */
+export async function unpricedDishes(tx, tenantId, venueId, streamId, version = 'live') {
+  const streams = await loadStreams(tx, tenantId, venueId, { activeOnly: true })
+  const stream = streams.find(r => r.id === streamId) || streams[0] || null
+  const out = []
+  const seen = new Set()
+  for (const m of await tillMenus(tx, tenantId, venueId, stream ? [stream] : [], version)) {
+    const rules = variantRules(m)
+    for (const s of m.sections || []) {
+      if ((s.visibility || 'show') !== 'show') continue
+      for (const it of s.items || []) {
+        if (seen.has(it.id) || isPriced(it, itemChoices(it, rules))) continue
+        seen.add(it.id)
+        out.push({ id: it.id, name: it.name, menu: m.name })
+      }
+    }
+  }
   return out
 }
 

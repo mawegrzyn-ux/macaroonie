@@ -6,7 +6,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  normaliseDesign, designProblems, payMethods, uiText, allergenName, translationSources, TK, splitImages, hexLayout,
+  normaliseDesign, designProblems, payMethods, uiText, allergenName, translationSources, TK, pickImages, hexLayout,
   configImages, MAX_SAVED_PICTURES, kioskOrder, basketCheck, kioskStaff, kioskFontsUrl, UI_TEXT, ALLERGEN_NAMES, KIOSK_LANGUAGES,
 } from '../kiosk.js'
 import { applyEvent, KIOSK_EVENTS } from '../pos/checks.js'
@@ -88,7 +88,7 @@ test('design: layout, section tiles and the spin wheel', () => {
     tiles: 'cards', option_tiles: 'cards', option_pictures: true, option_align: 'left',
     hero: 'beside', hero_image_align: 'center', hero_text_align: 'center', header: true, icon_buttons: false,
   })
-  assert.equal(plain.options.pick_photos, 'split')
+  assert.equal(plain.options.pick_photos, undefined, 'set per option group and step now')
   assert.equal(plain.menu.rail, 'images')
   assert.deepEqual(plain.menu.section_tiles, [])
   assert.equal(plain.options.wheel_spin, true)
@@ -134,26 +134,23 @@ test('design: dishes and choices each have their own picture style', () => {
   assert.deepEqual(normaliseDesign(d), d)
 })
 
-test('design: no frame, the dish page photo on top, picks in the corner', () => {
+test('design: no frame, the dish page photo on top', () => {
   const d = normaliseDesign({
     layout: { tiles: 'plain', option_tiles: 'plain', hero: 'stacked', hero_image_align: 'right', hero_text_align: 'left' },
-    options: { pick_photos: 'corner' },
   })
   assert.equal(d.layout.tiles, 'plain')
   assert.equal(d.layout.option_tiles, 'plain')
   assert.equal(d.layout.hero, 'stacked')
   assert.equal(d.layout.hero_image_align, 'right')
   assert.equal(d.layout.hero_text_align, 'left')
-  assert.equal(d.options.pick_photos, 'corner')
   assert.deepEqual(normaliseDesign(d), d)
   // Choices follow no frame dishes until the design picks their own.
   assert.equal(normaliseDesign({ layout: { tiles: 'plain' } }).layout.option_tiles, 'plain')
-  // Unknown values: photo beside, centred, a split photo.
-  const odd = normaliseDesign({ layout: { hero: 'above', hero_image_align: 'middle', hero_text_align: 'justify' }, options: { pick_photos: 'stack' } })
+  // Unknown values: photo beside, centred.
+  const odd = normaliseDesign({ layout: { hero: 'above', hero_image_align: 'middle', hero_text_align: 'justify' } })
   assert.equal(odd.layout.hero, 'beside')
   assert.equal(odd.layout.hero_image_align, 'center')
   assert.equal(odd.layout.hero_text_align, 'center')
-  assert.equal(odd.options.pick_photos, 'split')
 })
 
 test('design: choices words only, and centred', () => {
@@ -203,45 +200,45 @@ test('honeycomb: rows lock together; a few choices still make two rows', () => {
 
 test('split photo: the picks of groups and steps with it on, in pick order', () => {
   const groups = {
-    [FLAVOUR]: { ...config.groups[FLAVOUR], kiosk_split: true, options: [{ id: LEMON, label: 'Lemon pepper', image_url: '/lemon.jpg' }, { id: HOT, label: 'Atomic', image_url: '/hot.jpg' }] },
+    [FLAVOUR]: { ...config.groups[FLAVOUR], kiosk_pick_photo: 'split', options: [{ id: LEMON, label: 'Lemon pepper', image_url: '/lemon.jpg' }, { id: HOT, label: 'Atomic', image_url: '/hot.jpg' }] },
     [EXTRAS]: { ...config.groups[EXTRAS], options: [{ id: DIP, label: 'Ranch', image_url: '/ranch.jpg' }] },
   }
   const dish = { ...WINGS, pos_choices: [{ key: FLAVOUR }, { key: EXTRAS }] }
   const cfg = { ...config, groups }
   const pick = (...ids) => ({ choices: { [FLAVOUR]: ids.map(id => ({ id })), [EXTRAS]: [{ id: DIP }] } })
   // One pick: its picture (the kiosk shows it in place of the dish's photo, or in the corner).
-  assert.deepEqual(splitImages(cfg, dish, pick(HOT)), ['/hot.jpg'])
+  assert.deepEqual(pickImages(cfg, dish, pick(HOT)).split, ['/hot.jpg'])
   // In pick order; a group without the switch adds nothing.
-  assert.deepEqual(splitImages(cfg, dish, pick(HOT, LEMON)), ['/hot.jpg', '/lemon.jpg'])
-  // With the switch off nothing splits.
-  assert.deepEqual(splitImages({ ...config }, dish, pick(HOT, LEMON)), [])
+  assert.deepEqual(pickImages(cfg, dish, pick(HOT, LEMON)).split, ['/hot.jpg', '/lemon.jpg'])
+  // With the setting off nothing splits.
+  assert.deepEqual(pickImages({ ...config }, dish, pick(HOT, LEMON)), { split: [], corner: [] })
   // An option without a picture is left out; the same option twice shows once.
   const noPic = { ...cfg, groups: { ...groups, [FLAVOUR]: { ...groups[FLAVOUR], options: [{ id: LEMON, label: 'Lemon pepper' }, groups[FLAVOUR].options[1]] } } }
-  assert.deepEqual(splitImages(noPic, dish, pick(HOT, LEMON)), ['/hot.jpg'])
-  assert.deepEqual(splitImages(cfg, dish, pick(HOT, HOT)), ['/hot.jpg'])
-  assert.deepEqual(splitImages(cfg, dish, pick()), [])
+  assert.deepEqual(pickImages(noPic, dish, pick(HOT, LEMON)).split, ['/hot.jpg'])
+  assert.deepEqual(pickImages(cfg, dish, pick(HOT, HOT)).split, ['/hot.jpg'])
+  assert.deepEqual(pickImages(cfg, dish, pick()).split, [])
   // A combo: steps with it on show the picked dishes' photos (a typed-in choice its own picture), then its own groups.
   const C1 = uuid(), C2 = uuid()
   const meal = { ...MEAL, pos_choices: [], combo: { steps: [
-    { ...MEAL.combo.steps[0], split: true, options: [{ id: M1, type: 'item', item_id: WINGS.id }, { id: C1, type: 'custom', label: 'Tenders', image_url: '/tenders.jpg' }] },
+    { ...MEAL.combo.steps[0], pick_photo: 'split', options: [{ id: M1, type: 'item', item_id: WINGS.id }, { id: C1, type: 'custom', label: 'Tenders', image_url: '/tenders.jpg' }] },
     { ...MEAL.combo.steps[1], options: [{ id: S1, type: 'item', item_id: FRIES.id }] },
-    { id: uuid(), name: 'Dip', min: 0, max: 1, split: true, options: [{ id: C2, type: 'custom', label: 'Blue cheese', image_url: '/blue.jpg' }] },
+    { id: uuid(), name: 'Dip', min: 0, max: 1, pick_photo: 'split', options: [{ id: C2, type: 'custom', label: 'Blue cheese', image_url: '/blue.jpg' }] },
   ] } }
   const items = { ...config.items, [WINGS.id]: { ...config.items[WINGS.id], image_url: '/wings.jpg' }, [FRIES.id]: { ...config.items[FRIES.id], image_url: '/fries.jpg' } }
   const cfg2 = { ...config, items }
   const combo = steps => ({ choices: {}, combo: steps })
-  assert.deepEqual(splitImages(cfg2, meal, combo({ [MAIN]: [{ option_id: M1, item_id: WINGS.id }], [SIDE]: [{ option_id: S1, item_id: FRIES.id }] })), ['/wings.jpg'])
-  assert.deepEqual(splitImages(cfg2, meal, combo({
+  assert.deepEqual(pickImages(cfg2, meal, combo({ [MAIN]: [{ option_id: M1, item_id: WINGS.id }], [SIDE]: [{ option_id: S1, item_id: FRIES.id }] })).split, ['/wings.jpg'])
+  assert.deepEqual(pickImages(cfg2, meal, combo({
     [MAIN]: [{ option_id: M1, item_id: WINGS.id }, { option_id: C1, item_id: null }],
     [SIDE]: [{ option_id: S1, item_id: FRIES.id }],
     [meal.combo.steps[2].id]: [{ option_id: C2, item_id: null }],
-  })), ['/wings.jpg', '/tenders.jpg', '/blue.jpg'])
-  assert.deepEqual(splitImages(cfg2, null, {}), [])
+  })).split, ['/wings.jpg', '/tenders.jpg', '/blue.jpg'])
+  assert.deepEqual(pickImages(cfg2, null, {}), { split: [], corner: [] })
 })
 
 test('split photo: a choice\'s On dish picture (photo_url) wins over its tile picture', () => {
   const groups = {
-    [FLAVOUR]: { ...config.groups[FLAVOUR], kiosk_split: true, options: [
+    [FLAVOUR]: { ...config.groups[FLAVOUR], kiosk_pick_photo: 'split', options: [
       { id: LEMON, label: 'Lemon pepper', image_url: '/lemon-tile.png', photo_url: '/lemon-wings.jpg' },
       { id: HOT, label: 'Atomic', image_url: '/hot-tile.png' },
     ] },
@@ -249,26 +246,47 @@ test('split photo: a choice\'s On dish picture (photo_url) wins over its tile pi
   const dish = { ...WINGS, pos_choices: [{ key: FLAVOUR }] }
   const cfg = { ...config, groups }
   const pick = (...ids) => ({ choices: { [FLAVOUR]: ids.map(id => ({ id })) } })
-  assert.deepEqual(splitImages(cfg, dish, pick(LEMON)), ['/lemon-wings.jpg'])
+  assert.deepEqual(pickImages(cfg, dish, pick(LEMON)).split, ['/lemon-wings.jpg'])
   // Without one, the tile picture as before.
-  assert.deepEqual(splitImages(cfg, dish, pick(LEMON, HOT)), ['/lemon-wings.jpg', '/hot-tile.png'])
+  assert.deepEqual(pickImages(cfg, dish, pick(LEMON, HOT)).split, ['/lemon-wings.jpg', '/hot-tile.png'])
   // An On dish picture alone is enough.
   const onlyPhoto = { ...cfg, groups: { [FLAVOUR]: { ...groups[FLAVOUR], options: [{ id: LEMON, label: 'Lemon pepper', photo_url: '/lemon-wings.jpg' }] } } }
-  assert.deepEqual(splitImages(onlyPhoto, dish, pick(LEMON)), ['/lemon-wings.jpg'])
+  assert.deepEqual(pickImages(onlyPhoto, dish, pick(LEMON)).split, ['/lemon-wings.jpg'])
   // Combo choices: a dish choice's On meal picture wins over the dish's photo, a typed-in one's over its tile.
   const C1 = uuid()
   const meal = { ...MEAL, pos_choices: [], combo: { steps: [
-    { ...MEAL.combo.steps[0], split: true, options: [
+    { ...MEAL.combo.steps[0], pick_photo: 'split', options: [
       { id: M1, type: 'item', item_id: WINGS.id, photo_url: '/wings-in-box.jpg' },
       { id: C1, type: 'custom', label: 'Tenders', image_url: '/tenders-tile.png', photo_url: '/tenders-in-box.jpg' },
     ] },
   ] } }
   const items = { ...config.items, [WINGS.id]: { ...config.items[WINGS.id], image_url: '/wings.jpg' } }
-  assert.deepEqual(splitImages({ ...config, items }, meal, { choices: {}, combo: { [MAIN]: [{ option_id: M1, item_id: WINGS.id }, { option_id: C1, item_id: null }] } }),
+  assert.deepEqual(pickImages({ ...config, items }, meal, { choices: {}, combo: { [MAIN]: [{ option_id: M1, item_id: WINGS.id }, { option_id: C1, item_id: null }] } }).split,
     ['/wings-in-box.jpg', '/tenders-in-box.jpg'])
   // Pictures kept on the kiosk include On dish pictures.
   const origin = 'https://kiosk.example.test'
   assert.ok(configImages({ groups }, origin).includes(origin + '/lemon-wings.jpg'))
+})
+
+test('pick photos: the flavours split the photo, the dip small in the corner', () => {
+  const groups = {
+    [FLAVOUR]: { ...config.groups[FLAVOUR], kiosk_pick_photo: 'split', options: [{ id: LEMON, label: 'Lemon pepper', image_url: '/lemon.jpg' }, { id: HOT, label: 'Atomic', image_url: '/hot.jpg' }] },
+    [EXTRAS]: { ...config.groups[EXTRAS], kiosk_pick_photo: 'corner', options: [{ id: DIP, label: 'Ranch', image_url: '/ranch-tile.png', photo_url: '/ranch-pot.png' }] },
+  }
+  const dish = { ...WINGS, pos_choices: [{ key: FLAVOUR }, { key: EXTRAS }] }
+  const cfg = { ...config, groups }
+  assert.deepEqual(pickImages(cfg, dish, { choices: { [FLAVOUR]: [{ id: HOT }, { id: LEMON }], [EXTRAS]: [{ id: DIP }] } }),
+    { split: ['/hot.jpg', '/lemon.jpg'], corner: ['/ranch-pot.png'] })
+  // Only the dip picked: the dish's own photo with the dip in the corner.
+  assert.deepEqual(pickImages(cfg, dish, { choices: { [EXTRAS]: [{ id: DIP }] } }), { split: [], corner: ['/ranch-pot.png'] })
+  // Combo steps the same: the main splits, the drink in the corner.
+  const C1 = uuid(), C2 = uuid()
+  const meal = { ...MEAL, pos_choices: [], combo: { steps: [
+    { ...MEAL.combo.steps[0], pick_photo: 'split', options: [{ id: C1, type: 'custom', label: 'Tenders', image_url: '/tenders.jpg' }] },
+    { ...MEAL.combo.steps[1], pick_photo: 'corner', options: [{ id: C2, type: 'custom', label: 'Cola', image_url: '/cola.png' }] },
+  ] } }
+  assert.deepEqual(pickImages(config, meal, { choices: {}, combo: { [MAIN]: [{ option_id: C1, item_id: null }], [SIDE]: [{ option_id: C2, item_id: null }] } }),
+    { split: ['/tenders.jpg'], corner: ['/cola.png'] })
 })
 
 test('design: ways to pay and what stops a kiosk taking orders', () => {

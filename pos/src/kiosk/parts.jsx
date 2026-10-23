@@ -114,7 +114,7 @@ export function Photo({ src, label, className, phClassName }) {
 
 // ── Split photo ──────────────────────────────────────────────────
 // The pictures of the guest's picks side by side (shared/kiosk.js
-// splitImages()): each one covers the whole photo and shows only its own
+// pickImages() .split): each one covers the whole photo and shows only its own
 // part (left, middle, right), with a torn paper edge between the parts.
 
 // The same tear every time for the same number of parts.
@@ -177,29 +177,33 @@ export function SplitPhoto({ srcs, className }) {
 }
 
 /**
- * The dish's photo with the picks' pictures (shared/kiosk.js splitImages()),
- * as the design's options.pick_photos says. split: one pick's picture in
- * place of the photo, two or more sharing it (SplitPhoto). corner: the
- * dish's photo with the picks small in its corner (CornerPhoto). No picks:
- * the photo.
+ * The dish's photo with the picks' pictures (shared/kiosk.js pickImages():
+ * { split, corner }, each group or step saying which). split: one pick's
+ * picture in place of the photo, two or more sharing it (SplitPhoto). corner:
+ * small in the photo's corner, on top of whatever the photo is (CornerPicks),
+ * so the flavours can split the photo and the dip sit in the corner. No
+ * picks: the photo.
  */
-export function PickPhoto({ srcs, src, label, className, phClassName, splitClassName, mode = 'split' }) {
-  const n = srcs?.length || 0
-  if (n && mode === 'corner') return <CornerPhoto srcs={srcs} src={src} label={label} className={className} phClassName={phClassName} wrapClassName={splitClassName} />
-  if (n >= 2) return <SplitPhoto srcs={srcs} className={splitClassName || className} />
-  if (n === 1) return <Photo src={srcs[0]} label={label} className={className} phClassName={phClassName} />
-  return <Photo src={src} label={label} className={className} phClassName={phClassName} />
+export function PickPhoto({ picks, src, label, className, phClassName, splitClassName }) {
+  const split = picks?.split || []
+  const corner = picks?.corner || []
+  const base = split.length >= 2
+    ? <SplitPhoto srcs={split} className={corner.length ? cx('k-corner-main', 'w-full h-full') : (splitClassName || className)} />
+    : <Photo src={split.length ? split[0] : src} label={label}
+        className={corner.length ? cx('k-corner-main', className) : className} phClassName={corner.length ? cx('k-corner-main', phClassName) : phClassName} />
+  if (!corner.length) return base
+  return <CornerPicks srcs={corner} className={splitClassName}>{base}</CornerPicks>
 }
 
 /**
- * The dish's photo with the picks' pictures small in its bottom corner, in
- * pick order, the choices' picture style (.k-corner-pick follows .k-opts-*).
+ * Pictures small in the bottom corner of what's inside (the dish's photo),
+ * in pick order, the choices' picture style (.k-corner-pick follows .k-opts-*).
  */
-export function CornerPhoto({ srcs, src, label, className, phClassName, wrapClassName }) {
+export function CornerPicks({ srcs, className, children }) {
   const size = Math.min(26, 92 / srcs.length - 3)
   return (
-    <div className={cx('k-corner', wrapClassName)} data-testid="k-corner" data-parts={srcs.length}>
-      <Photo src={src} label={label} className={cx('k-corner-main', className)} phClassName={cx('k-corner-main', phClassName)} />
+    <div className={cx('k-corner', className)} data-testid="k-corner" data-parts={srcs.length}>
+      {children}
       <span className="k-corner-picks" aria-hidden="true">
         {srcs.map((s, i) => <img key={i + ':' + s} src={s} alt="" draggable={false} className="k-corner-pick" style={{ width: size + '%' }} />)}
       </span>

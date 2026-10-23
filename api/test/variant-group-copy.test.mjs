@@ -21,7 +21,7 @@ test('a copy has every setting and option, new ids, its place after the original
   const first = await ok(owner.post('/api/menus/variant-groups', { name: 'Size', sort_order: 0, options: [{ label: 'Small', price_pence: 0 }] }))
   const heat = await ok(owner.post('/api/menus/variant-groups', {
     name: 'Heat', sort_order: 1, price_mode: 'extra', min_select: 0, max_select: 3, pos_prefixes: true,
-    allow_repeat: true, on_request: true, kiosk_display: 'slider', scale_low: 'Mild', scale_high: 'Fiery', kiosk_split: true,
+    allow_repeat: true, on_request: true, kiosk_display: 'slider', scale_low: 'Mild', scale_high: 'Fiery', kiosk_pick_photo: 'corner',
     options: [
       { label: 'Lemon pepper', price_pence: 0, image_url: '/uploads/lemon.jpg', description: 'Zesty', level: 1 },
       { label: 'Atomic', price_pence: 50, image_url: '/uploads/atomic.jpg', description: 'Very hot', level: 5 },
@@ -41,7 +41,7 @@ test('a copy has every setting and option, new ids, its place after the original
   const copy = await ok(owner.post(`/api/menus/variant-groups/${heat.id}/copy`, {}))
   assert.notEqual(copy.id, heat.id)
   assert.equal(copy.name, 'Heat (copy)')
-  for (const k of ['price_mode', 'min_select', 'max_select', 'pos_prefixes', 'allow_repeat', 'on_request', 'kiosk_display', 'scale_low', 'scale_high', 'kiosk_split']) {
+  for (const k of ['price_mode', 'min_select', 'max_select', 'pos_prefixes', 'allow_repeat', 'on_request', 'kiosk_display', 'scale_low', 'scale_high', 'kiosk_pick_photo']) {
     assert.deepEqual(copy[k], heat[k], k)
   }
   assert.equal(copy.options.length, 2)

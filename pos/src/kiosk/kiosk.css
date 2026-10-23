@@ -201,9 +201,10 @@
 .k-split-tears { position: absolute; inset: 0; pointer-events: none; filter: drop-shadow(0 0 1.5px rgba(0,0,0,.45)) drop-shadow(0 1px 3px rgba(0,0,0,.25)); }
 .k-split-tears span { position: absolute; inset: 0; background: #fbfaf6; }
 
-/* ── Corner pictures (parts.jsx CornerPhoto) ─────────────────────
-   design.options.pick_photos 'corner': the dish's photo with the picks'
-   pictures small in its bottom corner, in the choices' picture style. In a
+/* ── Corner pictures (parts.jsx CornerPicks) ─────────────────────
+   Groups and steps set to 'corner' (pickImages()): their picks' pictures
+   small in the bottom corner of the dish's photo (split or not), in the
+   choices' picture style. In a
    round, oval or hexagon photo they sit in the middle at the bottom, where
    the shape doesn't cut them. */
 .k-corner { position: relative; display: block; }

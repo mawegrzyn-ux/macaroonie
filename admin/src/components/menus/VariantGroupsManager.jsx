@@ -11,8 +11,9 @@
 // spin wheel, empty = the kiosk design's choice), scale_low / scale_high (the
 // words at the ends of a level scale) and, per option, a picture, a line of
 // words and a level (0-5 on that scale). Options drag into order.
-// Migration 185: kiosk_split (the picks' pictures make the dish's split photo
-// on kiosks, a torn edge between them).
+// Migration 201: kiosk_pick_photo (null | split | corner: where the picks'
+// pictures go on the dish's photo on kiosks; split = side by side with a
+// torn edge between them).
 
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
@@ -37,7 +38,7 @@ const newOption = () => ({ _key: newKey(), label: '', price_pence: 0, child_grou
 function emptyGroup() {
   return {
     name: '', display_name: '', price_mode: 'base', min_select: 1, max_select: 1, pos_prefixes: false, allow_repeat: false, on_request: false,
-    kiosk_display: null, scale_low: '', scale_high: '', kiosk_split: false, options: [newOption()],
+    kiosk_display: null, scale_low: '', scale_high: '', kiosk_pick_photo: null, options: [newOption()],
   }
 }
 
@@ -126,7 +127,7 @@ export function VariantGroupsManager() {
         kiosk_display: draft.kiosk_display || null,
         scale_low: (draft.scale_low || '').trim() || null,
         scale_high: (draft.scale_high || '').trim() || null,
-        kiosk_split: !!draft.kiosk_split,
+        kiosk_pick_photo: draft.kiosk_pick_photo || null,
         sort_order: draft.id ? (groups.find(g => g.id === draft.id)?.sort_order ?? 0) : groups.length,
         options: (draft.options || [])
           .filter(o => o.label.trim())
@@ -184,7 +185,7 @@ export function VariantGroupsManager() {
       kiosk_display: g.kiosk_display || null,
       scale_low: g.scale_low || '',
       scale_high: g.scale_high || '',
-      kiosk_split: !!g.kiosk_split,
+      kiosk_pick_photo: g.kiosk_pick_photo || null,
       options: (g.options || []).map(o => ({ ...o, _key: o.id || newKey(), description: o.description || '' })),
     })
   }
@@ -292,7 +293,7 @@ export function VariantGroupsManager() {
               </label>
             </div>
             <p className="text-[11px] text-muted-foreground">
-              A protein or size choice: dish price, pick 1. Extras: added on top, at least 0, at most as many as allowed.
+              A protein or size choice: dish price, pick 1. An option left empty or at £0 keeps the dish's own price. Extras: added on top, at least 0, at most as many as allowed.
             </p>
             <label className="flex items-start gap-2 text-sm min-h-[40px] touch-manipulation">
               <input type="checkbox" className="mt-1" checked={!!draft.allow_repeat}
@@ -350,18 +351,25 @@ export function VariantGroupsManager() {
               Give options a level (0 to 5) and the kiosk marks each with flames (or the design's marks) and, on the slider, shows the scale from one end to the other.
               {hasLevels && !(draft.scale_low || '').trim() && !(draft.scale_high || '').trim() && ' Add the words for the two ends to show the scale.'}
             </p>
-            <label className="flex items-start gap-2 text-sm min-h-[40px] touch-manipulation">
-              <input type="checkbox" className="mt-1" checked={!!draft.kiosk_split} data-testid="vg-split"
-                onChange={e => setDraft(d => ({ ...d, kiosk_split: e.target.checked }))} />
-              <span>Split photo from the picks
-                <span className="block text-[11px] text-muted-foreground">
-                  The picks' pictures show on the dish's photo as the guest picks, also on the order line. How is the kiosk design's (Choices: Picks on the dish's photo).
-                  Split photo: one pick's picture takes the photo's place; two or more show side by side with a torn edge between them (three picks: the left third of the first, the middle of the second, the right third of the third), so give every option a picture of the same shape (the same dish, made each way).
-                  Small in the corner: the dish's photo stays, with each pick's picture small in its corner.
-                  Each option's On dish picture is the one used here (its Tile picture when it has none), so the tile can be a cut-out of the choice and the On dish picture the dish made that way.
-                </span>
-              </span>
-            </label>
+            <div className="space-y-1.5" role="group" aria-label="Picks on the dish's photo">
+              <p className="text-sm">Picks on the dish's photo</p>
+              <div className="flex flex-wrap gap-2">
+                {[[null, 'No'], ['split', 'Split the photo'], ['corner', 'Small in the corner']].map(([k, l]) => (
+                  <button key={k || 'off'} type="button" aria-pressed={(draft.kiosk_pick_photo || null) === k} data-testid="vg-pick-photo" data-value={k || ''}
+                    onClick={() => setDraft(d => ({ ...d, kiosk_pick_photo: k }))}
+                    className={cn('text-xs px-3 min-h-[40px] rounded-md border touch-manipulation',
+                      (draft.kiosk_pick_photo || null) === k ? 'bg-primary text-primary-foreground border-primary' : 'bg-background')}>
+                    {l}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                The picks' pictures show on the dish's photo as the guest picks, also on the order line. Each group decides, so a dish can split its photo between the flavours and show the dip small in the corner.
+                Split the photo: one pick's picture takes the photo's place; two or more show side by side with a torn edge between them (three picks: the left third of the first, the middle of the second, the right third of the third), so give every option a picture of the same shape (the same dish, made each way).
+                Small in the corner: each pick's picture small in the photo's corner, on top of the photo (split or not).
+                Each option's On dish picture is the one used here (its Tile picture when it has none), so the tile can be a cut-out of the choice and the On dish picture the dish made that way.
+              </p>
+            </div>
           </div>
           <div className="space-y-1.5">
             <p className="text-[10px] uppercase font-semibold text-muted-foreground tracking-wide">Options + default price</p>

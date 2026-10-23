@@ -37,7 +37,7 @@
 
 import { FONT_WEIGHTS, FONT_OPTIONS } from './fonts.js'
 import { allergenKey, isRemovable, menuTags } from './menuTags.js'
-import { itemChoices, variantRules, fromPrice, comboMenuPrice } from './orderPricing.js'
+import { itemChoices, variantRules, fromPrice, priceVaries, comboMenuPrice, basePrice } from './orderPricing.js'
 import { comboGuide, menuCtx } from './combos.js'
 import { orderInfo } from './orderInfo.js'
 
@@ -448,15 +448,14 @@ export function dishPriceText(item, menu, board, { option = '', fromText = 'from
     for (const c of choices) {
       const o = c.options.find(x => x.label === option)
       if (o) {
-        const p = c.mode === 'extra' ? (item.price_pence ?? 0) + (o.price_pence ?? 0) : (o.price_pence ?? item.price_pence)
+        const p = c.mode === 'extra' ? (item.price_pence ?? 0) + (o.price_pence ?? 0) : (basePrice(o) ?? item.price_pence)
         return formatPrice(p, board)
       }
     }
   }
-  const base = choices.filter(c => c.mode === 'base' && c.options.length > 1)
   const p = fromPrice(item, choices)
   if (p == null) return ''
-  return (base.length && fromText ? fromText + ' ' : '') + formatPrice(p, board)
+  return (priceVaries(item, choices) && fromText ? fromText + ' ' : '') + formatPrice(p, board)
 }
 
 /** Option labels of a dish (for the Price block's option picker). */
@@ -471,7 +470,7 @@ function optionsHtml(item, menu, board) {
   return choices.map(c => {
     const parts = c.options.map(o => {
       const p = o.price_pence
-      const zero = p == null || (Number(p) === 0 && (c.mode === 'extra' || c.hide_zero_price))
+      const zero = p == null || (Number(p) === 0 && (c.mode === 'extra' || c.mode === 'base' || c.hide_zero_price))
       const text = zero ? '' : (c.mode === 'extra' ? '+' : '') + formatPrice(p, board)
       return '<span class="sl-opt">' + esc(o.label) + (text ? ' <span class="sl-opt-price">' + esc(text) + '</span>' : '') + '</span>'
     })

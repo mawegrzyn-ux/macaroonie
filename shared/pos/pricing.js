@@ -17,7 +17,7 @@
 // line gross = (unit_price + modifier prices + combo upcharges and their
 // modifier prices) x qty.
 
-import { itemChoices, vatIncluded } from '../orderPricing.js'
+import { itemChoices, vatIncluded, basePrice } from '../orderPricing.js'
 import { isCombo, priceCombo } from '../combos.js'
 import { taxFor } from '../tax.js'
 
@@ -124,7 +124,8 @@ export function priceChoices(choices, picked = {}, groupsById = {}, depth = 0) {
       let isBase = false
       if (c.mode === 'base' && depth === 0) {
         isBase = true
-        if (o.price_pence != null) base = (base ?? 0) + o.price_pence
+        // An option left empty or at £0 keeps the dish's own price.
+        if (basePrice(o) != null) base = (base ?? 0) + basePrice(o)
       } else {
         price = prefix === 'no' || prefix === 'light' ? 0 : (o.price_pence ?? 0)
         extras += price

@@ -6,7 +6,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { ulid, isId } from '../ids.js'
 import { priceItem, checkTotals, spread, lineGross, promoLines, posChoices } from '../pricing.js'
-import { optionPriceText } from '../../orderPricing.js'
+import { optionPriceText, fromPrice, priceVaries, isPriced } from '../../orderPricing.js'
 import { applyEvent, replay, checkLabel } from '../checks.js'
 import { jobsForEvent, receiptHere } from '../printing.js'
 import { createSequencer } from '../sequencer.js'
@@ -119,10 +119,10 @@ test('posChoices: a kiosk dish follows its menu\'s option settings (Hide unprice
       options: [{ option_id: NOODLES, label: 'Noodles', price_pence: 0 }, { option_id: RICE, label: 'Rice', price_pence: null }, { option_id: SAUCE, label: 'Sauce pot', price_pence: 50 }] }] }
   const money = p => '£' + (p / 100).toFixed(2)
   const labels = choices => choices.map(c => c.options.map(o => o.label))
-  // The till: everything, £0 shown as a price.
+  // The till: everything. A base option at £0 is the dish's own price, so it shows no price.
   const till = posChoices(dish, groupsById)
   assert.deepEqual(labels(till), [['Small', 'Large'], ['Noodles', 'Rice', 'Sauce pot']])
-  assert.equal(optionPriceText(till[1], till[1].options[0], money), '£0.00')
+  assert.equal(optionPriceText(till[1], till[1].options[0], money), '')
   // Hide £0 options: kept, without a price.
   const zero = posChoices({ ...dish, variant_rules: { hideZeroPrice: true } }, groupsById)
   assert.deepEqual(labels(zero), labels(till))
@@ -132,6 +132,29 @@ test('posChoices: a kiosk dish follows its menu\'s option settings (Hide unprice
   const unpriced = { ...dish, variant_rules: { hideUnpriced: true } }
   assert.deepEqual(labels(posChoices(unpriced, groupsById)), [['Large'], ['Sauce pot']])
   assert.match(priceItem(unpriced, { choices: { variants: ['v:Small'] } }, { groupsById }).error || '', /no longer available|Choose/)
+})
+
+test('priceItem: base options at £0 or empty keep the dish price (a flavour group must not make it free)', () => {
+  const A1 = uuid(), A2 = uuid(), FLAV = uuid()
+  const groups = { [FLAV]: { id: FLAV, name: 'Flavour', price_mode: 'base', min_select: 1, max_select: 2, allow_repeat: true,
+    options: [{ option_id: A1, label: 'Atomic', price_pence: 0 }, { option_id: A2, label: 'Mango', price_pence: null }] } }
+  const wings = { id: uuid(), name: '12 Wings', section_id: FOOD_SECTION, price_pence: 1299,
+    variant_groups: [{ group_id: FLAV, name: 'Flavour', price_mode: 'base', min_select: 1, max_select: 2, allow_repeat: true,
+      options: [{ option_id: A1, label: 'Atomic', price_pence: 0 }, { option_id: A2, label: 'Mango', price_pence: null }] }] }
+  const r = priceItem(wings, { choices: { [FLAV]: [A1, A2] } }, { groupsById: groups })
+  assert.ok(r.ok, r.error)
+  assert.equal(lineGross({ ...r, qty: 1 }), 1299)
+  assert.equal(fromPrice(wings, posChoices(wings, groups)), 1299)
+  assert.equal(priceVaries(wings, posChoices(wings, groups)), false, 'no "from"')
+  // A priced base option still sets the price.
+  const sized = { ...wings, variant_groups: [{ ...wings.variant_groups[0], options: [{ option_id: A1, label: 'Small', price_pence: 0 }, { option_id: A2, label: 'Large', price_pence: 1599 }] }] }
+  assert.equal(priceItem(sized, { choices: { [FLAV]: [A2] } }, { groupsById: groups }).unit_price, 1599)
+  assert.equal(priceItem(sized, { choices: { [FLAV]: [A1] } }, { groupsById: groups }).unit_price, 1299)
+  assert.equal(fromPrice(sized, posChoices(sized, groups)), 1299)
+  assert.equal(priceVaries(sized, posChoices(sized, groups)), true)
+  // No dish price and only £0 base options: no price at all (left off the kiosk).
+  assert.equal(isPriced({ ...wings, price_pence: null }, posChoices({ ...wings, price_pence: null }, groups)), false)
+  assert.equal(priceItem({ ...wings, price_pence: null }, { choices: { [FLAV]: [A1] } }, { groupsById: groups }).ok, false)
 })
 
 test('priceItem: meal deal with upcharge', () => {

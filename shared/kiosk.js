@@ -10,7 +10,7 @@
 // (services/kioskSvc.js, routes/posSetup.js, routes/menus.js) and the admin
 // (Till setup > Kiosks, Menus > Translations) share:
 //   normaliseDesign(), designProblems()   a kiosk design (kiosk_designs.settings)
-//   splitImages()                         the pictures of a dish's split photo
+//   pickImages()                          the picks' pictures on a dish's photo (split / corner)
 //   KIOSK_LANGUAGES, uiText(), allergenName()   words in the guest's language
 //                                               (built-in words: shared/kioskText.js)
 //   TK, translationSources()              the menu's own words a person translates
@@ -138,7 +138,8 @@ export const OPTION_ALIGNS = ['left', 'center']
 // (stacked), with the photo and the words each lined up left, centre or right.
 export const HERO_LAYOUTS = ['beside', 'stacked']
 export const HERO_ALIGNS = ['left', 'center', 'right']
-// How the picks' pictures show on a dish's photo (splitImages()).
+// How a group's or step's picks show on the dish's photo (pickImages()):
+// menu_variant_groups.kiosk_pick_photo, combo steps[].pick_photo (migration 201).
 export const PICK_PHOTOS = ['split', 'corner']
 /**
  * Where each hexagon of a honeycomb goes (the kiosk's HexGrid): { rows:
@@ -292,10 +293,6 @@ export function normaliseDesign(raw) {
       // The spin wheel's Spin button, and whether a spin picks where it stops.
       wheel_spin: o.wheel_spin !== false,
       wheel_spin_picks: !!o.wheel_spin_picks,
-      // How the picks' pictures (splitImages()) show on the dish's photo:
-      // the photo split between them (one pick: its picture instead), or the
-      // dish's photo with them small in its corner (PICK_PHOTOS).
-      pick_photos: oneOf(o.pick_photos, PICK_PHOTOS, 'split'),
     },
     checkout: {
       pay_card: c.pay_card !== false,
@@ -339,44 +336,44 @@ export function designProblems(design, kiosk = null) {
 export const SPLIT_MAX = 6
 
 /**
- * The pictures of a dish's split photo on the kiosk (the dish page, the
- * order line): the picks of option groups with Split photo on
- * (menu_variant_groups.kiosk_split, migration 185) and, on a combo, of steps
- * with it on (steps[].split). Each pick shows its photo_url (migration 199:
- * the picture made for the dish's photo), else its tile picture (image_url;
- * a picked dish its own photo). Steps
- * first, then groups, each in pick order; an option picked twice shows once.
- * At most SPLIT_MAX; [] = the dish's own photo. How they show is the
- * design's options.pick_photos: split (one picture replaces the photo, two
- * or more share it) or corner (small, on the dish's photo).
+ * The picks' pictures on a dish's photo on the kiosk (the dish page, the
+ * order line): { split: [], corner: [] }. Each option group says where its
+ * picks go (menu_variant_groups.kiosk_pick_photo, migration 201: 'split' =
+ * they share the photo, one pick's picture replacing it; 'corner' = small in
+ * its corner; null = not on the photo), and so does each combo step
+ * (steps[].pick_photo). So a dish can split its photo between the flavours
+ * and show the dip in the corner. Each pick shows its photo_url (migration
+ * 199: the picture made for the dish's photo), else its tile picture
+ * (image_url; a picked dish its own photo). Steps first, then groups, each
+ * in pick order; an option picked twice shows once. At most SPLIT_MAX each.
  * selection: { choices, combo } as the builder keeps it.
  */
-export function splitImages(config, item, selection = {}) {
-  if (!item) return []
-  const out = []
+export function pickImages(config, item, selection = {}) {
+  const out = { split: [], corner: [] }
+  if (!item) return out
   const seen = new Set()
-  const add = (key, src) => {
-    if (!src || seen.has(key)) return
+  const add = (where, key, src) => {
+    if (!src || !out[where] || seen.has(key)) return
     seen.add(key)
-    out.push(src)
+    out[where].push(src)
   }
   const combo = comboOf(item)
   for (const st of combo?.steps || []) {
-    if (!st.split) continue
+    if (!st.pick_photo) continue
     for (const e of asList(selection?.combo?.[st.id])) {
       const opt = st.options.find(o => o.id === e.option_id)
-      add('s:' + st.id + ':' + e.option_id + ':' + (e.item_id || ''), opt?.photo_url || (e.item_id ? configItem(config, e.item_id)?.image_url : opt?.image_url))
+      add(st.pick_photo, 's:' + st.id + ':' + e.option_id + ':' + (e.item_id || ''), opt?.photo_url || (e.item_id ? configItem(config, e.item_id)?.image_url : opt?.image_url))
     }
   }
   for (const c of item.pos_choices || []) {
     const lib = config?.groups?.[c.key]
-    if (!lib?.kiosk_split) continue
+    if (!lib?.kiosk_pick_photo) continue
     for (const e of asList(selection?.choices?.[c.key])) {
       const o = (lib.options || []).find(x => (x.option_id ?? x.id) === e.id)
-      add('g:' + c.key + ':' + e.id, o?.photo_url || o?.image_url)
+      add(lib.kiosk_pick_photo, 'g:' + c.key + ':' + e.id, o?.photo_url || o?.image_url)
     }
   }
-  return out.slice(0, SPLIT_MAX)
+  return { split: out.split.slice(0, SPLIT_MAX), corner: out.corner.slice(0, SPLIT_MAX) }
 }
 
 // Below the kiosk-images cache's maxEntries (pos/vite.config.js), so saving
