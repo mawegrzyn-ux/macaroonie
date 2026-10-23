@@ -7,7 +7,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   normaliseDesign, designProblems, payMethods, uiText, allergenName, translationSources, TK, pickImages, hexLayout,
-  configImages, MAX_SAVED_PICTURES, kioskOrder, basketCheck, kioskStaff, kioskFontsUrl, UI_TEXT, ALLERGEN_NAMES, KIOSK_LANGUAGES, DESIGN_COLORS, CLEAR_COLORS,
+  configImages, MAX_SAVED_PICTURES, kioskOrder, basketCheck, kioskStaff, kioskFontsUrl, UI_TEXT, ALLERGEN_NAMES, KIOSK_LANGUAGES, DESIGN_COLORS, CLEAR_COLORS, CHOICE_ENTRANCES,
 } from '../kiosk.js'
 import { applyEvent, KIOSK_EVENTS } from '../pos/checks.js'
 import { checkTotals } from '../pos/pricing.js'
@@ -527,4 +527,11 @@ test('See-through colours: only cards, buttons and highlights may be transparent
   assert.deepEqual(CLEAR_COLORS, ['surface', 'primary', 'accent'])
   // Round trip: a saved design keeps them.
   assert.equal(normaliseDesign(d).brand.colors.surface, 'transparent')
+})
+
+test('choice entrances: kept when known, none otherwise', () => {
+  assert.deepEqual(CHOICE_ENTRANCES.map(x => x.key), ['none', 'appear', 'slide', 'bubble', 'deal'])
+  assert.equal(normaliseDesign({}).options.entrance, 'none')
+  for (const k of ['appear', 'slide', 'bubble', 'deal']) assert.equal(normaliseDesign({ options: { entrance: k } }).options.entrance, k)
+  assert.equal(normaliseDesign({ options: { entrance: 'explode' } }).options.entrance, 'none')
 })

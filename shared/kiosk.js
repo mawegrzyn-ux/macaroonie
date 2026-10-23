@@ -121,6 +121,16 @@ export const DESIGN_COLORS = {
 // (cards with no fill, outline buttons). The page and the words always have
 // a colour.
 export const CLEAR_COLORS = ['surface', 'primary', 'accent']
+// How a dish's choices come onto the screen: all at once, or one after another
+// (kiosk.css, the root's data-enter).
+export const CHOICE_ENTRANCES = [
+  { key: 'none', label: 'Just there' },
+  { key: 'appear', label: 'Fade in' },
+  { key: 'slide', label: 'Slide in from the side' },
+  { key: 'bubble', label: 'Bubble up' },
+  { key: 'deal', label: 'Deal like cards' },
+]
+
 export const COLOR_LABELS = {
   background: 'Page', surface: 'Cards', text: 'Text', muted: 'Quiet text',
   primary: 'Buttons', primary_text: 'Button text', accent: 'Highlights', accent_text: 'Highlight text',
@@ -300,6 +310,8 @@ export function normaliseDesign(raw) {
       // The spin wheel's Spin button, and whether a spin picks where it stops.
       wheel_spin: o.wheel_spin !== false,
       wheel_spin_picks: !!o.wheel_spin_picks,
+      // How choices come onto the screen (CHOICE_ENTRANCES; kiosk.css data-enter).
+      entrance: oneOf(o.entrance, CHOICE_ENTRANCES.map(x => x.key), 'none'),
     },
     checkout: {
       pay_card: c.pay_card !== false,
