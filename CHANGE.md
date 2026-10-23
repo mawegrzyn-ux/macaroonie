@@ -5,6 +5,11 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-23 — Order board tiles with fonts, shapes and pictures]
+
+- Screen designer → an Order status block → **Tile look**: the tiles' font and weight (and a font for the small lines), italic, capitals, space inside; shape (rounded, square, pill or circle), border and shadow; a picture behind ready tiles and one behind preparing tiles (fill or whole, darkened so numbers stay readable); a small picture on every tile or one per order type, left, right, above or in the corner.
+- Screens load the pictures before showing the board and keep them offline. No migration.
+
 ## [2026-10-23 — See-through backgrounds in the designers]
 
 - The colour picker in the menu screen designer and the kiosk designer has a **See-through** swatch (checkered, first in the row) on background colours: nothing is drawn, so what is behind shows.

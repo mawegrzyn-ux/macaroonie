@@ -3861,6 +3861,24 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               choice; the designer&apos;s Each tile section (<Mono>TileSection</Mono> in{' '}
               <Mono>ScreenDesigner.jsx</Mono>) keeps lines in field order.
             </P>
+            <P>
+              How tiles look (<Mono>TileLook</Mono> in <Mono>ScreenDesigner.jsx</Mono>, the Tile look section) is
+              stored on the block as <Mono>tile_*</Mono> options: <Mono>tile_font</Mono> / <Mono>tile_line_font</Mono>
+              (a font role or a listed font; added to <Mono>boardFonts()</Mono>), <Mono>tile_weight</Mono>,{' '}
+              <Mono>tile_italic</Mono>, <Mono>tile_upper</Mono>, <Mono>tile_shape</Mono> (<Mono>TILE_SHAPES</Mono>:
+              rounded with <Mono>tile_radius</Mono> px, square, pill, circle), <Mono>tile_padding</Mono> (% of the
+              number size), <Mono>tile_border_width</Mono> / <Mono>tile_border_color</Mono>, <Mono>tile_shadow</Mono>{' '}
+              (<Mono>TILE_SHADOWS</Mono>), <Mono>tile_ready_image</Mono> / <Mono>tile_prep_image</Mono> with{' '}
+              <Mono>tile_image_fit</Mono> and <Mono>tile_image_dim</Mono> (a dark layer, <Mono>::before</Mono>), and small
+              pictures: <Mono>tile_icon</Mono>, <Mono>tile_type_icons</Mono> (order type name to picture, matched in any
+              case; <Mono>tileIcon()</Mono>), <Mono>tile_icon_pos</Mono> (<Mono>TILE_ICON_POSITIONS</Mono>) and{' '}
+              <Mono>tile_icon_size</Mono>. <Mono>tileLook()</Mono> in <Mono>shared/screenLayout.js</Mono> turns them into
+              custom properties on <Mono>.sl-orders</Mono> (<Mono>--otf</Mono>, <Mono>--otr</Mono>, <Mono>--orimg</Mono>,
+              <Mono>--ordim</Mono>, <Mono>--otis</Mono> ...), so a tile is one CSS rule set; each tile wraps its words in{' '}
+              <Mono>.sl-otext</Mono> beside an optional <Mono>img.sl-oicon</Mono> (<Mono>data-icon</Mono> on the tile).
+              <Mono>tileImageUrls()</Mono> adds the pictures to <Mono>boardImageUrls()</Mono>, so screens load them before
+              showing the board and keep them offline.
+            </P>
             <H3>The kitchen test bench</H3>
             <P>
               Store tech → Kitchen screens → Test the kitchen (<Mono>TestCard</Mono> in{' '}

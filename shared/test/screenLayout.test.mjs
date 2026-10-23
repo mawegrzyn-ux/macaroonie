@@ -272,15 +272,15 @@ test('order status: one board by name, changes animate in and out, layout and co
   assert.match(html, /sl-orders[^"]*is-stacked[^"]*sl-och-float/)
   assert.match(html, /--opb:\s*#123456/)
   assert.ok(html.indexOf('is-ready') < html.indexOf('is-prep'), 'ready first')
-  assert.match(html, /sl-onum is-ready sl-och-in" style="animation-delay:-300ms" data-main="number"><span class="sl-oval">41/)
-  assert.match(html, /sl-onum is-prep sl-och-out" style="animation-delay:-300ms" data-main="number"><span class="sl-oval">41/, '41 fades out of preparing')
+  assert.match(html, /sl-onum is-ready sl-och-in" style="animation-delay:-300ms" data-main="number"><span class="sl-otext"><span class="sl-oval">41/)
+  assert.match(html, /sl-onum is-prep sl-och-out" style="animation-delay:-300ms" data-main="number"><span class="sl-otext"><span class="sl-oval">41/, '41 fades out of preparing')
   const later = draw({ board: 'ORB 1', change_anim: 'float', change_ms: 1000 }, 1200)
   assert.doesNotMatch(later, /sl-och-(in|out)"/, 'over once the animation has played')
   assert.doesNotMatch(draw({ board: 'ORB 1' }, 300), /sl-och-in/, 'no animation unless chosen')
   const sameMs = renderBlockInner(layout({ board: 'ORB 1', change_anim: 'fade' }).blocks[0], boardContext(layout({ board: 'ORB 1', change_anim: 'fade' }), {
     width: 1920, height: 1080, now: new Date(at), orders: { ...after, changes: changes.map(c => ({ ...c, at: at + 0.6 })) },
   }))
-  assert.match(sameMs, /sl-onum is-ready sl-och-in" data-main="number"><span class="sl-oval">41/, 'a draw in the same millisecond still animates')
+  assert.match(sameMs, /sl-onum is-ready sl-och-in" data-main="number"><span class="sl-otext"><span class="sl-oval">41/, 'a draw in the same millisecond still animates')
 })
 
 test('order status tiles show the fields picked: a big value and lines under it', () => {
@@ -298,12 +298,55 @@ test('order status tiles show the fields picked: a big value and lines under it'
     return renderBlockInner(l.blocks[0], boardContext(l, { width: 1920, height: 1080, now: new Date(at), orders }))
   }
   const plain = draw({})
-  assert.match(plain, /data-main="number"><span class="sl-oval">41<\/span><\/div>/, 'the number alone by default')
+  assert.match(plain, /data-main="number"><span class="sl-otext"><span class="sl-oval">41<\/span><\/span><\/div>/, 'the number alone by default')
   const tent = draw({ tile_main: 'tent', tile_lines: ['number', 'name', 'type', 'source'] })
-  assert.match(tent, /data-main="tent"><span class="sl-ocap">Tent<\/span><span class="sl-oval">12<\/span><span class="sl-oline" data-k="number">Order 41<\/span><span class="sl-oline" data-k="name">Sam<\/span><span class="sl-oline" data-k="type">Eat in<\/span><\/div>/)
-  assert.match(tent, /data-main="number"><span class="sl-oval">42<\/span><span class="sl-oline" data-k="type">Take out<\/span><span class="sl-oline" data-k="source">Online<\/span>/, 'no tent: the number, lines it has')
+  assert.match(tent, /data-main="tent"><span class="sl-otext"><span class="sl-ocap">Tent<\/span><span class="sl-oval">12<\/span><span class="sl-oline" data-k="number">Order 41<\/span><span class="sl-oline" data-k="name">Sam<\/span><span class="sl-oline" data-k="type">Eat in<\/span><\/span><\/div>/)
+  assert.match(tent, /data-main="number"><span class="sl-otext"><span class="sl-oval">42<\/span><span class="sl-oline" data-k="type">Take out<\/span><span class="sl-oline" data-k="source">Online<\/span>/, 'no tent: the number, lines it has')
   const named = draw({ tile_main: 'name', tile_lines: ['name', 'tent'] })
-  assert.match(named, /data-main="name"><span class="sl-oval">Sam<\/span><span class="sl-oline" data-k="tent">Tent 12<\/span>/, 'the big field is not repeated as a line')
+  assert.match(named, /data-main="name"><span class="sl-otext"><span class="sl-oval">Sam<\/span><span class="sl-oline" data-k="tent">Tent 12<\/span>/, 'the big field is not repeated as a line')
   const safe = draw({ tile_main: 'name', tile_lines: ['nonsense'] })
   assert.doesNotMatch(safe, /nonsense/)
+})
+
+test('order board tiles: font, shape, border, pictures and small pictures', async () => {
+  const { renderBlockInner, boardContext, normalizeBoard, tileLook, tileIcon, tileImageUrls, boardImageUrls, boardFonts } = await import('../screenLayout.js')
+  const o = {
+    tile_font: 'Anton', tile_line_font: 'script', tile_weight: 700, tile_shape: 'circle', tile_border_width: 4, tile_border_color: '#ff0000',
+    tile_shadow: 'glow', tile_ready_image: '/uploads/a b.png', tile_prep_image: '', tile_image_dim: 40,
+    tile_icon: '/uploads/bell.png', tile_type_icons: { 'Eat In': '/uploads/plate.png', Bad: 'javascript:alert(1)' }, tile_icon_pos: 'corner', tile_icon_size: 80,
+  }
+  const v = tileLook(o)
+  assert.match(v['--otf'], /Anton/)
+  assert.equal(v['--otlf'], 'var(--sl-script)')
+  assert.equal(v['--otr'], '50%')
+  assert.equal(v['--otar'], '1 / 1')
+  assert.equal(v['--otb'], '4px solid #ff0000')
+  assert.match(v['--orimg'], /^url\('\/uploads\/a%20b\.png'\)$/)
+  assert.equal(v['--opimg'], null)
+  assert.equal(v['--ordim'], '0.4')
+  assert.equal(v['--opdim'], null)
+  assert.equal(v['--otis'], '0.8')
+  // Per order type (any case), else the one for every tile; unsafe addresses ignored.
+  assert.equal(tileIcon(o, { type_name: 'eat in' }), '/uploads/plate.png')
+  assert.equal(tileIcon(o, { type_name: 'Take out' }), '/uploads/bell.png')
+  assert.equal(tileIcon({ ...o, tile_icon: '' }, { type_name: 'Bad' }), '')
+  assert.deepEqual(tileImageUrls(o), ['/uploads/a b.png', '/uploads/bell.png', '/uploads/plate.png'])
+  // Defaults: nothing set, nothing added.
+  const d = tileLook({})
+  assert.equal(d['--otr'], null)
+  assert.equal(d['--orimg'], null)
+
+  const layout = normalizeBoard({ blocks: [{ id: 'o', type: 'order_status', x: 0, y: 0, w: 800, h: 600, opts: o }] })
+  assert.ok(boardFonts(layout).includes('Anton'))
+  assert.ok(boardImageUrls(layout).includes('/uploads/plate.png'))
+  const ctx = boardContext(layout, { menus: [], now: new Date('2026-10-23T12:00:00Z') })
+  const html = renderBlockInner(layout.blocks[0], ctx)
+  assert.match(html, /data-icon="corner"/)
+  assert.match(html, /<img class="sl-oicon" src="\/uploads\/plate\.png"/)
+  assert.match(html, /<img class="sl-oicon" src="\/uploads\/bell\.png"/)
+  assert.match(html, /<span class="sl-otext">/)
+  assert.match(html, /--orimg:url\('\/uploads\/a%20b\.png'\)/)
+  // No pictures: no img, no data-icon.
+  const plain = renderBlockInner({ ...layout.blocks[0], opts: {} }, ctx)
+  assert.doesNotMatch(plain, /sl-oicon|data-icon/)
 })
