@@ -180,7 +180,7 @@ export function hexLayout(total, max, compact = false) {
 // page of section tiles instead.
 export const RAIL_KINDS = ['images', 'text', 'none']
 
-const MAX = { media: 8, banners: 10, featured: 12, upsell: 8, hidden: 200, tiles: 200 }
+const MAX = { media: 8, reach_media: 4, banners: 10, featured: 12, upsell: 8, hidden: 200, tiles: 200 }
 
 function link(v) {
   const kind = oneOf(v?.kind, LINK_KINDS, 'none')
@@ -314,6 +314,11 @@ export function normaliseDesign(raw) {
       warn_secs: num(h.warn_secs, 5, 60, 20),
       done_secs: num(h.done_secs, 5, 120, 15),
       reach: h.reach !== false,
+      // Pictures or videos filling the space above the kiosk while the reach
+      // button has slid it down (none = the brand colour with the reach icon);
+      // pictures take turns every start.media_secs, like the start screen's.
+      reach_media: asList(h.reach_media).map((x, i) => ({ id: shortId(x?.id, i), type: oneOf(x?.type, ['image', 'video'], 'image'), url: url(x?.url) }))
+        .filter(x => x.url).slice(0, MAX.reach_media),
     },
   }
 }
@@ -406,7 +411,7 @@ export function configImages(config, origin) {
   }
   const d = config?.design
   add(d?.brand?.logo_url)
-  for (const m of d?.start?.media || []) if (m?.type !== 'video') add(m?.url)
+  for (const m of [...(d?.start?.media || []), ...(d?.behaviour?.reach_media || [])]) if (m?.type !== 'video') add(m?.url)
   walk(d, 0)
   walk(config, 0)
   return [...out].slice(0, MAX_SAVED_PICTURES)

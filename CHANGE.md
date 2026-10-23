@@ -5,6 +5,13 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-23 — Kiosk: pictures or videos above the screen in reach mode]
+
+- Kiosk designer → Timing and access: under the Reach button, optional pictures or videos (up to 4, taking turns like the start screen's, videos with no sound) that fill the top of the screen while the reach button has brought everything down. The button to move the screen back up sits at their foot. Without any, the top shows the brand colour and the reach sign as before.
+- Pictures are kept on the kiosk for offline use like the rest. No migration.
+
+---
+
 ## [2026-10-23 — Kiosk: each option group decides where its picks go on the dish's photo]
 
 - **Picks on the dish's photo** is now set on each option group (Menus → Variant groups) and each combo step: **No**, **Split the photo** or **Small in the corner**. One dish can split its photo between the flavours picked and show the dip small in the corner. Corner pictures sit on top of the photo whether it is split or not; the order line shows both.

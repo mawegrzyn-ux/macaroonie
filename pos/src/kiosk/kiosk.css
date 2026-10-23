@@ -36,6 +36,9 @@
   background: var(--k-primary); color: var(--k-primary-text);
   display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 1em;
 }
+/* With the design's reach pictures: they fill the band, the way back sits at its foot. */
+.k-reach-band.k-reach-media { overflow: hidden; justify-content: flex-end; padding-bottom: 1.2em; }
+.k-reach-band.k-reach-media .k-btn { box-shadow: 0 4px 16px rgba(0,0,0,.35); }
 
 .k-head { font-family: var(--k-font-head); font-weight: 700; letter-spacing: .01em; line-height: 1.05; }
 .k-upper .k-head { text-transform: uppercase; }
