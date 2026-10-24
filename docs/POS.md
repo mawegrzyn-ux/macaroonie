@@ -486,6 +486,15 @@ Chrome, as an installed PWA.
   the dish and before links for every dish, so a link for every dish beside it takes what it leaves
   out; with nothing listed it is a link for every dish. In a shared flow an excepted name a
   location lacks leaves nothing out there.
+- **Splitter modes** (24 Oct 2026, no migration): a Splitter shares by fewest pieces or Smart
+  (`share_mode: 'speed'`): the ticket goes where it should be done soonest, the pieces still to
+  cook there times the station's pace (`stationPace()`: seconds per piece over its last 8 bumps
+  in the last 30 minutes, queueing time not counted twice), so a line falling behind gets fewer
+  tickets until it catches up. A busy order type rule (`rush_type_id`, `rush_count`,
+  `rush_station_id`) splits by order type while that type is busy: from N waiting orders of the
+  type (with dishes still to cook at the box's stations), its tickets go to its own station and
+  every other ticket to the others. The sequencer reads recent orders for the pace only when a box
+  is Smart (`loadRecentKitchenOrders()`); the hub's store will need the same.
 - **Order-ready boards**: the menu screens' `order_status` block shows numbers preparing and
   ready (`/screen-api/orders`), pushed on `kitchen.board`: every counter and online order, or one
   board station of the flow by name (`boards[name]`, ready once every dish on its way there has

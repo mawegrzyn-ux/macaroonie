@@ -15,6 +15,7 @@ import {
   laterOrders, recentBumps, itemState, ageTone, clockSince, kitchenEventProblem, onlineOrderId, gloriaFoodOrderId, isOrderId,
   itemRoute, routeOrder, flowProblems, flowWarnings, readyOrders, boardState, itemWhere, START,
   resolveBalances, stationLoad, orderStatus, statusOf, STATUS_LOOKS, STATUS_ANIMS, linkRank, isExcept,
+  stationPace, typeWaiting, PACE_TICKETS, PACE_MINUTES,
 } from '../kitchen.js'
 
 const uuid = () => globalThis.crypto.randomUUID()
@@ -841,13 +842,16 @@ const wingFlow = [
 ]
 const wingLine = (n, extra = {}) => lineOf('Wings', WINGS, WINGSEC, { modifiers: [{ label: n + ' Wings', base: true, price: 0 }], ...extra })
 
-/** A till whose kitchen config carries the open orders and the box's last pick, as the sequencer gives it. */
-function balancedTill(box = {}) {
+/**
+ * A till whose kitchen config carries the open orders and the box's last
+ * pick, as the sequencer gives it (`balance` adds to it, e.g. recent orders).
+ */
+function balancedTill(box = {}, balance = {}) {
   const last = {}
   const kit = { ...wingKit, BOX: { ...wingKit.BOX, settings: { ...wingKit.BOX.settings, ...box } } }
   const base = { ...common, stations: byId(Object.values(kit)), flow: wingFlow }
   const t = till(base)
-  Object.defineProperty(t, 'cfg', { get() { return { ...base, balance: { open: t.orders, last, picks: last } } } })
+  Object.defineProperty(t, 'cfg', { get() { return { ...base, balance: { open: t.orders, last, picks: last, ...balance } } } })
   return t
 }
 const wayOf = (k, checkId, lineId) => Object.keys(k[checkId].items.find(i => i.id === lineId).route).sort()
@@ -1003,6 +1007,152 @@ test('balance: a shared big ticket splits a meal deal by its parts, and online o
   // Wingman 1 has 10, Wingman 2 has 8: the 10 goes to Wingman 2 (18), then the 8 to Wingman 1 (18).
   assert.ok(o.items[0].route[W2] && !o.items[0].route[W1])
   assert.ok(o.items[1].route[W1] && !o.items[1].route[W2])
+})
+
+// Past tickets a station bumped: [reached, bumped] in seconds before now and
+// how many pieces ("N Wings" options), as kitchen orders carry them.
+function pastBumps(stationId, tickets, extra = {}) {
+  const now = clock
+  return Object.fromEntries(tickets.map(([reached, bumped, n]) => {
+    const id = 'past-' + uuid()
+    const item = { id: id + '-i', item_id: WINGS, name: 'Wings', qty: 1, mods: [{ text: n + ' Wings', label: n + ' Wings', kind: 'base', depth: 0 }], route: { [stationId]: [START] }, done: {} }
+    const bump = { id: ulid(), station_id: stationId, kind: 'prep', at: new Date(now - bumped * 1000).toISOString(),
+      started_at: new Date(now - reached * 1000).toISOString(), set: [[item.id, stationId]], items: 1, recalled_at: null, ...extra }
+    return [id, { id, source: 'till', status: 'collected', created_at: bump.started_at, items: [item], bumps: [bump] }]
+  }))
+}
+const PIECES = wingKit.BOX.settings.pieces
+
+test('pace: seconds a piece over a station\'s last bumps, not counting time spent waiting behind other tickets', () => {
+  // Reached 400 s ago, bumped 340 s ago (60 s); the next reached 390 s ago
+  // but waited behind it, bumped 300 s ago (40 s of work): 100 s for 20 pieces.
+  const orders = pastBumps(W1, [[400, 340, 10], [390, 300, 10]])
+  assert.equal(stationPace(orders, W1, PIECES, null, at()), 5)
+  assert.equal(stationPace(pastBumps(W1, [[400, 340, 10]]), W1, PIECES, null, at()), null, 'one bump: not enough to go on')
+  assert.equal(stationPace(orders, W2, PIECES, null, at()), null, 'another station\'s bumps don\'t count')
+  // A recalled bump doesn't count; a bump of dishes not named counts their quantity.
+  const recalled = { ...orders, ...pastBumps(W1, [[200, 100, 10]], { recalled_at: at() }) }
+  assert.equal(stationPace(recalled, W1, PIECES, null, at()), 5)
+  assert.equal(stationPace(orders, W1, [], null, at()), 50, 'no pieces list: each dish counts its quantity (1)')
+  // Older than the window: left out, but still the bump before the first one
+  // in it. The second ticket reached 1900 s ago, behind one bumped 1860 s ago:
+  // it counts 70 s (1860 - 1790), not 110 s; the last counts 40 s.
+  const old = PACE_MINUTES * 60
+  const mixed = pastBumps(W1, [[old + 160, old + 60, 10], [old + 100, old - 10, 10], [100, 60, 10]])
+  assert.equal(stationPace(mixed, W1, PIECES, null, at()), 5.5)
+  // Only the last PACE_TICKETS.
+  const many = pastBumps(W1, Array.from({ length: PACE_TICKETS + 4 }, (_, k) => {
+    const end = 1000 - k * 50
+    return [end + (k < 4 ? 500 : 20), end, 10]
+  }))
+  assert.equal(stationPace(many, W1, PIECES, null, at()), 2, 'the four slow old ones are past the last eight')
+  // Never under a second a piece.
+  assert.equal(stationPace(pastBumps(W1, [[10, 10, 10], [9, 9, 10]]), W1, PIECES, null, at()), 1)
+})
+
+/** Where four tickets of 10 wings go, one after another: ['W1' | 'W2']. */
+function fourTickets(t, n = 4) {
+  const went = []
+  for (let k = 0; k < n; k++) {
+    const c = openTable(t)
+    const w = wingLine(10)
+    went.push(wayOf(addAndSend(t, c, [w]), c, w.id).includes(W1) ? 'W1' : 'W2')
+  }
+  return went
+}
+// Wingman 1 has been doing 10 wings a minute, Wingman 2 a ticket every three minutes.
+const fastAndSlow = () => ({ ...pastBumps(W1, [[900, 840, 10], [700, 640, 10]]), ...pastBumps(W2, [[900, 720, 10], [700, 520, 10]]) })
+
+test('balance, Smart: tickets go where they should be done soonest, so a station falling behind gets fewer', () => {
+  const recent = fastAndSlow()
+  assert.equal(stationPace(recent, W1, PIECES, null, at()), 6)
+  assert.equal(stationPace(recent, W2, PIECES, null, at()), 18)
+  // Empty: 10 x 6 beats 10 x 18; 20 x 6 still does; 30 x 6 = 10 x 18, a tie
+  // (turns); then 30 x 6 beats 20 x 18.
+  assert.deepEqual(fourTickets(balancedTill({ share_mode: 'speed' }, { recent })), ['W1', 'W1', 'W2', 'W1'],
+    'three of four to the faster wingman (by pieces alone: turn about)')
+  // Without any pace to go on it shares by pieces, as before.
+  assert.deepEqual(fourTickets(balancedTill({ share_mode: 'speed' })), ['W1', 'W2', 'W1', 'W2'])
+  // One station's pace unknown: it counts as fast as the others' average.
+  assert.deepEqual(fourTickets(balancedTill({ share_mode: 'speed' }, { recent: pastBumps(W2, [[900, 720, 10], [700, 520, 10]]) })), ['W1', 'W2', 'W1', 'W2'])
+  // Fewest pieces (the default) ignores the pace.
+  assert.deepEqual(fourTickets(balancedTill({}, { recent })), ['W1', 'W2', 'W1', 'W2'])
+})
+
+test('balance, Smart: a big ticket shared by speed', () => {
+  const t = balancedTill({ share_mode: 'speed', split_above: 10 }, { recent: fastAndSlow() })
+  const c = openTable(t)
+  const a = wingLine(10), b = wingLine(10), d = wingLine(10)
+  const k = addAndSend(t, c, [a, b, d])
+  // 10 x 6 < 10 x 18; 20 x 6 < 10 x 18; 30 x 6 = 10 x 18 (a tie: the next after Wingman 1).
+  assert.deepEqual([a, b, d].map(l => wayOf(k, c, l.id).includes(W1) ? 'W1' : 'W2'), ['W1', 'W1', 'W2'])
+})
+
+test('balance, busy order type: from a set count of waiting orders of a type, it goes to its own station', () => {
+  const t = balancedTill({ rush_type_id: DEL, rush_count: 2, rush_station_id: W1 })
+  const side = c => wayOf(t.orders, c, t.orders[c].items.at(-1).id).includes(W1) ? 'W1' : 'W2'
+  const send = (type, n) => { const c = openTable(t, { order_type_id: type }); addAndSend(t, c, [wingLine(n)]); return c }
+  const d1 = send(DEL, 10)
+  assert.equal(side(d1), 'W1', 'one delivery waiting: shared as usual (both empty: the first)')
+  // More wings on the same delivery: still one delivery waiting, so by pieces.
+  addAndSend(t, d1, [wingLine(10)])
+  assert.equal(side(d1), 'W2', 'the same order isn\'t counted twice')
+  const d2 = send(DEL, 8)
+  assert.equal(side(d2), 'W1', 'the second delivery: busy, so Wingman 1 (by pieces it would be Wingman 2)')
+  assert.equal(typeWaiting(t.orders, DEL, [W1, W2], t.cfg, at()), 2)
+  const e1 = send(EAT, 10)
+  assert.equal(side(e1), 'W2', 'eat in goes to the other wingman')
+  const e2 = send(EAT, 10)
+  assert.equal(side(e2), 'W2', 'even when Wingman 2 has more to cook (30 against 18)')
+  // An online delivery while it's busy: Wingman 1; an online take out: the other.
+  const online = (type, label) => ok(t.kitchen(kev('kitchen.order_in', { order: {
+    id: onlineOrderId(uuid()), order_id: uuid(), number: label, type,
+    items: [{ id: 'a', item_id: WINGS, section_id: WINGSEC, name: 'Wings', qty: 1, options: [{ label: '8 Wings', mode: 'base' }] }],
+  } }))).orders
+  const od = Object.values(online(DEL, '61'))[0]
+  assert.ok(od.items[0].route[W1] && !od.items[0].route[W2])
+  const oo = Object.values(online(OUT, '62'))[0]
+  assert.ok(oo.items[0].route[W2] && !oo.items[0].route[W1])
+  // The deliveries leave the wingmen: no longer busy, back to sharing by pieces.
+  for (const c of [d1, d2]) ok(t.bump(c, wingKit.W1))
+  ok(t.bump(d1, wingKit.W2))
+  ok(t.kitchen(kev('kitchen.bumped', { order_id: od.id, station_id: W1 })))
+  assert.equal(typeWaiting(t.orders, DEL, [W1, W2], t.cfg, at()), 0, 'done at the wingmen: not waiting')
+  const e3 = send(EAT, 10)
+  assert.equal(side(e3), 'W1', 'not busy: eat in may go to Wingman 1 again (0 against 28)')
+  const d3 = send(DEL, 6)
+  assert.equal(side(d3), 'W1', 'one delivery: by pieces (10 against 28)')
+
+  // The station named isn't one the box links to: the rule never applies.
+  const x = balancedTill({ rush_type_id: DEL, rush_count: 1, rush_station_id: FRY2 })
+  const xc = openTable(x, { order_type_id: DEL }); addAndSend(x, xc, [wingLine(10)])
+  const xd = openTable(x, { order_type_id: DEL }); addAndSend(x, xd, [wingLine(10)])
+  assert.ok(x.orders[xd].items[0].route[W2], 'shared as usual')
+  const warn = flowWarnings(Object.values({ ...wingKit, BOX: { ...wingKit.BOX, settings: { rush_type_id: DEL, rush_station_id: FRY2 } } }), wingFlow)
+  assert.ok(warn.some(w => /Wings sends busy orders to Fryer but doesn't link to it/.test(w)), warn.join('; '))
+  assert.ok(!flowWarnings(Object.values({ ...wingKit, BOX: { ...wingKit.BOX, settings: { rush_type_id: DEL, rush_station_id: W1 } } }), wingFlow).length)
+})
+
+test('sequencer: a Smart Splitter reads the orders bumped lately; one by pieces doesn\'t', async () => {
+  for (const mode of ['speed', 'pieces']) {
+    const kitchen = { ...common, stations: byId(Object.values({ ...wingKit, BOX: { ...wingKit.BOX, settings: { ...wingKit.BOX.settings, share_mode: mode } } })), flow: wingFlow }
+    const store = memoryStore(kitchen)
+    const asked = []
+    Object.assign(store, {
+      loadOpenKitchenOrders: () => Object.fromEntries(store.data.orders),
+      loadRecentKitchenOrders: minutes => { asked.push(minutes); return Object.fromEntries(store.data.orders) },
+      loadBalanceTurns: () => ({}),
+      saveBalanceTurns: () => {},
+    })
+    const seq = createSequencer(store)
+    const c = ulid()
+    await seq.submit(ev('check.opened', { mode: 'table', table_id: TABLE5 }, { check_id: c }))
+    const l = wingLine(10)
+    await seq.submit(ev('line.added', { line: l }, { check_id: c }))
+    const r = await seq.submit(ev('lines.sent', { send_id: ulid(), line_ids: [l.id] }, { check_id: c }))
+    assert.ok(r.ok, r.error)
+    assert.deepEqual(asked, mode === 'speed' ? [PACE_MINUTES * 2] : [], mode)
+  }
 })
 
 test('balance: flow checks and nothing to bump', () => {

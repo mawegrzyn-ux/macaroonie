@@ -24,7 +24,7 @@ import {
 } from './shared'
 import KitchenFlow from './KitchenFlow'
 import { deviceUrl, InstallerLine, status, ShownCodeField, LinkDeviceModal, LinkDeviceButton, linkShownCode, codeReady } from './TillsSection'
-import { STATION_KINDS, KIND_LABELS, isBumpKind, STATUS_LOOKS, STATUS_ANIMS } from '@shared/pos/kitchen.js'
+import { STATION_KINDS, KIND_LABELS, isBumpKind, STATUS_LOOKS, STATUS_ANIMS, PACE_TICKETS, PACE_MINUTES, RUSH_COUNT_MAX, flowName } from '@shared/pos/kitchen.js'
 import { ColourPicker } from '@/components/ColourPicker'
 import { TYPE_LABELS as GF_TYPE_LABELS } from '@shared/gloriafood.js'
 
@@ -34,7 +34,7 @@ const KIND_HINTS = {
   expo: 'Checks whole orders before they go out (the pass). Its bump marks the order ready, and finishes dishes still at earlier stations.',
   runner: 'Takes orders out to tables or the counter. Last on a dish\'s way, its bump hands the order over.',
   board: 'An order ready board: shows order numbers on menu screens (Order status block). An order is ready there once every dish on its way to the board has arrived. Nothing to bump, no kitchen screen.',
-  balance: 'Shares tickets between the stations it links to in the kitchen flow (e.g. two wingmen): each ticket\'s dishes that reach it go to the one with the fewest pieces still to cook, taking turns when they\'re level (big tickets can be shared out too). Nothing to bump, no kitchen screen.',
+  balance: 'Shares tickets between the stations it links to in the kitchen flow (e.g. two wingmen): each ticket\'s dishes that reach it go to the one with the fewest pieces still to cook, or (Smart) the one that should be done soonest, taking turns when they\'re level. Big tickets can be shared out, and a busy order type can get its own station. Nothing to bump, no kitchen screen.',
   sleeper: 'Holds the dishes that reach it for a set time, then sends them on by itself (e.g. delivery orders wait 10 minutes before the grill starts). Which dishes it holds is decided by the links into it in the kitchen flow: filter them by order type, revenue stream, till, dish or section, or leave them open for every dish. Nothing to bump, no kitchen screen; the pass\'s Bump sends them on at once.',
   setter: 'Sets the order\'s status as a dish passes it, for order ready boards: its name is the status (e.g. Cooking, Bagging, Out for delivery). Put it in the kitchen flow where the status should change; the last Setter an order\'s dishes reached is its status. Dishes go straight on. Nothing to bump, no kitchen screen.',
   printer: 'Prints a ticket of the dishes that reach it in the kitchen flow, once: straight from Orders in when they are sent (held courses as HOLD, then FIRE), or after a kitchen screen when it bumps them. Nothing to bump; it can go on to a kitchen screen. Dishes that only reach printers count as done there.',
@@ -257,6 +257,72 @@ function OptionAdd({ onAdd }) {
   )
 }
 
+/** A Splitter's busy order type rule for the station list: "5+ waiting Delivery orders go to Wingman 2". */
+function busyShort(s, setup) {
+  const type = (setup.order_types || []).find(t => t.id === s.rush_type_id)?.name || 'an order type\'s'
+  const to = setup.kds_stations.find(x => x.id === s.rush_station_id)?.name || 'its station'
+  return (s.rush_count || 5) + '+ waiting ' + type + ' orders go to ' + to
+}
+
+/** The stations a Splitter links to in any of this location's flows (a shared flow's boxes by name). */
+function linkedFrom(setup, station) {
+  const ids = new Set()
+  if (!station) return ids
+  const byName = new Map(setup.kds_stations.map(s => [flowName(s.name), s.id]))
+  for (const f of setup.kds_flows || []) {
+    if (!f.shared) {
+      for (const l of f.links || []) if (l.from === station.id) ids.add(l.to)
+      continue
+    }
+    const boxes = Object.fromEntries((f.boxes || []).map(b => [b.id, b]))
+    for (const l of f.links || []) {
+      if (!l.from || flowName(boxes[l.from]?.name) !== flowName(station.name)) continue
+      const to = byName.get(flowName(boxes[l.to]?.name))
+      if (to) ids.add(to)
+    }
+  }
+  return ids
+}
+
+/** A Splitter's busy order type rule: the type, the count and the station. */
+function BusyTypeRule({ setup, station, form, set }) {
+  const linked = linkedFrom(setup, station)
+  const types = (setup.order_types || []).filter(t => t.is_active !== false || t.id === form.rush_type_id)
+  const stations = setup.kds_stations
+    .filter(x => isBumpKind(x.kind) && x.id !== station?.id && (x.is_active || x.id === form.rush_station_id))
+    .sort((a, b) => Number(linked.has(b.id)) - Number(linked.has(a.id)))
+  const type = types.find(t => t.id === form.rush_type_id)?.name || 'those'
+  return (
+    <div className="space-y-3" data-testid="balance-busy">
+      <Segmented value={form.rush_on ? 'on' : 'off'} className="flex-wrap"
+        options={[{ value: 'off', label: 'Share as usual' }, { value: 'on', label: 'Give it its own station' }]}
+        onChange={v => set({ rush_on: v === 'on' })} />
+      {form.rush_on && (
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          From
+          <NumberBox value={form.rush_count} min={1} max={RUSH_COUNT_MAX} onChange={v => set({ rush_count: v })} ariaLabel="Waiting orders of that type" />
+          waiting
+          <select className={cn(inputCls, 'w-auto')} value={form.rush_type_id} onChange={e => set({ rush_type_id: e.target.value })}
+            aria-label="Order type" data-testid="balance-busy-type">
+            <option value="">Pick an order type</option>
+            {types.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
+          orders, send {type} orders to
+          <select className={cn(inputCls, 'w-auto')} value={form.rush_station_id} onChange={e => set({ rush_station_id: e.target.value })}
+            aria-label="Station for those orders" data-testid="balance-busy-station">
+            <option value="">Pick a station</option>
+            {stations.map(x => <option key={x.id} value={x.id}>{x.name}{linked.has(x.id) ? '' : ' (not linked to it yet)'}</option>)}
+          </select>
+          and every other order to the other stations.
+        </div>
+      )}
+      {form.rush_on && form.rush_station_id && station && !linked.has(form.rush_station_id) && (
+        <p className="text-xs text-amber-700">Link this Splitter to that station in the kitchen flow, or the rule never applies.</p>
+      )}
+    </div>
+  )
+}
+
 export function StationModal({ venueId, setup, station, kind: newKind, onClose }) {
   const api = useApi()
   const qc = useQueryClient()
@@ -268,6 +334,8 @@ export function StationModal({ venueId, setup, station, kind: newKind, onClose }
     show_upcoming: s.show_upcoming ?? startKind === 'expo',
     summary_groups: s.summary_groups || [], pieces: s.pieces || [], is_active: station ? station.is_active : true,
     share: s.split_above != null, split_above: s.split_above ?? 20,
+    share_mode: s.share_mode === 'speed' ? 'speed' : 'pieces',
+    rush_on: !!s.rush_type_id, rush_type_id: s.rush_type_id || '', rush_count: s.rush_count ?? 5, rush_station_id: s.rush_station_id || '',
     printer_id: s.printer_id || '',
     delay_mins: s.delay_mins ?? 5,
     status_look: s.status_look || 'text', status_colour: s.status_colour || '#f59e0b', status_text: s.status_text || '',
@@ -282,6 +350,8 @@ export function StationModal({ venueId, setup, station, kind: newKind, onClose }
   const sleeper = form.kind === 'sleeper'
   const setter = form.kind === 'setter'
   const orderLevel = form.kind === 'expo' || form.kind === 'runner'
+  // The busy order type rule needs its type and station before it can be saved.
+  const busyUnfinished = balance && form.rush_on && (!form.rush_type_id || !form.rush_station_id)
   const refresh = () => qc.invalidateQueries({ queryKey: ['pos-setup', venueId] })
   const body = () => ({
     name: form.name.trim(), kind: form.kind, colour: form.colour, is_active: form.is_active,
@@ -291,6 +361,12 @@ export function StationModal({ venueId, setup, station, kind: newKind, onClose }
       summary_groups: form.summary_groups.filter(g => g.name.trim()).map(g => ({ ...g, name: g.name.trim() })),
       pieces: balance ? form.pieces : [],
       split_above: balance && form.share ? (form.split_above ?? 20) : null,
+      ...(balance ? {
+        share_mode: form.share_mode,
+        rush_type_id: form.rush_on ? form.rush_type_id || null : null,
+        rush_station_id: form.rush_on ? form.rush_station_id || null : null,
+        rush_count: Math.min(RUSH_COUNT_MAX, Math.max(1, form.rush_count || 5)),
+      } : {}),
       ...(printerBox ? { printer_id: form.printer_id || null } : {}),
       ...(sleeper ? { delay_mins: Math.min(240, Math.max(1, form.delay_mins || 5)) } : {}),
       ...(setter ? {
@@ -307,7 +383,7 @@ export function StationModal({ venueId, setup, station, kind: newKind, onClose }
   return (
     <Modal title={station ? 'Edit ' + station.name : 'Add ' + (form.kind === 'expo' ? 'an expo' : board ? 'an order ready board' : 'a ' + KIND_LABELS[form.kind].toLowerCase())} onClose={onClose}
       footer={<>
-        <Btn variant="primary" className="flex-1" disabled={!form.name.trim() || save.isPending} onClick={() => save.mutate()}>
+        <Btn variant="primary" className="flex-1" disabled={!form.name.trim() || save.isPending || busyUnfinished} onClick={() => save.mutate()}>
           {save.isPending && <Loader2 className="w-4 h-4 animate-spin" />} Save
         </Btn>
         {station && <ConfirmDelete label="Delete station" onConfirm={() => remove.mutate()} disabled={remove.isPending} />}
@@ -320,6 +396,18 @@ export function StationModal({ venueId, setup, station, kind: newKind, onClose }
       <Field group label="Kind" hint={KIND_HINTS[form.kind]}>
         <Segmented value={form.kind} options={KINDS} onChange={setKind} className="flex-wrap" />
       </Field>
+      {balance && (
+        <Field group label="How it shares"
+          hint={form.share_mode === 'speed'
+            ? 'Each ticket goes where it should be done soonest: the pieces still to cook at each station, times how long that station has been taking a piece (its last ' + PACE_TICKETS + ' tickets in the last ' + PACE_MINUTES + ' minutes, not counting time a ticket waited behind others). A station falling behind gets fewer tickets until it catches up; with nothing to go on yet it shares by pieces.'
+            : 'Each ticket goes to the station with the fewest pieces still to cook, taking turns when they\'re level.'}>
+          <div data-testid="balance-mode">
+            <Segmented value={form.share_mode} className="flex-wrap"
+              options={[{ value: 'pieces', label: 'Fewest pieces' }, { value: 'speed', label: 'Smart: by speed' }]}
+              onChange={v => set({ share_mode: v })} />
+          </div>
+        </Field>
+      )}
       {balance && (
         <Field group label="Pieces" hint="What a dish counts when the box weighs up who has more to cook, e.g. the 10 Wings option counts 10, the 8pc Boneless dish counts 8. A dish not listed counts its quantity.">
           <div className="space-y-2" data-testid="balance-pieces"><MembersEditor setup={setup} members={form.pieces} onChange={pieces => set({ pieces })} /></div>
@@ -342,6 +430,14 @@ export function StationModal({ venueId, setup, station, kind: newKind, onClose }
               </label>
             )}
           </div>
+        </Field>
+      )}
+      {balance && (
+        <Field group label="When one order type gets busy"
+          hint={form.rush_on
+            ? 'Waiting: with dishes still to cook at the stations it shares between (the new order counts too). Below that it shares as usual.'
+            : 'Every order type is shared the same way.'}>
+          <BusyTypeRule setup={setup} station={station} form={form} set={set} />
         </Field>
       )}
       {printerBox && (
@@ -448,7 +544,9 @@ function StationsCard({ venueId, setup, onEdit }) {
                     {isBumpKind(st.kind) && <> · amber {st.settings.target_mins} min, red {st.settings.late_mins} min</>}
                     {isBumpKind(st.kind) && st.settings.summary_groups?.length ? ' · counts ' + st.settings.summary_groups.map(g => g.name).join(', ') : ''}
                     {st.kind === 'balance' && (st.settings.pieces?.length ? ' · ' + st.settings.pieces.map(m => m.label + ' ' + m.qty).join(', ') : ' · each dish counts its quantity')}
+                    {st.kind === 'balance' && (st.settings.share_mode === 'speed' ? ' · smart: by speed' : ' · by fewest pieces')}
                     {st.kind === 'balance' && (st.settings.split_above != null ? ' · shares tickets over ' + st.settings.split_above + ' pieces' : ' · each ticket on one station')}
+                    {st.kind === 'balance' && st.settings.rush_type_id && ' · ' + busyShort(st.settings, setup)}
                     {st.kind === 'sleeper' && ' · holds dishes ' + st.settings.delay_mins + ' min'}
                     {st.kind === 'setter' && ' · status ' + (st.settings.status_text || st.name) + ', ' + (STATUS_LOOKS.find(x => x.key === st.settings.status_look)?.label || 'Words').toLowerCase()}
                     {st.kind === 'printer' && ' · ' + (setup.printers.find(p => p.id === st.settings.printer_id)?.name || 'no printer picked')}

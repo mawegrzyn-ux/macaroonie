@@ -105,8 +105,9 @@ export function createBench(data, { now = () => new Date().toISOString(), rng = 
     return cfgCache
   }
 
-  // The config with what Splitters need: the bench's orders and their last picks.
-  const withBalance = c => ({ ...c, balance: { open: st.orders, last: st.balanceLast, picks: st.balanceLast } })
+  // The config with what Splitters need: the bench's orders (open ones count,
+  // and their bumps give a Smart one each station's pace) and their last picks.
+  const withBalance = c => ({ ...c, balance: { open: st.orders, recent: st.orders, last: st.balanceLast, picks: st.balanceLast } })
 
   function note(entry) {
     st.log = [{ at: now(), ...entry }, ...st.log].slice(0, 80)

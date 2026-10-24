@@ -74,6 +74,7 @@ import { reconFields } from '../services/reconFill.js'
 import {
   stationSettings, flowProblems, flowWarnings, boxProblems, resolveSharedFlow, shareFlow, flowName, isExcept,
   STATION_KINDS, FLOW_TARGET_KINDS, BUMP_KINDS, NAMED_TARGET_KINDS, KIND_LABELS, SLEEP_MINS_MAX, STATUS_LOOKS, STATUS_ANIMS,
+  SHARE_MODES, RUSH_COUNT_MAX,
 } from '../../../shared/pos/kitchen.js'
 import { deviceOrigin, installerOrigin } from '../services/platformHost.js'
 import { linkCodeHash } from '../services/linkCodes.js'
@@ -233,6 +234,14 @@ const StationSettings = z.object({
   // A Splitter's big tickets: null keeps each ticket on one station; N
   // shares a ticket's dishes between them when more than N pieces reach it.
   split_above: z.number().int().min(0).max(999).nullable().default(null),
+  // How a Splitter shares: by pieces still to cook, or Smart (by speed).
+  share_mode: z.enum(SHARE_MODES).default('pieces'),
+  // A Splitter's busy order type rule: once rush_count or more orders of
+  // rush_type_id are waiting at its stations, that type's tickets go to
+  // rush_station_id and the rest to the others. Off: no rush_type_id.
+  rush_type_id:    UUID.nullable().default(null),
+  rush_count:      z.number().int().min(1).max(RUSH_COUNT_MAX).default(5),
+  rush_station_id: UUID.nullable().default(null),
   // A Sleeper (migration 200): how long it holds the dishes that reach it.
   delay_mins: z.number().int().min(1).max(SLEEP_MINS_MAX).default(5),
   // A kitchen printer box (migration 191): the printer its dishes print on.
@@ -244,6 +253,7 @@ const StationSettings = z.object({
   status_anim:   z.enum(STATUS_ANIMS.map(x => x.key)).default('none'),
   status_lamp:   z.number().int().min(1).max(3).default(2),
 }).refine(s => s.late_mins >= s.target_mins, { message: 'Late must be the same as or after the target time', path: ['late_mins'] })
+  .refine(s => !s.rush_type_id === !s.rush_station_id, { message: 'Pick the order type and the station its busy orders go to', path: ['rush_station_id'] })
 
 const StationBody = z.object({
   name:      z.string().trim().min(1).max(40),
@@ -547,6 +557,35 @@ async function checkPieces(tx, tenantId, settings) {
   const found = await tx`SELECT id FROM menu_items WHERE tenant_id = ${tenantId} AND id = ANY(${ids}::uuid[])`
   if (found.length !== ids.length) throw httpError(422, 'Dish not found')
   for (const m of settings.pieces) if (m.kind === 'dish' && !m.id) throw httpError(422, 'Pick the dish that counts')
+}
+
+/**
+ * A Splitter's busy order type rule names the tenant's order type and a
+ * station of the venue that makes or checks dishes (not the box itself).
+ * Other kinds keep no Splitter settings.
+ */
+async function checkSplitterRule(tx, tenantId, venueId, body, id = null) {
+  const s = body.settings
+  if (body.kind !== 'balance') {
+    Object.assign(s, { share_mode: 'pieces', rush_type_id: null, rush_station_id: null })
+    return
+  }
+  if (!s.rush_type_id) return
+  const [type] = await tx`SELECT 1 FROM order_types WHERE tenant_id = ${tenantId} AND id = ${s.rush_type_id}`
+  if (!type) throw httpError(422, 'Order type not found')
+  if (s.rush_station_id === id) throw httpError(422, 'Pick one of the stations it shares with for the busy orders')
+  const [to] = await tx`SELECT kind FROM kds_stations WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND id = ${s.rush_station_id}`
+  if (!to) throw httpError(422, 'Station not found')
+  if (!BUMP_KINDS.includes(to.kind)) throw httpError(422, 'The busy orders go to a station that makes or checks dishes')
+}
+
+/** Splitters whose busy orders went to a station that's gone or stopped bumping: their rule goes off. */
+async function dropBusyStation(tx, tenantId, venueId, stationId) {
+  await tx`
+    UPDATE kds_stations
+       SET settings = settings || '{"rush_type_id": null, "rush_station_id": null}'::jsonb
+     WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND kind = 'balance'
+       AND settings->>'rush_station_id' = ${stationId}`
 }
 
 /**
@@ -1220,6 +1259,7 @@ export default async function posSetupRoutes(app) {
     const row = await withTenant(req.tenantId, async tx => {
       await ownVenue(tx, req.tenantId, venueId)
       await checkPieces(tx, req.tenantId, body.settings)
+      await checkSplitterRule(tx, req.tenantId, venueId, body)
       await checkStationPrinter(tx, req.tenantId, venueId, body.settings)
       await checkSetterName(tx, req.tenantId, venueId, body)
       const [{ n }] = await tx`SELECT COALESCE(MAX(sort_order), -1)::int + 1 AS n FROM kds_stations WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}`
@@ -1239,6 +1279,7 @@ export default async function posSetupRoutes(app) {
     const row = await withTenant(req.tenantId, async tx => {
       const was = await ownRow(tx, 'kds_stations', req.tenantId, id, 'Kitchen station')
       await checkPieces(tx, req.tenantId, body.settings)
+      await checkSplitterRule(tx, req.tenantId, was.venue_id, body, id)
       await checkStationPrinter(tx, req.tenantId, was.venue_id, body.settings)
       await checkSetterName(tx, req.tenantId, was.venue_id, body, id)
       const [s] = await tx`
@@ -1260,6 +1301,7 @@ export default async function posSetupRoutes(app) {
         await tx`
           DELETE FROM kds_flow_edges e USING kds_stations b
            WHERE e.tenant_id = ${req.tenantId} AND e.to_station_id = ${id} AND b.id = e.from_station_id AND b.kind = 'balance'`
+        await dropBusyStation(tx, req.tenantId, s.venue_id, id)
       }
       return s
     })
@@ -1274,6 +1316,7 @@ export default async function posSetupRoutes(app) {
       // Its links go with it (ON DELETE CASCADE).
       await tx`DELETE FROM kds_stations WHERE id = ${id} AND tenant_id = ${req.tenantId}`
       await dropDeviceStation(tx, req.tenantId, row.venue_id, id)
+      await dropBusyStation(tx, req.tenantId, row.venue_id, id)
       return row
     })
     configChanged(s.venue_id)
@@ -1516,7 +1559,7 @@ export default async function posSetupRoutes(app) {
 
       const body = KdsFlowBody.parse(req.body)
       const venueId = flow.venue_id
-      const stations = await tx`SELECT id, name, kind, is_active FROM kds_stations WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`
+      const stations = await tx`SELECT id, name, kind, is_active, settings FROM kds_stations WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`
       const streams = new Set((await tx`SELECT id FROM pos_revenue_streams WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`).map(r => r.id))
       const devices = new Set((await tx`
         SELECT id FROM pos_devices WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND kind IN ('terminal', 'kiosk') AND revoked_at IS NULL`).map(r => r.id))
