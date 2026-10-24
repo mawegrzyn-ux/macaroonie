@@ -5,6 +5,13 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-24 — CI: an API test that failed one run in three]
+
+- The CI "API tests" job failed four times since 23 Oct (deploys were not affected). Cause: a menu save that left a dish's position out gave it position 0, the same as the first dish, and dishes with equal positions came back in random order (by their random ids), so a kiosk test that read "the first dish" sometimes got the new one.
+- Menu saves now number sections, dishes, a dish's options, its option groups and footer notes by their place in the list when no position is sent, and dishes with equal positions come back in name order. The Menus page, Pepper and copies always sent positions, so menus made there are unchanged.
+- The failing test now picks its dish by id; a new test (`api/test/menu-order.test.mjs`) pins the order down.
+- CI's API test job lists the failing tests with their errors at the end of its log (spec reporter) and turns the Postgres service's log down to FATAL, so the result is no longer buried under the cross-tenant sweep's expected errors. No migration.
+
 ## [2026-10-24 — Kiosk meal deals: the big picture on every page]
 
 - A meal deal's pages on the kiosk now show the big picture a dish's page shows, following the design's **Top of a dish's page** setting (the photo beside the words, or on top lined up left, centre or right; the column down the side on a wide screen): the deal's photo and words on its steps and last page, with the picks each step puts on the photo, and on a picked dish's own options page that dish's photo, description, calories and allergens with "In Burger meal" under its name. Before, an upright kiosk showed no picture on a deal's pages, and a picked dish never showed big.

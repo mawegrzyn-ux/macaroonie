@@ -52,12 +52,12 @@ const VariantBody = z.object({
   id:          z.string().uuid().optional(),
   label:       z.string().min(1).max(60),
   price_pence: z.number().int().min(0),
-  sort_order:  z.number().int().default(0),
+  sort_order:  z.number().int().optional(),   // left out = its place in the list (upsertMenuTree)
 })
 
 const ItemGroupAttach = z.object({
   group_id:   z.string().uuid(),
-  sort_order: z.number().int().default(0),
+  sort_order: z.number().int().optional(),
   overrides:  z.array(z.object({
     option_id:    z.string().uuid(),
     price_pence:  z.number().int().min(0),
@@ -129,7 +129,7 @@ const ItemBody = z.object({
   notes:          z.string().max(200).nullable().optional(),
   is_featured:    z.boolean().default(false),
   image_url:      z.string().max(2000).nullable().optional(),
-  sort_order:     z.number().int().default(0),
+  sort_order:     z.number().int().optional(),   // left out = its place in the list (upsertMenuTree)
   // Web ordering (migration 122)
   is_orderable:      z.boolean().default(true),
   tax:               TaxBody.default({}),   // migration 170
@@ -155,7 +155,7 @@ const SectionBody = z.object({
   subtitle:   z.string().max(120).nullable().optional(),
   highlight:  z.boolean().default(false),
   image_url:  z.string().max(2000).nullable().optional(),
-  sort_order: z.number().int().default(0),
+  sort_order: z.number().int().optional(),   // left out = its place in the list (upsertMenuTree)
   // Print layout (migration 120): start in a new column / on a new
   // printed page, and never split this section.
   print_break_before:  z.enum(['none', 'column', 'page']).default('none'),
@@ -259,7 +259,7 @@ const CalloutBody = z.object({
   kind:       z.enum(['allergens', 'go_large', 'thai_hot', 'order_book', 'custom']).default('custom'),
   title:      z.string().min(1).max(120),
   body:       z.string().nullable().optional(),
-  sort_order: z.number().int().default(0),
+  sort_order: z.number().int().optional(),
 })
 
 const MenuMetaBody = z.object({
@@ -567,9 +567,12 @@ export async function loadMenuFull(tx, menuId, tenantId) {
     if (row.level !== 'contains') (levelsByItem[row.item_id] ||= {})[row.code] = row.level
   }
   for (const s of sections) {
+    // json_agg(DISTINCT ...) hands the dishes back in no useful order, so
+    // equal places are settled by name, then id (never left to chance).
     s.items = (s.items || [])
       .filter(i => i && i.id)
-      .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+      .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
+        || String(a.name).localeCompare(String(b.name)) || String(a.id).localeCompare(String(b.id)))
     for (const i of s.items) {
       i.dietary = dietaryByItem[i.id] || []
       i.allergen_levels = levelsByItem[i.id] || {}

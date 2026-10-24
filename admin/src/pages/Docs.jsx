@@ -5768,6 +5768,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['One renderer', 'shared/menuLayout.js (repo root, plain ESM, own package.json with type module). The print view calls renderPageHtml(); MenuDesigner.jsx draws its own draggable wrappers but fills them with renderBlockInner() and positions them with blockStyle(), and injects the same MENU_LAYOUT_CSS. Admin imports it through the @shared Vite alias; the API by relative path.'],
                 ['Dish option prices', 'A dish\'s per-option prices live in menu_item_variant_prices (item, option, price). loadMenuFull() returns each attached group as options[] with overridden + price_pence; Menus.jsx edits them as overrides[]. overridesOf() in Menus.jsx reads either shape, and both setOverride() and the save payload use it, so editing one option keeps the others.'],
                 ['Stable ids', 'upsertMenuTree() still deletes and re-inserts the tree, but inserts sections and items under the ids the client sends (Menus.jsx sends s.id / it.id; new ones are crypto.randomUUID()). A duplicate id in one save is a 23505, 409. /duplicate gives the copy fresh ids and copies every print design with remapLayout(), which remaps block refs (dropping blocks whose section or dish is gone) and callout_ids; the copy\'s print_design_id points at the copy of the printing design. Footer notes (menu_callouts) keep their ids the same way (Menus.jsx ensureIds() gives new notes an id), because a callouts block can pick notes by id.'],
+                ['Positions', 'A save that leaves sort_order out of a section, dish, dish option, attached option group or footer note gets its place in the list (the Zod bodies have no default, so upsertMenuTree()\'s fallback to the index applies). loadMenuFull() puts dishes with the same position in name order, then id order: its json_agg(DISTINCT ...) hands them back in no useful order (by the jsonb, so by random id), which once made a test pass or fail by chance.'],
                 ['Footer notes pick', 'A callouts block\'s opts.callout_ids (uuid array, max 50, LayoutBody) limits it to those notes, in the menu\'s order; absent = every note, new ones included; ids of deleted notes are ignored. pickedCallouts(menu, opts) in shared/menuLayout.js is used by the renderer and the designer panel (Show all notes + a tick box per note). /duplicate maps callout_ids to the copy\'s new note ids.'],
                 ['Stays linked', 'Blocks store only a ref and grid position; content is read from the live menu. A ref that no longer exists renders nothing in print and a red "deleted" placeholder in the designer. A full section leaves out dishes that have their own item block (ctx.placedItemIds). placementSummary() drives the designer\'s "Not placed yet" tray.'],
                 ['Print CSS', 'Each .ml-page is the paper size, blocks are absolutely positioned in mm inside .ml-content, overflow hidden. In print each page box is the printable area (100vw x 100vh, minus 0.5mm) with break-after: page, and .ml-content is translated by half the difference from the paper size, so a printer that keeps its own margins neither adds a blank sheet per page nor moves the design on the paper. A screen-only script outlines blocks whose content is taller than the block and lists the pages in the print bar.'],
@@ -7306,7 +7307,10 @@ npm install && npm run dev        # :5173, proxies /api → :3000`}</Code>
               refuse to run unless the database name in <Mono>DATABASE_URL</Mono> contains{' '}
               <Mono>test</Mono>; migrate it first (<Mono>node scripts/migrate.js</Mono>). They need
               Redis like the API. <Mono>LOG_LEVEL=info npm test</Mono> shows the API&apos;s log (silent
-              otherwise). A run takes about a minute and a half.
+              otherwise). A run takes about four minutes. It uses the spec reporter, which ends with
+              every failing test and its error, so the end of the CI job&apos;s log says what failed:
+              the job also turns the Postgres service&apos;s log down to FATAL, because GitHub prints
+              that log after the tests and the sweep makes thousands of expected errors.
             </P>
             <DataTable
               head={['File', 'What it is']}
@@ -7319,6 +7323,7 @@ npm install && npm run dev        # :5173, proxies /api → :3000`}</Code>
                 ['test/support/fake-claude.mjs', 'A stand-in Claude API: answers POST /v1/messages from a script, as a stream of server-sent events when asked; sets ANTHROPIC_BASE_URL.'],
                 ['test/tenant-sweep.test.mjs', 'The cross-tenant sweep (below).'],
                 ['test/ai-chat.test.mjs', 'Pepper\'s chat loop against the stand-in Claude: streamed turns, the JSON reply, busy chats, errors after the stream opened, withdrawn and refused messages, model routing.'],
+                ['test/menu-order.test.mjs', 'A menu saved without positions keeps the order it was sent in (sections, dishes, options, groups, notes, the published copy too); dishes with equal positions come back by name.'],
               ]}
             />
             <H3>The cross-tenant sweep</H3>

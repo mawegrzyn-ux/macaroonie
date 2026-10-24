@@ -127,11 +127,19 @@ jobs:
           psql postgres://postgres:postgres@localhost:5432/postgres \
             -c "CREATE ROLE maca_app LOGIN PASSWORD 'maca_app'" \
             -c "CREATE DATABASE macaroonie_test OWNER maca_app"
+          # The cross-tenant sweep sends thousands of bad ids on purpose and
+          # Postgres logs an ERROR for each. GitHub prints the service's log
+          # after the tests, which buried the failing tests under it: keep
+          # only FATAL and worse.
+          psql postgres://postgres:postgres@localhost:5432/postgres \
+            -c "ALTER SYSTEM SET log_min_messages = 'fatal'" \
+            -c "SELECT pg_reload_conf()"
 
       - name: Migrate
         working-directory: api
         run: node scripts/migrate.js
 
+      # The spec reporter lists every failing test with its error at the end.
       - name: npm test
         working-directory: api
         run: npm test
