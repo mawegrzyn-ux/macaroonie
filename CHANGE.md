@@ -5,6 +5,12 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-24 — Kiosk allergens screen: pick, count, marked on the menu]
+
+- The kiosk's **Allergens** screen no longer lists every dish. It shows your allergen notice (Menus → Allergens & dietary), then **Allergens to avoid** and **Dietary choices** (the diets your dishes carry) as big tick boxes, and says how many dishes suit the guest as they tick ("12 of 40 dishes suit you").
+- **See the menu** (asking Staying or going? first when needed) keeps the picks for the order. On the menu a strip says what is marked, with Change; dishes to check get a friendly yellow mark and a line with the guest's allergens highlighted (Contains, May contain, Can be removed, Not marked as vegan). Meal deals say when only some of their choices have the allergens, and mark those choices inside the deal. The dish page highlights them in its allergen line.
+- Start again clears the picks. Words in all nine kiosk languages. No migration.
+
 ## [2026-10-23 — Kiosk: choices that come onto the screen]
 
 - Kiosk designer → Choices → **When the choices appear**: Just there, Fade in, Slide in from the side, Bubble up or Deal like cards. A dish's choices (and each combo step's) come on one after another when the page opens: grids, honeycombs, lists and the slider; the spin wheel comes in whole.

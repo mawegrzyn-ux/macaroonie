@@ -16,9 +16,11 @@
 
 import { useSyncExternalStore } from 'react'
 import { ulid } from '@shared/pos/ids.js'
-import { kioskOrder, normaliseDesign, uiText, payMethods, TK } from '@shared/kiosk.js'
+import {
+  kioskOrder, normaliseDesign, uiText, payMethods, TK,
+  dishLevels, mergeLevels, itemLevels as sharedItemLevels, guestFit, countFits, cleanPrefs,
+} from '@shared/kiosk.js'
 import { soldOutMap, comboCtx, configItem } from '@shared/pos/offers.js'
-import { comboItemIds } from '@shared/combos.js'
 import { billOps } from '@shared/pos/printing.js'
 import * as idb from '../lib/idb.js'
 import { createTransport, OfflineError } from '../lib/transport.js'
@@ -50,6 +52,7 @@ let state = {
   result: null,            // { order_no, provisional, check, totals, pending }
   error: null,
   reach: false,
+  prefs: { avoid: [], diet: [] }, // the guest's allergens and diets (allergens screen), marked on the menu
   outbox: [],
   toast: null,
 }
@@ -290,7 +293,7 @@ export function restart() {
   attempt = null
   setState({
     screen: 'start', orderType: null, basket: [], builder: null, details: { name: '', tent: '' },
-    method: null, result: null, error: null, reach: false, lang: state.config?.design?.languages?.source || 'en',
+    method: null, result: null, error: null, reach: false, prefs: { avoid: [], diet: [] }, lang: state.config?.design?.languages?.source || 'en',
     // The next guest starts on the menu's first page.
     section: null, detailStep: null, added: null, toast: null,
   })
@@ -329,33 +332,29 @@ export function setQty(key, qty) {
 export function setDetails(patch) { setState({ details: { ...state.details, ...patch } }) }
 
 // ── Allergens ───────────────────────────────────────────────────
+// The guest's allergens and diets (the allergens screen) stay for the order
+// and mark the menu; restart() clears them. Level rules: shared/kiosk.js.
 
-const LEVEL_RANK = { removable: 1, may_contain: 2, contains: 3 }
 const ctxCache = new WeakMap()
 const ctxOf = config => { if (!ctxCache.has(config)) ctxCache.set(config, comboCtx(config)); return ctxCache.get(config) }
 
-/** A dish's tags with their level: { code: 'contains' | 'may_contain' | 'removable' }. */
-export function dishLevels(item) {
-  const out = {}
-  for (const code of item?.dietary || []) out[code] = (item.allergen_levels || {})[code] || 'contains'
-  return out
+export { dishLevels, mergeLevels }
+
+/** What an allergen list shows for an item (a combo: every dish it can hold). */
+export const itemLevels = (config, item) => sharedItemLevels(config, item, ctxOf(config))
+
+/** How an item suits the guest's allergens and diets (shared guestFit()), null with none picked. */
+export const fitOf = (config, item, prefs = state.prefs) => guestFit(config, item, prefs, ctxOf(config))
+
+export function setPrefs(prefs) { setState({ prefs: cleanPrefs(prefs) }) }
+
+/** The dishes on the kiosk's menu, each once: what the allergens screen counts. */
+export function kioskItemIds(config) {
+  return [...new Set(kioskSections(config).flatMap(sec => sec.item_ids))]
 }
 
-/** Several dishes' tags together, each at its strongest level. */
-export function mergeLevels(list) {
-  const out = {}
-  for (const levels of list) for (const [code, lv] of Object.entries(levels)) if (!out[code] || LEVEL_RANK[lv] > LEVEL_RANK[out[code]]) out[code] = lv
-  return out
-}
-
-/**
- * What an allergen list shows for an item: a dish's own tags; a combo's are
- * every dish it can hold (its own tags carry nothing about its parts).
- */
-export function itemLevels(config, item) {
-  if (item?.kind !== 'combo') return dishLevels(item)
-  return mergeLevels([dishLevels(item), ...comboItemIds(item, ctxOf(config)).map(id => dishLevels(configItem(config, id)))])
-}
+/** { total, fits } for the guest's picks (sold out dishes left out). */
+export const countFor = (config, prefs = state.prefs) => countFits(config, kioskItemIds(config), prefs, ctxOf(config))
 
 /** Dishes sold out now (services/soldOut.js), from the config. */
 export const soldOut = (config = state.config) => soldOutMap(config)

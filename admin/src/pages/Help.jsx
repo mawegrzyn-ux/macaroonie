@@ -5449,7 +5449,7 @@ export default function Help() {
 
             <H3>What guests see</H3>
             <ul className="list-disc ml-5 space-y-2 text-sm text-muted-foreground mb-4">
-              <li>The start screen: flags for the languages, Staying or going? (or Start your order with one order type), and Allergens to look dishes up first.</li>
+              <li>The start screen: flags for the languages, Staying or going? (or Start your order with one order type), and the Allergens button (see below).</li>
               <li>The menu: sections down the side (or a page of section tiles), the home page, dishes as cards, round or oval photos, or hexagons (choices can have a different style from the dishes). A dish with nothing to choose can be added with its + straight away.</li>
               <li>Back is always a solid button at the bottom left, beside the main button (Add, Continue, Checkout), never at the top. In a combo it goes one step back, and out of the combo from its first step. On the order page it is Add more. In a section opened from the tiles page it goes back to the tiles.</li>
               <li>Start again sits in the bottom bar after Back (on the menu, the order page, the name and tent number, and How to pay), and asks first when the order has something in it. With the bar along the top off, the language button is in the bottom bar too.</li>
@@ -5462,6 +5462,17 @@ export default function Help() {
               <li>The kiosk notices a lost connection within seconds (within about half a minute when the shop's router loses the internet but the Wi-Fi stays up). It tries twice more straight away, so a short blip doesn't pause ordering; only then does the start screen say ordering is paused. It then tries every few seconds and opens ordering again as soon as it gets through.</li>
               <li>Every picture on the menu (dishes, sections, choices, banners, the logo) is kept on the kiosk after each menu change, so a guest already ordering when the internet goes still sees them all. Start screen videos aren't kept.</li>
               <li>The staff panel (five quick taps in the top-left corner of the start screen) shows the connection (Online, Checking or Offline) and how many of the menu's pictures are saved on the kiosk.</li>
+            </ul>
+
+            <H3>Allergens and diets on the kiosk</H3>
+            <ul className="list-disc ml-5 space-y-2 text-sm text-muted-foreground mb-4">
+              <li>The <strong>Allergens</strong> button on the start screen (switch it off in the design's Start screen panel) opens a screen with your allergen notice at the top, then <strong>Allergens to avoid</strong> (the 14, plus any of your own) and <strong>Dietary choices</strong> (the diets your kiosk's dishes carry, such as Vegan) as big tick boxes. The notice's words are the ones on <strong>Menus → Allergens &amp; dietary</strong> (Allergen notice card), in the guest's language from Menus → Translations.</li>
+              <li>As the guest ticks, the screen says how many dishes suit them: "12 of 40 dishes suit you" (sold out dishes aren't counted), or that none do and to ask your staff. It doesn't list the dishes.</li>
+              <li><strong>See the menu</strong> asks Staying or going? when there is more than one order type, then opens the menu with the picks kept for the whole order. Start again (or the kiosk timing out) clears them.</li>
+              <li>On the menu, a strip at the top says what is being marked and how many dishes suit, with <strong>Change</strong> back to the allergens screen. A dish to check gets a yellow <strong>!</strong> mark (and a yellow edge on cards), with why under its name and the guest's allergens highlighted: <em>Contains: Milk</em>, <em>May contain: Nuts</em>, <em>Can be removed: Eggs</em> (it still suits: the guest asks for it without), <em>Not marked: Vegan</em>. Dishes that suit have no mark. On hexagons only the mark shows.</li>
+              <li>A meal deal suits when every step the guest must pick from has a choice that suits (a choice you typed in for the combo has no allergens listed, so it never counts as vegan). If it suits but some of its choices have the allergens, it says <em>Some choices contain: Milk</em>, and inside the deal each choice to check carries the same mark and words.</li>
+              <li>On a dish's page the guest's allergens are highlighted in the allergen line, with a yellow box saying what to check.</li>
+              <li>This only reads the allergens and diets set on your dishes (Menus, Allergen matrix): a dish with none set counts as having none. Guests with an allergy are still told to speak to your staff.</li>
             </ul>
 
             <H3>Translations (Menus → Translations)</H3>

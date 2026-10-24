@@ -11,16 +11,17 @@
 // its picture instead), or small in its corner (parts.jsx PickPhoto).
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Check, Plus, Info } from 'lucide-react'
+import { Check, Plus, Info, AlertCircle } from 'lucide-react'
 import { priceItem, lineGross } from '@shared/pos/pricing.js'
 import { resolveSteps } from '@shared/combos.js'
 import { fromPrice, priceVaries } from '@shared/orderPricing.js'
 import { configItem, comboCtx } from '@shared/pos/offers.js'
 import { TK, allergenName, pickImages } from '@shared/kiosk.js'
-import { useKiosk, textsFor, addToBasket, closeBuilder, soldOut, itemLevels, dishLevels, mergeLevels } from './store.js'
+import { useKiosk, textsFor, addToBasket, closeBuilder, soldOut, itemLevels, dishLevels, mergeLevels, fitOf } from './store.js'
 import OptionGroup, { missingIn, groupName } from './OptionGroup.jsx'
 import { DISPLAYS, choiceLook } from './displays.jsx'
 import { cx, Pic, PickPhoto, Stepper, BackButton, bringIntoView, usePortrait } from './parts.jsx'
+import { FitMark, FitNote, needsCheck } from './fit.jsx'
 
 /**
  * Tags with their levels ({ code: level }) as names in the guest's language:
@@ -32,7 +33,7 @@ export function tagLists(levels, config, texts, { dietary: withDietary = true } 
   for (const tag of config.dietary_tags || []) {
     const lv = levels[tag.code]
     if (!lv) continue
-    if (tag.kind === 'allergen') allergens[lv].push(allergenName(tag, texts.lang, texts.dict))
+    if (tag.kind === 'allergen') allergens[lv].push({ code: tag.code, name: allergenName(tag, texts.lang, texts.dict) })
     else if (withDietary) dietary.push({ ...tag, name: texts.t(TK.tag(tag.code), tag.label) })
   }
   return { allergens, dietary }
@@ -43,19 +44,32 @@ export function itemTags(item, config, texts) {
   return tagLists(itemLevels(config, item), config, texts, { dietary: item?.kind !== 'combo' })
 }
 
-/** The allergen line: an item's (levels left out), or given levels (the dishes picked in a combo). */
+/**
+ * The allergen line: an item's (levels left out), or given levels (the
+ * dishes picked in a combo). The allergens the guest avoids (the allergens
+ * screen) are highlighted.
+ */
 export function AllergenLine({ item = null, levels = null, config, texts, className, depends = false }) {
+  const { prefs } = useKiosk()
   const { allergens } = levels ? tagLists(levels, config, texts, { dietary: false }) : itemTags(item, config, texts)
   const { ui } = texts
-  const parts = []
-  if (allergens.contains.length) parts.push(ui('contains') + ': ' + allergens.contains.join(', '))
-  if (allergens.may_contain.length) parts.push(ui('may_contain') + ': ' + allergens.may_contain.join(', '))
-  if (allergens.removable.length) parts.push(ui('can_be_removed') + ': ' + allergens.removable.join(', '))
+  const parts = [['contains', allergens.contains], ['may_contain', allergens.may_contain], ['can_be_removed', allergens.removable]].filter(([, list]) => list.length)
   const combo = depends || (!levels && item?.kind === 'combo')
+  const hit = parts.some(([, list]) => list.some(a => prefs.avoid.includes(a.code)))
   return (
     <div className={cx('flex gap-[.4em] items-start text-[.85em]', className)} data-testid="k-allergens">
-      <Info size={18} className="shrink-0 mt-[.1em]" />
-      <span>{parts.length ? (combo ? ui('depends_on_choice') + '. ' : '') + parts.join(' · ') : ui('no_allergens')}</span>
+      {hit ? <span className="k-fit-mark k-fit-mark-sm shrink-0" aria-hidden="true"><AlertCircle strokeWidth={2.6} /></span> : <Info size={18} className="shrink-0 mt-[.1em]" />}
+      <span>
+        {!parts.length && ui('no_allergens')}
+        {parts.length > 0 && combo && ui('depends_on_choice') + '. '}
+        {parts.map(([key, list], i) => (
+          <span key={key}>
+            {i > 0 && ' · '}{ui(key)}: {list.map((a, j) => (
+              <span key={a.code}>{j > 0 && ', '}{prefs.avoid.includes(a.code) ? <mark className="k-fit-hl">{a.name}</mark> : a.name}</span>
+            ))}
+          </span>
+        ))}
+      </span>
     </div>
   )
 }
@@ -161,7 +175,21 @@ function Hero({ item, config, ctx, texts, side = false, split = null }) {
           {config.design.menu.show_calories && item.calories != null && <span className="k-muted">{texts.ui('kcal', { n: item.calories })}</span>}
         </div>
         <AllergenLine item={item} config={config} texts={texts} className="k-muted" />
+        <HeroFit item={item} config={config} texts={texts} />
       </div>
+    </div>
+  )
+}
+
+// The dish against the guest's allergens and diets: the mark and why, when there is something to check.
+function HeroFit({ item, config, texts }) {
+  const { prefs } = useKiosk()
+  const fit = fitOf(config, item, prefs)
+  if (!fit || (fit.ok && !fit.removable.length && !fit.some)) return null
+  return (
+    <div className="k-fit-box flex items-start gap-[.6em]" data-testid="k-hero-fit">
+      <FitMark fit={fit} texts={texts} />
+      <FitNote fit={fit} config={config} texts={texts} className="text-[1em]" />
     </div>
   )
 }
@@ -264,6 +292,7 @@ const configItemFrom = (ctx, id) => ctx.itemsById[id] || null
 
 function ComboBuilder({ item, config, ctx, texts, builder }) {
   const { t, ui, money } = texts
+  const { prefs } = useKiosk()
   const [sel, setSel] = useState(() => ({ choices: {}, combo: {}, ...builder.selection }))
   const [qty, setQty] = useState(builder.qty || 1)
   const [opened, setOpened] = useState(() => new Set(Object.keys(builder.selection?.combo || {})))
@@ -325,7 +354,12 @@ function ComboBuilder({ item, config, ctx, texts, builder }) {
       priceText: c.price_pence ? '+' + money(c.price_pence) : '',
       sold_out: c.sold_out || (c.item_id && sold.has(c.item_id)),
       c,
-    }))
+    })).map(o => {
+      // A dish choice against the guest's allergens and diets (a typed-in one
+      // has no tags): the displays show the mark and the note as given.
+      const fit = o.c.item ? fitOf(config, o.c.item, prefs) : null
+      return fit ? { ...o, mark: <FitMark fit={fit} texts={texts} className="k-fit-badge" />, note: <FitNote fit={fit} config={config} texts={texts} />, check: needsCheck(fit) } : o
+    })
     const countOf = id => { const c = p.st.choices.find(x => x.key === id); return c ? got.filter(e => sameChoice(e, c)).length : 0 }
     const full = step.repeat ? got.length >= step.max : step.max > 1 && got.length >= step.max
     const onTap = o => {
@@ -480,6 +514,7 @@ function ComboBuilder({ item, config, ctx, texts, builder }) {
               {!header && <div className="k-price text-[1.3em]" data-testid="k-combo-price">{priceNow}</div>}
               {item.description && <div className="k-muted text-[.85em]">{t(TK.item(item.id, 'description'), item.description)}</div>}
               <AllergenLine item={item} config={config} texts={texts} className="k-muted" />
+              <HeroFit item={item} config={config} texts={texts} />
             </div>
           )}
           {steps.map((x, i) => {

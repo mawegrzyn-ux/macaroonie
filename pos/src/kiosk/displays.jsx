@@ -1,7 +1,10 @@
 // The four ways a kiosk shows a set of choices (an option group or a
 // combo step): grid, list, slider (with a level scale such as heat) and a
 // spin wheel. Each gets the same props, so any group can use any of them:
-//   options   [{ id, label, description, image_url, level, priceText, sold_out }]
+//   options   [{ id, label, description, image_url, level, priceText, sold_out,
+//               mark, note, check }] (mark and note: the guest's allergens and
+//               diets on a meal deal's dish choice, fit.jsx; check true when
+//               there is something to check)
 //   countOf(id) how many times it is picked; onTap(option); onLess(option)
 //   repeat    the same choice may be picked more than once
 //   full      nothing more can be picked (max reached)
@@ -38,10 +41,14 @@ function Face({ o, levelIcon, children }) {
       <span className="k-head k-opt-face-name">{o.label}</span>
       {o.level != null && <Levels level={o.level} icon={levelIcon} />}
       {o.description && <span className="k-item-desc k-opt-face-desc">{o.description}</span>}
+      {o.note}
       {children}
     </span>
   )
 }
+
+// A choice's data-fit, for the guest's allergens and diets: check | ok (none without picks).
+const fitAttr = o => (o.check == null ? undefined : o.check ? 'check' : 'ok')
 
 function Tick({ n, repeat }) {
   if (!n) return null
@@ -54,7 +61,7 @@ function Tick({ n, repeat }) {
 function HexOption({ o, n, off, onTap, onLess, repeat, levelIcon, ui, pictures }) {
   return (
     <HexTile src={pictures ? o.image_url : null} words={!pictures} label={o.label} on={n > 0} off={off} disabled={o.sold_out} onClick={() => !o.sold_out && onTap(o)}
-      testId="k-option" pressed={n > 0}
+      testId="k-option" pressed={n > 0} top={o.mark || null} attrs={{ 'data-fit': fitAttr(o) }}
       extra={(
         <>
           {n > 0 && <span className="k-opt-tick k-hex-tick">{repeat && n > 1 ? n : <Check size={18} strokeWidth={3} />}</span>}
@@ -93,7 +100,8 @@ export function GridDisplay({ options, countOf, onTap, onLess, repeat, full, lev
         const off = o.sold_out || (!n && full && !repeat)
         return (
           <div key={o.id} className="relative" style={center ? { width: 'min(30vmin, 200px)' } : null}>
-            <button className={cx('k-card k-opt w-full', !pictures && 'k-opt-words', n > 0 && 'k-opt-on', off && 'k-opt-dis')} onClick={() => !o.sold_out && onTap(o)} disabled={o.sold_out} data-testid="k-option" aria-pressed={n > 0}>
+            <button className={cx('k-card k-opt w-full', !pictures && 'k-opt-words', n > 0 && 'k-opt-on', off && 'k-opt-dis')} onClick={() => !o.sold_out && onTap(o)} disabled={o.sold_out} data-testid="k-option" aria-pressed={n > 0} data-fit={fitAttr(o)}>
+              {o.mark}
               {pictures ? (
                 <>
                   <Photo src={o.image_url} label={o.label} className="k-opt-img" phClassName="k-opt-ph" />
@@ -101,6 +109,7 @@ export function GridDisplay({ options, countOf, onTap, onLess, repeat, full, lev
                     <span className="k-head text-[.95em]">{o.label}</span>
                     {o.level != null && <Levels level={o.level} icon={levelIcon} />}
                     {o.description && <span className="k-item-desc">{o.description}</span>}
+                    {o.note}
                     <span className="k-price text-[.9em]">{o.sold_out ? ui('sold_out') : o.priceText}</span>
                   </span>
                 </>
@@ -131,15 +140,16 @@ export function ListDisplay({ options, countOf, onTap, onLess, repeat, full, lev
         const off = o.sold_out || (!n && full && !repeat)
         return (
           <div key={o.id} className={cx('k-card flex items-center gap-[.8em] p-[.5em] border-[3px]', n > 0 ? 'border-[var(--k-primary)]' : 'border-transparent', off && 'k-opt-dis')}>
-            <button className="flex items-center gap-[.8em] flex-1 min-w-0 text-left bg-transparent border-0 p-0" onClick={() => !o.sold_out && onTap(o)} disabled={o.sold_out} data-testid="k-option" aria-pressed={n > 0}>
+            <button className="flex items-center gap-[.8em] flex-1 min-w-0 text-left bg-transparent border-0 p-0" onClick={() => !o.sold_out && onTap(o)} disabled={o.sold_out} data-testid="k-option" aria-pressed={n > 0} data-fit={fitAttr(o)}>
               {pictures && (
                 <span className="k-opt-thumb w-[4.2em] h-[4.2em] shrink-0 rounded-[calc(var(--k-radius)/1.5)] overflow-hidden">
                   <Photo src={o.image_url} label={o.label} className="w-full h-full object-cover" phClassName="k-opt-ph h-full aspect-auto text-[1.2em]" />
                 </span>
               )}
               <span className="flex-1 min-w-0">
-                <span className="k-head block">{o.label}</span>
+                <span className="k-head flex items-center gap-[.3em] k-fit-inline">{o.mark}{o.label}</span>
                 {o.description && <span className="k-item-desc block">{o.description}</span>}
+                {o.note}
                 {o.level != null && <Levels level={o.level} icon={levelIcon} />}
               </span>
               <span className="k-price">{o.sold_out ? ui('sold_out') : o.priceText}</span>
@@ -213,12 +223,14 @@ export function SliderDisplay({ options: given, countOf, onTap, onLess, repeat, 
             return (
               <div key={o.id} className={cx('k-slide relative', i === focus && 'k-slide-focus')}>
                 <button className={cx('k-card k-opt w-full', !pictures && 'k-opt-words', n > 0 && 'k-opt-on', off && 'k-opt-dis')}
-                  onClick={() => { if (i !== focus) scrollTo(i); if (!o.sold_out) onTap(o) }} disabled={o.sold_out} data-testid="k-option" aria-pressed={n > 0}>
+                  onClick={() => { if (i !== focus) scrollTo(i); if (!o.sold_out) onTap(o) }} disabled={o.sold_out} data-testid="k-option" aria-pressed={n > 0} data-fit={fitAttr(o)}>
+                  {o.mark}
                   {pictures && <Photo src={o.image_url} label={o.label} className="k-opt-img" phClassName="k-opt-ph" />}
                   <span className={pictures ? 'p-[.7em] flex flex-col gap-[.3em] items-start' : 'k-opt-face'}>
                     <span className="k-head text-[1.05em]">{o.label}</span>
                     {o.level != null && <Levels level={o.level} icon={levelIcon} size={18} />}
                     {o.description && <span className="k-item-desc">{o.description}</span>}
+                    {o.note}
                     <span className={cx('mt-[.2em] px-[.8em] py-[.25em] rounded-full font-bold', n > 0 ? 'bg-[var(--k-primary)] text-[var(--k-primary-text)]' : 'bg-[var(--k-soft)] text-[var(--k-primary)]')}>
                       {o.sold_out ? ui('sold_out') : n > 0 ? (repeat && n > 1 ? n + ' x ' : '') + ui('picked') : (o.priceText || ui('pick'))}
                     </span>
@@ -409,9 +421,10 @@ export function WheelDisplay({ options, countOf, onTap, onLess, repeat, full, le
             </span>
           )}
           <span className="flex-1 min-w-0">
-            <span className="k-head block text-[1.15em]">{current.label}</span>
+            <span className="k-head flex items-center gap-[.3em] text-[1.15em] k-fit-inline">{current.mark}{current.label}</span>
             {current.level != null && <Levels level={current.level} icon={levelIcon} />}
             {current.description && <span className="k-item-desc block">{current.description}</span>}
+            {current.note}
             <span className="k-price">{current.sold_out ? ui('sold_out') : current.priceText}</span>
           </span>
           {repeat && cn > 0 && <button className="k-btn k-btn-round" onClick={() => onLess(current)} aria-label={ui('one_less')}><Minus /></button>}

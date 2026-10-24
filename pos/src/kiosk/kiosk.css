@@ -421,3 +421,29 @@ img.k-clear { background: transparent !important; object-fit: contain; }
 @keyframes k-enter-bubble { 0% { opacity: 0; transform: translateY(50px) scale(.55); } 70% { opacity: 1; transform: translateY(-6px) scale(1.05); } 100% { transform: none; } }
 @keyframes k-enter-deal { from { opacity: 0; transform: translate(-30vw, 45vh) rotate(-22deg) scale(.7); } 60% { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .k-root[data-enter] { --k-enter-name: none; } }
+
+/* The guest's allergens and diets (fit.jsx, Allergens.jsx): a warm yellow
+   mark on what to check, their allergens highlighted in words, the strip at
+   the top of the menu, and the allergens screen's big toggles. Fixed colours,
+   whatever the brand, so the mark always reads the same. */
+.k-fit-mark { display: inline-flex; align-items: center; justify-content: center; width: 2.2em; height: 2.2em; border-radius: 999px; background: #ffd43b; color: #4a3200; box-shadow: 0 2px 6px rgba(0,0,0,.25); flex-shrink: 0; }
+.k-fit-mark svg { width: 64%; height: 64%; }
+.k-fit-mark-sm { width: 1.5em; height: 1.5em; box-shadow: none; }
+.k-fit-badge { position: absolute; top: .5em; left: .5em; z-index: 2; }
+.k-fit-inline .k-fit-badge, .k-hex-top .k-fit-badge { position: static; }
+.k-fit-inline .k-fit-mark { width: 1.5em; height: 1.5em; box-shadow: none; }
+.k-hex-top .k-fit-mark { width: 1.7em; height: 1.7em; }
+.k-fit-hl { background: #ffe066; color: #3d2a00; padding: 0 .25em; border-radius: .3em; font-weight: 700; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+.k-fit-note { display: block; font-size: .82em; line-height: 1.4; }
+.k-fit-box { background: color-mix(in srgb, #ffd43b 16%, var(--k-surface)); border: 2px solid #ffd43b; border-radius: calc(var(--k-radius) / 1.5); padding: .6em .8em; color: var(--k-text); }
+.k-fit-strip { background: color-mix(in srgb, #ffd43b 14%, var(--k-surface)); border: 2px solid #ffd43b; border-radius: calc(var(--k-radius) / 1.5); color: var(--k-text); }
+.k-tiles-cards .k-item-check { box-shadow: 0 0 0 3px #ffd43b, 0 2px 10px rgba(0,0,0,.07); }
+.k-picks { display: grid; gap: var(--k-gap); grid-template-columns: repeat(auto-fill, minmax(min(40vmin, 230px), 1fr)); }
+.k-pick { display: flex; align-items: center; gap: .6em; min-height: max(56px, 3.4em); padding: .55em .9em; text-align: left; border: 3px solid var(--k-line); border-radius: calc(var(--k-radius) / 1.5); background: var(--k-surface); color: var(--k-text); font-weight: 700; font-size: 1.05em; touch-action: manipulation; }
+.k-pick-on { border-color: var(--k-primary); background: var(--k-soft); }
+.k-pick-box { width: 1.6em; height: 1.6em; border-radius: .4em; border: 3px solid var(--k-line); display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.k-pick-on .k-pick-box { background: var(--k-primary); border-color: var(--k-primary); color: var(--k-primary-text); }
+.k-pick-glyph { width: 1.5em; height: 1.5em; border-radius: 999px; color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: .8em; font-weight: 800; flex-shrink: 0; }
+.k-pick-name { flex: 1; min-width: 0; }
+.k-fit-result { background: var(--k-surface); border-top: 2px solid var(--k-line); color: var(--k-text); }
+.k-fit-result-none { background: color-mix(in srgb, #ffd43b 22%, var(--k-surface)); }
