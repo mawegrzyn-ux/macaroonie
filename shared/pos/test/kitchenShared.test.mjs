@@ -166,6 +166,38 @@ test('a location\'s own flow becomes a shared one: boxes by name, streams and ti
   assert.deepEqual(r.links[0].targets, [{ kind: 'device', id: T1 }, { kind: 'section', id: FOOD }])
 })
 
+test('Except links in a shared flow: each location leaves out its own till of that name', () => {
+  const flow = {
+    boxes: [B.grill, B.bar],
+    links: [
+      { id: uuid(), from: null, to: B.grill.id, targets: [{ kind: 'device', name: 'Bar till' }], exclude: true },
+      { id: uuid(), from: null, to: B.bar.id, targets: [{ kind: 'device', name: 'Bar till' }] },
+    ],
+  }
+  const routeAt = (place, deviceName) => {
+    const r = resolveSharedFlow(flow, place)
+    const target = { item_id: WINGS, section_id: FOOD, device_id: place.dev(deviceName)?.id || null }
+    return Object.keys(itemRoute(target, { stations: Object.fromEntries(place.stations.map(s => [s.id, s])), flow: r.links }))
+  }
+  assert.deepEqual(routeAt(ware, 'Till 1'), [ware.st('Grill').id])
+  assert.deepEqual(routeAt(ware, 'Bar till'), [ware.st('Bar').id], 'the bar till\'s dishes skip the grill')
+  // Hertford has no bar till: nothing is left out there, and it stays an Except link.
+  const h = resolveSharedFlow(flow, hertford)
+  assert.equal(h.links.length, 1)
+  assert.equal(h.links[0].exclude, true)
+  assert.deepEqual(routeAt(hertford, 'Till 1'), [hertford.st('Grill').id])
+
+  // A venue's own Except link shared: its till by name, still Except; one whose
+  // only entry has gone takes every dish (a plain link with no filter).
+  const T1 = uuid(), GONE = uuid()
+  const st = [{ id: uuid(), name: 'Grill', kind: 'prep' }, { id: uuid(), name: 'Pass', kind: 'expo' }]
+  const out = shareFlow([
+    { id: uuid(), from: null, to: st[0].id, targets: [{ kind: 'device', id: T1 }], exclude: true },
+    { id: uuid(), from: st[0].id, to: st[1].id, targets: [{ kind: 'revenue_stream', id: GONE }], exclude: true },
+  ], st, { device: { [T1]: 'Bar till' } })
+  assert.deepEqual(out.links.map(l => [l.targets, l.exclude]), [[[{ kind: 'device', name: 'Bar till' }], true], [[], false]])
+})
+
 test('box problems: names must be there and differ; flow problems still apply to boxes', () => {
   assert.deepEqual(boxProblems([box('Grill'), box('Pass', 'expo')]), [])
   assert.match(boxProblems([box('Grill'), box(' grill ')])[0], /Two boxes are called/)

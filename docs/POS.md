@@ -480,6 +480,12 @@ Chrome, as an installed PWA.
   link can also filter on the till or kiosk that sent the order (`device`, ranked after section),
   so Till 1 at a location can send to that location's bar station: decided by names, Till 1 at
   Ware goes to Ware's Bar and Till 1 at Hertford to Hertford's.
+- **Except links** (migration 204, 24 Oct 2026): a link's filter can be turned round
+  (`exclude`, All except these in the designer): the link takes every dish none of its entries
+  names (Orders in > Wok, all except Drinks and Desserts). It ranks after every filter that names
+  the dish and before links for every dish, so a link for every dish beside it takes what it leaves
+  out; with nothing listed it is a link for every dish. In a shared flow an excepted name a
+  location lacks leaves nothing out there.
 - **Order-ready boards**: the menu screens' `order_status` block shows numbers preparing and
   ready (`/screen-api/orders`), pushed on `kitchen.board`: every counter and online order, or one
   board station of the flow by name (`boards[name]`, ready once every dish on its way there has
