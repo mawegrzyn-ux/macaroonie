@@ -165,5 +165,5 @@ test('the design editor\'s preview link names the dishes left off for having no 
   const link = await previewLink('live')
   const names = link.unpriced.map(d => d.name)
   assert.ok(names.includes('Wings no price'), JSON.stringify(link.unpriced))
-  assert.ok(!names.includes((await ok(owner.get(`/api/menus/${M}`))).sections[0].items[0].name))
+  assert.ok(!link.unpriced.some(d => d.id === dishId), 'a priced dish is not listed')
 })
