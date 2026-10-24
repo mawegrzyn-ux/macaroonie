@@ -72,7 +72,7 @@ import {
 } from '../services/posSvc.js'
 import { reconFields } from '../services/reconFill.js'
 import {
-  stationSettings, flowProblems, flowWarnings, boxProblems, resolveSharedFlow, shareFlow, flowName,
+  stationSettings, flowProblems, flowWarnings, boxProblems, resolveSharedFlow, shareFlow, flowName, isExcept,
   STATION_KINDS, FLOW_TARGET_KINDS, BUMP_KINDS, NAMED_TARGET_KINDS, KIND_LABELS, SLEEP_MINS_MAX, STATUS_LOOKS, STATUS_ANIMS,
 } from '../../../shared/pos/kitchen.js'
 import { deviceOrigin, installerOrigin } from '../services/platformHost.js'
@@ -271,6 +271,14 @@ const NewFlowBody = z.object({
   // Shared by every location (migration 192), else the venue's own.
   shared:    z.boolean().default(false),
 })
+// A link: from Orders in (null) or a box / station to another. exclude
+// (Except, migration 204): every dish but the ones targets names.
+const FlowLink = z.object({
+  from:    UUID.nullable(),
+  to:      UUID,
+  targets: z.array(FlowTarget).max(300).default([]),
+  exclude: z.boolean().default(false),
+})
 const FlowLayout = z.record(z.string().max(40), z.object({
   x: z.number().min(-2000).max(20000),
   y: z.number().min(-2000).max(20000),
@@ -282,21 +290,13 @@ const SharedFlowBody = z.object({
     name: z.string().trim().min(1).max(40),
     kind: z.enum(STATION_KINDS),
   })).max(80),
-  links: z.array(z.object({
-    from:    UUID.nullable(),
-    to:      UUID,
-    targets: z.array(FlowTarget).max(300).default([]),
-  })).max(400),
+  links: z.array(FlowLink).max(400),
   layout: FlowLayout,
 })
 const KdsFlowBody = z.object({
   // The venue's stations this flow leaves out (migration 182).
   off_station_ids: z.array(UUID).max(300).default([]),
-  links: z.array(z.object({
-    from:    UUID.nullable(),
-    to:      UUID,
-    targets: z.array(FlowTarget).max(300).default([]),
-  })).max(400),
+  links: z.array(FlowLink).max(400),
   layout: FlowLayout,
 })
 
@@ -358,7 +358,7 @@ async function ownRow(tx, table, tenantId, id, what) {
 /** A flow's links, in the shape shared/pos/kitchen.js uses. */
 export async function loadFlowLinks(tx, tenantId, flowId) {
   return tx`
-    SELECT id, from_station_id AS "from", to_station_id AS "to", targets
+    SELECT id, from_station_id AS "from", to_station_id AS "to", targets, exclude
       FROM kds_flow_edges WHERE tenant_id = ${tenantId} AND flow_id = ${flowId}
      ORDER BY sort_order, created_at`
 }
@@ -366,7 +366,7 @@ export async function loadFlowLinks(tx, tenantId, flowId) {
 /** A flow as the setup page shows it: a venue's own with its links, a shared one with its boxes. */
 function flowView(f, links = []) {
   return f.shared || f.venue_id === null
-    ? { id: f.id, name: f.name, sort_order: f.sort_order, layout: f.layout || {}, shared: true, off_station_ids: [], boxes: f.boxes || [], links: f.box_links || [] }
+    ? { id: f.id, name: f.name, sort_order: f.sort_order, layout: f.layout || {}, shared: true, off_station_ids: [], boxes: f.boxes || [], links: (f.box_links || []).map(l => ({ ...l, exclude: isExcept(l) })) }
     : { id: f.id, name: f.name, sort_order: f.sort_order, layout: f.layout || {}, shared: false, off_station_ids: f.off_station_ids || [], links }
 }
 
@@ -410,7 +410,7 @@ async function flowsView(tx, tenantId, venueId, settings) {
   const flows = await ensureFlows(tx, tenantId, venueId)
   const own = flows.filter(f => !f.shared)
   const links = own.length ? await tx`
-    SELECT id, flow_id, from_station_id AS "from", to_station_id AS "to", targets
+    SELECT id, flow_id, from_station_id AS "from", to_station_id AS "to", targets, exclude
       FROM kds_flow_edges WHERE tenant_id = ${tenantId} AND flow_id = ANY(${own.map(f => f.id)}::uuid[])
      ORDER BY sort_order, created_at` : []
   return {
@@ -494,15 +494,19 @@ async function checkMenuTargets(tx, tenantId, menuIds) {
 
 /** Something a flow filter names is gone: take it out of every filter. A link
  *  left with no filter at all named only that, so it goes too (an empty
- *  filter would mean every dish). */
+ *  filter would mean every dish); an Except link left with none took every
+ *  other dish, so it now takes every dish. */
 async function dropFlowTarget(tx, tenantId, kind, id) {
   const rows = await tx`
-    SELECT id, targets FROM kds_flow_edges
+    SELECT id, targets, exclude FROM kds_flow_edges
      WHERE tenant_id = ${tenantId} AND targets @> ${tx.json([{ kind, id }])}`
   for (const r of rows) {
     const left = r.targets.filter(t => !(t.kind === kind && t.id === id))
-    if (left.length) await tx`UPDATE kds_flow_edges SET targets = ${tx.json(left)} WHERE id = ${r.id} AND tenant_id = ${tenantId}`
-    else await tx`DELETE FROM kds_flow_edges WHERE id = ${r.id} AND tenant_id = ${tenantId}`
+    if (left.length || r.exclude) {
+      await tx`
+        UPDATE kds_flow_edges SET targets = ${tx.json(left)}, exclude = ${r.exclude && left.length > 0}
+         WHERE id = ${r.id} AND tenant_id = ${tenantId}`
+    } else await tx`DELETE FROM kds_flow_edges WHERE id = ${r.id} AND tenant_id = ${tenantId}`
   }
 }
 
@@ -554,7 +558,9 @@ async function tidyBalanceBox(tx, tenantId, venueId, stationId) {
     DELETE FROM kds_flow_edges e USING kds_stations t
      WHERE e.tenant_id = ${tenantId} AND e.from_station_id = ${stationId} AND t.id = e.to_station_id
        AND t.kind <> ALL(${BUMP_KINDS})`
-  await tx`UPDATE kds_flow_edges SET targets = '[]'::jsonb WHERE tenant_id = ${tenantId} AND from_station_id = ${stationId} AND targets <> '[]'::jsonb`
+  await tx`
+    UPDATE kds_flow_edges SET targets = '[]'::jsonb, exclude = false
+     WHERE tenant_id = ${tenantId} AND from_station_id = ${stationId} AND (targets <> '[]'::jsonb OR exclude)`
   await dropDeviceStation(tx, tenantId, venueId, stationId)
 }
 
@@ -1336,9 +1342,12 @@ export default async function posSetupRoutes(app) {
         // A shared flow as this venue's own: its boxes become the venue's
         // stations of those names; stations it has no box for are left out.
         const r = resolveSharedFlow({ boxes: from.boxes, links: from.box_links }, await flowPlace(tx, tenantId, venueId, stations))
+        // Filters naming a stream or till this venue lacks go; a link left
+        // with none goes too, unless it was set to Except (it now takes every dish).
         edges = r.links.flatMap(l => {
           const targets = l.targets.filter(t => !NAMED_TARGET_KINDS.includes(t.kind) || t.id)
-          return (l.targets.length && !targets.length) ? [] : [{ ...l, targets }]
+          if (l.targets.length && !targets.length && !l.exclude) return []
+          return [{ ...l, targets, exclude: l.exclude && targets.length > 0 }]
         })
         const matched = new Set(Object.values(r.matches))
         off = stations.filter(st => !matched.has(st.id)).map(st => st.id)
@@ -1361,8 +1370,8 @@ export default async function posSetupRoutes(app) {
         RETURNING id, venue_id, name, layout, sort_order, off_station_ids, boxes, box_links, venue_id IS NULL AS shared`
       for (const [i, l] of edges.entries()) {
         await tx`
-          INSERT INTO kds_flow_edges (tenant_id, venue_id, flow_id, from_station_id, to_station_id, targets, sort_order)
-          VALUES (${tenantId}, ${venueId}, ${f.id}, ${l.from || null}, ${l.to}, ${tx.json(l.targets || [])}, ${i})`
+          INSERT INTO kds_flow_edges (tenant_id, venue_id, flow_id, from_station_id, to_station_id, targets, exclude, sort_order)
+          VALUES (${tenantId}, ${venueId}, ${f.id}, ${l.from || null}, ${l.to}, ${tx.json(l.targets || [])}, ${isExcept(l)}, ${i})`
       }
       return flowView(f, f.shared ? [] : await loadFlowLinks(tx, tenantId, f.id))
     })
@@ -1479,12 +1488,10 @@ export default async function posSetupRoutes(app) {
         if (ids.size !== boxes.length) throw httpError(422, 'Two boxes have the same id')
         const bp = boxProblems(boxes)
         if (bp.length) throw httpError(422, bp[0])
-        const links = body.links.map(l => ({
-          id: randomUUID(),
-          from: l.from || null,
-          to: l.to,
-          targets: cleanTargets(l.targets, { shared: true, streams: new Set(), devices: new Set(), orderTypes, menuIds }),
-        }))
+        const links = body.links.map(l => {
+          const targets = cleanTargets(l.targets, { shared: true, streams: new Set(), devices: new Set(), orderTypes, menuIds })
+          return { id: randomUUID(), from: l.from || null, to: l.to, targets, exclude: l.exclude && targets.length > 0 }
+        })
         for (const l of links) {
           if (!ids.has(l.to) || (l.from && !ids.has(l.from))) throw httpError(422, 'A link goes to a box that isn\'t in this flow')
         }
@@ -1513,11 +1520,11 @@ export default async function posSetupRoutes(app) {
       const streams = new Set((await tx`SELECT id FROM pos_revenue_streams WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`).map(r => r.id))
       const devices = new Set((await tx`
         SELECT id FROM pos_devices WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND kind IN ('terminal', 'kiosk') AND revoked_at IS NULL`).map(r => r.id))
-      const links = body.links.map(l => ({
-        from: l.from || null,
-        to: l.to,
-        targets: cleanTargets(l.targets, { shared: false, streams, devices, orderTypes, menuIds }),
-      }))
+      const links = body.links.map(l => {
+        const targets = cleanTargets(l.targets, { shared: false, streams, devices, orderTypes, menuIds })
+        // Except with nothing listed means nothing: a link for every dish.
+        return { from: l.from || null, to: l.to, targets, exclude: l.exclude && targets.length > 0 }
+      })
       // Stations left out of this flow: the venue's own, and nothing links to them.
       const stationIds = new Set(stations.map(s => s.id))
       const off = new Set(body.off_station_ids)
@@ -1534,8 +1541,8 @@ export default async function posSetupRoutes(app) {
       await tx`DELETE FROM kds_flow_edges WHERE tenant_id = ${tenantId} AND flow_id = ${id}`
       for (const [i, l] of links.entries()) {
         await tx`
-          INSERT INTO kds_flow_edges (tenant_id, venue_id, flow_id, from_station_id, to_station_id, targets, sort_order)
-          VALUES (${tenantId}, ${venueId}, ${id}, ${l.from}, ${l.to}, ${tx.json(l.targets)}, ${i})`
+          INSERT INTO kds_flow_edges (tenant_id, venue_id, flow_id, from_station_id, to_station_id, targets, exclude, sort_order)
+          VALUES (${tenantId}, ${venueId}, ${id}, ${l.from}, ${l.to}, ${tx.json(l.targets)}, ${l.exclude}, ${i})`
       }
       await tx`
         UPDATE kds_flows SET layout = ${tx.json(layout)}, off_station_ids = ${[...off]}, updated_at = now()

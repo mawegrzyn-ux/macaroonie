@@ -115,8 +115,10 @@ export const START = 'start'
 // What a flow link's filter can name, most specific first.
 export const FLOW_TARGET_KINDS = ['item', 'section', 'device', 'revenue_stream', 'order_type', 'default']
 // A till or kiosk (device) names where an order came from more closely than
-// its revenue stream (a stream groups tills).
-const RANK = { item: 0, section: 1, device: 2, revenue_stream: 3, order_type: 4, default: 5 }
+// its revenue stream (a stream groups tills). A link set to Except (every dish
+// but the ones its filter names) comes after every filter that names the
+// dish, and before a link with no filter.
+const RANK = { item: 0, section: 1, device: 2, revenue_stream: 3, order_type: 4, except: 5, default: 6 }
 
 export const STATION_DEFAULTS = {
   target_mins: 8, late_mins: 12, show_held: true, summary_groups: [], pieces: [], split_above: null, delay_mins: 5,
@@ -292,26 +294,39 @@ export function kitchenOrdersForCheckEvent(e) {
 // ── The flow ───────────────────────────────────────────────────
 //
 // cfg.stations  { [id]: { id, name, kind, settings } }  (stations in use)
-// cfg.flow      [{ id, from: stationId | null, to: stationId, targets: [{ kind, id }] }]
-//               from null = Orders in; targets [] = everything. A shared flow
+// cfg.flow      [{ id, from: stationId | null, to: stationId, targets: [{ kind, id }], exclude }]
+//               from null = Orders in; targets [] = everything. exclude: the
+//               link takes every dish but the ones its targets name (Except);
+//               with no targets it means nothing (every dish). A shared flow
 //               (resolveSharedFlow()) arrives here already in this shape.
 
-/** How specifically a link's filter matches a dish (lower = more), or Infinity. */
+/** Does one filter entry name the dish? */
+function targetHits(x, target) {
+  switch (x.kind) {
+    case 'default': return true
+    case 'item': return !!target.item_id && x.id === target.item_id
+    case 'section': return !!target.section_id && x.id === target.section_id
+    case 'device': return !!target.device_id && x.id === target.device_id
+    case 'revenue_stream': return !!target.revenue_stream_id && x.id === target.revenue_stream_id
+    case 'order_type': return !!target.order_type_id && x.id === target.order_type_id
+    default: return false
+  }
+}
+
+/** Is the link set to Except (with something to except)? */
+export const isExcept = link => !!link?.exclude && (link.targets || []).length > 0
+
+/**
+ * How specifically a link's filter matches a dish (lower = more), or Infinity.
+ * An Except link takes every dish none of its filters names, ranked after
+ * any filter that names the dish and before a link with no filter.
+ */
 export function linkRank(link, target) {
+  if (isExcept(link)) return link.targets.some(x => targetHits(x, target)) ? Infinity : RANK.except
   const list = link.targets && link.targets.length ? link.targets : [{ kind: 'default' }]
   let best = Infinity
   for (const x of list) {
-    let hit = false
-    switch (x.kind) {
-      case 'default': hit = true; break
-      case 'item': hit = !!target.item_id && x.id === target.item_id; break
-      case 'section': hit = !!target.section_id && x.id === target.section_id; break
-      case 'device': hit = !!target.device_id && x.id === target.device_id; break
-      case 'revenue_stream': hit = !!target.revenue_stream_id && x.id === target.revenue_stream_id; break
-      case 'order_type': hit = !!target.order_type_id && x.id === target.order_type_id; break
-      default: hit = false
-    }
-    if (hit && RANK[x.kind] < best) best = RANK[x.kind]
+    if (targetHits(x, target) && RANK[x.kind] < best) best = RANK[x.kind]
   }
   return best
 }
@@ -610,6 +625,8 @@ export function flowProblems(stations, links) {
     pairs.add(key)
     for (const t of l.targets || []) {
       if (!FLOW_TARGET_KINDS.includes(t.kind)) out.push('A link has a filter the kitchen doesn\'t know')
+      // Every dish but every dish: the link would take nothing.
+      else if (t.kind === 'default' && isExcept(l)) out.push('A link set to Except can\'t leave out every dish')
     }
   }
   // Circles: a dish could never get out of one.
@@ -671,7 +688,7 @@ export function flowWarnings(stations, links) {
 // dishes, sections and order types by id (the company's) and revenue streams
 // and tills / kiosks by name (each location has its own).
 //   flow.boxes  [{ id, name, kind }]
-//   flow.links  [{ id, from: boxId | null, to: boxId, targets: [{ kind, id } | { kind, name }] }]
+//   flow.links  [{ id, from: boxId | null, to: boxId, targets: [{ kind, id } | { kind, name }], exclude }]
 
 /** A station, stream or till name as matched across locations. */
 export const flowName = v => String(v ?? '').trim().replace(/\s+/g, ' ').toLowerCase()
@@ -691,7 +708,9 @@ function byFlowName(list) {
  *            devices: [{ id, name }] } (the location's)
  * Links to or from a box the location has no station for are left out, so no
  * dish goes there; a filter naming a stream or till the location doesn't
- * have matches no dish. With two stations of one name the first counts.
+ * have matches no dish (so an Except link keeps every dish: it stays an
+ * Except link, ranked as at the other locations). With two stations of one
+ * name the first counts.
  */
 export function resolveSharedFlow(flow, place = {}) {
   const stations = byFlowName(place.stations)
@@ -716,7 +735,7 @@ export function resolveSharedFlow(flow, place = {}) {
     const to = matches[l.to]
     const from = l.from ? matches[l.from] : null
     if (!to || (l.from && !from)) continue
-    links.push({ id: l.id, from, to, targets: targets(l.targets) })
+    links.push({ id: l.id, from, to, targets: targets(l.targets), exclude: isExcept(l) })
   }
   return { links, matches, missing, differs }
 }
@@ -727,7 +746,8 @@ export function resolveSharedFlow(flow, place = {}) {
  *   stations  the location's stations in the flow [{ id, name, kind }]
  *   names     { revenue_stream: { id: name }, device: { id: name } }
  * Of two stations with one name the first is kept; links to the other go,
- * and so do filters naming a stream or till that has gone.
+ * and so do filters naming a stream or till that has gone (an Except link
+ * left with none takes every dish).
  */
 export function shareFlow(links, stations, names = {}) {
   const boxes = []
@@ -748,9 +768,10 @@ export function shareFlow(links, stations, names = {}) {
       const name = names[t.kind]?.[t.id]
       if (name && !targets.some(x => x.kind === t.kind && flowName(x.name) === flowName(name))) targets.push({ kind: t.kind, name })
     }
-    // A link whose every filter has gone took only those dishes: it goes too.
-    if ((l.targets || []).length && !targets.length) continue
-    out.push({ id: l.id, from: l.from || null, to: l.to, targets })
+    // A link whose every filter has gone took only those dishes: it goes too
+    // (an Except link took the rest: it now takes every dish).
+    if ((l.targets || []).length && !targets.length && !isExcept(l)) continue
+    out.push({ id: l.id, from: l.from || null, to: l.to, targets, exclude: isExcept(l) && targets.length > 0 })
   }
   return { boxes, links: out }
 }

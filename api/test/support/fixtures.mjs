@@ -308,12 +308,14 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx' } = 
       await step('rename kitchen flow', () => patch(`/api/pos/kds-flows/${busy.id}`, { name: mark + ' Busy night' }))
       await step('kitchen flows order', () => put(`/api/pos/venues/${V}/kds-flows/order`, { ids: [busy.id, mainFlow.id] }))
       await step('kitchen flow in use', () => put(`/api/pos/venues/${V}/kds-flows/active`, { flow_id: busy.id }))
-      // A "sent from" filter (migration 192) on the flow not in use: this venue's till, by id.
+      // A "sent from" filter (migration 192) on the flow not in use: this
+      // venue's till, by id; and the printer gets every dish but the till's
+      // (an Except link, migration 204).
       if (tillDevice?.device) {
         await step('kitchen flow sent from', () => put(`/api/pos/kds-flows/${mainFlow.id}`, {
           links: [
             { from: null, to: station.id, targets: [{ kind: 'device', id: tillDevice.device.id }] },
-            ...(printerBox ? [{ from: null, to: printerBox.id, targets: [] }] : []),
+            ...(printerBox ? [{ from: null, to: printerBox.id, targets: [{ kind: 'device', id: tillDevice.device.id }], exclude: true }] : []),
           ],
           layout: { start: { x: 28, y: 28 }, [station.id]: { x: 378, y: 28 } },
         }))
@@ -331,7 +333,7 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx' } = 
         boxes: [{ id: wokBox, name: station.name, kind: 'prep' }, { id: passBox, name: mark + ' Pass', kind: 'expo' }],
         links: [
           { from: null, to: wokBox, targets: [...(dish ? [{ kind: 'item', id: dish.id }] : []), { kind: 'device', name: mark + ' Till 1' }] },
-          { from: wokBox, to: passBox, targets: [] },
+          { from: wokBox, to: passBox, targets: [{ kind: 'device', name: mark + ' Bar till' }], exclude: true },
         ],
         layout: { start: { x: 28, y: 28 }, [wokBox]: { x: 378, y: 28 } },
       }))

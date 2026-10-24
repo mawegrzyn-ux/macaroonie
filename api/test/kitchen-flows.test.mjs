@@ -470,3 +470,76 @@ test('a Setter: sets the order status for the boards, one per name, styled by it
   await ok(owner.delete(`/api/screens/screens/${scr.id}`))
   await ok(owner.put(`/api/pos/kds-flows/${main.id}`, { links: [{ from: null, to: wok.id, targets: [] }, { from: wok.id, to: pass.id, targets: [] }], layout: {} }))
 })
+
+test('an Except link: every dish but the ones it names; saved, shared, copied and routed', async () => {
+  const flow = await ok(owner.post(`/api/pos/venues/${V}/kds-flows`, { name: 'Except test' }))
+  // The dish's section skips the wok (Except), so it takes the grill's link for every dish.
+  const links = [
+    { from: null, to: wok.id, targets: [{ kind: 'section', id: dish.section_id }], exclude: true },
+    { from: null, to: grill.id, targets: [] },
+    { from: wok.id, to: pass.id, targets: [] },
+    { from: grill.id, to: pass.id, targets: [] },
+  ]
+  const toWok = list => list.find(l => l.to === wok.id && !l.from)
+  // Except with nothing listed is a link for every dish.
+  const bare = await ok(owner.put(`/api/pos/kds-flows/${flow.id}`, { links: [{ from: null, to: wok.id, targets: [], exclude: true }], layout: {} }))
+  assert.equal(bare.links[0].exclude, false)
+  const saved = await ok(owner.put(`/api/pos/kds-flows/${flow.id}`, { links, layout: {} }))
+  assert.equal(toWok(saved.links).exclude, true)
+  assert.equal(saved.links.find(l => l.to === grill.id).exclude, false)
+  const setup = await ok(owner.get(`/api/pos/venues/${V}/setup`))
+  assert.equal(toWok(setup.kds_flows.find(f => f.id === flow.id).links).exclude, true, 'the setup page has it')
+
+  // Refused: leaving out every dish, an Except link out of a Splitter, a viewer, another tenant.
+  const all = await owner.put(`/api/pos/kds-flows/${flow.id}`, { links: [{ from: null, to: wok.id, targets: [{ kind: 'default' }], exclude: true }], layout: {} })
+  assert.equal(all.status, 422)
+  assert.match(all.json.error, /can't leave out every dish/)
+  const box = await ok(owner.post(`/api/pos/venues/${V}/kds-stations`, { name: 'Except box', kind: 'balance', settings: {} }))
+  const fromBox = await owner.put(`/api/pos/kds-flows/${flow.id}`, { links: [
+    { from: null, to: box.id, targets: [] }, { from: box.id, to: grill.id, targets: [] },
+    { from: box.id, to: wok.id, targets: [{ kind: 'section', id: dish.section_id }], exclude: true },
+  ], layout: {} })
+  assert.equal(fromBox.status, 422)
+  assert.match(fromBox.json.error, /remove their filters/)
+  assert.equal((await as(A.viewer, ids.a).put(`/api/pos/kds-flows/${flow.id}`, { links, layout: {} })).status, 403)
+  assert.equal((await as(B.owner, ids.b).put(`/api/pos/kds-flows/${flow.id}`, { links, layout: {} })).status, 404)
+  assert.equal(toWok((await ok(owner.get(`/api/pos/venues/${V}/setup`))).kds_flows.find(f => f.id === flow.id).links).exclude, true, 'unchanged')
+
+  // In use: the kitchen screen gets it, and the sequencer routes by it.
+  await ok(owner.put(`/api/pos/venues/${V}/kds-flows/active`, { flow_id: flow.id }))
+  const config = await device(screen, 'GET', '/pos-api/config')
+  assert.equal(toWok(config.json.flow).exclude, true)
+  assert.ok((await sequencer(ids.a, V).submit(orderIn(701))).ok)
+  assert.deepEqual(await wayOf(701), sorted([grill.id, pass.id]), 'its section is left out of the wok')
+  const other = orderIn(702)
+  other.payload.order.items[0] = { ...other.payload.order.items[0], item_id: crypto.randomUUID(), section_id: crypto.randomUUID(), name: 'Something else' }
+  assert.ok((await sequencer(ids.a, V).submit(other)).ok)
+  assert.deepEqual(await wayOf(702), sorted([wok.id, pass.id]), 'the Except link comes before the link for every dish')
+
+  // Copies keep it: this venue's, shared with every location, and back.
+  const copy = await ok(owner.post(`/api/pos/venues/${V}/kds-flows`, { name: 'Except copy', copy_from: flow.id }))
+  assert.equal(toWok(copy.links).exclude, true)
+  const everywhere = await ok(owner.post(`/api/pos/venues/${V}/kds-flows`, { name: 'Except everywhere', copy_from: flow.id, shared: true }))
+  const sharedLink = everywhere.links.find(l => !l.from && l.to === wok.id)
+  assert.deepEqual([sharedLink.exclude, sharedLink.targets], [true, [{ kind: 'section', id: dish.section_id }]])
+  const back = await ok(owner.post(`/api/pos/venues/${V}/kds-flows`, { name: 'Except back', copy_from: everywhere.id }))
+  assert.equal(toWok(back.links).exclude, true)
+  // A shared flow saved with an Except link keeps it.
+  const sharedSave = await ok(owner.put(`/api/pos/kds-flows/${everywhere.id}`, { boxes: everywhere.boxes, links: everywhere.links, layout: {} }))
+  assert.equal(sharedSave.links.find(l => !l.from && l.to === wok.id).exclude, true)
+
+  // A revenue stream that goes: an Except link left with nothing takes every
+  // dish; a plain link that named only it goes.
+  const rs = await ok(owner.post(`/api/pos/venues/${V}/revenue-streams`, { name: 'Except stream' }))
+  await ok(owner.put(`/api/pos/kds-flows/${copy.id}`, { links: [
+    { from: null, to: wok.id, targets: [{ kind: 'revenue_stream', id: rs.id }], exclude: true },
+    { from: null, to: grill.id, targets: [{ kind: 'revenue_stream', id: rs.id }] },
+  ], layout: {} }))
+  await ok(owner.delete(`/api/pos/revenue-streams/${rs.id}`))
+  const left = (await ok(owner.get(`/api/pos/venues/${V}/setup`))).kds_flows.find(f => f.id === copy.id).links
+  assert.deepEqual(left.map(l => [l.to, l.targets, l.exclude]), [[wok.id, [], false]])
+
+  await ok(owner.put(`/api/pos/venues/${V}/kds-flows/active`, { flow_id: main.id }))
+  for (const f of [copy, back, everywhere, flow]) await ok(owner.delete(`/api/pos/kds-flows/${f.id}`))
+  await ok(owner.delete(`/api/pos/kds-stations/${box.id}`))
+})

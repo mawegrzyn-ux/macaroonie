@@ -5,6 +5,13 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-24 — Kitchen flow links: All except these]
+
+- A flow link's filter can now be turned round: tap a link's label and switch **Which dishes go this way** from **Only these** to **All except these**, then pick what should *not* go that way. Orders in to the Wok, all except Drinks and Desserts, takes every other dish; anything listed (a section, single dishes, an order type, a till or kiosk, a revenue stream) leaves a dish out. The link's label reads "Except Drinks, Desserts" in red.
+- Ranking: links that name a dish still win; an All except link comes next, before a link with no filter, so a link for every dish beside it takes what it leaves out. With nothing listed it is simply a link for every dish. Check a dish shows the result.
+- Works in shared flows too (a till or stream name a location doesn't have leaves nothing out there), and copies between a location's own flow and a shared one keep it. Links out of a Splitter still can't have filters.
+- Migration **204** (`kds_flow_edges.exclude`).
+
 ## [2026-10-24 — CI: an API test that failed one run in three]
 
 - The CI "API tests" job failed four times since 23 Oct (deploys were not affected). Cause: a menu save that left a dish's position out gave it position 0, the same as the first dish, and dishes with equal positions came back in random order (by their random ids), so a kiosk test that read "the first dish" sometimes got the new one.

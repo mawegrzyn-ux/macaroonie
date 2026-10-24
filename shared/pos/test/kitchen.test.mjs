@@ -14,7 +14,7 @@ import {
   kitchenForCheckEvent, applyKitchenEvent, stationTickets, onOrderCounts, stationStats, boardNumbers,
   laterOrders, recentBumps, itemState, ageTone, clockSince, kitchenEventProblem, onlineOrderId, gloriaFoodOrderId, isOrderId,
   itemRoute, routeOrder, flowProblems, flowWarnings, readyOrders, boardState, itemWhere, START,
-  resolveBalances, stationLoad, orderStatus, statusOf, STATUS_LOOKS, STATUS_ANIMS,
+  resolveBalances, stationLoad, orderStatus, statusOf, STATUS_LOOKS, STATUS_ANIMS, linkRank, isExcept,
 } from '../kitchen.js'
 
 const uuid = () => globalThis.crypto.randomUUID()
@@ -182,6 +182,64 @@ test('flow problems block saving; warnings point out loose ends', () => {
   assert.ok(w.some(x => /Nothing comes in/.test(x)))
   assert.ok(w.includes('Prep 3 isn\'t on the way of any dish.'))
   assert.ok(!flowWarnings(list, flowOnly.concat(link(E1, RUN))).length)
+})
+
+// A link set to All except these (exclude, migration 204).
+const except = (from, to, ...targets) => ({ ...link(from, to, ...targets), exclude: true })
+
+test('flow: a link set to Except takes every dish its filter doesn\'t name', () => {
+  const cfg = flow => ({ ...common, stations: byId(Object.values(kit)), flow })
+  const burgerT = { item_id: BURGER, section_id: BURGERS, order_type_id: EAT }
+  const colaT = { item_id: COLA, section_id: DRINKS, order_type_id: EAT }
+  const one = cfg([except(null, P1, ['section', DRINKS]), link(P1, E1)])
+  assert.deepEqual(itemRoute(burgerT, one), { [P1]: [START], [E1]: [P1] })
+  assert.deepEqual(itemRoute(colaT, one), {}, 'drinks are left out')
+  // Any entry leaves a dish out: drinks, and every delivery order.
+  const two = cfg([except(null, P1, ['section', DRINKS], ['order_type', DEL])])
+  assert.deepEqual(itemRoute({ ...burgerT, order_type_id: DEL }, two), {})
+  assert.deepEqual(Object.keys(itemRoute(burgerT, two)), [P1])
+  // The same entries without Except: only drinks and deliveries.
+  assert.deepEqual(Object.keys(itemRoute(colaT, cfg([link(null, P1, ['section', DRINKS], ['order_type', DEL])]))), [P1])
+  assert.deepEqual(itemRoute(burgerT, cfg([link(null, P1, ['section', DRINKS], ['order_type', DEL])])), {})
+
+  // A link whose filter names the dish takes it first: wings go to Prep 3 only.
+  const named = cfg([except(null, P1, ['section', DRINKS]), link(null, P3, ['section', WINGSEC])])
+  assert.deepEqual(Object.keys(itemRoute({ item_id: WINGS, section_id: WINGSEC }, named)), [P3])
+  assert.deepEqual(Object.keys(itemRoute(burgerT, named)), [P1])
+  // An Except link comes before a link for every dish, which takes what it leaves out.
+  const rest = cfg([except(null, P1, ['section', DRINKS]), link(null, P2)])
+  assert.deepEqual(Object.keys(itemRoute(burgerT, rest)), [P1])
+  assert.deepEqual(Object.keys(itemRoute(colaT, rest)), [P2])
+  // Two Except links rank the same: a dish neither leaves out takes both.
+  const pair = cfg([except(null, P1, ['section', DRINKS]), except(null, P2, ['section', SIDES])])
+  assert.deepEqual(Object.keys(itemRoute(burgerT, pair)).sort(), [P1, P2].sort())
+  assert.deepEqual(Object.keys(itemRoute({ item_id: FRIES, section_id: SIDES }, pair)), [P1])
+  assert.deepEqual(Object.keys(itemRoute(colaT, pair)), [P2])
+
+  // Ranks: a filter naming the dish < Except < every dish; Except with nothing listed is every dish.
+  const exceptLink = except(null, P1, ['section', DRINKS])
+  assert.ok(linkRank(link(null, P1, ['order_type', EAT]), burgerT) < linkRank(exceptLink, burgerT))
+  assert.ok(linkRank(exceptLink, burgerT) < linkRank(link(null, P1), burgerT))
+  assert.equal(linkRank(exceptLink, colaT), Infinity)
+  assert.equal(linkRank({ targets: [], exclude: true }, colaT), linkRank(link(null, P1), colaT))
+  assert.equal(isExcept({ targets: [], exclude: true }), false)
+  assert.equal(isExcept(exceptLink), true)
+
+  // Links out of a Splitter can't be Except either; nor can Except leave out every dish.
+  const list = Object.values(kit)
+  assert.deepEqual(flowProblems(list, [except(null, P1, ['section', DRINKS]), link(P1, E1)]), [])
+  assert.match(flowProblems(list, [{ ...link(null, P1), targets: [{ kind: 'default' }], exclude: true }]).join(), /can't leave out every dish/)
+  const box = { id: uuid(), name: 'Wing box', kind: 'balance' }
+  assert.match(flowProblems([...list, box], [link(null, box.id), except(box.id, P1, ['section', DRINKS]), link(box.id, P2)]).join(), /remove their filters/)
+})
+
+test('a till order through an Except link: the cola never reaches the grill', () => {
+  const cfg = { ...common, stations: byId(Object.values(simple)), flow: [except(null, GRILL, ['section', DRINKS]), link(null, BAR, ['section', DRINKS]), link(GRILL, PASS), link(BAR, PASS)] }
+  const t = till(cfg)
+  const c = openTable(t)
+  addAndSend(t, c, [burger(), lineOf('Cola', COLA, DRINKS)])
+  assert.deepEqual(t.tickets(simple.GRILL)[0].items.map(i => i.name), ['Burger'])
+  assert.deepEqual(t.tickets(simple.BAR)[0].items.map(i => i.name), ['Cola'])
 })
 
 test('the brief: preps pass dishes on, two expos, ORB 1 ready once both expos are done', () => {

@@ -16,7 +16,9 @@
 // one box to the next; its filter (dishes, sections, revenue streams, order
 // types) says which dishes take it. From each box a dish takes the links
 // whose filter names it most closely, so a burger can go Prep 1 > Prep 2 >
-// Expo 1 while the fries go Prep 1 > Expo 1.
+// Expo 1 while the fries go Prep 1 > Expo 1. A link set to All except these
+// (exclude, migration 204) takes every dish its filter doesn't name, after
+// the links that name the dish and before a link with no filter.
 //
 // Drag a box to move it (always-visible grip). Drag a box's dot onto another
 // box to link them, or tap the dot then tap the next box. Tap a link's label
@@ -92,6 +94,9 @@ function stationsByName(stations) {
   return out
 }
 
+// A saved link as the designer edits it (key = its id while unsaved).
+const linkDraft = l => ({ key: l.id, from: l.from || null, to: l.to, targets: l.targets || [], exclude: !!l.exclude })
+
 function seedDraft(setup, flow) {
   if (flow?.shared) {
     // A shared flow: its own boxes, whatever this location has.
@@ -99,7 +104,7 @@ function seedDraft(setup, flow) {
     const ids = new Set(boxes.map(b => b.id))
     const links = (flow.links || [])
       .filter(l => ids.has(l.to) && (!l.from || ids.has(l.from)))
-      .map(l => ({ key: l.id, from: l.from || null, to: l.to, targets: l.targets || [] }))
+      .map(linkDraft)
     return { boxes, links, off: [], layout: placeMissing({ ...(flow.layout || {}) }, boxes, links) }
   }
   const ids = new Set(setup.kds_stations.map(s => s.id))
@@ -108,7 +113,7 @@ function seedDraft(setup, flow) {
   const here = id => ids.has(id) && !off.includes(id)
   const links = (flow?.links || [])
     .filter(l => here(l.to) && (!l.from || here(l.from)))
-    .map(l => ({ key: l.id, from: l.from || null, to: l.to, targets: l.targets || [] }))
+    .map(linkDraft)
   const inFlow = setup.kds_stations.filter(s => !off.includes(s.id))
   return { links, off, layout: placeMissing({ ...(flow?.layout || {}) }, inFlow, links) }
 }
@@ -199,10 +204,14 @@ const KIND_WORD = { item: 'Dish', section: 'Section', device: 'Sent from', reven
 // One filter entry, by id or (a shared flow's streams and tills) by name.
 const targetKey = t => t.kind + ':' + (t.name != null ? 'n:' + flowName(t.name) : (t.id || ''))
 
+// Set to All except these, with something listed (with nothing it is every dish).
+const isExcept = link => !!link.exclude && link.targets.length > 0
+
 function linkSummary(link, lk) {
   if (!link.targets.length) return 'Every dish'
   const names = link.targets.map(t => targetName(t, lk))
-  return names.length <= 2 ? names.join(', ') : names[0] + ' +' + (names.length - 1)
+  const list = names.length <= 2 ? names.join(', ') : names[0] + ' +' + (names.length - 1)
+  return isExcept(link) ? 'Except ' + list : list
 }
 
 export default function KitchenFlow({ venueId, setup, canManage, onStation }) {
@@ -339,7 +348,7 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
     const existing = draft.links.find(l => (l.from || null) === f && l.to === to)
     if (existing) { setSelected({ link: existing.key }); return }
     const key = newKey()
-    changeLinks(links => [...links, { key, from: f, to, targets: [] }])
+    changeLinks(links => [...links, { key, from: f, to, targets: [], exclude: false }])
     setSelected({ link: key })
   }
   const updateLink = (key, patch) => change(d => ({ ...d, links: d.links.map(l => (l.key === key ? { ...l, ...patch } : l)) }))
@@ -470,11 +479,11 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
     mutationFn: () => api.put(`/pos/kds-flows/${flow.id}`, shared
       ? {
         boxes: draft.boxes.map(b => ({ id: b.id, name: tidyName(b.name), kind: b.kind })),
-        links: draft.links.map(l => ({ from: l.from, to: l.to, targets: l.targets })),
+        links: draft.links.map(l => ({ from: l.from, to: l.to, targets: l.targets, exclude: isExcept(l) })),
         layout: pos,
       }
       : {
-        links: draft.links.map(l => ({ from: l.from, to: l.to, targets: l.targets })),
+        links: draft.links.map(l => ({ from: l.from, to: l.to, targets: l.targets, exclude: isExcept(l) })),
         layout: pos,
         off_station_ids: draft.off,
       }),
@@ -484,7 +493,7 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
       setDirty(false)
       setDraft({
         ...(shared ? { boxes: out.boxes } : {}),
-        links: out.links.map(l => ({ key: l.id, from: l.from || null, to: l.to, targets: l.targets || [] })),
+        links: out.links.map(linkDraft),
         off: out.off_station_ids || [],
         layout: out.layout,
       })
@@ -538,11 +547,13 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
           const sel = selLink?.key === l.key
           return (
             <div key={l.key} role="button" tabIndex={0} data-testid="flow-link" data-from={nodeKey(l.from)} data-to={l.to}
+              data-except={isExcept(l) ? 'yes' : undefined}
               onClick={() => { setSelected({ link: l.key }); setConnectFrom(null) }}
               onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelected({ link: l.key }) } }}
               title={nameOf(l.from) + ' to ' + nameOf(l.to) + ': ' + (byId[l.from]?.kind === 'balance' ? 'shared' : linkSummary(l, lk))}
               className={cn('absolute z-10 -translate-x-1/2 -translate-y-1/2 h-10 max-w-[150px] px-3 rounded-full border text-xs font-medium flex items-center gap-1 cursor-pointer touch-manipulation shadow-sm',
-                sel ? 'bg-zinc-900 text-white border-zinc-900' : on ? 'bg-blue-600 text-white border-blue-600' : l.targets.length ? 'bg-amber-50 border-amber-300' : 'bg-background',
+                sel ? 'bg-zinc-900 text-white border-zinc-900' : on ? 'bg-blue-600 text-white border-blue-600'
+                  : isExcept(l) ? 'bg-rose-50 border-rose-300' : l.targets.length ? 'bg-amber-50 border-amber-300' : 'bg-background',
                 route && !on && !sel && 'opacity-50')}
               style={{ left: mid.x, top: mid.y }}>
               <span className="truncate">{byId[l.from]?.kind === 'balance' ? 'Shared' : linkSummary(l, lk)}</span>
@@ -638,7 +649,7 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
               <span>Shared with every location: each box is the location's station with that name, so dishes go to each location's own stations. A location without a station of a box's name skips that box's links.</span>
             </p>
           )}
-          <p>From each box a dish takes the links that name it most closely: the dish itself, then its section, the till or kiosk it was sent from, its revenue stream, its order type, then links for every dish. Links that tie all apply: e.g. from the expo to the board and to a runner at once.</p>
+          <p>From each box a dish takes the links that name it most closely: the dish itself, then its section, the till or kiosk it was sent from, its revenue stream, its order type, then links set to All except these (every dish but the ones they list), then links for every dish. Links that tie all apply: e.g. from the expo to the board and to a runner at once.</p>
         </div>
       )}
     </div>
@@ -1025,11 +1036,12 @@ function PanelBox({ title, onClose, children, testid }) {
   )
 }
 
-function Chip({ on, onClick, children }) {
+// except: a picked chip is something left out (a link set to All except these).
+function Chip({ on, onClick, except, children }) {
   return (
     <button type="button" onClick={onClick} aria-pressed={on}
       className={cn('min-h-[44px] px-3 rounded-lg border text-sm touch-manipulation',
-        on ? 'bg-primary text-primary-foreground border-primary' : 'bg-background hover:bg-muted')}>
+        on ? (except ? 'bg-rose-600 text-white border-rose-600' : 'bg-primary text-primary-foreground border-primary') : 'bg-background hover:bg-muted')}>
       {children}
     </button>
   )
@@ -1072,24 +1084,45 @@ function LinkPanel({ link, lk, setup, shared, canManage, nameOf, fromBalance, si
       </PanelBox>
     )
   }
+  // All except these: the dishes picked are the ones that don't go this way.
+  const except = !!link.exclude
   return (
     <PanelBox title={nameOf(link.from) + ' to ' + nameOf(link.to)} onClose={onClose} testid="flow-link-panel">
-      <div>
+      <div data-testid="flow-link-which">
         <p className="font-medium">Which dishes go this way</p>
+        {canManage && (
+          <div className="mt-1.5" data-testid="flow-link-mode">
+            <Segmented value={except ? 'except' : 'only'} onChange={v => onChange({ exclude: v === 'except' })}
+              options={[{ value: 'only', label: 'Only these' }, { value: 'except', label: 'All except these' }]} />
+          </div>
+        )}
         {!link.targets.length
-          ? <p className="text-muted-foreground">Every dish{siblings.length ? ' that no other link from ' + nameOf(link.from) + ' names more closely' : ''}.</p>
+          ? (
+            <p className="text-muted-foreground mt-1.5">
+              Every dish{siblings.length ? ' that no other link from ' + nameOf(link.from) + ' names more closely' : ''}.
+              {canManage && except ? ' Pick below the dishes that don\'t go this way.' : ''}
+            </p>
+          )
           : (
-            <div className="flex flex-wrap gap-1.5 mt-1.5">
-              {link.targets.map(t => (
-                <span key={targetKey(t)} className="inline-flex items-center gap-1 rounded-full bg-amber-100 text-amber-900 pl-3 pr-1 min-h-[36px] text-xs font-medium">
-                  {KIND_WORD[t.kind] ? KIND_WORD[t.kind] + ': ' : ''}{targetName(t, lk)}
-                  {canManage && (
-                    <button type="button" onClick={() => toggle(t)} aria-label={'Remove ' + targetName(t, lk)}
-                      className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-amber-200 touch-manipulation"><X className="w-3.5 h-3.5" /></button>
-                  )}
-                </span>
-              ))}
-            </div>
+            <>
+              {except && <p className="mt-1.5">Every dish except:</p>}
+              <div className="flex flex-wrap gap-1.5 mt-1.5">
+                {link.targets.map(t => (
+                  <span key={targetKey(t)} data-testid="flow-link-target"
+                    className={cn('inline-flex items-center gap-1 rounded-full pl-3 pr-1 min-h-[36px] text-xs font-medium',
+                      except ? 'bg-rose-100 text-rose-900' : 'bg-amber-100 text-amber-900')}>
+                    {KIND_WORD[t.kind] ? KIND_WORD[t.kind] + ': ' : ''}{targetName(t, lk)}
+                    {canManage && (
+                      <button type="button" onClick={() => toggle(t)} aria-label={'Remove ' + targetName(t, lk)}
+                        className={cn('w-8 h-8 flex items-center justify-center rounded-full touch-manipulation', except ? 'hover:bg-rose-200' : 'hover:bg-amber-200')}><X className="w-3.5 h-3.5" /></button>
+                    )}
+                  </span>
+                ))}
+              </div>
+              {except && siblings.length > 0 && (
+                <p className="text-xs text-muted-foreground mt-1.5">A link from {nameOf(link.from)} that names a dish takes it instead.</p>
+              )}
+            </>
           )}
       </div>
       {canManage && (
@@ -1097,14 +1130,14 @@ function LinkPanel({ link, lk, setup, shared, canManage, nameOf, fromBalance, si
           <div className="space-y-1.5">
             <p className="text-xs font-medium text-muted-foreground">Order type</p>
             <div className="flex flex-wrap gap-1.5" role="group" aria-label="Order type">
-              {types.map(t => <Chip key={t.id} on={has({ kind: 'order_type', id: t.id })} onClick={() => toggle({ kind: 'order_type', id: t.id })}>{t.name}</Chip>)}
+              {types.map(t => <Chip key={t.id} except={except} on={has({ kind: 'order_type', id: t.id })} onClick={() => toggle({ kind: 'order_type', id: t.id })}>{t.name}</Chip>)}
             </div>
           </div>
           {devices.length > 0 && (
             <div className="space-y-1.5" data-testid="flow-link-devices">
               <p className="text-xs font-medium text-muted-foreground">Sent from (till or kiosk){shared ? ': each location\'s of that name' : ''}</p>
               <div className="flex flex-wrap gap-1.5" role="group" aria-label="Sent from">
-                {devices.map(d => <Chip key={d.key} on={has(d.target)} onClick={() => toggle(d.target)}>{d.label}</Chip>)}
+                {devices.map(d => <Chip key={d.key} except={except} on={has(d.target)} onClick={() => toggle(d.target)}>{d.label}</Chip>)}
               </div>
             </div>
           )}
@@ -1112,7 +1145,7 @@ function LinkPanel({ link, lk, setup, shared, canManage, nameOf, fromBalance, si
             <div className="space-y-1.5">
               <p className="text-xs font-medium text-muted-foreground">Revenue stream{shared ? ': each location\'s of that name' : ''}</p>
               <div className="flex flex-wrap gap-1.5" role="group" aria-label="Revenue stream">
-                {streams.map(r => <Chip key={r.key} on={has(r.target)} onClick={() => toggle(r.target)}>{r.label}</Chip>)}
+                {streams.map(r => <Chip key={r.key} except={except} on={has(r.target)} onClick={() => toggle(r.target)}>{r.label}</Chip>)}
               </div>
             </div>
           )}
