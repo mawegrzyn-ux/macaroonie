@@ -21,7 +21,7 @@
 // Plain ESM, no dependencies but the other shared modules, no DOM.
 
 import { FONT_OPTIONS, FONT_WEIGHTS, fontStack } from './fonts.js'
-import { STEP_DISPLAYS, comboOf, comboItemIds, stepChoices } from './combos.js'
+import { STEP_DISPLAYS, comboOf, comboItemIds, stepChoices, pickScale } from './combos.js'
 import { priceItem, posTax, checkTotals } from './pos/pricing.js'
 import { replay } from './pos/checks.js'
 import { ulid } from './pos/ids.js'
@@ -473,23 +473,26 @@ export const SPLIT_MAX = 6
  * 199: the picture made for the dish's photo), else its tile picture
  * (image_url; a picked dish its own photo). Steps first, then groups, each
  * in pick order; an option picked twice shows once. At most SPLIT_MAX each.
+ * split is a list of pictures; corner of { src, scale }, scale the group's or
+ * step's size for corner pictures (kiosk_pick_scale / pick_scale, migration
+ * 205; null = automatic, cornerWidths()).
  * selection: { choices, combo } as the builder keeps it.
  */
 export function pickImages(config, item, selection = {}) {
   const out = { split: [], corner: [] }
   if (!item) return out
   const seen = new Set()
-  const add = (where, key, src) => {
+  const add = (where, key, src, scale = null) => {
     if (!src || !out[where] || seen.has(key)) return
     seen.add(key)
-    out[where].push(src)
+    out[where].push(where === 'corner' ? { src, scale: pickScale(scale) } : src)
   }
   const combo = comboOf(item)
   for (const st of combo?.steps || []) {
     if (!st.pick_photo) continue
     for (const e of asList(selection?.combo?.[st.id])) {
       const opt = st.options.find(o => o.id === e.option_id)
-      add(st.pick_photo, 's:' + st.id + ':' + e.option_id + ':' + (e.item_id || ''), opt?.photo_url || (e.item_id ? configItem(config, e.item_id)?.image_url : opt?.image_url))
+      add(st.pick_photo, 's:' + st.id + ':' + e.option_id + ':' + (e.item_id || ''), opt?.photo_url || (e.item_id ? configItem(config, e.item_id)?.image_url : opt?.image_url), st.pick_scale)
     }
   }
   for (const c of item.pos_choices || []) {
@@ -497,10 +500,29 @@ export function pickImages(config, item, selection = {}) {
     if (!lib?.kiosk_pick_photo) continue
     for (const e of asList(selection?.choices?.[c.key])) {
       const o = (lib.options || []).find(x => (x.option_id ?? x.id) === e.id)
-      add(lib.kiosk_pick_photo, 'g:' + c.key + ':' + e.id, o?.photo_url || o?.image_url)
+      add(lib.kiosk_pick_photo, 'g:' + c.key + ':' + e.id, o?.photo_url || o?.image_url, lib.kiosk_pick_scale)
     }
   }
   return { split: out.split.slice(0, SPLIT_MAX), corner: out.corner.slice(0, SPLIT_MAX) }
+}
+
+/**
+ * How wide each corner picture is (CornerPicks), in % of the strip along the
+ * bottom of the dish's photo (92% of its width, 2% gaps between pictures).
+ * A set size is that share of the photo's width; automatic is about a
+ * quarter, less when several share the corner. When they don't fit side by
+ * side, they all shrink by the same factor.
+ *   corner  [{ scale }] as pickImages() gives
+ */
+export function cornerWidths(corner) {
+  const n = (corner || []).length
+  if (!n) return []
+  const auto = Math.min(26, 92 / n - 3)
+  const want = corner.map(c => (pickScale(c.scale) ? pickScale(c.scale) / 0.92 : auto))
+  const sum = want.reduce((t, w) => t + w, 0)
+  const room = 100 - 2 * (n - 1)
+  const k = sum > room ? room / sum : 1
+  return want.map(w => Math.round(w * k * 100) / 100)
 }
 
 // Below the kiosk-images cache's maxEntries (pos/vite.config.js), so saving

@@ -212,7 +212,9 @@
    the shape doesn't cut them. */
 .k-corner { position: relative; display: block; }
 .k-corner > .k-corner-main { display: block; }
-.k-corner-picks { position: absolute; left: 4%; right: 4%; bottom: 4%; display: flex; justify-content: flex-end; gap: 2%; pointer-events: none; }
+/* Pictures of different sizes (each group's or step's size) keep their own
+   shape, lined up along the bottom. */
+.k-corner-picks { position: absolute; left: 4%; right: 4%; bottom: 4%; display: flex; justify-content: flex-end; align-items: flex-end; gap: 2%; pointer-events: none; }
 .k-corner-pick { display: block; aspect-ratio: 1 / 1; object-fit: cover; border-radius: 50%; background: var(--k-surface); box-shadow: 0 0 0 .15em var(--k-surface), 0 2px 6px rgba(0,0,0,.3); }
 .k-opts-cards .k-corner-pick { border-radius: calc(var(--k-radius) / 2); }
 .k-opts-hexagon .k-corner-pick { border-radius: 0; clip-path: var(--k-hex); aspect-ratio: .866 / 1; box-shadow: none; }

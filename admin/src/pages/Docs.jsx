@@ -4113,7 +4113,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               else <Mono>split</Mono>, rewrote release snapshots the same way (re-hashed at start) and dropped{' '}
               <Mono>pick_photos</Mono> from designs.{' '}
               <Mono>pickImages(config, item, selection)</Mono> in <Mono>shared/kiosk.js</Mono> is the one
-              rule, returning <Mono>{'{ split, corner }'}</Mono>: steps (a choice's <Mono>photo_url</Mono>, else a picked dish's photo or a typed-in choice's picture), then groups
+              rule, returning <Mono>{'{ split: [src], corner: [{ src, scale }] }'}</Mono>: steps (a choice's <Mono>photo_url</Mono>, else a picked dish's photo or a typed-in choice's picture), then groups
               (the library option's <Mono>photo_url</Mono>, else its <Mono>image_url</Mono>), each into the list its group or step names, in pick order, an option once, at most <Mono>SPLIT_MAX</Mono> (6) each; both empty = the dish's photo.
               Two pictures per choice (migration 199): <Mono>image_url</Mono> is the choice's own tile (every
               display, the bundle's step tabs), <Mono>photo_url</Mono> the one on the dish's photo
@@ -4126,8 +4126,16 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>PickPhoto</Mono> (<Mono>parts.jsx</Mono>, prop <Mono>picks</Mono>) draws both: the split ones
               as one picture in place of the photo or, two or more, with <Mono>SplitPhoto</Mono>; then the corner
               ones with <Mono>CornerPicks</Mono> on top of whatever that is (<Mono>.k-corner-main</Mono>) with the pictures small (<Mono>.k-corner-pick</Mono>, the choices' picture
-              style, each min(26%, 92% / n - 3%) wide) along its bottom right, in the middle of the bottom on a
-              round, oval or hexagon photo. <Mono>SplitPhoto</Mono>: every picture covers the whole box
+              style, lined up along the bottom keeping their own shape) along its bottom right, in the middle of the bottom on a
+              round, oval or hexagon photo. Their size (migration 205): <Mono>menu_variant_groups.kiosk_pick_scale</Mono>{' '}
+              and a combo step's <Mono>pick_scale</Mono> (a whole % of the photo's width, 10 to 70, kept only with corner:
+              the group routes null it otherwise, <Mono>cleanCombo()</Mono> and <Mono>comboPayload()</Mono> store it only when
+              set; <Mono>pickScale()</Mono> and <Mono>PICK_SCALE_MIN</Mono> / <Mono>MAX</Mono> in <Mono>shared/combos.js</Mono>);
+              NULL = automatic. <Mono>cornerWidths(corner)</Mono> in <Mono>shared/kiosk.js</Mono> turns them into widths along the
+              strip (92% of the photo, 2% gaps): a size is scale / 0.92, automatic min(26, 92 / n - 3), and when they
+              don't fit all shrink by one factor with the gaps kept. Admin: <Mono>PickScale</Mono> in{' '}
+              <Mono>components/menus/shared.jsx</Mono> (Automatic / Set a size, slider, - / +, a sketch of the photo),
+              under Small in the corner in <Mono>VariantGroupsManager.jsx</Mono> and each <Mono>ComboEditor.jsx</Mono> step. <Mono>SplitPhoto</Mono>: every picture covers the whole box
               (object-fit cover) and is clipped to its part with a percent <Mono>polygon()</Mono>; the tears are
               seeded jagged lines (the same for the same number of parts), the parts overlap 0.4% under a paper
               band of 0.44% to 1.45% with a drop shadow, so no gap shows. Used on the dish page's photo, a

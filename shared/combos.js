@@ -23,8 +23,10 @@
 //                         // earlier step has one of these picked (empty = anything)
 //       display,          // kiosks (migration 172): 'grid' | 'list' | 'slider' |
 //                         // 'wheel', null = the kiosk design's default
-//       split,            // kiosks: the picks' pictures make the combo's split
-//                         // photo (stored only when true)
+//       pick_photo,       // kiosks (migration 201): 'split' | 'corner', where the
+//                         // picks' pictures go on the combo's photo (stored only when set)
+//       pick_scale,       // kiosks (migration 205): corner pictures' size, a share
+//                         // of the photo's width (stored only when set; null = automatic)
 //       options: [{
 //         id, type: 'item' | 'section' | 'custom',
 //         item_id,        // type item: a menu item
@@ -52,6 +54,17 @@ export const STEP_ASK = ['always', 'button']
 export const OPTION_TYPES = ['item', 'section', 'custom']
 // How a kiosk shows a step's choices or an option group (shared/kiosk.js).
 export const STEP_DISPLAYS = ['grid', 'list', 'slider', 'wheel']
+// How big a pick's picture is small in the corner of the dish's photo on
+// kiosks: a share of the photo's width, in %. Option groups
+// (menu_variant_groups.kiosk_pick_scale) and combo steps (pick_scale) set it;
+// null = automatic (about a quarter, smaller when several share the corner).
+export const PICK_SCALE_MIN = 10
+export const PICK_SCALE_MAX = 70
+/** A corner picture size as stored (a whole % in range), or null. */
+export const pickScale = v => {
+  const n = Number(v)
+  return v != null && v !== '' && Number.isInteger(n) && n >= PICK_SCALE_MIN && n <= PICK_SCALE_MAX ? n : null
+}
 export const MAX_STEPS = 12
 export const MAX_PICKS = 20
 
@@ -76,6 +89,7 @@ export function normaliseCombo(raw) {
       when,
       display: STEP_DISPLAYS.includes(s.display) ? s.display : null,
       pick_photo: s.pick_photo === 'split' || s.pick_photo === 'corner' ? s.pick_photo : null,
+      pick_scale: pickScale(s.pick_scale),
       options: asList(s.options).map((o, j) => ({
         id: String(o.id || 'opt-' + i + '-' + j),
         type: OPTION_TYPES.includes(o.type) ? o.type : 'item',
