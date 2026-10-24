@@ -5,6 +5,13 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-24 — Kiosk: a meal deal's picture built from the picks; the shade behind the dish's photo]
+
+- On a meal deal's pages the big picture now builds up as the guest picks. Until the first pick it is the deal's own photo; then each pick pops into a picture of the meal: the first step's pick big in the middle (the wings, split by their flavours once picked), the other steps' picks beside it in turn, smaller and a little further back, and steps set to Small in the corner (dips, sauces) in front. On a picked dish's options page (its flavours) the big picture is that dish; when it's done, the meal comes back with the dish popping in. The order line shows the meal the same way. Cut-out pictures (PNGs on a see-through background) look best; ordinary photos get a small frame. Kiosk design → Layout → **Build a meal deal's picture from the picks** (on unless turned off).
+- On a wide screen the meal deal's picture stays at the top of the side column while the steps scroll under it, and the list of steps moves no further than needed to show the step being picked.
+- Kiosk design → Layout → **Shade behind the dish's photo** (on unless turned off): the quiet shade a split photo had now sits behind every dish photo on its page and in the order, so cut-out pictures keep the same background whether one pick shows or several. Off: no shade, not even behind a split photo. No frame photos get the design's rounded corners while the shade shows.
+- No migration (kiosk design settings).
+
 ## [2026-10-24 — Kiosk: option groups with their own look; option group types for stock]
 
 - Each option group (Menus → Variant groups) can have its own look on kiosks: **Picture style** (Cards, Round, Oval, Hexagons, No frame), **Pictures or words** and **When the options appear** (Fade in, Slide in, Bubble up, Deal like cards...), beside the existing How the options show. Each stays **As the kiosk design says** until picked, so on one dish the flavours can bubble up as a honeycomb while the dips stay small round pictures. A pick shown small in the corner of the dish's photo takes its group's picture style.

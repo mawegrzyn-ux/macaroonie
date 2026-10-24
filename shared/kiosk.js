@@ -11,6 +11,7 @@
 // (Store tech > Kiosks, Menus > Translations) share:
 //   normaliseDesign(), designProblems()   a kiosk design (kiosk_designs.settings)
 //   pickImages()                          the picks' pictures on a dish's photo (split / corner)
+//   bundleParts(), bundleLayout()         a meal deal's picture put together from its picks
 //   itemLevels(), guestFit(), countFits()  allergens, and how dishes suit the
 //                                         allergens and diets a guest picked
 //   KIOSK_LANGUAGES, uiText(), allergenName()   words in the guest's language
@@ -393,6 +394,15 @@ export function normaliseDesign(raw) {
       hero: oneOf(y.hero, HERO_LAYOUTS, 'beside'),
       hero_image_align: oneOf(y.hero_image_align, HERO_ALIGNS, 'center'),
       hero_text_align: oneOf(y.hero_text_align, HERO_ALIGNS, 'center'),
+      // A quiet shade behind the dish's photo on its page and in the order
+      // (kiosk.css data-hero-backdrop), so cut-out pictures sit on the same
+      // background whether one pick shows or several share the photo. Off:
+      // no shade, not even behind a split photo.
+      hero_backdrop: y.hero_backdrop !== false,
+      // A meal deal's picture put together from the picks as they're made
+      // (bundleParts(), BundlePhoto); off, the deal's own photo with each
+      // step's picks on it as the step says (pickImages()).
+      combo_build: y.combo_build !== false,
       // The bar along the top (logo, language); off, the language button
       // moves to the bottom bar.
       header: y.header !== false,
@@ -579,6 +589,142 @@ export function cornerWidths(corner) {
   const room = 100 - 2 * (n - 1)
   const k = sum > room ? room / sum : 1
   return want.map(w => Math.round(w * k * 100) / 100)
+}
+
+// ── A meal deal's picture from its picks ─────────────────────────
+// design.layout.combo_build: a meal deal's picture (its pages and its order
+// line) shows each picked part, put together like a photo of the meal,
+// instead of the deal's own photo (pos/src/kiosk/parts.jsx BundlePhoto).
+
+export const BUNDLE_MAX = 8
+// How wide each kind of part is against the main one.
+const BUNDLE_WEIGHT = { main: 1, side: 0.72, small: 0.36 }
+// Neighbours in the row overlap by this share of the narrower one.
+const BUNDLE_OVERLAP = 0.28
+// How far small parts reach below the line the row stands on, by their height.
+const BUNDLE_BELOW = 0.4
+// Each step away from the middle stands this much further back up the table
+// (by the main part's height).
+const BUNDLE_DEPTH = 0.08
+
+/**
+ * The parts of a meal deal's picture, in step order: every step's picks that
+ * have a picture (the choice's picture for the dish's photo, photo_url, else
+ * the dish's photo or a typed-in choice's own picture), then the picks of
+ * the deal's own option groups that put theirs on its photo
+ * (kiosk_pick_photo). The first step with a picture gives the main part(s); a
+ * step that puts its picks small in the corner (pick_photo 'corner'), and
+ * every corner pick, gives small ones; the rest stand beside the main one. A
+ * picked dish keeps its own split picks on its picture (wings split by their
+ * flavours); its corner picks become small parts. sig changes whenever a
+ * part's picture does, so a changed part comes in again. At most BUNDLE_MAX;
+ * none = the deal keeps its own photo.
+ *   picks  { [stepId]: [{ option_id, item_id, choices }] } (resolveSteps())
+ *   own    the deal's own option groups' picks ({ [key]: [{ id }] })
+ * [{ key, sig, src, split, size: 'main' | 'side' | 'small', item_id }]
+ */
+export function bundleParts(config, item, picks = {}, own = {}) {
+  const combo = comboOf(item)
+  if (!combo) return []
+  const out = []
+  const add = p => {
+    if (p.src && out.length < BUNDLE_MAX) out.push({ ...p, sig: [p.key, p.size, p.src, ...p.split].join('|') })
+  }
+  let mainStep = null
+  for (const st of combo.steps || []) {
+    asList(picks?.[st.id]).forEach((e, i) => {
+      const opt = (st.options || []).find(o => o.id === e.option_id)
+      const dish = e.item_id ? configItem(config, e.item_id) : null
+      const src = opt?.photo_url || (e.item_id ? dish?.image_url : opt?.image_url) || null
+      if (!src) return
+      let size = 'side'
+      if (st.pick_photo === 'corner') size = 'small'
+      else if (mainStep === null || mainStep === st.id) { mainStep = st.id; size = 'main' }
+      const its = dish ? pickImages(config, dish, { choices: e.choices || {} }) : { split: [], corner: [] }
+      const key = 's:' + st.id + ':' + i
+      add({ key, src, split: its.split, size, item_id: dish?.id || null })
+      its.corner.forEach((c, j) => add({ key: key + ':' + j, src: c.src, split: [], size: 'small', item_id: null }))
+    })
+  }
+  const mine = pickImages(config, item, { choices: own || {} })
+  mine.split.forEach((src, j) => add({ key: 'g:' + j, src, split: [], size: 'side', item_id: null }))
+  mine.corner.forEach((c, j) => add({ key: 'gc:' + j, src: c.src, split: [], size: 'small', item_id: null }))
+  return out
+}
+
+/**
+ * The box a meal deal's picture is drawn in, for the dishes' picture style
+ * (design.layout.tiles): its shape (width / height) and the share kept clear
+ * on every side, so a round, oval or hexagon photo doesn't cut parts off.
+ * square: a square box whatever the style (an order line's picture).
+ */
+export function bundleBox(tiles, square = false) {
+  const aspect = square || tiles === 'round' ? 1 : tiles === 'hexagon' ? 0.866 : 4 / 3
+  const inset = { round: 15, oval: 15, hexagon: 17, plain: 0 }[tiles] ?? 3
+  return { aspect, inset }
+}
+
+const r2 = v => Math.round(v * 100) / 100
+
+/**
+ * Where each part of a meal deal's picture goes (bundleParts()), like a photo
+ * of the meal: the main part(s) in the middle of a row, the others beside
+ * them in turn (right, left, right ...), smaller, a little behind and a
+ * little further back up the table; small parts (dips) in front, under the
+ * main part. The whole is as big as fits and centred in the box. Each part
+ * gets a square: { left, top, width, height } in % of the box's width
+ * (left, width) and height (top, height), and z (higher = in front).
+ *   box  { aspect, inset } (bundleBox())
+ */
+export function bundleLayout(parts, { aspect = 4 / 3, inset = 0 } = {}) {
+  const n = (parts || []).length
+  if (!n) return []
+  const size = parts.map(p => (p?.size === 'main' || p?.size === 'small' ? p.size : 'side'))
+  const mains = [], sides = [], smalls = []
+  size.forEach((s, i) => (s === 'main' ? mains : s === 'small' ? smalls : sides).push(i))
+  // Only small parts: they make the row.
+  if (!mains.length && !sides.length) sides.push(...smalls.splice(0))
+  const left = [], right = []
+  sides.forEach((i, k) => (k % 2 ? left : right).push(i))
+  const row = [...left.reverse(), ...mains, ...right]
+  const firstMain = left.length
+  const lastMain = left.length + mains.length - 1
+  // Laid out with the main part 1 wide, y going down from the line the row
+  // stands on; then scaled to fit and centred.
+  const at = new Array(n)
+  let x = 0
+  row.forEach((i, k) => {
+    const w = size[i] === 'main' ? 1 : BUNDLE_WEIGHT.side
+    const far = k < firstMain ? firstMain - k : k > lastMain ? k - lastMain : 0
+    const lift = far * BUNDLE_DEPTH
+    at[i] = { x, y: -lift - w, w, z: 10 - far }
+    const next = row[k + 1]
+    if (next !== undefined) x += w - BUNDLE_OVERLAP * Math.min(w, size[next] === 'main' ? 1 : BUNDLE_WEIGHT.side)
+  })
+  if (smalls.length) {
+    const under = mains.length ? mains : row
+    const mid = (at[under[0]].x + at[under[under.length - 1]].x + at[under[under.length - 1]].w) / 2
+    const w = BUNDLE_WEIGHT.small
+    const gap = w * 0.1
+    const total = smalls.length * w + (smalls.length - 1) * gap
+    smalls.forEach((i, j) => { at[i] = { x: mid - total / 2 + j * (w + gap), y: w * BUNDLE_BELOW - w, w, z: 20 + j } })
+  }
+  const all = at.filter(Boolean)
+  const minX = Math.min(...all.map(p => p.x)), maxX = Math.max(...all.map(p => p.x + p.w))
+  const minY = Math.min(...all.map(p => p.y)), maxY = Math.max(...all.map(p => p.y + p.w))
+  // The box is 100 wide and 100 / aspect tall in these units.
+  const roomW = 100 - 2 * inset
+  const roomH = (100 - 2 * inset) / aspect
+  const u = Math.min(roomW * 0.96 / (maxX - minX), roomH * 0.96 / (maxY - minY))
+  const dx = 50 - ((minX + maxX) / 2) * u
+  const dy = 50 / aspect - ((minY + maxY) / 2) * u
+  return at.map(p => ({
+    left: r2(dx + p.x * u),
+    top: r2((dy + p.y * u) * aspect),
+    width: r2(p.w * u),
+    height: r2(p.w * u * aspect),
+    z: p.z,
+  }))
 }
 
 // Below the kiosk-images cache's maxEntries (pos/vite.config.js), so saving

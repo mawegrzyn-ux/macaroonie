@@ -4,7 +4,7 @@
 
 import { Children, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { UtensilsCrossed, ShoppingBag, Bike, Flame, Star, Circle, Minus, Plus, Delete, ArrowLeft } from 'lucide-react'
-import { hexLayout, cornerWidths } from '@shared/kiosk.js'
+import { hexLayout, cornerWidths, bundleLayout, bundleBox } from '@shared/kiosk.js'
 import { useClear } from './clear.js'
 
 export const cx = (...p) => p.filter(Boolean).join(' ')
@@ -221,6 +221,44 @@ export function CornerPicks({ picks, className, children }) {
       <span className="k-corner-picks" aria-hidden="true">
         {picks.map((c, i) => <Pic key={i + ':' + c.src} src={c.src} className="k-corner-pick" style={{ width: widths[i] + '%' }} data-scale={c.scale ?? undefined} data-tiles={c.tiles || 'cards'} />)}
       </span>
+    </div>
+  )
+}
+
+/**
+ * A meal deal's picture put together from its picks (design.layout
+ * .combo_build; shared/kiosk.js bundleParts(), bundleLayout()): each part's
+ * picture in its own square, cut-out pictures as they are, photos in a small
+ * frame. A part that wasn't there the last time the picture showed (a new
+ * pick, or a dish whose own picks changed) pops in; the others slide over to
+ * make room.
+ *   parts   bundleParts()
+ *   tiles   the dishes' picture style: the box's shape (bundleBox())
+ *   seen    { current: Map sig -> when first shown } kept by the builder
+ *           across its pages, so back on the deal's picture only what's new
+ *           pops in; none = nothing pops (an order line)
+ *   square  a square box whatever the style (an order line)
+ */
+export function BundlePhoto({ parts, tiles = 'cards', seen = null, square = false, className }) {
+  const places = bundleLayout(parts, bundleBox(tiles, square))
+  const now = Date.now()
+  return (
+    <div className={cx('k-bundle', className)} data-testid="k-bundle" data-parts={parts.length}>
+      {parts.map((p, i) => {
+        let fresh = false
+        if (seen) {
+          if (!seen.current.has(p.sig)) seen.current.set(p.sig, now)
+          fresh = now - seen.current.get(p.sig) < 900
+        }
+        const at = places[i]
+        return (
+          <span key={p.sig} className={cx('k-bundle-part', fresh && 'k-bundle-new')} data-testid="k-bundle-part" data-size={p.size}
+            data-item={p.item_id || undefined} data-new={fresh ? '1' : undefined}
+            style={{ left: at.left + '%', top: at.top + '%', width: at.width + '%', height: at.height + '%', zIndex: at.z }}>
+            <PickPhoto picks={{ split: p.split, corner: [] }} src={p.src} label="" className="k-bundle-pic" splitClassName="k-bundle-pic" />
+          </span>
+        )
+      })}
     </div>
   )
 }

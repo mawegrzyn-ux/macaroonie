@@ -617,6 +617,11 @@ and the ConnectSmart Kitchen guide.
   lists the menus with such changes (`menuChanges()`). A kiosk itself always gets the published menu.
 - Split photo (migration 185): option groups and combo steps with it on turn the dish's photo into
   the picks' pictures side by side with torn edges between them (`splitImages()`).
+- A meal deal's picture (design `layout.combo_build`, 24 Oct 2026): from the first pick with a
+  picture, a meal deal's pages and its order line show the picks put together like a photo of the
+  meal instead of the deal's photo (`bundleParts()`, `bundleLayout()` in `shared/kiosk.js`;
+  `BundlePhoto`); each new pick pops in. Design `layout.hero_backdrop`: a shade behind every dish
+  photo on its page and in the order (off: none, not even behind a split photo).
 - Choices: an option group or a combo step shows as grid, list, slider (with a level scale such as
   heat) or spin wheel; the group / step picks, else the design. Options have a picture, a line of
   words and a level 0-5. Since migration 206 a group also has its own picture style, words only and

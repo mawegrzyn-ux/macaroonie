@@ -8,7 +8,7 @@ import assert from 'node:assert/strict'
 import {
   normaliseDesign, designProblems, payMethods, uiText, allergenName, translationSources, TK, pickImages, hexLayout, cornerWidths,
   configImages, MAX_SAVED_PICTURES, guestFit, countFits, cleanPrefs, prefsOn, kioskOrder, basketCheck, kioskStaff, kioskFontsUrl, UI_TEXT, ALLERGEN_NAMES, KIOSK_LANGUAGES, DESIGN_COLORS, CLEAR_COLORS, CHOICE_ENTRANCES,
-  groupLook, ENTRANCE_KEYS,
+  groupLook, ENTRANCE_KEYS, bundleParts, bundleLayout, bundleBox, BUNDLE_MAX,
 } from '../kiosk.js'
 import { VARIATION_TYPES, VARIATION_TYPE_KEYS } from '../procurement.js'
 import { applyEvent, KIOSK_EVENTS } from '../pos/checks.js'
@@ -88,7 +88,7 @@ test('design: layout, section tiles and the spin wheel', () => {
   const plain = normaliseDesign({})
   assert.deepEqual(plain.layout, {
     tiles: 'cards', option_tiles: 'cards', option_pictures: true, option_align: 'left',
-    hero: 'beside', hero_image_align: 'center', hero_text_align: 'center', header: true, icon_buttons: false,
+    hero: 'beside', hero_image_align: 'center', hero_text_align: 'center', hero_backdrop: true, combo_build: true, header: true, icon_buttons: false,
   })
   assert.equal(plain.options.pick_photos, undefined, 'set per option group and step now')
   assert.equal(plain.menu.rail, 'images')
@@ -108,7 +108,7 @@ test('design: layout, section tiles and the spin wheel', () => {
   // Choices keep the dishes' style until the design picks their own.
   assert.deepEqual(d.layout, {
     tiles: 'hexagon', option_tiles: 'hexagon', option_pictures: true, option_align: 'left',
-    hero: 'beside', hero_image_align: 'center', hero_text_align: 'center', header: false, icon_buttons: true,
+    hero: 'beside', hero_image_align: 'center', hero_text_align: 'center', hero_backdrop: true, combo_build: true, header: false, icon_buttons: true,
   })
   assert.equal(d.menu.rail, 'none')
   assert.deepEqual(d.menu.section_tiles, [
@@ -634,6 +634,153 @@ test('option groups with their own look: the design\'s for the group, else the g
 test('variation types: what an option group does to the dish, for stock', () => {
   assert.deepEqual(VARIATION_TYPE_KEYS, ['modification', 'side', 'addition'])
   for (const t of VARIATION_TYPES) assert.ok(t.label && t.hint, t.key)
+})
+
+test('design: the shade behind the dish\'s photo and the meal deal picture from the picks, both on unless turned off', () => {
+  const d = normaliseDesign({})
+  assert.equal(d.layout.hero_backdrop, true)
+  assert.equal(d.layout.combo_build, true)
+  const off = normaliseDesign({ layout: { hero_backdrop: false, combo_build: false } })
+  assert.deepEqual([off.layout.hero_backdrop, off.layout.combo_build], [false, false])
+  // Only false turns them off.
+  const odd = normaliseDesign({ layout: { hero_backdrop: 'no', combo_build: 0 } })
+  assert.deepEqual([odd.layout.hero_backdrop, odd.layout.combo_build], [true, true])
+})
+
+// A meal: dips (small, first, twice), the main (wings split by their flavours, with their own dip), a side, a drink, a note with no picture.
+function mealSetup() {
+  const groups = {
+    [FLAVOUR]: { ...config.groups[FLAVOUR], kiosk_pick_photo: 'split', options: [{ id: LEMON, label: 'Lemon pepper', image_url: '/lemon.png' }, { id: HOT, label: 'Atomic', image_url: '/hot.png', photo_url: '/hot-wings.png' }] },
+    [EXTRAS]: { ...config.groups[EXTRAS], kiosk_pick_photo: 'corner', options: [{ id: DIP, label: 'Ranch', image_url: '/ranch.png' }] },
+  }
+  const items = {
+    ...config.items,
+    [WINGS.id]: { ...config.items[WINGS.id], image_url: '/wings.png', pos_choices: [{ key: FLAVOUR }, { key: EXTRAS }] },
+    [FRIES.id]: { ...config.items[FRIES.id], image_url: '/fries.png' },
+  }
+  const ids = { DIPS: uuid(), DRINK: uuid(), NOTE: uuid(), BLUE: uuid(), COKE: uuid(), WATER: uuid(), PLAIN: uuid(), T1: uuid() }
+  const meal = { ...MEAL, pos_choices: [{ key: EXTRAS }], combo: { steps: [
+    { id: ids.DIPS, name: 'Dip', min: 0, max: 2, repeat: true, pick_photo: 'corner', options: [{ id: ids.BLUE, type: 'custom', label: 'Blue cheese', image_url: '/blue-tile.png', photo_url: '/blue-pot.png' }] },
+    { ...MEAL.combo.steps[0], options: [{ id: M1, type: 'item', item_id: WINGS.id }, { id: ids.T1, type: 'custom', label: 'Tenders' }] },
+    { ...MEAL.combo.steps[1], options: [{ id: S1, type: 'item', item_id: FRIES.id, photo_url: '/fries-cup.png' }] },
+    { id: ids.DRINK, name: 'Drink', min: 1, max: 1, options: [{ id: ids.COKE, type: 'custom', label: 'Cola', image_url: '/cola.png' }, { id: ids.WATER, type: 'custom', label: 'Water' }] },
+    { id: ids.NOTE, name: 'Note', min: 0, max: 1, options: [{ id: ids.PLAIN, type: 'custom', label: 'No ice' }] },
+  ] } }
+  const picks = {
+    [ids.DIPS]: [{ option_id: ids.BLUE, item_id: null }, { option_id: ids.BLUE, item_id: null }],
+    [MAIN]: [{ option_id: M1, item_id: WINGS.id, choices: { [FLAVOUR]: [{ id: HOT }, { id: LEMON }], [EXTRAS]: [{ id: DIP }] } }],
+    [SIDE]: [{ option_id: S1, item_id: FRIES.id }],
+    [ids.DRINK]: [{ option_id: ids.COKE, item_id: null }],
+    [ids.NOTE]: [{ option_id: ids.PLAIN, item_id: null }],
+  }
+  return { cfg: { ...config, groups, items }, meal, picks, ids }
+}
+
+test('meal deal picture: every step\'s picks with a picture, the first step big, corner steps small', () => {
+  const { cfg, meal, picks, ids } = mealSetup()
+  const parts = bundleParts(cfg, meal, picks, { [EXTRAS]: [{ id: DIP }] })
+  assert.deepEqual(parts.map(p => [p.size, p.src, p.split.join('+'), p.item_id]), [
+    // The dip step comes first but is set to the corner: small, once per pick, its picture for the meal.
+    ['small', '/blue-pot.png', '', null],
+    ['small', '/blue-pot.png', '', null],
+    // The first step with a picture that isn't small: the wings, split by their flavours (a flavour's picture for the dish first) ...
+    ['main', '/wings.png', '/hot-wings.png+/lemon.png', WINGS.id],
+    // ... their own corner pick small beside them.
+    ['small', '/ranch.png', '', null],
+    // The side's picture for the meal wins over the dish's photo; a typed-in choice shows its own picture.
+    ['side', '/fries-cup.png', '', FRIES.id],
+    ['side', '/cola.png', '', null],
+    // No ice has no picture: left out. The deal's own corner pick last.
+    ['small', '/ranch.png', '', null],
+  ])
+  assert.equal(new Set(parts.map(p => p.sig)).size, parts.length, 'every part has its own sig')
+
+  // New flavours: only the wings change.
+  const again = bundleParts(cfg, meal, { ...picks, [MAIN]: [{ ...picks[MAIN][0], choices: { [FLAVOUR]: [{ id: LEMON }] } }] }, { [EXTRAS]: [{ id: DIP }] })
+  const wingsNow = again.find(p => p.item_id === WINGS.id)
+  const wingsBefore = parts.find(p => p.item_id === WINGS.id)
+  assert.notEqual(wingsNow.sig, wingsBefore.sig, 'the wings come in again')
+  assert.deepEqual(wingsNow.split, ['/lemon.png'])
+  assert.equal(again.find(p => p.src === '/cola.png').sig, parts.find(p => p.src === '/cola.png').sig, 'the drink is the same part')
+  assert.equal(again.filter(p => p.src === '/ranch.png').length, 1, 'no flavour or dip on the wings now: only the deal\'s own dip')
+
+  // A main pick without a picture: the next step's pick is the big one.
+  const noPic = bundleParts(cfg, meal, { [MAIN]: [{ option_id: ids.T1, item_id: null }], [SIDE]: [{ option_id: S1, item_id: FRIES.id }], [ids.DRINK]: [{ option_id: ids.COKE, item_id: null }] })
+  assert.deepEqual(noPic.map(p => [p.size, p.src]), [['main', '/fries-cup.png'], ['side', '/cola.png']])
+  // A picked dish without a photo is left out.
+  const bare = { ...cfg, items: { ...cfg.items, [WINGS.id]: { ...cfg.items[WINGS.id], image_url: null } } }
+  assert.equal(bundleParts(bare, meal, { [MAIN]: picks[MAIN] }).filter(p => p.item_id === WINGS.id).length, 0)
+  // Nothing picked, or not a meal deal: nothing to build (the deal keeps its photo).
+  assert.deepEqual(bundleParts(cfg, meal, {}), [])
+  assert.deepEqual(bundleParts(cfg, cfg.items[WINGS.id], picks), [])
+  assert.deepEqual(bundleParts(cfg, null, picks), [])
+  // At most BUNDLE_MAX.
+  const many = bundleParts(cfg, meal, { [ids.DIPS]: Array.from({ length: 12 }, () => ({ option_id: ids.BLUE, item_id: null })) })
+  assert.equal(many.length, BUNDLE_MAX)
+})
+
+test('meal deal picture: laid out like a photo of the meal, inside the box', () => {
+  const P = (...sizes) => sizes.map(size => ({ size }))
+  assert.deepEqual(bundleLayout([]), [])
+  assert.deepEqual(bundleBox('cards'), { aspect: 4 / 3, inset: 3 })
+  assert.deepEqual(bundleBox('round'), { aspect: 1, inset: 15 })
+  assert.deepEqual(bundleBox('hexagon'), { aspect: 0.866, inset: 17 })
+  assert.deepEqual(bundleBox('plain'), { aspect: 4 / 3, inset: 0 })
+  assert.equal(bundleBox('cards', true).aspect, 1, 'an order line is square')
+  const right = p => p.left + p.width
+  const bottom = p => p.top + p.height
+
+  // One part: centred.
+  const [one] = bundleLayout(P('main'), bundleBox('cards'))
+  assert.ok(Math.abs(one.left + one.width / 2 - 50) < 0.05 && Math.abs(one.top + one.height / 2 - 50) < 0.05, JSON.stringify(one))
+
+  // Main and two sides: the first side to the right, the second to the left, smaller, a little further back, the whole centred.
+  const [m, s1, s2] = bundleLayout(P('main', 'side', 'side'), bundleBox('cards'))
+  assert.ok(s1.left > m.left && s2.left < m.left, 'right, then left')
+  assert.ok(m.width > s1.width && s1.width === s2.width)
+  assert.ok(Math.abs(bottom(s1) - bottom(s2)) < 0.05, 'the sides stand on one line')
+  assert.ok(Math.abs(bottom(m) - bottom(s1) - 0.08 * m.height) < 0.1, 'a little further back up the table than the main')
+  assert.ok(right(s2) > m.left && right(m) > s1.left, 'neighbours overlap a little')
+  assert.ok(Math.abs((s2.left + right(s1)) / 2 - 50) < 0.05, 'centred across')
+  const three = [m, s1, s2]
+  assert.ok(Math.abs((Math.min(...three.map(p => p.top)) + Math.max(...three.map(bottom))) / 2 - 50) < 0.05, 'centred top to bottom')
+  assert.ok(m.z > s1.z && m.z > s2.z, 'the main in front of its neighbours')
+  // Further out, further back.
+  const five = bundleLayout(P('main', 'side', 'side', 'side', 'side'), bundleBox('cards'))
+  assert.ok(bottom(five[3]) < bottom(five[1]) && five[3].z < five[1].z && five[3].left > five[1].left, 'the third side behind the first, further right')
+  // Squares in the box's shape.
+  assert.ok(Math.abs(m.height - m.width * 4 / 3) < 0.05)
+
+  // Small parts in front, under the main, reaching below the row's line.
+  const l = bundleLayout(P('main', 'side', 'small', 'small'), bundleBox('cards'))
+  const [lm, , d1, d2] = l
+  assert.ok(d1.z > lm.z && d2.z > lm.z)
+  assert.ok(d1.width < l[1].width && d1.width === d2.width)
+  assert.ok(bottom(d1) > bottom(lm), 'in front')
+  assert.ok(Math.abs((d1.left + right(d2)) / 2 - (lm.left + lm.width / 2)) < 0.05, 'under the main')
+  assert.ok(d2.left > right(d1), 'side by side with a gap')
+
+  // Only small parts: they make the row.
+  const smalls = bundleLayout(P('small', 'small'), bundleBox('cards'))
+  assert.ok(smalls[0].width === smalls[1].width && Math.abs(bottom(smalls[0]) - bottom(smalls[1])) < 0.05)
+
+  // Every mix, every shape: inside the box.
+  const kinds = ['main', 'side', 'small']
+  for (const tiles of ['cards', 'round', 'oval', 'hexagon', 'plain']) {
+    for (const square of [false, true]) {
+      const box = bundleBox(tiles, square)
+      for (let n = 1; n <= BUNDLE_MAX; n++) {
+        for (let seed = 0; seed < 12; seed++) {
+          const parts = Array.from({ length: n }, (_, i) => ({ size: kinds[(i * 7 + seed * 3 + (i === 0 ? 0 : seed)) % 3] }))
+          for (const p of bundleLayout(parts, box)) {
+            assert.ok(p.left >= box.inset - 0.01 && p.top >= box.inset - 0.01 && right(p) <= 100 - box.inset + 0.01 && bottom(p) <= 100 - box.inset + 0.01,
+              tiles + (square ? ' square ' : ' ') + parts.map(x => x.size).join(',') + ' ' + JSON.stringify(p))
+            assert.ok(p.width > 0 && Math.abs(p.height - p.width * box.aspect) < 0.05)
+          }
+        }
+      }
+    }
+  }
 })
 
 test('guest picks: which dishes suit the allergens and diets a guest picked', () => {

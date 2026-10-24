@@ -574,6 +574,16 @@ function LayoutPanel({ d, set }) {
           </div>
         )}
       </Field>
+      <div data-testid="kd-hero-backdrop">
+        <Toggle label="Shade behind the dish's photo"
+          hint="A quiet shade behind the dish's photo on its page and in the order, so cut-out pictures (PNGs on a see-through background) sit on the same background whether one pick shows or several share the photo. Off: the page's own background, even behind a split photo."
+          checked={y.hero_backdrop} onChange={v => set('layout', { hero_backdrop: v })} />
+      </div>
+      <div data-testid="kd-combo-build">
+        <Toggle label="Build a meal deal's picture from the picks"
+          hint="On a meal deal's pages its picture shows each part as it's picked, put together like a photo of the meal: the first step's pick big in the middle, the others beside it, steps set to Small in the corner in front. Before the first pick, or with this off, the deal's own photo with each step's picks on it as the step says."
+          checked={y.combo_build} onChange={v => set('layout', { combo_build: v })} />
+      </div>
     </>
   )
 }
@@ -1245,7 +1255,8 @@ const PANELS = [
 
 function summaryOf(id, d) {
   if (id === 'brand') return d.brand.font_heading + ' / ' + d.brand.font_body
-  if (id === 'layout') return [d.layout.header ? 'Top bar' : 'No top bar', d.layout.icon_buttons ? 'icon buttons' : null, d.layout.hero === 'stacked' ? 'dish photo on top' : null].filter(Boolean).join(', ')
+  if (id === 'layout') return [d.layout.header ? 'Top bar' : 'No top bar', d.layout.icon_buttons ? 'icon buttons' : null, d.layout.hero === 'stacked' ? 'dish photo on top' : null,
+    d.layout.hero_backdrop ? null : 'no shade behind photos', d.layout.combo_build ? null : 'meal deals keep their photo'].filter(Boolean).join(', ')
   if (id === 'start') return (d.start.media.length ? d.start.media.length + ' picture' + (d.start.media.length === 1 ? '' : 's') : 'No pictures') + ', ' + (d.start.layout === 'full' ? 'pictures behind' : 'pictures apart')
   if (id === 'languages') return d.languages.enabled.map(c => KIOSK_LANGUAGES.find(l => l.code === c)?.name).join(', ')
   if (id === 'menu') return TILE_LABELS[d.layout.tiles] + ', ' + (d.menu.rail === 'none' ? 'section tiles, ' : '') + (d.menu.home ? d.menu.banners.length + ' banners, ' + d.menu.featured.length + ' tiles' : 'No home page') + (d.menu.hidden_section_ids.length ? ', ' + d.menu.hidden_section_ids.length + ' sections left off' : '')
