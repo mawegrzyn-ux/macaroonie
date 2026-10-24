@@ -4,7 +4,10 @@
 // (grid, list, slider, wheel), then the picked dish's own options, then a
 // last page with everything picked. The steps show down the side (or along
 // the top on a portrait screen), each done one with its pick's picture and
-// name; how far along shows beside Continue.
+// name; how far along shows beside Continue. Every combo page has the big
+// picture a dish's page has (Hero, following the design's dish page
+// layout): the picked dish's own photo and words on its options page, else
+// the deal's photo with the picks each step puts on it.
 // Pricing and the rules are the till's: shared/pos/pricing.js priceItem().
 // Each group or step says where its picks' pictures go on the dish's photo
 // as they're picked (shared/kiosk.js pickImages()): side by side (one pick:
@@ -152,14 +155,19 @@ export function heroTextAlign(design) {
 // (portrait): the photo on top, lined up left, centre or right
 // (hero_image_align), the words under it (hero_text_align). Landscape (side):
 // the photo above the words in a column of their own, the choices beside them.
-function Hero({ item, config, ctx, texts, side = false, split = null }) {
+// A combo's pages use it too: price = null leaves the price out (the running
+// price is in the top bar), a price node shows that instead of the dish's
+// own, and note is a line under the name ("In Burger meal").
+function Hero({ item, config, ctx, texts, side = false, split = null, price, note = null }) {
   const name = texts.itemName(item)
   const desc = item.description ? texts.t(TK.item(item.id, 'description'), item.description) : null
   const y = config.design.layout
   const stacked = !side && y.hero === 'stacked'
   const align = heroTextAlign(config.design)
+  const shownPrice = price === undefined ? priceLabel(item, config, ctx, texts) : price
+  const calories = config.design.menu.show_calories && item.calories != null
   return (
-    <div className={cx('flex gap-[var(--k-pad)]', side || stacked ? 'flex-col' : 'items-start')} data-testid="k-hero"
+    <div className={cx('flex gap-[var(--k-pad)]', side || stacked ? 'flex-col' : 'items-start')} data-testid="k-hero" data-item={item.id}
       data-hero={side ? 'side' : y.hero} data-image-align={stacked ? y.hero_image_align : undefined} data-text-align={align}>
       <div className={cx('k-hero-img shrink-0 overflow-hidden rounded-[var(--k-radius)]', side ? 'w-full' : stacked ? 'w-[min(64%,560px)] ' + SELF[y.hero_image_align] : 'w-[38%] max-w-[480px]')}
         data-testid="k-hero-img">
@@ -168,12 +176,15 @@ function Hero({ item, config, ctx, texts, side = false, split = null }) {
       </div>
       <div className={cx('flex flex-col gap-[.5em] min-w-0 flex-1', alignCls(align))} data-testid="k-hero-words">
         <h2 className="k-head text-[1.9em] m-0">{name}</h2>
+        {note && <div className="k-muted font-semibold" data-testid="k-hero-note">{note}</div>}
         <DietaryBadges item={item} config={config} texts={texts} />
         {desc && config.design.menu.show_descriptions && <p className="m-0 k-muted">{desc}</p>}
-        <div className="flex items-center gap-[1em] flex-wrap">
-          <span className="k-price text-[1.4em]">{priceLabel(item, config, ctx, texts)}</span>
-          {config.design.menu.show_calories && item.calories != null && <span className="k-muted">{texts.ui('kcal', { n: item.calories })}</span>}
-        </div>
+        {(shownPrice || calories) && (
+          <div className="flex items-center gap-[1em] flex-wrap">
+            {shownPrice && <span className="k-price text-[1.4em]">{shownPrice}</span>}
+            {calories && <span className="k-muted">{texts.ui('kcal', { n: item.calories })}</span>}
+          </div>
+        )}
         <AllergenLine item={item} config={config} texts={texts} className="k-muted" />
         <HeroFit item={item} config={config} texts={texts} />
       </div>
@@ -489,6 +500,23 @@ function ComboBuilder({ item, config, ctx, texts, builder }) {
   const split = pickImages(config, item, { ...sel, combo: picks })
   const header = config.design.layout.header
   const priceNow = total != null ? money(total) : priceLabel(item, config, ctx, texts)
+  // The big picture on this page, drawn as a dish's page draws its own
+  // (Hero: beside or on top of the words upright, its own column on a wide
+  // screen): the picked dish on its options page, with its own picks on its
+  // photo; else the deal, with the picks each step puts on its photo. The
+  // running price shows once: in the top bar, or with the header off in the
+  // deal's hero, or above a picked dish's hero (k-combo-head).
+  const comboPrice = header ? null : <span data-testid="k-combo-price">{priceNow}</span>
+  const subject = page.kind === 'part'
+    ? { item: page.part, split: pickImages(config, page.part, { choices: page.entry.choices || {} }), price: null, note: ui('in_deal', { name: texts.itemName(item) }) }
+    : { item, split, price: comboPrice, note: null }
+  const hero = side => <Hero item={subject.item} config={config} ctx={ctx} texts={texts} side={side} split={subject.split} price={subject.price} note={subject.note} />
+  const comboHead = !header && subject.item !== item && (
+    <div className="flex items-center gap-[var(--k-gap)]" data-testid="k-combo-head">
+      <span className="k-head text-[1.3em] flex-1 min-w-0 truncate">{texts.itemName(item)}</span>
+      <span className="k-price text-[1.3em]" data-testid="k-combo-price">{priceNow}</span>
+    </div>
+  )
   // The step being shown stays in sight in the list of steps; the page itself starts at the top.
   const rail = useRef(null)
   const body = useRef(null)
@@ -504,19 +532,7 @@ function ComboBuilder({ item, config, ctx, texts, builder }) {
         right={<span className="k-price text-[1.2em]">{priceNow}</span>} />
       <div className="flex-1 min-h-0 flex landscape:flex-row flex-col">
         <aside ref={rail} className={cx('shrink-0 bg-[var(--k-surface)] flex', portrait ? 'flex-row items-center gap-[var(--k-gap)] px-[var(--k-pad)] py-[var(--k-gap)] k-hscroll border-b-2 border-[var(--k-line)]' : 'flex-col w-[30%] max-w-[420px] k-scroll p-[var(--k-pad)] gap-[var(--k-gap)] border-r-2 border-[var(--k-line)]')}>
-          {!portrait && (
-            <div className={cx('flex flex-col gap-[.4em] mb-[.4em]', alignCls(heroTextAlign(config.design)))}>
-              <div className="k-hero-img overflow-hidden rounded-[var(--k-radius)] w-full">
-                <PickPhoto picks={split} src={item.image_url} label={texts.itemName(item)} className="w-full aspect-[4/3] object-cover" phClassName="k-item-ph"
-                  splitClassName="w-full aspect-[4/3]" />
-              </div>
-              <div className="k-head text-[1.5em]">{texts.itemName(item)}</div>
-              {!header && <div className="k-price text-[1.3em]" data-testid="k-combo-price">{priceNow}</div>}
-              {item.description && <div className="k-muted text-[.85em]">{t(TK.item(item.id, 'description'), item.description)}</div>}
-              <AllergenLine item={item} config={config} texts={texts} className="k-muted" />
-              <HeroFit item={item} config={config} texts={texts} />
-            </div>
-          )}
+          {!portrait && <div className="mb-[.4em]">{hero(true)}</div>}
           {steps.map((x, i) => {
             const done = complete(x) && (x.kind !== 'step' || (picks[x.st.step.id] || []).length > 0 || x.st.step.min === 0)
             const tab = cx('flex text-left rounded-[calc(var(--k-radius)/1.5)] border-2 shrink-0',
@@ -566,25 +582,8 @@ function ComboBuilder({ item, config, ctx, texts, builder }) {
           })}
         </aside>
         <main ref={body} className="flex-1 min-w-0 min-h-0 k-scroll p-[var(--k-pad)] flex flex-col gap-[var(--k-gap)]">
-          {/* No bar along the top: on an upright screen the combo's name and price go here. */}
-          {!header && portrait && (
-            <div className="flex items-center gap-[var(--k-gap)]" data-testid="k-combo-head">
-              {(split.split.length + split.corner.length) > 0 && (
-                <div className="k-hero-img w-[5.5em] shrink-0 overflow-hidden rounded-[calc(var(--k-radius)/1.5)]">
-                  <PickPhoto picks={split} src={item.image_url} label={texts.itemName(item)} className="w-full aspect-[4/3] object-cover" phClassName="k-item-ph"
-                    splitClassName="w-full aspect-[4/3]" />
-                </div>
-              )}
-              <span className="k-head text-[1.4em] flex-1 min-w-0">{texts.itemName(item)}</span>
-              <span className="k-price text-[1.3em]" data-testid="k-combo-price">{priceNow}</span>
-            </div>
-          )}
-          {header && portrait && (split.split.length + split.corner.length) > 0 && page.kind === 'review' && (
-            <div className="k-hero-img w-[min(60%,420px)] overflow-hidden rounded-[var(--k-radius)]">
-              <PickPhoto picks={split} src={item.image_url} label={texts.itemName(item)} className="w-full aspect-[4/3] object-cover" phClassName="k-item-ph"
-                splitClassName="w-full aspect-[4/3]" />
-            </div>
-          )}
+          {comboHead}
+          {portrait && <div className="mb-[calc(var(--k-pad)*0.4)]">{hero(false)}</div>}
           {/* The page's name just above its choices; how far along shows beside Continue. */}
           <div className={cx('flex items-baseline gap-[.6em] flex-wrap', isStep && look.center && 'justify-center text-center')} data-testid="k-page-head">
             <h2 className="k-head text-[1.8em] m-0" data-testid="k-page-title">{pageTitle(page)}</h2>

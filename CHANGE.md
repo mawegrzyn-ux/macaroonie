@@ -5,6 +5,11 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-24 — Kiosk meal deals: the big picture on every page]
+
+- A meal deal's pages on the kiosk now show the big picture a dish's page shows, following the design's **Top of a dish's page** setting (the photo beside the words, or on top lined up left, centre or right; the column down the side on a wide screen): the deal's photo and words on its steps and last page, with the picks each step puts on the photo, and on a picked dish's own options page that dish's photo, description, calories and allergens with "In Burger meal" under its name. Before, an upright kiosk showed no picture on a deal's pages, and a picked dish never showed big.
+- The running price shows once: in the bar along the top, or with the bar off in the deal's picture block (above a picked dish's page as a line with the deal's name). Words in all nine kiosk languages. No migration.
+
 ## [2026-10-24 — Kiosk allergens screen: pick, count, marked on the menu]
 
 - The kiosk's **Allergens** screen no longer lists every dish. It shows your allergen notice (Menus → Allergens & dietary), then **Allergens to avoid** and **Dietary choices** (the diets your dishes carry) as big tick boxes, and says how many dishes suit the guest as they tick ("12 of 40 dishes suit you").
