@@ -6,7 +6,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  normaliseDesign, designProblems, payMethods, uiText, allergenName, translationSources, TK, pickImages, hexLayout,
+  normaliseDesign, designProblems, payMethods, uiText, allergenName, translationSources, TK, pickImages, hexLayout, cornerWidths,
   configImages, MAX_SAVED_PICTURES, guestFit, countFits, cleanPrefs, prefsOn, kioskOrder, basketCheck, kioskStaff, kioskFontsUrl, UI_TEXT, ALLERGEN_NAMES, KIOSK_LANGUAGES, DESIGN_COLORS, CLEAR_COLORS, CHOICE_ENTRANCES,
 } from '../kiosk.js'
 import { applyEvent, KIOSK_EVENTS } from '../pos/checks.js'
@@ -276,9 +276,9 @@ test('pick photos: the flavours split the photo, the dip small in the corner', (
   const dish = { ...WINGS, pos_choices: [{ key: FLAVOUR }, { key: EXTRAS }] }
   const cfg = { ...config, groups }
   assert.deepEqual(pickImages(cfg, dish, { choices: { [FLAVOUR]: [{ id: HOT }, { id: LEMON }], [EXTRAS]: [{ id: DIP }] } }),
-    { split: ['/hot.jpg', '/lemon.jpg'], corner: ['/ranch-pot.png'] })
+    { split: ['/hot.jpg', '/lemon.jpg'], corner: [{ src: '/ranch-pot.png', scale: null }] })
   // Only the dip picked: the dish's own photo with the dip in the corner.
-  assert.deepEqual(pickImages(cfg, dish, { choices: { [EXTRAS]: [{ id: DIP }] } }), { split: [], corner: ['/ranch-pot.png'] })
+  assert.deepEqual(pickImages(cfg, dish, { choices: { [EXTRAS]: [{ id: DIP }] } }), { split: [], corner: [{ src: '/ranch-pot.png', scale: null }] })
   // Combo steps the same: the main splits, the drink in the corner.
   const C1 = uuid(), C2 = uuid()
   const meal = { ...MEAL, pos_choices: [], combo: { steps: [
@@ -286,7 +286,40 @@ test('pick photos: the flavours split the photo, the dip small in the corner', (
     { ...MEAL.combo.steps[1], pick_photo: 'corner', options: [{ id: C2, type: 'custom', label: 'Cola', image_url: '/cola.png' }] },
   ] } }
   assert.deepEqual(pickImages(config, meal, { choices: {}, combo: { [MAIN]: [{ option_id: C1, item_id: null }], [SIDE]: [{ option_id: C2, item_id: null }] } }),
-    { split: ['/tenders.jpg'], corner: ['/cola.png'] })
+    { split: ['/tenders.jpg'], corner: [{ src: '/cola.png', scale: null }] })
+})
+
+test('corner pictures: each group or step sets their size as a share of the photo', () => {
+  const groups = {
+    [EXTRAS]: { ...config.groups[EXTRAS], kiosk_pick_photo: 'corner', kiosk_pick_scale: 40, options: [{ id: DIP, label: 'Ranch', image_url: '/ranch.png' }] },
+  }
+  const dish = { ...WINGS, pos_choices: [{ key: EXTRAS }] }
+  assert.deepEqual(pickImages({ ...config, groups }, dish, { choices: { [EXTRAS]: [{ id: DIP }] } }).corner, [{ src: '/ranch.png', scale: 40 }])
+  // A size out of range or not whole counts as automatic.
+  for (const bad of [5, 71, 25.5, '30', null]) {
+    const g = { [EXTRAS]: { ...groups[EXTRAS], kiosk_pick_scale: bad } }
+    assert.equal(pickImages({ ...config, groups: g }, dish, { choices: { [EXTRAS]: [{ id: DIP }] } }).corner[0].scale, bad === '30' ? 30 : null, String(bad))
+  }
+  // A combo step's pick_scale.
+  const C2 = uuid()
+  const meal = { ...MEAL, pos_choices: [], combo: { steps: [
+    { ...MEAL.combo.steps[1], pick_photo: 'corner', pick_scale: 55, options: [{ id: C2, type: 'custom', label: 'Cola', image_url: '/cola.png' }] },
+  ] } }
+  assert.deepEqual(pickImages(config, meal, { choices: {}, combo: { [MEAL.combo.steps[1].id]: [{ option_id: C2, item_id: null }] } }).corner, [{ src: '/cola.png', scale: 55 }])
+
+  // Widths along the strip (92% of the photo): a set size is its share of the photo.
+  assert.deepEqual(cornerWidths([{ scale: null }]), [26], 'automatic: as before')
+  assert.deepEqual(cornerWidths([{ scale: 46 }]), [50], '46% of the photo is half the strip')
+  const [a, b] = cornerWidths([{ scale: 23 }, { scale: null }])
+  assert.equal(a, 25)
+  assert.equal(b, 26)
+  // Too big to fit side by side: all shrink by one factor, gaps kept.
+  const big = cornerWidths([{ scale: 70 }, { scale: 70 }])
+  assert.ok(Math.abs(big[0] + big[1] + 2 - 100) < 0.05, 'they fill the strip with the gap')
+  assert.equal(big[0], big[1])
+  const three = cornerWidths([{ scale: 60 }, { scale: 20 }, { scale: null }])
+  assert.ok(three[0] > three[2] && three[2] > three[1], 'the order of sizes is kept')
+  assert.deepEqual(cornerWidths([]), [])
 })
 
 test('design: pictures or videos above the kiosk while the reach button has slid it down', () => {

@@ -38,7 +38,7 @@ import { cn } from '@/lib/utils'
 import { normaliseCombo, comboFromPrice, comboProblems, sectionItemsOf, stepRule, stepChoices, STEP_DISPLAYS } from '@shared/combos.js'
 import { DISPLAY_LABELS } from '@shared/kiosk.js'
 import { OptionPicture } from './VariantGroupsManager'
-import { Field, Input, PriceInput, formatPrice } from './shared'
+import { Field, Input, PriceInput, formatPrice, PickScale } from './shared'
 
 const newId = () => (crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
   const r = Math.random() * 16 | 0
@@ -64,6 +64,7 @@ export function comboPayload(item) {
         display: STEP_DISPLAYS.includes(s.display) ? s.display : null,
         // Sent only when on: a step saved without it isn't a change to publish.
         ...(s.pick_photo ? { pick_photo: s.pick_photo } : {}),
+        ...(s.pick_photo === 'corner' && s.pick_scale ? { pick_scale: s.pick_scale } : {}),
         options: (s.options || []).filter(o => (o.type === 'custom' ? (o.label || '').trim() : o.item_id || o.section_id)).map(o => ({
           id: o.id, type: o.type,
           item_id: o.type === 'item' ? o.item_id : null,
@@ -368,7 +369,10 @@ function StepCard({ step, index, steps, itemIndex, readOnly, handle, open, onTog
                   </button>
                 ))}
               </div>
-              <p className="text-[11px] text-muted-foreground">Split: one pick's picture in place of the photo, several side by side with a torn edge (with the other split steps). Corner: small in the photo's corner. Each choice's On meal picture is used (else its tile picture, or the dish's own photo).</p>
+              {step.pick_photo === 'corner' && (
+                <PickScale value={step.pick_scale ?? null} onChange={v => onChange({ pick_scale: v })} testid="combo-step-pick-scale" />
+              )}
+              <p className="text-[11px] text-muted-foreground">Split: one pick's picture in place of the photo, several side by side with a torn edge (with the other split steps). Corner: small in the photo's corner, at its Size in the corner. Each choice's On meal picture is used (else its tile picture, or the dish's own photo).</p>
             </div>
           </Field>
           {earlier.length > 0 && (

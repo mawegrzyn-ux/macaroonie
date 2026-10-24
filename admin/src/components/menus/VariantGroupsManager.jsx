@@ -29,7 +29,7 @@ import { Plus, Trash2, X, Loader2, Layers, GripVertical, Copy } from 'lucide-rea
 import { KIOSK_DISPLAYS, DISPLAY_LABELS } from '@shared/kiosk.js'
 import { useApi } from '@/lib/api'
 import { PicturePick } from '@/components/media/PicturePick'
-import { Field, Input, Btn, PriceInput } from './shared'
+import { Field, Input, Btn, PriceInput, PickScale } from './shared'
 
 let keySeq = 0
 const newKey = () => 'o' + (++keySeq) + '-' + Date.now().toString(36)
@@ -38,7 +38,7 @@ const newOption = () => ({ _key: newKey(), label: '', price_pence: 0, child_grou
 function emptyGroup() {
   return {
     name: '', display_name: '', price_mode: 'base', min_select: 1, max_select: 1, pos_prefixes: false, allow_repeat: false, on_request: false,
-    kiosk_display: null, scale_low: '', scale_high: '', kiosk_pick_photo: null, options: [newOption()],
+    kiosk_display: null, scale_low: '', scale_high: '', kiosk_pick_photo: null, kiosk_pick_scale: null, options: [newOption()],
   }
 }
 
@@ -128,6 +128,7 @@ export function VariantGroupsManager() {
         scale_low: (draft.scale_low || '').trim() || null,
         scale_high: (draft.scale_high || '').trim() || null,
         kiosk_pick_photo: draft.kiosk_pick_photo || null,
+        kiosk_pick_scale: draft.kiosk_pick_photo === 'corner' ? (draft.kiosk_pick_scale ?? null) : null,
         sort_order: draft.id ? (groups.find(g => g.id === draft.id)?.sort_order ?? 0) : groups.length,
         options: (draft.options || [])
           .filter(o => o.label.trim())
@@ -186,6 +187,7 @@ export function VariantGroupsManager() {
       scale_low: g.scale_low || '',
       scale_high: g.scale_high || '',
       kiosk_pick_photo: g.kiosk_pick_photo || null,
+      kiosk_pick_scale: g.kiosk_pick_scale ?? null,
       options: (g.options || []).map(o => ({ ...o, _key: o.id || newKey(), description: o.description || '' })),
     })
   }
@@ -363,10 +365,13 @@ export function VariantGroupsManager() {
                   </button>
                 ))}
               </div>
+              {draft.kiosk_pick_photo === 'corner' && (
+                <PickScale value={draft.kiosk_pick_scale ?? null} onChange={v => setDraft(d => ({ ...d, kiosk_pick_scale: v }))} testid="vg-pick-scale" />
+              )}
               <p className="text-[11px] text-muted-foreground">
                 The picks' pictures show on the dish's photo as the guest picks, also on the order line. Each group decides, so a dish can split its photo between the flavours and show the dip small in the corner.
                 Split the photo: one pick's picture takes the photo's place; two or more show side by side with a torn edge between them (three picks: the left third of the first, the middle of the second, the right third of the third), so give every option a picture of the same shape (the same dish, made each way).
-                Small in the corner: each pick's picture small in the photo's corner, on top of the photo (split or not).
+                Small in the corner: each pick's picture small in the photo's corner, on top of the photo (split or not), at its Size in the corner.
                 Each option's On dish picture is the one used here (its Tile picture when it has none), so the tile can be a cut-out of the choice and the On dish picture the dish made that way.
               </p>
             </div>

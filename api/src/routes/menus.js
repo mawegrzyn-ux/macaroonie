@@ -35,6 +35,7 @@ import { FONT_OPTIONS } from '../../../shared/fonts.js'
 import { ALLERGEN_LEVELS, allergenKey, menuTags, noticeOf } from '../../../shared/menuTags.js'
 import { cleanTax } from '../../../shared/tax.js'
 import { comboMenuPrice } from '../../../shared/orderPricing.js'
+import { PICK_SCALE_MIN, PICK_SCALE_MAX } from '../../../shared/combos.js'
 import { taxLookups, checkTaxSetting } from '../services/taxSvc.js'
 import { translationSources, saveTranslations, aiTranslate, checkLang, AI_BATCH } from '../services/translationSvc.js'
 import { chatConfigured } from '../ai/apiKey.js'
@@ -98,6 +99,9 @@ const ComboStep = z.object({
   // corner, migration 201). Stored only when set (cleanCombo()), so steps
   // without it don't read as changed.
   pick_photo: z.enum(['split', 'corner']).nullable().optional(),
+  // The size of corner pictures, % of the photo's width (migration 205);
+  // kept only with pick_photo 'corner' (cleanCombo()).
+  pick_scale: z.number().int().min(PICK_SCALE_MIN).max(PICK_SCALE_MAX).nullable().optional(),
   options: z.array(ComboOption).max(200).default([]),
 })
 const ComboBody = z.object({
@@ -349,6 +353,8 @@ const VariantGroupBody = z.object({
   // Migration 201: where the picks' pictures go on the dish's photo on
   // kiosks: shared (split), small in its corner, or not on it (null).
   kiosk_pick_photo: z.enum(['split', 'corner']).nullable().default(null),
+  // Migration 205: corner pictures' size, % of the photo's width (null = automatic).
+  kiosk_pick_scale: z.number().int().min(PICK_SCALE_MIN).max(PICK_SCALE_MAX).nullable().default(null),
   options:    z.array(VariantOptionBody).default([]),
 })
 
@@ -684,8 +690,9 @@ function checkMenuTax(body, lookups) {
 function cleanCombo(combo, selfId, itemKinds, sectionIds) {
   if (!combo) return null
   const steps = []
-  for (const { pick_photo, ...st } of combo.steps || []) {
+  for (const { pick_photo, pick_scale, ...st } of combo.steps || []) {
     if (pick_photo) st.pick_photo = pick_photo
+    if (pick_photo === 'corner' && pick_scale) st.pick_scale = pick_scale
     const options = (st.options || []).filter(o =>
       o.type === 'custom' ? !!(o.label || '').trim()
         : o.type === 'item' ? (o.item_id !== selfId && itemKinds.get(o.item_id) === 'dish')
@@ -1590,11 +1597,12 @@ export default async function menusRoutes(app) {
     const row = await withTenant(req.tenantId, async tx => {
       const [g] = await tx`
         INSERT INTO menu_variant_groups (tenant_id, name, display_name, sort_order, price_mode, min_select, max_select, pos_prefixes, allow_repeat, on_request,
-                                         kiosk_display, scale_low, scale_high, kiosk_pick_photo)
+                                         kiosk_display, scale_low, scale_high, kiosk_pick_photo, kiosk_pick_scale)
         VALUES (${req.tenantId}, ${body.name}, ${body.display_name || null}, ${body.sort_order}, ${body.price_mode},
                 ${Math.min(body.min_select, body.max_select)}, ${body.max_select}, ${body.pos_prefixes},
                 ${body.allow_repeat}, ${body.on_request},
-                ${body.kiosk_display ?? null}, ${body.scale_low || null}, ${body.scale_high || null}, ${body.kiosk_pick_photo})
+                ${body.kiosk_display ?? null}, ${body.scale_low || null}, ${body.scale_high || null}, ${body.kiosk_pick_photo},
+                ${body.kiosk_pick_photo === 'corner' ? body.kiosk_pick_scale : null})
         RETURNING *
       `
       const options = []
@@ -1626,6 +1634,7 @@ export default async function menusRoutes(app) {
                allow_repeat = ${body.allow_repeat}, on_request = ${body.on_request},
                kiosk_display = ${body.kiosk_display ?? null}, scale_low = ${body.scale_low || null}, scale_high = ${body.scale_high || null},
                kiosk_pick_photo = ${body.kiosk_pick_photo},
+               kiosk_pick_scale = ${body.kiosk_pick_photo === 'corner' ? body.kiosk_pick_scale : null},
                updated_at = now()
          WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
          RETURNING *

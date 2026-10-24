@@ -5,6 +5,12 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-24 — Kiosk: a size for the pictures in the dish photo's corner]
+
+- Option groups and meal deal steps set to **Small in the corner** now have **Size in the corner**: **Automatic** (as before, about a quarter of the photo's width) or **Set a size**, from 10% to 70% of the dish photo's width, with a slider, - and + buttons and a small sketch of the photo with the picture at that size.
+- Each group and step keeps its own size, so the dip can sit small while the drink is bigger. Pictures of different sizes keep their own shape, lined up along the bottom of the photo; when they don't fit side by side they shrink together. Same on the dish page, a meal deal's photo and the order line.
+- A group's size works straight away; a meal deal step's needs the menu published. Migration **205** (`menu_variant_groups.kiosk_pick_scale`).
+
 ## [2026-10-24 — Kitchen flow links: All except these]
 
 - A flow link's filter can now be turned round: tap a link's label and switch **Which dishes go this way** from **Only these** to **All except these**, then pick what should *not* go that way. Orders in to the Wok, all except Drinks and Desserts, takes every other dish; anything listed (a section, single dishes, an order type, a till or kiosk, a revenue stream) leaves a dish out. The link's label reads "Except Drinks, Desserts" in red.

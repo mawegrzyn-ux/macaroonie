@@ -4,7 +4,7 @@
 
 import { Children, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { UtensilsCrossed, ShoppingBag, Bike, Flame, Star, Circle, Minus, Plus, Delete, ArrowLeft } from 'lucide-react'
-import { hexLayout } from '@shared/kiosk.js'
+import { hexLayout, cornerWidths } from '@shared/kiosk.js'
 import { useClear } from './clear.js'
 
 export const cx = (...p) => p.filter(Boolean).join(' ')
@@ -203,20 +203,22 @@ export function PickPhoto({ picks, src, label, className, phClassName, splitClas
     : <Photo src={split.length ? split[0] : src} label={label}
         className={corner.length ? cx('k-corner-main', className) : className} phClassName={corner.length ? cx('k-corner-main', phClassName) : phClassName} />
   if (!corner.length) return base
-  return <CornerPicks srcs={corner} className={splitClassName}>{base}</CornerPicks>
+  return <CornerPicks picks={corner} className={splitClassName}>{base}</CornerPicks>
 }
 
 /**
  * Pictures small in the bottom corner of what's inside (the dish's photo),
- * in pick order, the choices' picture style (.k-corner-pick follows .k-opts-*).
+ * in pick order, the choices' picture style (.k-corner-pick follows .k-opts-*),
+ * each as big as its group or step says (cornerWidths()).
+ *   picks  [{ src, scale }] (pickImages() .corner)
  */
-export function CornerPicks({ srcs, className, children }) {
-  const size = Math.min(26, 92 / srcs.length - 3)
+export function CornerPicks({ picks, className, children }) {
+  const widths = cornerWidths(picks)
   return (
-    <div className={cx('k-corner', className)} data-testid="k-corner" data-parts={srcs.length}>
+    <div className={cx('k-corner', className)} data-testid="k-corner" data-parts={picks.length}>
       {children}
       <span className="k-corner-picks" aria-hidden="true">
-        {srcs.map((s, i) => <Pic key={i + ':' + s} src={s} className="k-corner-pick" style={{ width: size + '%' }} />)}
+        {picks.map((c, i) => <Pic key={i + ':' + c.src} src={c.src} className="k-corner-pick" style={{ width: widths[i] + '%' }} data-scale={c.scale ?? undefined} />)}
       </span>
     </div>
   )

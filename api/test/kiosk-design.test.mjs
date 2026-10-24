@@ -89,6 +89,57 @@ test('a combo step\'s picks on the photo are stored only when set, and nothing e
   assert.equal(meal.combo.steps.find(s => s.id === MAIN).pick_photo, 'split')
 })
 
+test('corner pictures: a size per option group and combo step (migration 205)', async () => {
+  const opts = [{ label: 'Ranch', price_pence: 0, image_url: '/uploads/ranch.png' }]
+  const dip = await ok(owner.post('/api/menus/variant-groups', { name: 'Corner dip', kiosk_pick_photo: 'corner', kiosk_pick_scale: 40, options: opts }))
+  assert.equal(dip.kiosk_pick_scale, 40)
+  for (const bad of [5, 71, 25.5, '30']) {
+    assert.equal((await owner.post('/api/menus/variant-groups', { name: 'Bad size', kiosk_pick_photo: 'corner', kiosk_pick_scale: bad, options: [] })).status, 400, String(bad))
+  }
+  const split = await ok(owner.post('/api/menus/variant-groups', { name: 'Split size', kiosk_pick_photo: 'split', kiosk_pick_scale: 40, options: opts }))
+  assert.equal(split.kiosk_pick_scale, null, 'a size is kept only for the corner')
+  const auto = await ok(owner.post('/api/menus/variant-groups', { name: 'Auto dip', kiosk_pick_photo: 'corner', options: opts }))
+  assert.equal(auto.kiosk_pick_scale, null, 'automatic unless set')
+  const changed = await ok(owner.patch(`/api/menus/variant-groups/${dip.id}`, { name: 'Corner dip', kiosk_pick_photo: 'corner', kiosk_pick_scale: 55, options: dip.options.map(o => ({ ...o })) }))
+  assert.equal(changed.kiosk_pick_scale, 55)
+  assert.equal((await ok(owner.get('/api/menus/variant-groups'))).find(x => x.id === dip.id).kiosk_pick_scale, 55, 'listed')
+  const copy = await ok(owner.post(`/api/menus/variant-groups/${dip.id}/copy`, {}))
+  assert.equal(copy.kiosk_pick_scale, 55, 'a copy keeps it')
+  // Combo steps: kept only with the corner, left out when automatic.
+  const M = mine.ids.menu
+  const body = menuSaveBody(await ok(owner.get(`/api/menus/${M}`)))
+  const SIDE = u(), DRINK = u(), MAIN = u()
+  body.sections.push({ id: u(), title: 'Corner meals', items: [{
+    id: u(), name: 'Corner meal', kind: 'combo', price_pence: 1200, is_orderable: true,
+    combo: { mode: 'manual', steps: [
+      { id: MAIN, name: 'Main', min: 1, max: 1, pick_photo: 'split', pick_scale: 30, options: [{ id: u(), type: 'custom', label: 'Tenders', image_url: '/uploads/t.jpg' }] },
+      { id: SIDE, name: 'Side', min: 1, max: 1, pick_photo: 'corner', pick_scale: 35, options: [{ id: u(), type: 'custom', label: 'Fries', image_url: '/uploads/f.png' }] },
+      { id: DRINK, name: 'Drink', min: 1, max: 1, pick_photo: 'corner', pick_scale: null, options: [{ id: u(), type: 'custom', label: 'Cola', image_url: '/uploads/c.png' }] },
+    ] },
+  }] })
+  const tooBig = JSON.parse(JSON.stringify(body))
+  tooBig.sections.at(-1).items[0].combo.steps[1].pick_scale = 80
+  assert.equal((await owner.patch(`/api/menus/${M}`, tooBig)).status, 400)
+  await ok(owner.patch(`/api/menus/${M}`, body))
+  const [row] = await sql`SELECT combo FROM menu_items WHERE tenant_id = ${ids.a} AND name = 'Corner meal'`
+  const byId = Object.fromEntries(row.combo.steps.map(st => [st.id, st]))
+  assert.equal(byId[SIDE].pick_scale, 35)
+  assert.ok(!('pick_scale' in byId[MAIN]), 'not kept with split')
+  assert.ok(!('pick_scale' in byId[DRINK]), 'automatic is left out of the stored step')
+  await ok(owner.post(`/api/menus/${M}/publish`, {}))
+  await ok(owner.patch(`/api/menus/${M}`, menuSaveBody(await ok(owner.get(`/api/menus/${M}`)))))
+  assert.equal(((await ok(owner.get(`/api/menus/${M}/publish`))).changes || []).length, 0, 'a plain save changes nothing to publish')
+  // The kiosk gets both: the group's from the library, the step's from the live menu.
+  const link = await ok(owner.post(`/api/pos/kiosk-designs/${design.id}/preview`, { venue_id: mine.ids.venue }))
+  const cfg = (await preview(link.token)).json
+  assert.equal(cfg.groups[dip.id].kiosk_pick_scale, 55)
+  assert.equal(cfg.groups[auto.id].kiosk_pick_scale, null)
+  const meal = Object.values(cfg.items).find(it => it.name === 'Corner meal')
+  assert.equal(meal.combo.steps.find(st => st.id === SIDE).pick_scale, 35)
+  // Another tenant can't change it.
+  assert.equal((await as(B.owner, ids.b).patch(`/api/menus/variant-groups/${dip.id}`, { name: 'Mine', kiosk_pick_photo: 'corner', kiosk_pick_scale: 20, options: [] })).status, 404)
+})
+
 test('layout options round trip; a design keeps only the tenant\'s own sections, dishes and order types', async () => {
   const myMenu = await ok(owner.get(`/api/menus/${mine.ids.menu}`))
   const mySection = myMenu.sections[0].id
