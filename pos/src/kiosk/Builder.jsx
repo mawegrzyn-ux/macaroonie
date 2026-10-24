@@ -395,8 +395,8 @@ function ComboBuilder({ item, config, ctx, texts, builder }) {
     // The step's name (the page's heading, just above) says what to pick: no
     // "Choose 1" line between it and the choices.
     return (
-      <div key={p.key} className="flex flex-col gap-[var(--k-gap)]" data-testid="k-step" data-step={step.id}
-        data-missing={got.length < step.min ? '1' : undefined}>
+      <div key={p.key} className={'flex flex-col gap-[var(--k-gap)] k-choices k-opts-' + look.tiles} data-testid="k-step" data-step={step.id}
+        data-tiles={look.tiles} data-missing={got.length < step.min ? '1' : undefined}>
         <Display options={choices} countOf={countOf} onTap={onTap} onLess={onLess} repeat={step.repeat} full={full}
           scale={null} levelIcon={config.design.options.level_icon} ui={ui} {...look} wheel={wheelOf(config)} />
       </div>
@@ -404,14 +404,15 @@ function ComboBuilder({ item, config, ctx, texts, builder }) {
   }
 
   // What a page's picks are, for its tab once done: { label: "2 x Ranch,
-  // Lemon pepper", images: the picks' pictures, each once, up to three }, or
-  // null when nothing is picked there.
+  // Lemon pepper", images: the picks' pictures, each once, up to three,
+  // tiles: their picture style (a step's: the design's; a dish's groups: the
+  // first group with a picture's look) }, or null when nothing is picked there.
   function pickedOf(p) {
     let list = []
     if (p.kind === 'step') {
       list = (picks[p.st.step.id] || []).map(e => {
         const c = p.st.choices.find(x => sameChoice(e, x))
-        return c ? { label: c.item ? texts.itemName(c.item) : t(TK.choice(item.id, c.option_id), c.label), image: c.image_url || null } : null
+        return c ? { label: c.item ? texts.itemName(c.item) : t(TK.choice(item.id, c.option_id), c.label), image: c.image_url || null, tiles: look.tiles } : null
       }).filter(Boolean)
     } else if (p.kind === 'part') list = groupPicks(p.part.pos_choices, p.entry.choices, p.part.id)
     else if (p.kind === 'own') list = groupPicks(item.pos_choices, sel.choices, item.id)
@@ -421,19 +422,21 @@ function ComboBuilder({ item, config, ctx, texts, builder }) {
     return {
       label: [...counts].map(([l, n]) => (n > 1 ? n + ' x ' : '') + l).join(', '),
       images: [...new Set(list.map(x => x.image).filter(Boolean))].slice(0, 3),
+      tiles: list.find(x => x.image)?.tiles || look.tiles,
     }
   }
 
-  // The picks in a dish's option groups (not the groups an option opens), as { label, image }.
+  // The picks in a dish's option groups (not the groups an option opens), as { label, image, tiles }.
   function groupPicks(choices, value, itemId) {
     const out = []
     for (const c of choices || []) {
       const lib = config.groups?.[c.key]
+      const tiles = choiceLook(config.design, lib).tiles
       for (const e of value?.[c.key] || []) {
         const o = c.options.find(x => x.id === e.id)
         if (!o) continue
         const lo = lib?.options?.find(x => (x.option_id ?? x.id) === e.id)
-        out.push({ label: c.key === 'variants' ? t(TK.variant(itemId, o.label), o.label) : t(TK.option(o.id, 'label'), o.label), image: lo?.image_url || null })
+        out.push({ label: c.key === 'variants' ? t(TK.variant(itemId, o.label), o.label) : t(TK.option(o.id, 'label'), o.label), image: lo?.image_url || null, tiles })
       }
     }
     return out
@@ -545,7 +548,7 @@ function ComboBuilder({ item, config, ctx, texts, builder }) {
                 <button key={x.key} onClick={open} data-testid="k-step-tab" data-active={i === index ? '1' : undefined} data-picked="1"
                   aria-label={pageTitle(x) + ': ' + pk.label}
                   className={cx(tab, 'k-step-pick', portrait ? 'flex-col items-center gap-[.25em] p-[.35em] w-[clamp(6.5em,20vmin,9em)]' : 'items-center gap-[.6em] px-[.5em] py-[.35em] min-h-[3em]')}>
-                  <span className="relative flex shrink-0" data-testid="k-step-pics">
+                  <span className={'relative flex shrink-0 k-opts-' + pk.tiles} data-testid="k-step-pics" data-tiles={pk.tiles}>
                     {pk.images.length ? pk.images.map((src, j) => (
                       <span key={src} className={cx('k-opt-thumb k-step-thumb overflow-hidden rounded-[calc(var(--k-radius)/1.5)]', portrait ? 'w-[3.6em] h-[3.6em]' : 'w-[3em] h-[3em]', j > 0 && '-ml-[1.6em]')}
                         style={{ zIndex: 3 - j }}>

@@ -8,7 +8,9 @@ import assert from 'node:assert/strict'
 import {
   normaliseDesign, designProblems, payMethods, uiText, allergenName, translationSources, TK, pickImages, hexLayout, cornerWidths,
   configImages, MAX_SAVED_PICTURES, guestFit, countFits, cleanPrefs, prefsOn, kioskOrder, basketCheck, kioskStaff, kioskFontsUrl, UI_TEXT, ALLERGEN_NAMES, KIOSK_LANGUAGES, DESIGN_COLORS, CLEAR_COLORS, CHOICE_ENTRANCES,
+  groupLook, ENTRANCE_KEYS,
 } from '../kiosk.js'
+import { VARIATION_TYPES, VARIATION_TYPE_KEYS } from '../procurement.js'
 import { applyEvent, KIOSK_EVENTS } from '../pos/checks.js'
 import { checkTotals } from '../pos/pricing.js'
 import { createSequencer } from '../pos/sequencer.js'
@@ -276,9 +278,9 @@ test('pick photos: the flavours split the photo, the dip small in the corner', (
   const dish = { ...WINGS, pos_choices: [{ key: FLAVOUR }, { key: EXTRAS }] }
   const cfg = { ...config, groups }
   assert.deepEqual(pickImages(cfg, dish, { choices: { [FLAVOUR]: [{ id: HOT }, { id: LEMON }], [EXTRAS]: [{ id: DIP }] } }),
-    { split: ['/hot.jpg', '/lemon.jpg'], corner: [{ src: '/ranch-pot.png', scale: null }] })
+    { split: ['/hot.jpg', '/lemon.jpg'], corner: [{ src: '/ranch-pot.png', scale: null, tiles: 'cards' }] })
   // Only the dip picked: the dish's own photo with the dip in the corner.
-  assert.deepEqual(pickImages(cfg, dish, { choices: { [EXTRAS]: [{ id: DIP }] } }), { split: [], corner: [{ src: '/ranch-pot.png', scale: null }] })
+  assert.deepEqual(pickImages(cfg, dish, { choices: { [EXTRAS]: [{ id: DIP }] } }), { split: [], corner: [{ src: '/ranch-pot.png', scale: null, tiles: 'cards' }] })
   // Combo steps the same: the main splits, the drink in the corner.
   const C1 = uuid(), C2 = uuid()
   const meal = { ...MEAL, pos_choices: [], combo: { steps: [
@@ -286,7 +288,7 @@ test('pick photos: the flavours split the photo, the dip small in the corner', (
     { ...MEAL.combo.steps[1], pick_photo: 'corner', options: [{ id: C2, type: 'custom', label: 'Cola', image_url: '/cola.png' }] },
   ] } }
   assert.deepEqual(pickImages(config, meal, { choices: {}, combo: { [MAIN]: [{ option_id: C1, item_id: null }], [SIDE]: [{ option_id: C2, item_id: null }] } }),
-    { split: ['/tenders.jpg'], corner: [{ src: '/cola.png', scale: null }] })
+    { split: ['/tenders.jpg'], corner: [{ src: '/cola.png', scale: null, tiles: 'cards' }] })
 })
 
 test('corner pictures: each group or step sets their size as a share of the photo', () => {
@@ -294,7 +296,7 @@ test('corner pictures: each group or step sets their size as a share of the phot
     [EXTRAS]: { ...config.groups[EXTRAS], kiosk_pick_photo: 'corner', kiosk_pick_scale: 40, options: [{ id: DIP, label: 'Ranch', image_url: '/ranch.png' }] },
   }
   const dish = { ...WINGS, pos_choices: [{ key: EXTRAS }] }
-  assert.deepEqual(pickImages({ ...config, groups }, dish, { choices: { [EXTRAS]: [{ id: DIP }] } }).corner, [{ src: '/ranch.png', scale: 40 }])
+  assert.deepEqual(pickImages({ ...config, groups }, dish, { choices: { [EXTRAS]: [{ id: DIP }] } }).corner, [{ src: '/ranch.png', scale: 40, tiles: 'cards' }])
   // A size out of range or not whole counts as automatic.
   for (const bad of [5, 71, 25.5, '30', null]) {
     const g = { [EXTRAS]: { ...groups[EXTRAS], kiosk_pick_scale: bad } }
@@ -305,7 +307,7 @@ test('corner pictures: each group or step sets their size as a share of the phot
   const meal = { ...MEAL, pos_choices: [], combo: { steps: [
     { ...MEAL.combo.steps[1], pick_photo: 'corner', pick_scale: 55, options: [{ id: C2, type: 'custom', label: 'Cola', image_url: '/cola.png' }] },
   ] } }
-  assert.deepEqual(pickImages(config, meal, { choices: {}, combo: { [MEAL.combo.steps[1].id]: [{ option_id: C2, item_id: null }] } }).corner, [{ src: '/cola.png', scale: 55 }])
+  assert.deepEqual(pickImages(config, meal, { choices: {}, combo: { [MEAL.combo.steps[1].id]: [{ option_id: C2, item_id: null }] } }).corner, [{ src: '/cola.png', scale: 55, tiles: 'cards' }])
 
   // Widths along the strip (92% of the photo): a set size is its share of the photo.
   assert.deepEqual(cornerWidths([{ scale: null }]), [26], 'automatic: as before')
@@ -567,6 +569,71 @@ test('choice entrances: kept when known, none otherwise', () => {
   assert.equal(normaliseDesign({}).options.entrance, 'none')
   for (const k of ['appear', 'slide', 'bubble', 'deal']) assert.equal(normaliseDesign({ options: { entrance: k } }).options.entrance, k)
   assert.equal(normaliseDesign({ options: { entrance: 'explode' } }).options.entrance, 'none')
+})
+
+test('option groups with their own look: the design\'s for the group, else the group\'s own, else the design\'s', () => {
+  assert.deepEqual(ENTRANCE_KEYS, CHOICE_ENTRANCES.map(x => x.key))
+  // The list: one row per group, unknown values dropped to "not set", kept with nothing set.
+  const A = uuid(), B = uuid()
+  const d = normaliseDesign({ options: { group_looks: [
+    { group_id: A, display: 'wheel', tiles: 'hexagon', pictures: false, entrance: 'deal' },
+    { group_id: A, tiles: 'round' },
+    { group_id: B, display: 'carousel', tiles: 'square', pictures: 'no', entrance: 'explode' },
+    { group_id: 'not-a-uuid', tiles: 'round' },
+    { tiles: 'round' },
+  ] } })
+  assert.deepEqual(d.options.group_looks, [
+    { group_id: A, display: 'wheel', tiles: 'hexagon', pictures: false, entrance: 'deal' },
+    { group_id: B, display: null, tiles: null, pictures: null, entrance: null },
+  ])
+  assert.deepEqual(normaliseDesign({}).options.group_looks, [])
+  assert.deepEqual(normaliseDesign({ options: { group_looks: 'x' } }).options.group_looks, [])
+  assert.equal(normaliseDesign({ options: { group_looks: Array.from({ length: 250 }, () => ({ group_id: uuid() })) } }).options.group_looks.length, 200)
+  // A saved design keeps them.
+  assert.deepEqual(normaliseDesign(d).options.group_looks, d.options.group_looks)
+
+  const design = normaliseDesign({ layout: { option_tiles: 'cards' }, options: { display: 'grid', entrance: 'appear' } })
+  const plain = { id: A }
+  // Nothing set anywhere: the design's for every choice.
+  assert.deepEqual(groupLook(design, plain), { display: 'grid', tiles: 'cards', pictures: true, entrance: 'appear' })
+  assert.deepEqual(groupLook(design, null), { display: 'grid', tiles: 'cards', pictures: true, entrance: 'appear' })
+  assert.deepEqual(groupLook(null, null), { display: 'grid', tiles: 'cards', pictures: true, entrance: 'none' }, 'no design: the defaults')
+  // The group's own look wins over the design's.
+  const own = { id: A, kiosk_display: 'slider', kiosk_tiles: 'round', kiosk_pictures: false, kiosk_entrance: 'bubble' }
+  assert.deepEqual(groupLook(design, own), { display: 'slider', tiles: 'round', pictures: false, entrance: 'bubble' })
+  // Values the group can't have count as not set.
+  assert.deepEqual(groupLook(design, { id: A, kiosk_display: 'carousel', kiosk_tiles: 'square', kiosk_pictures: 'no', kiosk_entrance: 'explode' }),
+    { display: 'grid', tiles: 'cards', pictures: true, entrance: 'appear' })
+  // The design's look for the group wins over the group's own, part by part.
+  const withLook = look => normaliseDesign({ ...design, options: { ...design.options, group_looks: [{ group_id: A, ...look }] } })
+  assert.deepEqual(groupLook(withLook({ tiles: 'hexagon' }), own), { display: 'slider', tiles: 'hexagon', pictures: false, entrance: 'bubble' })
+  assert.deepEqual(groupLook(withLook({ pictures: true, entrance: 'none' }), own), { display: 'slider', tiles: 'round', pictures: true, entrance: 'none' })
+  assert.deepEqual(groupLook(withLook({ display: 'wheel', tiles: 'plain', pictures: false, entrance: 'deal' }), plain),
+    { display: 'wheel', tiles: 'plain', pictures: false, entrance: 'deal' })
+  // Another group's look doesn't touch this one, nor choices that aren't a group's.
+  assert.deepEqual(groupLook(withLook({ tiles: 'hexagon' }), { id: B }), { display: 'grid', tiles: 'cards', pictures: true, entrance: 'appear' })
+  assert.deepEqual(groupLook(withLook({ tiles: 'hexagon' }), null), { display: 'grid', tiles: 'cards', pictures: true, entrance: 'appear' })
+
+  // Corner pictures on the dish's photo are framed in their group's style; a step's in the design's.
+  const groups = {
+    [EXTRAS]: { ...config.groups[EXTRAS], kiosk_pick_photo: 'corner', kiosk_tiles: 'round', options: [{ id: DIP, label: 'Ranch', image_url: '/ranch.png' }] },
+  }
+  const dish = { ...WINGS, pos_choices: [{ key: EXTRAS }] }
+  const pick = { choices: { [EXTRAS]: [{ id: DIP }] } }
+  assert.equal(pickImages({ ...config, groups, design }, dish, pick).corner[0].tiles, 'round')
+  const hexDesign = normaliseDesign({ ...design, options: { ...design.options, group_looks: [{ group_id: EXTRAS, tiles: 'hexagon' }] } })
+  assert.equal(pickImages({ ...config, groups, design: hexDesign }, dish, pick).corner[0].tiles, 'hexagon')
+  const C2 = uuid()
+  const meal = { ...MEAL, pos_choices: [], combo: { steps: [
+    { ...MEAL.combo.steps[1], pick_photo: 'corner', options: [{ id: C2, type: 'custom', label: 'Cola', image_url: '/cola.png' }] },
+  ] } }
+  const ovals = normaliseDesign({ layout: { option_tiles: 'oval' } })
+  assert.equal(pickImages({ ...config, design: ovals }, meal, { choices: {}, combo: { [MEAL.combo.steps[1].id]: [{ option_id: C2, item_id: null }] } }).corner[0].tiles, 'oval')
+})
+
+test('variation types: what an option group does to the dish, for stock', () => {
+  assert.deepEqual(VARIATION_TYPE_KEYS, ['modification', 'side', 'addition'])
+  for (const t of VARIATION_TYPES) assert.ok(t.label && t.hint, t.key)
 })
 
 test('guest picks: which dishes suit the allergens and diets a guest picked', () => {

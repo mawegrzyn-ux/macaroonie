@@ -35,6 +35,17 @@ export const STORAGE = [
   { key: 'frozen',  label: 'Frozen' },
 ]
 
+// What an option group (Menus > Variant groups, menu_variant_groups.
+// variation_type, migration 206) does to a dish's recipe, for stock: changes
+// the dish (things taken off or swapped), adds a side with its own recipe,
+// or adds to the dish's own recipe. NULL = not set yet.
+export const VARIATION_TYPES = [
+  { key: 'modification', label: 'Product modification', hint: 'Changes the dish a lot: things go on and off its recipe (Make it vegan, No bun).' },
+  { key: 'side',         label: 'Side addition',        hint: 'A separate item with its own recipe (a dip pot, fries, a drink).' },
+  { key: 'addition',     label: 'Adds to the recipe',   hint: 'Something added to the dish\'s own recipe (extra cheese, a sauce on the wings).' },
+]
+export const VARIATION_TYPE_KEYS = VARIATION_TYPES.map(t => t.key)
+
 export const SEND_METHODS = [
   { key: 'email', label: 'Email' },
   { key: 'print', label: 'Print' },

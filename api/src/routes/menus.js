@@ -39,7 +39,8 @@ import { PICK_SCALE_MIN, PICK_SCALE_MAX } from '../../../shared/combos.js'
 import { taxLookups, checkTaxSetting } from '../services/taxSvc.js'
 import { translationSources, saveTranslations, aiTranslate, checkLang, AI_BATCH } from '../services/translationSvc.js'
 import { chatConfigured } from '../ai/apiKey.js'
-import { KIOSK_LANGUAGES, ALLERGEN_NAMES, TK, normaliseDesign, uiText } from '../../../shared/kiosk.js'
+import { KIOSK_LANGUAGES, ALLERGEN_NAMES, TK, normaliseDesign, uiText, TILE_STYLES, ENTRANCE_KEYS } from '../../../shared/kiosk.js'
+import { VARIATION_TYPE_KEYS } from '../../../shared/procurement.js'
 
 // Changes need Menus manage. Reads stay open to every member of the tenant:
 // the website builder, ordering setup, Deliveroo and dashboards read menus.
@@ -355,6 +356,14 @@ const VariantGroupBody = z.object({
   kiosk_pick_photo: z.enum(['split', 'corner']).nullable().default(null),
   // Migration 205: corner pictures' size, % of the photo's width (null = automatic).
   kiosk_pick_scale: z.number().int().min(PICK_SCALE_MIN).max(PICK_SCALE_MAX).nullable().default(null),
+  // Migration 206: the group's own kiosk look (null = the kiosk design's; a
+  // design can still give the group its own, shared/kiosk.js groupLook())
+  // and what the group does to the dish's recipe, for stock (null = not
+  // set). Left out of a PATCH = unchanged.
+  kiosk_tiles:    z.enum(TILE_STYLES).nullable().optional(),
+  kiosk_pictures: z.boolean().nullable().optional(),
+  kiosk_entrance: z.enum(ENTRANCE_KEYS).nullable().optional(),
+  variation_type: z.enum(VARIATION_TYPE_KEYS).nullable().optional(),
   options:    z.array(VariantOptionBody).default([]),
 })
 
@@ -1597,12 +1606,14 @@ export default async function menusRoutes(app) {
     const row = await withTenant(req.tenantId, async tx => {
       const [g] = await tx`
         INSERT INTO menu_variant_groups (tenant_id, name, display_name, sort_order, price_mode, min_select, max_select, pos_prefixes, allow_repeat, on_request,
-                                         kiosk_display, scale_low, scale_high, kiosk_pick_photo, kiosk_pick_scale)
+                                         kiosk_display, scale_low, scale_high, kiosk_pick_photo, kiosk_pick_scale,
+                                         kiosk_tiles, kiosk_pictures, kiosk_entrance, variation_type)
         VALUES (${req.tenantId}, ${body.name}, ${body.display_name || null}, ${body.sort_order}, ${body.price_mode},
                 ${Math.min(body.min_select, body.max_select)}, ${body.max_select}, ${body.pos_prefixes},
                 ${body.allow_repeat}, ${body.on_request},
                 ${body.kiosk_display ?? null}, ${body.scale_low || null}, ${body.scale_high || null}, ${body.kiosk_pick_photo},
-                ${body.kiosk_pick_photo === 'corner' ? body.kiosk_pick_scale : null})
+                ${body.kiosk_pick_photo === 'corner' ? body.kiosk_pick_scale : null},
+                ${body.kiosk_tiles ?? null}, ${body.kiosk_pictures ?? null}, ${body.kiosk_entrance ?? null}, ${body.variation_type ?? null})
         RETURNING *
       `
       const options = []
@@ -1635,6 +1646,10 @@ export default async function menusRoutes(app) {
                kiosk_display = ${body.kiosk_display ?? null}, scale_low = ${body.scale_low || null}, scale_high = ${body.scale_high || null},
                kiosk_pick_photo = ${body.kiosk_pick_photo},
                kiosk_pick_scale = ${body.kiosk_pick_photo === 'corner' ? body.kiosk_pick_scale : null},
+               kiosk_tiles = ${body.kiosk_tiles === undefined ? tx`kiosk_tiles` : body.kiosk_tiles},
+               kiosk_pictures = ${body.kiosk_pictures === undefined ? tx`kiosk_pictures` : body.kiosk_pictures},
+               kiosk_entrance = ${body.kiosk_entrance === undefined ? tx`kiosk_entrance` : body.kiosk_entrance},
+               variation_type = ${body.variation_type === undefined ? tx`variation_type` : body.variation_type},
                updated_at = now()
          WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
          RETURNING *

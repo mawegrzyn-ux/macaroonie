@@ -89,7 +89,11 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx' } = 
   const menu = await step('menu', () => post('/api/menus', { name: mark + ' Lunch', slug: slug + '-lunch' }))
   ids.menu = menu?.id
   await step('dietary tag', () => post('/api/menus/dietary', { label: mark + ' Spicy', code: slug, glyph: 'S', kind: 'dietary' }))
-  const vg = await step('variant group', () => post('/api/menus/variant-groups', { name: mark + ' Size', options: [{ label: 'Small', price_pence: 0 }, { label: 'Large', price_pence: 200 }] }))
+  // With its own kiosk look and a variation type (migration 206).
+  const vg = await step('variant group', () => post('/api/menus/variant-groups', {
+    name: mark + ' Size', kiosk_tiles: 'round', kiosk_entrance: 'slide', variation_type: 'side',
+    options: [{ label: 'Small', price_pence: 0 }, { label: 'Large', price_pence: 200 }],
+  }))
   if (vg) await step('variant group copy', () => post(`/api/menus/variant-groups/${vg.id}/copy`, {}))
   let dish = null
   if (menu) {
@@ -348,7 +352,13 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx' } = 
     }))
   }
   await step('floor area', () => post(`/api/pos/venues/${V}/floor-areas`, { name: mark + ' Patio' }))
-  await step('kiosk design', () => post('/api/pos/kiosk-designs', { name: mark + ' Kiosk' }))
+  const kioskDesign = await step('kiosk design', () => post('/api/pos/kiosk-designs', { name: mark + ' Kiosk' }))
+  // A look of its own for the tenant's option group (options.group_looks).
+  if (kioskDesign && vg) {
+    await step('kiosk design group look', () => put(`/api/pos/kiosk-designs/${kioskDesign.id}`, {
+      name: mark + ' Kiosk', settings: { options: { group_looks: [{ group_id: vg.id, tiles: 'hexagon', entrance: 'deal' }] } },
+    }))
+  }
   // Print designs (migration 190): a kitchen ticket design used at Ware with its own words.
   const printDesign = await step('print design', () => post('/api/pos/print-designs', { kind: 'kitchen', name: mark + ' Tickets' }))
   if (printDesign) {

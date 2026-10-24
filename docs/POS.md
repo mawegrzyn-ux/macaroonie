@@ -619,7 +619,11 @@ and the ConnectSmart Kitchen guide.
   the picks' pictures side by side with torn edges between them (`splitImages()`).
 - Choices: an option group or a combo step shows as grid, list, slider (with a level scale such as
   heat) or spin wheel; the group / step picks, else the design. Options have a picture, a line of
-  words and a level 0-5.
+  words and a level 0-5. Since migration 206 a group also has its own picture style, words only and
+  entrance, and a design can give any group its own look (display, picture style, words, entrance;
+  `options.group_looks`), which wins: `groupLook()` decides each part (design for the group, group,
+  design for every choice). Option groups also carry a `variation_type` for stock (modification,
+  side, addition), not used yet.
 - Languages: the kiosk's own words come in nine languages (`shared/kioskText.js`); the menu's words
   are translated on Menus > Translations (`menu_translations`, with an AI first draft).
 

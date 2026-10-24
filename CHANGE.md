@@ -5,6 +5,13 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-24 — Kiosk: option groups with their own look; option group types for stock]
+
+- Each option group (Menus → Variant groups) can have its own look on kiosks: **Picture style** (Cards, Round, Oval, Hexagons, No frame), **Pictures or words** and **When the options appear** (Fade in, Slide in, Bubble up, Deal like cards...), beside the existing How the options show. Each stays **As the kiosk design says** until picked, so on one dish the flavours can bubble up as a honeycomb while the dips stay small round pictures. A pick shown small in the corner of the dish's photo takes its group's picture style.
+- A kiosk design can change that again for its own kiosks: **Choices → Option groups with their own look**. Add a group, then pick what changes (Shown as, Pictures, Words, Coming in); anything left on its default keeps what the group asks for, else the design's settings for every choice. The default in each list says which it is (Group: ... / Design: ...). The preview follows as you change it.
+- Option groups also get a type, **Recipe and stock**: **Product modification** (the dish changes a lot, things on and off its recipe), **Side addition** (a separate item with its own recipe) or **Adds to the recipe**. Not set until picked; shown under the group's name on the list. Nothing uses it yet: stock counts will.
+- Group looks and types change straight away (nothing to publish) and a copy of a group keeps them. Migration **206** (`menu_variant_groups.kiosk_tiles`, `kiosk_pictures`, `kiosk_entrance`, `variation_type`).
+
 ## [2026-10-24 — Splitter: Smart sharing by speed, and a busy order type to its own station]
 
 - A Splitter's window has **How it shares**: **Fewest pieces** (as before) or **Smart: by speed**. Smart watches how fast each station has been bumping (its last 8 tickets in the last 30 minutes, not counting time a ticket waited behind others) and sends each ticket where it should be done soonest: the pieces still to cook there times how long a piece has been taking. A line that falls behind gets fewer tickets until it catches up; with no bumps to go on it shares by pieces.
