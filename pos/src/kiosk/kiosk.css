@@ -216,17 +216,23 @@
    shape, lined up along the bottom. */
 .k-corner-picks { position: absolute; left: 4%; right: 4%; bottom: 4%; display: flex; justify-content: flex-end; align-items: flex-end; gap: 2%; pointer-events: none; }
 .k-corner-pick { display: block; aspect-ratio: 1 / 1; object-fit: cover; border-radius: 50%; background: var(--k-surface); box-shadow: 0 0 0 .15em var(--k-surface), 0 2px 6px rgba(0,0,0,.3); }
-.k-opts-cards .k-corner-pick { border-radius: calc(var(--k-radius) / 2); }
-.k-opts-hexagon .k-corner-pick { border-radius: 0; clip-path: var(--k-hex); aspect-ratio: .866 / 1; box-shadow: none; }
-.k-opts-plain .k-corner-pick { border-radius: 0; object-fit: contain; background: transparent; box-shadow: none; filter: drop-shadow(0 2px 3px rgba(0,0,0,.35)); }
+.k-corner-pick[data-tiles="cards"] { border-radius: calc(var(--k-radius) / 2); }
+.k-corner-pick[data-tiles="hexagon"] { border-radius: 0; clip-path: var(--k-hex); aspect-ratio: .866 / 1; box-shadow: none; }
+.k-corner-pick[data-tiles="plain"] { border-radius: 0; object-fit: contain; background: transparent; box-shadow: none; filter: drop-shadow(0 2px 3px rgba(0,0,0,.35)); }
 .k-tiles-round .k-hero-img .k-corner-picks, .k-tiles-oval .k-hero-img .k-corner-picks, .k-tiles-hexagon .k-hero-img .k-corner-picks { justify-content: center; bottom: 7%; }
 .k-tiles-plain .k-hero-img .k-corner-main, .k-tiles-plain .k-thumb .k-corner-main { object-fit: contain; }
 
 /* ── Picture styles ──────────────────────────────────────────────
    Dishes (design.layout.tiles, .k-tiles-<style> on the root: menu cards,
    section tiles, the dish's photo, basket thumbs) and choices
-   (design.layout.option_tiles, .k-opts-<style>: option and combo step
-   cards, list and wheel thumbs) each follow their own style.
+   (.k-opts-<style> on each set of choices, never the root: option and combo
+   step cards, list and wheel thumbs, a combo's step tabs) each follow their
+   own style. A set of choices takes its option group's look (groupLook():
+   the design's look for the group, else the group's own, else
+   design.layout.option_tiles), and sets never sit inside one another (a
+   group an option opens follows its parent's choices, not inside them), so
+   only one .k-opts-* is ever above a choice. Corner pictures on the dish's
+   photo carry their group's style themselves (data-tiles).
    (The list's rows stay cards in every style; only their thumbs follow it.)
    Round and oval: the photo in a circle or an ellipse with the words under
    it on the page, no card behind. Hexagon takes the same open look for
@@ -373,15 +379,19 @@ img.k-clear { background: transparent !important; object-fit: contain; }
 .k-corner-pick.k-clear { border-radius: 0; clip-path: none; aspect-ratio: auto; box-shadow: none; filter: drop-shadow(0 2px 3px rgba(0,0,0,.35)); }
 .k-split > img.k-clear { object-fit: contain; }
 
-/* Choices coming onto the screen (design options.entrance, root data-enter):
+/* Choices coming onto the screen (data-enter: the design's options.entrance
+   on the root, an option group's own look on its choices, groupLook()):
    each choice of a grid, honeycomb, list or slider in turn, the wheel whole.
+   Every data-enter sets all three custom properties, which the choices
+   inherit, so the nearest one decides (a group's own over the design's).
    backwards fill: once done, each element's own transform (the slider's
    scale) takes over again. */
-:where(.k-root[data-enter]:not([data-enter="none"])) [data-display="grid"] > :not(.k-hexgrid),
-:where(.k-root[data-enter]:not([data-enter="none"])) [data-display] .k-hexgrid > .k-hex-cell,
-:where(.k-root[data-enter]:not([data-enter="none"])) [data-display="list"] > *,
-:where(.k-root[data-enter]:not([data-enter="none"])) .k-slider > .k-slide > :first-child,
-:where(.k-root[data-enter]:not([data-enter="none"])) [data-display="wheel"] > * {
+[data-enter] { --k-enter-name: none; --k-enter-ms: 420ms; --k-enter-step: 60ms; }
+:where([data-display="grid"] > :not(.k-hexgrid),
+       [data-display] .k-hexgrid > .k-hex-cell,
+       [data-display="list"] > *,
+       .k-slider > .k-slide > :first-child,
+       [data-display="wheel"] > *) {
   animation-duration: var(--k-enter-ms, 420ms); animation-timing-function: cubic-bezier(.2, .8, .25, 1);
   animation-fill-mode: backwards; animation-delay: calc(var(--k-ei, 0) * var(--k-enter-step, 60ms));
 }
@@ -409,20 +419,20 @@ img.k-clear { background: transparent !important; object-fit: contain; }
 [data-display="grid"] > :nth-child(22), [data-display] .k-hexgrid > :nth-child(22), [data-display="list"] > :nth-child(22), .k-slider > .k-slide:nth-child(22) { --k-ei: 21; }
 [data-display="grid"] > :nth-child(23), [data-display] .k-hexgrid > :nth-child(23), [data-display="list"] > :nth-child(23), .k-slider > .k-slide:nth-child(23) { --k-ei: 22; }
 [data-display="grid"] > :nth-child(24), [data-display] .k-hexgrid > :nth-child(24), [data-display="list"] > :nth-child(24), .k-slider > .k-slide:nth-child(24) { --k-ei: 23; }
-.k-root[data-enter="appear"] { --k-enter-name: k-enter-appear; }
-.k-root[data-enter="slide"] { --k-enter-name: k-enter-slide; }
-.k-root[data-enter="bubble"] { --k-enter-name: k-enter-bubble; --k-enter-ms: 520ms; }
-.k-root[data-enter="deal"] { --k-enter-name: k-enter-deal; --k-enter-ms: 480ms; --k-enter-step: 90ms; }
-.k-root[data-enter]:not([data-enter="none"]) [data-display="grid"] > :not(.k-hexgrid),
-.k-root[data-enter]:not([data-enter="none"]) [data-display] .k-hexgrid > .k-hex-cell,
-.k-root[data-enter]:not([data-enter="none"]) [data-display="list"] > *,
-.k-root[data-enter]:not([data-enter="none"]) .k-slider > .k-slide > :first-child,
-.k-root[data-enter]:not([data-enter="none"]) [data-display="wheel"] > * { animation-name: var(--k-enter-name); }
+[data-enter="appear"] { --k-enter-name: k-enter-appear; }
+[data-enter="slide"] { --k-enter-name: k-enter-slide; }
+[data-enter="bubble"] { --k-enter-name: k-enter-bubble; --k-enter-ms: 520ms; }
+[data-enter="deal"] { --k-enter-name: k-enter-deal; --k-enter-ms: 480ms; --k-enter-step: 90ms; }
+.k-root [data-display="grid"] > :not(.k-hexgrid),
+.k-root [data-display] .k-hexgrid > .k-hex-cell,
+.k-root [data-display="list"] > *,
+.k-root .k-slider > .k-slide > :first-child,
+.k-root [data-display="wheel"] > * { animation-name: var(--k-enter-name, none); }
 @keyframes k-enter-appear { from { opacity: 0; transform: scale(.96); } }
 @keyframes k-enter-slide { from { opacity: 0; transform: translateX(-60px); } }
 @keyframes k-enter-bubble { 0% { opacity: 0; transform: translateY(50px) scale(.55); } 70% { opacity: 1; transform: translateY(-6px) scale(1.05); } 100% { transform: none; } }
 @keyframes k-enter-deal { from { opacity: 0; transform: translate(-30vw, 45vh) rotate(-22deg) scale(.7); } 60% { opacity: 1; } }
-@media (prefers-reduced-motion: reduce) { .k-root[data-enter] { --k-enter-name: none; } }
+@media (prefers-reduced-motion: reduce) { [data-enter] { --k-enter-name: none; } }
 
 /* The guest's allergens and diets (fit.jsx, Allergens.jsx): a warm yellow
    mark on what to check, their allergens highlighted in words, the strip at

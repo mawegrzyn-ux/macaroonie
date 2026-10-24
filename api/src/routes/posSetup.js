@@ -705,14 +705,18 @@ export default async function posSetupRoutes(app) {
       const gloriafood = gfLink
         ? { show_on_board: gfLink.show_on_board, types: (await gloriaFoodTypes(tx, tenantId, settings.kds_gloriafood_types)).map }
         : null
-      // Sections and dishes, for the kitchen flow's link filters.
+      // Sections and dishes, for the kitchen flow's link filters; option
+      // groups with their own kiosk look (migration 206), for the kiosk
+      // design editor's groups shown their own way.
       const menuIds = menus.map(m => m.id)
-      const [sections, items] = await Promise.all([
+      const [sections, items, optionGroups] = await Promise.all([
         tx`SELECT id, menu_id, title FROM menu_sections
             WHERE tenant_id = ${tenantId} AND menu_id = ANY(${menuIds}::uuid[]) ORDER BY sort_order, title`,
         tx`SELECT i.id, i.section_id, i.name FROM menu_items i
              JOIN menu_sections s ON s.id = i.section_id AND s.tenant_id = i.tenant_id
             WHERE i.tenant_id = ${tenantId} AND s.menu_id = ANY(${menuIds}::uuid[]) ORDER BY i.sort_order, i.name`,
+        tx`SELECT id, name, display_name, kiosk_display, kiosk_tiles, kiosk_pictures, kiosk_entrance
+             FROM menu_variant_groups WHERE tenant_id = ${tenantId} ORDER BY sort_order, name`,
       ])
       return {
         venue: { id: venue.id, name: venue.name },
@@ -724,6 +728,7 @@ export default async function posSetupRoutes(app) {
         tables, staff,
         roles: roles.map(r => ({ ...r, permissions: normalisePermissions(r.permissions || {}) })),
         courses, menus, sections, items,
+        option_groups: optionGroups,
         kds_stations: kdsStations.map(s => ({ ...s, settings: stationSettings(s) })),
         ...kdsFlows,
         kiosk_designs: kioskDesigns.map(d => ({ id: d.id, name: d.name, settings: normaliseDesign(d.settings), updated_at: d.updated_at, shared: d.shared })),

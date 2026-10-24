@@ -26,7 +26,8 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { Plus, Trash2, X, Loader2, Layers, GripVertical, Copy } from 'lucide-react'
-import { KIOSK_DISPLAYS, DISPLAY_LABELS } from '@shared/kiosk.js'
+import { KIOSK_DISPLAYS, DISPLAY_LABELS, TILE_STYLES, TILE_LABELS, CHOICE_ENTRANCES } from '@shared/kiosk.js'
+import { VARIATION_TYPES } from '@shared/procurement.js'
 import { useApi } from '@/lib/api'
 import { PicturePick } from '@/components/media/PicturePick'
 import { Field, Input, Btn, PriceInput, PickScale } from './shared'
@@ -38,7 +39,8 @@ const newOption = () => ({ _key: newKey(), label: '', price_pence: 0, child_grou
 function emptyGroup() {
   return {
     name: '', display_name: '', price_mode: 'base', min_select: 1, max_select: 1, pos_prefixes: false, allow_repeat: false, on_request: false,
-    kiosk_display: null, scale_low: '', scale_high: '', kiosk_pick_photo: null, kiosk_pick_scale: null, options: [newOption()],
+    kiosk_display: null, scale_low: '', scale_high: '', kiosk_pick_photo: null, kiosk_pick_scale: null,
+    kiosk_tiles: null, kiosk_pictures: null, kiosk_entrance: null, variation_type: null, options: [newOption()],
   }
 }
 
@@ -97,6 +99,29 @@ function OptionRow({ o, groups, draftId, onPatch, onRemove }) {
   )
 }
 
+// One kiosk look setting as a row of buttons: [null, label] first = as the
+// kiosk design says.
+function LookRow({ label, value, choices, onChange, testid }) {
+  return (
+    <div>
+      <span className="text-xs font-medium block mb-1">{label}</span>
+      <div className="flex flex-wrap gap-1.5" role="group" aria-label={label}>
+        {choices.map(([k, l]) => (
+          <button key={String(k)} type="button" aria-pressed={value === k} data-testid={testid} data-value={k == null ? '' : String(k)}
+            onClick={() => onChange(k)}
+            className={cn('text-xs px-3 min-h-[40px] rounded-md border touch-manipulation',
+              value === k ? 'bg-primary text-primary-foreground border-primary' : 'bg-background')}>
+            {l}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+const DESIGN_SAYS = 'As the kiosk design says'
+const typeOf = key => VARIATION_TYPES.find(t => t.key === key) || null
+
 export function VariantGroupsManager() {
   const api = useApi()
   const qc  = useQueryClient()
@@ -129,6 +154,10 @@ export function VariantGroupsManager() {
         scale_high: (draft.scale_high || '').trim() || null,
         kiosk_pick_photo: draft.kiosk_pick_photo || null,
         kiosk_pick_scale: draft.kiosk_pick_photo === 'corner' ? (draft.kiosk_pick_scale ?? null) : null,
+        kiosk_tiles: draft.kiosk_tiles || null,
+        kiosk_pictures: draft.kiosk_pictures ?? null,
+        kiosk_entrance: draft.kiosk_entrance || null,
+        variation_type: draft.variation_type || null,
         sort_order: draft.id ? (groups.find(g => g.id === draft.id)?.sort_order ?? 0) : groups.length,
         options: (draft.options || [])
           .filter(o => o.label.trim())
@@ -188,6 +217,10 @@ export function VariantGroupsManager() {
       scale_high: g.scale_high || '',
       kiosk_pick_photo: g.kiosk_pick_photo || null,
       kiosk_pick_scale: g.kiosk_pick_scale ?? null,
+      kiosk_tiles: g.kiosk_tiles || null,
+      kiosk_pictures: g.kiosk_pictures ?? null,
+      kiosk_entrance: g.kiosk_entrance || null,
+      variation_type: g.variation_type || null,
       options: (g.options || []).map(o => ({ ...o, _key: o.id || newKey(), description: o.description || '' })),
     })
   }
@@ -220,6 +253,7 @@ export function VariantGroupsManager() {
             <span className="flex-1 min-w-0">
               <span className="font-medium block">{g.name}</span>
               {g.display_name && <span className="block text-xs text-muted-foreground break-words" data-testid="vg-shown-as">Guests see: {g.display_name}</span>}
+              {typeOf(g.variation_type) && <span className="block text-xs text-violet-700" data-testid="vg-type">{typeOf(g.variation_type).label}</span>}
               {/* On a phone the options go under the name. */}
               <span className="block sm:hidden text-xs text-muted-foreground truncate">
                 {(g.options || []).map(o => o.label).join(', ') || 'No options'}
@@ -323,6 +357,16 @@ export function VariantGroupsManager() {
             </label>
             <p className="text-[11px] text-muted-foreground">An option can also ask another group when it's picked on the till (e.g. Steak, then Cooking): choose it under "Then ask" on the option.</p>
           </div>
+          <div className="rounded-md border bg-background p-3 space-y-2" data-testid="vg-stock">
+            <p className="text-[10px] uppercase font-semibold text-muted-foreground tracking-wide">Recipe and stock</p>
+            <LookRow label="What this group does to the dish" value={draft.variation_type || null} testid="vg-variation-type"
+              choices={[[null, 'Not set'], ...VARIATION_TYPES.map(t => [t.key, t.label])]}
+              onChange={v => setDraft(d => ({ ...d, variation_type: v }))} />
+            <p className="text-[11px] text-muted-foreground">
+              {typeOf(draft.variation_type)?.hint || 'Pick one for stock: whether the options change the dish\'s recipe, add a side with its own recipe, or add to the recipe.'}
+              {' '}Nothing uses it yet; stock counts will.
+            </p>
+          </div>
           <div className="rounded-md border bg-background p-3 space-y-2" data-testid="vg-kiosk">
             <p className="text-[10px] uppercase font-semibold text-muted-foreground tracking-wide">Self-order kiosk</p>
             <div>
@@ -341,6 +385,18 @@ export function VariantGroupsManager() {
                 Grid and list suit most groups; the slider suits choices with a level, like heat; the spin wheel suits flavours. Pictures and a line of words show on the option cards.
               </p>
             </div>
+            <LookRow label="Picture style" value={draft.kiosk_tiles || null} testid="vg-tiles"
+              choices={[[null, DESIGN_SAYS], ...TILE_STYLES.map(k => [k, TILE_LABELS[k]])]}
+              onChange={v => setDraft(d => ({ ...d, kiosk_tiles: v }))} />
+            <LookRow label="Pictures or words" value={draft.kiosk_pictures ?? null} testid="vg-pictures"
+              choices={[[null, DESIGN_SAYS], [true, 'With pictures'], [false, 'Words only']]}
+              onChange={v => setDraft(d => ({ ...d, kiosk_pictures: v }))} />
+            <LookRow label="When the options appear" value={draft.kiosk_entrance || null} testid="vg-entrance"
+              choices={[[null, DESIGN_SAYS], ...CHOICE_ENTRANCES.map(x => [x.key, x.label])]}
+              onChange={v => setDraft(d => ({ ...d, kiosk_entrance: v }))} />
+            <p className="text-[11px] text-muted-foreground">
+              This group's look on every kiosk. A kiosk design can still show the group its own way (Store tech &gt; Kiosks, a design, Choices: Option groups with their own look), which wins over these.
+            </p>
             <div className="grid sm:grid-cols-2 gap-2">
               <Field label="Words at the low end of the scale">
                 <Input value={draft.scale_low || ''} maxLength={40} onChange={e => setDraft(d => ({ ...d, scale_low: e.target.value }))} placeholder="e.g. No spice" />

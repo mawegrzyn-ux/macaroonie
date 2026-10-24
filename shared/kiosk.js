@@ -225,7 +225,8 @@ export const DESIGN_COLORS = {
 // a colour.
 export const CLEAR_COLORS = ['surface', 'primary', 'accent']
 // How a dish's choices come onto the screen: all at once, or one after another
-// (kiosk.css, the root's data-enter).
+// (kiosk.css data-enter: the design's on the root, an option group's own on
+// its choices, groupLook()).
 export const CHOICE_ENTRANCES = [
   { key: 'none', label: 'Just there' },
   { key: 'appear', label: 'Fade in' },
@@ -233,6 +234,7 @@ export const CHOICE_ENTRANCES = [
   { key: 'bubble', label: 'Bubble up' },
   { key: 'deal', label: 'Deal like cards' },
 ]
+export const ENTRANCE_KEYS = CHOICE_ENTRANCES.map(x => x.key)
 
 export const COLOR_LABELS = {
   background: 'Page', surface: 'Cards', text: 'Text', muted: 'Quiet text',
@@ -297,7 +299,7 @@ export function hexLayout(total, max, compact = false) {
 // page of section tiles instead.
 export const RAIL_KINDS = ['images', 'text', 'none']
 
-const MAX = { media: 8, reach_media: 4, banners: 10, featured: 12, upsell: 8, hidden: 200, tiles: 200 }
+const MAX = { media: 8, reach_media: 4, banners: 10, featured: 12, upsell: 8, hidden: 200, tiles: 200, group_looks: 200 }
 
 function link(v) {
   const kind = oneOf(v?.kind, LINK_KINDS, 'none')
@@ -312,6 +314,27 @@ function sectionTiles(v) {
     seen.add(x.section_id)
     out.push({ section_id: x.section_id, image_url: url(x.image_url), title: text(x.title, 60), size: oneOf(x.size, ['normal', 'wide'], 'normal') })
     if (out.length >= MAX.tiles) break
+  }
+  return out
+}
+
+// Option groups with their own look in this design (options.group_looks,
+// groupLook()): each part null = not set here. A group with nothing set yet
+// stays on the list, so one just added keeps its place.
+function groupLooks(v) {
+  const seen = new Set()
+  const out = []
+  for (const x of asList(v)) {
+    if (!isUuid(x?.group_id) || seen.has(x.group_id)) continue
+    seen.add(x.group_id)
+    out.push({
+      group_id: x.group_id,
+      display: oneOf(x.display, KIOSK_DISPLAYS, null),
+      tiles: oneOf(x.tiles, TILE_STYLES, null),
+      pictures: typeof x.pictures === 'boolean' ? x.pictures : null,
+      entrance: oneOf(x.entrance, ENTRANCE_KEYS, null),
+    })
+    if (out.length >= MAX.group_looks) break
   }
   return out
 }
@@ -414,7 +437,11 @@ export function normaliseDesign(raw) {
       wheel_spin: o.wheel_spin !== false,
       wheel_spin_picks: !!o.wheel_spin_picks,
       // How choices come onto the screen (CHOICE_ENTRANCES; kiosk.css data-enter).
-      entrance: oneOf(o.entrance, CHOICE_ENTRANCES.map(x => x.key), 'none'),
+      entrance: oneOf(o.entrance, ENTRANCE_KEYS, 'none'),
+      // Option groups shown their own way in this design: [{ group_id,
+      // display, tiles, pictures, entrance }], each part null = not set here
+      // (groupLook()).
+      group_looks: groupLooks(o.group_looks),
     },
     checkout: {
       pay_card: c.pay_card !== false,
@@ -448,6 +475,31 @@ export function normaliseDesign(raw) {
 export const DEFAULT_DESIGN = normaliseDesign({})
 
 /**
+ * How an option group's choices look on a kiosk with this design: the
+ * design's own look for the group (options.group_looks) where it sets one,
+ * else the group's own (Menus > Variant groups: kiosk_display, kiosk_tiles,
+ * kiosk_pictures, kiosk_entrance), else the design's for every choice. Each
+ * part is decided on its own, so a design can change only a group's
+ * entrance and keep the tiles the group asks for.
+ *   design  a normalised design
+ *   group   the kiosk config's group ({ id, kiosk_display, ... }), or null
+ *           for choices that aren't a group's (combo steps, a dish's one-off
+ *           options): the design's
+ * { display, tiles, pictures, entrance }
+ */
+export function groupLook(design, group = null) {
+  const d = design || DEFAULT_DESIGN
+  const own = group?.id ? (d.options?.group_looks || []).find(x => x.group_id === group.id) || null : null
+  const first = (...vals) => vals.find(v => v != null)
+  return {
+    display: first(own?.display, oneOf(group?.kiosk_display, KIOSK_DISPLAYS, null), d.options.display),
+    tiles: first(own?.tiles, oneOf(group?.kiosk_tiles, TILE_STYLES, null), d.layout.option_tiles),
+    pictures: first(own?.pictures, typeof group?.kiosk_pictures === 'boolean' ? group.kiosk_pictures : null, d.layout.option_pictures !== false),
+    entrance: first(own?.entrance, oneOf(group?.kiosk_entrance, ENTRANCE_KEYS, null), d.options.entrance),
+  }
+}
+
+/**
  * What stops a design (with this kiosk's set-up) taking orders, for the
  * editor and Store tech: strings, none = []. kiosk: { card_reader }.
  */
@@ -473,34 +525,38 @@ export const SPLIT_MAX = 6
  * 199: the picture made for the dish's photo), else its tile picture
  * (image_url; a picked dish its own photo). Steps first, then groups, each
  * in pick order; an option picked twice shows once. At most SPLIT_MAX each.
- * split is a list of pictures; corner of { src, scale }, scale the group's or
- * step's size for corner pictures (kiosk_pick_scale / pick_scale, migration
- * 205; null = automatic, cornerWidths()).
+ * split is a list of pictures; corner of { src, scale, tiles }, scale the
+ * group's or step's size for corner pictures (kiosk_pick_scale / pick_scale,
+ * migration 205; null = automatic, cornerWidths()) and tiles the picture
+ * style its choices have (groupLook(): a step's are the design's), which the
+ * corner picture's frame follows.
  * selection: { choices, combo } as the builder keeps it.
  */
 export function pickImages(config, item, selection = {}) {
   const out = { split: [], corner: [] }
   if (!item) return out
   const seen = new Set()
-  const add = (where, key, src, scale = null) => {
+  const add = (where, key, src, scale = null, tiles = 'cards') => {
     if (!src || !out[where] || seen.has(key)) return
     seen.add(key)
-    out[where].push(where === 'corner' ? { src, scale: pickScale(scale) } : src)
+    out[where].push(where === 'corner' ? { src, scale: pickScale(scale), tiles } : src)
   }
   const combo = comboOf(item)
+  const stepTiles = groupLook(config?.design).tiles
   for (const st of combo?.steps || []) {
     if (!st.pick_photo) continue
     for (const e of asList(selection?.combo?.[st.id])) {
       const opt = st.options.find(o => o.id === e.option_id)
-      add(st.pick_photo, 's:' + st.id + ':' + e.option_id + ':' + (e.item_id || ''), opt?.photo_url || (e.item_id ? configItem(config, e.item_id)?.image_url : opt?.image_url), st.pick_scale)
+      add(st.pick_photo, 's:' + st.id + ':' + e.option_id + ':' + (e.item_id || ''), opt?.photo_url || (e.item_id ? configItem(config, e.item_id)?.image_url : opt?.image_url), st.pick_scale, stepTiles)
     }
   }
   for (const c of item.pos_choices || []) {
     const lib = config?.groups?.[c.key]
     if (!lib?.kiosk_pick_photo) continue
+    const tiles = groupLook(config?.design, lib).tiles
     for (const e of asList(selection?.choices?.[c.key])) {
       const o = (lib.options || []).find(x => (x.option_id ?? x.id) === e.id)
-      add(lib.kiosk_pick_photo, 'g:' + c.key + ':' + e.id, o?.photo_url || o?.image_url, lib.kiosk_pick_scale)
+      add(lib.kiosk_pick_photo, 'g:' + c.key + ':' + e.id, o?.photo_url || o?.image_url, lib.kiosk_pick_scale, tiles)
     }
   }
   return { split: out.split.slice(0, SPLIT_MAX), corner: out.corner.slice(0, SPLIT_MAX) }

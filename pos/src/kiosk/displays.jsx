@@ -11,26 +11,33 @@
 //   scale     { low, high } words at the ends of the level scale, or null
 //   levelIcon 'flame' | 'star' | 'dot'
 //   ui        the kiosk's words (store.js textsFor().ui)
-//   tiles     the design's choice picture style (design.layout.option_tiles):
-//             'cards' | 'round' | 'oval' | 'hexagon' | 'plain' (no frame) (the
-//             grid lays hexagons out as a honeycomb; the rest is CSS on
-//             .k-opts-<style>)
-//   pictures  false: words only (design.layout.option_pictures), in the
-//             style's shape (.k-opt-face, HexTile words)
+//   tiles     the choices' picture style (choiceLook(): the group's look, else
+//             the design's design.layout.option_tiles): 'cards' | 'round' |
+//             'oval' | 'hexagon' | 'plain' (no frame) (the grid lays hexagons
+//             out as a honeycomb; the rest is CSS on .k-opts-<style>, which
+//             the display's container carries: OptionGroup, a combo step)
+//   pictures  false: words only (the group's look, else
+//             design.layout.option_pictures), in the style's shape
+//             (.k-opt-face, HexTile words)
 //   center    the grid / honeycomb centred on the screen (design.layout.option_align)
 //   wheel     { spin, picks }: the wheel's Spin button, and whether a spin
 //             picks the choice it stops on
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Check, Minus, Plus, ChevronLeft, ChevronRight, Dices } from 'lucide-react'
+import { groupLook } from '@shared/kiosk.js'
 import { cx, Photo, Levels, HexGrid, HexTile } from './parts.jsx'
 
-/** The design's look for choices, as the displays' props (tiles, pictures, center). */
-export const choiceLook = design => ({
-  tiles: design.layout.option_tiles,
-  pictures: design.layout.option_pictures !== false,
-  center: design.layout.option_align === 'center',
-})
+/**
+ * The look of a set of choices, as the displays' props (tiles, pictures,
+ * center): an option group's (group: the config's group, groupLook(): the
+ * design's look for the group, else the group's own, else the design's), or
+ * the design's for every choice (no group: combo steps).
+ */
+export const choiceLook = (design, group = null) => {
+  const look = groupLook(design, group)
+  return { tiles: look.tiles, pictures: look.pictures, center: design.layout.option_align === 'center' }
+}
 
 // A choice's words without its picture: the name, level and description (a
 // card only shows the description), and whatever comes after (the price), in

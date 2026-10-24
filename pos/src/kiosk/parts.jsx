@@ -208,9 +208,10 @@ export function PickPhoto({ picks, src, label, className, phClassName, splitClas
 
 /**
  * Pictures small in the bottom corner of what's inside (the dish's photo),
- * in pick order, the choices' picture style (.k-corner-pick follows .k-opts-*),
- * each as big as its group or step says (cornerWidths()).
- *   picks  [{ src, scale }] (pickImages() .corner)
+ * in pick order, each framed in its choices' picture style (data-tiles: its
+ * group's look, a step's the design's) and as big as its group or step says
+ * (cornerWidths()).
+ *   picks  [{ src, scale, tiles }] (pickImages() .corner)
  */
 export function CornerPicks({ picks, className, children }) {
   const widths = cornerWidths(picks)
@@ -218,7 +219,7 @@ export function CornerPicks({ picks, className, children }) {
     <div className={cx('k-corner', className)} data-testid="k-corner" data-parts={picks.length}>
       {children}
       <span className="k-corner-picks" aria-hidden="true">
-        {picks.map((c, i) => <Pic key={i + ':' + c.src} src={c.src} className="k-corner-pick" style={{ width: widths[i] + '%' }} data-scale={c.scale ?? undefined} />)}
+        {picks.map((c, i) => <Pic key={i + ':' + c.src} src={c.src} className="k-corner-pick" style={{ width: widths[i] + '%' }} data-scale={c.scale ?? undefined} data-tiles={c.tiles || 'cards'} />)}
       </span>
     </div>
   )

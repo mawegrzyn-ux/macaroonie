@@ -22,7 +22,7 @@ import {
   Disc3, CreditCard, Timer, ChevronDown, Image as ImageIcon, Video, Plus, X, UtensilsCrossed,
   ShoppingBag, Bike, Sparkles, AlertTriangle, Flame, Star, CircleDot, RectangleVertical,
   RectangleHorizontal, Wand2, BookOpen, LayoutDashboard, Hexagon, Circle, Square, Share2, Copy, Check, ExternalLink,
-  RefreshCw,
+  RefreshCw, Layers,
 } from 'lucide-react'
 import { qrSvg } from '@shared/qr.js'
 import { kioskBrandFromKit } from '@shared/themeKit.js'
@@ -30,6 +30,7 @@ import { ThemeMakerButton } from '@/components/themes/ThemeMaker'
 import {
   normaliseDesign, designProblems, KIOSK_FONTS, KIOSK_EXTRA_FONTS, SYSTEM_FONT, COLOR_LABELS,
   DESIGN_COLORS, CLEAR_COLORS, CHOICE_ENTRANCES, KIOSK_LANGUAGES, DISPLAY_LABELS, KIOSK_DISPLAYS, uiText, TILE_STYLES, TILE_LABELS,
+  groupLook,
 } from '@shared/kiosk.js'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -708,7 +709,83 @@ function MenuPanel({ s, d, set, setup, venueName, canManage }) {
   )
 }
 
-function ChoicesPanel({ d, set }) {
+// The parts of a choices' look an option group can have its own of
+// (options.group_looks, shared/kiosk.js groupLook()); the group's own are
+// its kiosk_<part> (Menus > Variant groups).
+const LOOK_PARTS = [
+  { key: 'display', label: 'Shown as', values: KIOSK_DISPLAYS.map(k => [k, DISPLAY_LABELS[k]]) },
+  { key: 'tiles', label: 'Pictures', values: TILE_STYLES.map(k => [k, TILE_LABELS[k]]) },
+  { key: 'pictures', label: 'Words', values: [[true, 'With pictures'], [false, 'Words only']] },
+  { key: 'entrance', label: 'Coming in', values: CHOICE_ENTRANCES.map(x => [x.key, x.label]) },
+]
+const lookLabel = (part, v) => part.values.find(x => x[0] === v)?.[1] || ''
+
+/**
+ * Option groups shown their own way in this design: pick the groups, then
+ * for each what it changes. A part left on its default follows the group's
+ * own look (Menus > Variant groups), else this design's settings above.
+ */
+function GroupLooks({ d, set, setup }) {
+  const groups = setup?.option_groups || []
+  const list = d.options.group_looks
+  const byId = new Map(groups.map(g => [g.id, g]))
+  const free = groups.filter(g => !list.some(x => x.group_id === g.id))
+  // What a group shows without this design's own look for it.
+  const plain = { ...d, options: { ...d.options, group_looks: [] } }
+  const save = next => set('options', { group_looks: next })
+  const change = (id, patch) => save(list.map(x => (x.group_id === id ? { ...x, ...patch } : x)))
+  return (
+    <Field group label="Option groups with their own look"
+      hint="Pick the option groups this design shows another way, and for each what changes. Default keeps what the group asks for (Menus > Variant groups), else the settings above.">
+      <div className="space-y-2" data-testid="kd-group-looks">
+        {list.map(x => {
+          const g = byId.get(x.group_id) || null
+          const base = groupLook(plain, g)
+          return (
+            <div key={x.group_id} className="rounded-xl border p-3 space-y-2" data-testid="kd-group-look" data-group={x.group_id}>
+              <div className="flex items-center gap-2">
+                <Layers className="w-4 h-4 text-violet-600 shrink-0" />
+                <span className="flex-1 min-w-0">
+                  <span className="block text-sm font-semibold truncate">{g ? g.name : 'An option group that has been deleted'}</span>
+                  {g?.display_name && <span className="block text-[11px] text-muted-foreground truncate">Guests see: {g.display_name}</span>}
+                </span>
+                <IconBtn onClick={() => save(list.filter(y => y.group_id !== x.group_id))} title={'Take ' + (g?.name || 'it') + ' off the list'} testId="kd-group-look-remove">
+                  <X className="w-4 h-4" />
+                </IconBtn>
+              </div>
+              <div className="space-y-1.5">
+                {LOOK_PARTS.map(part => {
+                  const own = g?.['kiosk_' + part.key] != null
+                  return (
+                    <label key={part.key} className="flex items-center gap-2 min-w-0">
+                      <span className="w-16 shrink-0 text-[11px] text-muted-foreground">{part.label}</span>
+                      <select className={cn(inputCls, 'flex-1 min-w-0')} value={x[part.key] == null ? '' : String(x[part.key])} data-testid={'kd-group-look-' + part.key}
+                        onChange={e => change(x.group_id, { [part.key]: e.target.value === '' ? null : part.values.find(v => String(v[0]) === e.target.value)[0] })}>
+                        <option value="">{(own ? 'Group: ' : 'Design: ') + lookLabel(part, base[part.key])}</option>
+                        {part.values.map(([v, l]) => <option key={String(v)} value={String(v)}>{l}</option>)}
+                      </select>
+                    </label>
+                  )
+                })}
+              </div>
+            </div>
+          )
+        })}
+        {!groups.length ? (
+          <p className="text-[11px] text-muted-foreground">No option groups yet (Menus &gt; Variant groups).</p>
+        ) : free.length > 0 && (
+          <select className={inputCls} value="" data-testid="kd-group-look-add"
+            onChange={e => e.target.value && save([...list, { group_id: e.target.value, display: null, tiles: null, pictures: null, entrance: null }])}>
+            <option value="">Add an option group</option>
+            {free.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+          </select>
+        )}
+      </div>
+    </Field>
+  )
+}
+
+function ChoicesPanel({ d, set, setup }) {
   return (
     <>
       <Field group label="How choices are shown" hint="For option groups and combo steps that don't pick their own (Menus > Variant groups, and each step of a combo).">
@@ -749,6 +826,7 @@ function ChoicesPanel({ d, set }) {
             options={CHOICE_ENTRANCES.map(x => ({ value: x.key, label: x.label }))} />
         </div>
       </Field>
+      <GroupLooks d={d} set={set} setup={setup} />
       <p className="text-[11px] text-muted-foreground" data-testid="kd-pick-photos-note">
         Picks on the dish's photo (split it, or small in the corner) are set on each option group (Menus &gt; Variant groups) and each combo step, so one dish can split its photo between flavours and show the dip in the corner.
       </p>
@@ -1172,6 +1250,7 @@ function summaryOf(id, d) {
   if (id === 'languages') return d.languages.enabled.map(c => KIOSK_LANGUAGES.find(l => l.code === c)?.name).join(', ')
   if (id === 'menu') return TILE_LABELS[d.layout.tiles] + ', ' + (d.menu.rail === 'none' ? 'section tiles, ' : '') + (d.menu.home ? d.menu.banners.length + ' banners, ' + d.menu.featured.length + ' tiles' : 'No home page') + (d.menu.hidden_section_ids.length ? ', ' + d.menu.hidden_section_ids.length + ' sections left off' : '')
   if (id === 'choices') return DISPLAY_LABELS[d.options.display] + ', ' + TILE_LABELS[d.layout.option_tiles].toLowerCase() + (d.layout.option_pictures ? '' : ', words only') + (d.layout.option_align === 'center' ? ', centred' : '') + (d.options.wheel_spin_picks ? ', a spin picks' : '') + (d.options.entrance !== 'none' ? ', ' + CHOICE_ENTRANCES.find(x => x.key === d.options.entrance).label.toLowerCase() : '')
+    + (d.options.group_looks.length ? ', ' + d.options.group_looks.length + ' option group' + (d.options.group_looks.length === 1 ? '' : 's') + ' their own way' : '')
   if (id === 'checkout') return [d.checkout.pay_card && 'Card', d.checkout.pay_counter && 'At the counter'].filter(Boolean).join(' and ') || 'No way to pay'
   if (id === 'timing') return 'Starts again after ' + d.behaviour.idle_secs + ' s' + (d.behaviour.reach && d.behaviour.reach_media.length ? ', reach pictures' : '')
   return ''

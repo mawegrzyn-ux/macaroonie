@@ -1,15 +1,19 @@
 // One option group on the kiosk (a dish's own group, or a combo part's):
 // the picking rules (how many, the same one more than once, a group that
 // waits behind a button, a group an option opens: Steak -> Cooking) and the
-// display the group or the design asks for (displays.jsx). The picks are in
-// the till's shape ({ [groupKey]: [{ id, children }] }), so the shared
-// pricing (shared/pos/pricing.js priceItem) prices them like the till does.
+// group's look (shared/kiosk.js groupLook(): the design's look for the
+// group, else the group's own, else the design's): its display
+// (displays.jsx), picture style and entrance, on the choices' own container
+// (.k-opts-<style>, data-enter), so a group an option opens shows its own.
+// The picks are in the till's shape ({ [groupKey]: [{ id, children }] }), so
+// the shared pricing (shared/pos/pricing.js priceItem) prices them like the
+// till does.
 
 import { useState } from 'react'
 import { Plus, Check } from 'lucide-react'
 import { groupChoice } from '@shared/pos/pricing.js'
 import { optionPriceText } from '@shared/orderPricing.js'
-import { TK } from '@shared/kiosk.js'
+import { TK, groupLook } from '@shared/kiosk.js'
 import { DISPLAYS, choiceLook } from './displays.jsx'
 import { cx } from './parts.jsx'
 
@@ -49,8 +53,8 @@ export default function OptionGroup({ choice, value = [], onChange, config, text
   const lib = config.groups?.[choice.key] || null
   const [open, setOpen] = useState(!choice.on_request || value.length > 0)
   const design = config.design
-  const look = choiceLook(design)
-  const display = lib?.kiosk_display || design.options.display
+  const look = choiceLook(design, lib)
+  const { display, entrance } = groupLook(design, lib)
   const Display = DISPLAYS[display] || DISPLAYS.grid
   const counted = value.length
   const name = depth > 0 ? choice.name : groupName(choice, texts)
@@ -107,9 +111,12 @@ export default function OptionGroup({ choice, value = [], onChange, config, text
         </span>
         {choice.repeat && <span className="k-muted text-[.8em]">{ui('tap_again')}</span>}
       </header>
-      <Display options={options} countOf={countOf} onTap={onTap} onLess={onLess} repeat={choice.repeat} full={full}
-        scale={scale} levelIcon={design.options.level_icon} ui={ui} {...look}
-        wheel={{ spin: design.options.wheel_spin, picks: design.options.wheel_spin_picks }} />
+      <div className={'k-choices k-opts-' + look.tiles} data-testid="k-group-choices" data-tiles={look.tiles} data-enter={entrance}
+        data-pictures={look.pictures ? undefined : 'words'}>
+        <Display options={options} countOf={countOf} onTap={onTap} onLess={onLess} repeat={choice.repeat} full={full}
+          scale={scale} levelIcon={design.options.level_icon} ui={ui} {...look}
+          wheel={{ spin: design.options.wheel_spin, picks: design.options.wheel_spin_picks }} />
+      </div>
       {value.map((e, idx) => {
         const o = choice.options.find(x => x.id === e.id)
         const childLib = o?.child_group_id && config.groups?.[o.child_group_id]
