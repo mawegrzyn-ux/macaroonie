@@ -70,8 +70,20 @@ const KIND_STYLE = {
 }
 const KIND_STRIP = { start: '#71717a', prep: '#0ea5e9', expo: '#f59e0b', runner: '#8b5cf6', board: '#059669', balance: '#f43f5e', printer: '#57534e', sleeper: '#6366f1', setter: '#f97316' }
 const ADD_KINDS = ['prep', 'expo', 'runner', 'board', 'balance', 'printer', 'sleeper', 'setter']
-// What a Splitter does, said the same way in the panels.
-const BALANCE_RULE = 'each ticket\'s dishes go to one of them: the one with the fewest pieces still to cook, taking turns when they\'re level'
+// What a Splitter does, said the same way in the panels (and the station list).
+export function balanceRule(s = {}) {
+  return s.share_mode === 'speed'
+    ? 'each ticket\'s dishes go to one of them: the one that should be done soonest (the pieces still to cook there, times how long it has been taking a piece lately), taking turns when they\'re level'
+    : 'each ticket\'s dishes go to one of them: the one with the fewest pieces still to cook, taking turns when they\'re level'
+}
+
+/** A Splitter's busy order type rule in words, or ''. */
+export function busyRule(s = {}, setup) {
+  if (!s.rush_type_id) return ''
+  const type = (setup.order_types || []).find(t => t.id === s.rush_type_id)?.name || 'an order type'
+  const to = (setup.kds_stations || []).find(x => x.id === s.rush_station_id)?.name || 'its station'
+  return 'From ' + (s.rush_count || 5) + ' waiting ' + type + ' orders, ' + type + ' orders go to ' + to + ' and every other order to the other stations.'
+}
 
 let keySeq = 0
 const newKey = () => 'new-' + (++keySeq) + '-' + Math.random().toString(36).slice(2, 7)
@@ -618,10 +630,11 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
         </div>
       )}
       {checking && (
-        <CheckPanel kindOf={id => byId[id]?.kind} minsOf={id => (byId[id]?.here || byId[id])?.settings?.delay_mins} setup={setup} lk={lk} shared={shared} check={check} setCheck={setCheck} route={route} nameOf={nameOf} onClose={() => setChecking(false)} />
+        <CheckPanel kindOf={id => byId[id]?.kind} settingsOf={id => (byId[id]?.here || byId[id])?.settings || {}} setup={setup} lk={lk} shared={shared} check={check} setCheck={setCheck} route={route} nameOf={nameOf} onClose={() => setChecking(false)} />
       )}
       {selLink && (
         <LinkPanel link={selLink} lk={lk} setup={setup} shared={shared} canManage={canManage} nameOf={nameOf} fromBalance={byId[selLink.from]?.kind === 'balance'}
+          boxSettings={(byId[selLink.from]?.here || byId[selLink.from])?.settings || {}}
           siblings={draft.links.filter(l => (l.from || null) === (selLink.from || null) && l.key !== selLink.key)}
           onChange={patch => updateLink(selLink.key, patch)} onRemove={() => removeLink(selLink.key)} onClose={() => setSelected(null)} />
       )}
@@ -1047,7 +1060,7 @@ function Chip({ on, onClick, except, children }) {
   )
 }
 
-function LinkPanel({ link, lk, setup, shared, canManage, nameOf, fromBalance, siblings, onChange, onRemove, onClose }) {
+function LinkPanel({ link, lk, setup, shared, canManage, nameOf, fromBalance, boxSettings, siblings, onChange, onRemove, onClose }) {
   const [q, setQ] = useState('')
   // A filter entry is { kind, id }, or (a shared flow's streams and tills) { kind, name }.
   const has = t => link.targets.some(x => targetKey(x) === targetKey(t))
@@ -1072,8 +1085,8 @@ function LinkPanel({ link, lk, setup, shared, canManage, nameOf, fromBalance, si
     return (
       <PanelBox title={nameOf(link.from) + ' to ' + nameOf(link.to)} onClose={onClose} testid="flow-link-panel">
         <p>
-          {nameOf(link.from)} shares its dishes between the stations it links to: {BALANCE_RULE}. Its links take every dish it
-          gets, so they have no filters.
+          {nameOf(link.from)} shares its dishes between the stations it links to: {balanceRule(boxSettings)}. Its links take every dish it
+          gets, so they have no filters.{busyRule(boxSettings, setup) && ' ' + busyRule(boxSettings, setup)}
         </p>
         {canManage && (
           <div className="flex items-center gap-2 pt-1 border-t">
@@ -1246,13 +1259,14 @@ function NodePanel({ id, venueId, station, box, boxes, setup, links, nameOf, lk,
       )}
       {station?.kind === 'balance' && (
         <p className="text-xs text-muted-foreground" data-testid="flow-balance-note">
-          Shares work between the stations it goes on to: {BALANCE_RULE}.{' '}
+          {s.share_mode === 'speed' ? 'Smart: shares' : 'Shares'} work between the stations it goes on to: {balanceRule(s)}.{' '}
           {(s.pieces || []).length
             ? 'Pieces: ' + s.pieces.map(m => m.label + ' counts ' + m.qty).join(', ') + '; any other dish counts its quantity.'
             : 'No pieces set yet (Edit station): each dish counts its quantity.'}{' '}
           {s.split_above != null
             ? 'Big tickets: a ticket with more than ' + s.split_above + ' pieces is shared out, dish line by dish line.'
             : 'Big tickets: each ticket stays on one station.'}
+          {busyRule(s, setup) && ' ' + busyRule(s, setup)}
         </p>
       )}
       {station?.kind === 'sleeper' && (
@@ -1321,7 +1335,7 @@ function NodePanel({ id, venueId, station, box, boxes, setup, links, nameOf, lk,
   )
 }
 
-function CheckPanel({ setup, lk, shared, check, setCheck, route, nameOf, kindOf, minsOf, onClose }) {
+function CheckPanel({ setup, lk, shared, check, setCheck, route, nameOf, kindOf, settingsOf, onClose }) {
   const [q, setQ] = useState('')
   const term = q.trim().toLowerCase()
   const matches = term.length >= 2 ? (setup.items || []).filter(i => i.name.toLowerCase().includes(term)).slice(0, 8) : []
@@ -1386,14 +1400,16 @@ function CheckPanel({ setup, lk, shared, check, setCheck, route, nameOf, kindOf,
                 Orders in{steps.map((ids, i) => {
                   // A Splitter's stations: one of them, not all.
                   const shared = ids.length > 1 && ids.every(id => (route[id] || []).some(p => kindOf(p) === 'balance'))
-                  const label = id => nameOf(id) + (kindOf(id) === 'sleeper' ? ' (waits ' + (minsOf(id) ?? 5) + ' min)' : '')
+                  const label = id => nameOf(id) + (kindOf(id) === 'sleeper' ? ' (waits ' + (settingsOf(id).delay_mins ?? 5) + ' min)' : '')
                   return <span key={i}> <span className="text-muted-foreground">&rarr;</span> <b>{ids.map(label).join(shared ? ' or ' : ' + ')}</b></span>
                 })}
               </p>
             )}
-          {steps.some(ids => ids.some(id => kindOf(id) === 'balance')) && (
-            <p className="text-xs text-muted-foreground mt-1">At a Splitter {BALANCE_RULE}.</p>
-          )}
+          {[...new Set(steps.flat())].filter(id => kindOf(id) === 'balance').map(id => (
+            <p key={id} className="text-xs text-muted-foreground mt-1" data-testid="flow-check-split">
+              At {nameOf(id)} {balanceRule(settingsOf(id))}.{busyRule(settingsOf(id), setup) && ' ' + busyRule(settingsOf(id), setup)}
+            </p>
+          ))}
         </div>
       )}
       {!item && <p className="text-muted-foreground">Pick a dish to see its way through the kitchen highlighted.</p>}

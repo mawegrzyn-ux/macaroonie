@@ -312,6 +312,125 @@ test('a Splitter: each order to the wingman with fewer pieces to cook, taking tu
   assert.equal((await sql`SELECT count(*)::int AS n FROM kds_balance_turns WHERE station_id = ${box.id}`)[0].n, 0, 'its turns go with it')
 })
 
+test('a Splitter\'s modes: Smart by each station\'s pace, and a busy order type to its own station', async () => {
+  const pieces = [{ kind: 'dish', id: dish.id, label: dish.name, qty: 10 }]
+  const setup0 = await ok(owner.get(`/api/pos/venues/${V}/setup`))
+  const DEL = setup0.order_types.find(t => t.name === 'Delivery')
+  assert.ok(DEL, 'the tenant has a Delivery order type')
+  const w1 = await ok(owner.post(`/api/pos/venues/${V}/kds-stations`, { name: 'Wingman A', kind: 'prep' }))
+  const w2 = await ok(owner.post(`/api/pos/venues/${V}/kds-stations`, { name: 'Wingman B', kind: 'prep' }))
+  const orb = await ok(owner.post(`/api/pos/venues/${V}/kds-stations`, { name: 'ORB 8', kind: 'board' }))
+  const box = await ok(owner.post(`/api/pos/venues/${V}/kds-stations`, { name: 'Wings 2', kind: 'balance', settings: { pieces, share_mode: 'speed' } }))
+  assert.equal(box.settings.share_mode, 'speed')
+  assert.equal(box.settings.rush_type_id, null)
+
+  // What the settings take.
+  const save = settings => owner.patch(`/api/pos/kds-stations/${box.id}`, { name: 'Wings 2', kind: 'balance', settings: { pieces, ...settings } })
+  assert.equal((await save({ share_mode: 'fastest' })).status, 400, 'an unknown way to share')
+  assert.equal((await save({ rush_type_id: DEL.id })).status, 400, 'a type without its station')
+  assert.equal((await save({ rush_station_id: w1.id })).status, 400, 'a station without its type')
+  for (const rush_count of [0, 100]) assert.equal((await save({ rush_type_id: DEL.id, rush_station_id: w1.id, rush_count })).status, 400, 'count ' + rush_count)
+  const [otherType] = await sql`SELECT id FROM order_types WHERE tenant_id = ${ids.b} LIMIT 1`
+  const foreignType = await save({ rush_type_id: otherType.id, rush_station_id: w1.id })
+  assert.equal(foreignType.status, 422)
+  assert.match(foreignType.json.error, /Order type not found/)
+  const [otherStation] = await sql`SELECT id FROM kds_stations WHERE tenant_id = ${ids.b} LIMIT 1`
+  if (otherStation) assert.match((await save({ rush_type_id: DEL.id, rush_station_id: otherStation.id })).json.error, /Station not found/)
+  assert.match((await save({ rush_type_id: DEL.id, rush_station_id: orb.id })).json.error, /makes or checks dishes/, 'not a board')
+  assert.match((await save({ rush_type_id: DEL.id, rush_station_id: box.id })).json.error, /one of the stations it shares with/, 'not itself')
+  const prep = await ok(owner.post(`/api/pos/venues/${V}/kds-stations`, { name: 'Sides 2', kind: 'prep', settings: { share_mode: 'speed', rush_type_id: DEL.id, rush_station_id: w1.id } }))
+  assert.equal(prep.settings.share_mode, 'pieces', 'only a Splitter keeps them')
+  assert.equal(prep.settings.rush_type_id, null)
+
+  const flow = await ok(owner.post(`/api/pos/venues/${V}/kds-flows`, { name: 'Wings smart' }))
+  const links = [
+    { from: null, to: box.id, targets: [{ kind: 'item', id: dish.id }] }, { from: null, to: wok.id, targets: [] },
+    { from: box.id, to: w1.id, targets: [] }, { from: box.id, to: w2.id, targets: [] },
+    { from: w1.id, to: pass.id, targets: [] }, { from: w2.id, to: pass.id, targets: [] }, { from: wok.id, to: pass.id, targets: [] },
+  ]
+  await ok(owner.put(`/api/pos/kds-flows/${flow.id}`, { links, layout: {} }))
+  await ok(owner.put(`/api/pos/venues/${V}/kds-flows/active`, { flow_id: flow.id }))
+
+  // Wingman A has been doing 10 wings a minute, Wingman B a ticket every three
+  // minutes: past orders, bumped a while ago, as the kitchen keeps them.
+  const now = Date.now()
+  const past = async (station, reached, bumped) => {
+    const orderId = crypto.randomUUID()
+    const id = 'web-' + orderId
+    const iso = s => new Date(now - s * 1000).toISOString()
+    const state = {
+      id, source: 'online', order_id: orderId, number: 'past', status: 'collected', created_at: iso(reached + 60),
+      items: [{ id: 'p', item_id: dish.id, name: dish.name, qty: 1, mods: [], route: { [station]: ['start'] }, done: { [station]: iso(bumped) } }],
+      bumps: [{ id: ulid(), station_id: station, kind: 'prep', at: iso(bumped), started_at: iso(reached), set: [['p', station]], items: 1, recalled_at: null }],
+    }
+    await sql`
+      INSERT INTO kds_orders (id, tenant_id, venue_id, source, order_id, status, created_at, collected_at, state, last_seq, updated_at)
+      VALUES (${id}, ${ids.a}, ${V}, 'online', ${orderId}, 'collected', ${state.created_at}, ${iso(bumped)}, ${sql.json(state)}, 0, now())`
+  }
+  await past(w1.id, 900, 840)
+  await past(w1.id, 700, 640)
+  await past(w2.id, 900, 720)
+  await past(w2.id, 700, 520)
+  const seqr = () => sequencer(ids.a, V)
+  const sideOf = async n => ((await wayOf(n)).includes(w1.id) ? 'A' : 'B')
+  const smart = []
+  for (const n of [801, 802, 803, 804]) {
+    assert.ok((await seqr().submit(orderIn(n))).ok)
+    smart.push(await sideOf(n))
+  }
+  // 10 x 6 s beats 10 x 18 s; 20 x 6 still does; 30 x 6 = 10 x 18 (turns); 30 x 6 beats 20 x 18.
+  assert.deepEqual(smart, ['A', 'A', 'B', 'A'], 'three of four to the faster wingman')
+
+  // Clear the wingmen (bumped on a kitchen screen), then a busy order type
+  // rule, sharing by pieces: from 2 waiting deliveries, deliveries go to Wingman B.
+  for (const n of [801, 802, 803, 804]) {
+    const [row] = await sql`SELECT id, state FROM kds_orders WHERE tenant_id = ${ids.a} AND venue_id = ${V} AND state->>'number' = ${String(n)}`
+    const at = Object.keys(row.state.items[0].route).find(s => s === w1.id || s === w2.id)
+    const r = await device(screen, 'POST', '/pos-api/events', { events: [{ id: ulid(), venue_id: V, type: 'kitchen.bumped', client_at: new Date().toISOString(), payload: { order_id: row.id, station_id: at } }] })
+    assert.ok(r.json.results[0].ok, r.json.results[0].error)
+  }
+  const rule = await ok(save({ rush_type_id: DEL.id, rush_count: 2, rush_station_id: w2.id }))
+  assert.deepEqual([rule.settings.share_mode, rule.settings.rush_count, rule.settings.rush_station_id], ['pieces', 2, w2.id])
+  const send = async (n, { type = null, qty = 1 } = {}) => {
+    const e = orderIn(n)
+    e.payload.order.type = type
+    e.payload.order.items[0].qty = qty
+    assert.ok((await seqr().submit(e)).ok)
+    return sideOf(n)
+  }
+  assert.equal(await send(811, { qty: 3 }), 'B', 'level: the next after Wingman A (30 pieces at B now)')
+  assert.equal(await send(812, { type: DEL.id }), 'A', 'one delivery: by pieces (0 against 30)')
+  assert.equal(await send(813, { type: DEL.id }), 'B', 'two deliveries: busy, so Wingman B (by pieces: A, 10 against 30)')
+  assert.equal(await send(814), 'A', 'another order while it\'s busy: the other wingman')
+  for (const [n, s] of [[812, w1.id], [813, w2.id]]) {
+    const [row] = await sql`SELECT id FROM kds_orders WHERE tenant_id = ${ids.a} AND venue_id = ${V} AND state->>'number' = ${String(n)}`
+    const r = await device(screen, 'POST', '/pos-api/events', { events: [{ id: ulid(), venue_id: V, type: 'kitchen.bumped', client_at: new Date().toISOString(), payload: { order_id: row.id, station_id: s } }] })
+    assert.ok(r.json.results[0].ok, r.json.results[0].error)
+  }
+  assert.equal(await send(815, { type: DEL.id }), 'A', 'the deliveries left the wingmen: by pieces again (10 against 30)')
+  assert.equal(await send(816, { type: DEL.id }), 'B', 'busy again: Wingman B (by pieces: A, 20 against 30)')
+
+  // The flow warns when the box doesn't link to the busy orders' station.
+  await ok(save({ rush_type_id: DEL.id, rush_count: 2, rush_station_id: wok.id }))
+  const warned = await ok(owner.put(`/api/pos/kds-flows/${flow.id}`, { links, layout: {} }))
+  assert.ok(warned.warnings.some(w => /Wings 2 sends busy orders to .* but doesn't link to it/.test(w)), warned.warnings.join('; '))
+  // The station going (or no longer bumping) switches the rule off.
+  await ok(save({ rush_type_id: DEL.id, rush_count: 2, rush_station_id: w2.id }))
+  await ok(owner.patch(`/api/pos/kds-stations/${w2.id}`, { name: 'Wingman B', kind: 'board', settings: {} }))
+  let st = (await ok(owner.get(`/api/pos/venues/${V}/setup`))).kds_stations.find(s => s.id === box.id)
+  assert.deepEqual([st.settings.rush_type_id, st.settings.rush_station_id], [null, null], 'turned into a board')
+  await ok(save({ rush_type_id: DEL.id, rush_count: 2, rush_station_id: w1.id }))
+  await ok(owner.delete(`/api/pos/kds-stations/${w1.id}`))
+  st = (await ok(owner.get(`/api/pos/venues/${V}/setup`))).kds_stations.find(s => s.id === box.id)
+  assert.deepEqual([st.settings.rush_type_id, st.settings.rush_station_id], [null, null], 'deleted')
+
+  assert.equal((await as(A.viewer, ids.a).patch(`/api/pos/kds-stations/${box.id}`, { name: 'Wings 2', kind: 'balance', settings: { share_mode: 'speed' } })).status, 403)
+  assert.equal((await as(B.owner, ids.b).patch(`/api/pos/kds-stations/${box.id}`, { name: 'Wings 2', kind: 'balance', settings: { share_mode: 'speed' } })).status, 404)
+  await ok(owner.put(`/api/pos/venues/${V}/kds-flows/active`, { flow_id: main.id }))
+  await ok(owner.delete(`/api/pos/kds-flows/${flow.id}`))
+  for (const s of [box, w2, orb, prep]) await ok(owner.delete(`/api/pos/kds-stations/${s.id}`))
+})
+
 test('a Sleeper: holds the dishes its links send it for its minutes, then the wok can bump them', async () => {
   for (const delay_mins of [0, 241]) {
     const bad = await owner.post(`/api/pos/venues/${V}/kds-stations`, { name: 'Wait', kind: 'sleeper', settings: { delay_mins } })

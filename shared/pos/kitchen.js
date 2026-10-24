@@ -32,14 +32,23 @@
 // the stations it links to: each ticket's dishes that reach it go on to just
 // one of them, the one with the fewest pieces still to cook there (the box's
 // pieces list, like On order counts: an 8pc dish counts 8, a "10 Wings"
-// option 10), taking turns on a tie. A box can share big tickets instead
-// (settings.split_above): when more than that many pieces of one ticket reach
-// it, each dish line goes, biggest first, to whichever station has the fewest
-// pieces counting what this ticket already put there. The choice is made when
-// the dishes are sent (a held till course: when it's fired, balanceTicket())
-// and the box then drops out of the dish's way, so nothing after that knows
-// it was there. The sequencer passes the open kitchen orders and the box's
-// last pick in cfg.balance; without them every station counts as empty.
+// option 10), taking turns on a tie. Smart (settings.share_mode 'speed')
+// weighs those pieces by how fast each station has been bumping lately
+// (stationPace(): seconds per piece), so the ticket goes where it should be
+// done soonest and a station falling behind gets fewer tickets until it
+// catches up. A box can share big tickets instead (settings.split_above):
+// when more than that many pieces of one ticket reach it, each dish line
+// goes, biggest first, to whichever station has the least to do counting
+// what this ticket already put there. A busy order type rule
+// (settings.rush_type_id, rush_count, rush_station_id) splits by order type
+// while that type is busy: once rush_count or more orders of the type are
+// waiting at the box's stations, its tickets all go to rush_station_id and
+// every other ticket to the other stations. The choice is made when the
+// dishes are sent (a held till course: when it's fired, balanceTicket()) and
+// the box then drops out of the dish's way, so nothing after that knows it
+// was there. The sequencer passes the open kitchen orders, the orders bumped
+// lately (for Smart) and the box's last pick in cfg.balance; without them
+// every station counts as empty and as fast as the others.
 //
 // A Sleeper (station kind 'sleeper', migration 200) holds the dishes that
 // reach it for settings.delay_mins, then passes them on by itself: nobody
@@ -122,9 +131,21 @@ const RANK = { item: 0, section: 1, device: 2, revenue_stream: 3, order_type: 4,
 
 export const STATION_DEFAULTS = {
   target_mins: 8, late_mins: 12, show_held: true, summary_groups: [], pieces: [], split_above: null, delay_mins: 5,
+  // A Splitter: how it shares (SHARE_MODES) and its busy order type rule (off: no rush_type_id).
+  share_mode: 'pieces', rush_type_id: null, rush_count: 5, rush_station_id: null,
   // A Setter's status look (STATUS_LOOKS, STATUS_ANIMS): status_text '' = its name.
   status_look: 'text', status_colour: '#f59e0b', status_text: '', status_anim: 'none', status_lamp: 2,
 }
+
+// How a Splitter shares: 'pieces' to the station with the fewest pieces still
+// to cook; 'speed' (Smart) to the one that should be done soonest, those
+// pieces times its pace.
+export const SHARE_MODES = ['pieces', 'speed']
+// A station's pace is measured from its last few bumps in the last half hour.
+export const PACE_TICKETS = 8
+export const PACE_MINUTES = 30
+// The busy order type rule's count: 1 to this many waiting orders.
+export const RUSH_COUNT_MAX = 99
 
 // How a Setter's status shows on an order ready board tile.
 export const STATUS_LOOKS = [
@@ -444,26 +465,114 @@ export function balanceOutputs(boxId, cfg) {
 }
 
 /**
- * Pieces still to cook at a station: every fired dish on its way there not
- * yet done (here or still on its way), counted with `members` (a dish counts
- * its quantity when no member names it; a meal deal counts its parts that go
+ * The pieces one dish counts at a station, with `members` (a dish counts its
+ * quantity when no member names it; a meal deal counts its parts that go
  * there).
+ */
+function piecesAt(i, stationId, members) {
+  const qty = Number(i.qty) || 0
+  const parts = i.parts ? i.parts.filter(pt => pt.route?.[stationId]) : null
+  const units = parts && parts.length ? parts.map(pt => ({ item_id: pt.item_id, mods: pt.mods })) : [{ item_id: i.item_id, mods: i.mods }]
+  if (parts && parts.length) units.push({ item_id: null, mods: i.mods })
+  return memberCount(units, members, qty) || qty * (parts && parts.length ? parts.length : 1)
+}
+
+const toDoAt = (i, stationId, cfg, at) => {
+  const s = nodeState(i, stationId, cfg, at)
+  return s === 'active' || s === 'upcoming'
+}
+
+/**
+ * Pieces still to cook at a station: every fired dish on its way there not
+ * yet done (here or still on its way), counted with `members` (piecesAt()).
  */
 export function stationLoad(orders, stationId, members, cfg, at) {
   let load = 0
   for (const o of Object.values(orders || {})) {
     if (!['active', 'ready'].includes(o.status) || isStale(o, at)) continue
-    for (const i of o.items) {
-      const s = nodeState(i, stationId, cfg, at)
-      if (s !== 'active' && s !== 'upcoming') continue
-      const qty = Number(i.qty) || 0
-      const parts = i.parts ? i.parts.filter(pt => pt.route?.[stationId]) : null
-      const units = parts && parts.length ? parts.map(pt => ({ item_id: pt.item_id, mods: pt.mods })) : [{ item_id: i.item_id, mods: i.mods }]
-      if (parts && parts.length) units.push({ item_id: null, mods: i.mods })
-      load += memberCount(units, members, qty) || qty * (parts && parts.length ? parts.length : 1)
-    }
+    for (const i of o.items) if (toDoAt(i, stationId, cfg, at)) load += piecesAt(i, stationId, members)
   }
   return load
+}
+
+/**
+ * How fast a station is getting through its work: seconds per piece over its
+ * last bumps (up to PACE_TICKETS, made in the PACE_MINUTES before `at`). A
+ * ticket counts from when it reached the station or the station's bump before
+ * it, whichever is later, so the time it waited behind other tickets isn't
+ * counted twice. Pieces as stationLoad(). null with fewer than two bumps to
+ * go on; never under one second a piece.
+ */
+export function stationPace(orders, stationId, members, cfg, at) {
+  const bumps = []
+  for (const o of Object.values(orders || {})) {
+    for (const b of o.bumps || []) {
+      if (b.station_id !== stationId || b.recalled_at || !b.items) continue
+      const t = ms(b.at)
+      if (!Number.isFinite(t) || (at && t > ms(at))) continue
+      let pieces = 0
+      for (const [itemId, node] of b.set || []) {
+        if (node !== stationId) continue
+        const i = o.items.find(x => x.id === itemId)
+        if (i) pieces += piecesAt(i, stationId, members)
+      }
+      if (pieces > 0) bumps.push({ at: t, start: ms(b.started_at), pieces })
+    }
+  }
+  bumps.sort((x, y) => x.at - y.at)
+  const from = at ? ms(at) - PACE_MINUTES * 60_000 : -Infinity
+  let secs = 0
+  let pieces = 0
+  let n = 0
+  for (let k = bumps.length - 1; k >= 0 && n < PACE_TICKETS; k--) {
+    const b = bumps[k]
+    if (b.at < from) break
+    const prev = k > 0 ? bumps[k - 1].at : null
+    const start = Number.isFinite(b.start) ? (prev != null ? Math.max(b.start, prev) : b.start) : prev
+    if (start == null) continue
+    secs += Math.max(0, b.at - start) / 1000
+    pieces += b.pieces
+    n++
+  }
+  return n >= 2 && pieces > 0 ? Math.max(1, secs / pieces) : null
+}
+
+/**
+ * Orders of one order type with something still to cook at any of these
+ * stations (the busy order type rule), leaving out the order `exceptId`.
+ */
+export function typeWaiting(orders, typeId, stationIds, cfg, at, exceptId = null) {
+  let n = 0
+  for (const o of Object.values(orders || {})) {
+    if (!typeId || o.type !== typeId || o.id === exceptId) continue
+    if (!['active', 'ready'].includes(o.status) || isStale(o, at)) continue
+    if (o.items.some(i => stationIds.some(id => toDoAt(i, id, cfg, at)))) n++
+  }
+  return n
+}
+
+/**
+ * The stations a ticket may go to at a Splitter. With its busy order type
+ * rule on and rush_count or more orders of that type waiting at the box's
+ * stations (counting this one): that type's tickets go to rush_station_id
+ * only, every other ticket to the others. Otherwise (and when the box doesn't
+ * link to that station) all of them.
+ */
+function busyTypeStations(settings, outs, ko, open, cfg, at) {
+  const type = settings.rush_type_id
+  const to = settings.rush_station_id
+  if (!type || !to || !ko || outs.length < 2 || !outs.includes(to)) return outs
+  const mine = ko.type === type
+  const waiting = typeWaiting(open, type, outs, cfg, at, ko.id) + (mine ? 1 : 0)
+  if (waiting < Math.max(1, Number(settings.rush_count) || 1)) return outs
+  return mine ? [to] : outs.filter(id => id !== to)
+}
+
+/** Each station's pace, the unknown ones at the others' average (none known: all the same). */
+function fillPaces(list) {
+  const known = list.filter(p => p != null)
+  const avg = known.length ? known.reduce((t, p) => t + p, 0) / known.length : 1
+  return list.map(p => p ?? avg)
 }
 
 /** The Splitters in a flow, upstream ones first. */
@@ -489,17 +598,21 @@ function unitPieces(u, members) {
 /**
  * Decides every Splitter on a ticket's dishes (the dishes sent or fired
  * together; held ones are left for course.fired), changing their ways in
- * place. Each box sends what reaches it to the station with the fewest pieces
- * still to cook (stationLoad over cfg.balance.open), a tie going to the first
- * after the box's last pick (cfg.balance.last), so they take turns. The whole
+ * place. `ko` is the kitchen order they're on (its order type for the busy
+ * order type rule). Each box sends what reaches it to the station with the
+ * fewest pieces still to cook (stationLoad over cfg.balance.open) or, Smart,
+ * the one that should be done soonest (those pieces plus the ticket's, times
+ * stationPace over cfg.balance.recent), a tie going to the first after the
+ * box's last pick (cfg.balance.last), so they take turns. With the busy order
+ * type rule on, only the stations busyTypeStations() leaves count. The whole
  * ticket goes to one station unless the box shares big tickets
  * (settings.split_above = N) and more than N pieces reach it: then each dish
- * line (or meal deal part) goes, biggest first, to the station with the fewest
- * pieces counting what this ticket has already put there. One line is never
+ * line (or meal deal part) goes, biggest first, to the station with the least
+ * to do counting what this ticket has already put there. One line is never
  * split. Records each box's last pick in cfg.balance.picks for the caller to
  * keep.
  */
-export function balanceTicket(items, cfg, at) {
+export function balanceTicket(items, cfg, at, ko = null) {
   const units = []
   for (const item of items || []) {
     if (item.parts && item.parts.length) item.parts.forEach(part => units.push({ item, part, route: part.route }))
@@ -520,11 +633,18 @@ export function balanceTicket(items, cfg, at) {
     const members = settings.pieces || []
     let last = outs.indexOf(b.last?.[box] || '')
     const loads = outs.map(id => stationLoad(b.open || {}, id, members, cfg, at))
-    // Lowest load, a tie to the first station after the last pick.
-    const next = () => {
-      const low = Math.min(...loads)
+    // Smart: seconds a piece at each station; fewest pieces: all the same.
+    const paces = settings.share_mode === 'speed'
+      ? fillPaces(outs.map(id => stationPace(b.recent || b.open || {}, id, members, cfg, at)))
+      : outs.map(() => 1)
+    const allowed = busyTypeStations(settings, outs, ko, b.open || {}, cfg, at)
+    // The least to do once `add` more pieces are there, a tie to the first
+    // station after the last pick.
+    const next = add => {
+      const score = id => (loads[outs.indexOf(id)] + add) * paces[outs.indexOf(id)]
+      const low = Math.min(...allowed.map(score))
       const ring = [...outs.slice(last + 1), ...outs.slice(0, last + 1)]
-      const to = ring.find(id => loads[outs.indexOf(id)] === low)
+      const to = ring.find(id => allowed.includes(id) && score(id) - low < 1e-6)
       last = outs.indexOf(to)
       return to
     }
@@ -535,15 +655,15 @@ export function balanceTicket(items, cfg, at) {
       u.pieces = unitPieces(u, members)
     }
     const total = here.reduce((t, u) => t + u.pieces, 0)
-    const share = outs.length > 1 && settings.split_above != null && total > Number(settings.split_above)
+    const share = allowed.length > 1 && settings.split_above != null && total > Number(settings.split_above)
     if (!share) {
-      const to = next()
+      const to = next(total)
       for (const u of here) u.route = collapseBalance(u.route, box, to)
     } else {
       // Biggest first; a dish's parts keep their order among equals.
-      const order = here.map((u, i) => [u, i]).sort((x, y) => y[0].pieces - x[0].pieces || x[1] - y[1]).map(([u]) => u)
-      for (const u of order) {
-        const to = next()
+      const biggest = here.map((u, i) => [u, i]).sort((x, y) => y[0].pieces - x[0].pieces || x[1] - y[1]).map(([u]) => u)
+      for (const u of biggest) {
+        const to = next(u.pieces)
         loads[outs.indexOf(to)] += u.pieces
         u.route = collapseBalance(u.route, box, to)
       }
@@ -675,6 +795,12 @@ export function flowWarnings(stations, links) {
     if (s.kind !== 'balance') continue
     const outs = new Set((links || []).filter(l => l.from === s.id).map(l => l.to))
     if (outs.size < 2) out.push(s.name + (outs.size ? ' has only one station to share with: link it to another.' : ' shares with no stations yet: link it to two or more.'))
+    // The busy order type rule sends to a station the box doesn't link to: it never applies.
+    const to = s.settings?.rush_type_id && s.settings?.rush_station_id
+    if (to && outs.size && !outs.has(to)) {
+      const name = (stations || []).find(x => x.id === to)?.name || 'a station'
+      out.push(s.name + ' sends busy orders to ' + name + ' but doesn\'t link to it: link it there, or its busy order type rule never applies.')
+    }
   }
   return out
 }
@@ -1129,7 +1255,7 @@ export function kitchenForCheckEvent(e, before = {}, after = {}, orders = {}, cf
         sent.push(item)
       }
       // Splitters for what goes now; a held course keeps its boxes until it's fired.
-      balanceTicket(sent.filter(i => i.fired_at), cfg, at)
+      balanceTicket(sent.filter(i => i.fired_at), cfg, at, o)
       if (hadItems) o.changed_at = at
       refreshStatus(o, cfg, at, e.id)
       touch(o, at)
@@ -1149,7 +1275,7 @@ export function kitchenForCheckEvent(e, before = {}, after = {}, orders = {}, cf
       }
       if (!fired.length) return {}
       // Splitters on the course's way are decided now, with the kitchen as it is.
-      balanceTicket(fired, cfg, at)
+      balanceTicket(fired, cfg, at, o)
       o.changed_at = at
       refreshStatus(o, cfg, at, e.id)
       touch(o, at)
@@ -1310,7 +1436,7 @@ export function applyKitchenEvent(orders, e, cfg = {}) {
     }, at)
     o.items = src.items.map(i => itemFromOnline(i, cfg, at, fireAt, src.type))
     // Splitters are decided as the order comes in, an order for later too.
-    balanceTicket(o.items, cfg, at)
+    balanceTicket(o.items, cfg, at, o)
     refreshStatus(o, cfg, at, e.id)
     touch(o, at)
     return { ok: true, orders: { [o.id]: o }, log }

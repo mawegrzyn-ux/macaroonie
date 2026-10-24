@@ -569,6 +569,17 @@ export function sequencer(tenantId, venueId, { deviceId = null } = {}) {
            AND created_at > now() - make_interval(hours => ${STALE_HOURS})`
       return Object.fromEntries(rows.map(r => [r.id, r.state]))
     },
+    // A Smart Splitter: the orders changed lately (any status), whose bumps
+    // say how fast each station is going. The created_at bound keeps the
+    // read on the (venue_id, created_at) index.
+    async loadRecentKitchenOrders(minutes) {
+      const rows = await tx`
+        SELECT id, state FROM kds_orders
+         WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}
+           AND created_at > now() - make_interval(hours => ${STALE_HOURS})
+           AND updated_at > now() - make_interval(mins => ${minutes})`
+      return Object.fromEntries(rows.map(r => [r.id, r.state]))
+    },
     async loadBalanceTurns() {
       const rows = await tx`SELECT station_id, last_station_id FROM kds_balance_turns WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`
       return Object.fromEntries(rows.map(r => [r.station_id, r.last_station_id]))

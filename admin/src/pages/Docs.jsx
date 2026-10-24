@@ -3687,6 +3687,39 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               tenant&apos;s dishes.
             </P>
             <P>
+              <strong>Splitter modes</strong> (no migration: settings jsonb). <Mono>settings.share_mode</Mono>{' '}
+              (<Mono>SHARE_MODES</Mono>: <Mono>pieces</Mono> | <Mono>speed</Mono>) and the busy order type rule{' '}
+              <Mono>rush_type_id</Mono> / <Mono>rush_count</Mono> (1 to <Mono>RUSH_COUNT_MAX</Mono> 99, default 5) /{' '}
+              <Mono>rush_station_id</Mono> (both ids or neither; off = no type). <Mono>balanceTicket(items, cfg, at, ko)</Mono>{' '}
+              now takes the kitchen order (its <Mono>type</Mono>; the three call sites pass it) and picks the
+              output with the lowest score, <Mono>(load + pieces added) x pace</Mono>, a tie (within 1e-6) to the
+              first after the last pick. Pace is 1 everywhere for <Mono>pieces</Mono> (so it is the old rule);
+              for <Mono>speed</Mono> it is <Mono>stationPace(orders, stationId, members, cfg, at)</Mono> over{' '}
+              <Mono>cfg.balance.recent</Mono> (else <Mono>open</Mono>): seconds per piece over the station&apos;s
+              last <Mono>PACE_TICKETS</Mono> (8) bumps in the <Mono>PACE_MINUTES</Mono> (30) before{' '}
+              <Mono>at</Mono>, each counted from the later of its <Mono>started_at</Mono> and the station&apos;s
+              bump before it (queueing time isn&apos;t counted twice), pieces by <Mono>piecesAt()</Mono> (the
+              same count as <Mono>stationLoad()</Mono>), recalled bumps left out, null with fewer than two
+              bumps, never under 1 s a piece; unknown paces take the others&apos; average (<Mono>fillPaces()</Mono>).
+              The busy rule (<Mono>busyTypeStations()</Mono>) applies when the box links to{' '}
+              <Mono>rush_station_id</Mono> and has two or more outputs: <Mono>typeWaiting()</Mono> counts
+              open orders of the type (not the order itself) with a live dish active or upcoming at any output,
+              plus one when the order is of that type; at <Mono>rush_count</Mono> or more the order&apos;s
+              tickets may go only to the rush station (type) or only to the others (any other order), big
+              tickets shared among those. The sequencer adds <Mono>recent</Mono> only when a box uses{' '}
+              <Mono>speed</Mono>, from the store&apos;s <Mono>loadRecentKitchenOrders(PACE_MINUTES * 2)</Mono>{' '}
+              (kds_orders of any status changed in that many minutes, bounded by <Mono>created_at</Mono> for
+              the index); the test bench passes its own orders. API: <Mono>StationSettings</Mono> (refine: type
+              and station together), <Mono>checkSplitterRule()</Mono> (the tenant&apos;s order type; a bumping
+              station of the venue, not the box; other kinds keep no Splitter settings),{' '}
+              <Mono>dropBusyStation()</Mono> clears the rule from Splitters when its station is deleted or stops
+              bumping. <Mono>flowWarnings()</Mono> warns when a box&apos;s rule names a station it doesn&apos;t
+              link to (the flow PUT now loads station settings for it). Admin: <Mono>StationModal</Mono>{' '}
+              (How it shares, <Mono>BusyTypeRule</Mono> with <Mono>linkedFrom()</Mono> putting linked stations
+              first), the station row, and <Mono>balanceRule()</Mono> / <Mono>busyRule()</Mono> in{' '}
+              <Mono>KitchenFlow.jsx</Mono> (box note, link panel, Check a dish).
+            </P>
+            <P>
               <strong>Stations out of a flow</strong> (migration 182): <Mono>kds_flows.off_station_ids</Mono>{' '}
               (uuid[], default empty) are the venue&apos;s stations a flow leaves out. The designer doesn&apos;t
               draw them (Not in this flow lists them with Put back) and{' '}
@@ -3741,7 +3774,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <DataTable
               head={['Table', 'What it holds']}
               rows={[
-                ['kds_stations', 'Per venue: name, kind prep | expo | runner | board | balance (183, a Splitter) | printer (191) | sleeper (200), colour, settings jsonb { target_mins, late_mins, show_held, show_upcoming, summary_groups: [{ id, name, members: [{ kind dish | option, id | label, qty }] }], pieces (a Splitter: members, same shape), split_above (a Splitter: null = each ticket on one station, N = share a ticket with more than N pieces), printer_id (a printer box), delay_mins (a Sleeper, 1-240) }, sort_order, is_active.'],
+                ['kds_stations', 'Per venue: name, kind prep | expo | runner | board | balance (183, a Splitter) | printer (191) | sleeper (200), colour, settings jsonb { target_mins, late_mins, show_held, show_upcoming, summary_groups: [{ id, name, members: [{ kind dish | option, id | label, qty }] }], pieces (a Splitter: members, same shape), split_above (a Splitter: null = each ticket on one station, N = share a ticket with more than N pieces), share_mode (a Splitter: pieces | speed), rush_type_id / rush_count / rush_station_id (a Splitter\'s busy order type rule), printer_id (a printer box), delay_mins (a Sleeper, 1-240) }, sort_order, is_active.'],
                 ['kds_balance_turns', 'Each Splitter\'s last pick (183): station_id (the box, PK, ON DELETE CASCADE), last_station_id, updated_at. Written by the sequencer (saveBalanceTurns()) so a tie goes to the next station. Forced RLS.'],
                 ['kds_flows', 'A venue\'s kitchen flows (177): name (1-40, unique per venue ignoring case and spaces), layout jsonb { [stationId | start]: { x, y } } (where the designer draws each box), sort_order (the kitchen screen\'s list), off_station_ids uuid[] (182: the venue\'s stations this flow leaves out). Forced RLS like every tenant table. The migration made one "Main flow" per venue with stations or links, holding its links and layout, in use. A venue without any flow gets it from GET .../setup (ensureFlows()). Shared flows (192): venue_id NULL, boxes jsonb [{ id, name, kind }], box_links jsonb [{ id, from, to, targets }] (layout keys are box ids), names unique per tenant (index kds_flows_shared_name); a venue\'s own flow can\'t take a shared flow\'s name, a shared one can\'t take any flow\'s.'],
                 ['kds_flow_edges', 'A flow\'s links (169, flow_id NOT NULL since 177, ON DELETE CASCADE with the flow): from_station_id (NULL = Orders in), to_station_id (both ON DELETE CASCADE), targets jsonb, exclude boolean (204: All except these, the link takes every dish its targets don\'t name; kept false when targets is empty), sort_order. One link per pair per flow (unique index on flow_id, from, to). Read them by flow_id, never by venue alone. Replaced kds_routes: each station\'s routes became one link from Orders in, every prep station got a link to every expo.'],

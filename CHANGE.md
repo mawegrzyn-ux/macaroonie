@@ -5,6 +5,12 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-24 — Splitter: Smart sharing by speed, and a busy order type to its own station]
+
+- A Splitter's window has **How it shares**: **Fewest pieces** (as before) or **Smart: by speed**. Smart watches how fast each station has been bumping (its last 8 tickets in the last 30 minutes, not counting time a ticket waited behind others) and sends each ticket where it should be done soonest: the pieces still to cook there times how long a piece has been taking. A line that falls behind gets fewer tickets until it catches up; with no bumps to go on it shares by pieces.
+- **When one order type gets busy**: Give it its own station, e.g. from 5 waiting Delivery orders, Delivery orders go to Wingman 2 and every other order to the other stations; below that it shares as usual. The station list puts the stations the box links to first, the flow warns when it doesn't link to the one picked, and the rule switches off if that station is deleted or stops bumping.
+- The station list, the flow designer's box and link panels and Check a dish say how each Splitter shares. No migration (station settings).
+
 ## [2026-10-24 — Kiosk: a size for the pictures in the dish photo's corner]
 
 - Option groups and meal deal steps set to **Small in the corner** now have **Size in the corner**: **Automatic** (as before, about a quarter of the photo's width) or **Set a size**, from 10% to 70% of the dish photo's width, with a slider, - and + buttons and a small sketch of the photo with the picture at that size.

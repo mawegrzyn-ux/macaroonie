@@ -37,6 +37,9 @@
 //   loadOpenKitchenOrders()   -> { [id]: kitchen order } (still in the kitchen)
 //   loadBalanceTurns()        -> { [boxId]: station id it picked last }
 //   saveBalanceTurns({ [boxId]: station id })
+// and with a Smart one (share_mode 'speed'), to measure each station's pace:
+//   loadRecentKitchenOrders(minutes) -> { [id]: kitchen order } changed in
+//                                       the last `minutes` (any status)
 // Kitchen events (bump, recall, ...) come from kitchen screens, which nobody
 // signs in to: they need no staff member and don't open a trading day.
 // Kitchen printers in the flow (kitchenPrint.js, migration 191): after every
@@ -57,18 +60,25 @@ import { businessDate } from './reports.js'
 import { cardNeed, cardProblem } from './cards.js'
 import {
   KITCHEN_EVENTS, applyKitchenEvent, kitchenEventProblem, kitchenOrdersTouched,
-  kitchenForCheckEvent, kitchenOrdersForCheckEvent,
+  kitchenForCheckEvent, kitchenOrdersForCheckEvent, PACE_MINUTES,
 } from './kitchen.js'
 import { kitchenPrintJobs, hasPrinters } from './kitchenPrint.js'
 
 // Events that can send dishes through a Splitter.
 const BALANCE_EVENTS = ['lines.sent', 'course.fired', 'kitchen.order_in']
 const hasBalanceBox = k => !!k?.enabled && Object.values(k.stations || {}).some(s => s.kind === 'balance')
+const hasSmartBox = k => Object.values(k.stations || {}).some(s => s.kind === 'balance' && s.settings?.share_mode === 'speed')
 
-/** The kitchen config with what a Splitter needs (the open orders, its last picks), when it can matter. */
+/**
+ * The kitchen config with what a Splitter needs (the open orders, its last
+ * picks, and for a Smart one the orders bumped lately), when it can matter.
+ * The recent orders go back a while before the pace window, so its first
+ * bumps have the bump before them.
+ */
 async function kitchenWithBalance(store, kitchen, event) {
   if (!hasBalanceBox(kitchen) || !BALANCE_EVENTS.includes(event.type) || !store.loadOpenKitchenOrders) return kitchen
-  return { ...kitchen, balance: { open: await store.loadOpenKitchenOrders(), last: await store.loadBalanceTurns(), picks: {} } }
+  const recent = hasSmartBox(kitchen) && store.loadRecentKitchenOrders ? await store.loadRecentKitchenOrders(PACE_MINUTES * 2) : null
+  return { ...kitchen, balance: { open: await store.loadOpenKitchenOrders(), recent, last: await store.loadBalanceTurns(), picks: {} } }
 }
 
 const ORDER_NO_MAX = 999
