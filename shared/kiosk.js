@@ -11,6 +11,8 @@
 // (Store tech > Kiosks, Menus > Translations) share:
 //   normaliseDesign(), designProblems()   a kiosk design (kiosk_designs.settings)
 //   pickImages()                          the picks' pictures on a dish's photo (split / corner)
+//   itemLevels(), guestFit(), countFits()  allergens, and how dishes suit the
+//                                         allergens and diets a guest picked
 //   KIOSK_LANGUAGES, uiText(), allergenName()   words in the guest's language
 //                                               (built-in words: shared/kioskText.js)
 //   TK, translationSources()              the menu's own words a person translates
@@ -19,7 +21,7 @@
 // Plain ESM, no dependencies but the other shared modules, no DOM.
 
 import { FONT_OPTIONS, FONT_WEIGHTS, fontStack } from './fonts.js'
-import { STEP_DISPLAYS, comboOf } from './combos.js'
+import { STEP_DISPLAYS, comboOf, comboItemIds, stepChoices } from './combos.js'
 import { priceItem, posTax, checkTotals } from './pos/pricing.js'
 import { replay } from './pos/checks.js'
 import { ulid } from './pos/ids.js'
@@ -73,6 +75,107 @@ export function uiText(lang, key, vars = null, overrides = null) {
 /** An allergen's name in a language: the tag's own translation, the built-in name of a standard allergen, else its label. */
 export function allergenName(tag, lang, texts = null) {
   return (texts && texts[TK.tag(tag.code)]) || (tag.standard_key && ALLERGEN_NAMES[lang]?.[tag.standard_key]) || tag.label
+}
+
+// ── Allergens and diets ────────────────────────────────────────
+// What a guest picks on the kiosk's allergens screen: the allergens they
+// avoid and the diets they follow (prefs { avoid: [codes], diet: [codes] }).
+// The screen counts the dishes that suit them, and the menu and meal deal
+// choices mark the ones to check (guestFit()).
+
+const LEVEL_RANK = { removable: 1, may_contain: 2, contains: 3 }
+
+/** A dish's tags with their level: { code: 'contains' | 'may_contain' | 'removable' }. */
+export function dishLevels(item) {
+  const out = {}
+  for (const code of item?.dietary || []) out[code] = (item.allergen_levels || {})[code] || 'contains'
+  return out
+}
+
+/** Several dishes' tags together, each at its strongest level. */
+export function mergeLevels(list) {
+  const out = {}
+  for (const levels of list) for (const [code, lv] of Object.entries(levels)) if (!out[code] || LEVEL_RANK[lv] > LEVEL_RANK[out[code]]) out[code] = lv
+  return out
+}
+
+/**
+ * What an allergen list shows for an item: a dish's own tags; a combo's are
+ * every dish it can hold (its own tags carry nothing about its parts).
+ * ctx: comboCtx(config).
+ */
+export function itemLevels(config, item, ctx = comboCtx(config)) {
+  if (item?.kind !== 'combo') return dishLevels(item)
+  return mergeLevels([dishLevels(item), ...comboItemIds(item, ctx).map(id => dishLevels(configItem(config, id)))])
+}
+
+/** The guest's picks, tidied: { avoid, diet } as lists of codes. */
+export function cleanPrefs(prefs) {
+  const list = v => [...new Set((Array.isArray(v) ? v : []).filter(x => typeof x === 'string' && x))]
+  return { avoid: list(prefs?.avoid), diet: list(prefs?.diet) }
+}
+
+export const prefsOn = prefs => !!(prefs?.avoid?.length || prefs?.diet?.length)
+
+// One dish against the guest's picks.
+function levelsFit(levels, prefs) {
+  const avoid = []
+  const removable = []
+  for (const code of prefs.avoid) {
+    const lv = levels[code]
+    if (lv === 'removable') removable.push(code)
+    else if (lv) avoid.push({ code, level: lv })
+  }
+  const missing = prefs.diet.filter(code => !levels[code])
+  return { ok: !avoid.length && !missing.length, avoid, removable, missing, some: false }
+}
+
+/**
+ * How an item suits the guest's picks:
+ *   { ok, avoid: [{ code, level }], removable: [codes], missing: [codes], some }
+ *   avoid      the guest's allergens it has (contains or may contain): it doesn't suit
+ *   removable  ones it has that can be left out on request: it still suits, with a note
+ *   missing    diets it isn't marked with: it doesn't suit
+ *   some       a meal deal that suits, though some of its choices have the
+ *              guest's allergens (avoid lists them)
+ * A dish is judged on its own tags. A meal deal on its own tags, then every
+ * step that must be picked (at least one, shown whatever else is picked)
+ * needs a choice that suits and isn't sold out (a typed-in choice has no
+ * tags: it suits allergens, never a diet); a diet also needs one such step,
+ * or the deal itself to carry it. Its avoid list is the guest's allergens on
+ * any dish it can hold, so the menu can say which. null when no picks.
+ */
+export function guestFit(config, item, prefs, ctx = comboCtx(config)) {
+  const p = cleanPrefs(prefs)
+  if (!item || !prefsOn(p)) return null
+  if (item.kind !== 'combo') return levelsFit(dishLevels(item), p)
+  const own = dishLevels(item)
+  const ownFit = levelsFit(own, p)
+  const combo = comboOf(item)
+  const blockedSteps = { avoid: false, diet: new Set() }
+  let required = 0
+  for (const step of combo?.steps || []) {
+    if (!(step.min > 0) || step.when) continue
+    required++
+    const open = stepChoices(step, { ...ctx, selfId: item.id }).filter(c => !c.sold_out)
+    const fits = open.map(c => (c.item ? levelsFit(dishLevels(c.item), p) : { avoid: [], missing: p.diet }))
+    if (!fits.some(f => !f.avoid.length)) blockedSteps.avoid = true
+    for (const code of p.diet) if (!fits.some(f => !f.avoid.length && !f.missing.includes(code))) blockedSteps.diet.add(code)
+  }
+  const all = levelsFit(itemLevels(config, item, ctx), p)
+  const missing = p.diet.filter(code => blockedSteps.diet.has(code) || (!required && !own[code]))
+  const ok = !ownFit.avoid.length && !blockedSteps.avoid && !missing.length
+  return { ok, avoid: all.avoid, removable: all.removable, missing, some: ok && all.avoid.length > 0 }
+}
+
+/**
+ * The dishes the kiosk sells (each once, sold out ones left out) and how
+ * many suit the guest's picks: { total, fits }.
+ */
+export function countFits(config, itemIds, prefs, ctx = comboCtx(config)) {
+  const ids = [...new Set(itemIds)].filter(id => config.items?.[id] && !ctx.soldOut?.(id))
+  if (!prefsOn(prefs)) return { total: ids.length, fits: ids.length }
+  return { total: ids.length, fits: ids.filter(id => guestFit(config, configItem(config, id), prefs, ctx)?.ok).length }
 }
 
 // ── Design ─────────────────────────────────────────────────────

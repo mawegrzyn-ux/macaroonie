@@ -41,6 +41,18 @@ export function Languages({ design, lang, onPick, size = 'normal' }) {
   )
 }
 
+/** An order type's name on the kiosk: the design's own words for its card, else the type's name. */
+export function typeLabelOf(d, ty, t) {
+  const card = d.start.type_cards[ty.id]
+  return card?.label ? t(TK.design(d.id, 'type:' + ty.id), card.label) : t(TK.type(ty.id), ty.name)
+}
+
+/** "Staying or going?": the design's own words, else the kiosk's. */
+export const typeQuestion = (d, texts) => (d.start.question ? texts.t(TK.design(d.id, 'question'), d.start.question) : texts.ui('staying_or_going'))
+
+/** Ordering is paused: no connection (not in a preview) or no way to pay. */
+export const orderingClosed = s => (!s.online && !s.preview) || !methods(s.config).length
+
 export default function Start() {
   const s = useKiosk()
   const { config } = s
@@ -48,14 +60,10 @@ export default function Start() {
   const { t, ui } = texts
   const d = config.design
   const types = config.order_types || []
-  const canPay = methods(config).length > 0
-  const closed = (!s.online && !s.preview) || !canPay
+  const closed = orderingClosed(s)
   const headline = d.start.headline ? t(TK.design(d.id, 'headline'), d.start.headline) : ui('order_here')
-  const question = d.start.question ? t(TK.design(d.id, 'question'), d.start.question) : ui('staying_or_going')
-  const typeLabel = ty => {
-    const card = d.start.type_cards[ty.id]
-    return card?.label ? t(TK.design(d.id, 'type:' + ty.id), card.label) : t(TK.type(ty.id), ty.name)
-  }
+  const question = typeQuestion(d, texts)
+  const typeLabel = ty => typeLabelOf(d, ty, t)
   const full = d.start.layout === 'full'
   const hasMedia = d.start.media.length > 0
 

@@ -12,11 +12,12 @@ import { checkTotals } from '@shared/pos/pricing.js'
 import { configItem, comboCtx } from '@shared/pos/offers.js'
 import { TK, basketCheck } from '@shared/kiosk.js'
 import {
-  useKiosk, textsFor, kioskSections, hasHome, openSection, openBuilder, addToBasket, go, restart, setLang, setReach, soldOut,
+  useKiosk, textsFor, kioskSections, hasHome, openSection, openBuilder, addToBasket, go, restart, setLang, setReach, soldOut, fitOf, countFor,
 } from './store.js'
 import { cx, Pic, Photo, Sheet, Flag, BackButton, HexGrid, HexTile } from './parts.jsx'
 import { priceLabel, DietaryBadges } from './Builder.jsx'
 import { Languages } from './Start.jsx'
+import { FitMark, FitNote, PrefsStrip, needsCheck } from './fit.jsx'
 
 
 export function needsBuilder(item) {
@@ -39,14 +40,16 @@ export function useBasketTotals(s) {
 }
 
 /** A dish as a hexagon (design.layout.tiles 'hexagon'): photo, name, price; + beside it. */
-function ItemHex({ item, config, ctx, texts, sold }) {
+function ItemHex({ item, config, ctx, texts, sold, fit }) {
   const name = texts.itemName(item)
   const d = config.design.menu
   const quick = d.quick_add && !needsBuilder(item) && !sold
+  const check = needsCheck(fit)
+  const top = (d.show_tags || check) ? <>{check && <FitMark fit={fit} texts={texts} className="k-fit-mark-hex" />}{d.show_tags && <DietaryBadges item={item} config={config} texts={texts} compact />}</> : null
   return (
     <HexTile src={item.image_url} label={name} off={sold} disabled={sold} onClick={() => !sold && tapItem(item, config, texts)}
-      testId="k-item" attrs={{ 'data-item': item.id }}
-      top={d.show_tags ? <DietaryBadges item={item} config={config} texts={texts} compact /> : null}
+      testId="k-item" attrs={{ 'data-item': item.id, 'data-fit': fit ? (check ? 'check' : 'ok') : undefined }}
+      top={top}
       extra={quick && (
         <button className="k-btn k-btn-round k-btn-primary k-hex-side" onClick={() => tapItem(item, config, texts, { quick: true })} aria-label={texts.ui('add') + ' ' + name} data-testid="k-quick-add">
           <Plus />
@@ -58,18 +61,22 @@ function ItemHex({ item, config, ctx, texts, sold }) {
   )
 }
 
-function ItemCard({ item, config, ctx, texts, sold }) {
+function ItemCard({ item, config, ctx, texts, sold, fit }) {
   const name = texts.itemName(item)
   const d = config.design.menu
   const desc = item.description && d.show_descriptions ? texts.t(TK.item(item.id, 'description'), item.description) : null
   const quick = d.quick_add && !needsBuilder(item) && !sold
+  const check = needsCheck(fit)
   return (
     <div className="relative">
-      <button className="k-card k-item w-full" onClick={() => !sold && tapItem(item, config, texts)} disabled={sold} data-testid="k-item" data-item={item.id}>
+      <button className={cx('k-card k-item w-full', check && 'k-item-check')} onClick={() => !sold && tapItem(item, config, texts)} disabled={sold} data-testid="k-item" data-item={item.id}
+        data-fit={fit ? (check ? 'check' : 'ok') : undefined}>
         <Photo src={item.image_url} label={name} className="k-item-img" phClassName="k-item-ph" />
+        <FitMark fit={fit} texts={texts} className="k-fit-badge" />
         <span className="k-item-body">
           <span className="k-head k-item-name">{name}</span>
           {d.show_tags && <DietaryBadges item={item} config={config} texts={texts} />}
+          <FitNote fit={fit} config={config} texts={texts} />
           {desc && <span className="k-item-desc">{desc}</span>}
           <span className="flex items-baseline gap-[.6em] mt-auto flex-wrap">
             <span className="k-price">{priceLabel(item, config, ctx, texts)}</span>
@@ -313,6 +320,9 @@ export default function Menu() {
   const cols = config.design.menu.columns
   const sectionTitle = sec => texts.t(TK.section(sec.id, 'title'), sec.title)
   const dishes = section ? section.item_ids.map(id => configItem(config, id)).filter(Boolean) : []
+  // The guest's allergens and diets (the allergens screen): what to mark.
+  const fitFor = it => fitOf(config, it, s.prefs)
+  const count = useMemo(() => countFor(config, s.prefs), [config, s.prefs])
   return (
     <div className="absolute inset-0 flex flex-col" data-testid="k-menu">
       <TopBar texts={texts} config={config} />
@@ -338,7 +348,8 @@ export default function Menu() {
             })}
           </nav>
         )}
-        <main className="flex-1 min-w-0 k-scroll p-[var(--k-pad)]" key={current}>
+        <main className="flex-1 min-w-0 k-scroll p-[var(--k-pad)] flex flex-col gap-[var(--k-gap)]" key={current}>
+          <PrefsStrip prefs={s.prefs} count={count} config={config} texts={texts} />
           {current === 'tiles' ? <SectionTiles config={config} texts={texts} sections={sections} home={home} />
             : current === 'home' ? <Home config={config} texts={texts} /> : section && (
               <div className="flex flex-col gap-[var(--k-gap)] k-fade">
@@ -346,11 +357,11 @@ export default function Menu() {
                 {section.subtitle && <div className="k-muted">{texts.t(TK.section(section.id, 'subtitle'), section.subtitle)}</div>}
                 {tiles === 'hexagon' ? (
                   <HexGrid cols={cols} target={hexTarget()} testId="k-dishes">
-                    {dishes.map(it => <ItemHex key={it.id} item={it} config={config} ctx={ctx} texts={texts} sold={sold.has(it.id)} />)}
+                    {dishes.map(it => <ItemHex key={it.id} item={it} config={config} ctx={ctx} texts={texts} sold={sold.has(it.id)} fit={fitFor(it)} />)}
                   </HexGrid>
                 ) : (
                   <div className="k-grid" data-testid="k-dishes" style={cols === 'auto' ? { gridTemplateColumns: 'repeat(auto-fill, minmax(min(36vmin, 280px), 1fr))' } : { '--k-cols': cols }}>
-                    {dishes.map(it => <ItemCard key={it.id} item={it} config={config} ctx={ctx} texts={texts} sold={sold.has(it.id)} />)}
+                    {dishes.map(it => <ItemCard key={it.id} item={it} config={config} ctx={ctx} texts={texts} sold={sold.has(it.id)} fit={fitFor(it)} />)}
                   </div>
                 )}
               </div>

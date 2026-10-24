@@ -7,7 +7,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   normaliseDesign, designProblems, payMethods, uiText, allergenName, translationSources, TK, pickImages, hexLayout,
-  configImages, MAX_SAVED_PICTURES, kioskOrder, basketCheck, kioskStaff, kioskFontsUrl, UI_TEXT, ALLERGEN_NAMES, KIOSK_LANGUAGES, DESIGN_COLORS, CLEAR_COLORS, CHOICE_ENTRANCES,
+  configImages, MAX_SAVED_PICTURES, guestFit, countFits, cleanPrefs, prefsOn, kioskOrder, basketCheck, kioskStaff, kioskFontsUrl, UI_TEXT, ALLERGEN_NAMES, KIOSK_LANGUAGES, DESIGN_COLORS, CLEAR_COLORS, CHOICE_ENTRANCES,
 } from '../kiosk.js'
 import { applyEvent, KIOSK_EVENTS } from '../pos/checks.js'
 import { checkTotals } from '../pos/pricing.js'
@@ -534,4 +534,65 @@ test('choice entrances: kept when known, none otherwise', () => {
   assert.equal(normaliseDesign({}).options.entrance, 'none')
   for (const k of ['appear', 'slide', 'bubble', 'deal']) assert.equal(normaliseDesign({ options: { entrance: k } }).options.entrance, k)
   assert.equal(normaliseDesign({ options: { entrance: 'explode' } }).options.entrance, 'none')
+})
+
+test('guest picks: which dishes suit the allergens and diets a guest picked', () => {
+  const tags = it => ({ ...it, dietary: [], allergen_levels: {} })
+  const items = {
+    [WINGS.id]: { ...tags(WINGS), dietary: ['milk', 'gf'] },
+    [FRIES.id]: { ...tags(FRIES), dietary: ['vegan', 'gf'] },
+    [COLA.id]: { ...tags(COLA), dietary: ['vegan', 'milk'], allergen_levels: { milk: 'removable' } },
+    [MEAL.id]: tags(MEAL),
+  }
+  const c = { ...config, items }
+  const fit = (id, prefs) => guestFit(c, c.items[id], prefs)
+  // Nothing picked: no marks, everything counts.
+  assert.equal(fit(WINGS.id, { avoid: [], diet: [] }), null)
+  assert.equal(prefsOn({ avoid: [], diet: [] }), false)
+  assert.deepEqual(countFits(c, [WINGS.id, FRIES.id, COLA.id, MEAL.id, WINGS.id], {}), { total: 4, fits: 4 })
+  // Milk: wings have it, cola only on request (still suits, with a note), fries don't.
+  assert.deepEqual(fit(WINGS.id, { avoid: ['milk'] }), { ok: false, avoid: [{ code: 'milk', level: 'contains' }], removable: [], missing: [], some: false })
+  assert.deepEqual(fit(COLA.id, { avoid: ['milk'] }), { ok: true, avoid: [], removable: ['milk'], missing: [], some: false })
+  assert.equal(fit(FRIES.id, { avoid: ['milk'] }).ok, true)
+  // May contain counts as having it.
+  const may = { ...c, items: { ...items, [FRIES.id]: { ...items[FRIES.id], dietary: ['vegan', 'gf', 'milk'], allergen_levels: { milk: 'may_contain' } } } }
+  assert.deepEqual(guestFit(may, may.items[FRIES.id], { avoid: ['milk'] }).avoid, [{ code: 'milk', level: 'may_contain' }])
+  // A diet the dish isn't marked with.
+  assert.deepEqual(fit(WINGS.id, { diet: ['vegan'] }).missing, ['vegan'])
+  assert.equal(fit(FRIES.id, { diet: ['vegan', 'gf'] }).ok, true)
+  // The meal: its main (wings) always has milk, so it can't be made without it.
+  assert.deepEqual(fit(MEAL.id, { avoid: ['milk'] }), { ok: false, avoid: [{ code: 'milk', level: 'contains' }], removable: [], missing: [], some: false })
+  // With a choice of fries as the main too, it can: it suits, some choices have milk.
+  const both = { ...c, items: { ...items, [MEAL.id]: { ...items[MEAL.id], combo: { mode: 'auto', steps: [
+    { ...MEAL.combo.steps[0], options: [...MEAL.combo.steps[0].options, { id: uuid(), type: 'item', item_id: FRIES.id, price_pence: 0 }] },
+    MEAL.combo.steps[1],
+  ] } } } }
+  assert.deepEqual(guestFit(both, both.items[MEAL.id], { avoid: ['milk'] }), { ok: true, avoid: [{ code: 'milk', level: 'contains' }], removable: [], missing: [], some: true })
+  // ...unless the fries are sold out.
+  const gone = { ...both, sold_out: [{ item_id: FRIES.id }] }
+  assert.equal(guestFit(gone, gone.items[MEAL.id], { avoid: ['milk'] }).ok, false)
+  // A diet: every step needs a choice with it. Gluten free: wings and fries both are.
+  assert.equal(fit(MEAL.id, { diet: ['gf'] }).ok, true)
+  assert.deepEqual(fit(MEAL.id, { diet: ['vegan'] }).missing, ['vegan'])
+  assert.deepEqual(guestFit(both, both.items[MEAL.id], { diet: ['vegan'] }).missing, [])
+  // A typed-in choice has no tags: fine for allergens, never a diet.
+  const typed = { ...c, items: { ...items, [MEAL.id]: { ...items[MEAL.id], combo: { mode: 'auto', steps: [
+    { id: MAIN, name: 'Main', min: 1, max: 1, options: [{ id: uuid(), type: 'custom', label: 'Chef special', price_pence: 0 }] },
+  ] } } } }
+  assert.equal(guestFit(typed, typed.items[MEAL.id], { avoid: ['milk'] }).ok, true)
+  assert.deepEqual(guestFit(typed, typed.items[MEAL.id], { diet: ['gf'] }).missing, ['gf'])
+  // An optional step never stops it: no required step and the deal's own tags decide a diet.
+  const optional = { ...c, items: { ...items, [MEAL.id]: { ...items[MEAL.id], dietary: ['gf'], combo: { mode: 'auto', steps: [
+    { ...MEAL.combo.steps[0], min: 0 },
+  ] } } } }
+  assert.equal(guestFit(optional, optional.items[MEAL.id], { avoid: ['milk'] }).ok, true)
+  assert.equal(guestFit(optional, optional.items[MEAL.id], { avoid: ['milk'] }).some, true)
+  assert.equal(guestFit(optional, optional.items[MEAL.id], { diet: ['gf'] }).ok, true)
+  assert.deepEqual(guestFit(optional, optional.items[MEAL.id], { diet: ['vegan'] }).missing, ['vegan'])
+  // The count: milk leaves out the wings and the meal; sold out dishes aren't counted.
+  assert.deepEqual(countFits(c, [WINGS.id, FRIES.id, COLA.id, MEAL.id], { avoid: ['milk'] }), { total: 4, fits: 2 })
+  assert.deepEqual(countFits({ ...c, sold_out: [{ item_id: COLA.id }] }, [WINGS.id, FRIES.id, COLA.id, MEAL.id], { avoid: ['milk'] }), { total: 3, fits: 1 })
+  assert.deepEqual(countFits(c, [WINGS.id, FRIES.id, COLA.id, MEAL.id], { avoid: ['milk'], diet: ['vegan'] }), { total: 4, fits: 2 })
+  // Picks tidied: no repeats, no junk.
+  assert.deepEqual(cleanPrefs({ avoid: ['milk', 'milk', 3, ''], diet: 'vegan' }), { avoid: ['milk'], diet: [] })
 })

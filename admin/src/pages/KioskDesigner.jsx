@@ -391,7 +391,7 @@ function StartPanel({ s, d, set, setup, stream, canManage }) {
           })}
         </div>
       </Field>
-      <Toggle label="Allergens button" hint="Guests can look up dishes by allergen before they start."
+      <Toggle label="Allergens button" hint="Guests pick the allergens they avoid and their diets, see how many dishes suit them, and the menu marks what to check. The message at the top is the allergen notice (Menus > Allergens & dietary)."
         checked={d.start.show_allergens} onChange={v => set('start', { show_allergens: v })} />
     </>
   )
