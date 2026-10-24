@@ -152,7 +152,7 @@ test('layout options round trip; a design keeps only the tenant\'s own sections,
     settings: {
       layout: {
         tiles: 'hexagon', option_tiles: 'round', option_pictures: false, option_align: 'center', header: false, icon_buttons: true,
-        hero: 'stacked', hero_image_align: 'left', hero_text_align: 'right',
+        hero: 'stacked', hero_image_align: 'left', hero_text_align: 'right', hero_backdrop: false, combo_build: false,
       },
       start: { type_cards: { [myType.id]: { label: 'Stay' }, [theirType.id]: { label: 'Theirs' } } },
       menu: {
@@ -170,7 +170,7 @@ test('layout options round trip; a design keeps only the tenant\'s own sections,
   const s = saved.settings
   assert.deepEqual(s.layout, {
     tiles: 'hexagon', option_tiles: 'round', option_pictures: false, option_align: 'center',
-    hero: 'stacked', hero_image_align: 'left', hero_text_align: 'right', header: false, icon_buttons: true,
+    hero: 'stacked', hero_image_align: 'left', hero_text_align: 'right', hero_backdrop: false, combo_build: false, header: false, icon_buttons: true,
   })
   assert.equal(s.options.pick_photos, undefined)
   assert.equal(s.menu.rail, 'none')
@@ -196,6 +196,8 @@ test('layout options round trip; a design keeps only the tenant\'s own sections,
   assert.equal(cfg.design.layout.option_pictures, false)
   assert.equal(cfg.design.layout.option_align, 'center')
   assert.equal(cfg.design.layout.hero, 'stacked')
+  assert.equal(cfg.design.layout.hero_backdrop, false, 'no shade behind the dish\'s photo')
+  assert.equal(cfg.design.layout.combo_build, false, 'meal deals keep their own photo')
   assert.equal(cfg.design.options.pick_photos, undefined)
   assert.equal(cfg.design.menu.rail, 'none')
   assert.equal(cfg.design.behaviour.reach_media.length, 2, 'the reach pictures reach the kiosk')

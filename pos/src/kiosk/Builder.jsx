@@ -7,7 +7,9 @@
 // name; how far along shows beside Continue. Every combo page has the big
 // picture a dish's page has (Hero, following the design's dish page
 // layout): the picked dish's own photo and words on its options page, else
-// the deal's photo with the picks each step puts on it.
+// the deal's picture: put together from the picks as they're made
+// (design.layout.combo_build: shared/kiosk.js bundleParts(), parts.jsx
+// BundlePhoto), or the deal's own photo with the picks each step puts on it.
 // Pricing and the rules are the till's: shared/pos/pricing.js priceItem().
 // Each group or step says where its picks' pictures go on the dish's photo
 // as they're picked (shared/kiosk.js pickImages()): side by side (one pick:
@@ -19,11 +21,11 @@ import { priceItem, lineGross } from '@shared/pos/pricing.js'
 import { resolveSteps } from '@shared/combos.js'
 import { fromPrice, priceVaries } from '@shared/orderPricing.js'
 import { configItem, comboCtx } from '@shared/pos/offers.js'
-import { TK, allergenName, pickImages } from '@shared/kiosk.js'
+import { TK, allergenName, pickImages, bundleParts } from '@shared/kiosk.js'
 import { useKiosk, textsFor, addToBasket, closeBuilder, soldOut, itemLevels, dishLevels, mergeLevels, fitOf } from './store.js'
 import OptionGroup, { missingIn, groupName } from './OptionGroup.jsx'
 import { DISPLAYS, choiceLook } from './displays.jsx'
-import { cx, Pic, PickPhoto, Stepper, BackButton, bringIntoView, usePortrait } from './parts.jsx'
+import { cx, Pic, PickPhoto, BundlePhoto, Stepper, BackButton, bringIntoView, usePortrait } from './parts.jsx'
 import { FitMark, FitNote, needsCheck } from './fit.jsx'
 
 /**
@@ -150,6 +152,25 @@ export function heroTextAlign(design) {
   return design.layout.hero === 'stacked' ? design.layout.hero_text_align : 'left'
 }
 
+// The photo at the top of a dish's page (or a meal deal's picture), sized for
+// where it sits (Hero). bundle (with seen): the deal's picture put together
+// from its picks, in place of the photo (BundlePhoto).
+function HeroPhoto({ item, config, texts, side = false, split = null, bundle = null, seen = null }) {
+  const y = config.design.layout
+  const stacked = !side && y.hero === 'stacked'
+  return (
+    <div className={cx('k-hero-img shrink-0 overflow-hidden rounded-[var(--k-radius)]', side ? 'w-full' : stacked ? 'w-[min(64%,560px)] ' + SELF[y.hero_image_align] : 'w-[38%] max-w-[480px]')}
+      data-testid="k-hero-img">
+      {bundle ? (
+        <BundlePhoto parts={bundle} tiles={y.tiles} seen={seen} className="w-full h-full aspect-[4/3]" />
+      ) : (
+        <PickPhoto picks={split} src={item.image_url} label={texts.itemName(item)} className="w-full h-full object-cover aspect-[4/3]" phClassName="k-item-ph h-full"
+          splitClassName="w-full h-full aspect-[4/3]" />
+      )}
+    </div>
+  )
+}
+
 // The top of a dish's page (design.layout.hero). Beside (portrait): the photo
 // sits beside the words, so the choices start on the first screen. Stacked
 // (portrait): the photo on top, lined up left, centre or right
@@ -157,8 +178,10 @@ export function heroTextAlign(design) {
 // the photo above the words in a column of their own, the choices beside them.
 // A combo's pages use it too: price = null leaves the price out (the running
 // price is in the top bar), a price node shows that instead of the dish's
-// own, and note is a line under the name ("In Burger meal").
-function Hero({ item, config, ctx, texts, side = false, split = null, price, note = null }) {
+// own, note is a line under the name ("In Burger meal"), bundle and seen go
+// to HeroPhoto, and photo = false leaves the photo to the page (a combo's
+// side column keeps it in sight on its own).
+function Hero({ item, config, ctx, texts, side = false, split = null, bundle = null, seen = null, price, note = null, photo = true }) {
   const name = texts.itemName(item)
   const desc = item.description ? texts.t(TK.item(item.id, 'description'), item.description) : null
   const y = config.design.layout
@@ -169,11 +192,7 @@ function Hero({ item, config, ctx, texts, side = false, split = null, price, not
   return (
     <div className={cx('flex gap-[var(--k-pad)]', side || stacked ? 'flex-col' : 'items-start')} data-testid="k-hero" data-item={item.id}
       data-hero={side ? 'side' : y.hero} data-image-align={stacked ? y.hero_image_align : undefined} data-text-align={align}>
-      <div className={cx('k-hero-img shrink-0 overflow-hidden rounded-[var(--k-radius)]', side ? 'w-full' : stacked ? 'w-[min(64%,560px)] ' + SELF[y.hero_image_align] : 'w-[38%] max-w-[480px]')}
-        data-testid="k-hero-img">
-        <PickPhoto picks={split} src={item.image_url} label={name} className="w-full h-full object-cover aspect-[4/3]" phClassName="k-item-ph h-full"
-          splitClassName="w-full h-full aspect-[4/3]" />
-      </div>
+      {photo && <HeroPhoto item={item} config={config} texts={texts} side={side} split={split} bundle={bundle} seen={seen} />}
       <div className={cx('flex flex-col gap-[.5em] min-w-0 flex-1', alignCls(align))} data-testid="k-hero-words">
         <h2 className="k-head text-[1.9em] m-0">{name}</h2>
         {note && <div className="k-muted font-semibold" data-testid="k-hero-note">{note}</div>}
@@ -307,6 +326,9 @@ function ComboBuilder({ item, config, ctx, texts, builder }) {
   const [sel, setSel] = useState(() => ({ choices: {}, combo: {}, ...builder.selection }))
   const [qty, setQty] = useState(builder.qty || 1)
   const [opened, setOpened] = useState(() => new Set(Object.keys(builder.selection?.combo || {})))
+  // When each part of the deal's picture first showed (BundlePhoto), kept
+  // across the pages: back on the deal's picture, only what's new pops in.
+  const bundleSeen = useRef(new Map())
   const { pages, buttons, picks } = useMemo(() => comboPages(item, sel, ctx, opened), [item, sel, ctx, opened])
   const [pageKey, setPageKey] = useState(() => (builder.key ? 'review' : pages[0]?.key))
   const advanceFrom = useRef(null)
@@ -506,27 +528,44 @@ function ComboBuilder({ item, config, ctx, texts, builder }) {
   // The big picture on this page, drawn as a dish's page draws its own
   // (Hero: beside or on top of the words upright, its own column on a wide
   // screen): the picked dish on its options page, with its own picks on its
-  // photo; else the deal, with the picks each step puts on its photo. The
-  // running price shows once: in the top bar, or with the header off in the
-  // deal's hero, or above a picked dish's hero (k-combo-head).
+  // photo; else the deal: its picture put together from the picks so far
+  // (design.layout.combo_build, from the first pick with a picture on), or
+  // its own photo with the picks each step puts on it. The running price
+  // shows once: in the top bar, or with the header off in the deal's hero,
+  // or above a picked dish's hero (k-combo-head).
   const comboPrice = header ? null : <span data-testid="k-combo-price">{priceNow}</span>
+  const bundle = config.design.layout.combo_build ? bundleParts(config, item, picks, sel.choices) : []
   const subject = page.kind === 'part'
     ? { item: page.part, split: pickImages(config, page.part, { choices: page.entry.choices || {} }), price: null, note: ui('in_deal', { name: texts.itemName(item) }) }
-    : { item, split, price: comboPrice, note: null }
-  const hero = side => <Hero item={subject.item} config={config} ctx={ctx} texts={texts} side={side} split={subject.split} price={subject.price} note={subject.note} />
+    : { item, split, price: comboPrice, note: null, bundle: bundle.length ? bundle : null }
+  const hero = (side, photo = true) => <Hero item={subject.item} config={config} ctx={ctx} texts={texts} side={side} split={subject.split} price={subject.price} note={subject.note}
+    bundle={subject.bundle || null} seen={bundleSeen} photo={photo} />
   const comboHead = !header && subject.item !== item && (
     <div className="flex items-center gap-[var(--k-gap)]" data-testid="k-combo-head">
       <span className="k-head text-[1.3em] flex-1 min-w-0 truncate">{texts.itemName(item)}</span>
       <span className="k-price text-[1.3em]" data-testid="k-combo-price">{priceNow}</span>
     </div>
   )
-  // The step being shown stays in sight in the list of steps; the page itself starts at the top.
+  // The step being shown stays in sight in the list of steps (on a wide
+  // screen below the picture, which stays at the top of the column as the
+  // steps scroll under it, moving the list no further than needed); the page
+  // itself starts at the top.
   const rail = useRef(null)
   const body = useRef(null)
+  // A pick can change the tab's size (its pictures once done).
+  const pickCount = Object.values(picks).reduce((n, l) => n + l.length, 0)
   useEffect(() => {
-    bringIntoView(rail.current?.querySelector('[data-active="1"]'), portrait ? 'x' : 'y')
-    body.current?.scrollTo({ top: 0 })
-  }, [index, portrait])
+    const tab = rail.current?.querySelector('[data-active="1"]')
+    if (portrait) bringIntoView(tab, 'x')
+    else if (tab) {
+      const r = rail.current.getBoundingClientRect()
+      const b = tab.getBoundingClientRect()
+      const top = r.top + (rail.current.querySelector('[data-testid="k-combo-photo"]')?.offsetHeight || 0) + 8
+      if (b.top < top) rail.current.scrollBy({ top: b.top - top, behavior: 'smooth' })
+      else if (b.bottom > r.bottom - 8) rail.current.scrollBy({ top: b.bottom - r.bottom + 8, behavior: 'smooth' })
+    }
+  }, [index, portrait, pickCount])
+  useEffect(() => { body.current?.scrollTo({ top: 0 }) }, [index, portrait])
   const isStep = page.kind === 'step'
   const optionalEmpty = isStep && page.st.step.min === 0 && !(picks[page.st.step.id] || []).length
   return (
@@ -535,7 +574,14 @@ function ComboBuilder({ item, config, ctx, texts, builder }) {
         right={<span className="k-price text-[1.2em]">{priceNow}</span>} />
       <div className="flex-1 min-h-0 flex landscape:flex-row flex-col">
         <aside ref={rail} className={cx('shrink-0 bg-[var(--k-surface)] flex', portrait ? 'flex-row items-center gap-[var(--k-gap)] px-[var(--k-pad)] py-[var(--k-gap)] k-hscroll border-b-2 border-[var(--k-line)]' : 'flex-col w-[30%] max-w-[420px] k-scroll p-[var(--k-pad)] gap-[var(--k-gap)] border-r-2 border-[var(--k-line)]')}>
-          {!portrait && <div className="mb-[.4em]">{hero(true)}</div>}
+          {!portrait && (
+            <>
+              <div className="sticky z-[10] top-[calc(var(--k-pad)*-1)] -mt-[var(--k-pad)] pt-[var(--k-pad)] pb-[.4em] bg-[var(--k-surface)]" data-testid="k-combo-photo" data-item={subject.item.id}>
+                <HeroPhoto item={subject.item} config={config} texts={texts} side split={subject.split} bundle={subject.bundle || null} seen={bundleSeen} />
+              </div>
+              <div className="mb-[.4em]">{hero(true, false)}</div>
+            </>
+          )}
           {steps.map((x, i) => {
             const done = complete(x) && (x.kind !== 'step' || (picks[x.st.step.id] || []).length > 0 || x.st.step.min === 0)
             const tab = cx('flex text-left rounded-[calc(var(--k-radius)/1.5)] border-2 shrink-0',

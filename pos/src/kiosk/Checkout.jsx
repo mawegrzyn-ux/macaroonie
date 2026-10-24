@@ -8,13 +8,13 @@ import { Minus, Plus, Pencil, Trash2, CreditCard, Store, Printer, Check, AlertTr
 import { lineGross, groupModifiers } from '@shared/pos/pricing.js'
 import { countParts } from '@shared/combos.js'
 import { configItem, comboCtx } from '@shared/pos/offers.js'
-import { TK, pickImages } from '@shared/kiosk.js'
+import { TK, pickImages, bundleParts } from '@shared/kiosk.js'
 import {
   useKiosk, textsFor, go, openBuilder, setQty, addToBasket, setDetails, placeOrder, methods, restart, soldOut, printResultReceipt,
   getState as getFresh, cardStart, cardCheck, cardCancel, cardTest, setCardWaiting,
 } from './store.js'
 import { ulid } from '@shared/pos/ids.js'
-import { cx, Photo, PickPhoto, Keyboard, NumberPad, BackButton, usePortrait } from './parts.jsx'
+import { cx, Photo, PickPhoto, BundlePhoto, Keyboard, NumberPad, BackButton, usePortrait } from './parts.jsx'
 import { TopBar, useBasketTotals, RestartButton, LanguageButton } from './Menu.jsx'
 import { priceLabel } from './Builder.jsx'
 
@@ -136,11 +136,17 @@ export function Basket() {
           const it = configItem(config, e.item_id)
           const line = check?.lines?.[i]
           if (!it) return null
+          // A meal deal as it was put together (design.layout.combo_build), else its photo with its picks.
+          const bundle = config.design.layout.combo_build ? bundleParts(config, it, e.selection?.combo, e.selection?.choices) : []
           return (
             <div key={e.key} className="k-card p-[.7em] flex gap-[.8em] items-start" data-testid="k-line">
               <span className="k-thumb w-[4.6em] h-[4.6em] shrink-0 rounded-[calc(var(--k-radius)/1.5)] overflow-hidden">
-                <PickPhoto picks={pickImages(config, it, e.selection)} src={it.image_url} label={texts.itemName(it)} className="w-full h-full object-cover"
-                  phClassName="k-item-ph h-full aspect-auto text-[1.2em]" splitClassName="w-full h-full" />
+                {bundle.length ? (
+                  <BundlePhoto parts={bundle} tiles={config.design.layout.tiles} square className="w-full h-full" />
+                ) : (
+                  <PickPhoto picks={pickImages(config, it, e.selection)} src={it.image_url} label={texts.itemName(it)} className="w-full h-full object-cover"
+                    phClassName="k-item-ph h-full aspect-auto text-[1.2em]" splitClassName="w-full h-full" />
+                )}
               </span>
               <div className="flex-1 min-w-0 flex flex-col gap-[.3em]">
                 <div className="flex items-start gap-[.6em]">

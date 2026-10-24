@@ -233,7 +233,8 @@ export default function KioskApp({ device = null, previewToken = null, shareToke
     <div className={cx('k-root', design.brand.heading_case === 'upper' && 'k-upper', s.reach && 'k-reach', 'k-tiles-' + design.layout.tiles, design.layout.icon_buttons && 'k-icons')}
       style={style} data-testid="kiosk" data-screen={s.screen} data-tiles={design.layout.tiles} data-option-tiles={design.layout.option_tiles}
       data-option-pictures={design.layout.option_pictures ? '1' : '0'} data-option-align={design.layout.option_align}
-      data-hero={design.layout.hero} data-enter={design.options.entrance}>
+      data-hero={design.layout.hero} data-hero-backdrop={design.layout.hero_backdrop ? '1' : '0'} data-combo-build={design.layout.combo_build ? '1' : '0'}
+      data-enter={design.options.entrance}>
       {s.reach && (
         <div className={cx('k-reach-band', design.behaviour.reach_media.length > 0 && 'k-reach-media')} data-testid="k-reach-band">
           {/* The design's pictures or videos fill the space above; the way back stays on top of them. */}

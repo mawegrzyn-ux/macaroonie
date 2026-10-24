@@ -222,6 +222,35 @@
 .k-tiles-round .k-hero-img .k-corner-picks, .k-tiles-oval .k-hero-img .k-corner-picks, .k-tiles-hexagon .k-hero-img .k-corner-picks { justify-content: center; bottom: 7%; }
 .k-tiles-plain .k-hero-img .k-corner-main, .k-tiles-plain .k-thumb .k-corner-main { object-fit: contain; }
 
+/* ── A meal deal's picture from its picks (parts.jsx BundlePhoto) ─
+   design.layout.combo_build: each picked part's picture in its own square
+   (shared/kiosk.js bundleLayout()), cut-out pictures as they are with a soft
+   shadow, photos in a small frame. A new or changed part pops in; the others
+   slide over to make room. */
+.k-bundle { position: relative; display: block; }
+.k-bundle-part { position: absolute; display: block; transition: left .35s ease, top .35s ease, width .35s ease, height .35s ease; }
+.k-bundle-pic { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: calc(var(--k-radius) / 1.5); box-shadow: 0 0 0 .12em var(--k-surface), 0 3px 10px rgba(0,0,0,.28); }
+img.k-bundle-pic.k-clear, .k-bundle-pic.k-split:has(img.k-clear) { border-radius: 0; box-shadow: none; filter: drop-shadow(0 4px 6px rgba(0,0,0,.28)); }
+.k-bundle .k-split { background: transparent; }
+.k-bundle-new { animation: k-bundle-pop .5s cubic-bezier(.2, 1.4, .4, 1) backwards; }
+@keyframes k-bundle-pop { from { opacity: 0; transform: translateY(20%) scale(.5); } }
+@media (prefers-reduced-motion: reduce) {
+  .k-bundle-new { animation: none; }
+  .k-bundle-part { transition: none; }
+}
+
+/* ── The shade behind a dish's photo ─────────────────────────────
+   design.layout.hero_backdrop, on the root as data-hero-backdrop: on, a
+   quiet shade behind the dish's photo on its page and in the order, so
+   cut-out pictures sit on the same background whether one pick shows or
+   several share the photo (a split photo always had it); a No frame photo
+   takes the design's corners while the shade shows. Off: no shade at all,
+   not even behind a split photo. */
+[data-hero-backdrop="1"] .k-hero-img, [data-hero-backdrop="1"] .k-thumb { background: var(--k-shade); }
+[data-hero-backdrop="1"].k-tiles-plain .k-hero-img { border-radius: var(--k-radius); }
+[data-hero-backdrop="1"].k-tiles-plain .k-thumb { border-radius: calc(var(--k-radius) / 1.5); }
+[data-hero-backdrop="0"] :is(.k-hero-img, .k-thumb) .k-split { background: transparent; }
+
 /* ── Picture styles ──────────────────────────────────────────────
    Dishes (design.layout.tiles, .k-tiles-<style> on the root: menu cards,
    section tiles, the dish's photo, basket thumbs) and choices
