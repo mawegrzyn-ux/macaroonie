@@ -8,6 +8,8 @@
   --k-line: color-mix(in srgb, var(--k-text) 14%, transparent);
   --k-soft: color-mix(in srgb, var(--k-primary) 12%, var(--k-surface));
   --k-shade: color-mix(in srgb, var(--k-text) 6%, var(--k-bg));
+  /* The section picked down the side: a tint of the buttons' colour on the side menu's own. */
+  --k-rail-on: color-mix(in srgb, var(--k-primary) 12%, var(--k-rail, var(--k-surface)));
   --k-gap: clamp(8px, 1.4vmin, 20px);
   --k-pad: clamp(12px, 2.2vmin, 32px);
   position: fixed;
@@ -74,14 +76,16 @@
 .k-btn-primary { background: var(--k-primary); color: var(--k-primary-text) !important; border-color: var(--k-primary); }
 .k-btn-accent { background: var(--k-accent); color: var(--k-accent-text) !important; border-color: var(--k-accent); }
 .k-btn-ghost { background: transparent; border-color: transparent; }
-/* Back (parts.jsx BackButton): solid in the text colour on a light bar, in
-   the page colour on the dark bar, so it reads as a button on either. */
+/* Back (parts.jsx BackButton): solid in the text colour on a light bar
+   (a dish's own page), and on a bottom bar (.k-bar) solid in the bar's
+   words colour with the bar's colour for its words, so it reads as a
+   button on either. */
 .k-btn-back { background: var(--k-text); color: var(--k-bg) !important; border-color: var(--k-text); }
-.k-bar .k-btn-back { background: var(--k-bg); color: var(--k-text) !important; border-color: var(--k-bg); }
-/* Start again (Menu.jsx RestartButton) and the other buttons on the dark
-   bottom bar: outlined, so Back stays the solid one. */
+.k-bar .k-btn-back { background: var(--k-bar-text); color: var(--k-bar) !important; border-color: var(--k-bar-text); }
+/* Start again (Menu.jsx RestartButton) and the other buttons on a bottom
+   bar: outlined, so Back stays the solid one. */
 .k-btn-restart, .k-bar .k-btn-onbar { background: transparent; color: inherit; border-color: color-mix(in srgb, currentColor 40%, transparent); }
-.k-bar .k-btn-onbar { border-color: color-mix(in srgb, var(--k-bg) 30%, transparent); }
+.k-bar .k-btn-onbar { border-color: color-mix(in srgb, var(--k-bar-text) 30%, transparent); }
 /* Icons only (design.layout.icon_buttons): the words stay as the button's name. */
 .k-icons .k-btn-back .k-btn-label, .k-icons .k-btn-restart .k-btn-label { display: none; }
 .k-icons .k-btn-back, .k-icons .k-btn-restart { padding: 0; width: max(72px, 4em); }
@@ -172,8 +176,16 @@
 .k-align-center > .flex { justify-content: center; }
 .k-align-right > .flex { justify-content: flex-end; }
 
-/* Bottom bar on the menu */
-.k-bar { background: var(--k-text); color: var(--k-bg); display: flex; align-items: center; gap: var(--k-gap); padding: var(--k-gap) var(--k-pad); }
+/* Bottom bar (the menu, the order, details, paying, allergens): the design's
+   Bottom bar colours (partColours(): by default the Text colour with the Page
+   colour for its words). */
+.k-bar { background: var(--k-bar); color: var(--k-bar-text); display: flex; align-items: center; gap: var(--k-gap); padding: var(--k-gap) var(--k-pad); }
+
+/* The sections down the side of the menu (Menu.jsx): the design's Side menu
+   colours (partColours(): by default the Cards colour with the Text colour
+   for its words); the section picked in a tint of the buttons' colour. */
+.k-rail { background: var(--k-rail); color: var(--k-rail-text); }
+.k-rail-on { background: var(--k-rail-on); }
 
 /* Sheets and overlays */
 .k-overlay { position: absolute; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; padding: var(--k-pad); z-index: 40; }
@@ -362,7 +374,7 @@ img.k-bundle-pic.k-clear, .k-bundle-pic.k-split:has(img.k-clear) { border-radius
   clip-path: polygon(1em 0, calc(100% - 1em) 0, 100% 50%, calc(100% - 1em) 100%, 1em 100%, 0 50%);
 }
 .k-tiles-hexagon .k-btn:not(.k-btn-primary):not(.k-btn-accent):not(.k-btn-back):not(.k-btn-ghost):not(.k-btn-restart):not(.k-btn-onbar) { background: var(--k-soft); }
-.k-tiles-hexagon .k-bar .k-btn-restart, .k-tiles-hexagon .k-bar .k-btn-onbar { background: color-mix(in srgb, var(--k-bg) 16%, transparent); }
+.k-tiles-hexagon .k-bar .k-btn-restart, .k-tiles-hexagon .k-bar .k-btn-onbar { background: color-mix(in srgb, var(--k-bar-text) 16%, transparent); }
 .k-tiles-hexagon .k-btn-round, .k-tiles-hexagon .k-btn-icon { width: max(64px, 3.7em); padding: 0; clip-path: var(--k-hex-flat); }
 .k-tiles-hexagon.k-icons .k-btn-back, .k-tiles-hexagon.k-icons .k-btn-restart { width: max(84px, 4.6em); clip-path: var(--k-hex-flat); }
 .k-tiles-hexagon .k-chip {
@@ -386,7 +398,6 @@ img.k-bundle-pic.k-clear, .k-bundle-pic.k-split:has(img.k-clear) { border-radius
 .k-tiles-hexagon .k-thumb, .k-tiles-hexagon .k-rail-img, .k-opts-hexagon .k-opt-thumb { border-radius: 0; clip-path: var(--k-hex); aspect-ratio: .866 / 1; }
 .k-tiles-hexagon .k-hero-img { border-radius: 0; clip-path: var(--k-hex); aspect-ratio: .866 / 1; }
 .k-tiles-hexagon .k-rail-item { border-radius: 0; clip-path: polygon(.8em 0, calc(100% - .8em) 0, 100% 50%, calc(100% - .8em) 100%, .8em 100%, 0 50%); border-color: transparent; }
-.k-tiles-hexagon .k-rail-on { background: var(--k-soft); }
 .k-tiles-hexagon .k-key { border-radius: 0; border-color: transparent; background: var(--k-soft); clip-path: var(--k-hex-flat); }
 
 /* ── Choices without pictures ─────────────────────────────────────

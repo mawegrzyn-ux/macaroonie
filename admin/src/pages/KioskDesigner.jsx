@@ -30,7 +30,7 @@ import { ThemeMakerButton } from '@/components/themes/ThemeMaker'
 import {
   normaliseDesign, designProblems, KIOSK_FONTS, KIOSK_EXTRA_FONTS, SYSTEM_FONT, COLOR_LABELS,
   DESIGN_COLORS, CLEAR_COLORS, CHOICE_ENTRANCES, KIOSK_LANGUAGES, DISPLAY_LABELS, KIOSK_DISPLAYS, uiText, TILE_STYLES, TILE_LABELS,
-  groupLook,
+  groupLook, PART_COLORS, PART_FOLLOWS, partColours,
 } from '@shared/kiosk.js'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -88,6 +88,12 @@ const CONTRAST_PAIRS = [
   ['muted', 'surface', 'Quiet text on cards'],
   ['primary_text', 'primary', 'Button text on buttons'],
   ['accent_text', 'accent', 'Highlight text on highlights'],
+]
+// The bottom bar and the side menu, checked once either of a pair is set
+// (until then they are the pairs above the other way round).
+const PART_PAIRS = [
+  ['bar_text', 'bar', 'Bottom bar text on the bottom bar'],
+  ['rail_text', 'rail', 'Side menu text on the side menu'],
 ]
 
 const DISPLAY_INFO = {
@@ -252,7 +258,15 @@ function solidColours(colors) {
 
 function BrandPanel({ d, set }) {
   const c = solidColours(d.brand.colors)
-  const poor = CONTRAST_PAIRS.filter(([a, b]) => contrast(c[a], c[b]) < 3)
+  // The bottom bar and side menu as they show (set, or what they follow).
+  const parts = partColours(d.brand.colors)
+  const partSolid = { ...parts, rail: parts.rail === 'transparent' ? c.background : parts.rail }
+  const hasRail = d.menu.rail !== 'none'
+  const poor = [
+    ...CONTRAST_PAIRS.filter(([a, b]) => contrast(c[a], c[b]) < 3).map(([a, b, what]) => [what, contrast(c[a], c[b])]),
+    ...PART_PAIRS.filter(([a, b]) => (d.brand.colors[a] || d.brand.colors[b]) && (a !== 'rail_text' || hasRail) && contrast(partSolid[a], partSolid[b]) < 3)
+      .map(([a, b, what]) => [what, contrast(partSolid[a], partSolid[b])]),
+  ]
   const theme = useThemeColours()
   const sets = useMemo(() => [websiteColours(theme), ...PRESETS].filter(Boolean), [theme])
   const locked = useContext(LockedCtx)
@@ -286,8 +300,20 @@ function BrandPanel({ d, set }) {
           ))}
         </div>
       </Field>
-      {poor.map(([a, b, what]) => (
-        <Note key={a + b} tone="warn">{what}: hard to read ({contrast(c[a], c[b]).toFixed(1)} to 1). Make one of them lighter or darker.</Note>
+      <Field group label="Bottom bar and side menu"
+        hint="Not set, they follow the colours above: the bottom bar is in the Text colour and the side menu in the Cards colour, with their words in whichever of Page and Text reads better. Picking a colour set or a theme starts them over. A dish's own page keeps its bar in the Cards colour.">
+        <div className="space-y-3" data-testid="kd-part-colours">
+          {PART_COLORS.map(k => (
+            <ColourPicker key={k} label={COLOR_LABELS[k]} value={d.brand.colors[k]} optional
+              placeholder={PART_FOLLOWS[k] ? 'Same as ' + COLOR_LABELS[PART_FOLLOWS[k]] : 'Automatic'}
+              fallback={partSolid[k]} testId={'kd-colour-' + k}
+              onChange={v => set('brand', b => ({ colors: { ...b.colors, [k]: v || null } }))} />
+          ))}
+          {!hasRail && <Note>This design has no side menu (the Menu card's Sections down the side is set to None), so the side menu colours don't show.</Note>}
+        </div>
+      </Field>
+      {poor.map(([what, ratio]) => (
+        <Note key={what} tone="warn">{what}: hard to read ({ratio.toFixed(1)} to 1). Make one of them lighter or darker.</Note>
       ))}
       <Field group label="Headings font">
         <FontPicker value={d.brand.font_heading} onChange={v => set('brand', { font_heading: v })} fonts={FONTS} />
@@ -1260,6 +1286,7 @@ const PANELS = [
 
 function summaryOf(id, d) {
   if (id === 'brand') return d.brand.font_heading + ' / ' + d.brand.font_body
+    + (d.brand.colors.bar || d.brand.colors.bar_text ? ', own bottom bar' : '') + (d.brand.colors.rail || d.brand.colors.rail_text ? ', own side menu' : '')
   if (id === 'layout') return [d.layout.header ? 'Top bar' : 'No top bar', d.layout.icon_buttons ? 'icon buttons' : null, d.layout.hero === 'stacked' ? 'dish photo on top' : null,
     d.layout.hero_backdrop ? null : 'no shade behind photos', d.layout.combo_build ? null : 'meal deals keep their photo',
     d.layout.fly_to_order ? null : 'no flight into the order'].filter(Boolean).join(', ')

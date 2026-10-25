@@ -28,6 +28,7 @@ import { replay } from './pos/checks.js'
 import { ulid } from './pos/ids.js'
 import { configItem, dealItem, comboCtx, checkOffers } from './pos/offers.js'
 import { UI_TEXT, ALLERGEN_NAMES } from './kioskText.js'
+import { contrast } from './themeKit.js'
 
 export { UI_TEXT, ALLERGEN_NAMES }
 
@@ -240,6 +241,44 @@ export const ENTRANCE_KEYS = CHOICE_ENTRANCES.map(x => x.key)
 export const COLOR_LABELS = {
   background: 'Page', surface: 'Cards', text: 'Text', muted: 'Quiet text',
   primary: 'Buttons', primary_text: 'Button text', accent: 'Highlights', accent_text: 'Highlight text',
+  bar: 'Bottom bar', bar_text: 'Bottom bar text', rail: 'Side menu', rail_text: 'Side menu text',
+}
+// Colours for two parts of the screen, set apart from the ones above
+// (brand.colors; null = not set: the part follows them, as before these
+// could be set; partColours() works out what is in use):
+//   bar, bar_text: every bottom bar (.k-bar: the menu, the order, the name
+//   and table number, paying, the allergens screen). A dish's own page keeps
+//   its bar in the Cards colour.
+//   rail, rail_text: the sections down the side of the menu.
+export const PART_COLORS = ['bar', 'bar_text', 'rail', 'rail_text']
+// What a part's colour follows while it isn't set (the words: whichever of
+// Page and Text reads better on their part).
+export const PART_FOLLOWS = { bar: 'text', rail: 'surface' }
+
+/**
+ * The bottom bar's and side menu's colours in use: each as set, else what
+ * it follows. The bar follows Text and the side menu Cards; words that
+ * aren't set take whichever of the page colour and the text colour reads
+ * better on their part, so a bar colour on its own stays readable (a tie
+ * keeps what each used before: Page on the bar, Text on the side menu).
+ * With nothing set this is the look from before. The side menu is
+ * See-through when it follows See-through cards; its words are then worked
+ * out on the page.
+ */
+export function partColours(colors) {
+  const c = colors || {}
+  const page = isHex(c.background) ? c.background : DESIGN_COLORS.background
+  const ink = isHex(c.text) ? c.text : DESIGN_COLORS.text
+  const solid = v => (isHex(v) ? v : page)
+  const better = (bg, first, second) => (contrast(second, solid(bg)) > contrast(first, solid(bg)) ? second : first)
+  const bar = isHex(c.bar) ? c.bar : ink
+  const rail = isHex(c.rail) ? c.rail : c.surface === 'transparent' ? 'transparent' : isHex(c.surface) ? c.surface : DESIGN_COLORS.surface
+  return {
+    bar,
+    bar_text: isHex(c.bar_text) ? c.bar_text : better(bar, page, ink),
+    rail,
+    rail_text: isHex(c.rail_text) ? c.rail_text : better(rail, ink, page),
+  }
 }
 export const TYPE_ICONS = ['eat_in', 'take_away', 'delivery', 'none']
 export const LINK_KINDS = ['none', 'item', 'section']
@@ -361,6 +400,7 @@ export function normaliseDesign(raw) {
     const v = b.colors?.[k]
     colors[k] = isHex(v) ? v.toLowerCase() : v === 'transparent' && CLEAR_COLORS.includes(k) ? v : def
   }
+  for (const k of PART_COLORS) colors[k] = isHex(b.colors?.[k]) ? b.colors[k].toLowerCase() : null
   const source = oneOf(l.source, LANG_CODES, 'en')
   const enabled = [...new Set([source, ...asList(l.enabled).filter(x => LANG_CODES.includes(x))])]
   const tiles = oneOf(y.tiles, TILE_STYLES, 'cards')

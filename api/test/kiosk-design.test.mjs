@@ -203,3 +203,23 @@ test('layout options round trip; a design keeps only the tenant\'s own sections,
   assert.equal(cfg.design.menu.rail, 'none')
   assert.equal(cfg.design.behaviour.reach_media.length, 2, 'the reach pictures reach the kiosk')
 })
+
+test('the bottom bar and side menu colours: not set until set, saved in lower case, a copy and the kiosk get them', async () => {
+  const before = (await ok(owner.get('/api/pos/kiosk-designs'))).find(d => d.id === design.id).settings
+  for (const k of ['bar', 'bar_text', 'rail', 'rail_text']) assert.ok(!before.brand.colors[k], k + ' not set')
+  const colors = { ...before.brand.colors, bar: '#7A0019', rail: '#000000', bar_text: 'blue', rail_text: '#FFD43B' }
+  const saved = await ok(owner.put(`/api/pos/kiosk-designs/${design.id}`, { name: design.name, settings: { ...before, brand: { ...before.brand, colors } } }))
+  const c = saved.settings.brand.colors
+  assert.deepEqual([c.bar, c.bar_text, c.rail, c.rail_text], ['#7a0019', null, '#000000', '#ffd43b'], 'a colour code kept, anything else not set')
+  assert.equal(c.text, before.brand.colors.text, 'the other colours unchanged')
+  const copy = await ok(owner.post('/api/pos/kiosk-designs', { name: 'Bars', copy_from: design.id }))
+  assert.equal(copy.settings.brand.colors.bar, '#7a0019')
+  const link = await ok(owner.post(`/api/pos/kiosk-designs/${design.id}/preview`, { venue_id: mine.ids.venue }))
+  const cfg = (await preview(link.token)).json
+  assert.equal(cfg.design.brand.colors.bar, '#7a0019', 'the kiosk gets the bar colour')
+  assert.equal(cfg.design.brand.colors.rail_text, '#ffd43b')
+  assert.equal(cfg.design.brand.colors.bar_text, null, 'words not set reach it as not set (the kiosk works them out)')
+  // Cleared again: not set.
+  const cleared = await ok(owner.put(`/api/pos/kiosk-designs/${design.id}`, { name: design.name, settings: { ...saved.settings, brand: { ...saved.settings.brand, colors: { ...c, bar: null, rail: '', rail_text: null } } } }))
+  for (const k of ['bar', 'bar_text', 'rail', 'rail_text']) assert.equal(cleared.settings.brand.colors[k], null, k + ' cleared')
+})

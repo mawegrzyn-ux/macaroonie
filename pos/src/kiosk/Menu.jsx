@@ -333,9 +333,9 @@ export default function Menu() {
       <TopBar texts={texts} config={config} />
       <div className="flex-1 min-h-0 flex">
         {!tilesPage && (
-          <nav className="shrink-0 w-[clamp(110px,19vmin,240px)] k-scroll bg-[var(--k-surface)] border-r-2 border-[var(--k-line)] flex flex-col gap-[.3em] p-[.4em]" data-testid="k-rail">
+          <nav className="k-rail shrink-0 w-[clamp(110px,19vmin,240px)] k-scroll border-r-2 border-[var(--k-line)] flex flex-col gap-[.3em] p-[.4em]" data-testid="k-rail">
             {home && (
-              <button className={cx('k-rail-item flex flex-col items-center gap-[.3em] p-[.5em] rounded-[calc(var(--k-radius)/1.5)] border-2', current === 'home' ? 'k-rail-on border-[var(--k-primary)] bg-[var(--k-soft)]' : 'border-transparent')}
+              <button className={cx('k-rail-item flex flex-col items-center gap-[.3em] p-[.5em] rounded-[calc(var(--k-radius)/1.5)] border-2', current === 'home' ? 'k-rail-on border-[var(--k-primary)]' : 'border-transparent')}
                 onClick={() => openSection('home')} data-testid="k-rail-home">
                 <HomeIcon size={34} />
                 <span className="k-head text-[.85em] text-center">{texts.ui('home')}</span>
@@ -344,7 +344,7 @@ export default function Menu() {
             {sections.map(sec => {
               const img = rail === 'images' ? sectionImage(config, sec) : null
               return (
-                <button key={sec.id} className={cx('k-rail-item flex flex-col items-center gap-[.3em] p-[.5em] rounded-[calc(var(--k-radius)/1.5)] border-2', current === sec.id ? 'k-rail-on border-[var(--k-primary)] bg-[var(--k-soft)]' : 'border-transparent')}
+                <button key={sec.id} className={cx('k-rail-item flex flex-col items-center gap-[.3em] p-[.5em] rounded-[calc(var(--k-radius)/1.5)] border-2', current === sec.id ? 'k-rail-on border-[var(--k-primary)]' : 'border-transparent')}
                   onClick={() => openSection(sec.id)} data-testid="k-rail-section" data-section={sec.id}>
                   {img && <Pic src={img} className="k-rail-img w-[70%] aspect-square object-cover rounded-full" />}
                   <span className={cx('k-head text-center', rail === 'images' ? 'text-[.85em]' : 'text-[1em] py-[.4em]')}>{sectionTitle(sec)}</span>

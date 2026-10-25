@@ -5512,7 +5512,7 @@ export default function Help() {
             <DataTable
               head={['Card', 'What you set']}
               rows={[
-                ['Brand', 'Logo, colours (start from a set: Website colours (your website theme\'s), Fresh, Red and gold, Night, Ocean, Plain, then change any: each colour offers the website\'s colours as swatches, or a custom one), the fonts for headings and text, headings in capitals, rounded corners. Colours that are hard to read together are pointed out. Make a theme (at the top) fills all of these from a picture and a few words (see Website Builder, Make a theme from a picture).'],
+                ['Brand', 'Logo, colours (start from a set: Website colours (your website theme\'s), Fresh, Red and gold, Night, Ocean, Plain, then change any: each colour offers the website\'s colours as swatches, or a custom one), the bottom bar\'s and the side menu\'s own colours (see Bottom bar and side menu colours below), the fonts for headings and text, headings in capitals, rounded corners. Colours that are hard to read together are pointed out. Make a theme (at the top) fills all of these from a picture and a few words (see Website Builder, Make a theme from a picture).'],
                 ['Layout', 'The bar along the top (logo and language) on or off. Back and Start again with their words, or icons only. How pictures are drawn is set apart for dishes (Menu card) and for choices (Choices card). Top of a dish\'s page: the photo beside the words, or Photo on top, with the photo lined up left, centre or right and the name, description, price and allergens under it lined up left, centre or right (on a wide screen the photo is always above the words in its own column, and only the words\' line-up applies). A meal deal\'s pages follow it too: the deal\'s picture and words on its steps, and a picked dish\'s own photo and words on its options page. Shade behind the dish\'s photo (on unless you turn it off): a quiet shade behind the dish\'s photo on its page and in the order, so cut-out pictures (PNGs on a see-through background) sit on the same background whether one pick shows or several share the photo; off, the page\'s own background, even behind a split photo (a No frame photo gets the design\'s rounded corners while the shade shows). Build a meal deal\'s picture from the picks (on unless you turn it off): see A meal deal\'s picture below. The picture flies into the order (on unless you turn it off): see Adding to the order below.'],
                 ['Start screen', 'Pictures apart from the buttons or behind them; pictures and videos taking turns (drag to order, up to 8); the headline and the question; each order type\'s words, icon or picture; the Allergens button.'],
                 ['Languages', 'The language your menu is written in, and the languages guests can pick (flags on the start screen).'],
@@ -5526,6 +5526,27 @@ export default function Help() {
               Words you leave empty use the kiosk's own words, which come in all nine languages. Words you type
               show as typed: translate them on <strong>Menus → Translations</strong>.
             </InfoBox>
+
+            <H3>Bottom bar and side menu colours</H3>
+            <P>
+              The bar along the bottom (Start again, the order&apos;s total, View order, and Back where a screen has
+              one) and the sections down the side of the menu have colours of their own in the design&apos;s
+              <strong> Brand</strong> card, under the main colours: <strong>Bottom bar</strong>,
+              <strong> Bottom bar text</strong>, <strong>Side menu</strong> and <strong>Side menu text</strong>.
+              Until you set them they follow the colours above, as before: the bottom bar in the Text colour and the
+              side menu in the Cards colour. Their words say <em>Automatic</em> until you set them: whichever of the
+              Page and Text colours reads better on that bar, so picking a bar colour on its own is enough. Each
+              colour box shows the colour in use; <strong>Reset</strong> (or clearing the code) makes a colour follow
+              again. The preview changes as you go; Save keeps it.
+            </P>
+            <ul className="list-disc list-inside text-sm text-muted-foreground ml-2 mb-4 space-y-1">
+              <li>The bottom bar colour is on every bottom bar: the menu, the order, the name and table number, paying and the allergens screen. A dish&apos;s own page keeps its bar in the Cards colour.</li>
+              <li>Back on a bottom bar is solid in the bar&apos;s words colour with the bar&apos;s colour for its words; Start again and the other buttons on the bar are outlined in the words colour. View order keeps the Highlights colour.</li>
+              <li>The section picked down the side gets a tint of the Buttons colour on the side menu&apos;s own colour.</li>
+              <li>A pair that is hard to read (red words on a red bar, say) is pointed out under the colours.</li>
+              <li>Picking a colour set (Fresh, Night and the others) or a theme from the theme maker starts the bottom bar and side menu colours over: they follow the new colours.</li>
+              <li>A design without a side menu (Menu card, Sections down the side: None) keeps its side menu colours but doesn&apos;t show them.</li>
+            </ul>
 
             <H3>Dishes with no price</H3>
             <P>

@@ -82,9 +82,10 @@ export function ClearSwatch({ active, onClick, disabled, label = 'See-through' }
 /**
  * @param value     '#rrggbb', 'transparent' (with `clear`), or null / '' when optional and not set
  * @param optional  allow no colour (shows `placeholder` and a Reset button)
+ * @param fallback  with `optional`: the colour in use while none is set (shown in the colour box)
  * @param clear     offer See-through (a background with nothing in it)
  */
-export function ColourPicker({ label, value, onChange, optional = false, placeholder = 'Not set', disabled = false, clear = false, testId }) {
+export function ColourPicker({ label, value, onChange, optional = false, placeholder = 'Not set', fallback = null, disabled = false, clear = false, testId }) {
   const theme = useThemeColours()
   const isClear = clear && value === CLEAR
   const [text, setText] = useState(value || '')
@@ -106,7 +107,7 @@ export function ColourPicker({ label, value, onChange, optional = false, placeho
       )}
       <div className="flex items-center gap-1.5">
         <span className={cn('relative shrink-0 rounded-md', custom && 'ring-2 ring-primary ring-offset-1')}>
-          <input type="color" value={current || '#000000'} disabled={disabled}
+          <input type="color" value={current || (HEX.test(fallback || '') ? fallback.toLowerCase() : '#000000')} disabled={disabled}
             onChange={e => onChange(e.target.value.toLowerCase())}
             aria-label={(label ? label + ': ' : '') + 'custom colour'} title="Custom colour"
             className="block w-11 h-10 rounded-md border bg-background p-1 cursor-pointer touch-manipulation disabled:cursor-default" />
