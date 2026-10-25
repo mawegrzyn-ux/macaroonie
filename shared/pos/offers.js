@@ -12,7 +12,7 @@
 // services/kioskSvc.js kioskConfig()): items, groups, section_items,
 // sold_out, promotions, venue.
 
-import { posChoices, promoLines, spread, isActiveLine } from './pricing.js'
+import { posChoices, partChoices, promoLines, spread, isActiveLine } from './pricing.js'
 import { applyPromotions, venueNow } from '../promotions.js'
 import { findAutoCombos, autoMatchable } from '../combos.js'
 import { fromPrice } from '../orderPricing.js'
@@ -34,6 +34,19 @@ export function configItem(config, id) {
   return it
 }
 
+/**
+ * A dish picked in a meal deal as the deal asks it: the config item with its
+ * choices changed by the combo choice's groups (pricing.js partChoices()),
+ * the item itself when the deal changes nothing. What a till or kiosk shows
+ * for a part's options and pictures comes from this, so it is what the
+ * pricing accepts.
+ */
+export function dealItem(config, id, groups) {
+  const it = configItem(config, id)
+  if (!it || !groups) return it
+  return { ...it, pos_choices: partChoices(it, groups, config.groups || {}) }
+}
+
 /** What priceItem() needs to find options and combo dishes in a config. */
 export function comboCtx(config) {
   const sold = soldOutMap(config)
@@ -43,19 +56,30 @@ export function comboCtx(config) {
   return { itemsById: items, groupsById: config?.groups || {}, sectionItems: config?.section_items || {}, soldOut: id => sold.has(id) }
 }
 
+// A line's own picks as { groupKey: [optionId] } (its top-level options, not "No").
+function linePicks(modifiers) {
+  const out = {}
+  for (const m of modifiers || []) {
+    if (m.depth || m.prefix === 'no' || m.group_id == null) continue
+    out[m.group_id] = [...(out[m.group_id] || []), m.option_id]
+  }
+  return out
+}
+
 /**
  * Automatic combos among the check's separate dishes:
  * [{ promotion_id: comboId, name, kind: 'combo', count, lines: { lineId: pence } }].
  * Only dishes at their menu price count (not combo lines, open items or
- * changed prices); the most that comes off a line is what is left on it
- * after line discounts.
+ * changed prices), and only with options the deal could have asked
+ * (dealFits()); the most that comes off a line is what is left on it after
+ * line discounts.
  */
 export function autoCombosFor(check, config) {
   const combos = Object.values(config?.items || {}).filter(i => i.kind === 'combo' && autoMatchable(i))
   if (!combos.length) return []
   const left = Object.fromEntries(promoLines(check).map(l => [l.line_id, l.line_total_pence]))
   const lines = (check.lines || []).filter(l => isActiveLine(l) && l.item_id && !(l.combo && l.combo.length) && !l.price_override && !l.open_item)
-    .map(l => ({ key: l.id, item_id: l.item_id, section_id: l.section_id, qty: l.qty, unit_base: Number(l.unit_price) || 0, cap: Math.floor((left[l.id] ?? 0) / Math.max(1, l.qty)) }))
+    .map(l => ({ key: l.id, item_id: l.item_id, section_id: l.section_id, qty: l.qty, unit_base: Number(l.unit_price) || 0, cap: Math.floor((left[l.id] ?? 0) / Math.max(1, l.qty)), picks: linePicks(l.modifiers) }))
   const sold = soldOutMap(config)
   const found = findAutoCombos(lines, combos.filter(c => !sold.has(c.id)), { itemsById: config.items, sectionItems: config.section_items || {} },
     c => fromPrice({ ...c, kind: 'dish', combo: null, price_pence: c.price_pence ?? 0 }, configItem(config, c.id).pos_choices) ?? 0)

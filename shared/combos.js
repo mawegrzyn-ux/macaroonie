@@ -35,6 +35,10 @@
 //         image_url, description, // type custom: shown on kiosks (a dish shows its own)
 //         photo_url,      // kiosks, any type: the picture on the combo's split
 //                         // photo (none = image_url / the dish's photo; stored only when set)
+//         groups,         // types item and section: the picked dish's option groups
+//                         // in this deal, one group at a time (stored only when set):
+//                         // { [groupKey]: { use, option_ids, group_id, min, max } },
+//                         // see dealChoices()
 //         price_pence,    // extra charge for this choice (0 = included)
 //       }],
 //     }] }
@@ -43,7 +47,8 @@
 //   { [stepId]: [{ option_id, item_id, choices }] }
 // item_id is the menu item picked (a section option's dish), null for a
 // custom choice; choices are that item's own options, in the shape of the
-// engine pricing it (the till's priceChoices or online's priceLine).
+// engine pricing it (the till's priceChoices or online's priceLine), as the
+// deal asks them (dealChoices()).
 //
 // Manual combos start from the combo's own button. Automatic ones are also
 // found among separate items on an order (findAutoCombos): the items stay
@@ -67,6 +72,11 @@ export const pickScale = v => {
 }
 export const MAX_STEPS = 12
 export const MAX_PICKS = 20
+// How a deal asks a picked dish's option group (dealChoices()): as on the
+// dish ('all', perhaps with its own how many), not at all ('off'), only some
+// options ('only'), or another group from the library instead ('swap').
+export const DEAL_USES = ['all', 'off', 'only', 'swap']
+export const DEAL_GROUPS_MAX = 20
 
 const asList = v => (Array.isArray(v) ? v : [])
 const int = (v, d) => (Number.isFinite(Number(v)) ? Math.trunc(Number(v)) : d)
@@ -90,18 +100,23 @@ export function normaliseCombo(raw) {
       display: STEP_DISPLAYS.includes(s.display) ? s.display : null,
       pick_photo: s.pick_photo === 'split' || s.pick_photo === 'corner' ? s.pick_photo : null,
       pick_scale: pickScale(s.pick_scale),
-      options: asList(s.options).map((o, j) => ({
-        id: String(o.id || 'opt-' + i + '-' + j),
-        type: OPTION_TYPES.includes(o.type) ? o.type : 'item',
-        item_id: o.item_id || null,
-        section_id: o.section_id || null,
-        label: o.label ? String(o.label) : null,
-        kitchen_name: o.kitchen_name ? String(o.kitchen_name) : null,
-        image_url: o.image_url ? String(o.image_url).slice(0, 2000) : null,
-        ...(o.photo_url ? { photo_url: String(o.photo_url).slice(0, 2000) } : {}),
-        description: o.description ? String(o.description).slice(0, 300) : null,
-        price_pence: pence(o.price_pence),
-      })).filter(o => (o.type === 'item' ? o.item_id : o.type === 'section' ? o.section_id : o.label)),
+      options: asList(s.options).map((o, j) => {
+        const type = OPTION_TYPES.includes(o.type) ? o.type : 'item'
+        const groups = type === 'custom' ? null : normaliseDealGroups(o.groups)
+        return {
+          id: String(o.id || 'opt-' + i + '-' + j),
+          type,
+          item_id: o.item_id || null,
+          section_id: o.section_id || null,
+          label: o.label ? String(o.label) : null,
+          kitchen_name: o.kitchen_name ? String(o.kitchen_name) : null,
+          image_url: o.image_url ? String(o.image_url).slice(0, 2000) : null,
+          ...(o.photo_url ? { photo_url: String(o.photo_url).slice(0, 2000) } : {}),
+          ...(groups ? { groups } : {}),
+          description: o.description ? String(o.description).slice(0, 300) : null,
+          price_pence: pence(o.price_pence),
+        }
+      }).filter(o => (o.type === 'item' ? o.item_id : o.type === 'section' ? o.section_id : o.label)),
     }
   })
   // A condition can only look back at an earlier step.
@@ -149,7 +164,9 @@ export function menuCtx(menu) {
 /**
  * The choices a step offers, one per pickable thing:
  *   [{ key, option_id, item_id, section_id, label, kitchen_name, price_pence,
- *      image_url, photo_url, description, item, sold_out }]
+ *      image_url, photo_url, description, item, sold_out, groups }]
+ * groups: the changes the deal makes to the dish's option groups (null = as
+ * on the dish), for dealChoices().
  * ctx: { itemsById, sectionItems, soldOut(itemId), selfId }. A dish that
  * isn't in itemsById (not on this till / not offered) is left out, and so
  * are combos (a combo can't be part of a combo).
@@ -168,7 +185,7 @@ export function stepChoices(step, ctx = {}) {
       key, option_id: o.id, item_id: id, section_id: it.section_id ?? null,
       label: it.name, kitchen_name: it.kitchen_name || null, price_pence: o.price_pence,
       image_url: it.image_url || null, photo_url: o.photo_url || null, description: it.description || null,
-      item: it, sold_out: !!(it.sold_out || (ctx.soldOut && ctx.soldOut(id))),
+      item: it, sold_out: !!(it.sold_out || (ctx.soldOut && ctx.soldOut(id))), groups: o.groups || null,
     })
   }
   for (const o of step.options) {
@@ -178,6 +195,7 @@ export function stepChoices(step, ctx = {}) {
       out.push({
         key: o.id, option_id: o.id, item_id: null, section_id: null, label: o.label, kitchen_name: o.kitchen_name || null,
         price_pence: o.price_pence, image_url: o.image_url || null, photo_url: o.photo_url || null, description: o.description || null, item: null, sold_out: false,
+        groups: null,
       })
     }
   }
@@ -237,6 +255,129 @@ export function resolveSteps(item, picks = {}, ctx = {}) {
   return { picks: out, steps }
 }
 
+// ── A picked dish's options in the deal ─────────────────────────
+// A dish offered in a step (a dish choice, or every dish of a section) may
+// be asked differently in the deal than on its own. The choice's `groups`
+// change the dish's option groups one group at a time, keyed by the group
+// (its library id, or 'variants' for a dish's own ad-hoc options):
+//   'off'   the group isn't asked in this deal (the deal has its own Dips
+//           step, so the wings' dip question goes)
+//   'only'  just these options (option_ids): the flavours in the deal
+//   'swap'  another group from the library is asked instead (group_id),
+//           typically a copy edited for the deal (fewer options, deal prices)
+//   'all'   as on the dish, with the deal's own how many
+// min / max (null = the group's own) say how many to choose, for every use
+// but 'off' ("2 flavours in the meal"). A group with no entry is as on the
+// dish. The picked dish stays the menu's dish: the kitchen, recipes and
+// stock, allergens, photos and sold out follow it; only what is asked
+// changes. Stored only when set, so deals without changes aren't changes to
+// publish.
+
+const countOf = (v, lo) => (v == null || v === '' || !Number.isFinite(Number(v)) ? null : Math.max(lo, Math.min(MAX_PICKS, Math.trunc(Number(v)))))
+
+/** A choice's changes to its dishes' groups as stored: only real changes, or null when there are none. */
+export function normaliseDealGroups(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const out = {}
+  for (const [key, v] of Object.entries(raw).slice(0, DEAL_GROUPS_MAX)) {
+    if (!key || !v || typeof v !== 'object') continue
+    let use = DEAL_USES.includes(v.use) ? v.use : 'all'
+    const e = {}
+    if (use === 'only') {
+      e.option_ids = [...new Set(asList(v.option_ids).filter(x => x != null && x !== '').map(String))].slice(0, 100)
+      // None ticked asks nothing: the same as leaving the group out.
+      if (!e.option_ids.length) { use = 'off'; delete e.option_ids }
+    }
+    if (use === 'swap') {
+      if (!v.group_id || String(v.group_id) === key) continue
+      e.group_id = String(v.group_id)
+    }
+    if (use !== 'off') {
+      const max = countOf(v.max, 1)
+      const min = countOf(v.min, 0)
+      if (max != null) e.max = max
+      if (min != null) e.min = max != null ? Math.min(min, max) : min
+    }
+    if (use === 'all' && e.min == null && e.max == null) continue
+    out[key] = { use, ...e }
+  }
+  return Object.keys(out).length ? out : null
+}
+
+/** A group's how many with a deal's change, and no more than its options (unless a pick can repeat). */
+function dealLimits(c, ch) {
+  let max = Number(ch.max ?? c.max) || 1
+  if (!c.repeat) max = Math.min(max, c.options.length)
+  max = Math.max(1, max)
+  const min = Math.max(0, Math.min(max, Number(ch.min ?? c.min) || 0))
+  return { ...c, min, max, on_request: min === 0 && !!c.on_request }
+}
+
+/**
+ * A picked dish's options in a deal: its own choices, in the caller's shape
+ * ({ key, name, mode, min, max, repeat, on_request, options: [{ id, ... }] }:
+ * the till's posChoices(), online's itemChoices()), with a combo choice's
+ * changes (groups, from stepChoices()). swap(groupId, choice) gives another
+ * group as a choice in the same shape (null: unknown, the group is left out).
+ * A group left with no options goes; a key that comes twice (a swap to a
+ * group the dish has too) is asked once.
+ */
+export function dealChoices(choices, groups, swap = null) {
+  const list = asList(choices)
+  if (!groups || typeof groups !== 'object') return list
+  const out = []
+  const keys = new Set()
+  for (const c of list) {
+    const ch = groups[c.key]
+    let next = c
+    if (ch && typeof ch === 'object') {
+      const use = DEAL_USES.includes(ch.use) ? ch.use : 'all'
+      if (use === 'off') continue
+      if (use === 'only') {
+        const ids = asList(ch.option_ids).map(String)
+        next = { ...c, options: asList(c.options).filter(o => ids.includes(String(o.id))) }
+      } else if (use === 'swap') {
+        next = swap && ch.group_id ? swap(String(ch.group_id), c) : null
+        if (!next) continue
+      }
+      next = dealLimits(next, ch)
+      if (!asList(next.options).length) continue
+    }
+    if (keys.has(next.key)) continue
+    keys.add(next.key)
+    out.push(next)
+  }
+  return out
+}
+
+/** The library groups a combo's choices ask instead of a dish's own ('swap'). */
+export function dealSwapIds(item) {
+  const ids = new Set()
+  for (const st of comboOf(item)?.steps || []) {
+    for (const o of st.options) for (const g of Object.values(o.groups || {})) if (g.use === 'swap' && g.group_id) ids.add(g.group_id)
+  }
+  return [...ids]
+}
+
+/**
+ * Could the deal have asked a dish ordered on its own this way? picks are
+ * the dish's own picks as { groupKey: [optionId] } (repeats listed again,
+ * "No" picks left out). A group the deal narrows must hold only its options
+ * and stay within the deal's how many; groups it leaves out or swaps don't
+ * count (those picks stay on the dish at their own price). No picks known:
+ * fits. An automatic combo only takes dishes that fit (findAutoCombos()).
+ */
+export function dealFits(groups, picks) {
+  if (!groups || !picks) return true
+  for (const [key, ch] of Object.entries(groups)) {
+    if (ch.use === 'off' || ch.use === 'swap') continue
+    const got = asList(picks[key])
+    if (ch.use === 'only' && got.some(id => !asList(ch.option_ids).includes(String(id)))) return false
+    if (ch.max != null && got.length > ch.max) return false
+  }
+  return true
+}
+
 /** "Choose 1", "Choose 2 to 3", "Optional, up to 2". */
 export function stepRule(step) {
   if (step.min === 0) return step.max === 1 ? 'Optional' : 'Optional, up to ' + step.max
@@ -245,10 +386,11 @@ export function stepRule(step) {
 }
 
 /**
- * Price a combo's picks. partPrice(partItem, choices) prices a part's own
- * options with the caller's engine and returns { ok, extras, detail } or
- * { ok: false, error }; a part's base options don't change the deal's
- * price, its extras do.
+ * Price a combo's picks. partPrice(partItem, choices, groups) prices a
+ * part's own options with the caller's engine, as the deal asks them (groups:
+ * the choice's changes, for dealChoices()), and returns
+ * { ok, extras, detail } or { ok: false, error }; a part's base options don't
+ * change the deal's price, its extras do.
  * Returns { ok, parts, upcharge, extras, picks } or { ok: false, error }.
  * parts: [{ step_id, step, option_id, item_id, section_id, name,
  *           kitchen_name, upcharge, extras, detail, custom }]
@@ -275,7 +417,7 @@ export function priceCombo(item, selection = {}, ctx = {}, partPrice = null) {
       let partExtras = 0
       let detail = null
       if (c.item && partPrice) {
-        const pp = partPrice(c.item, e.choices || {})
+        const pp = partPrice(c.item, e.choices || {}, c.groups || null)
         if (!pp.ok) return { ok: false, error: c.label + ': ' + pp.error, step_id: step.id }
         partExtras = pp.extras || 0
         detail = pp.detail ?? null
@@ -403,10 +545,12 @@ export function autoMatchable(item) {
 /**
  * Find automatic combos among an order's separate items.
  *
- * lines: [{ key, item_id, section_id, qty, unit_base, cap }]
+ * lines: [{ key, item_id, section_id, qty, unit_base, cap, picks }]
  *   unit_base  the dish's own price for one (no extras: those stay paid)
  *   cap        the most that may come off one of it (what is left after
  *              line discounts), defaults to unit_base
+ *   picks      its options as { groupKey: [optionId] }: a choice whose
+ *              deal changes its options only takes it when dealFits()
  * combos: combo items ({ id, name, kind: 'combo', combo, price_pence }),
  *   only automatic ones are used; base(combo) gives its price (default
  *   price_pence).
@@ -427,27 +571,35 @@ export function findAutoCombos(lines, combos, ctx = {}, base = null) {
   for (const l of asList(lines)) {
     const n = Math.max(0, Math.min(99, int(l.qty, 1)))
     for (let i = 0; i < n; i++) {
-      units.push({ key: l.key, item_id: l.item_id, section_id: l.section_id ?? null, value: pence(l.unit_base), cap: pence(l.cap ?? l.unit_base), used: false })
+      units.push({ key: l.key, item_id: l.item_id, section_id: l.section_id ?? null, value: pence(l.unit_base), cap: pence(l.cap ?? l.unit_base), picks: l.picks || null, used: false })
     }
   }
   const matchers = auto.map(item => {
     const combo = comboOf(item)
     const steps = combo.steps.filter(s => !s.when && s.min > 0).map(step => {
-      const priceFor = new Map()
+      // Each dish (or section) the step offers, with the charge and the deal's changes of every choice offering it.
+      const offers = new Map()
+      const offer = (k, o) => offers.set(k, [...(offers.get(k) || []), { charge: o.price_pence, groups: o.groups || null }])
       for (const o of step.options) {
-        if (o.type === 'item') priceFor.set('i:' + o.item_id, Math.min(priceFor.get('i:' + o.item_id) ?? Infinity, o.price_pence))
+        if (o.type === 'item') offer('i:' + o.item_id, o)
         else if (o.type === 'section') {
           const ids = ctx.sectionItems?.[o.section_id]
-          if (ids) for (const id of ids) priceFor.set('i:' + id, Math.min(priceFor.get('i:' + id) ?? Infinity, o.price_pence))
-          else priceFor.set('s:' + o.section_id, Math.min(priceFor.get('s:' + o.section_id) ?? Infinity, o.price_pence))
+          if (ids) for (const id of ids) offer('i:' + id, o)
+          else offer('s:' + o.section_id, o)
         }
       }
-      return { step, priceFor }
+      return { step, offers }
     })
     const price = Number(base ? base(item) : item.price_pence) || 0
     return { item, steps, price }
   })
-  const chargeFor = (m, u) => m.priceFor.get('i:' + u.item_id) ?? (u.section_id != null ? m.priceFor.get('s:' + u.section_id) : undefined)
+  // The cheapest charge of the choices that could have asked this dish as it was ordered (undefined: none).
+  const cheapest = (list, u) => {
+    let best
+    for (const o of list || []) if (dealFits(o.groups, u.picks) && (best === undefined || o.charge < best)) best = o.charge
+    return best
+  }
+  const chargeFor = (s, u) => cheapest(s.offers.get('i:' + u.item_id), u) ?? (u.section_id != null ? cheapest(s.offers.get('s:' + u.section_id), u) : undefined)
 
   const tryMatch = m => {
     const taken = []

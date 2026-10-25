@@ -26,7 +26,7 @@ import { STEP_DISPLAYS, comboOf, comboItemIds, stepChoices, pickScale } from './
 import { priceItem, posTax, checkTotals } from './pos/pricing.js'
 import { replay } from './pos/checks.js'
 import { ulid } from './pos/ids.js'
-import { configItem, comboCtx, checkOffers } from './pos/offers.js'
+import { configItem, dealItem, comboCtx, checkOffers } from './pos/offers.js'
 import { UI_TEXT, ALLERGEN_NAMES } from './kioskText.js'
 
 export { UI_TEXT, ALLERGEN_NAMES }
@@ -634,7 +634,8 @@ export function bundleParts(config, item, picks = {}, own = {}) {
   for (const st of combo.steps || []) {
     asList(picks?.[st.id]).forEach((e, i) => {
       const opt = (st.options || []).find(o => o.id === e.option_id)
-      const dish = e.item_id ? configItem(config, e.item_id) : null
+      // The dish as the deal asks it: a group it asks instead puts its picks on the picture too.
+      const dish = e.item_id ? dealItem(config, e.item_id, opt?.groups) : null
       const src = opt?.photo_url || (e.item_id ? dish?.image_url : opt?.image_url) || null
       if (!src) return
       let size = 'side'

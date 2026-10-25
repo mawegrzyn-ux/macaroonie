@@ -2,7 +2,9 @@
 // rows are what the pages would make). The cross-tenant sweep calls every
 // route with these ids as another tenant. Each step that fails is listed in
 // the result instead of stopping the rest; the sweep reports them.
+import { randomUUID } from 'node:crypto'
 import { as, ok, sql } from './app.mjs'
+import { menuSaveBody } from '../../src/routes/menus.js'
 
 export const MARK = 'Zqx'   // in names and notes, so a leak is easy to spot
 
@@ -94,7 +96,7 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx' } = 
     name: mark + ' Size', kiosk_tiles: 'round', kiosk_entrance: 'slide', variation_type: 'side',
     options: [{ label: 'Small', price_pence: 0 }, { label: 'Large', price_pence: 200 }],
   }))
-  if (vg) await step('variant group copy', () => post(`/api/menus/variant-groups/${vg.id}/copy`, {}))
+  const vgCopy = vg ? await step('variant group copy', () => post(`/api/menus/variant-groups/${vg.id}/copy`, {})) : null
   let dish = null
   if (menu) {
     const full = await step('menu load', () => get(`/api/menus/${menu.id}`))
@@ -108,6 +110,20 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx' } = 
         { name: mark + ' Green Curry', price_pence: 1350, is_orderable: true, variants: [{ label: mark + ' Chicken', price_pence: 1350 }] },
       ] }],
     }))
+    // A meal deal that asks the Pad Thai's size as the copy of its group
+    // (options in the deal, shared/combos.js dealChoices()).
+    const tree = vg && vgCopy ? await step('menu load for the deal', () => get(`/api/menus/${menu.id}`)) : null
+    const pad = tree?.sections?.[0]?.items?.[0]
+    if (pad) {
+      const body = menuSaveBody(tree)
+      body.sections.push({ title: mark + ' Deals', items: [{
+        name: mark + ' Lunch deal', kind: 'combo', price_pence: 1500, is_orderable: true,
+        combo: { mode: 'manual', steps: [{ id: randomUUID(), name: mark + ' Main', min: 1, max: 1, options: [
+          { id: randomUUID(), type: 'item', item_id: pad.id, groups: { [vg.id]: { use: 'swap', group_id: vgCopy.id } } },
+        ] }] },
+      }] })
+      await step('meal deal', () => patch(`/api/menus/${menu.id}`, body))
+    }
     await step('menu publish', () => post(`/api/menus/${menu.id}/publish`, {}))
     await step('menu design', () => post(`/api/menus/${menu.id}/designs`, { name: mark + ' A4', layout: { pages: [{ id: 'p1', blocks: [] }] } }))
     await step('menu preview link', () => post(`/api/menus/${menu.id}/preview-link`, {}))
