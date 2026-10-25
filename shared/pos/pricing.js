@@ -18,7 +18,7 @@
 // modifier prices) x qty.
 
 import { itemChoices, vatIncluded, basePrice } from '../orderPricing.js'
-import { isCombo, priceCombo } from '../combos.js'
+import { isCombo, priceCombo, dealChoices } from '../combos.js'
 import { taxFor } from '../tax.js'
 
 export { vatIncluded }
@@ -94,6 +94,43 @@ export function posChoices(item, groupsById = {}) {
       })),
     }
   })
+}
+
+/**
+ * A meal deal's part as the deal asks it: the dish's till choices with the
+ * combo choice's changes (groups, shared/combos.js dealChoices()). A group
+ * the deal asks instead comes from the library (config.groups), as if the
+ * dish had it attached: its own prices, no prices of the dish's.
+ */
+export function partChoices(part, groups, groupsById = {}) {
+  const own = part.pos_choices || posChoices(part, groupsById)
+  if (!groups) return own
+  return dealChoices(own, groups, id => {
+    const g = groupsById[id]
+    if (!g) return null
+    return posChoices({ variant_groups: [{ ...g, group_id: g.id }], variant_rules: part.variant_rules }, groupsById)[0] || null
+  })
+}
+
+/**
+ * Picks kept to what these choices offer (a dish's options carried into a
+ * deal that asks fewer: "Make it a combo"): groups and options the choices
+ * don't have go, and a group keeps no more than its most.
+ */
+export function picksWithin(choices, picked = {}) {
+  const out = {}
+  for (const c of choices || []) {
+    const ids = new Set((c.options || []).map(o => o.id))
+    const kept = asEntries(picked[c.key]).filter(e => ids.has(e.id))
+    let counted = 0
+    const list = []
+    for (const e of kept) {
+      if (e.prefix !== 'no') { if (counted >= c.max) continue; counted++ }
+      list.push(e)
+    }
+    if (list.length) out[c.key] = list
+  }
+  return out
 }
 
 const asEntries = list => (Array.isArray(list) ? list : []).map(e => (typeof e === 'string' ? { id: e } : e)).filter(e => e && e.id)
@@ -188,8 +225,8 @@ export function priceItem(item, selection = {}, { itemsById = {}, groupsById = {
   let combo = null
   if (isCombo(item)) {
     unit = unit ?? 0
-    const pc = priceCombo(item, selection, { itemsById, sectionItems, soldOut }, (part, picked) => {
-      const pp = priceChoices(part.pos_choices || posChoices(part, groupsById), picked || {}, groupsById)
+    const pc = priceCombo(item, selection, { itemsById, sectionItems, soldOut }, (part, picked, groups) => {
+      const pp = priceChoices(partChoices(part, groups, groupsById), picked || {}, groupsById)
       return pp.ok ? { ok: true, extras: pp.extras, detail: pp.modifiers } : pp
     })
     if (!pc.ok) return pc

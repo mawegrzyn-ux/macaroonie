@@ -5952,7 +5952,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
     ask: 'always' | 'button',    // 'button' only when min = 0
     when: null | { step_id, option_ids },   // an EARLIER step; [] = anything picked there
     options: [{ id, type: 'item' | 'section' | 'custom',
-                item_id, section_id, label, kitchen_name, price_pence }],
+                item_id, section_id, label, kitchen_name, price_pence,
+                photo_url,               // only when set (the meal's picture, migration 199)
+                groups }],               // only when set: the dish's options in this deal (below)
   }],
 }
 selection.combo = { [stepId]: [{ option_id, item_id, choices }] }   // item_id null for a custom choice`}</Code>
@@ -5967,12 +5969,55 @@ selection.combo = { [stepId]: [{ option_id, item_id, choices }] }   // item_id n
                 ['priceCombo(item, selection, ctx, partPrice)', '{ ok, parts, upcharge, extras, picks } or { ok: false, error, step_id }. partPrice(part, choices) is the caller\'s option engine; a part\'s base options never change the deal price, its extras do.'],
                 ['comboFromPrice(item, base, ctx)', '{ pence, varies }: own price + cheapest picks of unconditional required steps; varies when any choice has a charge. Wrapped by fromPrice() / priceVaries() / comboMenuPrice() in shared/orderPricing.js.'],
                 ['comboGuide(item, ctx)', 'The steps in words for a menu screen\'s How to order view.'],
-                ['findAutoCombos(lines, combos, ctx, base)', 'Automatic combos in a set of separate lines: greedy, biggest saving first, only when cheaper than the lines; returns [{ combo_id, name, count, saving, lines: { key: pence } }] with the saving spread by spreadCapped() (never more than a line\'s own price).'],
+                ['findAutoCombos(lines, combos, ctx, base)', 'Automatic combos in a set of separate lines: greedy, biggest saving first, only when cheaper than the lines; a line with picks ({ groupKey: [optionId] }) only fills a choice whose deal options it fits (dealFits(), the cheapest such choice); returns [{ combo_id, name, count, saving, lines: { key: pence } }] with the saving spread by spreadCapped() (never more than a line\'s own price).'],
                 ['combosWithItem(), stepWithItem()', 'Which combos offer a dish and where it goes (the till\'s Make it a combo).'],
                 ['comboProblems(combo, { itemIds, sectionIds })', 'What stops a combo working (the editor\'s amber list).'],
                 ['countParts(parts)', 'For display only: the same pick twice in a step as one entry with a count ("2 x Ketchup pot"). Works on till, online and kitchen part shapes.'],
+                ['normaliseDealGroups(raw), dealChoices(choices, groups, swap), dealSwapIds(item), dealFits(groups, picks)', 'A dish choice\'s options in the deal (next heading): the stored shape cleaned, the rule applied to a dish\'s choice list, the library groups a combo swaps in, and whether a dish ordered on its own could have been asked that way.'],
               ]}
             />
+            <H3>A dish&apos;s options in a deal</H3>
+            <P>
+              A dish or section choice can change what its dish asks inside the deal, one option group at a
+              time (Edit steps &rarr; Options in this deal). The choice keeps <Mono>item_id</Mono> /{' '}
+              <Mono>section_id</Mono>, so routing, stock, allergens, photos and sold out still follow the menu
+              dish; only the dish&apos;s choice list changes. No migration: <Mono>groups</Mono> lives in the
+              combo jsonb, stored only when set (never on a custom choice), so a plain save publishes nothing.
+            </P>
+            <Code>{`option.groups = {
+  [groupKey]: {                  // a library group id, or 'variants' for the dish's own one-off options ('v:<label>' ids)
+    use: 'all' | 'off' | 'only' | 'swap',
+    option_ids,                  // 'only': the options kept (none left = 'off')
+    group_id,                    // 'swap': the library group asked instead (not itself)
+    max, min,                    // optional limits in the deal; 'all' with neither is dropped
+  },
+}`}</Code>
+            <P>
+              <Mono>dealChoices(choices, groups, swap)</Mono> in shared/combos.js is the one rule, applied to a
+              dish&apos;s choice list in the caller&apos;s shape: off drops the group, only filters its options,
+              swap asks <Mono>swap(groupId, choice)</Mono> for the other group in the same shape (null = left
+              out), then the limits (max capped at the options left unless the group repeats; a group with min
+              &gt; 0 is never on request). A group with no options left is dropped. Each surface wraps it:
+            </P>
+            <DataTable
+              head={['Where', 'How']}
+              rows={[
+                ['Pricing', 'priceCombo() passes the choice\'s groups as partPrice(part, picks, groups); priceItem() (till, kiosk) prices with partChoices(part, groups, groupsById) and priceLine() (online) with partOptions(combo, part, groups), so a pick the deal doesn\'t ask is refused and another group charges its own prices.'],
+                ['Till and kiosk', 'partChoices() in shared/pos/pricing.js builds a swapped group as if attached (posChoices with variant_rules); dealItem(config, id, groups) in shared/pos/offers.js is the part with deal pos_choices, used by ItemModal ComboSteps, the kiosk Builder (comboPages), bundleParts() and comboStartFrom(). Make it a combo trims carried picks with picksWithin().'],
+                ['Online', 'loadOrderingMenu() loads dealSwapIds() of the live combos from the library (COALESCE(display_name, name)) and gives each combo deal_groups { id: choice } (itemChoices with the menu\'s variant rules); ordering.eta asks partOptions() for every part page and the summary.'],
+                ['Automatic combos', 'findAutoCombos() fills a choice with a separate dish only when dealFits(choice.groups, picks): picks in a group the deal narrows must be its options and within its how many; groups it leaves out or swaps don\'t count (those picks stay paid on the dish). The till passes each line\'s top-level picks from its modifiers (linePicks() in shared/pos/offers.js, not "No" or nested ones), online priceBasket() each line\'s choices.'],
+                ['Saving', 'cleanCombo() in upsertMenuTree() keeps, per choice, only groups its dishes have (a section: any of its dishes), only option ids those dishes offer, and a swap group in the tenant\'s library (cleanDealGroups()); another tenant\'s ids are dropped. A group taken off the dish drops out on the next save.'],
+                ['Releases, copies, AI', 'releaseContent() keeps the combo whole and contentKey() sorts keys, so a draft and a release compare equal; menuSaveBody() and /duplicate carry it; Pepper\'s get_menu says "(its options changed for this deal)".'],
+                ['Admin', 'ComboEditor.jsx: DealOptionsButton (summary from dealSummary()) under each dish / section choice, DealOptionsModal / DealGroupRow (modes, option chips, swap select with Make a copy through POST /menus/variant-groups/:id/copy, how many), comboPayload() normalises.'],
+              ]}
+            />
+            <P>
+              Tested: 12 shared unit tests (shared/test/dealOptions.test.mjs, automatic combos on the till and online included), 5 API tests
+              (api/test/deal-options.test.mjs: cleaning, section unions, detached groups, publish, copy, kiosk
+              config and pricing, the online menu and quote, another tenant), the fixtures&apos; meal deal in
+              the tenant sweep, and 67 browser checks (the window at 1280, 1015 and 390 px and for a viewer, the
+              kiosk upright and wide, a real till with Make it a combo, online ordering at 1280 and 390 px).
+            </P>
             <H3>Where combos are read</H3>
             <DataTable
               head={['Surface', 'How']}

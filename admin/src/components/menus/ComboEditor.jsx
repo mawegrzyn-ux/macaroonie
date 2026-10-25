@@ -21,10 +21,17 @@
 // a typed-in choice can have a picture and a line of words (a dish shows its
 // own photo and description).
 //
+// Options in this deal (DealOptionsModal, shared/combos.js dealChoices()): a
+// dish or section choice can change what its dishes ask inside the deal, one
+// option group at a time: as on the dish, left out, only some options, or
+// another group from the library (one click makes a copy of the group for
+// the deal), and how many to choose. The dish stays the menu's dish.
+//
 // Edits change the menu draft; the menu's Save button saves them.
 
 import { useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   DndContext, closestCenter, KeyboardSensor, PointerSensor, TouchSensor, useSensor, useSensors,
 } from '@dnd-kit/core'
@@ -33,9 +40,14 @@ import {
 } from '@dnd-kit/sortable'
 import { restrictToVerticalAxis, restrictToParentElement } from '@dnd-kit/modifiers'
 import { CSS } from '@dnd-kit/utilities'
-import { AlertTriangle, ChevronDown, ChevronRight, GripVertical, Plus, Search, Trash2, X } from 'lucide-react'
+import { AlertTriangle, ChevronDown, ChevronRight, Copy, GripVertical, Loader2, Plus, Search, SlidersHorizontal, Trash2, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { normaliseCombo, comboFromPrice, comboProblems, sectionItemsOf, stepRule, stepChoices, STEP_DISPLAYS } from '@shared/combos.js'
+import { useApi } from '@/lib/api'
+import {
+  normaliseCombo, comboFromPrice, comboProblems, sectionItemsOf, stepRule, stepChoices, STEP_DISPLAYS,
+  normaliseDealGroups, dealChoices,
+} from '@shared/combos.js'
+import { variantOptionId } from '@shared/orderPricing.js'
 import { DISPLAY_LABELS } from '@shared/kiosk.js'
 import { OptionPicture } from './VariantGroupsManager'
 import { Field, Input, PriceInput, formatPrice, PickScale } from './shared'
@@ -65,18 +77,22 @@ export function comboPayload(item) {
         // Sent only when on: a step saved without it isn't a change to publish.
         ...(s.pick_photo ? { pick_photo: s.pick_photo } : {}),
         ...(s.pick_photo === 'corner' && s.pick_scale ? { pick_scale: s.pick_scale } : {}),
-        options: (s.options || []).filter(o => (o.type === 'custom' ? (o.label || '').trim() : o.item_id || o.section_id)).map(o => ({
-          id: o.id, type: o.type,
-          item_id: o.type === 'item' ? o.item_id : null,
-          section_id: o.type === 'section' ? o.section_id : null,
-          label: o.type === 'custom' ? o.label.trim() : null,
-          kitchen_name: o.type === 'custom' ? ((o.kitchen_name || '').trim() || null) : null,
-          image_url: o.type === 'custom' ? (o.image_url || null) : null,
-          // Sent only when set: a choice saved without it isn't a change to publish.
-          ...(o.type !== 'section' && o.photo_url ? { photo_url: o.photo_url } : {}),
-          description: o.type === 'custom' ? ((o.description || '').trim() || null) : null,
-          price_pence: Math.max(0, Number(o.price_pence) || 0),
-        })),
+        options: (s.options || []).filter(o => (o.type === 'custom' ? (o.label || '').trim() : o.item_id || o.section_id)).map(o => {
+          const groups = o.type === 'custom' ? null : normaliseDealGroups(o.groups)
+          return {
+            id: o.id, type: o.type,
+            item_id: o.type === 'item' ? o.item_id : null,
+            section_id: o.type === 'section' ? o.section_id : null,
+            label: o.type === 'custom' ? o.label.trim() : null,
+            kitchen_name: o.type === 'custom' ? ((o.kitchen_name || '').trim() || null) : null,
+            image_url: o.type === 'custom' ? (o.image_url || null) : null,
+            // Sent only when set: a choice saved without it isn't a change to publish.
+            ...(o.type !== 'section' && o.photo_url ? { photo_url: o.photo_url } : {}),
+            ...(groups ? { groups } : {}),
+            description: o.type === 'custom' ? ((o.description || '').trim() || null) : null,
+            price_pence: Math.max(0, Number(o.price_pence) || 0),
+          }
+        }),
       }
     }),
   }
@@ -99,7 +115,7 @@ function optionLabel(o, index) {
   return o.label || 'New choice'
 }
 
-export function ComboBox({ item, section, sections, readOnly, onChange }) {
+export function ComboBox({ item, section, sections, variantGroups = [], readOnly, onChange }) {
   const [open, setOpen] = useState(false)
   const index = useMenuIndex(sections, item.id)
   const isCombo = item.kind === 'combo'
@@ -179,7 +195,7 @@ export function ComboBox({ item, section, sections, readOnly, onChange }) {
       )}
       {/* Outside the dish panel (a disabled fieldset when read only). */}
       {open && createPortal(
-        <ComboStepsModal item={item} index={index} readOnly={readOnly}
+        <ComboStepsModal item={item} index={index} library={variantGroups} readOnly={readOnly}
           onChange={next => setCombo({ steps: next })} onClose={() => setOpen(false)} />,
         document.body,
       )}
@@ -214,7 +230,7 @@ function Sortable({ id, disabled, children }) {
   )
 }
 
-export function ComboStepsModal({ item, index, readOnly, onChange, onClose }) {
+export function ComboStepsModal({ item, index, library = [], readOnly, onChange, onClose }) {
   const steps = item.combo?.steps || []
   const [openId, setOpenId] = useState(steps[0]?.id || null)
   const [confirmDel, setConfirmDel] = useState(null)
@@ -254,7 +270,7 @@ export function ComboStepsModal({ item, index, readOnly, onChange, onClose }) {
                 {steps.map((s, i) => (
                   <Sortable key={s.id} id={s.id} disabled={readOnly}>
                     {handle => (
-                      <StepCard step={s} index={i} steps={steps} itemIndex={index} readOnly={readOnly} handle={handle}
+                      <StepCard step={s} index={i} steps={steps} itemIndex={index} library={library} readOnly={readOnly} handle={handle}
                         open={readOnly || openId === s.id} onToggle={() => setOpenId(openId === s.id ? null : s.id)}
                         confirmDel={confirmDel === s.id} onAskDel={() => setConfirmDel(s.id)} onCancelDel={() => setConfirmDel(null)}
                         onRemove={() => remove(i)} onChange={patch => setStep(i, patch)} selfId={item.id} />
@@ -281,7 +297,7 @@ export function ComboStepsModal({ item, index, readOnly, onChange, onClose }) {
   )
 }
 
-function StepCard({ step, index, steps, itemIndex, readOnly, handle, open, onToggle, confirmDel, onAskDel, onCancelDel, onRemove, onChange, selfId }) {
+function StepCard({ step, index, steps, itemIndex, library, readOnly, handle, open, onToggle, confirmDel, onAskDel, onCancelDel, onRemove, onChange, selfId }) {
   const options = step.options || []
   const min = step.min ?? 1
   const max = step.max ?? 1
@@ -289,6 +305,8 @@ function StepCard({ step, index, steps, itemIndex, readOnly, handle, open, onTog
   const cond = step.when ? earlier.find(s => s.id === step.when.step_id) : null
   const sensors = useDnd()
   const [picker, setPicker] = useState(false)
+  const [dealFor, setDealFor] = useState(null)   // the choice whose options in the deal are open
+  const dealOption = dealFor ? options.find(o => o.id === dealFor) : null
   const setOption = (j, patch) => onChange({ options: options.map((o, k) => (k === j ? { ...o, ...patch } : o)) })
   const onDragEnd = ({ active, over }) => {
     if (!over || active.id === over.id) return
@@ -435,10 +453,13 @@ function StepCard({ step, index, steps, itemIndex, readOnly, handle, open, onTog
                                   <OptionPicture caption="On meal" url={o.photo_url} onChange={url => setOption(j, { photo_url: url })} scope="menu:item"
                                     disabled={readOnly} label="picture on the meal's photo (none = the dish's photo)" testId="combo-choice-photo" />
                                 )}
-                                <p className={cn('text-sm truncate min-h-[36px] flex items-center min-w-0', o.type === 'item' && !itemIndex.itemsById[o.item_id] && 'text-amber-700')}>
-                                  {optionLabel(o, itemIndex)}
-                                  {o.type === 'section' && <span className="ml-2 text-[11px] text-muted-foreground">({(itemIndex.sectionItems[o.section_id] || []).filter(id => itemIndex.itemsById[id]?.kind !== 'combo').length} dishes)</span>}
-                                </p>
+                                <div className="min-w-0 flex-1">
+                                  <p className={cn('text-sm truncate min-h-[36px] flex items-center min-w-0', o.type === 'item' && !itemIndex.itemsById[o.item_id] && 'text-amber-700')}>
+                                    {optionLabel(o, itemIndex)}
+                                    {o.type === 'section' && <span className="ml-2 text-[11px] text-muted-foreground">({(itemIndex.sectionItems[o.section_id] || []).filter(id => itemIndex.itemsById[id]?.kind !== 'combo').length} dishes)</span>}
+                                  </p>
+                                  <DealOptionsButton option={o} groups={groupsOfChoice(o, itemIndex, library)} library={library} onOpen={() => setDealFor(o.id)} />
+                                </div>
                               </div>
                             )}
                           </div>
@@ -489,6 +510,254 @@ function StepCard({ step, index, steps, itemIndex, readOnly, handle, open, onTog
           onClose={() => setPicker(false)} />,
         document.body,
       )}
+      {dealOption && createPortal(
+        <DealOptionsModal option={dealOption} title={optionLabel(dealOption, itemIndex)} groups={groupsOfChoice(dealOption, itemIndex, library)}
+          library={library} readOnly={readOnly} onClose={() => setDealFor(null)}
+          onChange={groups => onChange({ options: options.map(o => (o.id === dealOption.id ? { ...o, groups } : o)) })} />,
+        document.body,
+      )}
+    </div>
+  )
+}
+
+// ── A picked dish's options in the deal ─────────────────────────
+
+/** A library group as the guest is asked it (the online engine's rule: no more than its options unless repeats). */
+function libraryChoice(g) {
+  const options = (g.options || []).map(x => ({ id: x.id, label: x.label, price_pence: x.price_pence ?? null }))
+  const max = Math.max(1, g.allow_repeat ? Number(g.max_select ?? 1) : Math.min(options.length, Number(g.max_select ?? 1)))
+  return {
+    key: g.id, name: g.name, mode: g.price_mode === 'extra' ? 'extra' : 'base',
+    min: Math.max(0, Math.min(max, Number(g.min_select ?? 1))), max, repeat: !!g.allow_repeat, on_request: !!g.on_request, options,
+  }
+}
+
+/**
+ * The option groups a choice's dishes have (a section's: every dish's,
+ * each group once), from the library; a dish's own options ('variants',
+ * ids 'v:<label>') as one more group.
+ */
+function groupsOfChoice(o, itemIndex, library) {
+  if (o.type === 'custom') return []
+  const ids = o.type === 'item' ? [o.item_id] : (itemIndex.sectionItems[o.section_id] || [])
+  const out = new Map()
+  for (const id of ids) {
+    const d = itemIndex.itemsById[id]
+    if (!d || d.kind === 'combo') continue
+    if ((d.variants || []).length) {
+      const g = out.get('variants') || { key: 'variants', name: 'Its own options', mode: 'base', min: 1, max: 1, repeat: false, options: [] }
+      for (const v of d.variants) {
+        if (v.label && !g.options.some(x => x.id === variantOptionId(v.label))) g.options.push({ id: variantOptionId(v.label), label: v.label, price_pence: v.price_pence ?? null })
+      }
+      out.set('variants', g)
+    }
+    for (const a of d.variant_groups || []) {
+      const g = library.find(x => x.id === a.group_id)
+      if (g && !out.has(g.id)) out.set(g.id, libraryChoice(g))
+    }
+  }
+  return [...out.values()]
+}
+
+/** "Lemon pepper, BBQ, Atomic · choose 1". */
+const askedText = c => c.options.map(o => o.label).join(', ') + ' · ' + stepRule(c).toLowerCase()
+
+/** A group as the deal asks it (null = not asked). */
+function dealGroup(group, change, library) {
+  return dealChoices([group], change ? { [group.key]: change } : null, id => {
+    const g = library.find(x => x.id === id)
+    return g ? libraryChoice(g) : null
+  })[0] || null
+}
+
+/** "Flavour: 3 of 4 · Dip: not asked · Sauce: Meal sauce instead", or '' when the deal changes nothing. */
+function dealSummary(o, groups, library) {
+  const out = []
+  for (const g of groups) {
+    const ch = (o.groups || {})[g.key]
+    if (!ch) continue
+    const asked = dealGroup(g, ch, library)
+    const rule = ch.min != null || ch.max != null ? (asked ? ', ' + stepRule(asked).toLowerCase() : '') : ''
+    if (ch.use === 'off' || !asked) out.push(g.name + ': not asked')
+    else if (ch.use === 'only') out.push(g.name + ': ' + asked.options.length + ' of ' + g.options.length + rule)
+    else if (ch.use === 'swap') out.push(g.name + ': ' + asked.name + ' instead' + rule)
+    else out.push(g.name + ': ' + stepRule(asked).toLowerCase())
+  }
+  return out.join(' · ')
+}
+
+// The dish panel is a disabled fieldset for View users, which would disable
+// a <button>: they still see the options, so this is a div with the button role.
+function DealOptionsButton({ option, groups, library, onOpen }) {
+  if (!groups.length) return null
+  const summary = dealSummary(option, groups, library)
+  return (
+    <div role="button" tabIndex={0} onClick={onOpen} data-testid="combo-choice-options" data-changed={summary ? '1' : undefined}
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen() } }}
+      className="mt-0.5 mb-1 inline-flex items-start gap-1.5 text-xs rounded-md border px-2 py-1.5 min-h-[36px] bg-background hover:bg-accent cursor-pointer touch-manipulation max-w-full">
+      <SlidersHorizontal className="w-3.5 h-3.5 mt-[1px] shrink-0" />
+      <span className="min-w-0">
+        <span className="font-medium">Options in this deal</span>
+        <span className={cn('block', summary ? 'text-foreground' : 'text-muted-foreground')}>{summary || 'As on the dish'}</span>
+      </span>
+    </div>
+  )
+}
+
+const DEAL_MODES = [['all', 'As on the dish'], ['off', 'Leave out'], ['only', 'Only some'], ['swap', 'Another group']]
+
+/**
+ * Options in this deal: each option group the choice's dishes have, asked
+ * as on the dish, left out, with only some options, or another group from
+ * the library instead (Make a copy for this deal copies the group and uses
+ * the copy), and how many to choose. Changes go into the menu draft.
+ */
+function DealOptionsModal({ option, title, groups, library, readOnly, onChange, onClose }) {
+  const api = useApi()
+  const qc = useQueryClient()
+  const changes = option.groups || {}
+  const setGroup = (key, next) => {
+    const all = { ...changes }
+    if (next) all[key] = next
+    else delete all[key]
+    onChange(normaliseDealGroups(all))
+  }
+  const copy = useMutation({
+    mutationFn: id => api.post('/menus/variant-groups/' + id + '/copy'),
+    onSuccess: (g, id) => {
+      qc.invalidateQueries({ queryKey: ['menu-variant-groups'] })
+      setGroup(id, { ...(changes[id] || {}), use: 'swap', group_id: g.id })
+    },
+  })
+  return (
+    <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center p-4" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="bg-background rounded-xl shadow-xl w-full max-w-2xl flex flex-col max-h-[85vh]" role="dialog" aria-label={'Options in this deal: ' + title} data-testid="deal-options">
+        <div className="flex items-center gap-2 px-5 py-3 section-head shrink-0">
+          <div className="flex-1 min-w-0">
+            <h2 className="text-sm font-semibold truncate">Options in this deal: {title}</h2>
+            <p className="text-xs text-muted-foreground">
+              What this dish asks inside the deal, one group at a time. It stays the menu's dish: the kitchen, stock, allergens and photos follow it.
+            </p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close" className="w-11 h-11 flex items-center justify-center rounded-md hover:bg-accent"><X className="w-4 h-4" /></button>
+        </div>
+        {/* The scroll is on a div: a fieldset can't scroll in Chromium. */}
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          <fieldset disabled={readOnly} className="p-5 space-y-3 m-0 border-0 min-w-0">
+            {groups.map(g => (
+              <DealGroupRow key={g.key} group={g} change={changes[g.key] || null} library={library}
+                copying={copy.isPending && copy.variables === g.key} onCopy={() => copy.mutate(g.key)}
+                onChange={next => setGroup(g.key, next)} />
+            ))}
+            {copy.isError && <p className="text-xs text-destructive">{copy.error?.message || 'The group could not be copied.'}</p>}
+          </fieldset>
+        </div>
+        <div className="px-5 py-3 border-t flex items-center gap-3 shrink-0">
+          <p className="text-[11px] text-muted-foreground flex-1">
+            Change a copy's options and prices on <a href="/menus/variant-groups" target="_blank" rel="noreferrer" className="underline">Variant groups</a> (opens a new tab). Save the menu to keep these.
+          </p>
+          <button type="button" onClick={onClose} className="bg-primary text-primary-foreground rounded-md px-5 min-h-[44px] text-sm font-medium">Done</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function DealGroupRow({ group, change, library, copying, onCopy, onChange }) {
+  const use = change?.use || 'all'
+  // Another group is kept once one is picked; until then the row waits for it.
+  const [waiting, setWaiting] = useState(false)
+  const mode = waiting && use !== 'swap' ? 'swap' : use
+  const limits = { ...(change?.min != null ? { min: change.min } : {}), ...(change?.max != null ? { max: change.max } : {}) }
+  const pick = m => {
+    setWaiting(false)
+    if (m === 'all') onChange({ use: 'all', ...limits })
+    else if (m === 'off') onChange({ use: 'off' })
+    else if (m === 'only') onChange({ use: 'only', option_ids: use === 'only' ? change.option_ids : group.options.map(o => o.id), ...limits })
+    else if (use !== 'swap') setWaiting(true)
+  }
+  const swapTo = library.find(g => g.id === change?.group_id) || null
+  const asked = mode === 'swap' && use !== 'swap' ? null : dealGroup(group, change, library)
+  const others = library.filter(g => g.id !== group.key)
+  const setLimit = (k, v) => onChange({ ...change, use, [k]: v === '' ? undefined : Number(v) })
+  // How many the group asks before the deal's own how many.
+  const base = use === 'swap' && swapTo ? libraryChoice(swapTo) : group
+  const ids = change?.option_ids || []
+  return (
+    <div className="border rounded-lg p-3 space-y-2.5" data-testid="deal-group" data-key={group.key} data-use={mode}>
+      <div className="flex items-baseline gap-2 flex-wrap">
+        <p className="text-sm font-semibold">{group.name}</p>
+        <p className="text-xs text-muted-foreground">On the dish: {askedText(group)}</p>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5" role="group" aria-label={'How the deal asks ' + group.name}>
+        {DEAL_MODES.map(([k, l]) => (
+          <button key={k} type="button" aria-pressed={mode === k} onClick={() => pick(k)} data-mode={k}
+            className={cn('text-xs rounded-md border px-2 min-h-[44px] touch-manipulation', mode === k ? 'bg-primary text-primary-foreground border-primary' : 'bg-background hover:bg-accent')}>
+            {l}
+          </button>
+        ))}
+      </div>
+      {mode === 'only' && (
+        <div>
+          <div className="flex flex-wrap gap-1.5" role="group" aria-label={'Options of ' + group.name + ' in the deal'}>
+            {group.options.map(o => {
+              const on = ids.includes(o.id)
+              const last = on && ids.length === 1
+              return (
+                <button key={o.id} type="button" aria-pressed={on} disabled={last} data-testid="deal-option"
+                  title={last ? 'Keep at least one, or choose Leave out' : undefined}
+                  onClick={() => onChange({ ...change, option_ids: on ? ids.filter(x => x !== o.id) : group.options.map(x => x.id).filter(x => x === o.id || ids.includes(x)) })}
+                  className={cn('text-xs rounded-full border px-3 min-h-[40px] touch-manipulation disabled:opacity-100 disabled:cursor-not-allowed',
+                    on ? 'bg-primary text-primary-foreground border-primary' : 'bg-background hover:bg-accent line-through text-muted-foreground')}>
+                  {o.label}
+                </button>
+              )
+            })}
+          </div>
+          <p className="text-[11px] text-muted-foreground mt-1">Tap to leave an option out of the deal; at least one stays.</p>
+        </div>
+      )}
+      {mode === 'swap' && (
+        <div className="space-y-1.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <select value={change?.group_id || ''} aria-label={'Group the deal asks instead of ' + group.name} data-testid="deal-swap"
+              onChange={e => { if (e.target.value) { setWaiting(false); onChange({ use: 'swap', group_id: e.target.value, ...limits }) } }}
+              className="text-sm border rounded-md px-2 min-h-[44px] bg-background min-w-[12rem] max-w-full">
+              <option value="">Choose a group…</option>
+              {others.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+              {change?.group_id && !swapTo && <option value={change.group_id}>A group that's gone</option>}
+            </select>
+            {group.key !== 'variants' && (
+              <button type="button" onClick={onCopy} disabled={copying} data-testid="deal-copy"
+                className="inline-flex items-center gap-1.5 text-xs border rounded-md px-3 min-h-[44px] bg-background hover:bg-accent touch-manipulation">
+                {copying ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Copy className="w-3.5 h-3.5" />} Make a copy of {group.name} for this deal
+              </button>
+            )}
+          </div>
+          {change?.group_id && !swapTo && <p className="text-[11px] text-amber-700">That group was deleted: the deal leaves {group.name} out until you choose another.</p>}
+        </div>
+      )}
+      {mode !== 'off' && !(mode === 'swap' && use !== 'swap') && (
+        <div className="flex items-center gap-2 text-xs flex-wrap">
+          <span>How many</span>
+          <select value={change?.min ?? ''} aria-label={'At least, ' + group.name} onChange={e => setLimit('min', e.target.value)} data-testid="deal-min"
+            className="border rounded-md px-2 min-h-[40px] bg-background">
+            <option value="">As the group ({base.min})</option>
+            {Array.from({ length: 11 }, (_, n) => <option key={n} value={n}>{n}</option>)}
+          </select>
+          <span>to</span>
+          <select value={change?.max ?? ''} aria-label={'At most, ' + group.name} onChange={e => setLimit('max', e.target.value)} data-testid="deal-max"
+            className="border rounded-md px-2 min-h-[40px] bg-background">
+            <option value="">As the group ({base.max})</option>
+            {Array.from({ length: 10 }, (_, n) => <option key={n + 1} value={n + 1}>{n + 1}</option>)}
+          </select>
+        </div>
+      )}
+      <p className="text-xs" data-testid="deal-asked">
+        {mode === 'swap' && use !== 'swap' ? <span className="text-muted-foreground">Choose the group to ask instead.</span>
+          : asked ? <><span className="font-medium">In the deal:</span> {asked.name !== group.name ? asked.name + ': ' : ''}{askedText(asked)}</>
+            : <span className="text-muted-foreground">Not asked in the deal.</span>}
+      </p>
     </div>
   )
 }

@@ -34,8 +34,8 @@ import {
 import { FONT_OPTIONS } from '../../../shared/fonts.js'
 import { ALLERGEN_LEVELS, allergenKey, menuTags, noticeOf } from '../../../shared/menuTags.js'
 import { cleanTax } from '../../../shared/tax.js'
-import { comboMenuPrice } from '../../../shared/orderPricing.js'
-import { PICK_SCALE_MIN, PICK_SCALE_MAX } from '../../../shared/combos.js'
+import { comboMenuPrice, variantOptionId } from '../../../shared/orderPricing.js'
+import { PICK_SCALE_MIN, PICK_SCALE_MAX, DEAL_USES, normaliseDealGroups } from '../../../shared/combos.js'
 import { taxLookups, checkTaxSetting } from '../services/taxSvc.js'
 import { translationSources, saveTranslations, aiTranslate, checkLang, AI_BATCH } from '../services/translationSvc.js'
 import { chatConfigured } from '../ai/apiKey.js'
@@ -69,6 +69,18 @@ const ItemGroupAttach = z.object({
 // Combos (migration 171, shared/combos.js): steps the guest goes through
 // (Main, Side, Drink), each a choice of this menu's dishes, whole sections
 // or choices typed in for the combo, with an extra charge per choice.
+// A dish or section choice can change its dishes' option groups in the deal
+// (shared/combos.js dealChoices()), keyed by group id or 'variants' (a
+// dish's own options, ids 'v:<label>'): leave out, only some options, another
+// group instead, how many. Kept only for groups the dishes have, with the
+// tenant's groups and options, and only when set (cleanCombo()).
+const DealGroup = z.object({
+  use:        z.enum(DEAL_USES).default('all'),
+  option_ids: z.array(z.string().min(1).max(80)).max(100).optional(),
+  group_id:   z.string().uuid().nullable().optional(),
+  min:        z.number().int().min(0).max(20).nullable().optional(),
+  max:        z.number().int().min(1).max(20).nullable().optional(),
+})
 const ComboOption = z.object({
   id:           z.string().uuid(),
   type:         z.enum(['item', 'section', 'custom']),
@@ -81,6 +93,7 @@ const ComboOption = z.object({
   // Migration 199: the picture on the combo's photo (Split photo), any
   // choice type; none = image_url, or a dish's own photo. Stored only when set.
   photo_url:    z.string().max(2000).nullable().optional(),
+  groups:       z.record(z.string().min(1).max(80), DealGroup).nullable().optional(),
   description:  z.string().max(300).nullable().optional(),
   price_pence:  z.number().int().min(0).max(100000).default(0),
 }).refine(o => (o.type === 'item' ? !!o.item_id : o.type === 'section' ? !!o.section_id : !!(o.label || '').trim()),
@@ -691,23 +704,67 @@ function checkMenuTax(body, lookups) {
 }
 
 /**
+ * A choice's changes to its dishes' option groups in the deal, kept to what
+ * those dishes have: groups they don't have are dropped, options they don't
+ * offer go from 'only' (none left = left out), a group asked instead must
+ * be the tenant's. keys: Map(group key -> Set(option ids)) of the dishes.
+ * null when nothing is left, so the choice is stored without them.
+ */
+function cleanDealGroups(raw, keys, lib) {
+  const changes = normaliseDealGroups(raw)
+  if (!changes) return null
+  const out = {}
+  for (const [key, ch] of Object.entries(changes)) {
+    const offered = keys.get(key)
+    if (!offered) continue
+    if (ch.use === 'swap' && !lib.has(ch.group_id)) continue
+    if (ch.use === 'only') {
+      const ids = ch.option_ids.filter(id => offered.has(id))
+      out[key] = ids.length ? { ...ch, option_ids: ids } : { use: 'off' }
+      continue
+    }
+    out[key] = ch
+  }
+  return Object.keys(out).length ? out : null
+}
+
+/**
  * A combo trimmed to what this menu has: choices pointing at a dish or
  * section that isn't on it (or at a combo, or at the combo itself) are
- * dropped, and so are conditions on steps or choices that are gone. The
- * Menus page warns about a step left with no choices.
+ * dropped, and so are conditions on steps or choices that are gone, and a
+ * choice's changes to option groups its dishes don't have. The Menus page
+ * warns about a step left with no choices.
+ * menu: { dishes: Map(id -> { kind, keys }), sectionDishes: Map(section id
+ * -> [dish ids]), lib: Map(the tenant's group id -> Set(option ids)) }.
  */
-function cleanCombo(combo, selfId, itemKinds, sectionIds) {
+function cleanCombo(combo, selfId, menu) {
   if (!combo) return null
+  const { dishes, sectionDishes, lib } = menu
+  // The option groups a choice's dishes have, with their options.
+  const keysOf = o => {
+    const ids = o.type === 'item' ? [o.item_id] : (sectionDishes.get(o.section_id) || [])
+    const keys = new Map()
+    for (const id of ids) {
+      const d = dishes.get(id)
+      if (!d || d.kind !== 'dish') continue
+      for (const [k, opts] of d.keys) keys.set(k, new Set([...(keys.get(k) || []), ...opts]))
+    }
+    return keys
+  }
   const steps = []
   for (const { pick_photo, pick_scale, ...st } of combo.steps || []) {
     if (pick_photo) st.pick_photo = pick_photo
     if (pick_photo === 'corner' && pick_scale) st.pick_scale = pick_scale
     const options = (st.options || []).filter(o =>
       o.type === 'custom' ? !!(o.label || '').trim()
-        : o.type === 'item' ? (o.item_id !== selfId && itemKinds.get(o.item_id) === 'dish')
-          : sectionIds.has(o.section_id))
-      // A choice's photo_url is kept only when set, like a step's pick_photo.
-      .map(({ photo_url, ...o }) => (photo_url ? { ...o, photo_url } : o))
+        : o.type === 'item' ? (o.item_id !== selfId && dishes.get(o.item_id)?.kind === 'dish')
+          : sectionDishes.has(o.section_id))
+      // A choice's photo_url and its group changes are kept only when set, like a step's pick_photo.
+      .map(({ photo_url, groups, ...o }) => {
+        const out = photo_url ? { ...o, photo_url } : o
+        const deal = o.type === 'custom' ? null : cleanDealGroups(groups, keysOf(o), lib)
+        return deal ? { ...out, groups: deal } : out
+      })
     const ref = st.when && steps.find(x => x.id === st.when.step_id)
     const when = ref ? { step_id: ref.id, option_ids: (st.when.option_ids || []).filter(id => ref.options.some(o => o.id === id)) } : null
     steps.push({ ...st, min: Math.min(st.min, st.max), ask: st.min === 0 ? st.ask : 'always', when, options })
@@ -716,12 +773,33 @@ function cleanCombo(combo, selfId, itemKinds, sectionIds) {
 }
 
 async function upsertMenuTree(tx, tenantId, menuId, body) {
-  // Combos may only offer this menu's own dishes and sections.
-  const itemKinds = new Map((body.sections || []).flatMap(s => (s.items || []).filter(i => i.id).map(i => [i.id, i.kind === 'combo' ? 'combo' : 'dish'])))
-  const sectionIds = new Set((body.sections || []).map(s => s.id).filter(Boolean))
+  // Option groups and their options: only this tenant's (an id that isn't,
+  // deleted or another tenant's, is dropped).
+  const [groupRows, optionRows] = await Promise.all([
+    tx`SELECT id FROM menu_variant_groups WHERE tenant_id = ${tenantId}`,
+    tx`SELECT id, group_id FROM menu_variant_options WHERE tenant_id = ${tenantId}`,
+  ])
+  const ownGroups = new Set(groupRows.map(r => r.id)), ownOptions = new Set(optionRows.map(r => r.id))
+  const lib = new Map(groupRows.map(r => [r.id, new Set()]))
+  for (const r of optionRows) lib.get(r.group_id)?.add(r.id)
+  // Combos may only offer this menu's own dishes and sections, and change
+  // only the option groups those dishes have.
+  const dishes = new Map()
+  const sectionDishes = new Map()
+  for (const s of body.sections || []) {
+    if (s.id) sectionDishes.set(s.id, [])
+    for (const i of s.items || []) {
+      if (!i.id) continue
+      const keys = new Map()
+      if ((i.variants || []).length) keys.set('variants', new Set(i.variants.map(v => variantOptionId(v.label))))
+      for (const g of i.variant_groups || []) if (lib.has(g?.group_id)) keys.set(g.group_id, lib.get(g.group_id))
+      dishes.set(i.id, { kind: i.kind === 'combo' ? 'combo' : 'dish', keys })
+      if (s.id) sectionDishes.get(s.id).push(i.id)
+    }
+  }
   for (const s of body.sections || []) {
     for (const it of s.items || []) {
-      if (it.kind === 'combo') it.combo = cleanCombo(it.combo || { steps: [] }, it.id, itemKinds, sectionIds)
+      if (it.kind === 'combo') it.combo = cleanCombo(it.combo || { steps: [] }, it.id, { dishes, sectionDishes, lib })
     }
   }
   // Resolve dietary codes → tags ONCE. Codes referenced but missing are
@@ -731,13 +809,6 @@ async function upsertMenuTree(tx, tenantId, menuId, body) {
   const tags = await tx`SELECT id, code, kind, standard_key FROM menu_dietary_tags WHERE tenant_id = ${tenantId}`
   const tagByCode = Object.fromEntries(tags.filter(t => t.standard_key).map(t => [t.standard_key, t]))
   for (const t of tags) tagByCode[t.code] = t
-  // Option groups and their options the same way: only this tenant's (an
-  // id that isn't, deleted or another tenant's, is dropped).
-  const [groupRows, optionRows] = await Promise.all([
-    tx`SELECT id FROM menu_variant_groups WHERE tenant_id = ${tenantId}`,
-    tx`SELECT id FROM menu_variant_options WHERE tenant_id = ${tenantId}`,
-  ])
-  const ownGroups = new Set(groupRows.map(r => r.id)), ownOptions = new Set(optionRows.map(r => r.id))
 
   // Wipe + re-insert. Sections cascade to items → variants → dietary,
   // and callouts cascade from menu_id, so a single delete clears the

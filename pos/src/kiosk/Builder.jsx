@@ -1,8 +1,8 @@
 // Building one item on the kiosk. A dish shows its photo, words, allergens
 // and option groups on one page. A combo goes one page at a time (like the
 // till's steps, shared/combos.js): each step's choices in the step's display
-// (grid, list, slider, wheel), then the picked dish's own options, then a
-// last page with everything picked. The steps show down the side (or along
+// (grid, list, slider, wheel), then the picked dish's options as the deal
+// asks them (dealItem()), then a last page with everything picked. The steps show down the side (or along
 // the top on a portrait screen), each done one with its pick's picture and
 // name; how far along shows beside Continue. Every combo page has the big
 // picture a dish's page has (Hero, following the design's dish page
@@ -20,7 +20,7 @@ import { Check, Plus, Info, AlertCircle } from 'lucide-react'
 import { priceItem, lineGross } from '@shared/pos/pricing.js'
 import { resolveSteps } from '@shared/combos.js'
 import { fromPrice, priceVaries } from '@shared/orderPricing.js'
-import { configItem, comboCtx } from '@shared/pos/offers.js'
+import { configItem, dealItem, comboCtx } from '@shared/pos/offers.js'
 import { TK, allergenName, pickImages, bundleParts } from '@shared/kiosk.js'
 import { useKiosk, textsFor, addToBasket, closeBuilder, soldOut, itemLevels, dishLevels, mergeLevels, fitOf } from './store.js'
 import OptionGroup, { missingIn, groupName } from './OptionGroup.jsx'
@@ -298,8 +298,13 @@ function DishBuilder({ item, config, ctx, texts, builder }) {
 
 const sameChoice = (e, c) => e.option_id === c.option_id && (e.item_id || null) === (c.item_id || null)
 
-/** The combo's pages for the picks so far, and the optional steps waiting behind a button. */
-function comboPages(item, sel, ctx, opened) {
+/**
+ * The combo's pages for the picks so far, and the optional steps waiting
+ * behind a button. A picked dish's page asks its options as the deal does
+ * (shared/pos/offers.js dealItem(): some left out, only some offered,
+ * another group instead), so its pages, pictures and tabs show what prices.
+ */
+function comboPages(item, sel, ctx, opened, config) {
   const { picks, steps } = resolveSteps(item, sel.combo || {}, ctx)
   const pages = []
   const buttons = []
@@ -310,7 +315,8 @@ function comboPages(item, sel, ctx, opened) {
     if (step.ask === 'button' && !got.length && !opened.has(step.id)) { buttons.push(step); continue }
     if (!st.auto) pages.push({ key: 'step:' + step.id, kind: 'step', st })
     got.forEach((e, i) => {
-      const part = e.item_id ? configItemFrom(ctx, e.item_id) : null
+      const c = e.item_id ? st.choices.find(x => sameChoice(e, x)) : null
+      const part = e.item_id ? dealItem(config, e.item_id, c?.groups) : null
       if (part?.pos_choices?.length) pages.push({ key: 'part:' + step.id + ':' + i, kind: 'part', st, index: i, entry: e, part })
     })
   }
@@ -318,7 +324,6 @@ function comboPages(item, sel, ctx, opened) {
   pages.push({ key: 'review', kind: 'review' })
   return { pages, buttons, picks, steps }
 }
-const configItemFrom = (ctx, id) => ctx.itemsById[id] || null
 
 function ComboBuilder({ item, config, ctx, texts, builder }) {
   const { t, ui, money } = texts
@@ -329,7 +334,7 @@ function ComboBuilder({ item, config, ctx, texts, builder }) {
   // When each part of the deal's picture first showed (BundlePhoto), kept
   // across the pages: back on the deal's picture, only what's new pops in.
   const bundleSeen = useRef(new Map())
-  const { pages, buttons, picks } = useMemo(() => comboPages(item, sel, ctx, opened), [item, sel, ctx, opened])
+  const { pages, buttons, picks } = useMemo(() => comboPages(item, sel, ctx, opened, config), [item, sel, ctx, opened, config])
   const [pageKey, setPageKey] = useState(() => (builder.key ? 'review' : pages[0]?.key))
   const advanceFrom = useRef(null)
   let index = pages.findIndex(p => p.key === pageKey)

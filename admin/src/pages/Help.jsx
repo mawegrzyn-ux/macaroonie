@@ -3362,11 +3362,12 @@ export default function Help() {
               ]}
             />
             <P>
-              A dish picked in a step keeps its own option groups: a burger still asks for its cooking
-              or extras, at the dish&apos;s extra prices. Its size or protein (options that set the
-              dish&apos;s price) don&apos;t change the combo&apos;s price; only extra charges do. A combo
-              can&apos;t be a choice in another combo. Dishes switched off for online ordering can still
-              be a combo&apos;s choice.
+              A dish picked in a step keeps its own option groups unless you change them for the deal
+              (see Options in a meal deal below): a burger still asks for its cooking or extras, at the
+              dish&apos;s extra prices. Its size or protein (options that set the dish&apos;s price)
+              don&apos;t change the combo&apos;s price; only extra charges do. A combo can&apos;t be a
+              choice in another combo. Dishes switched off for online ordering can still be a
+              combo&apos;s choice.
             </P>
             <P>
               <strong>Manual or Automatic.</strong> A manual combo is only used when it is chosen: its
@@ -3389,6 +3390,37 @@ export default function Help() {
               hold a starter, a main and a drink, online only. A combo is a menu item of its own with
               steps, on the till and online; an automatic combo also finds its dishes as separate items.
             </InfoBox>
+            <H3>Options in a meal deal</H3>
+            <P>
+              In <strong>Edit steps</strong>, each dish or section choice has{' '}
+              <strong>Options in this deal</strong> under its name: what that dish asks inside the deal,
+              one option group at a time. The dish stays the menu&apos;s dish, so its kitchen stations,
+              allergens, photo, sold out and (later) stock still follow it; only what the guest is asked
+              changes. The line under the button says what is changed (&ldquo;Flavour: 3 of 4, choose 1
+              to 2 · Dip: not asked&rdquo;), or <em>As on the dish</em>.
+            </P>
+            <DataTable
+              head={['For each group', 'What the deal asks']}
+              rows={[
+                ['As on the dish', 'What the dish asks on its own (the usual).'],
+                ['Leave out', 'Not asked in the deal, e.g. no dip question for the meal\'s wings.'],
+                ['Only some', 'Tap an option to leave it out of the deal, e.g. three of the four flavours. At least one stays.'],
+                ['Another group', 'A group from Variant groups asked instead, e.g. Meal sauce (free ketchup, or mayo +20p) in place of the fries\' own sauces. Make a copy copies the dish\'s own group and asks the copy: change the copy\'s options and prices on Variant groups (the link at the bottom opens it in a new tab), and the dish on its own keeps its group.'],
+                ['How many', 'At least and at most inside the deal, e.g. up to two flavours in the meal while the wings on their own take one. Leave it on As the group to keep the group\'s own.'],
+              ]}
+            />
+            <P>
+              <strong>In the deal:</strong> under each group shows what will be asked. A choice offering a
+              whole section changes every dish in it that has that group. Prices follow what is asked: an
+              option left out can&apos;t be picked, and another group charges its own prices. The changes
+              belong to the combo: they are saved with the menu and go live when it is published, on the
+              kiosk, the till and online ordering alike, and kitchen tickets show each part with what was
+              picked. <strong>Make it a combo</strong> on the till keeps only the picks the deal asks for.
+              An automatic combo only counts a dish ordered on its own when the deal could have asked it
+              that way: with three of the four flavours, wings ordered with BBQ don&apos;t make the deal,
+              while a dip the deal leaves out simply stays on the wings at its own price. A group later
+              taken off the dish drops out of the deal the next time the menu is saved.
+            </P>
             <H3>Allergens and dietary tags</H3>
             <P>
               <strong>Menus &rarr; Allergens &amp; dietary</strong> has two lists.{' '}
@@ -4068,7 +4100,8 @@ export default function Help() {
               <strong>Combos online.</strong> A combo&apos;s card shows its price (&ldquo;from £11.00&rdquo;
               when choices can cost more). Tapping it goes one step at a time: Step 1 of 4 at the top,
               Back and Next at the bottom (Next says what&apos;s missing until the step is done), each
-              picked dish&apos;s own options under it, and a last page that lists the whole combo with the
+              picked dish&apos;s options under it (as the deal asks them, see Menus &rarr; Options in a
+              meal deal), and a last page that lists the whole combo with the
               quantity, a note and Add. Optional groups set to show a button wait behind &ldquo;+ Extras&rdquo;,
               and groups that allow more than once have &minus; and + counters. The basket lists each
               combo&apos;s picks under it, and an automatic combo found among separate dishes shows its saving
@@ -5177,7 +5210,7 @@ export default function Help() {
               Tapping a combo opens its steps one under another, with a chip for each at the top (red until
               it&apos;s done; tap one to jump to it). A step behind a button shows as &ldquo;+ Sauce
               pot&rdquo;; a step that picks itself shows &ldquo;Included&rdquo;. A dish picked in a step asks
-              its own options under it. Add stays off until every step needed is done, and says what&apos;s
+              its options under it, as the deal asks them (Menus &rarr; Options in a meal deal). Add stays off until every step needed is done, and says what&apos;s
               missing. On the check the combo shows its picks under it, and kitchen tickets and kitchen
               screens print the combo&apos;s name with each part under it, each part going to its own
               station.
@@ -5185,8 +5218,9 @@ export default function Help() {
             <P>
               To turn a dish already on the order into a combo, tap the line and pick the combo under{' '}
               <strong>Make it a combo</strong> (only before it&apos;s sent): the combo opens with that dish
-              picked, and the dish&apos;s line is replaced. Automatic combos apply by themselves (see Menus
-              &rarr; Combos).
+              picked and its options kept, as far as the deal asks them (a flavour or dip the deal leaves
+              out is dropped, so the till may ask again), and the dish&apos;s line is replaced. Automatic
+              combos apply by themselves (see Menus &rarr; Combos).
             </P>
             <P>
               On <strong>Menus → Variant groups</strong>, tick <strong>Offer No, Light, Extra and On the side</strong>{' '}

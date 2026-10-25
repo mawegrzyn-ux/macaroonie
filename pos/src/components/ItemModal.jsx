@@ -11,6 +11,7 @@ import { priceItem, lineGross, PREFIXES, groupChoice } from '@shared/pos/pricing
 import { resolveSteps, stepRule } from '@shared/combos.js'
 import { Modal, Keypad, cx, money, poundsToPence } from './ui.jsx'
 import { tillItem, courseFor, comboCtx } from '../lib/checkOps.js'
+import { dealItem } from '@shared/pos/offers.js'
 import { can } from '../lib/store.js'
 
 const entriesOf = (sel, key) => ((sel || {})[key] || [])
@@ -176,8 +177,10 @@ function ComboSteps({ item, config, picks, onChange, ctx, stepRefs }) {
               </div>
             )}
             {got.map((e, idx) => {
-              const part = e.item_id ? tillItem(config, e.item_id) : null
-              const label = choices.find(c => c.option_id === e.option_id && (c.item_id || null) === (e.item_id || null))?.label
+              const choice = choices.find(c => c.option_id === e.option_id && (c.item_id || null) === (e.item_id || null))
+              // The dish's options as the deal asks them (some left out, only some offered, another group instead).
+              const part = e.item_id ? dealItem(config, e.item_id, choice?.groups) : null
+              const label = choice?.label
               if (auto && !part?.pos_choices?.length) return <div key={idx} className="text-sm text-muted">{label}</div>
               if (!part?.pos_choices?.length) return null
               const same = got.filter(x => x.item_id === e.item_id).length > 1

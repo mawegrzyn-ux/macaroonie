@@ -18,7 +18,7 @@ import { loadMenuVersions } from './menuReleases.js'
 import { loadOpeningHours } from './siteDataSvc.js'
 import { getGateway, checkoutGateways, COUNTER_METHODS } from './paymentGateways/index.js'
 import { itemChoices, variantRules, fromPrice, priceVaries, isPriced, priceBasket } from '../../../shared/orderPricing.js'
-import { normaliseCombo, stepChoices } from '../../../shared/combos.js'
+import { normaliseCombo, stepChoices, dealSwapIds } from '../../../shared/combos.js'
 import { menuOnAt, menuOnDate, scheduleLabel, isScheduled } from '../../../shared/menuSchedule.js'
 import { venuePromotions, findByCode, lockUses } from './promoSvc.js'
 import { menuTags } from '../../../shared/menuTags.js'
@@ -197,8 +197,32 @@ export async function loadOrderingMenu(tx, venue, settings, { fulfilment = 'coll
   let dietaryTags = []
   const schedules = settings.menu_schedules || {}
   const nowParts = now ? localParts(now, venue.timezone) : null
+  // Groups a meal deal asks instead of a picked dish's own (shared/combos.js
+  // dealChoices() 'swap'): from the library as it is now (option groups
+  // aren't published with menus), each combo carrying the ones it uses as
+  // choices (deal_groups), with its menu's option display settings.
+  const swapIds = [...new Set(live.flatMap(m => (m.sections || []).flatMap(s => (s.items || [])
+    .filter(i => i.kind === 'combo').flatMap(i => dealSwapIds({ kind: 'combo', combo: i.combo })))))]
+  const swapGroups = new Map((swapIds.length ? await tx`
+    SELECT g.id, g.id AS group_id, COALESCE(g.display_name, g.name) AS name, g.price_mode, g.min_select, g.max_select, g.allow_repeat, g.on_request,
+           COALESCE(json_agg(json_build_object('option_id', o.id, 'label', o.label, 'price_pence', o.price_pence)
+             ORDER BY o.sort_order, o.label) FILTER (WHERE o.id IS NOT NULL), '[]') AS options
+      FROM menu_variant_groups g
+      LEFT JOIN menu_variant_options o ON o.group_id = g.id AND o.tenant_id = g.tenant_id
+     WHERE g.tenant_id = ${venue.tenant_id} AND g.id = ANY(${swapIds}::uuid[])
+     GROUP BY g.id` : []).map(g => [g.id, g]))
+  const dealGroupsOf = (combo, rules) => {
+    const out = {}
+    for (const id of dealSwapIds({ kind: 'combo', combo })) {
+      const c = swapGroups.has(id) ? itemChoices({ variant_groups: [swapGroups.get(id)] }, rules)[0] : null
+      if (c) out[id] = c
+    }
+    return Object.keys(out).length ? out : null
+  }
   const shapeItem = (it, s, full, rules, shownCodes) => {
     const choices = itemChoices(it, rules)
+    const combo = it.kind === 'combo' ? normaliseCombo(it.combo) : null
+    const dealGroups = combo ? dealGroupsOf(combo, rules) : null
     return {
       id: it.id, section_id: s.id, name: it.name, native_name: it.native_name || null, kind: it.kind === 'combo' ? 'combo' : 'dish',
       description: it.description || null, notes: it.notes || null,
@@ -208,7 +232,8 @@ export async function loadOrderingMenu(tx, venue, settings, { fulfilment = 'coll
       price_pence: it.price_pence ?? null,
       featured: !!it.is_featured,   // House favourite (Menus page)
       choices,
-      combo: it.kind === 'combo' ? normaliseCombo(it.combo) : null,
+      combo,
+      ...(dealGroups ? { deal_groups: dealGroups } : {}),
       sold_out: soldOut.has(it.id),
       min_qty: it.min_order_qty > 1 ? it.min_order_qty : null,   // migration 133
       vat_rate: taxFor([it.tax, s.tax, full.tax], ctx, rates).vat_rate,

@@ -2,9 +2,9 @@
 // function builds events; the check rules (shared/pos/checks.js) decide.
 
 import { ulid } from '@shared/pos/ids.js'
-import { priceItem, posTax, isActiveLine, lineGross } from '@shared/pos/pricing.js'
-import { combosWithItem, stepWithItem } from '@shared/combos.js'
-import { configItem, comboCtx, autoCombosFor, checkOffers } from '@shared/pos/offers.js'
+import { priceItem, posTax, isActiveLine, lineGross, picksWithin } from '@shared/pos/pricing.js'
+import { combosWithItem, stepWithItem, comboOf } from '@shared/combos.js'
+import { configItem, dealItem, comboCtx, autoCombosFor, checkOffers } from '@shared/pos/offers.js'
 import { dispatch, dispatchMany, getState, currentChecks, soldOutMap } from './store.js'
 
 // Offers, item choices and combo lookups live in shared/pos/offers.js (the
@@ -225,10 +225,18 @@ export function combosForLine(line, config) {
     .filter(x => x.start)
 }
 
-/** The selection a combo starts with when made from a line. */
-export function comboStartFrom(line, start) {
+/**
+ * The selection a combo starts with when made from a line: the dish's
+ * options carried over, kept to what the deal asks of it (some groups left
+ * out, only some options; dealItem() + picksWithin()).
+ */
+export function comboStartFrom(line, start, combo = null, config = null) {
+  let choices = selectionFromModifiers(line.modifiers)
+  const option = comboOf(combo)?.steps.find(s => s.id === start.step_id)?.options.find(o => o.id === start.option_id)
+  const part = option?.groups && config ? dealItem(config, start.item_id, option.groups) : null
+  if (part) choices = picksWithin(part.pos_choices, choices)
   return {
-    combo: { [start.step_id]: [{ option_id: start.option_id, item_id: start.item_id, choices: selectionFromModifiers(line.modifiers) }] },
+    combo: { [start.step_id]: [{ option_id: start.option_id, item_id: start.item_id, choices }] },
     choices: {},
   }
 }

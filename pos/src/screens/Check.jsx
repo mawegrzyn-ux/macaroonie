@@ -173,7 +173,7 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
           onDiscount={ids => setModal({ kind: 'discount', lineIds: ids })} onMove={ids => setModal({ kind: 'move', lineIds: ids })}
           onMakeCombo={(line, combo, start) => setModal({
             kind: 'item', item: combo, title: line.name + ' as ' + combo.name, replace: line.id, seat: line.seat ?? null, course: line.course_id ?? null,
-            initial: { selection: comboStartFrom(line, start), qty: line.qty },
+            initial: { selection: comboStartFrom(line, start, combo, config), qty: line.qty },
           })} />
       )}
       {modal?.kind === 'actions' && <ActionsMenu check={check} config={config} onClose={close} onPick={action} />}

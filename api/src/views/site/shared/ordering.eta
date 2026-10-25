@@ -275,7 +275,7 @@ const cfgJson = JSON.stringify(cfg).split('<').join('\\u003c')
 <% if (view !== 'pick') { %>
 <script type="application/json" id="mo-config"><%~ cfgJson %></script>
 <script type="module">
-import { optionPriceText, priceLine, priceBasket, formatPence } from '/order-api/pricing.js'
+import { optionPriceText, priceLine, priceBasket, formatPence, partOptions } from '/order-api/pricing.js'
 import { resolveSteps, stepRule, countParts } from '/order-api/combos.js'
 import { venueNow, noticeText, promoSummary, promoTerms, covers, coversIds, isLiveAt } from '/order-api/promotions.js'
 import { allergenKey, noticeOf } from '/order-api/menuTags.js'
@@ -823,8 +823,16 @@ async function startOrdering() {
       const a = path.split('|')
       if (a[0] === 'c') return choices.find(x => x.key === a[1])
       const e = (sel.combo[a[1]] || [])[Number(a[2])]
+      return partChoices(a[1], e).find(x => x.key === a[3]) || null
+    }
+    // A picked dish's options as the deal asks them (shared/combos.js
+    // dealChoices(): some left out, only some offered, another group instead).
+    function partChoices(stepId, e) {
       const part = e && e.item_id ? comboCtx.itemsById[e.item_id] : null
-      return part ? (part.choices || []).find(x => x.key === a[3]) : null
+      if (!part) return []
+      const step = ((item.combo && item.combo.steps) || []).find(s => s.id === stepId)
+      const opt = step && (step.options || []).find(o => o.id === e.option_id)
+      return partOptions(item, part, opt ? opt.groups : null)
     }
     function groupsHtml(list, prefix) {
       let h = ''
@@ -881,7 +889,7 @@ async function startOrdering() {
       const r = resolveSteps(item, sel.combo, comboCtx)
       // Keep the picks the steps resolved to (auto picks, hidden steps dropped).
       sel.combo = r.picks
-      const pages = r.steps.filter(s => s.shown && (!s.auto || (r.picks[s.step.id] || []).some(e => e.item_id && (comboCtx.itemsById[e.item_id]?.choices || []).length)))
+      const pages = r.steps.filter(s => s.shown && (!s.auto || (r.picks[s.step.id] || []).some(e => e.item_id && partChoices(s.step.id, e).length)))
       return { pages, r }
     }
     function partLabel(e, step) {
@@ -911,13 +919,14 @@ async function startOrdering() {
           }
         }
       }
-      // A picked dish's own options, under it.
+      // A picked dish's options as the deal asks them, under it.
       got.forEach((e, idx) => {
         const part = e.item_id ? comboCtx.itemsById[e.item_id] : null
-        if (!part || !(part.choices || []).length) { if (s.auto) h += '<p class="mo-muted">' + esc(partLabel(e, step)) + '</p>'; return }
+        const opts = partChoices(step.id, e)
+        if (!part || !opts.length) { if (s.auto) h += '<p class="mo-muted">' + esc(partLabel(e, step)) + '</p>'; return }
         const same = got.filter(x => x.item_id === e.item_id).length > 1
         h += '<div class="mo-part"><div class="mo-part-name">' + esc(part.name) + (same ? ' ' + (got.slice(0, idx + 1).filter(x => x.item_id === e.item_id).length) : '') + '</div>' +
-          groupsHtml(part.choices, 'p|' + step.id + '|' + idx + '|') + '</div>'
+          groupsHtml(opts, 'p|' + step.id + '|' + idx + '|') + '</div>'
       })
       return h + '</div>'
     }
@@ -934,8 +943,7 @@ async function startOrdering() {
         const got = r.picks[s.step.id] || []
         if (!got.length) continue
         h += '<div class="mo-row" style="font-size:.95rem;"><span><strong>' + esc(s.step.name) + ':</strong> ' + esc(counted(got.map(e => {
-          const part = e.item_id ? comboCtx.itemsById[e.item_id] : null
-          const own = part ? (part.choices || []).flatMap(c => ((e.choices || {})[c.key] || []).map(id => (c.options.find(o => o.id === id) || {}).label)).filter(Boolean) : []
+          const own = partChoices(s.step.id, e).flatMap(c => ((e.choices || {})[c.key] || []).map(id => (c.options.find(o => o.id === id) || {}).label)).filter(Boolean)
           return partLabel(e, s.step) + (own.length ? ' (' + counted(own) + ')' : '')
         }))) + '</span></div>'
       }

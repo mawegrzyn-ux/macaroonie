@@ -12,7 +12,7 @@
 // ./promotions.js, served next to this file as /order-api/promotions.js.
 //
 import { applyPromotions } from './promotions.js'
-import { isCombo, priceCombo, comboFromPrice, findAutoCombos, autoMatchable, menuCtx } from './combos.js'
+import { isCombo, priceCombo, comboFromPrice, findAutoCombos, autoMatchable, menuCtx, dealChoices } from './combos.js'
 
 // A dish's choices come from its ad-hoc variants (one required choice) and
 // its attached variant groups:
@@ -26,8 +26,9 @@ import { isCombo, priceCombo, comboFromPrice, findAutoCombos, autoMatchable, men
 //
 // Combos (kind 'combo', shared/combos.js) are priced here too: the combo's
 // price (or its own base options), its own extras, then each step's picks:
-// the choice's extra charge plus that dish's own extras (a part's base
-// options don't change the deal's price).
+// the choice's extra charge plus that dish's own extras, its options as the
+// deal asks them (partOptions(); a part's base options don't change the
+// deal's price).
 
 // Ad-hoc variants are re-inserted on every menu save, so their database ids
 // change; the label is what stays the same.
@@ -97,6 +98,14 @@ export function optionPriceText(choice, option, money) {
 // never sees the raw variants); a dish straight from the menu does not.
 function choicesOf(item) {
   return Array.isArray(item.choices) ? item.choices : itemChoices(item)
+}
+
+// A meal deal's part as the deal asks it (shared/combos.js dealChoices()):
+// the dish's choices with the combo choice's changes (groups). A group the
+// deal asks instead comes with the combo (combo.deal_groups: { groupId:
+// choice }, from the server: services/orderSvc.js loadOrderingMenu()).
+export function partOptions(combo, part, groups) {
+  return dealChoices(choicesOf(part), groups, id => (combo && combo.deal_groups && combo.deal_groups[id]) || null)
 }
 
 // Lowest price a guest can pay for the dish ("from £9.50"), or null when
@@ -193,8 +202,8 @@ export function priceLine(item, selection, choices = choicesOf(item), ctx = null
   if (!r.ok) return r
   let base = r.base ?? item.price_pence ?? null
   if (isCombo(item)) {
-    const pc = priceCombo(item, selection || {}, ctx || {}, (part, picked) => {
-      const pr = priceChoiceSet(choicesOf(part), picked || {})
+    const pc = priceCombo(item, selection || {}, ctx || {}, (part, picked, groups) => {
+      const pr = priceChoiceSet(partOptions(item, part, groups), picked || {})
       return pr.ok ? { ok: true, extras: pr.extras, detail: pr.options } : pr
     })
     if (!pc.ok) return pc
@@ -234,6 +243,7 @@ export function tipFor(subtotalPence, percent) {
 // total = subtotal - discount + tip.
 export function priceBasket(itemsById, lines, { tipPercent = 0, promos = null, promoCtx = {}, combos = null } = {}) {
   const out = []
+  const outPicks = []   // each priced line's picks ({ groupKey: [optionId] }), for automatic combos
   const errors = []
   let subtotal = 0
   let vat = 0
@@ -256,6 +266,7 @@ export function priceBasket(itemsById, lines, { tipPercent = 0, promos = null, p
       unit_pence: priced.unit_pence, base_pence: priced.base_pence, line_total_pence: lineTotal,
       vat_rate: rate, vat_pence: lineVat, note: line.note ? String(line.note).slice(0, 300) : null,
     })
+    outPicks.push(line.choices || {})
   }
   // A dish's minimum order quantity (item.min_qty, migration 133) counts
   // every line of that dish, whatever its options.
@@ -275,7 +286,7 @@ export function priceBasket(itemsById, lines, { tipPercent = 0, promos = null, p
   const autoCombos = (combos && combos.auto || []).filter(c => autoMatchable(c) && !c.sold_out)
   if (autoCombos.length && out.length) {
     const found = findAutoCombos(
-      out.map((l, i) => ({ key: i, item_id: l.item_id, section_id: l.section_id, qty: l.parts ? 0 : l.qty, unit_base: l.base_pence })),
+      out.map((l, i) => ({ key: i, item_id: l.item_id, section_id: l.section_id, qty: l.parts ? 0 : l.qty, unit_base: l.base_pence, picks: outPicks[i] })),
       autoCombos, comboCtx, c => fromPrice({ ...c, combo: null, kind: 'dish', price_pence: c.price_pence ?? 0 }, choicesOf(c)) ?? 0,
     )
     for (const f of found) {

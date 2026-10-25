@@ -488,7 +488,8 @@ function comboText(it, sections) {
   return (it.combo?.steps || []).map(st => {
     const opts = (st.options || []).map(o => {
       const label = o.type === 'item' ? names.get(o.item_id) : o.type === 'section' ? 'any ' + (secs.get(o.section_id) || 'section') : o.label
-      return label ? label + (o.price_pence ? ' +' + money(o.price_pence) : '') : null
+      // A dish asked differently in the deal (shared/combos.js dealChoices()): set on the Menus page.
+      return label ? label + (o.price_pence ? ' +' + money(o.price_pence) : '') + (o.groups ? ' (its options changed for this deal)' : '') : null
     }).filter(Boolean)
     return st.name + ' (' + stepRule(st) + (st.repeat ? ', more than once' : '') + (st.when ? ', only with some choices' : '') + '): ' + opts.join(', ')
   }).join('; ') + (it.combo?.mode === 'auto' ? ' [applied automatically]' : '')

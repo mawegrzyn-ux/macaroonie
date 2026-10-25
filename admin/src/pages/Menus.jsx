@@ -1536,7 +1536,7 @@ function ItemDrawer({ item, section, menuTax, sections = [], courses, dietaryTag
           <TextArea value={item.description || ''} onChange={e => onChange({ description: e.target.value })} rows={3} />
         </Field>
 
-        <ComboBox item={item} section={section} sections={sections} readOnly={readOnly} onChange={onChange} />
+        <ComboBox item={item} section={section} sections={sections} variantGroups={variantGroups} readOnly={readOnly} onChange={onChange} />
 
         <Field label="Notes" hint="e.g. 'pp'. For an online ordering minimum, use Minimum order quantity below.">
           <Input value={item.notes || ''} onChange={e => onChange({ notes: e.target.value })} />

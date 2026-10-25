@@ -402,6 +402,16 @@ combo" on a till line; step choices can be dishes, sections or new.
   dish picked and deletes the original line (only before it's sent).
 - **Kitchen**: each part routes by its own dish (a typed-in part like the combo); tickets and
   kitchen screens show the combo's name with the parts under it, repeats counted.
+- **A dish's options in the deal** (25 Oct 2026, no migration): each dish or section choice can
+  change what its dish asks inside the deal, one option group at a time: as on the dish, left
+  out, only some options, another library group instead, and its own how many
+  (`option.groups`, stored only when set). The choice keeps its `item_id`, so routing, stock,
+  allergens, photos and sold out still follow the menu dish. One rule, `dealChoices()` in
+  `shared/combos.js`, wrapped by `partChoices()` / `dealItem()` (till, kiosk) and
+  `partOptions()` with the combo's `deal_groups` (online); `priceCombo()` passes the groups to
+  the part pricing, so a pick the deal doesn't ask is refused. "Make it a combo" keeps only the
+  picks the deal asks (`picksWithin()`), and an automatic combo only takes separate dishes whose
+  picks fit (`dealFits()` in `findAutoCombos()`).
 - Not built: a combo inside a combo; per-step prices that depend on another step; combos on
   GloriaFood or Deliveroo (the Deliveroo file sends a combo's own price; its choices are
   Deliveroo modifiers set in the Hub).

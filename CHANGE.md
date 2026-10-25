@@ -5,6 +5,14 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-25 — Meal deals: change a dish's options inside the deal]
+
+- Menus → a combo → **Edit steps**: each dish or section choice has **Options in this deal** under its name. For each of the dish's option groups the deal can ask it **As on the dish**, **Leave out** (e.g. no dip question for the meal's wings), **Only some** of its options (e.g. three of the four flavours) or **Another group** from Variant groups instead (e.g. a free Meal sauce in place of the fries' own sauces), with its own **How many** (e.g. up to two flavours in the meal, one on their own). **Make a copy** copies the dish's own group to edit for the deal; the dish on its own keeps its group. The line under the button says what is changed.
+- The choice stays the menu's dish: its kitchen stations, allergens, photo, sold out and (later) stock still follow it. A whole-section choice changes every dish in it that has the group.
+- The kiosk, the till and online ordering ask the deal's options and price them (an option left out can't be picked; another group charges its own prices); kitchen tickets show what was picked. **Make it a combo** on the till keeps only the picks the deal asks for.
+- An automatic combo only counts a dish ordered on its own when the deal could have asked it that way (wings ordered with BBQ don't make a deal that offers three other flavours); options the deal leaves out stay on the dish at their own price.
+- Saved with the menu, live once published; a plain save of an untouched menu still shows nothing to publish. A group taken off a dish drops out of its deals on the next save. No migration (part of the combo).
+
 ## [2026-10-24 — Kiosk: a meal deal's picture built from the picks; the shade behind the dish's photo]
 
 - On a meal deal's pages the big picture now builds up as the guest picks. Until the first pick it is the deal's own photo; then each pick pops into a picture of the meal: the first step's pick big in the middle (the wings, split by their flavours once picked), the other steps' picks beside it in turn, smaller and a little further back, and steps set to Small in the corner (dips, sauces) in front. On a picked dish's options page (its flavours) the big picture is that dish; when it's done, the meal comes back with the dish popping in. The order line shows the meal the same way. Cut-out pictures (PNGs on a see-through background) look best; ordinary photos get a small frame. Kiosk design → Layout → **Build a meal deal's picture from the picks** (on unless turned off).
