@@ -15,8 +15,9 @@
 //                  (migration 180). What may be done comes from the order
 //                  itself (can_edit, can_place, can_request ...).
 //   PoDetail       one purchase order: send / print / Excel / PDF / mark
-//                  sent / change quantities / split for another day /
-//                  cancel / book the delivery in.
+//                  sent / change quantities and add the supplier's other
+//                  products while it waits in To send (AddPoItemsModal) /
+//                  split for another day / cancel / book the delivery in.
 //   ReceiveForm    what arrived, the checks and temperatures; writes the
 //                  venue's H&S delivery check. Pepper can read the invoice
 //                  first (components/purchasing/invoice.jsx, migration 197):
@@ -1045,7 +1046,11 @@ function PoDetail({ poId, meta, phone, onBack, onOpenPo }) {
   const { data: po, isLoading, error } = useQuery({ queryKey: ['purchase-order', poId], queryFn: () => api.get(`/purchasing/pos/${poId}`) })
   const [receiving, setReceiving] = useState(false)
   const [markSent, setMarkSent] = useState(false)
+  // Changing the order while it waits in To send: quantities per line, and
+  // the supplier's products being added ({ item, quote, qty }).
   const [editQty, setEditQty] = useState(null)
+  const [added, setAdded] = useState([])
+  const [picking, setPicking] = useState(false)
   const [busy, setBusy] = useState(null)
   const [fileErr, setFileErr] = useState(null)
   const [splitting, setSplitting] = useState(false)
@@ -1059,9 +1064,22 @@ function PoDetail({ poId, meta, phone, onBack, onOpenPo }) {
   const cancel = useMutation({ mutationFn: () => api.post(`/purchasing/pos/${poId}/cancel`), onSuccess: done })
   const patch = useMutation({ mutationFn: body => api.patch(`/purchasing/pos/${poId}`, body), onSuccess: done })
   const saveQty = useMutation({
-    mutationFn: () => api.put(`/purchasing/pos/${poId}/lines`, { lines: Object.entries(editQty).map(([id, qty]) => ({ id, qty })) }),
-    onSuccess: saved => { done(saved); setEditQty(null) },
+    mutationFn: () => api.put(`/purchasing/pos/${poId}/lines`, {
+      lines: Object.entries(editQty).map(([id, qty]) => ({ id, qty })),
+      add: added.filter(x => x.qty > 0).map(x => ({ quote_id: x.quote.id, qty: x.qty })),
+    }),
+    onSuccess: saved => { done(saved); setEditQty(null); setAdded([]) },
   })
+  const startEdit = pick => {
+    setEditQty(Object.fromEntries(po.lines.map(l => [l.id, l.qty])))
+    setAdded([])
+    setPicking(pick)
+  }
+  const cancelEdit = () => { setEditQty(null); setAdded([]); saveQty.reset() }
+  const toggleAdded = (item, quote) => setAdded(a => (a.some(x => x.quote.id === quote.id)
+    ? a.filter(x => x.quote.id !== quote.id)
+    : [...a, { item, quote, qty: fitQty(1, quote) }]))
+  const setAddedQty = (quoteId, qty) => setAdded(a => a.map(x => (x.quote.id === quoteId ? { ...x, qty } : x)))
 
   const file = async format => {
     setBusy(format); setFileErr(null)
@@ -1085,6 +1103,13 @@ function PoDetail({ poId, meta, phone, onBack, onOpenPo }) {
   const canOrder = !!meta?.can_order || !!meta?.can_approve
   const canApprove = !!meta?.can_approve
   const open = ['to_send', 'sent'].includes(po.status)
+  const editing = editQty != null
+  // While changing the order, the totals it will come to.
+  const draft = editing && prices && po.total != null ? orderTotals([
+    ...po.lines.filter(l => !l.added_on_receipt).map(l => ({ price: l.price, vat_rate: l.vat_rate, qty: editQty[l.id] ?? l.qty })),
+    ...added.map(x => ({ price: x.quote.price, vat_rate: x.quote.vat_rate, qty: fitQty(x.qty, x.quote) })),
+  ], po.delivery_charge) : null
+  const shown = draft || po
 
   return (
     <div className={cn('space-y-4', phone ? 'p-3' : 'p-4 max-w-4xl mx-auto')}>
@@ -1151,7 +1176,7 @@ function PoDetail({ poId, meta, phone, onBack, onOpenPo }) {
         </div>
       )}
 
-      {canOrder && open && (
+      {canOrder && open && !editing && (
         <div className="flex flex-wrap gap-2">
           {po.status === 'sent' && <button type="button" className={btn.primary} onClick={() => setReceiving(true)}><PackageCheck className="w-4 h-4" />Book in delivery</button>}
           {po.status === 'to_send' && po.supplier_email && (
@@ -1160,10 +1185,15 @@ function PoDetail({ poId, meta, phone, onBack, onOpenPo }) {
             </button>
           )}
           {po.status === 'to_send' && <button type="button" className={po.supplier_email ? btn.outline : btn.primary} onClick={() => setMarkSent(true)}><Send className="w-4 h-4" />Mark as sent</button>}
-          {po.status === 'to_send' && editQty == null && canApprove && (
-            <button type="button" className={btn.outline} onClick={() => setEditQty(Object.fromEntries(po.lines.map(l => [l.id, l.qty])))}>Change quantities</button>
+          {po.status === 'to_send' && canApprove && (
+            <>
+              <button type="button" className={btn.outline} onClick={() => startEdit(false)}>Change quantities</button>
+              <button type="button" className={btn.outline} onClick={() => startEdit(true)} data-testid="po-add-items">
+                <Plus className="w-4 h-4" />Add items
+              </button>
+            </>
           )}
-          {canApprove && editQty == null && (
+          {canApprove && (
             <button type="button" className={btn.outline} onClick={() => setSplitting(true)}><Scissors className="w-4 h-4" />Split for another day</button>
           )}
           {po.status === 'sent' && po.supplier_email && (
@@ -1180,18 +1210,26 @@ function PoDetail({ poId, meta, phone, onBack, onOpenPo }) {
       <ErrorNote error={send.error || cancel.error || patch.error || fileErr || saveQty.error} />
 
       <section className="rounded-xl border bg-background overflow-hidden">
-        <div className="section-head px-4 py-2 flex items-center gap-2">
+        <div className="section-head px-4 py-2 flex flex-wrap items-center gap-2">
           <h3 className="text-sm font-semibold flex-1">Lines</h3>
-          {editQty && (
+          {editing && (
             <>
-              <button type="button" className={btn.primary} disabled={saveQty.isPending} onClick={() => saveQty.mutate()}>Save</button>
-              <button type="button" className={btn.ghost} onClick={() => setEditQty(null)}>Cancel</button>
+              <button type="button" className={btn.outline} onClick={() => setPicking(true)} data-testid="po-add-more"><Plus className="w-4 h-4" />Add items</button>
+              <button type="button" className={btn.primary} disabled={saveQty.isPending} onClick={() => saveQty.mutate()} data-testid="po-lines-save">
+                {saveQty.isPending && <Loader2 className="w-4 h-4 animate-spin" />}Save
+              </button>
+              <button type="button" className={btn.ghost} onClick={cancelEdit}>Cancel</button>
             </>
           )}
         </div>
+        {editing && (
+          <p className="px-4 pt-2 text-xs text-muted-foreground">
+            Set a line to 0 to take it off. Add items brings in other products from {po.supplier_name}.
+          </p>
+        )}
         <div className="divide-y">
           {po.lines.map(l => (
-            <div key={l.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5">
+            <div key={l.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5" data-testid="po-line">
               <div className="flex-1 min-w-[160px]">
                 <p className="text-sm font-medium">{l.item_name} <StorageBadge storage={l.storage} />{l.added_on_receipt && <NotOrderedBadge />}</p>
                 {l.product_name && <p className="text-xs">{l.product_name}</p>}
@@ -1206,26 +1244,54 @@ function PoDetail({ poId, meta, phone, onBack, onOpenPo }) {
                     {RECEIVE_STATUSES.find(s => s.key === l.receive_status)?.label}: received {fmtNum(l.received_qty ?? 0)}{l.receive_note ? ` (${l.receive_note})` : ''}
                   </p>
                 )}
+                {editing && !((editQty[l.id] ?? l.qty) > 0) && <p className="text-xs text-red-700">Comes off the order when you save</p>}
               </div>
-              {editQty ? (
-                <QtyStepper value={editQty[l.id]} onChange={v => setEditQty(e => ({ ...e, [l.id]: v }))} label={l.item_name} />
+              {editing ? (
+                <QtyStepper value={editQty[l.id] ?? l.qty} onChange={v => setEditQty(e => ({ ...e, [l.id]: v }))} label={l.item_name} />
               ) : (
                 <span className="text-sm tabular-nums font-medium">× {fmtNum(l.added_on_receipt ? l.received_qty ?? 0 : l.qty)}</span>
               )}
               {prices && l.price != null && (
                 <span className={cn('w-24 text-right text-sm tabular-nums', l.added_on_receipt && 'text-blue-900')}>
-                  {money(lineAmounts(l.added_on_receipt ? addedAsLine(l) : l).net)}
+                  {money(lineAmounts(l.added_on_receipt ? addedAsLine(l) : editing ? { ...l, qty: editQty[l.id] ?? l.qty } : l).net)}
                 </span>
               )}
+              {editing && added.length > 0 && <span className="hidden sm:block w-11 shrink-0" aria-hidden="true" />}
             </div>
           ))}
+          {editing && added.map(x => {
+            const problem = qtyProblem(x.qty, x.quote)
+            return (
+              <div key={x.quote.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 bg-green-50/70" data-testid="po-new-line">
+                <div className="flex-1 min-w-[160px]">
+                  <p className="text-sm font-medium">{x.item.name} <StorageBadge storage={x.item.storage} /><NewLineBadge /></p>
+                  {x.quote.product_name && <p className="text-xs">{x.quote.product_name}</p>}
+                  <p className="text-xs text-muted-foreground">{[x.quote.supplier_code, x.quote.pack_label].filter(Boolean).join(' · ')}</p>
+                  {problem && <p className="text-xs text-amber-700">{problem}: will order {fmtNum(fitQty(x.qty, x.quote))}</p>}
+                </div>
+                <QtyStepper value={x.qty} step={x.quote.order_multiple || 1} onChange={v => setAddedQty(x.quote.id, v)} label={x.item.name} />
+                {prices && x.quote.price != null && (
+                  <span className="w-24 text-right text-sm tabular-nums">
+                    {money(lineAmounts({ price: x.quote.price, vat_rate: x.quote.vat_rate, qty: fitQty(x.qty, x.quote) }).net)}
+                  </span>
+                )}
+                <button type="button" onClick={() => toggleAdded(x.item, x.quote)} aria-label={`Don't add ${x.item.name}`}
+                  className="w-11 h-11 shrink-0 flex items-center justify-center rounded-lg text-muted-foreground hover:bg-muted touch-manipulation">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            )
+          })}
         </div>
         {prices && po.total != null && (
-          <div className="border-t px-4 py-2 text-sm space-y-0.5 text-right tabular-nums">
-            <p>Subtotal {money(po.subtotal)}</p>
-            <p>VAT {money(po.vat)}</p>
+          <div className="border-t px-4 py-2 text-sm space-y-0.5 text-right tabular-nums" data-testid="po-totals">
+            <p>Subtotal {money(shown.subtotal)}</p>
+            <p>VAT {money(shown.vat)}</p>
             {po.delivery_charge > 0 && <p>Delivery {money(po.delivery_charge)}</p>}
-            <p className="font-semibold">{notOrdered ? 'Order total' : 'Total'} {money(po.total)}</p>
+            <p className="font-semibold">{notOrdered ? 'Order total' : 'Total'} {money(shown.total)}</p>
+            {draft && Math.abs(draft.total - po.total) >= 0.005 && (
+              <p className="text-xs text-muted-foreground" data-testid="po-total-before">Before these changes {money(po.total)}</p>
+            )}
             {notOrdered && (
               <p className="text-blue-900 pt-1" data-testid="po-not-ordered-total">
                 Not ordered, arrived {money(notOrdered.net)} + VAT {money(notOrdered.vat)}
@@ -1270,7 +1336,78 @@ function PoDetail({ poId, meta, phone, onBack, onOpenPo }) {
         <SplitPoModal po={po} onClose={() => setSplitting(false)}
           onSplit={res => { setSplitting(false); done(res.po); setSplitDone(res) }} />
       )}
+      {picking && editing && (
+        <AddPoItemsModal po={po} added={added} onToggle={toggleAdded} onClose={() => setPicking(false)} />
+      )}
     </div>
+  )
+}
+
+/**
+ * The supplier's products to add to a purchase order waiting in To send:
+ * one row per product (an item can come in more than one pack). Tapping
+ * adds it to the order being changed, tapping again takes it out; products
+ * already on the order are shown but can't be added again (change their
+ * quantity on the order).
+ */
+function AddPoItemsModal({ po, added, onToggle, onClose }) {
+  const api = useApi()
+  const [search, setSearch] = useState('')
+  const [debounced, setDebounced] = useState('')
+  useEffect(() => { const t = setTimeout(() => setDebounced(search.trim()), 250); return () => clearTimeout(t) }, [search])
+  const { data = [], isFetching, error } = useQuery({
+    queryKey: ['purchasing-catalog', po.venue_id, po.supplier_id, debounced],
+    queryFn: () => api.get(`/purchasing/venues/${po.venue_id}/catalog?supplier_id=${po.supplier_id}&search=${encodeURIComponent(debounced)}`),
+  })
+  const prices = !!po.show_prices
+  const onOrder = new Set(po.lines.filter(l => !l.added_on_receipt).map(l => l.quote_id))
+  const picked = new Set(added.map(x => x.quote.id))
+  const rows = data.flatMap(i => i.quotes.filter(q => q.supplier_id === po.supplier_id).map(q => ({ item: i, quote: q })))
+  return (
+    <Modal title={`Add from ${po.supplier_name}`} onClose={onClose}
+      footer={<button type="button" className={btn.primary} onClick={onClose} data-testid="po-add-done">
+        <Check className="w-4 h-4" />Done{added.length ? ` (${added.length} to add)` : ''}
+      </button>}>
+      <div className="relative">
+        <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+        <input className={cn(inputCls, 'pl-9')} value={search} onChange={e => setSearch(e.target.value)}
+          placeholder={`Search ${po.supplier_name}'s products`} aria-label="Search products" autoFocus={!IS_TOUCH} />
+      </div>
+      <p className="text-xs text-muted-foreground">Tap a product to add it, then set how many on the order.</p>
+      <ErrorNote error={error} />
+      {isFetching && <Loader2 className="w-4 h-4 animate-spin" />}
+      <div className="rounded-xl border divide-y">
+        {rows.map(({ item, quote }) => {
+          const already = onOrder.has(quote.id)
+          const on = picked.has(quote.id)
+          return (
+            <button key={quote.id} type="button" disabled={already} aria-pressed={on} onClick={() => onToggle(item, quote)}
+              data-testid="po-product"
+              className={cn('w-full text-left px-3 py-2 min-h-[56px] flex items-center gap-3 touch-manipulation disabled:opacity-60',
+                on ? 'bg-primary/5' : !already && 'hover:bg-muted/40')}>
+              <span className="flex-1 min-w-0">
+                <span className="block text-sm font-medium">{item.name} <StorageBadge storage={item.storage} /></span>
+                {quote.product_name && <span className="block text-xs">{quote.product_name}</span>}
+                <span className="block text-xs text-muted-foreground">
+                  {[quote.supplier_code, quote.pack_label, prices && quote.price != null && money(quote.price)].filter(Boolean).join(' · ')}
+                </span>
+              </span>
+              {already
+                ? <span className="text-xs text-muted-foreground shrink-0">On the order</span>
+                : on
+                  ? <span className="text-xs font-medium text-primary shrink-0 inline-flex items-center gap-1"><Check className="w-4 h-4" />Added</span>
+                  : <Plus className="w-4 h-4 text-muted-foreground shrink-0" />}
+            </button>
+          )
+        })}
+        {!isFetching && !rows.length && (
+          <p className="p-3 text-sm text-muted-foreground">
+            {debounced ? 'Nothing found.' : `${po.supplier_name} has no products with a price yet. Add them on the Inventory page.`}
+          </p>
+        )}
+      </div>
+      {data.length >= 40 && <p className="text-xs text-muted-foreground">Showing the first 40. Search to find more.</p>}
+    </Modal>
   )
 }
 
@@ -1610,6 +1747,10 @@ function ReceiveForm({ po, meta, onClose, onSaved }) {
 
 function NotOrderedBadge() {
   return <span className="ml-1 text-[11px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-900 font-normal align-middle">Not ordered</span>
+}
+
+function NewLineBadge() {
+  return <span className="ml-1 text-[11px] px-1.5 py-0.5 rounded bg-green-100 text-green-900 font-normal align-middle">New</span>
 }
 
 /** A line added on receipt as an ordinary line: what arrived, at the invoice's price and VAT where read. */

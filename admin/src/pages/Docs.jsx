@@ -3078,9 +3078,37 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               Emails go through the venue's provider (<Mono>venue_email_settings</Mono>,{' '}
               <Mono>emailCredentials()</Mono>); <Mono>sendEmail()</Mono> now takes <Mono>cc</Mono> and{' '}
               <Mono>attachments</Mono> for every provider (SES switches to a raw MIME message when there are
-              attachments). <Mono>POST /pos/:id/mark-sent</Mono> records print / PDF / Excel / phone sends.{' '}
-              <Mono>PUT /pos/:id/lines</Mono> changes quantities or adds lines from the same supplier while{' '}
-              <Mono>to_send</Mono>; totals are recalculated.
+              attachments). <Mono>POST /pos/:id/mark-sent</Mono> records print / PDF / Excel / phone sends.
+            </P>
+            <H3>Changing an order not yet sent</H3>
+            <P>
+              <Mono>PUT /pos/:id/lines</Mono> (approval; <Mono>to_send</Mono> only, else 409):{' '}
+              <Mono>{'{ lines: [{ id, qty }], add: [{ quote_id, qty }] }'}</Mono>. <Mono>lines</Mono> sets
+              quantities (0 deletes the line). <Mono>add</Mono> takes only active prices of active suppliers
+              (<Mono>loadItemQuotes()</Mono>) from the PO's own supplier (422 otherwise, also for another
+              tenant's or a switched-off price) and refuses an item switched off in the inventory (422). A new
+              line copies the item and the quote like <Mono>createPurchaseOrder()</Mono> does (name, category,
+              storage, base unit, code, product name, pack label and base quantity,{' '}
+              <Mono>quotePrice(q, venue)</Mono>, VAT) at <Mono>fitQty(qty)</Mono>, after the lines already
+              there. A product already on the order (same quote, not added on receipt, after the{' '}
+              <Mono>lines</Mono> changes) tops its line up to <Mono>fitQty(qty + added)</Mono> instead of
+              making a second line; the same product twice in one add counts twice. An order left with no lines
+              is refused (cancel it instead). Totals are recalculated; nothing is marked amended (the supplier
+              hasn't had it). <Mono>GET /venues/:id/catalog?supplier_id=</Mono> lists only items that supplier
+              sells (<Mono>all</Mono> is ignored with it), each with all its active quotes, so callers filter
+              the quotes to the supplier.
+            </P>
+            <P>
+              Admin: Change quantities and Add items on <Mono>PoDetail</Mono> (approvers, To send) open one edit
+              mode (<Mono>editQty</Mono> per line, <Mono>added</Mono> = <Mono>{'{ item, quote, qty }'}</Mono>).
+              While it is open the send buttons are hidden, and with prices the totals come from the draft
+              (<Mono>orderTotals()</Mono>) with the saved total as "Before these changes".{' '}
+              <Mono>AddPoItemsModal</Mono> lists one row per quote of the supplier, shows quotes already on the
+              order as not pickable and toggles picks; a new line starts at <Mono>fitQty(1)</Mono>, steps by{' '}
+              <Mono>order_multiple</Mono> and warns with <Mono>qtyProblem()</Mono>. Save sends{' '}
+              <Mono>lines</Mono> and <Mono>add</Mono> together. Pepper's <Mono>change_purchase_order</Mono>{' '}
+              searches with <Mono>supplier_id</Mono> and its card says when an add tops up a line already on
+              the order. Tests: <Mono>api/test/po-add-items.test.mjs</Mono>.
             </P>
             <H3>Receiving</H3>
             <P>
@@ -4869,7 +4897,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['split_order', 'approve manage', 'POST /pos/:id/split | /orders/:id/split', 'po or order_id; lines (item, packs) to move; delivery_date (deliveries[] per supplier for a request); splitPlan() refuses the same day, a past day, more than a line holds and the whole order; the card warns when the supplier already has the PO'],
                 ['place_order', 'approve manage (requirePlace(): else "use request_order")', 'PUT /orders/:id/lines, POST /orders/:id/submit', 'The draft, or order_id for a request. Card per supplier: delivery date (deliveries[].date, else the day the request asked for, "(as asked)", else next delivery), how it is sent, lines at fitQty(); warns on rounding, minimum order, a missed cutoff, a date off the delivery days, no email address. Only overrides and notes are sent, so the route still picks the date at run time. The card pins planned_delivery { supplierId: date } for suppliers without a date given; run() refuses (409) when a supplier\'s first delivery day has moved since (a cutoff passed), so the order is never placed for a day the card didn\'t show'],
                 ['send_purchase_order', 'purchasing or approve manage', 'POST /pos/:id/send | /mark-sent', 'email needs an address (resend allowed, warned); other ways need To send'],
-                ['change_purchase_order', 'purchasing or approve manage; lines and add: approve', 'PATCH /pos/:id, PUT /pos/:id/lines', 'Lines and add only while To send; add only from the PO\'s supplier (catalog quotes); an empty order is refused'],
+                ['change_purchase_order', 'purchasing or approve manage; lines and add: approve', 'PATCH /pos/:id, PUT /pos/:id/lines', 'Lines and add only while To send; add only from the PO\'s supplier (GET /venues/:id/catalog?supplier_id=); a product already on the order tops its line up, and the card says so; an empty order is refused'],
                 ['cancel_purchase_order', 'approve manage', 'POST /pos/:id/cancel', 'Warns to tell the supplier when already sent'],
                 ['receive_delivery', 'purchasing or approve manage', 'POST /pos/:id/receive', 'Lines not named arrived as ordered (or keep what an earlier booking-in recorded); chilled/frozen temperature asked for when such goods arrived; writes fs_delivery_checks'],
               ]}

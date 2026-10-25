@@ -209,6 +209,9 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx' } = 
     await step('preferred quote', () => put(`/api/inventory/items/${item.id}/preferred`, { venue_id: V, quote_id: quote.id }))
   }
   if (supplier) await step('supplier venue', () => put(`/api/suppliers/${supplier.id}/venues`, { venues: [{ venue_id: V, account_ref: mark + '-123' }] }))
+  // A second product from the supplier, added to a purchase order below.
+  const oil = supplier ? await step('second inventory item', () => post('/api/inventory/items', { name: mark + ' Oil', base_unit: 'ml', storage: 'ambient' })) : null
+  const oilQuote = oil ? (await step('second quote', () => post(`/api/inventory/items/${oil.id}/quotes`, { supplier_id: supplier.id, pack_name: 'Tin', pack_qty: 5, pack_unit: 'l', price: 9 })))?.quotes?.[0] : null
   const list = await step('order list', () => post('/api/purchasing/lists', { name: mark + ' Dry goods', venue_ids: [V], item_ids: item ? [item.id] : [] }))
   if (list && item) await step('list pars', () => put(`/api/purchasing/lists/${list.id}/pars`, { pars: [{ item_id: item.id, venue_id: V, par_base: 5000 }] }))
   if (list) {
@@ -231,7 +234,11 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx' } = 
       const po = pos?.[0]
       if (po) {
         const d = await step('purchase order', () => get(`/api/purchasing/pos/${po.id}`))
-        if (d?.lines?.[0]) await step('purchase order split', () => post(`/api/purchasing/pos/${po.id}/split`, { lines: [{ id: d.lines[0].id, qty: 1 }], delivery_date: later(21) }))
+        const split = d?.lines?.[0] ? await step('purchase order split', () => post(`/api/purchasing/pos/${po.id}/split`, { lines: [{ id: d.lines[0].id, qty: 1 }], delivery_date: later(21) })) : null
+        // The split-off order hasn't been sent: another of the supplier's products goes on it.
+        if (split?.new_po && oilQuote) {
+          await step('purchase order add item', () => put(`/api/purchasing/pos/${split.new_po.id}/lines`, { add: [{ quote_id: oilQuote.id, qty: 2 }] }))
+        }
         // Booked in with a line that wasn't ordered (migration 197), whose
         // invoice price then goes into the price list as a new supplier price.
         const got = d && await step('purchase order receive', () => post(`/api/purchasing/pos/${po.id}/receive`, {

@@ -4961,12 +4961,22 @@ export default function Help() {
             <DataTable
               head={['Status', 'What to do']}
               rows={[
-                ['To send', 'Not with the supplier yet: Email it, or Print / PDF / Excel and tap Mark as sent. Quantities can still be changed. An email that failed shows why.'],
+                ['To send', 'Not with the supplier yet: Email it, or Print / PDF / Excel and tap Mark as sent. Quantities can still be changed and more of the supplier\'s products added. An email that failed shows why.'],
                 ['Sent', 'Waiting for the delivery. "Due today or overdue" lists the ones to expect.'],
                 ['Received', 'Booked in. The delivery check is under Food safety → Deliveries.'],
                 ['Cancelled', 'Cancelled before it arrived.'],
               ]}
             />
+            <P>
+              While an order waits under <strong>To send</strong>, someone with Purchasing approval can still
+              change it. <strong>Change quantities</strong> changes how many of each (0 takes a line off).{' '}
+              <strong>Add items</strong> lists everything that supplier sells you: search by name, tap the
+              products to add (something already on the order can't be picked again: change its quantity
+              instead), tap Done, set how many, then <strong>Save</strong>. Added products go on at today's price
+              for the venue, rounded up to the supplier's minimum and steps. If you see prices, the total shows
+              what the order comes to and what it was before. Once an order has been sent it can't change:
+              cancel it and order again.
+            </P>
             <P>
               When a delivery arrives, open it and tap <strong>Book in delivery</strong>: for each line, how
               many arrived (a lower number marks it Short; you can also pick Damaged, Substituted or Not
@@ -4994,8 +5004,9 @@ export default function Help() {
             <P>
               An order that was sent back shows <strong>Sent back</strong> on its list's tile and the reason at the
               top: change it and send it for approval again. A placed purchase order records who asked for it and
-              who placed it. Changing a placed order's quantities, splitting it and cancelling it also need
-              Purchasing approval; sending it, moving its delivery date and booking the delivery in don't.
+              who placed it. Changing a placed order's quantities, adding products to it, splitting it and
+              cancelling it also need Purchasing approval; sending it, moving its delivery date and booking the
+              delivery in don't.
             </P>
 
             <H3>7. Splitting an order for another day</H3>

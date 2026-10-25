@@ -5,6 +5,14 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-25 — Purchasing: add items to an order that hasn't been sent]
+
+- Purchasing → Deliveries → a purchase order waiting in **To send** → **Add items** (next to Change quantities, for people with Purchasing approval): a list of everything that supplier sells you, with each pack on its own row (code, product name and, if you see prices, the venue's price). Search by name, tap the products to add (tap again to take one out), tap Done, set how many on the order, then **Save**. Products already on the order can't be picked again: change their quantity instead. Change quantities and Add items work together, so one save can change, take off and add lines.
+- New lines go on at today's price for the venue, rounded up to the supplier's minimum and steps (a hint says what will be ordered), marked **New** until saved. If you see prices, the totals follow the changes and say what the order came to before. While the order is being changed, Email and Mark as sent are hidden, so the supplier never gets the old version.
+- Pepper's change purchase order looks for the product among that supplier's products only, and adding something already on the order now tops up its line (the card says so) instead of putting it on twice. The same goes for anything else adding to an order.
+- An order already sent still can't change: cancel it and order again.
+- No migration.
+
 ## [2026-10-25 — Menus page keeps a dish's own options; Menus on a phone; kiosk preview notice]
 
 - **Saving a menu no longer deletes a dish's own options.** Options added to one dish directly rather than from an option group (the sample menus, older menus, imports) were wiped every time the menu was saved on the Menus page, along with any meal deal rule on them (Options in this deal). They are now kept. The dish's row shows a small amber badge with how many, and its panel lists them in an amber card with two buttons: **Turn into an option group** (makes a group with the same options and prices, named after them, shown to guests as "Choose" as before, first among the dish's groups; when an identical group exists, **Use the option group** uses it with this dish's prices; a meal deal rule on them moves to the group) and **Remove** (asks first). Both are saved with Save changes. Menus already saved on the page lost theirs before this fix; they don't come back.

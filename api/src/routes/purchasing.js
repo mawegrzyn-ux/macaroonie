@@ -33,7 +33,7 @@ import {
   DELIVERY_TEMP_MAX, RECEIVE_STATUSES, deliveryDateChoices, packBaseQty, UNITS,
 } from '../../../shared/procurement.js'
 import {
-  resolveQuotes, quoteView, loadVenue, venueNow, loadSuppliersForVenue, createPurchaseOrder,
+  resolveQuotes, loadItemQuotes, quoteView, loadVenue, venueNow, loadSuppliersForVenue, createPurchaseOrder,
   loadPo, loadPoLines, poFile, emailPo, nextPoNumber,
   invoiceView,
 } from '../services/purchasingSvc.js'
@@ -713,10 +713,13 @@ export default async function purchasingRoutes(app) {
 
   // ── Catalogue search for the order form (items not on the list) ──
   // Items to add to an order (items someone sells); with ?all=1 also items
-  // without a supplier price (booking in what arrived but wasn't ordered).
+  // without a supplier price (booking in what arrived but wasn't ordered);
+  // with ?supplier_id= only items that supplier sells (adding to one of its
+  // purchase orders).
   app.get('/venues/:venueId/catalog', { preHandler: canRead }, async req => {
     const search = String(req.query.search || '').trim().slice(0, 100)
-    const all = req.query.all === '1'
+    const supplierId = req.query.supplier_id ? uuid.parse(req.query.supplier_id) : null
+    const all = req.query.all === '1' && !supplierId
     const prices = await showPrices(req)
     return withTenant(req.tenantId, async tx => {
       const venue = await loadVenue(tx, req.tenantId, req.params.venueId)
@@ -726,7 +729,8 @@ export default async function purchasingRoutes(app) {
          WHERE i.tenant_id = ${req.tenantId} AND i.is_active
            ${search ? tx`AND (i.name ILIKE ${'%' + search + '%'} OR i.code ILIKE ${search + '%'})` : tx``}
            ${all ? tx`` : tx`AND EXISTS (SELECT 1 FROM inv_quotes q JOIN suppliers s ON s.id = q.supplier_id AND s.tenant_id = ${req.tenantId}
-                        WHERE q.item_id = i.id AND q.tenant_id = ${req.tenantId} AND q.is_active AND s.is_active)`}
+                        WHERE q.item_id = i.id AND q.tenant_id = ${req.tenantId} AND q.is_active AND s.is_active
+                          ${supplierId ? tx`AND q.supplier_id = ${supplierId}` : tx``})`}
          ORDER BY lower(i.name)
          LIMIT 40
       `
@@ -1080,8 +1084,11 @@ export default async function purchasingRoutes(app) {
     })
   })
 
-  // Change quantities (0 removes the line) or add lines from the same
-  // supplier, while the order hasn't gone to the supplier. Needs approval.
+  // Change quantities (0 removes the line) or add products from the same
+  // supplier (add: its active prices, quantities rounded up to the minimum
+  // and steps, at today's price for the venue), while the order hasn't gone
+  // to the supplier. A product already on the order tops its line up rather
+  // than making a second line. Needs approval.
   app.put('/pos/:id/lines', { preHandler: canApprove }, async req => {
     const b = PoLinesBody.parse(req.body || {})
     const prices = await showPrices(req)
@@ -1096,21 +1103,32 @@ export default async function purchasingRoutes(app) {
         else await tx`UPDATE purchase_order_lines SET qty = ${l.qty} WHERE id = ${l.id} AND tenant_id = ${req.tenantId}`
       }
       if (b.add?.length) {
-        const ids = b.add.map(a => a.quote_id)
-        const { quotes } = await resolveQuotes(tx, req.tenantId, venue.id,
-          (await tx`SELECT DISTINCT item_id FROM inv_quotes WHERE id = ANY(${ids}::uuid[]) AND tenant_id = ${req.tenantId}`).map(r => r.item_id))
-        const all = [...quotes.values()].flat()
+        const ids = [...new Set(b.add.map(a => a.quote_id))]
+        const itemIds = (await tx`SELECT DISTINCT item_id FROM inv_quotes WHERE id = ANY(${ids}::uuid[]) AND tenant_id = ${req.tenantId}`).map(r => r.item_id)
+        const quotes = [...(await loadItemQuotes(tx, req.tenantId, itemIds)).values()].flat()
+        const items = new Map((await tx`
+          SELECT i.id, i.name, i.storage, i.base_unit, i.is_active, c.name AS category_name
+            FROM inv_items i LEFT JOIN inv_categories c ON c.id = i.category_id AND c.tenant_id = ${req.tenantId}
+           WHERE i.id = ANY(${itemIds}::uuid[]) AND i.tenant_id = ${req.tenantId}
+        `).map(i => [i.id, i]))
+        const onOrder = new Map((await tx`
+          SELECT id, quote_id, qty::float8 AS qty FROM purchase_order_lines
+           WHERE po_id = ${po.id} AND tenant_id = ${req.tenantId} AND quote_id IS NOT NULL AND NOT added_on_receipt
+        `).map(l => [l.quote_id, l]))
         const [{ n }] = await tx`SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM purchase_order_lines WHERE po_id = ${po.id} AND tenant_id = ${req.tenantId}`
         let sort = Number(n)
         for (const a of b.add) {
-          const q = all.find(x => x.id === a.quote_id)
+          const q = quotes.find(x => x.id === a.quote_id)
           if (!q || q.supplier_id !== po.supplier_id) throw httpError(422, 'That product is not from this supplier')
-          const [item] = await tx`
-            SELECT i.id, i.name, i.storage, i.base_unit, c.name AS category_name
-              FROM inv_items i LEFT JOIN inv_categories c ON c.id = i.category_id AND c.tenant_id = ${req.tenantId}
-             WHERE i.id = ${q.item_id} AND i.tenant_id = ${req.tenantId}
-          `
-          await tx`
+          const item = items.get(q.item_id)
+          if (!item.is_active) throw httpError(422, `${item.name} is switched off in the inventory`)
+          const line = onOrder.get(q.id)
+          if (line) {
+            line.qty = fitQty(line.qty + a.qty, q)
+            await tx`UPDATE purchase_order_lines SET qty = ${line.qty} WHERE id = ${line.id} AND tenant_id = ${req.tenantId}`
+            continue
+          }
+          const [added] = await tx`
             INSERT INTO purchase_order_lines ${tx({
               tenant_id: req.tenantId, po_id: po.id, item_id: item.id, quote_id: q.id, item_name: item.name,
               category_name: item.category_name ?? null, storage: item.storage, base_unit: item.base_unit,
@@ -1118,7 +1136,9 @@ export default async function purchasingRoutes(app) {
               pack_label: packLabel(q), pack_base_qty: q.pack_base_qty,
               price: quotePrice(q, venue.id), vat_rate: q.vat_rate, qty: fitQty(a.qty, q), sort_order: sort++,
             })}
+            RETURNING id, quote_id, qty::float8 AS qty
           `
+          onOrder.set(q.id, added)
         }
       }
       const [{ c }] = await tx`SELECT count(*)::int AS c FROM purchase_order_lines WHERE po_id = ${po.id} AND tenant_id = ${req.tenantId}`
