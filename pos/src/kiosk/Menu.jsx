@@ -18,16 +18,20 @@ import { cx, Pic, Photo, Sheet, Flag, BackButton, HexGrid, HexTile } from './par
 import { priceLabel, DietaryBadges } from './Builder.jsx'
 import { Languages } from './Start.jsx'
 import { FitMark, FitNote, PrefsStrip, needsCheck } from './fit.jsx'
+import { flyToBasket } from './fly.js'
 
 
 export function needsBuilder(item) {
   return item.kind === 'combo' || (item.pos_choices || []).length > 0
 }
 
-/** Tap on a dish: its builder, or straight into the order (with + on, no choices). */
-export function tapItem(item, config, texts, { quick = false } = {}) {
+/**
+ * Tap on a dish: its builder, or straight into the order (with + on, no
+ * choices), its picture (from) flying into the order button (fly.js).
+ */
+export function tapItem(item, config, texts, { quick = false, from = null } = {}) {
   if (needsBuilder(item) || (!quick && !config.design.menu.quick_add)) openBuilder(item.id)
-  else addToBasket({ item_id: item.id, selection: {}, qty: 1 })
+  else addToBasket({ item_id: item.id, selection: {}, qty: 1 }, null, { flew: flyToBasket(from) })
 }
 
 export function useBasketTotals(s) {
@@ -47,11 +51,11 @@ function ItemHex({ item, config, ctx, texts, sold, fit }) {
   const check = needsCheck(fit)
   const top = (d.show_tags || check) ? <>{check && <FitMark fit={fit} texts={texts} className="k-fit-mark-hex" />}{d.show_tags && <DietaryBadges item={item} config={config} texts={texts} compact />}</> : null
   return (
-    <HexTile src={item.image_url} label={name} off={sold} disabled={sold} onClick={() => !sold && tapItem(item, config, texts)}
+    <HexTile src={item.image_url} label={name} off={sold} disabled={sold} onClick={e => !sold && tapItem(item, config, texts, { from: e.currentTarget })}
       testId="k-item" attrs={{ 'data-item': item.id, 'data-fit': fit ? (check ? 'check' : 'ok') : undefined }}
       top={top}
       extra={quick && (
-        <button className="k-btn k-btn-round k-btn-primary k-hex-side" onClick={() => tapItem(item, config, texts, { quick: true })} aria-label={texts.ui('add') + ' ' + name} data-testid="k-quick-add">
+        <button className="k-btn k-btn-round k-btn-primary k-hex-side" onClick={e => tapItem(item, config, texts, { quick: true, from: e.currentTarget.parentElement?.querySelector('.k-hex') })} aria-label={texts.ui('add') + ' ' + name} data-testid="k-quick-add">
           <Plus />
         </button>
       )}>
@@ -69,7 +73,7 @@ function ItemCard({ item, config, ctx, texts, sold, fit }) {
   const check = needsCheck(fit)
   return (
     <div className="relative">
-      <button className={cx('k-card k-item w-full', check && 'k-item-check')} onClick={() => !sold && tapItem(item, config, texts)} disabled={sold} data-testid="k-item" data-item={item.id}
+      <button className={cx('k-card k-item w-full', check && 'k-item-check')} onClick={e => !sold && tapItem(item, config, texts, { from: e.currentTarget.querySelector('.k-item-img') })} disabled={sold} data-testid="k-item" data-item={item.id}
         data-fit={fit ? (check ? 'check' : 'ok') : undefined}>
         <Photo src={item.image_url} label={name} className="k-item-img" phClassName="k-item-ph" />
         <FitMark fit={fit} texts={texts} className="k-fit-badge" />
@@ -86,7 +90,7 @@ function ItemCard({ item, config, ctx, texts, sold, fit }) {
         {sold && <span className="k-sold"><span>{texts.ui('sold_out')}</span></span>}
       </button>
       {quick && (
-        <button className="k-btn k-btn-round k-btn-primary k-quick shadow" onClick={() => tapItem(item, config, texts, { quick: true })} aria-label={texts.ui('add') + ' ' + name} data-testid="k-quick-add">
+        <button className="k-btn k-btn-round k-btn-primary k-quick shadow" onClick={e => tapItem(item, config, texts, { quick: true, from: e.currentTarget.parentElement?.querySelector('.k-item-img') })} aria-label={texts.ui('add') + ' ' + name} data-testid="k-quick-add">
           <Plus />
         </button>
       )}
@@ -94,12 +98,12 @@ function ItemCard({ item, config, ctx, texts, sold, fit }) {
   )
 }
 
-function linkTo(link, config, texts) {
+function linkTo(link, config, texts, from = null) {
   if (!link || link.kind === 'none') return
   if (link.kind === 'section') openSection(link.id)
   else if (link.kind === 'item') {
     const it = configItem(config, link.id)
-    if (it) tapItem(it, config, texts)
+    if (it) tapItem(it, config, texts, { from })
   }
 }
 
@@ -115,7 +119,7 @@ function Banners({ banners, secs, config, texts }) {
   const title = b.title ? texts.t(TK.design(config.design.id, 'banner:' + b.id), b.title) : null
   return (
     <div className="flex flex-col gap-[.5em]">
-      <button className="relative w-full overflow-hidden rounded-[var(--k-radius)] border-0 p-0 k-fade" key={b.id} onClick={() => linkTo(b.link, config, texts)} data-testid="k-banner">
+      <button className="relative w-full overflow-hidden rounded-[var(--k-radius)] border-0 p-0 k-fade" key={b.id} onClick={e => linkTo(b.link, config, texts, e.currentTarget.querySelector('img'))} data-testid="k-banner">
         <img src={b.image_url} alt="" className="w-full aspect-[16/7] max-h-[36vh] object-cover block" draggable={false} />
         {title && <span className="absolute left-0 bottom-0 m-[var(--k-gap)] k-head text-[1.5em] px-[.6em] py-[.2em] rounded-[calc(var(--k-radius)/1.5)] bg-[var(--k-accent)] text-[var(--k-accent-text)]">{title}</span>}
       </button>
@@ -140,7 +144,7 @@ function Home({ config, texts }) {
             const sub = f.subtitle ? texts.t(TK.design(config.design.id, 'featured:' + f.id + ':subtitle'), f.subtitle) : null
             return (
               <button key={f.id} className={cx('k-card relative overflow-hidden border-0 p-0 text-left min-h-[22vmin]', f.size === 'wide' && 'col-span-2')}
-                onClick={() => linkTo(f.link, config, texts)} data-testid="k-featured">
+                onClick={e => linkTo(f.link, config, texts, e.currentTarget.querySelector('img'))} data-testid="k-featured">
                 {f.image_url && <Pic src={f.image_url} className="absolute inset-0 w-full h-full object-cover" />}
                 <span className="absolute inset-x-0 bottom-0 p-[.8em] flex flex-col" style={f.image_url ? { background: 'linear-gradient(to top, rgba(0,0,0,.7), transparent)', color: '#fff' } : null}>
                   {title && <span className="k-head text-[1.5em]">{title}</span>}
@@ -240,7 +244,8 @@ export function OrderBar({ s, texts, onView, label, onBack = null }) {
         <span className="font-semibold">{count === 1 ? texts.ui('item_count_one') : texts.ui('item_count', { n: count })}</span>
         <span className="k-head text-[1.4em]" data-testid="k-bar-total">{texts.money(total)}</span>
       </div>
-      <button key={s.added || 'none'} className={cx('k-btn k-btn-accent k-btn-big', s.added && Date.now() - s.added < 1000 && 'k-bump')} onClick={onView} disabled={!count} data-testid="k-view-order">
+      <button key={s.added || 'none'} className={cx('k-btn k-btn-accent k-btn-big', s.added && Date.now() - s.added < 1000 && 'k-bump')} onClick={onView} disabled={!count} data-testid="k-view-order"
+        data-fly-target="basket">
         <ShoppingBag /> {label || texts.ui('view_order')}
       </button>
     </div>

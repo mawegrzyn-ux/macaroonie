@@ -27,6 +27,7 @@ import OptionGroup, { missingIn, groupName } from './OptionGroup.jsx'
 import { DISPLAYS, choiceLook } from './displays.jsx'
 import { cx, Pic, PickPhoto, BundlePhoto, Stepper, BackButton, bringIntoView, usePortrait } from './parts.jsx'
 import { FitMark, FitNote, needsCheck } from './fit.jsx'
+import { flyToBasket } from './fly.js'
 
 /**
  * Tags with their levels ({ code: level }) as names in the guest's language:
@@ -224,6 +225,9 @@ function HeroFit({ item, config, texts }) {
   )
 }
 
+// The page's big picture: what flies into the order on Add (fly.js).
+const heroPicture = () => document.querySelector('[data-testid="k-builder"] [data-testid="k-hero-img"]')
+
 /**
  * Scroll to the first group still waiting for a pick and make it flash. The
  * Add / Continue buttons stay tappable while something is missing: a tap
@@ -289,7 +293,7 @@ function DishBuilder({ item, config, ctx, texts, builder }) {
         </div>
       )}
       <AddBar texts={texts} qty={qty} setQty={setQty} priced={priced} missing={missing} editing={!!builder.key} total={total}
-        onBack={closeBuilder} onAdd={() => addToBasket({ item_id: item.id, selection: { choices: sel.choices || {} }, qty }, builder.key)} />
+        onBack={closeBuilder} onAdd={() => addToBasket({ item_id: item.id, selection: { choices: sel.choices || {} }, qty }, builder.key, { flew: !builder.key && flyToBasket(heroPicture()) })} />
     </div>
   )
 }
@@ -376,7 +380,7 @@ function ComboBuilder({ item, config, ctx, texts, builder }) {
   }
   const goNext = () => { if (pages[index + 1]) setPageKey(pages[index + 1].key) }
   const goBack = () => (index > 0 ? setPageKey(pages[index - 1].key) : closeBuilder())
-  const add = () => addToBasket({ item_id: item.id, selection: { choices: sel.choices || {}, combo: picks }, qty }, builder.key)
+  const add = () => addToBasket({ item_id: item.id, selection: { choices: sel.choices || {}, combo: picks }, qty }, builder.key, { flew: !builder.key && flyToBasket(heroPicture()) })
 
   // Plain functions, not components: a component made inside this one would
   // be a new type on every render and lose its state (a slider's place).

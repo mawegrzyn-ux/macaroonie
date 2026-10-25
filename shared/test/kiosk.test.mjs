@@ -88,7 +88,7 @@ test('design: layout, section tiles and the spin wheel', () => {
   const plain = normaliseDesign({})
   assert.deepEqual(plain.layout, {
     tiles: 'cards', option_tiles: 'cards', option_pictures: true, option_align: 'left',
-    hero: 'beside', hero_image_align: 'center', hero_text_align: 'center', hero_backdrop: true, combo_build: true, header: true, icon_buttons: false,
+    hero: 'beside', hero_image_align: 'center', hero_text_align: 'center', hero_backdrop: true, combo_build: true, fly_to_order: true, header: true, icon_buttons: false,
   })
   assert.equal(plain.options.pick_photos, undefined, 'set per option group and step now')
   assert.equal(plain.menu.rail, 'images')
@@ -108,7 +108,7 @@ test('design: layout, section tiles and the spin wheel', () => {
   // Choices keep the dishes' style until the design picks their own.
   assert.deepEqual(d.layout, {
     tiles: 'hexagon', option_tiles: 'hexagon', option_pictures: true, option_align: 'left',
-    hero: 'beside', hero_image_align: 'center', hero_text_align: 'center', hero_backdrop: true, combo_build: true, header: false, icon_buttons: true,
+    hero: 'beside', hero_image_align: 'center', hero_text_align: 'center', hero_backdrop: true, combo_build: true, fly_to_order: true, header: false, icon_buttons: true,
   })
   assert.equal(d.menu.rail, 'none')
   assert.deepEqual(d.menu.section_tiles, [
@@ -636,15 +636,16 @@ test('variation types: what an option group does to the dish, for stock', () => 
   for (const t of VARIATION_TYPES) assert.ok(t.label && t.hint, t.key)
 })
 
-test('design: the shade behind the dish\'s photo and the meal deal picture from the picks, both on unless turned off', () => {
+test('design: the shade behind the dish\'s photo, the meal deal picture from the picks and the flight into the order, all on unless turned off', () => {
   const d = normaliseDesign({})
   assert.equal(d.layout.hero_backdrop, true)
   assert.equal(d.layout.combo_build, true)
-  const off = normaliseDesign({ layout: { hero_backdrop: false, combo_build: false } })
-  assert.deepEqual([off.layout.hero_backdrop, off.layout.combo_build], [false, false])
+  assert.equal(d.layout.fly_to_order, true)
+  const off = normaliseDesign({ layout: { hero_backdrop: false, combo_build: false, fly_to_order: false } })
+  assert.deepEqual([off.layout.hero_backdrop, off.layout.combo_build, off.layout.fly_to_order], [false, false, false])
   // Only false turns them off.
-  const odd = normaliseDesign({ layout: { hero_backdrop: 'no', combo_build: 0 } })
-  assert.deepEqual([odd.layout.hero_backdrop, odd.layout.combo_build], [true, true])
+  const odd = normaliseDesign({ layout: { hero_backdrop: 'no', combo_build: 0, fly_to_order: null } })
+  assert.deepEqual([odd.layout.hero_backdrop, odd.layout.combo_build, odd.layout.fly_to_order], [true, true, true])
 })
 
 // A meal: dips (small, first, twice), the main (wings split by their flavours, with their own dip), a side, a drink, a note with no picture.
