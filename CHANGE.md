@@ -5,6 +5,13 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-25 — Kiosk designs: bottom bar and side menu colours]
+
+- Store tech → Kiosks → a design → Brand: **Bottom bar and side menu**, under the main colours: **Bottom bar**, **Bottom bar text**, **Side menu** and **Side menu text**. Until you set them the kiosk looks as before (the bar in the Text colour, the sections down the side in the Cards colour). Words left on **Automatic** take whichever of the Page and Text colours reads better, so a bar colour on its own stays readable. Each colour box shows the colour in use; Reset makes a colour follow again. The preview follows as you go; Save keeps it.
+- The bottom bar colour is on every bottom bar (the menu, the order, the name and table number, paying, the allergens screen); Back, Start again and the other buttons on it follow its colours, View order keeps the Highlights colour. A dish's own page keeps its bar in the Cards colour. The section picked down the side is tinted on the side menu's own colour.
+- A hard-to-read pair (red words on a red bar) is pointed out. Picking a colour set or a theme starts the bar and side menu colours over.
+- No migration.
+
 ## [2026-10-25 — Purchasing: add items to an order that hasn't been sent]
 
 - Purchasing → Deliveries → a purchase order waiting in **To send** → **Add items** (next to Change quantities, for people with Purchasing approval): a list of everything that supplier sells you, with each pack on its own row (code, product name and, if you see prices, the venue's price). Search by name, tap the products to add (tap again to take one out), tap Done, set how many on the order, then **Save**. Products already on the order can't be picked again: change their quantity instead. Change quantities and Add items work together, so one save can change, take off and add lines.

@@ -4125,7 +4125,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <DataTable
               head={['Part', 'Fields']}
               rows={[
-                ['brand', 'logo_url, colors { background, surface, text, muted, primary, primary_text, accent, accent_text }, font_heading / font_body (System or KIOSK_FONTS: the website fonts plus Oswald, Bebas Neue, Anton, Barlow Condensed, Archivo Black), radius 0-32, heading_case upper | normal'],
+                ['brand', 'logo_url, colors { background, surface, text, muted, primary, primary_text, accent, accent_text, bar, bar_text, rail, rail_text }, font_heading / font_body (System or KIOSK_FONTS: the website fonts plus Oswald, Bebas Neue, Anton, Barlow Condensed, Archivo Black), radius 0-32, heading_case upper | normal. bar / bar_text / rail / rail_text (PART_COLORS) are the bottom bar\'s and the side menu\'s own colours: a colour code, else null (not set: never See-through); see Bottom bar and side menu colours below.'],
                 ['layout', 'tiles (dishes: the menu, section tiles, the dish\'s photo, basket thumbs) and option_tiles (choices: option groups and combo steps; a group can have its own, groupLook()), each cards | round | oval | hexagon | plain (TILE_STYLES; plain = No frame: the picture whole and as it is, object-fit contain, no card, corners, shadow or background, for PNGs on a see-through background; a picked plain choice gets a drop-shadow glow in --k-primary, its name in that colour and the tick; option_tiles defaults to tiles when not set). hero beside | stacked (HERO_LAYOUTS: the top of a dish\'s page, Builder.jsx Hero; stacked puts the photo on top, min(64%, 560px) wide) with hero_image_align and hero_text_align left | center | right (HERO_ALIGNS, default center; on a wide screen the photo is always above the words in its own column and only hero_text_align applies there, also to a combo\'s pages, which draw the same Hero: heroTextAlign()). Hexagon dishes also give the whole kiosk the hexagon look. header (the bar along the top; default on), icon_buttons (Back and Start again as icons), option_pictures (default on; off = choices show only their words, in option_tiles\' shape; the split photo still uses the pictures), option_align left | center (OPTION_ALIGNS: a grid or honeycomb of choices and its heading). hero_backdrop (default on; data-hero-backdrop on the root: kiosk.css gives .k-hero-img and the order line\'s .k-thumb var(--k-shade), No frame ones the design\'s corners, and off clears the split photo\'s shade there too). combo_build (default on; data-combo-build on the root: a meal deal\'s picture from its picks, bundleParts() / bundleLayout() / BundlePhoto, see below). fly_to_order (default on; data-fly-to-order on the root: Add to order\'s picture flies into the order button, fly.js below). The editor sets tiles in the Menu panel, option_tiles, option_pictures and option_align in the Choices panel, and the rest in the Layout panel.'],
                 ['start', 'layout split | full, media [{ id, type image | video, url }] (8), media_secs 3-30, headline, question, type_cards { [orderTypeId]: { label, icon eat_in | take_away | delivery | none, image_url } }, show_allergens'],
                 ['see-through pictures', 'Not a setting: pos/src/kiosk/clear.js useClear(src) draws a picture at 48 x 48 on a canvas once per session and reports whether any pixel has alpha under 250 (another origin is loaded with crossOrigin anonymous; a picture that can\'t be read counts as opaque). Every kiosk picture of a dish, choice, section or pick goes through Pic in parts.jsx (Photo, SplitPhoto, CornerPicks, HexTile, the rail, featured tiles, bundle step tabs), which adds .k-clear and data-clear="1": kiosk.css then drops the picture\'s background, shows it whole (object-fit contain) and, for .k-corner-pick, drops the badge (radius, ring, clip) for a drop-shadow on the outline. Banners, the logo and start screen media are left as they are.'],
@@ -4136,6 +4136,34 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['behaviour', 'idle_secs 20-600, warn_secs 5-60, done_secs 5-120, reach, reach_media [{ id, type image | video, url }] (up to 4: filling .k-reach-band while reach mode has slid the kiosk down, with Start.jsx Media taking turns every start.media_secs and k-reach-back at the foot; empty = the brand colour and the reach sign; pictures kept offline by configImages())'],
               ]}
             />
+            <H3>Bottom bar and side menu colours</H3>
+            <P>
+              <Mono>partColours(colors)</Mono> (<Mono>shared/kiosk.js</Mono>) is the one rule for what the bottom bar
+              (every <Mono>.k-bar</Mono>: the menu, the order, details, paying, the allergens screen) and the sections
+              down the side (<Mono>.k-rail</Mono> in <Mono>Menu.jsx</Mono>) are drawn in: each of{' '}
+              <Mono>bar</Mono> / <Mono>bar_text</Mono> / <Mono>rail</Mono> / <Mono>rail_text</Mono> as set, else what
+              it follows (<Mono>PART_FOLLOWS</Mono>): the bar follows <Mono>text</Mono> and the side menu{' '}
+              <Mono>surface</Mono> (See-through when the cards are), and words not set take whichever of{' '}
+              <Mono>background</Mono> and <Mono>text</Mono> has the higher contrast on their part
+              (<Mono>contrast()</Mono> from <Mono>shared/themeKit.js</Mono>; a see-through part counts as the page; a
+              tie keeps what each used before, Page on the bar and Text on the side menu). With nothing set it gives
+              exactly the look from before these existed (bar in Text with Page words, side menu in Cards with Text
+              words). <Mono>KioskApp.jsx</Mono> turns it into <Mono>--k-bar</Mono>, <Mono>--k-bar-text</Mono>,{' '}
+              <Mono>--k-rail</Mono> and <Mono>--k-rail-text</Mono>; kiosk.css draws <Mono>.k-bar</Mono> and{' '}
+              <Mono>.k-rail</Mono> with them, Back on a bar (<Mono>.k-bar .k-btn-back</Mono>) solid in the words colour
+              with the bar colour for its words, the outlined bar buttons (<Mono>.k-btn-onbar</Mono>, the hexagon
+              tint) from the words colour, and the picked section with <Mono>--k-rail-on</Mono> (12% of the Buttons
+              colour on the side menu&apos;s colour). A dish&apos;s own page (<Mono>AddBar</Mono>, the combo bar) keeps
+              its bar in Cards, and the top bar stays in Cards.
+            </P>
+            <P>
+              The designer (Brand card) lists them under the main colours (<Mono>ColourPicker</Mono>{' '}
+              <Mono>optional</Mono>, placeholder Same as Text / Same as Cards / Automatic, <Mono>fallback</Mono> = the
+              colour in use for the colour box, Reset), warns on <Mono>PART_PAIRS</Mono> only once either colour of a
+              pair is set (and on the side menu only when the design has one), and the Brand summary says own bottom
+              bar / own side menu. The colour sets and <Mono>kioskBrandFromKit()</Mono> (the theme maker, Use the
+              brand) don&apos;t carry them, so they follow the new colours. Not part of any menu release.
+            </P>
             <H3>Menus</H3>
             <P>
               <Mono>menu_variant_groups</Mono> gains <Mono>kiosk_display</Mono> (NULL = the design's),{' '}
@@ -6454,7 +6482,8 @@ selection.combo = { [stepId]: [{ option_id, item_id, choices }] }   // item_id n
               (<Mono>colour()</Mono> in <Mono>shared/screenLayout.js</Mono> already passes <Mono>transparent</Mono>,
               and <Mono>withAlpha()</Mono> keeps it); kiosk design colours in <Mono>CLEAR_COLORS</Mono>
               (<Mono>surface</Mono>, <Mono>primary</Mono>, <Mono>accent</Mono>; <Mono>normaliseDesign()</Mono> drops
-              <Mono>transparent</Mono> on any other colour). The kiosk sets <Mono>--k-sheet</Mono> (the page colour
+              <Mono>transparent</Mono> on any other colour, including the bottom bar and side menu colours, which
+              follow when not set). The kiosk sets <Mono>--k-sheet</Mono> (the page colour
               when cards are see-through) for <Mono>.k-sheet</Mono>, and the designer&apos;s readability check
               reads a see-through colour as the page (<Mono>solidColours()</Mono>).
             </P>

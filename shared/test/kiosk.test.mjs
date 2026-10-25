@@ -8,8 +8,9 @@ import assert from 'node:assert/strict'
 import {
   normaliseDesign, designProblems, payMethods, uiText, allergenName, translationSources, TK, pickImages, hexLayout, cornerWidths,
   configImages, MAX_SAVED_PICTURES, guestFit, countFits, cleanPrefs, prefsOn, kioskOrder, basketCheck, kioskStaff, kioskFontsUrl, UI_TEXT, ALLERGEN_NAMES, KIOSK_LANGUAGES, DESIGN_COLORS, CLEAR_COLORS, CHOICE_ENTRANCES,
-  groupLook, ENTRANCE_KEYS, bundleParts, bundleLayout, bundleBox, BUNDLE_MAX,
+  groupLook, ENTRANCE_KEYS, bundleParts, bundleLayout, bundleBox, BUNDLE_MAX, PART_COLORS, PART_FOLLOWS, COLOR_LABELS, partColours,
 } from '../kiosk.js'
+import { contrast } from '../themeKit.js'
 import { VARIATION_TYPES, VARIATION_TYPE_KEYS } from '../procurement.js'
 import { applyEvent, KIOSK_EVENTS } from '../pos/checks.js'
 import { checkTotals } from '../pos/pricing.js'
@@ -562,6 +563,45 @@ test('See-through colours: only cards, buttons and highlights may be transparent
   assert.deepEqual(CLEAR_COLORS, ['surface', 'primary', 'accent'])
   // Round trip: a saved design keeps them.
   assert.equal(normaliseDesign(d).brand.colors.surface, 'transparent')
+})
+
+test('bottom bar and side menu colours: not set they follow as before, set ones stay, their words stay readable', () => {
+  const NIGHT = { background: '#121212', surface: '#1f1f1f', text: '#f5f5f5', muted: '#a3a3a3', primary: '#ffc72c', primary_text: '#121212', accent: '#2f9e44', accent_text: '#ffffff' }
+  // Nothing set: null, and the look from before (the bar in Text with the
+  // Page colour for its words; the side menu in Cards with Text words).
+  const plain = normaliseDesign({}).brand.colors
+  for (const k of PART_COLORS) assert.equal(plain[k], null, k)
+  assert.deepEqual(partColours(plain), { bar: plain.text, bar_text: plain.background, rail: plain.surface, rail_text: plain.text })
+  const night = normaliseDesign({ brand: { colors: NIGHT } }).brand.colors
+  assert.deepEqual(partColours(night), { bar: '#f5f5f5', bar_text: '#121212', rail: '#1f1f1f', rail_text: '#f5f5f5' })
+  // Set: kept in lower case; anything but a colour code is dropped (no See-through either).
+  const d = normaliseDesign({ brand: { colors: { ...NIGHT, bar: '#C8102E', rail: '#000000', bar_text: 'red', rail_text: 'transparent' } } })
+  assert.equal(d.brand.colors.bar, '#c8102e')
+  assert.equal(d.brand.colors.rail, '#000000')
+  assert.equal(d.brand.colors.bar_text, null)
+  assert.equal(d.brand.colors.rail_text, null)
+  assert.deepEqual(normaliseDesign(d).brand.colors, d.brand.colors, 'a saved design keeps them')
+  // Words not set: whichever of Page and Text reads better on their part.
+  const p = partColours(d.brand.colors)
+  assert.equal(p.bar_text, '#f5f5f5', 'light words on a red bar, not the near-black page colour')
+  assert.equal(p.rail_text, '#f5f5f5', 'light words on a black side menu')
+  assert.equal(partColours({ ...NIGHT, bar: '#ffd43b' }).bar_text, '#121212', 'a yellow bar on the dark design: the dark page colour')
+  assert.equal(partColours({ ...DESIGN_COLORS, rail: '#0b3d2e' }).rail_text, DESIGN_COLORS.background, 'a dark side menu on a light design: the light page colour')
+  for (const bar of ['#c8102e', '#ffd43b', '#0b3d2e', '#7a7a7a', '#ffffff', '#000000']) {
+    const q = partColours({ ...NIGHT, bar })
+    const other = q.bar_text === NIGHT.background ? NIGHT.text : NIGHT.background
+    assert.ok(contrast(q.bar_text, bar) >= contrast(other, bar), bar + ': the better of the two')
+  }
+  // Words set: as set, even when hard to read (the designer warns).
+  assert.equal(partColours({ ...NIGHT, bar: '#c8102e', bar_text: '#c8102e' }).bar_text, '#c8102e')
+  // See-through cards: the side menu follows (see-through), its words worked out on the page.
+  const clear = partColours({ ...DESIGN_COLORS, surface: 'transparent' })
+  assert.equal(clear.rail, 'transparent')
+  assert.equal(clear.rail_text, DESIGN_COLORS.text)
+  assert.equal(partColours({ ...DESIGN_COLORS, surface: 'transparent', rail: '#222222' }).rail_text, DESIGN_COLORS.background)
+  // Every one has a name; the parts' backgrounds follow Text and Cards.
+  for (const k of PART_COLORS) assert.ok(COLOR_LABELS[k], k)
+  assert.deepEqual(PART_FOLLOWS, { bar: 'text', rail: 'surface' })
 })
 
 test('choice entrances: kept when known, none otherwise', () => {

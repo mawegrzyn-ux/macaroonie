@@ -155,6 +155,10 @@ test('kiosk: brand from a kit survives the kiosk\'s own checks', () => {
   const back = kitFromKioskBrand(d.brand)
   assert.equal(back.fonts.display, 'Oswald')
   assert.equal(back.colors.primary, KIT.colors.primary)
+  // The bottom bar's and side menu's own colours go: they follow the new colours again.
+  const own = kioskBrandFromKit(KIT, { colors: { bar: '#c8102e', bar_text: '#ffffff', rail: '#000000', rail_text: '#ffffff' } })
+  const again = normaliseDesign({ brand: own }).brand.colors
+  for (const k of ['bar', 'bar_text', 'rail', 'rail_text']) assert.equal(again[k], null, k)
 })
 
 test('board: a light kit gives a deep board with light, readable words', () => {

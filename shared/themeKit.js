@@ -395,6 +395,8 @@ export function kioskBrandFromKit(kit, brand = {}) {
   const c = k.colors
   return {
     ...brand,
+    // The bottom bar's and side menu's own colours (bar, rail and their
+    // words) aren't kept: with a new set of colours they follow it again.
     colors: {
       background: c.background, surface: c.surface, text: c.text, muted: c.muted,
       primary: c.primary, primary_text: c.primary_text, accent: c.accent, accent_text: c.accent_text,

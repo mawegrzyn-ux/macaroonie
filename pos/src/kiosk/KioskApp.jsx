@@ -11,7 +11,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { RefreshCw, Wifi, WifiOff, X, Accessibility } from 'lucide-react'
-import { kioskFontsUrl, kioskFontStack } from '@shared/kiosk.js'
+import { kioskFontsUrl, kioskFontStack, partColours } from '@shared/kiosk.js'
 import { useKiosk, bootKiosk, bootPreview, bootShare, textsFor, restart, loadConfig, setReach, getState, disconnect, moveKiosk } from './store.js'
 import { whenSafeToReload, idleFor } from '../lib/appUpdate.js'
 import { belongsHere } from '../lib/appHost.js'
@@ -30,9 +30,12 @@ function useDesignStyle(design) {
   const style = useMemo(() => {
     if (!design) return {}
     const c = design.brand.colors
+    // The bottom bars and the sections down the side: their own colours, or what they follow.
+    const p = partColours(c)
     return {
       '--k-bg': c.background, '--k-surface': c.surface, '--k-text': c.text, '--k-muted': c.muted,
       '--k-primary': c.primary, '--k-primary-text': c.primary_text, '--k-accent': c.accent, '--k-accent-text': c.accent_text,
+      '--k-bar': p.bar, '--k-bar-text': p.bar_text, '--k-rail': p.rail, '--k-rail-text': p.rail_text,
       // Pop-up sheets stay solid when the cards are See-through.
       '--k-sheet': c.surface === 'transparent' ? c.background : c.surface,
       '--k-radius': design.brand.radius + 'px',
