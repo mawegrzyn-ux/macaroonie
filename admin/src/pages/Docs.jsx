@@ -4076,6 +4076,15 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               Nothing is sent from either: it is a preview. Neither registers for app updates; the service worker
               leaves both to the network.
             </P>
+            <P>
+              The preview notice (<Mono>previewBand</Mono> in <Mono>KioskApp.jsx</Mono>): in a frame
+              (<Mono>window.parent !== window</Mono>: the design editor, the share page) the kiosk shows none, since the
+              page around it says orders aren't sent (the editor's toolbar line, the share page's footer). Opened in its own
+              tab (Full screen, or a preview link pasted into the address bar), <Mono>.k-preview-band</Mono> (30 px,
+              kiosk.css) runs along the top and <Mono>.k-root.k-has-preview-band</Mono> starts <Mono>.k-frame</Mono> (and
+              the reach band, with reach on: <Mono>calc(30px + 38%)</Mono> for the frame) below it. It used to be a pill
+              absolutely positioned at the top right, over the top bar's running price and language button.
+            </P>
             <H3>Designs</H3>
             <P>
               <Mono>normaliseDesign()</Mono> fills every default and checks every value (unknown keys dropped,
@@ -5565,6 +5574,48 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               (keyed by id), sold out, print design placement. The dish panel's <Mono>copy-options-from</Mono> list
               (<Mono>copyOptionsFrom()</Mono>) takes another dish's <Mono>variant_groups</Mono> with its overrides: groups
               this dish has keep their place and take the other dish's prices, new ones follow.
+            </P>
+            <H3>A dish's own options (menu_item_variants) on the Menus page</H3>
+            <P>
+              Options added to one dish directly (<Mono>menu_item_variants</Mono>: the sample menus in{' '}
+              <Mono>services/menuSeeds.js</Mono>, older menus, imports, the API) are asked first, as the choice
+              {' '}<Mono>key: 'variants'</Mono>, name Choose, base price, pick one (<Mono>itemChoices()</Mono>), with ids{' '}
+              <Mono>v:&lt;label&gt;</Mono> (<Mono>variantOptionId()</Mono>) because the rows are re-inserted with new ids
+              on every save. Until Oct 2026 the Menus page's save payload sent <Mono>variants: []</Mono> for every dish,
+              so saving a menu deleted them, and with them any meal deal rule on them (<Mono>cleanDealGroups()</Mono>{' '}
+              keeps a choice's <Mono>groups.variants</Mono> only while the dish has own options). The payload now sends
+              them back (label, price, place), as <Mono>menuSaveBody()</Mono> does; <Mono>contentKey()</Mono> ignores
+              their ids, so this is never a change to publish.
+            </P>
+            <P>
+              They can't be edited on the page (new options come from option groups). <Mono>OwnOptionsCard</Mono> lists them
+              in the dish panel above the attached groups; <Mono>ItemRow</Mono> shows an amber badge
+              (<Mono>dish-own-options</Mono>). <strong>Turn into an option group</strong>: <Mono>sameAsOwnOptions()</Mono>{' '}
+              looks for a library group asking the same thing (base, min 1 / max 1, no repeat, not on request, no nested
+              groups, the same labels ignoring case and spaces) that isn't on the dish, the one with the fewest price
+              differences; else <Mono>POST /api/menus/variant-groups</Mono> makes one (name: the labels joined with " / ",
+              cut to 80; <Mono>display_name</Mono> Choose, so tills, kiosks and online ordering show the same heading;
+              the website and print now show a group heading above them), added to the{' '}
+              <Mono>['menu-variant-groups']</Mono> cache at once. <Mono>ownOptionPrices()</Mono> gives the dish's prices as
+              overrides and a map <Mono>v:&lt;label&gt;</Mono> {'->'} the group's option id, and{' '}
+              <Mono>withOwnOptionsAsGroup()</Mono> (in the draft) puts the group first among the dish's groups (own options
+              were asked first), clears the own options and moves meal deal rules on them with{' '}
+              <Mono>moveDealGroup()</Mono> (<Mono>shared/combos.js</Mono>): a choice of the dish loses its{' '}
+              <Mono>variants</Mono> entry, a choice of its whole section keeps it too for the section's other dishes.{' '}
+              <strong>Remove</strong> (inline confirm) sets <Mono>variants: []</Mono>. Tests:{' '}
+              <Mono>api/test/own-options.test.mjs</Mono>, the <Mono>moveDealGroup</Mono> test in{' '}
+              <Mono>shared/test/dealOptions.test.mjs</Mono>.
+            </P>
+            <P>
+              <strong>Phone layout.</strong> A dish row's name has <Mono>min-w-[7rem]</Mono> and a section heading's title{' '}
+              <Mono>min-w-[8rem]</Mono> in rows that wrap (<Mono>flex-wrap</Mono>), with the badges, price and buttons in one
+              group (<Mono>ml-auto</Mono>): where the row is too narrow for both (a phone, a tablet with a panel open), the
+              group goes onto a second line instead of squeezing the name to nothing. The dish and section panels
+              (<Mono>SIDE_PANEL</Mono>) sit beside the list from md up and are full-screen sheets below
+              (<Mono>max-md:fixed inset-0 z-50</Mono>). The top bar wraps, its buttons are icons only below sm
+              (<Mono>TOP_BTN</Mono>) and the top Save is hidden there (the bottom bar saves). The menus{' '}
+              <Mono>Card</Mono> (<Mono>components/menus/shared.jsx</Mono>) wraps its header button under the title and has
+              less padding on a phone.
             </P>
             <P>
               <Mono>POST /api/menus/variant-groups/:id/copy</Mono> (menus manage, tenant filtered, 404 otherwise) copies the

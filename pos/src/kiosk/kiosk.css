@@ -39,6 +39,17 @@
 /* With the design's reach pictures: they fill the band, the way back sits at its foot. */
 .k-reach-band.k-reach-media { overflow: hidden; justify-content: flex-end; padding-bottom: 1.2em; }
 .k-reach-band.k-reach-media .k-btn { box-shadow: 0 4px 16px rgba(0,0,0,.35); }
+/* A preview in its own tab (KioskApp.jsx previewBand): "orders aren't sent"
+   in a band along the top with its own room; the kiosk (and the reach band)
+   start below it, so it never covers anything. */
+.k-preview-band {
+  position: absolute; left: 0; right: 0; top: 0; height: 30px; z-index: 66;
+  display: flex; align-items: center; justify-content: center; padding: 0 12px;
+  background: #111; color: #fff; font: 600 13px/1.2 system-ui, sans-serif; text-align: center;
+}
+.k-root.k-has-preview-band .k-frame,
+.k-root.k-has-preview-band .k-reach-band { top: 30px; }
+.k-root.k-has-preview-band.k-reach .k-frame { top: calc(30px + 38%); }
 
 .k-head { font-family: var(--k-font-head); font-weight: 700; letter-spacing: .01em; line-height: 1.05; }
 .k-upper .k-head { text-transform: uppercase; }

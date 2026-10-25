@@ -6,17 +6,19 @@ import { Minus, Plus } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { PICK_SCALE_MIN, PICK_SCALE_MAX } from '@shared/combos.js'
 
+// On a phone the header's button goes under the title when they don't fit
+// side by side, and the body has less padding.
 export function Card({ title, action, description, children }) {
   return (
     <div className="bg-background border rounded-xl overflow-hidden">
-      <div className="px-5 py-3 section-head flex items-center justify-between gap-3">
-        <div>
+      <div className="px-4 sm:px-5 py-3 section-head flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+        <div className="min-w-0 flex-1 basis-[12rem]">
           <h2 className="text-sm font-semibold">{title}</h2>
           {description && <p className="text-xs text-muted-foreground mt-0.5">{description}</p>}
         </div>
-        {action}
+        {action && <div className="shrink-0 ml-auto">{action}</div>}
       </div>
-      <div className="p-5 space-y-4">{children}</div>
+      <div className="p-3 sm:p-5 space-y-4">{children}</div>
     </div>
   )
 }

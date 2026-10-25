@@ -5,6 +5,13 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-25 — Menus page keeps a dish's own options; Menus on a phone; kiosk preview notice]
+
+- **Saving a menu no longer deletes a dish's own options.** Options added to one dish directly rather than from an option group (the sample menus, older menus, imports) were wiped every time the menu was saved on the Menus page, along with any meal deal rule on them (Options in this deal). They are now kept. The dish's row shows a small amber badge with how many, and its panel lists them in an amber card with two buttons: **Turn into an option group** (makes a group with the same options and prices, named after them, shown to guests as "Choose" as before, first among the dish's groups; when an identical group exists, **Use the option group** uses it with this dish's prices; a meal deal rule on them moves to the group) and **Remove** (asks first). Both are saved with Save changes. Menus already saved on the page lost theirs before this fix; they don't come back.
+- **Menus page on a phone and narrow tablets**: dish names and section titles always show (the badges, price and buttons go on a second line when there isn't room beside the name), a dish's or section's panel opens over the whole screen below tablet width, the buttons along the top show their icons only, and Save is the bar at the bottom. The cards on the Menus pages wrap their header button under the title on a phone.
+- **Kiosk preview**: the "Preview: orders aren't sent" notice no longer covers the top right of the kiosk (a meal deal's running price, the language button). In the design editor and on a shared preview page the page around the kiosk says so; a preview opened in its own tab (Full screen) shows it in a thin band along the top, with the kiosk just below.
+- No migration.
+
 ## [2026-10-25 — Meal deals: a group left with one option is picked for the guest]
 
 - Menus → a combo → Edit steps → **Options in this deal**: when a group is left with one option and something has to be picked from it (e.g. Only some down to Lemon pepper in a flavour group that asks for one), the deal now picks it. The kiosk, the till and online ordering don't ask it; it is still on the line, the kitchen ticket, the meal's picture and the price (an extra charge on that option still applies). The window says **always Lemon pepper. Guests aren't asked**, and the line under the button says **Flavour: always Lemon pepper**.

@@ -3266,6 +3266,35 @@ export default function Help() {
               the groups in that order (flavour first, then dips). Save changes keeps the order;
               guests get it once the menu is published.
             </P>
+            <P>
+              <strong>Options on this dish only.</strong> Some dishes have options added to the dish
+              itself rather than from an option group: the sample menus, menus made before option
+              groups, and some imports. The dish&apos;s row shows a small amber badge with how many,
+              and its panel lists them in an amber card above its option groups. Guests pick one, at
+              its price, before any group. They are kept when you save. They can&apos;t be changed
+              here; the card has two buttons:
+            </P>
+            <ul className="list-disc ml-5 space-y-2 text-sm text-muted-foreground mb-4">
+              <li><strong>Turn into an option group</strong>: makes an option group with the same
+                options and prices (on Menus &rarr; Variant groups, named after the options, where you
+                can rename it and use it on other dishes; guests still see the heading
+                &ldquo;Choose&rdquo;). It goes first among the dish&apos;s groups. When a group with the
+                same options already exists, the button says <strong>Use the option group</strong> and
+                the dish uses that group, keeping its own prices. A meal deal that changed these
+                options (Options in this deal) changes the group instead.</li>
+              <li><strong>Remove</strong>: takes them off the dish, after asking. Guests then order it
+                at its own price, so give it one if it has none.</li>
+            </ul>
+            <P>
+              Both are part of the menu draft: Save changes keeps them. The new group itself is made
+              straight away (it stays on Variant groups even if you don&apos;t save).
+            </P>
+            <P>
+              <strong>On a phone</strong> each dish&apos;s badges, price and buttons go on a second line
+              under its name, a dish&apos;s or section&apos;s panel opens over the whole screen (close it
+              with the cross), and the buttons along the top show only their icons. Save with the bar
+              at the bottom, which shows as soon as there is something to save.
+            </P>
             <H3>Copying dishes, sections and options</H3>
             <P>
               <strong>Copy a dish</strong>: tap the copy icon on its row, or <strong>Copy</strong> at
@@ -5504,7 +5533,10 @@ export default function Help() {
               kiosk's size, scaled to fit their screen, with <strong>Upright</strong>, <strong>Wide</strong>,{' '}
               <strong>Start again</strong> and <strong>Full screen</strong> (for trying it on a tablet). They see the
               design as saved, with the menu and prices of the location you pick (and, where a location has more than
-              one, the revenue stream it orders as). Nothing is ordered or paid.
+              one, the revenue stream it orders as). Nothing is ordered or paid. The page around the kiosk says so
+              (as the design editor does above its preview); opened on its own with Full screen, a thin dark band
+              along the top of the kiosk says <em>Preview: orders aren&apos;t sent</em>, with the kiosk just below it,
+              so it never covers a price or a button.
             </P>
             <ul className="list-disc ml-5 space-y-2 text-sm text-muted-foreground mb-4">
               <li><strong>Copy link</strong>, <strong>Open</strong>, or the QR code for someone holding a phone or tablet. The dialog shows how many times the link was opened.</li>

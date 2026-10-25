@@ -9,7 +9,7 @@
 
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { normaliseCombo, normaliseDealGroups, dealChoices, dealSwapIds, dealFits, findAutoCombos, stepChoices, sectionItemsOf, withDealPicks, askedChoices, resolveSteps } from '../combos.js'
+import { normaliseCombo, normaliseDealGroups, moveDealGroup, dealChoices, dealSwapIds, dealFits, findAutoCombos, stepChoices, sectionItemsOf, withDealPicks, askedChoices, resolveSteps } from '../combos.js'
 import { itemChoices, priceLine, priceBasket } from '../orderPricing.js'
 import { priceItem, posChoices, partChoices, picksWithin } from '../pos/pricing.js'
 import { dealItem, comboCtx, autoCombosFor, fillDealPicks } from '../pos/offers.js'
@@ -399,4 +399,27 @@ test('online: the deal\'s pick prices without being asked, and lists on the line
   // A stale pick is replaced by the deal's.
   const stale = priceLine(structuredClone(ONE), { choices: {}, combo: { 'st-main': [{ option_id: 'op-wings', item_id: WINGS.id, choices: { [FLAV]: ['o-bbq'] } }] } }, [], octx)
   assert.deepEqual(stale.parts[0].options.map(o => o.label), ['Lemon pepper'])
+})
+
+test('moveDealGroup: a dish\'s own options turned into a group keep the deal\'s changes', () => {
+  const ids = { 'v:Chicken': 'o-c', 'v:Beef': 'o-b', 'v:Prawn': 'o-p' }
+  // Only some: the picked labels become the group's option ids.
+  assert.deepEqual(moveDealGroup({ variants: { use: 'only', option_ids: ['v:Chicken', 'v:Prawn'], max: 1 } }, 'variants', 'g-new', ids),
+    { 'g-new': { use: 'only', option_ids: ['o-c', 'o-p'], max: 1 } })
+  // Left out and how many move as they are; other groups stay.
+  assert.deepEqual(moveDealGroup({ variants: { use: 'off' }, [DIPS]: { use: 'off' } }, 'variants', 'g-new', ids),
+    { [DIPS]: { use: 'off' }, 'g-new': { use: 'off' } })
+  assert.deepEqual(moveDealGroup({ variants: { use: 'all', min: 2, max: 2 } }, 'variants', 'g-new', ids),
+    { 'g-new': { use: 'all', min: 2, max: 2 } })
+  // A section choice keeps the old entry for the section's other dishes.
+  assert.deepEqual(moveDealGroup({ variants: { use: 'off' } }, 'variants', 'g-new', ids, { keepOld: true }),
+    { variants: { use: 'off' }, 'g-new': { use: 'off' } })
+  // A picked label the group doesn't have goes; none left = left out.
+  assert.deepEqual(moveDealGroup({ variants: { use: 'only', option_ids: ['v:Tofu'] } }, 'variants', 'g-new', ids),
+    { 'g-new': { use: 'off' } })
+  // Nothing to move, or the group already has its own entry: unchanged.
+  assert.equal(moveDealGroup(null, 'variants', 'g-new', ids), null)
+  assert.deepEqual(moveDealGroup({ [DIPS]: { use: 'off' } }, 'variants', 'g-new', ids), { [DIPS]: { use: 'off' } })
+  assert.deepEqual(moveDealGroup({ variants: { use: 'off' }, 'g-new': { use: 'all', max: 1 } }, 'variants', 'g-new', ids),
+    { variants: { use: 'off' }, 'g-new': { use: 'all', max: 1 } })
 })
