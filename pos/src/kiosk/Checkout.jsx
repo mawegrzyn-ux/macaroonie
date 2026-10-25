@@ -17,6 +17,7 @@ import { ulid } from '@shared/pos/ids.js'
 import { cx, Photo, PickPhoto, BundlePhoto, Keyboard, NumberPad, BackButton, usePortrait } from './parts.jsx'
 import { TopBar, useBasketTotals, RestartButton, LanguageButton } from './Menu.jsx'
 import { priceLabel } from './Builder.jsx'
+import { flyToBasket } from './fly.js'
 
 // ── Where the order goes next ───────────────────────────────────
 
@@ -90,9 +91,9 @@ export function Basket() {
       <div className={portrait ? 'k-hscroll flex gap-[var(--k-gap)] pb-[.4em]' : 'grid grid-cols-2 gap-[var(--k-gap)]'}>
         {upsell.map(it => (
           <button key={it.id} className={cx('k-card k-item', portrait && 'shrink-0 w-[min(34vmin,230px)]')} data-testid="k-upsell-item"
-            onClick={() => {
+            onClick={e => {
               if (it.kind === 'combo' || (it.pos_choices || []).length) openBuilder(it.id)
-              else addToBasket({ item_id: it.id, selection: {}, qty: 1 })
+              else addToBasket({ item_id: it.id, selection: {}, qty: 1 }, null, { flew: flyToBasket(e.currentTarget.querySelector('.k-item-img')) })
             }}>
             <Photo src={it.image_url} label={texts.itemName(it)} className="k-item-img" phClassName="k-item-ph" />
             <span className="k-item-body">
@@ -184,7 +185,8 @@ export function Basket() {
         <RestartButton s={s} texts={texts} />
         {!config.design.layout.header && <LanguageButton config={config} texts={texts} onBar />}
         <div className="flex-1" />
-        <button className="k-btn k-btn-accent k-btn-big" disabled={!s.basket.length || !!error} onClick={() => afterBasket(s)} data-testid="k-checkout">
+        <button className="k-btn k-btn-accent k-btn-big" disabled={!s.basket.length || !!error} onClick={() => afterBasket(s)} data-testid="k-checkout"
+          data-fly-target="basket">
           {ui('checkout')}{totals ? ' · ' + money(totals.total) : ''}
         </button>
       </div>

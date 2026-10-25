@@ -562,6 +562,16 @@ function groupsOfChoice(o, itemIndex, library) {
 /** "Lemon pepper, BBQ, Atomic · choose 1". */
 const askedText = c => c.options.map(o => o.label).join(', ') + ' · ' + stepRule(c).toLowerCase()
 
+/** "Lemon pepper", "2 x Ranch": what the deal picks itself (dealChoices() fixed: one option left). */
+function fixedText(c) {
+  const n = new Map()
+  for (const id of c.fixed || []) {
+    const label = c.options.find(o => o.id === id)?.label || ''
+    n.set(label, (n.get(label) || 0) + 1)
+  }
+  return [...n].map(([l, k]) => (k > 1 ? k + ' x ' : '') + l).join(', ')
+}
+
 /** A group as the deal asks it (null = not asked). */
 function dealGroup(group, change, library) {
   return dealChoices([group], change ? { [group.key]: change } : null, id => {
@@ -579,6 +589,7 @@ function dealSummary(o, groups, library) {
     const asked = dealGroup(g, ch, library)
     const rule = ch.min != null || ch.max != null ? (asked ? ', ' + stepRule(asked).toLowerCase() : '') : ''
     if (ch.use === 'off' || !asked) out.push(g.name + ': not asked')
+    else if (asked.fixed) out.push(g.name + ': always ' + fixedText(asked))
     else if (ch.use === 'only') out.push(g.name + ': ' + asked.options.length + ' of ' + g.options.length + rule)
     else if (ch.use === 'swap') out.push(g.name + ': ' + asked.name + ' instead' + rule)
     else out.push(g.name + ': ' + stepRule(asked).toLowerCase())
@@ -753,11 +764,17 @@ function DealGroupRow({ group, change, library, copying, onCopy, onChange }) {
           </select>
         </div>
       )}
-      <p className="text-xs" data-testid="deal-asked">
+      <p className="text-xs" data-testid="deal-asked" data-fixed={asked?.fixed ? '1' : undefined}>
         {mode === 'swap' && use !== 'swap' ? <span className="text-muted-foreground">Choose the group to ask instead.</span>
+          : asked?.fixed ? <><span className="font-medium">In the deal:</span> {asked.name !== group.name ? asked.name + ': ' : ''}always {fixedText(asked)}. Guests aren't asked: it's picked for them.</>
           : asked ? <><span className="font-medium">In the deal:</span> {asked.name !== group.name ? asked.name + ': ' : ''}{askedText(asked)}</>
             : <span className="text-muted-foreground">Not asked in the deal.</span>}
       </p>
+      {asked && !asked.fixed && asked.options.length === 1 && asked.min === 0 && (
+        <p className="text-[11px] text-muted-foreground" data-testid="deal-one-optional">
+          One option left, and the group is optional, so guests are still asked whether they want it. Set How many to at least 1 to always include it without asking.
+        </p>
+      )}
     </div>
   )
 }

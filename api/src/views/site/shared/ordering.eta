@@ -209,6 +209,8 @@ const cfgJson = JSON.stringify(cfg).split('<').join('\\u003c')
 .mo-sheet-back { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 1000; display: flex; align-items: flex-end; justify-content: center; }
 .mo-sheet { background: var(--c-bg, #fff); color: var(--c-text, #1f2937); width: 100%; max-width: 560px; max-height: 88vh; overflow-y: auto; border-radius: 16px 16px 0 0; padding: 20px 16px 16px; font-family: var(--f-body, system-ui), sans-serif; }
 .mo-sheet img.mo-hero { width: 100%; max-height: 240px; object-fit: cover; border-radius: 10px; margin-bottom: 12px; }
+/* Add: the dish's picture flying into the basket (flyToBasket()); place and size are inline. */
+.mo-fly { position: fixed; z-index: 2147483000; margin: 0; pointer-events: none; object-fit: cover; transform-origin: 50% 50%; will-change: transform, opacity; box-shadow: 0 10px 28px rgba(0,0,0,.25); }
 .mo-sheet h3 { font-family: var(--f-heading, inherit); font-size: 1.35rem; margin: 0 0 6px; }
 .mo-sheet .mo-group { margin-top: 18px; }
 .mo-sheet .mo-choice .mo-qty button[disabled] { opacity: .35; }
@@ -276,7 +278,7 @@ const cfgJson = JSON.stringify(cfg).split('<').join('\\u003c')
 <script type="application/json" id="mo-config"><%~ cfgJson %></script>
 <script type="module">
 import { optionPriceText, priceLine, priceBasket, formatPence, partOptions } from '/order-api/pricing.js'
-import { resolveSteps, stepRule, countParts } from '/order-api/combos.js'
+import { resolveSteps, stepRule, countParts, askedChoices, withDealPicks } from '/order-api/combos.js'
 import { venueNow, noticeText, promoSummary, promoTerms, covers, coversIds, isLiveAt } from '/order-api/promotions.js'
 import { allergenKey, noticeOf } from '/order-api/menuTags.js'
 
@@ -827,13 +829,18 @@ async function startOrdering() {
     }
     // A picked dish's options as the deal asks them (shared/combos.js
     // dealChoices(): some left out, only some offered, another group instead).
-    function partChoices(stepId, e) {
+    // A group the deal leaves one option in is picked for the guest (fixed):
+    // dealOptions() has it, partChoices() (what is asked) doesn't.
+    function dealOptions(stepId, e) {
       const part = e && e.item_id ? comboCtx.itemsById[e.item_id] : null
       if (!part) return []
       const step = ((item.combo && item.combo.steps) || []).find(s => s.id === stepId)
       const opt = step && (step.options || []).find(o => o.id === e.option_id)
       return partOptions(item, part, opt ? opt.groups : null)
     }
+    // The basket keeps the guest's own picks; pricing (here and on the server)
+    // fills in the deal's (shared/orderPricing.js priceLine()).
+    const partChoices = (stepId, e) => askedChoices(dealOptions(stepId, e))
     function groupsHtml(list, prefix) {
       let h = ''
       for (const c of list) {
@@ -943,7 +950,8 @@ async function startOrdering() {
         const got = r.picks[s.step.id] || []
         if (!got.length) continue
         h += '<div class="mo-row" style="font-size:.95rem;"><span><strong>' + esc(s.step.name) + ':</strong> ' + esc(counted(got.map(e => {
-          const own = partChoices(s.step.id, e).flatMap(c => ((e.choices || {})[c.key] || []).map(id => (c.options.find(o => o.id === id) || {}).label)).filter(Boolean)
+          const picked = withDealPicks(dealOptions(s.step.id, e), e.choices || {})
+          const own = dealOptions(s.step.id, e).flatMap(c => (picked[c.key] || []).map(id => (c.options.find(o => o.id === id) || {}).label)).filter(Boolean)
           return partLabel(e, s.step) + (own.length ? ' (' + counted(own) + ')' : '')
         }))) + '</span></div>'
       }
@@ -1048,10 +1056,88 @@ async function startOrdering() {
         if (isCombo) line.combo = resolveSteps(item, sel.combo, comboCtx).picks
         state.basket.push(line)
         saveBasket()
+        // Where the dish's picture is now, for its flight into the basket.
+        const from = item.image_url ? pictureSpot(back, t) : null
         close()
         draw()
+        if (from) flyToBasket(item.image_url, from)
       }
     })
+  }
+
+  // ── Into the basket ──
+  // Add: the dish's picture flies into the basket (the side basket's title,
+  // or the View basket bar on phones), shrinking as it goes, and the basket
+  // bounces when it lands. Not when the guest's device asks for less motion.
+  const lessMotion = window.matchMedia('(prefers-reduced-motion: reduce)')
+  // The dish's picture in its sheet, if enough of it shows; else a square
+  // over the Add button (a combo's last page has no picture).
+  function pictureSpot(back, btn) {
+    const img = back.querySelector('.mo-hero')
+    const sheet = back.querySelector('.mo-sheet')
+    if (img && sheet) {
+      const a = img.getBoundingClientRect(), sr = sheet.getBoundingClientRect()
+      const seen = Math.max(0, Math.min(a.bottom, sr.bottom) - Math.max(a.top, sr.top))
+      if (a.height && seen / a.height > 0.3) return { left: a.left, top: a.top, width: a.width, height: a.height, radius: getComputedStyle(img).borderRadius }
+    }
+    const r = btn.getBoundingClientRect()
+    const side = Math.min(160, r.height * 2.4)
+    return { left: r.left + r.width / 2 - side / 2, top: r.top + r.height / 2 - side / 2, width: side, height: side, radius: '12px' }
+  }
+  // Where the basket shows now: its title's words, or the View basket button.
+  function basketSpot() {
+    for (const el of root.querySelectorAll('.mo-basket-title, .mo-bar .mo-btn')) {
+      const r = el.getBoundingClientRect()
+      if (!r.width || !r.height || r.bottom < 0 || r.top > window.innerHeight) continue
+      if (!el.classList.contains('mo-basket-title')) return { el, r }
+      const words = document.createRange()
+      words.selectNodeContents(el)
+      const w = words.getBoundingClientRect()
+      return { el, r: w.width ? w : r, title: true }
+    }
+    return null
+  }
+  function flyToBasket(src, a) {
+    if (!a.width || lessMotion.matches) return
+    const to = basketSpot()
+    if (!to || typeof to.el.animate !== 'function') return
+    const b = to.r
+    const ghost = document.createElement('img')
+    ghost.src = src
+    ghost.alt = ''
+    ghost.className = 'mo-fly'
+    ghost.setAttribute('aria-hidden', 'true')
+    ghost.style.left = a.left + 'px'
+    ghost.style.top = a.top + 'px'
+    ghost.style.width = a.width + 'px'
+    ghost.style.height = a.height + 'px'
+    ghost.style.borderRadius = a.radius || '10px'
+    document.body.appendChild(ghost)
+    const dx = b.left + b.width / 2 - (a.left + a.width / 2)
+    const dy = b.top + b.height / 2 - (a.top + a.height / 2)
+    // Lands about the size of the basket's words.
+    const end = Math.max(0.04, Math.min(0.3, (Math.min(b.height, 48) * 0.9) / Math.max(a.width, a.height)))
+    const lift = Math.min(24, a.height * 0.08)
+    const anim = ghost.animate([
+      { transform: 'translate(0px, 0px) scale(1)', opacity: 1, easing: 'ease-out' },
+      { transform: 'translate(' + (dx * 0.06) + 'px, ' + (dy * 0.06 - lift) + 'px) scale(0.92)', opacity: 1, offset: 0.2, easing: 'cubic-bezier(.55, 0, .8, .45)' },
+      { transform: 'translate(' + dx + 'px, ' + dy + 'px) scale(' + end + ')', opacity: 0.55 },
+    ], { duration: 700, fill: 'forwards' })
+    let landed = false
+    const land = () => {
+      if (landed) return
+      landed = true
+      ghost.remove()
+      // The basket may have been drawn again since: find it again.
+      const now = basketSpot()
+      if (!now) return
+      if (now.title) now.el.style.transformOrigin = 'left center'
+      now.el.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.08)', offset: 0.4 }, { transform: 'scale(1)' }], { duration: 450, easing: 'ease' })
+    }
+    anim.onfinish = land
+    anim.oncancel = () => ghost.remove()
+    // Animations wait while the page is hidden: never leave the picture behind.
+    setTimeout(land, 1200)
   }
 
   // ── Checkout ──

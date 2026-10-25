@@ -314,13 +314,45 @@ function dealLimits(c, ch) {
 }
 
 /**
+ * What a deal picks for the guest instead of asking: a group the deal
+ * changed that is left with one option and needs a pick (at least one; with
+ * repeats, a set number) has nothing to choose, so that option is picked
+ * (fixed, the picks as option ids). Not an option that opens a group of its
+ * own (Steak, then how it's cooked): that is still asked. An optional group
+ * left with one option is still asked (yes or no).
+ */
+function fixedPicks(c) {
+  const opts = asList(c.options)
+  if (opts.length !== 1 || !(Number(c.min) >= 1) || opts[0].child_group_id) return null
+  if (c.repeat && c.min !== c.max) return null
+  return Array.from({ length: c.repeat ? c.min : 1 }, () => opts[0].id)
+}
+
+/**
+ * A part's picks with what the deal picks filled in (dealChoices() fixed):
+ * the guest's own picks for the groups they are asked, the deal's for the
+ * rest. Pricing goes through this, so a line never lacks them; the same
+ * picks object comes back when nothing is fixed.
+ */
+export function withDealPicks(choices, picks) {
+  let out = picks || {}
+  for (const c of asList(choices)) if (c.fixed) out = { ...out, [c.key]: c.fixed }
+  return out
+}
+
+/** The groups a deal still asks the guest (the others it picks itself). */
+export const askedChoices = choices => asList(choices).filter(c => !c.fixed)
+
+/**
  * A picked dish's options in a deal: its own choices, in the caller's shape
  * ({ key, name, mode, min, max, repeat, on_request, options: [{ id, ... }] }:
  * the till's posChoices(), online's itemChoices()), with a combo choice's
  * changes (groups, from stepChoices()). swap(groupId, choice) gives another
  * group as a choice in the same shape (null: unknown, the group is left out).
  * A group left with no options goes; a key that comes twice (a swap to a
- * group the dish has too) is asked once.
+ * group the dish has too) is asked once; a changed group left with nothing
+ * to choose carries fixed (fixedPicks()): show askedChoices(), price with
+ * withDealPicks().
  */
 export function dealChoices(choices, groups, swap = null) {
   const list = asList(choices)
@@ -342,6 +374,8 @@ export function dealChoices(choices, groups, swap = null) {
       }
       next = dealLimits(next, ch)
       if (!asList(next.options).length) continue
+      const fixed = fixedPicks(next)
+      if (fixed) next = { ...next, fixed }
     }
     if (keys.has(next.key)) continue
     keys.add(next.key)

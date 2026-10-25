@@ -309,8 +309,12 @@ export function closeBuilder() { setState({ builder: null }) }
 
 const sameEntry = (a, b) => a.item_id === b.item_id && JSON.stringify(a.selection || {}) === JSON.stringify(b.selection || {})
 
-/** Put a dish in the basket (or raise the quantity of the same one), or replace the entry being edited. */
-export function addToBasket({ item_id, selection = {}, qty = 1 }, key = null) {
+/**
+ * Put a dish in the basket (or raise the quantity of the same one), or
+ * replace the entry being edited. flew: the dish's picture is flying into
+ * the order button (fly.js), which then bounces when it lands, not now.
+ */
+export function addToBasket({ item_id, selection = {}, qty = 1 }, key = null, { flew = false } = {}) {
   let basket = [...state.basket]
   if (key) {
     basket = basket.map(e => (e.key === key ? { ...e, item_id, selection, qty } : e))
@@ -320,7 +324,7 @@ export function addToBasket({ item_id, selection = {}, qty = 1 }, key = null) {
     else basket.push({ key: ulid(), item_id, selection, qty })
   }
   // `added` changes on every add: the order button gives a little bounce.
-  setState({ basket, builder: null, ...(key ? {} : { added: Date.now() }) })
+  setState({ basket, builder: null, ...(key || flew ? {} : { added: Date.now() }) })
   if (!key) toast(textsFor().ui('added'), 1600)
 }
 

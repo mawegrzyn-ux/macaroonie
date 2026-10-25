@@ -403,6 +403,10 @@ export function normaliseDesign(raw) {
       // (bundleParts(), BundlePhoto); off, the deal's own photo with each
       // step's picks on it as the step says (pickImages()).
       combo_build: y.combo_build !== false,
+      // Add to order: the dish's picture flies into the order button and
+      // shrinks away as it goes (pos/src/kiosk/fly.js); off, the button
+      // only bounces.
+      fly_to_order: y.fly_to_order !== false,
       // The bar along the top (logo, language); off, the language button
       // moves to the bottom bar.
       header: y.header !== false,

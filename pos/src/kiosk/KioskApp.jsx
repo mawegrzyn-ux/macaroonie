@@ -234,6 +234,7 @@ export default function KioskApp({ device = null, previewToken = null, shareToke
       style={style} data-testid="kiosk" data-screen={s.screen} data-tiles={design.layout.tiles} data-option-tiles={design.layout.option_tiles}
       data-option-pictures={design.layout.option_pictures ? '1' : '0'} data-option-align={design.layout.option_align}
       data-hero={design.layout.hero} data-hero-backdrop={design.layout.hero_backdrop ? '1' : '0'} data-combo-build={design.layout.combo_build ? '1' : '0'}
+      data-fly-to-order={design.layout.fly_to_order ? '1' : '0'}
       data-enter={design.options.entrance}>
       {s.reach && (
         <div className={cx('k-reach-band', design.behaviour.reach_media.length > 0 && 'k-reach-media')} data-testid="k-reach-band">

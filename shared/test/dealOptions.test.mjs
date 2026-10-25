@@ -9,10 +9,10 @@
 
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { normaliseCombo, normaliseDealGroups, dealChoices, dealSwapIds, dealFits, findAutoCombos, stepChoices, sectionItemsOf } from '../combos.js'
+import { normaliseCombo, normaliseDealGroups, dealChoices, dealSwapIds, dealFits, findAutoCombos, stepChoices, sectionItemsOf, withDealPicks, askedChoices, resolveSteps } from '../combos.js'
 import { itemChoices, priceLine, priceBasket } from '../orderPricing.js'
 import { priceItem, posChoices, partChoices, picksWithin } from '../pos/pricing.js'
-import { dealItem, comboCtx, autoCombosFor } from '../pos/offers.js'
+import { dealItem, comboCtx, autoCombosFor, fillDealPicks } from '../pos/offers.js'
 import { bundleParts, normaliseDesign } from '../kiosk.js'
 
 // ── Fixture: wings with flavours and dips, fries with a sauce ────
@@ -183,11 +183,14 @@ test('till: the deal\'s options are the ones that price; others are refused or n
   assert.equal(plain.ok, true, plain.error)
   assert.equal(plain.combo[0].extras, 50)
 
-  // A section choice changes every dish of the section that has the group.
+  // A section choice changes every dish of the section that has the group:
+  // here one flavour is left, so the deal picks it (whatever was picked).
   for (const id of [WINGS.id, TENDERS.id]) {
-    const r = priceItem(config.items[ANY.id], { choices: {}, combo: { 'st-main': [{ option_id: 'op-any', item_id: id, choices: { [FLAV]: tillPick(['o-lemon']) } }] } }, ctx)
-    assert.equal(r.ok, false, id)
-    assert.equal(priceItem(config.items[ANY.id], { choices: {}, combo: { 'st-main': [{ option_id: 'op-any', item_id: id, choices: { [FLAV]: tillPick(['o-bbq']) } }] } }, ctx).ok, true)
+    for (const picked of [tillPick(['o-lemon']), tillPick(['o-bbq']), undefined]) {
+      const r = priceItem(config.items[ANY.id], { choices: {}, combo: { 'st-main': [{ option_id: 'op-any', item_id: id, choices: picked ? { [FLAV]: picked } : {} }] } }, ctx)
+      assert.equal(r.ok, true, id + ' ' + r.error)
+      assert.deepEqual(r.combo[0].modifiers.map(m => m.label), ['BBQ'], id)
+    }
   }
 })
 
@@ -312,4 +315,88 @@ test('the till and online ordering pass each dish\'s picks', () => {
   const no = priceBasket(ib, basket('o-bbq'), opts)
   assert.deepEqual(no.combos, [], 'online: BBQ wings aren\'t the deal')
   assert.equal(no.discount_pence, 0)
+})
+
+// ── A group left with one option: the deal picks it ──────────────
+
+const swapLib = id => posChoices({ variant_groups: [{ ...LIB[id], group_id: id }] }, LIB)[0] || null
+
+test('dealChoices: a changed group left with one option to pick is picked by the deal (fixed)', () => {
+  const own = posChoices(WINGS, LIB)
+  const fixedOf = groups => dealChoices(own, groups, swapLib).map(c => [c.key, c.fixed || null])
+  // One flavour left (a flavour must be picked): the deal picks it.
+  assert.deepEqual(fixedOf({ [FLAV]: { use: 'only', option_ids: ['o-lemon'] } }), [[FLAV, ['o-lemon']], [DIPS, null]])
+  // Two left: still asked.
+  assert.deepEqual(fixedOf({ [FLAV]: { use: 'only', option_ids: ['o-lemon', 'o-hot'] } }), [[FLAV, null], [DIPS, null]])
+  // An optional group (dips) left with one option is still asked (yes or no)...
+  assert.deepEqual(fixedOf({ [DIPS]: { use: 'only', option_ids: ['o-ranch'] } }), [[FLAV, null], [DIPS, null]])
+  // So is an optional pick-one group left with one option.
+  const optional = dealChoices([{ key: 'k', min: 0, max: 1, options: [{ id: 'a' }, { id: 'b' }] }], { k: { use: 'only', option_ids: ['a'] } })
+  assert.equal(optional[0].fixed, undefined)
+  // ...unless the deal says at least one: then a set number of it.
+  assert.deepEqual(fixedOf({ [DIPS]: { use: 'only', option_ids: ['o-ranch'], min: 2, max: 2 } }), [[FLAV, null], [DIPS, ['o-ranch', 'o-ranch']]])
+  // A repeat group with a range is still asked how many.
+  assert.deepEqual(fixedOf({ [DIPS]: { use: 'only', option_ids: ['o-ranch'], min: 1, max: 3 } }), [[FLAV, null], [DIPS, null]])
+  // A group the deal leaves alone isn't picked, even with one option.
+  const single = dealChoices([{ key: 'k', min: 1, max: 1, options: [{ id: 'only' }] }], { other: { use: 'off' } })
+  assert.equal(single[0].fixed, undefined)
+  // Another group with one option, a pick needed: picked.
+  assert.deepEqual(fixedOf({ [FLAV]: { use: 'swap', group_id: MEAL_FLAV } }), [[MEAL_FLAV, ['o-mf1']], [DIPS, null]])
+  // An option that opens a group of its own is still asked.
+  const nested = dealChoices([{ key: 'k', min: 1, max: 1, options: [{ id: 'steak', child_group_id: 'g-cook' }, { id: 'fish' }] }], { k: { use: 'only', option_ids: ['steak'] } })
+  assert.equal(nested[0].fixed, undefined)
+})
+
+test('withDealPicks / askedChoices: fill what the deal picks, ask the rest', () => {
+  const choices = dealChoices(posChoices(WINGS, LIB), { [FLAV]: { use: 'only', option_ids: ['o-lemon'] } })
+  assert.deepEqual(askedChoices(choices).map(c => c.key), [DIPS])
+  assert.deepEqual(askedChoices(null), [])
+  const picks = { [DIPS]: [{ id: 'o-ranch' }] }
+  assert.deepEqual(withDealPicks(choices, picks), { [DIPS]: [{ id: 'o-ranch' }], [FLAV]: ['o-lemon'] })
+  // A stale pick for the fixed group is replaced; nothing fixed: the same picks back.
+  assert.deepEqual(withDealPicks(choices, { [FLAV]: ['o-bbq'] }), { [FLAV]: ['o-lemon'] })
+  const asked = askedChoices(choices)
+  assert.equal(withDealPicks(asked, picks), picks)
+  assert.deepEqual(withDealPicks(choices, undefined), { [FLAV]: ['o-lemon'] })
+})
+
+// The wings in a deal with one flavour left; the fries as before.
+const ONE = { ...MEAL, id: 'c-one', combo: { mode: 'manual', steps: [
+  { id: 'st-main', name: 'Main', min: 1, max: 1, options: [{ id: 'op-wings', type: 'item', item_id: WINGS.id, groups: { [FLAV]: { use: 'only', option_ids: ['o-lemon'] }, [DIPS]: { use: 'off' } } }] },
+] } }
+
+test('till and kiosk: the deal\'s pick prices and shows without being asked', () => {
+  const cfg = { ...config, items: { ...config.items, [ONE.id]: structuredClone(ONE) } }
+  const cctx = comboCtx(cfg)
+  const r = priceItem(cfg.items[ONE.id], { choices: {}, combo: { 'st-main': [{ option_id: 'op-wings', item_id: WINGS.id, choices: {} }] } }, cctx)
+  assert.equal(r.ok, true, r.error)
+  assert.deepEqual(r.combo[0].modifiers.map(m => [m.group_id, m.label]), [[FLAV, 'Lemon pepper']])
+  // dealItem keeps the group, marked: the till and kiosk ask askedChoices() only.
+  const part = dealItem(cfg, WINGS.id, ONE.combo.steps[0].options[0].groups)
+  assert.deepEqual(part.pos_choices.map(c => [c.key, c.fixed || null]), [[FLAV, ['o-lemon']]])
+  assert.deepEqual(askedChoices(part.pos_choices), [])
+  // The kiosk's picks: the deal's pick filled in as an { id } entry.
+  const { steps, picks } = resolveSteps(cfg.items[ONE.id], { 'st-main': [{ option_id: 'op-wings', item_id: WINGS.id, choices: {} }] }, cctx)
+  const filled = fillDealPicks(cfg, steps, picks)
+  assert.deepEqual(filled['st-main'][0].choices, { [FLAV]: [{ id: 'o-lemon' }] })
+  assert.notEqual(filled, picks, 'a new picks object')
+  // Nothing fixed: the same picks object back.
+  const plainSteps = resolveSteps(cfg.items[PLAIN.id], { 'st-main': [{ option_id: 'op-wings', item_id: WINGS.id, choices: {} }] }, cctx)
+  assert.equal(fillDealPicks(cfg, plainSteps.steps, plainSteps.picks), plainSteps.picks)
+  // The meal's picture puts the deal's flavour on the wings (split photo).
+  const pic = bundleParts(cfg, cfg.items[ONE.id], filled)
+  assert.equal(pic.length, 1)
+  assert.equal(pic[0].src, '/wings.png')
+  assert.deepEqual(pic[0].split, ['/lemon-wings.png'], 'the wings split by the deal\'s flavour')
+  assert.deepEqual(bundleParts(cfg, cfg.items[ONE.id], picks)[0].split, [], 'unfilled: no flavour on the picture')
+})
+
+test('online: the deal\'s pick prices without being asked, and lists on the line', () => {
+  const octx = { itemsById: { [WINGS.id]: WINGS, [FRIES.id]: FRIES }, sectionItems: {} }
+  const r = priceLine(structuredClone(ONE), { choices: {}, combo: { 'st-main': [{ option_id: 'op-wings', item_id: WINGS.id, choices: {} }] } }, [], octx)
+  assert.equal(r.ok, true, r.error)
+  assert.deepEqual(r.parts[0].options.map(o => o.label), ['Lemon pepper'])
+  // A stale pick is replaced by the deal's.
+  const stale = priceLine(structuredClone(ONE), { choices: {}, combo: { 'st-main': [{ option_id: 'op-wings', item_id: WINGS.id, choices: { [FLAV]: ['o-bbq'] } }] } }, [], octx)
+  assert.deepEqual(stale.parts[0].options.map(o => o.label), ['Lemon pepper'])
 })

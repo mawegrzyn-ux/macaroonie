@@ -176,6 +176,11 @@
 @keyframes k-fade { from { opacity: 0 } to { opacity: 1 } }
 @keyframes k-bump { 0%, 100% { transform: scale(1); } 40% { transform: scale(1.1); } }
 .k-bump { animation: k-bump .45s ease; }
+/* A dish's picture flying into the order (fly.js): position and size are
+   inline. The shadow follows the picture's own outline (cut-out pictures too). */
+.k-fly { will-change: transform, opacity; filter: drop-shadow(0 10px 16px rgba(0,0,0,.28)); }
+/* A hexagon tile flies as its picture: no shade for its name (fly.js takes the words out). */
+.k-fly.k-hex::after { content: none; }
 .k-fade { animation: k-fade .3s ease; }
 @keyframes k-spin { to { transform: rotate(360deg) } }
 .k-spinner { width: 4em; height: 4em; border-radius: 999px; border: .5em solid var(--k-soft); border-top-color: var(--k-primary); animation: k-spin 0.9s linear infinite; }

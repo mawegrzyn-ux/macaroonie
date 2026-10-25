@@ -3257,6 +3257,15 @@ export default function Help() {
               section, delete it and add it there. The small arrows still move a dish one place at
               a time. Click <strong>Save changes</strong> to keep the new order.
             </P>
+            <P>
+              <strong>A dish&apos;s option groups</strong> (Variant groups, at the bottom of its panel)
+              show as cards, closed at first: each says the group&apos;s name, how many options it has
+              and how many prices you changed for this dish. Tap a group&apos;s name to open it and set
+              this dish&apos;s prices; tap it again to close it. A group you attach opens straight away.
+              Drag a group by its grip to change the order: the till, kiosks and online ordering ask
+              the groups in that order (flavour first, then dips). Save changes keeps the order;
+              guests get it once the menu is published.
+            </P>
             <H3>Copying dishes, sections and options</H3>
             <P>
               <strong>Copy a dish</strong>: tap the copy icon on its row, or <strong>Copy</strong> at
@@ -3420,6 +3429,20 @@ export default function Help() {
               that way: with three of the four flavours, wings ordered with BBQ don&apos;t make the deal,
               while a dip the deal leaves out simply stays on the wings at its own price. A group later
               taken off the dish drops out of the deal the next time the menu is saved.
+            </P>
+            <P>
+              <strong>One option left.</strong> When a group the deal changes is left with a single option
+              and something has to be picked from it (Only some down to Lemon pepper, say, in a flavour
+              group that asks for one), the deal picks it for the guest: the kiosk, the till and online
+              ordering don&apos;t ask it, but it is on the line, the kitchen ticket, the meal&apos;s picture
+              and the price (an extra charge on that option still applies). The window says{' '}
+              <em>always Lemon pepper. Guests aren&apos;t asked</em>, and the line under the button says{' '}
+              <em>Flavour: always Lemon pepper</em>. A dish left with nothing to ask gets no page of its own
+              on the kiosk. An optional group left with one option (a dip they might not want) is still
+              asked, as yes or no: set How many to at least 1 to always include it without asking (for a
+              group that can be picked more than once, the same number at least and at most, e.g. 2 to 2 for
+              two Ranch dips). An option that opens a question of its own (Steak, then how it&apos;s cooked)
+              is still asked.
             </P>
             <H3>Allergens and dietary tags</H3>
             <P>
@@ -4031,6 +4054,13 @@ export default function Help() {
               Dishes a guest already has in their basket show a small basket badge with how many they
               have, and an outline in your main colour, so they can see what they've picked while they
               browse.
+            </P>
+            <P>
+              When a guest taps Add, the dish&apos;s picture zooms out and flies into the basket (the
+              basket beside the menu, or the View basket bar on a phone), which gives a little bounce as
+              it lands. A meal deal&apos;s last page has no picture, so its picture flies from the Add
+              button. Dishes without a picture, and guests whose phone or computer is set to reduce
+              motion, get no flight. No setting: always on.
             </P>
             <P>
               A menu with set times shows them to guests ("Dinner is available every day
@@ -5443,7 +5473,7 @@ export default function Help() {
               head={['Card', 'What you set']}
               rows={[
                 ['Brand', 'Logo, colours (start from a set: Website colours (your website theme\'s), Fresh, Red and gold, Night, Ocean, Plain, then change any: each colour offers the website\'s colours as swatches, or a custom one), the fonts for headings and text, headings in capitals, rounded corners. Colours that are hard to read together are pointed out. Make a theme (at the top) fills all of these from a picture and a few words (see Website Builder, Make a theme from a picture).'],
-                ['Layout', 'The bar along the top (logo and language) on or off. Back and Start again with their words, or icons only. How pictures are drawn is set apart for dishes (Menu card) and for choices (Choices card). Top of a dish\'s page: the photo beside the words, or Photo on top, with the photo lined up left, centre or right and the name, description, price and allergens under it lined up left, centre or right (on a wide screen the photo is always above the words in its own column, and only the words\' line-up applies). A meal deal\'s pages follow it too: the deal\'s picture and words on its steps, and a picked dish\'s own photo and words on its options page. Shade behind the dish\'s photo (on unless you turn it off): a quiet shade behind the dish\'s photo on its page and in the order, so cut-out pictures (PNGs on a see-through background) sit on the same background whether one pick shows or several share the photo; off, the page\'s own background, even behind a split photo (a No frame photo gets the design\'s rounded corners while the shade shows). Build a meal deal\'s picture from the picks (on unless you turn it off): see A meal deal\'s picture below.'],
+                ['Layout', 'The bar along the top (logo and language) on or off. Back and Start again with their words, or icons only. How pictures are drawn is set apart for dishes (Menu card) and for choices (Choices card). Top of a dish\'s page: the photo beside the words, or Photo on top, with the photo lined up left, centre or right and the name, description, price and allergens under it lined up left, centre or right (on a wide screen the photo is always above the words in its own column, and only the words\' line-up applies). A meal deal\'s pages follow it too: the deal\'s picture and words on its steps, and a picked dish\'s own photo and words on its options page. Shade behind the dish\'s photo (on unless you turn it off): a quiet shade behind the dish\'s photo on its page and in the order, so cut-out pictures (PNGs on a see-through background) sit on the same background whether one pick shows or several share the photo; off, the page\'s own background, even behind a split photo (a No frame photo gets the design\'s rounded corners while the shade shows). Build a meal deal\'s picture from the picks (on unless you turn it off): see A meal deal\'s picture below. The picture flies into the order (on unless you turn it off): see Adding to the order below.'],
                 ['Start screen', 'Pictures apart from the buttons or behind them; pictures and videos taking turns (drag to order, up to 8); the headline and the question; each order type\'s words, icon or picture; the Allergens button.'],
                 ['Languages', 'The language your menu is written in, and the languages guests can pick (flags on the start screen).'],
                 ['Menu', 'Dish pictures: how the menu\'s dishes, the section tiles, the dish\'s own photo and the basket are drawn: Cards (photo on a card), Round or Oval (the photo in a circle or an ellipse, the words under it, no card), Hexagons (they lock together like a honeycomb, and buttons, chips and cards across the kiosk take the hexagon look too), or No frame (the whole picture as it is, straight on the page: no card, corners or shadow; best with PNGs on a see-through background, such as cut-out food photos). A home page with banners and featured tiles (each can open a section or a dish); sections down the side with pictures or words only, or none (the menu opens on a page of section tiles: drag them into order, give each a picture, words and a width); dishes per row; descriptions, calories, dietary badges and quick add; sections left off the kiosk.'],
@@ -5504,6 +5534,7 @@ export default function Help() {
               <li>Start again sits in the bottom bar after Back (on the menu, the order page, the name and tent number, and How to pay), and asks first when the order has something in it. With the bar along the top off, the language button is in the bottom bar too.</li>
               <li>A dish: its choices shown the way you set; the Add button points at anything still to choose. A combo goes step by step, with its allergens shown for what was picked: each step's name sits right above its choices (the name says what to pick, so there is no Choose 1 line; a step taking more than one shows 1/2 beside it), <strong>Step 2 of 5</strong> shows beside Continue at the button's size, and the steps along the top (down the side on a wide screen) show each done step's pick as its picture with its name under it. Every page of a deal has the big picture a dish's page has, as <strong>Top of a dish's page</strong> says: the deal's picture (see A meal deal's picture) and words on its steps and last page, and on a picked dish's own options page that dish's photo, description, calories and allergens with <em>In Burger meal</em> under its name; on a wide screen it is the column down the side, above the steps. The running price shows once: in the bar along the top, or with the bar off in the deal's picture block (above a picked dish's page as a line with the deal's name).</li>
               <li><strong>A meal deal's picture</strong> (Layout: <strong>Build a meal deal's picture from the picks</strong>, on unless you turn it off): until the first pick, the deal's own photo; then the picture is put together from the picks, like a photo of the meal. The first step's pick stands big in the middle (wings, split by their flavours once picked), the other steps' picks beside it in turn (right, then left), smaller and a little further back, and steps set to <em>Small in the corner</em> (dips, sauces) in front of it. Each new pick pops in and the others slide over to make room. On a picked dish's own options page (its flavours) the big picture is that dish; when it's done, the meal's picture comes back with the dish popping in with its flavours. A choice's picture for the meal (On meal in the combo editor) is used when it has one, else the dish's photo or the typed-in choice's own picture; a choice with no picture is left out. Cut-out pictures (PNGs on a see-through background) look best: they stand in the picture as they are, while ordinary photos get a small frame. The order shows the meal the same way. On a wide screen the picture stays at the top of the side column while the steps scroll under it. Turned off: the deal's own photo, with each step's picks on it as the step says.</li>
+              <li><strong>Adding to the order</strong> (Layout: <strong>The picture flies into the order</strong>, on unless you turn it off): when a guest taps Add to order, the dish&apos;s big picture (a meal deal&apos;s picture as it was put together) zooms out and flies into the order button at the bottom, which bounces as it lands. The same happens with + on the menu and with a dish added from "Anything else?" on the order page (it flies into Checkout). Changing a dish from the order (Update order) doesn&apos;t fly. Turned off, or on a screen set to reduce motion, the order button only bounces.</li>
               <li>The order page: change or take off dishes, "Anything else?", then the name or tent number if the stream asks, then pay. The order number shows at the end (with a receipt to print if you allow it).</li>
               <li><strong>Tents</strong>: keep numbered tents (table stands) on a stand beside the kiosk or till. For an order type whose revenue stream asks for a tent, the kiosk says "Your tent number" and "Take a numbered tent from the stand", and the order number screen says "Put tent 12 on your table: we'll bring your order to you." The tent number goes to the kitchen screens, kitchen tickets and the order ready board. If your guests sit down first and type the number on their table instead, set <strong>Number to type</strong> to <em>Table number</em> in the design's Paying panel.</li>
               <li>Nobody tapping for a while: "Still there?", then the kiosk starts again. The reach button brings everything down to the lower half of the screen; the top shows the design's reach pictures or videos if it has any, with a button at their foot to move the screen back up. A dish marked sold out on the till greys out on the kiosk straight away.</li>

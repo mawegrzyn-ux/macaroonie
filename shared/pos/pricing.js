@@ -18,7 +18,7 @@
 // modifier prices) x qty.
 
 import { itemChoices, vatIncluded, basePrice } from '../orderPricing.js'
-import { isCombo, priceCombo, dealChoices } from '../combos.js'
+import { isCombo, priceCombo, dealChoices, withDealPicks } from '../combos.js'
 import { taxFor } from '../tax.js'
 
 export { vatIncluded }
@@ -226,7 +226,9 @@ export function priceItem(item, selection = {}, { itemsById = {}, groupsById = {
   if (isCombo(item)) {
     unit = unit ?? 0
     const pc = priceCombo(item, selection, { itemsById, sectionItems, soldOut }, (part, picked, groups) => {
-      const pp = priceChoices(partChoices(part, groups, groupsById), picked || {}, groupsById)
+      // What the deal picks itself (one option left) is on the line too.
+      const choices = partChoices(part, groups, groupsById)
+      const pp = priceChoices(choices, withDealPicks(choices, picked || {}), groupsById)
       return pp.ok ? { ok: true, extras: pp.extras, detail: pp.modifiers } : pp
     })
     if (!pc.ok) return pc
