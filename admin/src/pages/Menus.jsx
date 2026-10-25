@@ -655,7 +655,7 @@ function MenuEditor({ id, onBack }) {
         )}
 
         {selectedItem && (
-          <ItemDrawer
+          <ItemDrawer key={selectedItem.item.id}
             item={selectedItem.item}
             section={draft.sections[selectedItem.si]}
             menuTax={draft.tax}
@@ -1372,6 +1372,123 @@ function mergeAttachedGroup(attached, library) {
   }
 }
 
+// ── A dish's option groups in the dish panel ──
+// In the order guests are asked (till, kiosk, online ordering, website):
+// drag a group by its grip to move it. Each card starts closed with a
+// one-line summary; tap its name to open it and set this dish's prices.
+
+function AttachedGroups({ attached, variantGroups, openIds, onToggle, onReorder, onDetach, onOverride }) {
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  )
+  const onDragEnd = ({ active, over }) => {
+    if (!over || active.id === over.id) return
+    const from = attached.findIndex(g => g.group_id === active.id)
+    const to = attached.findIndex(g => g.group_id === over.id)
+    if (from < 0 || to < 0) return
+    onReorder(arrayMove(attached, from, to))
+  }
+  return (
+    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}
+      modifiers={[restrictToVerticalAxis, restrictToParentElement]}>
+      <SortableContext items={attached.map(g => g.group_id)} strategy={verticalListSortingStrategy}>
+        <div className="space-y-1.5" data-testid="dish-groups">
+          {attached.map(raw => (
+            <AttachedGroupCard key={raw.group_id}
+              group={mergeAttachedGroup(raw, variantGroups)}
+              open={openIds.has(raw.group_id)}
+              onToggle={() => onToggle(raw.group_id)}
+              onDetach={() => onDetach(raw.group_id)}
+              onOverride={onOverride} />
+          ))}
+        </div>
+      </SortableContext>
+    </DndContext>
+  )
+}
+
+function AttachedGroupCard({ group: g, open, onToggle, onDetach, onOverride }) {
+  const readOnly = useContext(MenuReadOnly)
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } =
+    useSortable({ id: g.group_id, disabled: readOnly })
+  const changed = g.options.filter(o => o.overridden).length
+  const summary = [
+    `${g.options.length} option${g.options.length === 1 ? '' : 's'}`,
+    changed ? `${changed} price${changed === 1 ? '' : 's'} changed` : null,
+  ].filter(Boolean).join(' · ')
+  const bodyId = 'dish-group-' + g.group_id
+  // The name opens and closes the card. Not a <button>: the panel is a
+  // disabled fieldset for View users, who must still be able to open it.
+  const toggleKey = (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle() }
+  }
+  return (
+    <div ref={setNodeRef}
+      style={{ transform: CSS.Translate.toString(transform), transition }}
+      data-testid="dish-group" data-group={g.group_id} data-open={open ? '1' : '0'}
+      className={cn('relative rounded-md border border-violet-200 bg-violet-50/70',
+        isDragging && 'z-10 shadow-lg opacity-90')}>
+      <div className="flex items-center gap-1 pr-1">
+        {readOnly ? <span className="w-2 shrink-0" /> : (
+          <button type="button" ref={setActivatorNodeRef} {...attributes} {...listeners}
+            aria-label={`Drag to move ${g.name}`}
+            className="w-9 min-h-[44px] flex items-center justify-center shrink-0 cursor-grab active:cursor-grabbing touch-none text-violet-700/70 hover:text-violet-900">
+            <GripVertical className="w-4 h-4" />
+          </button>
+        )}
+        <div role="button" tabIndex={0} aria-expanded={open} aria-controls={bodyId}
+          data-testid="dish-group-toggle" onClick={onToggle} onKeyDown={toggleKey}
+          className="flex-1 min-w-0 flex items-center gap-1.5 min-h-[44px] py-1 cursor-pointer select-none touch-manipulation rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400">
+          {open
+            ? <ChevronDown className="w-4 h-4 text-violet-700 shrink-0" />
+            : <ChevronRight className="w-4 h-4 text-violet-700 shrink-0" />}
+          <Layers className="w-3 h-3 text-violet-900 shrink-0" />
+          <span className="min-w-0 leading-tight">
+            <span className="block text-xs font-semibold text-violet-900 truncate">
+              {g.name}
+              {g.missing && <span className="font-normal text-destructive"> (deleted)</span>}
+            </span>
+            {!open && <span className="block text-[10px] text-violet-800/80 truncate" data-testid="dish-group-summary">{summary}</span>}
+          </span>
+        </div>
+        {!readOnly && (
+          <button type="button" onClick={onDetach}
+            className="text-[11px] text-destructive hover:underline px-2 min-h-[44px] shrink-0 touch-manipulation">
+            Detach
+          </button>
+        )}
+      </div>
+      {open && (
+        <div id={bodyId} className="px-2 pb-2 space-y-1">
+          {g.options.map(o => (
+            <div key={o.option_id} className="flex items-center gap-2">
+              <span className="text-xs flex-1">{o.label}</span>
+              <span className="text-[10px] text-muted-foreground font-mono">
+                default {formatPrice(o.default_pence)}
+              </span>
+              <PriceInput
+                pence={o.price_pence ?? 0}
+                onChange={(pence) => onOverride(g.group_id, o.option_id, pence ?? 0, o.default_pence)}
+                className={cn('w-24 font-mono text-xs', o.overridden && 'border-violet-400')}
+              />
+              {o.overridden && (
+                <button type="button"
+                  onClick={() => onOverride(g.group_id, o.option_id, o.default_pence, o.default_pence)}
+                  className="text-[10px] text-violet-700 hover:underline">Reset</button>
+              )}
+            </div>
+          ))}
+          {g.options.length === 0 && (
+            <p className="text-[11px] text-muted-foreground">This group has no options yet: add them on Menus &gt; Variant groups.</p>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Allergens in the dish panel: one tile per allergen, tap to cycle ──
 
 const NEXT_LEVEL = { none: 'contains', contains: 'may_contain', may_contain: 'removable', removable: null }
@@ -1448,10 +1565,19 @@ function ItemDrawer({ item, section, menuTax, sections = [], courses, dietaryTag
   const attached = item.variant_groups || []
   const attachedIds = new Set(attached.map(g => g.group_id))
   const availableGroups = variantGroups.filter(g => !attachedIds.has(g.id))
+  // Which group cards are open. All start closed (the panel is keyed by
+  // the dish, so this starts empty for every dish); one just attached opens.
+  const [openGroups, setOpenGroups] = useState(() => new Set())
+  const toggleGroup = (groupId) => setOpenGroups(s => {
+    const next = new Set(s)
+    if (next.has(groupId)) next.delete(groupId); else next.add(groupId)
+    return next
+  })
 
   function attachGroup(groupId) {
     if (!groupId || attachedIds.has(groupId)) return
     onChange({ variant_groups: [...attached, { group_id: groupId, overrides: [] }] })
+    setOpenGroups(s => new Set(s).add(groupId))
   }
   function detachGroup(groupId) {
     onChange({ variant_groups: attached.filter(g => g.group_id !== groupId) })
@@ -1636,39 +1762,19 @@ function ItemDrawer({ item, section, menuTax, sections = [], courses, dietaryTag
                 : 'No variant groups exist yet — create one under Menus > Variant groups, then attach it here.'}
             </p>
           )}
-          {attached.map(raw => {
-            const g = mergeAttachedGroup(raw, variantGroups)
-            return (
-              <div key={g.group_id} className="rounded-md border border-violet-200 bg-violet-50/70 p-2 space-y-1">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-violet-900 inline-flex items-center gap-1">
-                    <Layers className="w-3 h-3" /> {g.name}
-                    {g.missing && <span className="font-normal text-destructive"> (deleted)</span>}
-                  </span>
-                  <button onClick={() => detachGroup(g.group_id)}
-                    className="text-[11px] text-destructive hover:underline">Detach</button>
-                </div>
-                {g.options.map(o => (
-                  <div key={o.option_id} className="flex items-center gap-2">
-                    <span className="text-xs flex-1">{o.label}</span>
-                    <span className="text-[10px] text-muted-foreground font-mono">
-                      default {formatPrice(o.default_pence)}
-                    </span>
-                    <PriceInput
-                      pence={o.price_pence ?? 0}
-                      onChange={(pence) => setOverride(g.group_id, o.option_id, pence ?? 0, o.default_pence)}
-                      className={cn('w-24 font-mono text-xs', o.overridden && 'border-violet-400')}
-                    />
-                    {o.overridden && (
-                      <button type="button"
-                        onClick={() => setOverride(g.group_id, o.option_id, o.default_pence, o.default_pence)}
-                        className="text-[10px] text-violet-700 hover:underline">Reset</button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )
-          })}
+          {attached.length > 0 && (
+            <>
+              <AttachedGroups attached={attached} variantGroups={variantGroups}
+                openIds={openGroups} onToggle={toggleGroup}
+                onReorder={(next) => onChange({ variant_groups: next })}
+                onDetach={detachGroup} onOverride={setOverride} />
+              {attached.length > 1 && !readOnly && (
+                <p className="text-[11px] text-muted-foreground">
+                  Asked in this order on the till, kiosks and online: drag a group by its grip to move it.
+                </p>
+              )}
+            </>
+          )}
         </div>
       </ReadOnlyFieldset>
       </div>
