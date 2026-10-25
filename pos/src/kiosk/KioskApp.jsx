@@ -202,6 +202,11 @@ export default function KioskApp({ device = null, previewToken = null, shareToke
   const texts = textsFor(s)
   const design = s.config?.design
   const style = useDesignStyle(design)
+  // A preview says orders aren't sent. In the designer's frame or a shared
+  // page's the page around it says so; opened in its own tab (Full screen),
+  // a band along the top says it, in its own room so it never covers the
+  // top bar's price or language button.
+  const previewBand = !!s.preview && window.parent === window
   const [staff, setStaff] = useState(false)
   const taps = useRef([])
   const corner = () => {
@@ -230,7 +235,7 @@ export default function KioskApp({ device = null, previewToken = null, shareToke
   // Dishes' picture style on the root; choices' (.k-opts-<style>) on each set
   // of choices, since an option group can have its own (groupLook()).
   return (
-    <div className={cx('k-root', design.brand.heading_case === 'upper' && 'k-upper', s.reach && 'k-reach', 'k-tiles-' + design.layout.tiles, design.layout.icon_buttons && 'k-icons')}
+    <div className={cx('k-root', design.brand.heading_case === 'upper' && 'k-upper', s.reach && 'k-reach', 'k-tiles-' + design.layout.tiles, design.layout.icon_buttons && 'k-icons', previewBand && 'k-has-preview-band')}
       style={style} data-testid="kiosk" data-screen={s.screen} data-tiles={design.layout.tiles} data-option-tiles={design.layout.option_tiles}
       data-option-pictures={design.layout.option_pictures ? '1' : '0'} data-option-align={design.layout.option_align}
       data-hero={design.layout.hero} data-hero-backdrop={design.layout.hero_backdrop ? '1' : '0'} data-combo-build={design.layout.combo_build ? '1' : '0'}
@@ -256,7 +261,7 @@ export default function KioskApp({ device = null, previewToken = null, shareToke
       {s.screen === 'start' && !s.preview && s.device && !belongsHere(s.device.kind || 'kiosk') && (
         <div className="absolute inset-x-0 top-0 z-[65]"><MoveNotice kind="kiosk" onMove={moveKiosk} className="pl-[80px]" /></div>
       )}
-      {s.preview && <div className="absolute right-2 top-2 z-[70] px-3 py-1 rounded-full bg-black/75 text-white text-[13px] font-semibold pointer-events-none">{texts.ui('preview')}</div>}
+      {previewBand && <div className="k-preview-band" data-testid="k-preview-band">{texts.ui('preview')}</div>}
       {s.toast && <div key={s.toast.id} className="k-toast" data-testid="k-toast">{s.toast.text}</div>}
       <Idle s={s} texts={texts} />
       {staff && <StaffPanel s={s} onClose={() => setStaff(false)} />}

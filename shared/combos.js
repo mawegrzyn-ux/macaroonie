@@ -304,6 +304,27 @@ export function normaliseDealGroups(raw) {
   return Object.keys(out).length ? out : null
 }
 
+/**
+ * A choice's deal changes moved from one group key to another, its picked
+ * option ids mapped (optionIds: old id -> new id; ids with no new one go).
+ * Used when a dish's own options become an option group ('variants' ->
+ * the group's id, 'v:<label>' -> the group's option ids), so a deal that
+ * changed them changes the group instead. keepOld keeps the old entry too
+ * (a section choice: the section's other dishes may still have their own
+ * options). Returns the changes as stored (null = none).
+ */
+export function moveDealGroup(groups, from, to, optionIds = {}, { keepOld = false } = {}) {
+  const changes = normaliseDealGroups(groups)
+  if (!changes || !changes[from] || changes[to] || from === to) return changes
+  const ch = changes[from]
+  const moved = ch.use === 'only'
+    ? { ...ch, option_ids: ch.option_ids.map(id => optionIds[id]).filter(Boolean) }
+    : { ...ch }
+  const out = { ...changes, [to]: moved }
+  if (!keepOld) delete out[from]
+  return normaliseDealGroups(out)
+}
+
 /** A group's how many with a deal's change, and no more than its options (unless a pick can repeat). */
 function dealLimits(c, ch) {
   let max = Number(ch.max ?? c.max) || 1

@@ -24,7 +24,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   BookOpen, Plus, Trash2, Loader2, X, ChevronDown, ChevronRight,
   Sparkles, Printer, Image as ImageIcon, Layers, GripVertical, Copy,
-  Settings as SettingsIcon, LayoutTemplate, Leaf, EyeOff,
+  Settings as SettingsIcon, LayoutTemplate, Leaf, EyeOff, List,
 } from 'lucide-react'
 import {
   DndContext, closestCenter, PointerSensor, TouchSensor, KeyboardSensor, useSensor, useSensors,
@@ -51,6 +51,8 @@ import { PublishButton, PublishBadges, useOpenPreview } from '@/components/menus
 import { TaxBox, useTaxLookups, taxSettingProblems } from '@/components/menus/TaxBox'
 import { MenuImportModal } from '@/components/menus/MenuImport'
 import { normTax, cleanTax } from '@shared/tax.js'
+import { moveDealGroup } from '@shared/combos.js'
+import { variantOptionId } from '@shared/orderPricing.js'
 
 const SEEDS = [
   { slug: 'onethai-dinner', label: 'One Thai Dinner sample' },
@@ -370,6 +372,49 @@ function copyOfSection(section) {
   }
 }
 
+// A dish's own options turned into the option group groupId, in the draft:
+// the group goes first among the dish's groups (its own options were asked
+// first), with this dish's prices as overrides, and the own options go. Meal
+// deals on this menu that changed them inside the deal (a choice's
+// groups.variants) change the group instead (moveDealGroup(), optionIds:
+// 'v:<label>' -> the group's option id); a whole-section choice keeps its
+// entry for the section's other dishes too.
+function withOwnOptionsAsGroup(sections, sectionId, itemId, groupId, overrides, optionIds) {
+  const remap = o => {
+    const mine = (o.type === 'item' && o.item_id === itemId) || (o.type === 'section' && o.section_id === sectionId)
+    if (!mine || !o.groups) return o
+    const groups = moveDealGroup(o.groups, 'variants', groupId, optionIds, { keepOld: o.type === 'section' })
+    if (groups) return { ...o, groups }
+    const { groups: _gone, ...rest } = o
+    return rest
+  }
+  return sections.map(sec => ({
+    ...sec,
+    items: (sec.items || []).map(it => {
+      let next = it
+      if (it.id === itemId) {
+        next = {
+          ...it,
+          variants: [],
+          variant_groups: [{ group_id: groupId, overrides }, ...(it.variant_groups || []).filter(g => g.group_id !== groupId)],
+        }
+      }
+      if (next.kind === 'combo' && Array.isArray(next.combo?.steps)) {
+        next = { ...next, combo: { ...next.combo, steps: next.combo.steps.map(st => ({ ...st, options: (st.options || []).map(remap) })) } }
+      }
+      return next
+    }),
+  }))
+}
+
+// A top bar button: icon and words from sm up, the icon alone (44 px) below.
+const TOP_BTN = 'inline-flex items-center justify-center gap-1.5 text-sm px-2.5 sm:px-3 min-h-[44px] min-w-[44px] touch-manipulation'
+
+// The dish and section panels: beside the list from md up, a full-screen
+// sheet below (no room beside the list on a phone).
+const SIDE_PANEL = 'border rounded-lg bg-background flex flex-col w-[380px] shrink-0 max-h-[calc(100vh-140px)] sticky top-[76px] '
+  + 'max-md:fixed max-md:inset-0 max-md:z-50 max-md:w-auto max-md:max-h-none max-md:rounded-none max-md:border-0'
+
 function MenuEditor({ id, onBack }) {
   const api = useApi()
   const navigate = useNavigate()
@@ -453,10 +498,11 @@ function MenuEditor({ id, onBack }) {
             pos_course_id: it.pos_course_id || null,
             pos_colour: it.pos_colour || null,
             combo: comboPayload(it),
-            // One-off ad-hoc variants are retired — every variant must
-            // come from a predefined group (attached below). Price can
-            // still be overridden per item via variant_groups.overrides.
-            variants: [],
+            // A dish's own options (menu_item_variants: sample menus, older
+            // menus, imports) go back as they are. They can't be edited
+            // here (new options come from option groups), only turned into
+            // a group or removed in the dish panel; sending none deleted them.
+            variants: (it.variants || []).map((v, vi) => ({ label: v.label, price_pence: v.price_pence ?? 0, sort_order: vi })),
             variant_groups: (it.variant_groups || []).map((g, gi) => ({
               group_id: g.group_id,
               sort_order: gi,
@@ -552,14 +598,21 @@ function MenuEditor({ id, onBack }) {
     set('sections', sections)
     setSelectedItemId(copy.id)
   }
+  // A dish's own options became the option group `group` (OwnOptionsCard
+  // made or found it): see withOwnOptionsAsGroup().
+  function ownOptionsToGroup(sectionIndex, itemIndex, group, overrides, optionIds) {
+    const sec = draft.sections[sectionIndex]
+    set('sections', withOwnOptionsAsGroup(draft.sections, sec.id, sec.items[itemIndex].id, group.id, overrides, optionIds))
+  }
 
   return (
     <div className="h-full overflow-y-auto">
-    <div className="p-6 max-w-6xl mx-auto space-y-5 pb-24">
-      {/* Top bar — sticks to the scroll container, not the viewport. */}
-      <div className="flex items-center justify-between sticky top-0 z-10 bg-background/95 backdrop-blur py-3 -mx-6 px-6 max-lg:notouch:pl-14 border-b">
-        <div className="flex items-center gap-3 min-w-0">
-          <button onClick={onBack} className="text-sm text-muted-foreground hover:text-foreground">
+    <div className="p-4 sm:p-6 max-w-6xl mx-auto space-y-5 pb-24">
+      {/* Top bar — sticks to the scroll container, not the viewport. On a
+          phone the buttons wrap under the name and show only their icons. */}
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 sticky top-0 z-10 bg-background/95 backdrop-blur py-2 sm:py-3 -mx-4 sm:-mx-6 px-4 sm:px-6 max-lg:notouch:pl-14 border-b" data-testid="menu-top-bar">
+        <div className="flex items-center gap-3 min-w-0 flex-1 basis-[13rem]">
+          <button onClick={onBack} className="text-sm text-muted-foreground hover:text-foreground shrink-0 min-h-[44px] touch-manipulation">
             ← All menus
           </button>
           <div className="min-w-0">
@@ -567,52 +620,53 @@ function MenuEditor({ id, onBack }) {
             <p className="text-xs text-muted-foreground truncate">/menus/{draft.slug}</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          {canManage && <button onClick={() => setDetailsOpen(true)}
-            className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground px-3 py-2 min-h-[44px] touch-manipulation">
-            <SettingsIcon className="w-3.5 h-3.5" /> Settings
+        <div className="flex flex-wrap items-center justify-end gap-x-1 sm:gap-x-2 gap-y-1 ml-auto">
+          {canManage && <button onClick={() => setDetailsOpen(true)} aria-label="Settings" title="Menu settings"
+            className={TOP_BTN + ' text-muted-foreground hover:text-foreground'}>
+            <SettingsIcon className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Settings</span>
           </button>}
           {!canManage ? null : dirty ? (
-            <span title="Save your changes first — the designer shows the saved menu."
-              className="inline-flex items-center gap-1.5 text-sm text-muted-foreground/50 px-3 py-2 min-h-[44px] cursor-not-allowed select-none">
-              <LayoutTemplate className="w-3.5 h-3.5" /> Design print
+            <span title="Save your changes first — the designer shows the saved menu." aria-label="Design print (save first)"
+              className={TOP_BTN + ' text-muted-foreground/50 cursor-not-allowed select-none'}>
+              <LayoutTemplate className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Design print</span>
             </span>
           ) : (
-            <button onClick={() => navigate(`/menus/${id}/design`)}
-              className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground px-3 py-2 min-h-[44px] touch-manipulation">
-              <LayoutTemplate className="w-3.5 h-3.5" /> Design print
+            <button onClick={() => navigate(`/menus/${id}/design`)} aria-label="Design print" title="Design the printed menu"
+              className={TOP_BTN + ' text-muted-foreground hover:text-foreground'}>
+              <LayoutTemplate className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Design print</span>
               {draft.design_count > 0 && <span className="text-[10px] px-1 rounded bg-blue-100 text-blue-700">{draft.design_count}</span>}
             </button>
           )}
           {dirty ? (
             <>
-              <span title="Save your changes first — the print page shows what's saved, not this draft."
-                className="inline-flex items-center gap-1.5 text-sm text-muted-foreground/50 px-3 py-2 cursor-not-allowed select-none">
-                <Printer className="w-3.5 h-3.5" /> Print
+              <span title="Save your changes first — the print page shows what's saved, not this draft." aria-label="Print (save first)"
+                className={TOP_BTN + ' text-muted-foreground/50 cursor-not-allowed select-none'}>
+                <Printer className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Print</span>
               </span>
-              <span title="Save your changes first — the dietary list shows what's saved, not this draft."
-                className="inline-flex items-center gap-1.5 text-sm text-muted-foreground/50 px-3 py-2 cursor-not-allowed select-none">
-                <Leaf className="w-3.5 h-3.5" /> Dietary list
+              <span title="Save your changes first — the dietary list shows what's saved, not this draft." aria-label="Dietary list (save first)"
+                className={TOP_BTN + ' text-muted-foreground/50 cursor-not-allowed select-none'}>
+                <Leaf className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Dietary list</span>
               </span>
             </>
           ) : (
             <>
               {/* The saved menu (draft), so changes can be checked before publishing. */}
-              <button type="button" onClick={() => openPreview(id)} title="Print this menu as saved (may differ from the live menu)"
-                className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground px-3 min-h-[44px] touch-manipulation">
-                <Printer className="w-3.5 h-3.5" /> Print
+              <button type="button" onClick={() => openPreview(id)} title="Print this menu as saved (may differ from the live menu)" aria-label="Print"
+                className={TOP_BTN + ' text-muted-foreground hover:text-foreground'}>
+                <Printer className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Print</span>
               </button>
-              <button type="button" onClick={() => openPreview(id, { view: 'dietary' })}
+              <button type="button" onClick={() => openPreview(id, { view: 'dietary' })} aria-label="Dietary list"
                 title="Print a list of dishes with their dietary icons, as saved"
-                className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground px-3 min-h-[44px] touch-manipulation">
-                <Leaf className="w-3.5 h-3.5" /> Dietary list
+                className={TOP_BTN + ' text-muted-foreground hover:text-foreground'}>
+                <Leaf className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Dietary list</span>
               </button>
             </>
           )}
-          {canManage && <Btn disabled={!dirty || save.isPending || taxIssues.length > 0} onClick={() => save.mutate()}>
+          {/* On a phone the Save bar at the bottom is the Save button (it shows while there are changes). */}
+          {canManage && <span className="hidden sm:contents"><Btn disabled={!dirty || save.isPending || taxIssues.length > 0} onClick={() => save.mutate()}>
             {save.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
             {dirty ? 'Save changes' : 'Saved'}
-          </Btn>}
+          </Btn></span>}
           {/* Save, then publish: the saved draft goes live from here (MenuPublish.jsx). */}
           <PublishButton menuId={id} dirty={!!dirty} canManage={canManage} />
         </div>
@@ -664,6 +718,7 @@ function MenuEditor({ id, onBack }) {
             sections={draft.sections || []}
             courses={tillCourses}
             onChange={(patch) => patchItem(selectedItem.si, selectedItem.ii, patch)}
+            onOwnOptionsToGroup={(group, overrides, optionIds) => ownOptionsToGroup(selectedItem.si, selectedItem.ii, group, overrides, optionIds)}
             onCopy={() => copyItemAt(selectedItem.si, selectedItem.ii)}
             onRemove={() => { removeItemAt(selectedItem.si, selectedItem.ii); setSelectedItemId(null) }}
             onClose={() => setSelectedItemId(null)} />
@@ -679,7 +734,7 @@ function MenuEditor({ id, onBack }) {
       {/* Sticky bottom save bar (mirror of top, easier to reach when long) */}
       {canManage && dirty && (
         <div className="fixed bottom-0 left-0 right-0 bg-background border-t shadow-lg z-20">
-          <div className="max-w-6xl mx-auto px-6 py-3 flex items-center justify-end gap-2">
+          <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-end gap-2">
             <span className="text-xs text-muted-foreground">Unsaved changes.</span>
             <Btn disabled={save.isPending || taxIssues.length > 0} onClick={() => save.mutate()}>
               {save.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
@@ -966,9 +1021,11 @@ function SectionEditor({ section, index, total, selectedItemId, onSelectItem, se
   return (
     <div className={cn('border rounded-lg overflow-hidden bg-sky-50',
       selected ? 'border-primary ring-1 ring-primary/30' : 'border-sky-200')}>
-      {/* Section header: tap anywhere on it to edit the section in the side panel. */}
-      <div onClick={onSelect}
-        className={cn('flex items-center gap-2 px-3 py-2 cursor-pointer touch-manipulation min-h-[52px]',
+      {/* Section header: tap anywhere on it to edit the section in the side panel.
+          The title keeps at least 8rem: on a narrow screen the badges and
+          buttons wrap onto a second line instead. */}
+      <div onClick={onSelect} data-testid="section-head"
+        className={cn('flex flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2 cursor-pointer touch-manipulation min-h-[52px]',
           selected ? 'bg-primary/10' : 'bg-sky-100 hover:bg-sky-200/60')}>
         <button type="button" onClick={e => { e.stopPropagation(); setOpen(o => !o) }}
           className="p-1 min-w-[32px] min-h-[32px] flex items-center justify-center touch-manipulation"
@@ -980,27 +1037,29 @@ function SectionEditor({ section, index, total, selectedItemId, onSelectItem, se
             ? <img src={section.image_url} alt="" className="w-full h-full object-cover" />
             : <ImageIcon className="w-4 h-4 text-muted-foreground" />}
         </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold truncate">{section.title || 'Untitled section'}</p>
+        <div className="flex-1 min-w-[8rem]">
+          <p className="text-sm font-semibold truncate" data-testid="section-title">{section.title || 'Untitled section'}</p>
           {section.subtitle && <p className="text-xs text-muted-foreground truncate">{section.subtitle}</p>}
         </div>
-        <div className="hidden sm:flex items-center gap-1 shrink-0">
-          {section.highlight && <Badge>Highlight</Badge>}
-          {vat && <Badge title="Section tax (used by dishes without their own)">Tax {vat}</Badge>}
-          {breakLabel && <Badge title="Print">{breakLabel}</Badge>}
-          {section.print_keep_together && <Badge title="Print">Keep together</Badge>}
+        <div className="flex items-center gap-2 shrink-0 ml-auto">
+          <div className="hidden sm:flex items-center gap-1 shrink-0">
+            {section.highlight && <Badge>Highlight</Badge>}
+            {vat && <Badge title="Section tax (used by dishes without their own)">Tax {vat}</Badge>}
+            {breakLabel && <Badge title="Print">{breakLabel}</Badge>}
+            {section.print_keep_together && <Badge title="Print">Keep together</Badge>}
+          </div>
+          {section.visibility === 'hidden' && <Badge title="Not printed, not on the website, not orderable">Hidden</Badge>}
+          {section.visibility === 'website_hidden' && <Badge title="Printed menus only: not on the website or online ordering">Print only</Badge>}
+          <span className="text-[11px] text-muted-foreground shrink-0">{items.length} dish{items.length === 1 ? '' : 'es'}</span>
+          {!readOnly && <div className="flex items-center gap-0.5 shrink-0" onClick={e => e.stopPropagation()}>
+            <button onClick={onMoveUp}   disabled={index === 0}        className="text-xs px-2 min-h-[32px] disabled:opacity-30">↑</button>
+            <button onClick={onMoveDown} disabled={index === total - 1} className="text-xs px-2 min-h-[32px] disabled:opacity-30">↓</button>
+            <button onClick={onCopy} aria-label={'Copy section ' + (section.title || '')} title="Copy this section with all its dishes"
+              className="text-muted-foreground hover:text-foreground hover:bg-white/70 px-2 min-h-[32px] rounded">
+              <Copy className="w-3.5 h-3.5" />
+            </button>
+          </div>}
         </div>
-        {section.visibility === 'hidden' && <Badge title="Not printed, not on the website, not orderable">Hidden</Badge>}
-        {section.visibility === 'website_hidden' && <Badge title="Printed menus only: not on the website or online ordering">Print only</Badge>}
-        <span className="text-[11px] text-muted-foreground shrink-0">{items.length} dish{items.length === 1 ? '' : 'es'}</span>
-        {!readOnly && <div className="flex items-center gap-0.5 shrink-0" onClick={e => e.stopPropagation()}>
-          <button onClick={onMoveUp}   disabled={index === 0}        className="text-xs px-2 min-h-[32px] disabled:opacity-30">↑</button>
-          <button onClick={onMoveDown} disabled={index === total - 1} className="text-xs px-2 min-h-[32px] disabled:opacity-30">↓</button>
-          <button onClick={onCopy} aria-label={'Copy section ' + (section.title || '')} title="Copy this section with all its dishes"
-            className="text-muted-foreground hover:text-foreground hover:bg-white/70 px-2 min-h-[32px] rounded">
-            <Copy className="w-3.5 h-3.5" />
-          </button>
-        </div>}
       </div>
       {open && (
         <div className="p-2 space-y-1">
@@ -1078,7 +1137,7 @@ function SectionDrawer({ section, menuTax, courses, onChange, onCopy, onRemove, 
   const [confirmDelete, setConfirmDelete] = useState(false)
   const count = (section.items || []).length
   return (
-    <aside className="border rounded-lg bg-background flex flex-col w-[380px] shrink-0 max-h-[calc(100vh-140px)] sticky top-[76px]">
+    <aside className={SIDE_PANEL} data-testid="section-panel">
       <div className="flex items-center gap-2 px-4 py-3 border-b shrink-0">
         <p className="text-sm font-semibold flex-1 truncate">{readOnly ? 'Section' : 'Edit section'}</p>
         {!readOnly && <button onClick={onCopy} data-testid="section-copy"
@@ -1178,9 +1237,12 @@ function SectionDrawer({ section, menuTax, courses, onChange, onCopy, onRemove, 
 
 // Compact row — name, price, attached-group + dietary badges. Click
 // anywhere on the row to open it in the drawer; drag the grip to reorder
-// within the section.
+// within the section. The name never gets less than min-w-[7rem]: where the
+// row is narrower (a phone, a tablet with the side panel open) the badges,
+// price and buttons wrap onto a second line instead of squeezing it away.
 function ItemRow({ item, index, total, selected, onSelect, onRemove, onCopy, onMoveUp, onMoveDown }) {
   const groupCount = (item.variant_groups || []).length
+  const ownCount = (item.variants || []).length
   const readOnly = useContext(MenuReadOnly)
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({ id: item.id, disabled: readOnly })
   return (
@@ -1188,8 +1250,9 @@ function ItemRow({ item, index, total, selected, onSelect, onRemove, onCopy, onM
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition }}
       onClick={onSelect}
+      data-testid="dish-row"
       className={cn(
-        'relative flex items-center gap-2 pr-2.5 py-1 rounded-md border cursor-pointer bg-white hover:border-primary/50',
+        'relative flex flex-wrap items-center gap-x-2 pr-2.5 py-1 rounded-md border cursor-pointer bg-white hover:border-primary/50',
         selected ? 'border-primary ring-1 ring-primary/30 bg-primary/5' : 'border-amber-200',
         isDragging && 'z-10 shadow-lg opacity-90',
       )}>
@@ -1204,10 +1267,18 @@ function ItemRow({ item, index, total, selected, onSelect, onRemove, onCopy, onM
       {item.image_url
         ? <img src={item.image_url} alt="" className="w-7 h-7 rounded object-cover shrink-0" />
         : <ImageIcon className="w-3.5 h-3.5 text-muted-foreground shrink-0" />}
-      <span className="text-sm font-medium truncate flex-1">{item.name || 'Untitled dish'}</span>
+      <span className="text-sm font-medium truncate flex-1 min-w-[7rem]" data-testid="dish-name">{item.name || 'Untitled dish'}</span>
+      <div className="flex items-center gap-2 shrink-0 ml-auto">
       {groupCount > 0 && (
-        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-800 inline-flex items-center gap-1 shrink-0">
+        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-800 inline-flex items-center gap-1 shrink-0"
+          title={`${groupCount} option group${groupCount === 1 ? '' : 's'}`}>
           <Layers className="w-2.5 h-2.5" /> {groupCount}
+        </span>
+      )}
+      {ownCount > 0 && (
+        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-900 inline-flex items-center gap-1 shrink-0"
+          title={`${ownCount} option${ownCount === 1 ? '' : 's'} on this dish only`} data-testid="dish-own-options">
+          <List className="w-2.5 h-2.5" /> {ownCount}
         </span>
       )}
       {item.min_order_qty > 1 && (
@@ -1223,16 +1294,17 @@ function ItemRow({ item, index, total, selected, onSelect, onRemove, onCopy, onM
       )}
       <span className="text-xs font-mono text-muted-foreground shrink-0 w-16 text-right">{formatPrice(item.price_pence)}</span>
       {!readOnly && <div className="flex items-center gap-0.5 shrink-0" onClick={e => e.stopPropagation()}>
-        <button onClick={onMoveUp}   disabled={index === 0}        className="text-xs px-1.5 disabled:opacity-30">↑</button>
-        <button onClick={onMoveDown} disabled={index === total - 1} className="text-xs px-1.5 disabled:opacity-30">↓</button>
+        <button onClick={onMoveUp}   disabled={index === 0}        className="text-xs px-1.5 min-h-[32px] disabled:opacity-30">↑</button>
+        <button onClick={onMoveDown} disabled={index === total - 1} className="text-xs px-1.5 min-h-[32px] disabled:opacity-30">↓</button>
         <button onClick={onCopy} aria-label={'Copy ' + (item.name || 'dish')} title="Copy dish"
-          className="text-muted-foreground hover:text-foreground hover:bg-accent p-1 rounded">
+          className="text-muted-foreground hover:text-foreground hover:bg-accent p-1 min-h-[32px] rounded">
           <Copy className="w-3 h-3" />
         </button>
-        <button onClick={onRemove} aria-label={'Delete ' + (item.name || 'dish')} className="text-destructive hover:bg-destructive/10 p-1 rounded">
+        <button onClick={onRemove} aria-label={'Delete ' + (item.name || 'dish')} className="text-destructive hover:bg-destructive/10 p-1 min-h-[32px] rounded">
           <Trash2 className="w-3 h-3" />
         </button>
       </div>}
+      </div>
     </div>
   )
 }
@@ -1489,6 +1561,146 @@ function AttachedGroupCard({ group: g, open, onToggle, onDetach, onOverride }) {
   )
 }
 
+// ── A dish's own options (menu_item_variants) in the dish panel ──
+// Options added to one dish directly, not from an option group (sample
+// menus, older menus, imports): guests pick one, at its price, before any
+// group. Kept as they are when the menu is saved. They can't be edited here:
+// they can become an option group (one with the same options is used when
+// there is one, else a new one is made) or be removed.
+
+const normLabel = s => String(s || '').trim().toLowerCase()
+
+// A library group that asks exactly these options the way own options are
+// asked: pick one, its price is the dish's price, no nested questions.
+function sameAsOwnOptions(group, own) {
+  if (group.price_mode !== 'base' || Number(group.min_select) !== 1 || Number(group.max_select) !== 1) return false
+  if (group.allow_repeat || group.on_request) return false
+  const opts = group.options || []
+  if (opts.length !== own.length || opts.some(o => o.child_group_id)) return false
+  const labels = new Set(opts.map(o => normLabel(o.label)))
+  return labels.size === opts.length && own.every(v => labels.has(normLabel(v.label)))
+}
+
+// This dish's prices as overrides on the group, and each own option's deal id
+// ('v:<label>') -> the group's option id.
+function ownOptionPrices(group, own) {
+  const overrides = [], optionIds = {}
+  for (const o of group.options || []) {
+    const v = own.find(x => normLabel(x.label) === normLabel(o.label))
+    if (!v) continue
+    optionIds[variantOptionId(v.label)] = o.id
+    if (Number(v.price_pence ?? 0) !== Number(o.price_pence ?? 0)) overrides.push({ option_id: o.id, price_pence: Number(v.price_pence ?? 0) })
+  }
+  return { overrides, optionIds }
+}
+
+function OwnOptionsCard({ item, variantGroups, attachedIds, onToGroup, onRemove }) {
+  const readOnly = useContext(MenuReadOnly)
+  const api = useApi()
+  const qc = useQueryClient()
+  const own = item.variants || []
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState(null)
+  const [confirmRemove, setConfirmRemove] = useState(false)
+  // A group with the same options, not already on this dish: the one whose
+  // prices are closest (fewest overrides).
+  const match = useMemo(() => variantGroups
+    .filter(g => !attachedIds.has(g.id) && sameAsOwnOptions(g, own))
+    .map(g => ({ g, n: ownOptionPrices(g, own).overrides.length }))
+    .sort((a, b) => a.n - b.n)[0]?.g || null, [variantGroups, attachedIds, own])
+
+  async function toGroup() {
+    setBusy(true); setError(null)
+    try {
+      let group = match
+      if (!group) {
+        const names = own.map(v => v.label).join(' / ')
+        group = await api.post('/menus/variant-groups', {
+          // What staff see on Variant groups; guests keep seeing "Choose",
+          // the heading own options have on the tills, kiosks and online.
+          name: names.length > 80 ? names.slice(0, 79) + '…' : names,
+          display_name: 'Choose',
+          price_mode: 'base', min_select: 1, max_select: 1,
+          options: own.map((v, i) => ({ label: v.label, price_pence: v.price_pence ?? 0, sort_order: i })),
+        })
+        // In the library straight away, so the dish's group card shows it.
+        qc.setQueryData(['menu-variant-groups'], old => [...(old || []), group])
+        qc.invalidateQueries({ queryKey: ['menu-variant-groups'] })
+      }
+      const { overrides, optionIds } = ownOptionPrices(group, own)
+      onToGroup(group, overrides, optionIds)
+    } catch (e) {
+      setError(e?.body?.error || e.message || 'Could not make the option group')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const noOwnPrice = item.price_pence == null
+  return (
+    <div className="rounded-md border border-amber-300 bg-amber-50/70 p-2.5 space-y-2" data-testid="own-options">
+      <div className="flex items-start gap-1.5">
+        <List className="w-3.5 h-3.5 text-amber-800 mt-0.5 shrink-0" />
+        <div className="min-w-0">
+          <p className="text-xs font-semibold text-amber-900">Options on this dish only</p>
+          <p className="text-[11px] text-amber-900/80 leading-snug">
+            Added to this dish directly, not from an option group. Guests pick one, at its price, before any group.
+            They are kept when you save; to change them, turn them into an option group.
+          </p>
+        </div>
+      </div>
+      <div className="rounded border border-amber-200 bg-white/70 divide-y divide-amber-100">
+        {own.map((v, i) => (
+          <div key={i} className="flex items-center gap-2 px-2 min-h-[32px] text-xs" data-testid="own-option">
+            <span className="flex-1 min-w-0 truncate">{v.label}</span>
+            <span className="font-mono text-muted-foreground shrink-0">{formatPrice(v.price_pence)}</span>
+          </div>
+        ))}
+      </div>
+      {!readOnly && !confirmRemove && (
+        <div className="space-y-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <button type="button" onClick={toGroup} disabled={busy} data-testid="own-options-to-group"
+              className="inline-flex items-center gap-1.5 text-xs font-medium rounded-md px-3 min-h-[40px] bg-amber-700 text-white hover:bg-amber-800 disabled:opacity-60 touch-manipulation">
+              {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Layers className="w-3.5 h-3.5" />}
+              {match ? 'Use the option group' : 'Turn into an option group'}
+            </button>
+            <button type="button" onClick={() => setConfirmRemove(true)} data-testid="own-options-remove"
+              className="text-xs rounded-md px-3 min-h-[40px] border border-amber-300 text-amber-900 hover:bg-amber-100 touch-manipulation">
+              Remove
+            </button>
+          </div>
+          <p className="text-[11px] text-amber-900/80" data-testid="own-options-hint">
+            {match
+              ? <>The group <strong>{match.name}</strong> has the same options: the dish uses it, with these prices.</>
+              : 'Makes a group with these options and prices (on Menus > Variant groups, where you can rename it and use it on other dishes); guests still see "Choose".'}
+          </p>
+        </div>
+      )}
+      {!readOnly && confirmRemove && (
+        <div className="rounded border border-destructive/30 bg-destructive/5 p-2 space-y-2" data-testid="own-options-confirm">
+          <p className="text-xs">
+            Remove {own.length === 1 ? 'this option' : `these ${own.length} options`} from the dish?
+            {noOwnPrice
+              ? ' It has no price of its own yet, so give it one or it can\'t be ordered.'
+              : ` Guests then order it at its own price (${formatPrice(item.price_pence)}).`}
+            {' '}Nothing changes until you save the menu.
+          </p>
+          <div className="flex gap-2">
+            <button type="button" onClick={() => { setConfirmRemove(false); onRemove() }}
+              className="text-xs font-medium rounded-md px-3 min-h-[40px] bg-destructive text-destructive-foreground touch-manipulation">
+              Yes, remove
+            </button>
+            <button type="button" onClick={() => setConfirmRemove(false)}
+              className="text-xs rounded-md px-3 min-h-[40px] border touch-manipulation">Cancel</button>
+          </div>
+        </div>
+      )}
+      {error && <p className="text-[11px] text-destructive">{error}</p>}
+    </div>
+  )
+}
+
 // ── Allergens in the dish panel: one tile per allergen, tap to cycle ──
 
 const NEXT_LEVEL = { none: 'contains', contains: 'may_contain', may_contain: 'removable', removable: null }
@@ -1543,7 +1755,7 @@ function AllergenPicker({ tags, item, onSet }) {
 
 // ── Item drawer — full dish editor, opened from a row in the middle list ──
 
-function ItemDrawer({ item, section, menuTax, sections = [], courses, dietaryTags, variantGroups = [], onChange, onCopy, onRemove, onClose }) {
+function ItemDrawer({ item, section, menuTax, sections = [], courses, dietaryTags, variantGroups = [], onChange, onOwnOptionsToGroup, onCopy, onRemove, onClose }) {
   const readOnly = useContext(MenuReadOnly)
   const toggleDietary = (code) => {
     const set = new Set(item.dietary || [])
@@ -1618,7 +1830,7 @@ function ItemDrawer({ item, section, menuTax, sections = [], courses, dietaryTag
   }
 
   return (
-    <aside className="border rounded-lg bg-background flex flex-col w-[380px] shrink-0 max-h-[calc(100vh-140px)] sticky top-[76px]">
+    <aside className={SIDE_PANEL} data-testid="dish-panel">
       <div className="flex items-center gap-2 px-4 py-3 border-b shrink-0">
         <p className="text-sm font-semibold flex-1 truncate">{readOnly ? 'Dish' : 'Edit dish'}</p>
         {!readOnly && <button onClick={onCopy} data-testid="dish-copy"
@@ -1755,7 +1967,15 @@ function ItemDrawer({ item, section, menuTax, sections = [], courses, dietaryTag
               ))}
             </select>
           )}
-          {attached.length === 0 && (
+          {(item.variants || []).length > 0 && (
+            <OwnOptionsCard item={item} variantGroups={variantGroups} attachedIds={attachedIds}
+              onToGroup={(group, overrides, optionIds) => {
+                onOwnOptionsToGroup(group, overrides, optionIds)
+                setOpenGroups(s => new Set(s).add(group.id))
+              }}
+              onRemove={() => onChange({ variants: [] })} />
+          )}
+          {attached.length === 0 && !(item.variants || []).length && (
             <p className="text-[11px] text-muted-foreground">
               {variantGroups.length
                 ? 'No groups on this dish yet — attach Protein / Size from the dropdown above.'
