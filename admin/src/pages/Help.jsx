@@ -3430,6 +3430,20 @@ export default function Help() {
               while a dip the deal leaves out simply stays on the wings at its own price. A group later
               taken off the dish drops out of the deal the next time the menu is saved.
             </P>
+            <P>
+              <strong>One option left.</strong> When a group the deal changes is left with a single option
+              and something has to be picked from it (Only some down to Lemon pepper, say, in a flavour
+              group that asks for one), the deal picks it for the guest: the kiosk, the till and online
+              ordering don&apos;t ask it, but it is on the line, the kitchen ticket, the meal&apos;s picture
+              and the price (an extra charge on that option still applies). The window says{' '}
+              <em>always Lemon pepper. Guests aren&apos;t asked</em>, and the line under the button says{' '}
+              <em>Flavour: always Lemon pepper</em>. A dish left with nothing to ask gets no page of its own
+              on the kiosk. An optional group left with one option (a dip they might not want) is still
+              asked, as yes or no: set How many to at least 1 to always include it without asking (for a
+              group that can be picked more than once, the same number at least and at most, e.g. 2 to 2 for
+              two Ranch dips). An option that opens a question of its own (Steak, then how it&apos;s cooked)
+              is still asked.
+            </P>
             <H3>Allergens and dietary tags</H3>
             <P>
               <strong>Menus &rarr; Allergens &amp; dietary</strong> has two lists.{' '}

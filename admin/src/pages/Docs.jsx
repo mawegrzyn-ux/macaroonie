@@ -6030,7 +6030,10 @@ selection.combo = { [stepId]: [{ option_id, item_id, choices }] }   // item_id n
               dish&apos;s choice list in the caller&apos;s shape: off drops the group, only filters its options,
               swap asks <Mono>swap(groupId, choice)</Mono> for the other group in the same shape (null = left
               out), then the limits (max capped at the options left unless the group repeats; a group with min
-              &gt; 0 is never on request). A group with no options left is dropped. Each surface wraps it:
+              &gt; 0 is never on request). A group with no options left is dropped. A group the deal changes
+              that ends with one option and needs a pick (min &ge; 1; a repeating group only when min = max;
+              not an option with a child_group_id) comes back with <Mono>fixed</Mono> (that option&apos;s id,
+              min times for a repeating group): the deal picks it and nobody is asked. Each surface wraps it:
             </P>
             <DataTable
               head={['Where', 'How']}
@@ -6038,6 +6041,7 @@ selection.combo = { [stepId]: [{ option_id, item_id, choices }] }   // item_id n
                 ['Pricing', 'priceCombo() passes the choice\'s groups as partPrice(part, picks, groups); priceItem() (till, kiosk) prices with partChoices(part, groups, groupsById) and priceLine() (online) with partOptions(combo, part, groups), so a pick the deal doesn\'t ask is refused and another group charges its own prices.'],
                 ['Till and kiosk', 'partChoices() in shared/pos/pricing.js builds a swapped group as if attached (posChoices with variant_rules); dealItem(config, id, groups) in shared/pos/offers.js is the part with deal pos_choices, used by ItemModal ComboSteps, the kiosk Builder (comboPages), bundleParts() and comboStartFrom(). Make it a combo trims carried picks with picksWithin().'],
                 ['Online', 'loadOrderingMenu() loads dealSwapIds() of the live combos from the library (COALESCE(display_name, name)) and gives each combo deal_groups { id: choice } (itemChoices with the menu\'s variant rules); ordering.eta asks partOptions() for every part page and the summary.'],
+                ['What the deal picks (fixed)', 'withDealPicks(choices, picks) in shared/combos.js fills each fixed group in, replacing whatever was sent; the part callbacks of priceItem() and priceLine() call it, so the pick is priced and is in the part\'s modifiers / options and on kitchen tickets whatever a device sent. Surfaces ask only askedChoices(choices): the till\'s ComboSteps shows the pick as text (combo-fixed); the kiosk makes no part page for a dish with nothing left to ask and fills its picks with fillDealPicks(config, steps, picks) (shared/pos/offers.js) before its pictures and the basket line, so the meal\'s picture shows the deal\'s flavour; online, partChoices() is askedChoices(dealOptions()) and the summary lists withDealPicks(). The admin window says "always X" (deal-asked data-fixed) and, for an optional group left with one option, how to include it (deal-one-optional).'],
                 ['Automatic combos', 'findAutoCombos() fills a choice with a separate dish only when dealFits(choice.groups, picks): picks in a group the deal narrows must be its options and within its how many; groups it leaves out or swaps don\'t count (those picks stay paid on the dish). The till passes each line\'s top-level picks from its modifiers (linePicks() in shared/pos/offers.js, not "No" or nested ones), online priceBasket() each line\'s choices.'],
                 ['Saving', 'cleanCombo() in upsertMenuTree() keeps, per choice, only groups its dishes have (a section: any of its dishes), only option ids those dishes offer, and a swap group in the tenant\'s library (cleanDealGroups()); another tenant\'s ids are dropped. A group taken off the dish drops out on the next save.'],
                 ['Releases, copies, AI', 'releaseContent() keeps the combo whole and contentKey() sorts keys, so a draft and a release compare equal; menuSaveBody() and /duplicate carry it; Pepper\'s get_menu says "(its options changed for this deal)".'],
@@ -6045,11 +6049,15 @@ selection.combo = { [stepId]: [{ option_id, item_id, choices }] }   // item_id n
               ]}
             />
             <P>
-              Tested: 12 shared unit tests (shared/test/dealOptions.test.mjs, automatic combos on the till and online included), 5 API tests
+              Tested: 16 shared unit tests (shared/test/dealOptions.test.mjs, automatic combos on the till and
+              online included, and the deal&apos;s own picks: when a group is fixed, filling, asking, the kiosk&apos;s
+              picks and picture, till and online prices), 5 API tests
               (api/test/deal-options.test.mjs: cleaning, section unions, detached groups, publish, copy, kiosk
               config and pricing, the online menu and quote, another tenant), the fixtures&apos; meal deal in
-              the tenant sweep, and 67 browser checks (the window at 1280, 1015 and 390 px and for a viewer, the
-              kiosk upright and wide, a real till with Make it a combo, online ordering at 1280 and 390 px).
+              the tenant sweep, 67 browser checks (the window at 1280, 1015 and 390 px and for a viewer, the
+              kiosk upright and wide, a real till with Make it a combo, online ordering at 1280 and 390 px) and
+              34 more for a group left with one option (the window and its hint, the kiosk upright and wide, a
+              real till, online ordering at 1280 and 390 px).
             </P>
             <H3>Where combos are read</H3>
             <DataTable

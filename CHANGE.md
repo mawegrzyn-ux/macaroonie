@@ -5,6 +5,13 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-25 — Meal deals: a group left with one option is picked for the guest]
+
+- Menus → a combo → Edit steps → **Options in this deal**: when a group is left with one option and something has to be picked from it (e.g. Only some down to Lemon pepper in a flavour group that asks for one), the deal now picks it. The kiosk, the till and online ordering don't ask it; it is still on the line, the kitchen ticket, the meal's picture and the price (an extra charge on that option still applies). The window says **always Lemon pepper. Guests aren't asked**, and the line under the button says **Flavour: always Lemon pepper**.
+- On the kiosk a dish in the deal with nothing left to ask gets no page of its own; on the till the step shows the pick in words.
+- An optional group left with one option (a dip the guest may not want) is still asked as yes or no; the window says to set How many to at least 1 to always include it (for a group picked more than once, the same number at least and at most). An option that opens a question of its own (Steak, then cooking) is still asked.
+- No migration (part of the combo, live once the menu is published).
+
 ## [2026-10-25 — Add to order: the dish's picture flies into the order]
 
 - Kiosk: tapping **Add to order** sends the dish's big picture (a meal deal's picture as it was put together) zooming out and flying into the order button at the bottom of the menu, which bounces as it lands. The same with **+** on the menu and a plain dish tapped with quick add on (the card's picture flies), and with a dish added from **Anything else?** on the order page (it flies into Checkout). The picture keeps the design's style on the way (round, oval, hexagon without its name, No frame). Update order (changing a dish from the order) doesn't fly.

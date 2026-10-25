@@ -278,7 +278,7 @@ const cfgJson = JSON.stringify(cfg).split('<').join('\\u003c')
 <script type="application/json" id="mo-config"><%~ cfgJson %></script>
 <script type="module">
 import { optionPriceText, priceLine, priceBasket, formatPence, partOptions } from '/order-api/pricing.js'
-import { resolveSteps, stepRule, countParts } from '/order-api/combos.js'
+import { resolveSteps, stepRule, countParts, askedChoices, withDealPicks } from '/order-api/combos.js'
 import { venueNow, noticeText, promoSummary, promoTerms, covers, coversIds, isLiveAt } from '/order-api/promotions.js'
 import { allergenKey, noticeOf } from '/order-api/menuTags.js'
 
@@ -829,13 +829,18 @@ async function startOrdering() {
     }
     // A picked dish's options as the deal asks them (shared/combos.js
     // dealChoices(): some left out, only some offered, another group instead).
-    function partChoices(stepId, e) {
+    // A group the deal leaves one option in is picked for the guest (fixed):
+    // dealOptions() has it, partChoices() (what is asked) doesn't.
+    function dealOptions(stepId, e) {
       const part = e && e.item_id ? comboCtx.itemsById[e.item_id] : null
       if (!part) return []
       const step = ((item.combo && item.combo.steps) || []).find(s => s.id === stepId)
       const opt = step && (step.options || []).find(o => o.id === e.option_id)
       return partOptions(item, part, opt ? opt.groups : null)
     }
+    // The basket keeps the guest's own picks; pricing (here and on the server)
+    // fills in the deal's (shared/orderPricing.js priceLine()).
+    const partChoices = (stepId, e) => askedChoices(dealOptions(stepId, e))
     function groupsHtml(list, prefix) {
       let h = ''
       for (const c of list) {
@@ -945,7 +950,8 @@ async function startOrdering() {
         const got = r.picks[s.step.id] || []
         if (!got.length) continue
         h += '<div class="mo-row" style="font-size:.95rem;"><span><strong>' + esc(s.step.name) + ':</strong> ' + esc(counted(got.map(e => {
-          const own = partChoices(s.step.id, e).flatMap(c => ((e.choices || {})[c.key] || []).map(id => (c.options.find(o => o.id === id) || {}).label)).filter(Boolean)
+          const picked = withDealPicks(dealOptions(s.step.id, e), e.choices || {})
+          const own = dealOptions(s.step.id, e).flatMap(c => (picked[c.key] || []).map(id => (c.options.find(o => o.id === id) || {}).label)).filter(Boolean)
           return partLabel(e, s.step) + (own.length ? ' (' + counted(own) + ')' : '')
         }))) + '</span></div>'
       }

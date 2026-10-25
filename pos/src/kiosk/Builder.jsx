@@ -18,9 +18,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Check, Plus, Info, AlertCircle } from 'lucide-react'
 import { priceItem, lineGross } from '@shared/pos/pricing.js'
-import { resolveSteps } from '@shared/combos.js'
+import { resolveSteps, askedChoices } from '@shared/combos.js'
 import { fromPrice, priceVaries } from '@shared/orderPricing.js'
-import { configItem, dealItem, comboCtx } from '@shared/pos/offers.js'
+import { configItem, dealItem, comboCtx, fillDealPicks } from '@shared/pos/offers.js'
 import { TK, allergenName, pickImages, bundleParts } from '@shared/kiosk.js'
 import { useKiosk, textsFor, addToBasket, closeBuilder, soldOut, itemLevels, dishLevels, mergeLevels, fitOf } from './store.js'
 import OptionGroup, { missingIn, groupName } from './OptionGroup.jsx'
@@ -309,7 +309,11 @@ const sameChoice = (e, c) => e.option_id === c.option_id && (e.item_id || null) 
  * another group instead), so its pages, pictures and tabs show what prices.
  */
 function comboPages(item, sel, ctx, opened, config) {
-  const { picks, steps } = resolveSteps(item, sel.combo || {}, ctx)
+  const resolved = resolveSteps(item, sel.combo || {}, ctx)
+  const steps = resolved.steps
+  // What the deal picks itself (a group it leaves one option in) is picked
+  // here and never asked: no page, but on the line, the picture and the price.
+  const picks = fillDealPicks(config, steps, resolved.picks)
   const pages = []
   const buttons = []
   for (const st of steps) {
@@ -321,7 +325,7 @@ function comboPages(item, sel, ctx, opened, config) {
     got.forEach((e, i) => {
       const c = e.item_id ? st.choices.find(x => sameChoice(e, x)) : null
       const part = e.item_id ? dealItem(config, e.item_id, c?.groups) : null
-      if (part?.pos_choices?.length) pages.push({ key: 'part:' + step.id + ':' + i, kind: 'part', st, index: i, entry: e, part })
+      if (askedChoices(part?.pos_choices).length) pages.push({ key: 'part:' + step.id + ':' + i, kind: 'part', st, index: i, entry: e, part })
     })
   }
   if ((item.pos_choices || []).length) pages.push({ key: 'own', kind: 'own' })
@@ -365,7 +369,7 @@ function ComboBuilder({ item, config, ctx, texts, builder }) {
   const setStep = (stepId, list) => setSel(x => ({ ...x, combo: { ...(x.combo || {}), [stepId]: list } }))
   const complete = p => {
     if (p.kind === 'step') { const got = picks[p.st.step.id] || []; return got.length >= p.st.step.min && got.length <= p.st.step.max }
-    if (p.kind === 'part') return !missingIn(p.part.pos_choices, p.entry.choices || {}, config, c => groupName(c, texts))
+    if (p.kind === 'part') return !missingIn(askedChoices(p.part.pos_choices), p.entry.choices || {}, config, c => groupName(c, texts))
     if (p.kind === 'own') return !missingIn(item.pos_choices, sel.choices || {}, config, c => groupName(c, texts))
     return priced.ok
   }
@@ -478,7 +482,7 @@ function ComboBuilder({ item, config, ctx, texts, builder }) {
     const setChoices = choices => setStep(p.st.step.id, (picks[p.st.step.id] || []).map((e, i) => (i === p.index ? { ...e, choices } : e)))
     return (
       <div key={p.key} className="flex flex-col gap-[calc(var(--k-pad)*1.2)]" data-testid="k-part">
-        {p.part.pos_choices.map(c => (
+        {askedChoices(p.part.pos_choices).map(c => (
           <OptionGroup key={c.key} choice={c} config={config} texts={texts} itemId={p.part.id}
             value={entry.choices?.[c.key] || []} onChange={v => setChoices({ ...(entry.choices || {}), [c.key]: v })} />
         ))}

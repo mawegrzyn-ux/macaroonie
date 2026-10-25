@@ -8,7 +8,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { Minus, Plus, AlertTriangle, Check } from 'lucide-react'
 import { priceItem, lineGross, PREFIXES, groupChoice } from '@shared/pos/pricing.js'
-import { resolveSteps, stepRule } from '@shared/combos.js'
+import { resolveSteps, stepRule, askedChoices } from '@shared/combos.js'
 import { Modal, Keypad, cx, money, poundsToPence } from './ui.jsx'
 import { tillItem, courseFor, comboCtx } from '../lib/checkOps.js'
 import { dealItem } from '@shared/pos/offers.js'
@@ -112,6 +112,12 @@ function Choices({ item, value, onChange, groupsById }) {
   ))
 }
 
+/** "Lemon pepper": what the deal picks itself in a dish (its groups left one option), or ''. */
+function fixedText(part) {
+  return (part?.pos_choices || []).filter(c => c.fixed)
+    .map(c => c.fixed.map(id => c.options.find(o => o.id === id)?.label).filter(Boolean).join(', ')).filter(Boolean).join(', ')
+}
+
 /** A combo's steps, one after another; steps that are done show a tick at the top. */
 function ComboSteps({ item, config, picks, onChange, ctx, stepRefs }) {
   const { steps, picks: resolved } = resolveSteps(item, picks, ctx)
@@ -180,14 +186,18 @@ function ComboSteps({ item, config, picks, onChange, ctx, stepRefs }) {
               const choice = choices.find(c => c.option_id === e.option_id && (c.item_id || null) === (e.item_id || null))
               // The dish's options as the deal asks them (some left out, only some offered, another group instead).
               const part = e.item_id ? dealItem(config, e.item_id, choice?.groups) : null
+              // A group the deal leaves one option in is picked for the guest: shown, never asked.
+              const asked = askedChoices(part?.pos_choices)
+              const fixed = fixedText(part)
               const label = choice?.label
-              if (auto && !part?.pos_choices?.length) return <div key={idx} className="text-sm text-muted">{label}</div>
-              if (!part?.pos_choices?.length) return null
+              if (auto && !asked.length) return <div key={idx} className="text-sm text-muted" data-testid="combo-fixed">{label}{fixed ? ' (' + fixed + ')' : ''}</div>
+              if (!asked.length) return fixed ? <div key={idx} className="ml-4 text-sm text-muted" data-testid="combo-fixed">{label}: {fixed}</div> : null
               const same = got.filter(x => x.item_id === e.item_id).length > 1
               return (
                 <div key={idx} className="ml-4 pl-3 border-l-4 border-brand-soft space-y-3">
                   <div className="text-sm font-semibold text-muted">{label}{same ? ' ' + (got.slice(0, idx + 1).filter(x => x.item_id === e.item_id).length) : ''}</div>
-                  <Choices item={part} groupsById={groupsById} value={e.choices}
+                  {fixed && <div className="text-sm text-muted" data-testid="combo-fixed">{fixed}</div>}
+                  <Choices item={{ ...part, pos_choices: asked }} groupsById={groupsById} value={e.choices}
                     onChange={ch => set(step.id, got.map((x, j) => (j === idx ? { ...x, choices: ch } : x)))} />
                 </div>
               )

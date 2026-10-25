@@ -12,7 +12,7 @@
 // ./promotions.js, served next to this file as /order-api/promotions.js.
 //
 import { applyPromotions } from './promotions.js'
-import { isCombo, priceCombo, comboFromPrice, findAutoCombos, autoMatchable, menuCtx, dealChoices } from './combos.js'
+import { isCombo, priceCombo, comboFromPrice, findAutoCombos, autoMatchable, menuCtx, dealChoices, withDealPicks } from './combos.js'
 
 // A dish's choices come from its ad-hoc variants (one required choice) and
 // its attached variant groups:
@@ -203,7 +203,9 @@ export function priceLine(item, selection, choices = choicesOf(item), ctx = null
   let base = r.base ?? item.price_pence ?? null
   if (isCombo(item)) {
     const pc = priceCombo(item, selection || {}, ctx || {}, (part, picked, groups) => {
-      const pr = priceChoiceSet(partOptions(item, part, groups), picked || {})
+      // What the deal picks itself (one option left) is on the line too.
+      const options = partOptions(item, part, groups)
+      const pr = priceChoiceSet(options, withDealPicks(options, picked || {}))
       return pr.ok ? { ok: true, extras: pr.extras, detail: pr.options } : pr
     })
     if (!pc.ok) return pc

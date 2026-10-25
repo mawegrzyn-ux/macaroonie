@@ -39,12 +39,44 @@ export function configItem(config, id) {
  * choices changed by the combo choice's groups (pricing.js partChoices()),
  * the item itself when the deal changes nothing. What a till or kiosk shows
  * for a part's options and pictures comes from this, so it is what the
- * pricing accepts.
+ * pricing accepts. A group the deal picks itself (one option left) carries
+ * fixed: show askedChoices(pos_choices), fill picks with fillDealPicks().
  */
 export function dealItem(config, id, groups) {
   const it = configItem(config, id)
   if (!it || !groups) return it
   return { ...it, pos_choices: partChoices(it, groups, config.groups || {}) }
+}
+
+/**
+ * A combo's picks with what its deal picks itself filled in: a picked dish's
+ * group the deal leaves one option in (dealItem() choices with fixed, shared/
+ * combos.js dealChoices()) gets that option, as an { id } entry like the
+ * guest's own picks. The kiosk fills its picks before showing, pricing and
+ * adding them, so the line, its pictures and the kitchen have them; pricing
+ * fills them again anyway (withDealPicks()). steps: resolveSteps()'s.
+ */
+export function fillDealPicks(config, steps, picks) {
+  let out = picks || {}
+  for (const st of steps || []) {
+    const got = out[st.step.id]
+    if (!got?.length) continue
+    let changed = false
+    const next = got.map(e => {
+      if (!e.item_id) return e
+      const c = (st.choices || []).find(x => x.option_id === e.option_id && (x.item_id || null) === (e.item_id || null))
+      if (!c?.groups) return e
+      const add = {}
+      for (const ch of dealItem(config, e.item_id, c.groups)?.pos_choices || []) {
+        if (ch.fixed) add[ch.key] = ch.fixed.map(id => ({ id }))
+      }
+      if (!Object.keys(add).length) return e
+      changed = true
+      return { ...e, choices: { ...(e.choices || {}), ...add } }
+    })
+    if (changed) out = { ...out, [st.step.id]: next }
+  }
+  return out
 }
 
 /** What priceItem() needs to find options and combo dishes in a config. */
