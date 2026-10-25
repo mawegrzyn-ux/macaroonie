@@ -2505,24 +2505,40 @@ async function poChangePlan(ctx, input) {
       throw new ToolError(poNumberLabel(d.number) + ' has gone to the supplier, so its lines can\'t change. Cancel it and order again, or ask the supplier.', 409)
     }
     const poLines = d.lines.map(l => ({ ...l, name: l.item_name }))
+    // What each product on the order comes to after the line changes: an
+    // add of one of them tops its line up (the route does the same).
+    const onOrder = new Map(poLines.filter(l => l.quote_id && !l.added_on_receipt).map(l => [l.quote_id, { qty: l.qty }]))
     for (const l of input.lines || []) {
       const line = pickByName(poLines, l.item, x => x.name, 'line on ' + poNumberLabel(d.number))
       if (Math.abs(l.quantity - line.qty) < 1e-9) continue
       lineChanges.push({ id: line.id, qty: l.quantity })
       lines.push(line.item_name + ': ' + fmtNum(line.qty) + ' to ' + (l.quantity > 0 ? fmtNum(l.quantity) : '0 (off the order)'))
+      const entry = onOrder.get(line.quote_id)
+      if (l.quantity <= 0) onOrder.delete(line.quote_id)
+      else if (entry) entry.qty = l.quantity
     }
+    let newLines = 0
     for (const a of input.add || []) {
-      let hits = await callApi(ctx, 'GET', '/api/purchasing/venues/' + venue.id + '/catalog?search=' + encodeURIComponent(a.item))
-      hits = hits.filter(h => h.quotes.some(q => q.supplier_id === d.supplier_id))
+      const hits = await callApi(ctx, 'GET', '/api/purchasing/venues/' + venue.id + '/catalog?supplier_id=' + d.supplier_id +
+        '&search=' + encodeURIComponent(a.item))
       if (!hits.length) throw new ToolError(d.supplier_name + ' has no price for "' + a.item + '".', 404)
       const it = pickByName(hits, a.item, h => h.name, 'product from ' + d.supplier_name)
       const q = pickQuote(it.name, it.quotes.filter(x => x.supplier_id === d.supplier_id), null, a.pack)
-      const fitted = fitQty(a.quantity, q)
       adds.push({ quote_id: q.id, qty: a.quantity })
+      const had = onOrder.get(q.id)
+      if (had) {
+        const to = fitQty(had.qty + a.quantity, q)
+        lines.push(it.name + ' (' + q.pack_label + '): ' + fmtNum(had.qty) + ' to ' + fmtNum(to) + ', already on the order')
+        had.qty = to
+        continue
+      }
+      const fitted = fitQty(a.quantity, q)
+      onOrder.set(q.id, { qty: fitted })
+      newLines++
       lines.push('Add ' + fmtNum(fitted) + ' x ' + it.name + ' (' + q.pack_label + ')')
       if (fitted !== a.quantity) warnings.push(it.name + ': ' + fmtNum(a.quantity) + ' becomes ' + fmtNum(fitted) + ' (' + qtyProblem(a.quantity, q) + ').')
     }
-    const left = d.lines.length - lineChanges.filter(c => c.qty <= 0).length + adds.length
+    const left = d.lines.length - lineChanges.filter(c => c.qty <= 0).length + newLines
     if (left <= 0) throw new ToolError('That would leave the order empty. Cancel it with cancel_purchase_order instead.', 422)
   }
   if (!lines.length) throw new ToolError('Nothing to change on ' + poNumberLabel(d.number) + '.', 422)
