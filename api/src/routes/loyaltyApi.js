@@ -54,7 +54,9 @@ export async function tenantBySlug(slug) {
 
 async function programmeOf(tenantId, { requireWebApp = true } = {}) {
   const p = await withTenant(tenantId, tx => ensureProgramme(tx, tenantId))
-  if (!p.enabled || (requireWebApp && !p.settings.features.web_app)) throw httpError(404, 'Loyalty isn\'t open here')
+  // Signing in is for the web app, and for the online ordering page when online orders earn or spend.
+  const online = p.settings.channels.online.earn || p.settings.channels.online.redeem
+  if (!p.enabled || (requireWebApp && !p.settings.features.web_app && !online)) throw httpError(404, 'Loyalty isn\'t open here')
   return p
 }
 

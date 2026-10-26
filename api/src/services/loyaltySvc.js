@@ -883,10 +883,12 @@ export async function deviceLoyalty(tx, tenantId, venueId, channel) {
   const site = await tenantSite(tx, tenantId)
   return {
     name: s.name,
-    points: s.features.points, points_label: s.points.label, per_pound: s.points.per_pound,
+    points: s.features.points, points_label: s.points.label, per_pound: s.points.per_pound, min_spend_pence: s.points.min_spend_pence,
     stamps: s.features.stamps,
     earn, redeem,
     join_url: s.features.web_app && site?.origin ? site.origin + '/loyalty' : null,
+    // What a guest agrees to when staff add them at the till (tills only use it).
+    signup: { ask_phone: s.signup.ask_phone, terms_text: s.signup.terms_text, marketing_text: s.signup.marketing_text },
   }
 }
 

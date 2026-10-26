@@ -516,6 +516,33 @@ async function cardApi(method, path, body) {
   }
 }
 
+// ── Loyalty (migration 211) ──────────────────────────────────────────────
+// Looking members up, joining and taking rewards out need the server; the
+// member then goes on the check (check.member_set) and a reward's discount
+// with its redemption id (discount.applied), checked by the sequencer.
+
+async function loyaltyApi(path, body) {
+  if (state.online === false) return { ok: false, offline: true, error: 'Loyalty needs a connection' }
+  try {
+    return { ok: true, data: await api.post(path, body, { timeoutMs: 15000 }) }
+  } catch (err) {
+    if (err instanceof OfflineError || err?.offline) {
+      handleError(err)
+      return { ok: false, offline: true, error: 'Loyalty needs a connection' }
+    }
+    return { ok: false, error: err.message || 'Loyalty didn\'t answer', code: err.code || null }
+  }
+}
+/** { code } (a scanned card) or { q } (email, phone, name, member number). */
+export const loyaltyLookup = body => loyaltyApi('/pos-api/loyalty/lookup', body)
+export const loyaltyJoin = body => loyaltyApi('/pos-api/loyalty/members', { ...body, staff_id: state.staff?.id || null })
+/** Take a reward out for this check: points come off the member now. */
+export const loyaltyReserve = (check, member, reward) => loyaltyApi('/pos-api/loyalty/redemptions', {
+  member_id: member.id, check_id: check.id, staff_id: state.staff?.id || null,
+  ...(reward.member_reward_id ? { member_reward_id: reward.member_reward_id } : { reward_id: reward.reward_id }),
+})
+export const loyaltyRelease = id => loyaltyApi('/pos-api/loyalty/redemptions/' + id + '/release', {})
+
 /** Send this check's waiting events (up to 12 s); true once none are left. */
 async function sendCheck(checkId) {
   const until = Date.now() + 12000

@@ -33,7 +33,7 @@ import {
 import { priceBasket } from '../../../shared/orderPricing.js'
 import { venuePromotions, publicPromotion, findByCode } from '../services/promoSvc.js'
 import { loadAllergenNotice } from './menus.js'
-import { sessionMember, onlineRewardPicks, ensureProgramme } from '../services/loyaltySvc.js'
+import { sessionMember, onlineRewardPicks, ensureProgramme, deviceLoyalty, tenantSite } from '../services/loyaltySvc.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // shared/orderPricing.js imports ./promotions.js, which imports
@@ -147,11 +147,13 @@ export default async function orderApiRoutes(app) {
   app.get('/venues/:venueId', async (req) => {
     const { venue, settings } = await requireOrderingVenue(req.params.venueId)
     const today = localParts(new Date(), venue.timezone).date
-    const [menu, privacy, promos, allergenNotice] = await withTenant(venue.tenant_id, async tx => [
+    const [menu, privacy, promos, allergenNotice, loyalty, site] = await withTenant(venue.tenant_id, async tx => [
       await loadOrderingMenu(tx, venue, settings, { dates: orderingDates(venue, settings), now: new Date() }),
       await loadPrivacy(tx, venue.tenant_id),
       await venuePromotions(tx, venue, today),
       await loadAllergenNotice(tx, venue.tenant_id),
+      await deviceLoyalty(tx, venue.tenant_id, venue.id, 'online'),
+      await tenantSite(tx, venue.tenant_id),
     ])
     const gateways = checkoutGateways(settings, { venue })
     return {
@@ -183,6 +185,13 @@ export default async function orderApiRoutes(app) {
       // guest through /promo-code, once they have typed its code.
       promotions: promos.filter(p => p.apply_mode !== 'code').map(p => publicPromotion(p)),
       has_promo_codes: promos.some(p => p.apply_mode === 'code'),
+      // Loyalty (migration 211): earning and spending on online orders here;
+      // the guest signs in through /loyalty-api/t/<slug> (the web app's sign-in).
+      loyalty: loyalty && site?.slug ? {
+        slug: site.slug, name: loyalty.name, points: loyalty.points, points_label: loyalty.points_label,
+        per_pound: loyalty.per_pound, min_spend_pence: loyalty.min_spend_pence, earn: loyalty.earn, redeem: loyalty.redeem,
+        terms_text: loyalty.signup.terms_text, marketing_text: loyalty.signup.marketing_text, ask_phone: loyalty.signup.ask_phone,
+      } : null,
     }
   })
 

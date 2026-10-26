@@ -58,6 +58,9 @@ let state = {
   toast: null,
   ended: null,             // { why, n }: the last restart() (journey.js ends the visit's record on it)
   doneHold: false,         // the design editor's example order done screen: no countdown
+  // The guest's loyalty card (migration 211): { member (first name only), checkId (the order's id, fixed
+  // once a reward is taken out for it), rewards: [{ redemption_id, reward }] }.
+  loyalty: null,
 }
 const listeners = new Set()
 let api = createTransport(null)
@@ -329,7 +332,12 @@ export function startOrder(orderTypeId) {
  */
 export function restart(why) {
   attempt = null
+  // Rewards taken out for an order that never went: back to the guest.
+  if (state.loyalty?.rewards?.length && !state.result?.check && !state.preview) {
+    for (const x of state.loyalty.rewards) api.post('/pos-api/loyalty/redemptions/' + x.redemption_id + '/release', {}, { timeoutMs: 15000 }).catch(() => {})
+  }
   setState({
+    loyalty: null,
     screen: 'start', orderType: null, basket: [], builder: null, details: { name: '', tent: '' },
     method: null, result: null, error: null, reach: false, prefs: { avoid: [], diet: [] }, lang: state.config?.design?.languages?.source || 'en',
     // The next guest starts on the menu's first page.
@@ -477,14 +485,87 @@ function printReceipt(check) {
 // already has).
 let attempt = null
 
+// ── Loyalty card (migration 211) ─────────────────────────────────
+// The guest scans their card's QR code; the server says who it is (first
+// name only on a kiosk) and which rewards they can spend. A reward is taken
+// out for this order's check id (points come off then) and goes on the order
+// as a discount; Start again puts back any the order didn't use.
+
+/** What kioskOrder() gets: the member on the order and the rewards taken out. */
+export function loyaltyForOrder(s) {
+  const l = s.loyalty
+  if (!l?.member) return null
+  return { member: { id: l.member.id, no: l.member.member_no, name: l.member.name }, rewards: l.rewards }
+}
+
+async function loyaltyCall(path, body) {
+  try {
+    const out = await api.post(path, body, { timeoutMs: 15000 })
+    linkOk()
+    return { ok: true, data: out }
+  } catch (err) {
+    handleError(err)
+    return { ok: false, error: err.message || null, status: err.status || null }
+  }
+}
+
+/** A scanned card. -> { ok } or { ok: false, why: 'not_found' | 'error' } */
+export async function loyaltyScan(raw) {
+  if (state.preview) return { ok: false, why: 'preview' }
+  const r = await loyaltyCall('/pos-api/loyalty/lookup', { code: String(raw || '').trim() })
+  if (!r.ok) return { ok: false, why: r.status === 404 || r.status === 400 ? 'not_found' : 'error', error: r.error }
+  const member = r.data.members[0]
+  if (!member) return { ok: false, why: 'not_found' }
+  // The scanned code stays in memory for this guest only (to look them up again), never in a visit's record.
+  setState({ loyalty: { member, code: String(raw).trim(), earn: r.data.earn, redeem: r.data.redeem, checkId: state.loyalty?.checkId || ulid(), rewards: state.loyalty?.rewards || [] } })
+  return { ok: true }
+}
+
+/** Spend a reward on this order. reward: one of the member's (summary.rewards). */
+export async function loyaltyUse(reward) {
+  const l = state.loyalty
+  if (!l?.member) return { ok: false }
+  const r = await loyaltyCall('/pos-api/loyalty/redemptions', {
+    member_id: l.member.id, check_id: l.checkId,
+    ...(reward.member_reward_id ? { member_reward_id: reward.member_reward_id } : { reward_id: reward.reward_id }),
+  })
+  if (!r.ok) return { ok: false, error: r.error }
+  const now = state.loyalty
+  const held = reward.member_reward_id ? now.member.rewards.filter(x => x.key !== reward.key) : now.member.rewards
+  const member = { ...now.member, points: r.data.points, rewards: held.map(x => ({ ...x, can_afford: !x.points_cost || x.points_cost <= r.data.points })) }
+  setState({ loyalty: { ...now, member, rewards: [...now.rewards, { redemption_id: r.data.redemption.id, key: reward.key, reward: { ...reward, id: reward.reward_id } }] } })
+  return { ok: true }
+}
+
+/** Take a reward off this order (it goes back to the guest). */
+export async function loyaltyUnuse(redemptionId) {
+  const l = state.loyalty
+  if (!l) return
+  await loyaltyCall('/pos-api/loyalty/redemptions/' + redemptionId + '/release', {})
+  // Their points and held rewards as they are now.
+  const again = await loyaltyCall('/pos-api/loyalty/lookup', { code: l.code })
+  const now = state.loyalty
+  if (!now) return
+  setState({ loyalty: { ...now, member: again.ok && again.data.members[0] ? again.data.members[0] : now.member, rewards: now.rewards.filter(x => x.redemption_id !== redemptionId) } })
+}
+
+/** Take the card off this order: rewards taken out go back. */
+export async function loyaltyForget() {
+  const l = state.loyalty
+  if (!l) return
+  setState({ loyalty: null })
+  for (const x of l.rewards) await loyaltyCall('/pos-api/loyalty/redemptions/' + x.redemption_id + '/release', {})
+}
+
 export async function placeOrder(method, payment = null) {
   const { config, device, basket, details, orderType } = state
   const design = config.design
-  const key = method === 'counter' ? JSON.stringify([basket, details, orderType]) : null
+  const loyalty = loyaltyForOrder(state)
+  const key = method === 'counter' ? JSON.stringify([basket, details, orderType, loyalty?.rewards?.map(x => x.redemption_id) || null]) : null
   const again = key && attempt?.key === key ? attempt : null
   const provisional = again ? again.provisional : nextProvisionalNo()
   const r = again ? again.r : kioskOrder(config, basket, {
-    device, checkId: ulid(), newId: () => ulid(), order_type_id: orderType,
+    device, checkId: state.loyalty?.checkId || ulid(), newId: () => ulid(), order_type_id: orderType, loyalty,
     name: details.name, tent: details.tent, provisional_no: provisional,
     payment: method === 'card' ? payment || { ref: null } : null,
     send: method === 'counter' && design.checkout.send_counter,

@@ -281,6 +281,7 @@ import { optionPriceText, priceLine, priceBasket, formatPence, partOptions } fro
 import { resolveSteps, stepRule, countParts, askedChoices, withDealPicks } from '/order-api/combos.js'
 import { venueNow, noticeText, promoSummary, promoTerms, covers, coversIds, isLiveAt } from '/order-api/promotions.js'
 import { allergenKey, noticeOf } from '/order-api/menuTags.js'
+import { pointsFor, pointsText } from '/order-api/loyalty.js'
 
 const CFG = JSON.parse(document.getElementById('mo-config').textContent)
 const OPT = CFG.opts || {}
@@ -425,6 +426,51 @@ async function startOrdering() {
     state.savedCodes = Array.isArray(saved.codes) ? saved.codes.filter(c => typeof c === 'string').slice(0, 5) : []
   } catch { state.savedCodes = [] }
 
+  // ── Loyalty (migration 211) ──────────────────────────────────
+  // The guest signs in with a code emailed to them (the loyalty web app's own
+  // sign-in, /loyalty-api/t/<slug>, kept in the same browser storage), sees
+  // their points and picks rewards. The order carries the sign-in and the
+  // picks; the server checks them, takes the rewards out and adds the points
+  // once the order is paid or collected.
+  const LOY = data.loyalty
+  const LKEY = LOY ? 'mcrn_loyalty_' + LOY.slug : null
+  const loy = { session: null, member: null, rewards: [], picks: [], step: null, email: '', code: '', ticket: null, name: '', phone: '', agreed: false, marketing: false, busy: false, error: null, note: null }
+  try { loy.session = LKEY ? localStorage.getItem(LKEY) : null } catch {}
+  async function loyApi(path, body) {
+    const res = await fetch('/loyalty-api/t/' + encodeURIComponent(LOY.slug) + path, {
+      method: body ? 'POST' : 'GET',
+      headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), ...(loy.session ? { Authorization: 'Loyalty ' + loy.session } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
+    })
+    let d = null
+    try { d = await res.json() } catch {}
+    if (!res.ok) { const e = new Error((d && (d.error || d.message)) || 'Something went wrong'); e.status = res.status; throw e }
+    return d
+  }
+  function loySaveSession(s) {
+    loy.session = s || null
+    try { s ? localStorage.setItem(LKEY, s) : localStorage.removeItem(LKEY) } catch {}
+  }
+  async function loadLoyalty() {
+    if (!LOY || !loy.session) return
+    try {
+      const r = await loyApi('/me/rewards')
+      loy.member = r.member
+      loy.rewards = r.rewards || []
+      loy.picks = loy.picks.filter(k => loy.rewards.some(x => x.key === k))
+    } catch (e) {
+      if (e.status === 401) { loySaveSession(null); loy.member = null; loy.rewards = []; loy.picks = [] }
+    }
+    draw()
+  }
+  // The rewards picked, as priceBasket takes them (shared/loyalty.js rewardDiscount).
+  function pickedRewards() {
+    return loy.picks.map(k => loy.rewards.find(x => x.key === k)).filter(Boolean)
+      .map(r => ({ ...r, id: r.member_reward_id || r.reward_id }))
+  }
+  const pointsSettings = () => ({ points: { label: LOY.points_label, per_pound: LOY.per_pound, min_spend_pence: LOY.min_spend_pence || 0 } })
+  function pickedPoints() { return pickedRewards().reduce((n, r) => n + (r.member_reward_id ? 0 : r.points_cost || 0), 0) }
+
   function loadBasket() {
     try {
       const b = JSON.parse(localStorage.getItem(KEY) || '[]')
@@ -442,7 +488,7 @@ async function startOrdering() {
     return { at: venueNow(venue.timezone), venueId: venue.id, chosen: state.chosen, unlocked: state.unlocked.map(p => p.id) }
   }
   function quote() {
-    return priceBasket(itemsById, state.basket, { tipPercent: state.tip, promos: promosInPlay(), promoCtx: promoCtx(), combos: { ctx: comboCtx, auto: autoCombos } })
+    return priceBasket(itemsById, state.basket, { tipPercent: state.tip, promos: promosInPlay(), promoCtx: promoCtx(), combos: { ctx: comboCtx, auto: autoCombos }, rewards: LOY ? pickedRewards() : null })
   }
   const BADGE_KINDS = new Set(['item', 'bogo', 'free_item', 'bundle'])
   // Take the guest to a dish a promotion needs: the dish itself when there
@@ -744,6 +790,11 @@ async function startOrdering() {
       return '<div class="mo-row mo-disc"><span>' + esc(p.name) + (p.code ? ' (' + esc(p.code) + ')' : '') +
         (rm ? ' <button type="button"' + rm + ' aria-label="Remove ' + esc(p.name) + '">&times;</button>' : '') +
         '</span><span>&minus;' + money(p.discount_pence) + '</span></div>'
+    }).join('') + (q.rewards || []).map(r => {
+      const pick = loy.picks.find(k => { const x = loy.rewards.find(y => y.key === k); return x && (x.member_reward_id || x.reward_id) === r.id })
+      return '<div class="mo-row mo-disc" data-reward-row><span>' + esc(r.name) +
+        (pick ? ' <button type="button" data-loy-pick="' + esc(pick) + '" aria-label="Remove ' + esc(r.name) + '">&times;</button>' : '') +
+        '</span><span>&minus;' + money(r.discount_pence) + '</span></div>'
     }).join('')
   }
   // Offers to tap, what's missing for an offer, and the promo code box.
@@ -1202,6 +1253,8 @@ async function startOrdering() {
       '<label class="mo-field"><span>Anything else? (optional)</span><textarea data-f="notes" maxlength="500">' + esc(f.notes) + '</textarea></label>' +
       '</div>'
 
+    if (LOY) h += loyaltyHtml(q)
+
     // GDPR (migration 125): the wording comes from the server, which
     // records the same text on the order.
     const pv = data.privacy || {}
@@ -1237,6 +1290,84 @@ async function startOrdering() {
     return h
   }
 
+  function loyaltyHtml(q) {
+    const st = pointsSettings()
+    const earns = LOY.earn && LOY.points ? pointsFor(q.subtotal_pence - q.discount_pence, st) : 0
+    let h = '<div class="mo-panel" data-loyalty><h2 style="margin-top:0;">' + esc(LOY.name) + '</h2>'
+    if (loy.error) h += '<div class="mo-error">' + esc(loy.error) + '</div>'
+    if (loy.note) h += '<p class="mo-muted">' + esc(loy.note) + '</p>'
+    if (loy.member) {
+      h += '<div class="mo-row"><span>Hi ' + esc((loy.member.name || '').split(' ')[0]) + '</span>' + (LOY.points ? '<span data-loy-points>' + esc(pointsText(loy.member.points - pickedPoints(), st)) + '</span>' : '') + '</div>'
+      if (earns > 0) h += '<p class="mo-muted" data-loy-earns style="margin:6px 0;">This order earns ' + esc(pointsText(earns, st)) + '.</p>'
+      if (LOY.redeem) {
+        if (!loy.rewards.length) h += '<p class="mo-muted">No rewards to spend yet.</p>'
+        const left = loy.member.points - pickedPoints()
+        for (const r of loy.rewards) {
+          const on = loy.picks.includes(r.key)
+          const can = on || r.member_reward_id || (r.points_cost || 0) <= left
+          h += '<button type="button" class="mo-choice' + (on ? ' is-on' : '') + '" data-loy-pick="' + esc(r.key) + '"' + (can ? '' : ' disabled') + ' style="width:100%;text-align:left;">' +
+            '<span style="flex:1;"><strong>' + esc(r.name) + '</strong><br><span class="mo-muted">' + esc(r.summary || '') +
+            (r.points_cost ? ' · ' + esc(pointsText(r.points_cost, st)) : '') + '</span></span><span>' + (on ? 'Used' : can ? 'Use' : 'Not enough') + '</span></button>'
+        }
+      }
+      h += '<p style="margin:8px 0 0;"><button type="button" class="mo-btn mo-btn-ghost" data-loy="signout">Not you? Sign out</button></p>'
+    } else if (!loy.step) {
+      h += '<p class="mo-muted" style="margin-top:0;">' + (earns > 0 ? 'Earn ' + esc(pointsText(earns, st)) + ' with this order. ' : '') + 'Sign in with your email to collect points and use your rewards.</p>' +
+        '<button type="button" class="mo-btn" data-loy="start">Sign in or join</button>'
+    } else if (loy.step === 'email') {
+      h += '<label class="mo-field"><span>Email</span><input data-lf="email" type="email" autocomplete="email" value="' + esc(loy.email) + '" maxlength="200"></label>' +
+        '<button type="button" class="mo-btn" data-loy="send"' + (loy.busy ? ' disabled' : '') + '>Email me a code</button>'
+    } else if (loy.step === 'code') {
+      h += '<p class="mo-muted" style="margin-top:0;">We emailed a 6-digit code to ' + esc(loy.email) + '.</p>' +
+        '<label class="mo-field"><span>Code</span><input data-lf="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" value="' + esc(loy.code) + '"></label>' +
+        '<button type="button" class="mo-btn" data-loy="verify"' + (loy.busy ? ' disabled' : '') + '>Sign in</button> ' +
+        '<button type="button" class="mo-btn mo-btn-ghost" data-loy="start">Use another email</button>'
+    } else if (loy.step === 'join') {
+      h += '<p class="mo-muted" style="margin-top:0;">' + esc(loy.email) + ' isn\'t a member yet. Join now:</p>' +
+        '<label class="mo-field"><span>Your name</span><input data-lf="name" autocomplete="name" value="' + esc(loy.name) + '" maxlength="120"></label>' +
+        (LOY.ask_phone ? '<label class="mo-field"><span>Phone (optional)</span><input data-lf="phone" type="tel" inputmode="tel" value="' + esc(loy.phone) + '" maxlength="30"></label>' : '') +
+        '<label class="mo-choice mo-consent' + (loy.agreed ? ' is-on' : '') + '"><input type="checkbox" data-lc="agreed"' + (loy.agreed ? ' checked' : '') + '><span>' + esc(LOY.terms_text) + ' <span class="mo-muted">(required)</span></span></label>' +
+        '<label class="mo-choice mo-consent' + (loy.marketing ? ' is-on' : '') + '"><input type="checkbox" data-lc="marketing"' + (loy.marketing ? ' checked' : '') + '><span>' + esc(LOY.marketing_text) + '</span></label>' +
+        '<button type="button" class="mo-btn" data-loy="join"' + (loy.busy || !loy.agreed ? ' disabled' : '') + '>Join</button>'
+    }
+    return h + '</div>'
+  }
+
+  async function loyAction(what) {
+    loy.error = null
+    loy.note = null
+    if (what === 'start') { loy.step = 'email'; loy.email = loy.email || state.form.email.trim(); loy.code = ''; draw(); return }
+    if (what === 'signout') {
+      try { await loyApi('/me/signout', {}) } catch {}
+      loySaveSession(null); loy.member = null; loy.rewards = []; loy.picks = []; loy.step = null
+      draw(); return
+    }
+    loy.busy = true
+    draw()
+    try {
+      if (what === 'send') {
+        await loyApi('/code', { email: loy.email.trim() })
+        loy.step = 'code'
+      } else if (what === 'verify') {
+        const r = await loyApi('/verify', { email: loy.email.trim(), code: loy.code.trim() })
+        if (r.join_ticket) { loy.ticket = r.join_ticket; loy.step = 'join'; loy.name = loy.name || state.form.name.trim() }
+        else { loySaveSession(r.session); loy.step = null; loy.busy = false; await loadLoyalty(); return }
+      } else if (what === 'join') {
+        const r = await loyApi('/join', { join_ticket: loy.ticket, email: loy.email.trim(), name: loy.name.trim(), phone: loy.phone.trim() || null, agreed: loy.agreed, marketing: loy.marketing })
+        loySaveSession(r.session); loy.step = null; loy.note = 'Welcome! You\'re a member now.'; loy.busy = false
+        await loadLoyalty(); return
+      }
+    } catch (e) {
+      loy.error = e.message
+    }
+    loy.busy = false
+    draw()
+  }
+  function togglePick(key) {
+    loy.picks = loy.picks.includes(key) ? loy.picks.filter(k => k !== key) : [...loy.picks, key]
+    draw()
+  }
+
   function readyToPlace() {
     const f = state.form
     return !!(canCheckout(quote()) && state.when && f.name.trim() && /.+@.+\..+/.test(f.email.trim()) &&
@@ -1257,6 +1388,7 @@ async function startOrdering() {
           notes: f.notes.trim() || null, allergy_note: f.allergy_note.trim() || null,
           data_consent: !!f.data_consent, marketing_opt_in: !!f.marketing_opt_in, tip_percent: state.tip, payment_method: state.method,
           promo_codes: state.unlocked.map(p => p.code), promo_ids: state.chosen,
+          loyalty: LOY && loy.session ? { session: loy.session, rewards: pickedRewards().map(r => (r.member_reward_id ? { member_reward_id: r.member_reward_id } : { reward_id: r.reward_id })) } : null,
         },
       })
       state.basket = []
@@ -1264,6 +1396,7 @@ async function startOrdering() {
       state.chosen = []
       state.unlocked = []
       savePromos()
+      loy.picks = []
       if (res.payment) {
         state.pay = { token: res.token, payment: res.payment }
         state.step = 'pay'
@@ -1277,6 +1410,7 @@ async function startOrdering() {
       state.error = e.message
       if (e.data && e.data.code === 'slot_unavailable') { state.when = null; loadSlots() }
       if (e.data && e.data.code === 'promo_invalid') await refreshPromos(state.unlocked.map(p => p.code))
+      if (e.data && (e.data.code === 'reward_invalid' || e.data.code === 'loyalty_signed_out')) { loy.picks = []; await loadLoyalty() }
       draw()
       toAppTop(true)
     }
@@ -1473,6 +1607,8 @@ async function startOrdering() {
     else if (t.dataset.tip != null) { state.tip = +t.dataset.tip; draw() }
     else if (t.dataset.promoGo != null) { state.promoIdx = +t.dataset.promoGo; syncPromoBoxes(true) }
     else if ('place' in t.dataset) placeOrder()
+    else if (t.dataset.loy) loyAction(t.dataset.loy)
+    else if (t.dataset.loyPick) togglePick(t.dataset.loyPick)
     else if (t.dataset.pay) pay(t.dataset.pay)
     else promoClick(t, draw)
   })
@@ -1502,10 +1638,12 @@ async function startOrdering() {
     if (d.when) { state.when = d.when; draw() }
     else if (d.method) { state.method = d.method; draw() }
     else if (d.f === 'marketing_opt_in' || d.f === 'data_consent') { state.form[d.f] = e.target.checked; draw() }
+    else if (d.lc) { loy[d.lc] = e.target.checked; draw() }
   })
   root.addEventListener('input', e => {
     const d = e.target.dataset
     if ('codeInput' in d) { state.codeText = e.target.value; return }
+    if (d.lf) { loy[d.lf] = e.target.value; return }
     if ('search' in d) {
       // Redraw only the tabs and the dishes so the box keeps focus.
       state.q = e.target.value
@@ -1532,6 +1670,7 @@ async function startOrdering() {
   })
 
   draw()
+  loadLoyalty()
 
   // Saved codes are checked again; ?promo=CODE (e.g. from the Promo block
   // or an email) opens a code, ?offer=<id> applies a tap-to-apply offer.

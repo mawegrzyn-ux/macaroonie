@@ -3,7 +3,7 @@
 // bill, Pay takes payment and closes the check.
 
 import { useEffect, useState } from 'react'
-import { ArrowLeft, Send, Printer, CreditCard, MoreHorizontal, Flame, Users, Eye, Flag } from 'lucide-react'
+import { ArrowLeft, Send, Printer, CreditCard, MoreHorizontal, Flame, Users, Eye, Flag, Star } from 'lucide-react'
 import { checkLabel, heldCourses } from '@shared/pos/checks.js'
 import { checkTotals } from '@shared/pos/pricing.js'
 import { useTill, useChecks, dispatch, toast, setPresence, othersOn, serverName } from '../lib/store.js'
@@ -14,6 +14,7 @@ import MenuPanel from '../components/MenuPanel.jsx'
 import ItemModal from '../components/ItemModal.jsx'
 import LineModal from '../components/LineModal.jsx'
 import PayModal from '../components/PayModal.jsx'
+import LoyaltyModal from '../components/LoyaltyModal.jsx'
 import {
   ActionsMenu, SendModal, needsSendChoice, FireModal, DiscountModal, ServiceChargeModal, OffersModal, MoveModal,
   MergeModal, TableModal, NameModal, ServerModal, StreamModal, OrderTypeModal, GuestsModal, OpenItemModal, NoSale, SoldOutModal,
@@ -132,6 +133,7 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
           <span>{serverName(config, check.server_id)}</span>
           {type && <span className="font-semibold text-ink" data-testid="check-type">{type.name}</span>}
           {check.tent && <span className="font-semibold text-brand flex items-center gap-0.5" data-testid="check-tent"><Flag size={12} />{check.tent}</span>}
+          {check.loyalty && <span className="font-semibold text-brand flex items-center gap-0.5 truncate" data-testid="check-member"><Star size={12} />{check.loyalty.name || 'Member'}</span>}
           {stream && (config.revenue_streams || []).length > 1 && <span className="font-semibold text-brand">{stream.name}</span>}
           <span>{elapsed(check.opened_at)}</span>
         </div>
@@ -182,6 +184,7 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
       {modal?.kind === 'discount' && <DiscountModal check={check} config={config} lineIds={modal.lineIds || null} onClose={close} />}
       {modal?.kind === 'sc' && <ServiceChargeModal check={check} config={config} onClose={close} />}
       {modal?.kind === 'offers' && <OffersModal check={check} config={config} onClose={close} />}
+      {modal?.kind === 'loyalty' && <LoyaltyModal check={check} config={config} onClose={close} />}
       {modal?.kind === 'move' && <MoveModal check={check} config={config} preselect={modal.lineIds || []} onClose={close} onOpen={onOpen} />}
       {modal?.kind === 'merge' && <MergeModal check={check} config={config} onClose={close} />}
       {modal?.kind === 'table' && <TableModal check={check} config={config} onClose={close} />}
