@@ -20,6 +20,7 @@ export const DEFAULT_NAV_TREE = [
       { label: 'Timeline', icon: 'CalendarDays', route: '/timeline', module: 'bookings' },
       { label: 'Bookings', icon: 'BookOpen', route: '/bookings', module: 'bookings' },
       { label: 'Customers', icon: 'UserRound', route: '/customers', module: 'customers' },
+      { label: 'Loyalty', icon: 'Gift', route: '/loyalty', module: 'loyalty' },
       { label: 'Online orders', icon: 'ShoppingBag', route: '/orders', module: 'web_orders' },
     ],
   },

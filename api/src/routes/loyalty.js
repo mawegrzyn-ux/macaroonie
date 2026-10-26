@@ -38,6 +38,7 @@ import {
   ensureProgramme, loadRewards, loadStampCards, rewardView, stampCardView, loadMember, joinMember, addPoints,
   memberSummary, exportMember, eraseMember, newToken, redemptionView, releaseRedemption, tenantSite, emailHash, looksLikeEmail,
 } from '../services/loyaltySvc.js'
+import { loyaltyOrigin } from '../services/platformHost.js'
 import { walletStatus, saveTenantWallet, platformWalletStatus, savePlatformWallet, removePlatformWallet } from '../services/walletSvc.js'
 
 const uuid = z.string().uuid()
@@ -118,6 +119,8 @@ export default async function loyaltyRoutes(app) {
       stamp_cards: cards.map(c => ({ ...c, problems: stampCardProblems(c) })),
       figures,
       web_app_url: site?.origin ? site.origin + '/loyalty' : null,
+      // The same app on Macaroonie's loyalty address (services/loyaltyPage.js).
+      hub_url: site?.slug ? loyaltyOrigin() + '/' + site.slug : null,
       wallet,
     }
   }))
@@ -138,13 +141,18 @@ export default async function loyaltyRoutes(app) {
   })
 
   app.get('/catalog', { preHandler: PERM.view }, async req => withTenant(req.tenantId, async tx => {
-    const [venues, sections, items] = await Promise.all([
-      tx`SELECT id, name FROM venues WHERE tenant_id = ${req.tenantId} ORDER BY name`,
-      tx`SELECT s.id, s.title, m.name AS menu_name FROM menu_sections s JOIN menus m ON m.id = s.menu_id
-          WHERE s.tenant_id = ${req.tenantId} ORDER BY m.name, s.sort_order`,
-      tx`SELECT id, section_id, name FROM menu_items WHERE tenant_id = ${req.tenantId} ORDER BY name`,
+    // The same shape as the Promotions catalog (components/menus/DishPicker.jsx).
+    const [menus, sections, items, venues] = await Promise.all([
+      tx`SELECT id, name FROM menus WHERE tenant_id = ${req.tenantId} ORDER BY name`,
+      tx`SELECT id, menu_id, title FROM menu_sections WHERE tenant_id = ${req.tenantId} ORDER BY menu_id, sort_order`,
+      tx`SELECT id, section_id, name FROM menu_items WHERE tenant_id = ${req.tenantId} ORDER BY section_id, sort_order`,
+      tx`SELECT id, name FROM venues WHERE tenant_id = ${req.tenantId} AND is_active = true ORDER BY name`,
     ])
-    return { venues, sections, items }
+    const bySection = {}
+    for (const i of items) (bySection[i.section_id] ||= []).push({ id: i.id, name: i.name })
+    const byMenu = {}
+    for (const s of sections) (byMenu[s.menu_id] ||= []).push({ id: s.id, title: s.title, items: bySection[s.id] || [] })
+    return { menus: menus.map(m => ({ id: m.id, name: m.name, sections: byMenu[m.id] || [] })), venues }
   }))
 
   // ── Rewards ─────────────────────────────────────────────────────────────
