@@ -99,7 +99,8 @@ export function diffView(prev, next) {
 
 /**
  * What the kiosk showed at time t (ms into the session): { view, scroll
- * (place -> { x, y }), vp ({ w, h }), taps (touches in the last `window` ms,
+ * (place -> { x, y }), vp ({ w, h, b: the kiosk's box [x, y, w, h] when
+ * recorded }), taps (touches in the last `window` ms,
  * with age), v (how many view changes so far: a new number means the view
  * changed) }.
  */
@@ -111,7 +112,7 @@ export function frameAt(events, t, { window: win = 900 } = {}) {
   for (const ev of events || []) {
     if (ev.t > t) break
     if (ev.k === 'v') { view = applyPatch(view, ev); v++ }
-    else if (ev.k === 'vp') vp = { w: ev.w, h: ev.h }
+    else if (ev.k === 'vp') vp = ev.b ? { w: ev.w, h: ev.h, b: ev.b } : { w: ev.w, h: ev.h }
     else if ((ev.k === 'tap' || ev.k === 'swipe') && t - ev.t <= win) taps.push({ ...ev, age: t - ev.t })
   }
   // A screen change starts its boxes at the top: older scrolls on boxes the

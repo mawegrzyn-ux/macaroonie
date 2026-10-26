@@ -260,6 +260,21 @@ test('picture fit: banners, featured tiles, start and reach pictures keep how th
   assert.equal(old.menu.banner_shape, 'wide')
 })
 
+test('the screen a design is made for: size, shape and bars round trip, cleaned; a copy and the kiosk get it', async () => {
+  const before = (await ok(owner.get('/api/pos/kiosk-designs'))).find(d => d.id === design.id).settings
+  assert.deepEqual(before.screen, { short: 1080, long: 1920, shape: 'keep', bars: 'black' }, 'a design saved before has the Full HD kiosk')
+  const saved = await ok(owner.put(`/api/pos/kiosk-designs/${design.id}`, { name: design.name, settings: { ...before, screen: { short: 1280, long: 800, shape: 'fill', bars: 'page', extra: 1 } } }))
+  assert.deepEqual(saved.settings.screen, { short: 800, long: 1280, shape: 'fill', bars: 'page' }, 'upright, nothing else kept')
+  const bad = await ok(owner.put(`/api/pos/kiosk-designs/${design.id}`, { name: design.name, settings: { ...before, screen: { short: 5, long: 'big', shape: 'stretch', bars: 'red' } } }))
+  assert.deepEqual(bad.settings.screen, { short: 320, long: 1920, shape: 'keep', bars: 'black' })
+  await ok(owner.put(`/api/pos/kiosk-designs/${design.id}`, { name: design.name, settings: { ...before, screen: { short: 768, long: 1024, shape: 'keep', bars: 'page' } } }))
+  const copy = await ok(owner.post('/api/pos/kiosk-designs', { name: 'Tablet', copy_from: design.id }))
+  assert.deepEqual(copy.settings.screen, { short: 768, long: 1024, shape: 'keep', bars: 'page' })
+  const link = await ok(owner.post(`/api/pos/kiosk-designs/${design.id}/preview`, { venue_id: mine.ids.venue }))
+  assert.deepEqual((await preview(link.token)).json.design.screen, { short: 768, long: 1024, shape: 'keep', bars: 'page' }, 'the kiosk gets it')
+  await ok(owner.put(`/api/pos/kiosk-designs/${design.id}`, { name: design.name, settings: before }))
+})
+
 test('save as: a new design from what the editor shows, the original as it was saved, not shared', async () => {
   const before = (await ok(owner.get('/api/pos/kiosk-designs'))).find(d => d.id === design.id)
   // Shared, so the new design can be seen not to take the original's link.

@@ -27,6 +27,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Check, Minus, Plus, ChevronLeft, ChevronRight, Dices } from 'lucide-react'
 import { groupLook } from '@shared/kiosk.js'
 import { cx, Photo, Levels, HexGrid, HexTile } from './parts.jsx'
+import { boxShort } from './viewport.js'
 
 /**
  * The look of a set of choices, as the displays' props (tiles, pictures,
@@ -85,7 +86,7 @@ function HexOption({ o, n, off, onTap, onLess, repeat, levelIcon, ui, pictures }
 export function GridDisplay({ options, countOf, onTap, onLess, repeat, full, levelIcon, ui, tiles, pictures = true, center = false }) {
   if (tiles === 'hexagon') {
     // A honeycomb even for a few choices (two rows from three on).
-    const target = Math.min(Math.min(window.innerWidth, window.innerHeight) * 0.24, 200)
+    const target = Math.min(boxShort() * 0.24, 200)
     return (
       <div data-display="grid" data-center={center ? '1' : undefined}>
         <HexGrid compact center={center} target={target} maxCell={target * 1.3} gap={8} testId="k-option-grid">
@@ -100,13 +101,13 @@ export function GridDisplay({ options, countOf, onTap, onLess, repeat, full, lev
   // Centred: rows of same-width choices in the middle, a short last row too.
   return (
     <div className={center ? 'flex flex-wrap justify-center gap-[var(--k-gap)]' : 'grid gap-[var(--k-gap)]'}
-      style={center ? null : { gridTemplateColumns: 'repeat(auto-fill, minmax(min(30vmin, 190px), 1fr))' }}
+      style={center ? null : { gridTemplateColumns: 'repeat(auto-fill, minmax(min(30cqmin, 190px), 1fr))' }}
       data-display="grid" data-center={center ? '1' : undefined} data-testid="k-option-grid">
       {options.map(o => {
         const n = countOf(o.id)
         const off = o.sold_out || (!n && full && !repeat)
         return (
-          <div key={o.id} className="relative" style={center ? { width: 'min(30vmin, 200px)' } : null}>
+          <div key={o.id} className="relative" style={center ? { width: 'min(30cqmin, 200px)' } : null}>
             <button className={cx('k-card k-opt w-full', !pictures && 'k-opt-words', n > 0 && 'k-opt-on', off && 'k-opt-dis')} onClick={() => !o.sold_out && onTap(o)} disabled={o.sold_out} data-testid="k-option" aria-pressed={n > 0} data-fit={fitAttr(o)}>
               {o.mark}
               {pictures ? (

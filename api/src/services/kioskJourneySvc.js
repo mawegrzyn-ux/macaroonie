@@ -54,8 +54,14 @@ function cleanEvent(e, last) {
     case 'scroll':
       if (typeof e.s !== 'string' || !/^\d+(\/\d+){0,40}$/.test(e.s)) return null
       return { t, k: 'scroll', s: e.s, y: int(e.y, 0, 1e6), x: int(e.x, 0, 1e6) }
-    case 'vp':
-      return { t, k: 'vp', w: int(e.w, 1, 20000), h: int(e.h, 1, 20000) }
+    case 'vp': {
+      const w = int(e.w, 1, 20000)
+      const h = int(e.h, 1, 20000)
+      // The kiosk's box in the window ([x, y, w, h]): bars when the screen isn't the design's shape.
+      const b = Array.isArray(e.b) && e.b.length === 4 && e.b.every(n => Number.isFinite(Number(n)))
+        ? [int(e.b[0], 0, w), int(e.b[1], 0, h), int(e.b[2], 1, w), int(e.b[3], 1, h)] : null
+      return b ? { t, k: 'vp', w, h, b } : { t, k: 'vp', w, h }
+    }
     case 'end':
       return { t, k: 'end', why: ENDS.has(e.why) ? e.why : 'interrupted' }
     default:

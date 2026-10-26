@@ -91,7 +91,7 @@ export function Basket() {
       <h3 className="k-head text-[1.5em] m-0">{upsellTitle}</h3>
       <div className={portrait ? 'k-hscroll flex gap-[var(--k-gap)] pb-[.4em]' : 'grid grid-cols-2 gap-[var(--k-gap)]'}>
         {upsell.map(it => (
-          <button key={it.id} className={cx('k-card k-item', portrait && 'shrink-0 w-[min(34vmin,230px)]')} data-testid="k-upsell-item"
+          <button key={it.id} className={cx('k-card k-item', portrait && 'shrink-0 w-[min(34cqmin,230px)]')} data-testid="k-upsell-item"
             onClick={e => {
               if (it.kind === 'combo' || (it.pos_choices || []).length) openBuilder(it.id)
               else addToBasket({ item_id: it.id, selection: {}, qty: 1 }, null, { flew: flyToBasket(e.currentTarget.querySelector('.k-item-img')) })

@@ -22,7 +22,7 @@ import {
   Disc3, CreditCard, Timer, ChevronDown, Image as ImageIcon, Video, Plus, X, UtensilsCrossed,
   ShoppingBag, Bike, Sparkles, AlertTriangle, Flame, Star, CircleDot, RectangleVertical,
   RectangleHorizontal, Wand2, BookOpen, LayoutDashboard, Hexagon, Circle, Square, Share2, Copy, Check, ExternalLink,
-  RefreshCw, Layers, Crop,
+  RefreshCw, Layers, Crop, Monitor,
 } from 'lucide-react'
 import { qrSvg } from '@shared/qr.js'
 import { kioskBrandFromKit } from '@shared/themeKit.js'
@@ -32,6 +32,7 @@ import {
   DESIGN_COLORS, CLEAR_COLORS, CHOICE_ENTRANCES, KIOSK_LANGUAGES, DISPLAY_LABELS, KIOSK_DISPLAYS, uiText, TILE_STYLES, TILE_LABELS,
   groupLook, PART_COLORS, PART_FOLLOWS, partColours,
   pictureFit, PICTURE_FOCUS, PICTURE_BGS, PICTURE_SIZE_MIN, BANNER_SHAPES,
+  KIOSK_SCREENS, SCREEN_MIN, SCREEN_MAX, kioskZoom, kioskBox,
 } from '@shared/kiosk.js'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -47,7 +48,18 @@ import {
 import { kioskDesign } from '@/components/pos/KiosksSection'
 
 const FONTS = [SYSTEM_FONT, ...KIOSK_FONTS]
-const PREVIEW_SIZE = { portrait: [1080, 1920], landscape: [1920, 1080] }
+// Screens the preview can try the design on (Try on): each upright, in the
+// CSS px a browser reports. The kiosk is drawn as that screen would show it:
+// laid out at its size divided by the zoom it gets (kioskZoom()), with bars
+// where its shape differs (kioskBox()).
+const TRY_ON = [
+  { key: 'design', label: 'The design\'s screen' },
+  { key: 'fhd', label: 'Full HD kiosk', short: 1080, long: 1920 },
+  { key: 'tab16', label: '16:10 tablet', short: 800, long: 1280 },
+  { key: 'tab43', label: '4:3 tablet', short: 768, long: 1024 },
+  { key: 'phone', label: 'Phone', short: 412, long: 915 },
+]
+const TRY_KEY = 'maca_kiosk_preview_screen'
 const ORIENT_KEY = 'maca_kiosk_preview'
 const MENU_KEY = 'maca_kiosk_preview_menu' // 'live' | 'draft': which menu the preview shows
 const MENU_VERSIONS = [['live', 'Published menu'], ['draft', 'Menu with unpublished changes']]
@@ -1098,6 +1110,67 @@ function TimingPanel({ s, d, set, canManage }) {
   )
 }
 
+// ── Screen ──────────────────────────────────────────────────────
+// The screen the design is made for (design.screen, shared/kiosk.js
+// kioskBox() / kioskZoom()): its size, and what a screen of another shape
+// does.
+
+function ScreenPanel({ d, set }) {
+  const sc = d.screen
+  const preset = KIOSK_SCREENS.find(p => p.short === sc.short && p.long === sc.long)
+  const [other, setOther] = useState(!preset)
+  const pick = p => { setOther(false); set('screen', { short: p.short, long: p.long }) }
+  const ok = v => v >= SCREEN_MIN && v <= SCREEN_MAX
+  const chip = on => cn('min-h-[44px] px-3 py-1.5 rounded-lg border text-left text-sm touch-manipulation', on ? 'border-primary bg-primary/10 ring-1 ring-primary' : 'bg-background hover:bg-muted')
+  return (
+    <>
+      <Field group label="The screen it's made for" hint="Its size upright, in the pixels its browser works in (a phone or tablet reports fewer than it has: often half). The preview shows the design at this size; turned on its side, it's the same screen.">
+        <div className="grid grid-cols-2 gap-2" data-testid="kd-screen-size">
+          {KIOSK_SCREENS.map(p => (
+            <button key={p.key} type="button" onClick={() => pick(p)} aria-pressed={!other && preset?.key === p.key} data-testid={'kd-screen-' + p.key} className={chip(!other && preset?.key === p.key)}>
+              <span className="block font-medium">{p.label}</span>
+              <span className="block text-xs text-muted-foreground tabular-nums">{p.short} x {p.long}</span>
+            </button>
+          ))}
+          <button type="button" onClick={() => setOther(true)} aria-pressed={other} data-testid="kd-screen-other" className={chip(other)}>
+            <span className="block font-medium">Another size</span>
+            <span className="block text-xs text-muted-foreground">Type it in</span>
+          </button>
+        </div>
+        {other && (
+          <div className="flex items-center gap-2 mt-2 flex-wrap" data-testid="kd-screen-custom">
+            {/* A number takes effect once it's a size (typing 1080 passes through 1, 10, 108). */}
+            <NumberBox value={sc.short} min={0} max={99999} ariaLabel="Width upright" onChange={v => ok(v) && set('screen', { short: v })} />
+            <span className="text-sm">x</span>
+            <NumberBox value={sc.long} min={0} max={99999} ariaLabel="Height upright" onChange={v => ok(v) && set('screen', { long: v })} />
+            <span className="text-xs text-muted-foreground">wide x tall, upright ({SCREEN_MIN} to {SCREEN_MAX})</span>
+          </div>
+        )}
+      </Field>
+      <Field group label="On a screen of another shape" hint="A 4:3 tablet, or a screen with the browser's bars showing, isn't this shape.">
+        <div data-testid="kd-screen-shape">
+          <Segmented value={sc.shape} onChange={v => set('screen', { shape: v })}
+            options={[{ value: 'keep', label: 'Keep this shape' }, { value: 'fill', label: 'Fill the screen' }]} />
+        </div>
+        <p className="text-xs text-muted-foreground mt-2">
+          {sc.shape === 'keep'
+            ? 'The kiosk keeps the design\'s shape, centred, with bars at the sides or above and below. It looks as designed, without filling the screen.'
+            : 'The kiosk fills the whole screen, so its layout stretches to the screen\'s shape (more room for the menu, but not quite as designed).'}
+        </p>
+      </Field>
+      {sc.shape === 'keep' && (
+        <Field group label="The bars">
+          <div data-testid="kd-screen-bars">
+            <Segmented value={sc.bars} onChange={v => set('screen', { bars: v })}
+              options={[{ value: 'black', label: 'Black' }, { value: 'page', label: 'Page colour' }]} />
+          </div>
+        </Field>
+      )}
+      <Note>On a screen of another size, a phone's or tablet's browser shows the kiosk zoomed so it's laid out at this size and looks the same, only smaller or bigger (not for a difference under 10%). A computer's browser (Chrome on Windows, say) can't be zoomed by the page: set the screen's display scaling so it reports close to this size. Try on, above the preview, shows other screens.</Note>
+    </>
+  )
+}
+
 // ── Preview ─────────────────────────────────────────────────────
 
 function Preview({ designId, design, venueId, setup, streams, stream, onStream }) {
@@ -1160,8 +1233,28 @@ function Preview({ designId, design, venueId, setup, streams, stream, onStream }
   const post = msg => { if (ready && frameOrigin.current) frame.current?.contentWindow?.postMessage(msg, frameOrigin.current) }
   useEffect(() => { post({ type: 'kiosk.design', design }) }, [design, ready]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Try on: the design's screen, or how another screen would show it.
+  const [tryOn, setTryOn] = useState(() => {
+    try { const v = localStorage.getItem(TRY_KEY); return TRY_ON.some(t => t.key === v) ? v : 'design' } catch { return 'design' }
+  })
+  function pickTry(v) {
+    setTryOn(v)
+    try { localStorage.setItem(TRY_KEY, v) } catch { /* private mode */ }
+  }
+  const sc = design.screen
+  const dev = TRY_ON.find(t => t.key === tryOn && t.short) || null
+  const devW = dev ? (orientation === 'portrait' ? dev.short : dev.long) : null
+  const devH = dev ? (orientation === 'portrait' ? dev.long : dev.short) : null
+  const zoom = dev ? kioskZoom(devW, devH, sc) : 1
+  // The frame is the window that screen would lay the page out in.
+  const [W, H] = dev ? [Math.round(devW / zoom), Math.round(devH / zoom)] : (orientation === 'portrait' ? [sc.short, sc.long] : [sc.long, sc.short])
+  const fit = kioskBox(W, H, sc)
+  const tryNote = dev
+    ? 'On a ' + dev.label.toLowerCase() + ' (' + devW + ' x ' + devH + '): '
+      + [zoom !== 1 ? 'zoomed to ' + Math.round(zoom * 100) + '%' : 'shown as it is', fit.bars ? (fit.w < W ? 'bars at the sides' : 'bars above and below') : sc.shape === 'fill' ? 'filling the screen' : 'the same shape'].join(', ')
+      + '. Phones and tablets only: a computer\'s browser isn\'t zoomed.'
+    : 'The screen this design is made for: ' + W + ' x ' + H + '.'
   const box = useRef(null)
-  const [W, H] = PREVIEW_SIZE[orientation]
   const [scale, setScale] = useState(0.3)
   useEffect(() => {
     const el = box.current
@@ -1186,6 +1279,10 @@ function Preview({ designId, design, venueId, setup, streams, stream, onStream }
             </button>
           ))}
         </div>
+        <select value={tryOn} onChange={e => pickTry(e.target.value)} aria-label="Try the design on a screen"
+          className="h-11 rounded-lg border bg-background px-2 text-sm touch-manipulation max-w-[200px]" data-testid="kd-try-on">
+          {TRY_ON.map(t => <option key={t.key} value={t.key}>{t.short ? 'On a ' + t.label.toLowerCase() : t.label}</option>)}
+        </select>
         {streams.length > 1 && (
           <select value={stream?.id || ''} onChange={e => onStream(e.target.value)} aria-label="Revenue stream for the preview"
             className="h-11 rounded-lg border bg-background px-2 text-sm touch-manipulation max-w-[200px]" data-testid="kd-stream">
@@ -1221,6 +1318,7 @@ function Preview({ designId, design, venueId, setup, streams, stream, onStream }
           {' '}{unpriced.length === 1 ? 'It has' : 'They have'} no price, and no option with a price to choose. Set a price on the Menus page (and publish) to put {unpriced.length === 1 ? 'it' : 'them'} on the kiosk.
         </div>
       )}
+      <div className="shrink-0 px-3 py-1.5 border-b text-xs bg-background text-muted-foreground" data-testid="kd-try-note">{tryNote}</div>
       <div ref={box} className="flex-1 min-h-0 flex items-center justify-center overflow-hidden bg-muted/40 p-4">
         {link.isLoading && <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />}
         {link.error && <div className="max-w-sm"><ErrorNote error={link.error} /></div>}
@@ -1431,6 +1529,7 @@ function SaveAsDialog({ draft, design, savedName, dirty, onSaved, onClose }) {
 const PANELS = [
   { id: 'brand', title: 'Brand', icon: Palette },
   { id: 'layout', title: 'Layout', icon: LayoutDashboard },
+  { id: 'screen', title: 'Screen', icon: Monitor },
   { id: 'start', title: 'Start screen', icon: Home },
   { id: 'languages', title: 'Languages', icon: Languages },
   { id: 'menu', title: 'Menu', icon: LayoutGrid },
@@ -1445,6 +1544,7 @@ function summaryOf(id, d) {
   if (id === 'layout') return [d.layout.header ? 'Top bar' : 'No top bar', d.layout.icon_buttons ? 'icon buttons' : null, d.layout.hero === 'stacked' ? 'dish photo on top' : null,
     d.layout.hero_backdrop ? null : 'no shade behind photos', d.layout.combo_build ? null : 'meal deals keep their photo',
     d.layout.fly_to_order ? null : 'no flight into the order'].filter(Boolean).join(', ')
+  if (id === 'screen') return d.screen.short + ' x ' + d.screen.long + (d.screen.shape === 'keep' ? ', keeps its shape' + (d.screen.bars === 'page' ? ' (page colour bars)' : '') : ', fills any screen')
   if (id === 'start') return (d.start.media.length ? d.start.media.length + ' picture' + (d.start.media.length === 1 ? '' : 's') : 'No pictures') + ', ' + (d.start.layout === 'full' ? 'pictures behind' : 'pictures apart')
   if (id === 'languages') return d.languages.enabled.map(c => KIOSK_LANGUAGES.find(l => l.code === c)?.name).join(', ')
   if (id === 'menu') return TILE_LABELS[d.layout.tiles] + ', ' + (d.menu.rail === 'none' ? 'section tiles, ' : '') + (d.menu.home ? d.menu.banners.length + ' banners' + (d.menu.banners.length && d.menu.banner_shape !== 'wide' ? ' (' + BANNER_SHAPE_LABELS[d.menu.banner_shape].toLowerCase() + ')' : '') + ', ' + d.menu.featured.length + ' tiles' : 'No home page') + (d.menu.hidden_section_ids.length ? ', ' + d.menu.hidden_section_ids.length + ' sections left off' : '')
@@ -1617,6 +1717,7 @@ export default function KioskDesigner() {
                 open={open.has(p.id)} onToggle={() => toggle(p.id)} canManage={canManage}>
                 {p.id === 'brand' && <BrandPanel {...panelProps} />}
                 {p.id === 'layout' && <LayoutPanel {...panelProps} />}
+                {p.id === 'screen' && <ScreenPanel {...panelProps} />}
                 {p.id === 'start' && <StartPanel {...panelProps} />}
                 {p.id === 'languages' && <LanguagesPanel {...panelProps} />}
                 {p.id === 'menu' && <MenuPanel {...panelProps} />}

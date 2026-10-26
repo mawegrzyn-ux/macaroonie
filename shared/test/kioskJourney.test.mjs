@@ -84,6 +84,10 @@ test('frameAt: the view, scroll since the last screen change, the viewport and r
   assert.equal(at.taps.length, 1)
   assert.equal(at.taps[0].id, 'k-add')
   assert.equal(at.taps[0].age, 0)
+  // A window of another shape: the kiosk's box (bars) comes with it, the latest one at a time.
+  const turned = [...ev.slice(0, 2), { t: 5, k: 'vp', w: 768, h: 1024, b: [96, 0, 576, 1024] }, ...ev.slice(2)]
+  assert.deepEqual(frameAt(turned, 9000).vp, { w: 768, h: 1024, b: [96, 0, 576, 1024] })
+  assert.deepEqual(frameAt(turned, 2).vp, { w: 1080, h: 1920 })
   // The scroll counts while on the menu, not once the next dish opens.
   assert.deepEqual(frameAt(ev, 11500).scroll, { '0/1/0/1': { x: 0, y: 800 } })
   assert.deepEqual(frameAt(ev, 12500).scroll, {})

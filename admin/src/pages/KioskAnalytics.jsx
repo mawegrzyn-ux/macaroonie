@@ -546,9 +546,11 @@ function KioskFrame({ url, vp, frame }) {
   useEffect(() => {
     if (!ready || !origin.current) return
     const scroll = JSON.stringify(frame.scroll)
-    if (sent.current.v === frame.v && sent.current.scroll === scroll) return
-    sent.current = { v: frame.v, scroll }
-    iframe.current?.contentWindow?.postMessage({ type: 'kiosk.replay', view: frame.view, scroll: frame.scroll }, origin.current)
+    const box = frame.vp?.b ? frame.vp.b.join() : ''
+    if (sent.current.v === frame.v && sent.current.scroll === scroll && sent.current.box === box) return
+    sent.current = { v: frame.v, scroll, box }
+    // The kiosk's box as recorded (bars on a screen of another shape), so it sits where the guest saw it.
+    iframe.current?.contentWindow?.postMessage({ type: 'kiosk.replay', view: frame.view, scroll: frame.scroll, box: frame.vp?.b || null }, origin.current)
   }, [ready, frame])
 
   return (

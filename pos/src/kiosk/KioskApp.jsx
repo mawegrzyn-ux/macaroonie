@@ -22,8 +22,8 @@ import Builder from './Builder.jsx'
 import Allergens from './Allergens.jsx'
 import { Basket, Details, Pay, Card, Placing, Done, Failed } from './Checkout.jsx'
 import { cx, Sheet } from './parts.jsx'
-import { useKioskViewport, screenScale } from './viewport.js'
-import { useJourneyState, startJourneys, listenForReplay } from './journey.js'
+import { useKioskViewport, useKioskBox, screenZoom } from './viewport.js'
+import { useJourneyState, startJourneys, listenForReplay, useReplayBox } from './journey.js'
 import './kiosk.css'
 
 const IDLE_FREE = new Set(['start', 'done', 'placing'])
@@ -123,14 +123,18 @@ function photosText(p) {
   return p.saved === p.total ? 'All ' + p.total + ' saved' : p.saved + ' of ' + p.total + ' saved (the rest when the connection allows)'
 }
 
-// The screen as the browser reports it, and the zoom a small one gets (viewport.js).
-function screenText() {
-  const k = screenScale()
+// The screen as the browser reports it, against the design's (viewport.js):
+// the zoom it gets and whether bars keep the design's shape.
+function screenText(screen, box) {
+  const k = screenZoom(screen)
   const size = Math.round(window.screen?.width || 0) + ' x ' + Math.round(window.screen?.height || 0)
-  return k < 1 ? size + ': small, shown zoomed out to ' + Math.round(k * 100) + '%' : size
+  const parts = [size + ', designed for ' + screen.short + ' x ' + screen.long]
+  if (k !== 1) parts.push('shown at ' + Math.round(k * 100) + '% to match the design\'s size')
+  if (box.bars) parts.push('bars ' + (box.w < window.innerWidth ? 'at the sides' : 'above and below') + ' keep the design\'s shape')
+  return parts.join('; ')
 }
 
-function StaffPanel({ s, onClose }) {
+function StaffPanel({ s, box, onClose }) {
   const c = s.config
   return (
     <Sheet onClose={onClose}>
@@ -147,7 +151,7 @@ function StaffPanel({ s, onClose }) {
           <span data-testid="k-staff-card">{c?.card_machine
             ? c.card_machine.name + ' (' + c.card_machine.provider_label + (c.card_machine.test ? ', test: no money is taken' : '') + ')'
             : 'None: guests pay at the counter'}</span>
-          <span className="k-muted">Screen</span><span data-testid="k-staff-screen">{screenText()}</span>
+          <span className="k-muted">Screen</span><span data-testid="k-staff-screen">{screenText(c.design.screen, box)}</span>
           <span className="k-muted">Connection</span>
           <span className="flex items-center gap-1" data-testid="k-staff-link">
             {s.link === 'down' ? <><WifiOff size={16} /> Offline: ordering paused, trying every few seconds</>
@@ -200,8 +204,6 @@ function DisconnectBox({ waiting }) {
 
 export default function KioskApp({ device = null, previewToken = null, shareToken = null, replay = false }) {
   const preview = !!(previewToken || shareToken)
-  // A phone-sized screen shows the kiosk zoomed out, like a big one (viewport.js).
-  useKioskViewport()
   useEffect(() => {
     if (previewToken && replay) bootReplay(previewToken)
     else if (previewToken) bootPreview(previewToken)
@@ -225,6 +227,11 @@ export default function KioskApp({ device = null, previewToken = null, shareToke
   const texts = textsFor(s)
   const design = s.config?.design
   const style = useDesignStyle(design)
+  // A screen of another size shows the kiosk zoomed to the design's; one of
+  // another shape shows it at the design's shape with bars (viewport.js).
+  useKioskViewport(design?.screen)
+  const replayBox = useReplayBox()
+  const box = useKioskBox(design?.screen, s.replay ? replayBox : null)
   // A preview says orders aren't sent. In the designer's frame or a shared
   // page's the page around it says so; opened in its own tab (Full screen),
   // a band along the top says it, in its own room so it never covers the
@@ -258,8 +265,10 @@ export default function KioskApp({ device = null, previewToken = null, shareToke
   // Dishes' picture style on the root; choices' (.k-opts-<style>) on each set
   // of choices, since an option group can have its own (groupLook()).
   return (
+    <>
+    {box.bars && <div className="k-bars" style={{ background: design.screen.bars === 'page' ? design.brand.colors.background : '#000' }} data-testid="k-bars" aria-hidden="true" />}
     <div className={cx('k-root', design.brand.heading_case === 'upper' && 'k-upper', s.reach && 'k-reach', 'k-tiles-' + design.layout.tiles, design.layout.icon_buttons && 'k-icons', previewBand && 'k-has-preview-band')}
-      style={style} data-testid="kiosk" data-screen={s.screen} data-tiles={design.layout.tiles} data-option-tiles={design.layout.option_tiles}
+      style={{ ...style, left: box.x, top: box.y, width: box.w, height: box.h, '--k-unit': Math.min(box.w, box.h) / 100 + 'px' }} data-boxed={box.bars ? '1' : '0'} data-testid="kiosk" data-screen={s.screen} data-tiles={design.layout.tiles} data-option-tiles={design.layout.option_tiles}
       data-option-pictures={design.layout.option_pictures ? '1' : '0'} data-option-align={design.layout.option_align}
       data-hero={design.layout.hero} data-hero-backdrop={design.layout.hero_backdrop ? '1' : '0'} data-combo-build={design.layout.combo_build ? '1' : '0'}
       data-fly-to-order={design.layout.fly_to_order ? '1' : '0'}
@@ -287,9 +296,10 @@ export default function KioskApp({ device = null, previewToken = null, shareToke
       {previewBand && <div className="k-preview-band" data-testid="k-preview-band">{texts.ui('preview')}</div>}
       {s.toast && <div key={s.toast.id} className="k-toast" data-testid="k-toast">{s.toast.text}</div>}
       <Idle s={s} texts={texts} />
-      {staff && <StaffPanel s={s} onClose={() => setStaff(false)} />}
+      {staff && <StaffPanel s={s} box={box} onClose={() => setStaff(false)} />}
       {/* A replay is watched, not used: touches never reach the kiosk under it. */}
       {s.replay && <div className="absolute inset-0 z-[300]" data-testid="k-replay-cover" />}
     </div>
+    </>
   )
 }

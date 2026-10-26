@@ -160,7 +160,7 @@ async function bootPreviewFrom(path, { live, replay = false }) {
     }
   })
   try {
-    window.parent.postMessage({ type: 'kiosk.ready', ...(state.shared ? { share: state.shared } : {}), ...(!state.config ? { error: state.error } : {}) }, '*')
+    window.parent.postMessage({ type: 'kiosk.ready', ...(state.shared ? { share: { ...state.shared, screen: state.config?.design?.screen || null } } : {}), ...(!state.config ? { error: state.error } : {}) }, '*')
   } catch { /* not framed */ }
 }
 
