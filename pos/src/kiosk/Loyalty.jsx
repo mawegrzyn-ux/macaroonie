@@ -58,7 +58,9 @@ export function LoyaltySheet({ onClose }) {
           <h2 className="k-head text-[1.8em] m-0 flex-1">{m ? fill(ui('loyalty_hi'), { name: m.name || '' }) : ui('loyalty_scan')}</h2>
         </div>
         {m ? <Member cfg={cfg} texts={texts} /> : <Scan cfg={cfg} texts={texts} preview={s.preview} />}
-        <div className="flex flex-wrap gap-[var(--k-gap)] justify-end">
+        {/* Kept in view at the sheet's foot when its rewards run past the screen. */}
+        <div className="sticky z-[1] flex flex-wrap gap-[var(--k-gap)] justify-end" data-testid="k-loyalty-actions"
+          style={{ bottom: 'calc(var(--k-pad) * -1.2)', marginBottom: 'calc(var(--k-pad) * -1.2)', padding: '.6em 0 calc(var(--k-pad) * 1.2)', background: 'var(--k-sheet, var(--k-surface))' }}>
           {m && (
             <button className="k-btn k-btn-ghost" onClick={() => { loyaltyForget(); onClose() }} data-testid="k-loyalty-forget">
               <X /> {ui('loyalty_remove')}
@@ -173,13 +175,13 @@ function Member({ cfg, texts }) {
           <h3 className="k-head text-[1.3em] m-0">{ui('loyalty_rewards')}</h3>
           {!m.rewards.length && <div className="k-muted">{ui('loyalty_no_rewards')}</div>}
           {m.rewards.map(r => (
-            <div key={r.key} className={cx('k-card p-[.8em] flex items-center gap-[.6em]', !r.can_afford && 'opacity-60')} data-testid={'k-loyalty-reward-' + r.reward_id}>
+            <div key={r.key} className={cx('k-card p-[.8em] flex items-center gap-[.6em]', !r.can_afford && 'opacity-60')} data-testid={'k-loyalty-reward-' + r.reward_id} data-key={r.key}>
               <span className="flex-1 min-w-0">
                 <span className="k-head block">{r.name}</span>
-                <span className="k-muted block text-[.9em]">{r.summary}{r.points_cost ? ' · ' + pointsText(r.points_cost, settingsOf(cfg)) : ''}</span>
+                <span className="k-muted block text-[.9em]">{r.summary} · {r.points_cost ? pointsText(r.points_cost, settingsOf(cfg)) : ui('loyalty_yours')}</span>
                 {problem?.key === r.key && <span className="block text-[.9em] font-semibold text-[var(--k-danger,#b91c1c)]" data-testid="k-loyalty-problem">{problem.text}</span>}
               </span>
-              <button className="k-btn k-btn-primary" disabled={!r.can_afford || !!busy} onClick={() => use(r)} data-testid={'k-loyalty-use-' + r.reward_id}>
+              <button className="k-btn k-btn-primary" disabled={!r.can_afford || !!busy} onClick={() => use(r)} data-testid={'k-loyalty-use-' + r.reward_id} data-key={r.key}>
                 {r.can_afford ? ui('loyalty_use') : ui('loyalty_not_enough')}
               </button>
             </div>

@@ -123,7 +123,7 @@ function Find({ cfg, onFound, onJoin, busy, setBusy, setError }) {
                   {cfg.points && <span className="text-sm font-semibold tabular-nums">{pointsText(m.points, settingsOf(cfg))}</span>}
                 </button>
               ))}
-              {!results.length && <div className="text-sm text-muted">Nobody found. Check the spelling, or join them up.</div>}
+              {!results.length && <div className="text-sm text-muted" data-testid="loy-none">Nobody found. An email address has to be typed in full; or check the spelling, or join them up.</div>}
             </div>
           )}
         </div>
@@ -238,12 +238,12 @@ function MemberOnCheck({ check, cfg, member, onRefresh, onRemove, setError }) {
           <div className="label">Their rewards</div>
           {!member.rewards.length && <div className="text-sm text-muted">No rewards to spend yet.</div>}
           {member.rewards.map(r => (
-            <div key={r.key} className={cx('card p-3 flex items-center gap-3', !r.can_afford && 'opacity-60')} data-testid={'loy-reward-' + r.reward_id}>
+            <div key={r.key} className={cx('card p-3 flex items-center gap-3', !r.can_afford && 'opacity-60')} data-testid={'loy-reward-' + r.reward_id} data-key={r.key}>
               <div className="flex-1 min-w-0">
                 <div className="font-semibold">{r.name}</div>
                 <div className="text-xs text-muted">{r.summary}{r.points_cost ? ' · ' + pointsText(r.points_cost, settingsOf(cfg)) : ' · theirs to use'}{r.min_spend_pence ? ' · on ' + money(r.min_spend_pence) + ' or more' : ''}</div>
               </div>
-              <button className="btn btn-primary min-w-[96px]" disabled={!r.can_afford || !!busy} onClick={() => use(r)} data-testid={'loy-use-' + r.reward_id}>
+              <button className="btn btn-primary min-w-[96px]" disabled={!r.can_afford || !!busy} onClick={() => use(r)} data-testid={'loy-use-' + r.reward_id} data-key={r.key}>
                 {busy === r.key ? '…' : r.can_afford ? 'Use' : 'Not enough'}
               </button>
             </div>
@@ -251,8 +251,9 @@ function MemberOnCheck({ check, cfg, member, onRefresh, onRemove, setError }) {
         </div>
       )}
       {!cfg.redeem && <div className="text-sm text-muted">Rewards can't be spent at this till.</div>}
-      <div className="border-t border-line pt-3 flex justify-between gap-2">
-        <button className="btn" onClick={onRemove} data-testid="loy-remove">Take {member?.name?.split(' ')[0] || 'them'} off the check</button>
+      <div className="border-t border-line pt-3 flex flex-wrap items-center justify-between gap-2">
+        <button className="btn" onClick={onRemove} disabled={onCheck.length > 0} data-testid="loy-remove">Take {member?.name?.split(' ')[0] || 'them'} off the check</button>
+        {onCheck.length > 0 && <span className="text-xs text-muted" data-testid="loy-remove-hint">Take their rewards off the check first.</span>}
       </div>
     </div>
   )
