@@ -220,6 +220,7 @@
 .k-keys-row { display: flex; gap: .45em; justify-content: center; }
 .k-key { flex: 1 1 0; max-width: 4.2em; min-height: max(54px, 2.9em); border-radius: calc(var(--k-radius) / 2); border: 2px solid var(--k-line); background: var(--k-surface); font-weight: 700; font-size: 1.1em; }
 .k-key:active { background: var(--k-soft); }
+.k-key:disabled { opacity: .35; }
 .k-key-wide { max-width: 12em; flex-grow: 4; }
 .k-numpad { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .6em; width: min(100%, 24em); margin: 0 auto; }
 .k-numpad .k-key { max-width: none; min-height: max(72px, 3.6em); font-size: 1em; }

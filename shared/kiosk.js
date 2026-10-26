@@ -21,6 +21,7 @@
 //   kioskStaff(), kioskLine(), kioskOrder()  a basket as till events
 //   kioskBox(), kioskZoom()               the kiosk on a screen of another shape
 //                                         (bars) or size (zoomed to the design's)
+//   doneLook(), doneInfo(), doneGaps()    the order done screen per order type
 // Plain ESM, no dependencies but the other shared modules, no DOM.
 
 import { FONT_OPTIONS, FONT_WEIGHTS, fontStack } from './fonts.js'
@@ -391,7 +392,7 @@ export function fitLayout(raw, clear = false) {
   }
 }
 
-const MAX = { media: 8, reach_media: 4, banners: 10, featured: 12, upsell: 8, hidden: 200, tiles: 200, group_looks: 200 }
+const MAX = { media: 8, reach_media: 4, banners: 10, featured: 12, upsell: 8, hidden: 200, tiles: 200, group_looks: 200, done_types: 50 }
 
 // ── The screen a design is made for ──────────────────────────────
 // design.screen: the screen's size upright (short x long CSS px; turned on
@@ -419,6 +420,39 @@ function screenOf(v) {
   let long = num(x.long, SCREEN_MIN, SCREEN_MAX, 1920)
   if (short > long) [short, long] = [long, short]
   return { short, long, shape: oneOf(x.shape, SCREEN_SHAPES, 'keep'), bars: oneOf(x.bars, SCREEN_BARS, 'black') }
+}
+
+// ── The order done screen ──────────────────────────────────────
+// The screen after paying (design.done): one big value and a few small
+// lines under it, the same for every order type unless a type has its own
+// (done.types, doneLook()). doneInfo() works out what an order shows.
+//   main   auto (the tent or table number when the guest typed one, else
+//          the order number), number, tent (the tent or table number,
+//          checkout.number_kind) or name
+//   lines  the small lines, in order: number, tent, name, type (the order
+//          type's name); the big one is never repeated
+//   message words of the design's own under the rest (per type, or for all)
+// receipt_qr / receipt_email: offer a receipt on the guest's phone (a QR
+// code of the receipt's page) or by email (migration 209).
+export const DONE_MAIN = ['auto', 'number', 'tent', 'name']
+export const DONE_LINES = ['number', 'tent', 'name', 'type']
+export const DONE_DEFAULT_LINES = ['number', 'tent']
+
+function doneLines(v) {
+  return Array.isArray(v) ? [...new Set(v.filter(k => DONE_LINES.includes(k)))] : null
+}
+
+// Order types with their own done screen: each part null = as for every type.
+function doneTypes(v) {
+  const seen = new Set()
+  const out = []
+  for (const x of asList(v)) {
+    if (!isUuid(x?.order_type_id) || seen.has(x.order_type_id)) continue
+    seen.add(x.order_type_id)
+    out.push({ order_type_id: x.order_type_id, main: oneOf(x.main, DONE_MAIN, null), lines: doneLines(x.lines), message: text(x.message, 200) })
+    if (out.length >= MAX.done_types) break
+  }
+  return out
 }
 
 function link(v) {
@@ -475,6 +509,7 @@ export function normaliseDesign(raw) {
   const c = d.checkout || {}
   const h = d.behaviour || {}
   const y = d.layout || {}
+  const n = d.done || {}
   const colors = {}
   for (const [k, def] of Object.entries(DESIGN_COLORS)) {
     const v = b.colors?.[k]
@@ -593,6 +628,15 @@ export function normaliseDesign(raw) {
       // and put on the table, or the number already on the table.
       number_kind: oneOf(c.number_kind, ['tent', 'table'], 'tent'),
     },
+    // The order done screen (doneLook(), doneInfo()).
+    done: {
+      main: oneOf(n.main, DONE_MAIN, 'auto'),
+      lines: doneLines(n.lines) ?? DONE_DEFAULT_LINES,
+      message: text(n.message, 200),
+      types: doneTypes(n.types),
+      receipt_qr: !!n.receipt_qr,
+      receipt_email: !!n.receipt_email,
+    },
     behaviour: {
       idle_secs: num(h.idle_secs, 20, 600, 60),
       warn_secs: num(h.warn_secs, 5, 60, 20),
@@ -637,6 +681,82 @@ export function groupLook(design, group = null) {
     pictures: first(own?.pictures, typeof group?.kiosk_pictures === 'boolean' ? group.kiosk_pictures : null, d.layout.option_pictures !== false),
     entrance: first(own?.entrance, oneOf(group?.kiosk_entrance, ENTRANCE_KEYS, null), d.options.entrance),
   }
+}
+
+/**
+ * How the order done screen looks for an order type: the type's own row in
+ * design.done.types where it sets a part, else the design's for every type.
+ *   -> { main, lines, message, own } (own: the type has a row of its own)
+ */
+export function doneLook(design, orderTypeId = null) {
+  const done = (design || DEFAULT_DESIGN).done || DEFAULT_DESIGN.done
+  const own = orderTypeId ? done.types.find(x => x.order_type_id === orderTypeId) || null : null
+  return {
+    main: own?.main ?? done.main,
+    lines: own?.lines ?? done.lines,
+    message: own?.message ?? done.message,
+    own: !!own,
+  }
+}
+
+/** An email address a guest typed, roughly checked (the provider has the last word). */
+export function isEmail(v) {
+  const s = typeof v === 'string' ? v.trim() : ''
+  return s.length <= 254 && /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)*\.[a-z]{2,}$/i.test(s)
+}
+
+/** An email address shown back without giving it away: 's***@gmail.com'. */
+export function emailHint(v) {
+  const s = String(v || '').trim()
+  const at = s.lastIndexOf('@')
+  if (at < 1) return ''
+  return s[0] + '***' + s.slice(at)
+}
+
+const DONE_FALLBACK = ['number', 'tent', 'name']
+
+/**
+ * What the done screen shows for an order:
+ *   order  { orderTypeId, number (the order number, else the kiosk's own),
+ *            tent (the tent or table number typed), name, type (the order
+ *            type's name as shown) }
+ *   -> { main, value, lines: [{ key, value }], message }
+ * The big value is the look's main one; auto is the tent when one was typed,
+ * else the order number. A value the order doesn't have (no name asked, the
+ * tent skipped) falls back to the first of number, tent, name it has. The
+ * small lines leave out the big one and any the order hasn't got.
+ */
+export function doneInfo(design, order = {}) {
+  const look = doneLook(design, order.orderTypeId || null)
+  const vals = {}
+  for (const k of DONE_LINES) vals[k] = order[k] == null ? '' : String(order[k]).trim()
+  let main = look.main === 'auto' ? (vals.tent ? 'tent' : 'number') : look.main
+  if (!vals[main]) main = DONE_FALLBACK.find(k => vals[k]) || 'number'
+  return {
+    main,
+    value: vals[main],
+    lines: look.lines.filter(k => k !== main && vals[k]).map(k => ({ key: k, value: vals[k] })),
+    message: look.message,
+  }
+}
+
+/**
+ * What an order type's done screen would show that its guests are never
+ * asked for (the revenue stream's order type, Store tech > Revenue streams:
+ * ask_name / ask_tent 'off'), for the designer to point out:
+ *   -> [{ key: 'name' | 'tent', big: bool }]  big: it was to be the big value
+ * (falls back to the order number); otherwise it's a line left out. Auto
+ * never counts: it only uses a tent that was typed.
+ */
+export function doneGaps(design, orderType) {
+  const look = doneLook(design, orderType?.id || null)
+  const out = []
+  for (const [key, ask] of [['name', orderType?.ask_name], ['tent', orderType?.ask_tent]]) {
+    if (ask && ask !== 'off') continue
+    if (look.main === key) out.push({ key, big: true })
+    else if (look.lines.includes(key)) out.push({ key, big: false })
+  }
+  return out
 }
 
 /**
@@ -1064,6 +1184,8 @@ export function translationSources({ menus = [], groups = [], types = [], tags =
     add(TK.design(d.id, 'counter_note'), g, 'Pay at the counter note', s.checkout.counter_note)
     add(TK.design(d.id, 'upsell_title'), g, '"Anything else?" heading', s.checkout.upsell_title)
     add(TK.design(d.id, 'thanks'), g, 'Order placed heading', s.checkout.thanks)
+    add(TK.design(d.id, 'done_message'), g, 'Order done message', s.done.message)
+    for (const x of s.done.types) add(TK.design(d.id, 'done_message:' + x.order_type_id), g, 'Order done message for an order type', x.message)
   }
   for (const key of Object.keys(UI_TEXT.en)) add(TK.ui(key), 'Kiosk words', 'Built in, in every language; type here to change it', UI_TEXT.en[key])
   return out

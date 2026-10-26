@@ -11,6 +11,7 @@
 //   /pos-api, /ws, /uploads   pass through to their routes
 //   http:// (X-Forwarded-Proto) redirected to https:// (the PIN check needs it)
 //   /hub on pos.{root}         the page with the venue hub's installer (/pos-api/hub/setup)
+//   /receipt/<token>          a guest's receipt from a kiosk (the route below, migration 209)
 //   /manifest.webmanifest     the build's manifest named for the host (Till,
 //                             Kitchen, Kiosk), so each installs as its own app
 //   a file in pos/dist        that file (hashed assets cached for a year;
@@ -23,11 +24,12 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { platformHostKind, KITCHEN_SUBDOMAIN } from '../services/platformHost.js'
 import { env } from '../config/env.js'
+import { receiptPage } from '../services/receiptSvc.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const DIST = path.resolve(__dirname, '..', '..', '..', 'pos', 'dist')
 
-const PASS_PREFIXES = ['/pos-api', '/ws', '/uploads/', '/api/']
+const PASS_PREFIXES = ['/pos-api', '/ws', '/uploads/', '/api/', '/receipt/']
 
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
@@ -65,6 +67,24 @@ function fileFor(urlPath) {
 }
 
 async function posSite(app) {
+  // A guest's receipt (services/receiptSvc.js): the link is the key. Only on
+  // the device addresses; never cached or indexed, and the page sends no referrer.
+  app.get('/receipt/:token', { config: { rateLimit: { max: 120, timeWindow: '1 minute' } } }, async (req, reply) => {
+    const host = platformHostKind(req.hostname || req.headers.host)
+    if (!APP_HOSTS.has(host)) return reply.code(404).send({ error: 'Not found' })
+    const html = await receiptPage(req.params.token)
+    reply.header('Cache-Control', 'no-store')
+    reply.header('Referrer-Policy', 'no-referrer')
+    reply.header('X-Robots-Tag', 'noindex, nofollow')
+    reply.header('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+    if (!html) {
+      return reply.code(404).type('text/html; charset=utf-8')
+        .send('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Receipt</title>'
+          + '<p style="font-family:system-ui,sans-serif;max-width:420px;margin:40px auto;padding:0 16px">This receipt link doesn\'t work: it may be older than a year, or not all of it was copied.</p>')
+    }
+    return reply.type('text/html; charset=utf-8').send(html)
+  })
+
   app.addHook('onRequest', async (req, reply) => {
     const host = platformHostKind(req.hostname || req.headers.host)
     if (!APP_HOSTS.has(host) && host !== 'kds') return

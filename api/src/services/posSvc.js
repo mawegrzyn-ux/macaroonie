@@ -360,7 +360,7 @@ export async function hubConfig(tx, tenantId, venueId, hubId) {
 }
 
 /** The printing config the sequencer gives shared/pos/printing.js. */
-async function printConfig(tx, tenantId, venueId) {
+export async function printConfig(tx, tenantId, venueId) {
   const venue = await ownVenue(tx, tenantId, venueId)
   const settings = settingsView(await ensureSettings(tx, tenantId, venueId))
   const [printers, tables, staff, courses, devices, orderTypes] = await Promise.all([

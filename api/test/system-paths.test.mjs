@@ -17,6 +17,9 @@ import { expireStaleOrders } from '../src/services/orderSvc.js'
 import { announceDueReleases, backfillFirstReleases } from '../src/services/menuReleases.js'
 import { cleanUpAi } from '../src/ai/erase.js'
 import { pollAll } from '../src/services/gloriafoodSvc.js'
+import { kioskOrder, normaliseDesign } from '../../shared/kiosk.js'
+import { posChoices } from '../../shared/pos/pricing.js'
+import { ulid } from '../../shared/pos/ids.js'
 
 let ids, filled, owner, V, dish, superuser
 
@@ -158,6 +161,31 @@ test('a kiosk design\'s shared preview opens by its link alone (migration 187)',
   assert.equal(res.status, 200, res.body.slice(0, 200))
   assert.equal(res.json.share.design, 'Shared look')
   assert.ok(res.json.items?.length || res.json.menus?.length, 'the venue\'s menu came along')
+})
+
+test('a kiosk order\'s receipt page opens by its link alone (migration 209)', async () => {
+  const kiosk = await linkDevice(owner, V, { kind: 'kiosk', name: 'Receipt kiosk' })
+  const auth = { authorization: `Device ${kiosk.device_id}.${kiosk.secret}` }
+  const cfg = (await pub('GET', '/pos-api/config', { headers: auth })).json
+  const config = { ...cfg, design: normaliseDesign(cfg.design) }
+  let r = null
+  for (const it of Object.values(config.items)) {
+    if (it.kind === 'combo') continue
+    const choices = {}
+    for (const c of it.pos_choices || posChoices(it, config.groups || {})) if (c.min > 0) choices[c.key] = c.options.slice(0, c.min).map(o => o.id)
+    r = kioskOrder(config, [{ key: 'a', item_id: it.id, selection: { choices }, qty: 1 }], {
+      device: { id: kiosk.device_id, venue_id: V }, checkId: ulid(), newId: ulid, payment: { ref: 'TEST' },
+    })
+    if (r.ok) break
+  }
+  assert.ok(r?.ok, r?.error)
+  const sent = await pub('POST', '/pos-api/events', { headers: auth, body: { events: r.events } })
+  assert.equal(sent.status, 200, sent.body)
+  const link = await pub('POST', '/pos-api/kiosk/receipts', { headers: auth, body: { check_id: r.check.id } })
+  assert.equal(link.status, 200, link.body)
+  const page = await pub('GET', new URL(link.json.url).pathname, { headers: { host: host('kiosk'), 'x-forwarded-proto': 'https' } })
+  assert.equal(page.status, 200, page.body.slice(0, 200))
+  assert.match(page.body, /Print or save as PDF/)
 })
 
 test('a kitchen screen shows its own code, is linked, and signs in (migration 184)', async () => {

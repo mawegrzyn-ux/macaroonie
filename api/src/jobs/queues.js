@@ -120,6 +120,10 @@ export function startAiCleanupWorker(log) {
     const { cleanUpJourneys } = await import('../services/kioskJourneySvc.js')
     const k = await cleanUpJourneys(log)
     if (k.cleared || k.removed) log.info(k, 'Kiosk journey clean-up')
+    // Guests' receipt pages from kiosks (migration 209) after 400 days.
+    const { cleanUpReceipts } = await import('../services/receiptSvc.js')
+    const rc = await cleanUpReceipts(log)
+    if (rc.removed) log.info(rc, 'Kiosk receipt clean-up')
   }, { connection })
 
   worker.on('failed', (job, err) => {

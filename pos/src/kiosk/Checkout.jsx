@@ -4,21 +4,23 @@
 // streams), how to pay, the card reader, sending, and the order number.
 
 import { useEffect, useMemo, useState } from 'react'
-import { Minus, Plus, Pencil, Trash2, CreditCard, Store, Printer, Check, AlertTriangle, ShoppingBag } from 'lucide-react'
+import { Minus, Plus, Pencil, Trash2, CreditCard, Store, Printer, Check, AlertTriangle, ShoppingBag, Mail, QrCode } from 'lucide-react'
 import { lineGross, groupModifiers } from '@shared/pos/pricing.js'
 import { countParts } from '@shared/combos.js'
 import { configItem, comboCtx } from '@shared/pos/offers.js'
-import { TK, pickImages, bundleParts } from '@shared/kiosk.js'
+import { TK, pickImages, bundleParts, doneInfo, doneLook, isEmail } from '@shared/kiosk.js'
+import { qrSvg } from '@shared/qr.js'
 import {
   useKiosk, textsFor, go, openBuilder, setQty, addToBasket, setDetails, placeOrder, methods, restart, soldOut, printResultReceipt,
-  getState as getFresh, cardStart, cardCheck, cardCancel, cardTest, setCardWaiting,
+  receiptLink, emailReceipt, getState as getFresh, cardStart, cardCheck, cardCancel, cardTest, setCardWaiting,
 } from './store.js'
 import { ulid } from '@shared/pos/ids.js'
-import { cx, Photo, PickPhoto, BundlePhoto, Keyboard, NumberPad, BackButton, usePortrait } from './parts.jsx'
+import { cx, Photo, PickPhoto, BundlePhoto, Keyboard, NumberPad, EmailKeyboard, Sheet, BackButton, usePortrait } from './parts.jsx'
 import { TopBar, useBasketTotals, RestartButton, LanguageButton } from './Menu.jsx'
 import { priceLabel } from './Builder.jsx'
 import { flyToBasket } from './fly.js'
 import { useJourneyState } from './journey.js'
+import { typeLabelOf } from './Start.jsx'
 
 // ── Where the order goes next ───────────────────────────────────
 
@@ -443,40 +445,160 @@ export function Placing() {
   )
 }
 
+// What the guest typed is the tent number or the table number (design.checkout.number_kind).
+const doneCaption = (key, tent, ui) => (key === 'tent' ? ui(tent ? 'tent_number' : 'table_number') : key === 'name' ? ui('order_for') : ui('order_number'))
+
+function doneLine(l, tent, ui) {
+  if (l.key === 'number') return ui('order_line', { n: l.value })
+  if (l.key === 'tent') return ui(tent ? 'tent_done' : 'table_done', { n: l.value })
+  if (l.key === 'name') return ui('name_line', { name: l.value })
+  return l.value
+}
+
+/**
+ * The order done screen (design.done, shared doneInfo()): the big value the
+ * design picks for the order type (the tent number when the guest typed one,
+ * the order number, or the name) with its lines, the note about paying, the
+ * design's own message, and the receipts on offer (printed, a QR code of the
+ * receipt's page, by email).
+ */
 export function Done() {
   const s = useKiosk()
   const texts = textsFor(s)
   const { ui, t } = texts
   const d = s.config.design
   const r = s.result || {}
+  const tentKind = d.checkout.number_kind !== 'table'
+  const ty = (s.config.order_types || []).find(x => x.id === s.orderType) || null
+  const info = doneInfo(d, {
+    orderTypeId: s.orderType, number: r.order_no ?? r.provisional ?? '', tent: s.details?.tent, name: s.details?.name,
+    type: ty ? typeLabelOf(d, ty, t) : '',
+  })
+  // The email sheet (recorded with the visit, journey.js: never the address,
+  // only how long it is) and how the sending went.
+  const [mailOpen, setMailOpen] = useJourneyState('receipt.mail', false)
+  const [mail, setMail] = useJourneyState('receipt.sent', null) // 'sending' | 'sent' | 'failed'
+  const [sentTo, setSentTo] = useState('') // where it went, shown back masked (not recorded)
+  const held = s.replay || s.doneHold || mailOpen || mail === 'sending'
   const [left, setLeft] = useState(d.behaviour.done_secs)
-  // A replay (journey.js) shows the screen as it was: no countdown.
+  // A replay (journey.js) and the editor's example show the screen as it is:
+  // no countdown. Typing an email address stops it too; it starts again after.
   useEffect(() => {
-    if (s.replay) return undefined
+    if (held) return undefined
     const id = setInterval(() => setLeft(n => n - 1), 1000)
     return () => clearInterval(id)
-  }, [s.replay])
+  }, [held])
   useEffect(() => { if (left <= 0) restart('done') }, [left])
+  const again = () => setLeft(d.behaviour.done_secs)
+
+  const typed = !!(s.details?.tent || '').trim()
   const note = r.pending ? ui('paid_pending')
-    : s.method === 'card' ? ui('paid_note')
+    : s.method === 'card' ? (typed ? null : info.main === 'name' ? ui('paid_note_name') : ui('paid_note'))
       : d.checkout.counter_note ? t(TK.design(d.id, 'counter_note'), d.checkout.counter_note)
         : d.checkout.send_counter ? ui('counter_note_sent') : ui('counter_note')
   const thanks = d.checkout.thanks ? t(TK.design(d.id, 'thanks'), d.checkout.thanks) : ui('thank_you')
+  const own = doneLook(d, s.orderType)
+  const messageKey = own.own && (d.done.types.find(x => x.order_type_id === s.orderType)?.message) ? 'done_message:' + s.orderType : 'done_message'
+  const message = info.message ? t(TK.design(d.id, messageKey), info.message) : null
+  const qr = d.done.receipt_qr && !r.pending
+  // An order paid at the counter has no receipt to send yet (its page shows the bill until it's paid).
+  const email = d.done.receipt_email && !r.pending && s.method === 'card'
+  const big = info.value.length > 8 ? 'text-[4.2em]' : info.value.length > 5 ? 'text-[5.5em]' : 'text-[7em]'
   return (
-    <div className="absolute inset-0 flex flex-col items-center justify-center gap-[var(--k-pad)] p-[var(--k-pad)] text-center k-fade" data-testid="k-done">
-      <div className="w-[6em] h-[6em] rounded-full bg-[var(--k-primary)] text-[var(--k-primary-text)] flex items-center justify-center"><Check size={64} strokeWidth={3} /></div>
-      <h1 className="k-head text-[3em] m-0">{thanks}</h1>
-      <div className="k-muted font-semibold text-[1.2em]">{ui('order_number')}</div>
-      <div className="k-head text-[7em] leading-none text-[var(--k-primary)]" data-testid="k-order-number">{r.order_no ?? r.provisional ?? ''}</div>
-      <div className="max-w-[760px] text-[1.2em]" data-testid="k-done-note">{note}</div>
-      {d.checkout.number_kind !== 'table' && s.details?.tent && (
-        <div className="max-w-[760px] text-[1.2em] font-semibold" data-testid="k-done-tent">{ui('tent_done', { n: s.details.tent })}</div>
+    <div className="absolute inset-0 k-fade" data-testid="k-done" data-main={info.main}>
+      <div className="absolute inset-0 k-scroll"><div className="min-h-full flex flex-col items-center justify-center gap-[var(--k-pad)] p-[var(--k-pad)] text-center">
+        <div className="w-[6em] h-[6em] shrink-0 rounded-full bg-[var(--k-primary)] text-[var(--k-primary-text)] flex items-center justify-center"><Check size={64} strokeWidth={3} /></div>
+        <h1 className="k-head text-[3em] m-0">{thanks}</h1>
+        <div className="k-muted font-semibold text-[1.2em]" data-testid="k-done-caption">{doneCaption(info.main, tentKind, ui)}</div>
+        <div className={cx('k-head leading-none text-[var(--k-primary)] max-w-full break-words', big)} data-testid="k-done-main" data-key={info.main}>{info.value}</div>
+        {info.main === 'tent' && <div className="max-w-[760px] text-[1.2em] font-semibold" data-testid="k-done-put">{ui(tentKind ? 'tent_put' : 'table_put')}</div>}
+        {info.lines.map(l => (
+          <div key={l.key} className={cx('max-w-[760px]', l.key === 'number' ? 'k-head text-[1.6em]' : 'text-[1.2em] font-semibold')} data-testid="k-done-line" data-key={l.key}>{doneLine(l, tentKind, ui)}</div>
+        ))}
+        {note && <div className="max-w-[760px] text-[1.2em]" data-testid="k-done-note">{note}</div>}
+        {message && <div className="max-w-[760px] text-[1.2em]" data-testid="k-done-message">{message}</div>}
+        {qr && <ReceiptQr texts={texts} />}
+        <div className="flex gap-[var(--k-gap)] flex-wrap justify-center mt-[var(--k-pad)]">
+          {d.checkout.receipt === 'ask' && !r.pending && <button className="k-btn k-btn-big" onClick={printResultReceipt} data-testid="k-receipt"><Printer /> {ui('print_receipt')}</button>}
+          {email && mail !== 'sent' && (
+            <button className="k-btn k-btn-big" onClick={() => setMailOpen(true)} data-testid="k-receipt-email"><Mail /> {ui('receipt_email')}</button>
+          )}
+          <button className="k-btn k-btn-primary k-btn-big" onClick={() => restart('done')} data-testid="k-done-button">{ui('done')}{held ? '' : ' (' + Math.max(0, left) + ')'}</button>
+        </div>
+        {mail === 'sent' && <div className="max-w-[760px] font-semibold" data-testid="k-receipt-sent">{ui('receipt_sent', { email: s.replay ? '\u2022\u2022\u2022' : sentTo })}</div>}
+      </div></div>
+      {mailOpen && (
+        <EmailSheet texts={texts} sending={mail === 'sending'} failed={mail === 'failed'}
+          onClose={() => { setMailOpen(false); setMail(m => (m === 'failed' ? null : m)); again() }}
+          onSend={address => {
+            setMail('sending')
+            emailReceipt(address).then(
+              out => { setSentTo(out.sent_to || ''); setMail('sent'); setMailOpen(false); again() },
+              () => setMail('failed'),
+            )
+          }} />
       )}
-      <div className="flex gap-[var(--k-gap)] flex-wrap justify-center mt-[var(--k-pad)]">
-        {d.checkout.receipt === 'ask' && !r.pending && <button className="k-btn k-btn-big" onClick={printResultReceipt} data-testid="k-receipt"><Printer /> {ui('print_receipt')}</button>}
-        <button className="k-btn k-btn-primary k-btn-big" onClick={() => restart('done')} data-testid="k-done-button">{ui('done')} ({Math.max(0, left)})</button>
+    </div>
+  )
+}
+
+/** A QR code of the order's receipt page, for the guest's phone. */
+function ReceiptQr({ texts }) {
+  const { ui } = texts
+  const [link, setLink] = useState(null) // { url } | { error }
+  useEffect(() => {
+    let alive = true
+    receiptLink().then(out => alive && setLink(out), () => alive && setLink({ error: true }))
+    return () => { alive = false }
+  }, [])
+  const svg = useMemo(() => { try { return link?.url ? qrSvg(link.url, { margin: 2, title: ui('receipt_scan') }) : '' } catch { return '' } }, [link?.url]) // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <div className="k-card p-[var(--k-pad)] flex items-center gap-[var(--k-pad)] max-w-[760px] text-left" data-testid="k-receipt-qr" data-state={link ? (link.error ? 'failed' : 'ready') : 'waiting'}>
+      <div className="w-[9em] h-[9em] shrink-0 rounded-[calc(var(--k-radius)/2)] bg-white p-[.3em] flex items-center justify-center">
+        {svg ? <div className="w-full h-full [&>svg]:w-full [&>svg]:h-full" dangerouslySetInnerHTML={{ __html: svg }} data-testid="k-receipt-qr-code" data-url={link.url} />
+          : link?.error ? <QrCode size={64} className="text-[#999]" /> : <div className="k-spinner" />}
+      </div>
+      <div className="flex flex-col gap-[.3em]">
+        <div className="k-head text-[1.4em]">{ui('receipt_scan')}</div>
+        <div className="k-muted">{link?.error ? ui('receipt_link_failed') : link ? ui('receipt_scan_hint') : ui('receipt_link_wait')}</div>
       </div>
     </div>
+  )
+}
+
+/** The guest types an email address for their receipt (never recorded with the visit). */
+function EmailSheet({ texts, sending, failed, onSend, onClose }) {
+  const { ui } = texts
+  const [value, setValue] = useState('')
+  // Only how long the address is goes with the visit, so a playback shows dots (journey.js).
+  const [len, setLen] = useJourneyState('receipt.mail_len', 0)
+  const s = useKiosk()
+  const shown = s.replay ? '\u2022'.repeat(Math.max(0, Math.min(40, Number(len) || 0))) : value
+  const change = v => { setValue(v); setLen(v.length) }
+  const ok = isEmail(value)
+  return (
+    <Sheet onClose={sending ? null : onClose} wide>
+      <div className="flex flex-col gap-[var(--k-pad)] items-center text-center" data-testid="k-email-sheet">
+        <div className="k-head text-[1.8em]">{ui('receipt_email_title')}</div>
+        <div className="k-muted max-w-[760px]">{ui('receipt_email_hint')}</div>
+        <div data-jprivate="" className="w-full flex flex-col gap-[var(--k-pad)] items-center">
+          <div className="k-card w-full max-w-[860px] min-h-[2.2em] px-[.6em] flex items-center justify-center font-bold text-[1.4em] break-all" data-testid="k-email-value">
+            <span data-testid="k-email-text">{shown}</span><span className="k-caret" aria-hidden="true" />
+          </div>
+          <div className="w-full max-w-[1000px]">
+            <EmailKeyboard value={value} onChange={change} labels={{ delete: ui('remove') }} />
+          </div>
+        </div>
+        {failed && <div className="font-semibold" data-testid="k-email-failed"><AlertTriangle className="inline -mt-1" /> {ui('receipt_failed')}</div>}
+        {!ok && value.length > 3 && <div className="k-muted text-[.9em]" data-testid="k-email-bad">{ui('email_bad')}</div>}
+        <div className="flex gap-[var(--k-gap)] flex-wrap justify-center">
+          <button className="k-btn k-btn-big" onClick={onClose} disabled={sending} data-testid="k-email-cancel">{ui('back')}</button>
+          <button className="k-btn k-btn-primary k-btn-big" disabled={!ok || sending} onClick={() => onSend(value.trim())} data-testid="k-email-send">
+            {sending ? ui('receipt_sending') : <><Mail /> {ui('send')}</>}
+          </button>
+        </div>
+      </div>
+    </Sheet>
   )
 }
 

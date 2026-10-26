@@ -88,6 +88,7 @@ import { KITCHEN_SERVER_EVENTS } from '../../../shared/pos/kitchen.js'
 import { CHECK_EVENTS } from '../../../shared/pos/checks.js'
 import { kioskConfig, readPreviewToken, previewDevice } from '../services/kioskSvc.js'
 import { saveVisits, MAX_VISITS } from '../services/kioskJourneySvc.js'
+import { kioskReceipt } from '../services/receiptSvc.js'
 import { setSoldOut, soldOutItemIds, announceSoldOut } from '../services/soldOut.js'
 import { kdsConfig, kitchenSync, onlineMoves, switchFlow, readKitchenTestToken, kitchenTestData } from '../services/kitchenSvc.js'
 import { changeStatus } from '../services/orderSvc.js'
@@ -139,7 +140,7 @@ export async function verifyDevice(id, secret) {
 const lastSeen = new Map()
 
 const KIOSK_ROUTES = new Set(['GET /pos-api/me', 'GET /pos-api/config', 'POST /pos-api/events', 'POST /pos-api/disconnect', 'POST /pos-api/move',
-  'POST /pos-api/kiosk/journeys',
+  'POST /pos-api/kiosk/journeys', 'POST /pos-api/kiosk/receipts',
   'POST /pos-api/card/payments', 'GET /pos-api/card/payments/:id', 'POST /pos-api/card/payments/:id/cancel', 'POST /pos-api/card/payments/:id/test'])
 // A venue hub (hub/) prints and reports, nothing else.
 const HUB_ROUTES = new Set(['GET /pos-api/me', 'GET /pos-api/config', 'POST /pos-api/print-jobs/claim', 'POST /pos-api/print-jobs/:id/status',
@@ -460,6 +461,16 @@ export default async function posApiRoutes(app) {
       if (d.kind !== 'kiosk') throw httpError(403, 'Only a self-order kiosk records visits')
       const { sessions } = z.object({ sessions: z.array(z.record(z.any())).min(1).max(MAX_VISITS) }).parse(req.body)
       return saveVisits(d, sessions)
+    })
+
+    // The receipt of an order the kiosk just placed (migration 209,
+    // services/receiptSvc.js): its page's link for the QR code on the order
+    // done screen, and with an email address the receipt sent there.
+    scoped.post('/kiosk/receipts', { config: { rateLimit: { max: 60, timeWindow: '1 minute' } } }, async req => {
+      const d = req.posDevice
+      if (d.kind !== 'kiosk') throw httpError(403, 'Only a self-order kiosk gives guests receipts this way')
+      const body = z.object({ check_id: z.string().min(1).max(64), email: z.string().max(254).nullable().optional() }).parse(req.body)
+      return kioskReceipt(d, body)
     })
 
     // A kitchen screen or kiosk paired before it had its own address moves

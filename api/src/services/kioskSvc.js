@@ -228,7 +228,7 @@ export async function ownDesign(tx, tenantId, raw) {
   const links = [...m.banners, ...m.featured].map(x => x.link)
   const sectionIds = [...new Set([...m.hidden_section_ids, ...m.section_tiles.map(t => t.section_id), ...links.filter(l => l.kind === 'section').map(l => l.id)])]
   const itemIds = [...new Set([...d.checkout.upsell_item_ids, ...links.filter(l => l.kind === 'item').map(l => l.id)])]
-  const typeIds = Object.keys(d.start.type_cards)
+  const typeIds = [...new Set([...Object.keys(d.start.type_cards), ...d.done.types.map(x => x.order_type_id)])]
   const groupIds = d.options.group_looks.map(x => x.group_id)
   const [sections, items, types, groups] = await Promise.all([
     sectionIds.length ? tx`SELECT id FROM menu_sections WHERE tenant_id = ${tenantId} AND id = ANY(${sectionIds}::uuid[])` : [],
@@ -253,6 +253,7 @@ export async function ownDesign(tx, tenantId, raw) {
     },
     checkout: { ...d.checkout, upsell_item_ids: d.checkout.upsell_item_ids.filter(id => okItem.has(id)) },
     options: { ...d.options, group_looks: d.options.group_looks.filter(x => okGroup.has(x.group_id)) },
+    done: { ...d.done, types: d.done.types.filter(x => okType.has(x.order_type_id)) },
   }
 }
 
