@@ -5544,6 +5544,15 @@ export default function Help() {
               last save, and leaving with changes not saved asks first. On a phone, Settings and Preview take
               turns.
             </P>
+            <P>
+              <strong>Save as</strong> (beside Save) keeps what you see as a new design under a name you choose,
+              and opens it. Changes you haven&apos;t saved go into the new design only: the design you started
+              from stays as it was last saved, so the kiosks using it don&apos;t change. Use it to try another
+              version (a summer look, say) without touching the one your kiosks show, then pick the new design
+              for a kiosk in Store tech → Kiosks when it is ready. The new design isn&apos;t shared (a share link
+              stays with the design it was made for). <strong>Copy</strong> on the Kiosks page does the same
+              from a saved design.
+            </P>
             <InfoBox type="tip">
               The preview shows the menu as published, the same as the kiosks. A photo, price or dish you have saved
               on the Menus page but not published yet only shows once you pick <strong>Menu with unpublished

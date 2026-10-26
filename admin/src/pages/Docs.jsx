@@ -4112,7 +4112,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['Kiosk device routes', 'A kiosk may only call GET /pos-api/me, GET /pos-api/config and POST /pos-api/events (KIOSK_ROUTES); anything else is 403 code kiosk.'],
                 ['GET /pos-api/kiosk-preview?token=', 'The preview\'s config: kioskConfig() with previewDevice() (the editor\'s stream and design, the test card reader) and the token\'s menu version (m: \'draft\' = the menus with changes not published yet; menu_version in the config). The token is the key: readPreviewToken(), HMAC with platform_secrets kiosk_preview_key, 12 hours.'],
                 ['GET /api/pos/kiosk-designs', 'pos_setup view. Normalised settings.'],
-                ['POST /api/pos/kiosk-designs', 'pos_setup manage. { name, settings, copy_from? } (copy_from: another design of the tenant). Up to 50 per tenant.'],
+                ['POST /api/pos/kiosk-designs', 'pos_setup manage. { name, settings, copy_from? } (copy_from: another design of the tenant). Up to 50 per tenant. The design editor\'s Save as sends the editor\'s normalised draft as settings (unsaved changes included); the new row has no share.'],
                 ['PUT /api/pos/kiosk-designs/:id', 'pos_setup manage. { name, settings }, stored as ownDesign(settings) (services/kioskSvc.js: normaliseDesign(), then only the tenant\'s own sections (left off, section tiles, banner and tile links), dishes (links, "Anything else?") and order types (type buttons) are kept; another tenant\'s ids are dropped, a link becomes none). POST does the same. Broadcasts pos.config to every venue with a kiosk (kiosksChanged()).'],
                 ['DELETE /api/pos/kiosk-designs/:id', 'pos_setup manage. Refused (422, names the kiosks) while a kiosk picks it.'],
                 ['POST /api/pos/kiosk-designs/:id/preview', 'pos_setup view. { venue_id, revenue_stream_id?, menu? \'live\' | \'draft\' } (both the tenant\'s, the stream at that venue) -> { token, url (deviceOrigin(\'kiosk\') + ?kiosk_preview=), menu, menus_changed [{ id, name }], unpriced [{ id, name, menu }] } (menuChanges() in services/kioskSvc.js: the menus this preview shows, published or draft, whose draft differs from what is published, contentKey() from shared/menuDiff.js; unpricedDishes(): the dishes the kiosk leaves off for having no price, shown above the editor\'s preview as kd-unpriced).'],
@@ -4409,9 +4409,16 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               Store tech → Kiosks: <Mono>components/pos/KiosksSection.jsx</Mono> (kiosks with their design,
               stream, card reader, receipt printer and problems; designs with copy / delete;{' '}
               <Mono>kioskDesign()</Mono>). Design editor: <Mono>pages/KioskDesigner.jsx</Mono>{' '}
-              (<Mono>/pos/kiosk-designs/:id</Mono>): panels over the raw draft (text) and the normalised design
+              (<Mono>/pos/kiosks/designs/:id</Mono>): panels over the raw draft (text) and the normalised design
               (everything else), the preview frame at 1080 x 1920 or 1920 x 1080 scaled to fit, the design posted
               to the frame's own origin after <Mono>kiosk.ready</Mono>, Save / Discard / leave confirm, view only.
+              Save as (<Mono>SaveAsDialog</Mono>, manage only): <Mono>POST /api/pos/kiosk-designs</Mono> with the
+              typed name and the normalised draft, so the same <Mono>ownDesign()</Mono> checks and 50-design limit
+              apply; <Mono>savedAs()</Mono> puts the new row into the <Mono>['kiosk-designs']</Mono> query, resets
+              the save mutation and the leave confirm, and navigates to it. The editor stays mounted across the id
+              change: its load effect keys on the row id (<Mono>loadedFor</Mono>), so the draft, the saved copy and
+              the dirty check move to the new design, and the preview link is made again (its query key has the
+              id). The original keeps its saved settings and its share.
               Panels: Brand, Layout (<Mono>LayoutPanel</Mono>: tile style, top bar, icon buttons), Start screen,
               Languages, Menu (rail with <Mono>SectionTilesList</Mono> for none: every section the kiosk shows,
               drag order, picture, words, width), Choices (display, wheel spin, level marks), Paying, Timing.

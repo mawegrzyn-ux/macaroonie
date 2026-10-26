@@ -2,7 +2,8 @@
 // switch on option groups (migration 185) and combo steps (stored only when
 // on, so a menu saved without touching it has nothing new to publish), the
 // layout options round trip, and a saved design keeps only the tenant's own
-// sections, dishes and order types.
+// sections, dishes and order types, and Save as makes a new design from the
+// editor's settings leaving the original as it was.
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { randomUUID as u } from 'node:crypto'
@@ -257,4 +258,35 @@ test('picture fit: banners, featured tiles, start and reach pictures keep how th
   const old = (await ok(owner.get('/api/pos/kiosk-designs'))).find(d => d.id === design.id).settings
   assert.deepEqual(old.menu.banners[0].fit, { mode: 'auto', focus: 'center', size: 100, bg: 'none' })
   assert.equal(old.menu.banner_shape, 'wide')
+})
+
+test('save as: a new design from what the editor shows, the original as it was saved, not shared', async () => {
+  const before = (await ok(owner.get('/api/pos/kiosk-designs'))).find(d => d.id === design.id)
+  // Shared, so the new design can be seen not to take the original's link.
+  await ok(owner.put(`/api/pos/kiosk-designs/${design.id}/share`, { venue_id: mine.ids.venue }))
+  const [their] = await sql`SELECT id FROM menu_sections WHERE tenant_id = ${ids.b} LIMIT 1`
+  // What the designer posts: the saved design with changes not saved yet.
+  const edited = {
+    ...before.settings,
+    brand: { ...before.settings.brand, colors: { ...before.settings.brand.colors, primary: '#123456' } },
+    menu: { ...before.settings.menu, hidden_section_ids: [their.id] },
+  }
+  const made = await ok(owner.post('/api/pos/kiosk-designs', { name: '  Summer try  ', settings: edited }))
+  assert.notEqual(made.id, design.id)
+  assert.equal(made.name, 'Summer try', 'the name trimmed')
+  assert.equal(made.settings.brand.colors.primary, '#123456', 'the unsaved change is in the new design')
+  assert.deepEqual(made.settings.menu.hidden_section_ids, [], 'another tenant\'s section dropped, as Save does')
+  const list = await ok(owner.get('/api/pos/kiosk-designs'))
+  const orig = list.find(d => d.id === design.id), copy = list.find(d => d.id === made.id)
+  assert.deepEqual(orig.settings, before.settings, 'the original as it was saved')
+  assert.equal(orig.name, before.name)
+  assert.ok(orig.share?.url, 'the original keeps its link')
+  assert.equal(copy.share, null, 'the new design isn\'t shared')
+  assert.deepEqual(copy.settings, made.settings)
+  assert.equal(list.at(-1).id, made.id, 'listed last')
+  // No name, a viewer, another tenant.
+  assert.equal((await owner.post('/api/pos/kiosk-designs', { name: '   ', settings: edited })).status, 400)
+  assert.equal((await as(A.viewer, ids.a).post('/api/pos/kiosk-designs', { name: 'Nope', settings: edited })).status, 403)
+  assert.ok(!(await ok(as(B.owner, ids.b).get('/api/pos/kiosk-designs'))).some(d => d.id === made.id))
+  await ok(owner.delete(`/api/pos/kiosk-designs/${design.id}/share`))
 })

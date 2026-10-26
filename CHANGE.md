@@ -5,6 +5,11 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-26 — Kiosk designer: Save as]
+
+- Store tech → Kiosks → a design: **Save as** beside Save keeps what the editor shows as a new design under a name you choose, and opens it. Changes not saved yet go into the new design only; the design you started from stays as it was last saved, so kiosks using it don't change, and keeps its share link (the new design isn't shared). The name starts as the one you typed, or the design's name with (copy). No kiosk uses the new design until you pick it in Store tech → Kiosks. Up to 50 designs, as before.
+- No migration.
+
 ## [2026-10-26 — Kiosks on phones zoom out; a meal deal's picture keeps the main in the middle]
 
 - A kiosk on a phone, or any screen smaller than a 10-inch tablet (under 800 across its short side, as the browser counts it), now zooms itself out to look as it does on a tablet, the way Chrome's Desktop site setting would, without that setting (which changed every other site too, the ops app included). The bottom bar's total no longer runs under View order. Turning the phone keeps the same zoom. Tablets, big kiosk screens, desktop browsers, the design editor's preview, shared preview pages and the pairing screen are unchanged.

@@ -1376,6 +1376,54 @@ function ShareDialog({ designId, share, dirty, venues, defaultVenueId, canManage
   )
 }
 
+// ── Save as ─────────────────────────────────────────────────────
+
+/**
+ * Save the design the editor shows, changes not saved yet included, as a new
+ * design under a new name (POST /pos/kiosk-designs, the same checks as
+ * Save). The design open now stays as it was last saved and its kiosks keep
+ * it; onSaved opens the new one. A share link belongs to the original, so
+ * the new design isn't shared.
+ */
+function SaveAsDialog({ draft, design, savedName, dirty, onSaved, onClose }) {
+  const api = useApi()
+  const typed = draft.name.trim()
+  // The name typed in the editor when it was changed, else the saved one with (copy).
+  const [name, setName] = useState(() => (typed && typed !== savedName ? typed : (savedName || 'Kiosk design').slice(0, 73) + ' (copy)'))
+  const create = useMutation({
+    mutationFn: () => api.post('/pos/kiosk-designs', { name: name.trim(), settings: design }),
+    onSuccess: onSaved,
+  })
+  const go = e => { e.preventDefault(); if (name.trim() && !create.isPending) create.mutate() }
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <form onSubmit={go} className="w-full max-w-md max-h-[85vh] overflow-y-auto rounded-xl bg-background shadow-xl" role="dialog" aria-label="Save as a new design" data-testid="kd-save-as-dialog">
+        <div className="section-head px-4 py-3 flex items-center gap-2">
+          <Copy className="w-4 h-4" /><h2 className="font-semibold text-sm flex-1">Save as a new design</h2>
+          <button type="button" onClick={onClose} className="p-2 -m-2 rounded-lg touch-manipulation" aria-label="Close"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="p-4 space-y-4">
+          <p className="text-sm text-muted-foreground" data-testid="kd-save-as-note">
+            Saves the design as you see it here{dirty ? ', with the changes you haven\'t saved,' : ''} as a new design and opens it.{' '}
+            <strong className="text-foreground">{savedName}</strong> stays as it was last saved{dirty ? ' (your changes go only to the new design)' : ''},
+            and kiosks using it keep it. No kiosk uses the new design until you pick it for one in Store tech → Kiosks.
+          </p>
+          <Field label="Name of the new design">
+            <input className={inputCls} maxLength={80} value={name} onChange={e => setName(e.target.value)} data-testid="kd-save-as-name" />
+          </Field>
+          {create.error && <ErrorNote error={create.error} />}
+          <div className="flex flex-wrap gap-2">
+            <Btn type="submit" variant="primary" disabled={!name.trim() || create.isPending} data-testid="kd-save-as-go">
+              {create.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Copy className="w-4 h-4" />}Save as new design
+            </Btn>
+            <Btn onClick={onClose}>Cancel</Btn>
+          </div>
+        </div>
+      </form>
+    </div>
+  )
+}
+
 // ── Page ────────────────────────────────────────────────────────
 
 const PANELS = [
@@ -1458,6 +1506,17 @@ export default function KioskDesigner() {
   const [leaving, setLeaving] = useState(false)
   const [streamId, setStreamId] = useState('') // the preview's revenue stream ('' = the first)
   const [sharing, setSharing] = useState(false)
+  const [savingAs, setSavingAs] = useState(false)
+  // Saved as a new design: list it at once (so the page has it to open), then open it.
+  function savedAs(out) {
+    qc.setQueryData(['kiosk-designs'], old => (old ? [...old.filter(x => x.id !== out.id), { ...out, share: null }] : old))
+    qc.invalidateQueries({ queryKey: ['kiosk-designs'] })
+    qc.invalidateQueries({ queryKey: ['pos-setup'] })
+    setSavingAs(false)
+    setLeaving(false)
+    save.reset()
+    navigate('/pos/kiosks/designs/' + out.id)
+  }
 
   useEffect(() => {
     const link = document.createElement('link')
@@ -1520,6 +1579,9 @@ export default function KioskDesigner() {
         {canManage ? (
           <>
             {dirty && <Btn onClick={discard}>Discard</Btn>}
+            <Btn onClick={() => setSavingAs(true)} disabled={save.isPending} title="Save as a new design" data-testid="kd-save-as">
+              <Copy className="w-4 h-4" /> <span className="hidden sm:inline">Save as</span>
+            </Btn>
             <Btn variant="primary" disabled={!dirty || !draft.name.trim() || save.isPending} onClick={() => save.mutate()}>
               {save.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} <span data-testid="kd-save">{dirty ? 'Save' : 'Saved'}</span>
             </Btn>
@@ -1528,6 +1590,10 @@ export default function KioskDesigner() {
       </div>
       {save.isError && <div className="shrink-0 bg-destructive/10 text-destructive text-sm px-4 py-2 border-b">Save failed: {save.error?.message || String(save.error)}</div>}
       {sharing && <ShareDialog designId={id} share={row.share} dirty={dirty} venues={venues} defaultVenueId={venueId} canManage={canManage} onClose={() => setSharing(false)} />}
+      {savingAs && canManage && (
+        <SaveAsDialog draft={draft} design={design} savedName={saved.current?.name || row.name} dirty={dirty}
+          onSaved={savedAs} onClose={() => setSavingAs(false)} />
+      )}
 
       <div className="md:hidden shrink-0 px-4 py-2 border-b bg-background">
         <Segmented value={pane} onChange={setPane} className="w-full [&>button]:flex-1"
