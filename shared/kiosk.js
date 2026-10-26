@@ -569,6 +569,9 @@ export function normaliseDesign(raw) {
       warn_secs: num(h.warn_secs, 5, 60, 20),
       done_secs: num(h.done_secs, 5, 120, 15),
       reach: h.reach !== false,
+      // Each guest's visit recorded for Store tech > Kiosk analytics
+      // (shared/kioskJourney.js, pos/src/kiosk/journey.js). On unless switched off.
+      record_journeys: h.record_journeys !== false,
       // Pictures or videos filling the space above the kiosk while the reach
       // button has slid it down (none = the brand colour with the reach icon);
       // pictures take turns every start.media_secs, like the start screen's.

@@ -19,6 +19,7 @@ import { priceLabel, DietaryBadges } from './Builder.jsx'
 import { Languages } from './Start.jsx'
 import { FitMark, FitNote, PrefsStrip, needsCheck } from './fit.jsx'
 import { flyToBasket } from './fly.js'
+import { useJourneyState } from './journey.js'
 
 
 export function needsBuilder(item) {
@@ -173,11 +174,11 @@ function Home({ config, texts }) {
  * order has something in it. Icons only with the design's icon buttons.
  */
 export function RestartButton({ s, texts }) {
-  const [ask, setAsk] = useState(false)
+  const [ask, setAsk] = useJourneyState('restart.ask', false)
   const label = texts.ui('start_again')
   return (
     <>
-      <button className="k-btn k-btn-big k-btn-restart" onClick={() => (s.basket.length ? setAsk(true) : restart())} data-testid="k-restart" aria-label={label}>
+      <button className="k-btn k-btn-big k-btn-restart" onClick={() => (s.basket.length ? setAsk(true) : restart('guest'))} data-testid="k-restart" aria-label={label}>
         <RotateCcw /><span className="k-btn-label">{label}</span>
       </button>
       {ask && (
@@ -187,7 +188,7 @@ export function RestartButton({ s, texts }) {
             <div>{texts.ui('start_again_body')}</div>
             <div className="flex gap-[var(--k-gap)] flex-wrap justify-center">
               <button className="k-btn k-btn-big" onClick={() => setAsk(false)}>{texts.ui('keep_ordering')}</button>
-              <button className="k-btn k-btn-primary k-btn-big" onClick={restart} data-testid="k-restart-yes">{texts.ui('yes_start_again')}</button>
+              <button className="k-btn k-btn-primary k-btn-big" onClick={() => restart('guest')} data-testid="k-restart-yes">{texts.ui('yes_start_again')}</button>
             </div>
           </div>
         </Sheet>
@@ -199,7 +200,7 @@ export function RestartButton({ s, texts }) {
 /** The guest's language (when the design offers more than one): in the top bar, or in the bottom bar when the top bar is hidden. */
 export function LanguageButton({ config, texts, onBar = false }) {
   const d = config.design
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useJourneyState('lang.open', false)
   if (d.languages.enabled.length < 2) return null
   return (
     <>

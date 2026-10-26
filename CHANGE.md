@@ -5,6 +5,15 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-26 — Kiosk analytics: every guest visit recorded and played back]
+
+- Kiosks now record each guest's visit as it happens: the screens they saw and for how long, every dish opened, what they picked, changed and took out of the order, every touch with where it landed (including touches on things that don't answer), scrolling, the language, the reach button and the allergens screen, and how the visit ended (ordered, started again, timed out, walked away, or cut short by a reload). Visits are sent within a minute and kept on the kiosk while it is offline.
+- Nothing typed is recorded: a name or tent number is kept only as its length, and touches on the kiosk's keyboard or number pad are kept at the keyboard's middle. Visits aren't linked to a card or a customer. Previews, shared links and the design editor never record. A design can switch it off: **Record guests' visits** in its Timing and access panel (on unless you turn it off).
+- **Store tech → Kiosk analytics** (Till reports view): pick the days, a kiosk or a design. The overview: visits, orders and what they took, time to order, visits given up with something in the order, touches per visit and the share on nothing, how far guests got (from touching the screen to ordering), how visits ended and where guests gave up, time on each screen, changes of mind (started again, timed out, dishes left or taken out, cards declined), each dish (opened, looked at for how long, added, taken out, left), by hour and by kiosk.
+- **Visits**: every visit newest first; open one to play it back on the kiosk itself, as the guest saw it, with each touch drawn where the finger landed: Play, Pause, the slider, step back and forward, 1x to 8x, Skip long pauses, and the steps listed in words with how long the guest stayed on each.
+- Playbacks are kept 90 days, visit summaries 400 days.
+- Migration 208 (`kiosk_sessions`; the Kiosk analytics link added after Till reports in every group's main menu).
+
 ## [2026-10-26 — Kiosk designer: Save as]
 
 - Store tech → Kiosks → a design: **Save as** beside Save keeps what the editor shows as a new design under a name you choose, and opens it. Changes not saved yet go into the new design only; the design you started from stays as it was last saved, so kiosks using it don't change, and keeps its share link (the new design isn't shared). The name starts as the one you typed, or the design's name with (copy). No kiosk uses the new design until you pick it in Store tech → Kiosks. Up to 50 designs, as before.

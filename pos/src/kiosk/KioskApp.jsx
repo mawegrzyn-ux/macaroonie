@@ -12,7 +12,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { RefreshCw, Wifi, WifiOff, X, Accessibility } from 'lucide-react'
 import { kioskFontsUrl, kioskFontStack, partColours } from '@shared/kiosk.js'
-import { useKiosk, bootKiosk, bootPreview, bootShare, textsFor, restart, loadConfig, setReach, getState, disconnect, moveKiosk } from './store.js'
+import { useKiosk, bootKiosk, bootPreview, bootShare, bootReplay, textsFor, restart, loadConfig, setReach, getState, disconnect, moveKiosk } from './store.js'
 import { whenSafeToReload, idleFor } from '../lib/appUpdate.js'
 import { belongsHere } from '../lib/appHost.js'
 import { MoveNotice } from '../components/MoveNotice.jsx'
@@ -23,6 +23,7 @@ import Allergens from './Allergens.jsx'
 import { Basket, Details, Pay, Card, Placing, Done, Failed } from './Checkout.jsx'
 import { cx, Sheet } from './parts.jsx'
 import { useKioskViewport, screenScale } from './viewport.js'
+import { useJourneyState, startJourneys, listenForReplay } from './journey.js'
 import './kiosk.css'
 
 const IDLE_FREE = new Set(['start', 'done', 'placing'])
@@ -75,7 +76,8 @@ function useWakeLock(off) {
 function Idle({ s, texts }) {
   const last = useRef(Date.now())
   const warning = useRef(false)
-  const [left, setLeft] = useState(null)
+  // The countdown is part of the guest's visit (journey.js): a replay shows it.
+  const [left, setLeft] = useJourneyState('idle', null)
   const d = s.config.design.behaviour
   useEffect(() => {
     // Any touch counts, except while the warning is up: then only its own
@@ -93,7 +95,7 @@ function Idle({ s, texts }) {
       const idle = (Date.now() - last.current) / 1000
       if (idle < d.idle_secs) return
       const n = Math.ceil(d.idle_secs + d.warn_secs - idle)
-      if (n <= 0) { last.current = Date.now(); warning.current = false; setLeft(null); restart(); return }
+      if (n <= 0) { last.current = Date.now(); warning.current = false; setLeft(null); restart('timeout'); return }
       warning.current = true
       setLeft(n)
     }, 500)
@@ -196,15 +198,19 @@ function DisconnectBox({ waiting }) {
   )
 }
 
-export default function KioskApp({ device = null, previewToken = null, shareToken = null }) {
+export default function KioskApp({ device = null, previewToken = null, shareToken = null, replay = false }) {
   const preview = !!(previewToken || shareToken)
   // A phone-sized screen shows the kiosk zoomed out, like a big one (viewport.js).
   useKioskViewport()
   useEffect(() => {
-    if (previewToken) bootPreview(previewToken)
+    if (previewToken && replay) bootReplay(previewToken)
+    else if (previewToken) bootPreview(previewToken)
     else if (shareToken) bootShare(shareToken)
     else bootKiosk(device)
-  }, [device, previewToken, shareToken])
+  }, [device, previewToken, shareToken, replay])
+  // A paired kiosk records each guest's visit; a replay plays one back (journey.js).
+  useEffect(() => (preview ? undefined : startJourneys()), [preview])
+  useEffect(() => (replay ? listenForReplay() : undefined), [replay])
   useWakeLock(preview)
   // A new copy of the app (lib/appUpdate.js) goes in on the start screen,
   // with nothing in the basket and nobody touching it.
@@ -282,6 +288,8 @@ export default function KioskApp({ device = null, previewToken = null, shareToke
       {s.toast && <div key={s.toast.id} className="k-toast" data-testid="k-toast">{s.toast.text}</div>}
       <Idle s={s} texts={texts} />
       {staff && <StaffPanel s={s} onClose={() => setStaff(false)} />}
+      {/* A replay is watched, not used: touches never reach the kiosk under it. */}
+      {s.replay && <div className="absolute inset-0 z-[300]" data-testid="k-replay-cover" />}
     </div>
   )
 }

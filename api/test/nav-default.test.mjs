@@ -1,4 +1,4 @@
-// The default main menu (migrations 196 + 202): the migrations' tree is the
+// The default main menu (migrations 196 + 202 + 208): the migrations' tree is the
 // same as DEFAULT_NAV_TREE, every page in the route catalogue is in it once,
 // and a new tenant gets it through /api/me.
 import { test, after } from 'node:test'
@@ -22,13 +22,17 @@ const routes = nodes => nodes.flatMap(n => [...(n.route ? [n.route] : []), ...ro
 
 // Migration 196's tree with 202's change applied: Till setup (and its Floor
 // plan) and Menu screens out, the Store tech section in after Venues.
-test('migrations 196 + 202 hold the same tree as DEFAULT_NAV_TREE', () => {
+test('migrations 196 + 202 + 208 hold the same tree as DEFAULT_NAV_TREE', () => {
   const read = f => fs.readFileSync(new URL('../../migrations/' + f, import.meta.url), 'utf8').match(/\$nav\$([\s\S]*?)\$nav\$/)[1]
   const drop = nodes => nodes.filter(n => !['/pos', '/pos/floor', '/screens'].includes(n.route))
     .map(n => (n.children ? { ...n, children: drop(n.children) } : n))
   const tree = drop(JSON.parse(read('196_main_menu.sql')))
   const at = tree.findIndex(s => routes(s.children || []).includes('/venues'))
   tree.splice(at + 1, 0, { label: 'Store tech', children: JSON.parse(read('202_store_tech_menu.sql')) })
+  // 208: Kiosk analytics after Till reports.
+  const money = tree.find(s => routes(s.children || []).includes('/pos/reports'))
+  money.children.splice(money.children.findIndex(n => n.route === '/pos/reports') + 1, 0,
+    { label: 'Kiosk analytics', icon: 'Activity', route: '/pos/kiosk-analytics', module: 'pos_reports' })
   assert.deepEqual(strip(tree), strip(DEFAULT_NAV_TREE))
 })
 

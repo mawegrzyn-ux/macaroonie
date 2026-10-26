@@ -26,6 +26,7 @@ export const DEFAULT_NAV_TREE = [
   {
     label: 'Money', children: [
       { label: 'Till reports', icon: 'BarChart3', route: '/pos/reports', module: 'pos_reports' },
+      { label: 'Kiosk analytics', icon: 'Activity', route: '/pos/kiosk-analytics', module: 'pos_reports' },
       { label: 'Cash recon', icon: 'Wallet', route: '/cash-recon', module: 'cash_recon' },
       { label: 'Cash dashboard', icon: 'LayoutGrid', route: '/cash-dashboard', module: 'cash_dashboard' },
     ],

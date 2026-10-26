@@ -286,7 +286,7 @@ export const MODULES = [
     key:    'pos_reports',
     label:  'Till reports',
     group:  'pos',
-    description: 'Till sales: X and Z reports, checks with their history, voids, discounts, refunds, offline conflicts, the print queue, filling Cash Recon.',
+    description: 'Till sales: X and Z reports, checks with their history, voids, discounts, refunds, offline conflicts, the print queue, filling Cash Recon; kiosk analytics (guests\' visits to the kiosks, played back).',
     default: { owner: 'manage', admin: 'manage', operator: 'view', viewer: 'none' },
   },
   {
