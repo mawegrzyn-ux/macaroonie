@@ -5,6 +5,13 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-26 — Kiosk designs: fit each picture to its space]
+
+- Store tech → Kiosks → a design: every home page banner, featured tile picture, start screen picture or video and reach picture has a **Fit** under it. **Automatic** (as before): a photo fills the space and a picture with a see-through background (a cut-out PNG logo) shows whole. **Fill**: fills the space, cropped, with the part you pick kept in view (the top, the bottom right corner and so on). **Whole picture**: nothing cropped, placed where you pick, at a size from 30 to 100% of the space, with the design's Cards, Brand, Highlights or Text colour behind it, or nothing.
+- **Banner shape** (Menu card): Wide (16 by 7, as before), Short (3 by 1), Tall (16 by 9) or the picture's own shape, so a logo or poster banner fits without cropping. A banner is still never more than about a third of the screen high, so on a wide kiosk that cap usually sets its height.
+- The preview follows as you go; Save keeps it. Designs saved before keep their look.
+- No migration.
+
 ## [2026-10-26 — Kitchen screens: your own ticket colours, dish names by section, a packing check at the pass]
 
 - Store tech → Kitchen screens → **Ticket colours**: pick the background of a dish row when it is To do, Ticked off, On its way, Held and Voided; of a ticket's top for an order being made, New, Rush, Prepared and All ticked off; and the timer's amber and late colours. A colour not set keeps today's look; words turn black or white by themselves to stay readable. A preview ticket beside the list shows your colours; Save changes every kitchen screen of the venue at once.

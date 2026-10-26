@@ -4,7 +4,7 @@
 
 import { Children, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { UtensilsCrossed, ShoppingBag, Bike, Flame, Star, Circle, Minus, Plus, Delete, ArrowLeft } from 'lucide-react'
-import { hexLayout, cornerWidths, bundleLayout, bundleBox } from '@shared/kiosk.js'
+import { hexLayout, cornerWidths, bundleLayout, bundleBox, fitLayout } from '@shared/kiosk.js'
 import { useClear } from './clear.js'
 
 export const cx = (...p) => p.filter(Boolean).join(' ')
@@ -116,6 +116,30 @@ export function Pic({ src, className, lazy = false, ...rest }) {
   const clear = useClear(src)
   return <img src={src} alt="" draggable={false} loading={lazy ? 'lazy' : undefined} className={cx(className, clear && 'k-clear')}
     data-clear={clear ? '1' : undefined} {...rest} />
+}
+
+// The design colour behind a whole picture (fitLayout() .bg).
+const FIT_BG = { surface: 'var(--k-surface)', primary: 'var(--k-primary)', accent: 'var(--k-accent)', text: 'var(--k-text)' }
+
+/**
+ * A design picture or video (banner, featured tile, start screen, reach
+ * band) in its space as the design's `fit` says (fitLayout() in
+ * shared/kiosk.js): filling it with the chosen part in view, or whole,
+ * sized and placed, on a design colour. Automatic shows a picture with a
+ * see-through background whole. Covers its parent, which sets the size.
+ */
+export function FitPicture({ src, fit, video = false, className, ...rest }) {
+  const clear = useClear(video ? null : src)
+  const l = fitLayout(fit, clear)
+  const media = { className: cx('block shrink-0', !video && clear && 'k-clear'), style: l.media, ...rest }
+  return (
+    <span className={cx('absolute inset-0 flex overflow-hidden', className)} style={{ ...l.box, background: l.bg ? FIT_BG[l.bg] : undefined }}
+      data-testid="k-fit" data-whole={l.whole ? '1' : '0'} data-focus={l.media.objectPosition}>
+      {video
+        ? <video src={src} {...media} />
+        : <img src={src} alt="" draggable={false} data-clear={clear ? '1' : undefined} {...media} />}
+    </span>
+  )
 }
 
 export function Photo({ src, label, className, phClassName }) {

@@ -10,11 +10,11 @@ import { useEffect, useMemo, useState } from 'react'
 import { RotateCcw, Globe, Plus, Home as HomeIcon, ShoppingBag, Accessibility } from 'lucide-react'
 import { checkTotals } from '@shared/pos/pricing.js'
 import { configItem, comboCtx } from '@shared/pos/offers.js'
-import { TK, basketCheck } from '@shared/kiosk.js'
+import { TK, basketCheck, BANNER_RATIOS } from '@shared/kiosk.js'
 import {
   useKiosk, textsFor, kioskSections, hasHome, openSection, openBuilder, addToBasket, go, restart, setLang, setReach, soldOut, fitOf, countFor,
 } from './store.js'
-import { cx, Pic, Photo, Sheet, Flag, BackButton, HexGrid, HexTile } from './parts.jsx'
+import { cx, Pic, Photo, Sheet, Flag, BackButton, HexGrid, HexTile, FitPicture } from './parts.jsx'
 import { priceLabel, DietaryBadges } from './Builder.jsx'
 import { Languages } from './Start.jsx'
 import { FitMark, FitNote, PrefsStrip, needsCheck } from './fit.jsx'
@@ -107,8 +107,10 @@ function linkTo(link, config, texts, from = null) {
   }
 }
 
-function Banners({ banners, secs, config, texts }) {
+function Banners({ banners, secs, shape, config, texts }) {
   const [i, setI] = useState(0)
+  // Banners the shape of their own picture: each one's width to height, once loaded.
+  const [ratios, setRatios] = useState({})
   useEffect(() => {
     if (banners.length < 2) return
     const id = setInterval(() => setI(n => (n + 1) % banners.length), secs * 1000)
@@ -117,10 +119,17 @@ function Banners({ banners, secs, config, texts }) {
   if (!banners.length) return null
   const b = banners[i % banners.length]
   const title = b.title ? texts.t(TK.design(config.design.id, 'banner:' + b.id), b.title) : null
+  const own = shape === 'picture'
+  const ratio = own ? ratios[b.id] || BANNER_RATIOS.wide : BANNER_RATIOS[shape] || BANNER_RATIOS.wide
+  const measure = e => {
+    const img = e.currentTarget
+    if (img.naturalWidth && img.naturalHeight) setRatios(r => ({ ...r, [b.id]: img.naturalWidth / img.naturalHeight }))
+  }
   return (
     <div className="flex flex-col gap-[.5em]">
-      <button className="relative w-full overflow-hidden rounded-[var(--k-radius)] border-0 p-0 k-fade" key={b.id} onClick={e => linkTo(b.link, config, texts, e.currentTarget.querySelector('img'))} data-testid="k-banner">
-        <img src={b.image_url} alt="" className="w-full aspect-[16/7] max-h-[36vh] object-cover block" draggable={false} />
+      <button className="relative block w-full max-h-[36vh] overflow-hidden rounded-[var(--k-radius)] border-0 p-0 k-fade" key={b.id} style={{ aspectRatio: String(ratio) }}
+        onClick={e => linkTo(b.link, config, texts, e.currentTarget.querySelector('img'))} data-testid="k-banner" data-shape={shape}>
+        <FitPicture src={b.image_url} fit={b.fit} onLoad={own ? measure : undefined} />
         {title && <span className="absolute left-0 bottom-0 m-[var(--k-gap)] k-head text-[1.5em] px-[.6em] py-[.2em] rounded-[calc(var(--k-radius)/1.5)] bg-[var(--k-accent)] text-[var(--k-accent-text)]">{title}</span>}
       </button>
       {banners.length > 1 && (
@@ -136,7 +145,7 @@ function Home({ config, texts }) {
   const m = config.design.menu
   return (
     <div className="flex flex-col gap-[var(--k-pad)]" data-testid="k-home">
-      <Banners banners={m.banners} secs={m.banner_secs} config={config} texts={texts} />
+      <Banners banners={m.banners} secs={m.banner_secs} shape={m.banner_shape} config={config} texts={texts} />
       {m.featured.length > 0 && (
         <div className="grid gap-[var(--k-gap)] grid-cols-2">
           {m.featured.map(f => {
@@ -145,7 +154,7 @@ function Home({ config, texts }) {
             return (
               <button key={f.id} className={cx('k-card relative overflow-hidden border-0 p-0 text-left min-h-[22vmin]', f.size === 'wide' && 'col-span-2')}
                 onClick={e => linkTo(f.link, config, texts, e.currentTarget.querySelector('img'))} data-testid="k-featured">
-                {f.image_url && <Pic src={f.image_url} className="absolute inset-0 w-full h-full object-cover" />}
+                {f.image_url && <FitPicture src={f.image_url} fit={f.fit} />}
                 <span className="absolute inset-x-0 bottom-0 p-[.8em] flex flex-col" style={f.image_url ? { background: 'linear-gradient(to top, rgba(0,0,0,.7), transparent)', color: '#fff' } : null}>
                   {title && <span className="k-head text-[1.5em]">{title}</span>}
                   {sub && <span className="text-[.9em]">{sub}</span>}

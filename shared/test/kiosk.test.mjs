@@ -9,6 +9,7 @@ import {
   normaliseDesign, designProblems, payMethods, uiText, allergenName, translationSources, TK, pickImages, hexLayout, cornerWidths,
   configImages, MAX_SAVED_PICTURES, guestFit, countFits, cleanPrefs, prefsOn, kioskOrder, basketCheck, kioskStaff, kioskFontsUrl, UI_TEXT, ALLERGEN_NAMES, KIOSK_LANGUAGES, DESIGN_COLORS, CLEAR_COLORS, CHOICE_ENTRANCES,
   groupLook, ENTRANCE_KEYS, bundleParts, bundleLayout, bundleBox, BUNDLE_MAX, PART_COLORS, PART_FOLLOWS, COLOR_LABELS, partColours,
+  pictureFit, fitLayout, PICTURE_FITS, PICTURE_FOCUS, PICTURE_BGS, BANNER_SHAPES, BANNER_RATIOS,
 } from '../kiosk.js'
 import { contrast } from '../themeKit.js'
 import { VARIATION_TYPES, VARIATION_TYPE_KEYS } from '../procurement.js'
@@ -883,4 +884,70 @@ test('guest picks: which dishes suit the allergens and diets a guest picked', ()
   assert.deepEqual(countFits(c, [WINGS.id, FRIES.id, COLA.id, MEAL.id], { avoid: ['milk'], diet: ['vegan'] }), { total: 4, fits: 2 })
   // Picks tidied: no repeats, no junk.
   assert.deepEqual(cleanPrefs({ avoid: ['milk', 'milk', 3, ''], diet: 'vegan' }), { avoid: ['milk'], diet: [] })
+})
+
+test('picture fit: banners, featured tiles, start and reach pictures fill their space or show whole', () => {
+  // Nothing set: automatic, centred, full size, nothing behind; banners wide (the old look).
+  const d = normaliseDesign({
+    start: { media: [{ id: 's1', type: 'image', url: '/a.png' }] },
+    menu: { banners: [{ id: 'b1', image_url: '/b.png' }], featured: [{ id: 'f1', image_url: '/f.png', size: 'wide' }] },
+    behaviour: { reach_media: [{ id: 'r1', type: 'video', url: '/r.mp4' }] },
+  })
+  const std = { mode: 'auto', focus: 'center', size: 100, bg: 'none' }
+  assert.deepEqual(d.menu.banners[0].fit, std)
+  assert.deepEqual(d.menu.featured[0].fit, std)
+  assert.equal(d.menu.featured[0].size, 'wide', 'a tile\'s width is its own size, not the picture\'s')
+  assert.deepEqual(d.start.media[0].fit, std)
+  assert.deepEqual(d.behaviour.reach_media[0].fit, std)
+  assert.equal(d.menu.banner_shape, 'wide')
+  assert.deepEqual(PICTURE_FITS, ['auto', 'cover', 'contain'])
+  assert.equal(PICTURE_FOCUS.length, 9)
+  assert.deepEqual(BANNER_SHAPES, ['wide', 'short', 'tall', 'picture'])
+  assert.ok(Math.abs(BANNER_RATIOS.wide - 16 / 7) < 1e-9 && BANNER_RATIOS.short === 3 && Math.abs(BANNER_RATIOS.tall - 16 / 9) < 1e-9)
+
+  // Set: kept; bad values back to the defaults; sizes clamped to 30-100 and rounded.
+  const set = normaliseDesign({ menu: {
+    banner_shape: 'picture',
+    banners: [
+      { id: 'b1', image_url: '/b.png', fit: { mode: 'contain', focus: 'top left', size: 72.4, bg: 'accent' } },
+      { id: 'b2', image_url: '/c.png', fit: { mode: 'stretch', focus: 'middle', size: 5, bg: 'red' } },
+      { id: 'b3', image_url: '/d.png', fit: { mode: 'cover', focus: 'bottom', size: 500 } },
+      { id: 'b4', image_url: '/e.png', fit: 'contain' },
+    ],
+  } })
+  assert.equal(set.menu.banner_shape, 'picture')
+  assert.deepEqual(set.menu.banners.map(b => b.fit), [
+    { mode: 'contain', focus: 'top left', size: 72, bg: 'accent' },
+    { mode: 'auto', focus: 'center', size: 30, bg: 'none' },
+    { mode: 'cover', focus: 'bottom', size: 100, bg: 'none' },
+    std,
+  ])
+  assert.equal(normaliseDesign({ menu: { banner_shape: 'round' } }).menu.banner_shape, 'wide')
+  assert.deepEqual(PICTURE_BGS, ['none', 'surface', 'primary', 'accent', 'text'])
+  assert.deepEqual(pictureFit(null), std)
+
+  // How it is drawn: automatic fills unless the picture is see-through.
+  const auto = fitLayout(std)
+  assert.equal(auto.whole, false)
+  assert.deepEqual(auto.media, { width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center' })
+  assert.equal(auto.bg, null)
+  const autoClear = fitLayout({ ...std, size: 60, bg: 'surface' }, true)
+  assert.equal(autoClear.whole, true)
+  assert.deepEqual(autoClear.media, { width: '60%', height: '60%', objectFit: 'contain', objectPosition: 'center' })
+  assert.equal(autoClear.bg, 'surface')
+  // Fill the space crops even a see-through picture, keeps the part asked for in view, never shrinks.
+  const cover = fitLayout({ mode: 'cover', focus: 'top', size: 50, bg: 'primary' }, true)
+  assert.equal(cover.whole, false)
+  assert.deepEqual(cover.media, { width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top' })
+  assert.equal(cover.bg, null)
+  // Whole picture, placed bottom right at 40%, on the brand colour.
+  const whole = fitLayout({ mode: 'contain', focus: 'bottom right', size: 40, bg: 'primary' })
+  assert.equal(whole.whole, true)
+  assert.deepEqual(whole.box, { alignItems: 'flex-end', justifyContent: 'flex-end' })
+  assert.deepEqual(whole.media, { width: '40%', height: '40%', objectFit: 'contain', objectPosition: 'bottom right' })
+  assert.equal(whole.bg, 'primary')
+  assert.deepEqual(fitLayout({ mode: 'contain', focus: 'top left' }).box, { alignItems: 'flex-start', justifyContent: 'flex-start' })
+  assert.deepEqual(fitLayout({ mode: 'contain', focus: 'left' }).box, { alignItems: 'center', justifyContent: 'flex-start' })
+  assert.deepEqual(fitLayout({ mode: 'contain', focus: 'top' }).box, { alignItems: 'flex-start', justifyContent: 'center' })
+  assert.equal(fitLayout({ mode: 'contain', bg: 'none' }).bg, null)
 })

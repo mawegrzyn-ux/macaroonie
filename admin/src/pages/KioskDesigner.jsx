@@ -22,7 +22,7 @@ import {
   Disc3, CreditCard, Timer, ChevronDown, Image as ImageIcon, Video, Plus, X, UtensilsCrossed,
   ShoppingBag, Bike, Sparkles, AlertTriangle, Flame, Star, CircleDot, RectangleVertical,
   RectangleHorizontal, Wand2, BookOpen, LayoutDashboard, Hexagon, Circle, Square, Share2, Copy, Check, ExternalLink,
-  RefreshCw, Layers,
+  RefreshCw, Layers, Crop,
 } from 'lucide-react'
 import { qrSvg } from '@shared/qr.js'
 import { kioskBrandFromKit } from '@shared/themeKit.js'
@@ -31,6 +31,7 @@ import {
   normaliseDesign, designProblems, KIOSK_FONTS, KIOSK_EXTRA_FONTS, SYSTEM_FONT, COLOR_LABELS,
   DESIGN_COLORS, CLEAR_COLORS, CHOICE_ENTRANCES, KIOSK_LANGUAGES, DISPLAY_LABELS, KIOSK_DISPLAYS, uiText, TILE_STYLES, TILE_LABELS,
   groupLook, PART_COLORS, PART_FOLLOWS, partColours,
+  pictureFit, PICTURE_FOCUS, PICTURE_BGS, PICTURE_SIZE_MIN, BANNER_SHAPES,
 } from '@shared/kiosk.js'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -145,6 +146,98 @@ function ImagePick({ value, onChange, label = 'picture', contain, testId }) {
     <div className="flex items-center gap-3 min-w-0" data-testid={testId}>
       <PicturePick url={value || null} onChange={onChange} scope="kiosk" size="wide" contain={contain} label={label} disabled={locked} />
       {!locked && <span className="text-[11px] text-muted-foreground">{value ? 'Tap to change it, or drop another on it.' : 'Tap to pick one from Media, or drop one on it.'}</span>}
+    </div>
+  )
+}
+
+// How a banner, featured tile or start / reach picture fills its space
+// (shared/kiosk.js pictureFit(), drawn by the kiosk's FitPicture).
+const FIT_MODES = [
+  { value: 'auto', label: 'Automatic', hint: 'Fills the space; a picture with a see-through background (a cut-out PNG logo) shows whole.' },
+  { value: 'cover', label: 'Fill', hint: 'Fills the space and crops what doesn\'t fit. Pick the part to keep in view.' },
+  { value: 'contain', label: 'Whole picture', hint: 'Shows all of it, nothing cropped. Pick where it sits, how big, and the colour round it.' },
+]
+const FOCUS_LABELS = {
+  'top left': 'top left', top: 'top', 'top right': 'top right', left: 'left', center: 'centre',
+  right: 'right', 'bottom left': 'bottom left', bottom: 'bottom', 'bottom right': 'bottom right',
+}
+const FIT_BG_LABELS = { none: 'None', surface: 'Cards', primary: 'Brand', accent: 'Highlights', text: 'Text' }
+const BANNER_SHAPE_LABELS = { wide: 'Wide', short: 'Short', tall: 'Tall', picture: 'Picture\'s own shape' }
+const BANNER_SHAPE_HINTS = {
+  wide: 'A wide strip, 16 by 7.',
+  short: 'A thin strip, 3 by 1: more of the menu shows below it.',
+  tall: 'A deeper banner, 16 by 9.',
+  picture: 'Each banner the shape of its own picture, so all of it fits: banners of different shapes change height as they take turns.',
+}
+
+/** "Whole picture, 80%, top" and the like. */
+function fitSummary(v) {
+  const f = pictureFit(v)
+  const where = f.focus === 'center' ? 'centred' : FOCUS_LABELS[f.focus]
+  if (f.mode === 'contain') return 'Whole picture' + (f.size < 100 ? ', ' + f.size + '%' : '') + ', ' + where
+  if (f.mode === 'cover') return 'Fill the space, ' + where + ' in view'
+  return 'Automatic' + (f.focus === 'center' ? '' : ', ' + where)
+}
+
+/** The fit of one picture: a summary that opens Fit, Position and, for a whole picture, Size and Behind it. */
+function PictureFit({ value, onChange, colors, testId }) {
+  const [open, setOpen] = useState(false)
+  const f = pictureFit(value)
+  const set = p => onChange({ ...f, ...p })
+  const mode = FIT_MODES.find(x => x.value === f.mode)
+  return (
+    <div data-testid={testId}>
+      <button type="button" onClick={() => setOpen(o => !o)} aria-expanded={open}
+        className="h-11 px-3 rounded-lg border bg-background hover:bg-muted text-xs inline-flex items-center gap-2 max-w-full touch-manipulation"
+        data-testid={testId + '-toggle'}>
+        <Crop className="w-4 h-4 shrink-0" />
+        <span className="truncate">Fit: <span className="font-medium" data-testid={testId + '-summary'}>{fitSummary(f)}</span></span>
+        <ChevronDown className={cn('w-4 h-4 shrink-0 transition-transform', open && 'rotate-180')} />
+      </button>
+      {open && (
+        <div className="mt-2 rounded-lg border p-3 space-y-3">
+          <Segmented value={f.mode} onChange={v => set({ mode: v })} options={FIT_MODES.map(x => ({ value: x.value, label: x.label }))} />
+          <p className="text-[11px] text-muted-foreground">{mode.hint}</p>
+          <div className="flex flex-wrap gap-4 items-start">
+            <div>
+              <p className="text-xs font-medium mb-1">{f.mode === 'cover' ? 'Keep in view' : 'Place it'}</p>
+              <div className="grid grid-cols-3 gap-1 w-max" role="group" aria-label="Position">
+                {PICTURE_FOCUS.map(p => (
+                  <button key={p} type="button" aria-pressed={f.focus === p} aria-label={FOCUS_LABELS[p]} title={FOCUS_LABELS[p]}
+                    onClick={() => set({ focus: p })} data-testid={testId + '-focus'} data-focus={p}
+                    className={cn('w-12 h-12 rounded-md border flex items-center justify-center touch-manipulation',
+                      f.focus === p ? 'bg-primary text-primary-foreground border-primary' : 'bg-background hover:bg-muted text-muted-foreground')}>
+                    <span className="w-2.5 h-2.5 rounded-full bg-current" />
+                  </button>
+                ))}
+              </div>
+            </div>
+            {f.mode !== 'cover' && (
+              <div className="flex-1 min-w-[180px] space-y-2">
+                {f.mode === 'auto' && <p className="text-[11px] text-muted-foreground">For a picture that shows whole:</p>}
+                <label className="block text-xs font-medium">
+                  Size: <span data-testid={testId + '-size-value'}>{f.size}%</span>
+                  <input type="range" min={PICTURE_SIZE_MIN} max={100} step={5} value={f.size} aria-label="Size"
+                    onChange={e => set({ size: Number(e.target.value) })} className="w-full h-11 touch-manipulation" data-testid={testId + '-size'} />
+                </label>
+                <div>
+                  <p className="text-xs font-medium mb-1">Behind it</p>
+                  <div className="flex flex-wrap gap-1.5" role="group" aria-label="Behind it">
+                    {PICTURE_BGS.map(b => (
+                      <button key={b} type="button" aria-pressed={f.bg === b} onClick={() => set({ bg: b })} data-testid={testId + '-bg'} data-bg={b}
+                        className={cn('h-11 px-3 rounded-lg border text-xs inline-flex items-center gap-1.5 touch-manipulation',
+                          f.bg === b ? 'bg-primary text-primary-foreground border-primary' : 'bg-background hover:bg-muted')}>
+                        {b !== 'none' && <span className="w-4 h-4 rounded border border-black/20" style={{ background: colors?.[b] }} />}
+                        {FIT_BG_LABELS[b]}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -331,17 +424,21 @@ function BrandPanel({ d, set }) {
   )
 }
 
-function MediaList({ items, onChange, max, locked }) {
+function MediaList({ items, onChange, max, locked, colors }) {
   const [adding, setAdding] = useState(null) // 'image' | 'video'
+  const patch = (id, p) => onChange(items.map(x => (x.id === id ? { ...x, ...p } : x)))
   return (
     <div className="space-y-2">
       {items.length > 0 && (
         <SortableRows items={items} locked={locked} onReorder={ids => onChange(ids.map(id => items.find(x => x.id === id)))}
           renderItem={m => (
-            <div className="flex items-center gap-3" data-testid="kd-media">
-              <Thumb url={m.url} video={m.type === 'video'} />
-              <span className="flex-1 min-w-0 text-sm truncate">{m.type === 'video' ? 'Video' : 'Picture'}</span>
-              {!locked && <IconBtn onClick={() => onChange(items.filter(x => x.id !== m.id))} title="Remove"><X className="w-4 h-4" /></IconBtn>}
+            <div className="space-y-2 py-1" data-testid="kd-media">
+              <div className="flex items-center gap-3">
+                <Thumb url={m.url} video={m.type === 'video'} />
+                <span className="flex-1 min-w-0 text-sm truncate">{m.type === 'video' ? 'Video' : 'Picture'}</span>
+                {!locked && <IconBtn onClick={() => onChange(items.filter(x => x.id !== m.id))} title="Remove"><X className="w-4 h-4" /></IconBtn>}
+              </div>
+              <PictureFit value={m.fit} onChange={fit => patch(m.id, { fit })} colors={colors} testId="kd-media-fit" />
             </div>
           )} />
       )}
@@ -373,7 +470,7 @@ function StartPanel({ s, d, set, setup, stream, canManage }) {
           options={[{ value: 'split', label: 'Pictures apart' }, { value: 'full', label: 'Pictures behind' }]} />
       </Field>
       <Field group label="Pictures and videos" hint="They take turns, in this order. Videos play to the end with no sound. Up to 8.">
-        <MediaList items={s.start.media || []} onChange={media => set('start', { media })} max={8} locked={!canManage} />
+        <MediaList items={s.start.media || []} onChange={media => set('start', { media })} max={8} locked={!canManage} colors={d.brand.colors} />
       </Field>
       <Field label="Each picture shows for (seconds)">
         <NumberBox value={d.start.media_secs} min={3} max={30} onChange={v => set('start', { media_secs: v })} ariaLabel="Seconds per picture" />
@@ -457,7 +554,7 @@ function LanguagesPanel({ d, set }) {
   )
 }
 
-function BannerList({ items, onChange, setup, venueName, locked }) {
+function BannerList({ items, onChange, setup, venueName, locked, colors }) {
   const patch = (id, p) => onChange(items.map(x => (x.id === id ? { ...x, ...p } : x)))
   return (
     <div className="space-y-2">
@@ -474,6 +571,7 @@ function BannerList({ items, onChange, setup, venueName, locked }) {
               <input className={inputCls} maxLength={80} value={b.title || ''} placeholder="Words over the picture (optional)" aria-label="Banner words"
                 onChange={e => patch(b.id, { title: e.target.value })} />
               <LinkSelect value={b.link} onChange={link => patch(b.id, { link })} setup={setup} venueName={venueName} />
+              <PictureFit value={b.fit} onChange={fit => patch(b.id, { fit })} colors={colors} testId="kd-banner-fit" />
             </div>
           )} />
       )}
@@ -486,7 +584,7 @@ function BannerList({ items, onChange, setup, venueName, locked }) {
   )
 }
 
-function FeaturedList({ items, onChange, setup, venueName, locked }) {
+function FeaturedList({ items, onChange, setup, venueName, locked, colors }) {
   const patch = (id, p) => onChange(items.map(x => (x.id === id ? { ...x, ...p } : x)))
   return (
     <div className="space-y-2">
@@ -506,6 +604,7 @@ function FeaturedList({ items, onChange, setup, venueName, locked }) {
               <input className={inputCls} maxLength={80} value={f.subtitle || ''} placeholder="Second line (optional)" aria-label="Tile second line"
                 onChange={e => patch(f.id, { subtitle: e.target.value })} />
               <LinkSelect value={f.link} onChange={link => patch(f.id, { link })} setup={setup} venueName={venueName} />
+              {f.image_url && <PictureFit value={f.fit} onChange={fit => patch(f.id, { fit })} colors={colors} testId="kd-featured-fit" />}
             </div>
           )} />
       )}
@@ -712,14 +811,20 @@ function MenuPanel({ s, d, set, setup, venueName, canManage }) {
         checked={m.home} onChange={v => set('menu', { home: v })} />
       {m.home && (
         <>
-          <Field group label="Banners" hint="Wide pictures at the top of the home page, taking turns. Up to 10.">
-            <BannerList items={s.menu.banners || []} onChange={banners => set('menu', { banners })} setup={setup} venueName={venueName} locked={!canManage} />
+          <Field group label="Banners" hint="Wide pictures at the top of the home page, taking turns. Up to 10. Fit, under each, says how its picture fills the banner.">
+            <BannerList items={s.menu.banners || []} onChange={banners => set('menu', { banners })} setup={setup} venueName={venueName} locked={!canManage} colors={d.brand.colors} />
           </Field>
+          {m.banners.length > 0 && (
+            <Field group label="Banner shape" hint={BANNER_SHAPE_HINTS[m.banner_shape] + ' A banner is never more than a third of the screen high: on a wide screen that is usually what decides.'}>
+              <Segmented value={m.banner_shape} onChange={v => set('menu', { banner_shape: v })}
+                options={BANNER_SHAPES.map(k => ({ value: k, label: BANNER_SHAPE_LABELS[k] }))} />
+            </Field>
+          )}
           <Field label="Each banner shows for (seconds)">
             <NumberBox value={m.banner_secs} min={3} max={20} onChange={v => set('menu', { banner_secs: v })} ariaLabel="Seconds per banner" />
           </Field>
           <Field group label="Featured tiles" hint="Pictures with words under the banners, e.g. a deal or a new dish. Up to 12.">
-            <FeaturedList items={s.menu.featured || []} onChange={featured => set('menu', { featured })} setup={setup} venueName={venueName} locked={!canManage} />
+            <FeaturedList items={s.menu.featured || []} onChange={featured => set('menu', { featured })} setup={setup} venueName={venueName} locked={!canManage} colors={d.brand.colors} />
           </Field>
         </>
       )}
@@ -983,7 +1088,7 @@ function TimingPanel({ s, d, set, canManage }) {
       {h.reach && (
         <Field group label="Above the kiosk while it's slid down" hint="Optional. Pictures or videos filling the top part of the screen while the reach button has brought everything down; they take turns like the start screen's (videos play with no sound). None: your brand colour with the reach sign. Up to 4.">
           <div data-testid="kd-reach-media">
-            <MediaList items={s.behaviour?.reach_media || []} onChange={reach_media => set('behaviour', { reach_media })} max={4} locked={!canManage} />
+            <MediaList items={s.behaviour?.reach_media || []} onChange={reach_media => set('behaviour', { reach_media })} max={4} locked={!canManage} colors={d.brand.colors} />
           </div>
         </Field>
       )}
@@ -1292,7 +1397,7 @@ function summaryOf(id, d) {
     d.layout.fly_to_order ? null : 'no flight into the order'].filter(Boolean).join(', ')
   if (id === 'start') return (d.start.media.length ? d.start.media.length + ' picture' + (d.start.media.length === 1 ? '' : 's') : 'No pictures') + ', ' + (d.start.layout === 'full' ? 'pictures behind' : 'pictures apart')
   if (id === 'languages') return d.languages.enabled.map(c => KIOSK_LANGUAGES.find(l => l.code === c)?.name).join(', ')
-  if (id === 'menu') return TILE_LABELS[d.layout.tiles] + ', ' + (d.menu.rail === 'none' ? 'section tiles, ' : '') + (d.menu.home ? d.menu.banners.length + ' banners, ' + d.menu.featured.length + ' tiles' : 'No home page') + (d.menu.hidden_section_ids.length ? ', ' + d.menu.hidden_section_ids.length + ' sections left off' : '')
+  if (id === 'menu') return TILE_LABELS[d.layout.tiles] + ', ' + (d.menu.rail === 'none' ? 'section tiles, ' : '') + (d.menu.home ? d.menu.banners.length + ' banners' + (d.menu.banners.length && d.menu.banner_shape !== 'wide' ? ' (' + BANNER_SHAPE_LABELS[d.menu.banner_shape].toLowerCase() + ')' : '') + ', ' + d.menu.featured.length + ' tiles' : 'No home page') + (d.menu.hidden_section_ids.length ? ', ' + d.menu.hidden_section_ids.length + ' sections left off' : '')
   if (id === 'choices') return DISPLAY_LABELS[d.options.display] + ', ' + TILE_LABELS[d.layout.option_tiles].toLowerCase() + (d.layout.option_pictures ? '' : ', words only') + (d.layout.option_align === 'center' ? ', centred' : '') + (d.options.wheel_spin_picks ? ', a spin picks' : '') + (d.options.entrance !== 'none' ? ', ' + CHOICE_ENTRANCES.find(x => x.key === d.options.entrance).label.toLowerCase() : '')
     + (d.options.group_looks.length ? ', ' + d.options.group_looks.length + ' option group' + (d.options.group_looks.length === 1 ? '' : 's') + ' their own way' : '')
   if (id === 'checkout') return [d.checkout.pay_card && 'Card', d.checkout.pay_counter && 'At the counter'].filter(Boolean).join(' and ') || 'No way to pay'

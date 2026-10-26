@@ -339,6 +339,56 @@ export function hexLayout(total, max, compact = false) {
 // page of section tiles instead.
 export const RAIL_KINDS = ['images', 'text', 'none']
 
+// How a design picture fills its space (home page banners, featured tiles,
+// start screen and reach pictures and videos), each item's `fit`: `mode`
+// cover fills the space, cropped, keeping `focus` in view; contain shows the
+// whole picture, `size` % of the space, placed at `focus`, on `bg` (a design
+// colour, or none: the page shows round it); auto (the default) is contain
+// for a picture with a see-through background (pos/src/kiosk/clear.js),
+// else cover. pictureFit() reads one; fitLayout() is how the kiosk draws it.
+export const PICTURE_FITS = ['auto', 'cover', 'contain']
+export const PICTURE_FOCUS = ['top left', 'top', 'top right', 'left', 'center', 'right', 'bottom left', 'bottom', 'bottom right']
+export const PICTURE_BGS = ['none', 'surface', 'primary', 'accent', 'text']
+export const PICTURE_SIZE_MIN = 30
+// A home page banner's shape (menu.banner_shape): width to height, or
+// 'picture', each banner the shape of its own picture.
+export const BANNER_SHAPES = ['wide', 'short', 'tall', 'picture']
+export const BANNER_RATIOS = { wide: 16 / 7, short: 3, tall: 16 / 9 }
+
+export function pictureFit(v) {
+  const x = v && typeof v === 'object' ? v : {}
+  return {
+    mode: oneOf(x.mode, PICTURE_FITS, 'auto'),
+    focus: oneOf(x.focus, PICTURE_FOCUS, 'center'),
+    size: num(x.size, PICTURE_SIZE_MIN, 100, 100),
+    bg: oneOf(x.bg, PICTURE_BGS, 'none'),
+  }
+}
+
+/**
+ * How to draw a fitted picture (an item's `fit`; `clear`: the picture has
+ * a see-through background): `whole` (shown whole), `box` (styles for a flex
+ * box filling the space) and `media` (styles for the picture or video in
+ * it). A whole picture is `size` % of the box, placed at `focus`; a filled
+ * one covers the box with `focus` kept in view. `bg` is the design colour
+ * key behind a whole picture, else null.
+ */
+export function fitLayout(raw, clear = false) {
+  const f = pictureFit(raw)
+  const whole = f.mode === 'contain' || (f.mode === 'auto' && !!clear)
+  const at = f.focus
+  const size = whole ? f.size : 100
+  return {
+    whole,
+    box: {
+      alignItems: at.includes('top') ? 'flex-start' : at.includes('bottom') ? 'flex-end' : 'center',
+      justifyContent: at.includes('left') ? 'flex-start' : at.includes('right') ? 'flex-end' : 'center',
+    },
+    media: { width: size + '%', height: size + '%', objectFit: whole ? 'contain' : 'cover', objectPosition: at },
+    bg: whole && f.bg !== 'none' ? f.bg : null,
+  }
+}
+
 const MAX = { media: 8, reach_media: 4, banners: 10, featured: 12, upsell: 8, hidden: 200, tiles: 200, group_looks: 200 }
 
 function link(v) {
@@ -455,7 +505,7 @@ export function normaliseDesign(raw) {
     },
     start: {
       layout: oneOf(s.layout, ['split', 'full'], 'split'),
-      media: asList(s.media).map((x, i) => ({ id: shortId(x?.id, i), type: oneOf(x?.type, ['image', 'video'], 'image'), url: url(x?.url) }))
+      media: asList(s.media).map((x, i) => ({ id: shortId(x?.id, i), type: oneOf(x?.type, ['image', 'video'], 'image'), url: url(x?.url), fit: pictureFit(x?.fit) }))
         .filter(x => x.url).slice(0, MAX.media),
       media_secs: num(s.media_secs, 3, 30, 6),
       headline: text(s.headline, 60),
@@ -466,12 +516,13 @@ export function normaliseDesign(raw) {
     languages: { source, enabled: enabled.slice(0, LANG_CODES.length) },
     menu: {
       home: m.home !== false,
-      banners: asList(m.banners).map((x, i) => ({ id: shortId(x?.id, i), image_url: url(x?.image_url), title: text(x?.title, 80), link: link(x?.link) }))
+      banners: asList(m.banners).map((x, i) => ({ id: shortId(x?.id, i), image_url: url(x?.image_url), title: text(x?.title, 80), link: link(x?.link), fit: pictureFit(x?.fit) }))
         .filter(x => x.image_url).slice(0, MAX.banners),
       banner_secs: num(m.banner_secs, 3, 20, 5),
+      banner_shape: oneOf(m.banner_shape, BANNER_SHAPES, 'wide'),
       featured: asList(m.featured).map((x, i) => ({
         id: shortId(x?.id, i), image_url: url(x?.image_url), title: text(x?.title, 60), subtitle: text(x?.subtitle, 80),
-        size: oneOf(x?.size, ['normal', 'wide'], 'normal'), link: link(x?.link),
+        size: oneOf(x?.size, ['normal', 'wide'], 'normal'), link: link(x?.link), fit: pictureFit(x?.fit),
       })).filter(x => x.image_url || x.title || x.link.kind !== 'none').slice(0, MAX.featured),
       rail: oneOf(m.rail, RAIL_KINDS, 'images'),
       // With no rail: the section tiles page, in this order (sections not
@@ -520,7 +571,7 @@ export function normaliseDesign(raw) {
       // Pictures or videos filling the space above the kiosk while the reach
       // button has slid it down (none = the brand colour with the reach icon);
       // pictures take turns every start.media_secs, like the start screen's.
-      reach_media: asList(h.reach_media).map((x, i) => ({ id: shortId(x?.id, i), type: oneOf(x?.type, ['image', 'video'], 'image'), url: url(x?.url) }))
+      reach_media: asList(h.reach_media).map((x, i) => ({ id: shortId(x?.id, i), type: oneOf(x?.type, ['image', 'video'], 'image'), url: url(x?.url), fit: pictureFit(x?.fit) }))
         .filter(x => x.url).slice(0, MAX.reach_media),
     },
   }
