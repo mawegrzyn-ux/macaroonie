@@ -2,15 +2,14 @@
 // headline, the languages as flags, "Staying or going?" with the kiosk's
 // order types (its revenue stream's, Store tech), and the allergens list.
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ShieldAlert, WifiOff } from 'lucide-react'
 import { TK, KIOSK_LANGUAGES } from '@shared/kiosk.js'
 import { useKiosk, textsFor, setLang, startOrder, go, methods } from './store.js'
-import { cx, Flag, TypeIcon, guessTypeIcon } from './parts.jsx'
+import { cx, Flag, TypeIcon, guessTypeIcon, FitPicture } from './parts.jsx'
 
 export function Media({ media, secs }) {
   const [i, setI] = useState(0)
-  const video = useRef(null)
   const item = media[i % Math.max(1, media.length)]
   useEffect(() => {
     if (!item || item.type === 'video' || media.length < 2) return
@@ -18,11 +17,12 @@ export function Media({ media, secs }) {
     return () => clearTimeout(id)
   }, [item, media.length, secs])
   if (!item) return null
+  // Each picture or video fills the space or shows whole as the design says (its fit).
   if (item.type === 'video') {
-    return <video key={item.url} ref={video} src={item.url} className="absolute inset-0 w-full h-full object-cover" autoPlay muted playsInline
+    return <FitPicture video key={item.url} src={item.url} fit={item.fit} autoPlay muted playsInline
       loop={media.length < 2} onEnded={() => setI(n => (n + 1) % media.length)} />
   }
-  return <img key={item.url} src={item.url} alt="" className="absolute inset-0 w-full h-full object-cover k-fade" draggable={false} />
+  return <FitPicture key={item.url} src={item.url} fit={item.fit} className="k-fade" />
 }
 
 export function Languages({ design, lang, onPick, size = 'normal' }) {

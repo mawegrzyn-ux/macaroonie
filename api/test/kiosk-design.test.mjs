@@ -223,3 +223,38 @@ test('the bottom bar and side menu colours: not set until set, saved in lower ca
   const cleared = await ok(owner.put(`/api/pos/kiosk-designs/${design.id}`, { name: design.name, settings: { ...saved.settings, brand: { ...saved.settings.brand, colors: { ...c, bar: null, rail: '', rail_text: null } } } }))
   for (const k of ['bar', 'bar_text', 'rail', 'rail_text']) assert.equal(cleared.settings.brand.colors[k], null, k + ' cleared')
 })
+
+test('picture fit: banners, featured tiles, start and reach pictures keep how they fill their space; the banner shape; a copy and the kiosk get them', async () => {
+  const before = (await ok(owner.get('/api/pos/kiosk-designs'))).find(d => d.id === design.id).settings
+  const fit = { mode: 'contain', focus: 'bottom right', size: 55, bg: 'primary' }
+  const saved = await ok(owner.put(`/api/pos/kiosk-designs/${design.id}`, { name: design.name, settings: {
+    ...before,
+    start: { ...before.start, media: [{ id: 's1', type: 'image', url: '/uploads/start.jpg', fit: { mode: 'cover', focus: 'top' } }] },
+    menu: { ...before.menu, home: true, banner_shape: 'picture',
+      banners: [{ id: 'b1', image_url: '/uploads/logo.png', fit }, { id: 'b2', image_url: '/uploads/b.jpg', fit: { mode: 'squash', focus: 'up', size: 7, bg: '#ff0000' } }],
+      featured: [{ id: 'f1', image_url: '/uploads/f.png', title: 'Deal', size: 'wide', fit: { mode: 'contain', size: 70, bg: 'accent' } }] },
+    behaviour: { ...before.behaviour, reach: true, reach_media: [{ id: 'r1', type: 'video', url: '/uploads/r.mp4', fit: { mode: 'cover', focus: 'bottom' } }] },
+  } }))
+  const s = saved.settings
+  assert.deepEqual(s.menu.banners[0].fit, fit)
+  assert.deepEqual(s.menu.banners[1].fit, { mode: 'auto', focus: 'center', size: 30, bg: 'none' }, 'bad values back to the defaults, the size kept in range')
+  assert.equal(s.menu.banner_shape, 'picture')
+  assert.deepEqual(s.menu.featured[0].fit, { mode: 'contain', focus: 'center', size: 70, bg: 'accent' })
+  assert.equal(s.menu.featured[0].size, 'wide', 'the tile keeps its own width')
+  assert.deepEqual(s.start.media[0].fit, { mode: 'cover', focus: 'top', size: 100, bg: 'none' })
+  assert.deepEqual(s.behaviour.reach_media[0].fit, { mode: 'cover', focus: 'bottom', size: 100, bg: 'none' })
+  const copy = await ok(owner.post('/api/pos/kiosk-designs', { name: 'Fitted', copy_from: design.id }))
+  assert.deepEqual(copy.settings.menu.banners[0].fit, fit)
+  assert.equal(copy.settings.menu.banner_shape, 'picture')
+  const link = await ok(owner.post(`/api/pos/kiosk-designs/${design.id}/preview`, { venue_id: mine.ids.venue }))
+  const cfg = (await preview(link.token)).json
+  assert.deepEqual(cfg.design.menu.banners[0].fit, fit, 'the kiosk gets the fit')
+  assert.equal(cfg.design.menu.banner_shape, 'picture')
+  assert.equal(cfg.design.start.media[0].fit.focus, 'top')
+  assert.equal(cfg.design.behaviour.reach_media[0].fit.focus, 'bottom')
+  // A design saved before fits existed (none stored) reads as automatic and wide: the old look.
+  await sql`UPDATE kiosk_designs SET settings = jsonb_set(settings #- '{menu,banner_shape}', '{menu,banners}', '[{"id":"b9","image_url":"/uploads/old.jpg"}]') WHERE id = ${design.id}`
+  const old = (await ok(owner.get('/api/pos/kiosk-designs'))).find(d => d.id === design.id).settings
+  assert.deepEqual(old.menu.banners[0].fit, { mode: 'auto', focus: 'center', size: 100, bg: 'none' })
+  assert.equal(old.menu.banner_shape, 'wide')
+})
