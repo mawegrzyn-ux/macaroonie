@@ -1307,7 +1307,7 @@ async function startOrdering() {
           const can = on || r.member_reward_id || (r.points_cost || 0) <= left
           h += '<button type="button" class="mo-choice' + (on ? ' is-on' : '') + '" data-loy-pick="' + esc(r.key) + '"' + (can ? '' : ' disabled') + ' style="width:100%;text-align:left;">' +
             '<span style="flex:1;"><strong>' + esc(r.name) + '</strong><br><span class="mo-muted">' + esc(r.summary || '') +
-            (r.points_cost ? ' · ' + esc(pointsText(r.points_cost, st)) : '') + '</span></span><span>' + (on ? 'Used' : can ? 'Use' : 'Not enough') + '</span></button>'
+            ' · ' + (r.points_cost ? esc(pointsText(r.points_cost, st)) : 'yours, free') + '</span></span><span>' + (on ? 'Used' : can ? 'Use' : 'Not enough') + '</span></button>'
         }
       }
       h += '<p style="margin:8px 0 0;"><button type="button" class="mo-btn mo-btn-ghost" data-loy="signout">Not you? Sign out</button></p>'
