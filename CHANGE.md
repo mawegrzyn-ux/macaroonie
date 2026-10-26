@@ -5,6 +5,13 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-26 — Kiosks on phones zoom out; a meal deal's picture keeps the main in the middle]
+
+- A kiosk on a phone, or any screen smaller than a 10-inch tablet (under 800 across its short side, as the browser counts it), now zooms itself out to look as it does on a tablet, the way Chrome's Desktop site setting would, without that setting (which changed every other site too, the ops app included). The bottom bar's total no longer runs under View order. Turning the phone keeps the same zoom. Tablets, big kiosk screens, desktop browsers, the design editor's preview, shared preview pages and the pairing screen are unchanged.
+- The kiosk's staff panel (five taps in the top-left corner of the start screen) shows the **Screen** size and the zoom, and its **Card machine** line names the kiosk's card machine (it said None for every machine since card machines arrived).
+- A meal deal's picture: the picks beside the main one now go in the order picked, the first on the left, the second on the right, the third further left, the fourth further right, and the main pick always stays in the middle, also when there is only one beside it. Dips in front of it, and picks shown on a dish's own photo, are unchanged.
+- No migration.
+
 ## [2026-10-26 — Kiosk designs: fit each picture to its space]
 
 - Store tech → Kiosks → a design: every home page banner, featured tile picture, start screen picture or video and reach picture has a **Fit** under it. **Automatic** (as before): a photo fills the space and a picture with a see-through background (a cut-out PNG logo) shows whole. **Fill**: fills the space, cropped, with the part you pick kept in view (the top, the bottom right corner and so on). **Whole picture**: nothing cropped, placed where you pick, at a size from 30 to 100% of the space, with the design's Cards, Brand, Highlights or Text colour behind it, or nothing.

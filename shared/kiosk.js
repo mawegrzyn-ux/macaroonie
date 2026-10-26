@@ -19,6 +19,7 @@
 //   TK, translationSources()              the menu's own words a person translates
 //                                         (menu_translations rows, key -> text)
 //   kioskStaff(), kioskLine(), kioskOrder()  a basket as till events
+//   kioskScale()                          the page zoomed out on a small screen
 // Plain ESM, no dependencies but the other shared modules, no DOM.
 
 import { FONT_OPTIONS, FONT_WEIGHTS, fontStack } from './fonts.js'
@@ -765,11 +766,15 @@ const r2 = v => Math.round(v * 100) / 100
 /**
  * Where each part of a meal deal's picture goes (bundleParts()), like a photo
  * of the meal: the main part(s) in the middle of a row, the others beside
- * them in turn (right, left, right ...), smaller, a little behind and a
- * little further back up the table; small parts (dips) in front, under the
- * main part. The whole is as big as fits and centred in the box. Each part
- * gets a square: { left, top, width, height } in % of the box's width
- * (left, width) and height (top, height), and z (higher = in front).
+ * them in turn in the order picked (the first on the left, the second on the
+ * right, the third further left, the fourth further right ...), smaller, a
+ * little behind and a little further back up the table; small parts (dips)
+ * in front, under the main part, in the order picked. The main part stays in
+ * the middle of the box across (with only one side, the picture is as big as
+ * if there were one on each side), the whole centred top to bottom and as
+ * big as fits. Each part gets a square: { left, top, width, height } in % of
+ * the box's width (left, width) and height (top, height), and z (higher = in
+ * front).
  *   box  { aspect, inset } (bundleBox())
  */
 export function bundleLayout(parts, { aspect = 4 / 3, inset = 0 } = {}) {
@@ -781,7 +786,7 @@ export function bundleLayout(parts, { aspect = 4 / 3, inset = 0 } = {}) {
   // Only small parts: they make the row.
   if (!mains.length && !sides.length) sides.push(...smalls.splice(0))
   const left = [], right = []
-  sides.forEach((i, k) => (k % 2 ? left : right).push(i))
+  sides.forEach((i, k) => (k % 2 ? right : left).push(i))
   const row = [...left.reverse(), ...mains, ...right]
   const firstMain = left.length
   const lastMain = left.length + mains.length - 1
@@ -808,11 +813,15 @@ export function bundleLayout(parts, { aspect = 4 / 3, inset = 0 } = {}) {
   const all = at.filter(Boolean)
   const minX = Math.min(...all.map(p => p.x)), maxX = Math.max(...all.map(p => p.x + p.w))
   const minY = Math.min(...all.map(p => p.y)), maxY = Math.max(...all.map(p => p.y + p.w))
+  // Across, the middle of the main part(s) goes in the middle of the box
+  // (without one, the middle of the whole), so the wider half decides the size.
+  const cx = mains.length ? (at[mains[0]].x + at[mains[mains.length - 1]].x + at[mains[mains.length - 1]].w) / 2 : (minX + maxX) / 2
+  const halfW = Math.max(cx - minX, maxX - cx)
   // The box is 100 wide and 100 / aspect tall in these units.
   const roomW = 100 - 2 * inset
   const roomH = (100 - 2 * inset) / aspect
-  const u = Math.min(roomW * 0.96 / (maxX - minX), roomH * 0.96 / (maxY - minY))
-  const dx = 50 - ((minX + maxX) / 2) * u
+  const u = Math.min(roomW * 0.96 / (2 * halfW), roomH * 0.96 / (maxY - minY))
+  const dx = 50 - cx * u
   const dy = 50 / aspect - ((minY + maxY) / 2) * u
   return at.map(p => ({
     left: r2(dx + p.x * u),
@@ -857,6 +866,27 @@ export function configImages(config, origin) {
   walk(d, 0)
   walk(config, 0)
   return [...out].slice(0, MAX_SAVED_PICTURES)
+}
+
+// ── The kiosk on a small screen ──────────────────────────────────
+// kiosk.css sizes follow the screen's short side (vmin) with finger-sized
+// minimums. Below KIOSK_MIN_SHORT CSS px of short side (a phone, a TV box at
+// twice the pixel density) the minimums take over, so the kiosk looks zoomed
+// in and its bars crowd. There the kiosk zooms the page out, as a browser's
+// desktop mode does (pos/src/kiosk/viewport.js): it is laid out at a short
+// side of KIOSK_MIN_SHORT and shown at kioskScale() of that size.
+export const KIOSK_MIN_SHORT = 800
+
+/**
+ * The page scale for a screen of w x h CSS px (either way round): 1 when its
+ * short side is KIOSK_MIN_SHORT or more (or unknown), else short /
+ * KIOSK_MIN_SHORT rounded down to 3 decimals, so the page is never narrower
+ * than it needs to be.
+ */
+export function kioskScale(w, h) {
+  const short = Math.min(Number(w), Number(h))
+  if (!(short > 0) || short >= KIOSK_MIN_SHORT) return 1
+  return Math.max(0.1, Math.floor((short / KIOSK_MIN_SHORT) * 1000) / 1000)
 }
 
 /** Ways a guest can pay on this kiosk: ['card', 'counter'] in that order. */
