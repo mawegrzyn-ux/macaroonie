@@ -11,6 +11,9 @@
 //     On order counts groups
 //   - the kitchen flows: how dishes move between them, one in use at a time,
 //     switched here or from a kitchen screen (KitchenFlow.jsx)
+//   - ticket colours: each state's background, the timer, dish names by
+//     menu section (KitchenColours.jsx, migration 207); the pass and runners
+//     tick dishes off, bumping on the last tick only when set to
 //   - online orders: into the kitchen when accepted, ready when finished;
 //     GloriaFood orders too when the venue is linked (migration 178)
 
@@ -23,6 +26,7 @@ import {
   Section, Modal, Field, inputCls, ErrorNote, ConfirmDelete, Segmented, Btn, NumberBox, Toggle, SortableRows, ColourPick,
 } from './shared'
 import KitchenFlow from './KitchenFlow'
+import TicketColoursCard from './KitchenColours'
 import { deviceUrl, InstallerLine, status, ShownCodeField, LinkDeviceModal, LinkDeviceButton, linkShownCode, codeReady } from './TillsSection'
 import { STATION_KINDS, KIND_LABELS, isBumpKind, STATUS_LOOKS, STATUS_ANIMS, PACE_TICKETS, PACE_MINUTES, RUSH_COUNT_MAX, flowName } from '@shared/pos/kitchen.js'
 import { ColourPicker } from '@/components/ColourPicker'
@@ -332,6 +336,7 @@ export function StationModal({ venueId, setup, station, kind: newKind, onClose }
     name: station?.name || '', kind: startKind, colour: station?.colour || null,
     target_mins: s.target_mins ?? 8, late_mins: s.late_mins ?? 12, show_held: s.show_held !== false,
     show_upcoming: s.show_upcoming ?? startKind === 'expo',
+    bump_when_checked: !!s.bump_when_checked,
     summary_groups: s.summary_groups || [], pieces: s.pieces || [], is_active: station ? station.is_active : true,
     share: s.split_above != null, split_above: s.split_above ?? 20,
     share_mode: s.share_mode === 'speed' ? 'speed' : 'pieces',
@@ -358,6 +363,7 @@ export function StationModal({ venueId, setup, station, kind: newKind, onClose }
     settings: {
       target_mins: form.target_mins || 8, late_mins: Math.max(form.late_mins || 12, form.target_mins || 8), show_held: form.show_held,
       show_upcoming: !!form.show_upcoming,
+      bump_when_checked: orderLevel && form.bump_when_checked,
       summary_groups: form.summary_groups.filter(g => g.name.trim()).map(g => ({ ...g, name: g.name.trim() })),
       pieces: balance ? form.pieces : [],
       split_above: balance && form.share ? (form.split_above ?? 20) : null,
@@ -509,6 +515,21 @@ export function StationModal({ venueId, setup, station, kind: newKind, onClose }
           ? 'Tickets come on as soon as the order is sent, with each dish marked where it is now (At Grill). Bumping finishes dishes still at earlier stations.'
           : 'Dishes still at an earlier station show greyed out (At Prep 1) so the station can get ready. They can only be bumped once they arrive.'}
         checked={form.show_upcoming} onChange={v => { setUpcomingSet(true); set({ show_upcoming: v }) }} />
+      {orderLevel && (
+        <Field group label="Ticking off dishes"
+          hint={form.bump_when_checked
+            ? 'Tap a dish to tick it off. Ticking off the last one ' + (form.kind === 'runner' ? 'hands the order over, as DONE does.' : 'marks the order ready, as READY does.')
+            : 'Tap a dish to tick it off as it\'s checked or packed (a packing check). With every dish ticked the ticket shows CHECKED and stays until ' + (form.kind === 'runner' ? 'DONE' : 'READY') + ' is pressed.'}>
+          <div data-testid="station-tick-mode">
+            <Segmented value={form.bump_when_checked ? 'bump' : 'keep'} className="flex-wrap"
+              options={[
+                { value: 'keep', label: 'Keep the ticket until ' + (form.kind === 'runner' ? 'DONE' : 'READY') },
+                { value: 'bump', label: 'Bump when every dish is ticked' },
+              ]}
+              onChange={v => set({ bump_when_checked: v === 'bump' })} />
+          </div>
+        </Field>
+      )}
       <Field group label="On order counts" hint="Groups to count on the On order screen and the SUM panel, e.g. Wings: the 8pc Wings dish counts 8, the 6 Wings option counts 6. Without groups each dish is counted on its own.">
         <GroupsEditor setup={setup} groups={form.summary_groups} onChange={g => set({ summary_groups: g })} />
       </Field>
@@ -542,6 +563,7 @@ function StationsCard({ venueId, setup, onEdit }) {
                   <p className="text-xs text-muted-foreground truncate">
                     {KIND_LABELS[st.kind]}
                     {isBumpKind(st.kind) && <> · amber {st.settings.target_mins} min, red {st.settings.late_mins} min</>}
+                    {(st.kind === 'expo' || st.kind === 'runner') && (st.settings.bump_when_checked ? ' · ticking every dish bumps' : ' · packing check')}
                     {isBumpKind(st.kind) && st.settings.summary_groups?.length ? ' · counts ' + st.settings.summary_groups.map(g => g.name).join(', ') : ''}
                     {st.kind === 'balance' && (st.settings.pieces?.length ? ' · ' + st.settings.pieces.map(m => m.label + ' ' + m.qty).join(', ') : ' · each dish counts its quantity')}
                     {st.kind === 'balance' && (st.settings.share_mode === 'speed' ? ' · smart: by speed' : ' · by fewest pieces')}
@@ -702,6 +724,7 @@ export default function KitchenSection({ venueId, setup, canManage = true }) {
       <KitchenFlow venueId={venueId} setup={setup} canManage={canManage} onStation={setEditing} />
       <StationsCard venueId={venueId} setup={setup} onEdit={setEditing} />
       <ScreensCard venueId={venueId} setup={setup} />
+      <TicketColoursCard venueId={venueId} setup={setup} />
       <OnlineCard venueId={venueId} setup={setup} />
       {editing && (
         <StationModal venueId={venueId} setup={setup} station={editing.id ? editing : null} kind={editing.kind}

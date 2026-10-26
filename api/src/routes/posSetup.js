@@ -76,6 +76,7 @@ import {
   STATION_KINDS, FLOW_TARGET_KINDS, BUMP_KINDS, NAMED_TARGET_KINDS, KIND_LABELS, SLEEP_MINS_MAX, STATUS_LOOKS, STATUS_ANIMS,
   SHARE_MODES, RUSH_COUNT_MAX,
 } from '../../../shared/pos/kitchen.js'
+import { KITCHEN_COLOUR_KEYS, SECTION_COLOURS_MAX, normaliseKitchenColours } from '../../../shared/pos/kitchenColours.js'
 import { deviceOrigin, installerOrigin } from '../services/platformHost.js'
 import { linkCodeHash } from '../services/linkCodes.js'
 import { hubRelease } from '../services/hubRelease.js'
@@ -93,6 +94,7 @@ import { ensureTaxDefaults, loadOrderTypes, loadStreams } from '../services/taxS
 const UUID = z.string().uuid()
 const TIME = z.string().regex(/^([01][0-9]|2[0-3]):[0-5][0-9]$/)
 const COLOUR = z.string().max(20).nullable().optional()
+const HEX_COLOUR = z.string().regex(/^#[0-9a-f]{6}$/i)
 const by = req => req.user?.email ?? null
 
 const canSetupView = requirePermission('pos_setup', 'view')
@@ -134,6 +136,12 @@ const SettingsBody = z.object({
   kds_gloriafood:            z.boolean().optional(),
   kds_gloriafood_types:      z.record(z.enum(GF_TYPES), UUID.nullable()).optional(),
   kds_gloriafood_lead_mins:  z.number().int().min(0).max(240).optional(),
+  // Kitchen screen colours (migration 207, shared/pos/kitchenColours.js): the
+  // whole set, replaced on each save.
+  kds_colours:               z.object({
+    states:   z.record(z.enum(KITCHEN_COLOUR_KEYS), HEX_COLOUR).default({}),
+    sections: z.array(z.object({ name: z.string().trim().min(1).max(80), colour: HEX_COLOUR })).max(SECTION_COLOURS_MAX).default([]),
+  }).optional(),
 })
 
 // Ask for a customer name / tent number when the order type is picked:
@@ -246,9 +254,12 @@ const StationSettings = z.object({
   delay_mins: z.number().int().min(1).max(SLEEP_MINS_MAX).default(5),
   // A kitchen printer box (migration 191): the printer its dishes print on.
   printer_id: UUID.nullable().optional(),
+  // The pass and runners: ticking off every dish bumps the ticket (off: the
+  // packing check, it waits for READY / DONE). kitchen.item_checked.
+  bump_when_checked: z.boolean().default(false),
   // A Setter (migration 203): how order ready boards show its status.
   status_look:   z.enum(STATUS_LOOKS.map(x => x.key)).default('text'),
-  status_colour: z.string().regex(/^#[0-9a-f]{6}$/i).default('#f59e0b'),
+  status_colour: HEX_COLOUR.default('#f59e0b'),
   status_text:   z.string().trim().max(40).default(''),
   status_anim:   z.enum(STATUS_ANIMS.map(x => x.key)).default('none'),
   status_lamp:   z.number().int().min(1).max(3).default(2),
@@ -759,6 +770,7 @@ export default async function posSetupRoutes(app) {
         if (known.length !== ids.length) throw httpError(422, 'Order type not found')
         set.kds_gloriafood_types = tx.json(body.kds_gloriafood_types)
       }
+      if (body.kds_colours) set.kds_colours = tx.json(normaliseKitchenColours(body.kds_colours))
       const keys = Object.keys(set)
       const [row] = await tx`
         UPDATE pos_settings SET ${tx(set, ...keys)}

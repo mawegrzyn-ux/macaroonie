@@ -3556,7 +3556,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
           <section id="kds" data-doc="">
             <H2>Kitchen screens (KDS)</H2>
             <P>
-              Migrations 168, 169 (kitchen flow), 177 (several kitchen flows), 182 (stations out of a flow), 183 (Splitters), 200 (Sleepers) and 191 (kitchen printers). Design in <Mono>docs/POS.md</Mono> section 9. A kitchen screen is a till device of
+              Migrations 168, 169 (kitchen flow), 177 (several kitchen flows), 182 (stations out of a flow), 183 (Splitters), 200 (Sleepers), 191 (kitchen printers) and 207 (ticket colours). Design in <Mono>docs/POS.md</Mono> section 9. A kitchen screen is a till device of
               kind <Mono>kds</Mono> (<Mono>pos_devices</Mono>, short code K1, K2 ...), paired with a one-time
               code like a till. The same app at <Mono>pos.&lt;domain&gt;</Mono> boots{' '}
               <Mono>pos/src/kitchen/KitchenApp.jsx</Mono> (lazy) when the device's kind is <Mono>kds</Mono>.
@@ -3771,6 +3771,56 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               station and everything after it; at an expo or runner it starts the dish again from Orders in.
             </P>
             <P>
+              <strong>The packing check</strong> (no migration: kitchen order state and station settings). At an
+              expo or runner (<Mono>isOrderLevel()</Mono>) a tap sends <Mono>kitchen.item_checked</Mono>{' '}
+              <Mono>{'{ order_id, station_id, item_id, checked }'}</Mono> instead of <Mono>kitchen.item_done</Mono>:
+              it sets or clears <Mono>item.checked[stationId]</Mono> (the time) and changes nothing about where the
+              dish is, so the ticket stays until READY / DONE (<Mono>kitchen.bumped</Mono>). Refused at prep
+              stations (<Mono>station</Mono>: they mark dishes done), for voided and held dishes, dishes not on
+              their way to the station, dishes already done there (<Mono>nothing</Mono>: Prev brings the ticket
+              back), the same value twice (<Mono>nothing</Mono>) and, without <Mono>show_upcoming</Mono>, a dish still
+              at an earlier station (<Mono>upcoming</Mono>). Ticking a dish that is still upcoming marks it done at
+              every station before (<Mono>finishBefore()</Mono>: it is in front of the pass), without a bump
+              record there. With the station setting <Mono>bump_when_checked</Mono> (default false;{' '}
+              <Mono>STATION_DEFAULTS</Mono>, <Mono>StationSettings</Mono>, expo / runner only in the admin), the tick
+              that leaves every dish the station would bump (<Mono>bumpable()</Mono>) ticked runs the same bump as
+              READY (<Mono>bumpStation()</Mono>, now shared with <Mono>kitchen.bumped</Mono>) with{' '}
+              <Mono>by_items: true</Mono> on the bump record and a <Mono>kds_log</Mono> bump row. Ticks go with a
+              remake (<Mono>delete item.checked</Mono>) and when the dish is sent back before the station: an
+              undone dish or a recalled bump at an earlier station clears the ticks at every station after it
+              (<Mono>untickAfter()</Mono>), so a stale tick never counts towards the last-tick bump. Recalling the
+              pass&apos;s own bump keeps its ticks. <Mono>stationTickets()</Mono> gives each item{' '}
+              <Mono>ticked</Mono> and each ticket <Mono>ticked</Mono> (a count) and <Mono>all_ticked</Mono>{' '}
+              (every dish to bump there, active or upcoming with <Mono>show_upcoming</Mono>, ticked); the screen
+              shows CHECKED and the All ticked off top. Devices still on an older copy of the app send{' '}
+              <Mono>kitchen.item_done</Mono> at the pass, which keeps working (done, and the last one bumps).
+            </P>
+            <P>
+              <strong>Ticket colours</strong> (migration 207): <Mono>pos_settings.kds_colours</Mono> jsonb{' '}
+              <Mono>{'{ states: { [key]: \'#rrggbb\' }, sections: [{ name, colour }] }'}</Mono>, per venue, written by{' '}
+              <Mono>PATCH /api/pos/venues/:id/settings</Mono> (<Mono>kds_colours</Mono>: Zod checks keys and codes,
+              then <Mono>normaliseKitchenColours()</Mono> stores it cleaned: lower case, names trimmed and spaces
+              collapsed, each section name once ignoring case, at most <Mono>SECTION_COLOURS_MAX</Mono> 100;{' '}
+              <Mono>configChanged()</Mono> tells the screens). <Mono>shared/pos/kitchenColours.js</Mono> is the one
+              implementation: <Mono>KITCHEN_COLOURS</Mono> (12 keys in groups dish / head / timer, each with the
+              standard <Mono>bg</Mono>, <Mono>ink</Mono> and <Mono>dim</Mono>: todo, ticked, upcoming, held, voided,
+              head, head_new, head_rush, head_prepared, head_checked, timer_warn, timer_late),{' '}
+              <Mono>ticketColours(colours)</Mono> (a set colour gets <Mono>inkOn()</Mono> words: black when its
+              luminance is over 0.6, else white; a held row with its own colour dims to 0.65),{' '}
+              <Mono>sectionColour()</Mono>, <Mono>sectionColoursById()</Mono>, <Mono>sectionKey()</Mono>.{' '}
+              <Mono>kdsConfig()</Mono> sends <Mono>colours: {'{ states, sections: { [sectionId]: colour } }'}</Mono>:
+              sections match by name over the venue&apos;s menus (draft tables and the live versions, so a section
+              renamed before publishing keeps the colour of either name). Kitchen items and meal deal parts carry{' '}
+              <Mono>section_id</Mono> (<Mono>itemFromLine()</Mono> / <Mono>itemFromOnline()</Mono>; a typed-in part
+              takes the combo&apos;s section). The kitchen screen draws rows, tops, the RUSH chip and the timer from
+              these with inline styles (<Mono>rowLook()</Mono>, the head key rush &gt; new &gt; checked &gt;
+              prepared &gt; head), names and parts in their section colour except on voided rows. The test bench
+              passes the venue&apos;s colours to its screens (<Mono>kitchenTestData()</Mono>). A new location
+              copies them (<Mono>storeSetup.js</Mono>). Admin: <Mono>components/pos/KitchenColours.jsx</Mono>{' '}
+              (<Mono>TicketColoursCard</Mono> on Store tech → Kitchen screens with <Mono>TicketPreview</Mono>, one
+              Save) and the station window&apos;s Ticking off dishes choice.
+            </P>
+            <P>
               An order is <Mono>ready</Mono> (<Mono>orderFacts()</Mono>) when every dish has reached every board
               and runner on its way, and dishes with neither are done everywhere; it becomes{' '}
               <Mono>collected</Mono> by itself when everything is done and every dish's way ends at a runner
@@ -3783,7 +3833,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <DataTable
               head={['Event', 'Payload', 'From']}
               rows={[
-                ['kitchen.item_done', '{ order_id, station_id, item_id, done }', 'screen'],
+                ['kitchen.item_done', '{ order_id, station_id, item_id, done }', 'screen (a prep station: the dish goes on; the last one done bumps the ticket)'],
+                ['kitchen.item_checked', '{ order_id, station_id, item_id, checked }', 'screen at an expo or runner: the packing check (ticks a dish off; nothing moves unless the station bumps when every dish is ticked)'],
                 ['kitchen.bumped / kitchen.recalled', '{ order_id, station_id }', 'screen (the dishes go on to the next station; an expo / runner bump can make the order ready; recall undoes the last bump unless a later station has done its dishes)'],
                 ['kitchen.remake', '{ order_id, station_id, item_id, reason? }', 'screen (item active again, logged)'],
                 ['kitchen.priority', '{ order_id, on }', 'screen (rush)'],
@@ -3802,7 +3853,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <DataTable
               head={['Table', 'What it holds']}
               rows={[
-                ['kds_stations', 'Per venue: name, kind prep | expo | runner | board | balance (183, a Splitter) | printer (191) | sleeper (200), colour, settings jsonb { target_mins, late_mins, show_held, show_upcoming, summary_groups: [{ id, name, members: [{ kind dish | option, id | label, qty }] }], pieces (a Splitter: members, same shape), split_above (a Splitter: null = each ticket on one station, N = share a ticket with more than N pieces), share_mode (a Splitter: pieces | speed), rush_type_id / rush_count / rush_station_id (a Splitter\'s busy order type rule), printer_id (a printer box), delay_mins (a Sleeper, 1-240) }, sort_order, is_active.'],
+                ['kds_stations', 'Per venue: name, kind prep | expo | runner | board | balance (183, a Splitter) | printer (191) | sleeper (200), colour, settings jsonb { target_mins, late_mins, show_held, show_upcoming, summary_groups: [{ id, name, members: [{ kind dish | option, id | label, qty }] }], pieces (a Splitter: members, same shape), split_above (a Splitter: null = each ticket on one station, N = share a ticket with more than N pieces), share_mode (a Splitter: pieces | speed), rush_type_id / rush_count / rush_station_id (a Splitter\'s busy order type rule), printer_id (a printer box), delay_mins (a Sleeper, 1-240), bump_when_checked (an expo or runner: the last dish ticked off bumps the ticket) }, sort_order, is_active.'],
                 ['kds_balance_turns', 'Each Splitter\'s last pick (183): station_id (the box, PK, ON DELETE CASCADE), last_station_id, updated_at. Written by the sequencer (saveBalanceTurns()) so a tie goes to the next station. Forced RLS.'],
                 ['kds_flows', 'A venue\'s kitchen flows (177): name (1-40, unique per venue ignoring case and spaces), layout jsonb { [stationId | start]: { x, y } } (where the designer draws each box), sort_order (the kitchen screen\'s list), off_station_ids uuid[] (182: the venue\'s stations this flow leaves out). Forced RLS like every tenant table. The migration made one "Main flow" per venue with stations or links, holding its links and layout, in use. A venue without any flow gets it from GET .../setup (ensureFlows()). Shared flows (192): venue_id NULL, boxes jsonb [{ id, name, kind }], box_links jsonb [{ id, from, to, targets }] (layout keys are box ids), names unique per tenant (index kds_flows_shared_name); a venue\'s own flow can\'t take a shared flow\'s name, a shared one can\'t take any flow\'s.'],
                 ['kds_flow_edges', 'A flow\'s links (169, flow_id NOT NULL since 177, ON DELETE CASCADE with the flow): from_station_id (NULL = Orders in), to_station_id (both ON DELETE CASCADE), targets jsonb, exclude boolean (204: All except these, the link takes every dish its targets don\'t name; kept false when targets is empty), sort_order. One link per pair per flow (unique index on flow_id, from, to). Read them by flow_id, never by venue alone. Replaced kds_routes: each station\'s routes became one link from Orders in, every prep station got a link to every expo.'],

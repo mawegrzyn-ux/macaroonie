@@ -74,6 +74,17 @@
 // boards have nothing to bump: an order is ready on a board once every dish on
 // its way to that board has reached it.
 //
+// At the pass and runners, tapping a dish ticks it off (kitchen.item_checked,
+// item.checked[station] = when): a packing check that changes nothing about
+// where the dish is, so the ticket stays until READY / DONE is pressed. A dish
+// still at an earlier station counts as done there once the pass ticks it off
+// (it is in front of the pass). With the station's bump_when_checked on,
+// ticking off the last dish bumps the ticket, as READY would. A tick goes
+// when the dish is made again (remake) or sent back to an earlier station
+// (undone, recalled there); READY then Prev at the pass keeps it. Prep
+// stations mark dishes done instead (kitchen.item_done): each one goes on at
+// once, and the last one done counts as the bump.
+//
 // Pure: no I/O, no clock. Times come from events (received_at, set by the
 // sequencer, else client_at) or from the `now` the screen passes in.
 
@@ -81,7 +92,7 @@ import { modifierText, groupModifiers } from './pricing.js'
 import { isId } from './ids.js'
 
 export const KITCHEN_DEVICE_EVENTS = [
-  'kitchen.item_done', 'kitchen.bumped', 'kitchen.recalled', 'kitchen.remake', 'kitchen.priority', 'kitchen.collected',
+  'kitchen.item_done', 'kitchen.item_checked', 'kitchen.bumped', 'kitchen.recalled', 'kitchen.remake', 'kitchen.priority', 'kitchen.collected',
 ]
 // Made by the server only (online and GloriaFood orders), never accepted from a device.
 // kitchen.print_due (migration 191): the minute sweep's nudge when a dish's
@@ -131,6 +142,8 @@ const RANK = { item: 0, section: 1, device: 2, revenue_stream: 3, order_type: 4,
 
 export const STATION_DEFAULTS = {
   target_mins: 8, late_mins: 12, show_held: true, summary_groups: [], pieces: [], split_above: null, delay_mins: 5,
+  // The pass and runners: ticking off every dish bumps the ticket (off: it waits for READY / DONE).
+  bump_when_checked: false,
   // A Splitter: how it shares (SHARE_MODES) and its busy order type rule (off: no rush_type_id).
   share_mode: 'pieces', rush_type_id: null, rush_count: 5, rush_station_id: null,
   // A Setter's status look (STATUS_LOOKS, STATUS_ANIMS): status_text '' = its name.
@@ -276,6 +289,10 @@ export function kitchenEventProblem(e) {
       if (!isUuid(p.station_id)) return bad('station_id')
       if (!isText(p.item_id, 64) || !p.item_id) return bad('item_id')
       return typeof p.done === 'boolean' ? null : bad('done')
+    case 'kitchen.item_checked':
+      if (!isUuid(p.station_id)) return bad('station_id')
+      if (!isText(p.item_id, 64) || !p.item_id) return bad('item_id')
+      return typeof p.checked === 'boolean' ? null : bad('checked')
     case 'kitchen.bumped':
     case 'kitchen.recalled':
       return isUuid(p.station_id) ? null : bad('station_id')
@@ -968,9 +985,11 @@ function itemFromLine(line, check, cfg, at, held, type, deviceId) {
   let route
   if (line.combo && line.combo.length) {
     // Each pick goes where that dish goes; a typed-in choice (no dish)
-    // goes where the combo itself goes.
+    // goes where the combo itself goes, and takes the combo's section
+    // (for the screens' section colours, kitchenColours.js).
     parts = line.combo.map(p => ({
-      item_id: p.item_id || null, name: p.kitchen_name || p.name, mods: kitchenMods(p.modifiers),
+      item_id: p.item_id || null, section_id: (p.item_id ? p.section_id : line.section_id) || null,
+      name: p.kitchen_name || p.name, mods: kitchenMods(p.modifiers),
       route: way(p.item_id
         ? { item_id: p.item_id, section_id: p.section_id, revenue_stream_id: rs, order_type_id: type }
         : { item_id: line.item_id, section_id: line.section_id, revenue_stream_id: rs, order_type_id: type }),
@@ -981,7 +1000,7 @@ function itemFromLine(line, check, cfg, at, held, type, deviceId) {
   }
   const course = line.course_id ? cfg.courses?.[line.course_id] : null
   return {
-    id: line.id, item_id: line.item_id || null, name: line.kitchen_name || line.name, qty: line.qty,
+    id: line.id, item_id: line.item_id || null, section_id: line.section_id || null, name: line.kitchen_name || line.name, qty: line.qty,
     mods: kitchenMods(line.modifiers), parts,
     note: line.note || null, allergies: line.allergies || [], seat: line.seat ?? null,
     course_id: line.course_id || null, course: course?.name || null, course_sort: course?.sort_order ?? null,
@@ -998,11 +1017,12 @@ function itemFromOnline(i, cfg, at, fireAt, type) {
   const way = target => itemRoute(target, cfg)
   // A combo's picks, each to its own stations (a typed-in choice goes with the combo).
   const parts = Array.isArray(i.parts) && i.parts.length ? i.parts.map(p => ({
-    item_id: p.item_id || null, name: p.kitchen_name || p.name, mods: onlineMods(p.options),
+    item_id: p.item_id || null, section_id: (p.item_id ? p.section_id : i.section_id) || null,
+    name: p.kitchen_name || p.name, mods: onlineMods(p.options),
     route: way(p.item_id ? { item_id: p.item_id, section_id: p.section_id || null, revenue_stream_id: rs, order_type_id: type } : own),
   })) : null
   return {
-    id: String(i.id), item_id: i.item_id || null, name: i.name, qty: i.qty,
+    id: String(i.id), item_id: i.item_id || null, section_id: i.section_id || null, name: i.name, qty: i.qty,
     mods: onlineMods(i.options),
     parts, note: i.note || null, allergies: [], seat: null,
     course_id: null, course: null, course_sort: null,
@@ -1396,14 +1416,67 @@ function bumpRecord(e, station, at, set, items, cfg, extra = {}) {
 
 const nameOf = (cfg, id) => cfg?.stations?.[id]?.name || 'another station'
 
+/** Mark a dish done everywhere before `node` (it is at `node` now). */
+function finishBefore(item, node, at, set) {
+  for (const a of ancestors(item.route, node)) {
+    if (!item.done[a]) { item.done[a] = at; set.push([item.id, a]) }
+  }
+}
+
 /** Mark a dish done at `node` and, for a forced finish, everywhere before it. */
 function finish(item, node, at, set, force) {
-  if (force) {
-    for (const a of ancestors(item.route, node)) {
-      if (!item.done[a]) { item.done[a] = at; set.push([item.id, a]) }
-    }
-  }
+  if (force) finishBefore(item, node, at, set)
   if (!item.done[node]) { item.done[node] = at; set.push([item.id, node]) }
+}
+
+/** A dish sent back to `node` (undone, recalled) isn't ticked off after it any more. */
+function untickAfter(item, node) {
+  const after = item.checked ? descendants(item.route, node).filter(n => item.checked[n]) : []
+  if (!after.length) return
+  const checked = { ...item.checked }
+  for (const n of after) delete checked[n]
+  item.checked = checked
+}
+
+/**
+ * The dishes a station's bump finishes: those it has now, and at the pass or
+ * a runner showing dishes before they arrive, those still on their way.
+ */
+function bumpable(o, station, st, cfg, at) {
+  const early = isOrderLevel(station) && st.show_upcoming
+  return liveItems(o).filter(i => {
+    if (!i.route?.[station.id]) return false
+    const s = nodeState(i, station.id, cfg, at)
+    return s === 'active' || (early && s === 'upcoming')
+  })
+}
+
+/**
+ * A station's bump (BUMP / READY / DONE, or the last dish ticked off): its
+ * dishes done there (the pass's and a runner's dishes still on their way done
+ * everywhere before it too), its voids seen, and a bump record. Returns null,
+ * or a refusal when there is nothing to bump.
+ */
+function bumpStation(o, station, st, cfg, at, e, log, extra = {}) {
+  const mine = liveItems(o).filter(i => i.route?.[station.id])
+  const active = mine.filter(i => nodeState(i, station.id, cfg, at) === 'active')
+  const upcoming = isOrderLevel(station) && st.show_upcoming
+    ? mine.filter(i => nodeState(i, station.id, cfg, at) === 'upcoming') : []
+  const voids = voidsToSee(o, station, cfg)
+  if (!active.length && !upcoming.length && !voids.length) {
+    const coming = mine.filter(i => nodeState(i, station.id, cfg, at) === 'upcoming')
+    if (coming.length) return fail('Still at ' + [...new Set(coming.flatMap(i => itemWhere(i, cfg, at)))].map(id => nameOf(cfg, id)).join(', '), 'upcoming')
+    return fail('Nothing to bump at ' + station.name, 'nothing')
+  }
+  const set = []
+  for (const i of active) finish(i, station.id, at, set, false)
+  for (const i of upcoming) finish(i, station.id, at, set, true)
+  for (const v of voids) v.void_seen = { ...(v.void_seen || {}), [station.id]: at }
+  const bumped = [...active, ...upcoming]
+  const rec = bumpRecord(e, station, at, set, bumped, cfg, { voids: voids.map(v => v.id), ...extra })
+  o.bumps.push(rec)
+  if (bumped.length) log.push({ kind: 'bump', station, at, seconds: rec.seconds, items: rec.items })
+  return null
 }
 
 /**
@@ -1488,6 +1561,7 @@ export function applyKitchenEvent(orders, e, cfg = {}) {
         const onward = descendants(item.route, station.id).filter(n => item.done[n])
         if (onward.length) return fail('Already moved on to ' + onward.map(id => nameOf(cfg, id)).join(', '), 'moved_on')
         delete item.done[station.id]
+        untickAfter(item, station.id)
         // Undoing a dish reopens the ticket: its last bump no longer counts.
         for (const b of o.bumps) {
           if (!b.recalled_at && b.station_id === station.id && b.set.some(([id, n]) => id === item.id && n === station.id)) {
@@ -1500,26 +1574,45 @@ export function applyKitchenEvent(orders, e, cfg = {}) {
       break
     }
 
+    case 'kitchen.item_checked': {
+      if (!['active', 'ready'].includes(o.status)) return fail('This order is no longer in the kitchen', 'closed')
+      if (!isOrderLevel(station)) return fail('Dishes are ticked off at the pass and runners: tap a dish here to mark it done', 'station')
+      const item = o.items.find(i => i.id === p.item_id)
+      if (!item) return fail('Dish not found on this order', 'missing')
+      if (item.voided_at) return fail('This dish was voided', 'voided')
+      if (!isFired(item, at)) return fail('This dish hasn\'t been fired yet', 'held')
+      if (!item.route?.[station.id]) return fail('This dish doesn\'t come to ' + station.name, 'station')
+      const state = nodeState(item, station.id, cfg, at)
+      if (state === 'done') return fail('Already done here: Prev brings the ticket back', 'nothing')
+      const was = !!item.checked?.[station.id]
+      if (p.checked === was) return fail(p.checked ? 'Already ticked off' : 'Not ticked off', 'nothing')
+      if (p.checked) {
+        if (state === 'upcoming' && !st.show_upcoming) {
+          return fail('Still at ' + itemWhere(item, cfg, at).map(id => nameOf(cfg, id)).join(', '), 'upcoming')
+        }
+        // In front of the pass now: done wherever it was still waiting.
+        if (state === 'upcoming') finishBefore(item, station.id, at, [])
+        item.checked = { ...(item.checked || {}), [station.id]: at }
+        // Every dish ticked off: the ticket waits for READY, or with
+        // bump_when_checked it is bumped now.
+        const left = bumpable(o, station, st, cfg, at)
+        if (st.bump_when_checked && left.length && left.every(i => i.checked?.[station.id])) {
+          const why = bumpStation(o, station, st, cfg, at, e, log, { by_items: true })
+          if (why) return why
+        }
+      } else {
+        const checked = { ...item.checked }
+        delete checked[station.id]
+        item.checked = checked
+      }
+      refreshStatus(o, cfg, at, e.id)
+      break
+    }
+
     case 'kitchen.bumped': {
       if (!['active', 'ready'].includes(o.status)) return fail('This order is no longer in the kitchen', 'closed')
-      const mine = liveItems(o).filter(i => i.route?.[station.id])
-      const active = mine.filter(i => nodeState(i, station.id, cfg, at) === 'active')
-      const upcoming = isOrderLevel(station) && st.show_upcoming
-        ? mine.filter(i => nodeState(i, station.id, cfg, at) === 'upcoming') : []
-      const voids = voidsToSee(o, station, cfg)
-      if (!active.length && !upcoming.length && !voids.length) {
-        const coming = mine.filter(i => nodeState(i, station.id, cfg, at) === 'upcoming')
-        if (coming.length) return fail('Still at ' + [...new Set(coming.flatMap(i => itemWhere(i, cfg, at)))].map(id => nameOf(cfg, id)).join(', '), 'upcoming')
-        return fail('Nothing to bump at ' + station.name, 'nothing')
-      }
-      const set = []
-      for (const i of active) finish(i, station.id, at, set, false)
-      for (const i of upcoming) finish(i, station.id, at, set, true)
-      for (const v of voids) v.void_seen = { ...(v.void_seen || {}), [station.id]: at }
-      const bumped = [...active, ...upcoming]
-      const rec = bumpRecord(e, station, at, set, bumped, cfg, { voids: voids.map(v => v.id) })
-      o.bumps.push(rec)
-      if (bumped.length) log.push({ kind: 'bump', station, at, seconds: rec.seconds, items: rec.items })
+      const why = bumpStation(o, station, st, cfg, at, e, log)
+      if (why) return why
       refreshStatus(o, cfg, at, e.id)
       break
     }
@@ -1543,7 +1636,7 @@ export function applyKitchenEvent(orders, e, cfg = {}) {
       }
       for (const [itemId, node] of restore) {
         const i = o.items.find(x => x.id === itemId)
-        if (i) delete i.done[node]
+        if (i) { delete i.done[node]; untickAfter(i, node) }
       }
       for (const id of last.voids || []) {
         const v = o.items.find(x => x.id === id)
@@ -1575,6 +1668,8 @@ export function applyKitchenEvent(orders, e, cfg = {}) {
         for (const n of [station.id, ...descendants(item.route, station.id)]) delete item.done[n]
         item.reset = { ...(item.reset || {}), [station.id]: at }
       }
+      // A dish made again is ticked off again at the pass.
+      delete item.checked
       item.remakes = (item.remakes || 0) + 1
       item.remade_at = at
       o.changed_at = at
@@ -1643,12 +1738,14 @@ const minTime = list => {
  *   { order, items, since, held, voids, elsewhere }
  * items: the order's dishes that come to this station, each with
  *   state  'active' | 'upcoming' | 'done' | 'held' | 'voided'
+ *   ticked ticked off here (the pass, a runner: the packing check)
  *   where  stations an upcoming dish is at now
  *   from   stations it came from (not Orders in)
  *   next   stations it goes on to
  *   parts  meal deal parts made here (prep) / all parts (pass, runner)
  * elsewhere (pass, runner): [{ station_id, count }] dishes of the order going
- * another way (e.g. to the other expo).
+ * another way (e.g. to the other expo). ticked (pass, runner): how many of
+ * the dishes its bump would finish are ticked off; all_ticked: all of them.
  * A ticket shows while the station has something to do: dishes here, or
  * (show_upcoming) dishes still at earlier stations, or a void to see.
  */
@@ -1668,6 +1765,7 @@ export function stationTickets(orders, station, now, cfg) {
       return {
         ...i, state,
         entry,
+        ticked: !!i.checked?.[station.id],
         where: state === 'upcoming' ? itemWhere(i, cfg, now).filter(id => !isSleeper(cfg, id)) : [],
         sleeps: state === 'upcoming' ? itemSleeps(i, cfg, now) : [],
         from: (i.route[station.id] || []).filter(x => x !== START),
@@ -1704,6 +1802,9 @@ export function stationTickets(orders, station, now, cfg) {
       }
       elsewhere = [...counts.entries()].map(([station_id, count]) => ({ station_id, count }))
     }
+    // The packing check: the dishes READY / DONE would finish, ticked off.
+    const toBump = orderLevel ? view.filter(i => i.state === 'active' || (st.show_upcoming && i.state === 'upcoming')) : []
+    const ticked = toBump.filter(i => i.ticked).length
     out.push({
       order: o, items,
       since: since || minTime(voids.map(v => v.voided_at)) || o.created_at,
@@ -1712,6 +1813,8 @@ export function stationTickets(orders, station, now, cfg) {
       upcoming: upcoming.length,
       sleeping_until,
       elsewhere,
+      ticked,
+      all_ticked: toBump.length > 0 && ticked === toBump.length,
     })
   }
   return out.sort((a, b) => (b.order.priority ? 1 : 0) - (a.order.priority ? 1 : 0) || ms(a.since) - ms(b.since))

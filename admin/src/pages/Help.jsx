@@ -5417,8 +5417,8 @@ export default function Help() {
             <H3>Using a kitchen screen</H3>
             <ul className="list-disc ml-5 space-y-2 text-sm text-muted-foreground mb-4">
               <li>Tickets run left to right, oldest first (rush orders first). The header shows the table, tab or customer name (or what the screen's <strong>Ticket title</strong> asks for: with <em>Tent</em>, "Tent 12" with the order number beside it; an order without a tent shows its table or name instead), the order number, the timer, the order type and tent number, covers and server. Notes are yellow, allergies red, options pink and removals red.</li>
-              <li><strong>Tap a dish</strong> to mark it done (tap again to undo). <strong>Tap a ticket</strong> to pick it (blue outline), then <strong>BUMP</strong> to finish it here: its dishes go on to the next station in the flow ("From Grill" on the next station's ticket). Bumping the last dish of a ticket bumps it too. When dishes on one ticket go different ways, each says where it goes next ("Then Prep 2", "Then Pass").</li>
-              <li><strong>The expo</strong> sees whole orders, each dish marked where it is now ("At Fryer"), and <strong>READY</strong> marks the order ready (it also finishes dishes still at earlier stations). A line says when some of the order goes through another expo. Ready orders wait under the tick button until <strong>Collected</strong>.</li>
+              <li>At a prep station, <strong>tap a dish</strong> to mark it done (tap again to undo): it goes on to the next station at once. <strong>Tap a ticket</strong> to pick it (blue outline), then <strong>BUMP</strong> to finish it here: its dishes go on to the next station in the flow ("From Grill" on the next station's ticket). Marking the last dish of a ticket done bumps it too. When dishes on one ticket go different ways, each says where it goes next ("Then Prep 2", "Then Pass").</li>
+              <li><strong>The expo</strong> sees whole orders, each dish marked where it is now ("At Fryer"), and <strong>READY</strong> marks the order ready (it also finishes dishes still at earlier stations). Tapping a dish at the expo ticks it off instead of sending it on: see <em>Ticking dishes off at the pass</em> below. A line says when some of the order goes through another expo. Ready orders wait under the tick button until <strong>Collected</strong>.</li>
               <li><strong>A runner</strong> gets the order once the expo is done, and <strong>DONE</strong> when it's taken out. When the runner is the last step for every dish, DONE hands the order over (it leaves the order ready board).</li>
               <li>A station can't bump a dish that hasn't reached it yet, and can't bring back one the next station has already done.</li>
               <li>Along the top: All orders, one tab per order type, Online (your online orders and GloriaFood's), and the stations this screen shows. The green bar shows the average bump time today, the last 10, how many are done, the share on time, Live or Offline, and the time.</li>
@@ -5434,6 +5434,38 @@ export default function Help() {
               through tickets, R brings the last ticket back, S shows what's on order, P makes a ticket a rush.
               Set a USB or Bluetooth bump bar to send those keys.
             </InfoBox>
+
+            <H3>Ticking dishes off at the pass</H3>
+            <P>
+              At the expo (the pass) and runners, tapping a dish <strong>ticks it off</strong>: a packing check,
+              so you can go down the ticket as you bag or plate it. A ticked dish turns grey with a tick and the
+              ticket says how many are ticked (<em>2 ticked</em>); tap it again to untick it. Ticking off doesn't
+              send anything on: when every dish is ticked the ticket says <strong>CHECKED</strong> (its top in the
+              All ticked off colour) and stays on the screen until you press <strong>READY</strong> (or
+              <strong> DONE</strong> at a runner). A dish still at an earlier station (<em>At Fryer</em>) can be
+              ticked off too when the pass shows orders before their dishes get there: it's in front of you, so it
+              counts as done at the fryer and leaves the fryer's screen.
+            </P>
+            <ul className="list-disc ml-5 space-y-2 text-sm text-muted-foreground mb-4">
+              <li><strong>Bump when every dish is ticked</strong>: if you'd rather the last tick sends the order on, open the station in Store tech → Kitchen screens (<strong>Edit station</strong>) and under <strong>Ticking off dishes</strong> pick <em>Bump when every dish is ticked</em> instead of <em>Keep the ticket until READY</em>. The last tick then marks the order ready, as READY would. The station list says which each expo or runner does.</li>
+              <li>A tick goes when the dish is made again (<strong>Remake</strong>), or when the station before takes it back (undoes it, or brings its ticket back with <strong>Prev</strong>): it has to be ticked off again when it comes back. READY then <strong>Prev</strong> at the pass brings the ticket back with its ticks.</li>
+              <li>Prep stations don't tick: a dish tapped there is done and goes on.</li>
+            </ul>
+
+            <H3>Ticket colours</H3>
+            <P>
+              Store tech → Kitchen screens → <strong>Ticket colours</strong> sets the colours every kitchen
+              screen of the venue draws tickets in. Tap a colour square to change it (the website's colours come
+              first, then any colour of your own); <strong>Standard colour</strong> puts one back. Words turn
+              black or white by themselves to stay readable. The preview beside the list shows a ticket in your
+              colours. Press <strong>Save</strong>; the screens change at once.
+            </P>
+            <ul className="list-disc ml-5 space-y-2 text-sm text-muted-foreground mb-4">
+              <li><strong>Dishes</strong>: the background of a dish's row when it's <em>To do</em>, <em>Ticked off</em> (done at a prep station, ticked off at the pass), <em>On its way</em> (still at an earlier station), <em>Held</em> (its course not fired yet) and <em>Voided</em>.</li>
+              <li><strong>Ticket tops</strong>: an order being made, <em>New</em> (the first 30 seconds), <em>Rush</em>, <em>Prepared</em> (every dish has reached the pass) and <em>All ticked off</em> (every dish ticked off at the pass, waiting for READY).</li>
+              <li><strong>Timer</strong>: its colour from the station's amber time and from its red time.</li>
+              <li><strong>Dish names by section</strong>: pick a section from your menus (<em>Colour a section's dishes</em>) and a colour: those dishes' names show in it, so drinks or sides stand out on a busy ticket. A meal deal's parts take their own section's colour. Sections go by name, so one colour covers <em>Sides</em> in every menu. Remove one with its X.</li>
+            </ul>
 
             <H3>Testing the kitchen</H3>
             <P>
