@@ -1133,8 +1133,10 @@ test('e-receipt email addresses: rough check and the hint shown back', () => {
   assert.equal(emailHint('nope'), '')
   // Every language has the words the done screen and the receipts use.
   for (const lang of Object.keys(UI_TEXT)) {
-    for (const k of ['order_for', 'tent_put', 'table_put', 'table_done', 'order_line', 'name_line', 'paid_note_name', 'receipt_scan', 'receipt_email', 'receipt_sent', 'send']) assert.ok(UI_TEXT[lang][k], lang + '.' + k)
+    for (const k of ['order_for', 'tent_put', 'table_put', 'table_done', 'order_line', 'name_line', 'paid_note_name', 'receipt_scan', 'receipt_email', 'receipt_sent', 'receipt_waiting', 'receipt_email_hint_counter', 'send']) assert.ok(UI_TEXT[lang][k], lang + '.' + k)
     assert.match(UI_TEXT[lang].receipt_sent, /\{email\}/)
+    assert.match(UI_TEXT[lang].receipt_waiting, /\{email\}/)
+    assert.notEqual(UI_TEXT[lang].receipt_waiting, UI_TEXT[lang].receipt_sent)
     assert.match(UI_TEXT[lang].table_done, /\{n\}/)
   }
 })

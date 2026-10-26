@@ -5602,7 +5602,7 @@ export default function Help() {
               <li><strong>Under it</strong>: tap the small lines to show, in this order: Order number, Tent number (or Table number), Customer name, Order type. The big one isn&apos;t repeated, and a line the order hasn&apos;t got is left out. With a tent big, the screen also says to put it on the table; with tents, the &ldquo;we&apos;ll call your number&rdquo; line isn&apos;t shown (the food comes to the table).</li>
               <li><strong>Message</strong>: words of your own under the rest, e.g. where to collect a takeaway. Translate them on Menus → Translations.</li>
               <li><strong>Each order type</strong>: every order type the preview&apos;s revenue stream offers is listed with what that stream asks its guests (a name, a tent or table number: not asked, asked, or must be given; set in Store tech → Revenue streams). When the screen would show something the type&apos;s guests are never asked for, an amber note says so (the name, say, for a type that doesn&apos;t ask for one), and what shows instead. Turn on <strong>Its own way</strong> to give a type its own big value, lines or message; anything left <em>As for every type</em> follows the settings above it. <strong>Show</strong> puts an example order of that type on the preview (a name and a tent only where the type asks for them) and keeps it there while you change things; <strong>Order done</strong> above the preview does the same for the first type.</li>
-              <li><strong>Receipts</strong>: printed on the kiosk&apos;s receipt printer (none, the guest can print one, or always); a <strong>QR code</strong> the guest scans with their phone to see the receipt; and <strong>Email the receipt</strong>, where a guest who paid by card types their email address on the kiosk&apos;s keyboard and the receipt is sent.</li>
+              <li><strong>Receipts</strong>: printed on the kiosk&apos;s receipt printer (none, the guest can print one, or always); a <strong>QR code</strong> the guest scans with their phone to see the receipt; and <strong>Email the receipt</strong>, where the guest types their email address on the kiosk&apos;s keyboard. Paid by card, the receipt goes straight away; paying at the counter, it goes as soon as the till takes payment (the kiosk tells the guest so).</li>
               <li><strong>Shows for</strong>: how long the screen stays before the start screen comes back (5 to 120 seconds). It waits while a guest types an email address.</li>
             </ul>
             <P>
@@ -5613,6 +5613,13 @@ export default function Help() {
               Settings), up to three times an order. The email address isn&apos;t kept: the kiosk shows it back
               as its first letter and its domain (s***@gmail.com), and that&apos;s all that is noted. Nothing a guest
               types is recorded with their visit for Kiosk analytics either.
+            </P>
+            <P>
+              For an order paid at the counter, the address is held locked away (encrypted) only until the till
+              takes payment, and the receipt goes within a minute of that; then the address is forgotten like any
+              other. Nothing is sent, and the address is dropped, if the order is cancelled at the till (every dish
+              taken off), if nobody pays it within a day, or if the location&apos;s email provider keeps refusing it
+              (it is tried a few times, a few minutes apart). An unpaid bill is never emailed.
             </P>
 
             <H3>Bottom bar and side menu colours</H3>

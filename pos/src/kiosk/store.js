@@ -559,11 +559,18 @@ export async function receiptLink() {
   return receiptCall({}, 15000)
 }
 
-/** Email the order's receipt: { url, sent_to } (sent_to: the address shown back, 's***@gmail.com'). */
+/**
+ * Email the order's receipt: { url, sent_to } once sent (sent_to: the address
+ * shown back, 's***@gmail.com'), or { url, sent_to: null, will_send_to } for an
+ * order paid at the counter (the server sends it once the till takes payment,
+ * migration 210).
+ */
 export async function emailReceipt(email) {
   if (state.preview) {
     await new Promise(res => setTimeout(res, 700))
-    return { url: null, sent_to: emailHint(email), example: true }
+    return state.method === 'card'
+      ? { url: null, sent_to: emailHint(email), example: true }
+      : { url: null, sent_to: null, will_send_to: emailHint(email), example: true }
   }
   return receiptCall({ email }, 25000)
 }

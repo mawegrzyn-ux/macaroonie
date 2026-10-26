@@ -517,6 +517,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['loyverse_connections.access_token', 'POST / PATCH /api/loyverse/connections', 'ownConnection(), loadLink() (routes/loyverse.js)'],
                 ['gloriafood_venue_links.poll_key', 'PUT /api/gloriafood/venues/:id/link', 'pollVenue() (gloriafoodSvc.js); the link route compares a typed key with the unsealed one'],
                 ['venue_email_settings.provider_api_key, provider_secret, smtp_pass', 'POST / PATCH /api/email-templates/settings/:venueId', 'emailCredentials() (emailSvc.js), loadSendgridKey() (emailMonitoring.js)'],
+                ['pos_card_accounts.secret', 'POST / PATCH /api/pos/card-accounts', 'the card machine adapters (services/cardSvc.js)'],
+                ['pos_receipts.email_to (a guest\'s address until their counter order is paid, migration 210)', 'kioskReceipt() (receiptSvc.js)', 'sendWaitingReceipts(), then cleared'],
               ]}
             />
             <P>
@@ -4111,7 +4113,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               rows={[
                 ['GET /pos-api/config (kiosk)', 'kioskConfig() in services/kioskSvc.js: venue, settings, the kiosk\'s stream and its order types (ask_name / ask_tent), all order types, tax rates, menus / items / section_items (tillMenuData guest view: a section\'s item_ids leave out dishes isPriced() in shared/orderPricing.js says can\'t be priced, as online ordering does; they stay in items and section_items for combos), option groups with their kiosk fields, guest-visible dietary tags, the allergen notice, automatic till promotions, sold out, the design (normalised), translations for the design\'s languages, the device. No staff, no PINs. version = a hash of it.'],
                 ['Kiosk device routes', 'A kiosk may only call GET /pos-api/me, GET /pos-api/config, POST /pos-api/events, its card machine routes, POST /pos-api/kiosk/journeys and POST /pos-api/kiosk/receipts (KIOSK_ROUTES); anything else is 403 code kiosk.'],
-                ['POST /pos-api/kiosk/receipts', 'Kiosks only (migration 209, services/receiptSvc.js kioskReceipt()). { check_id, email? }: the order must be one this kiosk placed at its venue (pos_checks.server_id = the kiosk, else 404). Makes the order\'s pos_receipts row once (token: 24 random bytes, base64url) -> { url (deviceOrigin(\'kiosk\') + /receipt/<token>), sent_to }. With email (isEmail() in shared/kiosk.js, else 400): 422 while the check is open (not paid), 429 after MAX_EMAILS (3) sends, counted before sending; the receipt goes through the venue\'s provider (emailCredentials()) after the transaction, the kiosk waiting; 422 when the provider refuses. Only emailHint() (first letter and domain) and emailed_at are stored; sent_to is the hint. 60 a minute.'],
+                ['POST /pos-api/kiosk/receipts', 'Kiosks only (migration 209, services/receiptSvc.js kioskReceipt()). { check_id, email? }: the order must be one this kiosk placed at its venue (pos_checks.server_id = the kiosk, else 404). Makes the order\'s pos_receipts row once (token: 24 random bytes, base64url) -> { url (deviceOrigin(\'kiosk\') + /receipt/<token>), sent_to }. With email (isEmail() in shared/kiosk.js, else 400): 422 for a void check, 429 after MAX_EMAILS (3), counted before sending. A paid check: the receipt goes through the venue\'s provider (emailCredentials()) after the transaction, the kiosk waiting; 422 when the provider refuses; only emailHint() (first letter and domain) and emailed_at are stored; sent_to is the hint. An open check (to pay at the counter, migration 210): the address is kept sealed until the till takes payment (sendWaitingReceipts()), -> will_send_to (the hint), sent_to null. 60 a minute.'],
                 ['GET /receipt/:token', 'No login, device hosts only (pos., kitchen., kiosk.; else 404), served by routes/posSite.js (\'/receipt/\' in PASS_PREFIXES; the pos app\'s service worker leaves it to the network). receiptPage(): the token found in system mode (rows under 400 days), then the check in its tenant, drawn with billOps() in the kiosk receipt design (printConfig().layouts.kiosk_receipt) and previewHtml() at DEFAULT_COLS; an open check is a bill with a Not paid yet note. Cache-Control no-store, Referrer-Policy no-referrer, X-Robots-Tag noindex, a CSP of its own. Counts views. 120 a minute.'],
                 ['GET /pos-api/kiosk-preview?token=', 'The preview\'s config: kioskConfig() with previewDevice() (the editor\'s stream and design, the test card reader) and the token\'s menu version (m: \'draft\' = the menus with changes not published yet; menu_version in the config). The token is the key: readPreviewToken(), HMAC with platform_secrets kiosk_preview_key, 12 hours.'],
                 ['GET /api/pos/kiosk-designs', 'pos_setup view. Normalised settings.'],
@@ -4274,7 +4276,10 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>data-state</Mono> waiting | ready | failed); <Mono>EmailSheet</Mono> takes the address on{' '}
               <Mono>EmailKeyboard</Mono> (<Mono>parts.jsx</Mono>: digits, lower case, @ once, endings such as
               @gmail.com) inside <Mono>data-jprivate</Mono>, and <Mono>emailReceipt()</Mono> sends it. Neither is
-              offered for an order still in the outbox (<Mono>result.pending</Mono>); email only after a card payment.
+              offered for an order still in the outbox (<Mono>result.pending</Mono>). Email is offered whatever the
+              payment: a card order's reply has <Mono>sent_to</Mono>; a counter order's has{' '}
+              <Mono>will_send_to</Mono> instead, and the screen says it goes once paid (<Mono>receipt.sent</Mono>{' '}
+              = <Mono>waiting</Mono>, words <Mono>receipt_waiting</Mono>; the sheet's <Mono>receipt_email_hint_counter</Mono>).
               The visit's record (journey.js) keeps the sheet's state and the address's length
               (<Mono>receipt.mail</Mono>, <Mono>receipt.sent</Mono>, <Mono>receipt.mail_len</Mono>), never the
               address or its hint; a playback shows dots. The designer's <Mono>DonePanel</Mono> lists the preview
@@ -4290,7 +4295,26 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               page is drawn from the check as it is when opened, so a counter order paid later shows its receipt.
               The hourly AI clean-up job also runs <Mono>cleanUpReceipts()</Mono> (rows after 400 days). Tests:{' '}
               <Mono>api/test/kiosk-receipts.test.mjs</Mono> (a real kiosk order through the device routes, the page,
-              a stand-in SendGrid, refusals, clean-up) and the receipt page in <Mono>system-paths.test.mjs</Mono>.
+              a stand-in SendGrid, refusals, clean-up, counter orders paid at the till, cancelled, unpaid, refused
+              by the provider, another tenant's sweep) and the receipt page in <Mono>system-paths.test.mjs</Mono>.
+            </P>
+            <P>
+              Counter orders (migration 210): <Mono>kioskReceipt()</Mono> on an open check counts the email,
+              stores the address sealed (<Mono>pos_receipts.email_to</Mono>, <Mono>seal()</Mono> in{' '}
+              <Mono>services/vault.js</Mono>, in its <Mono>SEALED</Mono> list) with <Mono>email_hint</Mono> and{' '}
+              <Mono>email_wanted_at</Mono>, and answers <Mono>{'{ url, sent_to: null, will_send_to }'}</Mono>; a
+              later address replaces it. <Mono>sendWaitingReceipts({'{ tenantId, venueId, log }'})</Mono> runs after{' '}
+              <Mono>POST /pos-api/events</Mono> whenever a changed check isn't open (not awaited) and from the
+              minute hold sweep with no venue. In system mode it claims up to 25 rows whose check isn't open
+              (<Mono>email_claimed_at</Mono>, <Mono>FOR UPDATE OF w SKIP LOCKED</Mono>, a claimed row waits 2
+              minutes per failed try), then per row: a void check, a missing one or one with no active line
+              clears it (<Mono>email_error</Mono> 'Order cancelled'); else <Mono>unseal()</Mono>, send through the
+              venue's provider outside any transaction, and clear <Mono>email_to</Mono> with{' '}
+              <Mono>emailed_at</Mono>. A failure counts <Mono>email_tries</Mono> and keeps the claim; at{' '}
+              <Mono>MAX_TRIES</Mono> (6) the address goes. The sweep first clears addresses older than{' '}
+              <Mono>WAIT_HOURS</Mono> (24, 'Not paid within a day'). A void check can't ask (422), and a direct
+              send on a paid check clears any address still waiting for it. Partial index{' '}
+              <Mono>pos_receipts_waiting</Mono>.
             </P>
 
             <H3>Bottom bar and side menu colours</H3>

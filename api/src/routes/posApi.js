@@ -88,7 +88,7 @@ import { KITCHEN_SERVER_EVENTS } from '../../../shared/pos/kitchen.js'
 import { CHECK_EVENTS } from '../../../shared/pos/checks.js'
 import { kioskConfig, readPreviewToken, previewDevice } from '../services/kioskSvc.js'
 import { saveVisits, MAX_VISITS } from '../services/kioskJourneySvc.js'
-import { kioskReceipt } from '../services/receiptSvc.js'
+import { kioskReceipt, sendWaitingReceipts } from '../services/receiptSvc.js'
 import { setSoldOut, soldOutItemIds, announceSoldOut } from '../services/soldOut.js'
 import { kdsConfig, kitchenSync, onlineMoves, switchFlow, readKitchenTestToken, kitchenTestData } from '../services/kitchenSvc.js'
 import { changeStatus } from '../services/orderSvc.js'
@@ -465,7 +465,8 @@ export default async function posApiRoutes(app) {
 
     // The receipt of an order the kiosk just placed (migration 209,
     // services/receiptSvc.js): its page's link for the QR code on the order
-    // done screen, and with an email address the receipt sent there.
+    // done screen, and with an email address the receipt sent there (or, for
+    // an order paid at the counter, sent once the till takes payment).
     scoped.post('/kiosk/receipts', { config: { rateLimit: { max: 60, timeWindow: '1 minute' } } }, async req => {
       const d = req.posDevice
       if (d.kind !== 'kiosk') throw httpError(403, 'Only a self-order kiosk gives guests receipts this way')
@@ -742,6 +743,12 @@ export default async function posApiRoutes(app) {
       // Tickets to print: whoever prints for those printers collects them now.
       if (printing) broadcast('pos:' + d.venue_id, { type: 'pos.print' })
       afterKitchen(req, d, raw_results)
+      // A check that was paid or cancelled may have a kiosk receipt waiting to
+      // be emailed (migration 210). The minute sweep catches anything missed.
+      if (Object.values(changed).some(c => c?.status && c.status !== 'open')) {
+        sendWaitingReceipts({ tenantId: d.tenant_id, venueId: d.venue_id, log: req.log })
+          .catch(err => req.log.warn({ err }, 'kiosk receipts after payment failed'))
+      }
       return { results, seq, checks: Object.values(changed), kitchen: Object.values(kitchen) }
     })
 

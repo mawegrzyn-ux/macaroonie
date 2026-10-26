@@ -5,6 +5,12 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-26 — Kiosks: email receipts for orders paid at the counter]
+
+- **Email the receipt** on the kiosk's order done screen now works for orders paid at the counter too, not only card payments. The guest types their address as before; the kiosk says "We'll email your receipt to s***@gmail.com once you've paid at the counter", and the receipt goes within a minute of the till taking payment. An unpaid bill is never emailed.
+- Until then the address is kept encrypted, and it is forgotten once the receipt is sent, when the order is cancelled at the till, when it isn't paid within a day, or after a few failed tries. The receipt email no longer says the address wasn't kept; it says it isn't kept once sent.
+- Migration 210 (`pos_receipts`: the waiting address, sealed, and how its sending went).
+
 ## [2026-10-26 — Kiosks: the tent number big after paying, an order done screen designer, receipts by QR code or email]
 
 - When a guest types a tent number, the screen after paying now shows the **tent number big**, with the order number under it (and "Put it on your table: we'll bring your order to you"). Without a tent it shows the order number, as before.
