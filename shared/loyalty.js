@@ -408,6 +408,13 @@ export function pointsText(n, settings) {
   return v.toLocaleString('en-GB') + ' ' + (v === 1 ? label.replace(/s$/, '') : label)
 }
 
+/** How points are earned, in words: "Earn 1 point for every £1 you spend, and 50 points when you join." */
+export function earnText(settings) {
+  const p = settings?.points
+  if (!p) return ''
+  return 'Earn ' + pointsText(p.per_pound, settings) + ' for every £1 you spend' + (p.welcome ? ', and ' + pointsText(p.welcome, settings) + ' when you join' : '') + '.'
+}
+
 /** A reward in a few words: "£5 off", "10% off", "A free Latte". */
 export function rewardSummary(r, names = {}) {
   if (r.kind === 'amount_off') return money(r.value).replace(/\.00$/, '') + ' off'

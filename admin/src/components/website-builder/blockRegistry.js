@@ -26,7 +26,7 @@ import {
   Image as ImageIcon, Type, Sparkles, MapPin, Phone,
   Calendar, Clock, BookOpen, AlignLeft, Minus, FileText, AlertTriangle,
   Layout, Columns, PanelTop, PanelBottom, Megaphone, Quote, ChefHat, BookText,
-  ShoppingBag, BookOpen as MenuIcon, ExternalLink, BadgePercent, Heading, Folders, MessageCircle,
+  ShoppingBag, BookOpen as MenuIcon, ExternalLink, BadgePercent, Heading, Folders, MessageCircle, Star,
 } from 'lucide-react'
 
 import { HeroEditor }          from './editors/HeroEditor'
@@ -43,6 +43,7 @@ import { SLOT_FIELD }          from './blockTree'
 import { GuestplanWidgetEditor } from './editors/GuestplanWidgetEditor'
 import { OnlineOrderingEditor } from './editors/OnlineOrderingEditor'
 import { PromoCtaEditor } from './editors/PromoCtaEditor'
+import { LoyaltyCtaEditor } from './editors/LoyaltyCtaEditor'
 import { AiChatEditor } from './editors/AiChatEditor'
 import { HeadingEditor } from './editors/HeadingEditor'
 import { HEADING_DEFAULTS } from '@shared/headingBlock.js'
@@ -495,6 +496,18 @@ export const BLOCKS = [
       container: 'boxed',
     },
     editor:      PromoCtaEditor,
+  },
+  {
+    key:         'loyalty_cta',
+    label:       'Loyalty',
+    description: 'Promotes your loyalty programme (how points and stamps are earned, a few rewards) with a button to join or sign in at /loyalty. Shows nothing while loyalty or its web app is off.',
+    icon:        Star,
+    category:    'data',
+    defaultData: {
+      heading: '', text: '', show_rewards: true, button_text: '', style: 'banner', bg: 'primary', fg: '',
+      container: 'boxed',
+    },
+    editor:      LoyaltyCtaEditor,
   },
   {
     key:         'ai_chat',

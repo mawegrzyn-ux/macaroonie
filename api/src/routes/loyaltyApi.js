@@ -28,7 +28,7 @@ import { fileURLToPath } from 'node:url'
 import { z } from 'zod'
 import { systemSql, withTenant } from '../config/db.js'
 import { httpError } from '../middleware/error.js'
-import { rewardSummary } from '../../../shared/loyalty.js'
+import { rewardSummary, earnText } from '../../../shared/loyalty.js'
 import {
   ensureProgramme, loadRewards, loadStampCards, joinMember, memberSummary, requestSignInCode, verifySignInCode,
   readJoinTicket, newSession, sessionMember, endSession, exportMember, eraseMember, newToken, emailHash, looksLikeEmail,
@@ -108,6 +108,7 @@ export default async function loyaltyApiRoutes(app) {
         name: s.name,
         web_app: s.features.web_app,
         points: s.features.points ? { label: s.points.label, per_pound: s.points.per_pound, welcome: s.points.welcome, expiry_months: s.points.expiry_months } : null,
+        how: s.features.points ? earnText(s) : '',
         rewards: s.features.rewards ? rewards.filter(r => r.points_cost).map(r => ({ id: r.id, name: r.name, description: r.description, image_url: r.image_url, summary: rewardSummary(r, names), points_cost: r.points_cost })) : [],
         stamp_cards: s.features.stamps ? cards.map(c => ({ id: c.id, name: c.name, description: c.description, stamps_needed: c.stamps_needed })) : [],
         signup: { ask_phone: s.signup.ask_phone, terms_text: s.signup.terms_text, marketing_text: s.signup.marketing_text, welcome_text: s.signup.welcome_text },

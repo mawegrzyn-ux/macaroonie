@@ -33,6 +33,7 @@ import { comboMenuPrice } from '../../../shared/orderPricing.js'
 import { env }            from '../config/env.js'
 import { ORDER_PAGE_KEY, DEFAULT_ORDER_PAGE } from '../services/orderPage.js'
 import { serveLoyaltyApp } from '../services/loyaltyPage.js'
+import { loyaltyTeaser } from '../services/loyaltySvc.js'
 import {
   loadStagingAccess, checkPassword, cookieValue, cookieOk, previewKeyOk,
   setCookieHeader, readCookie, safeNext,
@@ -320,6 +321,9 @@ export default async function siteRendererRoutes(app) {
     // (blocks/online_ordering.eta), which can sit on any page.
     bundle.ordering_venues = await orderingVenues(bundle)
     bundle.site_promotions = await sitePromotions(bundle)
+    // The Loyalty block (blocks/loyalty_cta.eta): live, like promotions, so it
+    // hides itself as soon as loyalty or its web app is switched off.
+    bundle.site_loyalty = bundle.tenant_id ? await withTenant(bundle.tenant_id, tx => loyaltyTeaser(tx, bundle.tenant_id)) : null
     return bundle
   }
 

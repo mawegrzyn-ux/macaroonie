@@ -6,6 +6,7 @@
 //
 //   GET    /programme                 the programme, its rewards and stamp cards, figures
 //   PUT    /programme                 { enabled, settings } (loyalty manage)
+//   GET    /teaser                    what the website's Loyalty block shows (website or loyalty view)
 //   GET    /catalog                   dishes, sections and venues for the pickers
 //   POST   /rewards  PUT /rewards/:id  DELETE /rewards/:id  PATCH /rewards/reorder
 //   POST   /stamp-cards  PUT /stamp-cards/:id  DELETE /stamp-cards/:id
@@ -29,7 +30,7 @@
 
 import { z } from 'zod'
 import { withTenant } from '../config/db.js'
-import { requireAuth, requirePermission, requireRole, requirePlatformAdmin } from '../middleware/auth.js'
+import { requireAuth, requirePermission, requireAnyPermission, requireRole, requirePlatformAdmin } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
 import {
   normaliseProgramme, normaliseReward, normaliseStampCard, rewardProblems, stampCardProblems, rewardSummary,
@@ -37,6 +38,7 @@ import {
 import {
   ensureProgramme, loadRewards, loadStampCards, rewardView, stampCardView, loadMember, joinMember, addPoints,
   memberSummary, exportMember, eraseMember, newToken, redemptionView, releaseRedemption, tenantSite, emailHash, looksLikeEmail,
+  loyaltyTeaser,
 } from '../services/loyaltySvc.js'
 import { loyaltyOrigin } from '../services/platformHost.js'
 import { walletStatus, saveTenantWallet, platformWalletStatus, savePlatformWallet, removePlatformWallet } from '../services/walletSvc.js'
@@ -99,6 +101,10 @@ export default async function loyaltyRoutes(app) {
   app.addHook('preHandler', requireAuth)
 
   // ── Programme ───────────────────────────────────────────────────────────
+
+  // The website builder's preview of the Loyalty block (null = the block shows nothing).
+  app.get('/teaser', { preHandler: requireAnyPermission(['website', 'loyalty'], 'view') }, async req =>
+    ({ teaser: await withTenant(req.tenantId, tx => loyaltyTeaser(tx, req.tenantId)) }))
 
   app.get('/programme', { preHandler: PERM.view }, async req => withTenant(req.tenantId, async tx => {
     const programme = await ensureProgramme(tx, req.tenantId)

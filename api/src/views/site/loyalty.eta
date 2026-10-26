@@ -123,9 +123,7 @@ async function call(path, { method = 'GET', body, auth = true } = {}) {
 }
 
 function pointsLine() {
-  if (!info.points) return ''
-  const p = info.points
-  return 'Earn ' + p.per_pound + ' ' + esc(p.label) + ' for every £1 you spend' + (p.welcome ? ', and ' + p.welcome + ' ' + esc(p.label) + ' when you join' : '') + '.'
+  return info.points ? esc(info.how) : ''
 }
 
 function renderSignedOut(step = 'email', msg = '') {

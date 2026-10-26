@@ -24,7 +24,7 @@ import { env } from '../config/env.js'
 import { httpError } from '../middleware/error.js'
 import {
   normaliseProgramme, normaliseReward, normaliseStampCard, pointsFor, stampsFor, stampProgress,
-  memberNo, parseCardCode, cardCode, channelOn, rewardSummary, LOYALTY_CHANNELS,
+  memberNo, parseCardCode, cardCode, channelOn, rewardSummary, earnText, LOYALTY_CHANNELS,
 } from '../../../shared/loyalty.js'
 import { checkTotals, isActiveLine } from '../../../shared/pos/pricing.js'
 import { upsertCustomer } from '../routes/customers.js'
@@ -869,6 +869,37 @@ export async function tenantSite(tx, tenantId) {
     logo_url: s.logo_url || null,
     favicon_url: s.favicon_url || null,
     colors: s.theme?.colors || {},
+  }
+}
+
+/**
+ * What the website's Loyalty block shows (blocks/loyalty_cta.eta, and the
+ * builder's canvas through GET /api/loyalty/teaser): the programme's name,
+ * how points are earned, the cheapest rewards for points and the stamp cards.
+ * null while loyalty or its web app is off (the block then shows nothing).
+ */
+export async function loyaltyTeaser(tx, tenantId) {
+  // Read only (a site render never makes the programme row).
+  const [row] = await tx`SELECT * FROM loyalty_programmes WHERE tenant_id = ${tenantId} AND scope = 'tenant'`
+  if (!row) return null
+  const programme = programmeView(row)
+  const s = programme.settings
+  if (!programme.enabled || !s.features.web_app) return null
+  const [rewards, cards] = await Promise.all([
+    s.features.rewards ? loadRewards(tx, tenantId, { activeOnly: true }) : [],
+    s.features.stamps ? loadStampCards(tx, tenantId, { activeOnly: true }) : [],
+  ])
+  const forPoints = rewards.filter(r => r.points_cost).sort((a, b) => a.points_cost - b.points_cost).slice(0, 6)
+  const names = forPoints.some(r => r.kind === 'free_item')
+    ? Object.fromEntries((await tx`SELECT id, name FROM menu_items WHERE tenant_id = ${tenantId}`).map(r => [r.id, r.name]))
+    : {}
+  return {
+    name: s.name,
+    points: s.features.points ? { label: s.points.label, per_pound: s.points.per_pound, welcome: s.points.welcome } : null,
+    how: s.features.points ? earnText(s) : '',
+    rewards: forPoints.map(r => ({ id: r.id, name: r.name, summary: rewardSummary(r, names), points_cost: r.points_cost })),
+    stamp_cards: cards.map(c => ({ id: c.id, name: c.name, stamps_needed: c.stamps_needed })),
+    link: '/loyalty',
   }
 }
 
