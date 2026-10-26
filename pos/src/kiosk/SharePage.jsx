@@ -1,14 +1,13 @@
 // A kiosk design's shared preview page (kiosk.<domain>/?kiosk_share=<token>,
 // migration 187): the link a group gives people outside it (a brand team, a
-// franchise partner, a designer). The kiosk itself runs in a frame at a real
-// kiosk's size (&frame=1, the design as saved), scaled to fit the window, so
-// it looks the same on a laptop, a tablet or a phone. Nothing is ordered or
-// paid in it.
+// franchise partner, a designer). The kiosk itself runs in a frame at the
+// size of the screen the design is made for (&frame=1, the design as saved,
+// design.screen), scaled to fit the window, so it looks the same on a laptop,
+// a tablet or a phone. Nothing is ordered or paid in it.
 
 import { useEffect, useRef, useState } from 'react'
 import { RotateCcw, RectangleVertical, RectangleHorizontal, Maximize2, Loader2, Link2Off } from 'lucide-react'
 
-const SIZE = { portrait: [1080, 1920], landscape: [1920, 1080] }
 
 export default function SharePage({ token }) {
   const [shape, setShape] = useState(() => (new URLSearchParams(location.search).get('shape') === 'wide' ? 'landscape' : 'portrait'))
@@ -17,7 +16,10 @@ export default function SharePage({ token }) {
   const frame = useRef(null)
   const box = useRef(null)
   const [scale, setScale] = useState(0.3)
-  const [W, H] = SIZE[shape]
+  // The design's screen once the kiosk has said which (kiosk.ready), upright or turned.
+  const short = info?.screen?.short || 1080
+  const long = info?.screen?.long || 1920
+  const [W, H] = shape === 'portrait' ? [short, long] : [long, short]
   const src = '/?kiosk_share=' + encodeURIComponent(token) + '&frame=1'
 
   useEffect(() => {

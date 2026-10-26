@@ -19,7 +19,8 @@
 //   TK, translationSources()              the menu's own words a person translates
 //                                         (menu_translations rows, key -> text)
 //   kioskStaff(), kioskLine(), kioskOrder()  a basket as till events
-//   kioskScale()                          the page zoomed out on a small screen
+//   kioskBox(), kioskZoom()               the kiosk on a screen of another shape
+//                                         (bars) or size (zoomed to the design's)
 // Plain ESM, no dependencies but the other shared modules, no DOM.
 
 import { FONT_OPTIONS, FONT_WEIGHTS, fontStack } from './fonts.js'
@@ -392,6 +393,34 @@ export function fitLayout(raw, clear = false) {
 
 const MAX = { media: 8, reach_media: 4, banners: 10, featured: 12, upsell: 8, hidden: 200, tiles: 200, group_looks: 200 }
 
+// ── The screen a design is made for ──────────────────────────────
+// design.screen: the screen's size upright (short x long CSS px; turned on
+// its side the same screen is long x short), what a screen of another shape
+// does ('keep' the design's shape with bars around it, or 'fill' the whole
+// screen) and what the bars show ('black', or 'page': the design's Page
+// colour). kioskBox() and kioskZoom() below use it. Defined above
+// normaliseDesign(), which runs as this file loads (DEFAULT_DESIGN).
+export const KIOSK_SCREENS = [
+  { key: 'fhd', label: 'Full HD kiosk', short: 1080, long: 1920 },
+  { key: 'hd', label: 'HD', short: 720, long: 1280 },
+  { key: 'tab16', label: '16:10 tablet', short: 800, long: 1280 },
+  { key: 'tab43', label: '4:3 tablet', short: 768, long: 1024 },
+  { key: 'qhd', label: 'QHD', short: 1440, long: 2560 },
+  { key: 'uhd', label: '4K', short: 2160, long: 3840 },
+]
+export const SCREEN_SHAPES = ['keep', 'fill']
+export const SCREEN_BARS = ['black', 'page']
+export const SCREEN_MIN = 320
+export const SCREEN_MAX = 7680
+
+function screenOf(v) {
+  const x = v && typeof v === 'object' ? v : {}
+  let short = num(x.short, SCREEN_MIN, SCREEN_MAX, 1080)
+  let long = num(x.long, SCREEN_MIN, SCREEN_MAX, 1920)
+  if (short > long) [short, long] = [long, short]
+  return { short, long, shape: oneOf(x.shape, SCREEN_SHAPES, 'keep'), bars: oneOf(x.bars, SCREEN_BARS, 'black') }
+}
+
 function link(v) {
   const kind = oneOf(v?.kind, LINK_KINDS, 'none')
   return kind !== 'none' && isUuid(v?.id) ? { kind, id: v.id } : { kind: 'none', id: null }
@@ -578,6 +607,8 @@ export function normaliseDesign(raw) {
       reach_media: asList(h.reach_media).map((x, i) => ({ id: shortId(x?.id, i), type: oneOf(x?.type, ['image', 'video'], 'image'), url: url(x?.url), fit: pictureFit(x?.fit) }))
         .filter(x => x.url).slice(0, MAX.reach_media),
     },
+    // The screen the design is made for (kioskBox(), kioskZoom()).
+    screen: screenOf(d.screen),
   }
 }
 
@@ -871,25 +902,66 @@ export function configImages(config, origin) {
   return [...out].slice(0, MAX_SAVED_PICTURES)
 }
 
-// ── The kiosk on a small screen ──────────────────────────────────
-// kiosk.css sizes follow the screen's short side (vmin) with finger-sized
-// minimums. Below KIOSK_MIN_SHORT CSS px of short side (a phone, a TV box at
-// twice the pixel density) the minimums take over, so the kiosk looks zoomed
-// in and its bars crowd. There the kiosk zooms the page out, as a browser's
-// desktop mode does (pos/src/kiosk/viewport.js): it is laid out at a short
-// side of KIOSK_MIN_SHORT and shown at kioskScale() of that size.
-export const KIOSK_MIN_SHORT = 800
+// ── The kiosk on a screen unlike the design's ────────────────────
+// A design is made for one screen (design.screen). On a screen of another
+// shape the kiosk keeps the design's shape, as big as fits and centred, with
+// bars at the sides or above and below (kioskBox()), unless the design says
+// to fill the screen. On a screen of another size the page is zoomed (the
+// viewport tag, pos/src/kiosk/viewport.js) so the kiosk is laid out at the
+// design's size and shown smaller or bigger (kioskZoom()): kiosk.css sizes
+// follow the kiosk's own box (cqmin) with finger-sized minimums and caps, so
+// without the zoom a phone would look zoomed in and a big screen sparse.
+// Neither happens for a small difference (SHAPE_SLACK, ZOOM_SLACK), so a
+// screen a few pixels off the design is used as it is.
+export const SHAPE_SLACK = 0.03
+export const ZOOM_SLACK = 0.1
+export const ZOOM_MIN = 0.1
+export const ZOOM_MAX = 4
 
 /**
- * The page scale for a screen of w x h CSS px (either way round): 1 when its
- * short side is KIOSK_MIN_SHORT or more (or unknown), else short /
- * KIOSK_MIN_SHORT rounded down to 3 decimals, so the page is never narrower
- * than it needs to be.
+ * Where the kiosk sits on a window of w x h CSS px: { x, y, w, h, portrait,
+ * bars }. Portrait when the window is at least as tall as it is wide: the
+ * design's upright shape, else its wide one. With shape 'keep' and a window
+ * more than SHAPE_SLACK off that shape, the shape as big as fits, centred
+ * (bars true); else the whole window.
  */
-export function kioskScale(w, h) {
-  const short = Math.min(Number(w), Number(h))
-  if (!(short > 0) || short >= KIOSK_MIN_SHORT) return 1
-  return Math.max(0.1, Math.floor((short / KIOSK_MIN_SHORT) * 1000) / 1000)
+export function kioskBox(w, h, screen) {
+  const s = screenOf(screen)
+  const W = Number(w) > 0 ? Number(w) : 0
+  const H = Number(h) > 0 ? Number(h) : 0
+  const portrait = H >= W
+  const want = portrait ? s.short / s.long : s.long / s.short
+  let bw = W
+  let bh = H
+  if (s.shape === 'keep' && W && H && Math.abs(W / H / want - 1) > SHAPE_SLACK) {
+    if (W / H > want) bw = Math.round(H * want)
+    else bh = Math.round(W / want)
+  }
+  return { x: Math.floor((W - bw) / 2), y: Math.floor((H - bh) / 2), w: bw, h: bh, portrait, bars: bw < W || bh < H }
+}
+
+/**
+ * The page scale for a screen of w x h CSS px (as the browser reports it,
+ * before any zoom), so the kiosk's box comes out at the design's size: the
+ * box kioskBox() gives at that size against the design's, rounded down to 3
+ * decimals, between ZOOM_MIN and ZOOM_MAX. 1 within ZOOM_SLACK of the
+ * design's size, or for an unknown screen. The same either way round.
+ */
+export function kioskZoom(w, h, screen) {
+  const s = screenOf(screen)
+  const W = Number(w)
+  const H = Number(h)
+  if (!(W > 0 && H > 0)) return 1
+  const box = kioskBox(W, H, s)
+  const k = box.portrait ? Math.min(box.w / s.short, box.h / s.long) : Math.min(box.w / s.long, box.h / s.short)
+  if (!(k > 0) || Math.abs(k - 1) <= ZOOM_SLACK) return 1
+  return Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, Math.floor(k * 1000) / 1000))
+}
+
+/** The design's size the way round a window of w x h is: { w, h }. */
+export function screenSize(w, h, screen) {
+  const s = screenOf(screen)
+  return Number(h) >= Number(w) ? { w: s.short, h: s.long } : { w: s.long, h: s.short }
 }
 
 /** Ways a guest can pay on this kiosk: ['card', 'counter'] in that order. */

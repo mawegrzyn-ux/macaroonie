@@ -20,6 +20,7 @@ import { Languages } from './Start.jsx'
 import { FitMark, FitNote, PrefsStrip, needsCheck } from './fit.jsx'
 import { flyToBasket } from './fly.js'
 import { useJourneyState } from './journey.js'
+import { boxShort } from './viewport.js'
 
 
 export function needsBuilder(item) {
@@ -128,7 +129,7 @@ function Banners({ banners, secs, shape, config, texts }) {
   }
   return (
     <div className="flex flex-col gap-[.5em]">
-      <button className="relative block w-full max-h-[36vh] overflow-hidden rounded-[var(--k-radius)] border-0 p-0 k-fade" key={b.id} style={{ aspectRatio: String(ratio) }}
+      <button className="relative block w-full max-h-[36cqh] overflow-hidden rounded-[var(--k-radius)] border-0 p-0 k-fade" key={b.id} style={{ aspectRatio: String(ratio) }}
         onClick={e => linkTo(b.link, config, texts, e.currentTarget.querySelector('img'))} data-testid="k-banner" data-shape={shape}>
         <FitPicture src={b.image_url} fit={b.fit} onLoad={own ? measure : undefined} />
         {title && <span className="absolute left-0 bottom-0 m-[var(--k-gap)] k-head text-[1.5em] px-[.6em] py-[.2em] rounded-[calc(var(--k-radius)/1.5)] bg-[var(--k-accent)] text-[var(--k-accent-text)]">{title}</span>}
@@ -153,7 +154,7 @@ function Home({ config, texts }) {
             const title = f.title ? texts.t(TK.design(config.design.id, 'featured:' + f.id + ':title'), f.title) : null
             const sub = f.subtitle ? texts.t(TK.design(config.design.id, 'featured:' + f.id + ':subtitle'), f.subtitle) : null
             return (
-              <button key={f.id} className={cx('k-card relative overflow-hidden border-0 p-0 text-left min-h-[22vmin]', f.size === 'wide' && 'col-span-2')}
+              <button key={f.id} className={cx('k-card relative overflow-hidden border-0 p-0 text-left min-h-[22cqmin]', f.size === 'wide' && 'col-span-2')}
                 onClick={e => linkTo(f.link, config, texts, e.currentTarget.querySelector('img'))} data-testid="k-featured">
                 {f.image_url && <FitPicture src={f.image_url} fit={f.fit} />}
                 <span className="absolute inset-x-0 bottom-0 p-[.8em] flex flex-col" style={f.image_url ? { background: 'linear-gradient(to top, rgba(0,0,0,.7), transparent)', color: '#fff' } : null}>
@@ -297,7 +298,7 @@ function SectionTiles({ config, texts, sections, home }) {
           ))}
         </HexGrid>
       ) : (
-        <div className="k-grid" data-testid="k-tiles-grid" style={cols === 'auto' ? { gridTemplateColumns: 'repeat(auto-fill, minmax(min(36vmin, 280px), 1fr))' } : { '--k-cols': cols }}>
+        <div className="k-grid" data-testid="k-tiles-grid" style={cols === 'auto' ? { gridTemplateColumns: 'repeat(auto-fill, minmax(min(36cqmin, 280px), 1fr))' } : { '--k-cols': cols }}>
           {ordered.map(sec => {
             const wide = byId.get(sec.id)?.size === 'wide' && tiles !== 'round'
             return (
@@ -313,8 +314,8 @@ function SectionTiles({ config, texts, sections, home }) {
   )
 }
 
-// A hexagon's width when dishes fit the screen: about 30% of the shorter side, at most 260 px.
-const hexTarget = () => Math.min(Math.min(window.innerWidth, window.innerHeight) * 0.3, 260)
+// A hexagon's width when dishes fit the screen: about 30% of the kiosk's shorter side, at most 260 px.
+const hexTarget = () => Math.min(boxShort() * 0.3, 260)
 
 export default function Menu() {
   const s = useKiosk()
@@ -343,7 +344,7 @@ export default function Menu() {
       <TopBar texts={texts} config={config} />
       <div className="flex-1 min-h-0 flex">
         {!tilesPage && (
-          <nav className="k-rail shrink-0 w-[clamp(110px,19vmin,240px)] k-scroll border-r-2 border-[var(--k-line)] flex flex-col gap-[.3em] p-[.4em]" data-testid="k-rail">
+          <nav className="k-rail shrink-0 w-[clamp(110px,19cqmin,240px)] k-scroll border-r-2 border-[var(--k-line)] flex flex-col gap-[.3em] p-[.4em]" data-testid="k-rail">
             {home && (
               <button className={cx('k-rail-item flex flex-col items-center gap-[.3em] p-[.5em] rounded-[calc(var(--k-radius)/1.5)] border-2', current === 'home' ? 'k-rail-on border-[var(--k-primary)]' : 'border-transparent')}
                 onClick={() => openSection('home')} data-testid="k-rail-home">
@@ -375,7 +376,7 @@ export default function Menu() {
                     {dishes.map(it => <ItemHex key={it.id} item={it} config={config} ctx={ctx} texts={texts} sold={sold.has(it.id)} fit={fitFor(it)} />)}
                   </HexGrid>
                 ) : (
-                  <div className="k-grid" data-testid="k-dishes" style={cols === 'auto' ? { gridTemplateColumns: 'repeat(auto-fill, minmax(min(36vmin, 280px), 1fr))' } : { '--k-cols': cols }}>
+                  <div className="k-grid" data-testid="k-dishes" style={cols === 'auto' ? { gridTemplateColumns: 'repeat(auto-fill, minmax(min(36cqmin, 280px), 1fr))' } : { '--k-cols': cols }}>
                     {dishes.map(it => <ItemCard key={it.id} item={it} config={config} ctx={ctx} texts={texts} sold={sold.has(it.id)} fit={fitFor(it)} />)}
                   </div>
                 )}

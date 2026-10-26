@@ -127,6 +127,9 @@ test('what a kiosk sends is checked: bad visits refused (and forgotten), events 
         { t: 200, k: 'scroll', s: '0/1/2', y: 300 },
         { t: 300, k: 'scroll', s: '../etc', y: 300 },
         { t: 400, k: 'mystery', anything: true },
+        { t: 450, k: 'vp', w: 768, h: 1024, b: [96, 0, 576, 1024] },
+        { t: 460, k: 'vp', w: 768, h: 1024, b: [96, 0, 99999, 'x'] },
+        { t: 470, k: 'vp', w: 768, h: 1024, b: [-5, 2000, 99999, 0] },
         { t: 'soon', k: 'end', why: 'because' },
       ],
     },
@@ -141,7 +144,12 @@ test('what a kiosk sends is checked: bad visits refused (and forgotten), events 
   assert.equal(row.design_id, null, 'another tenant\'s design isn\'t kept')
   assert.equal(row.revenue_stream_id, null, 'an unknown stream isn\'t kept')
   const [m] = await sql`SELECT events, outcome FROM kiosk_sessions WHERE tenant_id = ${ids.a} AND id = ${messy.id}`
-  assert.deepEqual(m.events.map(e => e.k), ['v', 'tap', 'scroll', 'end'])
+  assert.deepEqual(m.events.map(e => e.k), ['v', 'tap', 'scroll', 'vp', 'vp', 'vp', 'end'])
+  // The kiosk's box in the window comes with a window size, kept inside it; a broken one is left off.
+  const [vp1, vp2, vp3] = m.events.filter(e => e.k === 'vp')
+  assert.deepEqual(vp1.b, [96, 0, 576, 1024])
+  assert.equal(vp2.b, undefined)
+  assert.deepEqual(vp3.b, [0, 1024, 768, 1])
   const tap = m.events[1]
   assert.equal(tap.x, 20000)
   assert.equal(tap.y, 0)
@@ -150,7 +158,7 @@ test('what a kiosk sends is checked: bad visits refused (and forgotten), events 
   assert.equal(tap.extra, undefined)
   // In time order: the scroll sent with an earlier time takes the tap's.
   assert.equal(m.events[2].t, 500)
-  assert.equal(m.events[3].why, 'interrupted')
+  assert.equal(m.events[6].why, 'interrupted')
   assert.equal(m.outcome, 'interrupted')
   await sql`DELETE FROM kiosk_sessions WHERE tenant_id = ${ids.a} AND id IN (${theirs.id}, ${messy.id})`
 

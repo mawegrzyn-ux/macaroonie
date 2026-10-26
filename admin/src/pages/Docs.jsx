@@ -4147,7 +4147,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               Migration 187. Each design can have one lasting link (Share in the design editor:{' '}
               <Mono>ShareDialog</Mono> in <Mono>KioskDesigner.jsx</Mono>, with a QR code from <Mono>shared/qr.js</Mono>).{' '}
               <Mono>?kiosk_share=&lt;token&gt;</Mono> on the kiosk address opens <Mono>pos/src/kiosk/SharePage.jsx</Mono>:
-              the kiosk in a frame at 1080 x 1920 (or 1920 x 1080), scaled to fit, with Upright / Wide, Start again
+              the kiosk in a frame at the design's screen size (upright or turned: <Mono>share.screen</Mono> in{' '}
+              <Mono>kiosk.ready</Mono>, 1080 x 1920 until it arrives), scaled to fit, with Upright / Wide, Start again
               (postMessage <Mono>kiosk.restart</Mono> to its own origin) and Full screen (the frame's own address).
               The frame (<Mono>&amp;frame=1</Mono>) runs <Mono>KioskApp</Mono> with <Mono>shareToken</Mono>:{' '}
               <Mono>bootShare()</Mono> in <Mono>pos/src/kiosk/store.js</Mono> is <Mono>bootPreview()</Mono>'s twin
@@ -4165,30 +4166,62 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               the reach band, with reach on: <Mono>calc(30px + 38%)</Mono> for the frame) below it. It used to be a pill
               absolutely positioned at the top right, over the top bar's running price and language button.
             </P>
+            <H3>Screens of another shape or size</H3>
             <P>
-              A small screen: kiosk.css sizes follow the short side (vmin) with finger-sized minimums (text at least 15px,
-              buttons at least 56px), which take over below about 730 to 850 CSS px, so on a phone the kiosk looked zoomed
-              in and its bottom bar crowded (the total ran under View order). <Mono>kioskScale(w, h)</Mono> in{' '}
-              <Mono>shared/kiosk.js</Mono> gives 1 when the screen's short side is <Mono>KIOSK_MIN_SHORT</Mono> (800) or
-              more, else short / 800 rounded down to 3 decimals (never under 0.1; unknown sizes 1).{' '}
-              <Mono>useKioskViewport()</Mono> (<Mono>pos/src/kiosk/viewport.js</Mono>, called first in{' '}
-              <Mono>KioskApp</Mono>, a layout effect) reads <Mono>window.screen</Mono> and, below 1, sets the page's{' '}
-              <Mono>meta[name=viewport]</Mono> to{' '}
-              <Mono>width=device-width, initial-scale=k, minimum-scale=k, maximum-scale=k, user-scalable=no,
-              viewport-fit=cover</Mono>: the browser lays the page out at the visible size divided by k (a 412 x 915
-              phone upright: 800 x about 1553 at 0.515; on its side the screen's sides swap, so k and the meta stay the same
-              and the page is about 1553 wide), as Chrome's Desktop site mode would, but for the kiosk only. The zoom goes
-              through the tag, never a CSS transform or zoom, so vh / vw / vmin, <Mono>innerWidth</Mono> (the honeycomb's
-              target size), fixed positions and touches all match the zoomed-out page; all three scales are set, so a change
-              after load is applied at once (Chromium clamps the page to them). Only the top window (in a frame the tag
-              means nothing: the design editor's preview, a shared page's kiosk); the share page, the pairing screen, the
-              till and the kitchen screen keep the tag from <Mono>pos/index.html</Mono>. Every way out of the kiosk
-              (Disconnect, the device removed in Store tech, a move to another address) reloads or leaves the page, which
-              brings that tag back; the effect's cleanup also puts it back should the kiosk app ever close within the
-              page. A <Mono>resize</Mono> re-reads the screen (a folding phone opened). Desktop browsers ignore the tag. The staff panel's Screen line
-              (<Mono>k-staff-screen</Mono>) shows <Mono>screen.width x screen.height</Mono> and the zoom; its Card machine
-              line (<Mono>k-staff-card</Mono>) names <Mono>config.card_machine</Mono> (it read the device's old{' '}
-              <Mono>card_reader === 'test'</Mono> setting and said None for every machine since migration 193).
+              A design is made for one screen: <Mono>design.screen</Mono> = <Mono>{'{ short, long, shape, bars }'}</Mono>{' '}
+              (<Mono>normaliseDesign()</Mono>: its size upright in CSS px, 320 to 7680, swapped if given the wrong way
+              round, default 1080 x 1920; <Mono>shape</Mono> <Mono>keep</Mono> | <Mono>fill</Mono>; <Mono>bars</Mono>{' '}
+              <Mono>black</Mono> | <Mono>page</Mono>; presets <Mono>KIOSK_SCREENS</Mono>). Two pure rules in{' '}
+              <Mono>shared/kiosk.js</Mono>, both unit-tested:
+            </P>
+            <DataTable
+              head={['Function', 'What it gives']}
+              rows={[
+                ['kioskBox(w, h, screen)', 'Where the kiosk sits on a w x h window: { x, y, w, h, portrait, bars }. Portrait when h >= w (the design upright, else turned). keep and more than SHAPE_SLACK (3%) off the shape: the shape as big as fits, centred; else the whole window.'],
+                ['kioskZoom(w, h, screen)', 'The page scale for a screen of w x h CSS px before any zoom: min(box / design size) for the box kioskBox() gives there, 1 within ZOOM_SLACK (10%) of the design, else rounded down to 3 decimals, between ZOOM_MIN 0.1 and ZOOM_MAX 4. The same either way round (a turned screen swaps both sides).'],
+                ['screenSize(w, h, screen)', 'The design\'s size the way round a window is ({ w, h }).'],
+              ]}
+            />
+            <P>
+              The kiosk (<Mono>pos/src/kiosk/viewport.js</Mono>): <Mono>useKioskViewport(design.screen)</Mono> (a layout
+              effect in <Mono>KioskApp</Mono>, top window only, once the design is known) reads <Mono>window.screen</Mono>{' '}
+              and sets <Mono>meta[name=viewport]</Mono>: zoomed out{' '}
+              <Mono>width=device-width, initial-scale=k, minimum-scale=k, maximum-scale=k, user-scalable=no, viewport-fit=cover</Mono>,
+              zoomed in the same with <Mono>width=round(screen.width / k)</Mono> (with <Mono>device-width</Mono> the layout
+              viewport would stay the screen's width, wider than what shows), at 1 the tag from <Mono>pos/index.html</Mono>.
+              The browser lays the page out at the visible size / k: a 412 x 915 phone with the Full HD design is laid out
+              1081 wide at 0.381; a 768 x 1024 tablet 1441 x 1921 at 0.533; an 810 x 1440 tablet 1080 x 1920 at 0.75; a
+              1440 x 2560 screen 1080 x 1920 at 1.333. Never a CSS transform or zoom (vh / vw / container units, fixed
+              positions and touches must match the page). A resize (turned, a folding phone opened) applies again. Every way
+              out of the kiosk reloads or leaves the page, which brings the original tag back; the cleanup puts it back too.
+              Computers' browsers and frames ignore the tag: there the shape is kept at the window's own size.
+            </P>
+            <P>
+              <Mono>useKioskBox(screen, fixed)</Mono> (every window, frames included) places <Mono>.k-root</Mono>: its
+              style gets <Mono>left / top / width / height</Mono> from <Mono>kioskBox(innerWidth, innerHeight)</Mono>{' '}
+              (re-read on resize) and <Mono>--k-unit</Mono> (a hundredth of the box's short side), with{' '}
+              <Mono>data-boxed</Mono>; with bars, a fixed <Mono>.k-bars</Mono> (<Mono>k-bars</Mono>) behind it in black or
+              the design's Page colour. <Mono>.k-root</Mono> is <Mono>container-type: size</Mono>, and kiosk.css and the
+              kiosk's Tailwind classes size from the box (<Mono>cqmin</Mono>, <Mono>cqh</Mono>, <Mono>cqw</Mono>; they
+              used vmin / vh / vw, the window's); the root's own font size uses <Mono>--k-unit</Mono>, since container units
+              on the container itself read a container outside it. Code that sizes from the screen in JS (the honeycombs'
+              target size in <Mono>Menu.jsx</Mono> and <Mono>displays.jsx</Mono>) uses <Mono>boxShort()</Mono>. Pop-up
+              sheets are absolute in the root, so they cover the kiosk and not the bars. <Mono>container-type</Mono> does
+              not make the root the containing block for fixed elements in Chrome: the flying picture
+              (<Mono>fly.js</Mono>, <Mono>position: fixed</Mono>) stays in window coordinates. Media queries on orientation
+              still work: the box always has the window's orientation. The staff panel's Screen line
+              (<Mono>k-staff-screen</Mono>) gives the screen's size, the design's, the zoom and where the bars are; its Card
+              machine line (<Mono>k-staff-card</Mono>) names <Mono>config.card_machine</Mono>.
+            </P>
+            <P>
+              The design editor's preview frame is the design's size (upright or turned); <Mono>Try on</Mono>{' '}
+              (<Mono>kd-try-on</Mono>, <Mono>TRY_ON</Mono> in <Mono>KioskDesigner.jsx</Mono>, remembered in{' '}
+              <Mono>maca_kiosk_preview_screen</Mono>) draws a frame of the window that screen would lay out (its size /{' '}
+              <Mono>kioskZoom()</Mono>), in which the kiosk boxes itself, with a note (<Mono>kd-try-note</Mono>). The share
+              page frames the kiosk at <Mono>share.screen</Mono> from <Mono>kiosk.ready</Mono>. A visit's{' '}
+              <Mono>vp</Mono> events carry the box (<Mono>b</Mono>, below), and a replay uses it rather than working it out
+              again (<Mono>useReplayBox()</Mono>), so a playback matches what the guest saw even after the design's screen
+              changed.
             </P>
             <H3>Designs</H3>
             <P>
@@ -4451,7 +4484,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['tap', 'x, y, el, id, ref, hit', 'A touch at x, y (CSS px of the kiosk\'s viewport) on el (the element\'s aria-label or words, after the change), id (data-testid), ref (an item, section or option id). hit 1 = something answered, 0 = nothing answers there, 2 = it was disabled.'],
                 ['swipe', 'x, y, x2, y2, ms, el, id', 'A drag of 24 px or more.'],
                 ['scroll', 's, x, y', 'A scrolling box moved: s is its path of child indexes from .k-root (boxPath() / boxAt()), recorded at most every 150 ms.'],
-                ['vp', 'w, h', 'The kiosk\'s viewport size (at the start and on a resize).'],
+                ['vp', 'w, h, b', 'The kiosk\'s viewport size (at the start and on a resize), and b: the kiosk\'s box in it, [x, y, w, h] (bars on a screen of another shape; kept inside the window by cleanVisit(), left off when broken). A replay places the kiosk by it (useReplayBox()).'],
                 ['end', 'why', 'done (the order number screen), guest (Start again), timeout ("Still there?" unanswered), left (45 s untouched on the start screen), interrupted (reloaded mid-visit), preview.'],
               ]}
             />
@@ -4509,7 +4542,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               head={['Function (shared/kioskJourney.js)', 'Does']}
               rows={[
                 ['applyPatch() / diffView()', 'The view stream both ways.'],
-                ['frameAt(events, t)', 'The view at a moment, the scroll places since the last screen or dish change, the viewport and the touches shortly before (the player draws them).'],
+                ['frameAt(events, t)', 'The view at a moment, the scroll places since the last screen or dish change, the viewport (with the recorded box, b) and the touches shortly before (the player draws them, and sends the box with kiosk.replay).'],
                 ['journeySteps(events, names)', 'The visit as steps in words: opened a section or a dish, added / changed / removed / took off, left a dish without adding it, asked / answered "Still there?", asked to start again and kept ordering, card declined, order placed; touches (a touch is folded into the change it caused within 700 ms; a touch on nothing never is), typing on the keyboard and scrolling each folded into one step. Going back to the start screen clears the order without counting removals.'],
                 ['summariseJourney(events, { names })', 'outcome, duration_ms, furthest (STAGES), last_screen, time per screen (a dish being built counts as its own screen, dish), sections, items (views, view time, adds, qty, removed, left), the order, first_add_ms, order_ms, cancels, taps, dead_taps, swipes, scrolls, languages, reach, allergens.'],
                 ['aggregateJourneys(rows)', 'The overview: tiles, the funnel, outcomes, where guests gave up, time per screen, changes of mind, dishes, by hour, by kiosk.'],

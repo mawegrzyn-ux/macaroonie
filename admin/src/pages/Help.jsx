@@ -5524,15 +5524,23 @@ export default function Help() {
               <li><strong>Add a kiosk</strong>: its name, its <strong>revenue stream</strong> (the stream's order types are the kiosk's Staying or going? buttons, and the stream decides whether it asks for a name or a tent number), its design, its <strong>card machine</strong> (see Card machines; none = guests pay at the counter) and the receipt printer.</li>
               <li>On the screen, open the kiosk address (kiosk.macaroonie.com, shown on the tab) in Chrome: it shows a code. Type that code in the Add a kiosk window (or scan its QR code with a phone), and set the address as the kiosk browser's start page. For a screen guests can't leave, run Chrome in kiosk mode or use a kiosk browser (such as Fully Kiosk). <strong>New device</strong> on the kiosk's row moves it to another screen; the old one stops.</li>
             </ol>
+
+            <H3>Screens of another shape or size</H3>
             <P>
-              <strong>On a phone or a small screen</strong> the kiosk zooms itself out so it looks like it does on a
-              tablet, as Chrome&apos;s <em>Desktop site</em> setting would. You don&apos;t need that setting, so turn
-              it off if you switched it on (it changes every other site too). This happens on any screen smaller than
-              a 10-inch tablet: a phone, a 7-inch tablet, or a TV box that runs its screen at a high pixel density
-              (under 800 across its short side, as the browser counts it). A 10-inch tablet or a big kiosk screen
-              shows the kiosk as it is. Turning the phone keeps the same zoom. The kiosk&apos;s staff panel (five
-              quick taps in the top-left corner of its start screen) shows the screen size as the browser counts it,
-              and the zoom, on its <strong>Screen</strong> line.
+              Each design is made for one screen: a Full HD kiosk (1080 x 1920) unless you pick another in the
+              design&apos;s <strong>Screen</strong> card. A kiosk on a screen that isn&apos;t that shape or size still
+              looks as designed:
+            </P>
+            <ul className="list-disc ml-5 space-y-1 text-sm text-muted-foreground mb-4">
+              <li><strong>Another shape</strong> (a 4:3 tablet, a phone, a screen with the browser&apos;s bars showing): the kiosk keeps the design&apos;s shape, as big as fits and centred, with bars at the sides or above and below. The bars are black, or the design&apos;s Page colour if you pick that. If you&apos;d rather the kiosk filled the screen, pick <strong>Fill the screen</strong>: its layout then stretches to the screen&apos;s shape. A screen only a few pixels off the shape gets no bars.</li>
+              <li><strong>Another size</strong> (a phone or tablet, or a screen bigger than the design&apos;s): the kiosk is zoomed so it is laid out at the design&apos;s size, and looks the same, only smaller or bigger. You don&apos;t need Chrome&apos;s <em>Desktop site</em> setting for this, so turn it off if you switched it on (it changes every other site too). A difference under 10% is left as it is. Turning the screen keeps the same zoom.</li>
+              <li>The zoom works in a phone&apos;s or tablet&apos;s browser (Chrome on Android, Safari on an iPad; in Fully Kiosk, keep its wide viewport setting on). A computer&apos;s browser (Chrome on a Windows kiosk) keeps its own size: there, set the screen&apos;s display scaling (Windows Settings, Display, Scale) so it is close to the design&apos;s size. The shape is kept everywhere.</li>
+            </ul>
+            <P>
+              The kiosk&apos;s staff panel (five quick taps in the top-left corner of its start screen) shows, on its{' '}
+              <strong>Screen</strong> line, the screen&apos;s size as the browser counts it, the design&apos;s, the zoom and
+              where the bars are. In the design editor, <strong>Try on</strong> above the preview shows the design on a
+              Full HD kiosk, a 16:10 or 4:3 tablet, or a phone, as that screen would show it.
             </P>
 
             <H3>The design editor</H3>
@@ -5540,8 +5548,9 @@ export default function Help() {
               Settings are on the left in cards you open and close; on the right is the kiosk itself, showing
               your changes as you make them. Use it like the kiosk: nothing you order there is sent.{' '}
               <strong>Start screen</strong> and <strong>Menu</strong> jump to those screens, <strong>Upright</strong>{' '}
-              and <strong>Wide</strong> turn the screen, and the list next to them picks the revenue stream it
-              orders as. Nothing is kept until <strong>Save</strong>; <strong>Discard</strong> goes back to the
+              and <strong>Wide</strong> turn the screen, <strong>Try on</strong> shows the design on another screen
+              (see Screens of another shape or size above; the preview is the design&apos;s own screen otherwise), and
+              the list next to them picks the revenue stream it orders as. Nothing is kept until <strong>Save</strong>; <strong>Discard</strong> goes back to the
               last save, and leaving with changes not saved asks first. On a phone, Settings and Preview take
               turns.
             </P>
@@ -5566,6 +5575,7 @@ export default function Help() {
               rows={[
                 ['Brand', 'Logo, colours (start from a set: Website colours (your website theme\'s), Fresh, Red and gold, Night, Ocean, Plain, then change any: each colour offers the website\'s colours as swatches, or a custom one), the bottom bar\'s and the side menu\'s own colours (see Bottom bar and side menu colours below), the fonts for headings and text, headings in capitals, rounded corners. Colours that are hard to read together are pointed out. Make a theme (at the top) fills all of these from a picture and a few words (see Website Builder, Make a theme from a picture).'],
                 ['Layout', 'The bar along the top (logo and language) on or off. Back and Start again with their words, or icons only. How pictures are drawn is set apart for dishes (Menu card) and for choices (Choices card). Top of a dish\'s page: the photo beside the words, or Photo on top, with the photo lined up left, centre or right and the name, description, price and allergens under it lined up left, centre or right (on a wide screen the photo is always above the words in its own column, and only the words\' line-up applies). A meal deal\'s pages follow it too: the deal\'s picture and words on its steps, and a picked dish\'s own photo and words on its options page. Shade behind the dish\'s photo (on unless you turn it off): a quiet shade behind the dish\'s photo on its page and in the order, so cut-out pictures (PNGs on a see-through background) sit on the same background whether one pick shows or several share the photo; off, the page\'s own background, even behind a split photo (a No frame photo gets the design\'s rounded corners while the shade shows). Build a meal deal\'s picture from the picks (on unless you turn it off): see A meal deal\'s picture below. The picture flies into the order (on unless you turn it off): see Adding to the order below.'],
+                ['Screen', 'The screen the design is made for: Full HD kiosk (1080 x 1920), HD, a 16:10 or 4:3 tablet, QHD, 4K, or another size you type in (its width and height upright, in the pixels its browser counts: a phone or tablet reports fewer than it has, often half). The preview shows the design at this size. On a screen of another shape: Keep this shape (bars around the kiosk, black or the Page colour) or Fill the screen. See Screens of another shape or size above.'],
                 ['Start screen', 'Pictures apart from the buttons or behind them; pictures and videos taking turns (drag to order, up to 8), each with a Fit (see Fitting pictures below); the headline and the question; each order type\'s words, icon or picture; the Allergens button.'],
                 ['Languages', 'The language your menu is written in, and the languages guests can pick (flags on the start screen).'],
                 ['Menu', 'Dish pictures: how the menu\'s dishes, the section tiles, the dish\'s own photo and the basket are drawn: Cards (photo on a card), Round or Oval (the photo in a circle or an ellipse, the words under it, no card), Hexagons (they lock together like a honeycomb, and buttons, chips and cards across the kiosk take the hexagon look too), or No frame (the whole picture as it is, straight on the page: no card, corners or shadow; best with PNGs on a see-through background, such as cut-out food photos). A home page with banners and featured tiles (each can open a section or a dish, and each has a Fit for its picture: see Fitting pictures below), the banners\' shape; sections down the side with pictures or words only, or none (the menu opens on a page of section tiles: drag them into order, give each a picture, words and a width); dishes per row; descriptions, calories, dietary badges and quick add; sections left off the kiosk.'],
@@ -5641,8 +5651,8 @@ export default function Help() {
             <H3>Sharing a preview</H3>
             <P>
               <strong>Share</strong> in the design editor's top bar makes a link to this design that anyone can open,
-              with no sign-in: send it to a brand team, a franchise partner or a designer. It opens the kiosk at a real
-              kiosk's size, scaled to fit their screen, with <strong>Upright</strong>, <strong>Wide</strong>,{' '}
+              with no sign-in: send it to a brand team, a franchise partner or a designer. It opens the kiosk at the
+              size of the screen the design is made for, scaled to fit their screen, with <strong>Upright</strong>, <strong>Wide</strong>,{' '}
               <strong>Start again</strong> and <strong>Full screen</strong> (for trying it on a tablet). They see the
               design as saved, with the menu and prices of the location you pick (and, where a location has more than
               one, the revenue stream it orders as). Nothing is ordered or paid. The page around the kiosk says so

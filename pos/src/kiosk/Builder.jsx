@@ -610,7 +610,7 @@ function ComboBuilder({ item, config, ctx, texts, builder }) {
               return (
                 <button key={x.key} onClick={open} data-testid="k-step-tab" data-active={i === index ? '1' : undefined} data-picked="1"
                   aria-label={pageTitle(x) + ': ' + pk.label}
-                  className={cx(tab, 'k-step-pick', portrait ? 'flex-col items-center gap-[.25em] p-[.35em] w-[clamp(6.5em,20vmin,9em)]' : 'items-center gap-[.6em] px-[.5em] py-[.35em] min-h-[3em]')}>
+                  className={cx(tab, 'k-step-pick', portrait ? 'flex-col items-center gap-[.25em] p-[.35em] w-[clamp(6.5em,20cqmin,9em)]' : 'items-center gap-[.6em] px-[.5em] py-[.35em] min-h-[3em]')}>
                   <span className={'relative flex shrink-0 k-opts-' + pk.tiles} data-testid="k-step-pics" data-tiles={pk.tiles}>
                     {pk.images.length ? pk.images.map((src, j) => (
                       <span key={src} className={cx('k-opt-thumb k-step-thumb overflow-hidden rounded-[calc(var(--k-radius)/1.5)]', portrait ? 'w-[3.6em] h-[3.6em]' : 'w-[3em] h-[3em]', j > 0 && '-ml-[1.6em]')}

@@ -69,7 +69,7 @@ export default function Start() {
 
   const choose = (
     <div className="flex flex-col items-center gap-[calc(var(--k-pad)*1.1)] w-full">
-      {d.brand.logo_url && <img src={d.brand.logo_url} alt="" className="max-h-[11vh] max-w-[60%] object-contain" draggable={false} />}
+      {d.brand.logo_url && <img src={d.brand.logo_url} alt="" className="max-h-[11cqh] max-w-[60%] object-contain" draggable={false} />}
       <h1 className="k-head text-[2.6em] m-0 text-center">{headline}</h1>
       {closed ? (
         <div className="k-card p-[var(--k-pad)] max-w-[640px] text-center flex flex-col items-center gap-[.6em] text-[var(--k-text)]" data-testid="k-closed">
@@ -85,7 +85,7 @@ export default function Start() {
               const card = d.start.type_cards[ty.id] || {}
               const icon = card.icon && card.icon !== 'none' ? card.icon : guessTypeIcon(ty.name)
               return (
-                <button key={ty.id} className="k-card k-btn-primary flex flex-col items-center justify-center gap-[.6em] p-[var(--k-pad)] min-h-[22vmin] border-0 overflow-hidden relative"
+                <button key={ty.id} className="k-card k-btn-primary flex flex-col items-center justify-center gap-[.6em] p-[var(--k-pad)] min-h-[22cqmin] border-0 overflow-hidden relative"
                   onClick={() => startOrder(ty.id)} data-testid="k-type" data-type={ty.id}
                   style={{ background: 'var(--k-primary)', color: 'var(--k-primary-text)' }}>
                   {card.image_url
@@ -115,7 +115,7 @@ export default function Start() {
     return (
       <div className="absolute inset-0" data-testid="k-start">
         <Media media={d.start.media} secs={d.start.media_secs} />
-        <div className="absolute inset-x-0 bottom-0 p-[var(--k-pad)] pt-[12vh]" style={{ background: 'linear-gradient(to top, var(--k-bg) 55%, transparent)' }}>
+        <div className="absolute inset-x-0 bottom-0 p-[var(--k-pad)] pt-[12cqh]" style={{ background: 'linear-gradient(to top, var(--k-bg) 55%, transparent)' }}>
           {choose}
         </div>
       </div>

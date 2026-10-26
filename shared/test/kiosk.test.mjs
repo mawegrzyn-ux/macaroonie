@@ -9,7 +9,7 @@ import {
   normaliseDesign, designProblems, payMethods, uiText, allergenName, translationSources, TK, pickImages, hexLayout, cornerWidths,
   configImages, MAX_SAVED_PICTURES, guestFit, countFits, cleanPrefs, prefsOn, kioskOrder, basketCheck, kioskStaff, kioskFontsUrl, UI_TEXT, ALLERGEN_NAMES, KIOSK_LANGUAGES, DESIGN_COLORS, CLEAR_COLORS, CHOICE_ENTRANCES,
   groupLook, ENTRANCE_KEYS, bundleParts, bundleLayout, bundleBox, BUNDLE_MAX, PART_COLORS, PART_FOLLOWS, COLOR_LABELS, partColours,
-  pictureFit, fitLayout, PICTURE_FITS, PICTURE_FOCUS, PICTURE_BGS, BANNER_SHAPES, BANNER_RATIOS, KIOSK_MIN_SHORT, kioskScale,
+  pictureFit, fitLayout, PICTURE_FITS, PICTURE_FOCUS, PICTURE_BGS, BANNER_SHAPES, BANNER_RATIOS, KIOSK_SCREENS, SCREEN_MIN, SCREEN_MAX, SHAPE_SLACK, ZOOM_SLACK, ZOOM_MIN, ZOOM_MAX, kioskBox, kioskZoom, screenSize,
 } from '../kiosk.js'
 import { contrast } from '../themeKit.js'
 import { VARIATION_TYPES, VARIATION_TYPE_KEYS } from '../procurement.js'
@@ -761,26 +761,88 @@ test('meal deal picture: every step\'s picks with a picture, the first step big,
   assert.equal(many.length, BUNDLE_MAX)
 })
 
-test('a small screen: the kiosk zoomed out to a short side of KIOSK_MIN_SHORT', () => {
-  assert.equal(KIOSK_MIN_SHORT, 800)
-  // A phone, either way round: the same scale, so the page is laid out 800 across its short side.
-  const k = kioskScale(412, 915)
-  assert.equal(k, 0.515)
-  assert.equal(kioskScale(915, 412), k, 'turned: the same scale')
-  assert.ok(412 / k >= 800 && 412 / k < 801, 'never narrower than 800')
-  assert.equal(kioskScale(360, 780), 0.45)
-  // Rounded down, so the short side comes out at least 800.
-  for (const short of [320, 375, 390, 393, 400, 411, 414, 430, 540, 600, 720, 768, 799]) {
-    const s = kioskScale(short, short * 2)
-    assert.ok(s < 1 && short / s >= 800 && short / s < 802, short + ' -> ' + s)
+test('the design\'s screen: its size, shape rule and bars, cleaned', () => {
+  assert.deepEqual(normaliseDesign({}).screen, { short: 1080, long: 1920, shape: 'keep', bars: 'black' })
+  assert.deepEqual(normaliseDesign({ screen: { short: 800, long: 1280, shape: 'fill', bars: 'page' } }).screen, { short: 800, long: 1280, shape: 'fill', bars: 'page' })
+  // Given the wrong way round: upright is short x long.
+  assert.deepEqual(normaliseDesign({ screen: { short: 1920, long: 1080 } }).screen, { short: 1080, long: 1920, shape: 'keep', bars: 'black' })
+  // Clamped, rounded, unknown words dropped.
+  assert.deepEqual(normaliseDesign({ screen: { short: 10, long: 99999.4, shape: 'stretch', bars: 'red' } }).screen, { short: SCREEN_MIN, long: SCREEN_MAX, shape: 'keep', bars: 'black' })
+  assert.deepEqual(normaliseDesign({ screen: { short: '768.6', long: null } }).screen, { short: 769, long: 1920, shape: 'keep', bars: 'black' })
+  assert.deepEqual(normaliseDesign({ screen: 'big' }).screen, normaliseDesign({}).screen)
+  for (const p of KIOSK_SCREENS) assert.ok(p.short < p.long && p.label, p.key)
+})
+
+test('the kiosk on a screen of another shape: the design\'s shape, centred, with bars', () => {
+  const s = normaliseDesign({}).screen
+  // The design's own shape, either way round: the whole window.
+  assert.deepEqual(kioskBox(1080, 1920, s), { x: 0, y: 0, w: 1080, h: 1920, portrait: true, bars: false })
+  assert.deepEqual(kioskBox(1920, 1080, s), { x: 0, y: 0, w: 1920, h: 1080, portrait: false, bars: false })
+  assert.deepEqual(kioskBox(810, 1440, s), { x: 0, y: 0, w: 810, h: 1440, portrait: true, bars: false })
+  // A 4:3 tablet upright is wider than 9:16: bars at the sides.
+  assert.deepEqual(kioskBox(768, 1024, s), { x: 96, y: 0, w: 576, h: 1024, portrait: true, bars: true })
+  // A phone is taller: bars above and below. Turned, at the sides.
+  assert.deepEqual(kioskBox(412, 915, s), { x: 0, y: 91, w: 412, h: 732, portrait: true, bars: true })
+  assert.deepEqual(kioskBox(915, 412, s), { x: 91, y: 0, w: 732, h: 412, portrait: false, bars: true })
+  // Every box: the design's shape within a pixel, inside the window, centred.
+  for (const [w, h] of [[768, 1024], [1024, 768], [800, 1280], [1280, 800], [412, 915], [360, 780], [1366, 1024], [1000, 1000], [2560, 1080]]) {
+    const b = kioskBox(w, h, s)
+    const want = b.portrait ? 1080 / 1920 : 1920 / 1080
+    assert.ok(Math.abs(b.w / b.h - want) < 2 / Math.min(b.w, b.h) + 0.002, w + ' x ' + h + ' shape')
+    assert.ok(b.x >= 0 && b.y >= 0 && b.x + b.w <= w && b.y + b.h <= h, w + ' x ' + h + ' inside')
+    assert.ok(Math.abs(b.x - (w - b.x - b.w)) <= 1 && Math.abs(b.y - (h - b.y - b.h)) <= 1, w + ' x ' + h + ' centred')
+    assert.ok(b.w === w || b.h === h, w + ' x ' + h + ' as big as fits')
   }
-  // 800 or more on the short side (a 10" tablet, a 1080 x 1920 kiosk, a landscape 1920 x 1080): as it is.
-  for (const [w, h] of [[800, 1280], [810, 1440], [1080, 1920], [1920, 1080], [1280, 800], [2160, 3840]]) assert.equal(kioskScale(w, h), 1, w + ' x ' + h)
-  // Unknown: as it is.
-  for (const [w, h] of [[0, 0], [undefined, 900], [null, null], [NaN, 400], [-412, 915], ['412', '915']]) {
-    assert.equal(kioskScale(w, h), w === '412' ? 0.515 : 1, String(w) + ' x ' + String(h))
+  // A square window counts as upright.
+  assert.equal(kioskBox(1000, 1000, s).portrait, true)
+  // A few pixels off the shape (SHAPE_SLACK): the whole window, no thin bars.
+  assert.equal(SHAPE_SLACK, 0.03)
+  assert.equal(kioskBox(1080, 1880, s).bars, false)
+  assert.equal(kioskBox(1080, 1800, s).bars, true)
+  // Fill: always the whole window.
+  const fill = { ...s, shape: 'fill' }
+  assert.deepEqual(kioskBox(768, 1024, fill), { x: 0, y: 0, w: 768, h: 1024, portrait: true, bars: false })
+  // Another design size: its own shape (a 4:3 design on a 4:3 tablet fills it).
+  assert.equal(kioskBox(768, 1024, { short: 768, long: 1024 }).bars, false)
+  assert.equal(kioskBox(1080, 1920, { short: 768, long: 1024 }).bars, true)
+  // No window yet: nothing to place.
+  assert.deepEqual(kioskBox(0, 0, s), { x: 0, y: 0, w: 0, h: 0, portrait: true, bars: false })
+})
+
+test('the kiosk on a screen of another size: zoomed so it is laid out at the design\'s size', () => {
+  const s = normaliseDesign({}).screen
+  assert.equal(ZOOM_SLACK, 0.1)
+  // The design's size, or within ZOOM_SLACK of it: as it is.
+  for (const [w, h] of [[1080, 1920], [1920, 1080], [1080, 1800], [1000, 1800], [1180, 2100]]) assert.equal(kioskZoom(w, h, s), 1, w + ' x ' + h)
+  // A phone: the same scale either way round, and the box comes out at the design's size.
+  const k = kioskZoom(412, 915, s)
+  assert.equal(k, 0.381)
+  assert.equal(kioskZoom(915, 412, s), k, 'turned: the same scale')
+  const laid = kioskBox(412 / k, 915 / k, s)
+  assert.ok(laid.w >= 1080 && laid.w < 1084, 'laid out 1080 across: ' + laid.w)
+  // Smaller screens zoomed out, bigger ones in; rounded down to 3 decimals, so never under the design's size.
+  for (const [w, h] of [[768, 1024], [800, 1280], [810, 1440], [360, 780], [1440, 2560], [2160, 3840], [1024, 768]]) {
+    const z = kioskZoom(w, h, s)
+    const b = kioskBox(w / z, h / z, s)
+    const d = b.portrait ? [1080, 1920] : [1920, 1080]
+    assert.ok(z !== 1 && Math.round(z * 1000) === z * 1000, w + ' x ' + h + ' -> ' + z)
+    assert.ok(Math.min(b.w / d[0], b.h / d[1]) >= 0.999 && Math.min(b.w / d[0], b.h / d[1]) < 1.01, w + ' x ' + h + ' box ' + b.w + ' x ' + b.h)
   }
-  assert.equal(kioskScale(40, 80), 0.1, 'never below a tenth')
+  assert.equal(kioskZoom(810, 1440, s), 0.75)
+  assert.equal(kioskZoom(1440, 2560, s), 1.333)
+  // Against another design size: a 720 x 1280 design on a 1080 x 1920 kiosk is zoomed in.
+  assert.equal(kioskZoom(1080, 1920, { short: 720, long: 1280 }), 1.5)
+  assert.equal(kioskZoom(720, 1280, { short: 720, long: 1280 }), 1)
+  // Fill: the design's size has to fit both ways.
+  assert.equal(kioskZoom(768, 1024, { ...s, shape: 'fill' }), 0.533)
+  // Limits, and unknown screens.
+  assert.equal(kioskZoom(40, 80, s), ZOOM_MIN)
+  assert.equal(kioskZoom(7680, 7680 * 16 / 9, { short: 320, long: 569 }), ZOOM_MAX)
+  for (const [w, h] of [[0, 0], [undefined, 900], [null, null], [NaN, 400], [-412, 915]]) assert.equal(kioskZoom(w, h, s), 1, String(w) + ' x ' + String(h))
+  assert.equal(kioskZoom('412', '915', s), 0.381)
+  // The design's size the way round a window is.
+  assert.deepEqual(screenSize(800, 1280, s), { w: 1080, h: 1920 })
+  assert.deepEqual(screenSize(1280, 800, s), { w: 1920, h: 1080 })
 })
 
 test('meal deal picture: laid out like a photo of the meal, inside the box', () => {

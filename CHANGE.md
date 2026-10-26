@@ -5,6 +5,16 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-26 — Kiosks keep their design's shape and size on any screen]
+
+- Each kiosk design now says which screen it's made for: a **Screen** card in the design editor (Full HD kiosk 1080 x 1920 unless you pick another: HD, a 16:10 or 4:3 tablet, QHD, 4K, or a size you type in). The preview shows the design at that size.
+- On a screen of another shape (a 4:3 tablet, a phone) the kiosk keeps the design's shape, centred, with bars at the sides or above and below: black, or the design's Page colour. Or pick **Fill the screen** to let the layout stretch to the screen instead.
+- On a screen of another size the kiosk is zoomed so it's laid out at the design's size, and looks the same, only smaller or bigger (phones' and tablets' browsers; a difference under 10% is left alone). This replaces the zoom-out that only phones got.
+- **Try on**, above the design editor's preview, shows the design on a Full HD kiosk, a 16:10 or 4:3 tablet or a phone, as that screen would show it.
+- The share page frames the kiosk at the design's screen size. Kiosk analytics records where the kiosk sat on the screen, so a visit plays back with its bars even after the design's screen changes.
+- The kiosk's staff panel says the screen's size, the design's, the zoom and where the bars are.
+- No migration (the setting lives in the design).
+
 ## [2026-10-26 — Kiosk analytics: every guest visit recorded and played back]
 
 - Kiosks now record each guest's visit as it happens: the screens they saw and for how long, every dish opened, what they picked, changed and took out of the order, every touch with where it landed (including touches on things that don't answer), scrolling, the language, the reach button and the allergens screen, and how the visit ended (ordered, started again, timed out, walked away, or cut short by a reload). Visits are sent within a minute and kept on the kiosk while it is offline.

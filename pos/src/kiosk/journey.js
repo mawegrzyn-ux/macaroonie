@@ -26,7 +26,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { ulid } from '@shared/pos/ids.js'
 import { diffView } from '@shared/kioskJourney.js'
-import { basketCheck, KIOSK_LANGUAGES } from '@shared/kiosk.js'
+import { basketCheck, KIOSK_LANGUAGES, kioskBox } from '@shared/kiosk.js'
 import { configItem } from '@shared/pos/offers.js'
 import { APP_VERSION } from '../lib/transport.js'
 import { getState, subscribeKiosk, kioskApi, kioskSections, replayView } from './store.js'
@@ -49,6 +49,11 @@ let replayUi = null          // replay: the frame's ui values; null when not rep
 const replayListeners = new Set()
 const subscribeReplay = fn => { replayListeners.add(fn); return () => replayListeners.delete(fn) }
 const getReplayUi = () => replayUi
+let replayBox = null         // replay: the kiosk's box as recorded ([x, y, w, h]), or null
+const getReplayBox = () => replayBox
+
+/** A replay's recorded box for the kiosk (viewport.js useKioskBox()), or null. */
+export const useReplayBox = () => useSyncExternalStore(subscribeReplay, getReplayBox)
 const noop = () => {}
 
 /**
@@ -156,7 +161,7 @@ function open(s) {
     id: ulid(),
     t0: now(),
     started_at: new Date().toISOString(),
-    events: [{ t: 0, k: 'vp', w: window.innerWidth, h: window.innerHeight }, { t: 0, k: 'v', p: view }],
+    events: [vpEvent(0), { t: 0, k: 'v', p: view }],
     view,
     names: {},
     full: false,
@@ -349,8 +354,15 @@ function onScroll(e) {
   if (!scrollTimers.has(path)) scrollTimers.set(path, setTimeout(fire, SCROLL_MS))
 }
 
+// The window and the kiosk's box in it (viewport.js: bars when the screen
+// isn't the design's shape), so a replay draws both as they were.
+function vpEvent(t) {
+  const b = kioskBox(window.innerWidth, window.innerHeight, getState().config?.design?.screen)
+  return { t, k: 'vp', w: window.innerWidth, h: window.innerHeight, b: [b.x, b.y, b.w, b.h] }
+}
+
 function onResize() {
-  if (rec) push({ t: now() - rec.t0, k: 'vp', w: window.innerWidth, h: window.innerHeight })
+  if (rec) push(vpEvent(now() - rec.t0))
 }
 
 // ── Kept on the device, sent when it can be ──────────────────────
@@ -459,6 +471,8 @@ export function listenForReplay() {
     const frame = {}
     for (const [k, v] of Object.entries(view)) if (k.startsWith('ui:')) frame[k.slice(3)] = v
     replayUi = frame
+    const b = e.data.box
+    replayBox = Array.isArray(b) && b.length === 4 && b.every(n => Number.isFinite(n)) ? (replayBox?.join() === b.join() ? replayBox : b) : null
     replayView(view)
     for (const l of replayListeners) l()
     // Scrolling boxes where they were, once the screen is drawn.
