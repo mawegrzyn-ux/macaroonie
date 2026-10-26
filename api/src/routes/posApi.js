@@ -89,6 +89,8 @@ import { CHECK_EVENTS } from '../../../shared/pos/checks.js'
 import { kioskConfig, readPreviewToken, previewDevice } from '../services/kioskSvc.js'
 import { saveVisits, MAX_VISITS } from '../services/kioskJourneySvc.js'
 import { kioskReceipt, sendWaitingReceipts } from '../services/receiptSvc.js'
+import { settleChangedChecks } from '../services/loyaltySvc.js'
+import { loyaltyDeviceRoutes } from './loyaltyPos.js'
 import { setSoldOut, soldOutItemIds, announceSoldOut } from '../services/soldOut.js'
 import { kdsConfig, kitchenSync, onlineMoves, switchFlow, readKitchenTestToken, kitchenTestData } from '../services/kitchenSvc.js'
 import { changeStatus } from '../services/orderSvc.js'
@@ -141,6 +143,7 @@ const lastSeen = new Map()
 
 const KIOSK_ROUTES = new Set(['GET /pos-api/me', 'GET /pos-api/config', 'POST /pos-api/events', 'POST /pos-api/disconnect', 'POST /pos-api/move',
   'POST /pos-api/kiosk/journeys', 'POST /pos-api/kiosk/receipts',
+  'POST /pos-api/loyalty/lookup', 'POST /pos-api/loyalty/redemptions', 'POST /pos-api/loyalty/redemptions/:id/release',
   'POST /pos-api/card/payments', 'GET /pos-api/card/payments/:id', 'POST /pos-api/card/payments/:id/cancel', 'POST /pos-api/card/payments/:id/test'])
 // A venue hub (hub/) prints and reports, nothing else.
 const HUB_ROUTES = new Set(['GET /pos-api/me', 'GET /pos-api/config', 'POST /pos-api/print-jobs/claim', 'POST /pos-api/print-jobs/:id/status',
@@ -467,6 +470,9 @@ export default async function posApiRoutes(app) {
     // services/receiptSvc.js): its page's link for the QR code on the order
     // done screen, and with an email address the receipt sent there (or, for
     // an order paid at the counter, sent once the till takes payment).
+    // Loyalty (migration 211): look members up, take rewards out, put them back.
+    loyaltyDeviceRoutes(scoped)
+
     scoped.post('/kiosk/receipts', { config: { rateLimit: { max: 60, timeWindow: '1 minute' } } }, async req => {
       const d = req.posDevice
       if (d.kind !== 'kiosk') throw httpError(403, 'Only a self-order kiosk gives guests receipts this way')
@@ -749,6 +755,10 @@ export default async function posApiRoutes(app) {
         sendWaitingReceipts({ tenantId: d.tenant_id, venueId: d.venue_id, log: req.log })
           .catch(err => req.log.warn({ err }, 'kiosk receipts after payment failed'))
       }
+      // Loyalty on the checks that changed: rewards used or put back, points
+      // and stamps worked out again (migration 211; the minute sweep catches
+      // anything missed).
+      settleChangedChecks(d.tenant_id, d.venue_id, changed, req.log)
       return { results, seq, checks: Object.values(changed), kitchen: Object.values(kitchen) }
     })
 

@@ -444,7 +444,8 @@ const ev = (type, payload, { check_id = null, staff_id = KIOSK.id, device_id = K
   ({ id: ulid(), venue_id: VENUE, device_id, staff_id, approved_by, check_id, type, payload, client_at: new Date().toISOString() })
 
 test('kiosk rules: counter orders only, its own orders only, menu dishes, card only', () => {
-  assert.deepEqual(KIOSK_EVENTS, ['check.opened', 'line.added', 'promotions.set', 'lines.sent', 'payment.added', 'check.closed'])
+  assert.deepEqual(KIOSK_EVENTS, ['check.opened', 'line.added', 'promotions.set', 'lines.sent', 'payment.added', 'check.closed',
+    'check.member_set', 'discount.applied'])
   const id = ulid()
   const refused = (e, checks = {}) => applyEvent(checks, e, { staffById })
   assert.equal(refused(ev('check.opened', { mode: 'table', table_id: uuid() }, { check_id: id })).code, 'kiosk')

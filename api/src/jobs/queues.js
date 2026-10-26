@@ -70,6 +70,14 @@ export function startHoldSweepWorker(sql, log) {
     const { sendWaitingReceipts } = await import('../services/receiptSvc.js')
     const mailed = await sendWaitingReceipts({ log })
     if (mailed) log.info({ mailed }, 'Kiosk receipts emailed after payment')
+    // Loyalty (migration 211): unused rewards put back, sales settled again,
+    // points past their expiry, then wallet cards that changed.
+    const { sweepLoyalty, tenantSite } = await import('../services/loyaltySvc.js')
+    const settled = await sweepLoyalty({ log })
+    if (settled) log.info({ settled }, 'Loyalty settled')
+    const { pushWalletUpdates } = await import('../services/walletSvc.js')
+    const wallets = await pushWalletUpdates({ log, siteOf: tenantSite })
+    if (wallets) log.info({ wallets }, 'Wallet cards updated')
     log.debug('Hold sweep complete')
   }, { connection })
 

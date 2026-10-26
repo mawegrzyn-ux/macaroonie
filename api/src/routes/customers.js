@@ -378,6 +378,9 @@ export default async function customersRoutes(app) {
       `
       // Pepper: chats that mention them are redacted and closed, the audit redacted.
       await eraseFromAi(tx, req.tenantId, identifiers)
+      // Loyalty (migration 211): their memberships are erased too.
+      const { eraseMembersOfCustomer } = await import('../services/loyaltySvc.js')
+      await eraseMembersOfCustomer(tx, req.tenantId, req.params.id, [customer.email, ...linked.map(l => l.email)])
     })
 
     return reply.code(204).send()

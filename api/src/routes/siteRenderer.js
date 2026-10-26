@@ -32,6 +32,7 @@ import { allergenKey } from '../../../shared/menuTags.js'
 import { comboMenuPrice } from '../../../shared/orderPricing.js'
 import { env }            from '../config/env.js'
 import { ORDER_PAGE_KEY, DEFAULT_ORDER_PAGE } from '../services/orderPage.js'
+import { serveLoyaltyApp } from '../services/loyaltyPage.js'
 import {
   loadStagingAccess, checkPassword, cookieValue, cookieOk, previewKeyOk,
   setCookieHeader, readCookie, safeNext,
@@ -50,6 +51,8 @@ export const RESERVED_SUBDOMAINS = new Set([
   'screens',
   // The installer app (routes/installerSite.js).
   'installer',
+  // Every tenant's loyalty web app (routes/loyaltySite.js).
+  'loyalty',
 ])
 
 // The staging environment for a tenant always lives at
@@ -464,6 +467,22 @@ export default async function siteRendererRoutes(app) {
     if (!venue) return renderNotFound(reply, 'Online ordering is not available here')
     return renderOrderPage(req, reply, bundle, { orderView: 'order', orderVenue: venue })
   })
+
+  // ── The loyalty web app (migration 211, services/loyaltyPage.js) ──
+  async function loyaltyApp(req, reply, what) {
+    if (!req.siteHost) return reply.callNotFound()
+    const { slug, customDomain } = req.siteHost
+    const [row] = slug
+      ? await systemSql`SELECT tenant_id, subdomain_slug FROM tenant_site WHERE subdomain_slug = ${slug} LIMIT 1`
+      : await systemSql`SELECT tenant_id, subdomain_slug FROM tenant_site WHERE lower(custom_domain) = ${customDomain} AND custom_domain_verified = true LIMIT 1`
+    const out = row?.subdomain_slug ? await serveLoyaltyApp(reply, { tenantId: row.tenant_id, slug: row.subdomain_slug, base: '/loyalty', what }) : null
+    if (!out) return renderNotFound(reply, 'Loyalty isn\'t open here')
+    return out
+  }
+  app.get('/loyalty', (req, reply) => loyaltyApp(req, reply, 'page'))
+  app.get('/loyalty/c/:token', (req, reply) => (req.siteHost ? reply.redirect('/loyalty', 302) : reply.callNotFound()))
+  app.get('/loyalty/manifest.webmanifest', (req, reply) => loyaltyApp(req, reply, 'manifest'))
+  app.get('/loyalty/sw.js', (req, reply) => loyaltyApp(req, reply, 'sw'))
 
   app.get('/order/status/:token', async (req, reply) => {
     if (!req.siteHost) return reply.callNotFound()

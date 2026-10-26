@@ -36,6 +36,7 @@ import { venueNow } from '../../../shared/promotions.js'
 import { makeLink, readLink } from './previewLinks.js'
 import { printLayouts } from './printDesignSvc.js'
 import { cardMachineOf } from './cardSvc.js'
+import { deviceLoyalty } from './loyaltySvc.js'
 
 // The device id a preview runs as (never a real device).
 export const PREVIEW_DEVICE_ID = '00000000-0000-4000-8000-00000000000a'
@@ -140,6 +141,9 @@ export async function kioskConfig(tx, tenantId, venueId, device, { designOverrid
     // Its card machine (migration 193, services/cardSvc.js). Previews take
     // no money: their card step has its own pretend Approve and Decline.
     card_machine: preview ? null : await cardMachineOf(tx, tenantId, venueId, ds.card_reader),
+    // Loyalty on kiosks (migration 211): null = off. Previews show it but
+    // never take a reward out.
+    loyalty: await deviceLoyalty(tx, tenantId, venueId, 'kiosk'),
   }
   config.version = sha256(JSON.stringify(config)).slice(0, 16)
   return config

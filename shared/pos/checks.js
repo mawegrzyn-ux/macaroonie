@@ -26,7 +26,7 @@ import { checkTotals, isActiveLine, lineGross } from './pricing.js'
 export const CHECK_EVENTS = [
   'check.opened', 'check.covers_set', 'check.table_moved', 'check.server_changed',
   'check.stream_set', 'check.order_type_set', 'check.tent_set',
-  'check.renamed', 'check.note_set',
+  'check.renamed', 'check.note_set', 'check.member_set',
   'line.added', 'line.changed', 'line.deleted', 'lines.sent', 'course.fired', 'line.voided',
   'discount.applied', 'discount.removed', 'promotions.set', 'service_charge.set',
   'lines.moved', 'check.merged', 'bill.printed',
@@ -55,7 +55,10 @@ export const CHECK_MODES = ['table', 'tab', 'counter']
 // menu at their menu price, the offers that apply, sending to the kitchen,
 // one card payment and closing. Staff on a till can do anything else to a
 // kiosk order (take payment at the counter, add, void, discount ...).
-export const KIOSK_EVENTS = ['check.opened', 'line.added', 'promotions.set', 'lines.sent', 'payment.added', 'check.closed']
+// A kiosk may also put the guest's loyalty card on its order and spend a
+// reward the server reserved (shared/loyalty.js), nothing else of discounts.
+export const KIOSK_EVENTS = ['check.opened', 'line.added', 'promotions.set', 'lines.sent', 'payment.added', 'check.closed',
+  'check.member_set', 'discount.applied']
 
 function kioskProblem(checks, e) {
   if (!KIOSK_EVENTS.includes(e.type)) return 'A kiosk can\'t do this'
@@ -72,6 +75,7 @@ function kioskProblem(checks, e) {
   const c = checks[e.check_id]
   if (c && c.opened_by !== e.staff_id) return 'A kiosk only changes its own orders'
   if (e.type === 'line.added' && (!p.line?.item_id || p.line.price_override || p.line.open_item)) return 'A kiosk only adds dishes from the menu'
+  if (e.type === 'discount.applied' && !p.discount?.loyalty_redemption_id) return 'A kiosk only takes off loyalty rewards'
   if (e.type === 'payment.added') {
     const x = p.payment || {}
     if (!['card_external', 'card_integrated'].includes(x.tender) || (x.tip || 0) > 0 || x.tendered != null) return 'A kiosk only takes card payments'
@@ -167,6 +171,14 @@ export function eventProblem(e) {
       return optText(p.tab_name, 80) ? null : bad('tab_name')
     case 'check.note_set':
       return optText(p.note, 500) ? null : bad('note')
+    case 'check.member_set': {
+      // The loyalty member on the check (shared/loyalty.js), or null to take them off.
+      const m = p.member
+      if (m === null) return null
+      if (!m || typeof m !== 'object' || !isUuid(m.id)) return bad('member.id')
+      if (!optText(m.no, 20) || !optText(m.name, 120)) return bad('member')
+      return null
+    }
     case 'line.added': {
       const why = lineProblem(p.line)
       return why ? bad(why) : null
@@ -205,6 +217,7 @@ export function eventProblem(e) {
       if (!d.comp && d.type === 'amount' && !(isPence(d.value) && d.value > 0)) return bad('discount.value')
       if (!isText(d.name || '', 80)) return bad('discount.name')
       if (!isText(d.reason || '', 200)) return bad('discount.reason')
+      if (d.loyalty_redemption_id != null && (!isUuid(d.loyalty_redemption_id) || d.comp)) return bad('discount.loyalty_redemption_id')
       if (d.comp && !(d.reason || '').trim()) return bad('a comp needs a reason')
       return null
     }
@@ -316,6 +329,7 @@ function newCheck(e) {
     sends: [],
     discounts: [],
     promotions: [],
+    loyalty: null,
     service_charge: p.service_charge ? { percent: Number(p.service_charge.percent) || 0, vat_rate: Number(p.service_charge.vat_rate) || 0, removed: false, reason: null } : null,
     payments: [],
     refunds: [],
@@ -425,6 +439,18 @@ export function applyEvent(checks, e, ctx = {}) {
     case 'check.note_set':
       c.note = p.note ?? null
       break
+
+    case 'check.member_set': {
+      // Open or closed: a guest who shows their card after paying still earns.
+      if (current.status === 'void') return fail('This check was voided', 'closed')
+      const m = p.member
+      if (!m && c.discounts.some(d => d.loyalty_redemption_id)) return fail('Take the reward off the check first', 'loyalty')
+      if (m && c.loyalty?.member_id && c.loyalty.member_id !== m.id && c.discounts.some(d => d.loyalty_redemption_id)) {
+        return fail('Take the reward off the check first', 'loyalty')
+      }
+      c.loyalty = m ? { member_id: m.id, no: m.no || null, name: (m.name || '').trim() || null, by: e.staff_id, at: e.client_at ?? null } : null
+      break
+    }
 
     case 'line.added': {
       if (findLine(p.line.id)) return fail('This item is already on the check', 'duplicate')
@@ -541,7 +567,12 @@ export function applyEvent(checks, e, ctx = {}) {
           if (l.status === 'voided') return fail('This item was voided', 'voided')
         }
       }
-      if (d.comp) {
+      if (d.loyalty_redemption_id) {
+        // A reward the member spends: the sequencer checks the reservation
+        // (shared/loyalty.js loyaltyProblem); no discount permission needed.
+        if (!c.loyalty?.member_id) return fail('Add the member to the check first', 'loyalty')
+        if (c.discounts.some(x => x.loyalty_redemption_id === d.loyalty_redemption_id)) return fail('This reward is already on the check', 'duplicate')
+      } else if (d.comp) {
         const no = need('comp'); if (no) return no
       } else {
         let pct = d.type === 'percent' ? d.value : 100
@@ -559,6 +590,7 @@ export function applyEvent(checks, e, ctx = {}) {
         id: d.id, scope: d.scope, line_ids: d.scope === 'line' ? d.line_ids : [],
         type: d.comp ? 'percent' : d.type, value: d.comp ? 100 : d.value, comp: !!d.comp,
         name: (d.name || (d.comp ? 'Comp' : 'Discount')).trim(), reason: (d.reason || '').trim() || null,
+        ...(d.loyalty_redemption_id ? { loyalty_redemption_id: d.loyalty_redemption_id } : {}),
         by: e.staff_id, approved_by: e.approved_by || null, at: e.client_at ?? null, day_id: e.assigned?.day_id ?? null,
       })
       c.billed = false

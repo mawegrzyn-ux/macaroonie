@@ -15,6 +15,9 @@
 //   installer installer.macaroonie.com  the admin build again, opened on /install: a
 //                                    phone app for linking the devices at a venue
 //                                    (served by routes/installerSite.js; migration 184)
+//   loyalty loyalty.macaroonie.com   every tenant's loyalty web app at /<site slug>
+//                                    (routes/loyaltySite.js; migration 211), beside
+//                                    /loyalty on the tenant's own site
 // Each device app has its own address so it installs as its own app and keeps
 // its own pairing; the code a device shows can only become its address's
 // kind (POST /pos-api/pairings).
@@ -31,6 +34,7 @@ export const KIOSK_SUBDOMAIN = 'kiosk'
 export const KDS_SUBDOMAIN = 'kds'          // forwards to kitchen.
 export const SCREENS_SUBDOMAIN = 'screens'
 export const INSTALLER_SUBDOMAIN = 'installer'
+export const LOYALTY_SUBDOMAIN = 'loyalty'
 
 // The device app each host runs, as pos_devices.kind.
 export const DEVICE_KIND_OF_HOST = { pos: 'terminal', kitchen: 'kds', kiosk: 'kiosk' }
@@ -38,7 +42,7 @@ const SUBDOMAIN_OF_KIND = { terminal: POS_SUBDOMAIN, kds: KITCHEN_SUBDOMAIN, kio
 
 const root = () => env.PUBLIC_ROOT_DOMAIN.toLowerCase()
 
-/** 'apex' | 'office' | 'ops' | 'pos' | 'kitchen' | 'kiosk' | 'kds' | 'screens' | 'installer' | null for a Host header. */
+/** 'apex' | 'office' | 'ops' | 'pos' | 'kitchen' | 'kiosk' | 'kds' | 'screens' | 'installer' | 'loyalty' | null for a Host header. */
 export function platformHostKind(host) {
   if (!host) return null
   const h = String(host).split(':')[0].toLowerCase()
@@ -51,6 +55,7 @@ export function platformHostKind(host) {
   if (h === KDS_SUBDOMAIN + '.' + root()) return 'kds'
   if (h === SCREENS_SUBDOMAIN + '.' + root()) return 'screens'
   if (h === INSTALLER_SUBDOMAIN + '.' + root()) return 'installer'
+  if (h === LOYALTY_SUBDOMAIN + '.' + root()) return 'loyalty'
   return null
 }
 
@@ -73,6 +78,10 @@ export function screensOrigin() {
 
 export function installerOrigin() {
   return `${env.PUBLIC_SITE_SCHEME}://${INSTALLER_SUBDOMAIN}.${root()}`
+}
+
+export function loyaltyOrigin() {
+  return `${env.PUBLIC_SITE_SCHEME}://${LOYALTY_SUBDOMAIN}.${root()}`
 }
 
 export function opsOrigin() {
