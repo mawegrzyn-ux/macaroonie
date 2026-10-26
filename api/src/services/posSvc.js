@@ -27,6 +27,7 @@ import { dayFigures } from '../../../shared/pos/reports.js'
 import { normalisePermissions, DEFAULT_POS_ROLES } from '../../../shared/pos/permissions.js'
 import { TENDERS } from '../../../shared/pos/checks.js'
 import { STALE_HOURS } from '../../../shared/pos/kitchen.js'
+import { normaliseKitchenColours } from '../../../shared/pos/kitchenColours.js'
 import { kioskStaff } from '../../../shared/kiosk.js'
 import { venueNow } from '../../../shared/promotions.js'
 import { soldOutRows } from './soldOut.js'
@@ -129,6 +130,7 @@ export function settingsView(s) {
     kds_online_orders: s.kds_online_orders ?? true, kds_online_ready: s.kds_online_ready ?? true,
     kds_gloriafood: !!s.kds_gloriafood, kds_gloriafood_types: s.kds_gloriafood_types || {},
     kds_gloriafood_lead_mins: s.kds_gloriafood_lead_mins ?? 20,
+    kds_colours: normaliseKitchenColours(s.kds_colours),
   }
 }
 

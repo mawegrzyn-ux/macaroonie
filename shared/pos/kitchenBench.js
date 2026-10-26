@@ -138,6 +138,7 @@ export function createBench(data, { now = () => new Date().toISOString(), rng = 
       flow_switched_by: st.switchedBy,
       courses: data.courses || [],
       order_types: data.order_types || [],
+      colours: data.colours || { states: {}, sections: {} },
       version: 'bench.' + st.activeFlowId + '.' + (st.switchedAt || '') + '.' + screen.id + '.' + sound,
       device,
     }

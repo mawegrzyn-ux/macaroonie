@@ -5,6 +5,16 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-26 — Kitchen screens: your own ticket colours, dish names by section, a packing check at the pass]
+
+- Store tech → Kitchen screens → **Ticket colours**: pick the background of a dish row when it is To do, Ticked off, On its way, Held and Voided; of a ticket's top for an order being made, New, Rush, Prepared and All ticked off; and the timer's amber and late colours. A colour not set keeps today's look; words turn black or white by themselves to stay readable. A preview ticket beside the list shows your colours; Save changes every kitchen screen of the venue at once.
+- **Dish names by section**: pick a menu section (Drinks, Sides...) and a colour, and those dishes' names show in it on the kitchen screens (a meal deal's parts in their own section's colour). Sections go by name, so one colour covers that section in every menu.
+- **The pass ticks dishes off**: at the expo (the pass) and runners, tapping a dish now ticks it off as a packing check instead of sending it on. The ticket says how many are ticked and, once every dish is, shows CHECKED with the All ticked off top, and stays until READY (DONE at a runner). Tap again to untick. Ticking off a dish still at an earlier station counts it done there. Prep stations work as before.
+- **Bump when every dish is ticked**: a station setting (Edit station → Ticking off dishes) for an expo or runner where the last tick should send the order on, as READY would.
+- A tick goes when the dish is remade, or when the station before takes it back (undone or brought back with Prev); READY then Prev at the pass keeps the ticks.
+- A new location copies the template location's ticket colours.
+- Migration 207 (`pos_settings.kds_colours`).
+
 ## [2026-10-25 — Kiosk designs: bottom bar and side menu colours]
 
 - Store tech → Kiosks → a design → Brand: **Bottom bar and side menu**, under the main colours: **Bottom bar**, **Bottom bar text**, **Side menu** and **Side menu text**. Until you set them the kiosk looks as before (the bar in the Text colour, the sections down the side in the Cards colour). Words left on **Automatic** take whichever of the Page and Text colours reads better, so a bar colour on its own stays readable. Each colour box shows the colour in use; Reset makes a colour follow again. The preview follows as you go; Save keeps it.

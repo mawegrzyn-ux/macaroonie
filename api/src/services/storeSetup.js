@@ -508,7 +508,7 @@ const AREAS = {
     const flows = await copyTable(s, 'kds_flows')
     await copyTable(s, 'kds_flow_edges', { need: ['flow_id', 'to_station_id'] })
     await ensureSettings(tx, tenantId, to)
-    const [tpl] = await tx`SELECT kds_active_flow_id, kds_online_orders, kds_online_ready, kds_gloriafood_types, kds_gloriafood_lead_mins
+    const [tpl] = await tx`SELECT kds_active_flow_id, kds_online_orders, kds_online_ready, kds_gloriafood_types, kds_gloriafood_lead_mins, kds_colours
                              FROM pos_settings WHERE venue_id = ${s.from} AND tenant_id = ${tenantId}`
     if (tpl) {
       // The template's own flow in use becomes the copy's; a shared flow (migration 192) stays as it is.
@@ -518,7 +518,7 @@ const AREAS = {
       await tx`
         UPDATE pos_settings SET kds_active_flow_id = ${active || null}, kds_online_orders = ${tpl.kds_online_orders},
                kds_online_ready = ${tpl.kds_online_ready}, kds_gloriafood_types = ${tx.json(tpl.kds_gloriafood_types || {})},
-               kds_gloriafood_lead_mins = ${tpl.kds_gloriafood_lead_mins}
+               kds_gloriafood_lead_mins = ${tpl.kds_gloriafood_lead_mins}, kds_colours = ${tx.json(tpl.kds_colours || {})}
          WHERE venue_id = ${to} AND tenant_id = ${tenantId}`
     }
     return [stations.length ? plural(stations.length, 'station') + ': ' + stations.map(x => x.name).join(', ') : 'No kitchen stations to copy', flows.length ? plural(flows.length, 'kitchen flow') : null].filter(Boolean)

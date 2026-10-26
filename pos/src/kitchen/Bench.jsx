@@ -40,7 +40,8 @@ const timeOf = iso => (iso ? new Date(iso).toLocaleTimeString('en-GB', { hour: '
 
 const EVENT_WORDS = {
   'kitchen.bumped': 'bumped',
-  'kitchen.item_done': 'ticked a dish',
+  'kitchen.item_done': 'marked a dish done',
+  'kitchen.item_checked': 'ticked a dish off',
   'kitchen.recalled': 'brought back',
   'kitchen.remake': 'asked for a remake',
   'kitchen.priority': 'changed rush',
@@ -462,7 +463,7 @@ function OrdersPanel({ bench, data, onChange, say }) {
                           <span key={n} className="flex items-center gap-1">
                             {idx > 0 && <ChevronRight size={12} className="text-muted" />}
                             <span className={cx('text-xs px-2 py-0.5 rounded-full border', STATE_STYLE[st])} title={STATE_WORD[st]}>
-                              {cfg.stations[n]?.name || 'Gone'}{st === 'active' ? ' (now)' : st === 'held' ? ' (held)' : st === 'sleeping' ? ' (until ' + wakeTime(i, n, cfg, now) + ')' : ''}
+                              {cfg.stations[n]?.name || 'Gone'}{st === 'active' ? (i.checked?.[n] ? ' (ticked off)' : ' (now)') : st === 'held' ? ' (held)' : st === 'sleeping' ? ' (until ' + wakeTime(i, n, cfg, now) + ')' : ''}
                             </span>
                           </span>
                         )

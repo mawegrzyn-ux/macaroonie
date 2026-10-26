@@ -14,6 +14,13 @@
 // With more than one kitchen flow (migration 177), the flow button at the
 // right of the top bar shows the one in use and switches to another: dishes
 // sent from then on follow it, dishes already sent keep their way.
+//
+// At the pass and runners a tapped dish is ticked off (the packing check):
+// the ticket stays, its top turning CHECKED once every dish is ticked, until
+// READY / DONE (or, with the station's bump_when_checked, the last tick bumps
+// it). Every colour of a ticket comes from the venue's Ticket colours
+// (shared/pos/kitchenColours.js): each state's background, and dish names in
+// their menu section's colour.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
@@ -26,8 +33,9 @@ import {
 } from '@shared/pos/kitchen.js'
 import { countParts } from '@shared/combos.js'
 import { orderInfo } from '@shared/orderInfo.js'
+import { ticketColours, sectionColour } from '@shared/pos/kitchenColours.js'
 import {
-  useKitchen, useOrders, useCfg, bootKitchen, nowIso, myStations, currentStation, setPrefs, bump, recall, itemDone,
+  useKitchen, useOrders, useCfg, bootKitchen, nowIso, myStations, currentStation, setPrefs, bump, recall, itemDone, itemChecked,
   remake, priority, collected, unlockAudio, chime, loadConfig, toast, activeFlow, switchFlow, disconnect, moveScreen, inBench,
 } from './store.js'
 import { whenSafeToReload, idleFor } from '../lib/appUpdate.js'
@@ -197,6 +205,11 @@ function Kitchen() {
   const flow = activeFlow(s.config)
   const orderLevel = isOrderLevel(station)
   const ready = orderLevel ? readyOrders(orders, station, now) : []
+  // The ticket colours: each state's background and words, dish names by section.
+  const look = useMemo(() => {
+    const colours = s.config.colours
+    return { state: ticketColours(colours), nameOf: sectionId => sectionColour(colours, sectionId) }
+  }, [s.config.colours])
 
   // The trading day starts at day_starts_at (04:00): the speed figures count from then.
   const dayFrom = useMemo(() => {
@@ -329,7 +342,7 @@ function Kitchen() {
         : (
           <div className="relative flex-1 min-h-0 grid gap-1.5 p-1.5" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
             {shown.map((t, i) => (
-              <Ticket key={t.order.id} t={t} n={left + i + 1} station={station} now={now} text={text} names={names} types={s.config.order_types} titleBy={dev.ticket_main}
+              <Ticket key={t.order.id} t={t} n={left + i + 1} station={station} now={now} text={text} names={names} types={s.config.order_types} titleBy={dev.ticket_main} look={look}
                 selected={sel?.order.id === t.order.id} alert={s.alerts[t.order.id]}
                 onSelect={() => setSelected(t.order.id)} />
             ))}
@@ -416,7 +429,7 @@ const label = o => o.table ? 'Table ' + o.table : o.tab ? o.tab : o.guest ? o.gu
 
 const hhmm = iso => new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
 
-function Ticket({ t, n, station, now, text, selected, alert, onSelect, names, types, titleBy }) {
+function Ticket({ t, n, station, now, text, selected, alert, onSelect, names, types, titleBy, look }) {
   const o = t.order
   const title = ticketTitle(o, titleBy)
   // Only dishes a Sleeper still holds: the clock shows when they come.
@@ -426,39 +439,48 @@ function Ticket({ t, n, station, now, text, selected, alert, onSelect, names, ty
   // At the expo / a runner: every dish has reached it, nothing still on its way.
   const live = t.items.filter(i => i.state !== 'voided' && i.state !== 'held')
   const allDone = isOrderLevel(station) && live.length > 0 && live.every(i => i.state === 'active' || i.state === 'done')
+  // The packing check: every dish ticked off, waiting for READY / DONE.
+  const checked = isOrderLevel(station) && t.all_ticked
   // Dishes on this ticket go on different ways: label each one.
   const nextKeys = new Set(live.map(i => (i.next || []).join(',')))
   const showNext = !isOrderLevel(station) && nextKeys.size > 1
-  const headBg = o.priority ? 'bg-[#b45309]' : fresh ? 'bg-[#8f8a4b]' : allDone ? 'bg-[#1d9a52]' : 'bg-[#2b7a4b]'
+  const headKey = o.priority ? 'head_rush' : fresh ? 'head_new' : checked ? 'head_checked' : allDone ? 'head_prepared' : 'head'
+  const head = look.state[headKey]
+  const timer = tone === 'late' ? look.state.timer_late : tone === 'warn' ? look.state.timer_warn : null
   const typeIndex = (types || []).findIndex(x => x.id === o.type)
   const typeColour = (types || [])[typeIndex]?.colour
   const typeCls = typeColour ? 'text-white' : TYPE_COLOURS[(typeIndex < 0 ? 2 : typeIndex) % TYPE_COLOURS.length]
   const groups = groupByCourse(t.items)
   return (
-    <div onClick={onSelect} data-testid="kds-ticket" data-order={o.id}
+    <div onClick={onSelect} data-testid="kds-ticket" data-order={o.id} data-checked={checked ? 'true' : undefined}
       className={cx('min-h-0 flex flex-col rounded overflow-hidden bg-[#0d0d0d] cursor-pointer',
         selected ? 'ring-[3px] ring-[#22d3ee]' : 'ring-1 ring-white/10')}>
-      <div className={cx('shrink-0 px-2 py-1.5', headBg)}>
+      <div className="shrink-0 px-2 py-1.5" style={{ background: head.bg, color: head.ink }} data-testid="kds-head" data-look={headKey}>
         <div className="flex items-center gap-1.5">
           <span className={cx('font-bold truncate min-w-0 flex-1', text.head)} data-testid="kds-title">{title.text}</span>
           {title.badge && <span className="bg-white text-black font-black px-2 rounded tabular-nums text-[17px] whitespace-nowrap" data-testid="kds-badge">{title.badge}</span>}
-          <span className={cx('font-black px-1.5 rounded tabular-nums text-[17px]',
-            tone === 'late' ? 'bg-red-600 text-white' : tone === 'warn' ? 'bg-amber-400 text-black' : 'bg-black/30 text-white')}
-            data-testid="kds-timer">{asleep ? 'at ' + hhmm(t.sleeping_until) : clockSince(t.since, now)}</span>
+          <span className={cx('font-black px-1.5 rounded tabular-nums text-[17px]', !timer && 'bg-black/30 text-white')}
+            style={timer ? { background: timer.bg, color: timer.ink } : undefined}
+            data-testid="kds-timer" data-tone={tone}>{asleep ? 'at ' + hhmm(t.sleeping_until) : clockSince(t.since, now)}</span>
         </div>
         <div className="flex items-center gap-1.5 mt-1 text-[12px]">
-          <span className="font-semibold text-white/80 tabular-nums">#{n}</span>
-          {o.priority && <span className="bg-white text-[#b45309] font-black px-1.5 rounded">RUSH</span>}
+          <span className="font-semibold opacity-80 tabular-nums">#{n}</span>
+          {o.priority && <span className="font-black px-1.5 rounded" style={{ background: head.ink, color: head.bg }}>RUSH</span>}
           {fresh && !o.priority && <span className="font-black">NEW</span>}
           {o.source === 'gloriafood' && <span className="bg-[#e8542a] text-white font-bold px-1.5 rounded whitespace-nowrap shrink-0" data-testid="kds-source">GloriaFood</span>}
-          {allDone && <span className="font-black">PREPARED</span>}
+          {checked
+            ? <span className="font-black" data-testid="kds-checked">CHECKED</span>
+            : allDone && <span className="font-black">PREPARED</span>}
+          {isOrderLevel(station) && !checked && t.ticked > 0 && (
+            <span className="font-semibold opacity-80 tabular-nums" data-testid="kds-ticked">{t.ticked} ticked</span>
+          )}
           {(o.type_name || o.tent) && (
             <span className={cx('px-1.5 rounded font-bold whitespace-nowrap shrink-0', typeCls)} style={typeColour ? { background: typeColour } : undefined} data-testid="kds-type">
               {[o.type_name, o.tent ? 'Tent ' + o.tent : null].filter(Boolean).join(' · ')}
             </span>
           )}
           {o.promised_at && <span className="font-semibold">for {new Date(o.promised_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span>}
-          <span className="ml-auto min-w-0 text-white/80 truncate">{o.covers ? o.covers + ' cvr' : ''}{o.server ? ' · ' + o.server : ''}</span>
+          <span className="ml-auto min-w-0 opacity-80 truncate">{o.covers ? o.covers + ' cvr' : ''}{o.server ? ' · ' + o.server : ''}</span>
         </div>
       </div>
       <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar">
@@ -476,7 +498,7 @@ function Ticket({ t, n, station, now, text, selected, alert, onSelect, names, ty
                 {g.held ? 'Hold · ' : ''}{g.title}
               </div>
             )}
-            {g.items.map(i => <ItemRow key={i.id} item={i} order={o} station={station} text={text} names={names} showNext={showNext} />)}
+            {g.items.map(i => <ItemRow key={i.id} item={i} order={o} station={station} text={text} names={names} showNext={showNext} look={look} />)}
           </div>
         ))}
       </div>
@@ -494,53 +516,78 @@ function groupByCourse(items) {
   return [...map.values()].sort((a, b) => (a.held ? 1 : 0) - (b.held ? 1 : 0) || a.sort - b.sort)
 }
 
-function ItemRow({ item, order, station, text, names, showNext }) {
+/** A dish row's look: 'todo' | 'ticked' | 'upcoming' | 'held' | 'voided' (kitchenColours.js). */
+export function rowLook(item) {
   const st = item.state
+  if (st === 'voided') return 'voided'
+  if (st === 'held') return 'held'
+  if (st === 'done' || item.ticked) return 'ticked'
+  if (st === 'upcoming') return 'upcoming'
+  return 'todo'
+}
+
+function ItemRow({ item, order, station, text, names, showNext, look }) {
+  const st = item.state
+  const orderLevel = isOrderLevel(station)
   const tap = e => {
     e.stopPropagation()
     if (st === 'voided' || st === 'held') return
-    const r = itemDone(order.id, station.id, item.id, st !== 'done')
+    // The pass and runners tick dishes off (the packing check); prep stations mark them done.
+    const r = orderLevel
+      ? itemChecked(order.id, station.id, item.id, !item.ticked)
+      : itemDone(order.id, station.id, item.id, st !== 'done')
     if (!r.ok) toast(r.error, 'bad')
   }
   const parts = item.parts && item.parts.length ? item.parts : null
   const from = (item.from || []).map(id => names[id]).filter(Boolean)
+  const key = rowLook(item)
+  const c = look.state[key]
+  // The info lines' own tints are for dark rows; on a light row they take its words' colour.
+  const light = c.ink === '#000000'
+  const info = tint => cx('px-2 pb-0.5 text-[11px] font-semibold', light ? 'opacity-80' : tint)
+  // A dish's name in its menu section's colour (not when voided: struck through in the void colour).
+  const nameColour = key === 'voided' ? null : look.nameOf(item.section_id)
+  const ticked = key === 'ticked'
   return (
-    <div onClick={tap} data-testid="kds-item" data-state={st}
-      className={cx('border-b border-black/60 touch-manipulation',
-        st === 'voided' ? 'bg-[#3b0d0d]' : st === 'held' ? 'bg-zinc-800 text-zinc-400' : st === 'upcoming' ? 'bg-[#163d27] text-white/75' : 'bg-[#0e6b33]',
-        st === 'done' && 'opacity-45')}>
-      <div className={cx('flex items-start gap-1.5 px-2 py-1 font-bold', text.item, st === 'voided' && 'line-through text-red-300')}>
-        <span className="tabular-nums shrink-0">{item.qty}</span>
-        <span className="flex-1 min-w-0 break-words">{item.name}</span>
-        {st === 'done' && <Check size={18} className="shrink-0 text-white" />}
-        {st === 'voided' && <span className="no-underline text-[11px] bg-red-600 text-white px-1 rounded shrink-0">VOID</span>}
-        {item.added && st !== 'voided' && <span className="text-[11px] bg-white text-black px-1 rounded shrink-0">ADD</span>}
-        {item.remakes > 0 && <span className="text-[11px] bg-orange-500 text-black px-1 rounded shrink-0">REMAKE</span>}
-        {item.seat != null && <span className="text-[11px] bg-black/40 px-1 rounded shrink-0">S{item.seat}</span>}
+    <div onClick={tap} data-testid="kds-item" data-state={st} data-look={key} data-ticked={item.ticked ? 'true' : undefined}
+      className="border-b border-black/60 touch-manipulation" style={{ background: c.bg, color: c.ink }}>
+      <div style={c.dim < 1 ? { opacity: c.dim } : undefined}>
+        <div className={cx('flex items-start gap-1.5 px-2 py-1 font-bold', text.item, st === 'voided' && 'line-through')}>
+          <span className="tabular-nums shrink-0" style={nameColour ? { color: nameColour } : undefined}>{item.qty}</span>
+          <span className="flex-1 min-w-0 break-words" style={nameColour ? { color: nameColour } : undefined} data-testid="kds-item-name">{item.name}</span>
+          {ticked && <Check size={18} className="shrink-0" data-testid="kds-tick" />}
+          {st === 'voided' && <span className="no-underline text-[11px] bg-red-600 text-white px-1 rounded shrink-0">VOID</span>}
+          {item.added && st !== 'voided' && <span className="text-[11px] bg-white text-black px-1 rounded shrink-0">ADD</span>}
+          {item.remakes > 0 && <span className="text-[11px] bg-orange-500 text-black px-1 rounded shrink-0">REMAKE</span>}
+          {item.seat != null && <span className="text-[11px] bg-black/40 text-white px-1 rounded shrink-0">S{item.seat}</span>}
+        </div>
+        {st === 'upcoming' && item.sleeps?.length > 0 && (
+          <div className={info('text-indigo-200')} data-testid="kds-sleeps">
+            Waiting at {item.sleeps.map(x => names[x.station_id] || 'a Sleeper').join(', ')} until {hhmm(item.sleeps.map(x => x.until).sort().pop())}
+          </div>
+        )}
+        {st === 'upcoming' && item.where?.length > 0 && (
+          <div className={info('text-amber-200')} data-testid="kds-where">At {item.where.map(id => names[id] || 'another station').join(', ')}</div>
+        )}
+        {st === 'active' && !orderLevel && from.length > 0 && (
+          <div className={info('text-sky-200')} data-testid="kds-from">From {from.join(', ')}</div>
+        )}
+        {showNext && st !== 'voided' && item.next?.length > 0 && (
+          <div className={info('opacity-70')} data-testid="kds-next">Then {item.next.map(id => names[id] || 'another station').join(', ')}</div>
+        )}
+        <Mods mods={item.mods} text={text} depth={1} />
+        {parts && countParts(parts).map(({ part: p, count }, idx) => {
+          const partColour = key === 'voided' ? null : look.nameOf(p.section_id)
+          return (
+            <div key={idx}>
+              <div className={cx('pl-5 pr-2 py-0.5 font-semibold', text.mod)} style={partColour ? { color: partColour } : undefined} data-testid="kds-part">› {count > 1 ? count + ' x ' : ''}{p.name}</div>
+              <Mods mods={p.mods} text={text} depth={2} />
+            </div>
+          )
+        })}
+        {item.note && <div className={cx('pl-5 pr-2 py-0.5 bg-yellow-300 text-black font-semibold', text.mod)}>{item.note}</div>}
+        {item.allergies?.length > 0 && <div className={cx('pl-5 pr-2 py-0.5 bg-red-600 text-white font-bold', text.mod)}>Allergy: {item.allergies.join(', ')}</div>}
       </div>
-      {st === 'upcoming' && item.sleeps?.length > 0 && (
-        <div className="px-2 pb-0.5 text-[11px] text-indigo-200 font-semibold" data-testid="kds-sleeps">
-          Waiting at {item.sleeps.map(x => names[x.station_id] || 'a Sleeper').join(', ')} until {hhmm(item.sleeps.map(x => x.until).sort().pop())}
-        </div>
-      )}
-      {st === 'upcoming' && item.where?.length > 0 && (
-        <div className="px-2 pb-0.5 text-[11px] text-amber-200 font-semibold" data-testid="kds-where">At {item.where.map(id => names[id] || 'another station').join(', ')}</div>
-      )}
-      {st === 'active' && !isOrderLevel(station) && from.length > 0 && (
-        <div className="px-2 pb-0.5 text-[11px] text-sky-200 font-semibold" data-testid="kds-from">From {from.join(', ')}</div>
-      )}
-      {showNext && st !== 'voided' && item.next?.length > 0 && (
-        <div className="px-2 pb-0.5 text-[11px] text-white/70 font-semibold" data-testid="kds-next">Then {item.next.map(id => names[id] || 'another station').join(', ')}</div>
-      )}
-      <Mods mods={item.mods} text={text} depth={1} />
-      {parts && countParts(parts).map(({ part: p, count }, idx) => (
-        <div key={idx}>
-          <div className={cx('pl-5 pr-2 py-0.5 font-semibold', text.mod)} data-testid="kds-part">› {count > 1 ? count + ' x ' : ''}{p.name}</div>
-          <Mods mods={p.mods} text={text} depth={2} />
-        </div>
-      ))}
-      {item.note && <div className={cx('pl-5 pr-2 py-0.5 bg-yellow-300 text-black font-semibold', text.mod)}>{item.note}</div>}
-      {item.allergies?.length > 0 && <div className={cx('pl-5 pr-2 py-0.5 bg-red-600 font-bold', text.mod)}>Allergy: {item.allergies.join(', ')}</div>}
     </div>
   )
 }
@@ -550,7 +597,7 @@ function Mods({ mods, text, depth }) {
   return mods.map((m, i) => (
     <div key={i} style={{ paddingLeft: 12 + (depth + (m.depth || 0)) * 10 }}
       className={cx('pr-2 py-0.5', text.mod,
-        m.kind === 'remove' ? 'bg-white text-red-600 font-bold' : m.kind === 'add' ? 'bg-white text-[#d61fbf] font-bold' : 'text-white font-semibold')}>
+        m.kind === 'remove' ? 'bg-white text-red-600 font-bold' : m.kind === 'add' ? 'bg-white text-[#d61fbf] font-bold' : 'font-semibold')}>
       {m.text}
     </div>
   ))
@@ -759,6 +806,13 @@ function SettingsPanel({ stations, station, view, full, onFull, onKeys, onClose 
       <div className="text-sm text-white/60 px-1 pt-2">
         Tickets turn amber after {st.target_mins} min and red after {st.late_mins} min. Stations, timings and the kitchen flows (what goes where) are set in Macaroonie: Store tech, Kitchen screens.
       </div>
+      {isOrderLevel(station) && (
+        <div className="text-sm text-white/60 px-1" data-testid="kds-tick-note">
+          {st.bump_when_checked
+            ? 'Tap a dish to tick it off: ticking off the last one sends the order on, as ' + (station.kind === 'runner' ? 'DONE' : 'READY') + ' does.'
+            : 'Tap a dish to tick it off (a packing check): the ticket stays, marked CHECKED once every dish is ticked, until you press ' + (station.kind === 'runner' ? 'DONE' : 'READY') + '.'}
+        </div>
+      )}
       {!inBench() && <DisconnectBox waiting={s.outbox.length} />}
     </Panel>
   )

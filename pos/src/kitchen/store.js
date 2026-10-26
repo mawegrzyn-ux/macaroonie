@@ -300,6 +300,8 @@ export function kitchen(type, payload) {
 export const bump = (orderId, stationId) => kitchen('kitchen.bumped', { order_id: orderId, station_id: stationId })
 export const recall = (orderId, stationId) => kitchen('kitchen.recalled', { order_id: orderId, station_id: stationId })
 export const itemDone = (orderId, stationId, itemId, done) => kitchen('kitchen.item_done', { order_id: orderId, station_id: stationId, item_id: itemId, done })
+// The pass and runners tick dishes off (the packing check) instead.
+export const itemChecked = (orderId, stationId, itemId, checked) => kitchen('kitchen.item_checked', { order_id: orderId, station_id: stationId, item_id: itemId, checked })
 export const remake = (orderId, stationId, itemId, reason) => kitchen('kitchen.remake', { order_id: orderId, station_id: stationId, item_id: itemId, reason: reason || null })
 export const priority = (orderId, on) => kitchen('kitchen.priority', { order_id: orderId, on })
 export const collected = orderId => kitchen('kitchen.collected', { order_id: orderId })

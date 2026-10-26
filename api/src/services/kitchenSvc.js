@@ -51,6 +51,7 @@ import { createHash } from 'node:crypto'
 import { makeLink, readLink } from './previewLinks.js'
 import { printLayouts } from './printDesignSvc.js'
 import { hasPrinters, printsDue } from '../../../shared/pos/kitchenPrint.js'
+import { normaliseKitchenColours, sectionColoursById } from '../../../shared/pos/kitchenColours.js'
 
 const by = (rows, f = r => r) => Object.fromEntries(rows.map(r => [r.id, f(r)]))
 
@@ -240,7 +241,7 @@ export async function switchFlow(tx, tenantId, venueId, flowId, by) {
 export async function kdsConfig(tx, tenantId, venueId) {
   const [venue] = await tx`SELECT id, name, timezone FROM venues WHERE id = ${venueId} AND tenant_id = ${tenantId}`
   const [settings] = await tx`
-    SELECT day_starts_at, kds_online_orders, kds_online_ready, kds_active_flow_id, kds_flow_switched_at, kds_flow_switched_by
+    SELECT day_starts_at, kds_online_orders, kds_online_ready, kds_active_flow_id, kds_flow_switched_at, kds_flow_switched_by, kds_colours
       FROM pos_settings
      WHERE venue_id = ${venueId} AND tenant_id = ${tenantId}`
   const stations = await loadStations(tx, tenantId, venueId)
@@ -254,6 +255,22 @@ export async function kdsConfig(tx, tenantId, venueId) {
   const place = await flowPlace(tx, tenantId, venueId, stations)
   const linksOf = await Promise.all(flows.map(f => loadFlow(tx, tenantId, f, stations, { place })))
   const order = Object.fromEntries(stations.map((s, i) => [s.id, i]))
+  // Ticket colours (migration 207): the states as saved, and dish names by
+  // section: every section of the venue's menus with a coloured name, by its
+  // published name (what the tills and online ordering send) and its draft
+  // name (a section added or renamed before publishing).
+  const colours = normaliseKitchenColours(settings?.kds_colours)
+  let sections = []
+  if (colours.sections.length) {
+    const { loadMenuVersions } = await import('./menuReleases.js')
+    const live = (await loadMenuVersions(tx, tenantId, { venueId })).flatMap(m => m.sections || [])
+    const draft = await tx`
+      SELECT s.id, s.title FROM menu_sections s
+        JOIN menus m ON m.id = s.menu_id AND m.tenant_id = s.tenant_id
+       WHERE s.tenant_id = ${tenantId} AND (m.venue_id IS NULL OR m.venue_id = ${venueId})
+       ORDER BY s.id`
+    sections = [...live.map(s => ({ id: s.id, title: s.title })), ...draft]
+  }
   const config = {
     kind: 'kds',
     venue: { id: venue?.id, name: venue?.name, timezone: venue?.timezone || 'Europe/London' },
@@ -275,6 +292,7 @@ export async function kdsConfig(tx, tenantId, venueId) {
     flow_switched_by: settings?.kds_flow_switched_by || null,
     courses,
     order_types: orderTypes,
+    colours: { states: colours.states, sections: sectionColoursById(colours, sections) },
     // Printers plugged into kitchen screens (migration 191): a screen prints
     // the tickets queued for its own (pos pos/src/lib/devicePrint.js).
     printers: await tx`
@@ -340,6 +358,7 @@ export async function kitchenTestData(tx, tenantId, venueId) {
     stations: base.stations,
     courses: base.courses,
     order_types: base.order_types,
+    colours: base.colours,
     flows: flows.map((f, i) => ({ id: f.id, name: f.name, shared: f.shared, station_ids: base.flows[i]?.station_ids || [], links: links[i] })),
     // The tills and kiosks a test order can be sent from (flow links filtered by device).
     devices: place.devices.map(d => ({ id: d.id, name: d.name })),

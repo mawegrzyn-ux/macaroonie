@@ -446,6 +446,9 @@ test('a shared kitchen flow in use at the location copied from stays in use at t
   const shared = setup.kds_flows.find(f => f.shared)
   assert.ok(shared, 'the fixtures made a shared flow')
   await ok(owner.put(`/api/pos/venues/${ware}/kds-flows/active`, { flow_id: shared.id }))
+  // Ware's ticket colours (migration 207) come along with its kitchen.
+  const colours = { states: { ticked: '#555555' }, sections: [{ name: 'Zqx Sides', colour: '#ffcc00' }] }
+  await ok(owner.patch(`/api/pos/venues/${ware}/settings`, { kds_colours: colours }))
   claude.script.push(reply(answer({
     ready: true,
     plan: { venue: { name: 'Zqx Bath', slug: 'zqx-bath', timezone: 'Europe/London', currency: 'GBP' }, template_venue_id: ware, areas: copyAll() },
@@ -454,8 +457,9 @@ test('a shared kitchen flow in use at the location copied from stays in use at t
   const res = await owner.post(BASE, { input: 'Zqx Bath, the same as Ware in every way.' })
   assert.equal(res.status, 201, res.body)
   const made = await ok(owner.post(`${BASE}/${res.json.id}/create`, {}))
-  const [pos] = await sql`SELECT kds_active_flow_id FROM pos_settings WHERE venue_id = ${made.venue.id}`
+  const [pos] = await sql`SELECT kds_active_flow_id, kds_colours FROM pos_settings WHERE venue_id = ${made.venue.id}`
   assert.equal(pos.kds_active_flow_id, shared.id, 'the shared flow, not a copy')
+  assert.deepEqual(pos.kds_colours, colours, 'the ticket colours too')
   const own = await sql`SELECT name FROM kds_flows WHERE tenant_id = ${ids.a} AND venue_id = ${made.venue.id}`
   assert.ok(own.length > 0, 'Ware\'s own flows are copied as Bath\'s own')
   assert.equal((await sql`SELECT count(*)::int AS n FROM kds_flows WHERE tenant_id = ${ids.a} AND venue_id IS NULL`)[0].n, 1, 'the shared flow isn\'t copied')

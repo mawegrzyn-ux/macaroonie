@@ -1329,3 +1329,155 @@ test('setter: status needs a fired dish; looks and animations listed; a Setter a
   assert.equal(orderStatus(t.orders[c], t.cfg, at()).name, 'Bagging')
   assert.deepEqual(flowProblems(Object.values(setKit), setFlow), [])
 })
+
+// ── The pass's packing check (kitchen.item_checked) ─────────────
+// Burgers go to the grill, fries to the fryer, both on to the pass.
+
+const passWith = settings => ({ ...withExpo, stations: { ...withExpo.stations, [PASS]: { ...simple.PASS, settings } } })
+const tick = (t, c, item, checked = true, station = PASS) => t.kitchen(kev('kitchen.item_checked', { order_id: c, station_id: station, item_id: item.id, checked }))
+
+test('packing check: the pass ticks dishes off; the ticket stays, CHECKED, until READY', () => {
+  const t = till(withExpo)
+  const c = openTable(t)
+  const b = burger(), f = fries()
+  addAndSend(t, c, [b, f])
+  ok(t.bump(c, simple.GRILL))
+  ok(tick(t, c, b))
+  let tk = t.tickets(simple.PASS)[0]
+  assert.deepEqual(tk.items.map(i => [i.name, i.state, i.ticked]), [['Burger', 'active', true], ['Fries', 'upcoming', false]])
+  assert.equal(tk.ticked, 1)
+  assert.equal(tk.all_ticked, false)
+  assert.equal(t.orders[c].items[0].done[PASS], undefined, 'a tick isn\'t done: the burger stays at the pass')
+  // The fries are still at the fryer: ticking them off at the pass finishes them there.
+  ok(tick(t, c, f))
+  assert.ok(t.orders[c].items[1].done[FRYER])
+  assert.equal(t.tickets(simple.FRYER).length, 0)
+  tk = t.tickets(simple.PASS)[0]
+  assert.equal(tk.all_ticked, true)
+  assert.equal(tk.ticked, 2)
+  assert.equal(t.orders[c].status, 'active', 'every dish ticked off: still waiting for READY')
+  assert.equal(t.orders[c].bumps.filter(x => x.station_id === PASS).length, 0)
+  // Ticking off again, or a dish not ticked, says so; a dish can be unticked.
+  assert.equal(tick(t, c, f).code, 'nothing')
+  ok(tick(t, c, f, false))
+  assert.equal(tick(t, c, f, false).code, 'nothing')
+  assert.equal(t.tickets(simple.PASS)[0].all_ticked, false)
+  ok(tick(t, c, f))
+  // READY sends the order on as before.
+  const r = ok(t.bump(c, simple.PASS))
+  assert.equal(r.log[0].kind, 'bump')
+  assert.equal(t.orders[c].status, 'ready')
+  assert.equal(t.tickets(simple.PASS).length, 0)
+  // Once bumped, a tick has nothing left to do here.
+  assert.equal(tick(t, c, b, false).code, 'nothing')
+  // Prep stations mark dishes done, not ticked off.
+  const c2 = openTable(t)
+  const b2 = burger()
+  addAndSend(t, c2, [b2])
+  const atGrill = tick(t, c2, b2, true, GRILL)
+  assert.equal(atGrill.code, 'station')
+  assert.match(atGrill.error, /pass and runners/)
+  assert.match(kitchenEventProblem(kev('kitchen.item_checked', { order_id: c2, station_id: PASS, item_id: b2.id })), /checked/)
+})
+
+test('packing check with "bump when every dish is ticked": the last tick bumps the ticket', () => {
+  const t = till(passWith({ bump_when_checked: true }))
+  const c = openTable(t)
+  const b = burger(), f = fries()
+  addAndSend(t, c, [b, f])
+  ok(t.bump(c, simple.GRILL))
+  ok(t.bump(c, simple.FRYER))
+  ok(tick(t, c, b))
+  ok(tick(t, c, b, false))
+  ok(tick(t, c, f))
+  assert.equal(t.orders[c].status, 'active', 'the burger was unticked: nothing bumped yet')
+  const r = ok(tick(t, c, b))
+  assert.equal(r.log.length, 1)
+  assert.equal(r.log[0].kind, 'bump')
+  const bump = t.orders[c].bumps.find(x => x.station_id === PASS)
+  assert.equal(bump.by_items, true)
+  assert.equal(bump.items, 2)
+  assert.equal(t.orders[c].status, 'ready')
+  assert.equal(t.tickets(simple.PASS).length, 0)
+})
+
+test('packing check: a dish on its way needs a pass that shows it; remakes and recalls', () => {
+  const hidden = till(passWith({ show_upcoming: false }))
+  const c0 = openTable(hidden)
+  const b0 = burger()
+  addAndSend(hidden, c0, [b0])
+  assert.equal(tick(hidden, c0, b0).code, 'upcoming')
+
+  const t = till(withExpo)
+  const c = openTable(t)
+  const b = burger(), f = fries()
+  addAndSend(t, c, [b, f])
+  ok(t.bump(c, simple.GRILL))
+  ok(t.bump(c, simple.FRYER))
+  ok(tick(t, c, b))
+  ok(tick(t, c, f))
+  // READY then Prev: the ticket comes back with its ticks.
+  ok(t.bump(c, simple.PASS))
+  ok(t.kitchen(kev('kitchen.recalled', { order_id: c, station_id: PASS })))
+  assert.equal(t.tickets(simple.PASS)[0].all_ticked, true)
+  // A remade dish is ticked off again: the burger goes back to the grill.
+  ok(t.kitchen(kev('kitchen.remake', { order_id: c, station_id: PASS, item_id: b.id, reason: 'Cold' })))
+  const tk = t.tickets(simple.PASS)[0]
+  assert.deepEqual(tk.items.map(i => [i.name, i.state, i.ticked]), [['Burger', 'upcoming', false], ['Fries', 'active', true]])
+  assert.equal(tk.all_ticked, false)
+  // A dish taken back by the station before the pass isn't ticked off any more:
+  // undone at the fryer, its tick goes and it is on its way to the pass again.
+  ok(tick(t, c, f, false))
+  ok(tick(t, c, f))
+  ok(t.kitchen(kev('kitchen.item_done', { order_id: c, station_id: FRYER, item_id: f.id, done: false })))
+  assert.deepEqual(t.tickets(simple.PASS)[0].items.map(i => [i.name, i.state, i.ticked]), [['Burger', 'upcoming', false], ['Fries', 'upcoming', false]])
+  assert.deepEqual(t.orders[c].items[1].checked, {})
+  // Ticked off again at the pass: done at the fryer by it.
+  ok(tick(t, c, f))
+  assert.ok(t.orders[c].items[1].done[FRYER])
+  // A bump at the fryer recalled there takes the fries back and their tick with them.
+  const c3 = openTable(t)
+  const f3 = fries()
+  addAndSend(t, c3, [f3])
+  ok(t.bump(c3, simple.FRYER))
+  ok(tick(t, c3, f3))
+  ok(t.kitchen(kev('kitchen.recalled', { order_id: c3, station_id: FRYER })))
+  assert.equal(t.orders[c3].items[0].done[FRYER], undefined)
+  assert.deepEqual(t.orders[c3].items[0].checked, {})
+  assert.equal(t.tickets(simple.PASS).find(tk => tk.order.id === c3).ticked, 0)
+  // Voided and held dishes can't be ticked off.
+  const c2 = openTable(t)
+  const s = lineOf('Soup', uuid(), BURGERS, { course_id: STARTERS }), m = lineOf('Steak', uuid(), BURGERS, { course_id: MAINS })
+  addAndSend(t, c2, [s, m], [MAINS])
+  assert.equal(tick(t, c2, m).code, 'held')
+  t.send(ev('line.voided', { line_id: s.id, reason: 'Wrong' }, { check_id: c2 }))
+  assert.equal(tick(t, c2, s).code, 'voided')
+})
+
+test('kitchen dishes keep their menu section (for the screens\' section colours)', () => {
+  const t = till(noExpo)
+  const c = openTable(t)
+  const meal = lineOf('Burger meal', MEAL, DRINKS, {
+    combo: [
+      { step: 'Main', item_id: BURGER, section_id: FOOD, name: 'Burger', modifiers: [], upcharge: 0 },
+      { step: 'Toy', item_id: null, section_id: null, name: 'Surprise toy', modifiers: [], upcharge: 0, custom: true },
+    ],
+  })
+  addAndSend(t, c, [burger(), meal])
+  const [b, m] = t.orders[c].items
+  assert.equal(b.section_id, BURGERS)
+  assert.equal(m.section_id, DRINKS)
+  assert.deepEqual(m.parts.map(p => p.section_id), [FOOD, DRINKS], 'a typed-in pick takes the combo\'s section')
+  const orderId = uuid()
+  const r = ok(t.kitchen(kev('kitchen.order_in', { order: {
+    id: onlineOrderId(orderId), order_id: orderId, number: 'W8', items: [
+      { id: 'a', item_id: FRIES, section_id: SIDES, name: 'Fries', qty: 1 },
+      { id: 'b', item_id: MEAL, section_id: DRINKS, name: 'Burger meal', qty: 1, parts: [
+        { name: 'Burger', item_id: BURGER, section_id: FOOD }, { name: 'Ketchup pot', item_id: null, section_id: null },
+      ] },
+    ],
+  } })))
+  const items = r.orders[onlineOrderId(orderId)].items
+  assert.deepEqual(items.map(i => i.section_id), [SIDES, DRINKS])
+  assert.deepEqual(items[1].parts.map(p => p.section_id), [FOOD, DRINKS])
+})
