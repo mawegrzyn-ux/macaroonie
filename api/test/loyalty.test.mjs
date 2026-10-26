@@ -7,6 +7,7 @@
 // reward and earning when completed, staff adjustments and gifts, export and
 // erasure, and other tenants, viewers and signed-out guests refused.
 import { test, before, after } from 'node:test'
+import crypto from 'node:crypto'
 import assert from 'node:assert/strict'
 import { as, getApp, sql, ok, closeApp } from './support/app.mjs'
 import { resetAndSeed, A, B } from './support/seed.mjs'
@@ -14,7 +15,8 @@ import { fillTenant } from './support/fixtures.mjs'
 import { linkDevice } from './support/devices.mjs'
 import { INTERNAL_CALL_HEADER, INTERNAL_CALL_SECRET } from '../src/middleware/auth.js'
 import { ulid } from '../../shared/pos/ids.js'
-import { tillDiscount, parseCardCode, normaliseReward } from '../../shared/loyalty.js'
+import { tillDiscount, parseCardCode, normaliseReward, cardCode } from '../../shared/loyalty.js'
+import { menuSaveBody } from '../src/routes/menus.js'
 import { checkTotals } from '../../shared/pos/pricing.js'
 import { settleCheck, settleOrder, sweepLoyalty } from '../src/services/loyaltySvc.js'
 
@@ -74,7 +76,7 @@ const redemption = id => sql`SELECT * FROM loyalty_redemptions WHERE id = ${id}`
 
 before(async () => {
   ids = await resetAndSeed()
-  mine = await fillTenant(A.owner, ids.a)
+  mine = await fillTenant(A.owner, ids.a, { loyalty: false })
   assert.deepEqual(mine.failed, [], 'fixtures')
   owner = as(A.owner, ids.a)
   await ok(as(B.owner, ids.b).patch('/api/website/tenant-site', { subdomain_slug: 'bqx-site' }))
@@ -121,13 +123,21 @@ test('the programme: off at first, switched on with its settings; who may see an
 })
 
 test('rewards and stamp cards: another tenant\'s dishes are dropped; a used reward can\'t be deleted', async () => {
-  const otherDish = (await sql`SELECT id FROM menu_items WHERE tenant_id = ${ids.b} LIMIT 1`)[0]
+  // A dish of tenant B's to try to sneak onto A's reward and card.
+  const theirs = as(B.owner, ids.b)
+  const bMenu = await ok(theirs.post('/api/menus', { name: 'Their menu', slug: 'their-loyalty-menu' }))
+  const bBody = menuSaveBody(await ok(theirs.get(`/api/menus/${bMenu.id}`)))
+  bBody.sections = [{ id: crypto.randomUUID(), title: 'Mains', items: [{ id: crypto.randomUUID(), name: 'Their curry', price_pence: 900 }] }]
+  await ok(theirs.patch(`/api/menus/${bMenu.id}`, bBody))
+  const [otherDish] = await sql`SELECT id FROM menu_items WHERE tenant_id = ${ids.b} LIMIT 1`
+  assert.ok(otherDish, 'tenant B has a dish')
   points100 = await ok(owner.post('/api/loyalty/rewards', { name: '£3 off', kind: 'amount_off', value: 300, points_cost: 100 }))
   assert.equal(points100.points_cost, 100)
-  freeDish = await ok(owner.post('/api/loyalty/rewards', { name: 'Free dish', kind: 'free_item', item_ids: [dish.id, ...(otherDish ? [otherDish.id] : [])] }))
+  freeDish = await ok(owner.post('/api/loyalty/rewards', { name: 'Free dish', kind: 'free_item', item_ids: [dish.id, otherDish.id] }))
   assert.deepEqual(freeDish.item_ids, [dish.id])
-  card = await ok(owner.post('/api/loyalty/stamp-cards', { name: 'Dish card', stamps_needed: 3, reward_id: freeDish.id, earn: { per: 'item', item_ids: [dish.id] } }))
+  card = await ok(owner.post('/api/loyalty/stamp-cards', { name: 'Dish card', stamps_needed: 3, reward_id: freeDish.id, earn: { per: 'item', item_ids: [dish.id, otherDish.id] } }))
   assert.equal(card.reward_id, freeDish.id)
+  assert.deepEqual(card.earn.item_ids, [dish.id], 'another tenant\'s dish doesn\'t earn stamps')
   const bReward = await ok(as(B.owner, ids.b).post('/api/loyalty/rewards', { name: 'Theirs', kind: 'percent_off', value: 10 }))
   const sneaky = await ok(owner.post('/api/loyalty/stamp-cards', { name: 'Sneaky', reward_id: bReward.id, earn: { per: 'visit' } }))
   assert.equal(sneaky.reward_id, null, 'another tenant\'s reward isn\'t taken')
@@ -351,6 +361,16 @@ test('staff: the members list, adjust points, give a reward, a new card, export;
   assert.equal((await owner.post(`/api/loyalty/members/${sam.id}/adjust`, { points: -1_000_000, note: 'x' })).status, 422)
   const gift = await owner.post(`/api/loyalty/members/${sam.id}/rewards`, { reward_id: freeDish.id, note: 'Birthday' })
   assert.equal(gift.status, 201)
+  // A closed membership: the card stops on tills, and comes back when opened again.
+  const kim = await ok(owner.post('/api/loyalty/members', { name: 'Kim Closed', email: 'kim.closed@zqx.test', agreed: true }))
+  const [{ card_token: kimToken }] = await sql`SELECT card_token FROM loyalty_members WHERE id = ${kim.id}`
+  const kimLook = () => device(till, 'POST', '/pos-api/loyalty/lookup', { code: cardCode(kimToken) }).then(r => r.json.members.length)
+  assert.equal(await kimLook(), 1)
+  await ok(owner.patch('/api/loyalty/members/' + kim.id, { status: 'closed' }))
+  assert.equal(await kimLook(), 0, 'a closed membership\'s card doesn\'t work')
+  assert.equal((await device(till, 'POST', '/pos-api/loyalty/lookup', { code: kim.member_no })).json.members.length, 0, 'nor its number')
+  await ok(owner.patch('/api/loyalty/members/' + kim.id, { status: 'active' }))
+  assert.equal(await kimLook(), 1, 'open again')
   const oldCode = sam.card_code
   await ok(owner.post(`/api/loyalty/members/${sam.id}/new-card`, {}))
   assert.equal((await device(till, 'POST', '/pos-api/loyalty/lookup', { code: oldCode })).json.members.length, 0, 'the old card stops working')

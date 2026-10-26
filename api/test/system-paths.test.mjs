@@ -126,6 +126,44 @@ test('the website: published home and location pages, the menu JSON and print, t
   assert.equal(staging.status, 401, 'the staging password is asked for')
 })
 
+test('loyalty (migration 211): the web app on the site and the loyalty address, its public API, the website block', async () => {
+  await ok(owner.patch('/api/website/tenant-site', { is_published: true }))
+  const ts = await ok(owner.get('/api/website/tenant-site'))
+  await ok(owner.patch('/api/website/tenant-site', { home_blocks: [{ id: 'loy', type: 'loyalty_cta', data: {} }, ...(ts.home_blocks || [])] }))
+  await ok(owner.post('/api/website/tenant-site/publish', {}))
+  const info = await pub('GET', '/loyalty-api/t/zqx-site')
+  assert.equal(info.status, 200, info.body)
+  assert.match(info.json.name, /Club$/)
+  assert.ok(info.json.rewards.length >= 1 && info.json.how.startsWith('Earn '), 'rewards and how points are earned')
+  const page = await pub('GET', '/loyalty', { headers: { host: host('zqx-site') } })
+  assert.equal(page.status, 200, page.body.slice(0, 200))
+  assert.match(page.body, /mcrn_loyalty_zqx-site/)
+  const hub = await pub('GET', '/zqx-site', { headers: { host: host('loyalty'), 'x-forwarded-proto': 'https' } })
+  assert.equal(hub.status, 200, hub.body.slice(0, 200))
+  const manifest = await pub('GET', '/zqx-site/manifest.webmanifest', { headers: { host: host('loyalty'), 'x-forwarded-proto': 'https' } })
+  assert.equal(manifest.json?.start_url, '/zqx-site')
+  const code = await pub('POST', '/loyalty-api/t/zqx-site/code', { body: { email: 'guest@example.test' } })
+  assert.equal(code.status, 200, code.body)
+  const [{ n }] = await sql`SELECT count(*)::int AS n FROM loyalty_codes WHERE tenant_id = ${ids.a}`
+  assert.ok(n >= 1, 'the code was stored for the tenant found by its slug')
+  const home = await pub('GET', '/', { headers: { host: host('zqx-site') } })
+  assert.match(home.body, /block-loyalty-cta/, 'the Loyalty block on the published home page')
+  assert.match(home.body, /href="\/loyalty"/)
+  // The block's words are live: with the web app off the block goes, and the
+  // builder's teaser says so (null). Website view is enough to read it.
+  const teaser = await ok(owner.get('/api/loyalty/teaser'))
+  assert.match(teaser.teaser.name, /Club$/)
+  const prog = (await ok(owner.get('/api/loyalty/programme'))).programme
+  const webApp = on => ok(owner.put('/api/loyalty/programme', { enabled: true, settings: { ...prog.settings, features: { ...prog.settings.features, web_app: on } } }))
+  await webApp(false)
+  const off = await pub('GET', '/', { headers: { host: host('zqx-site') } })
+  assert.equal(off.status, 200)
+  assert.doesNotMatch(off.body, /block-loyalty-cta/, 'no Loyalty block while the web app is off')
+  assert.equal((await ok(owner.get('/api/loyalty/teaser'))).teaser, null)
+  await webApp(true)
+  assert.match((await pub('GET', '/', { headers: { host: host('zqx-site') } })).body, /block-loyalty-cta/)
+})
+
 test('a till linked by its code loads its config; its move hand-over code pairs it at the new address', async () => {
   const till = await linkDevice(owner, V, { kind: 'terminal', name: 'Till 2' })
   const auth = { authorization: `Device ${till.device_id}.${till.secret}` }

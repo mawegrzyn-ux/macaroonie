@@ -19,6 +19,7 @@ import { checkTotals } from '../pos/pricing.js'
 import { createSequencer } from '../pos/sequencer.js'
 import { ulid } from '../pos/ids.js'
 import { STANDARD_ALLERGENS } from '../menuTags.js'
+import { normaliseReward } from '../loyalty.js'
 
 const uuid = () => globalThis.crypto.randomUUID()
 
@@ -508,6 +509,64 @@ test('sequencer: takes a kiosk order, numbers it, refuses a kiosk working on a t
   await seq.submit(ev('check.opened', { mode: 'counter' }, { check_id: tillId, staff_id: TILL_PERSON, device_id: 'T1' }))
   const bad = await seq.submit(ev('line.added', { line: { ...r.check.lines[0], id: ulid() } }, { check_id: tillId }))
   assert.equal(bad.code, 'kiosk')
+})
+
+test('loyalty: a kiosk order carries the card and its rewards; one that no longer fits is left off', () => {
+  const member = { id: uuid(), no: '000000018', name: 'Sam' }
+  const fiver = { redemption_id: uuid(), reward: { ...normaliseReward({ name: '£5 off', kind: 'amount_off', value: 500 }), id: uuid() } }
+  const freeFries = { redemption_id: uuid(), reward: { ...normaliseReward({ name: 'Free fries', kind: 'free_item', item_ids: [FRIES.id] }), id: uuid() } }
+  const plain = order([wings(), { item_id: COLA.id, qty: 1 }])
+  const r = order([wings(), { item_id: COLA.id, qty: 1 }], { loyalty: { member, rewards: [fiver, freeFries] } })
+  assert.ok(r.ok, r.error)
+  const types = r.events.map(e => e.type)
+  assert.deepEqual(types.slice(-2), ['check.member_set', 'discount.applied'], 'the card, then the one reward that fits')
+  assert.deepEqual(r.events.at(-2).payload.member, member)
+  const d = r.events.at(-1).payload.discount
+  assert.equal(d.loyalty_redemption_id, fiver.redemption_id)
+  assert.equal(d.value, 500)
+  assert.equal(plain.totals.total - r.totals.total, 500, '£5 off the total')
+  assert.deepEqual(r.skipped.map(x => x.redemption_id), [freeFries.redemption_id], 'no fries in the basket: the free fries are left off')
+  assert.equal(r.check.loyalty.member_id, member.id)
+  // basketCheck (what the order page shows) agrees.
+  const shown = basketCheck(config, [wings(), { item_id: COLA.id, qty: 1 }], { device: KIOSK, order_type_id: EAT_IN, loyalty: { member, rewards: [fiver] } })
+  assert.equal(shown.totals.total, r.totals.total)
+  // No card: no loyalty events.
+  assert.ok(!plain.events.some(e => e.type === 'check.member_set' || e.type === 'discount.applied'))
+})
+
+test('sequencer: a kiosk order\'s reward is checked against its redemption; a wrong amount is refused', async () => {
+  const member = { id: uuid(), no: '000000026', name: 'Sam' }
+  const reward = { ...normaliseReward({ name: '£5 off', kind: 'amount_off', value: 500 }), id: uuid() }
+  const reds = new Map()
+  const make = () => {
+    const s = { events: new Map(), rejections: new Map(), checks: new Map(), state: { last_seq: 0, next_check_no: 1, next_order_no: 1, day: null } }
+    let queue = Promise.resolve()
+    return createSequencer({
+      run: (_v, fn) => (queue = queue.then(fn, fn)),
+      findEvent: id => s.events.get(id) || null, findRejection: id => s.rejections.get(id) || null,
+      context: () => ({ staffById, print: {}, timezone: 'Europe/London', settings: {} }),
+      venueState: () => ({ ...s.state }), openDay: ({ business_date }) => (s.state.day = { id: uuid(), business_date }),
+      loadChecks: ids => Object.fromEntries(ids.filter(id => s.checks.has(id)).map(id => [id, s.checks.get(id)])),
+      openCheckCount: () => 0, saveEvent: e => { s.events.set(e.id, e) },
+      saveChecks: changed => { for (const [id, c] of Object.entries(changed)) s.checks.set(id, c) },
+      saveJobs: () => {}, saveRejection: (e, error, code) => { s.rejections.set(e.id, { error, code }) },
+      saveVenueState: v => { Object.assign(s.state, v) }, closeDay: () => {},
+      loadLoyaltyRedemption: id => reds.get(id) || null,
+      useLoyaltyRedemption: (id, e) => { const r = reds.get(id); r.status = 'used'; r.used_event_id = e.id; r.check_id = e.check_id },
+    })
+  }
+  const go = async (red, allowed) => {
+    reds.set(red, { id: red, status: 'reserved', member_id: member.id, venue_id: VENUE, check_id: null, used_event_id: null, discount: allowed })
+    const r = order([wings(), { item_id: COLA.id, qty: 1 }], { loyalty: { member, rewards: [{ redemption_id: red, reward }] } })
+    return make().submitAll(r.events)
+  }
+  const red = uuid()
+  const good = await go(red, { type: 'amount', value: 500 })
+  assert.ok(good.every(x => x.ok), JSON.stringify(good.filter(x => !x.ok)))
+  assert.equal(reds.get(red).status, 'used', 'the redemption is used by the order')
+  const bad = await go(uuid(), { type: 'amount', value: 200 })
+  const refused = bad.find(x => !x.ok)
+  assert.equal(refused?.code, 'loyalty', 'a discount bigger than the redemption allows is refused')
 })
 
 test('configImages: every picture the kiosk can show, on its own origin, each once', () => {

@@ -8,7 +8,7 @@ import assert from 'node:assert/strict'
 import {
   normaliseProgramme, normaliseReward, normaliseStampCard, rewardProblems, stampCardProblems,
   pointsFor, stampsFor, stampProgress, rewardDiscount, tillDiscount, channelOn, spread,
-  memberNo, validMemberNo, parseCardCode, cardCode, formatMemberNo, pointsText, rewardSummary,
+  memberNo, validMemberNo, parseCardCode, cardCode, formatMemberNo, pointsText, rewardSummary, earnText,
   DEFAULT_TERMS, FEATURE_KEYS,
 } from '../loyalty.js'
 
@@ -170,4 +170,11 @@ test('words: points and reward summaries', () => {
   assert.equal(rewardSummary({ kind: 'percent_off', value: 20 }), '20% off')
   const id = uuid()
   assert.equal(rewardSummary({ kind: 'free_item', item_ids: [id], section_ids: [] }, { [id]: 'Latte' }), 'A free Latte')
+})
+
+test('earnText: how points are earned, one point or many', () => {
+  assert.equal(earnText(normaliseProgramme({})), 'Earn 1 point for every £1 you spend.')
+  assert.equal(earnText(normaliseProgramme({ points: { label: 'beans', per_pound: 10, welcome: 1 } })), 'Earn 10 beans for every £1 you spend, and 1 bean when you join.')
+  assert.equal(earnText(normaliseProgramme({ points: { per_pound: 2, welcome: 1500 } })), 'Earn 2 points for every £1 you spend, and 1,500 points when you join.')
+  assert.equal(earnText(null), '')
 })

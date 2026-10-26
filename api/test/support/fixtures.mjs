@@ -19,7 +19,7 @@ function holdTime() {
   return d.toISOString().slice(0, 10) + 'T19:00:00.000Z'
 }
 
-export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx' } = {}) {
+export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx', loyalty: withLoyalty = true } = {}) {
   const c = as(sub, tenantId)
   const failed = []
   const ids = {}
@@ -399,6 +399,23 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx' } = 
   const playlist = await step('screen playlist', () => post('/api/screens/playlists', { name: mark + ' Day' }))
   if (playlist && design) await step('playlist boards', () => put(`/api/screens/playlists/${playlist.id}`, { name: mark + ' Day', items: [{ design_id: design.id, duration_secs: 10 }] }))
   await step('screen wall', () => post('/api/screens/walls', { venue_id: V, name: mark + ' Wall', cols: 2, rows: 1 }))
+
+  // ── Loyalty (migration 211; loyalty.test.mjs starts without it) ──
+  const loyalty = withLoyalty ? await step('loyalty programme', () => get('/api/loyalty/programme')) : null
+  if (loyalty) {
+    const lp = loyalty.programme.settings
+    await step('loyalty on', () => put('/api/loyalty/programme', { enabled: true, settings: { ...lp, name: mark + ' Club', features: { ...lp.features, stamps: true } } }))
+  }
+  const fiver = loyalty && await step('loyalty reward', () => post('/api/loyalty/rewards', { name: mark + ' £5 off', kind: 'amount_off', value: 500, points_cost: 100 }))
+  const freeDish = loyalty && dish ? await step('loyalty free dish', () => post('/api/loyalty/rewards', { name: mark + ' Free dish', kind: 'free_item', item_ids: [dish.id], points_cost: 50 })) : null
+  if (freeDish) await step('loyalty stamp card', () => post('/api/loyalty/stamp-cards', { name: mark + ' Card', stamps_needed: 5, earn: { per: 'item', item_ids: [dish.id] }, reward_id: freeDish.id }))
+  const member = loyalty && await step('loyalty member', () => post('/api/loyalty/members', { name: mark + ' Member', email: (mark + '.member@example.test').toLowerCase(), agreed: true }))
+  if (member) {
+    ids.loyaltyMember = member.id
+    await step('loyalty points', () => post(`/api/loyalty/members/${member.id}/adjust`, { points: 300, note: mark + ' opening' }))
+    if (fiver) await step('loyalty give reward', () => post(`/api/loyalty/members/${member.id}/rewards`, { reward_id: fiver.id, note: mark + ' sorry' }))
+    await step('loyalty member note', () => patch(`/api/loyalty/members/${member.id}`, { notes: mark + ' regular' }))
+  }
 
   // ── Pepper ──
   await step('access token', () => post('/api/ai/tokens', { name: mark + ' Claude Code' }))

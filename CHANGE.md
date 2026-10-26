@@ -5,6 +5,20 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-26 — Loyalty: points, stamp cards, rewards, a web app, wallet cards and a members list]
+
+- **Loyalty** (main menu, under Customers) gives guests points, stamp cards and rewards, collected and spent at every location taking part: on the tills, the self-order kiosks and online ordering. It starts switched off: turn on **Loyalty is on** in the Programme tab.
+- **Programme**: the name guests see, a switch for each feature (points, stamp cards, spending points on rewards, Apple Wallet, Google Wallet, the web app), points per pound, the smallest spend that earns, welcome points, points that run out after months with nothing earned or spent, where it works (earn and spend, per till / kiosk / online and per location), the joining words and newsletter box, and the card's colours.
+- **Rewards**: money off, percent off or a free dish, bought with points, given by a full stamp card or given by staff, with a smallest order, a most it takes off, where it can be used and how long a held reward lasts. **Stamp cards**: a stamp per dish (pick the dishes) or per visit; a full card gives its reward and starts again.
+- Points are counted on what the guest paid (after discounts, without tips or service charge, less refunds): a till order when its check is closed, an online order once paid. A refund takes the points back; a cancelled online order gives back its reward.
+- **The web app** at /loyalty on your website and at loyalty.macaroonie.com/your-web-address: guests sign in with a six-digit code by email (no password), join, see their QR code card, points, stamps, rewards and history, add the card to Apple Wallet or Google Wallet, and change their details, download their data or delete their account.
+- **On the till**: the programme's name in a check's actions finds a member by their QR code (scanner or camera), email, phone, name or member number, puts them on the check, spends their rewards and joins new guests. **On the kiosks**: Loyalty card on the order page (the QR code under the scanner, first name only on screen), rewards, what the order earns, and a code to join on the phone. **Online**: sign in or join at checkout, see points and use rewards.
+- **Wallet cards** in your brand's colours on Macaroonie's Apple and Google accounts, or your own (Wallet tab); a card's balance updates within about a minute.
+- **Members**: search, filters, CSV, a member's profile, points adjustments, rewards given or taken back, new card code, close or open a membership, download their data, and erase (owner or admin). Anonymising a customer erases their membership too. Two permissions: Loyalty and Loyalty members.
+- **Loyalty website block**: the programme, how points are earned, its cheapest rewards and a button to the web app; it hides itself while loyalty or the web app is off.
+- A Macaroonie-wide programme that groups could also join is in the data model and switched off; not available yet.
+- Migration 211 (the loyalty tables, member and settlement columns on till checks and online orders, the Loyalty modules, a Loyalty link after Customers in every group's main menu).
+
 ## [2026-10-26 — Kiosks: email receipts for orders paid at the counter]
 
 - **Email the receipt** on the kiosk's order done screen now works for orders paid at the counter too, not only card payments. The guest types their address as before; the kiosk says "We'll email your receipt to s***@gmail.com once you've paid at the counter", and the receipt goes within a minute of the till taking payment. An unpaid bill is never emailed.
