@@ -9,6 +9,7 @@ import {
   normaliseDesign, designProblems, payMethods, uiText, allergenName, translationSources, TK, pickImages, hexLayout, cornerWidths,
   configImages, MAX_SAVED_PICTURES, guestFit, countFits, cleanPrefs, prefsOn, kioskOrder, basketCheck, kioskStaff, kioskFontsUrl, UI_TEXT, ALLERGEN_NAMES, KIOSK_LANGUAGES, DESIGN_COLORS, CLEAR_COLORS, CHOICE_ENTRANCES,
   groupLook, ENTRANCE_KEYS, bundleParts, bundleLayout, bundleBox, BUNDLE_MAX, PART_COLORS, PART_FOLLOWS, COLOR_LABELS, partColours,
+  DONE_MAIN, DONE_LINES, DONE_DEFAULT_LINES, doneLook, doneInfo, doneGaps, isEmail, emailHint,
   pictureFit, fitLayout, PICTURE_FITS, PICTURE_FOCUS, PICTURE_BGS, BANNER_SHAPES, BANNER_RATIOS, KIOSK_SCREENS, SCREEN_MIN, SCREEN_MAX, SHAPE_SLACK, ZOOM_SLACK, ZOOM_MIN, ZOOM_MAX, kioskBox, kioskZoom, screenSize,
 } from '../kiosk.js'
 import { contrast } from '../themeKit.js'
@@ -1048,4 +1049,92 @@ test('picture fit: banners, featured tiles, start and reach pictures fill their 
   assert.deepEqual(fitLayout({ mode: 'contain', focus: 'left' }).box, { alignItems: 'center', justifyContent: 'flex-start' })
   assert.deepEqual(fitLayout({ mode: 'contain', focus: 'top' }).box, { alignItems: 'flex-start', justifyContent: 'center' })
   assert.equal(fitLayout({ mode: 'contain', bg: 'none' }).bg, null)
+})
+
+test('order done screen: the big value, the lines and order types of their own', () => {
+  const T1 = '11111111-1111-4111-8111-111111111111'
+  const T2 = '22222222-2222-4222-8222-222222222222'
+  // Defaults: automatic big value, the order number and tent under it, no receipts on the phone.
+  const std = normaliseDesign({}).done
+  assert.deepEqual(std, { main: 'auto', lines: ['number', 'tent'], message: null, types: [], receipt_qr: false, receipt_email: false })
+  assert.deepEqual(DONE_MAIN, ['auto', 'number', 'tent', 'name'])
+  assert.deepEqual(DONE_LINES, ['number', 'tent', 'name', 'type'])
+  assert.deepEqual(DONE_DEFAULT_LINES, ['number', 'tent'])
+  // Tidying: unknown values, repeats, other keys, ids that aren't ids; no lines is a choice of its own.
+  const d = normaliseDesign({ done: {
+    main: 'big', lines: ['name', 'name', 'colour', 'type'], message: '  Wait by the pass  ', receipt_qr: 1, receipt_email: 'yes',
+    types: [
+      { order_type_id: T1, main: 'name', lines: [], message: '' },
+      { order_type_id: T1, main: 'number' },
+      { order_type_id: 'eat-in', main: 'number' },
+      { order_type_id: T2, main: 'table', lines: 'number', message: 'Collect at the window' },
+    ],
+  } }).done
+  assert.equal(d.main, 'auto')
+  assert.deepEqual(d.lines, ['name', 'type'])
+  assert.equal(d.message, 'Wait by the pass')
+  assert.equal(d.receipt_qr, true)
+  assert.equal(d.receipt_email, true)
+  assert.deepEqual(d.types, [
+    { order_type_id: T1, main: 'name', lines: [], message: null },
+    { order_type_id: T2, main: null, lines: null, message: 'Collect at the window' },
+  ])
+  assert.deepEqual(normaliseDesign({ done: { lines: [] } }).done.lines, [])
+
+  // A type's own parts win; parts it leaves unset follow every type's.
+  const design = normaliseDesign({ done: { main: 'auto', lines: ['number', 'tent', 'type'], message: 'Thanks for coming', types: [
+    { order_type_id: T1, main: 'name', lines: ['number'] },
+    { order_type_id: T2, message: 'Collect at the window' },
+  ] } })
+  assert.deepEqual(doneLook(design, null), { main: 'auto', lines: ['number', 'tent', 'type'], message: 'Thanks for coming', own: false })
+  assert.deepEqual(doneLook(design, T1), { main: 'name', lines: ['number'], message: 'Thanks for coming', own: true })
+  assert.deepEqual(doneLook(design, T2), { main: 'auto', lines: ['number', 'tent', 'type'], message: 'Collect at the window', own: true })
+
+  // The tent typed shows big (the request: tents, not the order number), the order number under it.
+  const eatIn = { orderTypeId: null, number: 57, tent: ' 12 ', name: '', type: 'Eat in' }
+  assert.deepEqual(doneInfo(design, eatIn), {
+    main: 'tent', value: '12', lines: [{ key: 'number', value: '57' }, { key: 'type', value: 'Eat in' }], message: 'Thanks for coming',
+  })
+  // No tent typed (not asked, or skipped): the order number, and no tent line.
+  assert.deepEqual(doneInfo(design, { ...eatIn, tent: '' }).main, 'number')
+  assert.deepEqual(doneInfo(design, { ...eatIn, tent: '' }).lines, [{ key: 'type', value: 'Eat in' }])
+  // The name big where the type says so; without a name, the order number instead.
+  assert.deepEqual(doneInfo(design, { ...eatIn, orderTypeId: T1, name: 'Sam' }), { main: 'name', value: 'Sam', lines: [{ key: 'number', value: '57' }], message: 'Thanks for coming' })
+  assert.equal(doneInfo(design, { ...eatIn, orderTypeId: T1, name: '  ' }).main, 'number')
+  assert.deepEqual(doneInfo(design, { ...eatIn, orderTypeId: T1, name: '' }).lines, [])
+  // Number chosen but the order has none yet (kept on the kiosk): its own number is passed in, else the tent.
+  const byNumber = normaliseDesign({ done: { main: 'number' } })
+  assert.equal(doneInfo(byNumber, { number: 'KS-0007', tent: '4' }).value, 'KS-0007')
+  assert.deepEqual(doneInfo(byNumber, { number: '', tent: '4' }), { main: 'tent', value: '4', lines: [], message: null })
+  assert.equal(doneInfo(normaliseDesign({ done: { main: 'tent' } }), { number: 9, tent: '' }).main, 'number')
+  assert.deepEqual(doneInfo(normaliseDesign({}), {}), { main: 'number', value: '', lines: [], message: null })
+
+  // What a type's done screen shows that its guests aren't asked for.
+  const gaps = normaliseDesign({ done: { main: 'tent', lines: ['number', 'name'], types: [{ order_type_id: T1, main: 'name', lines: ['tent'] }] } })
+  assert.deepEqual(doneGaps(gaps, { id: T2, ask_name: 'off', ask_tent: 'off' }), [{ key: 'name', big: false }, { key: 'tent', big: true }])
+  assert.deepEqual(doneGaps(gaps, { id: T2, ask_name: 'ask', ask_tent: 'required' }), [])
+  assert.deepEqual(doneGaps(gaps, { id: T1, ask_name: 'off', ask_tent: 'ask' }), [{ key: 'name', big: true }])
+  assert.deepEqual(doneGaps(gaps, { id: T1 }), [{ key: 'name', big: true }, { key: 'tent', big: false }])
+  // Automatic never needs a tent: it only uses one that was typed.
+  assert.deepEqual(doneGaps(normaliseDesign({ done: { lines: ['number'] } }), { id: T2, ask_name: 'off', ask_tent: 'off' }), [])
+
+  // Messages are words to translate, for every type and per type.
+  const keys = translationSources({ designs: [{ id: 'dsg', name: 'Main', settings: design }] }).map(x => x.key)
+  assert.ok(keys.includes(TK.design('dsg', 'done_message')))
+  assert.ok(keys.includes(TK.design('dsg', 'done_message:' + T2)))
+  assert.ok(!keys.includes(TK.design('dsg', 'done_message:' + T1)), 'a type with no message of its own has nothing to translate')
+})
+
+test('e-receipt email addresses: rough check and the hint shown back', () => {
+  for (const ok of ['sam@gmail.com', 'Sam.Lee+kiosk@mail.co.uk', ' a@b.io ']) assert.ok(isEmail(ok), ok)
+  for (const bad of ['', 'sam', 'sam@', '@gmail.com', 'sam@gmail', 'sa m@gmail.com', 'sam@@gmail.com', 'sam@gmail.c', 'x'.repeat(250) + '@a.com', null, 42]) assert.ok(!isEmail(bad), String(bad))
+  assert.equal(emailHint('sam.lee@gmail.com'), 's***@gmail.com')
+  assert.equal(emailHint(' Ann@Example.org '), 'A***@Example.org')
+  assert.equal(emailHint('nope'), '')
+  // Every language has the words the done screen and the receipts use.
+  for (const lang of Object.keys(UI_TEXT)) {
+    for (const k of ['order_for', 'tent_put', 'table_put', 'table_done', 'order_line', 'name_line', 'paid_note_name', 'receipt_scan', 'receipt_email', 'receipt_sent', 'send']) assert.ok(UI_TEXT[lang][k], lang + '.' + k)
+    assert.match(UI_TEXT[lang].receipt_sent, /\{email\}/)
+    assert.match(UI_TEXT[lang].table_done, /\{n\}/)
+  }
 })

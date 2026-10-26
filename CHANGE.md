@@ -5,6 +5,15 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-26 — Kiosks: the tent number big after paying, an order done screen designer, receipts by QR code or email]
+
+- When a guest types a tent number, the screen after paying now shows the **tent number big**, with the order number under it (and "Put it on your table: we'll bring your order to you"). Without a tent it shows the order number, as before.
+- **Order done**, a new card in the kiosk design editor, designs that screen: its heading, what shows big (Automatic, the order number, the tent or table number, or the customer's name), the small lines under it (order number, tent, name, order type), a message of your own, and how long it shows. Each order type can have its own way, so an eat-in order can show its tent and a takeaway its name.
+- Each order type is listed with what its revenue stream asks guests (a name, a tent number). Where the screen would show something a type's guests are never asked for, an amber note says so and what shows instead. **Show** puts an example order of that type on the preview and keeps it there while you design.
+- Receipts on the guest's phone, each optional in the Order done card: a **QR code** of the order's receipt page (the kiosk receipt design, with a button to print or save it as a PDF; a counter order shows as a bill until it's paid), and **Email the receipt** after paying by card, typed on the kiosk's own email keyboard and sent through the location's email settings (up to three times an order). The email address isn't kept, only its first letter and domain.
+- Printed receipts, the heading and the seconds the screen shows moved into the Order done card.
+- Migration 209 (`pos_receipts`: one row per order whose receipt was asked for).
+
 ## [2026-10-26 — Kiosks keep their design's shape and size on any screen]
 
 - Each kiosk design now says which screen it's made for: a **Screen** card in the design editor (Full HD kiosk 1080 x 1920 unless you pick another: HD, a 16:10 or 4:3 tablet, QHD, 4K, or a size you type in). The preview shows the design at that size.

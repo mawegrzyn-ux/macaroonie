@@ -22,7 +22,7 @@ import {
   Disc3, CreditCard, Timer, ChevronDown, Image as ImageIcon, Video, Plus, X, UtensilsCrossed,
   ShoppingBag, Bike, Sparkles, AlertTriangle, Flame, Star, CircleDot, RectangleVertical,
   RectangleHorizontal, Wand2, BookOpen, LayoutDashboard, Hexagon, Circle, Square, Share2, Copy, Check, ExternalLink,
-  RefreshCw, Layers, Crop, Monitor,
+  RefreshCw, Layers, Crop, Monitor, PartyPopper,
 } from 'lucide-react'
 import { qrSvg } from '@shared/qr.js'
 import { kioskBrandFromKit } from '@shared/themeKit.js'
@@ -33,6 +33,7 @@ import {
   groupLook, PART_COLORS, PART_FOLLOWS, partColours,
   pictureFit, PICTURE_FOCUS, PICTURE_BGS, PICTURE_SIZE_MIN, BANNER_SHAPES,
   KIOSK_SCREENS, SCREEN_MIN, SCREEN_MAX, kioskZoom, kioskBox,
+  DONE_MAIN, DONE_LINES, DONE_DEFAULT_LINES, doneLook, doneGaps,
 } from '@shared/kiosk.js'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -1070,13 +1071,151 @@ function CheckoutPanel({ s, d, set, setup, canManage }) {
           options={[{ value: 'tent', label: 'Tent number' }, { value: 'table', label: 'Table number' }]} />
         <p className="text-xs text-muted-foreground mt-1">Asked only for order types whose revenue stream asks for a tent (Store tech &gt; Revenue streams).</p>
       </Field>
-      <Field group label="Receipts" hint="Print on the kiosk's receipt printer (Store tech > Kiosks > Edit).">
-        <Segmented value={c.receipt} onChange={v => set('checkout', { receipt: v })}
-          options={[{ value: 'off', label: 'None' }, { value: 'ask', label: 'Guest can print one' }, { value: 'always', label: 'Always' }]} />
+      <Note>What the screen after paying shows (the order or tent number, receipts) is in Order done.</Note>
+    </>
+  )
+}
+
+// ── Order done ──────────────────────────────────────────────────
+// The screen after paying (design.done; shared doneLook() / doneInfo()): what
+// shows big and the lines under it, for every order type or for one type its
+// own way, the design's message and the receipts on offer. Each order type
+// the preview's revenue stream offers is listed with what that stream asks
+// its guests (Store tech > Revenue streams), and what can't show because it
+// isn't asked (doneGaps()). Show puts an example order of that type on the
+// preview, held there while it's designed.
+
+const ASK_WORDS = { off: 'not asked', ask: 'asked', required: 'must be given' }
+const chipCls = on => cn('min-h-[44px] px-3 py-1.5 rounded-lg border text-sm touch-manipulation', on ? 'border-primary bg-primary/10 ring-1 ring-primary font-medium' : 'bg-background hover:bg-muted')
+
+const doneFieldLabel = (k, tentKind) => ({ auto: 'Automatic', number: 'Order number', tent: tentKind ? 'Tent number' : 'Table number', name: 'Customer name', type: 'Order type' }[k])
+
+function DoneLookEditor({ look, follow, onChange, tentKind, messageRaw, src, testId }) {
+  const mains = [...(follow ? [null] : []), ...DONE_MAIN]
+  const linesOwn = look.lines != null
+  const lines = look.lines || []
+  const toggleLine = k => {
+    const next = lines.includes(k) ? lines.filter(x => x !== k) : [...lines, k]
+    onChange({ lines: DONE_LINES.filter(x => next.includes(x)) })
+  }
+  return (
+    <div className="space-y-3" data-testid={testId}>
+      <Field group label="Big on the screen" hint={look.main === 'auto' || (!follow && look.main == null)
+        ? 'The tent number when the guest typed one, else the order number.'
+        : 'When an order hasn\'t got it (not asked, or skipped), the order number shows instead.'}>
+        <div className="flex flex-wrap gap-1.5" data-testid={testId + '-main'}>
+          {mains.map(k => (
+            <button key={k || 'follow'} type="button" aria-pressed={look.main === k} onClick={() => onChange({ main: k })} className={chipCls(look.main === k)} data-value={k || 'follow'}>
+              {k == null ? 'As for every type' : doneFieldLabel(k, tentKind)}
+            </button>
+          ))}
+        </div>
       </Field>
-      <Field label="Heading over the order number">
-        <input className={inputCls} maxLength={60} value={s.checkout.thanks || ''} placeholder={uiText(src, 'thank_you')}
+      <Field group label="Under it" hint="Small lines, in this order. The big one isn't repeated, and an order that hasn't got one leaves it out.">
+        {follow && <Toggle label="As for every type" checked={!linesOwn} onChange={v => onChange({ lines: v ? null : [...DONE_DEFAULT_LINES] })} />}
+        {(!follow || linesOwn) && (
+          <div className="flex flex-wrap gap-1.5" data-testid={testId + '-lines'}>
+            {DONE_LINES.map(k => (
+              <button key={k} type="button" aria-pressed={lines.includes(k)} onClick={() => toggleLine(k)} className={chipCls(lines.includes(k))} data-value={k}>
+                {doneFieldLabel(k, tentKind)}
+              </button>
+            ))}
+          </div>
+        )}
+      </Field>
+      <Field label="Message" hint={follow ? 'Leave empty for the message for every type.' : 'Optional, under the rest: where to wait, what happens next.'}>
+        <textarea className={cn(inputCls, 'h-auto py-2 min-h-[64px]')} maxLength={200} rows={2} value={messageRaw || ''} data-testid={testId + '-message'}
+          placeholder={follow ? 'As for every type' : 'e.g. ' + uiText(src, 'paid_note')} onChange={e => onChange({ message: e.target.value })} />
+      </Field>
+    </div>
+  )
+}
+
+function gapWords(g, typeName, tentKind) {
+  const what = g.key === 'name' ? 'a name' : tentKind ? 'a tent number' : 'a table number'
+  return 'Guests ordering ' + typeName + ' aren\'t asked for ' + what + ', so ' + (g.big ? 'the order number shows big instead.' : 'that line is left out.')
+}
+
+function DonePanel({ s, d, set, setup, stream, onShow }) {
+  const n = d.done
+  const raw = s.done || {}
+  const tentKind = d.checkout.number_kind !== 'table'
+  const src = d.languages.source
+  const types = (setup?.order_types || []).filter(t => t.is_active !== false)
+  const offered = stream ? types.filter(t => (stream.order_types || []).some(x => x.order_type_id === t.id && x.enabled)) : types
+  const askOf = t => {
+    const x = (stream?.order_types || []).find(o => o.order_type_id === t.id)
+    return { id: t.id, ask_name: x?.ask_name || 'off', ask_tent: x?.ask_tent || 'off' }
+  }
+  const rawTypes = Array.isArray(raw.types) ? raw.types : n.types
+  const ownRow = id => n.types.find(x => x.order_type_id === id) || null
+  const setType = (id, patch) => set('done', { types: rawTypes.map(x => (x?.order_type_id === id ? { ...x, ...patch } : x)) })
+  const addType = id => set('done', { types: [...rawTypes, { order_type_id: id, main: null, lines: null, message: null }] })
+  const dropType = id => set('done', { types: rawTypes.filter(x => x?.order_type_id !== id) })
+  const away = n.types.filter(x => !offered.some(t => t.id === x.order_type_id))
+  const typeName = id => (setup?.order_types || []).find(t => t.id === id)?.name || 'An order type'
+  return (
+    <>
+      <Field label="Heading">
+        <input className={inputCls} maxLength={60} value={s.checkout?.thanks || ''} placeholder={uiText(src, 'thank_you')}
           onChange={e => set('checkout', { thanks: e.target.value })} />
+      </Field>
+      <div className="rounded-lg border p-3 space-y-3" data-testid="kd-done-all">
+        <p className="text-sm font-medium">Every order type</p>
+        <DoneLookEditor look={n} tentKind={tentKind} src={src} messageRaw={raw.message} testId="kd-done-all"
+          onChange={patch => set('done', patch)} />
+      </div>
+      <Field group label="Each order type" hint={'What guests are asked comes from the revenue stream' + (stream ? ' (as ' + stream.name + ' here: pick another above the preview)' : '') + ', Store tech > Revenue streams.'}>
+        <div className="space-y-2">
+          {!offered.length && <Note>No order types are on for this revenue stream.</Note>}
+          {offered.map(t => {
+            const ask = askOf(t)
+            const own = ownRow(t.id)
+            const gaps = doneGaps(d, ask)
+            const look = doneLook(d, t.id)
+            const rawOwn = rawTypes.find(x => x?.order_type_id === t.id)
+            return (
+              <div key={t.id} className="rounded-lg border p-3 space-y-2" data-testid="kd-done-type" data-type={t.name}>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-medium text-sm flex-1 min-w-[120px]">{t.name}</span>
+                  <Btn onClick={() => onShow(t.id)} title={'Show ' + t.name + ' on the preview'} data-testid="kd-done-show"><Monitor className="w-4 h-4" /> Show</Btn>
+                </div>
+                <p className="text-xs text-muted-foreground" data-testid="kd-done-asks">
+                  Name {ASK_WORDS[ask.ask_name] || 'not asked'} · {tentKind ? 'Tent' : 'Table'} number {ASK_WORDS[ask.ask_tent] || 'not asked'} · Big: {doneFieldLabel(look.main, tentKind).toLowerCase()}
+                </p>
+                {gaps.map(g => <Note key={g.key} tone="warn"><span data-testid="kd-done-gap" data-key={g.key}>{gapWords(g, t.name, tentKind)}</span></Note>)}
+                <Toggle label="Its own way" hint="Off: as for every order type." checked={!!own}
+                  onChange={v => (v ? addType(t.id) : dropType(t.id))} />
+                {own && (
+                  <DoneLookEditor look={own} follow tentKind={tentKind} src={src} messageRaw={rawOwn?.message} testId="kd-done-own"
+                    onChange={patch => setType(t.id, patch)} />
+                )}
+              </div>
+            )
+          })}
+          {away.map(x => (
+            <div key={x.order_type_id} className="rounded-lg border border-dashed p-3 flex items-center gap-2 flex-wrap text-sm">
+              <span className="flex-1 min-w-[160px]">{typeName(x.order_type_id)}: its own way, but not offered{stream ? ' as ' + stream.name : ''}.</span>
+              <Btn onClick={() => dropType(x.order_type_id)}><X className="w-4 h-4" /> Remove</Btn>
+            </div>
+          ))}
+        </div>
+      </Field>
+      <Field group label="Receipts">
+        <div className="space-y-2">
+          <div data-testid="kd-done-print">
+            <p className="text-xs text-muted-foreground mb-1">Printed on the kiosk's receipt printer (Store tech &gt; Kiosks &gt; Edit).</p>
+            <Segmented value={d.checkout.receipt} onChange={v => set('checkout', { receipt: v })}
+              options={[{ value: 'off', label: 'None' }, { value: 'ask', label: 'Guest can print one' }, { value: 'always', label: 'Always' }]} />
+          </div>
+          <Toggle label="QR code for the receipt" hint="The guest scans it with their phone to see the receipt, keep it or print it. The page uses the kiosk receipt design (Store tech > Printing) and works for a year; an order paid at the counter shows as a bill until it's paid."
+            checked={n.receipt_qr} onChange={v => set('done', { receipt_qr: v })} />
+          <Toggle label="Email the receipt" hint="After paying by card, the guest can type their email address on the kiosk. It's sent through the location's email settings (Emails > Settings), up to 3 times an order, and the address isn't kept: only its first letter and its domain."
+            checked={n.receipt_email} onChange={v => set('done', { receipt_email: v })} />
+        </div>
+      </Field>
+      <Field label="Shows for (seconds)" hint="5 to 120. Then the start screen comes back. It waits while a guest types an email address.">
+        <NumberBox value={d.behaviour.done_secs} min={5} max={120} onChange={v => set('behaviour', { done_secs: v })} ariaLabel="Seconds the order done screen shows" />
       </Field>
     </>
   )
@@ -1091,9 +1230,6 @@ function TimingPanel({ s, d, set, canManage }) {
       </Field>
       <Field label={'"Still there?" waits for (seconds)'} hint="5 to 60.">
         <NumberBox value={h.warn_secs} min={5} max={60} onChange={v => set('behaviour', { warn_secs: v })} ariaLabel="Seconds the question waits" />
-      </Field>
-      <Field label="The order number shows for (seconds)" hint="5 to 120. Then the start screen comes back.">
-        <NumberBox value={h.done_secs} min={5} max={120} onChange={v => set('behaviour', { done_secs: v })} ariaLabel="Seconds the order number shows" />
       </Field>
       <Toggle label="Reach button" hint="Lets a guest who can't reach the top of the screen bring everything down to the lower half."
         checked={h.reach} onChange={v => set('behaviour', { reach: v })} />
@@ -1173,7 +1309,7 @@ function ScreenPanel({ d, set }) {
 
 // ── Preview ─────────────────────────────────────────────────────
 
-function Preview({ designId, design, venueId, setup, streams, stream, onStream }) {
+function Preview({ designId, design, venueId, setup, streams, stream, onStream, show }) {
   const api = useApi()
   const [orientation, setOrientation] = useState(() => {
     try { return localStorage.getItem(ORIENT_KEY) === 'landscape' ? 'landscape' : 'portrait' } catch { return 'portrait' }
@@ -1232,6 +1368,13 @@ function Preview({ designId, design, venueId, setup, streams, stream, onStream }
   }, [url])
   const post = msg => { if (ready && frameOrigin.current) frame.current?.contentWindow?.postMessage(msg, frameOrigin.current) }
   useEffect(() => { post({ type: 'kiosk.design', design }) }, [design, ready]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Order done's Show: an example order of that type on the done screen.
+  const shown = useRef(null)
+  useEffect(() => {
+    if (!show || !ready || shown.current === show.n) return
+    shown.current = show.n
+    post({ type: 'kiosk.show', screen: 'done', order_type_id: show.typeId })
+  }, [show, ready]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Try on: the design's screen, or how another screen would show it.
   const [tryOn, setTryOn] = useState(() => {
@@ -1271,6 +1414,7 @@ function Preview({ designId, design, venueId, setup, streams, stream, onStream }
       <div className="shrink-0 flex flex-wrap items-center gap-2 px-3 py-2 border-b bg-background">
         <Btn onClick={() => post({ type: 'kiosk.restart' })} title="Show the start screen"><RotateCcw className="w-4 h-4" /> <span className="hidden xl:inline">Start screen</span></Btn>
         <Btn onClick={() => post({ type: 'kiosk.show', screen: 'menu' })} title="Show the menu"><BookOpen className="w-4 h-4" /> <span className="hidden xl:inline">Menu</span></Btn>
+        <Btn onClick={() => post({ type: 'kiosk.show', screen: 'done', order_type_id: null })} title="Show the order done screen" data-testid="kd-show-done"><PartyPopper className="w-4 h-4" /> <span className="hidden xl:inline">Order done</span></Btn>
         <div className="inline-flex rounded-lg border overflow-hidden" role="group" aria-label="Screen shape">
           {[['portrait', RectangleVertical, 'Upright'], ['landscape', RectangleHorizontal, 'Wide']].map(([o, Icon, label]) => (
             <button key={o} type="button" onClick={() => turn(o)} aria-pressed={orientation === o} title={label + ' screen'} data-testid={'kd-orient-' + o}
@@ -1535,6 +1679,7 @@ const PANELS = [
   { id: 'menu', title: 'Menu', icon: LayoutGrid },
   { id: 'choices', title: 'Choices', icon: Sparkles },
   { id: 'checkout', title: 'Paying', icon: CreditCard },
+  { id: 'done', title: 'Order done', icon: PartyPopper },
   { id: 'timing', title: 'Timing and access', icon: Timer },
 ]
 
@@ -1551,6 +1696,11 @@ function summaryOf(id, d) {
   if (id === 'choices') return DISPLAY_LABELS[d.options.display] + ', ' + TILE_LABELS[d.layout.option_tiles].toLowerCase() + (d.layout.option_pictures ? '' : ', words only') + (d.layout.option_align === 'center' ? ', centred' : '') + (d.options.wheel_spin_picks ? ', a spin picks' : '') + (d.options.entrance !== 'none' ? ', ' + CHOICE_ENTRANCES.find(x => x.key === d.options.entrance).label.toLowerCase() : '')
     + (d.options.group_looks.length ? ', ' + d.options.group_looks.length + ' option group' + (d.options.group_looks.length === 1 ? '' : 's') + ' their own way' : '')
   if (id === 'checkout') return [d.checkout.pay_card && 'Card', d.checkout.pay_counter && 'At the counter'].filter(Boolean).join(' and ') || 'No way to pay'
+  if (id === 'done') {
+    const big = { auto: 'Tent number if typed', number: 'Order number', tent: d.checkout.number_kind === 'table' ? 'Table number' : 'Tent number', name: 'Customer name' }[d.done.main]
+    return [big + ' big', d.done.types.length ? d.done.types.length + ' order type' + (d.done.types.length === 1 ? '' : 's') + ' their own way' : null,
+      d.done.receipt_qr ? 'QR receipt' : null, d.done.receipt_email ? 'email receipt' : null].filter(Boolean).join(', ')
+  }
   if (id === 'timing') return 'Starts again after ' + d.behaviour.idle_secs + ' s' + (d.behaviour.reach && d.behaviour.reach_media.length ? ', reach pictures' : '') + (d.behaviour.record_journeys ? '' : ', visits not recorded')
   return ''
 }
@@ -1609,6 +1759,7 @@ export default function KioskDesigner() {
   const [streamId, setStreamId] = useState('') // the preview's revenue stream ('' = the first)
   const [sharing, setSharing] = useState(false)
   const [savingAs, setSavingAs] = useState(false)
+  const [show, setShow] = useState(null) // { typeId, n }: Order done's Show, for the preview
   // Saved as a new design: list it at once (so the page has it to open), then open it.
   function savedAs(out) {
     qc.setQueryData(['kiosk-designs'], old => (old ? [...old.filter(x => x.id !== out.id), { ...out, share: null }] : old))
@@ -1651,7 +1802,8 @@ export default function KioskDesigner() {
   const kioskStream = kiosks.map(k => k.settings?.revenue_stream_id).find(sid => streams.some(r => r.id === sid))
   const stream = streams.find(r => r.id === (streamId || kioskStream)) || streams[0] || null
 
-  const panelProps = { s: draft.settings, d: design, set, setup, venueName: venue?.name, canManage, stream }
+  const onShow = typeId => { setShow({ typeId, n: Date.now() }); setPane('preview') }
+  const panelProps = { s: draft.settings, d: design, set, setup, venueName: venue?.name, canManage, stream, onShow }
 
   return (
     <div className="h-full flex flex-col overflow-hidden bg-page" data-testid="kiosk-designer">
@@ -1723,6 +1875,7 @@ export default function KioskDesigner() {
                 {p.id === 'menu' && <MenuPanel {...panelProps} />}
                 {p.id === 'choices' && <ChoicesPanel {...panelProps} />}
                 {p.id === 'checkout' && <CheckoutPanel {...panelProps} />}
+                {p.id === 'done' && <DonePanel {...panelProps} />}
                 {p.id === 'timing' && <TimingPanel {...panelProps} />}
               </Panel>
             ))}
@@ -1730,7 +1883,7 @@ export default function KioskDesigner() {
         </div>
         <div className={cn('flex-1 min-w-0 flex', pane !== 'preview' && 'max-md:hidden')}>
           {venueId
-            ? <Preview designId={id} design={design} venueId={venueId} setup={setup} streams={streams} stream={stream} onStream={setStreamId} />
+            ? <Preview designId={id} design={design} venueId={venueId} setup={setup} streams={streams} stream={stream} onStream={setStreamId} show={show} />
             : <p className="m-auto text-sm text-muted-foreground p-6">Add a venue to see the preview.</p>}
         </div>
       </div>

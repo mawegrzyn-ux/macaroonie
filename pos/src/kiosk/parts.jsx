@@ -451,6 +451,32 @@ export function Keyboard({ value, onChange, lang = 'en', max = 40, labels = {} }
   )
 }
 
+const MAIL_ROWS = ['1234567890', 'qwertyuiop', 'asdfghjkl', 'zxcvbnm']
+const MAIL_ENDS = ['@gmail.com', '@hotmail.com', '@outlook.com', '@icloud.com', '.com', '.co.uk']
+
+/** Keys for an email address: lower case letters, digits, @ and the usual endings. */
+export function EmailKeyboard({ value, onChange, max = 120, labels = {} }) {
+  const type = txt => { if ((value + txt).length <= max) onChange(value + txt) }
+  const at = value.includes('@')
+  return (
+    // data-jprivate: a touch here is recorded at the keyboard's middle, never on a key (journey.js).
+    <div className="k-keys" data-testid="email-keyboard" data-jprivate="">
+      {MAIL_ROWS.map(r => (
+        <div key={r} className="k-keys-row">{[...r].map(c => <button key={c} className="k-key" onClick={() => type(c)}>{c}</button>)}</div>
+      ))}
+      <div className="k-keys-row">
+        {['@', '.', '-', '_'].map(c => <button key={c} className="k-key" disabled={c === '@' && at} onClick={() => type(c)} data-key={c}>{c}</button>)}
+        <button className="k-key" onClick={() => onChange(value.slice(0, -1))} aria-label={labels.delete || 'Delete'}><Delete className="mx-auto" /></button>
+      </div>
+      <div className="k-keys-row flex-wrap">
+        {MAIL_ENDS.filter(e => (e.startsWith('@') ? !at : at)).map(e => (
+          <button key={e} className="k-key k-key-wide" onClick={() => type(e)} data-key={e}>{e}</button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export function NumberPad({ value, onChange, max = 4, labels = {} }) {
   const press = k => {
     if (k === 'del') return onChange(value.slice(0, -1))

@@ -4110,7 +4110,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               head={['Route', 'What it does']}
               rows={[
                 ['GET /pos-api/config (kiosk)', 'kioskConfig() in services/kioskSvc.js: venue, settings, the kiosk\'s stream and its order types (ask_name / ask_tent), all order types, tax rates, menus / items / section_items (tillMenuData guest view: a section\'s item_ids leave out dishes isPriced() in shared/orderPricing.js says can\'t be priced, as online ordering does; they stay in items and section_items for combos), option groups with their kiosk fields, guest-visible dietary tags, the allergen notice, automatic till promotions, sold out, the design (normalised), translations for the design\'s languages, the device. No staff, no PINs. version = a hash of it.'],
-                ['Kiosk device routes', 'A kiosk may only call GET /pos-api/me, GET /pos-api/config and POST /pos-api/events (KIOSK_ROUTES); anything else is 403 code kiosk.'],
+                ['Kiosk device routes', 'A kiosk may only call GET /pos-api/me, GET /pos-api/config, POST /pos-api/events, its card machine routes, POST /pos-api/kiosk/journeys and POST /pos-api/kiosk/receipts (KIOSK_ROUTES); anything else is 403 code kiosk.'],
+                ['POST /pos-api/kiosk/receipts', 'Kiosks only (migration 209, services/receiptSvc.js kioskReceipt()). { check_id, email? }: the order must be one this kiosk placed at its venue (pos_checks.server_id = the kiosk, else 404). Makes the order\'s pos_receipts row once (token: 24 random bytes, base64url) -> { url (deviceOrigin(\'kiosk\') + /receipt/<token>), sent_to }. With email (isEmail() in shared/kiosk.js, else 400): 422 while the check is open (not paid), 429 after MAX_EMAILS (3) sends, counted before sending; the receipt goes through the venue\'s provider (emailCredentials()) after the transaction, the kiosk waiting; 422 when the provider refuses. Only emailHint() (first letter and domain) and emailed_at are stored; sent_to is the hint. 60 a minute.'],
+                ['GET /receipt/:token', 'No login, device hosts only (pos., kitchen., kiosk.; else 404), served by routes/posSite.js (\'/receipt/\' in PASS_PREFIXES; the pos app\'s service worker leaves it to the network). receiptPage(): the token found in system mode (rows under 400 days), then the check in its tenant, drawn with billOps() in the kiosk receipt design (printConfig().layouts.kiosk_receipt) and previewHtml() at DEFAULT_COLS; an open check is a bill with a Not paid yet note. Cache-Control no-store, Referrer-Policy no-referrer, X-Robots-Tag noindex, a CSP of its own. Counts views. 120 a minute.'],
                 ['GET /pos-api/kiosk-preview?token=', 'The preview\'s config: kioskConfig() with previewDevice() (the editor\'s stream and design, the test card reader) and the token\'s menu version (m: \'draft\' = the menus with changes not published yet; menu_version in the config). The token is the key: readPreviewToken(), HMAC with platform_secrets kiosk_preview_key, 12 hours.'],
                 ['GET /api/pos/kiosk-designs', 'pos_setup view. Normalised settings.'],
                 ['POST /api/pos/kiosk-designs', 'pos_setup manage. { name, settings, copy_from? } (copy_from: another design of the tenant). Up to 50 per tenant. The design editor\'s Save as sends the editor\'s normalised draft as settings (unsaved changes included); the new row has no share.'],
@@ -4228,7 +4230,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>normaliseDesign()</Mono> fills every default and checks every value (unknown keys dropped,
               colours hex, numbers clamped, ids checked); the API stores only its output and the kiosk and the
               editor run it again. Empty words mean the kiosk's own words (<Mono>shared/kioskText.js</Mono>{' '}
-              <Mono>UI_TEXT</Mono>, 103 words in 9 languages); typed words are translated under{' '}
+              <Mono>UI_TEXT</Mono>, 140 words in 9 languages); typed words are translated under{' '}
               <Mono>{"TK.design(id, path)"}</Mono>. <Mono>designProblems(design, kiosk?)</Mono> lists what stops a
               design taking orders (no way to pay; a kiosk without a card reader and no pay at the counter).
             </P>
@@ -4243,9 +4245,54 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['menu', 'home, banners [{ id, image_url, title, link { kind none | item | section, id }, fit }] (10), banner_secs 3-20, banner_shape wide | short | tall | picture (BANNER_SHAPES, BANNER_RATIOS), featured [{ id, image_url, title, subtitle, size normal | wide, link, fit }] (12), rail images | text | none (RAIL_KINDS), section_tiles [{ section_id, image_url, title, size normal | wide }] (rail none: the tiles page order, deduped, 200), columns auto | 2-4, show_calories, show_descriptions, show_tags, quick_add, hidden_section_ids'],
                 ['options', 'group_looks [{ group_id, display, tiles, pictures, entrance }] (option groups this design shows their own way, each part null = not set here; groupLook(), see Menus > Option group looks and types), entrance none | appear | slide | bubble | deal (CHOICE_ENTRANCES; the root\'s data-enter, a group\'s own on its choices: kiosk.css animates each grid / honeycomb / list / slider choice in turn, --k-ei from nth-child times --k-enter-step, backwards fill so the slider\'s own scale comes back, the wheel whole, off under prefers-reduced-motion; set in the Choices panel), display grid | list | slider | wheel (where a group or step has none), level_icon flame | star | dot, wheel_spin (the Spin button; default on), wheel_spin_picks (a spin stops on a choice that can be picked and picks it) (picks on the dish\'s photo are set per option group and combo step since migration 201, not in the design)'],
                 ['checkout', 'pay_card, pay_counter, send_counter, counter_note, upsell, upsell_title, upsell_item_ids (8), number_kind tent | table (what the number asked for when the stream\'s ask_tent is on is called: tent_number / tent_hint and the Done screen\'s tent_done line, or table_number / table_hint; the value goes as check.tent either way), receipt off | ask | always, thanks'],
+                ['done', 'The order done screen (migration 209\'s change; see The order done screen and receipts below): main auto | number | tent | name (DONE_MAIN; auto = the tent when one was typed, else the order number), lines (DONE_LINES number | tent | name | type, in order; default [number, tent]; [] is no lines), message, types [{ order_type_id, main, lines, message }] (50; each part null = as for every type; another tenant\'s order types dropped by ownDesign()), receipt_qr, receipt_email.'],
                 ['behaviour', 'idle_secs 20-600, warn_secs 5-60, done_secs 5-120, reach, reach_media [{ id, type image | video, url, fit }] (up to 4: filling .k-reach-band while reach mode has slid the kiosk down, with Start.jsx Media taking turns every start.media_secs and k-reach-back at the foot; empty = the brand colour and the reach sign; pictures kept offline by configImages())'],
               ]}
             />
+            <H3>The order done screen and receipts</H3>
+            <P>
+              What the screen after paying shows comes from three rules in <Mono>shared/kiosk.js</Mono> (unit-tested in{' '}
+              <Mono>shared/test/kiosk.test.mjs</Mono>): <Mono>doneLook(design, orderTypeId)</Mono> (the type's row in{' '}
+              <Mono>done.types</Mono> part by part, else <Mono>done</Mono>), <Mono>doneInfo(design, {'{ orderTypeId, number, tent, name, type }'})</Mono>{' '}
+              (<Mono>{'{ main, value, lines: [{ key, value }], message }'}</Mono>: auto is the tent when one was typed,
+              else the order number; a value the order hasn't got falls back to the first of number, tent, name it has;
+              lines leave out the big one and empty ones) and <Mono>doneGaps(design, orderType)</Mono> (what a type's
+              screen would show that its stream never asks for: <Mono>ask_name</Mono> / <Mono>ask_tent</Mono>{' '}
+              <Mono>off</Mono>, <Mono>{'[{ key, big }]'}</Mono>; auto never counts). <Mono>Done</Mono> in{' '}
+              <Mono>pos/src/kiosk/Checkout.jsx</Mono> draws it: <Mono>k-done-caption</Mono> (order_number, tent_number
+              or table_number, order_for), <Mono>k-done-main</Mono> with <Mono>data-key</Mono>, <Mono>k-done-put</Mono>{' '}
+              under a big tent (tent_put / table_put), a <Mono>k-done-line</Mono> each (order_line, tent_done / table_done,
+              name_line, the type's name), <Mono>k-done-note</Mono> (paid_pending; card: none when a tent was typed,
+              paid_note_name with the name big, else paid_note; counter: the design's counter note or counter_note(_sent)),{' '}
+              <Mono>k-done-message</Mono> (<Mono>TK.design(id, 'done_message')</Mono> or{' '}
+              <Mono>'done_message:' + typeId</Mono>). The countdown stops in a replay, for the editor's example
+              (<Mono>state.doneHold</Mono>) and while the email sheet is open or sending, and starts again after.
+            </P>
+            <P>
+              Receipts: <Mono>ReceiptQr</Mono> asks <Mono>receiptLink()</Mono> (store.js; a preview gets an example
+              address and never calls the server) and draws <Mono>qrSvg()</Mono> (<Mono>k-receipt-qr</Mono>,{' '}
+              <Mono>data-state</Mono> waiting | ready | failed); <Mono>EmailSheet</Mono> takes the address on{' '}
+              <Mono>EmailKeyboard</Mono> (<Mono>parts.jsx</Mono>: digits, lower case, @ once, endings such as
+              @gmail.com) inside <Mono>data-jprivate</Mono>, and <Mono>emailReceipt()</Mono> sends it. Neither is
+              offered for an order still in the outbox (<Mono>result.pending</Mono>); email only after a card payment.
+              The visit's record (journey.js) keeps the sheet's state and the address's length
+              (<Mono>receipt.mail</Mono>, <Mono>receipt.sent</Mono>, <Mono>receipt.mail_len</Mono>), never the
+              address or its hint; a playback shows dots. The designer's <Mono>DonePanel</Mono> lists the preview
+              stream's order types with their asks and <Mono>doneGaps()</Mono> notes (<Mono>kd-done-type</Mono>,{' '}
+              <Mono>kd-done-gap</Mono>); <Mono>Show</Mono> and the toolbar's <Mono>kd-show-done</Mono> post{' '}
+              <Mono>{"{ type: 'kiosk.show', screen: 'done', order_type_id }"}</Mono> to the frame, which shows an
+              example order (<Mono>showDoneExample()</Mono>: Sam and tent 12 only where the type asks).
+            </P>
+            <P>
+              <Mono>pos_receipts</Mono> (migration 209, RLS forced): one row per order whose receipt was asked for
+              (<Mono>UNIQUE (tenant_id, check_id)</Mono>), its token, the kiosk, <Mono>emails</Mono>,{' '}
+              <Mono>email_hint</Mono>, <Mono>emailed_at</Mono>, <Mono>views</Mono>, <Mono>last_viewed_at</Mono>. The
+              page is drawn from the check as it is when opened, so a counter order paid later shows its receipt.
+              The hourly AI clean-up job also runs <Mono>cleanUpReceipts()</Mono> (rows after 400 days). Tests:{' '}
+              <Mono>api/test/kiosk-receipts.test.mjs</Mono> (a real kiosk order through the device routes, the page,
+              a stand-in SendGrid, refusals, clean-up) and the receipt page in <Mono>system-paths.test.mjs</Mono>.
+            </P>
+
             <H3>Bottom bar and side menu colours</H3>
             <P>
               <Mono>partColours(colors)</Mono> (<Mono>shared/kiosk.js</Mono>) is the one rule for what the bottom bar

@@ -17,7 +17,7 @@
 import { useSyncExternalStore } from 'react'
 import { ulid } from '@shared/pos/ids.js'
 import {
-  kioskOrder, normaliseDesign, uiText, payMethods, TK,
+  kioskOrder, normaliseDesign, uiText, payMethods, TK, emailHint,
   dishLevels, mergeLevels, itemLevels as sharedItemLevels, guestFit, countFits, cleanPrefs,
 } from '@shared/kiosk.js'
 import { soldOutMap, comboCtx, configItem } from '@shared/pos/offers.js'
@@ -57,6 +57,7 @@ let state = {
   outbox: [],
   toast: null,
   ended: null,             // { why, n }: the last restart() (journey.js ends the visit's record on it)
+  doneHold: false,         // the design editor's example order done screen: no countdown
 }
 const listeners = new Set()
 let api = createTransport(null)
@@ -158,10 +159,25 @@ async function bootPreviewFrom(path, { live, replay = false }) {
       if (['menu', 'basket', 'details', 'pay', 'card'].includes(state.screen)) go('menu', { builder: null })
       else startOrder(state.config.order_types?.[0]?.id || null)
     }
+    // The editor's order done screen for an order type: an example order as a
+    // guest of that type would have it (a name and a tent only where the
+    // revenue stream asks for them), held on the screen while it's designed.
+    if (e.data.type === 'kiosk.show' && e.data.screen === 'done' && state.config) showDoneExample(e.data)
   })
   try {
     window.parent.postMessage({ type: 'kiosk.ready', ...(state.shared ? { share: { ...state.shared, screen: state.config?.design?.screen || null } } : {}), ...(!state.config ? { error: state.error } : {}) }, '*')
   } catch { /* not framed */ }
+}
+
+function showDoneExample({ order_type_id, method }) {
+  const types = state.config.order_types || []
+  const ty = types.find(x => x.id === order_type_id) || types[0] || null
+  setState({
+    screen: 'done', orderType: ty?.id || null, builder: null, method: method === 'counter' ? 'counter' : 'card',
+    details: { name: ty && ty.ask_name !== 'off' ? 'Sam' : '', tent: ty && ty.ask_tent !== 'off' ? '12' : '' },
+    result: { order_no: 57, provisional: (state.device?.short_code || 'KS') + '-0057', check: null, totals: null, pending: false },
+    error: null, doneHold: true,
+  })
 }
 
 /** Get the config (only when it changed) and note whether the server answered. */
@@ -301,7 +317,7 @@ export function startOrder(orderTypeId) {
   const first = config?.design?.menu?.rail === 'none' ? 'tiles' : hasHome(config) ? 'home' : kioskSections(config)[0]?.id || null
   setState({
     screen: 'menu', orderType: orderTypeId, section: first, basket: [], builder: null,
-    details: { name: '', tent: '' }, method: null, result: null, error: null,
+    details: { name: '', tent: '' }, method: null, result: null, error: null, doneHold: false,
   })
 }
 
@@ -317,7 +333,7 @@ export function restart(why) {
     screen: 'start', orderType: null, basket: [], builder: null, details: { name: '', tent: '' },
     method: null, result: null, error: null, reach: false, prefs: { avoid: [], diet: [] }, lang: state.config?.design?.languages?.source || 'en',
     // The next guest starts on the menu's first page.
-    section: null, detailStep: null, added: null, toast: null,
+    section: null, detailStep: null, added: null, toast: null, doneHold: false,
     ended: { why: typeof why === 'string' ? why : 'guest', n: (state.ended?.n || 0) + 1 },
   })
 }
@@ -519,6 +535,37 @@ async function paidButNotSent(r, provisional, error) {
 
 export function printResultReceipt() {
   if (state.result?.check) printReceipt({ ...state.result.check, order_no: state.result.order_no })
+}
+
+// ── Receipts on the guest's phone (migration 209) ────────────────
+// The order just placed has a receipt page of its own on the server: the done
+// screen shows a QR code of it, or the server emails it (design.done
+// receipt_qr / receipt_email). An order still waiting in the outbox isn't on
+// the server yet, so it has none. A preview never asks the server.
+
+async function receiptCall(body, timeoutMs) {
+  const id = state.result?.check?.id
+  if (!id || state.result?.pending) throw new Error('This order has no receipt yet')
+  try {
+    const out = await api.post('/pos-api/kiosk/receipts', { check_id: id, ...body }, { timeoutMs })
+    linkOk()
+    return out
+  } catch (err) { handleError(err); throw err }
+}
+
+/** { url } of the order's receipt page. */
+export async function receiptLink() {
+  if (state.preview) return { url: location.origin + '/receipt/example', example: true }
+  return receiptCall({}, 15000)
+}
+
+/** Email the order's receipt: { url, sent_to } (sent_to: the address shown back, 's***@gmail.com'). */
+export async function emailReceipt(email) {
+  if (state.preview) {
+    await new Promise(res => setTimeout(res, 700))
+    return { url: null, sent_to: emailHint(email), example: true }
+  }
+  return receiptCall({ email }, 25000)
 }
 
 // ── Sync: config pushes, the outbox ──────────────────────────────

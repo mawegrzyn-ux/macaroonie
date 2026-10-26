@@ -379,7 +379,11 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx' } = 
   // A look of its own for the tenant's option group (options.group_looks).
   if (kioskDesign && vg) {
     await step('kiosk design group look', () => put(`/api/pos/kiosk-designs/${kioskDesign.id}`, {
-      name: mark + ' Kiosk', settings: { options: { group_looks: [{ group_id: vg.id, tiles: 'hexagon', entrance: 'deal' }] } },
+      name: mark + ' Kiosk', settings: {
+        options: { group_looks: [{ group_id: vg.id, tiles: 'hexagon', entrance: 'deal' }] },
+        // The order done screen of the tenant's own order type (done.types, migration 209's change).
+        ...(orderType ? { done: { receipt_qr: true, types: [{ order_type_id: orderType.id, main: 'name', lines: ['number'], message: mark + ' collect at the window' }] } } : {}),
+      },
     }))
   }
   // Print designs (migration 190): a kitchen ticket design used at Ware with its own words.
