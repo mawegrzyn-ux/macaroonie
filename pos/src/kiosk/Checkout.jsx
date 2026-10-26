@@ -21,6 +21,7 @@ import { priceLabel } from './Builder.jsx'
 import { flyToBasket } from './fly.js'
 import { useJourneyState } from './journey.js'
 import { typeLabelOf } from './Start.jsx'
+import { LoyaltyBlock } from './Loyalty.jsx'
 
 // ── Where the order goes next ───────────────────────────────────
 
@@ -174,10 +175,12 @@ export function Basket() {
         })}
         {error && <div className="k-card p-[.8em] flex gap-[.6em] items-center"><AlertTriangle /> {error}</div>}
         {portrait && upsellBlock && <div className="mt-[var(--k-gap)]">{upsellBlock}</div>}
+        {portrait && config.loyalty && s.basket.length > 0 && <div className="mt-[var(--k-gap)]"><LoyaltyBlock /></div>}
         {portrait && totalsBlock && <div className="mt-[var(--k-gap)]">{totalsBlock}</div>}
       </div>
       {!portrait && (totalsBlock || upsellBlock) && (
         <aside className="w-[38%] max-w-[560px] shrink-0 k-scroll p-[var(--k-pad)] flex flex-col gap-[var(--k-pad)] bg-[var(--k-surface)] border-l-2 border-[var(--k-line)]">
+          {config.loyalty && s.basket.length > 0 && <LoyaltyBlock />}
           {totalsBlock}
           {upsellBlock}
         </aside>

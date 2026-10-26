@@ -35,6 +35,7 @@ import { loadKitchenConfig, activeFlowSetting } from './kitchenSvc.js'
 import { ensureTaxDefaults, loadTaxRates, loadOrderTypes, loadStreams, taxForVenue } from './taxSvc.js'
 import { printLayouts } from './printDesignSvc.js'
 import { hubRelease } from './hubRelease.js'
+import { deviceLoyalty } from './loyaltySvc.js'
 
 export const DEFAULT_COURSES = [
   { name: 'Drinks', short_name: 'DR', hold_by_default: false },
@@ -313,6 +314,8 @@ export async function tillConfig(tx, tenantId, venueId) {
     // A kiosk's orders name the kiosk as their server (shared/kiosk.js), so
     // the till shows its name from here.
     devices: devices.map(d => ({ id: d.id, name: d.name, kind: d.kind, short_code: d.short_code, settings: d.settings || {} })),
+    // Loyalty on this venue's tills (migration 211): null = off.
+    loyalty: await deviceLoyalty(tx, tenantId, venueId, 'till'),
   }
   config.version = sha256(JSON.stringify(config)).slice(0, 16)
   return config
@@ -396,12 +399,12 @@ async function saveCheck(tx, tenantId, venueId, c, seq) {
   await tx`
     INSERT INTO pos_checks (id, tenant_id, venue_id, day_id, number, order_no, mode, table_id, tab_name, covers,
                             server_id, revenue_stream_id, order_type_id, tent, status, opened_at, closed_at,
-                            subtotal, discount, service_charge, total, vat, paid, tips, refunded, state, last_seq, updated_at)
+                            subtotal, discount, service_charge, total, vat, paid, tips, refunded, state, last_seq, loyalty_member_id, updated_at)
     VALUES (${c.id}, ${tenantId}, ${venueId}, ${c.day_id}, ${c.number}, ${c.order_no}, ${c.mode}, ${c.table_id}, ${c.tab_name},
             ${c.covers}, ${c.server_id}, ${c.revenue_stream_id ?? null}, ${c.order_type_id ?? null}, ${c.tent ?? null},
             ${c.status}, ${c.opened_at}, ${c.closed_at},
             ${t.subtotal}, ${t.discount}, ${t.service_charge}, ${t.total}, ${t.vat_total}, ${t.paid}, ${t.tips}, ${t.refunded},
-            ${tx.json(c)}, ${seq}, now())
+            ${tx.json(c)}, ${seq}, ${c.loyalty?.member_id ?? null}, now())
     ON CONFLICT (id) DO UPDATE SET
       number = EXCLUDED.number, order_no = EXCLUDED.order_no, mode = EXCLUDED.mode, table_id = EXCLUDED.table_id,
       tab_name = EXCLUDED.tab_name, covers = EXCLUDED.covers, server_id = EXCLUDED.server_id,
@@ -409,7 +412,7 @@ async function saveCheck(tx, tenantId, venueId, c, seq) {
       status = EXCLUDED.status, closed_at = EXCLUDED.closed_at,
       subtotal = EXCLUDED.subtotal, discount = EXCLUDED.discount, service_charge = EXCLUDED.service_charge,
       total = EXCLUDED.total, vat = EXCLUDED.vat, paid = EXCLUDED.paid, tips = EXCLUDED.tips, refunded = EXCLUDED.refunded,
-      state = EXCLUDED.state, last_seq = EXCLUDED.last_seq, updated_at = now()
+      state = EXCLUDED.state, last_seq = EXCLUDED.last_seq, loyalty_member_id = EXCLUDED.loyalty_member_id, updated_at = now()
     WHERE pos_checks.tenant_id = ${tenantId}
   `
   await tx`DELETE FROM pos_check_lines WHERE tenant_id = ${tenantId} AND check_id = ${c.id}`
@@ -633,6 +636,25 @@ export function sequencer(tenantId, venueId, { deviceId = null } = {}) {
         UPDATE pos_card_payments
            SET used_event_id = ${e.id}, used_at = now(), check_id = COALESCE(check_id, ${e.check_id ?? null}), updated_at = now()
          WHERE id = ${id} AND tenant_id = ${tenantId} AND venue_id = ${venueId}`
+    },
+    // Loyalty rewards (shared/loyalty.js): reserved by the server, used once.
+    async loadLoyaltyRedemption(id) {
+      if (!/^[0-9a-f-]{36}$/i.test(id || '')) return null
+      const [row] = await tx`
+        SELECT id, venue_id, member_id, status, check_id, used_event_id, discount
+          FROM loyalty_redemptions
+         WHERE id = ${id} AND tenant_id = ${tenantId} AND channel IN ('till', 'kiosk')
+         FOR UPDATE`
+      return row || null
+    },
+    async useLoyaltyRedemption(id, e) {
+      await tx`
+        UPDATE loyalty_redemptions
+           SET status = 'used', used_event_id = ${e.id}, used_at = now(), check_id = COALESCE(check_id, ${e.check_id ?? null}), updated_at = now()
+         WHERE id = ${id} AND tenant_id = ${tenantId}`
+      await tx`
+        UPDATE loyalty_member_rewards SET status = 'used', used_at = now(), updated_at = now()
+         WHERE tenant_id = ${tenantId} AND id = (SELECT member_reward_id FROM loyalty_redemptions WHERE id = ${id} AND tenant_id = ${tenantId})`
     },
     async saveRejection(e, error, code) {
       await tx`

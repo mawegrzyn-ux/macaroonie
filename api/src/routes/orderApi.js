@@ -6,7 +6,7 @@
 // open so the ordering page works on custom domains too.
 //
 //   GET  /pricing.js                                shared/orderPricing.js for the ordering page
-//   GET  /promotions.js, /menuSchedule.js           the shared files pricing.js imports
+//   GET  /promotions.js, /menuSchedule.js, /loyalty.js  the shared files pricing.js imports
 //   POST /venues/:venueId/promo-code                check a promo code (migration 131)
 //   GET  /venues/:venueId                           menu, settings, dates, payment methods
 //   GET  /venues/:venueId/slots?date=YYYY-MM-DD     collection times for a day
@@ -33,12 +33,14 @@ import {
 import { priceBasket } from '../../../shared/orderPricing.js'
 import { venuePromotions, publicPromotion, findByCode } from '../services/promoSvc.js'
 import { loadAllergenNotice } from './menus.js'
+import { sessionMember, onlineRewardPicks, ensureProgramme, deviceLoyalty, tenantSite } from '../services/loyaltySvc.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // shared/orderPricing.js imports ./promotions.js, which imports
 // ./menuSchedule.js: all three are served side by side under /order-api,
-// with ./menuTags.js (the allergen notice's key, migration 147).
-const SHARED_JS = Object.fromEntries(['orderPricing', 'promotions', 'menuSchedule', 'menuTags', 'combos'].map(n =>
+// with ./menuTags.js (the allergen notice's key, migration 147) and
+// ./loyalty.js (loyalty rewards in the basket, migration 211).
+const SHARED_JS = Object.fromEntries(['orderPricing', 'promotions', 'menuSchedule', 'menuTags', 'combos', 'loyalty'].map(n =>
   [n, readFileSync(path.join(__dirname, '../../../shared/' + n + '.js'), 'utf8')]))
 
 const uuid = z.string().uuid()
@@ -60,6 +62,13 @@ const LineBody = z.object({
 const PromoFields = {
   promo_codes: z.array(z.string().trim().min(1).max(40)).max(5).default([]),
   promo_ids:   z.array(uuid).max(20).default([]),
+  // Loyalty (migration 211): the guest's loyalty sign-in and the rewards
+  // they picked (held ones by member_reward_id, points ones by reward_id).
+  loyalty: z.object({
+    session: z.string().max(80),
+    rewards: z.array(z.object({ reward_id: uuid.optional(), member_reward_id: uuid.optional() })
+      .refine(r => !!r.reward_id !== !!r.member_reward_id, 'Name one reward')).max(5).default([]),
+  }).nullable().optional(),
 }
 
 const QuoteBody = z.object({
@@ -133,15 +142,18 @@ export default async function orderApiRoutes(app) {
   app.get('/menuSchedule.js', serveJs('menuSchedule'))
   app.get('/menuTags.js', serveJs('menuTags'))
   app.get('/combos.js', serveJs('combos'))
+  app.get('/loyalty.js', serveJs('loyalty'))
 
   app.get('/venues/:venueId', async (req) => {
     const { venue, settings } = await requireOrderingVenue(req.params.venueId)
     const today = localParts(new Date(), venue.timezone).date
-    const [menu, privacy, promos, allergenNotice] = await withTenant(venue.tenant_id, async tx => [
+    const [menu, privacy, promos, allergenNotice, loyalty, site] = await withTenant(venue.tenant_id, async tx => [
       await loadOrderingMenu(tx, venue, settings, { dates: orderingDates(venue, settings), now: new Date() }),
       await loadPrivacy(tx, venue.tenant_id),
       await venuePromotions(tx, venue, today),
       await loadAllergenNotice(tx, venue.tenant_id),
+      await deviceLoyalty(tx, venue.tenant_id, venue.id, 'online'),
+      await tenantSite(tx, venue.tenant_id),
     ])
     const gateways = checkoutGateways(settings, { venue })
     return {
@@ -173,6 +185,13 @@ export default async function orderApiRoutes(app) {
       // guest through /promo-code, once they have typed its code.
       promotions: promos.filter(p => p.apply_mode !== 'code').map(p => publicPromotion(p)),
       has_promo_codes: promos.some(p => p.apply_mode === 'code'),
+      // Loyalty (migration 211): earning and spending on online orders here;
+      // the guest signs in through /loyalty-api/t/<slug> (the web app's sign-in).
+      loyalty: loyalty && site?.slug ? {
+        slug: site.slug, name: loyalty.name, points: loyalty.points, points_label: loyalty.points_label,
+        per_pound: loyalty.per_pound, min_spend_pence: loyalty.min_spend_pence, earn: loyalty.earn, redeem: loyalty.redeem,
+        terms_text: loyalty.signup.terms_text, marketing_text: loyalty.signup.marketing_text, ask_phone: loyalty.signup.ask_phone,
+      } : null,
     }
   })
 
@@ -215,10 +234,24 @@ export default async function orderApiRoutes(app) {
     ])
     const tip = settings.tips_enabled && settings.tip_percents.includes(body.tip_percent) ? body.tip_percent : 0
     const unlocked = body.promo_codes.map(c => findByCode(promos, c)?.id).filter(Boolean)
+    // Loyalty rewards the guest picked: checked, priced, not taken out yet.
+    let rewards = []
+    let loyaltyError = null
+    if (body.loyalty?.session) {
+      const member = await sessionMember(venue.tenant_id, body.loyalty.session)
+      if (!member) loyaltyError = { code: 'loyalty_signed_out', error: 'Sign in to your loyalty card again' }
+      else {
+        try {
+          const picks = await withTenant(venue.tenant_id, async tx =>
+            onlineRewardPicks(tx, member, await ensureProgramme(tx, venue.tenant_id), venue.id, body.loyalty.rewards))
+          rewards = picks.map(p => ({ ...p.reward, id: p.want.member_reward_id || p.want.reward_id }))
+        } catch (err) { loyaltyError = { code: 'reward_invalid', error: err.message } }
+      }
+    }
     const q = priceBasket(menu.itemsById, body.lines, {
-      tipPercent: tip, promos, promoCtx: { at, venueId: venue.id, unlocked, chosen: body.promo_ids }, combos: basketCombos(menu),
+      tipPercent: tip, promos, promoCtx: { at, venueId: venue.id, unlocked, chosen: body.promo_ids }, combos: basketCombos(menu), rewards,
     })
-    return { ...q, min_order_pence: settings.min_order_pence }
+    return { ...q, min_order_pence: settings.min_order_pence, loyalty_error: loyaltyError }
   })
 
   app.post('/venues/:venueId/orders', async (req, reply) => {

@@ -13,7 +13,7 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { useApi } from '@/lib/api'
-import { ImageIcon, Clock, MapPin, Phone, BookOpen, AlertTriangle, Loader2, Calendar, ShoppingBag, BadgePercent } from 'lucide-react'
+import { ImageIcon, Clock, MapPin, Phone, BookOpen, AlertTriangle, Loader2, Calendar, ShoppingBag, BadgePercent, Star } from 'lucide-react'
 import { promoSummary, promoTerms, promoLink, promoRunning } from '@shared/promotions.js'
 import { isRemovable, menuTags, allergenKey } from '@shared/menuTags.js'
 import { comboMenuPrice } from '@shared/orderPricing.js'
@@ -21,6 +21,7 @@ import { useBlockAvailability } from './BlockInserter'
 import { InlineText } from './InlineText'
 import { innerContainerStyle } from '../boxedLayout'
 import { inkOn } from '@/components/ColourPicker'
+import { useLoyaltyTeaser, teaserText } from '../editors/LoyaltyCtaEditor'
 
 // ── Shared helpers ────────────────────────────────────────
 
@@ -736,6 +737,65 @@ export function PromoCtaCanvas({ data, onChange }) {
           Hidden on the live site: this promotion is switched off, outside its dates or used up.
         </div>
       )}
+      <div style={card ? wrap : undefined}>
+        <div style={{ ...box, textAlign: 'center' }}>
+          <div style={card ? undefined : wrap}>{inner}</div>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+// ── Loyalty (migration 211) ──────────────────────────────
+// Mirrors blocks/loyalty_cta.eta. The live site shows nothing while loyalty
+// or its web app is off; here a note says so.
+
+export function LoyaltyCtaCanvas({ data, onChange }) {
+  const { data: res, isLoading } = useLoyaltyTeaser()
+  const t = res?.teaser || null
+  const set = (k) => (v) => onChange({ ...data, [k]: v })
+  if (!t) {
+    return (
+      <section className="block" style={{ padding: '32px 0' }} data-testid="loyalty-cta-canvas">
+        <EmptyPanel Icon={isLoading ? Loader2 : Star} title="Loyalty"
+          hint={isLoading ? 'Loading the programme…' : 'Hidden on the website: switch loyalty and its web app on (Loyalty page, Programme).'} />
+      </section>
+    )
+  }
+  const lightBg = ['background', 'surface', 'border'].includes(data.bg) || (/^#[0-9a-fA-F]{6}$/.test(data.bg || '') && inkOn(data.bg) === '#000000')
+  const bg = promoColour(data.bg || 'primary', 'var(--c-primary)')
+  const fg = promoColour(data.fg, lightBg ? 'var(--c-text)' : '#fff')
+  const card = data.style === 'card'
+  const wrap = { ...innerContainerStyle(data.container, data.boxed_step), maxWidth: data.container === 'full' ? 'none' : (data.container === 'wide' ? 1100 : 780) }
+  const text = (data.text || '').trim() || teaserText(t)
+  const rewards = data.show_rewards !== false ? t.rewards.slice(0, 3) : []
+  const box = card
+    ? { background: bg, color: fg, borderRadius: 'var(--r-lg, 12px)', padding: '32px 24px' }
+    : { background: bg, color: fg, padding: '40px 24px' }
+  const inner = (
+    <>
+      <div style={{ fontSize: '.8rem', fontWeight: 700, letterSpacing: '.12em', textTransform: 'uppercase', opacity: 0.85, marginBottom: 8 }}>{t.name}</div>
+      <InlineText as="h2" value={data.heading} onChange={set('heading')} placeholder={'Join ' + t.name}
+        style={{ fontFamily: 'var(--f-heading)', fontSize: 'clamp(1.6rem, 4vw, 2.4rem)', margin: '0 0 10px', color: 'inherit' }} />
+      {text && <p style={{ fontSize: '1.1rem', margin: '0 0 16px', opacity: 0.95 }}>{text}</p>}
+      {rewards.length > 0 && (
+        <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 20px', display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'center' }}>
+          {rewards.map(r => (
+            <li key={r.id} style={{ border: '1px solid currentColor', borderRadius: 999, padding: '6px 14px', fontSize: '.95rem' }}>
+              <strong>{r.name}</strong> · {r.points_cost} {t.points ? t.points.label : 'points'}
+            </li>
+          ))}
+        </ul>
+      )}
+      <div>
+        <span title={t.link} style={{ display: 'inline-block', minHeight: 48, lineHeight: '48px', padding: '0 32px', borderRadius: 'var(--btn-radius, 999px)', background: fg, color: bg, fontWeight: 700 }}>
+          {(data.button_text || '').trim() || 'Join or sign in'}
+        </span>
+      </div>
+    </>
+  )
+  return (
+    <section className="block" style={{ padding: card ? '40px 0' : 0 }} data-testid="loyalty-cta-canvas">
       <div style={card ? wrap : undefined}>
         <div style={{ ...box, textAlign: 'center' }}>
           <div style={card ? undefined : wrap}>{inner}</div>

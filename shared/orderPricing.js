@@ -12,6 +12,7 @@
 // ./promotions.js, served next to this file as /order-api/promotions.js.
 //
 import { applyPromotions } from './promotions.js'
+import { rewardDiscount } from './loyalty.js'
 import { isCombo, priceCombo, comboFromPrice, findAutoCombos, autoMatchable, menuCtx, dealChoices, withDealPicks } from './combos.js'
 
 // A dish's choices come from its ad-hoc variants (one required choice) and
@@ -243,7 +244,10 @@ export function tipFor(subtotalPence, percent) {
 // discount_pence is what combos and promotions take off, VAT is on what is
 // paid per line, the tip is a % of the discounted subtotal,
 // total = subtotal - discount + tip.
-export function priceBasket(itemsById, lines, { tipPercent = 0, promos = null, promoCtx = {}, combos = null } = {}) {
+// rewards: loyalty rewards the guest spends (shared/loyalty.js normaliseReward
+// plus their redemption `id`), taken off last, on what combos and promotions
+// left; a reward that can't apply is an error (code 'reward').
+export function priceBasket(itemsById, lines, { tipPercent = 0, promos = null, promoCtx = {}, combos = null, rewards = null } = {}) {
   const out = []
   const outPicks = []   // each priced line's picks ({ groupKey: [optionId] }), for automatic combos
   const errors = []
@@ -303,10 +307,24 @@ export function priceBasket(itemsById, lines, { tipPercent = 0, promos = null, p
     promo = applyPromotions(out.map((l, i) => ({ ...l, line_total_pence: l.line_total_pence - comboOff[i] })), promos, promoCtx)
     discount += promo.discount_pence
   }
+  const rewardOff = out.map(() => 0)
+  const rewardList = []
+  for (const r of rewards || []) {
+    if (!out.length) break
+    const left = out.map((l, i) => ({
+      item_id: l.item_id, section_id: l.section_id, qty: l.qty,
+      left_pence: l.line_total_pence - comboOff[i] - (promo ? promo.line_discounts[i] || 0 : 0) - rewardOff[i],
+    }))
+    const got = rewardDiscount(r, left)
+    if (!got.ok) { errors.push({ code: 'reward', reward_id: r.id ?? null, error: got.error }); continue }
+    got.lines.forEach((x, i) => { rewardOff[i] += x })
+    discount += got.discount_pence
+    rewardList.push({ id: r.id ?? null, name: r.name, discount_pence: got.discount_pence })
+  }
   if (discount) {
     vat = 0
     out.forEach((l, i) => {
-      l.discount_pence = comboOff[i] + (promo ? promo.line_discounts[i] || 0 : 0)
+      l.discount_pence = comboOff[i] + (promo ? promo.line_discounts[i] || 0 : 0) + rewardOff[i]
       l.vat_pence = vatIncluded(l.line_total_pence - l.discount_pence, l.vat_rate)
       vat += l.vat_pence
     })
@@ -319,6 +337,7 @@ export function priceBasket(itemsById, lines, { tipPercent = 0, promos = null, p
     lines: out, errors, subtotal_pence: subtotal, discount_pence: discount, vat_pence: vat, tip_pence: tip, total_pence: net + tip,
     combos: comboList, combo_discount_pence: comboTotal,
     promotions: promo ? promo.applied : [], promo_offers: promo ? promo.offers : [], promo_notices: promo ? promo.notices : [],
+    rewards: rewardList,
   }
 }
 

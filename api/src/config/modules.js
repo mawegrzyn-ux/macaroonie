@@ -185,6 +185,20 @@ export const MODULES = [
     default: { owner: 'manage', admin: 'manage', operator: 'view', viewer: 'none' },
   },
   {
+    key:    'loyalty',
+    label:  'Loyalty',
+    group:  'loyalty',
+    description: 'The loyalty programme: points, stamp cards, rewards, where they earn and redeem, the web app and wallet cards.',
+    default: { owner: 'manage', admin: 'manage', operator: 'view', viewer: 'none' },
+  },
+  {
+    key:    'loyalty_members',
+    label:  'Loyalty members',
+    group:  'loyalty',
+    description: 'The members list (names, emails, points, history): look up, edit, adjust points, give rewards, export and erase.',
+    default: { owner: 'manage', admin: 'manage', operator: 'view', viewer: 'none' },
+  },
+  {
     key:    'ai_assistant',
     label:  'Pepper (AI assistant)',
     group:  'pepper',
@@ -401,6 +415,12 @@ export const MODULE_GROUPS = [
     label:  'Online ordering',
     description: 'Collection orders from the website, with payment through a payment gateway or at the counter.',
     moduleKeys: ['web_orders', 'web_ordering_setup', 'promotions'],
+  },
+  {
+    key:    'loyalty',
+    label:  'Loyalty',
+    description: 'Points, stamp cards and rewards on the tills, kiosks and online ordering, a loyalty web app and wallet cards.',
+    moduleKeys: ['loyalty', 'loyalty_members'],
   },
   {
     key:    'pepper',

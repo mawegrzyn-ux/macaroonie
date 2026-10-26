@@ -496,10 +496,19 @@ async function addEvent(tx, order, type, { from = null, to = null, detail = {}, 
 // ── Notifications (after commit) ──────────────────────────────
 
 function notify(order, type) {
+  settleLoyalty(order)
   broadcast(order.venue_id, {
     type: type === 'created' ? 'order.created' : 'order.updated',
     data: { id: order.id, status: order.status, order_number: order.order_number, payment_status: order.payment_status },
   })
+}
+
+// Loyalty (migration 211, services/loyaltySvc.js): an order with a member or
+// a reward on it is settled after every change (points, stamps, rewards
+// used or put back). Best effort; the minute sweep catches anything missed.
+function settleLoyalty(order) {
+  if (!order?.id || !order.tenant_id) return
+  import('./loyaltySvc.js').then(m => m.settleOrder(order.tenant_id, order.id)).catch(() => {})
 }
 
 function queueEmail(order, type) {
@@ -582,6 +591,11 @@ export async function loadPrivacy(tx, tenantId) {
 export async function createOrder({ venue, body, gatewayCtx = {} }) {
   const tz = venue.timezone
   const now = new Date()
+  // A guest signed in to loyalty (the ordering page's loyalty box): their
+  // order earns, and may spend rewards (loyaltySvc.js; migration 211).
+  const loyalty = body.loyalty?.session ? await import('./loyaltySvc.js') : null
+  const loyaltyMember = loyalty ? await loyalty.sessionMember(venue.tenant_id, body.loyalty.session) : null
+  if (loyalty && !loyaltyMember) throw CreateError(401, 'Sign in to your loyalty card again', { code: 'loyalty_signed_out' })
 
   const created = await withTenant(venue.tenant_id, async tx => {
     const settings = await loadSettings(tx, venue.id)
@@ -633,7 +647,24 @@ export async function createOrder({ venue, body, gatewayCtx = {} }) {
       unlocked.push(p.id)
     }
     const promoCtx = { at: nowParts, venueId: venue.id, unlocked, chosen: body.promo_ids || [] }
-    const priced = priceBasket(itemsById, body.lines, { tipPercent, promos, promoCtx, combos: basketCombos(orderingMenu) })
+    // Loyalty rewards: taken out now (points off, held rewards reserved);
+    // the whole order rolls back if anything below refuses it.
+    let reserved = []
+    let programme = null
+    if (loyaltyMember) {
+      programme = await loyalty.ensureProgramme(tx, venue.tenant_id)
+      const picks = await loyalty.onlineRewardPicks(tx, loyaltyMember, programme, venue.id, body.loyalty.rewards || [])
+      for (const p of picks) {
+        const member = await loyalty.loadMember(tx, venue.tenant_id, loyaltyMember.id, { lock: true })
+        reserved.push(await loyalty.reserveReward(tx, { member, programme, want: p.want, where: { channel: 'online', venue_id: venue.id } }))
+      }
+    }
+    const priced = priceBasket(itemsById, body.lines, {
+      tipPercent, promos, promoCtx, combos: basketCombos(orderingMenu),
+      rewards: reserved.map(r => ({ ...r.reward, id: r.redemption.id })),
+    })
+    const rewardErr = priced.errors.find(e => e.code === 'reward')
+    if (rewardErr) throw CreateError(422, rewardErr.error, { code: 'reward_invalid' })
     if (priced.errors.length) throw CreateError(422, priced.errors[0].error, { code: 'basket_invalid', errors: priced.errors })
     if (!priced.lines.length) throw CreateError(422, 'Your basket is empty')
     // The minimum order is on the dishes' full price, before promotions.
@@ -710,6 +741,15 @@ export async function createOrder({ venue, body, gatewayCtx = {} }) {
         INSERT INTO order_promotions (order_id, tenant_id, promotion_id, combo_item_id, name, code, discount_pence)
         VALUES (${order.id}, ${venue.tenant_id}, NULL, ${c.combo_id}, ${c.name}, NULL, ${c.discount_pence})
       `
+    }
+    if (loyaltyMember) {
+      // What it earns is decided when it is settled (channel and venue switches).
+      await tx`UPDATE orders SET loyalty_member_id = ${loyaltyMember.id} WHERE id = ${order.id} AND tenant_id = ${venue.tenant_id}`
+      for (const r of reserved) {
+        const off = (priced.rewards || []).find(x => x.id === r.redemption.id)?.discount_pence ?? null
+        await tx`UPDATE loyalty_redemptions SET order_id = ${order.id}, discount_pence = ${off}, expires_at = now() + interval '1 day'
+                  WHERE id = ${r.redemption.id} AND tenant_id = ${venue.tenant_id}`
+      }
     }
     await addEvent(tx, order, 'status', { to: 'pending_payment', actor: 'guest', detail: { channel: 'web' } })
     return { order, settings, gateway }

@@ -32,6 +32,7 @@ import { ulid } from './pos/ids.js'
 import { configItem, dealItem, comboCtx, checkOffers } from './pos/offers.js'
 import { UI_TEXT, ALLERGEN_NAMES } from './kioskText.js'
 import { contrast } from './themeKit.js'
+import { tillDiscount } from './loyalty.js'
 
 export { UI_TEXT, ALLERGEN_NAMES }
 
@@ -1231,14 +1232,16 @@ export function kioskLine(config, entry, check, id, ctx = null) {
  *                  guest's name (tab_name) and table number (tent)
  *   line.added     one per basket entry
  *   promotions.set when automatic combos or promotions apply
+ *   check.member_set + discount.applied per reward, with a loyalty card (opts.loyalty)
  *   then for a card payment: payment.added (the whole total: card_integrated
  *   naming its card machine attempt when payment.card_payment_id is given,
  *   migration 193; else card_external, the preview's pretend reader),
  *   lines.sent, check.closed; for pay at the counter: lines.sent only when
  *   the design sends counter orders straight away (send).
  * opts: { device, checkId, newId(), at, order_type_id, name, tent,
- *         provisional_no, payment: { id?, card_payment_id?, ref, label } | null, send, receipt }
- * Returns { ok, events, check, totals } or { ok: false, error, index }.
+ *         provisional_no, payment: { id?, card_payment_id?, ref, label } | null, send, receipt,
+ *         loyalty: { member, rewards: [{ redemption_id, reward }] } | null }
+ * Returns { ok, events, check, totals, skipped } or { ok: false, error, index }.
  */
 export function kioskOrder(config, basket, opts) {
   const { device, checkId, newId, at = new Date().toISOString() } = opts
@@ -1270,6 +1273,23 @@ export function kioskOrder(config, basket, opts) {
     state = run()
     if (state.error) return { ok: false, error: state.error }
   }
+  // Loyalty (migration 211): the guest's card on the order and the rewards the
+  // server took out for it (opts.loyalty { member: { id, no, name }, rewards:
+  // [{ redemption_id, reward }] }). A reward that no longer fits the basket is
+  // left off (skipped) and goes back to the guest when the order closes.
+  const skipped = []
+  if (opts.loyalty?.member?.id) {
+    events.push(ev('check.member_set', { member: opts.loyalty.member }))
+    state = run()
+    if (state.error) return { ok: false, error: state.error }
+    for (const x of opts.loyalty.rewards || []) {
+      const d = tillDiscount(x.reward, state.check, checkTotals(state.check))
+      if (!d.ok) { skipped.push({ redemption_id: x.redemption_id, error: d.error }); continue }
+      events.push(ev('discount.applied', { discount: { id: newId(), ...d.discount, loyalty_redemption_id: x.redemption_id } }))
+      state = run()
+      if (state.error) return { ok: false, error: state.error }
+    }
+  }
   const totals = checkTotals(state.check)
   const sendAll = () => events.push(ev('lines.sent', { send_id: newId(), line_ids: state.check.lines.map(l => l.id), held_course_ids: [] }))
   if (opts.payment) {
@@ -1288,13 +1308,13 @@ export function kioskOrder(config, basket, opts) {
   }
   state = run()
   if (state.error) return { ok: false, error: state.error }
-  return { ok: true, events, check: state.check, totals: checkTotals(state.check) }
+  return { ok: true, events, check: state.check, totals: checkTotals(state.check), skipped }
 }
 
 /** The order a basket would make now, for showing its total and offers (no events kept). */
-export function basketCheck(config, basket, { device, order_type_id }) {
+export function basketCheck(config, basket, { device, order_type_id, loyalty = null }) {
   return kioskOrder(config, basket, {
     device: device || { id: '00000000-0000-4000-8000-000000000000' },
-    checkId: ulid(), newId: () => ulid(), order_type_id,
+    checkId: ulid(), newId: () => ulid(), order_type_id, loyalty,
   })
 }

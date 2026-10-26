@@ -23,7 +23,7 @@ import { fillTenant, MARK } from './support/fixtures.mjs'
 const PUBLIC = [
   /^\/widget-api\//, /^\/order-api\//, /^\/ai-api\//, /^\/screen-api\//, /^\/pos-api\//, /^\/webhooks\//,
   /^\/mcp/, /^\/\.well-known\//, /^\/manage\//, /^\/reservations\//, /^\/locations\//, /^\/p\//, /^\/order\//,
-  /^\/_staging\//, /^\/uploads\//, /^\/lib\//, /^\/api\/site\//,
+  /^\/_staging\//, /^\/uploads\//, /^\/lib\//, /^\/api\/site\//, /^\/loyalty-api\//,
   /^\/api\/menus\/public\//, /^\/api\/menus\/:id\/print$/, /^\/api\/menus\/preview\//,
 ]
 // Changes another tenant may make on purpose, with why.

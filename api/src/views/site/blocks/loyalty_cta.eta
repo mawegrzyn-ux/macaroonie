@@ -1,0 +1,70 @@
+<%
+/* ── loyalty_cta block (migration 211) ────────────────────────────────
+ *
+ * Promotes the tenant's loyalty programme with a button to its web app
+ * (/loyalty). The words come from it.site_loyalty (siteRenderer.js,
+ * services/loyaltySvc.js loyaltyTeaser()), live data, so the block shows
+ * nothing while loyalty or its web app is switched off.
+ *
+ * Data: heading, text (blank = how points are earned), show_rewards,
+ *       button_text, style ('banner' | 'card'), bg / fg (theme role names
+ *       or #rrggbb), container, boxed_step.
+ * The admin canvas preview (canvas/dataBlocks.jsx LoyaltyCtaCanvas)
+ * mirrors this markup; keep the two in step.
+ */
+const d = it.block.data || {}
+const _l = it.site_loyalty || null
+const _ROLE = { primary: '--c-primary', accent: '--c-accent', background: '--c-bg', surface: '--c-surface', text: '--c-text', muted: '--c-muted', border: '--c-border' }
+const _col = function (v, dflt) {
+  if (v && /^#[0-9a-fA-F]{6}$/.test(v)) return v
+  return _ROLE[v] ? 'var(' + _ROLE[v] + ')' : dflt
+}
+/* Dark text on a light background: a light theme role, or a light custom colour. */
+const _lightHex = function (v) {
+  if (!v || !/^#[0-9a-fA-F]{6}$/.test(v)) return false
+  const n = parseInt(v.slice(1), 16)
+  return (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255 > 0.6
+}
+const _lightBg = d.bg === 'background' || d.bg === 'surface' || d.bg === 'border' || _lightHex(d.bg)
+const _bg = _col(d.bg || 'primary', 'var(--c-primary)')
+const _fg = _col(d.fg, _lightBg ? 'var(--c-text)' : '#fff')
+const _isCard = d.style === 'card'
+const _innerMax = d.container === 'full' ? 'none' : d.container === 'wide' ? '1100px' : '780px'
+const _pad = d.boxed_step ? ('var(--boxed-step-' + Number(d.boxed_step) + ')') : 'var(--boxed-pad, 24px)'
+const _wrap = d.container === 'full'
+  ? 'width:100%; padding:0 ' + _pad + ';'
+  : 'max-width:' + _innerMax + '; margin:0 auto; padding:0 ' + _pad + ';'
+const _p = _l && _l.points
+const _howPoints = _l ? (_l.how || '') : ''
+const _howStamps = _l ? _l.stamp_cards.map(function (c) { return c.name + ': ' + c.stamps_needed + ' stamps fill a card.' }).join(' ') : ''
+const _heading = _l ? (String(d.heading || '').trim() || ('Join ' + _l.name)) : ''
+const _text = _l ? (String(d.text || '').trim() || [_howPoints, _howStamps].filter(Boolean).join(' ')) : ''
+const _rewards = _l && d.show_rewards !== false ? _l.rewards.slice(0, 3) : []
+const _btnText = String(d.button_text || '').trim() || 'Join or sign in'
+const _boxStyle = _isCard
+  ? 'background:' + _bg + '; color:' + _fg + '; border-radius:var(--r-lg, 12px); padding:32px 24px;'
+  : 'background:' + _bg + '; color:' + _fg + '; padding:40px 24px;'
+%>
+<% if (_l) { %>
+<section class="block block-loyalty-cta" data-loyalty-cta style="padding:<%= _isCard ? '40px 0' : '0' %>;">
+  <div style="<%= _isCard ? _wrap : '' %>">
+    <div style="<%~ _boxStyle %> text-align:center;">
+      <div style="<%= _isCard ? '' : _wrap %>">
+        <div style="font-size:.8rem; font-weight:700; letter-spacing:.12em; text-transform:uppercase; opacity:.85; margin-bottom:8px;"><%= _l.name %></div>
+        <h2 style="font-family:var(--f-heading); font-size:clamp(1.6rem, 4vw, 2.4rem); margin:0 0 10px; color:inherit;"><%= _heading %></h2>
+        <% if (_text) { %><p style="font-size:1.1rem; margin:0 0 16px; opacity:.95;"><%= _text %></p><% } %>
+        <% if (_rewards.length) { %>
+          <ul data-loyalty-rewards style="list-style:none; padding:0; margin:0 0 20px; display:flex; flex-wrap:wrap; gap:8px; justify-content:center;">
+            <% _rewards.forEach(function (r) { %>
+              <li style="border:1px solid currentColor; border-radius:999px; padding:6px 14px; font-size:.95rem;"><strong><%= r.name %></strong> · <%= r.points_cost %> <%= _p ? _p.label : 'points' %></li>
+            <% }) %>
+          </ul>
+        <% } %>
+        <div>
+          <a href="<%= _l.link %>" data-loyalty-join style="display:inline-block; min-height:48px; line-height:48px; padding:0 32px; border-radius:var(--btn-radius, 999px); background:<%~ _fg %>; color:<%~ _bg %>; font-weight:700; text-decoration:none;"><%= _btnText %></a>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+<% } %>

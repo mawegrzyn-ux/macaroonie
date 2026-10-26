@@ -52,12 +52,18 @@
 //   useCardPayment(id, event)      the attempt is now on a check (used once)
 // A store without them (the venue hub, offline) refuses such events: card
 // machines need the internet anyway.
+// Loyalty rewards (shared/loyalty.js, migration 211): a discount.applied
+// that spends a reward names the redemption the server reserved;
+//   loadLoyaltyRedemption(id)      -> the redemption (loyalty_redemptions row) | null
+//   useLoyaltyRedemption(id, event) the redemption is now on a check (used once)
+// Without them the event is refused the same way.
 
 import { applyEvent, checksTouched, eventProblem, CHECK_EVENTS } from './checks.js'
 import { permissionProblem } from './permissions.js'
 import { jobsForEvent } from './printing.js'
 import { businessDate } from './reports.js'
 import { cardNeed, cardProblem } from './cards.js'
+import { loyaltyNeed, loyaltyProblem } from '../loyalty.js'
 import {
   KITCHEN_EVENTS, applyKitchenEvent, kitchenEventProblem, kitchenOrdersTouched,
   kitchenForCheckEvent, kitchenOrdersForCheckEvent, PACE_MINUTES,
@@ -129,6 +135,7 @@ export function createSequencer(store) {
       let kcfg = ctx.kitchen
       let kitchenJobs = null
       let card = null
+      let reward = null
       if (event.type === 'kitchen.print_due') {
         // Nothing to bump or change: only what a printer is waiting for.
         if (!hasPrinters(ctx.kitchen) || !store.loadOpenKitchenOrders) return { ok: true, nothing: true, checks: {}, jobs: [] }
@@ -151,6 +158,12 @@ export function createSequencer(store) {
           if (!store.loadCardPayment) return refuse('Card machine payments need the internet', 'card')
           const why = cardProblem(stored, card, await store.loadCardPayment(card.id))
           if (why) return refuse(why, 'card')
+        }
+        reward = loyaltyNeed(stored, before)
+        if (reward) {
+          if (!store.loadLoyaltyRedemption) return refuse('Loyalty rewards need the internet', 'loyalty')
+          const why = loyaltyProblem(stored, reward, await store.loadLoyaltyRedemption(reward.id))
+          if (why) return refuse(why, 'loyalty')
         }
         const r = applyEvent(before, stored, ctx)
         if (!r.ok) return refuse(r.error, r.code)
@@ -180,6 +193,7 @@ export function createSequencer(store) {
       await store.saveEvent(stored)
       if (Object.keys(changed).length) await store.saveChecks(changed, stored)
       if (card) await store.useCardPayment(card.id, stored)
+      if (reward) await store.useLoyaltyRedemption(reward.id, stored)
       if (Object.keys(kitchen).length) await store.saveKitchenOrders(kitchen, stored)
       if (kitchenLog.length) await store.saveKitchenLog(kitchenLog, stored, kitchen)
       if (kcfg?.balance && Object.keys(kcfg.balance.picks).length) await store.saveBalanceTurns(kcfg.balance.picks)

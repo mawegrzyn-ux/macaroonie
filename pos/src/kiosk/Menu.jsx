@@ -12,7 +12,7 @@ import { checkTotals } from '@shared/pos/pricing.js'
 import { configItem, comboCtx } from '@shared/pos/offers.js'
 import { TK, basketCheck, BANNER_RATIOS } from '@shared/kiosk.js'
 import {
-  useKiosk, textsFor, kioskSections, hasHome, openSection, openBuilder, addToBasket, go, restart, setLang, setReach, soldOut, fitOf, countFor,
+  useKiosk, textsFor, kioskSections, hasHome, openSection, openBuilder, addToBasket, go, restart, setLang, setReach, soldOut, fitOf, countFor, loyaltyForOrder,
 } from './store.js'
 import { cx, Pic, Photo, Sheet, Flag, BackButton, HexGrid, HexTile, FitPicture } from './parts.jsx'
 import { priceLabel, DietaryBadges } from './Builder.jsx'
@@ -39,10 +39,10 @@ export function tapItem(item, config, texts, { quick = false, from = null } = {}
 export function useBasketTotals(s) {
   return useMemo(() => {
     if (!s.basket.length) return { count: 0, total: 0, check: null }
-    const r = basketCheck(s.config, s.basket, { device: s.device, order_type_id: s.orderType })
+    const r = basketCheck(s.config, s.basket, { device: s.device, order_type_id: s.orderType, loyalty: loyaltyForOrder(s) })
     const count = s.basket.reduce((n, e) => n + e.qty, 0)
-    return r.ok ? { count, total: r.totals.total, totals: r.totals, check: r.check } : { count, total: 0, error: r.error }
-  }, [s.config, s.basket, s.device, s.orderType])
+    return r.ok ? { count, total: r.totals.total, totals: r.totals, check: r.check, skipped: r.skipped || [] } : { count, total: 0, error: r.error }
+  }, [s.config, s.basket, s.device, s.orderType, s.loyalty])
 }
 
 /** A dish as a hexagon (design.layout.tiles 'hexagon'): photo, name, price; + beside it. */

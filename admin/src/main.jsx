@@ -46,6 +46,7 @@ import Dashboard   from '@/pages/Dashboard'
 import Timeline    from '@/pages/Timeline'
 import Bookings    from '@/pages/Bookings'
 import Customers   from '@/pages/Customers'
+import Loyalty     from '@/pages/Loyalty'
 import Venues      from '@/pages/Venues'
 import Tables      from '@/pages/Tables'
 import Schedule    from '@/pages/Schedule'
@@ -221,6 +222,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 <Route path="timeline" element={<Timeline />} />
                 <Route path="bookings"   element={<Bookings />} />
                 <Route path="customers" element={<Customers />} />
+                <Route path="loyalty" element={<Loyalty />} />
                 <Route path="orders" element={<Orders />} />
                 <Route path="orders/settings" element={<OrderingSettings />} />
                 <Route path="pos" element={<PosSetup />} />

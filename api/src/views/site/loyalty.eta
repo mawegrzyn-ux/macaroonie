@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="robots" content="noindex" />
+  <meta name="theme-color" content="<%= it.colors.primary %>" />
+  <title><%= it.programmeName %> – <%= it.brandName %></title>
+  <link rel="manifest" href="<%= it.base %>/manifest.webmanifest" />
+  <% if (it.faviconUrl) { %><link rel="icon" href="<%= it.faviconUrl %>" /><% } %>
+  <style>
+    :root {
+      --primary: <%= it.colors.primary %>;
+      --on-primary: <%= it.colors.onPrimary %>;
+      --bg: <%= it.colors.bg %>;
+      --surface: <%= it.colors.surface %>;
+      --text: <%= it.colors.text %>;
+      --muted: <%= it.colors.muted %>;
+      --border: <%= it.colors.border %>;
+      --card-bg: <%= it.colors.cardBg %>;
+      --card-text: <%= it.colors.cardText %>;
+      --card-accent: <%= it.colors.cardAccent %>;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; background: var(--bg); color: var(--text); }
+    body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; min-height: 100vh; padding: env(safe-area-inset-top) 16px calc(24px + env(safe-area-inset-bottom)); }
+    .wrap { max-width: 480px; margin: 0 auto; }
+    header { display: flex; align-items: center; gap: 12px; padding: 18px 0 8px; }
+    header img { height: 40px; width: auto; max-width: 140px; object-fit: contain; }
+    header .brand { font-weight: 700; font-size: 17px; }
+    h1 { font-size: 26px; margin: 12px 0 6px; line-height: 1.15; }
+    h2 { font-size: 17px; margin: 0 0 10px; }
+    p { line-height: 1.45; margin: 0 0 12px; }
+    .muted { color: var(--muted); font-size: 14px; }
+    .box { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 16px; margin: 14px 0; }
+    label { display: block; font-size: 14px; font-weight: 600; margin: 12px 0 6px; }
+    input[type=email], input[type=text], input[type=tel] {
+      width: 100%; min-height: 48px; font-size: 16px; padding: 10px 12px; border: 1px solid var(--border);
+      border-radius: 10px; background: #fff; color: #111;
+    }
+    input.code { letter-spacing: 8px; font-size: 26px; text-align: center; font-variant-numeric: tabular-nums; }
+    .check { display: flex; gap: 10px; align-items: flex-start; margin: 12px 0; font-size: 14px; line-height: 1.4; font-weight: 400; }
+    .check input { width: 22px; height: 22px; margin: 0; flex: 0 0 auto; }
+    button, .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; padding: 0 18px;
+      font-size: 15px; font-weight: 600; border-radius: 10px; border: 0; cursor: pointer; touch-action: manipulation;
+      background: var(--primary); color: var(--on-primary); text-decoration: none; width: 100%; margin-top: 14px;
+    }
+    button.ghost, .btn.ghost { background: transparent; color: var(--text); border: 1px solid var(--border); }
+    button.danger { background: #b91c1c; color: #fff; }
+    button[disabled] { opacity: .5; cursor: default; }
+    .row { display: flex; gap: 10px; }
+    .row > * { flex: 1; }
+    .err { color: #991b1b; background: #fef2f2; border: 1px solid #fecaca; border-radius: 10px; padding: 10px 12px; font-size: 14px; margin: 12px 0 0; }
+    .ok { color: #065f46; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 10px; padding: 10px 12px; font-size: 14px; margin: 12px 0 0; }
+    .card { background: var(--card-bg); color: var(--card-text); border-radius: 18px; padding: 18px; margin: 14px 0; box-shadow: 0 6px 22px rgba(0,0,0,.12); }
+    .card .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+    .card .label { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--card-accent); font-weight: 700; }
+    .card .pts { font-size: 34px; font-weight: 800; line-height: 1.05; }
+    .card .name { font-size: 18px; font-weight: 700; }
+    .qr { background: #fff; border-radius: 12px; padding: 10px; margin: 16px auto 6px; width: min(240px, 70vw); }
+    .qr svg { display: block; width: 100%; height: auto; }
+    .no { text-align: center; font-variant-numeric: tabular-nums; letter-spacing: 2px; font-size: 15px; opacity: .9; }
+    .wallets { display: flex; gap: 10px; flex-wrap: wrap; }
+    .wallets button { flex: 1 1 160px; background: #000; color: #fff; }
+    .stamps { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 4px; }
+    .stamp { width: 34px; height: 34px; border-radius: 50%; border: 2px solid var(--primary); }
+    .stamp.on { background: var(--primary); }
+    .reward { display: flex; gap: 12px; align-items: center; padding: 10px 0; border-top: 1px solid var(--border); }
+    .reward:first-of-type { border-top: 0; }
+    .reward img { width: 52px; height: 52px; object-fit: cover; border-radius: 10px; }
+    .reward .r-name { font-weight: 600; }
+    .pill { display: inline-block; font-size: 12px; font-weight: 700; border-radius: 999px; padding: 3px 10px; background: var(--bg); border: 1px solid var(--border); }
+    .pill.ready { background: #ecfdf5; border-color: #a7f3d0; color: #065f46; }
+    .hist { list-style: none; padding: 0; margin: 0; }
+    .hist li { display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-top: 1px solid var(--border); font-size: 14px; }
+    .hist li:first-child { border-top: 0; }
+    .plus { color: #047857; font-weight: 700; } .minus { color: #b91c1c; font-weight: 700; }
+    .tabs { display: flex; gap: 6px; margin: 14px 0 0; }
+    .tabs button { margin: 0; background: transparent; color: var(--text); border: 1px solid var(--border); }
+    .tabs button[aria-pressed="true"] { background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
+    .hidden { display: none !important; }
+    .foot { text-align: center; font-size: 12px; color: var(--muted); margin: 24px 0 0; }
+    a { color: inherit; }
+  </style>
+</head>
+<body>
+<div class="wrap" id="app" data-loyalty-app>
+  <header>
+    <% if (it.logoUrl) { %><img src="<%= it.logoUrl %>" alt="<%= it.brandName %>" /><% } else { %><span class="brand"><%= it.brandName %></span><% } %>
+  </header>
+  <div id="view"><p class="muted">Loading…</p></div>
+  <p class="foot"><%= it.brandName %> · <%= it.programmeName %></p>
+</div>
+<script type="module">
+import { qrSvg } from '<%= it.apiBase %>/qr.js'
+
+const API = '<%= it.apiBase %>/t/<%= it.slug %>'
+const KEY = 'mcrn_loyalty_<%= it.slug %>'
+const view = document.getElementById('view')
+let info = null
+let me = null
+let tab = 'card'
+let pendingEmail = ''
+let joinTicket = null
+
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
+const money = p => '£' + ((Number(p) || 0) / 100).toFixed(2).replace(/\.00$/, '')
+const session = () => { try { return localStorage.getItem(KEY) } catch { return null } }
+const setSession = s => { try { s ? localStorage.setItem(KEY, s) : localStorage.removeItem(KEY) } catch {} }
+const memberNo = n => String(n || '').replace(/^(\d{3})(\d{3})(\d{3})$/, '$1 $2 $3')
+
+async function call(path, { method = 'GET', body, auth = true } = {}) {
+  const headers = { accept: 'application/json' }
+  if (body !== undefined) headers['content-type'] = 'application/json'
+  const s = session()
+  if (auth && s) headers.authorization = 'Loyalty ' + s
+  const res = await fetch(API + path, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined })
+  const data = res.status === 204 ? null : await res.json().catch(() => null)
+  if (res.status === 401 && auth) { setSession(null); me = null }
+  if (!res.ok) { const e = new Error(data?.error || 'Something went wrong'); e.status = res.status; throw e }
+  return data
+}
+
+function pointsLine() {
+  return info.points ? esc(info.how) : ''
+}
+
+function renderSignedOut(step = 'email', msg = '') {
+  const howBits = []
+  if (info.points) howBits.push('<li>' + pointsLine() + '</li>')
+  for (const c of info.stamp_cards) howBits.push('<li>' + esc(c.name) + ': ' + c.stamps_needed + ' stamps fill a card' + (c.description ? ' (' + esc(c.description) + ')' : '') + '.</li>')
+  if (info.rewards.length) howBits.push('<li>Swap ' + esc(info.points?.label || 'points') + ' for rewards like ' + info.rewards.slice(0, 3).map(r => esc(r.name)).join(', ') + '.</li>')
+  let body = ''
+  if (step === 'email') {
+    body = `<form id="f-email" class="box">
+      <h2>Join or sign in</h2>
+      <p class="muted">We'll email you a 6-digit code. No password needed.</p>
+      <label for="email">Email</label>
+      <input id="email" name="email" type="email" autocomplete="email" inputmode="email" required value="${esc(pendingEmail)}" data-testid="loy-email" />
+      <button type="submit" data-testid="loy-send-code">Send me a code</button>
+      ${msg ? '<p class="err">' + esc(msg) + '</p>' : ''}
+    </form>`
+  } else if (step === 'code') {
+    body = `<form id="f-code" class="box">
+      <h2>Check your email</h2>
+      <p class="muted">We sent a code to ${esc(pendingEmail)}. It works for 15 minutes.</p>
+      <label for="code">Code</label>
+      <input id="code" class="code" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required data-testid="loy-code" />
+      <button type="submit" data-testid="loy-verify">Continue</button>
+      <button type="button" class="ghost" id="back-email">Use another email</button>
+      ${msg ? '<p class="err">' + esc(msg) + '</p>' : ''}
+    </form>`
+  } else {
+    body = `<form id="f-join" class="box">
+      <h2>Join ${esc(info.name)}</h2>
+      <p class="muted">${esc(pendingEmail)}</p>
+      <label for="name">Your name</label>
+      <input id="name" name="name" type="text" autocomplete="name" required maxlength="120" data-testid="loy-name" />
+      ${info.signup.ask_phone ? '<label for="phone">Phone (optional)</label><input id="phone" name="phone" type="tel" inputmode="tel" autocomplete="tel" maxlength="30" />' : ''}
+      <label class="check"><input type="checkbox" id="agreed" required data-testid="loy-agree" /> <span>${esc(info.signup.terms_text)}</span></label>
+      <label class="check"><input type="checkbox" id="marketing" data-testid="loy-marketing" /> <span>${esc(info.signup.marketing_text)}</span></label>
+      <button type="submit" data-testid="loy-join">Join</button>
+      ${msg ? '<p class="err">' + esc(msg) + '</p>' : ''}
+    </form>`
+  }
+  view.innerHTML = `<h1>${esc(info.name)}</h1>
+    ${howBits.length ? '<ul class="muted">' + howBits.join('') + '</ul>' : ''}
+    ${body}`
+  const f = view.querySelector('form')
+  f.addEventListener('submit', async e => {
+    e.preventDefault()
+    const btn = f.querySelector('button[type=submit]')
+    btn.disabled = true
+    try {
+      if (step === 'email') {
+        pendingEmail = f.email.value.trim()
+        await call('/code', { method: 'POST', body: { email: pendingEmail }, auth: false })
+        renderSignedOut('code')
+      } else if (step === 'code') {
+        const out = await call('/verify', { method: 'POST', body: { email: pendingEmail, code: f.code.value.trim() }, auth: false })
+        if (out.join_ticket) { joinTicket = out.join_ticket; renderSignedOut('join') }
+        else { setSession(out.session); me = out.member; render() }
+      } else {
+        const out = await call('/join', { method: 'POST', auth: false, body: {
+          join_ticket: joinTicket, email: pendingEmail, name: f.name.value.trim(),
+          phone: f.phone ? f.phone.value.trim() || null : null, agreed: f.agreed.checked, marketing: f.marketing.checked,
+        } })
+        setSession(out.session); me = out.member; tab = 'card'; render(info.signup.welcome_text || 'Welcome! Your card is ready.')
+      }
+    } catch (err) { renderSignedOut(step, err.message) }
+  })
+  view.querySelector('#back-email')?.addEventListener('click', () => renderSignedOut('email'))
+  view.querySelector('input')?.focus()
+}
+
+function stampsHtml() {
+  if (!me.stamps.length) return ''
+  return '<div class="box"><h2>Stamp cards</h2>' + me.stamps.map(s => `
+    <div data-testid="loy-stamps" data-count="${s.count}">
+      <strong>${esc(s.name)}</strong> <span class="muted">${s.count} of ${s.needed}</span>
+      <div class="stamps">${Array.from({ length: s.needed }, (_, i) => '<span class="stamp' + (i < s.count ? ' on' : '') + '"></span>').join('')}</div>
+    </div>`).join('') + '</div>'
+}
+
+function rewardsHtml() {
+  const held = me.rewards.filter(r => r.member_reward_id)
+  const offer = me.rewards.filter(r => !r.member_reward_id)
+  if (!held.length && !offer.length) return ''
+  const row = r => `<div class="reward" data-testid="loy-reward">
+      ${r.image_url ? '<img src="' + esc(r.image_url) + '" alt="" />' : ''}
+      <div style="flex:1">
+        <div class="r-name">${esc(r.name)}</div>
+        <div class="muted">${esc(r.description || r.summary)}${r.min_spend_pence ? ' · spend ' + money(r.min_spend_pence) : ''}${r.expires_at ? ' · use by ' + new Date(r.expires_at).toLocaleDateString('en-GB') : ''}</div>
+      </div>
+      ${r.member_reward_id ? '<span class="pill ready">Ready</span>'
+        : r.can_afford ? '<span class="pill ready">' + r.points_cost + ' ' + esc(info.points?.label || 'points') + '</span>'
+        : '<span class="pill">' + (r.points_cost - me.points) + ' more</span>'}
+    </div>`
+  return `<div class="box"><h2>Rewards</h2>
+    <p class="muted">Show your card at the till or kiosk, or sign in when you order online, to use one.</p>
+    ${held.map(row).join('')}${offer.map(row).join('')}</div>`
+}
+
+function historyHtml() {
+  if (!me.history.length) return '<div class="box"><p class="muted">Nothing yet: your points and stamps show here.</p></div>'
+  const label = h => h.note || ({ earn: 'Visit', welcome: 'Welcome', redeem: 'Reward', release: 'Reward put back', adjust: 'Adjustment', expire: 'Expired', stamps: 'Stamps', card_full: 'Card full' })[h.kind] || h.kind
+  return '<div class="box"><h2>History</h2><ul class="hist">' + me.history.map(h => `<li>
+      <span>${esc(label(h))}${h.venue_name ? ' <span class="muted">· ' + esc(h.venue_name) + '</span>' : ''}<br><span class="muted">${new Date(h.created_at).toLocaleDateString('en-GB')}</span></span>
+      <span>${h.points ? '<span class="' + (h.points > 0 ? 'plus' : 'minus') + '">' + (h.points > 0 ? '+' : '') + h.points + '</span>' : ''}
+            ${h.stamps ? '<span class="' + (h.stamps > 0 ? 'plus' : 'minus') + '">' + (h.stamps > 0 ? '+' : '') + h.stamps + ' ' + (Math.abs(h.stamps) === 1 ? 'stamp' : 'stamps') + '</span>' : ''}</span>
+    </li>`).join('') + '</ul></div>'
+}
+
+function settingsHtml(msg = '') {
+  return `<form id="f-me" class="box">
+      <h2>Your details</h2>
+      <label for="s-name">Name</label>
+      <input id="s-name" type="text" value="${esc(me.name)}" maxlength="120" required />
+      <label for="s-phone">Phone</label>
+      <input id="s-phone" type="tel" inputmode="tel" value="${esc(me.phone || '')}" maxlength="30" />
+      <label class="check"><input type="checkbox" id="s-marketing" ${me.marketing_opt_in ? 'checked' : ''} data-testid="loy-s-marketing" /> <span>${esc(info.signup.marketing_text)}</span></label>
+      <button type="submit" data-testid="loy-save">Save</button>
+      ${msg ? '<p class="ok">' + esc(msg) + '</p>' : ''}
+    </form>
+    <div class="box">
+      <h2>Your card and your data</h2>
+      <button type="button" class="ghost" id="new-card" data-testid="loy-new-card">Get a new card code</button>
+      <p class="muted" style="margin-top:6px">The old QR code stops working: use it if someone else has a photo of yours.</p>
+      <button type="button" class="ghost" id="export" data-testid="loy-export">Download my data</button>
+      <button type="button" class="ghost" id="signout">Sign out</button>
+      <button type="button" class="danger" id="delete" data-testid="loy-delete">Leave and delete my account</button>
+      <div id="del-confirm" class="hidden">
+        <p class="err">This deletes your card, points, stamps and rewards for good. Type DELETE to confirm.</p>
+        <input id="del-text" type="text" autocomplete="off" data-testid="loy-delete-text" />
+        <button type="button" class="danger" id="del-go" data-testid="loy-delete-go">Delete my account</button>
+      </div>
+    </div>`
+}
+
+function render(msg = '') {
+  if (!me) return renderSignedOut('email')
+  const walletBtns = (info.wallet.apple || info.wallet.google) ? `<div class="wallets">
+      ${info.wallet.apple ? '<button type="button" id="w-apple" data-testid="loy-apple">Add to Apple Wallet</button>' : ''}
+      ${info.wallet.google ? '<button type="button" id="w-google" data-testid="loy-google">Add to Google Wallet</button>' : ''}
+    </div>` : ''
+  const card = `<div class="card" data-testid="loy-card">
+      <div class="top">
+        <div><div class="label">Member</div><div class="name">${esc(me.name)}</div></div>
+        ${info.points ? '<div style="text-align:right"><div class="label">' + esc(info.points.label) + '</div><div class="pts" data-testid="loy-points">' + me.points + '</div></div>' : ''}
+      </div>
+      <div class="qr" data-testid="loy-qr">${qrSvg(me.card_code, { margin: 2, title: 'Your loyalty card' })}</div>
+      <div class="no">${memberNo(me.member_no)}</div>
+    </div>`
+  view.innerHTML = `${msg ? '<p class="ok">' + esc(msg) + '</p>' : ''}
+    <div class="tabs" role="group">
+      <button type="button" data-tab="card" aria-pressed="${tab === 'card'}">My card</button>
+      <button type="button" data-tab="history" aria-pressed="${tab === 'history'}">History</button>
+      <button type="button" data-tab="me" aria-pressed="${tab === 'me'}" data-testid="loy-tab-me">Settings</button>
+    </div>
+    ${tab === 'card' ? card + walletBtns + stampsHtml() + rewardsHtml() : tab === 'history' ? historyHtml() : settingsHtml()}`
+  view.querySelectorAll('[data-tab]').forEach(b => b.addEventListener('click', () => { tab = b.dataset.tab; render() }))
+  view.querySelector('#w-apple')?.addEventListener('click', async () => {
+    try { const r = await call('/me/wallet/apple', { method: 'POST' }); location.href = r.url } catch (e) { render(e.message) }
+  })
+  view.querySelector('#w-google')?.addEventListener('click', async () => {
+    try { const r = await call('/me/wallet/google', { method: 'POST' }); location.href = r.url } catch (e) { render(e.message) }
+  })
+  const fm = view.querySelector('#f-me')
+  if (fm) {
+    fm.addEventListener('submit', async e => {
+      e.preventDefault()
+      me = await call('/me', { method: 'PATCH', body: { name: fm.querySelector('#s-name').value.trim(), phone: fm.querySelector('#s-phone').value.trim() || null, marketing: fm.querySelector('#s-marketing').checked } })
+      render('Saved')
+    })
+    view.querySelector('#new-card').addEventListener('click', async () => { me = await call('/me/new-card', { method: 'POST' }); tab = 'card'; render('Your card has a new code') })
+    view.querySelector('#export').addEventListener('click', async () => {
+      const data = await call('/me/export')
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }))
+      a.download = 'my-loyalty-data.json'
+      a.click()
+    })
+    view.querySelector('#signout').addEventListener('click', async () => { await call('/me/signout', { method: 'POST' }).catch(() => {}); setSession(null); me = null; render() })
+    view.querySelector('#delete').addEventListener('click', () => view.querySelector('#del-confirm').classList.remove('hidden'))
+    view.querySelector('#del-go').addEventListener('click', async () => {
+      try {
+        await call('/me/delete', { method: 'POST', body: { confirm: view.querySelector('#del-text').value.trim() } })
+        setSession(null); me = null; renderSignedOut('email'); view.insertAdjacentHTML('afterbegin', '<p class="ok">Your account has been deleted.</p>')
+      } catch (e) { alertInline(e.message) }
+    })
+  }
+}
+function alertInline(text) {
+  const box = view.querySelector('#del-confirm')
+  box?.insertAdjacentHTML('beforeend', '<p class="err">' + esc(text) + '</p>')
+}
+
+async function start() {
+  try { info = await call('', { auth: false }) } catch (e) { view.innerHTML = '<div class="box"><p>' + esc(e.message) + '</p></div>'; return }
+  if (session()) { try { me = await call('/me') } catch { me = null } }
+  render()
+}
+start()
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('<%= it.base %>/sw.js', { scope: '<%= it.base %>/' }).catch(() => {})
+</script>
+</body>
+</html>

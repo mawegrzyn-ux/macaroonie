@@ -7,7 +7,7 @@
 import { useMemo, useState } from 'react'
 import {
   Users, Table2, UserRound, Building2, Percent, HandCoins, Gift, Split, Merge, Flame, StickyNote, Printer,
-  Vault, PenLine, Check, Hourglass, Send, XCircle, Ban, RotateCcw, Plus, ShoppingBag, Flag,
+  Vault, PenLine, Check, Hourglass, Send, XCircle, Ban, RotateCcw, Plus, ShoppingBag, Flag, Star,
 } from 'lucide-react'
 import { ulid } from '@shared/pos/ids.js'
 import { checkTotals } from '@shared/pos/pricing.js'
@@ -33,6 +33,7 @@ export function ActionsMenu({ check, config, onPick, onClose }) {
     held.length > 0 && { key: 'fire', label: 'Fire a course', icon: Flame, hint: held.length + ' waiting' },
     { key: 'discount', label: 'Discount', icon: Percent },
     { key: 'sc', label: 'Service charge', icon: HandCoins, hint: check.service_charge && !check.service_charge.removed ? (check.service_charge.percent != null ? check.service_charge.percent + '%' : money(check.service_charge.amount)) : 'none' },
+    config.loyalty && { key: 'loyalty', label: config.loyalty.name || 'Loyalty', icon: Star, hint: check.loyalty?.name || 'add a member' },
     (config.promotions || []).length > 0 && { key: 'offers', label: 'Offers', icon: Gift, hint: (check.promotions || []).length ? check.promotions.length + ' on' : '' },
     { key: 'move', label: 'Split / move items', icon: Split },
     { key: 'merge', label: 'Merge checks', icon: Merge },

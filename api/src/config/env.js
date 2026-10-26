@@ -64,6 +64,12 @@ const schema = z.object({
   // GloriaFood Accepted Orders API (poll). Only changed to test against a
   // stand-in server; keys are per venue, saved in Cash Recon settings.
   GLORIAFOOD_API_URL:    z.string().url().default('https://pos.globalfoodsoft.com'),
+  // Wallet cards for loyalty (migration 211, services/walletSvc.js): Apple's
+  // push service for pass updates, Google Wallet's API and token address.
+  // Only changed to test against stand-in servers.
+  APPLE_APNS_URL:        z.string().url().default('https://api.push.apple.com'),
+  GOOGLE_WALLET_API_URL: z.string().url().default('https://walletobjects.googleapis.com'),
+  GOOGLE_OAUTH_TOKEN_URL: z.string().url().default('https://oauth2.googleapis.com/token'),
 
   // Card machines on the till and kiosks (migration 193,
   // services/cardMachines/). The URLs are only changed to test against

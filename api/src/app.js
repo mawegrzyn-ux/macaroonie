@@ -26,6 +26,9 @@ import paymentsRoutes, { webhookRoutes } from './routes/payments.js'
 import orderApiRoutes, { paymentWebhookRoutes } from './routes/orderApi.js'
 import ordersRoutes from './routes/orders.js'
 import promotionsRoutes from './routes/promotions.js'
+import loyaltyRoutes from './routes/loyalty.js'
+import loyaltyApiRoutes from './routes/loyaltyApi.js'
+import loyaltySite from './routes/loyaltySite.js'
 import websiteRoutes    from './routes/website.js'
 import publicSiteRoutes from './routes/publicSite.js'
 import siteRendererRoutes from './routes/siteRenderer.js'
@@ -211,6 +214,8 @@ export async function buildApp() {
   await app.register(screenSite)
   // The installer app (the admin build) on installer.{root} (routes/installerSite.js).
   await app.register(installerSite)
+  // Every tenant's loyalty web app on loyalty.{root}/<slug> (routes/loyaltySite.js).
+  await app.register(loyaltySite)
 
   // Stripe webhook first — must bypass JSON body parser
   await app.register(webhookRoutes)
@@ -250,6 +255,8 @@ export async function buildApp() {
   await app.register(orderApiRoutes,         { prefix: '/order-api' })
   await app.register(ordersRoutes,           { prefix: '/api/orders' })
   await app.register(promotionsRoutes,       { prefix: '/api/promotions' })
+  await app.register(loyaltyRoutes,          { prefix: '/api/loyalty' })
+  await app.register(loyaltyApiRoutes,       { prefix: '/loyalty-api' })
   await app.register(reviewsRoutes,          { prefix: '/api/reviews' })
   await app.register(backlogRoutes,          { prefix: '/api/backlog' })
   await app.register(issueLogRoutes,         { prefix: '/api/issues' })
