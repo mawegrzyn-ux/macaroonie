@@ -3,7 +3,9 @@
 // page shows the receipt in the kiosk receipt design (a bill until a counter
 // order is paid), an email goes through the location's provider without the
 // address being kept; other devices, other kiosks, other tenants, bad tokens
-// and too many emails are refused; old receipts are cleared.
+// and too many emails are refused; old receipts are cleared. A counter order's
+// email (migration 210) waits, sealed, until the till takes payment, then goes
+// once; a cancelled order, a day unpaid or repeated failures drop it.
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { as, getApp, sql, ok, closeApp } from './support/app.mjs'
@@ -11,13 +13,13 @@ import { resetAndSeed, A, B } from './support/seed.mjs'
 import { fillTenant } from './support/fixtures.mjs'
 import { linkDevice } from './support/devices.mjs'
 import { INTERNAL_CALL_HEADER, INTERNAL_CALL_SECRET } from '../src/middleware/auth.js'
-import { cleanUpReceipts, MAX_EMAILS } from '../src/services/receiptSvc.js'
+import { cleanUpReceipts, sendWaitingReceipts, MAX_EMAILS, MAX_TRIES } from '../src/services/receiptSvc.js'
 import { kioskOrder, normaliseDesign } from '../../shared/kiosk.js'
 import { ulid } from '../../shared/pos/ids.js'
 import { posChoices } from '../../shared/pos/pricing.js'
 import { env } from '../src/config/env.js'
 
-let ids, owner, mine, kiosk, kiosk2, till, kioskB, config, paidCheck, counterCheck
+let ids, owner, mine, kiosk, kiosk2, till, kioskB, config, paidCheck, counterCheck, staffId
 const sent = []
 const realFetch = globalThis.fetch
 
@@ -63,8 +65,35 @@ async function placeOrder(d, { card }) {
   const res = await device(d, 'POST', '/pos-api/events', { events: r.events })
   assert.equal(res.status, 200, JSON.stringify(res.json))
   assert.ok(res.json.results.every(x => x.ok), JSON.stringify(res.json.results))
-  return { id: r.check.id, dish, total: r.totals.total }
+  return { id: r.check.id, dish, total: r.totals.total, lines: r.check.lines.map(l => l.id) }
 }
+
+/** The till's events on a check, as a member of staff. */
+async function tillDoes(checkId, events) {
+  const res = await device(till, 'POST', '/pos-api/events', { events: events.map(([type, payload]) => ({
+    id: ulid(), type, payload, check_id: checkId, staff_id: staffId, client_at: new Date().toISOString(),
+  })) })
+  assert.equal(res.status, 200, JSON.stringify(res.json))
+  assert.ok(res.json.results.every(x => x.ok), JSON.stringify(res.json.results))
+  return res.json
+}
+
+/** The till takes cash for a counter order and closes it. */
+const tillPays = o => tillDoes(o.id, [
+  ['payment.added', { payment: { id: ulid(), tender: 'cash', amount: o.total, tendered: o.total } }],
+  ['check.closed', {}],
+])
+
+/** Waits for the stand-in provider to have n emails (sends after the till's events don't hold up its reply). */
+async function sentCount(n, ms = 4000) {
+  const end = Date.now() + ms
+  while (sent.length < n && Date.now() < end) await new Promise(r => setTimeout(r, 50))
+  return sent.length
+}
+
+const waiting = checkId => sql`
+  SELECT email_to, email_hint, email_wanted_at, email_claimed_at, email_tries, email_error, emailed_at, emails
+    FROM pos_receipts WHERE tenant_id = ${ids.a} AND check_id = ${checkId}`.then(r => r[0])
 
 before(async () => {
   ids = await resetAndSeed()
@@ -74,6 +103,10 @@ before(async () => {
   kiosk = await linkDevice(owner, mine.ids.venue, { kind: 'kiosk', name: 'Receipt kiosk' })
   kiosk2 = await linkDevice(owner, mine.ids.venue, { kind: 'kiosk', name: 'Other kiosk' })
   till = await linkDevice(owner, mine.ids.venue, { kind: 'terminal', name: 'Receipt till' })
+  // Someone at the till who takes payments.
+  staffId = mine.ids.staff
+  const role = await ok(owner.post('/api/pos/roles', { name: 'Receipt server', permissions: {} }))
+  await ok(owner.put(`/api/pos/venues/${mine.ids.venue}/staff/${staffId}/pos`, { pos_role_id: role.id, pin: '4826' }))
   const bOwner = as(B.owner, ids.b)
   const venueB = await ok(bOwner.post('/api/venues', { name: 'Elsewhere', slug: 'elsewhere-receipts', timezone: 'Europe/London' }))
   kioskB = await linkDevice(bOwner, venueB.id, { kind: 'kiosk', name: 'Their kiosk' })
@@ -135,21 +168,60 @@ test('the receipt page: the order as the kiosk receipt prints it, never cached o
   assert.equal((await page("/receipt/' OR 1=1 --")).status, 404)
 })
 
-test('an order paid at the counter: its page is the bill until it is paid; its receipt can\'t be emailed yet', async () => {
+test('an order paid at the counter: its page is the bill until it is paid; its email waits, sealed, and goes once the till takes payment', async () => {
   const r = await device(kiosk, 'POST', '/pos-api/kiosk/receipts', { check_id: counterCheck.id })
   assert.equal(r.status, 200)
-  const p = await page(new URL(r.json.url).pathname)
+  const pathname = new URL(r.json.url).pathname
+  const p = await page(pathname)
   assert.equal(p.status, 200)
   assert.ok(p.body.includes('Not paid yet'))
-  const mail = await device(kiosk, 'POST', '/pos-api/kiosk/receipts', { check_id: counterCheck.id, email: 'sam@example.com' })
-  assert.equal(mail.status, 422)
+
+  const mail = await device(kiosk, 'POST', '/pos-api/kiosk/receipts', { check_id: counterCheck.id, email: ' Sam@Example.com ' })
+  assert.equal(mail.status, 200, JSON.stringify(mail.json))
+  assert.equal(mail.json.sent_to, null, 'not sent: the order isn\'t paid')
+  assert.equal(mail.json.will_send_to, 'S***@Example.com')
+  assert.equal(mail.json.url, r.json.url)
+  assert.equal(sent.length, 0, 'an unpaid bill is never emailed')
+  let row = await waiting(counterCheck.id)
+  assert.match(row.email_to, /^v1:/, 'kept sealed')
+  assert.ok(!JSON.stringify(row).toLowerCase().includes('sam@'), 'the address isn\'t readable at rest')
+  assert.equal(row.email_hint, 'S***@Example.com')
+  assert.equal(row.emails, 1, 'counts towards the order\'s emails')
+  assert.ok(row.email_wanted_at)
+  assert.equal(row.emailed_at, null)
+  // The sweep leaves it alone while the order is open.
+  assert.equal(await sendWaitingReceipts(), 0)
   assert.equal(sent.length, 0)
+
+  // The till takes payment: the receipt goes straight after the till's events.
+  const paid = await tillPays(counterCheck)
+  assert.equal(paid.checks.find(c => c.id === counterCheck.id)?.status, 'closed')
+  assert.equal(await sentCount(1), 1)
+  const out = sent[0]
+  assert.equal(out.body.personalizations[0].to[0].email, 'Sam@Example.com', 'as typed, trimmed')
+  assert.equal(out.auth, 'Bearer SG.kiosk-test')
+  const html = out.body.content[0].value
+  assert.ok(html.includes(r.json.url), 'the same page as the QR code')
+  assert.ok(html.includes('£' + (counterCheck.total / 100).toFixed(2)))
+  assert.ok(!/not paid/i.test(html))
+  row = await waiting(counterCheck.id)
+  assert.equal(row.email_to, null, 'forgotten once sent')
+  assert.equal(row.email_claimed_at, null)
+  assert.ok(row.emailed_at)
+  assert.equal(row.email_error, null)
+  assert.ok(!(await page(pathname)).body.includes('Not paid yet'), 'the page is the receipt now')
+  // Nothing goes twice: the sweep, even two at once, finds nothing to send.
+  await Promise.all([sendWaitingReceipts(), sendWaitingReceipts()])
+  await new Promise(res => setTimeout(res, 200))
+  assert.equal(sent.length, 1)
+  sent.length = 0
 })
 
 test('emailing a receipt: through the location\'s provider, the address never kept, a few times an order at most', async () => {
   const r = await device(kiosk, 'POST', '/pos-api/kiosk/receipts', { check_id: paidCheck.id, email: '  Sam.Lee@Example.com ' })
   assert.equal(r.status, 200, JSON.stringify(r.json))
   assert.equal(r.json.sent_to, 'S***@Example.com')
+  assert.equal(r.json.will_send_to, undefined)
   assert.equal(r.json.url, link.href, 'the same page as the QR code')
   assert.equal(sent.length, 1)
   const mail = sent[0]
@@ -165,6 +237,7 @@ test('emailing a receipt: through the location\'s provider, the address never ke
   assert.equal(row.emails, 1)
   assert.equal(row.email_hint, 'S***@Example.com')
   assert.ok(row.emailed_at)
+  assert.equal(row.email_to, null, 'a paid order\'s address is never stored')
   assert.ok(!JSON.stringify(row).toLowerCase().includes('sam.lee'))
   const logged = await sql`SELECT count(*)::int AS n FROM email_log WHERE tenant_id = ${ids.a} AND lower(recipient) LIKE '%sam.lee%'`.catch(() => [{ n: 0 }])
   assert.equal(logged[0].n, 0)
@@ -178,6 +251,7 @@ test('emailing a receipt: through the location\'s provider, the address never ke
   const over = await device(kiosk, 'POST', '/pos-api/kiosk/receipts', { check_id: paidCheck.id, email: 'again@example.com' })
   assert.equal(over.status, 429)
   assert.equal(sent.length, MAX_EMAILS - 1, 'the bounced one and the refused one weren\'t sent')
+  sent.length = 0
 })
 
 test('refusals: another kiosk\'s order, a till, another tenant\'s kiosk, no pairing, an unknown order', async () => {
@@ -191,6 +265,93 @@ test('refusals: another kiosk\'s order, a till, another tenant\'s kiosk, no pair
   assert.equal((await device(kiosk, 'POST', '/pos-api/kiosk/receipts', {})).status, 400)
   const rows = await sql`SELECT count(*)::int AS n FROM pos_receipts`
   assert.equal(rows[0].n, 2, 'nothing made for the refusals')
+})
+
+test('a counter order cancelled before it is paid: its waiting address is dropped, nothing sent; a cancelled order can\'t ask', async () => {
+  const o = await placeOrder(kiosk, { card: false })
+  const ask = await device(kiosk, 'POST', '/pos-api/kiosk/receipts', { check_id: o.id, email: 'jo@example.com' })
+  assert.equal(ask.status, 200, JSON.stringify(ask.json))
+  assert.equal(ask.json.will_send_to, 'j***@example.com')
+  // The till takes every dish off and closes it: the check is void.
+  const res = await tillDoes(o.id, [...o.lines.map(id => ['line.deleted', { line_id: id }]), ['check.closed', {}]])
+  assert.equal(res.checks.find(c => c.id === o.id)?.status, 'void')
+  await new Promise(r => setTimeout(r, 300))
+  assert.equal(await sendWaitingReceipts(), 0)
+  assert.equal(sent.length, 0)
+  const row = await waiting(o.id)
+  assert.equal(row.email_to, null)
+  assert.equal(row.email_error, 'Order cancelled')
+  assert.equal(row.emailed_at, null)
+  const again = await device(kiosk, 'POST', '/pos-api/kiosk/receipts', { check_id: o.id, email: 'jo@example.com' })
+  assert.equal(again.status, 422)
+  assert.match(again.json.error, /cancelled/)
+})
+
+test('a counter order nobody pays within a day: the address is forgotten, and paying later sends nothing', async () => {
+  const o = await placeOrder(kiosk, { card: false })
+  assert.equal((await device(kiosk, 'POST', '/pos-api/kiosk/receipts', { check_id: o.id, email: 'late@example.com' })).status, 200)
+  await sql`UPDATE pos_receipts SET email_wanted_at = now() - interval '25 hours' WHERE tenant_id = ${ids.a} AND check_id = ${o.id}`
+  // Only the sweep with no venue gives up on old addresses.
+  assert.equal(await sendWaitingReceipts({ tenantId: ids.a, venueId: mine.ids.venue }), 0)
+  assert.match((await waiting(o.id)).email_to, /^v1:/)
+  assert.equal(await sendWaitingReceipts(), 0)
+  const row = await waiting(o.id)
+  assert.equal(row.email_to, null)
+  assert.equal(row.email_error, 'Not paid within a day')
+  await tillPays(o)
+  await new Promise(r => setTimeout(r, 300))
+  assert.equal(sent.length, 0)
+})
+
+test('a waiting receipt the provider refuses: tried again after a pause, given up after a few tries; asking again once paid sends at once', async () => {
+  const o = await placeOrder(kiosk, { card: false })
+  assert.equal((await device(kiosk, 'POST', '/pos-api/kiosk/receipts', { check_id: o.id, email: 'bounce@fail.example' })).status, 200)
+  await tillPays(o)
+  // The send after the till's events fails: one try, the address kept for the next.
+  const end = Date.now() + 4000
+  let row = await waiting(o.id)
+  while (row.email_tries < 1 && Date.now() < end) { await new Promise(r => setTimeout(r, 50)); row = await waiting(o.id) }
+  assert.equal(row.email_tries, 1)
+  assert.match(row.email_error, /Bad address|400/)
+  assert.match(row.email_to, /^v1:/)
+  assert.ok(row.email_claimed_at)
+  // Not again straight away (2 minutes per failed try).
+  assert.equal(await sendWaitingReceipts(), 0)
+  assert.equal((await waiting(o.id)).email_tries, 1)
+  await sql`UPDATE pos_receipts SET email_claimed_at = now() - interval '3 minutes' WHERE tenant_id = ${ids.a} AND check_id = ${o.id}`
+  assert.equal(await sendWaitingReceipts(), 0)
+  assert.equal((await waiting(o.id)).email_tries, 2)
+  // The last try: given up, the address forgotten.
+  await sql`UPDATE pos_receipts SET email_tries = ${MAX_TRIES - 1}, email_claimed_at = now() - interval '1 day' WHERE tenant_id = ${ids.a} AND check_id = ${o.id}`
+  assert.equal(await sendWaitingReceipts(), 0)
+  row = await waiting(o.id)
+  assert.equal(row.email_to, null)
+  assert.equal(row.email_tries, MAX_TRIES)
+  assert.equal(sent.length, 0)
+  // The guest asks again with a good address on the now paid order: sent at once.
+  const again = await device(kiosk, 'POST', '/pos-api/kiosk/receipts', { check_id: o.id, email: 'good@example.com' })
+  assert.equal(again.status, 200, JSON.stringify(again.json))
+  assert.equal(again.json.sent_to, 'g***@example.com')
+  assert.equal(sent.length, 1)
+  row = await waiting(o.id)
+  assert.equal(row.email_to, null)
+  assert.equal(row.email_error, null)
+  sent.length = 0
+})
+
+test('another tenant\'s sweep and venue never send a waiting receipt', async () => {
+  const o = await placeOrder(kiosk, { card: false })
+  assert.equal((await device(kiosk, 'POST', '/pos-api/kiosk/receipts', { check_id: o.id, email: 'kim@example.com' })).status, 200)
+  // Paid without the events route (so nothing sends straight away).
+  await sql`UPDATE pos_checks SET status = 'closed' WHERE tenant_id = ${ids.a} AND id = ${o.id}`
+  const [venueB] = await sql`SELECT id FROM venues WHERE tenant_id = ${ids.b} LIMIT 1`
+  assert.equal(await sendWaitingReceipts({ tenantId: ids.b, venueId: venueB.id }), 0)
+  assert.equal(await sendWaitingReceipts({ tenantId: ids.b, venueId: mine.ids.venue }), 0)
+  assert.equal(sent.length, 0)
+  assert.equal(await sendWaitingReceipts({ tenantId: ids.a, venueId: mine.ids.venue }), 1)
+  assert.equal(sent.length, 1)
+  assert.equal(sent[0].body.personalizations[0].to[0].email, 'kim@example.com')
+  sent.length = 0
 })
 
 test('a design\'s done screen settings survive saving; another tenant\'s order type is dropped', async () => {
@@ -211,7 +372,8 @@ test('old receipts are cleared after 400 days', async () => {
   await sql`UPDATE pos_receipts SET created_at = now() - interval '401 days' WHERE tenant_id = ${ids.a} AND check_id = ${counterCheck.id}`
   const old = (await sql`SELECT token FROM pos_receipts WHERE check_id = ${counterCheck.id}`)[0].token
   assert.equal((await page('/receipt/' + old)).status, 404, 'an expired page shows nothing even before the clean-up')
+  const before = (await sql`SELECT count(*)::int AS n FROM pos_receipts`)[0].n
   const r = await cleanUpReceipts()
   assert.equal(r.removed, 1)
-  assert.equal((await sql`SELECT count(*)::int AS n FROM pos_receipts`)[0].n, 1)
+  assert.equal((await sql`SELECT count(*)::int AS n FROM pos_receipts`)[0].n, before - 1)
 })

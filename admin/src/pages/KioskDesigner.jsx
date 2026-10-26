@@ -1210,7 +1210,7 @@ function DonePanel({ s, d, set, setup, stream, onShow }) {
           </div>
           <Toggle label="QR code for the receipt" hint="The guest scans it with their phone to see the receipt, keep it or print it. The page uses the kiosk receipt design (Store tech > Printing) and works for a year; an order paid at the counter shows as a bill until it's paid."
             checked={n.receipt_qr} onChange={v => set('done', { receipt_qr: v })} />
-          <Toggle label="Email the receipt" hint="After paying by card, the guest can type their email address on the kiosk. It's sent through the location's email settings (Emails > Settings), up to 3 times an order, and the address isn't kept: only its first letter and its domain."
+          <Toggle label="Email the receipt" hint="After ordering, the guest can type their email address on the kiosk. It's sent through the location's email settings (Emails > Settings), up to 3 times an order. Paid by card, it goes at once; paid at the counter, it goes once the till takes payment (kept sealed until then, and dropped if the order is cancelled or isn't paid within a day). The address isn't kept after: only its first letter and its domain."
             checked={n.receipt_email} onChange={v => set('done', { receipt_email: v })} />
         </div>
       </Field>

@@ -477,8 +477,10 @@ export function Done() {
   // The email sheet (recorded with the visit, journey.js: never the address,
   // only how long it is) and how the sending went.
   const [mailOpen, setMailOpen] = useJourneyState('receipt.mail', false)
-  const [mail, setMail] = useJourneyState('receipt.sent', null) // 'sending' | 'sent' | 'failed'
-  const [sentTo, setSentTo] = useState('') // where it went, shown back masked (not recorded)
+  // 'sending' | 'sent' | 'waiting' (paid at the counter: it goes once the till
+  // takes payment) | 'failed'
+  const [mail, setMail] = useJourneyState('receipt.sent', null)
+  const [sentTo, setSentTo] = useState('') // where it went (or will go), shown back masked (not recorded)
   const held = s.replay || s.doneHold || mailOpen || mail === 'sending'
   const [left, setLeft] = useState(d.behaviour.done_secs)
   // A replay (journey.js) and the editor's example show the screen as it is:
@@ -501,8 +503,11 @@ export function Done() {
   const messageKey = own.own && (d.done.types.find(x => x.order_type_id === s.orderType)?.message) ? 'done_message:' + s.orderType : 'done_message'
   const message = info.message ? t(TK.design(d.id, messageKey), info.message) : null
   const qr = d.done.receipt_qr && !r.pending
-  // An order paid at the counter has no receipt to send yet (its page shows the bill until it's paid).
-  const email = d.done.receipt_email && !r.pending && s.method === 'card'
+  // An order paid at the counter can ask too: the API keeps the address until
+  // the till takes payment, then sends it (its page shows the bill until then).
+  const counter = s.method !== 'card'
+  const email = d.done.receipt_email && !r.pending
+  const asked = mail === 'sent' || mail === 'waiting'
   const big = info.value.length > 8 ? 'text-[4.2em]' : info.value.length > 5 ? 'text-[5.5em]' : 'text-[7em]'
   return (
     <div className="absolute inset-0 k-fade" data-testid="k-done" data-main={info.main}>
@@ -520,20 +525,28 @@ export function Done() {
         {qr && <ReceiptQr texts={texts} />}
         <div className="flex gap-[var(--k-gap)] flex-wrap justify-center mt-[var(--k-pad)]">
           {d.checkout.receipt === 'ask' && !r.pending && <button className="k-btn k-btn-big" onClick={printResultReceipt} data-testid="k-receipt"><Printer /> {ui('print_receipt')}</button>}
-          {email && mail !== 'sent' && (
+          {email && !asked && (
             <button className="k-btn k-btn-big" onClick={() => setMailOpen(true)} data-testid="k-receipt-email"><Mail /> {ui('receipt_email')}</button>
           )}
           <button className="k-btn k-btn-primary k-btn-big" onClick={() => restart('done')} data-testid="k-done-button">{ui('done')}{held ? '' : ' (' + Math.max(0, left) + ')'}</button>
         </div>
-        {mail === 'sent' && <div className="max-w-[760px] font-semibold" data-testid="k-receipt-sent">{ui('receipt_sent', { email: s.replay ? '\u2022\u2022\u2022' : sentTo })}</div>}
+        {asked && (
+          <div className="max-w-[760px] font-semibold" data-testid="k-receipt-sent" data-state={mail}>
+            {ui(mail === 'waiting' ? 'receipt_waiting' : 'receipt_sent', { email: s.replay ? '\u2022\u2022\u2022' : sentTo })}
+          </div>
+        )}
       </div></div>
       {mailOpen && (
-        <EmailSheet texts={texts} sending={mail === 'sending'} failed={mail === 'failed'}
+        <EmailSheet texts={texts} counter={counter} sending={mail === 'sending'} failed={mail === 'failed'}
           onClose={() => { setMailOpen(false); setMail(m => (m === 'failed' ? null : m)); again() }}
           onSend={address => {
             setMail('sending')
             emailReceipt(address).then(
-              out => { setSentTo(out.sent_to || ''); setMail('sent'); setMailOpen(false); again() },
+              out => {
+                const later = !out.sent_to && out.will_send_to
+                setSentTo((later ? out.will_send_to : out.sent_to) || '')
+                setMail(later ? 'waiting' : 'sent'); setMailOpen(false); again()
+              },
               () => setMail('failed'),
             )
           }} />
@@ -566,8 +579,8 @@ function ReceiptQr({ texts }) {
   )
 }
 
-/** The guest types an email address for their receipt (never recorded with the visit). */
-function EmailSheet({ texts, sending, failed, onSend, onClose }) {
+/** The guest types an email address for their receipt (never recorded with the visit); `counter`: it goes once paid at the counter. */
+function EmailSheet({ texts, counter, sending, failed, onSend, onClose }) {
   const { ui } = texts
   const [value, setValue] = useState('')
   // Only how long the address is goes with the visit, so a playback shows dots (journey.js).
@@ -580,7 +593,7 @@ function EmailSheet({ texts, sending, failed, onSend, onClose }) {
     <Sheet onClose={sending ? null : onClose} wide>
       <div className="flex flex-col gap-[var(--k-pad)] items-center text-center" data-testid="k-email-sheet">
         <div className="k-head text-[1.8em]">{ui('receipt_email_title')}</div>
-        <div className="k-muted max-w-[760px]">{ui('receipt_email_hint')}</div>
+        <div className="k-muted max-w-[760px]" data-testid="k-email-hint">{ui(counter ? 'receipt_email_hint_counter' : 'receipt_email_hint')}</div>
         <div data-jprivate="" className="w-full flex flex-col gap-[var(--k-pad)] items-center">
           <div className="k-card w-full max-w-[860px] min-h-[2.2em] px-[.6em] flex items-center justify-center font-bold text-[1.4em] break-all" data-testid="k-email-value">
             <span data-testid="k-email-text">{shown}</span><span className="k-caret" aria-hidden="true" />

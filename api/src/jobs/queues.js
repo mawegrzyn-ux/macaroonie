@@ -65,6 +65,11 @@ export function startHoldSweepWorker(sql, log) {
     const { sweepPending } = await import('../services/cardSvc.js')
     const cards = await sweepPending().catch(e => { log.warn({ err: e }, 'Card payment sweep failed'); return 0 })
     if (cards) log.info({ cards }, 'Card payments checked')
+    // Kiosk receipts waiting for a counter order to be paid (migration 210):
+    // sent once paid, given up when cancelled or unpaid after a day.
+    const { sendWaitingReceipts } = await import('../services/receiptSvc.js')
+    const mailed = await sendWaitingReceipts({ log })
+    if (mailed) log.info({ mailed }, 'Kiosk receipts emailed after payment')
     log.debug('Hold sweep complete')
   }, { connection })
 
