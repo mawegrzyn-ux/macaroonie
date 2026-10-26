@@ -1092,6 +1092,8 @@ function TimingPanel({ s, d, set, canManage }) {
           </div>
         </Field>
       )}
+      <Toggle label="Record guests' visits" hint="Each visit is kept for Store tech > Kiosk analytics: the screens, dishes and buttons a guest touched and how long each took, so a visit can be played back. Nothing a guest types is kept (only how long their name or number was)."
+        checked={h.record_journeys} onChange={v => set('behaviour', { record_journeys: v })} />
     </>
   )
 }
@@ -1449,7 +1451,7 @@ function summaryOf(id, d) {
   if (id === 'choices') return DISPLAY_LABELS[d.options.display] + ', ' + TILE_LABELS[d.layout.option_tiles].toLowerCase() + (d.layout.option_pictures ? '' : ', words only') + (d.layout.option_align === 'center' ? ', centred' : '') + (d.options.wheel_spin_picks ? ', a spin picks' : '') + (d.options.entrance !== 'none' ? ', ' + CHOICE_ENTRANCES.find(x => x.key === d.options.entrance).label.toLowerCase() : '')
     + (d.options.group_looks.length ? ', ' + d.options.group_looks.length + ' option group' + (d.options.group_looks.length === 1 ? '' : 's') + ' their own way' : '')
   if (id === 'checkout') return [d.checkout.pay_card && 'Card', d.checkout.pay_counter && 'At the counter'].filter(Boolean).join(' and ') || 'No way to pay'
-  if (id === 'timing') return 'Starts again after ' + d.behaviour.idle_secs + ' s' + (d.behaviour.reach && d.behaviour.reach_media.length ? ', reach pictures' : '')
+  if (id === 'timing') return 'Starts again after ' + d.behaviour.idle_secs + ' s' + (d.behaviour.reach && d.behaviour.reach_media.length ? ', reach pictures' : '') + (d.behaviour.record_journeys ? '' : ', visits not recorded')
   return ''
 }
 

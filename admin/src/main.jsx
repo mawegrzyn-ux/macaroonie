@@ -100,6 +100,7 @@ import OrderingSettings from '@/pages/OrderingSettings'
 import PosSetup from '@/pages/PosSetup'
 import PosFloor from '@/pages/PosFloor'
 import PosReports from '@/pages/PosReports'
+import KioskAnalytics from '@/pages/KioskAnalytics'
 import KioskDesigner from '@/pages/KioskDesigner'
 import PrintDesigner from '@/pages/PrintDesigner'
 import Promotions from '@/pages/Promotions'
@@ -226,6 +227,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 <Route path="pos/:tab" element={<PosSetup />} />
                 <Route path="pos/floor" element={<PosFloor />} />
                 <Route path="pos/reports" element={<PosReports />} />
+                <Route path="pos/kiosk-analytics" element={<KioskAnalytics />} />
                 <Route path="pos/kiosks/designs/:id" element={<KioskDesigner />} />
                 <Route path="pos/printing/designs/:id" element={<PrintDesigner />} />
                 <Route path="promotions" element={<Promotions />} />

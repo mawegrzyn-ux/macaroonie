@@ -33,6 +33,8 @@ const Bench = lazy(() => import('./kitchen/Bench.jsx'))
 const BenchScreen = lazy(() => import('./kitchen/BenchScreen.jsx'))
 const QUERY = new URLSearchParams(location.search)
 const PREVIEW = QUERY.get('kiosk_preview')
+// A recorded visit played back (Store tech > Kiosk analytics): the preview with &replay=1.
+const REPLAY = QUERY.get('replay') === '1'
 // A kiosk design's shared preview (its lasting link): the share page, which
 // frames the kiosk itself (&frame=1).
 const SHARE = QUERY.get('kiosk_share')
@@ -42,7 +44,7 @@ const KITCHEN_TEST = QUERY.get('kitchen_test')
 const BENCH_SCREEN = QUERY.get('screen')
 
 export default function App() {
-  if (PREVIEW) return <Suspense fallback={<div className="h-full bg-black" />}><KioskApp previewToken={PREVIEW} /></Suspense>
+  if (PREVIEW) return <Suspense fallback={<div className="h-full bg-black" />}><KioskApp previewToken={PREVIEW} replay={REPLAY} /></Suspense>
   if (SHARE) {
     return (
       <Suspense fallback={<div className="h-full bg-neutral-900" />}>

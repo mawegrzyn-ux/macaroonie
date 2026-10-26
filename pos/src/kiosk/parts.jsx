@@ -436,7 +436,8 @@ export function Keyboard({ value, onChange, lang = 'en', max = 40, labels = {} }
   }
   const extra = EXTRA[lang]
   return (
-    <div className="k-keys" data-testid="keyboard">
+    // data-jprivate: a touch here is recorded at the keyboard's middle, never on a key (journey.js).
+    <div className="k-keys" data-testid="keyboard" data-jprivate="">
       {extra && <div className="k-keys-row">{[...extra].map(c => <button key={c} className="k-key" onClick={() => type(c)}>{c}</button>)}</div>}
       {ROWS.map(r => (
         <div key={r} className="k-keys-row">{[...r].map(c => <button key={c} className="k-key" onClick={() => type(c)}>{c}</button>)}</div>
@@ -458,7 +459,7 @@ export function NumberPad({ value, onChange, max = 4, labels = {} }) {
     onChange(value + k)
   }
   return (
-    <div className="k-numpad" data-testid="numpad">
+    <div className="k-numpad" data-testid="numpad" data-jprivate="">
       {['1', '2', '3', '4', '5', '6', '7', '8', '9', 'clear', '0', 'del'].map(k => (
         <button key={k} className="k-key" onClick={() => press(k)} aria-label={k === 'del' ? labels.delete || 'Delete' : undefined} data-key={k}>
           {k === 'del' ? <Delete className="mx-auto" size={30} /> : k === 'clear' ? labels.clear || 'Clear' : <span className="k-numpad-digit">{k}</span>}

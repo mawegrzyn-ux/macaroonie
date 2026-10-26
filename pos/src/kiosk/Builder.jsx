@@ -15,7 +15,7 @@
 // as they're picked (shared/kiosk.js pickImages()): side by side (one pick:
 // its picture instead), or small in its corner (parts.jsx PickPhoto).
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { Check, Plus, Info, AlertCircle } from 'lucide-react'
 import { priceItem, lineGross } from '@shared/pos/pricing.js'
 import { resolveSteps, askedChoices } from '@shared/combos.js'
@@ -26,6 +26,7 @@ import { useKiosk, textsFor, addToBasket, closeBuilder, soldOut, itemLevels, dis
 import OptionGroup, { missingIn, groupName } from './OptionGroup.jsx'
 import { DISPLAYS, choiceLook } from './displays.jsx'
 import { cx, Pic, PickPhoto, BundlePhoto, Stepper, BackButton, bringIntoView, usePortrait } from './parts.jsx'
+import { useJourneyState } from './journey.js'
 import { FitMark, FitNote, needsCheck } from './fit.jsx'
 import { flyToBasket } from './fly.js'
 
@@ -264,9 +265,12 @@ function AddBar({ texts, qty, setQty, priced, missing, editing, onAdd, onBack, t
 
 // ── A dish ───────────────────────────────────────────────────────
 
+// The picks and the page are recorded with the guest's visit (journey.js).
+const asSet = { save: s => [...s], load: a => new Set(a || []) }
+
 function DishBuilder({ item, config, ctx, texts, builder }) {
-  const [sel, setSel] = useState(() => ({ choices: {}, ...builder.selection }))
-  const [qty, setQty] = useState(builder.qty || 1)
+  const [sel, setSel] = useJourneyState('dish.sel', () => ({ choices: {}, ...builder.selection }))
+  const [qty, setQty] = useJourneyState('dish.qty', builder.qty || 1)
   const priced = useMemo(() => priceItem(item, sel, ctx), [item, sel, ctx])
   const missing = missingIn(item.pos_choices || [], sel.choices, config, c => groupName(c, texts))
   const total = priced.ok ? lineGross({ ...priced, qty }) : null
@@ -336,14 +340,14 @@ function comboPages(item, sel, ctx, opened, config) {
 function ComboBuilder({ item, config, ctx, texts, builder }) {
   const { t, ui, money } = texts
   const { prefs } = useKiosk()
-  const [sel, setSel] = useState(() => ({ choices: {}, combo: {}, ...builder.selection }))
-  const [qty, setQty] = useState(builder.qty || 1)
-  const [opened, setOpened] = useState(() => new Set(Object.keys(builder.selection?.combo || {})))
+  const [sel, setSel] = useJourneyState('combo.sel', () => ({ choices: {}, combo: {}, ...builder.selection }))
+  const [qty, setQty] = useJourneyState('combo.qty', builder.qty || 1)
+  const [opened, setOpened] = useJourneyState('combo.opened', () => new Set(Object.keys(builder.selection?.combo || {})), asSet)
   // When each part of the deal's picture first showed (BundlePhoto), kept
   // across the pages: back on the deal's picture, only what's new pops in.
   const bundleSeen = useRef(new Map())
   const { pages, buttons, picks } = useMemo(() => comboPages(item, sel, ctx, opened, config), [item, sel, ctx, opened, config])
-  const [pageKey, setPageKey] = useState(() => (builder.key ? 'review' : pages[0]?.key))
+  const [pageKey, setPageKey] = useJourneyState('combo.page', () => (builder.key ? 'review' : pages[0]?.key))
   const advanceFrom = useRef(null)
   let index = pages.findIndex(p => p.key === pageKey)
   if (index < 0) index = Math.min(pages.length - 1, Math.max(0, pages.findIndex(p => p.kind === 'review')))

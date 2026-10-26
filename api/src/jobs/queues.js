@@ -107,13 +107,19 @@ export function startGloriaFoodPollWorker(log) {
 // Every hour (migration 174, ai/erase.js cleanUpAi()): delete Pepper and
 // website chats idle longer than the tenant's chat_retention_days, clear
 // audit inputs older than a year, unsent uploads, used guest codes and old
-// per-person usage. Idempotent, so a run that overlaps another is harmless.
+// per-person usage; and kiosk visits' playbacks after 90 days (the visits
+// after 400, services/kioskJourneySvc.js). Idempotent, so a run that
+// overlaps another is harmless.
 
 export function startAiCleanupWorker(log) {
   const worker = new Worker('ai-cleanup', async () => {
     const { cleanUpAi } = await import('../ai/erase.js')
     const r = await cleanUpAi(log)
     if (r.chats || r.audit || r.uploads) log.info(r, 'AI clean-up')
+    // Kiosk visits (migration 208): playbacks after 90 days, visits after 400.
+    const { cleanUpJourneys } = await import('../services/kioskJourneySvc.js')
+    const k = await cleanUpJourneys(log)
+    if (k.cleared || k.removed) log.info(k, 'Kiosk journey clean-up')
   }, { connection })
 
   worker.on('failed', (job, err) => {

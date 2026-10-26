@@ -9,13 +9,13 @@
 // the shared pricing (shared/pos/pricing.js priceItem) prices them like the
 // till does.
 
-import { useState } from 'react'
 import { Plus, Check } from 'lucide-react'
 import { groupChoice } from '@shared/pos/pricing.js'
 import { optionPriceText } from '@shared/orderPricing.js'
 import { TK, groupLook } from '@shared/kiosk.js'
 import { DISPLAYS, choiceLook } from './displays.jsx'
 import { cx } from './parts.jsx'
+import { useJourneyState } from './journey.js'
 
 /** "Choose 1", "Choose 1 to 3", "Choose up to 2", "Optional". */
 export function ruleText(ui, min, max) {
@@ -51,7 +51,7 @@ export function groupName(choice, texts) {
 export default function OptionGroup({ choice, value = [], onChange, config, texts, itemId, depth = 0 }) {
   const { t, ui, money } = texts
   const lib = config.groups?.[choice.key] || null
-  const [open, setOpen] = useState(!choice.on_request || value.length > 0)
+  const [open, setOpen] = useJourneyState('og.' + itemId + '.' + choice.key + '.' + depth, !choice.on_request || value.length > 0)
   const design = config.design
   const look = choiceLook(design, lib)
   const { display, entrance } = groupLook(design, lib)

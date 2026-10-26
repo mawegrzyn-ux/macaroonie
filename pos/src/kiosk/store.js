@@ -37,6 +37,7 @@ let state = {
   device: null,
   config: null,
   preview: false,
+  replay: false,           // playing back a recorded visit (bootReplay)
   shared: null,       // a shared preview's names (bootShare): { design, venue, company, expires_at, menu }
   online: true,            // false shows ordering paused (link 'down')
   link: 'up',              // 'up' | 'checking' (trying the server again) | 'down'
@@ -55,6 +56,7 @@ let state = {
   prefs: { avoid: [], diet: [] }, // the guest's allergens and diets (allergens screen), marked on the menu
   outbox: [],
   toast: null,
+  ended: null,             // { why, n }: the last restart() (journey.js ends the visit's record on it)
 }
 const listeners = new Set()
 let api = createTransport(null)
@@ -66,6 +68,10 @@ function setState(patch) {
 export const getState = () => state
 const subscribe = fn => { listeners.add(fn); return () => listeners.delete(fn) }
 export function useKiosk() { return useSyncExternalStore(subscribe, getState) }
+/** For the journey recorder (journey.js): told after every change. */
+export const subscribeKiosk = subscribe
+/** The kiosk's connection to the server (journey.js sends its visits through it). */
+export const kioskApi = () => api
 
 let toastTimer = null
 export function toast(text, ms = 2200) {
@@ -119,22 +125,33 @@ export const bootPreview = token => bootPreviewFrom('/pos-api/kiosk-preview?toke
  */
 export const bootShare = token => bootPreviewFrom('/pos-api/kiosk-share?token=' + encodeURIComponent(token), { live: false })
 
-async function bootPreviewFrom(path, { live }) {
+/**
+ * Playing back a guest's visit (Store tech > Kiosk analytics, journey.js):
+ * a preview link with &replay=1. The page around it sends what the kiosk
+ * showed moment by moment (kiosk.replay); nothing is ever sent and the
+ * kiosk's own timers (the "Are you still there?" question, the order
+ * number's countdown) stay still.
+ */
+export const bootReplay = token => bootPreviewFrom('/pos-api/kiosk-preview?token=' + encodeURIComponent(token), { live: false, replay: true })
+
+async function bootPreviewFrom(path, { live, replay = false }) {
   try {
     const res = await createTransport(null).get(path)
     const c = withDesign(res)
-    setState({ preview: true, shared: res.share || null, device: c.device, config: c, lang: c.design.languages.source, phase: 'ready', online: true })
+    setState({ preview: true, replay, shared: res.share || null, device: c.device, config: c, lang: c.design.languages.source, phase: 'ready', online: true })
   } catch (err) {
-    setState({ preview: true, phase: 'ready', config: null, error: err.message || 'The preview couldn\'t load' })
+    setState({ preview: true, replay, phase: 'ready', config: null, error: err.message || 'The preview couldn\'t load' })
   }
   window.addEventListener('message', e => {
     if (e.source !== window.parent || !e.data || typeof e.data !== 'object') return
+    // A replay takes only what the player sends (journey.js listenForReplay()).
+    if (replay) return
     if (live && e.data.type === 'kiosk.design' && state.config) {
       const design = { id: state.config.design.id, name: state.config.design.name, ...normaliseDesign(e.data.design) }
       const lang = design.languages.enabled.includes(state.lang) ? state.lang : design.languages.source
       setState({ config: { ...state.config, design }, lang })
     }
-    if (e.data.type === 'kiosk.restart') restart()
+    if (e.data.type === 'kiosk.restart') restart('preview')
     // The editor's Menu button: back to the menu of the order being built,
     // else a new order with the first order type.
     if (e.data.type === 'kiosk.show' && e.data.screen === 'menu' && state.config) {
@@ -288,14 +305,44 @@ export function startOrder(orderTypeId) {
   })
 }
 
-/** Back to the start screen, order cleared. */
-export function restart() {
+/**
+ * Back to the start screen, order cleared. why (for the visit's record,
+ * journey.js): 'guest' (Start again), 'timeout' (no answer to "Are you still
+ * there?"), 'done' (the order number screen), 'preview' (the design editor).
+ * A click passes its event: that is the guest.
+ */
+export function restart(why) {
   attempt = null
   setState({
     screen: 'start', orderType: null, basket: [], builder: null, details: { name: '', tent: '' },
     method: null, result: null, error: null, reach: false, prefs: { avoid: [], diet: [] }, lang: state.config?.design?.languages?.source || 'en',
     // The next guest starts on the menu's first page.
     section: null, detailStep: null, added: null, toast: null,
+    ended: { why: typeof why === 'string' ? why : 'guest', n: (state.ended?.n || 0) + 1 },
+  })
+}
+
+/**
+ * Show a moment of a recorded visit (replay mode): the view the recorder
+ * kept (shared/kioskJourney.js). What the guest typed was never kept, only
+ * how long it was: it shows as dots.
+ */
+export function replayView(v = {}) {
+  const c = state.config
+  const dots = n => '\u2022'.repeat(Math.max(0, Math.min(40, Number(n) || 0)))
+  const langs = c?.design?.languages
+  const r = v.result
+  setState({
+    screen: v.screen || 'start', section: v.section ?? null, orderType: v.orderType ?? null,
+    lang: langs?.enabled?.includes(v.lang) ? v.lang : langs?.source || 'en',
+    reach: !!v.reach, prefs: cleanPrefs(v.prefs || {}),
+    basket: Array.isArray(v.basket) ? v.basket.filter(e => e && e.key && e.item_id) : [],
+    builder: v.builder?.item_id ? { item_id: v.builder.item_id, key: v.builder.key || null, selection: v.builder.selection || { choices: {}, combo: {} }, qty: v.builder.qty || 1 } : null,
+    details: { name: dots(v.details?.name), tent: dots(v.details?.tent) }, detailStep: v.detailStep ?? null,
+    method: v.method ?? null,
+    result: r ? { order_no: r.order_no ?? null, provisional: r.provisional ?? null, pending: !!r.pending, check: null, totals: { total: r.total ?? 0 } } : null,
+    error: v.error ?? null, toast: v.toast ? { id: 'replay:' + v.toast, text: v.toast } : null, added: null,
+    link: v.link || 'up', online: v.link !== 'down',
   })
 }
 

@@ -5,7 +5,7 @@
 // order: the menu and meal deal choices mark what to check (fit.jsx,
 // guestFit() in shared/kiosk.js). Start again clears them.
 
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { ShieldAlert, Check, UtensilsCrossed, X } from 'lucide-react'
 import { noticeOf } from '@shared/menuTags.js'
 import { TK, prefsOn } from '@shared/kiosk.js'
@@ -14,6 +14,7 @@ import { useKiosk, textsFor, go, startOrder, setPrefs, countFor, kioskItemIds } 
 import { cx, BackButton, Sheet, TypeIcon, guessTypeIcon } from './parts.jsx'
 import { tagName } from './fit.jsx'
 import { typeLabelOf, typeQuestion, orderingClosed } from './Start.jsx'
+import { useJourneyState } from './journey.js'
 
 function TagPicks({ tags, picked, onToggle, config, texts, testId }) {
   return (
@@ -38,7 +39,7 @@ export default function Allergens() {
   const texts = textsFor(s)
   const { ui, t } = texts
   const d = config.design
-  const [askType, setAskType] = useState(false)
+  const [askType, setAskType] = useJourneyState('allergens.ask', false)
   const notice = noticeOf(config.allergen_notice)
   const allergens = (config.dietary_tags || []).filter(x => x.kind === 'allergen')
   // Diets: only ones a dish on this kiosk's menu carries.

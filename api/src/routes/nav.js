@@ -54,6 +54,7 @@ export const ROUTE_CATALOG = [
   { route: '/pos/receipts', label: 'Receipts and payments', icon: 'Receipt', module: 'pos_setup' },
   { route: '/pos/recon', label: 'Cash Recon link', icon: 'ArrowRightLeft', module: 'pos_setup' },
   { route: '/pos/reports', label: 'Till reports', icon: 'BarChart3', module: 'pos_reports' },
+  { route: '/pos/kiosk-analytics', label: 'Kiosk analytics', icon: 'Activity', module: 'pos_reports' },
   { route: '/cash-recon', label: 'Cash recon', icon: 'Wallet', module: 'cash_recon' },
   { route: '/cash-dashboard', label: 'Cash dashboard', icon: 'LayoutGrid', module: 'cash_dashboard' },
   { route: '/staff', label: 'Staff', icon: 'UsersRound', module: 'staff' },

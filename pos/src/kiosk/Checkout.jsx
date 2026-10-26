@@ -18,6 +18,7 @@ import { cx, Photo, PickPhoto, BundlePhoto, Keyboard, NumberPad, BackButton, use
 import { TopBar, useBasketTotals, RestartButton, LanguageButton } from './Menu.jsx'
 import { priceLabel } from './Builder.jsx'
 import { flyToBasket } from './fly.js'
+import { useJourneyState } from './journey.js'
 
 // ── Where the order goes next ───────────────────────────────────
 
@@ -332,7 +333,10 @@ function PretendCard() {
   const s = useKiosk()
   const { ui } = textsFor(s)
   const { totals } = useBasketTotals(s)
-  const [declined, setDeclined] = useState(false)
+  // 'declined' while the card step shows the card was declined (recorded with the visit, journey.js).
+  const [card, setCard] = useJourneyState('card', null)
+  const declined = card === 'declined' || card === 'unavailable'
+  const setDeclined = on => setCard(on ? 'declined' : null)
   return (
     <CardFrame>
       {declined ? <Declined onRetry={() => setDeclined(false)} /> : (
@@ -360,7 +364,7 @@ function MachineCard() {
   const machine = s.config.card_machine
   const [round, setRound] = useState(0)          // Try again starts a new payment
   const [pay, setPay] = useState(null)           // the attempt from the server
-  const [failed, setFailed] = useState(null)     // 'declined' | 'unavailable'
+  const [failed, setFailed] = useJourneyState('card', null)     // 'declined' | 'unavailable'
   const total = totals?.total || 0
 
   // Start a payment for the total, then ask how it goes until it ends.
@@ -446,11 +450,13 @@ export function Done() {
   const d = s.config.design
   const r = s.result || {}
   const [left, setLeft] = useState(d.behaviour.done_secs)
+  // A replay (journey.js) shows the screen as it was: no countdown.
   useEffect(() => {
+    if (s.replay) return undefined
     const id = setInterval(() => setLeft(n => n - 1), 1000)
     return () => clearInterval(id)
-  }, [])
-  useEffect(() => { if (left <= 0) restart() }, [left])
+  }, [s.replay])
+  useEffect(() => { if (left <= 0) restart('done') }, [left])
   const note = r.pending ? ui('paid_pending')
     : s.method === 'card' ? ui('paid_note')
       : d.checkout.counter_note ? t(TK.design(d.id, 'counter_note'), d.checkout.counter_note)
@@ -468,7 +474,7 @@ export function Done() {
       )}
       <div className="flex gap-[var(--k-gap)] flex-wrap justify-center mt-[var(--k-pad)]">
         {d.checkout.receipt === 'ask' && !r.pending && <button className="k-btn k-btn-big" onClick={printResultReceipt} data-testid="k-receipt"><Printer /> {ui('print_receipt')}</button>}
-        <button className="k-btn k-btn-primary k-btn-big" onClick={restart} data-testid="k-done-button">{ui('done')} ({Math.max(0, left)})</button>
+        <button className="k-btn k-btn-primary k-btn-big" onClick={() => restart('done')} data-testid="k-done-button">{ui('done')} ({Math.max(0, left)})</button>
       </div>
     </div>
   )
