@@ -706,7 +706,7 @@ function LayoutPanel({ d, set }) {
       </div>
       <div data-testid="kd-combo-build">
         <Toggle label="Build a meal deal's picture from the picks"
-          hint="On a meal deal's pages its picture shows each part as it's picked, put together like a photo of the meal: the first step's pick big in the middle, the others beside it, steps set to Small in the corner in front. Before the first pick, or with this off, the deal's own photo with each step's picks on it as the step says."
+          hint="On a meal deal's pages its picture shows each part as it's picked, put together like a photo of the meal: the first step's pick big in the middle, the others beside it in the order picked (left, right, further left, further right), steps set to Small in the corner in front. Before the first pick, or with this off, the deal's own photo with each step's picks on it as the step says."
           checked={y.combo_build} onChange={v => set('layout', { combo_build: v })} />
       </div>
       <div data-testid="kd-fly-to-order">

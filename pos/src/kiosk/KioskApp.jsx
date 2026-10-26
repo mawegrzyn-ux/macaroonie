@@ -22,6 +22,7 @@ import Builder from './Builder.jsx'
 import Allergens from './Allergens.jsx'
 import { Basket, Details, Pay, Card, Placing, Done, Failed } from './Checkout.jsx'
 import { cx, Sheet } from './parts.jsx'
+import { useKioskViewport, screenScale } from './viewport.js'
 import './kiosk.css'
 
 const IDLE_FREE = new Set(['start', 'done', 'placing'])
@@ -120,6 +121,13 @@ function photosText(p) {
   return p.saved === p.total ? 'All ' + p.total + ' saved' : p.saved + ' of ' + p.total + ' saved (the rest when the connection allows)'
 }
 
+// The screen as the browser reports it, and the zoom a small one gets (viewport.js).
+function screenText() {
+  const k = screenScale()
+  const size = Math.round(window.screen?.width || 0) + ' x ' + Math.round(window.screen?.height || 0)
+  return k < 1 ? size + ': small, shown zoomed out to ' + Math.round(k * 100) + '%' : size
+}
+
 function StaffPanel({ s, onClose }) {
   const c = s.config
   return (
@@ -133,7 +141,11 @@ function StaffPanel({ s, onClose }) {
           <span className="k-muted">Venue</span><span>{c?.venue?.name}</span>
           <span className="k-muted">Revenue stream</span><span>{c?.stream?.name || 'None'}</span>
           <span className="k-muted">Design</span><span>{c?.design?.name}</span>
-          <span className="k-muted">Card reader</span><span>{c?.device?.settings?.card_reader === 'test' ? 'Test (no money is taken)' : 'None'}</span>
+          <span className="k-muted">Card machine</span>
+          <span data-testid="k-staff-card">{c?.card_machine
+            ? c.card_machine.name + ' (' + c.card_machine.provider_label + (c.card_machine.test ? ', test: no money is taken' : '') + ')'
+            : 'None: guests pay at the counter'}</span>
+          <span className="k-muted">Screen</span><span data-testid="k-staff-screen">{screenText()}</span>
           <span className="k-muted">Connection</span>
           <span className="flex items-center gap-1" data-testid="k-staff-link">
             {s.link === 'down' ? <><WifiOff size={16} /> Offline: ordering paused, trying every few seconds</>
@@ -186,6 +198,8 @@ function DisconnectBox({ waiting }) {
 
 export default function KioskApp({ device = null, previewToken = null, shareToken = null }) {
   const preview = !!(previewToken || shareToken)
+  // A phone-sized screen shows the kiosk zoomed out, like a big one (viewport.js).
+  useKioskViewport()
   useEffect(() => {
     if (previewToken) bootPreview(previewToken)
     else if (shareToken) bootShare(shareToken)

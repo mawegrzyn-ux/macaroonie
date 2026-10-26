@@ -9,7 +9,7 @@ import {
   normaliseDesign, designProblems, payMethods, uiText, allergenName, translationSources, TK, pickImages, hexLayout, cornerWidths,
   configImages, MAX_SAVED_PICTURES, guestFit, countFits, cleanPrefs, prefsOn, kioskOrder, basketCheck, kioskStaff, kioskFontsUrl, UI_TEXT, ALLERGEN_NAMES, KIOSK_LANGUAGES, DESIGN_COLORS, CLEAR_COLORS, CHOICE_ENTRANCES,
   groupLook, ENTRANCE_KEYS, bundleParts, bundleLayout, bundleBox, BUNDLE_MAX, PART_COLORS, PART_FOLLOWS, COLOR_LABELS, partColours,
-  pictureFit, fitLayout, PICTURE_FITS, PICTURE_FOCUS, PICTURE_BGS, BANNER_SHAPES, BANNER_RATIOS,
+  pictureFit, fitLayout, PICTURE_FITS, PICTURE_FOCUS, PICTURE_BGS, BANNER_SHAPES, BANNER_RATIOS, KIOSK_MIN_SHORT, kioskScale,
 } from '../kiosk.js'
 import { contrast } from '../themeKit.js'
 import { VARIATION_TYPES, VARIATION_TYPE_KEYS } from '../procurement.js'
@@ -761,6 +761,28 @@ test('meal deal picture: every step\'s picks with a picture, the first step big,
   assert.equal(many.length, BUNDLE_MAX)
 })
 
+test('a small screen: the kiosk zoomed out to a short side of KIOSK_MIN_SHORT', () => {
+  assert.equal(KIOSK_MIN_SHORT, 800)
+  // A phone, either way round: the same scale, so the page is laid out 800 across its short side.
+  const k = kioskScale(412, 915)
+  assert.equal(k, 0.515)
+  assert.equal(kioskScale(915, 412), k, 'turned: the same scale')
+  assert.ok(412 / k >= 800 && 412 / k < 801, 'never narrower than 800')
+  assert.equal(kioskScale(360, 780), 0.45)
+  // Rounded down, so the short side comes out at least 800.
+  for (const short of [320, 375, 390, 393, 400, 411, 414, 430, 540, 600, 720, 768, 799]) {
+    const s = kioskScale(short, short * 2)
+    assert.ok(s < 1 && short / s >= 800 && short / s < 802, short + ' -> ' + s)
+  }
+  // 800 or more on the short side (a 10" tablet, a 1080 x 1920 kiosk, a landscape 1920 x 1080): as it is.
+  for (const [w, h] of [[800, 1280], [810, 1440], [1080, 1920], [1920, 1080], [1280, 800], [2160, 3840]]) assert.equal(kioskScale(w, h), 1, w + ' x ' + h)
+  // Unknown: as it is.
+  for (const [w, h] of [[0, 0], [undefined, 900], [null, null], [NaN, 400], [-412, 915], ['412', '915']]) {
+    assert.equal(kioskScale(w, h), w === '412' ? 0.515 : 1, String(w) + ' x ' + String(h))
+  }
+  assert.equal(kioskScale(40, 80), 0.1, 'never below a tenth')
+})
+
 test('meal deal picture: laid out like a photo of the meal, inside the box', () => {
   const P = (...sizes) => sizes.map(size => ({ size }))
   assert.deepEqual(bundleLayout([]), [])
@@ -776,20 +798,34 @@ test('meal deal picture: laid out like a photo of the meal, inside the box', () 
   const [one] = bundleLayout(P('main'), bundleBox('cards'))
   assert.ok(Math.abs(one.left + one.width / 2 - 50) < 0.05 && Math.abs(one.top + one.height / 2 - 50) < 0.05, JSON.stringify(one))
 
-  // Main and two sides: the first side to the right, the second to the left, smaller, a little further back, the whole centred.
+  const mid = p => p.left + p.width / 2
+  // Main and two sides: the first side to the left, the second to the right, smaller, a little further back, the main in the middle.
   const [m, s1, s2] = bundleLayout(P('main', 'side', 'side'), bundleBox('cards'))
-  assert.ok(s1.left > m.left && s2.left < m.left, 'right, then left')
+  assert.ok(s1.left < m.left && s2.left > m.left, 'left, then right')
   assert.ok(m.width > s1.width && s1.width === s2.width)
   assert.ok(Math.abs(bottom(s1) - bottom(s2)) < 0.05, 'the sides stand on one line')
   assert.ok(Math.abs(bottom(m) - bottom(s1) - 0.08 * m.height) < 0.1, 'a little further back up the table than the main')
-  assert.ok(right(s2) > m.left && right(m) > s1.left, 'neighbours overlap a little')
-  assert.ok(Math.abs((s2.left + right(s1)) / 2 - 50) < 0.05, 'centred across')
+  assert.ok(right(s1) > m.left && right(m) > s2.left, 'neighbours overlap a little')
+  assert.ok(Math.abs(mid(m) - 50) < 0.05, 'the main in the middle across')
+  assert.ok(Math.abs((s1.left + right(s2)) / 2 - 50) < 0.05, 'centred across')
   const three = [m, s1, s2]
   assert.ok(Math.abs((Math.min(...three.map(p => p.top)) + Math.max(...three.map(bottom))) / 2 - 50) < 0.05, 'centred top to bottom')
   assert.ok(m.z > s1.z && m.z > s2.z, 'the main in front of its neighbours')
-  // Further out, further back.
+  // Further out, further back: the third on the far left, the fourth on the far right.
   const five = bundleLayout(P('main', 'side', 'side', 'side', 'side'), bundleBox('cards'))
-  assert.ok(bottom(five[3]) < bottom(five[1]) && five[3].z < five[1].z && five[3].left > five[1].left, 'the third side behind the first, further right')
+  assert.ok(bottom(five[3]) < bottom(five[1]) && five[3].z < five[1].z && right(five[3]) < right(five[1]), 'the third side behind the first, further left')
+  assert.ok(bottom(five[4]) < bottom(five[2]) && five[4].z < five[2].z && five[4].left > five[2].left, 'the fourth side behind the second, further right')
+  assert.ok(Math.abs(mid(five[0]) - 50) < 0.05, 'five parts: the main in the middle')
+  // One side (or three): the main still in the middle, no bigger than with a side each way.
+  const [om, os] = bundleLayout(P('main', 'side'), bundleBox('cards'))
+  assert.ok(right(os) < right(om) && os.left < om.left, 'one side: on the left')
+  assert.ok(Math.abs(mid(om) - 50) < 0.05, 'one side: the main in the middle')
+  assert.ok(Math.abs(om.width - m.width) < 0.05, 'one side: as big as with a side each way')
+  const odd = bundleLayout(P('main', 'side', 'side', 'side'), bundleBox('cards'))
+  assert.ok(Math.abs(mid(odd[0]) - 50) < 0.05 && odd[3].left < odd[1].left && odd[2].left > odd[0].left, 'three sides: the main in the middle, the third further left')
+  // Two mains (Pick 2 burgers): their middle in the middle of the box.
+  const two = bundleLayout(P('main', 'main', 'side'), bundleBox('cards'))
+  assert.ok(Math.abs((two[0].left + right(two[1])) / 2 - 50) < 0.05 && two[2].left < two[0].left, 'two mains in the middle, the side on the left')
   // Squares in the box's shape.
   assert.ok(Math.abs(m.height - m.width * 4 / 3) < 0.05)
 
