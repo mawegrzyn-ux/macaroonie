@@ -1434,7 +1434,10 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               Loyverse rejects it) and <Mono>loyverse_venue_links</Mono> (one per venue: connection,
               <Mono>store_id</Mono>, <Mono>day_starts_at</Mono> HH:MM, <Mono>mappings</Mono> jsonb).
               <Mono>cash_daily_reports.loyverse_filled_at</Mono> / <Mono>loyverse_filled_by</Mono>{' '}
-              record the last fill.
+              record the last fill; <Mono>GET .../week-detail/:week</Mono> returns them (and
+              GloriaFood's) per day as <Mono>days[date].filled</Mono>{' '}
+              <Mono>{'{ loyverse, gloriafood }'}</Mono>, each <Mono>{'{ at, by }'}</Mono> or null,
+              for the dashboard's import widget (<Mono>cash_import</Mono>, migration 212).
             </P>
             <P>
               Mapping: <Mono>{'{ income: { sourceId: [term] }, takings: { channelId: [term] }, sc: { sourceId: [term] } }'}</Mono>,
@@ -1921,7 +1924,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>navModeFor(widgets, WIDGET_TYPE_BY_KEY, fallback)</Mono> picks{' '}
               <Mono>'day'</Mono>, <Mono>'week'</Mono> (week step keeps today if it's in that week,
               else the Monday, as <Mono>useWeekNav()</Mono> did) or <Mono>'both'</Mono> (day arrows
-              inside week arrows, two-line label). <Mono>DashboardNav</Mono> draws it, with the
+              inside week arrows, two-line label): day widgets and week widgets together, or one
+              widget whose own <Mono>nav</Mono> is <Mono>'both'</Mono> (the import widget).{' '}
+              <Mono>DashboardNav</Mono> draws it, with the
               invisible <Mono>input[type=date]</Mono> over the label in every mode;{' '}
               <Mono>mobile</Mono> makes it full width. Today is the browser's local date (the old
               H&amp;S navigator used UTC). <Mono>useWeekNav()</Mono> stays in{' '}
@@ -2087,6 +2092,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['cash_week_staff', 'Same WeekWagesEditor and the same options as cash_wages_paid (both keys kept so existing dashboards keep working). Added in migration 104; standardised in migration 137.'],
                 ['cash_week_summary_grid', 'useReconWeek() — the SpreadsheetView row set with only the WEEK column (weekTotal per source/SC/channel, weekDayTotal, weekExpenses, weekCardExpenses, weekCashWages, weekVariance); read-only. ScEffectBadge exported from CashRecon.jsx for it. Added in migration 103 (CHECK constraint only)'],
                 ['cash_tips_payout', 'useRotaPay(venueId, ctx.weekStart) — the rota pay payload (GET /api/rota/venues/:venueId/weeks/:week/pay, computeRotaWeek()), so it needs rota_tips view (useRotaPerms().canSeeTips; without it the widget says so and makes no request). Shows totals.tips_cash / tips_bank as tiles, non-house pots (paid_to_people ?? total, how paid from payout_method / payout_to / payees) and kept_by_house, then tipRows() with tip_share / tip_bank / tip_cash (TipMoneyCell for "hands on"). HeaderValue: totals.tips_shared. Read-only. Options (TIPS_PAYOUT_OPTIONS): hide_pots, hide_people, hide_share, hide_empty (rows with no tip_cash or tip_bank), hide_notes (handed on, unallocated, pots with nobody picked). Added in migration 144 (CHECK constraint only).'],
+                ['cash_import', 'useLoyverseLink() + useGloriaFoodLink() (GET /api/loyverse|gloriafood/venues/:id/link) and useReconWeek(). One card per linked source not left out (detail from the link: store and trading day; restaurant and last_order_at, when the last order was received); Fill <day> opens LoyverseFillModal / GloriaFoodFillModal (ReconFillModal: preview + apply, which invalidates cash-recon-week-detail) with [ctx.selectedDay], disabled for a future or submitted day or when nothing is mapped; Fill this week passes calc.dates up to today. The days list reads week-detail\'s days[date].filled.{loyverse,gloriafood} = { at, by } | null (cash_daily_reports.<source>_filled_at / _by) and sets ctx.selectedDay. Fill buttons need useReconLinkPerms().canFill (cash_recon manage); the API checks it again on apply. nav: \'both\' (its CASH_WIDGET_TYPES entry; widgetTypes.jsx keeps t.nav ?? \'week\'). Options (IMPORT_OPTIONS): hide_days, hide_week, hide_loyverse, hide_gloriafood. Added in migration 212 (CHECK constraint only).'],
               ]}
             />
             <InfoBox type="warn">

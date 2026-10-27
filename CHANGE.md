@@ -5,6 +5,16 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-27 — Import from Loyverse and GloriaFood on a dashboard]
+
+- New dashboard widget **Import from Loyverse / GloriaFood** (Cash group in Add widget, on any dashboard): fills Cash Recon from the venue's Loyverse and GloriaFood links without opening Cash Recon. One card per linked source with **Fill** (the day selected on the dashboard) and **Fill this week** (Monday up to today); both open the same fill window as Cash Recon, so the figures show next to what Cash Recon has before anything is written.
+- Under the cards, each day of the week with when each source last filled it (and who, when you hold over the time); tap a day to select it. Days not yet here and submitted days can't be filled, and the widget says why.
+- Options in Edit layout: Hide the days, Day only, Leave out Loyverse, Leave out GloriaFood. Filling needs Manage on Cash reconciliation; with View the widget shows the days only. A venue with no links says so, with a link to Cash reconciliation for owners and admins.
+- While the widget is on a dashboard, the date bar steps both days and weeks.
+- Migration: `212_cash_import_widget.sql` (widens the dashboard widget type list only). The Cash Recon week read (`week-detail`) now also returns when Loyverse and GloriaFood last filled each day.
+
+---
+
 ## [2026-10-26 — Loyalty: points, stamp cards, rewards, a web app, wallet cards and a members list]
 
 - **Loyalty** (main menu, under Customers) gives guests points, stamp cards and rewards, collected and spent at every location taking part: on the tills, the self-order kiosks and online ordering. It starts switched off: turn on **Loyalty is on** in the Programme tab.

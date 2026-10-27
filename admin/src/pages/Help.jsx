@@ -1440,7 +1440,8 @@ export default function Help() {
             </P>
             <P>
               Then tap <strong>Fill from Loyverse</strong> on a day (top of the day) or a week (top of
-              the week grid or week cards). A window shows each mapped line with the Loyverse figure and
+              the week grid or week cards), or use the <strong>Import from Loyverse / GloriaFood</strong>{' '}
+              widget on a dashboard (see Cash Dashboard). A window shows each mapped line with the Loyverse figure and
               what Cash Recon has now ("same now", "empty now" or the current amount), plus the
               day's receipts, gross sales and any payment types Loyverse took money on that are not
               mapped to a channel. Tick the days to fill and tap <strong>Fill</strong>. Only mapped lines
@@ -1824,6 +1825,7 @@ export default function Help() {
                 ['Week staff list', 'The same wages list as the Wages paid widget: add someone from your staff list (or a one-off name), remove someone, copy the list from one of the last 8 weeks, and Set as default for new weeks. Changes are only written when you tap Save (Discard changes throws them away). Has the same three display options as Wages paid.'],
                 ['Week summary grid', 'The title bar shows the week\'s variance. The reconciliation grid with the individual days taken out: every income source, service charge and payment channel with its week total, then cash expenses and wages paid out of the till, and the variance. Read only, and always matches the WEEK column of the full grid.'],
                 ['Tips to pay out', 'How much of the week\'s tips to pay staff in cash and how much by bank transfer, as two big figures, then each tip pot (what came in and how it is paid out) and each person\'s Bank and Cash amounts with totals. The title bar shows the week\'s total tips. Read only: the figures are the same as the Rota page\'s tips table, which is where pots, shares, moves and who gets a pot are changed. In Edit layout you can switch on: Hide tip pots, Hide staff list (just the two totals), Hide each person\'s total, Hide people with nothing to pay, and Hide notes. Needs access to rota tips.'],
+                ['Import from Loyverse / GloriaFood', 'Fills Cash Recon from the venue\'s Loyverse and GloriaFood links without leaving the dashboard. One card per linked source with Fill (the selected day) and Fill this week (Monday up to today); each opens the same fill window as Cash Recon, so you see the figures next to what Cash Recon has before you tap Fill. Below, every day of the week with when each source last filled it (tap a day to select it; hold over a time to see who filled it). Submitted days and days that haven\'t happened yet can\'t be filled. The dashboard\'s date bar steps days and weeks while this widget is on it. In Edit layout: Hide the days, Day only (no Fill this week), Leave out Loyverse, Leave out GloriaFood. Filling needs Manage on Cash reconciliation; with View you see the days only. Links are set up in Cash Recon settings (see Fill from Loyverse and Fill from GloriaFood).'],
               ]}
             />
             <InfoBox type="tip">

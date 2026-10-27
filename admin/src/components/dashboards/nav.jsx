@@ -56,8 +56,8 @@ export function navModeFor(widgets, typeByKey, fallback = 'day') {
   let week = false
   for (const w of widgets) {
     const nav = typeByKey[w.widget_type]?.nav
-    if (nav === 'day') day = true
-    else if (nav === 'week') week = true
+    if (nav === 'day' || nav === 'both') day = true
+    if (nav === 'week' || nav === 'both') week = true
   }
   if (day && week) return 'both'
   if (week) return 'week'
