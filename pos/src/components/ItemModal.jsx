@@ -145,6 +145,8 @@ function ComboSteps({ item, config, picks, onChange, ctx, stepRefs }) {
     }
     const done = got.length >= step.min
     const hidden = step.ask === 'button' && !got.length && !opened[step.id]
+    // A step that picks itself still shows what its choice costs extra.
+    const autoCharge = auto ? choices.reduce((n, c) => n + count(c) * (c.price_pence || 0), 0) : 0
     return (
       <div key={step.id} ref={el => { stepRefs.current[step.id] = el }} className="space-y-2 scroll-mt-4" data-testid="combo-step">
         {hidden ? (
@@ -156,7 +158,7 @@ function ComboSteps({ item, config, picks, onChange, ctx, stepRefs }) {
             <div className="flex items-center gap-2">
               <div className="font-bold">{step.name}</div>
               <div className={cx('text-xs font-semibold', !done ? 'text-bad' : 'text-muted')}>
-                {auto ? 'Included' : stepRule(step)}{step.repeat && !auto ? ' · tap again for more' : ''}
+                {auto ? 'Included' + (autoCharge ? ' · +' + money(autoCharge) : '') : stepRule(step)}{step.repeat && !auto ? ' · tap again for more' : ''}
               </div>
             </div>
             {!auto && (

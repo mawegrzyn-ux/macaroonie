@@ -218,3 +218,54 @@ test('another tenant\'s groups and options never land in a deal', async () => {
   const text = JSON.stringify(row.combo)
   for (const id of [G['Meal sauce'], G.Flavour, O['Flavour:Lemon']]) assert.ok(!text.includes(id))
 })
+
+test('the deal\'s own extra charges: kept for the options it asks, charged on the kiosk and online', async () => {
+  const bGroup = await ok(theirs.post('/api/menus/variant-groups', { name: 'Theirs 2', options: [{ label: 'X', price_pence: 0 }] }))
+  const body = menuSaveBody(await ok(owner.get(`/api/menus/${M}`)))
+  const meal = body.sections.flatMap(s => s.items).find(i => i.id === D.meal)
+  const opt = id => meal.combo.steps.flatMap(s => s.options).find(o => o.id === id)
+  // Hot 50p in the deal; BBQ isn't one of the deal's flavours, so no price for it.
+  opt(P.wings).groups[G.Flavour] = { ...opt(P.wings).groups[G.Flavour], prices: { [O['Flavour:Hot']]: 50, [O['Flavour:BBQ']]: 40, [bGroup.options[0].id]: 10 } }
+  // The meal's mayo free; the fries' own sauce options aren't the group the deal asks.
+  opt(P.fries).groups[G.Sauce] = { ...opt(P.fries).groups[G.Sauce], prices: { [O['Meal sauce:Mayo']]: 0, [O['Sauce:Mayo']]: 99 } }
+  // Only prices for options the group doesn't have: nothing left to keep.
+  opt(P.friesSame).groups = { [G.Sauce]: { use: 'all', prices: { [O['Dip:Ranch']]: 25 } } }
+  await ok(owner.patch(`/api/menus/${M}`, body))
+  const opts = optionsOf(await comboRow())
+  assert.deepEqual(opts[P.wings].groups[G.Flavour].prices, { [O['Flavour:Hot']]: 50 })
+  assert.deepEqual(opts[P.fries].groups[G.Sauce], { use: 'swap', group_id: G['Meal sauce'], prices: { [O['Meal sauce:Mayo']]: 0 } })
+  assert.ok(!('groups' in opts[P.friesSame]), JSON.stringify(opts[P.friesSame]))
+
+  // Refused: a price that isn't whole pence in range.
+  const bad = menuSaveBody(await ok(owner.get(`/api/menus/${M}`)))
+  bad.sections.flatMap(s => s.items).find(i => i.id === D.meal).combo.steps[0].options[0].groups[G.Flavour].prices = { [O['Flavour:Hot']]: -5 }
+  assert.equal((await owner.patch(`/api/menus/${M}`, bad)).status, 400)
+
+  // Published, then a plain save: nothing to publish.
+  await ok(owner.post(`/api/menus/${M}/publish`, {}))
+  await ok(owner.patch(`/api/menus/${M}`, menuSaveBody(await ok(owner.get(`/api/menus/${M}`)))))
+  assert.equal(((await ok(owner.get(`/api/menus/${M}/publish`))).changes || []).length, 0)
+
+  // Kiosk (the till's engine): Hot costs 50p in the deal, the meal's mayo nothing.
+  const cfg = await kioskConfig()
+  const ctx = comboCtx(cfg)
+  const sel = (flav, sauce) => ({ choices: {}, combo: {
+    [S.main]: [{ option_id: P.wings, item_id: D.wings, choices: { [G.Flavour]: flav.map(id => ({ id })) } }],
+    [S.side]: [{ option_id: P.fries, item_id: D.fries, choices: { [G['Meal sauce']]: sauce.map(id => ({ id })) } }],
+  } })
+  const hot = priceItem(cfg.items[D.meal], sel([O['Flavour:Hot']], [O['Meal sauce:Mayo']]), ctx)
+  assert.equal(hot.ok, true, hot.error)
+  assert.deepEqual(hot.combo.map(p => [p.extras, p.modifiers.map(m => [m.label, m.price])]), [[50, [['Hot', 50]]], [0, [['Mayo', 0]]]])
+
+  // Online: the same charge in the quote.
+  const line = (flav, sauce) => ({ item_id: D.meal, qty: 1, choices: {}, combo: {
+    [S.main]: [{ option_id: P.wings, item_id: D.wings, choices: { [G.Flavour]: flav } }],
+    [S.side]: [{ option_id: P.fries, item_id: D.fries, choices: { [G['Meal sauce']]: sauce } }],
+  } })
+  const q = async l => (await pub('POST', `/order-api/venues/${V}/quote`, { lines: [l] })).json
+  const a = await q(line([O['Flavour:Hot'], O['Flavour:Lemon']], [O['Meal sauce:Mayo']]))
+  assert.deepEqual(a.errors, [])
+  assert.equal(a.lines[0].unit_pence, 1550, '£15 + Hot 50p, the meal\'s mayo free')
+  assert.deepEqual(a.lines[0].parts[0].options.map(o => [o.label, o.price_pence]), [['Hot', 50], ['Lemon', 0]])
+  assert.equal((await q(line([O['Flavour:Lemon']], [O['Meal sauce:Ketchup']]))).lines[0].unit_pence, 1500)
+})

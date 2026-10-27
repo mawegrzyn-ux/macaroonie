@@ -35,7 +35,7 @@ import { FONT_OPTIONS } from '../../../shared/fonts.js'
 import { ALLERGEN_LEVELS, allergenKey, menuTags, noticeOf } from '../../../shared/menuTags.js'
 import { cleanTax } from '../../../shared/tax.js'
 import { comboMenuPrice, variantOptionId } from '../../../shared/orderPricing.js'
-import { PICK_SCALE_MIN, PICK_SCALE_MAX, DEAL_USES, normaliseDealGroups } from '../../../shared/combos.js'
+import { PICK_SCALE_MIN, PICK_SCALE_MAX, DEAL_USES, DEAL_PRICE_MAX, normaliseDealGroups } from '../../../shared/combos.js'
 import { taxLookups, checkTaxSetting } from '../services/taxSvc.js'
 import { translationSources, saveTranslations, aiTranslate, checkLang, AI_BATCH } from '../services/translationSvc.js'
 import { chatConfigured } from '../ai/apiKey.js'
@@ -72,14 +72,16 @@ const ItemGroupAttach = z.object({
 // A dish or section choice can change its dishes' option groups in the deal
 // (shared/combos.js dealChoices()), keyed by group id or 'variants' (a
 // dish's own options, ids 'v:<label>'): leave out, only some options, another
-// group instead, how many. Kept only for groups the dishes have, with the
-// tenant's groups and options, and only when set (cleanCombo()).
+// group instead, how many, and the deal's own extra charge per option
+// (prices: option id -> pence). Kept only for groups the dishes have, with
+// the tenant's groups and options, and only when set (cleanCombo()).
 const DealGroup = z.object({
   use:        z.enum(DEAL_USES).default('all'),
   option_ids: z.array(z.string().min(1).max(80)).max(100).optional(),
   group_id:   z.string().uuid().nullable().optional(),
   min:        z.number().int().min(0).max(20).nullable().optional(),
   max:        z.number().int().min(1).max(20).nullable().optional(),
+  prices:     z.record(z.string().min(1).max(80), z.number().int().min(0).max(DEAL_PRICE_MAX)).nullable().optional(),
 })
 const ComboOption = z.object({
   id:           z.string().uuid(),
@@ -718,12 +720,18 @@ function cleanDealGroups(raw, keys, lib) {
     const offered = keys.get(key)
     if (!offered) continue
     if (ch.use === 'swap' && !lib.has(ch.group_id)) continue
+    const { prices: raw, ...next } = ch
     if (ch.use === 'only') {
-      const ids = ch.option_ids.filter(id => offered.has(id))
-      out[key] = ids.length ? { ...ch, option_ids: ids } : { use: 'off' }
-      continue
+      next.option_ids = ch.option_ids.filter(id => offered.has(id))
+      if (!next.option_ids.length) { out[key] = { use: 'off' }; continue }
     }
-    out[key] = ch
+    // Deal prices only for options the deal asks (a swap: the other group's).
+    const asked = ch.use === 'swap' ? lib.get(ch.group_id) : ch.use === 'only' ? new Set(next.option_ids) : offered
+    const prices = Object.fromEntries(Object.entries(raw || {}).filter(([id]) => asked.has(id)))
+    if (Object.keys(prices).length) next.prices = prices
+    // 'all' with nothing left to change (prices only for options it lacks) is as on the dish.
+    else if (next.use === 'all' && next.min == null && next.max == null) continue
+    out[key] = next
   }
   return Object.keys(out).length ? out : null
 }

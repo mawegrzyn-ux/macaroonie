@@ -110,8 +110,9 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx', loy
         { name: mark + ' Green Curry', price_pence: 1350, is_orderable: true, variants: [{ label: mark + ' Chicken', price_pence: 1350 }] },
       ] }],
     }))
-    // A meal deal that asks the Pad Thai's size as the copy of its group
-    // (options in the deal, shared/combos.js dealChoices()).
+    // A meal deal that asks the Pad Thai's size as the copy of its group,
+    // with the deal's own charge for one of its options (options in the
+    // deal, shared/combos.js dealChoices()).
     const tree = vg && vgCopy ? await step('menu load for the deal', () => get(`/api/menus/${menu.id}`)) : null
     const pad = tree?.sections?.[0]?.items?.[0]
     if (pad) {
@@ -119,7 +120,8 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx', loy
       body.sections.push({ title: mark + ' Deals', items: [{
         name: mark + ' Lunch deal', kind: 'combo', price_pence: 1500, is_orderable: true,
         combo: { mode: 'manual', steps: [{ id: randomUUID(), name: mark + ' Main', min: 1, max: 1, options: [
-          { id: randomUUID(), type: 'item', item_id: pad.id, groups: { [vg.id]: { use: 'swap', group_id: vgCopy.id } } },
+          { id: randomUUID(), type: 'item', item_id: pad.id, groups: { [vg.id]: { use: 'swap', group_id: vgCopy.id,
+            ...(vgCopy.options?.[0] ? { prices: { [vgCopy.options[0].id]: 75 } } : {}) } } },
         ] }] },
       }] })
       await step('meal deal', () => patch(`/api/menus/${menu.id}`, body))

@@ -559,8 +559,16 @@ function groupsOfChoice(o, itemIndex, library) {
   return [...out.values()]
 }
 
-/** "Lemon pepper, BBQ, Atomic · choose 1". */
-const askedText = c => c.options.map(o => o.label).join(', ') + ' · ' + stepRule(c).toLowerCase()
+/** "Lemon pepper, BBQ, Atomic +£0.50 · choose 1" (charges only for options that add to the price). */
+const askedText = c => c.options.map(o => o.label + (c.mode === 'extra' && o.price_pence > 0 ? ' +' + formatPrice(o.price_pence) : '')).join(', ') + ' · ' + stepRule(c).toLowerCase()
+
+/** The deal's own charges, for the summary: "Atomic +£0.50, Garlic free", or "3 charges". */
+function pricesText(ch, asked) {
+  const ids = Object.keys(ch.prices || {}).filter(id => asked.options.some(o => o.id === id))
+  if (!ids.length) return ''
+  if (ids.length > 2) return ids.length + ' charges'
+  return ids.map(id => asked.options.find(o => o.id === id).label + (ch.prices[id] > 0 ? ' +' + formatPrice(ch.prices[id]) : ' free')).join(', ')
+}
 
 /** "Lemon pepper", "2 x Ranch": what the deal picks itself (dealChoices() fixed: one option left). */
 function fixedText(c) {
@@ -588,11 +596,14 @@ function dealSummary(o, groups, library) {
     if (!ch) continue
     const asked = dealGroup(g, ch, library)
     const rule = ch.min != null || ch.max != null ? (asked ? ', ' + stepRule(asked).toLowerCase() : '') : ''
+    const priced = asked ? pricesText(ch, asked) : ''
+    const charges = priced ? ', ' + priced : ''
     if (ch.use === 'off' || !asked) out.push(g.name + ': not asked')
-    else if (asked.fixed) out.push(g.name + ': always ' + fixedText(asked))
-    else if (ch.use === 'only') out.push(g.name + ': ' + asked.options.length + ' of ' + g.options.length + rule)
-    else if (ch.use === 'swap') out.push(g.name + ': ' + asked.name + ' instead' + rule)
-    else out.push(g.name + ': ' + stepRule(asked).toLowerCase())
+    else if (asked.fixed) out.push(g.name + ': always ' + fixedText(asked) + charges)
+    else if (ch.use === 'only') out.push(g.name + ': ' + asked.options.length + ' of ' + g.options.length + rule + charges)
+    else if (ch.use === 'swap') out.push(g.name + ': ' + asked.name + ' instead' + rule + charges)
+    else if (ch.min == null && ch.max == null) out.push(g.name + ': ' + (priced || stepRule(asked).toLowerCase()))
+    else out.push(g.name + ': ' + stepRule(asked).toLowerCase() + charges)
   }
   return out.join(' · ')
 }
@@ -647,7 +658,7 @@ function DealOptionsModal({ option, title, groups, library, readOnly, onChange, 
           <div className="flex-1 min-w-0">
             <h2 className="text-sm font-semibold truncate">Options in this deal: {title}</h2>
             <p className="text-xs text-muted-foreground">
-              What this dish asks inside the deal, one group at a time. It stays the menu's dish: the kitchen, stock, allergens and photos follow it.
+              What this dish asks inside the deal, one group at a time, and what its options cost extra. It stays the menu's dish: the kitchen, stock, allergens and photos follow it.
             </p>
           </div>
           <button type="button" onClick={onClose} aria-label="Close" className="w-11 h-11 flex items-center justify-center rounded-md hover:bg-accent"><X className="w-4 h-4" /></button>
@@ -680,15 +691,19 @@ function DealGroupRow({ group, change, library, copying, onCopy, onChange }) {
   const [waiting, setWaiting] = useState(false)
   const mode = waiting && use !== 'swap' ? 'swap' : use
   const limits = { ...(change?.min != null ? { min: change.min } : {}), ...(change?.max != null ? { max: change.max } : {}) }
+  // The deal's prices stay with the dish's own options (a swap asks another group's).
+  const keep = { ...limits, ...(change?.prices && use !== 'swap' ? { prices: change.prices } : {}) }
   const pick = m => {
     setWaiting(false)
-    if (m === 'all') onChange({ use: 'all', ...limits })
+    if (m === 'all') onChange({ use: 'all', ...keep })
     else if (m === 'off') onChange({ use: 'off' })
-    else if (m === 'only') onChange({ use: 'only', option_ids: use === 'only' ? change.option_ids : group.options.map(o => o.id), ...limits })
+    else if (m === 'only') onChange({ use: 'only', option_ids: use === 'only' ? change.option_ids : group.options.map(o => o.id), ...keep })
     else if (use !== 'swap') setWaiting(true)
   }
   const swapTo = library.find(g => g.id === change?.group_id) || null
   const asked = mode === 'swap' && use !== 'swap' ? null : dealGroup(group, change, library)
+  // The options the deal asks before its own prices: what each one costs without them.
+  const plain = asked && change?.prices ? dealGroup(group, { ...change, prices: null }, library) : asked
   const others = library.filter(g => g.id !== group.key)
   const setLimit = (k, v) => onChange({ ...change, use, [k]: v === '' ? undefined : Number(v) })
   // How many the group asks before the deal's own how many.
@@ -732,7 +747,7 @@ function DealGroupRow({ group, change, library, copying, onCopy, onChange }) {
         <div className="space-y-1.5">
           <div className="flex flex-wrap items-center gap-2">
             <select value={change?.group_id || ''} aria-label={'Group the deal asks instead of ' + group.name} data-testid="deal-swap"
-              onChange={e => { if (e.target.value) { setWaiting(false); onChange({ use: 'swap', group_id: e.target.value, ...limits }) } }}
+              onChange={e => { if (e.target.value) { setWaiting(false); onChange({ use: 'swap', group_id: e.target.value, ...limits, ...(e.target.value === change?.group_id && change?.prices ? { prices: change.prices } : {}) }) } }}
               className="text-sm border rounded-md px-2 min-h-[44px] bg-background min-w-[12rem] max-w-full">
               <option value="">Choose a group…</option>
               {others.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
@@ -764,6 +779,10 @@ function DealGroupRow({ group, change, library, copying, onCopy, onChange }) {
           </select>
         </div>
       )}
+      {plain && (
+        <DealPrices group={plain} prices={change?.prices || {}}
+          onChange={prices => onChange({ ...(change || {}), use, prices })} />
+      )}
       <p className="text-xs" data-testid="deal-asked" data-fixed={asked?.fixed ? '1' : undefined}>
         {mode === 'swap' && use !== 'swap' ? <span className="text-muted-foreground">Choose the group to ask instead.</span>
           : asked?.fixed ? <><span className="font-medium">In the deal:</span> {asked.name !== group.name ? asked.name + ': ' : ''}always {fixedText(asked)}. Guests aren't asked: it's picked for them.</>
@@ -774,6 +793,57 @@ function DealGroupRow({ group, change, library, copying, onCopy, onChange }) {
         <p className="text-[11px] text-muted-foreground" data-testid="deal-one-optional">
           One option left, and the group is optional, so guests are still asked whether they want it. Set How many to at least 1 to always include it without asking.
         </p>
+      )}
+    </div>
+  )
+}
+
+/**
+ * The deal's own extra charge for each option it asks (prices: option id ->
+ * pence, shared/combos.js dealChoices()). Empty is as on the dish: an extra
+ * option's own charge; an option that sets the dish's price is in the
+ * deal's price. Folded away until a price is set; the toggle is a div so
+ * View users (a disabled fieldset) can still open it.
+ */
+function DealPrices({ group, prices, onChange }) {
+  const set = Object.keys(prices).filter(id => group.options.some(o => o.id === id))
+  const [open, setOpen] = useState(set.length > 0)
+  const put = (id, p) => {
+    const next = { ...prices }
+    if (p == null || p < 0) delete next[id]
+    else next[id] = p
+    onChange(next)
+  }
+  const extra = group.mode === 'extra'
+  const toggle = () => setOpen(o => !o)
+  return (
+    <div data-testid="deal-prices" data-open={open ? '1' : undefined}>
+      <div role="button" tabIndex={0} aria-expanded={open} onClick={toggle} data-testid="deal-prices-toggle"
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle() } }}
+        className="inline-flex items-center gap-1.5 text-xs font-medium rounded-md px-2 -mx-2 min-h-[40px] hover:bg-accent cursor-pointer touch-manipulation">
+        {open ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+        Extra charges in the deal
+        <span className="font-normal text-muted-foreground">{set.length ? '· ' + set.length + ' set' : '· as on the dish'}</span>
+      </div>
+      {open && (
+        <div className="mt-1 space-y-1.5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1">
+            {group.options.map(o => {
+              const own = extra && o.price_pence > 0 ? '+' + formatPrice(o.price_pence) : '+£0.00'
+              return (
+                <label key={o.id} className="flex items-center gap-2 min-h-[44px] min-w-0" data-testid="deal-price" data-option={o.id}>
+                  <span className="flex-1 min-w-0 truncate text-sm">{o.label}</span>
+                  <PriceInput pence={prices[o.id] ?? null} onChange={p => put(o.id, p)} placeholder={own}
+                    className="w-24 font-mono" aria-label={'Extra charge in the deal for ' + o.label} />
+                </label>
+              )
+            })}
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Charged on top of the deal&apos;s price when the option is picked; 0.00 makes it free in the deal. Empty is as on the dish
+            {extra ? ' (its own extra charge, shown in the box).' : ': these options set the dish\'s own price, which the deal\'s price replaces, so they cost nothing extra.'}
+          </p>
+        </div>
       )}
     </div>
   )

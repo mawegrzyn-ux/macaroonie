@@ -958,7 +958,9 @@ async function startOrdering() {
     function stepHtml(s, r) {
       const step = s.step
       const got = r.picks[step.id] || []
-      let h = '<div class="mo-group"><div class="mo-group-head"><span>' + esc(step.name) + '</span><span class="mo-muted" style="font-weight:400;font-size:.9rem;">' + (s.auto ? 'Included' : stepRule(step)) + (step.repeat && !s.auto ? ' · more than one of each' : '') + '</span></div>'
+      // A step that picks itself still shows what its choice costs extra.
+      const autoCharge = s.auto ? got.reduce((n, e) => n + ((s.choices.find(c => c.option_id === e.option_id && (c.item_id || null) === (e.item_id || null)) || {}).price_pence || 0), 0) : 0
+      let h = '<div class="mo-group"><div class="mo-group-head"><span>' + esc(step.name) + '</span><span class="mo-muted" style="font-weight:400;font-size:.9rem;">' + (s.auto ? 'Included' + (autoCharge ? ' · +' + money(autoCharge) : '') : stepRule(step)) + (step.repeat && !s.auto ? ' · more than one of each' : '') + '</span></div>'
       if (step.ask === 'button' && !got.length && !opened.has('s|' + step.id)) {
         return h + '<button type="button" class="mo-btn mo-btn-ghost mo-btn-block" data-open="s|' + esc(step.id) + '">+ ' + esc(step.name) + '</button></div>'
       }

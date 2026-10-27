@@ -267,13 +267,32 @@ export function resolveSteps(item, picks = {}, ctx = {}) {
 //           typically a copy edited for the deal (fewer options, deal prices)
 //   'all'   as on the dish, with the deal's own how many
 // min / max (null = the group's own) say how many to choose, for every use
-// but 'off' ("2 flavours in the meal"). A group with no entry is as on the
+// but 'off' ("2 flavours in the meal"). prices (option id -> pence) are the
+// deal's own extra charges for the options it asks ("Large +£2.00 in the
+// meal", "Atomic +£0.50"): with any set the group is asked as extras, each
+// option at its deal price, an option without one at its own extra charge
+// (an extra group) or free (a group whose options set the dish's price,
+// which the deal's price replaces). A group with no entry is as on the
 // dish. The picked dish stays the menu's dish: the kitchen, recipes and
 // stock, allergens, photos and sold out follow it; only what is asked
 // changes. Stored only when set, so deals without changes aren't changes to
 // publish.
 
 const countOf = (v, lo) => (v == null || v === '' || !Number.isFinite(Number(v)) ? null : Math.max(lo, Math.min(MAX_PICKS, Math.trunc(Number(v)))))
+// The most a deal's extra charge for one option can be, in pence (a combo choice's own charge has the same cap).
+export const DEAL_PRICE_MAX = 100000
+
+/** A deal's extra charges as stored: whole pence in range, for these option ids when given; null when none. */
+function dealPrices(raw, ids = null) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const out = {}
+  for (const [id, v] of Object.entries(raw).slice(0, 100)) {
+    if (!id || v == null || v === '' || (ids && !ids.includes(id))) continue
+    const n = Number(v)
+    if (Number.isInteger(n) && n >= 0 && n <= DEAL_PRICE_MAX) out[id] = n
+  }
+  return Object.keys(out).length ? out : null
+}
 
 /** A choice's changes to its dishes' groups as stored: only real changes, or null when there are none. */
 export function normaliseDealGroups(raw) {
@@ -297,8 +316,10 @@ export function normaliseDealGroups(raw) {
       const min = countOf(v.min, 0)
       if (max != null) e.max = max
       if (min != null) e.min = max != null ? Math.min(min, max) : min
+      const prices = dealPrices(v.prices, use === 'only' ? e.option_ids : null)
+      if (prices) e.prices = prices
     }
-    if (use === 'all' && e.min == null && e.max == null) continue
+    if (use === 'all' && e.min == null && e.max == null && !e.prices) continue
     out[key] = { use, ...e }
   }
   return Object.keys(out).length ? out : null
@@ -320,6 +341,9 @@ export function moveDealGroup(groups, from, to, optionIds = {}, { keepOld = fals
   const moved = ch.use === 'only'
     ? { ...ch, option_ids: ch.option_ids.map(id => optionIds[id]).filter(Boolean) }
     : { ...ch }
+  if (ch.prices) {
+    moved.prices = Object.fromEntries(Object.entries(ch.prices).filter(([id]) => optionIds[id]).map(([id, p]) => [optionIds[id], p]))
+  }
   const out = { ...changes, [to]: moved }
   if (!keepOld) delete out[from]
   return normaliseDealGroups(out)
@@ -332,6 +356,23 @@ function dealLimits(c, ch) {
   max = Math.max(1, max)
   const min = Math.max(0, Math.min(max, Number(ch.min ?? c.min) || 0))
   return { ...c, min, max, on_request: min === 0 && !!c.on_request }
+}
+
+/**
+ * A group with the deal's own extra charges (prices: option id -> pence):
+ * asked as extras, each option at its deal price, else at its own extra
+ * charge (an extra group) or free (a base group's prices are dish prices,
+ * which the deal's price replaces).
+ */
+function withDealPrices(c, prices) {
+  const extra = c.mode === 'extra'
+  return {
+    ...c, mode: 'extra',
+    options: asList(c.options).map(o => {
+      const p = prices[String(o.id)]
+      return p != null ? { ...o, price_pence: p } : extra ? o : { ...o, price_pence: 0 }
+    }),
+  }
 }
 
 /**
@@ -371,9 +412,10 @@ export const askedChoices = choices => asList(choices).filter(c => !c.fixed)
  * changes (groups, from stepChoices()). swap(groupId, choice) gives another
  * group as a choice in the same shape (null: unknown, the group is left out).
  * A group left with no options goes; a key that comes twice (a swap to a
- * group the dish has too) is asked once; a changed group left with nothing
- * to choose carries fixed (fixedPicks()): show askedChoices(), price with
- * withDealPicks().
+ * group the dish has too) is asked once; a group with deal prices is asked
+ * as extras at those prices (withDealPrices()); a changed group left with
+ * nothing to choose carries fixed (fixedPicks()): show askedChoices(), price
+ * with withDealPicks().
  */
 export function dealChoices(choices, groups, swap = null) {
   const list = asList(choices)
@@ -395,6 +437,7 @@ export function dealChoices(choices, groups, swap = null) {
       }
       next = dealLimits(next, ch)
       if (!asList(next.options).length) continue
+      if (ch.prices && Object.keys(ch.prices).length) next = withDealPrices(next, ch.prices)
       const fixed = fixedPicks(next)
       if (fixed) next = { ...next, fixed }
     }
@@ -523,8 +566,11 @@ export function comboFromPrice(item, base, ctx = {}) {
   let varies = false
   if (!combo) return { pence: total, varies }
   for (const step of combo.steps) {
-    const prices = stepChoices(step, { ...ctx, selfId: item.id }).map(c => c.price_pence)
+    const choices = stepChoices(step, { ...ctx, selfId: item.id })
+    const prices = choices.map(c => c.price_pence)
     if (prices.some(p => p > 0)) varies = true
+    // A dish's option that costs extra in the deal can make it dearer too.
+    if (choices.some(c => Object.values(c.groups || {}).some(g => Object.values(g.prices || {}).some(p => p > 0)))) varies = true
     if (step.when || step.min === 0 || !prices.length) continue
     const sorted = [...prices].sort((a, b) => a - b)
     const need = step.repeat ? Array(step.min).fill(sorted[0]) : sorted.slice(0, step.min)
