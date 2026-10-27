@@ -12,8 +12,9 @@
 //   group   which heading it sits under in Add widget (WIDGET_GROUPS)
 //   module  the module whose data it shows; without view on it the widget
 //           isn't offered and shows "no access" instead of its body
-//   nav     'day' | 'week' | null, what the shared navigator must provide
-//           (components/dashboards/nav.jsx)
+//   nav     'day' | 'week' | 'both' | null, what the shared navigator must
+//           provide (components/dashboards/nav.jsx); cash widgets are 'week'
+//           unless their CASH_WIDGET_TYPES entry says otherwise
 // renderWidget() draws any type's body from { widget, venueId, ctx,
 // template, onChecklistState }.
 
@@ -55,7 +56,7 @@ export const WIDGET_TYPES = [
   ...HS_TYPES,
   ...MENU_TYPES,
   ...CASH_WIDGET_TYPES.map(t => ({
-    ...t, group: 'cash', nav: 'week',
+    ...t, group: 'cash', nav: t.nav ?? 'week',
     module: t.key === 'cash_tips_payout' ? 'rota_tips' : 'cash_recon',
   })),
   ...ROTA_WIDGET_TYPES.map(t => ({ ...t, group: 'rota', nav: 'week', module: ROTA_MODULE[t.key] })),

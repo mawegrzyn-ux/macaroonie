@@ -1060,7 +1060,9 @@ export default async function cashReconRoutes(app) {
       await assertVenueOwnership(tx, req.tenantId, venueId)
 
       const headers = await tx`
-        SELECT id, report_date::text AS date, status
+        SELECT id, report_date::text AS date, status,
+               loyverse_filled_at, loyverse_filled_by,
+               gloriafood_filled_at, gloriafood_filled_by
           FROM cash_daily_reports
          WHERE venue_id    = ${venueId}
            AND tenant_id   = ${req.tenantId}
@@ -1129,6 +1131,9 @@ export default async function cashReconRoutes(app) {
           expenses:       exps,
           total_expenses: totExp.toFixed(2),
           total_card_expenses: totCard.toFixed(2),
+          // When Loyverse / GloriaFood last filled this day (the import widget).
+          filled: Object.fromEntries(['loyverse', 'gloriafood'].map(k => [k,
+            hdr[k + '_filled_at'] ? { at: hdr[k + '_filled_at'], by: hdr[k + '_filled_by'] ?? null } : null])),
         }
       }
 

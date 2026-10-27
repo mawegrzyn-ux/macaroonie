@@ -12,6 +12,8 @@
 //   - WeekWagesEditor (WagesTable.jsx) for the wage widgets
 //   - the rota pay payload (useRotaPay, computeRotaWeek() on the server) for
 //     the tips to pay out widget, the same figures as the Rota page's tips
+//   - the Loyverse and GloriaFood fill windows (reconShared.jsx) for the
+//     import widget
 // so the dashboard can never disagree with the Cash Recon or Rota pages.
 //
 // Navigation context (ctx) comes from the shared dashboard navigator
@@ -20,12 +22,13 @@
 // read. useWeekNav() below is the plain week navigator the Rota page uses.
 
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { format, addDays, addWeeks, subWeeks, parseISO } from 'date-fns'
 import {
   ChevronLeft, ChevronRight, Loader2,
   Users, Receipt, Table2, Scale, CalendarDays, LayoutGrid, ListChecks, Sigma,
-  AlertTriangle, UserCog, Coins,
+  AlertTriangle, UserCog, Coins, Download, Check, Lock,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -37,6 +40,9 @@ import { PettyCashPanel } from '@/pages/mobile/MobileExpenses'
 import { WeekWagesEditor } from './WagesTable'
 import { usePermission } from '@/hooks/usePermission'
 import { useRotaPay, useRotaPerms, tipRows, TipMoneyCell } from '@/components/staff/rota'
+import { useLoyverseLink, LoyverseFillModal } from './Loyverse'
+import { useGloriaFoodLink, GloriaFoodFillModal } from './GloriaFood'
+import { useReconLinkPerms } from './reconShared'
 
 // Display options for the two wage widgets (widget.settings), passed to
 // WeekWagesEditor. Saving still writes the whole week (hidden fields are
@@ -58,6 +64,14 @@ const TIPS_PAYOUT_OPTIONS = [
   { key: 'hide_notes',  label: 'Hide notes', hint: 'No notes about unallocated tips, handed-on money or pots with nobody picked' },
 ]
 
+// Display options for the import widget (widget.settings).
+const IMPORT_OPTIONS = [
+  { key: 'hide_days',       label: 'Hide the days', hint: 'Just the Fill buttons, no list of what each day has' },
+  { key: 'hide_week',       label: 'Day only',      hint: 'No Fill this week button' },
+  { key: 'hide_loyverse',   label: 'Leave out Loyverse' },
+  { key: 'hide_gloriafood', label: 'Leave out GloriaFood' },
+]
+
 export const CASH_WIDGET_TYPES = [
   { key: 'cash_day_tiles',    label: 'Days of the week',       icon: LayoutGrid,   defaultTitle: 'This week',
     options: [
@@ -76,6 +90,8 @@ export const CASH_WIDGET_TYPES = [
     options: WAGES_OPTIONS },
   { key: 'cash_tips_payout',  label: 'Tips to pay out',        icon: Coins,        defaultTitle: 'Tips to pay out', HeaderValue: TipsPayoutHeader,
     options: TIPS_PAYOUT_OPTIONS },
+  { key: 'cash_import',       label: 'Import from Loyverse / GloriaFood', icon: Download, defaultTitle: 'Import sales',
+    nav: 'both', options: IMPORT_OPTIONS },
 ]
 
 function todayStr() {
@@ -707,6 +723,167 @@ function WeekExpensesWidget({ venueId, ctx }) {
   )
 }
 
+// ── Import from Loyverse / GloriaFood ──────────────────────────
+
+// Fill Cash Recon from the venue's Loyverse and GloriaFood links without
+// leaving the dashboard: per linked source, Fill the selected day or the
+// week so far, through the same fill windows as Cash Recon (preview next to
+// what Cash Recon has, tick days, Fill; the server reads the source again
+// and never changes a submitted day). Below, each day of the week with
+// when each source last filled it (week-detail's `filled`); tapping a day
+// selects it. Filling needs Cash reconciliation manage; View shows the days
+// only. Options (widget.settings): hide_days, hide_week, hide_loyverse,
+// hide_gloriafood.
+
+const IMPORT_SOURCES = [
+  { key: 'loyverse',   name: 'Loyverse',   Modal: LoyverseFillModal,
+    detail: l => [l.store_name, l.day_starts_at && 'Trading day from ' + l.day_starts_at] },
+  { key: 'gloriafood', name: 'GloriaFood', Modal: GloriaFoodFillModal,
+    detail: l => [l.restaurant?.name, l.last_order_at ? 'Last order received ' + format(new Date(l.last_order_at), 'd MMM HH:mm') : 'No orders received yet'] },
+]
+
+function hasMappings(link) {
+  return Object.values(link?.mappings ?? {}).some(g => Object.values(g ?? {}).some(terms => terms?.length))
+}
+
+function filledText(f) {
+  const at = new Date(f.at)
+  return format(at, 'yyyy-MM-dd') === todayStr() ? format(at, 'HH:mm') : format(at, 'd MMM HH:mm')
+}
+
+function ImportWidget({ venueId, ctx, settings = {} }) {
+  const { canFill, canSetup, ready } = useReconLinkPerms()
+  const links = {
+    loyverse:   useLoyverseLink(venueId),
+    gloriafood: useGloriaFoodLink(venueId),
+  }
+  const { detail, isLoading, calc } = useReconWeek(venueId, ctx.weekStart)
+  const [open, setOpen] = useState(null)   // { source, dates }
+
+  if ((links.loyverse.isLoading || links.gloriafood.isLoading || isLoading) && !detail) return <Loading />
+  const linkError = links.loyverse.error || links.gloriafood.error
+  if (linkError) return <p className="text-sm text-destructive py-4 text-center">{linkError.message || 'Could not load the links.'}</p>
+
+  const linked = IMPORT_SOURCES.filter(s => links[s.key].data?.link)
+  const sources = linked.filter(s => !settings['hide_' + s.key])
+  if (!linked.length) {
+    return (
+      <div className="py-4 text-center text-sm text-muted-foreground space-y-2">
+        <p>This venue isn&apos;t linked to Loyverse or GloriaFood yet.</p>
+        {canSetup && (
+          <p>Link it in <Link to="/cash-recon" className="text-primary underline underline-offset-2">Cash reconciliation</Link> &gt; Settings.</p>
+        )}
+      </div>
+    )
+  }
+  if (!sources.length) {
+    return <p className="text-sm text-muted-foreground py-4 text-center">Every linked source is left out in this widget&apos;s options.</p>
+  }
+
+  const today = todayStr()
+  const day = ctx.selectedDay
+  const dayReport = detail?.days?.[day]
+  const daySubmitted = dayReport?.status === 'submitted'
+  const weekDates = calc.dates.filter(d => d <= today)
+  const openSet = new Set(calc.visibleDates)
+  const dayLabel = format(parseISO(day), 'EEE d MMM')
+
+  return (
+    <div className="space-y-3">
+      {ready && !canFill && (
+        <p className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-900" data-testid="import-view-only">
+          View only: filling needs Manage on Cash reconciliation.
+        </p>
+      )}
+
+      {sources.map(s => {
+        const link = links[s.key].data.link
+        const mapped = hasMappings(link)
+        return (
+          <div key={s.key} className="rounded-xl border p-3 space-y-2" data-testid={'import-source-' + s.key}>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold">{s.name}</p>
+              <p className="text-xs text-muted-foreground truncate">{s.detail(link).filter(Boolean).join(' · ')}</p>
+            </div>
+            {!mapped && (
+              <p className="text-xs text-amber-800 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5">
+                Nothing is mapped yet. Map fields in Cash Recon settings &gt; {s.name}.
+              </p>
+            )}
+            {canFill && (
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={() => setOpen({ source: s, dates: [day] })}
+                  disabled={!mapped || day > today || daySubmitted}
+                  data-testid={'import-fill-day-' + s.key}
+                  className="min-h-[48px] grow basis-32 min-w-0 px-3 rounded-xl bg-primary text-primary-foreground text-sm font-medium touch-manipulation hover:bg-primary/90 disabled:opacity-50 inline-flex items-center justify-center gap-2">
+                  <Download className="w-4 h-4 shrink-0" /> Fill {dayLabel}
+                </button>
+                {!settings.hide_week && (
+                  <button type="button" onClick={() => setOpen({ source: s, dates: weekDates })}
+                    disabled={!mapped || !weekDates.length}
+                    data-testid={'import-fill-week-' + s.key}
+                    className="min-h-[48px] grow basis-32 min-w-0 px-3 rounded-xl border text-sm font-medium touch-manipulation hover:bg-muted disabled:opacity-50 inline-flex items-center justify-center gap-2">
+                    Fill this week
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )
+      })}
+
+      {canFill && (day > today || daySubmitted) && (
+        <p className="text-xs text-muted-foreground">
+          {day > today
+            ? `${dayLabel} hasn't happened yet, so there's nothing to fill.`
+            : `${dayLabel} is submitted. Unsubmit it in Cash Recon to fill it again.`}
+        </p>
+      )}
+
+      {!settings.hide_days && (
+        <div className="divide-y rounded-xl border" data-testid="import-days">
+          {calc.dates.map(date => {
+            const d = detail?.days?.[date]
+            const isOpen = openSet.has(date)
+            const selected = date === day
+            return (
+              <button key={date} type="button" onClick={() => ctx.setSelectedDay(date)}
+                aria-pressed={selected} data-date={date}
+                className={cn(
+                  'w-full min-h-[48px] px-3 py-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-left touch-manipulation',
+                  selected ? 'bg-primary/5' : 'hover:bg-accent',
+                  !isOpen && 'opacity-60',
+                )}>
+                <span className={cn('w-20 shrink-0 text-sm', selected ? 'font-semibold text-primary' : 'font-medium')}>
+                  {format(parseISO(date), 'EEE d')}
+                  {d?.status === 'submitted' && <Lock className="inline w-3 h-3 ml-1 text-green-700" aria-label="Submitted" />}
+                </span>
+                <span className="flex-1 min-w-[7rem] flex flex-wrap gap-x-3 gap-y-0.5 text-xs">
+                  {!isOpen ? <span className="text-muted-foreground">Closed</span>
+                    : date > today ? <span className="text-muted-foreground">Not yet</span>
+                    : sources.map(s => {
+                      const f = d?.filled?.[s.key]
+                      return f ? (
+                        <span key={s.key} className="text-green-700 inline-flex items-start gap-1 min-w-0" title={f.by ? 'By ' + f.by : undefined}
+                          data-filled={s.key}>
+                          <Check className="w-3.5 h-3.5 shrink-0" /> <span>{s.name} {filledText(f)}</span>
+                        </span>
+                      ) : (
+                        <span key={s.key} className="text-muted-foreground" data-not-filled={s.key}>{s.name} not filled</span>
+                      )
+                    })}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      )}
+
+      {open && <open.source.Modal venueId={venueId} dates={open.dates} onClose={() => setOpen(null)} />}
+    </div>
+  )
+}
+
 // ── Dispatcher ─────────────────────────────────────────────────
 
 export function renderCashWidget({ widget, venueId, ctx }) {
@@ -721,6 +898,7 @@ export function renderCashWidget({ widget, venueId, ctx }) {
     case 'cash_week_summary_grid': return <WeekSummaryGridWidget venueId={venueId} ctx={ctx} />
     case 'cash_week_staff':   return <WeekWagesWidget venueId={venueId} ctx={ctx} settings={widget.settings} />
     case 'cash_tips_payout':  return <TipsPayoutWidget venueId={venueId} ctx={ctx} settings={widget.settings} />
+    case 'cash_import':       return <ImportWidget venueId={venueId} ctx={ctx} settings={widget.settings} />
     default:                  return null
   }
 }

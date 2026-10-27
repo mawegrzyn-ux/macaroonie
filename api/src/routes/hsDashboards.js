@@ -25,7 +25,7 @@
 //   Cash:  'cash_wages_paid', 'cash_petty_cash', 'cash_recon_grid',
 //          'cash_week_balance', 'cash_day_balance', 'cash_day_tiles',
 //          'cash_week_expenses', 'cash_week_summary_grid', 'cash_week_staff',
-//          'cash_tips_payout' (components/cashRecon/widgets.jsx)
+//          'cash_tips_payout', 'cash_import' (components/cashRecon/widgets.jsx)
 //   Rota:  'rota_grid', 'rota_today', 'rota_week_pay', 'rota_tips'
 //          (components/staff/rotaWidgets.jsx)
 // Only 'checklist' carries a checklist_template_id: every other type is
@@ -81,6 +81,7 @@ export const WIDGET_MODULE = {
   cash_week_summary_grid: 'cash_recon',
   cash_week_staff:        'cash_recon',
   cash_tips_payout:       'rota_tips',
+  cash_import:            'cash_recon',
   rota_grid:              'rota',
   rota_today:             'rota',
   rota_week_pay:          'rota_pay',
