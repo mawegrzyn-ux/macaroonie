@@ -14,6 +14,8 @@ hub/hub.json
 # ── Node ──────────────────────────────────────────────────────
 node_modules/
 package-lock.json
+# The Android app's builds (EAS) install exactly what was tested.
+!android-app/package-lock.json
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

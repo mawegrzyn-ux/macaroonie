@@ -5,6 +5,16 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-27 — The Macaroonie Android app: till, kitchen screen and kiosk]
+
+- New Android app **Macaroonie** (`com.macaroonie.app`, folder `android-app/`, Expo project `@gomono-london/macaroonie`). On its first start it asks what the tablet is (Till, Kitchen screen or Self-order kiosk), then opens that app full screen every time: the address bar and Android's bars hidden, the screen kept on, the back button doing nothing. The apps inside are the same web apps as pos., kitchen. and kiosk.macaroonie.com, so they keep updating with every deploy.
+- Linking is unchanged: the app shows the device's code and QR code, linked from the installer app or Store tech. To change what a tablet is, disconnect it in its settings and press **Change device type** on its setup screen (only shown inside the app).
+- Bills and receipts printed from a tablet in the app go to Android's print service (the web page hands them over); links off the Macaroonie domain open in the browser on a till or kitchen screen and do nothing on a kiosk; if Macaroonie can't be reached the app says so and tries again every 5 seconds.
+- Built by EAS: `preview` for an APK to install by hand, `production` for Google Play. A new GitHub check bundles the app on pull requests that touch `android-app/`; the server deploy ignores changes there.
+- No migration.
+
+---
+
 ## [2026-10-27 — Extra charges for a dish's options inside a meal deal]
 
 - **Options in this deal** (Menus, a combo's Edit steps) gains **Extra charges in the deal** for each option group: what each option costs on top of the deal's price, for example Atomic +£0.50 or Large +£2.00 in the meal. Empty keeps the dish's own charge for options that add to the price (shown in the box); options that set the dish's price, like sizes or flavours, cost nothing extra in the deal unless given a charge here. 0.00 makes an option free in the deal, for example a sauce that costs 20p on its own.
