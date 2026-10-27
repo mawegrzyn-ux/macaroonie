@@ -45,6 +45,7 @@ const SECTIONS = [
   { id: 'kiosks',              label: 'Self-order kiosks' },
   { id: 'kiosk-analytics',     label: 'Kiosk analytics' },
   { id: 'installer',           label: 'Installer app' },
+  { id: 'android-app',         label: 'Android app' },
   { id: 'emails',              label: 'Booking Emails' },
   { id: 'team',                label: 'Team Management' },
   { id: 'access',              label: 'Modules & Roles' },
@@ -6073,6 +6074,46 @@ export default function Help() {
             <InfoBox type="info">
               The installer only links and sets up devices. Everything else (stations and the kitchen flow, kiosk
               designs, boards and playlists, printers) is set up in Store tech and on the Screens page.
+            </InfoBox>
+          </section>
+
+          <section id="android-app" data-help="">
+            <H2>Android app</H2>
+            <P>
+              The <strong>Macaroonie</strong> Android app runs a till, a kitchen screen or a self-order kiosk on an
+              Android tablet. It opens the same apps as Chrome does at pos., kitchen. and kiosk.macaroonie.com,
+              but straight away and full screen: no address bar, no Android bars at the top or bottom, the screen
+              stays on and the back button does nothing, so staff and guests can&apos;t leave it by accident. The
+              apps inside it update themselves like the web pages do; the app itself rarely needs updating.
+            </P>
+
+            <H3>Setting up a tablet with the app</H3>
+            <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
+              <li>Install the app on the tablet from the link you were given (Android may ask you to allow installing apps from your browser).</li>
+              <li>Open it and pick what the tablet is: <strong>Till</strong>, <strong>Kitchen screen</strong> or <strong>Self-order kiosk</strong>.</li>
+              <li>It shows a six-letter code and a QR code. Link it as any other device: scan the QR code with your phone (the installer app), or type the code in Store tech (<strong>Add a till</strong>, <strong>Add a screen</strong>, <strong>Add a kiosk</strong>).</li>
+              <li>From then on the tablet opens that app every time it starts.</li>
+            </ol>
+
+            <H3>Changing what a tablet is</H3>
+            <P>
+              Disconnect it in its own settings (till: <strong>Till</strong> settings; kitchen screen: its
+              settings panel; kiosk: the staff panel), then press <strong>Change device type</strong> on the setup
+              screen it shows and pick again. If the app can&apos;t reach Macaroonie it says so, tries again every
+              five seconds, and offers <strong>Change device type</strong> too.
+            </P>
+
+            <H3>Printing and the camera</H3>
+            <P>
+              Bills and receipts printed from the tablet go to Android&apos;s print service, which shows its print
+              window: install your printer&apos;s Android print plugin (Epson, Star and others make one) to print
+              to it. Ticket printers on the network or plugged into a mini PC are better on the venue hub (Store
+              tech, Printers), which prints without asking. The first time the app scans a QR code (a loyalty
+              card) Android asks to allow the camera.
+            </P>
+            <InfoBox type="info">
+              To keep guests in the kiosk app, turn on Android&apos;s <strong>App pinning</strong> (Settings,
+              Security) and pin the app, or use your device manager&apos;s kiosk mode.
             </InfoBox>
           </section>
 

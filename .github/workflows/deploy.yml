@@ -3,6 +3,8 @@ name: Deploy to Lightsail
 on:
   push:
     branches: [main]
+    # The Android app is built by EAS (Expo), not on the server.
+    paths-ignore: ['android-app/**']
 
 jobs:
   deploy:

@@ -6,12 +6,15 @@
 // device has its own address (lib/appHost.js): pos. for tills, kitchen. for
 // kitchen screens, kiosk. for kiosks, and a code shown on one can only become
 // that kind. A device moved here from another address brings a one-time code
-// and pairs by itself (no typing).
+// and pairs by itself (no typing). In the Android app the device's kind is
+// picked in the app: Change device type there replaces the links to the
+// other addresses.
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { QrCode, RefreshCw } from 'lucide-react'
+import { QrCode, RefreshCw, Repeat } from 'lucide-react'
 import { qrSvg } from '@shared/qr.js'
 import { pair, requestLinkCode, checkLinkCode, useTill } from '../lib/store.js'
 import { HOST_APP, APP_NAMES, addressFor, shortAddress } from '../lib/appHost.js'
+import { IN_APP, tellApp } from '../lib/nativeApp.js'
 
 const TITLES = { terminal: 'Set up this till', kds: 'Set up this kitchen screen', kiosk: 'Set up this kiosk' }
 const SECTIONS = { terminal: 'Tills', kds: 'Kitchen screens', kiosk: 'Kiosks' }
@@ -140,7 +143,17 @@ export default function Pair() {
 
         <LinkPanel link={link} problem={problem} />
 
-        {others.length > 0 && (
+        {IN_APP && (
+          <button
+            type="button"
+            className="btn min-h-[48px] touch-manipulation"
+            data-testid="pair-change-kind"
+            onClick={() => tellApp({ type: 'macaroonie:choose-app' })}
+          >
+            <Repeat size={18} /> Change device type
+          </button>
+        )}
+        {!IN_APP && others.length > 0 && (
           <div className="text-sm text-muted" data-testid="pair-others">
             This is the {APP_NAMES[HOST_APP]} address. {others.map((k, i) => (
               <span key={k}>{i ? ' · ' : ''}{SECTIONS[k]}: <a className="underline font-semibold text-ink" href={addressFor(k)}>{shortAddress(addressFor(k))}</a></span>

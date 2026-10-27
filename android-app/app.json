@@ -1,0 +1,52 @@
+{
+  "expo": {
+    "name": "Macaroonie",
+    "slug": "macaroonie",
+    "owner": "gomono-london",
+    "version": "1.0.0",
+    "orientation": "default",
+    "icon": "./assets/icon.png",
+    "backgroundColor": "#1f2a44",
+    "platforms": [
+      "android"
+    ],
+    "android": {
+      "package": "com.macaroonie.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#1f2a44",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "permissions": [
+        "android.permission.CAMERA"
+      ],
+      "blockedPermissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.SYSTEM_ALERT_WINDOW"
+      ]
+    },
+    "plugins": [
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#1f2a44"
+        }
+      ],
+      [
+        "expo-navigation-bar",
+        {
+          "hidden": true
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "5b08349b-7813-4450-a66b-716e02bd382d"
+      }
+    }
+  }
+}

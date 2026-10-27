@@ -34,6 +34,7 @@ const SECTIONS = [
   { id: 'kiosks', label: 'Self-order kiosks' },
   { id: 'kiosk-analytics', label: 'Kiosk analytics & journeys' },
   { id: 'installer', label: 'Installer app & link codes' },
+  { id: 'android-app', label: 'Android app' },
   { id: 'web-ordering', label: 'Web Ordering' },
   { id: 'loyalty', label: 'Loyalty' },
   { id: 'ai-assistant', label: 'Pepper (AI assistant) & MCP' },
@@ -4727,6 +4728,38 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               the sweep's fixtures link a kitchen screen and a till; every API test adds devices through{' '}
               <Mono>linkDevice()</Mono> in <Mono>api/test/support/devices.mjs</Mono> (show a code, link it).
             </P>
+          </section>
+
+          <section id="android-app" data-doc="">
+            <H2>Android app</H2>
+            <P>
+              <Mono>android-app/</Mono> (27 Oct 2026) is one Android app, <Mono>com.macaroonie.app</Mono>, for the
+              till, the kitchen screen and the self-order kiosk: an Expo (SDK 58) shell around the{' '}
+              <Mono>pos/</Mono> web apps, built and signed by EAS (project{' '}
+              <Mono>@gomono-london/macaroonie</Mono>, GitHub base directory <Mono>android-app</Mono>). The apps
+              themselves stay web pages, so a deploy changes them on every device and the app only needs a new build
+              when the shell changes. Continuous Native Generation: there is no <Mono>android/</Mono> folder in the
+              repository; native settings live in <Mono>app.json</Mono> and its plugins.
+            </P>
+            <DataTable
+              head={['Part', 'How']}
+              rows={[
+                ['App.js', 'First start: Picker (Till / Kitchen screen / Self-order kiosk), saved in AsyncStorage (macaroonie.kind). Then a WebView of https://{pos|kitchen|kiosk}.<root>/ (ROLES, urlFor()). useKeepAwake(), <StatusBar hidden />, <NavigationBar hidden /> (and the expo-navigation-bar plugin with hidden), BackHandler always consumed while the WebView shows.'],
+                ['Where it may go', 'onShouldStartLoadWithRequest: our domain and its subdomains load; anything else is refused, and a till or kitchen screen opens it in the browser (Linking). Landing on a device address (pos., kitchen. / kds., kiosk.) saves that kind (onFollow), so moveDevice() and the setup screen\'s address links change what the app opens next time without reloading the page (the WebView\'s source only changes when someone picks in the Picker).'],
+                ['Bridge (pos/src/lib/nativeApp.js)', 'IN_APP = !!window.ReactNativeWebView; tellApp(message) posts JSON. printTickets() (lib/print.js) posts { type: macaroonie:print, html } (the same page it would print in a frame) and the app calls expo-print printAsync({ html }), Android\'s print dialog. Pair.jsx shows Change device type (posts macaroonie:choose-app, the app shows the Picker) instead of the links to the other addresses.'],
+                ['When it goes wrong', 'onError (main frame) or onHttpError 5xx: Unreachable, trying again every RETRY_SECS (5) by remounting the WebView, with Try now and Change device type. onRenderProcessGone (Android stopped the page): remount. The web apps\' own service workers keep working inside the WebView, so a device that has loaded its app once opens it offline.'],
+                ['WebView settings', 'domStorageEnabled, textZoom 100 (the phone\'s font size never resizes the till), no zoom controls, overScrollMode never, mediaPlaybackRequiresUserAction false (kiosk start videos), setSupportMultipleWindows false, mixedContentMode never, allowFileAccess false, user agent + MacaroonieApp/<version>. scalesPageToFit (default) keeps the viewport tag working, so the kiosk\'s zoom (useKioskViewport()) works as in Chrome.'],
+                ['app.json / app.config.js', 'Package com.macaroonie.app, orientation default (the device\'s mount decides), CAMERA permission (QR scanning; the WebView asks at runtime), RECORD_AUDIO and SYSTEM_ALERT_WINDOW blocked, splash and adaptive icons from the till icon\'s macaroon. app.config.js adds extra.rootDomain (MACAROONIE_ROOT_DOMAIN, default macaroonie.com) and extra.webDebug (MACAROONIE_WEB_DEBUG=1: chrome://inspect).'],
+                ['eas.json', 'development: APK with web debugging. preview: APK for installing by hand. production: app bundle (Google Play), autoIncrement. appVersionSource remote: EAS keeps the version code.'],
+                ['Checks', '.github/workflows/android-app.yml on pull requests touching android-app/: npm ci, expo config, expo export --platform android. deploy.yml ignores android-app/**. android-app/package-lock.json is tracked (the root .gitignore ignores lockfiles; !android-app/package-lock.json) so EAS installs what was tested.'],
+              ]}
+            />
+            <InfoBox type="info">
+              Not built: a native QR scanner (the web apps use <Mono>BarcodeDetector</Mono> where the WebView has
+              it, else a USB / Bluetooth scanner), silent printing (Android shows its print dialog; USB and network
+              ticket printers belong on the venue hub), locking a kiosk in (use Android&apos;s app pinning or a
+              device manager), and an iPhone / iPad build (<Mono>platforms</Mono> is android only).
+            </InfoBox>
           </section>
 
           <section id="web-ordering" data-doc="">
