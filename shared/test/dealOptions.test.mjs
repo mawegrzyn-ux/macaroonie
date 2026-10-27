@@ -9,9 +9,9 @@
 
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { normaliseCombo, normaliseDealGroups, moveDealGroup, dealChoices, dealSwapIds, dealFits, findAutoCombos, stepChoices, sectionItemsOf, withDealPicks, askedChoices, resolveSteps } from '../combos.js'
-import { itemChoices, priceLine, priceBasket } from '../orderPricing.js'
-import { priceItem, posChoices, partChoices, picksWithin } from '../pos/pricing.js'
+import { normaliseCombo, normaliseDealGroups, moveDealGroup, dealChoices, dealSwapIds, dealFits, findAutoCombos, stepChoices, sectionItemsOf, withDealPicks, askedChoices, resolveSteps, comboFromPrice } from '../combos.js'
+import { itemChoices, priceLine, priceBasket, optionPriceText } from '../orderPricing.js'
+import { priceItem, posChoices, partChoices, picksWithin, lineUnit } from '../pos/pricing.js'
 import { dealItem, comboCtx, autoCombosFor, fillDealPicks } from '../pos/offers.js'
 import { bundleParts, normaliseDesign } from '../kiosk.js'
 
@@ -422,4 +422,96 @@ test('moveDealGroup: a dish\'s own options turned into a group keep the deal\'s 
   assert.deepEqual(moveDealGroup({ [DIPS]: { use: 'off' } }, 'variants', 'g-new', ids), { [DIPS]: { use: 'off' } })
   assert.deepEqual(moveDealGroup({ variants: { use: 'off' }, 'g-new': { use: 'all', max: 1 } }, 'variants', 'g-new', ids),
     { variants: { use: 'off' }, 'g-new': { use: 'all', max: 1 } })
+})
+
+// ── The deal's own extra charges ────────────────────────────────
+
+test('normaliseDealGroups: deal prices are whole pence, kept only when set', () => {
+  assert.deepEqual(normaliseDealGroups({ a: { use: 'all', prices: { x: 50, y: 0, z: -1, w: 1.5, v: 'abc', u: null, t: '', s: 200001 } } }),
+    { a: { use: 'all', prices: { x: 50, y: 0 } } }, 'as on the dish with only prices is a change; £0 is a price (free in the deal)')
+  assert.equal(normaliseDealGroups({ a: { use: 'all', prices: {} } }), null)
+  assert.equal(normaliseDealGroups({ a: { use: 'all', prices: { x: 'nope' } } }), null)
+  assert.deepEqual(normaliseDealGroups({ a: { use: 'off', prices: { x: 50 } } }), { a: { use: 'off' } }, 'nothing to charge for when left out')
+  assert.deepEqual(normaliseDealGroups({ a: { use: 'only', option_ids: ['x'], prices: { x: 50, y: 20 } } }),
+    { a: { use: 'only', option_ids: ['x'], prices: { x: 50 } } }, 'only some: prices only for the options the deal asks')
+  assert.deepEqual(normaliseDealGroups({ a: { use: 'swap', group_id: 'b', prices: { m: 10 } } }), { a: { use: 'swap', group_id: 'b', prices: { m: 10 } } })
+})
+
+// Wings with Atomic at 50p extra in the deal, and the meal's mayo free.
+const PRICED = {
+  ...MEAL, id: 'c-priced', combo: { mode: 'manual', steps: [
+    { id: 'st-main', name: 'Main', min: 1, max: 1, options: [{ id: 'op-wings', type: 'item', item_id: WINGS.id,
+      groups: { [FLAV]: { use: 'only', option_ids: ['o-lemon', 'o-hot'], prices: { 'o-hot': 50 } }, [DIPS]: { use: 'all', prices: { 'o-blue': 100 } } } }] },
+    { id: 'st-side', name: 'Side', min: 1, max: 1, options: [{ id: 'op-fries', type: 'item', item_id: FRIES.id,
+      groups: { [SAUCE]: { use: 'swap', group_id: MEAL_SAUCE, prices: { 'o-msm': 0 } } } }] },
+  ] },
+}
+const pricedConfig = { ...config, items: { ...config.items, [PRICED.id]: structuredClone(PRICED) } }
+const pricedCtx = comboCtx(pricedConfig)
+
+test('dealChoices: deal prices ask the group as extras, at the deal\'s prices', () => {
+  const [flav, dips] = dealChoices(posChoices(WINGS, LIB), PRICED.combo.steps[0].options[0].groups)
+  // The flavours set the dish's price on their own (base); in the deal they are extras: Atomic 50p, the rest free.
+  assert.equal(flav.mode, 'extra')
+  assert.deepEqual(flav.options.map(o => [o.id, o.price_pence]), [['o-lemon', 0], ['o-hot', 50]])
+  // An extra group keeps its own charge where the deal sets none.
+  assert.equal(dips.mode, 'extra')
+  assert.deepEqual(dips.options.map(o => [o.id, o.price_pence]), [['o-ranch', 50], ['o-blue', 100]])
+  // The guest sees it: "+£0.50" beside Atomic, nothing beside Lemon pepper.
+  const money = p => '£' + (p / 100).toFixed(2)
+  assert.deepEqual(flav.options.map(o => optionPriceText(flav, o, money)), ['', '+£0.50'])
+  // A group without prices is untouched.
+  assert.equal(dealChoices(posChoices(WINGS, LIB), { [FLAV]: { use: 'only', option_ids: ['o-lemon'] } })[0].mode, 'base')
+})
+
+test('till and kiosk: a deal price charges on the part, and shows on its modifier', () => {
+  const sel = (flav, dips, sauce) => ({ choices: {}, combo: {
+    'st-main': [{ option_id: 'op-wings', item_id: WINGS.id, choices: { [FLAV]: tillPick(flav), ...(dips ? { [DIPS]: tillPick(dips) } : {}) } }],
+    'st-side': [{ option_id: 'op-fries', item_id: FRIES.id, choices: { [MEAL_SAUCE]: tillPick(sauce) } }],
+  } })
+  const deal = pricedConfig.items[PRICED.id]
+  const lemon = priceItem(deal, sel(['o-lemon'], null, ['o-msm']), pricedCtx)
+  assert.equal(lemon.ok, true, lemon.error)
+  assert.equal(lineUnit(lemon), 1500, 'a free flavour, and the meal\'s mayo at £0 instead of 20p')
+  const hot = priceItem(deal, sel(['o-hot'], ['o-blue'], ['o-msk']), pricedCtx)
+  assert.equal(hot.ok, true, hot.error)
+  assert.equal(lineUnit(hot), 1650, '£15 + Atomic 50p + Blue cheese £1')
+  assert.equal(hot.combo[0].extras, 150)
+  assert.deepEqual(hot.combo[0].modifiers.map(m => [m.label, m.price, m.base]), [['Atomic', 50, false], ['Blue cheese', 100, false]])
+  // The kiosk shows the part through dealItem(): the same prices.
+  const wings = dealItem(pricedConfig, WINGS.id, PRICED.combo.steps[0].options[0].groups)
+  assert.deepEqual(wings.pos_choices[0].options.map(o => o.price_pence), [0, 50])
+  assert.equal(wings.pos_choices[0].mode, 'extra')
+})
+
+test('online: a deal price charges on the part', () => {
+  const combo = { ...structuredClone(PRICED), deal_groups: { [MEAL_SAUCE]: itemChoices({ variant_groups: [attached(LIB[MEAL_SAUCE])] })[0] } }
+  const octx = { itemsById: { [WINGS.id]: WINGS, [FRIES.id]: FRIES }, sectionItems: {} }
+  const line = (flav, sauce) => ({ choices: {}, combo: { 'st-main': [{ option_id: 'op-wings', item_id: WINGS.id, choices: { [FLAV]: flav } }], 'st-side': [{ option_id: 'op-fries', item_id: FRIES.id, choices: { [MEAL_SAUCE]: sauce } }] } })
+  const hot = priceLine(combo, line(['o-hot'], ['o-msm']), [], octx)
+  assert.equal(hot.ok, true, hot.error)
+  assert.equal(hot.unit_pence, 1550)
+  assert.deepEqual(hot.parts[0].options.map(o => [o.label, o.price_pence, o.mode]), [['Atomic', 50, 'extra']])
+  assert.deepEqual(hot.parts[1].options.map(o => [o.label, o.price_pence]), [['Mayo', 0]])
+  assert.equal(priceLine(combo, line(['o-lemon'], ['o-msk']), [], octx).unit_pence, 1500)
+})
+
+test('comboFromPrice: a deal price makes the menu say "from"', () => {
+  const plain = { ...MEAL, id: 'c-x', combo: { mode: 'manual', steps: [{ id: 's', name: 'Main', min: 1, max: 1, options: [{ id: 'o', type: 'item', item_id: WINGS.id }] }] } }
+  assert.equal(comboFromPrice(plain, 1500, ctx).varies, false)
+  const priced = { ...plain, id: 'c-y', combo: { mode: 'manual', steps: [{ id: 's', name: 'Main', min: 1, max: 1,
+    options: [{ id: 'o', type: 'item', item_id: WINGS.id, groups: { [FLAV]: { use: 'all', prices: { 'o-hot': 50 } } } }] }] } }
+  assert.deepEqual(comboFromPrice(priced, 1500, ctx), { pence: 1500, varies: true })
+  // Free in the deal everywhere: still no "from".
+  const free = { ...plain, id: 'c-z', combo: { mode: 'manual', steps: [{ id: 's', name: 'Main', min: 1, max: 1,
+    options: [{ id: 'o', type: 'item', item_id: WINGS.id, groups: { [DIPS]: { use: 'all', prices: { 'o-ranch': 0, 'o-blue': 0 } } } }] }] } }
+  assert.equal(comboFromPrice(free, 1500, ctx).varies, false)
+})
+
+test('moveDealGroup: deal prices follow the options to the new group', () => {
+  const ids = { 'v:Chicken': 'o-c', 'v:Beef': 'o-b' }
+  assert.deepEqual(moveDealGroup({ variants: { use: 'all', prices: { 'v:Beef': 150, 'v:Tofu': 20 } } }, 'variants', 'g-new', ids),
+    { 'g-new': { use: 'all', prices: { 'o-b': 150 } } })
+  assert.deepEqual(moveDealGroup({ variants: { use: 'all', prices: { 'v:Tofu': 20 } } }, 'variants', 'g-new', ids), null,
+    'only prices for options the group doesn\'t have: no change left')
 })

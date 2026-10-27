@@ -6663,8 +6663,9 @@ selection.combo = { [stepId]: [{ option_id, item_id, choices }] }   // item_id n
     use: 'all' | 'off' | 'only' | 'swap',
     option_ids,                  // 'only': the options kept (none left = 'off')
     group_id,                    // 'swap': the library group asked instead (not itself)
-    max, min,                    // optional limits in the deal; 'all' with neither is dropped
-  },
+    max, min,                    // optional limits in the deal
+    prices,                      // optional { optionId: pence } (0-100000): the deal's own extra charge per option
+  },                             // 'all' with no limits and no prices is dropped
 }`}</Code>
             <P>
               <Mono>dealChoices(choices, groups, swap)</Mono> in shared/combos.js is the one rule, applied to a
@@ -6674,7 +6675,11 @@ selection.combo = { [stepId]: [{ option_id, item_id, choices }] }   // item_id n
               &gt; 0 is never on request). A group with no options left is dropped. A group the deal changes
               that ends with one option and needs a pick (min &ge; 1; a repeating group only when min = max;
               not an option with a child_group_id) comes back with <Mono>fixed</Mono> (that option&apos;s id,
-              min times for a repeating group): the deal picks it and nobody is asked. Each surface wraps it:
+              min times for a repeating group): the deal picks it and nobody is asked. A group with{' '}
+              <Mono>prices</Mono> is asked as extras (<Mono>withDealPrices()</Mono>: <Mono>mode: 'extra'</Mono>,
+              each option at its deal price, else its own price in an extra group or 0 in a base group, whose
+              prices are dish prices the deal&apos;s price replaces), so every engine charges it with no code of
+              its own and <Mono>optionPriceText()</Mono> shows &ldquo;+£0.50&rdquo;. Each surface wraps it:
             </P>
             <DataTable
               head={['Where', 'How']}
@@ -6684,7 +6689,8 @@ selection.combo = { [stepId]: [{ option_id, item_id, choices }] }   // item_id n
                 ['Online', 'loadOrderingMenu() loads dealSwapIds() of the live combos from the library (COALESCE(display_name, name)) and gives each combo deal_groups { id: choice } (itemChoices with the menu\'s variant rules); ordering.eta asks partOptions() for every part page and the summary.'],
                 ['What the deal picks (fixed)', 'withDealPicks(choices, picks) in shared/combos.js fills each fixed group in, replacing whatever was sent; the part callbacks of priceItem() and priceLine() call it, so the pick is priced and is in the part\'s modifiers / options and on kitchen tickets whatever a device sent. Surfaces ask only askedChoices(choices): the till\'s ComboSteps shows the pick as text (combo-fixed); the kiosk makes no part page for a dish with nothing left to ask and fills its picks with fillDealPicks(config, steps, picks) (shared/pos/offers.js) before its pictures and the basket line, so the meal\'s picture shows the deal\'s flavour; online, partChoices() is askedChoices(dealOptions()) and the summary lists withDealPicks(). The admin window says "always X" (deal-asked data-fixed) and, for an optional group left with one option, how to include it (deal-one-optional).'],
                 ['Automatic combos', 'findAutoCombos() fills a choice with a separate dish only when dealFits(choice.groups, picks): picks in a group the deal narrows must be its options and within its how many; groups it leaves out or swaps don\'t count (those picks stay paid on the dish). The till passes each line\'s top-level picks from its modifiers (linePicks() in shared/pos/offers.js, not "No" or nested ones), online priceBasket() each line\'s choices.'],
-                ['Saving', 'cleanCombo() in upsertMenuTree() keeps, per choice, only groups its dishes have (a section: any of its dishes), only option ids those dishes offer, and a swap group in the tenant\'s library (cleanDealGroups()); another tenant\'s ids are dropped. A group taken off the dish drops out on the next save.'],
+                ['Saving', 'cleanCombo() in upsertMenuTree() keeps, per choice, only groups its dishes have (a section: any of its dishes), only option ids those dishes offer, and a swap group in the tenant\'s library (cleanDealGroups()); prices only for options the deal asks (only: the kept ids; swap: the other group\'s options); another tenant\'s ids are dropped. A group taken off the dish drops out on the next save. moveDealGroup() (own options turned into a group) carries prices to the new option ids.'],
+                ['Extra charges', 'DealPrices in ComboEditor.jsx (Extra charges in the deal, folded until one is set; a div toggle so View users can open it), a PriceInput per option of the group as asked (empty = as on the dish, the placeholder its own charge; 0.00 = free); askedText() and dealSummary() (pricesText()) name the charges. comboFromPrice() says varies when any choice has a deal price over 0. A step that picks itself shows its choice\'s charge beside Included (ItemModal ComboSteps, ordering.eta stepHtml autoCharge).'],
                 ['Releases, copies, AI', 'releaseContent() keeps the combo whole and contentKey() sorts keys, so a draft and a release compare equal; menuSaveBody() and /duplicate carry it; Pepper\'s get_menu says "(its options changed for this deal)".'],
                 ['Admin', 'ComboEditor.jsx: DealOptionsButton (summary from dealSummary()) under each dish / section choice, DealOptionsModal / DealGroupRow (modes, option chips, swap select with Make a copy through POST /menus/variant-groups/:id/copy, how many), comboPayload() normalises.'],
               ]}
@@ -6698,7 +6704,12 @@ selection.combo = { [stepId]: [{ option_id, item_id, choices }] }   // item_id n
               the tenant sweep, 67 browser checks (the window at 1280, 1015 and 390 px and for a viewer, the
               kiosk upright and wide, a real till with Make it a combo, online ordering at 1280 and 390 px) and
               34 more for a group left with one option (the window and its hint, the kiosk upright and wide, a
-              real till, online ordering at 1280 and 390 px).
+              real till, online ordering at 1280 and 390 px). Extra charges: 6 more shared tests (stored shape,
+              the rule, till and kiosk, online, from, moveDealGroup), an API test (kept only for asked options,
+              400 for a bad price, nothing to publish after a plain save, the kiosk config and online quote
+              charging it), the fixtures&apos; meal deal with a charge in the sweep, 63 browser checks (the window
+              at 1280 and 390 px and for a viewer, the kiosk upright and wide, a real till, online ordering at
+              1280 and 390 px).
             </P>
             <H3>Where combos are read</H3>
             <DataTable

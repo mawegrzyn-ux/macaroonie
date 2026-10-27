@@ -3449,6 +3449,7 @@ export default function Help() {
                 ['Only some', 'Tap an option to leave it out of the deal, e.g. three of the four flavours. At least one stays.'],
                 ['Another group', 'A group from Variant groups asked instead, e.g. Meal sauce (free ketchup, or mayo +20p) in place of the fries\' own sauces. Make a copy copies the dish\'s own group and asks the copy: change the copy\'s options and prices on Variant groups (the link at the bottom opens it in a new tab), and the dish on its own keeps its group.'],
                 ['How many', 'At least and at most inside the deal, e.g. up to two flavours in the meal while the wings on their own take one. Leave it on As the group to keep the group\'s own.'],
+                ['Extra charges in the deal', 'Tap to open it: a box per option the deal asks, for what that option costs on top of the deal\'s price, e.g. Atomic +0.50 or Large +2.00 in the meal. Empty is as on the dish: an option that adds to the dish\'s price keeps its own charge (shown greyed in the box), and an option that sets the dish\'s price (a size, a flavour) costs nothing extra, because the deal\'s price replaces the dish\'s. 0.00 makes an option free in the deal, e.g. a sauce that costs 20p on its own.'],
               ]}
             />
             <P>
@@ -3462,6 +3463,15 @@ export default function Help() {
               that way: with three of the four flavours, wings ordered with BBQ don&apos;t make the deal,
               while a dip the deal leaves out simply stays on the wings at its own price. A group later
               taken off the dish drops out of the deal the next time the menu is saved.
+            </P>
+            <P>
+              <strong>Extra charges.</strong> The deal&apos;s own charge for an option shows beside it on the
+              kiosk, the till and online ordering (&ldquo;Atomic +£0.50&rdquo;), is added to the meal&apos;s
+              price when picked, and is on the line and the receipt. The window&apos;s <em>In the deal</em>{' '}
+              line lists the charges, and the line under the button names them (&ldquo;Flavour: 3 of 4, Atomic
+              +£0.50&rdquo;). A menu that has any deal charge shows the meal as <strong>from</strong> its
+              price. A step that picks itself (one choice) shows its choice&apos;s extra charge beside{' '}
+              <em>Included</em> on the till and online, e.g. <em>Included · +£1.00</em>.
             </P>
             <P>
               <strong>One option left.</strong> When a group the deal changes is left with a single option

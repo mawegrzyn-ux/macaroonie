@@ -5,6 +5,15 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-27 — Extra charges for a dish's options inside a meal deal]
+
+- **Options in this deal** (Menus, a combo's Edit steps) gains **Extra charges in the deal** for each option group: what each option costs on top of the deal's price, for example Atomic +£0.50 or Large +£2.00 in the meal. Empty keeps the dish's own charge for options that add to the price (shown in the box); options that set the dish's price, like sizes or flavours, cost nothing extra in the deal unless given a charge here. 0.00 makes an option free in the deal, for example a sauce that costs 20p on its own.
+- The charge shows beside the option on the kiosk, the till and online ordering, is added to the meal's price when picked and is on the line, the receipt and the kitchen ticket. A menu with any such charge shows the meal as "from" its price. The line under Options in this deal names the charges.
+- A step that picks itself (one choice) now shows its choice's extra charge beside Included on the till and online ordering, e.g. "Included · +£1.00"; before, only the total said so.
+- No migration: the charges are saved with the combo and go live when the menu is published.
+
+---
+
 ## [2026-10-27 — Import from Loyverse and GloriaFood on a dashboard]
 
 - New dashboard widget **Import from Loyverse / GloriaFood** (Cash group in Add widget, on any dashboard): fills Cash Recon from the venue's Loyverse and GloriaFood links without opening Cash Recon. One card per linked source with **Fill** (the day selected on the dashboard) and **Fill this week** (Monday up to today); both open the same fill window as Cash Recon, so the figures show next to what Cash Recon has before anything is written.
