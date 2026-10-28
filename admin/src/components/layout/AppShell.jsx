@@ -84,7 +84,7 @@ function toNavItem(node) {
 const IS_TOUCH = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0
 
 const PLATFORM_NAV = [
-  { label: 'Tenants',   to: '/platform', icon: Shield },
+  { label: 'Platform',  to: '/platform', icon: Shield },
   { label: 'Backlog',   to: '/backlog',  icon: KanbanSquare },
 ]
 

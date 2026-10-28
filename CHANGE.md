@@ -5,6 +5,14 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-28 — Platform link; the Android app link on the setup screens]
+
+- The sidebar's **Tenants** link (platform admins only) is now called **Platform**, the page it opens.
+- The setup screen of a till, kitchen screen or kiosk on a computer or other non-Android browser now says **Android device?** and its address (e.g. pos.macaroonie.com/android) is a link that downloads the app.
+- No migration.
+
+---
+
 ## [2026-10-28 — Reuse a till, kitchen screen, kiosk, hub or menu screen with a new code]
 
 - A device showing a new code no longer needs a new till (kitchen screen, kiosk, hub or menu screen). Every place a code is typed or scanned (Store tech's Add a till / Add a screen / Add a kiosk / Link a hub, Add screen on the Screens page, the installer) has **Link it as: A new … / One already here**. Pick one already here and it keeps its name, short code and settings (a menu screen its boards and wall place); one still linked moves to the new device.

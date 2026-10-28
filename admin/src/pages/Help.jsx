@@ -6112,7 +6112,8 @@ export default function Help() {
               when the file has downloaded open it and tap <strong>Install</strong>. Android may ask you to allow
               installing apps from Chrome first. You can also type the address with /android on the end (for
               example kiosk.macaroonie.com/android) to download it straight away. On a computer the setup screen
-              just shows that address, to type on the tablet. The button only shows once Macaroonie has added
+              shows that address as a link (it downloads the file there too): type it on the Android device. The
+              button only shows once Macaroonie has added
               the app, and never inside the app itself.
             </P>
 
@@ -6463,7 +6464,7 @@ export default function Help() {
             <H3>Platform admins</H3>
             <P>
               Platform admins are Macaroonie staff who can manage all tenants. They see a
-              <strong> Tenants</strong> link at the bottom of the sidebar (shield icon) and
+              <strong> Platform</strong> link at the bottom of the sidebar (shield icon) and
               can create, edit, and deactivate tenants from the platform dashboard. Platform
               admins bypass all role restrictions within any tenant.
             </P>
@@ -6477,7 +6478,7 @@ export default function Help() {
 
             <H3>Creating a new tenant (master franchisee)</H3>
             <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
-              <li>Open <strong>Tenants</strong> from the sidebar (platform admins only).</li>
+              <li>Open <strong>Platform</strong> from the sidebar (platform admins only) and stay on its <strong>Tenants</strong> tab.</li>
               <li>Click <strong>+ New tenant</strong>.</li>
               <li>
                 Enter the franchise name (e.g. "Wingstop UK"), a slug
