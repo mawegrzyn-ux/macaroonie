@@ -5,7 +5,8 @@
 // the device is, then shows that web app full screen in a WebView: screen kept
 // on, system bars hidden, the back button does nothing, links off our domain
 // stay out (a till or kitchen screen opens them in the browser), and printing
-// goes to Android's print service.
+// goes to Android's print service. Five quick taps in the top left corner
+// (corner.js) bring the question back, over the app, which keeps running.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ActivityIndicator, BackHandler, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { WebView } from 'react-native-webview'
@@ -15,6 +16,7 @@ import { StatusBar } from 'expo-status-bar'
 import { NavigationBar } from 'expo-navigation-bar'
 import { useKeepAwake } from 'expo-keep-awake'
 import * as Print from 'expo-print'
+import { CORNER_SCRIPT, inCorner, nextTaps } from './corner'
 
 const EXTRA = Constants.expoConfig?.extra || {}
 const ROOT = String(EXTRA.rootDomain || 'macaroonie.com').toLowerCase()
@@ -22,6 +24,9 @@ const WEB_DEBUG = !!EXTRA.webDebug
 const VERSION = Constants.expoConfig?.version || '1'
 const KIND_KEY = 'macaroonie.kind'
 const RETRY_SECS = 5
+// The picker opened from the hidden corner goes back to the app by itself
+// after this long untouched, so a kiosk isn't left on it.
+const AUTO_BACK_SECS = 60
 const NAVY = '#1f2a44'
 const PINK = '#f4a7b9'
 
@@ -47,6 +52,8 @@ export default function App() {
   // undefined while the saved kind loads, then the kind or null.
   const [kind, setKind] = useState(undefined)
   const [picking, setPicking] = useState(false)
+  // Opened from the hidden corner (not the setup screen's button).
+  const [fromCorner, setFromCorner] = useState(false)
   // The address the WebView opens. Navigation inside the web apps (a device
   // moved to another address) never changes it, so the page isn't reloaded.
   const [startUrl, setStartUrl] = useState(null)
@@ -75,6 +82,11 @@ export default function App() {
     setPicking(false)
   }, [])
 
+  const openPicker = useCallback(corner => { setFromCorner(corner); setPicking(true) }, [])
+  const closePicker = useCallback(() => setPicking(false), [])
+  const reload = useCallback(() => setWebKey(n => n + 1), [])
+  const reloadAndClose = useCallback(() => { setWebKey(n => n + 1); setPicking(false) }, [])
+
   // The web app moved to another device address (lib/appHost.js moveDevice(),
   // or a link on its setup screen): remember it, without reloading the page.
   const followed = useCallback(k => setKind(k), [])
@@ -94,37 +106,77 @@ export default function App() {
     <View style={styles.root}>
       <StatusBar hidden />
       <NavigationBar hidden />
-      {kind === undefined
-        ? <Loading />
-        : picking || !startUrl
-          ? <Picker current={kind} onChoose={choose} onBack={kind ? () => setPicking(false) : null} />
-          : <Shell
+      {kind === undefined ? <Loading /> : (
+        <>
+          {/* The app stays underneath the picker, so Back to it doesn't reload it. */}
+          {startUrl && (
+            <Shell
               key={webKey}
               kind={kind}
               url={startUrl}
               onFollow={followed}
-              onChooseApp={() => setPicking(true)}
-              onReload={() => setWebKey(n => n + 1)}
-            />}
+              onChooseApp={() => openPicker(false)}
+              onDeviceMenu={() => openPicker(true)}
+              onReload={reload}
+            />
+          )}
+          {(picking || !startUrl) && (
+            <View style={StyleSheet.absoluteFill}>
+              <Picker
+                current={startUrl ? kind : null}
+                onChoose={choose}
+                onBack={startUrl ? closePicker : null}
+                onReload={startUrl ? reloadAndClose : null}
+                autoBack={fromCorner && !!startUrl}
+              />
+            </View>
+          )}
+        </>
+      )}
     </View>
   )
 }
 
-function Loading() {
+/** The spinner. With onCorner, the hidden corner works on it too (a page that never finishes loading). */
+function Loading({ onCorner = null }) {
+  const taps = useRef([])
+  const onTouchStart = onCorner ? e => {
+    const t = e.nativeEvent
+    const next = nextTaps(taps.current, Date.now(), inCorner(t.pageX, t.pageY))
+    taps.current = next.taps
+    if (next.open) onCorner()
+  } : undefined
   return (
-    <View style={[styles.root, styles.center]}>
+    <View style={[styles.root, styles.center]} onTouchStart={onTouchStart}>
       <ActivityIndicator size="large" color={PINK} />
     </View>
   )
 }
 
-/** What is this device? Asked on the first start, and again from the web app's setup screen. */
-function Picker({ current, onChoose, onBack }) {
+/**
+ * What is this device? Asked on the first start, and again from the web
+ * app's setup screen or the hidden corner, over the running app (current).
+ */
+function Picker({ current, onChoose, onBack, onReload, autoBack }) {
+  const name = roleOf(current)?.title.toLowerCase()
+  const [left, setLeft] = useState(AUTO_BACK_SECS)
+  useEffect(() => {
+    if (!autoBack) return undefined
+    const t = setInterval(() => setLeft(n => n - 1), 1000)
+    return () => clearInterval(t)
+  }, [autoBack])
+  useEffect(() => { if (autoBack && left <= 0 && onBack) onBack() }, [autoBack, left, onBack])
+  // Any touch on the picker starts the minute again.
+  const stay = autoBack ? () => setLeft(AUTO_BACK_SECS) : undefined
   return (
-    <ScrollView contentContainerStyle={styles.pickerWrap}>
+    <ScrollView style={styles.root} contentContainerStyle={styles.pickerWrap} onTouchStart={stay}>
       <Text style={styles.brand}>Macaroonie</Text>
       <Text style={styles.heading}>What is this device?</Text>
-      <Text style={styles.lead}>Pick one. It opens that app every time the device starts; you can change it later from the app's setup screen.</Text>
+      <Text style={styles.lead}>
+        {current
+          ? `Each type keeps its own link to the restaurant: switching to another type doesn't unlink the ${name}. While another type shows, the ${name} shows as offline in Store tech.`
+          : 'Pick one. It opens that app every time the device starts. To change it later, tap the top left corner of the screen five times quickly.'}
+      </Text>
       <View style={styles.roles}>
         {ROLES.map(r => (
           <Pressable
@@ -141,9 +193,19 @@ function Picker({ current, onChoose, onBack }) {
         ))}
       </View>
       {onBack && (
-        <Pressable onPress={onBack} accessibilityRole="button" style={({ pressed }) => [styles.back, pressed && styles.rolePressed]}>
-          <Text style={styles.backText}>Back to the {roleOf(current)?.title.toLowerCase()}</Text>
-        </Pressable>
+        <View style={styles.pickerActions}>
+          <Pressable onPress={onBack} accessibilityRole="button" style={({ pressed }) => [styles.button, pressed && styles.rolePressed]}>
+            <Text style={styles.buttonText}>Back to the {name}</Text>
+          </Pressable>
+          {onReload && (
+            <Pressable onPress={onReload} accessibilityRole="button" style={({ pressed }) => [styles.buttonGhost, pressed && styles.rolePressed]}>
+              <Text style={styles.backText}>Reload the {name}</Text>
+            </Pressable>
+          )}
+        </View>
+      )}
+      {autoBack && onBack && (
+        <Text style={styles.note}>Going back to the {name} in {Math.max(0, left)} s.</Text>
       )}
       <Text style={styles.version}>Version {VERSION}</Text>
     </ScrollView>
@@ -151,7 +213,7 @@ function Picker({ current, onChoose, onBack }) {
 }
 
 /** The web app, full screen. */
-function Shell({ kind, url, onFollow, onChooseApp, onReload }) {
+function Shell({ kind, url, onFollow, onChooseApp, onDeviceMenu, onReload }) {
   const [problem, setProblem] = useState(null)
   const kindRef = useRef(kind)
   kindRef.current = kind
@@ -177,10 +239,11 @@ function Shell({ kind, url, onFollow, onChooseApp, onReload }) {
     let msg
     try { msg = JSON.parse(e.nativeEvent.data) } catch { return }
     if (msg?.type === 'macaroonie:choose-app') onChooseApp()
+    else if (msg?.type === 'macaroonie:device-menu') onDeviceMenu()
     else if (msg?.type === 'macaroonie:print' && typeof msg.html === 'string') {
       Print.printAsync({ html: msg.html }).catch(() => {})
     }
-  }, [onChooseApp])
+  }, [onChooseApp, onDeviceMenu])
 
   if (problem) {
     return <Unreachable url={url} problem={problem} onRetry={onReload} onChooseApp={onChooseApp} />
@@ -206,7 +269,8 @@ function Shell({ kind, url, onFollow, onChooseApp, onReload }) {
       applicationNameForUserAgent={`MacaroonieApp/${VERSION}`}
       webviewDebuggingEnabled={WEB_DEBUG}
       startInLoadingState
-      renderLoading={() => <Loading />}
+      renderLoading={() => <Loading onCorner={onDeviceMenu} />}
+      injectedJavaScript={CORNER_SCRIPT}
       onShouldStartLoadWithRequest={shouldLoad}
       onMessage={onMessage}
       onError={e => setProblem(e.nativeEvent?.description || 'The page could not be loaded.')}
@@ -255,6 +319,7 @@ const styles = StyleSheet.create({
   heading: { color: '#ffffff', fontSize: 30, fontWeight: '800' },
   lead: { color: '#d7dcea', fontSize: 17, lineHeight: 24, maxWidth: 640 },
   small: { color: '#9aa3bb', fontSize: 13, marginTop: 8, textAlign: 'center' },
+  note: { color: '#9aa3bb', fontSize: 14 },
   roles: { flexDirection: 'row', flexWrap: 'wrap', gap: 16, marginTop: 8 },
   role: {
     flexGrow: 1, flexBasis: 260, minHeight: 140, padding: 22, borderRadius: 18,
@@ -265,7 +330,7 @@ const styles = StyleSheet.create({
   roleTitle: { color: '#ffffff', fontSize: 22, fontWeight: '800' },
   roleText: { color: '#d7dcea', fontSize: 15, lineHeight: 21 },
   roleHost: { color: '#9aa3bb', fontSize: 13, marginTop: 'auto' },
-  back: { alignSelf: 'flex-start', minHeight: 48, justifyContent: 'center', paddingHorizontal: 4 },
+  pickerActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 8 },
   backText: { color: PINK, fontSize: 16, fontWeight: '700' },
   version: { color: '#6f7894', fontSize: 12, marginTop: 8 },
   row: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 24, justifyContent: 'center' },

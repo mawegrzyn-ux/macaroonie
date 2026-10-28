@@ -3,7 +3,7 @@
     "name": "Macaroonie",
     "slug": "macaroonie",
     "owner": "gomono-london",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "orientation": "default",
     "icon": "./assets/icon.png",
     "backgroundColor": "#1f2a44",

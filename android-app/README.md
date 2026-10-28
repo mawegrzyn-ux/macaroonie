@@ -22,8 +22,15 @@ and never need a new build of this app. The app only adds what a browser can't:
 - the camera works for QR scanning (Android asks for permission the first time);
 - if the address can't be reached it says so and tries again every 5 seconds.
 
-To change what a device is: Disconnect it in the app's settings (till, kitchen
-screen or kiosk), then press **Change device type** on its setup screen.
+To change what a device is: tap the top left corner of the screen five times
+quickly (within three seconds). **What is this device?** comes back over the
+app, which keeps running underneath: pick another type, **Back to the till**
+(no reload) or **Reload the till**. Opened this way it goes back by itself
+after a minute nobody touches it. Each type keeps its own link to the
+restaurant, so a kiosk switched to a till and back is still linked. The taps
+are counted by `corner.js`, injected into every page (they still reach the
+page) and natively while a page loads. A device that isn't linked yet also
+has **Change device type** on its setup screen.
 
 ## Building
 
@@ -47,6 +54,7 @@ address, for a test server; the default is `macaroonie.com`.
 
 ```bash
 npm ci
+npm test
 npx expo config --type public
 npx expo export --platform android
 ```

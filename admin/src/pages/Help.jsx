@@ -6108,11 +6108,25 @@ export default function Help() {
 
             <H3>Changing what a tablet is</H3>
             <P>
-              Disconnect it in its own settings (till: <strong>Till</strong> settings; kitchen screen: its
-              settings panel; kiosk: the staff panel), then press <strong>Change device type</strong> on the setup
-              screen it shows and pick again. If the app can&apos;t reach Macaroonie it says so, tries again every
-              five seconds, and offers <strong>Change device type</strong> too.
+              Tap the <strong>top left corner</strong> of the screen five times quickly (within three seconds).
+              The app shows <strong>What is this device?</strong> over the till, kitchen screen or kiosk, which
+              keeps running underneath. Pick another type, or press <strong>Back to the till</strong> (nothing
+              reloads) or <strong>Reload the till</strong> when it seems stuck. Opened this way it goes back by
+              itself after a minute nobody touches it, so a kiosk is never left on it. The taps also reach
+              whatever sits in that corner (the venue name, the first tab), which does no harm.
             </P>
+            <P>
+              Each type keeps its own link to the restaurant. A kiosk switched to a till and back is still the
+              same kiosk, still linked; while the tablet shows another type, Store tech shows the kiosk as
+              offline. To stop a tablet being a kiosk for good, Disconnect it in its staff panel (or remove it
+              in Store tech). A tablet that isn&apos;t linked yet also has <strong>Change device type</strong> on
+              its setup screen, and if the app can&apos;t reach Macaroonie it says so, tries again every five
+              seconds and offers <strong>Change device type</strong> too.
+            </P>
+            <InfoBox type="info">
+              The corner works from version 1.1 of the app (shown under the choices on What is this device?).
+              A tablet with version 1.0 needs the new download installed over it first.
+            </InfoBox>
 
             <H3>Printing and the camera</H3>
             <P>

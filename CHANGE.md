@@ -5,6 +5,14 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-28 — Android app: a hidden way back to What is this device?]
+
+- In the Android app, tap the **top left corner** of the screen five times quickly to bring back **What is this device?** (till, kitchen screen or kiosk). The app keeps running underneath: **Back to the till** returns without reloading, **Reload the till** starts it again, and opened this way it goes back by itself after a minute nobody touches it. The taps also reach whatever sits in that corner, which does no harm.
+- Each type keeps its own link to the restaurant, so a kiosk switched to a till and back is still linked.
+- Needs version 1.1 of the app: build it on expo.dev, add the new link on the Platform page's Android app tab, and install it over the old app on each tablet. No migration.
+
+---
+
 ## [2026-10-28 — Get the Android app from the setup screens]
 
 - The setup screen of a till, kitchen screen or kiosk (pos., kitchen. and kiosk.macaroonie.com) offers the Macaroonie Android app: a **Get the Android app** button in an Android browser, with the install steps; on a computer, the address to type on the tablet (e.g. kiosk.macaroonie.com/android). Not shown inside the app itself. `/android` on any of the three addresses downloads it straight away.
