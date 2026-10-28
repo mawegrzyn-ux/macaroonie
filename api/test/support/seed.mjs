@@ -17,7 +17,7 @@ export async function resetAndSeed() {
   assertTestDatabase()
   await sql.begin(async tx => {
     await tx`SET LOCAL client_min_messages = warning`
-    await tx`TRUNCATE tenants, platform_admins, platform_secrets, platform_interest, backlog_items, changelog_entries CASCADE`
+    await tx`TRUNCATE tenants, platform_admins, platform_secrets, platform_settings, platform_interest, backlog_items, changelog_entries CASCADE`
   })
   await sql`INSERT INTO platform_admins (auth0_user_id, email, is_active) VALUES (${PLATFORM}, 'platform@test.local', true)`
   const pa = as(PLATFORM, null)

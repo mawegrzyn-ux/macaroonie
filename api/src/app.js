@@ -79,6 +79,7 @@ import kioskAnalyticsRoutes from './routes/kioskAnalytics.js'
 import printDesignRoutes     from './routes/printDesigns.js'
 import taxSetupRoutes        from './routes/taxSetup.js'
 import posApiRoutes          from './routes/posApi.js'
+import androidAppRoutes      from './routes/androidApp.js'
 import screenSite            from './routes/screenSite.js'
 import installerSite         from './routes/installerSite.js'
 import installerRoutes       from './routes/installer.js'
@@ -298,6 +299,8 @@ export async function buildApp() {
   await app.register(kioskAnalyticsRoutes, { prefix: '/api/pos/kiosk-analytics' })
   await app.register(taxSetupRoutes, { prefix: '/api' })
   await app.register(posApiRoutes,   { prefix: '/pos-api' })
+  // The Android app's download (Platform page, /android on the device addresses).
+  await app.register(androidAppRoutes)
   await app.register(screensRoutes,   { prefix: '/api/screens' })
   await app.register(installerRoutes, { prefix: '/api/installer' })
   await app.register(screenApiRoutes, { prefix: '/screen-api' })

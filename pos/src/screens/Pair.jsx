@@ -8,9 +8,11 @@
 // that kind. A device moved here from another address brings a one-time code
 // and pairs by itself (no typing). In the Android app the device's kind is
 // picked in the app: Change device type there replaces the links to the
-// other addresses.
+// other addresses. In a browser the screen offers the Android app when a
+// platform admin has added it (Platform page, migration 213): a button on an
+// Android device, the address to type on one anywhere else.
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { QrCode, RefreshCw, Repeat } from 'lucide-react'
+import { Download, QrCode, RefreshCw, Repeat } from 'lucide-react'
 import { qrSvg } from '@shared/qr.js'
 import { pair, requestLinkCode, checkLinkCode, useTill } from '../lib/store.js'
 import { HOST_APP, APP_NAMES, addressFor, shortAddress } from '../lib/appHost.js'
@@ -21,6 +23,7 @@ const SECTIONS = { terminal: 'Tills', kds: 'Kitchen screens', kiosk: 'Kiosks' }
 const ADD_BUTTONS = { terminal: 'Add a till', kds: 'Add a screen', kiosk: 'Add a kiosk' }
 const POLL_MS = 4000
 const RETRY_MS = 10000
+const ON_ANDROID = typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent || '')
 
 /**
  * The code this device shows: asked for on mount, checked every few seconds,
@@ -65,6 +68,50 @@ function useLinkCode() {
   return { link, problem }
 }
 
+/** Is the Android app offered? (GET /pos-api/android-app; never asked inside the app.) */
+function useAndroidApp() {
+  const [app, setApp] = useState(null)
+  useEffect(() => {
+    if (IN_APP) return
+    let stop = false
+    fetch('/pos-api/android-app', { headers: { accept: 'application/json' } })
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (!stop && d?.available) setApp(d) })
+      .catch(() => {})
+    return () => { stop = true }
+  }, [])
+  return app
+}
+
+function AndroidApp({ app }) {
+  const address = shortAddress(location.origin) + (app.path || '/android')
+  const mb = app.bytes ? Math.max(1, Math.round(app.bytes / 1048576)) : null
+  if (!ON_ANDROID) {
+    return (
+      <div className="text-sm text-muted" data-testid="pair-android-app">
+        Android tablet? Get the Macaroonie app: open <b className="text-ink">{address}</b> on it.
+      </div>
+    )
+  }
+  return (
+    <div className="rounded-xl border border-line p-4 space-y-2" data-testid="pair-android-app">
+      <a
+        href={app.path || '/android'}
+        download="macaroonie.apk"
+        className="btn btn-primary w-full sm:w-auto"
+        data-testid="pair-android-download"
+      >
+        <Download size={18} /> Get the Android app{mb ? ` (${mb} MB)` : ''}
+      </a>
+      <p className="text-sm text-muted">
+        The Macaroonie app runs this {HOST_APP ? APP_NAMES[HOST_APP] : 'device'} full screen, keeps the screen on and prints through Android.
+        When it has downloaded, open it and tap Install (Android may ask you to allow installs from this browser first).
+        Then link the app with the code it shows.
+      </p>
+    </div>
+  )
+}
+
 function LinkPanel({ link, problem }) {
   const svg = useMemo(() => {
     if (!link?.link_url) return ''
@@ -106,6 +153,7 @@ export default function Pair() {
   const [moving, setMoving] = useState(!!s.pairCode)
   const [error, setError] = useState(null)
   const { link, problem } = useLinkCode()
+  const androidApp = useAndroidApp()
   // A device moved here from another address brings a one-time code: it
   // pairs with it by itself, once. If that fails, the code below still works.
   const auto = useRef(false)
@@ -153,6 +201,7 @@ export default function Pair() {
             <Repeat size={18} /> Change device type
           </button>
         )}
+        {!IN_APP && androidApp && <AndroidApp app={androidApp} />}
         {!IN_APP && others.length > 0 && (
           <div className="text-sm text-muted" data-testid="pair-others">
             This is the {APP_NAMES[HOST_APP]} address. {others.map((k, i) => (

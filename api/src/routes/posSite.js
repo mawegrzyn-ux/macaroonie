@@ -11,6 +11,8 @@
 //   /pos-api, /ws, /uploads   pass through to their routes
 //   http:// (X-Forwarded-Proto) redirected to https:// (the PIN check needs it)
 //   /hub on pos.{root}         the page with the venue hub's installer (/pos-api/hub/setup)
+//   /android                  the Macaroonie Android app's APK (services/androidAppSvc.js,
+//                             migration 213), or a page saying there isn't one yet
 //   /receipt/<token>          a guest's receipt from a kiosk (the route below, migration 209)
 //   /manifest.webmanifest     the build's manifest named for the host (Till,
 //                             Kitchen, Kiosk), so each installs as its own app
@@ -25,6 +27,7 @@ import { fileURLToPath } from 'node:url'
 import { platformHostKind, KITCHEN_SUBDOMAIN } from '../services/platformHost.js'
 import { env } from '../config/env.js'
 import { receiptPage } from '../services/receiptSvc.js'
+import { androidApp, APK_MIME } from '../services/androidAppSvc.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const DIST = path.resolve(__dirname, '..', '..', '..', 'pos', 'dist')
@@ -64,6 +67,44 @@ function fileFor(urlPath) {
     const st = fs.statSync(full)
     return st.isFile() ? full : null
   } catch { return null }
+}
+
+function notePage(title, text) {
+  return '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>' + title + '</title>'
+    + '<p style="font-family:system-ui,sans-serif;max-width:420px;margin:40px auto;padding:0 16px;line-height:1.5">' + text + '</p>'
+}
+
+/**
+ * The Android app's download: the copy kept on this server (local storage)
+ * is sent as macaroonie.apk; a copy in S3 storage is a redirect to it.
+ */
+async function sendAndroidApp(reply) {
+  const app = await androidApp()
+  reply.header('Cache-Control', 'no-cache, no-store, must-revalidate')
+  if (!app) {
+    reply.code(404).type('text/html; charset=utf-8')
+      .send(notePage('Macaroonie Android app', 'The Macaroonie Android app isn\'t available here yet. Ask your Macaroonie contact for it, or use this address in the browser.'))
+    return reply
+  }
+  if (!app.url.startsWith('/uploads/')) {
+    reply.code(302).header('location', app.url).send()
+    return reply
+  }
+  const file = path.resolve(env.UPLOAD_DIR, app.url.slice('/uploads/'.length))
+  let size = 0
+  try {
+    if (!file.startsWith(path.resolve(env.UPLOAD_DIR) + path.sep)) throw new Error('outside')
+    size = fs.statSync(file).size
+  } catch {
+    reply.code(404).type('text/html; charset=utf-8')
+      .send(notePage('Macaroonie Android app', 'The app\'s file is missing on the server. Ask your Macaroonie contact to add it again on the Platform page.'))
+    return reply
+  }
+  reply.header('Content-Disposition', 'attachment; filename="macaroonie.apk"')
+  reply.header('Content-Length', size)
+  reply.header('X-Content-Type-Options', 'nosniff')
+  reply.type(APK_MIME).send(fs.createReadStream(file))
+  return reply
 }
 
 async function posSite(app) {
@@ -108,6 +149,9 @@ async function posSite(app) {
       reply.code(302).header('location', '/pos-api/hub/setup').send()
       return reply
     }
+
+    // The Android app, the same file on every device address.
+    if (urlPath === '/android' || urlPath === '/android/') return sendAndroidApp(reply)
 
     if (urlPath === '/manifest.webmanifest' && host !== 'pos') {
       const m = manifestFor(host)

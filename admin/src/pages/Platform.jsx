@@ -15,6 +15,7 @@ import { cn } from '@/lib/utils'
 import InterestPanel from '@/components/platform/InterestPanel'
 import AiLimitsPanel from '@/components/platform/AiLimitsPanel'
 import WalletCard from '@/components/platform/WalletCard'
+import AndroidAppCard from '@/components/platform/AndroidAppCard'
 
 const PLAN_COLOURS = {
   starter:    'bg-gray-100 text-gray-600',
@@ -27,7 +28,7 @@ export default function Platform() {
   const qc  = useQueryClient()
   const [creating, setCreating] = useState(false)
   const [editing,  setEditing]  = useState(null)
-  const [tab,      setTab]      = useState('tenants')   // 'tenants' | 'interest' | 'ai' | 'wallet'
+  const [tab,      setTab]      = useState('tenants')   // 'tenants' | 'interest' | 'ai' | 'wallet' | 'android'
 
   const { data: me } = useQuery({ queryKey: ['me'], queryFn: () => api.get('/me'), staleTime: 120_000 })
 
@@ -75,7 +76,7 @@ export default function Platform() {
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-4xl mx-auto p-6 space-y-6">
           <div className="inline-flex rounded-lg border overflow-hidden">
-            {[['tenants', 'Tenants'], ['interest', 'Registered interest'], ['ai', 'AI usage'], ['wallet', 'Loyalty wallets']].map(([v, l]) => (
+            {[['tenants', 'Tenants'], ['interest', 'Registered interest'], ['ai', 'AI usage'], ['wallet', 'Loyalty wallets'], ['android', 'Android app']].map(([v, l]) => (
               <button key={v} type="button" onClick={() => setTab(v)}
                 className={cn('h-11 px-4 text-sm font-medium touch-manipulation inline-flex items-center gap-2',
                   tab === v ? 'bg-primary text-primary-foreground' : 'bg-background hover:bg-muted')}>
@@ -90,6 +91,7 @@ export default function Platform() {
           {tab === 'interest' && <InterestPanel rows={interest} isLoading={interestLoading} />}
           {tab === 'ai' && <AiLimitsPanel />}
           {tab === 'wallet' && <WalletCard />}
+          {tab === 'android' && <AndroidAppCard />}
 
           {tab === 'tenants' && <>
           {/* Stats overview */}
