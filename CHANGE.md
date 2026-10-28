@@ -5,6 +5,13 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-28 — Android app: every build installs on a tablet]
+
+- The `production` build profile now makes an APK for installing by hand, like `preview`. expo.dev's **Build from GitHub** asks for no profile or platform: it builds every platform with `production`, which made an app bundle only Google Play can install. Switch it back to an app bundle when the app goes on Google Play. The iOS build it also starts fails (the app is Android only); cancel it.
+- No migration.
+
+---
+
 ## [2026-10-27 — The Macaroonie Android app: till, kitchen screen and kiosk]
 
 - New Android app **Macaroonie** (`com.macaroonie.app`, folder `android-app/`, Expo project `@gomono-london/macaroonie`). On its first start it asks what the tablet is (Till, Kitchen screen or Self-order kiosk), then opens that app full screen every time: the address bar and Android's bars hidden, the screen kept on, the back button doing nothing. The apps inside are the same web apps as pos., kitchen. and kiosk.macaroonie.com, so they keep updating with every deploy.
