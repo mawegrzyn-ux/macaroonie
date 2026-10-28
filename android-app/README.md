@@ -32,7 +32,11 @@ GitHub connection on expo.dev must point at this repository with the base
 directory `android-app`.
 
 - `preview`: an APK to install on devices by hand (share the link EAS gives).
-- `production`: an app bundle for Google Play.
+- `production`: also an APK to install by hand, for now. **Build from GitHub**
+  on expo.dev doesn't ask for a profile or platform: it builds every platform
+  with `production`. The iOS build fails (the app is Android only); cancel it.
+  When the app goes on Google Play, set `production` back to
+  `"buildType": "app-bundle"` without `"distribution": "internal"`.
 - `development`: an APK whose WebView can be inspected from Chrome
   (`chrome://inspect`).
 
