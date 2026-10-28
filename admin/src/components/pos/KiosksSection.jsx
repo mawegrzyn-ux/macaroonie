@@ -18,7 +18,7 @@ import { designProblems } from '@shared/kiosk.js'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { Section, Modal, Field, inputCls, ErrorNote, ConfirmDelete, Segmented, Btn, ago } from './shared'
-import { status, deviceUrl, InstallerLine, ShownCodeField, LinkDeviceModal, LinkDeviceButton, linkShownCode, codeReady } from './TillsSection'
+import { status, deviceUrl, InstallerLine, ShownCodeField, LinkDeviceModal, LinkDeviceButton, linkShownCode, codeReady, ReusePick, defaultReuse, reuseLabel, RemovedDevices } from './TillsSection'
 import { CardMachinePick, useCardReaders } from './CardMachinesSection'
 
 /** The design a kiosk shows: its own pick, else the company's first design. */
@@ -32,6 +32,7 @@ function KioskModal({ venueId, setup, device, onClose }) {
   const qc = useQueryClient()
   const s = device?.settings || {}
   const [code, setCode] = useState('')
+  const [reuseId, setReuseId] = useState(() => device ? null : defaultReuse(setup, 'kiosk'))
   const [form, setForm] = useState({
     name: device?.name || '',
     revenue_stream_id: s.revenue_stream_id || '',
@@ -54,7 +55,7 @@ function KioskModal({ venueId, setup, device, onClose }) {
   const save = useMutation({
     mutationFn: () => device
       ? api.patch(`/pos/devices/${device.id}`, body())
-      : linkShownCode(api, venueId, 'kiosk', code, body()),
+      : linkShownCode(api, venueId, 'kiosk', code, reuseId ? { device_id: reuseId } : body()),
     onSuccess: () => { refresh(); onClose() },
   })
   const remove = useMutation({
@@ -66,37 +67,40 @@ function KioskModal({ venueId, setup, device, onClose }) {
   return (
     <Modal title={device ? 'Edit ' + device.name : 'Add a kiosk'} onClose={onClose}
       footer={<>
-        <Btn variant="primary" className="flex-1" disabled={!form.name.trim() || (!device && !codeReady(code)) || save.isPending} onClick={() => save.mutate()} data-testid="device-save">
-          {save.isPending && <Loader2 className="w-4 h-4 animate-spin" />} {device ? 'Save' : 'Add the kiosk'}
+        <Btn variant="primary" className="flex-1" disabled={(!reuseId && !form.name.trim()) || (!device && !codeReady(code)) || save.isPending} onClick={() => save.mutate()} data-testid="device-save">
+          {save.isPending && <Loader2 className="w-4 h-4 animate-spin" />} {device ? 'Save' : reuseId ? reuseLabel(setup, reuseId) : 'Add the kiosk'}
         </Btn>
         {device && <ConfirmDelete label="Remove kiosk" confirmLabel="Yes, remove" onConfirm={() => remove.mutate()} disabled={remove.isPending} />}
       </>}>
       {!device && <ShownCodeField setup={setup} kind="kiosk" value={code} onChange={setCode} autoFocus />}
-      <Field label="Name" hint="Shown in Store tech and on the tills' Counter list, e.g. Kiosk 1, Door kiosk.">
-        <input className={inputCls} value={form.name} maxLength={60} onChange={e => set({ name: e.target.value })} placeholder="e.g. Kiosk 1" />
-      </Field>
-      <Field label="Revenue stream" hint="Where its sales are counted. The stream's order types are the ones the kiosk offers (Staying or going?), and the stream decides whether it asks for a name or a table number.">
-        <select className={inputCls} value={form.revenue_stream_id} onChange={e => set({ revenue_stream_id: e.target.value })}>
-          <option value="">First one in the list</option>
-          {setup.revenue_streams.filter(r => r.is_active).map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-        </select>
-      </Field>
-      <Field label="Design" hint="Colours, start screen, languages, how choices are shown, ways to pay. Designs are listed below this.">
-        <select className={inputCls} value={form.design_id} onChange={e => set({ design_id: e.target.value })}>
-          <option value="">{setup.kiosk_designs?.length ? 'The first design (' + setup.kiosk_designs[0].name + ')' : 'The standard look (no designs yet)'}</option>
-          {(setup.kiosk_designs || []).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-        </select>
-      </Field>
-      <CardMachinePick venueId={venueId} kiosk value={form.card_reader} onChange={v => set({ card_reader: v })} />
-      <Field label="Receipt printer" hint="Receipts the guest asks for. Until the venue hub is set up, the kiosk prints through its own browser.">
-        <select className={inputCls} value={form.receipt_printer_id} onChange={e => set({ receipt_printer_id: e.target.value })}>
-          <option value="">None</option>
-          {setup.printers.filter(p => p.is_active).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
-      </Field>
-      {problems.map(p => (
-        <p key={p} className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 flex gap-2"><AlertTriangle className="w-4 h-4 shrink-0" /> {p}</p>
-      ))}
+      {!device && <ReusePick setup={setup} kind="kiosk" value={reuseId} onChange={setReuseId} />}
+      {!reuseId && <>
+        <Field label="Name" hint="Shown in Store tech and on the tills' Counter list, e.g. Kiosk 1, Door kiosk.">
+          <input className={inputCls} value={form.name} maxLength={60} onChange={e => set({ name: e.target.value })} placeholder="e.g. Kiosk 1" />
+        </Field>
+        <Field label="Revenue stream" hint="Where its sales are counted. The stream's order types are the ones the kiosk offers (Staying or going?), and the stream decides whether it asks for a name or a table number.">
+          <select className={inputCls} value={form.revenue_stream_id} onChange={e => set({ revenue_stream_id: e.target.value })}>
+            <option value="">First one in the list</option>
+            {setup.revenue_streams.filter(r => r.is_active).map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+          </select>
+        </Field>
+        <Field label="Design" hint="Colours, start screen, languages, how choices are shown, ways to pay. Designs are listed below this.">
+          <select className={inputCls} value={form.design_id} onChange={e => set({ design_id: e.target.value })}>
+            <option value="">{setup.kiosk_designs?.length ? 'The first design (' + setup.kiosk_designs[0].name + ')' : 'The standard look (no designs yet)'}</option>
+            {(setup.kiosk_designs || []).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+          </select>
+        </Field>
+        <CardMachinePick venueId={venueId} kiosk value={form.card_reader} onChange={v => set({ card_reader: v })} />
+        <Field label="Receipt printer" hint="Receipts the guest asks for. Until the venue hub is set up, the kiosk prints through its own browser.">
+          <select className={inputCls} value={form.receipt_printer_id} onChange={e => set({ receipt_printer_id: e.target.value })}>
+            <option value="">None</option>
+            {setup.printers.filter(p => p.is_active).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        </Field>
+        {problems.map(p => (
+          <p key={p} className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 flex gap-2"><AlertTriangle className="w-4 h-4 shrink-0" /> {p}</p>
+        ))}
+      </>}
       <ErrorNote error={save.error || remove.error} />
     </Modal>
   )
@@ -145,9 +149,7 @@ function KioskDevices({ venueId, setup }) {
           })}
         </div>
       )}
-      {!!removed.length && (
-        <p className="text-xs text-muted-foreground">Removed: {removed.map(d => d.name + ' (' + d.short_code + ')').join(', ')}</p>
-      )}
+      <RemovedDevices devices={removed} onBringBack={setLinking} />
       <p className="text-xs text-muted-foreground">Kiosk address: <span className="font-medium text-foreground break-all" data-testid="kiosk-address">{deviceUrl(setup, 'kiosk')}</span> (set it as the start page of the kiosk browser)</p>
       <InstallerLine setup={setup} />
       {editing && (

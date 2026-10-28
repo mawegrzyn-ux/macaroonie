@@ -5,6 +5,15 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-28 — Reuse a till, kitchen screen, kiosk, hub or menu screen with a new code]
+
+- A device showing a new code no longer needs a new till (kitchen screen, kiosk, hub or menu screen). Every place a code is typed or scanned (Store tech's Add a till / Add a screen / Add a kiosk / Link a hub, Add screen on the Screens page, the installer) has **Link it as: A new … / One already here**. Pick one already here and it keeps its name, short code and settings (a menu screen its boards and wall place); one still linked moves to the new device.
+- When exactly one of that kind isn't linked (after Disconnect, say), it is already picked and the button reads **Link as** its name.
+- Removed tills, kitchen screens, kiosks and hubs can come back: a **Removed** line with **Bring back** under each list, and in the One already here list. Settings that point at something deleted since (a printer, a card machine, a station, a kiosk design) are cleared.
+- No migration.
+
+---
+
 ## [2026-10-28 — Android app: a hidden way back to What is this device?]
 
 - In the Android app, tap the **top left corner** of the screen five times quickly to bring back **What is this device?** (till, kitchen screen or kiosk). The app keeps running underneath: **Back to the till** returns without reloading, **Reload the till** starts it again, and opened this way it goes back by itself after a minute nobody touches it. The taps also reach whatever sits in that corner, which does no harm.

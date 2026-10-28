@@ -140,6 +140,44 @@ test('a new device for a till already here: the new one signs in, the old one st
   assert.equal(kiosk.json.device.kind, 'kiosk')
 })
 
+test('a removed device comes back on a new code with its name and settings; stale settings are cleared', async () => {
+  const kiosk = await linkDevice(owner, V, { kind: 'kiosk', name: 'Door kiosk 2', settings: { mode: 'counter', card_reader: 'none' } })
+  const before = (await ok(owner.get(`/api/pos/venues/${V}/setup`))).devices.find(d => d.id === kiosk.id)
+  await ok(owner.delete(`/api/pos/devices/${kiosk.id}`))
+  assert.equal((await call('GET', '/pos-api/me', { headers: asDevice(kiosk.id, kiosk.secret) })).status, 401, 'removed: signed out')
+
+  // The installer lists it with the removed ones, not with the live ones.
+  const ov = await ok(owner.get(`/api/installer/venues/${V}`))
+  assert.ok(!ov.devices.some(d => d.id === kiosk.id))
+  assert.ok(ov.removed_devices.some(d => d.id === kiosk.id && d.revoked_at))
+
+  // While removed, something it pointed at went away (a printer and a station nobody has).
+  const gone = '00000000-0000-4000-8000-000000000001'
+  await sql`UPDATE pos_devices SET settings = settings || ${sql.json({ receipt_printer_id: gone, design_id: gone, card_reader: gone, station_ids: [gone] })} WHERE id = ${kiosk.id}`
+
+  // A till's code can't bring a kiosk back; another tenant can't either.
+  const till = await showCode('terminal')
+  assert.equal((await owner.post(`/api/pos/venues/${V}/link`, { code: till.code, device_id: kiosk.id })).status, 422)
+  const p = await showCode('kiosk')
+  assert.equal((await other.post(`/api/pos/venues/${VB}/link`, { code: p.code, device_id: kiosk.id })).status, 404)
+
+  const res = await owner.post(`/api/pos/venues/${V}/link`, { code: p.code, device_id: kiosk.id })
+  assert.equal(res.status, 200, res.body)
+  const back = res.json.device
+  assert.equal(back.id, kiosk.id)
+  assert.equal(back.revoked_at, null, 'no longer removed')
+  assert.equal(back.name, 'Door kiosk 2')
+  assert.equal(back.short_code, before.short_code, 'keeps its short code')
+  assert.equal(back.settings.mode, 'counter', 'keeps its settings')
+  assert.equal(back.settings.receipt_printer_id, null, 'the printer gone since is cleared')
+  assert.equal(back.settings.design_id, null)
+  assert.equal(back.settings.card_reader, 'none')
+  assert.deepEqual(back.settings.station_ids, [])
+  assert.equal((await call('GET', '/pos-api/me', { headers: asDevice(kiosk.id, p.secret) })).status, 200, 'the new device signs in')
+  const after = await ok(owner.get(`/api/installer/venues/${V}`))
+  assert.ok(after.devices.some(d => d.id === kiosk.id) && !after.removed_devices.some(d => d.id === kiosk.id))
+})
+
 test('refusals: view only, another tenant, run-out codes; menu screens keep their own route', async () => {
   const p = await showCode('terminal')
   assert.equal((await viewer.get(`/api/installer/venues/${V}`)).status, 403, 'no Store tech or Menu screens access')

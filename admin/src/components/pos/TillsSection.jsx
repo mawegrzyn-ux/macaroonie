@@ -10,7 +10,7 @@
 
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Loader2, Pencil, MonitorSmartphone, Link2, Smartphone } from 'lucide-react'
+import { Plus, Loader2, Pencil, MonitorSmartphone, Link2, Smartphone, RotateCcw } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { installerHref } from '@/lib/hosts'
@@ -68,10 +68,100 @@ export function linkShownCode(api, venueId, kind, code, rest) {
   return api.post(`/pos/venues/${venueId}/link`, { code, kind, ...rest })
 }
 
+// The kind's devices a code can go on instead of making a new one: not
+// linked first (disconnected, never set up), then linked, then removed.
+const REUSE_RANK = d => d.revoked_at ? 2 : d.paired ? 1 : 0
+export function reusable(setup, kind) {
+  return setup.devices.filter(d => d.kind === kind).sort((a, b) => REUSE_RANK(a) - REUSE_RANK(b))
+}
+
+/** What an Add window starts on: the kind's one device that isn't linked, when there is exactly one; else a new one. */
+export function defaultReuse(setup, kind) {
+  const open = setup.devices.filter(d => d.kind === kind && !d.revoked_at && !d.paired)
+  return open.length === 1 ? open[0].id : null
+}
+
+/** The Add window's save button when the code goes on a device already here. */
+export function reuseLabel(setup, id) {
+  const d = setup.devices.find(x => x.id === id)
+  return d?.revoked_at ? 'Bring back ' + d.name : 'Link as ' + (d?.name || 'it')
+}
+
+const reuseState = d => d.revoked_at
+  ? { text: 'Removed: comes back with its settings', tone: 'muted' }
+  : d.paired ? { text: (d.last_seen_at ? 'Linked · seen ' + ago(d.last_seen_at) : 'Linked') + ': that device stops', tone: 'ok' }
+    : { text: 'Not linked', tone: 'warn' }
+
+/**
+ * In an Add window, under the code: a new till (kitchen screen, kiosk, hub)
+ * or one already here, which then keeps its name, settings and short code.
+ * value = the device's id, or null for a new one.
+ */
+export function ReusePick({ setup, kind, value, onChange }) {
+  const list = reusable(setup, kind)
+  if (!list.length) return null
+  const what = KIND_WORDS[kind]
+  const picked = list.find(d => d.id === value)
+  return (
+    <div className="space-y-2" data-testid="reuse-pick">
+      <Field group label="Link it as">
+        <Segmented value={value ? 'reuse' : 'new'} onChange={v => onChange(v === 'new' ? null : list[0].id)} options={[
+          { value: 'new', label: 'A new ' + what },
+          { value: 'reuse', label: 'One already here' },
+        ]} />
+      </Field>
+      {value && (
+        <div className="rounded-xl border divide-y" role="group" aria-label={'Which ' + what}>
+          {list.map(d => {
+            const st = reuseState(d)
+            return (
+              <button key={d.id} type="button" onClick={() => onChange(d.id)} aria-pressed={d.id === value} data-testid="reuse-row"
+                className={cn('w-full flex items-center gap-3 px-3 min-h-[52px] text-left touch-manipulation',
+                  d.id === value ? 'bg-primary/10 ring-2 ring-inset ring-primary' : 'bg-background hover:bg-muted')}>
+                <span className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center text-xs font-semibold shrink-0">{d.short_code}</span>
+                <span className="flex-1 min-w-0">
+                  <span className="block text-sm font-medium truncate">{d.name}</span>
+                  <span className={cn('block text-xs', st.tone === 'ok' ? 'text-green-700' : st.tone === 'warn' ? 'text-amber-700' : 'text-muted-foreground')}>{st.text}</span>
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      )}
+      {picked && (
+        <p className="text-xs text-muted-foreground" data-testid="reuse-note">
+          {picked.revoked_at
+            ? `${picked.name} comes back with its name, short code and settings; any setting pointing at something deleted since (a printer, a card machine, a station) is cleared.`
+            : picked.paired
+              ? `It keeps the name ${picked.name} and its settings. The device ${picked.name} is on now stops working.`
+              : `It keeps the name ${picked.name} and its settings.`}
+        </p>
+      )}
+    </div>
+  )
+}
+
+/** The removed devices of a list, each with Bring back (a code it then shows links it again). */
+export function RemovedDevices({ devices, onBringBack }) {
+  if (!devices.length) return null
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground" data-testid="removed-devices">
+      <span>Removed:</span>
+      {devices.map(d => (
+        <button key={d.id} type="button" onClick={() => onBringBack(d)} data-testid="bring-back"
+          className="inline-flex items-center gap-1.5 min-h-[36px] px-2.5 rounded-lg border bg-background hover:bg-muted touch-manipulation text-foreground">
+          <RotateCcw className="w-3.5 h-3.5" /> {d.name} ({d.short_code})
+        </button>
+      ))}
+    </div>
+  )
+}
+
 /**
  * Link a device to a till, kitchen screen or kiosk already here: one that
- * isn't linked (new, disconnected) or a replacement for a broken one. It
- * keeps its name and settings; the device it was on stops working.
+ * isn't linked (new, disconnected), a replacement for a broken one, or one
+ * removed earlier (brought back). It keeps its name and settings; the device
+ * it was on stops working.
  */
 export function LinkDeviceModal({ venueId, setup, device, onClose }) {
   const api = useApi()
@@ -83,17 +173,19 @@ export function LinkDeviceModal({ venueId, setup, device, onClose }) {
   })
   const what = KIND_WORDS[device.kind] || 'device'
   return (
-    <Modal title={(device.paired ? 'New device for ' : 'Link a device to ') + device.name} onClose={onClose}
+    <Modal title={(device.revoked_at ? 'Bring back ' : device.paired ? 'New device for ' : 'Link a device to ') + device.name} onClose={onClose}
       footer={<>
         <Btn className="flex-1" onClick={onClose}>Cancel</Btn>
         <Btn variant="primary" className="flex-1" disabled={!codeReady(code) || link.isPending} onClick={() => link.mutate()} data-testid="link-device-submit">
-          {link.isPending && <Loader2 className="w-4 h-4 animate-spin" />} Link it
+          {link.isPending && <Loader2 className="w-4 h-4 animate-spin" />} {device.revoked_at ? 'Bring it back' : 'Link it'}
         </Btn>
       </>}>
       <p className="text-sm text-muted-foreground">
-        {device.paired
-          ? `For a broken or replaced ${what}: the new device keeps the name ${device.name} and its settings, and the device it is on now stops working.`
-          : `The device keeps the name ${device.name} and its settings.`}
+        {device.revoked_at
+          ? `${device.name} comes back with its name, short code and settings on the device showing the code; any setting pointing at something deleted since (a printer, a card machine, a station) is cleared.`
+          : device.paired
+            ? `For a broken or replaced ${what}: the new device keeps the name ${device.name} and its settings, and the device it is on now stops working.`
+            : `The device keeps the name ${device.name} and its settings.`}
       </p>
       <ShownCodeField setup={setup} kind={device.kind} value={code} onChange={setCode} autoFocus />
       <ErrorNote error={link.error} />
@@ -127,6 +219,7 @@ function TillModal({ venueId, setup, device, onClose }) {
   const qc = useQueryClient()
   const s = device?.settings || {}
   const [code, setCode] = useState('')
+  const [reuseId, setReuseId] = useState(() => device ? null : defaultReuse(setup, 'terminal'))
   const [form, setForm] = useState({
     name: device?.name || '',
     mode: s.mode || 'table',
@@ -150,7 +243,7 @@ function TillModal({ venueId, setup, device, onClose }) {
   const save = useMutation({
     mutationFn: () => device
       ? api.patch(`/pos/devices/${device.id}`, body())
-      : linkShownCode(api, venueId, 'terminal', code, body()),
+      : linkShownCode(api, venueId, 'terminal', code, reuseId ? { device_id: reuseId } : body()),
     onSuccess: () => { refresh(); onClose() },
   })
   const remove = useMutation({
@@ -161,39 +254,42 @@ function TillModal({ venueId, setup, device, onClose }) {
   return (
     <Modal title={device ? 'Edit ' + device.name : 'Add a till'} onClose={onClose}
       footer={<>
-        <Btn variant="primary" className="flex-1" disabled={!form.name.trim() || (!device && !codeReady(code)) || save.isPending} onClick={() => save.mutate()} data-testid="device-save">
-          {save.isPending && <Loader2 className="w-4 h-4 animate-spin" />} {device ? 'Save' : 'Add the till'}
+        <Btn variant="primary" className="flex-1" disabled={(!reuseId && !form.name.trim()) || (!device && !codeReady(code)) || save.isPending} onClick={() => save.mutate()} data-testid="device-save">
+          {save.isPending && <Loader2 className="w-4 h-4 animate-spin" />} {device ? 'Save' : reuseId ? reuseLabel(setup, reuseId) : 'Add the till'}
         </Btn>
         {device && <ConfirmDelete label="Remove till" confirmLabel="Yes, remove" onConfirm={() => remove.mutate()} disabled={remove.isPending} />}
       </>}>
       {!device && <ShownCodeField setup={setup} kind="terminal" value={code} onChange={setCode} autoFocus />}
-      <Field label="Name" hint="Shown on the till and in reports, e.g. Front till, Bar.">
-        <input className={inputCls} value={form.name} maxLength={60} onChange={e => set({ name: e.target.value })} placeholder="e.g. Front till" />
-      </Field>
-      <Field group label="Opens in">
-        <Segmented value={form.mode} options={MODES} onChange={v => set({ mode: v })} />
-      </Field>
-      <Field label="Revenue stream" hint="Where its sales are counted unless staff pick another on the check. It also decides the order types the till offers.">
-        <select className={inputCls} value={form.revenue_stream_id} onChange={e => set({ revenue_stream_id: e.target.value })}>
-          <option value="">First one in the list</option>
-          {setup.revenue_streams.filter(r => r.is_active).map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-        </select>
-      </Field>
-      {form.mode === 'table' && (
-        <Field label="Floor area" hint="The part of the floor plan it opens on.">
-          <select className={inputCls} value={form.floor_area_id} onChange={e => set({ floor_area_id: e.target.value })}>
-            <option value="">First area</option>
-            {setup.floor_areas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+      {!device && <ReusePick setup={setup} kind="terminal" value={reuseId} onChange={setReuseId} />}
+      {!reuseId && <>
+        <Field label="Name" hint="Shown on the till and in reports, e.g. Front till, Bar.">
+          <input className={inputCls} value={form.name} maxLength={60} onChange={e => set({ name: e.target.value })} placeholder="e.g. Front till" />
+        </Field>
+        <Field group label="Opens in">
+          <Segmented value={form.mode} options={MODES} onChange={v => set({ mode: v })} />
+        </Field>
+        <Field label="Revenue stream" hint="Where its sales are counted unless staff pick another on the check. It also decides the order types the till offers.">
+          <select className={inputCls} value={form.revenue_stream_id} onChange={e => set({ revenue_stream_id: e.target.value })}>
+            <option value="">First one in the list</option>
+            {setup.revenue_streams.filter(r => r.is_active).map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
           </select>
         </Field>
-      )}
-      <Field label="Receipt printer" hint="Bills and receipts from this till. With none, or one plugged into this till, it prints them through its own browser; a network printer prints through the venue hub (Printers tab).">
-        <select className={inputCls} value={form.receipt_printer_id} onChange={e => set({ receipt_printer_id: e.target.value })}>
-          <option value="">None</option>
-          {receiptPrinters.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
-      </Field>
-      <CardMachinePick venueId={venueId} value={form.card_reader} onChange={v => set({ card_reader: v })} />
+        {form.mode === 'table' && (
+          <Field label="Floor area" hint="The part of the floor plan it opens on.">
+            <select className={inputCls} value={form.floor_area_id} onChange={e => set({ floor_area_id: e.target.value })}>
+              <option value="">First area</option>
+              {setup.floor_areas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </select>
+          </Field>
+        )}
+        <Field label="Receipt printer" hint="Bills and receipts from this till. With none, or one plugged into this till, it prints them through its own browser; a network printer prints through the venue hub (Printers tab).">
+          <select className={inputCls} value={form.receipt_printer_id} onChange={e => set({ receipt_printer_id: e.target.value })}>
+            <option value="">None</option>
+            {receiptPrinters.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        </Field>
+        <CardMachinePick venueId={venueId} value={form.card_reader} onChange={v => set({ card_reader: v })} />
+      </>}
       <ErrorNote error={save.error || remove.error} />
     </Modal>
   )
@@ -250,9 +346,7 @@ export default function TillsSection({ venueId, setup }) {
           })}
         </div>
       )}
-      {!!removed.length && (
-        <p className="text-xs text-muted-foreground">Removed: {removed.map(d => d.name + ' (' + d.short_code + ')').join(', ')}</p>
-      )}
+      <RemovedDevices devices={removed} onBringBack={setLinking} />
       <p className="text-xs text-muted-foreground">Till address: <span className="font-medium text-foreground break-all">{deviceUrl(setup, 'terminal')}</span> (kitchen screens and kiosks have their own, on their tabs)</p>
       <InstallerLine setup={setup} />
       {editing && (

@@ -5331,7 +5331,7 @@ export default function Help() {
               <li><strong>Receipts and payments</strong>: when the trading day starts, the name, address and VAT number on receipts, the ways to pay, tips, asking for covers, and when staff are signed out. Tax rates are set on Menus → Tax rates.</li>
               <li><strong>Cash Recon link</strong>: which till figures go into which Cash Recon fields when the day is closed (see End of day).</li>
               <li><strong>Floor plan</strong> (Store tech → Floor plan): add an area (e.g. Restaurant), tap tables to put them on it, drag them where they stand, drag the round corner to resize, Turn, Square / Round, and add walls, the bar, plants and labels. Save the area. Tables themselves are added on the Tables page.</li>
-              <li><strong>Tills</strong>: open the till address on the tablet: it shows a six-letter code and a QR code. Tap <strong>Add a till</strong>, type the code, give it a name, table service or counter, and <strong>Add the till</strong>: the tablet sets itself up. Or scan the QR code with your phone and do the same in the installer app. <strong>New device</strong> on a till's row puts it on another tablet (type the code that tablet shows; the old one stops); removing a till signs it out for good.</li>
+              <li><strong>Tills</strong>: open the till address on the tablet: it shows a six-letter code and a QR code. Tap <strong>Add a till</strong>, type the code, give it a name, table service or counter, and <strong>Add the till</strong>: the tablet sets itself up. Or scan the QR code with your phone and do the same in the installer app. <strong>New device</strong> on a till's row puts it on another tablet (type the code that tablet shows; the old one stops), and so does choosing <strong>One already here</strong> in Add a till. Removing a till signs it out; <strong>Bring back</strong> on the Removed line links it again with its settings.</li>
             </ol>
 
             <H3>Printers and the venue hub</H3>
@@ -5466,14 +5466,32 @@ export default function Help() {
                 ['Till', 'Till tab → Disconnect this till (a manager confirms)', 'The tablet goes back to the pairing screen. Not while sales are still waiting to be sent: get it online first.'],
                 ['Kitchen screen', 'The settings button (bottom right) → Disconnect this screen', 'Back to the pairing screen. Taps not sent yet are lost, and the screen says how many first.'],
                 ['Kiosk', 'Five quick taps in the top-left corner of the start screen → Disconnect this kiosk', 'Back to the pairing screen. Paid orders still waiting to reach the till are sent first; without the internet it waits.'],
-                ['Menu screen', 'Five quick taps on the screen (or five presses of OK on a remote) → Disconnect this screen', 'It shows a new code. In Screens, use New device for this screen to link it again with its boards.'],
+                ['Menu screen', 'Five quick taps on the screen (or five presses of OK on a remote) → Disconnect this screen', 'It shows a new code. In Screens, Add screen offers it under One already here, so it keeps its boards.'],
               ]}
             />
             <P>
               A disconnected device keeps its name and settings in Store tech (or Screens) and shows{' '}
               <strong>Not linked</strong>: press <strong>Link a device</strong> on its row and type the code the
-              device shows (the same device or another one). To take a device away for good, remove it in Till
-              setup instead.
+              device shows (the same device or another one). To take a device away, remove it in Store tech
+              instead.
+            </P>
+
+            <H3>Reusing a till, kitchen screen, kiosk or menu screen</H3>
+            <P>
+              A device showing a new code (after Disconnect, a reset or a new tablet) doesn&apos;t need a new till
+              (kitchen screen, kiosk, hub, menu screen). Wherever you type or scan the code (the Add window in
+              Store tech, Add screen on the Screens page, or the installer), choose{' '}
+              <strong>One already here</strong> under <strong>Link it as</strong> and pick it: it keeps its name,
+              short code and settings (a menu screen keeps its boards and wall place), so reports and kitchen
+              flows that name it carry on. When exactly one of that kind isn&apos;t linked, it is already picked
+              and the button says <strong>Link as</strong> its name; pick <strong>A new till</strong> (and so on)
+              for a new one. Picking one that is still linked moves it to the new device and the old one stops.
+            </P>
+            <P>
+              Removed devices are listed under the list as <strong>Removed</strong>, each with a{' '}
+              <strong>Bring back</strong> button, and under One already here. Bringing one back links the code to
+              it with its name, short code and settings; any setting pointing at something deleted since (a
+              printer, a card machine, a station, a kiosk design) is cleared, so check its settings afterwards.
             </P>
             <InfoBox type="tip">
               A kitchen screen or kiosk set up before they had their own address shows a yellow bar:{' '}
@@ -6044,7 +6062,7 @@ export default function Help() {
             <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
               <li>On the device, open its address in Chrome: <strong>pos.macaroonie.com</strong> for a till, <strong>kitchen.macaroonie.com</strong> for a kitchen screen, <strong>kiosk.macaroonie.com</strong> for a kiosk, <strong>screens.macaroonie.com</strong> for a menu screen. It shows a six-letter code and a QR code.</li>
               <li>Scan the QR code with your phone&apos;s camera. It opens the installer on that code. (In the installer, <strong>Link a device showing a code</strong> lets you type the code instead, or scan it with <strong>Scan the QR code</strong> where the phone offers it.)</li>
-              <li>Check the venue at the top (<strong>Change</strong> picks another), give the device a name and, for a kitchen screen, tick the stations it shows; for a menu screen, pick the board or playlist.</li>
+              <li>Check the venue at the top (<strong>Change</strong> picks another). For a new device, give it a name and, for a kitchen screen, tick the stations it shows; for a menu screen, pick the board or playlist. To put the code on one already set up (it keeps its name and settings), choose <strong>One already here</strong> and pick it: one that isn&apos;t linked is picked for you, and removed ones are at the bottom of the list.</li>
               <li>Tap <strong>Link</strong>. The device sets itself up within a few seconds.</li>
             </ol>
             <P>

@@ -21,6 +21,21 @@ import { VenueButton } from './InstallerHome'
 
 const POS_KINDS = ['terminal', 'kds', 'kiosk']
 
+// The kind's devices a code can go on instead of a new one: not linked
+// first, then linked, then removed ones (brought back with their settings).
+const REUSE_RANK = d => d.revoked_at ? 2 : d.paired ? 1 : 0
+function reusable(overview, kind) {
+  const list = kind === 'screen'
+    ? (overview.screens || [])
+    : [...(overview.devices || []), ...(overview.removed_devices || [])].filter(d => d.kind === kind)
+  return [...list].sort((a, b) => REUSE_RANK(a) - REUSE_RANK(b))
+}
+// The first guess: the kind's one device that isn't linked, when there is exactly one.
+function guessReuse(list) {
+  const open = list.filter(d => !d.paired && !d.revoked_at)
+  return open.length === 1 ? open[0].id : null
+}
+
 export default function InstallerLink() {
   const api = useApi()
   const qc = useQueryClient()
@@ -117,16 +132,26 @@ function LinkForm({ code, found, overview, venueId, preset, onLinked }) {
   const api = useApi()
   const fixed = found.kind   // null: a code from a test address, any of the three
   const [kind, setKind] = useState(fixed || (POS_KINDS.includes(preset.kind) ? preset.kind : 'terminal'))
-  const same = useMemo(() => kind === 'screen'
-    ? (overview.screens || [])
-    : (overview.devices || []).filter(d => d.kind === kind), [overview, kind])
+  const same = useMemo(() => reusable(overview, kind), [overview, kind])
   const presetReplace = same.some(d => d.id === preset.replace) ? preset.replace : null
-  const [mode, setMode] = useState(presetReplace ? 'replace' : 'new')
-  const [replaceId, setReplaceId] = useState(presetReplace)
+  const firstPick = presetReplace || guessReuse(same)
+  const [mode, setMode] = useState(firstPick ? 'replace' : 'new')
+  const [replaceId, setReplaceId] = useState(firstPick)
   const [name, setName] = useState(() => suggestName(fixed || kind, overview))
   const [settings, setSettings] = useState({})
+  const picked = same.find(d => d.id === replaceId)
 
-  useEffect(() => { if (!fixed) setName(suggestName(kind, overview)) }, [kind]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (fixed) return
+    setName(suggestName(kind, overview))
+    const guess = guessReuse(reusable(overview, kind))
+    setReplaceId(guess)
+    setMode(guess ? 'replace' : 'new')
+  }, [kind]) // eslint-disable-line react-hooks/exhaustive-deps
+  const chooseMode = v => {
+    setMode(v)
+    if (v === 'replace' && !same.some(d => d.id === replaceId)) setReplaceId(same[0]?.id || null)
+  }
 
   const link = useMutation({
     mutationFn: async () => {
@@ -168,7 +193,7 @@ function LinkForm({ code, found, overview, venueId, preset, onLinked }) {
 
         {same.length > 0 && (
           <Field label="Link it as">
-            <Choice value={mode} onChange={setMode} options={[
+            <Choice value={mode} onChange={chooseMode} options={[
               { value: 'new', label: 'A new ' + KINDS[kind].label.toLowerCase() },
               { value: 'replace', label: 'One already here' },
             ]} />
@@ -176,12 +201,16 @@ function LinkForm({ code, found, overview, venueId, preset, onLinked }) {
         )}
 
         {mode === 'replace' ? (
-          <Field label={'Which ' + KINDS[kind].label.toLowerCase()} hint="It keeps its name and settings. The device it was linked to before stops working.">
+          <Field label={'Which ' + KINDS[kind].label.toLowerCase()} hint={picked?.revoked_at
+            ? 'It comes back with its name and settings; any setting pointing at something deleted since (a printer, a card machine, a station) is cleared.'
+            : picked?.paired
+              ? 'It keeps its name and settings. The device it is linked to now stops working.'
+              : 'It keeps its name and settings.'}>
             <div className="space-y-2">
               {same.map(d => {
-                const st = deviceState(d)
+                const st = d.revoked_at ? { label: 'Removed', tone: 'muted' } : deviceState(d)
                 return (
-                  <button key={d.id} type="button" aria-pressed={replaceId === d.id} onClick={() => setReplaceId(d.id)}
+                  <button key={d.id} type="button" aria-pressed={replaceId === d.id} onClick={() => setReplaceId(d.id)} data-testid="reuse-row"
                     className={'w-full flex items-center gap-3 rounded-xl border px-3 min-h-[56px] text-left touch-manipulation ' + (replaceId === d.id ? 'border-[#1f3a5f] ring-2 ring-[#1f3a5f]/30 bg-[#1f3a5f]/5' : 'bg-background')}>
                     <span className="flex-1 min-w-0"><span className="block font-semibold truncate">{d.name}</span><span className="text-xs text-muted-foreground">{d.short_code}</span></span>
                     <Pill tone={st.tone}>{st.label}</Pill>
@@ -203,7 +232,7 @@ function LinkForm({ code, found, overview, venueId, preset, onLinked }) {
         {!canLink && <ErrorNote>Linking {KINDS[kind].plural.toLowerCase()} needs Manage on {kind === 'screen' ? 'Menu screens' : 'Store tech'}.</ErrorNote>}
         <ErrorNote>{link.error?.message}</ErrorNote>
         <BigButton primary disabled={!canLink || !ready || link.isPending} onClick={() => link.mutate()} data-testid="link-submit">
-          <Link2 className="w-5 h-5" /> {link.isPending ? 'Linking…' : mode === 'replace' ? 'Link as this ' + KINDS[kind].label.toLowerCase() : 'Link ' + (name.trim() || 'it')}
+          <Link2 className="w-5 h-5" /> {link.isPending ? 'Linking…' : mode === 'replace' ? (picked ? (picked.revoked_at ? 'Bring back ' : 'Link as ') + picked.name : 'Pick one') : 'Link ' + (name.trim() || 'it')}
         </BigButton>
       </div>
     </Card>
