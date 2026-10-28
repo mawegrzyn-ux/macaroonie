@@ -5,6 +5,14 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-28 — Get the Android app from the setup screens]
+
+- The setup screen of a till, kitchen screen or kiosk (pos., kitchen. and kiosk.macaroonie.com) offers the Macaroonie Android app: a **Get the Android app** button in an Android browser, with the install steps; on a computer, the address to type on the tablet (e.g. kiosk.macaroonie.com/android). Not shown inside the app itself. `/android` on any of the three addresses downloads it straight away.
+- Platform page, new **Android app** tab: paste a new build's link from expo.dev (its Install / Download link, or the build page) and press **Copy and offer it**. Macaroonie keeps its own copy, so the download keeps working after Expo's link runs out. App bundles (.aab), pages without an app and broken links are refused with the reason. **Stop offering it** removes the copy and the button.
+- Migration 213 (`platform_settings`).
+
+---
+
 ## [2026-10-28 — Android app: every build installs on a tablet]
 
 - The `production` build profile now makes an APK for installing by hand, like `preview`. expo.dev's **Build from GitHub** asks for no profile or platform: it builds every platform with `production`, which made an app bundle only Google Play can install. Switch it back to an app bundle when the app goes on Google Play. The iOS build it also starts fails (the app is Android only); cancel it.

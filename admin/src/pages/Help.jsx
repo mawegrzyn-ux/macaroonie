@@ -6087,9 +6087,20 @@ export default function Help() {
               apps inside it update themselves like the web pages do; the app itself rarely needs updating.
             </P>
 
+            <H3>Getting the app on a tablet</H3>
+            <P>
+              On the tablet, open Chrome at pos.macaroonie.com, kitchen.macaroonie.com or kiosk.macaroonie.com
+              (any of the three). The setup screen has a <strong>Get the Android app</strong> button: tap it, and
+              when the file has downloaded open it and tap <strong>Install</strong>. Android may ask you to allow
+              installing apps from Chrome first. You can also type the address with /android on the end (for
+              example kiosk.macaroonie.com/android) to download it straight away. On a computer the setup screen
+              just shows that address, to type on the tablet. The button only shows once Macaroonie has added
+              the app, and never inside the app itself.
+            </P>
+
             <H3>Setting up a tablet with the app</H3>
             <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
-              <li>Install the app on the tablet from the link you were given (Android may ask you to allow installing apps from your browser).</li>
+              <li>Install the app on the tablet (above).</li>
               <li>Open it and pick what the tablet is: <strong>Till</strong>, <strong>Kitchen screen</strong> or <strong>Self-order kiosk</strong>.</li>
               <li>It shows a six-letter code and a QR code. Link it as any other device: scan the QR code with your phone (the installer app), or type the code in Store tech (<strong>Add a till</strong>, <strong>Add a screen</strong>, <strong>Add a kiosk</strong>).</li>
               <li>From then on the tablet opens that app every time it starts.</li>
@@ -6115,6 +6126,18 @@ export default function Help() {
               To keep guests in the kiosk app, turn on Android&apos;s <strong>App pinning</strong> (Settings,
               Security) and pin the app, or use your device manager&apos;s kiosk mode.
             </InfoBox>
+
+            <H3>Adding a new build of the app (platform admins)</H3>
+            <P>
+              The <strong>Platform</strong> page&apos;s <strong>Android app</strong> tab decides what the setup
+              screens offer. After a build on expo.dev, open the Android internal distribution build, copy its
+              Install or Download link (or the build page&apos;s own address) and paste it in, then press
+              <strong> Copy and offer it</strong>. Macaroonie keeps its own copy of the app, so the download keeps
+              working after Expo&apos;s link runs out. It must be an APK build: an app bundle for Google Play
+              can&apos;t be installed this way and is refused. <strong>Stop offering it</strong> removes the copy
+              and the button (tablets that have the app keep it). Tablets already running the app don&apos;t
+              update by themselves: install the new download over the old one.
+            </P>
           </section>
 
           {/* ── BOOKING EMAILS ──────────────────────────────── */}

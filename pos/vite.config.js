@@ -38,7 +38,7 @@ export default defineConfig({
         navigateFallback: '/index.html',
         // A kiosk design preview (shown inside the admin) comes from the
         // server, which lets the admin frame it (api/src/routes/posSite.js).
-        navigateFallbackDenylist: [/^\/pos-api/, /^\/receipt\//, /^\/hub\/?$/, /^\/ws/, /^\/uploads/, /[?&]kiosk_preview=/, /[?&]kiosk_share=/],
+        navigateFallbackDenylist: [/^\/pos-api/, /^\/receipt\//, /^\/hub\/?$/, /^\/android\/?$/, /^\/ws/, /^\/uploads/, /[?&]kiosk_preview=/, /[?&]kiosk_share=/],
         runtimeCaching: [
           { urlPattern: /\/pos-api\//, handler: 'NetworkOnly' },
           // Kiosks: dish photos and the design's fonts stay on the device, so
@@ -76,6 +76,8 @@ export default defineConfig({
       '/pos-api': 'http://localhost:3000',
       // Menu photos and kiosk pictures saved as /uploads/... (same origin in production).
       '/uploads': 'http://localhost:3000',
+      // The Android app's download (api/src/routes/posSite.js).
+      '/android': 'http://localhost:3000',
       '/ws': { target: 'ws://localhost:3000', ws: true },
     },
   },
