@@ -990,11 +990,31 @@ export default async function posSetupRoutes(app) {
     }
   }
 
+  // A removed device's settings, brought back: anything they point at that
+  // has gone since (a printer, a card machine, a station, a design) is left
+  // out instead of refusing, since nobody could edit a removed device first.
+  async function cleanDeviceSettings(tx, tenantId, venueId, raw) {
+    const s = DeviceSettings.parse(raw || {})
+    const has = async (rows) => (await rows).length > 0
+    if (s.revenue_stream_id && !await has(tx`SELECT 1 FROM pos_revenue_streams WHERE id = ${s.revenue_stream_id} AND tenant_id = ${tenantId} AND venue_id = ${venueId}`)) s.revenue_stream_id = null
+    if (s.receipt_printer_id && !await has(tx`SELECT 1 FROM pos_printers WHERE id = ${s.receipt_printer_id} AND tenant_id = ${tenantId} AND venue_id = ${venueId}`)) s.receipt_printer_id = null
+    if (s.floor_area_id && !await has(tx`SELECT 1 FROM floor_areas WHERE id = ${s.floor_area_id} AND tenant_id = ${tenantId} AND venue_id = ${venueId}`)) s.floor_area_id = null
+    if (s.station_ids?.length) {
+      const found = await tx`SELECT id FROM kds_stations WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND kind = ANY(${BUMP_KINDS}) AND id = ANY(${[...new Set(s.station_ids)]}::uuid[])`
+      const ok = new Set(found.map(r => r.id))
+      s.station_ids = s.station_ids.filter(id => ok.has(id))
+    }
+    if (s.design_id && !await has(tx`SELECT 1 FROM kiosk_designs WHERE id = ${s.design_id} AND tenant_id = ${tenantId}`)) s.design_id = null
+    if (s.card_reader && s.card_reader !== 'none' && !await has(tx`SELECT 1 FROM pos_card_readers WHERE id = ${s.card_reader} AND tenant_id = ${tenantId} AND venue_id = ${venueId} AND removed_at IS NULL`)) s.card_reader = 'none'
+    return s
+  }
+
   // The one way a till, kitchen screen or kiosk is set up: the device shows a
   // code of its own (POST /pos-api/pairings, migration 184) and someone signed
   // in types it here, from Store tech or the installer app. A new device at
   // this venue, or a new device for one already here (the old device stops
-  // working). The address the code was shown on decides the kind.
+  // working), or one removed earlier, brought back with its name and
+  // settings. The address the code was shown on decides the kind.
   app.post('/venues/:venueId/link', { preHandler: canSetup, config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (req, reply) => {
     const venueId = UUID.parse(req.params.venueId)
     const body = z.object({
@@ -1020,14 +1040,15 @@ export default async function posSetupRoutes(app) {
       const info = p.device_info || {}
       let id
       if (body.device_id) {
-        const [d] = await tx`SELECT id, kind, venue_id, revoked_at FROM pos_devices WHERE id = ${body.device_id} AND tenant_id = ${req.tenantId}`
+        const [d] = await tx`SELECT id, kind, venue_id, revoked_at, settings FROM pos_devices WHERE id = ${body.device_id} AND tenant_id = ${req.tenantId}`
         if (!d || d.venue_id !== venueId) throw httpError(404, 'Device not found')
-        if (d.revoked_at) throw httpError(422, 'That device was removed')
         if (d.kind !== kind) throw httpError(422, `That code is on ${LINK_KIND_NAME[kind]}, not ${LINK_KIND_NAME[d.kind] || 'that device'}`)
+        const settings = d.revoked_at ? await cleanDeviceSettings(tx, req.tenantId, venueId, d.settings) : d.settings
         await tx`
           UPDATE pos_devices
              SET secret_hash = ${p.secret_hash}, pairing_code_hash = NULL, pairing_expires_at = NULL, paired_at = now(),
-                 last_seen_at = NULL, app_version = ${info.app_version || null}, user_agent = ${info.ua || null}
+                 last_seen_at = NULL, app_version = ${info.app_version || null}, user_agent = ${info.ua || null},
+                 revoked_at = NULL, settings = ${tx.json(settings || {})}
            WHERE id = ${d.id} AND tenant_id = ${req.tenantId}`
         id = d.id
       } else {

@@ -18,7 +18,7 @@ import { Plus, Loader2, Pencil, Server, RotateCcw, Printer, Copy, Check, Downloa
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { Section, Modal, Field, inputCls, ErrorNote, ConfirmDelete, Segmented, Btn, NumberBox, Toggle, ago } from './shared'
-import { ShownCodeField, LinkDeviceModal, LinkDeviceButton, linkShownCode, codeReady, status } from './TillsSection'
+import { ShownCodeField, LinkDeviceModal, LinkDeviceButton, linkShownCode, codeReady, status, ReusePick, defaultReuse, reuseLabel, RemovedDevices } from './TillsSection'
 
 const KINDS = [
   { value: 'station', label: 'Kitchen / bar' },
@@ -261,28 +261,32 @@ function HubModal({ venueId, setup, hub, onClose }) {
   const api = useApi()
   const qc = useQueryClient()
   const [code, setCode] = useState('')
+  const [reuseId, setReuseId] = useState(() => hub ? null : defaultReuse(setup, 'hub'))
   const [name, setName] = useState(hub?.name || 'Venue hub')
   const [autoUpdate, setAutoUpdate] = useState(hub ? hub.settings?.auto_update !== false : true)
   const refresh = () => qc.invalidateQueries({ queryKey: ['pos-setup', venueId] })
   const save = useMutation({
     mutationFn: () => hub
       ? api.patch(`/pos/devices/${hub.id}`, { name: name.trim(), settings: { ...(hub.settings || {}), auto_update: autoUpdate } })
-      : linkShownCode(api, venueId, 'hub', code, { name: name.trim(), settings: { auto_update: autoUpdate } }),
+      : linkShownCode(api, venueId, 'hub', code, reuseId ? { device_id: reuseId } : { name: name.trim(), settings: { auto_update: autoUpdate } }),
     onSuccess: () => { refresh(); onClose() },
   })
   const remove = useMutation({ mutationFn: () => api.delete(`/pos/devices/${hub.id}`), onSuccess: () => { refresh(); onClose() } })
   return (
     <Modal title={hub ? 'Edit ' + hub.name : 'Link a venue hub'} onClose={onClose}
       footer={<>
-        <Btn variant="primary" className="flex-1" disabled={!name.trim() || (!hub && !codeReady(code)) || save.isPending} onClick={() => save.mutate()} data-testid="hub-save">
-          {save.isPending && <Loader2 className="w-4 h-4 animate-spin" />} {hub ? 'Save' : 'Link the hub'}
+        <Btn variant="primary" className="flex-1" disabled={(!reuseId && !name.trim()) || (!hub && !codeReady(code)) || save.isPending} onClick={() => save.mutate()} data-testid="hub-save">
+          {save.isPending && <Loader2 className="w-4 h-4 animate-spin" />} {hub ? 'Save' : reuseId ? reuseLabel(setup, reuseId) : 'Link the hub'}
         </Btn>
         {hub && <ConfirmDelete label="Remove hub" confirmLabel="Yes, remove" onConfirm={() => remove.mutate()} disabled={remove.isPending} />}
       </>}>
       {!hub && <ShownCodeField setup={setup} kind="hub" value={code} onChange={setCode} autoFocus />}
       {!hub && <p className="text-xs text-muted-foreground">The code shows when the installer finishes, and on the hub's own page (http://&lt;its address&gt;:9180) with a QR code for the installer app.</p>}
-      <Field label="Name"><input className={inputCls} value={name} maxLength={60} onChange={e => setName(e.target.value)} data-testid="hub-name" /></Field>
-      <Toggle label="Update by itself" hint="It installs a new version at a quiet moment (nothing printing), and goes back to the one before if the new one doesn't run. Off: it waits for Update now." checked={autoUpdate} onChange={setAutoUpdate} />
+      {!hub && <ReusePick setup={setup} kind="hub" value={reuseId} onChange={setReuseId} />}
+      {!reuseId && <>
+        <Field label="Name"><input className={inputCls} value={name} maxLength={60} onChange={e => setName(e.target.value)} data-testid="hub-name" /></Field>
+        <Toggle label="Update by itself" hint="It installs a new version at a quiet moment (nothing printing), and goes back to the one before if the new one doesn't run. Off: it waits for Update now." checked={autoUpdate} onChange={setAutoUpdate} />
+      </>}
       <ErrorNote error={save.error || remove.error} />
     </Modal>
   )
@@ -493,6 +497,7 @@ export default function PrintersSection({ venueId, setup, canManage }) {
             ))}
           </div>
         )}
+        <RemovedDevices devices={setup.devices.filter(d => d.kind === 'hub' && d.revoked_at)} onBringBack={setLinking} />
         <InstallCommands setup={setup} />
         {hubEditing && <HubModal venueId={venueId} setup={setup} hub={hubEditing === 'new' ? null : hubEditing} onClose={() => setHubEditing(null)} />}
         {linking && <LinkDeviceModal venueId={venueId} setup={setup} device={linking} onClose={() => setLinking(null)} />}

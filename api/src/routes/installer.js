@@ -41,6 +41,7 @@ function deviceView(d) {
     paired: !!d.secret_hash, paired_at: d.paired_at, last_seen_at: d.last_seen_at,
     online: !!d.secret_hash && !!d.last_seen_at && Date.now() - new Date(d.last_seen_at).getTime() < DEVICE_ONLINE_MS,
     app_version: d.app_version,
+    revoked_at: d.revoked_at || null,
     // Whole: PATCH /api/pos/devices/:id replaces the settings, so a change
     // made here is sent back with everything else the device has.
     settings: s,
@@ -65,7 +66,7 @@ export default async function installerRoutes(app) {
       const [devices, stations, kioskDesigns, screens, designs, playlists] = await Promise.all([
         canDevices ? tx`
           SELECT * FROM pos_devices
-           WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId} AND revoked_at IS NULL
+           WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}
            ORDER BY created_at` : null,
         canDevices ? tx`
           SELECT id, name FROM kds_stations
@@ -79,7 +80,9 @@ export default async function installerRoutes(app) {
       return {
         venue,
         can: { devices: levels.pos_setup, screens: levels.screens },
-        devices: devices ? devices.map(deviceView) : null,
+        devices: devices ? devices.filter(d => !d.revoked_at).map(deviceView) : null,
+        // Removed ones, which a code can bring back (POST /api/pos/venues/:id/link with device_id).
+        removed_devices: devices ? devices.filter(d => d.revoked_at).map(deviceView) : null,
         stations,
         kiosk_designs: kioskDesigns,
         screens: screens ? screens.filter(s => s.venue_id === venueId).map(s => ({

@@ -24,7 +24,7 @@ import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { usePermission } from '@/hooks/usePermission'
 import { ReadOnlyNotice, ReadOnlyFieldset } from '@/components/ReadOnlyNotice'
-import { PageHeader, Modal, ConfirmDelete, SortableRows } from '@/components/staff/shared'
+import { PageHeader, Modal, ConfirmDelete, SortableRows, Segmented } from '@/components/staff/shared'
 import { ScheduleEditor } from '@/components/orders/ScheduleEditor'
 import {
   BoardPreview, useScreenData, relTime, useTick, ROTATIONS, FITS, PxBox, errorText,
@@ -136,9 +136,9 @@ function Card({ title, hint, actions, children, className }) {
   )
 }
 
-function Btn({ children, onClick, primary, disabled, title, className, type = 'button' }) {
+function Btn({ children, onClick, primary, disabled, title, className, type = 'button', ...rest }) {
   return (
-    <button type={type} onClick={onClick} disabled={disabled} title={title} aria-label={title}
+    <button {...rest} type={type} onClick={onClick} disabled={disabled} title={title} aria-label={title}
       className={cn('inline-flex items-center justify-center gap-1.5 min-h-[44px] px-3 rounded-lg text-sm font-medium touch-manipulation disabled:opacity-50 shrink-0',
         primary ? 'bg-primary text-primary-foreground hover:bg-primary/90' : 'border bg-background hover:bg-muted', className)}>
       {children}
@@ -240,8 +240,8 @@ function ScreensTab({ canManage, place }) {
       )}
 
       {adding && (
-        <AddScreenModal venues={venues} place={place} designs={designs} playlists={playlists} onClose={() => setAdding(false)}
-          onAdded={() => { setAdding(false); refresh(); setFlash('Screen added. It shows its board in a few seconds.') }} />
+        <AddScreenModal venues={venues} place={place} screens={screens} designs={designs} playlists={playlists} onClose={() => setAdding(false)}
+          onAdded={reused => { setAdding(false); refresh(); setFlash(reused ? 'Screen linked. It shows its boards in a few seconds.' : 'Screen added. It shows its board in a few seconds.') }} />
       )}
       {editing && (
         <EditScreenModal screen={editing} venues={venues} designs={designs} playlists={playlists} canManage={canManage}
@@ -327,22 +327,35 @@ function Field({ label, hint, children }) {
   )
 }
 
-function AddScreenModal({ venues, place, designs, playlists, onClose, onAdded }) {
+// Not paired first (disconnected, or its device was swapped), then the rest.
+const unpairedFirst = list => [...list].sort((a, b) => (a.paired ? 1 : 0) - (b.paired ? 1 : 0))
+
+function AddScreenModal({ venues, place, screens, designs, playlists, onClose, onAdded }) {
   const api = useApi()
   const [code, setCode] = useState('')
   const [name, setName] = useState('')
   const [venueId, setVenueId] = useState(place || venues[0]?.id || '')
   const [content, setContent] = useState({ design_id: designs[0]?.id || null, playlist_id: null })
+  const choices = useMemo(() => unpairedFirst(screens), [screens])
+  // A code can go on a screen already here instead (it keeps its boards and
+  // wall place); the one screen that isn't paired is the first guess.
+  const [reuseId, setReuseId] = useState(() => {
+    const open = screens.filter(s => !s.paired)
+    return open.length === 1 ? open[0].id : null
+  })
+  const reused = choices.find(s => s.id === reuseId)
   const add = useMutation({
-    mutationFn: () => api.post('/screens/screens/claim', { code, name: name.trim(), venue_id: venueId || venues[0]?.id, ...content }),
-    onSuccess: onAdded,
+    mutationFn: () => api.post('/screens/screens/claim', reuseId
+      ? { code, screen_id: reuseId }
+      : { code, name: name.trim(), venue_id: venueId || venues[0]?.id, ...content }),
+    onSuccess: () => onAdded(!!reuseId),
   })
   const clean = code.toUpperCase().replace(/[^A-Z0-9]/g, '')
   return (
     <Modal title="Add screen" onClose={onClose}
       footer={<>
-        <Btn primary disabled={clean.length !== 6 || !name.trim() || add.isPending} onClick={() => add.mutate()}>
-          {add.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} Add screen
+        <Btn primary disabled={clean.length !== 6 || (!reuseId && !name.trim()) || add.isPending} onClick={() => add.mutate()} data-testid="add-screen-save">
+          {add.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} {reused ? 'Link as ' + reused.name : 'Add screen'}
         </Btn>
         <Btn onClick={onClose}>Cancel</Btn>
       </>}>
@@ -351,19 +364,55 @@ function AddScreenModal({ venues, place, designs, playlists, onClose, onAdded })
           autoCapitalize="characters" autoComplete="off" spellCheck={false}
           className="w-full h-14 rounded-lg border bg-background px-3 text-2xl font-mono tracking-widest text-center uppercase touch-manipulation" />
       </Field>
-      <Field label="Name" hint="Where it is, e.g. Counter left.">
-        <input className={inputCls} value={name} onChange={e => setName(e.target.value)} maxLength={80} />
-      </Field>
-      {venues.length > 1 && (
-        <Field label="Location" hint="Sold out dishes come from this location.">
-          <select className={inputCls} value={venueId} onChange={e => setVenueId(e.target.value)}>
-            {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-          </select>
-        </Field>
+      {!!choices.length && (
+        <div className="space-y-2" data-testid="reuse-pick">
+          <div className="space-y-1" role="group" aria-label="Link it as">
+            <span className="text-sm font-medium">Link it as</span>
+            <Segmented value={reuseId ? 'reuse' : 'new'} onChange={v => setReuseId(v === 'new' ? null : choices[0].id)} options={[
+              { value: 'new', label: 'A new screen' },
+              { value: 'reuse', label: 'One already here' },
+            ]} />
+          </div>
+          {reuseId && (
+            <div className="rounded-lg border divide-y" role="group" aria-label="Which screen">
+              {choices.map(sc => (
+                <button key={sc.id} type="button" onClick={() => setReuseId(sc.id)} aria-pressed={sc.id === reuseId} data-testid="reuse-row"
+                  className={cn('w-full flex items-center gap-3 px-3 min-h-[52px] text-left touch-manipulation',
+                    sc.id === reuseId ? 'bg-primary/10 ring-2 ring-inset ring-primary' : 'bg-background hover:bg-muted')}>
+                  <span className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center text-xs font-semibold shrink-0">{sc.short_code}</span>
+                  <span className="flex-1 min-w-0">
+                    <span className="block text-sm font-medium truncate">{sc.name}</span>
+                    <span className={cn('block text-xs', sc.paired ? 'text-green-700' : 'text-amber-700')}>
+                      {sc.paired ? (sc.online ? 'Online' : 'Paired') + ': that device stops showing boards' : 'Not paired'}
+                    </span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+          {reused && (
+            <p className="text-xs text-muted-foreground" data-testid="reuse-note">
+              It keeps the name {reused.name}, its boards{reused.wall ? ', its place on the wall ' + reused.wall.name : ''} and its size.
+              {reused.paired ? ' The device it is on now stops showing boards.' : ''}
+            </p>
+          )}
+        </div>
       )}
-      <Field label="Shows">
-        <ContentPicker designs={designs} playlists={playlists} value={content} onChange={setContent} />
-      </Field>
+      {!reuseId && <>
+        <Field label="Name" hint="Where it is, e.g. Counter left.">
+          <input className={inputCls} value={name} onChange={e => setName(e.target.value)} maxLength={80} />
+        </Field>
+        {venues.length > 1 && (
+          <Field label="Location" hint="Sold out dishes come from this location.">
+            <select className={inputCls} value={venueId} onChange={e => setVenueId(e.target.value)}>
+              {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+            </select>
+          </Field>
+        )}
+        <Field label="Shows">
+          <ContentPicker designs={designs} playlists={playlists} value={content} onChange={setContent} />
+        </Field>
+      </>}
       <ErrorLine error={add.error} />
     </Modal>
   )

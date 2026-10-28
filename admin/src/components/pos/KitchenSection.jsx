@@ -27,7 +27,7 @@ import {
 } from './shared'
 import KitchenFlow from './KitchenFlow'
 import TicketColoursCard from './KitchenColours'
-import { deviceUrl, InstallerLine, status, ShownCodeField, LinkDeviceModal, LinkDeviceButton, linkShownCode, codeReady } from './TillsSection'
+import { deviceUrl, InstallerLine, status, ShownCodeField, LinkDeviceModal, LinkDeviceButton, linkShownCode, codeReady, ReusePick, defaultReuse, reuseLabel, RemovedDevices } from './TillsSection'
 import { STATION_KINDS, KIND_LABELS, isBumpKind, STATUS_LOOKS, STATUS_ANIMS, PACE_TICKETS, PACE_MINUTES, RUSH_COUNT_MAX, flowName } from '@shared/pos/kitchen.js'
 import { ColourPicker } from '@/components/ColourPicker'
 import { TYPE_LABELS as GF_TYPE_LABELS } from '@shared/gloriafood.js'
@@ -69,6 +69,7 @@ function ScreenModal({ venueId, setup, device, onClose }) {
   const qc = useQueryClient()
   const s = device?.settings || {}
   const [code, setCode] = useState('')
+  const [reuseId, setReuseId] = useState(() => device ? null : defaultReuse(setup, 'kds'))
   const [form, setForm] = useState({
     name: device?.name || '',
     station_ids: s.station_ids || [],
@@ -92,7 +93,7 @@ function ScreenModal({ venueId, setup, device, onClose }) {
   const save = useMutation({
     mutationFn: () => device
       ? api.patch(`/pos/devices/${device.id}`, body())
-      : linkShownCode(api, venueId, 'kds', code, body()),
+      : linkShownCode(api, venueId, 'kds', code, reuseId ? { device_id: reuseId } : body()),
     onSuccess: () => { refresh(); onClose() },
   })
   const remove = useMutation({ mutationFn: () => api.delete(`/pos/devices/${device.id}`), onSuccess: () => { refresh(); onClose() } })
@@ -100,48 +101,51 @@ function ScreenModal({ venueId, setup, device, onClose }) {
   return (
     <Modal title={device ? 'Edit ' + device.name : 'Add a kitchen screen'} onClose={onClose}
       footer={<>
-        <Btn variant="primary" className="flex-1" disabled={!form.name.trim() || (!device && !codeReady(code)) || save.isPending} onClick={() => save.mutate()} data-testid="device-save">
-          {save.isPending && <Loader2 className="w-4 h-4 animate-spin" />} {device ? 'Save' : 'Add the screen'}
+        <Btn variant="primary" className="flex-1" disabled={(!reuseId && !form.name.trim()) || (!device && !codeReady(code)) || save.isPending} onClick={() => save.mutate()} data-testid="device-save">
+          {save.isPending && <Loader2 className="w-4 h-4 animate-spin" />} {device ? 'Save' : reuseId ? reuseLabel(setup, reuseId) : 'Add the screen'}
         </Btn>
         {device && <ConfirmDelete label="Remove screen" confirmLabel="Yes, remove" onConfirm={() => remove.mutate()} disabled={remove.isPending} />}
       </>}>
       {!device && <ShownCodeField setup={setup} kind="kds" value={code} onChange={setCode} autoFocus />}
-      <Field label="Name" hint="e.g. Grill screen, Pass.">
-        <input className={inputCls} value={form.name} maxLength={60} onChange={e => set({ name: e.target.value })} placeholder="e.g. Grill screen" />
-      </Field>
-      <Field group label="Stations it shows" hint="It opens on the first; staff can switch between the ones ticked here. None ticked: all of them.">
-        {!stations.length
-          ? <p className="text-sm text-muted-foreground">Add a station first (below).</p>
-          : (
-            <div className="flex flex-wrap gap-1.5" role="group" aria-label="Stations">
-              {stations.map(st => (
-                <button key={st.id} type="button" onClick={() => toggle(st.id)} aria-pressed={form.station_ids.includes(st.id)}
-                  className={cn('min-h-[44px] px-3 rounded-lg border text-sm touch-manipulation',
-                    form.station_ids.includes(st.id) ? 'bg-primary text-primary-foreground border-primary' : 'bg-background hover:bg-muted')}>
-                  {st.name}{st.kind === 'expo' ? ' (expo)' : st.kind === 'runner' ? ' (runner)' : ''}
-                </button>
-              ))}
-            </div>
-          )}
-      </Field>
-      <Field group label="Opens on"><Segmented value={form.view} options={VIEWS} onChange={v => set({ view: v })} /></Field>
-      <div className="flex flex-wrap gap-4">
-        <Field label="Tickets across" hint="Empty: as many as fit.">
-          <NumberBox value={form.columns} min={3} max={10} onChange={v => set({ columns: v })} ariaLabel="Tickets across" placeholder="Auto" />
+      {!device && <ReusePick setup={setup} kind="kds" value={reuseId} onChange={setReuseId} />}
+      {!reuseId && <>
+        <Field label="Name" hint="e.g. Grill screen, Pass.">
+          <input className={inputCls} value={form.name} maxLength={60} onChange={e => set({ name: e.target.value })} placeholder="e.g. Grill screen" />
         </Field>
-        <Field group label="Text size"><Segmented value={form.text_size} options={TEXT_SIZES} onChange={v => set({ text_size: v })} /></Field>
-      </div>
-      <Field group label="Ticket title" hint={form.ticket_main === 'auto'
-        ? 'The table, or the name typed on the till or kiosk, with the order number beside it.'
-        : 'An order without one shows the table or name instead. The order number stays beside it (or the table or tent, when the title is the order number).'}>
-        <Segmented value={form.ticket_main} options={TICKET_TITLES} onChange={v => set({ ticket_main: v })} />
-      </Field>
-      <Toggle label="Beep for new orders" checked={form.sound} onChange={v => set({ sound: v })} />
-      <Toggle label="Can switch the kitchen flow"
-        hint={(setup.kds_flows || []).length > 1
-          ? 'The flow button at the top right of the screen puts another kitchen flow in use for the whole kitchen.'
-          : 'With more than one kitchen flow, a flow button at the top right of the screen puts another one in use for the whole kitchen.'}
-        checked={form.can_switch_flow} onChange={v => set({ can_switch_flow: v })} />
+        <Field group label="Stations it shows" hint="It opens on the first; staff can switch between the ones ticked here. None ticked: all of them.">
+          {!stations.length
+            ? <p className="text-sm text-muted-foreground">Add a station first (below).</p>
+            : (
+              <div className="flex flex-wrap gap-1.5" role="group" aria-label="Stations">
+                {stations.map(st => (
+                  <button key={st.id} type="button" onClick={() => toggle(st.id)} aria-pressed={form.station_ids.includes(st.id)}
+                    className={cn('min-h-[44px] px-3 rounded-lg border text-sm touch-manipulation',
+                      form.station_ids.includes(st.id) ? 'bg-primary text-primary-foreground border-primary' : 'bg-background hover:bg-muted')}>
+                    {st.name}{st.kind === 'expo' ? ' (expo)' : st.kind === 'runner' ? ' (runner)' : ''}
+                  </button>
+                ))}
+              </div>
+            )}
+        </Field>
+        <Field group label="Opens on"><Segmented value={form.view} options={VIEWS} onChange={v => set({ view: v })} /></Field>
+        <div className="flex flex-wrap gap-4">
+          <Field label="Tickets across" hint="Empty: as many as fit.">
+            <NumberBox value={form.columns} min={3} max={10} onChange={v => set({ columns: v })} ariaLabel="Tickets across" placeholder="Auto" />
+          </Field>
+          <Field group label="Text size"><Segmented value={form.text_size} options={TEXT_SIZES} onChange={v => set({ text_size: v })} /></Field>
+        </div>
+        <Field group label="Ticket title" hint={form.ticket_main === 'auto'
+          ? 'The table, or the name typed on the till or kiosk, with the order number beside it.'
+          : 'An order without one shows the table or name instead. The order number stays beside it (or the table or tent, when the title is the order number).'}>
+          <Segmented value={form.ticket_main} options={TICKET_TITLES} onChange={v => set({ ticket_main: v })} />
+        </Field>
+        <Toggle label="Beep for new orders" checked={form.sound} onChange={v => set({ sound: v })} />
+        <Toggle label="Can switch the kitchen flow"
+          hint={(setup.kds_flows || []).length > 1
+            ? 'The flow button at the top right of the screen puts another kitchen flow in use for the whole kitchen.'
+            : 'With more than one kitchen flow, a flow button at the top right of the screen puts another one in use for the whole kitchen.'}
+          checked={form.can_switch_flow} onChange={v => set({ can_switch_flow: v })} />
+      </>}
       <ErrorNote error={save.error || remove.error} />
     </Modal>
   )
@@ -152,6 +156,7 @@ function ScreensCard({ venueId, setup }) {
   const [editing, setEditing] = useState(null)
   const [linking, setLinking] = useState(null) // device
   const screens = setup.devices.filter(d => d.kind === 'kds' && !d.revoked_at)
+  const removed = setup.devices.filter(d => d.kind === 'kds' && d.revoked_at)
   const stationName = id => setup.kds_stations.find(s => s.id === id)?.name
   return (
     <Section title="Kitchen screens" hint="Android tablets or TVs in the kitchen. Open the kitchen screen address (below) on the screen in Chrome and install it: it shows a code. Press Add a screen and type it, or scan its QR code with a phone."
@@ -182,6 +187,7 @@ function ScreensCard({ venueId, setup }) {
           })}
         </div>
       )}
+      <RemovedDevices devices={removed} onBringBack={setLinking} />
       <p className="text-xs text-muted-foreground">Kitchen screen address: <span className="font-medium text-foreground break-all" data-testid="kds-address">{deviceUrl(setup, 'kds')}</span></p>
       <InstallerLine setup={setup} />
       {editing && (
