@@ -89,7 +89,8 @@ function AndroidApp({ app }) {
   if (!ON_ANDROID) {
     return (
       <div className="text-sm text-muted" data-testid="pair-android-app">
-        Android tablet? Get the Macaroonie app: open <b className="text-ink">{address}</b> on it.
+        Android device? Get the Macaroonie app: open{' '}
+        <a className="underline font-semibold text-ink" href={app.path || '/android'} download="macaroonie.apk" data-testid="pair-android-link">{address}</a> on it.
       </div>
     )
   }
