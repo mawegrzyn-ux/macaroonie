@@ -1,7 +1,8 @@
 name: Android app
 
 # Checks the Macaroonie Android app (android-app/) still configures and
-# bundles. The app itself is built and signed by EAS (Expo), not here.
+# bundles, and runs its tests. The app itself is built and signed by EAS
+# (Expo), not here.
 on:
   pull_request:
     paths: ['android-app/**', '.github/workflows/android-app.yml']
@@ -11,7 +12,7 @@ on:
 
 jobs:
   bundle:
-    name: Config + JavaScript bundle
+    name: Config + JavaScript bundle + tests
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -24,5 +25,6 @@ jobs:
           cache: npm
           cache-dependency-path: android-app/package-lock.json
       - run: npm ci
+      - run: npm test
       - run: npx expo config --type public --json > /dev/null
       - run: npx expo export --platform android --output-dir "$RUNNER_TEMP/android-bundle"

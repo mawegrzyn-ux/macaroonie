@@ -18,7 +18,8 @@
   "scripts": {
     "start": "expo start",
     "android": "expo run:android",
-    "config": "expo config --type public"
+    "config": "expo config --type public",
+    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test test/*.test.mjs"
   },
   "private": true
 }
