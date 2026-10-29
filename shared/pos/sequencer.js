@@ -7,8 +7,9 @@
 //   2. checked (shape, staff, permissions, the check rules in checks.js)
 //      against the current state, so an event made offline on a check that
 //      changed elsewhere is refused with a reason (a conflict for a manager)
-//   3. numbered (seq), given the trading day, a check number for a new
-//      check and an order number for counter orders
+//   3. numbered (seq) and given the trading day; a new check gets its
+//      device's code (its number and order number come from the device
+//      itself, numbers.js), and each device's highest numbers are kept
 //   4. stored with the checks it changed and the print jobs it makes
 //
 // The store does the I/O. Every method may be async; `run(venueId, fn)` must
@@ -16,8 +17,9 @@
 // one transaction:
 //   findEvent(id)          -> stored event | null
 //   findRejection(id)      -> { error, code } | null
-//   context()              -> { staffById, print (printing.js cfg), timezone, settings }
-//   venueState()           -> { last_seq, next_check_no, next_order_no, day | null }
+//   context()              -> { staffById, print (printing.js cfg), timezone, settings,
+//                               devices: { [id]: { short_code, kind } } }
+//   venueState()           -> { last_seq, numbers: { [deviceId]: numbers.js }, day | null }
 //   openDay({ business_date, at }) -> day { id, business_date }
 //   loadChecks(ids)        -> { [id]: check }
 //   openCheckCount(dayId)  -> number
@@ -25,7 +27,7 @@
 //   saveChecks({ [id]: check }, event)
 //   saveJobs(jobs, event)
 //   saveRejection(event, error, code)
-//   saveVenueState({ last_seq, next_check_no, next_order_no })
+//   saveVenueState({ last_seq, numbers? })   numbers only when a device's changed
 //   closeDay(day, event)   end the trading day (Z report)
 // Kitchen screens (shared/pos/kitchen.js; context().kitchen.enabled when the
 // venue has kitchen stations):
@@ -69,6 +71,7 @@ import {
   kitchenForCheckEvent, kitchenOrdersForCheckEvent, PACE_MINUTES,
 } from './kitchen.js'
 import { kitchenPrintJobs, hasPrinters } from './kitchenPrint.js'
+import { noteNumbers } from './numbers.js'
 
 // Events that can send dishes through a Splitter.
 const BALANCE_EVENTS = ['lines.sent', 'course.fired', 'kitchen.order_in']
@@ -86,8 +89,6 @@ async function kitchenWithBalance(store, kitchen, event) {
   const recent = hasSmartBox(kitchen) && store.loadRecentKitchenOrders ? await store.loadRecentKitchenOrders(PACE_MINUTES * 2) : null
   return { ...kitchen, balance: { open: await store.loadOpenKitchenOrders(), recent, last: await store.loadBalanceTurns(), picks: {} } }
 }
-
-const ORDER_NO_MAX = 999
 
 export function createSequencer(store) {
   async function submit(event, { now = new Date() } = {}) {
@@ -111,19 +112,20 @@ export function createSequencer(store) {
 
       const vs = await store.venueState()
       let day = vs.day
-      let nextOrderNo = vs.next_order_no || 1
       if (!day && !isKitchen) {
         const settings = ctx.settings || {}
         day = await store.openDay({ business_date: businessDate(now, ctx.timezone, settings.day_starts_at), at: now })
-        nextOrderNo = Number(settings.order_no_start) || 1
       }
       const assigned = { day_id: day?.id ?? null }
-      let nextCheckNo = vs.next_check_no || 1
+      // A new check is numbered by its device (numbers.js): stamp the device's
+      // code on it and remember the device's numbers for the trading day.
+      const numbersBefore = vs.numbers || {}
+      let numbers = numbersBefore
       if (event.type === 'check.opened') {
-        assigned.number = nextCheckNo++
-        if (event.payload?.mode === 'counter') {
-          assigned.order_no = nextOrderNo
-          nextOrderNo = nextOrderNo >= ORDER_NO_MAX ? 1 : nextOrderNo + 1
+        const code = ctx.devices?.[event.device_id]?.short_code
+        if (code) assigned.number_code = code
+        if (Number.isInteger(event.payload?.number) && day) {
+          numbers = noteNumbers(numbers, event.device_id, day.business_date, event.payload)
         }
       }
       const stored = { ...event, assigned, received_at: now.toISOString() }
@@ -198,7 +200,7 @@ export function createSequencer(store) {
       if (kitchenLog.length) await store.saveKitchenLog(kitchenLog, stored, kitchen)
       if (kcfg?.balance && Object.keys(kcfg.balance.picks).length) await store.saveBalanceTurns(kcfg.balance.picks)
       if (jobs.length) await store.saveJobs(jobs, stored)
-      await store.saveVenueState({ last_seq: seq, next_check_no: nextCheckNo, next_order_no: nextOrderNo })
+      await store.saveVenueState({ last_seq: seq, ...(numbers !== numbersBefore ? { numbers } : {}) })
       if (event.type === 'day.closed') await store.closeDay(day, stored)
       return { ok: true, seq, event: stored, checks: changed, jobs, kitchen }
     })

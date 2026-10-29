@@ -94,7 +94,7 @@ function till(kcfg = cfg) {
 }
 function openTable(t) {
   const id = ulid()
-  t.send({ ...ev('check.opened', { mode: 'table', table_id: TABLE5 }, { check_id: id }), assigned: { number: 12 } })
+  t.send({ ...ev('check.opened', { mode: 'table', table_id: TABLE5, number: 12 }, { check_id: id }) })
   return id
 }
 function addAndSend(t, checkId, lines, held = []) {
@@ -178,7 +178,7 @@ test('orders for later print when their time comes; the venue\'s ticket design i
     run: (_v, fn) => fn(),
     findEvent: () => null, findRejection: () => null,
     context: () => ({ staffById, print: {}, settings: {}, timezone: 'Europe/London', kitchen: kcfg }),
-    venueState: () => ({ last_seq: saved.events.length, next_check_no: 1, next_order_no: 1, day: null }),
+    venueState: () => ({ last_seq: saved.events.length, numbers: {}, day: null }),
     saveEvent: e => { saved.events.push(e) },
     saveRejection: () => {},
     saveVenueState: () => {},

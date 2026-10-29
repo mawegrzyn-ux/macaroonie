@@ -1,6 +1,7 @@
 // Counter service: pick the order type (Eat in, Take out, ... as the till's
 // revenue stream offers them, with the name / tent number the type asks
-// for), tap a dish to start an order (numbered #1, #2, ... each trading day),
+// for), tap a dish to start an order (numbered from this till's own range,
+// #100, #101, ... going round; the check itself is T2-1, T2-2, ...),
 // take payment, and the order goes to the kitchen as it is paid. Orders
 // waiting (sent, not yet paid) are listed on the left.
 

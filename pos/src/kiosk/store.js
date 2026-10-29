@@ -31,10 +31,10 @@ import { printTickets } from '../lib/print.js'
 import { moveDevice, tellDisconnect, setMovedTo } from '../lib/appHost.js'
 import { savePhotos, saveVideos } from './photos.js'
 import { withLive, pricesChanged, keepStorage, createPullTimers } from '../lib/livePull.js'
+import { takeNumbers, keepServerNumbers } from '../lib/numbers.js'
 
 const CONFIG_KEY = 'kiosk_config'
 const OUTBOX_KEY = 'kiosk_outbox'
-const COUNTER_KEY = 'kiosk_local_no'
 
 let state = {
   phase: 'loading',        // 'loading' | 'ready'
@@ -117,12 +117,15 @@ function withDesign(config) {
 // The config as the server sent it (state.config has its design normalised):
 // what is kept on the device.
 let raw = null
+// The open trading day's date from the last config reply (numbers.js).
+let tradingDay = null
 
 export async function bootKiosk(device) {
-  api = createTransport(device)
+  api = createTransport(device, { pending: () => state.outbox.length })
   keepStorage()
   const [config, outbox] = await Promise.all([idb.get(CONFIG_KEY), idb.get(OUTBOX_KEY)])
   raw = config || null
+  tradingDay = config?.trading_day ?? null
   const c = withDesign(config || null)
   setState({ device, config: c, outbox: outbox || [], lang: c?.design?.languages?.source || 'en', phase: c ? 'ready' : 'loading' })
   startSync()
@@ -190,7 +193,7 @@ function showDoneExample({ order_type_id, method }) {
   setState({
     screen: 'done', orderType: ty?.id || null, builder: null, method: method === 'counter' ? 'counter' : 'card',
     details: { name: ty && ty.ask_name !== 'off' ? 'Sam' : '', tent: ty && ty.ask_tent !== 'off' ? '12' : '' },
-    result: { order_no: 57, provisional: (state.device?.short_code || 'KS') + '-0057', check: null, totals: null, pending: false },
+    result: { order_no: 57, provisional: null, check: null, totals: null, pending: false },
     error: null, doneHold: true,
   })
 }
@@ -207,6 +210,8 @@ async function fetchConfig(opts) {
   try {
     const v = state.config?.version
     const res = await api.get('/pos-api/config' + (v ? '?version=' + encodeURIComponent(v) : ''), opts)
+    keepServerNumbers(state.device?.id, res.numbers)
+    if (res.trading_day !== undefined) tradingDay = res.trading_day
     if (!res.unchanged) {
       raw = res
       await idb.set(CONFIG_KEY, res)
@@ -505,14 +510,6 @@ export const setCardWaiting = on => { if (!!state.card_waiting !== !!on) setStat
 
 // ── Placing the order ────────────────────────────────────────────
 
-function nextProvisionalNo() {
-  let n = 0
-  try { n = Number(localStorage.getItem(COUNTER_KEY)) || 0 } catch { /* ignore */ }
-  n = n >= 9999 ? 1 : n + 1
-  try { localStorage.setItem(COUNTER_KEY, String(n)) } catch { /* ignore */ }
-  return (state.device?.short_code || 'KS') + '-' + String(n).padStart(4, '0')
-}
-
 function printReceipt(check) {
   const c = state.config
   const by = rows => Object.fromEntries((rows || []).map(r => [r.id, r]))
@@ -613,10 +610,12 @@ export async function placeOrder(method, payment = null) {
   const loyalty = loyaltyForOrder(state)
   const key = method === 'counter' ? JSON.stringify([basket, details, orderType, loyalty?.rewards?.map(x => x.redemption_id) || null]) : null
   const again = key && attempt?.key === key ? attempt : null
-  const provisional = again ? again.provisional : nextProvisionalNo()
+  // The kiosk numbers its own orders (lib/numbers.js): the guest's number is
+  // known at once, even when the order has to wait to reach the till.
+  const nums = again ? again.nums : state.preview ? { number: 7, order_no: 7 } : takeNumbers(device, config, { counter: true, day: tradingDay })
   const r = again ? again.r : kioskOrder(config, basket, {
     device, checkId: state.loyalty?.checkId || ulid(), newId: () => ulid(), order_type_id: orderType, loyalty,
-    name: details.name, tent: details.tent, provisional_no: provisional,
+    name: details.name, tent: details.tent, number: nums.number, order_no: nums.order_no,
     payment: method === 'card' ? payment || { ref: null } : null,
     send: method === 'counter' && design.checkout.send_counter,
     receipt: false,
@@ -625,41 +624,41 @@ export async function placeOrder(method, payment = null) {
     setState({ screen: 'failed', error: r.error, method })
     return
   }
-  attempt = key ? { key, r, provisional } : null
+  attempt = key ? { key, r, nums } : null
   setState({ screen: 'placing', method })
   if (state.preview) {
     await new Promise(res => setTimeout(res, 600))
-    setState({ screen: 'done', result: { order_no: 7, provisional, check: r.check, totals: r.totals, pending: false } })
+    setState({ screen: 'done', result: { order_no: nums.order_no, provisional: null, check: r.check, totals: r.totals, pending: false } })
     return
   }
   try {
     const res = await api.post('/pos-api/events', { events: r.events }, { timeoutMs: 20000 })
     const refused = res.results.filter(x => !x.ok && !x.duplicate)
     if (refused.length) {
-      if (method === 'card') return paidButNotSent(r, provisional, refused[0].error)
+      if (method === 'card') return paidButNotSent(r, nums.order_no, refused[0].error)
       setState({ screen: 'failed', error: refused[0].error })
       return
     }
     attempt = null
     // A resent order's first event comes back as a duplicate: its number is on the check.
     const sent = (res.checks || []).find(c => c.id === r.check.id)
-    const orderNo = res.results[0]?.assigned?.order_no ?? sent?.order_no ?? null
+    const orderNo = sent?.order_no ?? nums.order_no
     const check = sent || { ...r.check, order_no: orderNo }
     linkOk()
-    setState({ screen: 'done', result: { order_no: orderNo, provisional, check, totals: r.totals, pending: false } })
+    setState({ screen: 'done', result: { order_no: orderNo, provisional: null, check, totals: r.totals, pending: false } })
     if (design.checkout.receipt === 'always') printReceipt(check)
   } catch (err) {
     handleError(err)
-    if (method === 'card') return paidButNotSent(r, provisional, null)
+    if (method === 'card') return paidButNotSent(r, nums.order_no, null)
     setState({ screen: 'failed', error: null })
   }
 }
 
 // The card was charged: the order must reach the till. Keep it and send it
 // again until it is accepted; the guest shows the kiosk's own number at the counter.
-async function paidButNotSent(r, provisional, error) {
-  const outbox = [...state.outbox, { at: new Date().toISOString(), provisional, events: r.events, error }]
-  setState({ outbox, screen: 'done', result: { order_no: null, provisional, check: r.check, totals: r.totals, pending: true } })
+async function paidButNotSent(r, orderNo, error) {
+  const outbox = [...state.outbox, { at: new Date().toISOString(), order_no: orderNo, events: r.events, error }]
+  setState({ outbox, screen: 'done', result: { order_no: orderNo, provisional: null, check: { ...r.check, order_no: orderNo }, totals: r.totals, pending: true } })
   await idb.set(OUTBOX_KEY, outbox)
   scheduleFlush(3000)
 }

@@ -18,7 +18,7 @@ import { designProblems } from '@shared/kiosk.js'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { Section, Modal, Field, inputCls, ErrorNote, ConfirmDelete, Segmented, Btn, ago } from './shared'
-import { status, deviceUrl, InstallerLine, ShownCodeField, LinkDeviceModal, LinkDeviceButton, linkShownCode, codeReady, ReusePick, defaultReuse, reuseLabel, RemovedDevices } from './TillsSection'
+import { status, deviceUrl, InstallerLine, ShownCodeField, LinkDeviceModal, LinkDeviceButton, linkShownCode, codeReady, ReusePick, defaultReuse, reuseLabel, RemovedDevices, OrderNumbersField, orderRangeOf, orderRangeReady } from './TillsSection'
 import { CardMachinePick, useCardReaders } from './CardMachinesSection'
 
 /** The design a kiosk shows: its own pick, else the company's first design. */
@@ -39,6 +39,7 @@ function KioskModal({ venueId, setup, device, onClose }) {
     design_id: s.design_id || '',
     card_reader: s.card_reader || 'none',
     receipt_printer_id: s.receipt_printer_id || '',
+    order_numbers: orderRangeOf(device),
   })
   const set = patch => setForm(f => ({ ...f, ...patch }))
   const body = () => ({
@@ -49,6 +50,7 @@ function KioskModal({ venueId, setup, device, onClose }) {
       design_id: form.design_id || null,
       card_reader: form.card_reader,
       receipt_printer_id: form.receipt_printer_id || null,
+      ...(device && orderRangeReady(form.order_numbers) ? { order_numbers: form.order_numbers } : {}),
     },
   })
   const refresh = () => qc.invalidateQueries({ queryKey: ['pos-setup', venueId] })
@@ -67,7 +69,7 @@ function KioskModal({ venueId, setup, device, onClose }) {
   return (
     <Modal title={device ? 'Edit ' + device.name : 'Add a kiosk'} onClose={onClose}
       footer={<>
-        <Btn variant="primary" className="flex-1" disabled={(!reuseId && !form.name.trim()) || (!device && !codeReady(code)) || save.isPending} onClick={() => save.mutate()} data-testid="device-save">
+        <Btn variant="primary" className="flex-1" disabled={(!reuseId && !form.name.trim()) || (!device && !codeReady(code)) || (device && !orderRangeReady(form.order_numbers)) || save.isPending} onClick={() => save.mutate()} data-testid="device-save">
           {save.isPending && <Loader2 className="w-4 h-4 animate-spin" />} {device ? 'Save' : reuseId ? reuseLabel(setup, reuseId) : 'Add the kiosk'}
         </Btn>
         {device && <ConfirmDelete label="Remove kiosk" confirmLabel="Yes, remove" onConfirm={() => remove.mutate()} disabled={remove.isPending} />}
@@ -97,6 +99,7 @@ function KioskModal({ venueId, setup, device, onClose }) {
             {setup.printers.filter(p => p.is_active).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
         </Field>
+        <OrderNumbersField setup={setup} device={device} value={form.order_numbers} onChange={v => set({ order_numbers: v })} />
         {problems.map(p => (
           <p key={p} className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 flex gap-2"><AlertTriangle className="w-4 h-4 shrink-0" /> {p}</p>
         ))}
@@ -138,6 +141,7 @@ function KioskDevices({ venueId, setup }) {
                     {design ? design.name : 'Standard look'}
                     {rcName(d.settings?.revenue_stream_id) ? ' · ' + rcName(d.settings.revenue_stream_id) : ''}
                     {' · '}{machineName(d.settings?.card_reader) ? 'Card machine: ' + machineName(d.settings.card_reader) : 'No card machine'}
+                    {d.settings?.order_numbers ? ' · Orders ' + d.settings.order_numbers.from + '-' + d.settings.order_numbers.to : ''}
                   </p>
                   <p className={cn('text-xs', st.tone === 'ok' ? 'text-green-700' : st.tone === 'warn' ? 'text-amber-700' : 'text-muted-foreground')}>{st.text}</p>
                   {problems.map(p => <p key={p} className="text-xs text-amber-800 flex gap-1 items-start"><AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px" /> {p}</p>)}

@@ -117,7 +117,7 @@ test('the sequencer uses an attempt once, and refuses without a store that has t
     findEvent: id => events.get(id) || null,
     findRejection: () => null,
     context: () => ({ staffById, print: {}, timezone: 'Europe/London', settings: {} }),
-    venueState: () => ({ last_seq: seq, next_check_no: 1, next_order_no: 1, day: { id: 'D1', business_date: '2026-10-20' } }),
+    venueState: () => ({ last_seq: seq, numbers: {}, day: { id: 'D1', business_date: '2026-10-20' } }),
     openDay: () => ({ id: 'D1', business_date: '2026-10-20' }),
     loadChecks: ids => Object.fromEntries(ids.filter(i => checks[i]).map(i => [i, checks[i]])),
     openCheckCount: () => 0,

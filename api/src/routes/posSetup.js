@@ -78,6 +78,7 @@ import {
 } from '../../../shared/pos/kitchen.js'
 import { KITCHEN_COLOUR_KEYS, SECTION_COLOURS_MAX, normaliseKitchenColours } from '../../../shared/pos/kitchenColours.js'
 import { PULL_TIMES } from '../../../shared/pos/pullTimes.js'
+import { cleanOrderRange, rangesOverlap, freeOrderRange, ORDER_NO_MAX } from '../../../shared/pos/numbers.js'
 import { deviceOrigin, installerOrigin } from '../services/platformHost.js'
 import { linkCodeHash } from '../services/linkCodes.js'
 import { hubRelease } from '../services/hubRelease.js'
@@ -131,7 +132,6 @@ const SettingsBody = z.object({
   tenders:                   z.array(z.object({ key: z.enum(TENDER_KEYS), label: z.string().min(1).max(30), enabled: z.boolean() })).optional(),
   tips_enabled:              z.boolean().optional(),
   require_covers:            z.boolean().optional(),
-  order_no_start:            z.number().int().min(1).max(900).optional(),
   auto_logout_secs:          z.number().int().min(0).max(3600).optional(),
   recon_map:                 z.object({
     income:  z.record(UUID, z.array(z.string().max(40)).max(20)).default({}),
@@ -216,7 +216,16 @@ const DeviceSettings = z.object({
   card_reader:        z.union([z.literal('none'), UUID]).optional(),
   // A venue hub (migration 195): installs its new versions by itself (absent = yes).
   auto_update:        z.boolean().optional(),
+  // A till's or kiosk's own counter order numbers (migration 217,
+  // shared/pos/numbers.js): no two at a location may overlap.
+  order_numbers:      z.object({
+    from: z.number().int().min(1).max(ORDER_NO_MAX),
+    to:   z.number().int().min(1).max(ORDER_NO_MAX),
+  }).refine(r => r.from <= r.to, 'The first order number comes before the last').nullable().optional(),
 }).default({})
+
+// Tills and kiosks give out counter order numbers.
+const NUMBERED_KINDS = ['terminal', 'kiosk']
 
 // What a device showing a link code can become, in the words the refusals use.
 const LINK_KINDS = ['terminal', 'kds', 'kiosk', 'hub']
@@ -1000,7 +1009,13 @@ export default async function posSetupRoutes(app) {
   })
 
   // ── Devices ─────────────────────────────────────────────────────
-  async function checkDeviceSettings(tx, tenantId, venueId, s) {
+  async function checkDeviceSettings(tx, tenantId, venueId, s, { deviceId = null } = {}) {
+    if (s.order_numbers) {
+      const clash = (await otherRanges(tx, tenantId, venueId, deviceId)).find(o => rangesOverlap(o.range, s.order_numbers))
+      if (clash) {
+        throw httpError(422, `${clash.name} uses order numbers ${clash.range.from}-${clash.range.to}: pick numbers no other till or kiosk here uses`, { code: 'order_numbers' })
+      }
+    }
     if (s.revenue_stream_id) {
       const [r] = await tx`SELECT id FROM pos_revenue_streams WHERE id = ${s.revenue_stream_id} AND tenant_id = ${tenantId} AND venue_id = ${venueId}`
       if (!r) throw httpError(422, 'Revenue stream not found')
@@ -1023,6 +1038,22 @@ export default async function posSetupRoutes(app) {
       const [r] = await tx`SELECT id FROM pos_card_readers WHERE id = ${s.card_reader} AND tenant_id = ${tenantId} AND venue_id = ${venueId} AND removed_at IS NULL`
       if (!r) throw httpError(422, 'Card machine not found at this venue')
     }
+  }
+
+  /** The order number ranges of the venue's other tills and kiosks (in use, not removed). */
+  async function otherRanges(tx, tenantId, venueId, deviceId) {
+    const rows = await tx`
+      SELECT id, name, settings FROM pos_devices
+       WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND kind = ANY(${NUMBERED_KINDS})
+         AND revoked_at IS NULL AND id <> ${deviceId || '00000000-0000-0000-0000-000000000000'}`
+    return rows.map(r => ({ name: r.name, range: cleanOrderRange(r.settings?.order_numbers) })).filter(r => r.range)
+  }
+
+  /** A new (or brought back) till's or kiosk's order numbers: its own if free, else the next free block. */
+  async function orderRangeFor(tx, tenantId, venueId, deviceId, wanted) {
+    const taken = (await otherRanges(tx, tenantId, venueId, deviceId)).map(o => o.range)
+    const own = cleanOrderRange(wanted)
+    return own && !taken.some(t => rangesOverlap(t, own)) ? own : freeOrderRange(taken)
   }
 
   // A removed device's settings, brought back: anything they point at that
@@ -1079,6 +1110,7 @@ export default async function posSetupRoutes(app) {
         if (!d || d.venue_id !== venueId) throw httpError(404, 'Device not found')
         if (d.kind !== kind) throw httpError(422, `That code is on ${LINK_KIND_NAME[kind]}, not ${LINK_KIND_NAME[d.kind] || 'that device'}`)
         const settings = d.revoked_at ? await cleanDeviceSettings(tx, req.tenantId, venueId, d.settings) : d.settings
+        if (d.revoked_at && NUMBERED_KINDS.includes(kind)) settings.order_numbers = await orderRangeFor(tx, req.tenantId, venueId, d.id, settings.order_numbers)
         await tx`
           UPDATE pos_devices
              SET secret_hash = ${p.secret_hash}, pairing_code_hash = NULL, pairing_expires_at = NULL, paired_at = now(),
@@ -1090,6 +1122,7 @@ export default async function posSetupRoutes(app) {
         if (!body.name) throw httpError(422, 'Give the device a name')
         const settings = body.settings || DeviceSettings.parse(undefined)
         await checkDeviceSettings(tx, req.tenantId, venueId, settings)
+        if (NUMBERED_KINDS.includes(kind) && !settings.order_numbers) settings.order_numbers = await orderRangeFor(tx, req.tenantId, venueId, null, null)
         const short = await nextShortCode(tx, req.tenantId, venueId, kind)
         const [d] = await tx`
           INSERT INTO pos_devices (tenant_id, venue_id, kind, name, short_code, settings, created_by,
@@ -1114,7 +1147,9 @@ export default async function posSetupRoutes(app) {
     const body = z.object({ name: z.string().trim().min(1).max(60).optional(), settings: DeviceSettings.optional() }).parse(req.body)
     const out = await withTenant(req.tenantId, async tx => {
       const d = await ownRow(tx, 'pos_devices', req.tenantId, id, 'Till')
-      if (body.settings) await checkDeviceSettings(tx, req.tenantId, d.venue_id, body.settings)
+      // Settings sent without order numbers keep the device's own.
+      if (body.settings && body.settings.order_numbers === undefined && d.settings?.order_numbers) body.settings.order_numbers = d.settings.order_numbers
+      if (body.settings) await checkDeviceSettings(tx, req.tenantId, d.venue_id, body.settings, { deviceId: d.id })
       const [row] = await tx`
         UPDATE pos_devices
            SET name = ${body.name ?? d.name}, settings = ${tx.json(body.settings ?? d.settings ?? {})}
@@ -2047,7 +2082,7 @@ export default async function posSetupRoutes(app) {
     return withTenant(req.tenantId, async tx => {
       await ownVenue(tx, req.tenantId, venueId)
       return tx`
-        SELECT c.id, c.number, c.order_no, c.mode, c.table_id, t.label AS table_label, c.tab_name, c.covers,
+        SELECT c.id, c.number, c.number_code, c.order_no, c.mode, c.table_id, t.label AS table_label, c.tab_name, c.covers,
                c.server_id, COALESCE(s.name, k.name) AS server_name, c.revenue_stream_id, c.order_type_id, o.name AS order_type_name, c.tent, c.status, c.opened_at, c.closed_at,
                c.subtotal, c.discount, c.service_charge, c.total, c.paid, c.tips, c.refunded, c.day_id
           FROM pos_checks c
@@ -2099,7 +2134,7 @@ export default async function posSetupRoutes(app) {
       return tx`
         SELECT r.id, r.check_id, r.device_id, r.staff_id, COALESCE(s.name, k.name) AS staff_name, r.type, r.payload, r.client_at,
                r.error, r.code, r.created_at, r.resolved_at, r.resolved_by, r.resolution,
-               c.number AS check_number, c.status AS check_status
+               c.number AS check_number, c.number_code AS check_number_code, c.order_no AS check_order_no, c.status AS check_status
           FROM pos_event_rejections r
           LEFT JOIN cash_staff s ON s.id = r.staff_id AND s.tenant_id = r.tenant_id
           LEFT JOIN pos_devices k ON k.id = r.staff_id AND k.tenant_id = r.tenant_id AND k.kind = 'kiosk'

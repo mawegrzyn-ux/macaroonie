@@ -56,7 +56,7 @@ async function placeOrder(d, { card }) {
     for (const c of it.pos_choices || posChoices(it, config.groups || {})) if (c.min > 0) choices[c.key] = c.options.slice(0, c.min).map(o => o.id)
     r = kioskOrder(config, [{ key: 'a', item_id: it.id, selection: { choices }, qty: 2 }], {
       device: { id: d.device_id, venue_id: mine.ids.venue }, checkId: ulid(), newId: ulid,
-      order_type_id: config.order_types[0]?.id || null, tent: '12', provisional_no: 'KS-0001',
+      order_type_id: config.order_types[0]?.id || null, tent: '12', number: 1, order_no: 1,
       payment: card ? { ref: 'TEST-1', label: 'Test card' } : null, send: false,
     })
     if (r.ok && r.totals.total > 0) { dish = it; break }

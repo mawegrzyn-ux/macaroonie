@@ -31,7 +31,9 @@
 //                               reply always carries sold_out and prices (an unchanged one too)
 //   GET  /live                  { sold_out, prices } for a till or kiosk, pulled every 30 s: sold out
 //                               now, and a stamp of what sets prices (a new one: fetch /config)
-//   GET  /sync?since=<seq>      events and changed checks since seq; reset: true with all open checks
+//   GET  /sync?since=<seq>      events and changed checks since seq; reset: true with all open checks;
+//                               numbers: this till's highest numbers today (shared/pos/numbers.js),
+//                               which a till that lost its storage carries on from
 //   GET  /kitchen/sync?since=   kitchen orders since seq (shared/pos/kitchen.js; services/kitchenSvc.js)
 //   PUT  /kitchen/flow          { flow_id } a kitchen screen's flow button puts another kitchen flow in
 //                               use (migration 177; not when Store tech turned it off for that screen)
@@ -39,7 +41,9 @@
 //                               events; kitchen.order_in / order_status are refused from devices)
 //   GET  /checks?status=closed  recent closed checks (reopen, refund, reprint)
 //   GET  /checks/:id            one check
-//   GET  /reports/day?day_id=   X report (the open day) or a past day's Z
+//   GET  /reports/day?day_id=   X report (the open day) or a past day's Z; waiting: the venue's
+//                               devices with changes not sent yet or not heard from lately
+//   Every call may say X-Pos-Pending: <n>, how many changes the device hasn't sent yet
 //   GET  /days                  recent trading days
 //   POST /presence              { check_id, staff_id } who has which check open (soft lock)
 //   GET  /print-jobs            the venue's print queue
@@ -143,6 +147,8 @@ export async function verifyDevice(id, secret) {
 }
 
 const lastSeen = new Map()
+// Changes a device says it hasn't sent yet (X-Pos-Pending), written when they change.
+const lastPending = new Map()
 
 const KIOSK_ROUTES = new Set(['GET /pos-api/me', 'GET /pos-api/config', 'GET /pos-api/live', 'POST /pos-api/events', 'POST /pos-api/disconnect', 'POST /pos-api/move',
   'POST /pos-api/kiosk/journeys', 'POST /pos-api/kiosk/receipts',
@@ -221,6 +227,15 @@ async function requireDevice(req, reply) {
   }
   req.posDevice = d
   req.tenantId = d.tenant_id
+  const pendingHeader = req.headers['x-pos-pending']
+  if (pendingHeader != null) {
+    const pending = Math.max(0, Math.min(100000, parseInt(pendingHeader, 10) || 0))
+    if (lastPending.get(d.id) !== pending) {
+      lastPending.set(d.id, pending)
+      tenantSql(d.tenant_id)`UPDATE pos_devices SET pending_changes = ${pending}, pending_at = now() WHERE id = ${d.id}`
+        .catch(e => req.log.warn({ err: e }, 'pos pending update failed'))
+    }
+  }
   const seen = lastSeen.get(d.id) || 0
   if (Date.now() - seen > 60_000) {
     lastSeen.set(d.id, Date.now())
@@ -248,6 +263,42 @@ function presenceFor(venueId) {
 }
 
 // ── Routes ───────────────────────────────────────────────────────
+
+/**
+ * A till's or kiosk's highest numbers today, as the sequencer saw them
+ * (shared/pos/numbers.js), and the open trading day's date: a device counts
+ * under that day while it is open (a day not closed by the next morning
+ * keeps its numbers going), under its own clock's date once it is closed.
+ */
+async function deviceNumbers(d) {
+  const q = tenantSql(d.tenant_id)
+  const [[st], [day]] = await Promise.all([
+    q`SELECT device_numbers FROM pos_venue_state WHERE venue_id = ${d.venue_id} AND tenant_id = ${d.tenant_id}`,
+    q`SELECT business_date::text AS business_date FROM pos_days WHERE tenant_id = ${d.tenant_id} AND venue_id = ${d.venue_id} AND closed_at IS NULL LIMIT 1`,
+  ])
+  return { numbers: st?.device_numbers?.[d.id] || null, trading_day: day?.business_date || null }
+}
+
+// Not heard from for this long (but today): it may have changes made offline.
+const QUIET_MINUTES = 10
+
+/**
+ * The venue's other devices that may hold changes not sent yet, for closing
+ * the day: those that said so (X-Pos-Pending) and those not heard from lately.
+ */
+async function devicesWaiting(tx, d) {
+  const rows = await tx`
+    SELECT id, name, kind, short_code, pending_changes, pending_at, last_seen_at FROM pos_devices
+     WHERE tenant_id = ${d.tenant_id} AND venue_id = ${d.venue_id} AND id <> ${d.id}
+       AND kind IN ('terminal', 'kiosk', 'kds') AND revoked_at IS NULL AND secret_hash IS NOT NULL
+       AND (pending_changes > 0
+            OR (last_seen_at < now() - make_interval(mins => ${QUIET_MINUTES}) AND last_seen_at > now() - interval '18 hours'))
+     ORDER BY name`
+  return rows.map(r => ({
+    id: r.id, name: r.name, kind: r.kind, short_code: r.short_code,
+    pending: r.pending_changes || 0, last_seen_at: r.last_seen_at,
+  }))
+}
 
 async function currentDay(tx, tenantId, venueId) {
   const [day] = await tx`
@@ -526,10 +577,13 @@ export default async function posApiRoutes(app) {
           })
       // Sold out and the prices stamp (liveFields()) aren't in the version:
       // an unchanged reply still carries them.
+      // A till's or kiosk's own numbers today (shared/pos/numbers.js): not in
+      // the version either, so a device that lost its storage carries on.
+      const numbers = d.kind === 'terminal' || d.kind === 'kiosk' ? await deviceNumbers(d) : {}
       if (req.query.version && req.query.version === config.version) {
-        return { unchanged: true, version: config.version, ...(config.prices ? { sold_out: config.sold_out, prices: config.prices } : {}) }
+        return { unchanged: true, version: config.version, ...(config.prices ? { sold_out: config.sold_out, prices: config.prices } : {}), ...numbers }
       }
-      return { ...config, device }
+      return { ...config, device, ...numbers }
     })
 
     // What changes during service (a till or kiosk asks every 30 s): dishes
@@ -678,10 +732,10 @@ export default async function posApiRoutes(app) {
       const d = req.posDevice
       const since = Math.max(0, Number(req.query.since) || 0)
       return withTenant(d.tenant_id, async tx => {
-        const [st] = await tx`SELECT last_seq FROM pos_venue_state WHERE venue_id = ${d.venue_id} AND tenant_id = ${d.tenant_id}`
+        const [st] = await tx`SELECT last_seq, device_numbers FROM pos_venue_state WHERE venue_id = ${d.venue_id} AND tenant_id = ${d.tenant_id}`
         const seq = Number(st?.last_seq || 0)
         const day = await currentDay(tx, d.tenant_id, d.venue_id)
-        const extra = { day, presence: presenceFor(d.venue_id), server_time: new Date().toISOString() }
+        const extra = { day, presence: presenceFor(d.venue_id), server_time: new Date().toISOString(), numbers: st?.device_numbers?.[d.id] || null }
         if (since === 0 || since > seq || seq - since > SYNC_WINDOW) {
           // Start again: every open check, plus this trading day's closed ones.
           const rows = await tx`
@@ -782,7 +836,7 @@ export default async function posApiRoutes(app) {
       const d = req.posDevice
       const q = z.object({ status: z.enum(['open', 'closed', 'void']).default('closed'), limit: z.coerce.number().int().min(1).max(200).default(60) }).parse(req.query)
       return withTenant(d.tenant_id, tx => tx`
-        SELECT id, number, order_no, mode, table_id, tab_name, covers, server_id, status, opened_at, closed_at, total, paid, refunded, day_id
+        SELECT id, number, number_code, order_no, mode, table_id, tab_name, covers, server_id, status, opened_at, closed_at, total, paid, refunded, day_id
           FROM pos_checks
          WHERE tenant_id = ${d.tenant_id} AND venue_id = ${d.venue_id} AND status = ${q.status}
          ORDER BY COALESCE(closed_at, opened_at) DESC
@@ -803,8 +857,9 @@ export default async function posApiRoutes(app) {
         let dayId = req.query.day_id ? UUID.parse(req.query.day_id) : null
         if (!dayId) {
           const day = await currentDay(tx, d.tenant_id, d.venue_id)
-          if (!day) return { day: null, figures: dayFigures([], null) }
+          if (!day) return { day: null, figures: dayFigures([], null), waiting: await devicesWaiting(tx, d) }
           dayId = day.id
+          return { ...(await dayReport(tx, d.tenant_id, d.venue_id, dayId)), waiting: await devicesWaiting(tx, d) }
         }
         return dayReport(tx, d.tenant_id, d.venue_id, dayId)
       })

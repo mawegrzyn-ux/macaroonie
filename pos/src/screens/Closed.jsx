@@ -6,6 +6,7 @@ import { Printer, RotateCcw, Undo2, Search, RefreshCw, Loader2 } from 'lucide-re
 import { ulid } from '@shared/pos/ids.js'
 import { checkTotals, modifierText, groupModifiers } from '@shared/pos/pricing.js'
 import { checkLabel, TENDERS } from '@shared/pos/checks.js'
+import { numberText } from '@shared/pos/numbers.js'
 import { useTill, useChecks, dispatch, toast, printBill, server, loadCheck, cardRefund } from '../lib/store.js'
 import { Modal, Keypad, ReasonPicker, cx, money, poundsToPence, useApproval } from '../components/ui.jsx'
 
@@ -27,12 +28,12 @@ export default function Closed() {
     const local = Object.values(checks).filter(c => c.status === 'closed' || c.status === 'void')
     const ids = new Set(local.map(c => c.id))
     const rows = [
-      ...local.map(c => ({ id: c.id, number: c.number, order_no: c.order_no, table_id: c.table_id, tab_name: c.tab_name, closed_at: c.closed_at, total: checkTotals(c).total, status: c.status, local: true })),
+      ...local.map(c => ({ id: c.id, number: c.number, number_code: c.number_code, order_no: c.order_no, table_id: c.table_id, tab_name: c.tab_name, closed_at: c.closed_at, total: checkTotals(c).total, status: c.status, local: true })),
       ...remote.filter(r => !ids.has(r.id)),
     ].sort((a, b) => String(b.closed_at || '').localeCompare(String(a.closed_at || '')))
     const term = q.trim().toLowerCase()
     if (!term) return rows
-    return rows.filter(r => String(r.number || '').includes(term) || String(r.order_no || '').includes(term) || (r.tab_name || '').toLowerCase().includes(term)
+    return rows.filter(r => checkLabel(r).toLowerCase().includes(term) || (numberText(r) || '').toLowerCase().includes(term) || (r.tab_name || '').toLowerCase().includes(term)
       || ((config.tables || []).find(t => t.id === r.table_id)?.label || '').toLowerCase() === term)
   }, [checks, remote, q, config])
 
@@ -59,7 +60,7 @@ export default function Closed() {
             const table = (config.tables || []).find(t => t.id === r.table_id)
             return (
               <button key={r.id} className={cx('w-full p-3 flex items-center gap-3 text-left', selected === r.id && 'bg-brand-soft')} onClick={() => open(r)}>
-                <div className="w-14 font-bold">{r.order_no != null ? '#' + r.order_no : r.number ?? '…'}</div>
+                <div className="w-16 font-bold">{checkLabel(r)}</div>
                 <div className="flex-1 min-w-0">
                   <div className="font-semibold truncate">{table ? 'Table ' + table.label : r.tab_name || 'Tab'}{r.status === 'void' ? ' (empty)' : ''}</div>
                   <div className="text-xs text-muted">{r.closed_at ? new Date(r.closed_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}</div>

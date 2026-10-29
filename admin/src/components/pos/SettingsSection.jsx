@@ -11,7 +11,7 @@ import { Loader2 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { TimeSelect } from '@/components/staff/shared'
-import { Section, Field, inputCls, ErrorNote, Btn, NumberBox, Toggle, Segmented } from './shared'
+import { Section, Field, inputCls, ErrorNote, Btn, Toggle, Segmented } from './shared'
 
 const LOGOUTS = [
   { value: 0, label: 'Never' },
@@ -40,7 +40,6 @@ function fromSettings(s) {
     tenders: s.tenders.map(t => ({ ...t })),
     tips_enabled: !!s.tips_enabled,
     require_covers: !!s.require_covers,
-    order_no_start: s.order_no_start,
     auto_logout_secs: s.auto_logout_secs,
   }
 }
@@ -64,7 +63,6 @@ export function ReceiptSettingsSection({ venueId, setup }) {
       tenders: form.tenders.map(t => ({ key: t.key, label: t.label.trim() || t.key, enabled: t.enabled })),
       tips_enabled: form.tips_enabled,
       require_covers: form.require_covers,
-      order_no_start: form.order_no_start || 1,
       auto_logout_secs: form.auto_logout_secs,
     })
   }
@@ -113,9 +111,12 @@ export function ReceiptSettingsSection({ venueId, setup }) {
       </div>
       <Toggle label="Ask for a tip when paying" checked={form.tips_enabled} onChange={v => set({ tips_enabled: v })} />
       <Toggle label="Ask for covers when opening a table" checked={form.require_covers} onChange={v => set({ require_covers: v })} />
-      <Field label="Order numbers start at" hint="Counter order numbers, every trading day.">
-        <NumberBox value={form.order_no_start} min={1} max={900} onChange={v => set({ order_no_start: v ?? 1 })} ariaLabel="Order numbers start at" />
-      </Field>
+      <p className="text-xs text-muted-foreground" data-testid="order-numbers-note">
+        Check and order numbers: every till and kiosk numbers its own (checks T1-1, T1-2, ... each trading day; counter
+        orders from its own range, e.g. 100-199), so they never clash, even offline. Change a device's range under{' '}
+        <Link to="/pos/tills" className="font-medium text-foreground underline">Tills</Link> or{' '}
+        <Link to="/pos/kiosks" className="font-medium text-foreground underline">Kiosks</Link>.
+      </p>
       <div className="flex flex-wrap items-center gap-3 pt-2 border-t">
         <Btn variant="primary" disabled={!dirty || noTender || save.isPending} onClick={submit}>
           {save.isPending && <Loader2 className="w-4 h-4 animate-spin" />} Save

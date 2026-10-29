@@ -328,7 +328,7 @@ test('jobs: bills and receipts go to the till\'s receipt printer, unless it is p
 function memoryStore({ timezone = 'Europe/London', settings = {} } = {}) {
   const s = {
     events: new Map(), rejections: new Map(), checks: new Map(), jobs: [], days: [],
-    state: { last_seq: 0, next_check_no: 1, next_order_no: 1, day: null },
+    state: { last_seq: 0, numbers: {}, day: null },
   }
   let queue = Promise.resolve()
   return {
@@ -336,7 +336,10 @@ function memoryStore({ timezone = 'Europe/London', settings = {} } = {}) {
     run: (_venue, fn) => (queue = queue.then(fn, fn)),
     findEvent: id => s.events.get(id) || null,
     findRejection: id => s.rejections.get(id) || null,
-    context: () => ({ staffById, print: { ...print, devices: { T1: { receipt_printer_id: RECEIPT } } }, timezone, settings }),
+    context: () => ({
+      staffById, print: { ...print, devices: { T1: { receipt_printer_id: RECEIPT } } }, timezone, settings,
+      devices: { T1: { short_code: 'T1', kind: 'terminal' }, T2: { short_code: 'T2', kind: 'terminal' } },
+    }),
     venueState: () => ({ ...s.state }),
     openDay: ({ business_date }) => {
       const day = { id: uuid(), business_date, number: s.days.length + 1 }
@@ -359,11 +362,12 @@ test('sequencer: numbers events and checks, duplicates get the same answer, offl
   const store = memoryStore({ settings: { day_starts_at: '04:00' } })
   const seq = createSequencer(store)
   const checkId = ulid()
-  const opened = ev('check.opened', { mode: 'table', table_id: TABLE5, revenue_stream_id: RC_REST }, { check_id: checkId })
+  const opened = ev('check.opened', { mode: 'table', table_id: TABLE5, revenue_stream_id: RC_REST, number: 1 }, { check_id: checkId })
   const r1 = await seq.submit(opened, { now: new Date('2026-10-11T18:00:00Z') })
   assert.equal(r1.seq, 1)
   assert.equal(r1.checks[checkId].number, 1)
-  assert.equal(checkLabel(r1.checks[checkId]), '1')
+  assert.equal(r1.event.assigned.number_code, 'T1', 'the sequencer stamps the device\'s code')
+  assert.equal(checkLabel(r1.checks[checkId]), 'T1-1')
   const again = await seq.submit(opened)
   assert.equal(again.duplicate, true)
   assert.equal(again.seq, 1)
@@ -390,27 +394,34 @@ test('sequencer: numbers events and checks, duplicates get the same answer, offl
   assert.equal(store.data.state.last_seq, 5)
 })
 
-test('sequencer: counter order numbers, day close needs closed checks, new day starts numbering again', async () => {
-  const store = memoryStore({ settings: { order_no_start: 100 } })
+test('sequencer: each device numbers its own checks and orders; the day close needs closed checks', async () => {
+  const store = memoryStore()
   const seq = createSequencer(store)
-  const a = ulid(), b = ulid()
-  const ra = await seq.submit(ev('check.opened', { mode: 'counter', revenue_stream_id: RC_TAKEAWAY }, { check_id: a }))
-  const rb = await seq.submit(ev('check.opened', { mode: 'counter', revenue_stream_id: RC_TAKEAWAY }, { check_id: b }))
-  assert.deepEqual([ra.checks[a].order_no, rb.checks[b].order_no], [100, 101])
-  assert.equal(checkLabel(rb.checks[b]), '#101')
+  const a = ulid(), b = ulid(), x = ulid()
+  // Two tills give out numbers at the same time and never the same one:
+  // each has its code and its own range of order numbers.
+  const ra = await seq.submit(ev('check.opened', { mode: 'counter', revenue_stream_id: RC_TAKEAWAY, number: 4, order_no: 12 }, { check_id: a }))
+  const rx = await seq.submit(ev('check.opened', { mode: 'counter', revenue_stream_id: RC_TAKEAWAY, number: 4, order_no: 112 }, { check_id: x, device_id: 'T2' }))
+  const rb = await seq.submit(ev('check.opened', { mode: 'counter', revenue_stream_id: RC_TAKEAWAY, number: 5, order_no: 13 }, { check_id: b }))
+  assert.deepEqual([ra.checks[a].order_no, rb.checks[b].order_no, rx.checks[x].order_no], [12, 13, 112])
+  assert.deepEqual([ra.checks[a].number_code, rx.checks[x].number_code], ['T1', 'T2'])
+  assert.equal(checkLabel(rb.checks[b]), '#13')
+  const date = store.data.days[0].business_date
+  assert.deepEqual(store.data.state.numbers, { T1: { date, check: 5, order: 13 }, T2: { date, check: 4, order: 112 } })
+  // A bad number is refused like any bad event.
+  assert.equal((await seq.submit(ev('check.opened', { mode: 'counter', number: 0 }, { check_id: ulid() }))).code, 'invalid')
+  assert.equal((await seq.submit(ev('check.opened', { mode: 'counter', number: 2, order_no: 99999 }, { check_id: ulid() }))).code, 'invalid')
 
   const z = await seq.submit(ev('day.closed', { declared_cash: 0 }, { staff_id: MANAGER }))
   assert.equal(z.code, 'open_checks')
-  assert.equal(z.error, '2 checks are still open: close them first')
+  assert.equal(z.error, '3 checks are still open: close them first')
   assert.equal((await seq.submit(ev('day.closed', {}, { staff_id: SERVER }))).code, 'permission')
-  await seq.submit(ev('check.closed', {}, { check_id: a }))
-  await seq.submit(ev('check.closed', {}, { check_id: b }))
+  for (const id of [a, b, x]) await seq.submit(ev('check.closed', {}, { check_id: id }))
   const z2 = await seq.submit(ev('day.closed', { declared_cash: 0 }, { staff_id: MANAGER }))
   assert.ok(z2.ok, z2.error)
   const c = ulid()
-  const rc = await seq.submit(ev('check.opened', { mode: 'counter' }, { check_id: c }))
-  assert.equal(rc.checks[c].order_no, 100)
-  assert.equal(rc.checks[c].number, 3)
+  const rc = await seq.submit(ev('check.opened', { mode: 'counter', number: 6, order_no: 14 }, { check_id: c }))
+  assert.equal(rc.checks[c].order_no, 14)
   assert.equal(store.data.days.length, 2)
   assert.notEqual(rc.checks[c].day_id, ra.checks[a].day_id)
 })

@@ -127,7 +127,7 @@ export function settingsView(s) {
     vat_number: s.vat_number, receipt_name: s.receipt_name, receipt_address: s.receipt_address || [],
     service_charge_label: s.service_charge_label,
     tenders, tips_enabled: s.tips_enabled, require_covers: s.require_covers,
-    order_no_start: s.order_no_start, auto_logout_secs: s.auto_logout_secs,
+    auto_logout_secs: s.auto_logout_secs,
     recon_map: s.recon_map || {}, recon_auto_fill: s.recon_auto_fill,
     kds_online_orders: s.kds_online_orders ?? true, kds_online_ready: s.kds_online_ready ?? true,
     kds_gloriafood: !!s.kds_gloriafood, kds_gloriafood_types: s.kds_gloriafood_types || {},
@@ -433,16 +433,16 @@ export async function printConfig(tx, tenantId, venueId) {
 async function saveCheck(tx, tenantId, venueId, c, seq) {
   const t = checkTotals(c)
   await tx`
-    INSERT INTO pos_checks (id, tenant_id, venue_id, day_id, number, order_no, mode, table_id, tab_name, covers,
+    INSERT INTO pos_checks (id, tenant_id, venue_id, day_id, number, number_code, order_no, mode, table_id, tab_name, covers,
                             server_id, revenue_stream_id, order_type_id, tent, status, opened_at, closed_at,
                             subtotal, discount, service_charge, total, vat, paid, tips, refunded, state, last_seq, loyalty_member_id, updated_at)
-    VALUES (${c.id}, ${tenantId}, ${venueId}, ${c.day_id}, ${c.number}, ${c.order_no}, ${c.mode}, ${c.table_id}, ${c.tab_name},
+    VALUES (${c.id}, ${tenantId}, ${venueId}, ${c.day_id}, ${c.number}, ${c.number_code ?? null}, ${c.order_no}, ${c.mode}, ${c.table_id}, ${c.tab_name},
             ${c.covers}, ${c.server_id}, ${c.revenue_stream_id ?? null}, ${c.order_type_id ?? null}, ${c.tent ?? null},
             ${c.status}, ${c.opened_at}, ${c.closed_at},
             ${t.subtotal}, ${t.discount}, ${t.service_charge}, ${t.total}, ${t.vat_total}, ${t.paid}, ${t.tips}, ${t.refunded},
             ${tx.json(c)}, ${seq}, ${c.loyalty?.member_id ?? null}, now())
     ON CONFLICT (id) DO UPDATE SET
-      number = EXCLUDED.number, order_no = EXCLUDED.order_no, mode = EXCLUDED.mode, table_id = EXCLUDED.table_id,
+      number = EXCLUDED.number, number_code = EXCLUDED.number_code, order_no = EXCLUDED.order_no, mode = EXCLUDED.mode, table_id = EXCLUDED.table_id,
       tab_name = EXCLUDED.tab_name, covers = EXCLUDED.covers, server_id = EXCLUDED.server_id,
       revenue_stream_id = EXCLUDED.revenue_stream_id, order_type_id = EXCLUDED.order_type_id, tent = EXCLUDED.tent,
       status = EXCLUDED.status, closed_at = EXCLUDED.closed_at,
@@ -534,15 +534,18 @@ export function sequencer(tenantId, venueId, { deviceId = null } = {}) {
       const staff = await loadTillStaff(tx, tenantId, venueId)
       // Self-order kiosks are known by their device id, with the kiosk rules
       // (shared/pos/checks.js) and no permissions.
-      const kiosks = await tx`
-        SELECT id, name FROM pos_devices
-         WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND kind = 'kiosk' AND revoked_at IS NULL`
+      const devices = await tx`
+        SELECT id, name, kind, short_code, revoked_at FROM pos_devices
+         WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`
+      const kiosks = devices.filter(d => d.kind === 'kiosk' && !d.revoked_at)
       const print = await printConfig(tx, tenantId, venueId)
       const settings = print.settings
       ctxCache = {
         staffById: Object.fromEntries([...kiosks.map(kioskStaff), ...staff].map(s => [s.id, s])),
         print, settings, timezone: print.timezone,
         kitchen: await loadKitchenConfig(tx, tenantId, venueId),
+        // Each device's code, stamped on the checks it opens (shared/pos/numbers.js).
+        devices: Object.fromEntries(devices.map(d => [d.id, { short_code: d.short_code, kind: d.kind }])),
       }
       return ctxCache
     },
@@ -555,7 +558,7 @@ export function sequencer(tenantId, venueId, { deviceId = null } = {}) {
       const [day] = await tx`
         SELECT id, business_date::text AS business_date FROM pos_days
          WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND closed_at IS NULL LIMIT 1`
-      return { last_seq: Number(s.last_seq), next_check_no: s.next_check_no, next_order_no: s.next_order_no, day: day || null }
+      return { last_seq: Number(s.last_seq), numbers: s.device_numbers || {}, day: day || null }
     },
     async openDay({ business_date, at }) {
       const [day] = await tx`
@@ -703,7 +706,7 @@ export function sequencer(tenantId, venueId, { deviceId = null } = {}) {
     async saveVenueState(v) {
       await tx`
         UPDATE pos_venue_state
-           SET last_seq = ${v.last_seq}, next_check_no = ${v.next_check_no}, next_order_no = ${v.next_order_no}, updated_at = now()
+           SET last_seq = ${v.last_seq}, device_numbers = COALESCE(${v.numbers ? tx.json(v.numbers) : null}, device_numbers), updated_at = now()
          WHERE venue_id = ${venueId} AND tenant_id = ${tenantId}`
     },
     async closeDay(day, e) {

@@ -1260,7 +1260,7 @@ export function kioskLine(config, entry, check, id, ctx = null) {
  *   lines.sent, check.closed; for pay at the counter: lines.sent only when
  *   the design sends counter orders straight away (send).
  * opts: { device, checkId, newId(), at, order_type_id, name, tent,
- *         provisional_no, payment: { id?, card_payment_id?, ref, label } | null, send, receipt,
+ *         number, order_no (the kiosk's own, shared/pos/numbers.js), payment: { id?, card_payment_id?, ref, label } | null, send, receipt,
  *         loyalty: { member, rewards: [{ redemption_id, reward }] } | null }
  * Returns { ok, events, check, totals, skipped } or { ok: false, error, index }.
  */
@@ -1271,7 +1271,8 @@ export function kioskOrder(config, basket, opts) {
   const streamId = config.stream?.id || null
   const opened = ev('check.opened', {
     mode: 'counter', revenue_stream_id: streamId, order_type_id: opts.order_type_id || null,
-    tab_name: text(opts.name, 80), tent: text(opts.tent, 20), provisional_no: opts.provisional_no || null,
+    tab_name: text(opts.name, 80), tent: text(opts.tent, 20),
+    number: opts.number ?? null, order_no: opts.order_no ?? null, number_code: device.short_code || null,
   })
   const events = [opened]
   const check = { id: checkId, revenue_stream_id: streamId, order_type_id: opts.order_type_id || null }
