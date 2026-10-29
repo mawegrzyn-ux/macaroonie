@@ -123,6 +123,19 @@ function photosText(p) {
   return p.saved === p.total ? 'All ' + p.total + ' saved' : p.saved + ' of ' + p.total + ' saved (the rest when the connection allows)'
 }
 
+// The design's videos kept on the device (photos.js saveVideos()).
+function videosText(v) {
+  if (!v) return 'Checking…'
+  if (!v.total) return 'None in the design'
+  if (v.saved == null) return 'Not kept on this screen (no offline storage)'
+  if (v.busy) return 'Saving: ' + v.saved + ' of ' + v.total
+  return v.saved === v.total ? 'All ' + v.total + ' saved' : v.saved + ' of ' + v.total + ' saved (the rest when the connection allows)'
+}
+
+// When the menu, prices and sold out were last asked for (lib/livePull.js).
+const clock = t => (t ? new Date(t).toLocaleTimeString('en-GB') : 'not yet')
+const checkedText = c => 'Prices and sold out ' + clock(c?.live) + ', whole menu ' + clock(c?.content)
+
 // The screen as the browser reports it, against the design's (viewport.js):
 // the zoom it gets and whether bars keep the design's shape.
 function screenText(screen, box) {
@@ -159,6 +172,8 @@ function StaffPanel({ s, box, onClose }) {
                 : <><Wifi size={16} /> Online</>}
           </span>
           <span className="k-muted">Pictures on this kiosk</span><span data-testid="k-staff-photos">{photosText(s.photos)}</span>
+          <span className="k-muted">Videos on this kiosk</span><span data-testid="k-staff-videos">{videosText(s.videos)}</span>
+          <span className="k-muted">Last checked</span><span data-testid="k-staff-checked">{checkedText(s.checked)}</span>
           <span className="k-muted">Orders waiting to send</span><span>{s.outbox.length}</span>
           <span className="k-muted">Menu version</span><span>{c?.version}</span>
         </div>

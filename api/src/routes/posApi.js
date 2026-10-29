@@ -27,7 +27,10 @@
 //   GET  /config?version=       everything the till needs offline (unchanged: true when version matches);
 //                               a kitchen screen (kind 'kds') gets the kitchen's config instead, a
 //                               self-order kiosk (kind 'kiosk') its menus, design and languages
-//                               (a kiosk may only call /me, /config and /events)
+//                               (a kiosk may only call /me, /config and /events). A till's or kiosk's
+//                               reply always carries sold_out and prices (an unchanged one too)
+//   GET  /live                  { sold_out, prices } for a till or kiosk, pulled every 30 s: sold out
+//                               now, and a stamp of what sets prices (a new one: fetch /config)
 //   GET  /sync?since=<seq>      events and changed checks since seq; reset: true with all open checks
 //   GET  /kitchen/sync?since=   kitchen orders since seq (shared/pos/kitchen.js; services/kitchenSvc.js)
 //   PUT  /kitchen/flow          { flow_id } a kitchen screen's flow button puts another kitchen flow in
@@ -77,7 +80,7 @@ import { sql, withTenant, systemSql, tenantSql } from '../config/db.js'
 import { httpError } from '../middleware/error.js'
 import { broadcast } from '../config/ws.js'
 import {
-  tillConfig, hubConfig, sequencer, sha256, normaliseCode, newDeviceSecret, loadDayChecks, fillReconFromDay, dayReport, loadTillStaff, openPairing,
+  tillConfig, hubConfig, liveFields, sequencer, sha256, normaliseCode, newDeviceSecret, loadDayChecks, fillReconFromDay, dayReport, loadTillStaff, openPairing,
 } from '../services/posSvc.js'
 import { deviceOrigin } from '../services/platformHost.js'
 import { hubRelease, installScript, hubSetupPage } from '../services/hubRelease.js'
@@ -141,7 +144,7 @@ export async function verifyDevice(id, secret) {
 
 const lastSeen = new Map()
 
-const KIOSK_ROUTES = new Set(['GET /pos-api/me', 'GET /pos-api/config', 'POST /pos-api/events', 'POST /pos-api/disconnect', 'POST /pos-api/move',
+const KIOSK_ROUTES = new Set(['GET /pos-api/me', 'GET /pos-api/config', 'GET /pos-api/live', 'POST /pos-api/events', 'POST /pos-api/disconnect', 'POST /pos-api/move',
   'POST /pos-api/kiosk/journeys', 'POST /pos-api/kiosk/receipts',
   'POST /pos-api/loyalty/lookup', 'POST /pos-api/loyalty/redemptions', 'POST /pos-api/loyalty/redemptions/:id/release',
   'POST /pos-api/card/payments', 'GET /pos-api/card/payments/:id', 'POST /pos-api/card/payments/:id/cancel', 'POST /pos-api/card/payments/:id/test'])
@@ -521,8 +524,21 @@ export default async function posApiRoutes(app) {
             const card = await cardMachineOf(tx, d.tenant_id, d.venue_id, device.settings.card_reader)
             return { ...c, card_machine: card, version: card ? c.version + '.' + sha256(JSON.stringify(card)).slice(0, 8) : c.version }
           })
-      if (req.query.version && req.query.version === config.version) return { unchanged: true, version: config.version }
+      // Sold out and the prices stamp (liveFields()) aren't in the version:
+      // an unchanged reply still carries them.
+      if (req.query.version && req.query.version === config.version) {
+        return { unchanged: true, version: config.version, ...(config.prices ? { sold_out: config.sold_out, prices: config.prices } : {}) }
+      }
       return { ...config, device }
+    })
+
+    // What changes during service (a till or kiosk asks every 30 s): dishes
+    // sold out now and the prices stamp. A stamp other than its config's
+    // means prices changed: the device fetches the config (services/posSvc.js liveFields()).
+    scoped.get('/live', async req => {
+      const d = req.posDevice
+      if (d.kind !== 'terminal' && d.kind !== 'kiosk') throw httpError(403, 'Only tills and kiosks ask for this', { code: 'kind' })
+      return withTenant(d.tenant_id, tx => liveFields(tx, d.tenant_id, d.venue_id))
     })
 
     // Kitchen orders since a sequence number (a kitchen screen, or a till

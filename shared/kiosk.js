@@ -1023,6 +1023,27 @@ export function configImages(config, origin) {
   return [...out].slice(0, MAX_SAVED_PICTURES)
 }
 
+// Every video a design can hold (8 start screen, 4 reach band).
+export const MAX_SAVED_VIDEOS = 12
+
+/**
+ * The videos a kiosk design plays (start screen and the reach band), for
+ * keeping them on the device (pos/src/kiosk/photos.js, the kiosk-videos
+ * cache): absolute URLs on the kiosk's own origin only, each once, in the
+ * design's order, at most MAX_SAVED_VIDEOS.
+ */
+export function configVideos(config, origin) {
+  const out = new Set()
+  const d = config?.design
+  for (const m of [...(d?.start?.media || []), ...(d?.behaviour?.reach_media || [])]) {
+    if (m?.type !== 'video' || typeof m.url !== 'string' || !m.url) continue
+    let url
+    try { url = new URL(m.url, origin) } catch { continue }
+    if (url.origin === origin) out.add(url.href)
+  }
+  return [...out].slice(0, MAX_SAVED_VIDEOS)
+}
+
 // ── The kiosk on a screen unlike the design's ────────────────────
 // A design is made for one screen (design.screen). On a screen of another
 // shape the kiosk keeps the design's shape, as big as fits and centred, with

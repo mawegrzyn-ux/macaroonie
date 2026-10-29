@@ -281,9 +281,6 @@ export async function tillConfig(tx, tenantId, venueId) {
   const { menus, items, section_items: sectionItems, dietary } = await tillMenuData(tx, tenantId, venueId, streams)
 
   const tz = venue.timezone || 'Europe/London'
-  // Dishes sold out at the venue now (services/soldOut.js), with when they
-  // come back (null = until someone puts them back).
-  const soldOut = (await soldOutRows(tx, tenantId, venueId)).map(r => ({ item_id: r.item_id, until: r.sold_out_until }))
   const promotions = (await venuePromotions(tx, { id: venueId, tenant_id: tenantId }, venueNow(tz).date, 'pos'))
     .map(p => ({ ...publicPromotion(p, { withCode: true }), max_uses: p.max_uses ?? null }))
 
@@ -310,7 +307,6 @@ export async function tillConfig(tx, tenantId, venueId) {
     // Print designs (migration 190): null = the built-in layout.
     print_layouts: await printLayouts(tx, tenantId, venueId),
     promotions,
-    sold_out: soldOut,
     // A kiosk's orders name the kiosk as their server (shared/kiosk.js), so
     // the till shows its name from here.
     devices: devices.map(d => ({ id: d.id, name: d.name, kind: d.kind, short_code: d.short_code, settings: d.settings || {} })),
@@ -318,7 +314,43 @@ export async function tillConfig(tx, tenantId, venueId) {
     loyalty: await deviceLoyalty(tx, tenantId, venueId, 'till'),
   }
   config.version = sha256(JSON.stringify(config)).slice(0, 16)
-  return config
+  // Sold out and the prices stamp come after the version (liveFields()).
+  return Object.assign(config, await liveFields(tx, tenantId, venueId))
+}
+
+// ── Live fields: what tills and kiosks pull every 30 s ───────────
+
+/**
+ * The parts of a till's or kiosk's config that change during service:
+ * sold_out (dishes sold out at the venue now, services/soldOut.js, with when
+ * they come back: null = until someone puts them back) and prices, a stamp
+ * of everything that sets what dishes cost: the live menu releases (a
+ * scheduled one going live changes it with no write), the option group
+ * library, the promotions and the venue's date (promotions by day).
+ * Neither counts towards the config's version: GET /pos-api/live sends both,
+ * every config reply carries them (an unchanged one too), so a dish sold
+ * out never makes a device download its whole config again, and a new
+ * prices stamp tells the device to fetch the config. The stamp may change
+ * for something this venue doesn't sell (another venue's menu): the device
+ * then asks for the config and is told it's unchanged.
+ */
+export async function liveFields(tx, tenantId, venueId) {
+  const [rows, [stamp]] = await Promise.all([
+    soldOutRows(tx, tenantId, venueId),
+    tx`
+      SELECT md5(concat_ws('|',
+        (SELECT string_agg(r.id::text, ',' ORDER BY r.id) FROM (
+           SELECT DISTINCT ON (menu_id) id FROM menu_releases
+            WHERE tenant_id = ${tenantId} AND cancelled_at IS NULL AND goes_live_at <= now()
+            ORDER BY menu_id, goes_live_at DESC, created_at DESC) r),
+        (SELECT string_agg(md5(row_to_json(g)::text), ',' ORDER BY g.id) FROM menu_variant_groups g WHERE g.tenant_id = ${tenantId}),
+        (SELECT string_agg(md5(row_to_json(o)::text), ',' ORDER BY o.id) FROM menu_variant_options o WHERE o.tenant_id = ${tenantId}),
+        (SELECT string_agg(md5(row_to_json(p)::text), ',' ORDER BY p.id) FROM promotions p WHERE p.tenant_id = ${tenantId}),
+        (SELECT (now() AT TIME ZONE COALESCE(v.timezone, 'Europe/London'))::date::text FROM venues v
+          WHERE v.id = ${venueId} AND v.tenant_id = ${tenantId})
+      )) AS h`,
+  ])
+  return { sold_out: rows.map(r => ({ item_id: r.item_id, until: r.sold_out_until })), prices: stamp.h.slice(0, 16) }
 }
 
 /**

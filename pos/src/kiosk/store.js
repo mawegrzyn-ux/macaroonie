@@ -2,7 +2,9 @@
 //
 // Same shape as the till's store (src/lib/store.js) where it can be: the
 // config is kept on the device (IndexedDB) so the kiosk opens straight away,
-// and refreshed on a pos.config push or every few minutes. Unlike the till,
+// and refreshed on a pos.config push, every few minutes, and on a new prices
+// stamp from the pull of prices and sold out every 30 s (lib/livePull.js).
+// Unlike the till,
 // a guest's order lives here only until it is placed (a reload starts
 // again), and placing it needs a connection: the order number comes from the
 // sequencer. A card payment that went through but couldn't be sent waits in
@@ -26,7 +28,8 @@ import * as idb from '../lib/idb.js'
 import { createTransport, OfflineError } from '../lib/transport.js'
 import { printTickets } from '../lib/print.js'
 import { moveDevice, tellDisconnect, setMovedTo } from '../lib/appHost.js'
-import { savePhotos } from './photos.js'
+import { savePhotos, saveVideos } from './photos.js'
+import { withLive, pricesChanged, keepStorage, CONTENT_EVERY_MS, LIVE_EVERY_MS } from '../lib/livePull.js'
 
 const CONFIG_KEY = 'kiosk_config'
 const OUTBOX_KEY = 'kiosk_outbox'
@@ -42,6 +45,8 @@ let state = {
   online: true,            // false shows ordering paused (link 'down')
   link: 'up',              // 'up' | 'checking' (trying the server again) | 'down'
   photos: null,            // { total, saved, busy } pictures kept on the device; saved null = can't keep them here
+  videos: null,            // the same for the design's videos
+  checked: null,           // { content, live }: when the whole config and prices / sold out were last pulled
   lang: 'en',
   screen: 'start',         // start | menu | basket | details | pay | card | placing | done | failed | allergens
   orderType: null,
@@ -108,9 +113,15 @@ function withDesign(config) {
   return { ...config, design: { id: config.design?.id ?? null, name: config.design?.name, ...normaliseDesign(config.design) } }
 }
 
+// The config as the server sent it (state.config has its design normalised):
+// what is kept on the device.
+let raw = null
+
 export async function bootKiosk(device) {
   api = createTransport(device)
+  keepStorage()
   const [config, outbox] = await Promise.all([idb.get(CONFIG_KEY), idb.get(OUTBOX_KEY)])
+  raw = config || null
   const c = withDesign(config || null)
   setState({ device, config: c, outbox: outbox || [], lang: c?.design?.languages?.source || 'en', phase: c ? 'ready' : 'loading' })
   startSync()
@@ -196,18 +207,52 @@ async function fetchConfig(opts) {
     const v = state.config?.version
     const res = await api.get('/pos-api/config' + (v ? '?version=' + encodeURIComponent(v) : ''), opts)
     if (!res.unchanged) {
+      raw = res
       await idb.set(CONFIG_KEY, res)
       const c = withDesign(res)
       const keep = c.design.languages.enabled.includes(state.lang)
       setState({ config: c, ...(keep ? {} : { lang: c.design.languages.source }) })
       savePhotosSoon()
+    } else {
+      // Unchanged, but sold out and the prices stamp travel with every reply.
+      await applyLive(res, { prices: true })
     }
+    setState({ checked: { ...state.checked, content: Date.now(), live: Date.now() } })
     return true
   } catch (err) {
     if (err instanceof OfflineError || err?.offline || err?.status >= 500) return false
     if (err?.status === 401) forget()
     else console.warn(err)
     return true
+  }
+}
+
+/** Lay a reply's sold out list (and prices stamp) over the config, kept on the device. */
+async function applyLive(reply, opts) {
+  if (!raw || !state.config) return
+  const next = withLive(raw, reply, opts)
+  if (!next) return
+  raw = next
+  setState({ config: { ...state.config, sold_out: next.sold_out, prices: next.prices } })
+  await idb.set(CONFIG_KEY, next)
+}
+
+/**
+ * Prices and sold out (every LIVE_EVERY_MS): sold out changes in place; a
+ * new prices stamp fetches the config, which brings the new prices.
+ */
+export async function pullLive() {
+  if (state.preview || !state.config || !started) return
+  try {
+    const res = await api.get('/pos-api/live', { timeoutMs: 10000 })
+    linkOk()
+    const stale = pricesChanged(raw, res)
+    await applyLive(res, { prices: false })
+    setState({ checked: { ...state.checked, live: Date.now() } })
+    if (stale) await loadConfig()
+  } catch (err) {
+    if (err instanceof OfflineError || err?.offline || err?.status >= 500) linkTrouble()
+    else handleError(err)
   }
 }
 
@@ -221,8 +266,11 @@ let photoTimer = null
 function savePhotosSoon(ms = 3000) {
   if (state.preview) return
   clearTimeout(photoTimer)
-  photoTimer = setTimeout(() => {
-    if (state.config) savePhotos(state.config, photos => setState({ photos }))
+  photoTimer = setTimeout(async () => {
+    if (!state.config) return
+    // Pictures first (the menu needs them), then the videos one at a time.
+    await savePhotos(state.config, photos => setState({ photos }))
+    if (state.config && started) saveVideos(state.config, videos => setState({ videos }))
   }, ms)
 }
 
@@ -664,6 +712,7 @@ let socket = null
 let socketRetry = 1000
 let started = false
 let pollTimer = null
+let liveTimer = null
 
 function scheduleFlush(ms) {
   clearTimeout(flushTimer)
@@ -827,10 +876,14 @@ function startSync() {
   window.addEventListener('online', onBrowserOnline)
   window.addEventListener('offline', onBrowserOffline)
   connectSocket()
-  // A check every 3 minutes as well: the menu (sold out, prices) in case a
-  // push was missed, and any order waiting to be sent.
-  const loop = () => { pollTimer = setTimeout(() => { loadConfig(); scheduleFlush(0); loop() }, 180_000) }
-  loop()
+  // Pushes bring changes at once; the kiosk asks as well, so it never
+  // depends on them: the whole config every few minutes (with any order
+  // waiting to be sent) and prices and sold out every 30 s. While the link
+  // is down the connection check (keepChecking()) does the asking.
+  const content = () => { pollTimer = setTimeout(() => { if (state.link !== 'down') loadConfig(); scheduleFlush(0); content() }, CONTENT_EVERY_MS) }
+  const live = () => { liveTimer = setTimeout(async () => { if (state.link === 'up') await pullLive(); live() }, LIVE_EVERY_MS) }
+  content()
+  live()
   scheduleFlush(0)
 }
 
@@ -838,7 +891,7 @@ function stopSync() {
   started = false
   window.removeEventListener('online', onBrowserOnline)
   window.removeEventListener('offline', onBrowserOffline)
-  for (const t of [pollTimer, checkTimer, socketTimer, flushTimer, photoTimer]) clearTimeout(t)
+  for (const t of [pollTimer, liveTimer, checkTimer, socketTimer, flushTimer, photoTimer]) clearTimeout(t)
   stopHeartbeat()
   const ws = socket
   socket = null

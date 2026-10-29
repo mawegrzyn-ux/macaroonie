@@ -23,6 +23,7 @@ import * as idb from '../lib/idb.js'
 import { createTransport, OfflineError } from '../lib/transport.js'
 import { startDevicePrinting, hasOwnPrinter } from '../lib/devicePrint.js'
 import { moveDevice, tellDisconnect, setMovedTo } from '../lib/appHost.js'
+import { keepStorage, CONTENT_EVERY_MS } from '../lib/livePull.js'
 
 const CONFIG_KEY = 'kds_config'
 const SNAPSHOT_KEY = 'kds_snapshot'
@@ -149,6 +150,7 @@ export async function bootKitchen(device, benchLink = null) {
     api = benchLink.transport
   } else {
     api = createTransport(device)
+    keepStorage()
   }
   const [config, snapshot, outbox] = await Promise.all([keep.get(CONFIG_KEY), keep.get(SNAPSHOT_KEY), keep.get(OUTBOX_KEY)])
   setState({
@@ -468,7 +470,8 @@ function startSync() {
     pollTimer = setTimeout(() => { tick(); loop() }, ms)
   }
   loop()
-  setInterval(loadConfig, 10 * 60 * 1000)
+  // Its config every few minutes as well as on a pos.config push (lib/livePull.js).
+  setInterval(loadConfig, CONTENT_EVERY_MS)
   tick()
 }
 

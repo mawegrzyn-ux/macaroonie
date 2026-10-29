@@ -4046,7 +4046,8 @@ export default function Help() {
               back</strong>, or <strong>Back on sale</strong>. It changes the till, online ordering, the
               Online orders board and the screens at once. Till roles need <strong>Mark dishes sold
               out</strong> (Supervisor and Manager have it), or a manager types their PIN. It needs the
-              till to be online.
+              till to be online. Tills and kiosks also check what is sold out every 30 seconds, so one
+              that missed the change catches up within half a minute.
             </P>
             <InfoBox type="tip">
               Changing a board or playlist reaches the screens within seconds. If a screen seems stuck,
@@ -6030,8 +6031,9 @@ export default function Help() {
               <li><strong>Paying by card</strong>: the kiosk sends the order&apos;s total to its card machine and waits ("Follow the instructions on the card reader"). Once the machine approves, the order goes to the till and the kitchen. Declined: Try again, or pay at the counter if the design allows it. Back from the card step cancels the payment on the machine. On a test card machine (and in previews) Approve and Decline buttons stand in for the card.</li>
               <li>Without the internet the kiosk stops taking new orders. A card order already paid when the internet goes is kept on the kiosk and sent when it's back; the guest gets the kiosk's own number (KS1-0012) to show at the counter.</li>
               <li>The kiosk notices a lost connection within seconds (within about half a minute when the shop's router loses the internet but the Wi-Fi stays up). It tries twice more straight away, so a short blip doesn't pause ordering; only then does the start screen say ordering is paused. It then tries every few seconds and opens ordering again as soon as it gets through.</li>
-              <li>Every picture on the menu (dishes, sections, choices, banners, the logo) is kept on the kiosk after each menu change, so a guest already ordering when the internet goes still sees them all. Start screen videos aren't kept.</li>
-              <li>The staff panel (five quick taps in the top-left corner of the start screen) shows the connection (Online, Checking or Offline) and how many of the menu's pictures are saved on the kiosk.</li>
+              <li>Every picture on the menu (dishes, sections, choices, banners, the logo) is kept on the kiosk after each menu change, and so are the design&apos;s videos (start screen and reach band), so the kiosk opens with its menu, pictures and videos straight away and a guest already ordering when the internet goes still sees them all. A video the design stops playing is deleted from the kiosk.</li>
+              <li>The kiosk checks for prices and sold out dishes every 30 seconds and for the whole menu and design every 3 minutes, as well as hearing about changes straight away (see Keeping tablets up to date in Android app).</li>
+              <li>The staff panel (five quick taps in the top-left corner of the start screen) shows the connection (Online, Checking or Offline), how many of the menu&apos;s pictures and the design&apos;s videos are saved on the kiosk, and when it last checked prices and sold out and the whole menu.</li>
             </ul>
 
             <H3>Allergens and diets on the kiosk</H3>
@@ -6195,6 +6197,21 @@ export default function Help() {
               <li>It shows a six-letter code and a QR code. Link it as any other device: scan the QR code with your phone (the installer app), or type the code in Store tech (<strong>Add a till</strong>, <strong>Add a screen</strong>, <strong>Add a kiosk</strong>).</li>
               <li>From then on the tablet opens that app every time it starts.</li>
             </ol>
+
+            <H3>Keeping tablets up to date</H3>
+            <P>
+              Each till, kitchen screen and kiosk keeps its menu, prices and settings on the tablet, so it opens
+              with them straight away, with the internet down too. A kiosk also keeps every picture on its menu
+              and its design&apos;s videos. Changes reach the tablets in two ways:
+            </P>
+            <ul className="list-disc ml-5 space-y-2 text-sm text-muted-foreground mb-4">
+              <li><strong>Straight away</strong>: the tablet is told as soon as you save something it shows (a menu published, a dish sold out, a setting in Store tech).</li>
+              <li><strong>By checking</strong>, in case it missed being told: tills and kiosks check prices and sold out dishes every 30 seconds, and every tablet checks its whole menu and settings every 3 minutes. A dish sold out changes on the tablet straight away; new prices (a menu published, a publish you scheduled going live, an option or a promotion changed) download the menu again.</li>
+            </ul>
+            <P>
+              A till&apos;s settings show when it last checked (<strong>Prices and sold out checked</strong>,{' '}
+              <strong>Whole menu checked</strong>); on a kiosk, the staff panel&apos;s <strong>Last checked</strong>.
+            </P>
 
             <H3>Changing what a tablet is</H3>
             <P>

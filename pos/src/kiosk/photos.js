@@ -5,14 +5,22 @@
 // a few at a time, after each menu change. Same-origin pictures only
 // (/uploads/...): the service worker doesn't keep other sites' pictures.
 //
+// The design's videos (start screen, reach band) are kept too, in the
+// kiosk-videos cache: a video element asks for parts of the file (Range),
+// which can't be kept, so saveVideos() downloads each whole and the service
+// worker plays the parts out of the saved file. Videos the design no longer
+// plays are deleted (they are big).
+//
 // Used by the kiosk store (store.js) only; previews and the kitchen test
 // bench have no service worker and never call it.
 
-import { configImages } from '@shared/kiosk.js'
+import { configImages, configVideos } from '@shared/kiosk.js'
 
 const CACHE = 'kiosk-images'
+const VIDEO_CACHE = 'kiosk-videos'
 const AT_ONCE = 3           // pictures loading at the same time
 const LOAD_TIMEOUT_MS = 20000
+const VIDEO_TIMEOUT_MS = 10 * 60 * 1000
 
 let running = null
 let next = null
@@ -65,6 +73,65 @@ async function onePass(config, report) {
   await new Promise(r => setTimeout(r, 500))
   const after = await kept()
   report({ total: urls.length, saved: urls.filter(u => after.has(u)).length, busy: false })
+}
+
+let videosRunning = null
+let videosNext = null
+
+/**
+ * Download the design's videos the device doesn't have yet, one at a time,
+ * and delete the ones it no longer plays. report() gets { total, saved,
+ * busy }, saved null where videos can't be kept. Like savePhotos(), a call
+ * while a pass runs is done after it.
+ */
+export function saveVideos(config, report) {
+  videosNext = { config, report }
+  if (!videosRunning) {
+    videosRunning = (async () => {
+      try {
+        while (videosNext) {
+          const job = videosNext
+          videosNext = null
+          await videoPass(job.config, job.report)
+        }
+      } finally {
+        videosRunning = null
+      }
+    })()
+  }
+  return videosRunning
+}
+
+async function videoPass(config, report) {
+  const urls = configVideos(config, location.origin)
+  if (typeof caches === 'undefined' || !(await controlled())) return report({ total: urls.length, saved: urls.length ? null : 0, busy: false })
+  const cache = await caches.open(VIDEO_CACHE)
+  const keys = await cache.keys()
+  for (const k of keys) if (!urls.includes(k.url)) await cache.delete(k)
+  const have = new Set(keys.map(k => k.url))
+  let saved = urls.filter(u => have.has(u)).length
+  report({ total: urls.length, saved, busy: saved < urls.length })
+  for (const url of urls) {
+    if (have.has(url)) continue
+    if (await downloadVideo(cache, url)) report({ total: urls.length, saved: ++saved, busy: true })
+  }
+  report({ total: urls.length, saved, busy: false })
+}
+
+// The whole file (no Range), stored only when it is a video that came back whole.
+async function downloadVideo(cache, url) {
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), VIDEO_TIMEOUT_MS)
+  try {
+    const res = await fetch(url, { signal: ctrl.signal, credentials: 'same-origin' })
+    if (res.status !== 200 || !/^video\//i.test(res.headers.get('content-type') || '')) return false
+    await cache.put(url, res)
+    return true
+  } catch {
+    return false
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 // The page is controlled by the service worker (the first visit only once it

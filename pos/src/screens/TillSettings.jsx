@@ -39,11 +39,13 @@ export default function TillSettings() {
             <div>Last sync: <b>{s.lastSync ? new Date(s.lastSync).toLocaleTimeString('en-GB') : 'not yet'}</b></div>
             <div>Event number: <b>{s.seq}</b></div>
             <div>Menu version: <b>{s.config.version}</b></div>
+            <div data-testid="till-checked">Prices and sold out checked: <b>{s.checked?.live ? new Date(s.checked.live).toLocaleTimeString('en-GB') : 'not yet'}</b></div>
+            <div>Whole menu checked: <b>{s.checked?.content ? new Date(s.checked.content).toLocaleTimeString('en-GB') : 'not yet'}</b></div>
           </div>
           <div className="flex gap-2 flex-wrap">
             <button className="btn" onClick={async () => { await flush(); await pull(); await loadConfig(); toast('Synced', 'ok') }}><RefreshCw size={18} /> Sync now</button>
           </div>
-          <div className="text-sm text-muted">The till keeps working with the internet down; changes wait here and are sent when it comes back. Kitchen tickets print where the kitchen flow sends them (Store tech, Kitchen screens).</div>
+          <div className="text-sm text-muted">The till keeps working with the internet down; changes wait here and are sent when it comes back. It asks for prices and sold out dishes every 30 seconds and for the whole menu every 3 minutes. Kitchen tickets print where the kitchen flow sends them (Store tech, Kitchen screens).</div>
         </div>
 
         <div className="card p-5 space-y-3">
