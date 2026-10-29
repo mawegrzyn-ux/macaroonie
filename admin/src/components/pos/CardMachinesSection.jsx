@@ -14,6 +14,7 @@ import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { usePermission } from '@/hooks/usePermission'
 import { Section, Modal, Field, inputCls, ErrorNote, ConfirmDelete, Segmented, Btn, money, ago } from './shared'
+import StripeAccountCard, { useStripeAccount } from '@/components/orders/StripeAccountCard'
 
 const PROVIDERS = [
   { value: 'dojo', label: 'Dojo' },
@@ -72,12 +73,17 @@ export function CardMachinePick({ venueId, value, onChange, kiosk = false }) {
 function AccountModal({ account, onClose }) {
   const api = useApi()
   const qc = useQueryClient()
+  const stripe = useStripeAccount()
   const [form, setForm] = useState({
     provider: account?.provider || 'stripe', name: account?.name || '', secret: '',
+    // Stripe through the group's connected account (no key of its own,
+    // migration 215); null = the connected account when it is ready.
+    connect: account ? !!account.connect : null,
     merchant_code: account?.settings?.merchant_code || '',
     software_house_id: account?.settings?.software_house_id || '', reseller_id: account?.settings?.reseller_id || '',
   })
   const set = patch => setForm(f => ({ ...f, ...patch }))
+  const connect = form.connect ?? !!stripe.data?.ready
   const refresh = () => qc.invalidateQueries({ queryKey: ['pos-card-accounts'] })
   const settings = () => {
     if (form.provider === 'sumup') return form.merchant_code.trim() ? { merchant_code: form.merchant_code.trim() } : {}
@@ -96,7 +102,9 @@ function AccountModal({ account, onClose }) {
         ...(form.secret.trim() ? { secret: form.secret.trim() } : {}),
         ...(form.provider !== 'stripe' ? { settings: settings() } : {}),
       })
-      : api.post('/pos/card-accounts', { provider: form.provider, name: form.name.trim(), secret: form.secret.trim(), settings: settings() }),
+      : form.provider === 'stripe' && connect
+        ? api.post('/pos/card-accounts', { provider: 'stripe', name: form.name.trim(), connect: true })
+        : api.post('/pos/card-accounts', { provider: form.provider, name: form.name.trim(), secret: form.secret.trim(), settings: settings() }),
     onSuccess: () => { refresh(); onClose() },
   })
   const check = useMutation({ mutationFn: () => api.post(`/pos/card-accounts/${account.id}/check`), onSuccess: refresh })
@@ -104,12 +112,13 @@ function AccountModal({ account, onClose }) {
     mutationFn: () => api.delete(`/pos/card-accounts/${account.id}`),
     onSuccess: () => { refresh(); qc.invalidateQueries({ queryKey: ['pos-card-readers'] }); qc.invalidateQueries({ queryKey: ['pos-setup'] }); onClose() },
   })
-  const ready = form.name.trim() && (account || form.secret.trim().length >= 8)
+  const connectMode = form.provider === 'stripe' && connect
+  const ready = form.name.trim() && (account || (connectMode ? !!stripe.data?.ready : form.secret.trim().length >= 8))
   return (
     <Modal title={account ? 'Edit ' + account.name : 'Add a card machine account'} onClose={onClose}
       footer={<>
         <Btn variant="primary" className="flex-1" disabled={!ready || save.isPending} onClick={() => save.mutate()} data-testid="card-account-save">
-          {save.isPending && <Loader2 className="w-4 h-4 animate-spin" />} {account ? 'Save' : 'Check the key and add'}
+          {save.isPending && <Loader2 className="w-4 h-4 animate-spin" />} {account ? 'Save' : connectMode ? 'Add' : 'Check the key and add'}
         </Btn>
         {account && <ConfirmDelete label="Remove account" confirmLabel="Yes, remove" onConfirm={() => remove.mutate()} disabled={remove.isPending} />}
       </>}>
@@ -121,10 +130,25 @@ function AccountModal({ account, onClose }) {
       <Field label="Name" hint="For Store tech only, e.g. Dojo, Stripe (Ware).">
         <input className={inputCls} value={form.name} maxLength={60} onChange={e => set({ name: e.target.value })} placeholder="e.g. Dojo" data-testid="card-account-name" />
       </Field>
-      <Field label={account ? 'Key' : 'Key'} hint={(account ? 'Saved, ends ' + (account.hint || '…') + '. Leave empty to keep it, or type a new one. ' : '') + KEY_HINT[form.provider]}>
-        <input className={inputCls} type="password" autoComplete="off" value={form.secret} maxLength={400}
-          onChange={e => set({ secret: e.target.value })} placeholder={account ? 'Keep the saved key' : 'Paste the key'} data-testid="card-account-secret" />
-      </Field>
+      {form.provider === 'stripe' && !account && (
+        <Field group label="Stripe account">
+          <Segmented value={connect ? 'connect' : 'key'} onChange={v => set({ connect: v === 'connect' })}
+            options={[{ value: 'connect', label: 'Our connected Stripe account' }, { value: 'key', label: 'A Stripe key' }]} />
+        </Field>
+      )}
+      {connectMode ? (
+        account
+          ? <p className="text-sm text-muted-foreground" data-testid="card-account-connect">Uses your connected Stripe account (no key of its own): the one in Ordering setup, Payment methods.</p>
+          : <div className="space-y-2" data-testid="card-account-connect">
+              <p className="text-xs text-muted-foreground">Card machines on your own Stripe account, the same one online orders are paid to. No key to copy: it is linked with Stripe Connect.</p>
+              <StripeAccountCard module="pos_setup" purpose="terminal" />
+            </div>
+      ) : (
+        <Field label="Key" hint={(account ? 'Saved, ends ' + (account.hint || '…') + '. Leave empty to keep it, or type a new one. ' : '') + KEY_HINT[form.provider]}>
+          <input className={inputCls} type="password" autoComplete="off" value={form.secret} maxLength={400}
+            onChange={e => set({ secret: e.target.value })} placeholder={account ? 'Keep the saved key' : 'Paste the key'} data-testid="card-account-secret" />
+        </Field>
+      )}
       {form.provider === 'sumup' && (
         <Field label="Merchant code" hint="Only if the key works for several SumUp merchant accounts: the code of the one to use (e.g. MCXXXXXX).">
           <input className={inputCls} value={form.merchant_code} maxLength={40} onChange={e => set({ merchant_code: e.target.value })} />
@@ -140,7 +164,7 @@ function AccountModal({ account, onClose }) {
           </div>
         </details>
       )}
-      <p className="text-xs text-muted-foreground">The key is checked with {PROVIDERS.find(p => p.value === form.provider)?.label} before it is saved, stored sealed, and never shown again.</p>
+      {!connectMode && <p className="text-xs text-muted-foreground">The key is checked with {PROVIDERS.find(p => p.value === form.provider)?.label} before it is saved, stored sealed, and never shown again.</p>}
       {account && (
         <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
           <span>{account.mode === 'test' ? 'Test mode: no real money' : account.mode === 'live' ? 'Live: real payments' : 'Mode not known'}{account.checked_at ? ' · checked ' + ago(account.checked_at) : ''}</span>
@@ -177,6 +201,11 @@ function AddReaderModal({ venueId, accounts, onClose }) {
   })
   const canPair = account && account.provider !== 'dojo'
   const locations = account?.settings?.locations || []
+  // A Stripe location from this venue's address (POST /card-accounts/:id/locations).
+  const makeLocation = useMutation({
+    mutationFn: () => api.post(`/pos/card-accounts/${accountId}/locations`, { venue_id: venueId }),
+    onSuccess: r => { qc.invalidateQueries({ queryKey: ['pos-card-accounts'] }); setLocation(r.location.id) },
+  })
   return (
     <Modal title="Add a card machine" onClose={onClose}>
       <Field label="Account" hint="Add the account with Dojo, Stripe or SumUp first (Accounts, below), or start with the test card machine.">
@@ -211,6 +240,15 @@ function AddReaderModal({ venueId, accounts, onClose }) {
                     {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
                   </select>
                 </Field>
+              )}
+              {account.provider === 'stripe' && (
+                <>
+                  <button type="button" onClick={() => makeLocation.mutate()} disabled={makeLocation.isPending} data-testid="card-location-make"
+                    className="min-h-[44px] text-sm text-primary underline touch-manipulation disabled:opacity-40">
+                    {makeLocation.isPending ? 'Making it…' : 'Make a location from this venue\'s address'}
+                  </button>
+                  <ErrorNote error={makeLocation.error} />
+                </>
               )}
               <Btn variant="primary" className="w-full" disabled={!name.trim() || code.trim().length < 3 || (account.provider === 'stripe' && !location) || add.isPending}
                 onClick={() => add.mutate({ account_id: accountId, code: code.trim(), name: name.trim(), ...(location ? { location } : {}) })} data-testid="card-reader-pair">
@@ -391,7 +429,8 @@ export default function CardMachinesSection({ venueId, canManage }) {
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-medium truncate">{a.name} <span className="text-muted-foreground font-normal">· {a.provider_label}</span></div>
                 <div className="text-xs text-muted-foreground truncate">
-                  {[a.mode === 'test' ? 'Test mode' : a.mode === 'live' ? 'Live' : null, a.settings.merchant_name || a.settings.merchant_code, 'key ' + (a.hint || '…'),
+                  {[a.mode === 'test' ? 'Test mode' : a.mode === 'live' ? 'Live' : null, a.settings.merchant_name || a.settings.merchant_code,
+                    a.connect ? 'your connected Stripe account' : 'key ' + (a.hint || '…'),
                     a.readers === 1 ? '1 card machine' : a.readers + ' card machines'].filter(Boolean).join(' · ')}
                 </div>
               </div>

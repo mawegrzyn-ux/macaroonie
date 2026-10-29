@@ -16,7 +16,7 @@ import { notificationQueue } from '../jobs/queues.js'
 import { upsertCustomer } from '../routes/customers.js'
 import { loadMenuVersions } from './menuReleases.js'
 import { loadOpeningHours } from './siteDataSvc.js'
-import { getGateway, checkoutGateways, COUNTER_METHODS } from './paymentGateways/index.js'
+import { getGateway, checkoutGateways, paymentContext, COUNTER_METHODS } from './paymentGateways/index.js'
 import { itemChoices, variantRules, fromPrice, priceVaries, isPriced, priceBasket } from '../../../shared/orderPricing.js'
 import { normaliseCombo, stepChoices, dealSwapIds } from '../../../shared/combos.js'
 import { menuOnAt, menuOnDate, scheduleLabel, isScheduled } from '../../../shared/menuSchedule.js'
@@ -589,6 +589,8 @@ export async function loadPrivacy(tx, tenantId) {
 }
 
 export async function createOrder({ venue, body, gatewayCtx = {} }) {
+  // The group's payment accounts (Stripe, migration 215) for the gateways.
+  gatewayCtx = { ...(await paymentContext(venue)), ...gatewayCtx }
   const tz = venue.timezone
   const now = new Date()
   // A guest signed in to loyalty (the ordering page's loyalty box): their
@@ -762,11 +764,16 @@ export async function createOrder({ venue, body, gatewayCtx = {} }) {
 }
 
 // Start (or restart) the payment for a pending order.
-export async function startPayment(venue, order, settings, gateway, gatewayCtx = {}) {
+export async function startPayment(venue, order, settings, gateway, gatewayCtx = null) {
+  const ctx = gatewayCtx || await paymentContext(venue)
+  if (gateway.isAvailable && !gateway.isAvailable({ venue, ...ctx })) {
+    throw httpError(422, 'That payment method is not available now')
+  }
   let result
   try {
-    result = await gateway.start({ order, venue, ...gatewayCtx })
+    result = await gateway.start({ order, venue, ...ctx })
   } catch (err) {
+    console.warn('Payment start failed', gateway.key, order.id, err?.message)
     throw httpError(502, 'The payment could not be started: please try again')
   }
 

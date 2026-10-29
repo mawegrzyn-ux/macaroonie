@@ -80,6 +80,7 @@ import printDesignRoutes     from './routes/printDesigns.js'
 import taxSetupRoutes        from './routes/taxSetup.js'
 import posApiRoutes          from './routes/posApi.js'
 import androidAppRoutes      from './routes/androidApp.js'
+import stripeRoutes          from './routes/stripe.js'
 import screenSite            from './routes/screenSite.js'
 import installerSite         from './routes/installerSite.js'
 import installerRoutes       from './routes/installer.js'
@@ -301,6 +302,8 @@ export async function buildApp() {
   await app.register(posApiRoutes,   { prefix: '/pos-api' })
   // The Android app's download (Platform page, /android on the device addresses).
   await app.register(androidAppRoutes)
+  // The group's Stripe account (Connect) and the platform's Stripe keys.
+  await app.register(stripeRoutes)
   await app.register(screensRoutes,   { prefix: '/api/screens' })
   await app.register(installerRoutes, { prefix: '/api/installer' })
   await app.register(screenApiRoutes, { prefix: '/screen-api' })

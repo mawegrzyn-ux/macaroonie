@@ -3478,7 +3478,15 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>POST /v1/terminal/readers/:id/process_payment_intent</Mono> with <Mono>skip_tipping</Mono> (tips are
               taken on the till); the result is the intent&apos;s status, or the reader&apos;s action (failed with a
               failure message = declined); cancel = cancel_action + cancel the intent; refunds through{' '}
-              <Mono>POST /v1/refunds</Mono>. The key is the tenant&apos;s own (they are the merchant), not Stripe Connect.{' '}
+              <Mono>POST /v1/refunds</Mono>. A Stripe card account is either the tenant&apos;s own key, or (migration 215)
+              the group&apos;s connected Stripe account: <Mono>settings.connect = true</Mono>, no secret stored,{' '}
+              <Mono>cardAccount(tenantId, row)</Mono> in <Mono>cardSvc.js</Mono> builds the provider account with the
+              platform&apos;s key and <Mono>connect</Mono> = the tenant&apos;s <Mono>stripe_account_id</Mono>, and{' '}
+              <Mono>cardMachines/stripe.js</Mono> adds the <Mono>Stripe-Account</Mono> header to every call. Adding one
+              needs the account linked with charges on (409 for a second); a key can&apos;t be put on it. No platform fee
+              on card machine sales. <Mono>POST /api/pos/card-accounts/:id/locations {'{ venue_id }'}</Mono> makes a
+              Terminal location from the venue&apos;s website address (<Mono>createLocation()</Mono>; 422 when the venue
+              has no address line and postcode).{' '}
               <strong>SumUp</strong> (Cloud API, from SumUp&apos;s TypeScript SDK 0.2.0): merchant code from{' '}
               <Mono>GET /v0.1/memberships</Mono>, readers paired by the Solo&apos;s code, a reader checkout, its state from{' '}
               <Mono>GET .../readers/:id/checkout/:checkout_id</Mono> and the transaction by{' '}
@@ -4947,17 +4955,36 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               public <Mono>client</Mono> object for the browser; optional{' '}
               <Mono>confirmFromClient()</Mono>, <Mono>parseWebhook()</Mono> (route{' '}
               <Mono>POST /webhooks/payments/:gateway</Mono>, raw body for signature checks),{' '}
-              <Mono>refund()</Mono>, <Mono>cancel()</Mono>. Shipping: <Mono>pay_at_venue</Mono> and{' '}
-              <Mono>demo</Mono> (a pretend card payment for pre-production; it trusts the browser,
-              which a real gateway must never do: re-read the payment from the provider).
+              <Mono>refund()</Mono>, <Mono>cancel()</Mono>, <Mono>isAvailable(ctx)</Mono>. Shipping:{' '}
+              <Mono>pay_at_venue</Mono>, <Mono>stripe</Mono> (below) and <Mono>demo</Mono> (a pretend card payment
+              for pre-production; it trusts the browser, which a real gateway must never do). The context a gateway
+              sees comes only from <Mono>paymentContext(venue)</Mono> in <Mono>index.js</Mono>
+              ({'{ tenant: { id, stripe_account_id, stripe_ready } }'}): <Mono>createOrder()</Mono>,{' '}
+              <Mono>startPayment()</Mono> (a retry) and <Mono>GET /order-api/venues/:id</Mono>{' '}
+              (<Mono>checkoutGateways()</Mono>) all load it, so a method guests can&apos;t use is never offered or
+              started (422 &quot;That payment method is not available now&quot;).
+            </P>
+            <H3>Card payments with Stripe (Stripe Connect)</H3>
+            <P>
+              Migration 215. One Stripe platform account (Macaroonie&apos;s); each restaurant group connects its own
+              Stripe account (Standard, country GB) and charges are <em>direct charges</em> on it: the group is the
+              merchant of record, Stripe&apos;s fees are on its account, and the platform&apos;s online ordering fee
+              (<Mono>orders.platform_fee_pence</Mono>, <Mono>tenants.ordering_fee_percent</Mono>) is taken as{' '}
+              <Mono>application_fee_amount</Mono> (never the whole total). Every call is the platform&apos;s key with a{' '}
+              <Mono>Stripe-Account</Mono> header (<Mono>stripeCall()</Mono> in{' '}
+              <Mono>services/stripeConnect.js</Mono>, base <Mono>STRIPE_API_URL</Mono>, Stripe-Version 2024-06-20;
+              network errors and 5xx are 502).
             </P>
             <DataTable
-              head={['To add a gateway (e.g. Stripe)', 'Where']}
+              head={['Piece', 'What']}
               rows={[
-                ['Gateway object', "New file in paymentGateways/, one line in GATEWAYS. start() creates the provider payment (e.g. a PaymentIntent on the connected account) and returns { status: 'pending', ref, client: { type: 'stripe', client_secret, ... } }."],
-                ['Confirmation', "parseWebhook() verifies the provider signature and maps the event to { ref, status }; applyPaymentResult() places the order. Optionally confirmFromClient() that asks the provider."],
-                ['Guest page', "One branch in paymentPanel() in views/site/shared/ordering.eta for the new client.type (mount the provider's payment form)."],
-                ['Availability', "isAvailable({ venue }) hides it until the venue has an account connected. It then appears in Ordering setup > Payment methods automatically."],
+                ['Platform keys', "platform_secrets stripe_secret_key, stripe_publishable_key, stripe_webhook_secret (sealed with vault seal(); env fallback STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, STRIPE_CONNECT_WEBHOOK_SECRET; the saved key wins). platformKeys() caches 15 s per process; savePlatformKeys() checks the secret with GET /v1/account, the publishable key's shape and that both are the same mode, then saves (null removes). platformReady() = a secret (sk_ / rk_) and a publishable key of the same mode. Platform page > Payments tab (components/platform/StripeKeysCard.jsx), GET/PUT /api/platform/stripe (platform admins); the reply never holds a key, only hints, the mode and the webhook address (officeOrigin() + /webhooks/payments/stripe)."],
+                ['The group\'s account', "tenants.stripe_account_id + stripe_charges_enabled, stripe_details_submitted, stripe_account_name, stripe_checked_at, stripe_domains. POST /api/stripe/connect { return_url } (owner/admin + manage on web_ordering_setup or pos_setup): makes the account the first time (POST /v1/accounts, idempotency key per tenant per minute, so a double click makes one but connecting again after Unlink makes a new one) and returns an account link (account_onboarding); return_url must be https on the root domain (localhost outside production, safeReturnUrl()). GET /api/stripe (view, stripeView()), POST /api/stripe/refresh (GET /v1/accounts/:id; 403 / 404 = the account was disconnected: charges off, 422), DELETE /api/stripe (forget the link; nothing is deleted at Stripe)."],
+                ['Apple Pay / Google Pay', "refreshAccount() registers the group's site addresses (subdomain, staging, a verified custom domain) with POST /v1/payment_method_domains on the account once charges are on, recorded in stripe_domains so each goes once."],
+                ['Gateway', "paymentGateways/stripe.js: isAvailable = tenant.stripe_ready (account linked and charges_enabled, platform ready). start() makes a PaymentIntent on the account (automatic_payment_methods, metadata.order_id / tenant_id / venue_id / order_number, application fee) and returns client { type: 'stripe', publishable_key, account, client_secret, amount_pence, currency }. confirmFromClient() reads the PaymentIntent back (never the browser's word; an order_id that differs = failed). piStatus(): succeeded, canceled -> cancelled, requires_payment_method with last_payment_error -> failed, else pending. refund() with refund_application_fee and an idempotency key per payment, refunded so far and amount; cancel() cancels the intent."],
+                ['Webhook', "Connect endpoint on the platform account, address POST /webhooks/payments/stripe, events payment_intent.succeeded / payment_failed / canceled, account.updated, account.application.deauthorized. parseWebhook() checks Stripe-Signature (t=, v1= HMAC-SHA256 of t.body with the webhook secret, 300 s tolerance; verifySignature()), applies account events to the tenant (applyAccountEvent()), and passes only PaymentIntents with metadata.order_id on (card machine sales and deposits come to the same endpoint). applyPaymentResult() is idempotent, so a webhook after the page confirmed does nothing."],
+                ['Guest page', "views/site/shared/ordering.eta: when the payment's client.type is stripe, draw() hands over to showStripe(), which loads https://js.stripe.com/v3/ once (loadStripeJs()), mounts the Payment Element once per payment (draw() never redraws it, or what the guest typed is lost) with colorPrimary from --c-primary, and confirmPayment({ redirect: 'if_required', return_url: status page ?pay=<payment id> }). Success or processing: POST .../payments/:id/confirm, then the status page. A bank redirect comes back to the status page, which confirms the ?pay= payment, cleans the address and loads. The status page offers the same form while an order is still pending_payment."],
+                ['Admin', "components/orders/StripeAccountCard.jsx (useStripeAccount(); Connect / Continue on Stripe, Check again (automatic when over 5 minutes old and after ?stripe=return), Stripe dashboard, Unlink with a confirm; the platform-not-ready note): in Ordering setup under Payment methods and in Store tech > Card machines' account window."],
               ]}
             />
             <H3>Flow</H3>

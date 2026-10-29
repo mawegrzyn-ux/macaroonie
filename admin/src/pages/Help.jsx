@@ -4132,7 +4132,7 @@ export default function Help() {
                 ['Minimum order, tips', "A minimum basket value, and optional tip choices at checkout."],
                 ['Collection orders are / Count online sales under', "The order type online collection orders count as (Collection to start with): it decides each dish's tax (Menus, Tax rates) and how the order shows in the kitchen. Optionally, the revenue stream online sales count under (Store tech), for reports and tax exceptions that name it."],
                 ['Accept automatically', "Off: each new order waits on the board until someone taps Accept. On: it goes straight to In progress."],
-                ['Payment methods', "Pay at the counter, and online card payment once a payment provider is connected. Test payment is for trying the flow before going live: no money moves, so turn it off before real orders."],
+                ['Payment methods', "Pay at the counter, Card (Stripe) once your Stripe account is connected (see Card payments with Stripe below), and Test payment for trying the flow before going live: no money moves, so turn it off before real orders."],
                 ['Messages', "Collection instructions (on the ordering page and the email) and a note for the confirmation email."],
               ]}
             />
@@ -4142,6 +4142,35 @@ export default function Help() {
               <strong>Order online</strong>, and the Order options block's "Order with us" card
               points there.
             </P>
+            <H3>Card payments with Stripe</H3>
+            <P>
+              Guests can pay online by card, Apple Pay or Google Pay. The money goes straight to your own Stripe
+              account (you see the payments, payouts and any disputes in your Stripe dashboard); the platform&apos;s
+              fee for online orders, if it has one, is taken from each payment by Stripe.
+            </P>
+            <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
+              <li>Online orders → <strong>Ordering setup</strong> → Payment methods → <strong>Your Stripe account</strong> →{' '}
+                <strong>Connect Stripe</strong> (an owner or admin). Stripe&apos;s own page asks for your business details and
+                bank account, then sends you back here.</li>
+              <li>Back here the card says how it went: <strong>Your Stripe sign-up isn&apos;t finished</strong> (tap{' '}
+                <strong>Continue on Stripe</strong>), <strong>Stripe is checking your details</strong> (Stripe emails you if it
+                needs anything; tap <strong>Check again</strong> later), or <strong>Stripe is connected and can take payments</strong>.</li>
+              <li>Switch on <strong>Card (Stripe)</strong> in the payment methods and Save. Until Stripe says your account can
+                take payments, guests don&apos;t see it.</li>
+            </ol>
+            <ul className="list-disc ml-5 space-y-2 text-sm text-muted-foreground mb-4">
+              <li>At checkout guests see <strong>Card</strong>: Stripe&apos;s card form opens on the next page. A declined card
+                says so and they can try another; the order reaches the kitchen only once the payment goes through.</li>
+              <li>A guest who leaves before paying can pay from the order&apos;s page (<strong>Pay now</strong>). Unpaid orders
+                are cancelled after a while, as with any online payment.</li>
+              <li>Refunds from the order (Online orders, the order, <strong>Refund</strong>) go back to the guest&apos;s card
+                through Stripe, with the platform&apos;s fee on that amount. Rejecting or cancelling a paid order refunds it.</li>
+              <li>Apple Pay and Google Pay are set up for your website&apos;s address when the account is ready (the card lists
+                each address). A custom domain added later is added the next time you tap <strong>Check again</strong>.</li>
+              <li><strong>Unlink</strong> (asks first) takes Card (Stripe) off checkout and stops Stripe card machines on the
+                account. The account and its payments stay at Stripe.</li>
+              <li>The same account can run your Stripe card machines on tills and kiosks (Card machines, below).</li>
+            </ul>
             <H3>Dishes and options</H3>
             <P>
               On the <strong>Menus</strong> page each dish has an <strong>Online ordering</strong>{' '}
@@ -5471,8 +5500,9 @@ export default function Help() {
               and <strong>SumUp</strong> (the Solo) work this way. Store tech → <strong>Card machines</strong>:
             </P>
             <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
-              <li><strong>Add an account</strong> (an owner or admin): the provider, a name, and the key from the provider (Dojo: the secret key from the developer portal; Stripe: a secret key, or a restricted key with Terminal and PaymentIntents; SumUp: an API key). The key is checked with the provider before it is saved and is never shown again: the list shows only its last four characters. Test keys work too (Stripe test mode, Dojo sandbox) and are marked Test.</li>
-              <li><strong>Add a card machine</strong>: pick the account, then the machine from the provider&apos;s list, or type the code a new machine shows (a SumUp Solo: Connections, API, Connect; a new Stripe reader: its registration code and the Stripe location). The <strong>Test card machine</strong> needs no account and takes no money: the till shows Approve and Decline instead of waiting for a card. Use it for training only, as its payments are recorded like real ones.</li>
+              <li><strong>Add an account</strong> (an owner or admin): the provider, a name, and the key from the provider (Dojo: the secret key from the developer portal; Stripe: a secret key, or a restricted key with Terminal and PaymentIntents; SumUp: an API key). The key is checked with the provider before it is saved and is never shown again: the list shows only its last four characters. Test keys work too (Stripe test mode, Dojo sandbox) and are marked Test.
+                For Stripe there is a simpler way: <strong>Our connected Stripe account</strong>, the same Stripe account online orders are paid to (connect it here or in Ordering setup). It needs no key, and card machine sales go to that account.</li>
+              <li><strong>Add a card machine</strong>: pick the account, then the machine from the provider&apos;s list, or type the code a new machine shows (a SumUp Solo: Connections, API, Connect; a new Stripe reader: its registration code and the Stripe location; <strong>Make a location from this venue&apos;s address</strong> makes one from the address in the venue&apos;s website details). The <strong>Test card machine</strong> needs no account and takes no money: the till shows Approve and Decline instead of waiting for a card. Use it for training only, as its payments are recorded like real ones.</li>
               <li>Pick each till&apos;s and kiosk&apos;s machine in its own settings (Tills or Kiosks, the pencil): <strong>Card machine</strong>.</li>
             </ol>
             <P>
