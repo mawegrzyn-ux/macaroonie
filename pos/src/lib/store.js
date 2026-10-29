@@ -25,6 +25,7 @@ import { printTickets } from './print.js'
 import { startDevicePrinting, hasOwnPrinter } from './devicePrint.js'
 import { checkForUpdate } from './appUpdate.js'
 import { HOST_APP, takePairCode, movedTo, setMovedTo, moveDevice, tellDisconnect } from './appHost.js'
+import { withLive, pricesChanged, keepStorage, CONTENT_EVERY_MS, LIVE_EVERY_MS } from './livePull.js'
 
 const OUTBOX_KEY = 'outbox'
 // v170: checks gained order types and revenue streams (migration 170); an older snapshot is dropped and pulled again.
@@ -56,6 +57,7 @@ let state = {
   toasts: [],
   socket: 'closed',
   prefs: loadPrefs(),
+  checked: null,           // { content, live }: when the whole config and prices / sold out were last pulled (lib/livePull.js)
 }
 const listeners = new Set()
 let api = createTransport(null)
@@ -151,6 +153,7 @@ export async function boot() {
   }
   if (openOtherApp(device)) return
   api = createTransport(device)
+  keepStorage()
   const [config, snapshot, outbox] = await Promise.all([idb.get(CONFIG_KEY), idb.get(SNAPSHOT_KEY), idb.get(OUTBOX_KEY)])
   if (config?.device?.kind && config.device.kind !== (device.kind || 'terminal')) { await relabel(device, config.device.kind); return }
   setState({
@@ -312,7 +315,35 @@ export async function loadConfig() {
       }
     } else {
       setState({ online: true })
+      // Unchanged, but sold out and the prices stamp travel with every reply.
+      await applyLive(res, { prices: true })
     }
+    setState({ checked: { ...state.checked, content: Date.now(), live: Date.now() } })
+  } catch (err) {
+    handleError(err)
+  }
+}
+
+/** Lay a reply's sold out list (and prices stamp) over the config, kept on the device. */
+async function applyLive(reply, opts) {
+  const next = withLive(state.config, reply, opts)
+  if (!next) return
+  setState({ config: next })
+  await idb.set(CONFIG_KEY, next)
+}
+
+/**
+ * Prices and sold out (every LIVE_EVERY_MS, lib/livePull.js): sold out
+ * changes in place; a new prices stamp fetches the config with the new prices.
+ */
+export async function pullLive() {
+  if (!state.config || !state.device) return
+  try {
+    const res = await api.get('/pos-api/live', { timeoutMs: 10000 })
+    const stale = pricesChanged(state.config, res)
+    await applyLive(res, { prices: false })
+    setState({ online: true, checked: { ...state.checked, live: Date.now() } })
+    if (stale) await loadConfig()
   } catch (err) {
     handleError(err)
   }
@@ -695,6 +726,8 @@ function tick() {
 }
 
 let started = false
+let contentTimer = null
+let liveTimer = null
 export function startSync() {
   if (started) return
   started = true
@@ -709,7 +742,11 @@ export function startSync() {
     pollTimer = setTimeout(() => { tick(); loop() }, ms)
   }
   loop()
-  setInterval(loadConfig, 10 * 60 * 1000)
+  // Pushes bring changes at once; the till asks as well, so it never
+  // depends on them: the whole config every few minutes, prices and sold
+  // out every 30 s.
+  contentTimer = setInterval(loadConfig, CONTENT_EVERY_MS)
+  liveTimer = setInterval(pullLive, LIVE_EVERY_MS)
   tick()
 }
 function stopSync() {
@@ -717,6 +754,8 @@ function stopSync() {
   devicePrinting?.stop()
   devicePrinting = null
   clearTimeout(pollTimer)
+  clearInterval(contentTimer)
+  clearInterval(liveTimer)
   try { socket?.close() } catch { /* ignore */ }
   socket = null
 }

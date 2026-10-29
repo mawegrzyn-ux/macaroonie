@@ -5,6 +5,17 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-29 — Tills and kiosks open with their content and keep checking for changes]
+
+- Tills and kiosks now check for prices and sold out dishes every 30 seconds, and every till, kitchen screen and kiosk checks its whole menu and settings every 3 minutes, as well as being told about changes straight away. A dish sold out changes on them within half a minute even if they missed being told; new prices (a menu published, a scheduled publish going live, an option or a promotion changed) download the menu again.
+- A dish sold out no longer makes every till and kiosk download its whole menu again: only the sold out list changes.
+- Kiosks keep the design's videos (start screen and reach band) on the kiosk as well as every picture, so the kiosk opens with its menu, pictures and videos straight away, with the internet down too. A video the design stops playing is deleted from the kiosk.
+- The kiosk's staff panel shows the videos saved and when it last checked; the till's settings show when it last checked prices and sold out and the whole menu.
+- Tills, kitchen screens and kiosks ask the browser to keep what they save on the device when space runs short.
+- No migration.
+
+---
+
 ## [2026-10-29 — Card payments with Stripe: online ordering, tills and kiosks]
 
 - Each restaurant group can connect its own Stripe account: Ordering setup → Payment methods → **Your Stripe account** → Connect Stripe (owners and admins). Stripe's sign-up opens and comes back to the page; the card then says whether the account can take payments, with Continue on Stripe, Check again, the Stripe dashboard and Unlink.

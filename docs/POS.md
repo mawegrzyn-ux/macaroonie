@@ -416,6 +416,32 @@ combo" on a till line; step choices can be dishes, sections or new.
   GloriaFood or Deliveroo (the Deliveroo file sends a combo's own price; its choices are
   Deliveroo modifiers set in the Hub).
 
+### 8.3 Keeping devices up to date by asking (29 Oct 2026, no migration)
+
+Pushes (`pos.config` on the device's venue room) bring changes at once, but a device must never
+depend on them (a socket the Android WebView or the router lets hang, a push sent while it was
+reconnecting). So tills, kiosks and kitchen screens also ask, on timers in `pos/src/lib/livePull.js`:
+
+| What | How often | Route | Effect |
+|---|---|---|---|
+| The whole config | every 3 minutes (`CONTENT_EVERY_MS`), and on a push | `GET /pos-api/config?version=` | "unchanged" costs one reply; anything else is downloaded and kept on the device |
+| Prices and sold out (till, kiosk) | every 30 s (`LIVE_EVERY_MS`) | `GET /pos-api/live` -> `{ sold_out, prices }` | sold out changes in place; a new prices stamp fetches the config |
+
+`liveFields()` (`services/posSvc.js`) works out both: the venue's sold out rows now, and a stamp
+over the tenant's live menu releases (so a scheduled publish changes it the moment it goes live,
+with no write), the option group library, the promotions and the venue's date. Neither is part
+of the config's `version` (it is computed before they are added), and every till or kiosk
+config reply carries them, an unchanged one too. So a dish sold out never makes a device
+download its config again, and a stamp change for something this venue doesn't sell only costs
+an "unchanged" config reply.
+
+Every device opens from what it keeps: the config in IndexedDB, the app in the service worker's
+precache, a kiosk's pictures in `kiosk-images` (`photos.js` saves every one after each change)
+and, since this change, its design's videos (start screen, reach band) in `kiosk-videos`:
+`saveVideos()` downloads each whole (a video element's Range requests can't be cached) and the
+service worker serves the parts out of the saved file (`rangeRequests`); videos the design stops
+playing are deleted. `keepStorage()` asks the browser to keep all of it when space runs short.
+
 ---
 
 ## 9. Kitchen screens (KDS)

@@ -7,7 +7,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   normaliseDesign, designProblems, payMethods, uiText, allergenName, translationSources, TK, pickImages, hexLayout, cornerWidths,
-  configImages, MAX_SAVED_PICTURES, guestFit, countFits, cleanPrefs, prefsOn, kioskOrder, basketCheck, kioskStaff, kioskFontsUrl, UI_TEXT, ALLERGEN_NAMES, KIOSK_LANGUAGES, DESIGN_COLORS, CLEAR_COLORS, CHOICE_ENTRANCES,
+  configImages, MAX_SAVED_PICTURES, configVideos, MAX_SAVED_VIDEOS, guestFit, countFits, cleanPrefs, prefsOn, kioskOrder, basketCheck, kioskStaff, kioskFontsUrl, UI_TEXT, ALLERGEN_NAMES, KIOSK_LANGUAGES, DESIGN_COLORS, CLEAR_COLORS, CHOICE_ENTRANCES,
   groupLook, ENTRANCE_KEYS, bundleParts, bundleLayout, bundleBox, BUNDLE_MAX, PART_COLORS, PART_FOLLOWS, COLOR_LABELS, partColours,
   DONE_MAIN, DONE_LINES, DONE_DEFAULT_LINES, doneLook, doneInfo, doneGaps, isEmail, emailHint,
   pictureFit, fitLayout, PICTURE_FITS, PICTURE_FOCUS, PICTURE_BGS, BANNER_SHAPES, BANNER_RATIOS, KIOSK_SCREENS, SCREEN_MIN, SCREEN_MAX, SHAPE_SLACK, ZOOM_SLACK, ZOOM_MIN, ZOOM_MAX, kioskBox, kioskZoom, screenSize,
@@ -598,6 +598,26 @@ test('configImages: every picture the kiosk can show, on its own origin, each on
   assert.deepEqual(configImages(null, origin), [])
   const many = { items: Object.fromEntries(Array.from({ length: MAX_SAVED_PICTURES + 50 }, (_, n) => ['i' + n, { image_url: '/uploads/p' + n + '.jpg' }])) }
   assert.equal(configImages(many, origin).length, MAX_SAVED_PICTURES, 'capped below the cache size')
+})
+
+test('configVideos: the start screen and reach videos on the kiosk\'s own origin, in order, each once', () => {
+  const origin = 'https://kiosk.example.test'
+  const config = {
+    design: normaliseDesign({
+      start: { media: [
+        { id: 'm1', type: 'video', url: '/uploads/start.mp4' },
+        { id: 'm2', type: 'image', url: '/uploads/start.jpg' },
+        { id: 'm3', type: 'video', url: 'https://cdn.other.test/far.mp4' },
+        { id: 'm4', type: 'video', url: origin + '/uploads/start.mp4' },
+      ] },
+      behaviour: { reach: true, reach_media: [{ id: 'r1', type: 'video', url: '/uploads/reach.webm' }] },
+    }),
+    items: { i1: { id: 'i1', image_url: '/uploads/wings.mp4' } },
+  }
+  assert.deepEqual(configVideos(config, origin), [origin + '/uploads/start.mp4', origin + '/uploads/reach.webm'])
+  assert.deepEqual(configVideos(null, origin), [])
+  const lots = { design: normaliseDesign({ start: { media: Array.from({ length: 12 }, (_, n) => ({ id: 'v' + n, type: 'video', url: '/uploads/v' + n + '.mp4' })) } }) }
+  assert.ok(configVideos(lots, origin).length <= MAX_SAVED_VIDEOS, 'a few at most')
 })
 
 test('the number a guest types is a tent unless the design says table', () => {

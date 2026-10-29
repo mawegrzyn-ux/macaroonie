@@ -53,6 +53,20 @@ export default defineConfig({
             handler: 'StaleWhileRevalidate',
             options: { cacheName: 'kiosk-images', expiration: { maxEntries: 2000, maxAgeSeconds: 365 * 24 * 3600 } },
           },
+          // Kiosk videos (start screen, reach band): src/kiosk/photos.js
+          // saves each whole into this cache; a video element asks for parts
+          // (Range), sliced out of the saved file. A video not saved plays
+          // from the network (a part can't be kept: cacheableResponse 200).
+          {
+            urlPattern: ({ request, url }) => request.destination === 'video' && url.origin === self.location.origin,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'kiosk-videos',
+              rangeRequests: true,
+              cacheableResponse: { statuses: [200] },
+              matchOptions: { ignoreVary: true },
+            },
+          },
           {
             urlPattern: /^https:\/\/fonts\.(googleapis|gstatic)\.com\//,
             handler: 'CacheFirst',

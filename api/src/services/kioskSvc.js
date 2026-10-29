@@ -23,11 +23,10 @@
 // Every query filters tenant_id itself.
 
 import { httpError } from '../middleware/error.js'
-import { ensureSettings, settingsView, ownVenue, tillMenuData, tillMenus, sha256 } from './posSvc.js'
+import { ensureSettings, settingsView, ownVenue, tillMenuData, tillMenus, sha256, liveFields } from './posSvc.js'
 import { contentKey } from '../../../shared/menuDiff.js'
 import { variantRules, itemChoices, isPriced } from '../../../shared/orderPricing.js'
 import { venuePromotions, publicPromotion } from './promoSvc.js'
-import { soldOutRows } from './soldOut.js'
 import { ensureTaxDefaults, loadTaxRates, loadOrderTypes, loadStreams } from './taxSvc.js'
 import { loadAllergenNotice } from '../routes/menus.js'
 import { normaliseDesign, LANG_CODES } from '../../../shared/kiosk.js'
@@ -108,7 +107,6 @@ export async function kioskConfig(tx, tenantId, venueId, device, { designOverrid
   const stream = streams.find(r => r.id === ds.revenue_stream_id) || streams[0] || null
   const { menus, items, section_items, dietary } = await tillMenuData(tx, tenantId, venueId, stream ? [stream] : [], { guest: true, allStreams: streams, version })
   const tz = venue.timezone || 'Europe/London'
-  const soldOut = (await soldOutRows(tx, tenantId, venueId)).map(r => ({ item_id: r.item_id, until: r.sold_out_until }))
   const promotions = (await venuePromotions(tx, { id: venueId, tenant_id: tenantId }, venueNow(tz).date, 'pos'))
     .map(p => ({ ...publicPromotion(p, { withCode: false }), max_uses: p.max_uses ?? null }))
     .filter(p => p.apply_mode === 'auto')
@@ -132,7 +130,6 @@ export async function kioskConfig(tx, tenantId, venueId, device, { designOverrid
     })),
     allergen_notice: await loadAllergenNotice(tx, tenantId),
     promotions,
-    sold_out: soldOut,
     design: finalDesign,
     // The kiosk receipt design (migration 190): null = the built-in layout.
     print_layouts: { receipt: (await printLayouts(tx, tenantId, venueId)).kiosk_receipt },
@@ -146,7 +143,8 @@ export async function kioskConfig(tx, tenantId, venueId, device, { designOverrid
     loyalty: await deviceLoyalty(tx, tenantId, venueId, 'kiosk'),
   }
   config.version = sha256(JSON.stringify(config)).slice(0, 16)
-  return config
+  // Sold out and the prices stamp come after the version (liveFields() in posSvc.js).
+  return Object.assign(config, await liveFields(tx, tenantId, venueId))
 }
 
 // ── Preview links (services/previewLinks.js) ─────────────────────
