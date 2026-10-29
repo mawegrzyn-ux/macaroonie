@@ -124,6 +124,7 @@ export const DEFAULT_NAV_TREE = [
       { label: 'Printers', icon: 'Printer', route: '/pos/printers', module: 'pos_setup' },
       { label: 'Printing', icon: 'ReceiptText', route: '/pos/printing', module: 'pos_setup' },
       { label: 'Card machines', icon: 'CreditCard', route: '/pos/cards', module: 'pos_setup' },
+      { label: 'Device updates', icon: 'RefreshCw', route: '/pos/updates', module: 'pos_setup' },
       { label: 'Order types', icon: 'ListOrdered', route: '/pos/types', module: 'pos_setup' },
       { label: 'Revenue streams', icon: 'Waypoints', route: '/pos/streams', module: 'pos_setup' },
       { label: 'Courses', icon: 'UtensilsCrossed', route: '/pos/courses', module: 'pos_setup' },

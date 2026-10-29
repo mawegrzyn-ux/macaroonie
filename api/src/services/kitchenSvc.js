@@ -52,6 +52,7 @@ import { makeLink, readLink } from './previewLinks.js'
 import { printLayouts } from './printDesignSvc.js'
 import { hasPrinters, printsDue } from '../../../shared/pos/kitchenPrint.js'
 import { normaliseKitchenColours, sectionColoursById } from '../../../shared/pos/kitchenColours.js'
+import { pullTimes } from '../../../shared/pos/pullTimes.js'
 
 const by = (rows, f = r => r) => Object.fromEntries(rows.map(r => [r.id, f(r)]))
 
@@ -241,7 +242,8 @@ export async function switchFlow(tx, tenantId, venueId, flowId, by) {
 export async function kdsConfig(tx, tenantId, venueId) {
   const [venue] = await tx`SELECT id, name, timezone FROM venues WHERE id = ${venueId} AND tenant_id = ${tenantId}`
   const [settings] = await tx`
-    SELECT day_starts_at, kds_online_orders, kds_online_ready, kds_active_flow_id, kds_flow_switched_at, kds_flow_switched_by, kds_colours
+    SELECT day_starts_at, kds_online_orders, kds_online_ready, kds_active_flow_id, kds_flow_switched_at, kds_flow_switched_by, kds_colours,
+           pull_content_secs, pull_live_secs, pull_screen_secs, pull_board_secs
       FROM pos_settings
      WHERE venue_id = ${venueId} AND tenant_id = ${tenantId}`
   const stations = await loadStations(tx, tenantId, venueId)
@@ -279,6 +281,8 @@ export async function kdsConfig(tx, tenantId, venueId) {
       kds_online_orders: settings?.kds_online_orders ?? true,
       kds_online_ready: settings?.kds_online_ready ?? true,
     },
+    // How often this screen asks for changes (migration 216: the whole config only).
+    pull: pullTimes(settings || {}),
     stations: stations.map(stationView),
     // The screen draws where dishes come from and go to; their ways are
     // worked out when they are sent (item.route), not on the screen.

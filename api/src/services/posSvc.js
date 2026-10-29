@@ -28,6 +28,7 @@ import { normalisePermissions, DEFAULT_POS_ROLES } from '../../../shared/pos/per
 import { TENDERS } from '../../../shared/pos/checks.js'
 import { STALE_HOURS } from '../../../shared/pos/kitchen.js'
 import { normaliseKitchenColours } from '../../../shared/pos/kitchenColours.js'
+import { pullTimes } from '../../../shared/pos/pullTimes.js'
 import { kioskStaff } from '../../../shared/kiosk.js'
 import { venueNow } from '../../../shared/promotions.js'
 import { soldOutRows } from './soldOut.js'
@@ -132,6 +133,7 @@ export function settingsView(s) {
     kds_gloriafood: !!s.kds_gloriafood, kds_gloriafood_types: s.kds_gloriafood_types || {},
     kds_gloriafood_lead_mins: s.kds_gloriafood_lead_mins ?? 20,
     kds_colours: normaliseKitchenColours(s.kds_colours),
+    pull: pullTimes(s),
   }
 }
 
@@ -287,6 +289,8 @@ export async function tillConfig(tx, tenantId, venueId) {
   const config = {
     venue: { id: venue.id, name: venue.name, timezone: tz },
     settings: settingsView(settings),
+    // How often this till asks for changes (migration 216).
+    pull: pullTimes(settings),
     pin_salt: settings.pin_salt,
     revenue_streams: streams,
     order_types: orderTypes,

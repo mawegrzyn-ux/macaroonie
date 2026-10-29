@@ -26,6 +26,7 @@ import { sha256 } from './screenAuth.js'
 import { boardMenuIds } from '../../../shared/screenLayout.js'
 import { menuTags } from '../../../shared/menuTags.js'
 import { statusOf } from '../../../shared/pos/kitchen.js'
+import { pullTimes } from '../../../shared/pos/pullTimes.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 export const PLAYER_DIR = path.resolve(__dirname, '..', '..', '..', 'screen')
@@ -100,9 +101,11 @@ export async function screenConfig(tx, tenantId, screenId) {
   const [s] = await tx`
     SELECT s.id, s.name, s.short_code, s.width, s.height, s.rotation, s.fit, s.playlist_id, s.design_id, s.venue_id,
            s.wall_id, s.wall_col, s.wall_row,
-           v.name AS venue_name, v.timezone
+           v.name AS venue_name, v.timezone,
+           ps.pull_screen_secs, ps.pull_board_secs
       FROM screens s
       JOIN venues v ON v.id = s.venue_id AND v.tenant_id = s.tenant_id
+      LEFT JOIN pos_settings ps ON ps.venue_id = s.venue_id AND ps.tenant_id = s.tenant_id
      WHERE s.id = ${screenId} AND s.tenant_id = ${tenantId}`
   if (!s) return null
 
@@ -156,6 +159,9 @@ export async function screenConfig(tx, tenantId, screenId) {
     // A board with an Order status block: the player fetches the order
     // numbers (/screen-api/orders) and refreshes them on kitchen.board.
     needs_orders: designs.some(d => (d.layout?.blocks || []).some(b => b?.type === 'order_status')),
+    // How often the player asks for changes (migration 216, the location's
+    // Store tech → Device updates; defaults when it has none).
+    pull: (({ screen, board }) => ({ screen, board }))(pullTimes(s)),
   }
   config.version = sha256(JSON.stringify(config)).slice(0, 16)
   return config

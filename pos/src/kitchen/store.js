@@ -23,7 +23,7 @@ import * as idb from '../lib/idb.js'
 import { createTransport, OfflineError } from '../lib/transport.js'
 import { startDevicePrinting, hasOwnPrinter } from '../lib/devicePrint.js'
 import { moveDevice, tellDisconnect, setMovedTo } from '../lib/appHost.js'
-import { keepStorage, CONTENT_EVERY_MS } from '../lib/livePull.js'
+import { keepStorage, createPullTimers } from '../lib/livePull.js'
 
 const CONFIG_KEY = 'kds_config'
 const SNAPSHOT_KEY = 'kds_snapshot'
@@ -172,6 +172,7 @@ export async function loadConfig() {
       await keep.set(CONFIG_KEY, res)
       setState({ config: res, online: true })
       flowNotice(before, res)
+      pulls?.check()
     } else setState({ online: true })
   } catch (err) {
     handleError(err)
@@ -453,6 +454,7 @@ function tick() {
 // A printer plugged into this screen (Store tech > Printers, migration 191):
 // it prints the tickets queued for it (lib/devicePrint.js). Never on the bench.
 let devicePrinting = null
+let pulls = null
 
 function startSync() {
   if (started) return
@@ -470,8 +472,9 @@ function startSync() {
     pollTimer = setTimeout(() => { tick(); loop() }, ms)
   }
   loop()
-  // Its config every few minutes as well as on a pos.config push (lib/livePull.js).
-  setInterval(loadConfig, CONTENT_EVERY_MS)
+  // Its config as often as the location says (config.pull.content), as well
+  // as on a pos.config push (lib/livePull.js).
+  pulls = createPullTimers(() => state.config, { content: loadConfig })
   tick()
 }
 
@@ -480,6 +483,8 @@ function stopSync() {
   devicePrinting?.stop()
   devicePrinting = null
   clearTimeout(pollTimer)
+  pulls?.stop()
+  pulls = null
   try { socket?.close() } catch { /* ignore */ }
   socket = null
 }

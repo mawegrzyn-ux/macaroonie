@@ -3279,11 +3279,12 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <H3>Pulling the config, prices and sold out</H3>
             <P>
               Pushes bring changes at once, but devices never depend on them: <Mono>pos/src/lib/livePull.js</Mono>{' '}
-              sets the timers the till, kiosk and kitchen screen stores use. The whole config every{' '}
-              <Mono>CONTENT_EVERY_MS</Mono> (3 minutes; <Mono>GET /pos-api/config?version=</Mono>, answered{' '}
-              <Mono>unchanged</Mono> when nothing changed), and on a till or kiosk prices and sold out every{' '}
-              <Mono>LIVE_EVERY_MS</Mono> (30 s; <Mono>GET /pos-api/live</Mono> → <Mono>{'{ sold_out, prices }'}</Mono>,
-              tills and kiosks only, 403 code <Mono>kind</Mono> otherwise). <Mono>liveFields()</Mono> in{' '}
+              sets the timers the till, kiosk and kitchen screen stores use (<Mono>createPullTimers()</Mono>). The
+              whole config every <Mono>pull.content</Mono> seconds (standard 3 minutes;{' '}
+              <Mono>GET /pos-api/config?version=</Mono>, answered <Mono>unchanged</Mono> when nothing changed), and
+              on a till or kiosk prices and sold out every <Mono>pull.live</Mono> (standard 30 s, 0 = off;{' '}
+              <Mono>GET /pos-api/live</Mono> → <Mono>{'{ sold_out, prices }'}</Mono>, tills and kiosks only, 403
+              code <Mono>kind</Mono> otherwise). The times are the location's (migration 216, below). <Mono>liveFields()</Mono> in{' '}
               <Mono>services/posSvc.js</Mono> works both out: the venue's <Mono>soldOutRows()</Mono>, and{' '}
               <Mono>prices</Mono>, an md5 stamp over the tenant's live menu release ids (a scheduled publish
               changes it the moment it goes live, with no write), every option group and option row, every
@@ -3296,6 +3297,36 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               unchanged config reply. <Mono>keepStorage()</Mono> asks for persistent storage
               (<Mono>navigator.storage.persist()</Mono>) at boot. The till's settings and the kiosk's staff panel
               show when each last ran (<Mono>state.checked</Mono> {'{ content, live }'}).
+            </P>
+            <H3>Device updates (pull times, migration 216)</H3>
+            <P>
+              <Mono>pos_settings.pull_content_secs</Mono> (60-3600, standard 180), <Mono>pull_live_secs</Mono>{' '}
+              (0 or 10-600, 30), <Mono>pull_screen_secs</Mono> (30-3600, 60) and <Mono>pull_board_secs</Mono>{' '}
+              (5-300, 15), CHECK constraints in the migration. <Mono>shared/pos/pullTimes.js</Mono> is the one rule:{' '}
+              <Mono>PULL_TIMES</Mono> (key, column, label, limits, which may be off), <Mono>pullTimes(row)</Mono>{' '}
+              (from columns or keys, defaults, clamped), <Mono>pullMs()</Mono> (device waits, live off = null),{' '}
+              <Mono>PULL_PRESETS</Mono> / <Mono>presetOf()</Mono>, <Mono>asksPerHour()</Mono>,{' '}
+              <Mono>pullText()</Mono>. <Mono>settingsView()</Mono> returns <Mono>pull</Mono>;{' '}
+              <Mono>PATCH /api/pos/venues/:id/settings</Mono> takes <Mono>pull</Mono> (only the keys sent change;
+              Zod refuses out-of-range values) and broadcasts <Mono>pos.config</Mono> and, for menu screens,{' '}
+              <Mono>screens.changed</Mono> to <Mono>screens:&lt;venue&gt;</Mono>.{' '}
+              <Mono>POST /api/pos/pull-times/everywhere</Mono> (pos_setup manage) writes the times to every venue
+              of the tenant (<Mono>ensureSettings()</Mono> first) and tells each. Every device config carries{' '}
+              <Mono>pull</Mono>: <Mono>tillConfig()</Mono>, <Mono>kioskConfig()</Mono>, <Mono>kdsConfig()</Mono>{' '}
+              (all four) and <Mono>screenConfig()</Mono> (<Mono>{'{ screen, board }'}</Mono>, from a LEFT JOIN on
+              the screen's venue's pos_settings, defaults without a row); a change changes the config's version, so
+              devices download it. <Mono>createPullTimers(getConfig, tasks)</Mono> runs each task, then waits as
+              long as the current config says (read every time; an off pull is looked at again every 60 s);{' '}
+              <Mono>check()</Mono>, called by each store after a new config, restarts the timers when the times
+              differ from the ones they were set with. The player (<Mono>screen/player.js</Mono>) has its own copy
+              of the two limits (<Mono>pullEvery()</Mono>, <Mono>setPullTimers()</Mono> from{' '}
+              <Mono>applyConfig()</Mono>). Admin: <Mono>components/pos/DeviceUpdatesSection.jsx</Mono> (Store tech →
+              Device updates, <Mono>/pos/updates</Mono>; nav link added by the migration after Card machines):
+              presets, a row of times per pull, the asks-an-hour estimate from <Mono>setup.devices</Mono> (and the
+              Screens list when the person may see it), Save, Use these at every location with a confirm. The
+              till's settings (<Mono>till-pull</Mono>), the kiosk's staff panel (<Mono>k-staff-pull</Mono>) and
+              the player's settings panel show the times. Tests: <Mono>shared/pos/test/pullTimes.test.mjs</Mono>,
+              the last test in <Mono>api/test/live-pull.test.mjs</Mono>.
             </P>
             <H3>Devices, PINs and permissions</H3>
             <P>
@@ -4763,8 +4794,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <H2>Android app</H2>
             <P>
               <Mono>android-app/</Mono> (27 Oct 2026) is one Android app, <Mono>com.macaroonie.app</Mono>, for the
-              till, the kitchen screen and the self-order kiosk: an Expo (SDK 58) shell around the{' '}
-              <Mono>pos/</Mono> web apps, built and signed by EAS (project{' '}
+              till, the kitchen screen, the self-order kiosk and (version 1.2, 29 Oct 2026) menu screens: an Expo
+              (SDK 58) shell around the <Mono>pos/</Mono> web apps and the <Mono>screen/</Mono> player, built and signed by EAS (project{' '}
               <Mono>@gomono-london/macaroonie</Mono>, GitHub base directory <Mono>android-app</Mono>). The apps
               themselves stay web pages, so a deploy changes them on every device and the app only needs a new build
               when the shell changes. Continuous Native Generation: there is no <Mono>android/</Mono> folder in the
@@ -4773,8 +4804,10 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <DataTable
               head={['Part', 'How']}
               rows={[
-                ['App.js', 'First start: Picker (Till / Kitchen screen / Self-order kiosk), saved in AsyncStorage (macaroonie.kind). Then a WebView of https://{pos|kitchen|kiosk}.<root>/ (ROLES, urlFor()). useKeepAwake(), <StatusBar hidden />, <NavigationBar hidden /> (and the expo-navigation-bar plugin with hidden), BackHandler always consumed while the WebView shows.'],
-                ['Where it may go', 'onShouldStartLoadWithRequest: our domain and its subdomains load; anything else is refused, and a till or kitchen screen opens it in the browser (Linking). Landing on a device address (pos., kitchen. / kds., kiosk.) saves that kind (onFollow), so moveDevice() and the setup screen\'s address links change what the app opens next time without reloading the page (the WebView\'s source only changes when someone picks in the Picker).'],
+                ['App.js + roles.js', 'First start: Picker (Till / Kitchen screen / Self-order kiosk / Menu screen), saved in AsyncStorage (macaroonie.kind). Then a WebView of https://{pos|kitchen|kiosk|screens}.<root>/ (ROLES, urlFor() in roles.js, tested by android-app/test/roles.test.mjs). useKeepAwake(), <StatusBar hidden />, <NavigationBar hidden /> (and the expo-navigation-bar plugin with hidden), BackHandler always consumed while the WebView shows. The Picker\'s choices and buttons are focusable with onFocus / onBlur drawing a white ring (roleFocus, buttonFocus) and hasTVPreferredFocus on the current (or first) choice, so a TV remote\'s arrows and OK work.'],
+                ['Where it may go', 'onShouldStartLoadWithRequest: our domain and its subdomains load; anything else is refused, and a till or kitchen screen opens it in the browser (Linking); a kiosk or menu screen stays put (staysPut()). Landing on a device address (pos., kitchen. / kds., kiosk., screens.: kindOfUrl()) saves that kind (onFollow), so moveDevice() and the setup screen\'s address links change what the app opens next time without reloading the page (the WebView\'s source only changes when someone picks in the Picker).'],
+                ['Menu screens (screen/player.js)', 'IN_APP = !!window.ReactNativeWebView, tellApp(). In the app the pairing screen has a Change device type button (data-app-choose, a document click listener) and the settings panel (five taps or five OK presses) a Change device type button (data-act app): both post macaroonie:choose-app. A TV with no touch reaches it with the remote (focusable buttons, Tab / arrows, OK).'],
+                ['Android TV (plugins/withTvLauncher.js)', 'A config plugin in app.json: withAndroidManifest adds LEANBACK_LAUNCHER to the main activity\'s launcher intent filter, android:banner @drawable/tv_banner on the application, and uses-feature android.software.leanback, android.hardware.touchscreen, android.hardware.camera(.autofocus) with required false (one APK for tablets and TV boxes); withDangerousMod copies assets/tv-banner.png (320 x 180) to res/drawable-xhdpi/tv_banner.png. Checked with expo prebuild in a scratch copy.'],
                 ['Bridge (pos/src/lib/nativeApp.js)', 'IN_APP = !!window.ReactNativeWebView; tellApp(message) posts JSON. printTickets() (lib/print.js) posts { type: macaroonie:print, html } (the same page it would print in a frame) and the app calls expo-print printAsync({ html }), Android\'s print dialog. Pair.jsx shows Change device type (posts macaroonie:choose-app, the app shows the Picker) instead of the links to the other addresses. The hidden corner posts macaroonie:device-menu (below).'],
                 ['The hidden corner (corner.js)', "Five taps in the top left corner (CORNER_DP 56 dp square, CORNER_TAPS 5 within CORNER_WINDOW_MS 3000) open the Picker over the running app. CORNER_SCRIPT is the WebView's injectedJavaScript (each page load, main frame only, guarded by window.__macaroonieCorner): a capture-phase pointerdown listener that never stops the touch, measures the corner in CSS pixels as CORNER_DP / visualViewport.scale (so a zoomed kiosk's corner is the same size on the glass), and posts { type: macaroonie:device-menu }. While the page is still loading, Loading's onTouchStart counts the same way with nextTaps() / inCorner() (pageX / pageY in dp). Two copies of one rule because Hermes keeps no function source; android-app/test/corner.test.mjs (npm test, in the workflow) runs the same taps against both. App keeps the Shell mounted under the Picker (an absolute-fill View), so Back to the till doesn't reload it; opened from the corner (fromCorner) it shows Reload the till and goes back after AUTO_BACK_SECS (60) untouched (any touch on it starts the minute again). Each kind has its own origin, so its pairing (localStorage, IndexedDB) stays while another kind shows."],
                 ['When it goes wrong', 'onError (main frame) or onHttpError 5xx: Unreachable, trying again every RETRY_SECS (5) by remounting the WebView, with Try now and Change device type. onRenderProcessGone (Android stopped the page): remount. The web apps\' own service workers keep working inside the WebView, so a device that has loaded its app once opens it offline.'],

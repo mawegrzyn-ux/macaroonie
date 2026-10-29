@@ -1,22 +1,30 @@
 # Macaroonie Android app
 
 One app (`com.macaroonie.app`) for every device in a restaurant: the till, the
-kitchen screen and the self-order kiosk. On its first start it asks what the
-device is, then opens that web app full screen:
+kitchen screen, the self-order kiosk and menu screens (menu boards and order
+ready boards). On its first start it asks what the device is (`roles.js`),
+then opens that web app full screen:
 
 | Device           | Opens                      |
 |------------------|----------------------------|
 | Till             | `https://pos.<root>/`      |
 | Kitchen screen   | `https://kitchen.<root>/`  |
 | Self-order kiosk | `https://kiosk.<root>/`    |
+| Menu screen      | `https://screens.<root>/`  |
 
-The apps themselves are the `pos/` web build, so they change with every deploy
+It also lists itself on an Android TV's home screen (`plugins/withTvLauncher.js`:
+the leanback launcher, a TV banner, touch and camera not required), and the
+question works with a remote's arrows and OK. On a menu screen with a remote,
+OK five times opens the screen's settings, which have **Change device type**
+inside the app (`screen/player.js`).
+
+The apps themselves are the `pos/` web build and the `screen/` player, so they change with every deploy
 and never need a new build of this app. The app only adds what a browser can't:
 
 - it starts straight into the right app, full screen, with the status and
   navigation bars hidden and the screen kept on;
 - the back button does nothing, and links off the Macaroonie domain stay out
-  (a till or kitchen screen opens them in the browser, a kiosk ignores them);
+  (a till or kitchen screen opens them in the browser, a kiosk or menu screen ignores them);
 - printing goes to Android's print service (`pos/src/lib/print.js` posts the
   page to the app, which calls `expo-print`);
 - the camera works for QR scanning (Android asks for permission the first time);

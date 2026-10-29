@@ -7,6 +7,7 @@ import { useTill, setPrefs, flush, pull, loadConfig, server, toast, disconnect }
 import { printTickets } from '../lib/print.js'
 import { cx, useApproval } from '../components/ui.jsx'
 import StatusDot from '../components/StatusDot.jsx'
+import { pullTimes, pullText } from '@shared/pos/pullTimes.js'
 
 export default function TillSettings() {
   const s = useTill()
@@ -40,12 +41,13 @@ export default function TillSettings() {
             <div>Event number: <b>{s.seq}</b></div>
             <div>Menu version: <b>{s.config.version}</b></div>
             <div data-testid="till-checked">Prices and sold out checked: <b>{s.checked?.live ? new Date(s.checked.live).toLocaleTimeString('en-GB') : 'not yet'}</b></div>
+            <div data-testid="till-pull">Checks for changes: <b>{pullTimes(s.config.pull).live ? 'prices every ' + pullText(pullTimes(s.config.pull).live) + ', ' : ''}menu every {pullText(pullTimes(s.config.pull).content)}</b></div>
             <div>Whole menu checked: <b>{s.checked?.content ? new Date(s.checked.content).toLocaleTimeString('en-GB') : 'not yet'}</b></div>
           </div>
           <div className="flex gap-2 flex-wrap">
             <button className="btn" onClick={async () => { await flush(); await pull(); await loadConfig(); toast('Synced', 'ok') }}><RefreshCw size={18} /> Sync now</button>
           </div>
-          <div className="text-sm text-muted">The till keeps working with the internet down; changes wait here and are sent when it comes back. It asks for prices and sold out dishes every 30 seconds and for the whole menu every 3 minutes. Kitchen tickets print where the kitchen flow sends them (Store tech, Kitchen screens).</div>
+          <div className="text-sm text-muted">The till keeps working with the internet down; changes wait here and are sent when it comes back. It asks for {s.config.pull?.live === 0 ? 'prices and sold out dishes only when told of a change' : 'prices and sold out dishes every ' + pullText(pullTimes(s.config.pull).live)} and for the whole menu every {pullText(pullTimes(s.config.pull).content)} (Store tech, Device updates). Kitchen tickets print where the kitchen flow sends them (Store tech, Kitchen screens).</div>
         </div>
 
         <div className="card p-5 space-y-3">

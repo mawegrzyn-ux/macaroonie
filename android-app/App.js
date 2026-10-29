@@ -1,12 +1,16 @@
-// Macaroonie: one Android app for the till, the kitchen screen and the
-// self-order kiosk. The apps themselves are the web apps on pos., kitchen.
-// and kiosk.<root domain> (pos/ in the repository), so they change with every
-// deploy and never need a new build of this app. This shell asks once what
-// the device is, then shows that web app full screen in a WebView: screen kept
-// on, system bars hidden, the back button does nothing, links off our domain
-// stay out (a till or kitchen screen opens them in the browser), and printing
-// goes to Android's print service. Five quick taps in the top left corner
-// (corner.js) bring the question back, over the app, which keeps running.
+// Macaroonie: one Android app for the till, the kitchen screen, the
+// self-order kiosk and menu screens. The apps themselves are the web apps on
+// pos., kitchen., kiosk. (pos/ in the repository) and screens.<root domain>
+// (screen/), so they change with every deploy and never need a new build of
+// this app. This shell asks once what the device is, then shows that web app
+// full screen in a WebView: screen kept on, system bars hidden, the back
+// button does nothing, links off our domain stay out (a till or kitchen
+// screen opens them in the browser), and printing goes to Android's print
+// service. Five quick taps in the top left corner (corner.js) bring the
+// question back, over the app, which keeps running; on a TV with a remote,
+// the menu screen's own settings (OK five times) have Change device type.
+// The app also lists itself on an Android TV's home screen
+// (plugins/withTvLauncher.js) and the picker works with a remote's arrows.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ActivityIndicator, BackHandler, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { WebView } from 'react-native-webview'
@@ -17,6 +21,7 @@ import { NavigationBar } from 'expo-navigation-bar'
 import { useKeepAwake } from 'expo-keep-awake'
 import * as Print from 'expo-print'
 import { CORNER_SCRIPT, inCorner, nextTaps } from './corner'
+import { ROLES, roleOf, urlFor as urlOn, hostOf, ours as oursOn, kindOfUrl, staysPut } from './roles'
 
 const EXTRA = Constants.expoConfig?.extra || {}
 const ROOT = String(EXTRA.rootDomain || 'macaroonie.com').toLowerCase()
@@ -30,22 +35,9 @@ const AUTO_BACK_SECS = 60
 const NAVY = '#1f2a44'
 const PINK = '#f4a7b9'
 
-// What the device can be, and the address of each (pos/src/lib/appHost.js).
-const ROLES = [
-  { kind: 'terminal', sub: 'pos', title: 'Till', text: 'Orders and payments at the counter or at the tables.' },
-  { kind: 'kds', sub: 'kitchen', title: 'Kitchen screen', text: 'Orders for the kitchen, the pass and the order ready boards.' },
-  { kind: 'kiosk', sub: 'kiosk', title: 'Self-order kiosk', text: 'Guests order and pay by themselves.' },
-]
-const KIND_OF_SUB = { pos: 'terminal', kitchen: 'kds', kds: 'kds', kiosk: 'kiosk' }
-const roleOf = kind => ROLES.find(r => r.kind === kind) || null
-const urlFor = kind => `https://${roleOf(kind).sub}.${ROOT}/`
-
-/** The host of an http(s) address, lower case, or null. */
-function hostOf(url) {
-  const m = /^https?:\/\/([^/?#:]+)/i.exec(String(url || ''))
-  return m ? m[1].toLowerCase() : null
-}
-const ours = host => host === ROOT || (!!host && host.endsWith('.' + ROOT))
+// What the device can be and the address of each: roles.js.
+const urlFor = kind => urlOn(kind, ROOT)
+const ours = host => oursOn(host, ROOT)
 
 export default function App() {
   useKeepAwake()
@@ -168,6 +160,9 @@ function Picker({ current, onChoose, onBack, onReload, autoBack }) {
   useEffect(() => { if (autoBack && left <= 0 && onBack) onBack() }, [autoBack, left, onBack])
   // Any touch on the picker starts the minute again.
   const stay = autoBack ? () => setLeft(AUTO_BACK_SECS) : undefined
+  // The choice a TV remote's arrows are on (no touch on a TV).
+  const [focused, setFocused] = useState(null)
+  useEffect(() => { if (autoBack && focused) setLeft(AUTO_BACK_SECS) }, [autoBack, focused])
   return (
     <ScrollView style={styles.root} contentContainerStyle={styles.pickerWrap} onTouchStart={stay}>
       <Text style={styles.brand}>Macaroonie</Text>
@@ -175,16 +170,20 @@ function Picker({ current, onChoose, onBack, onReload, autoBack }) {
       <Text style={styles.lead}>
         {current
           ? `Each type keeps its own link to the restaurant: switching to another type doesn't unlink the ${name}. While another type shows, the ${name} shows as offline in Store tech.`
-          : 'Pick one. It opens that app every time the device starts. To change it later, tap the top left corner of the screen five times quickly.'}
+          : 'Pick one. It opens that app every time the device starts. To change it later, tap the top left corner of the screen five times quickly (on a menu screen with a remote: press OK five times, then Change device type).'}
       </Text>
       <View style={styles.roles}>
-        {ROLES.map(r => (
+        {ROLES.map((r, i) => (
           <Pressable
             key={r.kind}
             onPress={() => onChoose(r.kind)}
+            onFocus={() => setFocused(r.kind)}
+            onBlur={() => setFocused(f => (f === r.kind ? null : f))}
+            focusable
+            hasTVPreferredFocus={current ? r.kind === current : i === 0}
             accessibilityRole="button"
             accessibilityLabel={r.title}
-            style={({ pressed }) => [styles.role, r.kind === current && styles.roleOn, pressed && styles.rolePressed]}
+            style={({ pressed }) => [styles.role, r.kind === current && styles.roleOn, focused === r.kind && styles.roleFocus, pressed && styles.rolePressed]}
           >
             <Text style={styles.roleTitle}>{r.title}</Text>
             <Text style={styles.roleText}>{r.text}</Text>
@@ -194,11 +193,13 @@ function Picker({ current, onChoose, onBack, onReload, autoBack }) {
       </View>
       {onBack && (
         <View style={styles.pickerActions}>
-          <Pressable onPress={onBack} accessibilityRole="button" style={({ pressed }) => [styles.button, pressed && styles.rolePressed]}>
+          <Pressable onPress={onBack} focusable onFocus={() => setFocused('back')} onBlur={() => setFocused(null)} accessibilityRole="button"
+            style={({ pressed }) => [styles.button, focused === 'back' && styles.buttonFocus, pressed && styles.rolePressed]}>
             <Text style={styles.buttonText}>Back to the {name}</Text>
           </Pressable>
           {onReload && (
-            <Pressable onPress={onReload} accessibilityRole="button" style={({ pressed }) => [styles.buttonGhost, pressed && styles.rolePressed]}>
+            <Pressable onPress={onReload} focusable onFocus={() => setFocused('reload')} onBlur={() => setFocused(null)} accessibilityRole="button"
+              style={({ pressed }) => [styles.buttonGhost, focused === 'reload' && styles.buttonFocus, pressed && styles.rolePressed]}>
               <Text style={styles.backText}>Reload the {name}</Text>
             </Pressable>
           )}
@@ -223,15 +224,14 @@ function Shell({ kind, url, onFollow, onChooseApp, onDeviceMenu, onReload }) {
     if (/^(about:|data:|blob:|javascript:)/i.test(target)) return true
     // Frames inside the page (a video, a payment form) load as they like.
     if (req.isTopFrame === false) return true
-    const host = hostOf(target)
-    if (ours(host)) {
-      const sub = host.slice(0, -(ROOT.length + 1))
-      if (KIND_OF_SUB[sub]) onFollow(KIND_OF_SUB[sub])
+    if (ours(hostOf(target))) {
+      const k = kindOfUrl(target, ROOT)
+      if (k) onFollow(k)
       return true
     }
-    // Anywhere else: a kiosk stays put; a till or kitchen screen opens the
-    // browser (a supplier's site, a help page).
-    if (kindRef.current !== 'kiosk') Linking.openURL(target).catch(() => {})
+    // Anywhere else: a kiosk or menu screen stays put; a till or kitchen
+    // screen opens the browser (a supplier's site, a help page).
+    if (!staysPut(kindRef.current)) Linking.openURL(target).catch(() => {})
     return false
   }, [onFollow])
 
@@ -326,6 +326,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#2b3858', borderWidth: 2, borderColor: '#2b3858', gap: 8,
   },
   roleOn: { borderColor: PINK },
+  // A TV remote's arrows are on it.
+  roleFocus: { borderColor: '#ffffff', backgroundColor: '#3a4a72' },
+  buttonFocus: { borderWidth: 3, borderColor: '#ffffff' },
   rolePressed: { opacity: 0.75 },
   roleTitle: { color: '#ffffff', fontSize: 22, fontWeight: '800' },
   roleText: { color: '#d7dcea', fontSize: 15, lineHeight: 21 },

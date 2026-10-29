@@ -29,6 +29,7 @@ import { variantRules, itemChoices, isPriced } from '../../../shared/orderPricin
 import { venuePromotions, publicPromotion } from './promoSvc.js'
 import { ensureTaxDefaults, loadTaxRates, loadOrderTypes, loadStreams } from './taxSvc.js'
 import { loadAllergenNotice } from '../routes/menus.js'
+import { pullTimes } from '../../../shared/pos/pullTimes.js'
 import { normaliseDesign, LANG_CODES } from '../../../shared/kiosk.js'
 import { menuTags } from '../../../shared/menuTags.js'
 import { venueNow } from '../../../shared/promotions.js'
@@ -117,6 +118,8 @@ export async function kioskConfig(tx, tenantId, venueId, device, { designOverrid
     menu_version: version,
     venue: { id: venue.id, name: venue.name, timezone: tz },
     settings: settingsView(settings),
+    // How often this kiosk asks for changes (migration 216).
+    pull: pullTimes(settings),
     stream: stream ? { id: stream.id, name: stream.name } : null,
     order_types: streamOrderTypes(stream, orderTypes),
     all_order_types: orderTypes.map(t => ({ id: t.id, name: t.name })),

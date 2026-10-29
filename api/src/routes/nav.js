@@ -53,6 +53,7 @@ export const ROUTE_CATALOG = [
   { route: '/pos/staff', label: 'Staff and PINs', icon: 'KeyRound', module: 'pos_setup' },
   { route: '/pos/roles', label: 'Till roles', icon: 'ShieldCheck', module: 'pos_setup' },
   { route: '/pos/receipts', label: 'Receipts and payments', icon: 'Receipt', module: 'pos_setup' },
+  { route: '/pos/updates', label: 'Device updates', icon: 'RefreshCw', module: 'pos_setup' },
   { route: '/pos/recon', label: 'Cash Recon link', icon: 'ArrowRightLeft', module: 'pos_setup' },
   { route: '/pos/reports', label: 'Till reports', icon: 'BarChart3', module: 'pos_reports' },
   { route: '/pos/kiosk-analytics', label: 'Kiosk analytics', icon: 'Activity', module: 'pos_reports' },

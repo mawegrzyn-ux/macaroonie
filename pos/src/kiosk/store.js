@@ -3,7 +3,8 @@
 // Same shape as the till's store (src/lib/store.js) where it can be: the
 // config is kept on the device (IndexedDB) so the kiosk opens straight away,
 // and refreshed on a pos.config push, every few minutes, and on a new prices
-// stamp from the pull of prices and sold out every 30 s (lib/livePull.js).
+// stamp from the pull of prices and sold out (lib/livePull.js; how often is
+// the location's choice, config.pull).
 // Unlike the till,
 // a guest's order lives here only until it is placed (a reload starts
 // again), and placing it needs a connection: the order number comes from the
@@ -29,7 +30,7 @@ import { createTransport, OfflineError } from '../lib/transport.js'
 import { printTickets } from '../lib/print.js'
 import { moveDevice, tellDisconnect, setMovedTo } from '../lib/appHost.js'
 import { savePhotos, saveVideos } from './photos.js'
-import { withLive, pricesChanged, keepStorage, CONTENT_EVERY_MS, LIVE_EVERY_MS } from '../lib/livePull.js'
+import { withLive, pricesChanged, keepStorage, createPullTimers } from '../lib/livePull.js'
 
 const CONFIG_KEY = 'kiosk_config'
 const OUTBOX_KEY = 'kiosk_outbox'
@@ -213,6 +214,7 @@ async function fetchConfig(opts) {
       const keep = c.design.languages.enabled.includes(state.lang)
       setState({ config: c, ...(keep ? {} : { lang: c.design.languages.source }) })
       savePhotosSoon()
+      pulls?.check()
     } else {
       // Unchanged, but sold out and the prices stamp travel with every reply.
       await applyLive(res, { prices: true })
@@ -238,7 +240,7 @@ async function applyLive(reply, opts) {
 }
 
 /**
- * Prices and sold out (every LIVE_EVERY_MS): sold out changes in place; a
+ * Prices and sold out (every config.pull.live): sold out changes in place; a
  * new prices stamp fetches the config, which brings the new prices.
  */
 export async function pullLive() {
@@ -711,8 +713,7 @@ let flushing = false
 let socket = null
 let socketRetry = 1000
 let started = false
-let pollTimer = null
-let liveTimer = null
+let pulls = null
 
 function scheduleFlush(ms) {
   clearTimeout(flushTimer)
@@ -878,12 +879,13 @@ function startSync() {
   connectSocket()
   // Pushes bring changes at once; the kiosk asks as well, so it never
   // depends on them: the whole config every few minutes (with any order
-  // waiting to be sent) and prices and sold out every 30 s. While the link
-  // is down the connection check (keepChecking()) does the asking.
-  const content = () => { pollTimer = setTimeout(() => { if (state.link !== 'down') loadConfig(); scheduleFlush(0); content() }, CONTENT_EVERY_MS) }
-  const live = () => { liveTimer = setTimeout(async () => { if (state.link === 'up') await pullLive(); live() }, LIVE_EVERY_MS) }
-  content()
-  live()
+  // waiting to be sent) and prices and sold out more often (the location's
+  // times, config.pull). While the link is down the connection check
+  // (keepChecking()) does the asking.
+  pulls = createPullTimers(() => raw, {
+    content: () => { if (state.link !== 'down') loadConfig(); scheduleFlush(0) },
+    live: async () => { if (state.link === 'up') await pullLive() },
+  })
   scheduleFlush(0)
 }
 
@@ -891,7 +893,9 @@ function stopSync() {
   started = false
   window.removeEventListener('online', onBrowserOnline)
   window.removeEventListener('offline', onBrowserOffline)
-  for (const t of [pollTimer, liveTimer, checkTimer, socketTimer, flushTimer, photoTimer]) clearTimeout(t)
+  for (const t of [checkTimer, socketTimer, flushTimer, photoTimer]) clearTimeout(t)
+  pulls?.stop()
+  pulls = null
   stopHeartbeat()
   const ws = socket
   socket = null
