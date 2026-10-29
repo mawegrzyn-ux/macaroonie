@@ -8,6 +8,7 @@
 //   https://…               custom / external
 //   /menu  /  /locations  /  /order    built-ins
 
+import { pagePath } from '@shared/sitePages.js'
 import { useContext, useMemo, useState, useRef, useEffect, useLayoutEffect, createContext } from 'react'
 import { createPortal } from 'react-dom'
 import { useQuery } from '@tanstack/react-query'
@@ -33,8 +34,8 @@ export function LinkCatalogProvider({ value, children }) {
 }
 
 function pageHref(p, venueSlug, anchor) {
-  // The built-in ordering page (migration 126) is served at /order.
-  if (p.system_key === 'order') return anchor ? `/order#${anchor}` : '/order'
+  // The built-in pages (Order online, Loyalty) live at their own address.
+  if (p.system_key) return pagePath(p, anchor)
   if (p.kind === 'modal') {
     return anchor ? `#modal/${p.slug}:${anchor}` : `#modal/${p.slug}`
   }

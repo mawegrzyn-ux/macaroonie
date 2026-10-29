@@ -1,0 +1,87 @@
+<%
+/* ── loyalty_card block ───────────────────────────────────────────────
+ *
+ * The guest's own loyalty card on the website: join or sign in with an
+ * emailed code, then the QR card, points, stamp cards, rewards, history,
+ * wallet buttons and the member's settings. Drawn in the browser by
+ * /loyalty-api/app.js (api/src/assets/loyaltyApp.js), the same code as the
+ * loyalty web app. The built-in Loyalty page (/loyalty, system_key
+ * 'loyalty') holds one; it can sit on any page.
+ *
+ * Shows nothing while loyalty or its web app is off (it.site_loyalty null,
+ * live data from siteRenderer.js like the Loyalty block).
+ *
+ * Data: heading (blank = the programme's name), intro (blank = how points
+ *       and stamps are earned), show_how, show_stamps, show_rewards,
+ *       show_history, show_settings, show_wallet (each on unless false),
+ *       container ('narrow' | 'boxed' | 'wide'), boxed_step, accent (the
+ *       buttons: theme role or #rrggbb), card_bg / card_text (blank = the
+ *       programme's card colours), panel (the boxes' background role).
+ * The admin canvas (canvas/dataBlocks.jsx LoyaltyCardCanvas) mirrors this.
+ */
+const d = it.block.data || {}
+const _l = it.site_loyalty || null
+const _slug = (it.tenant_site && it.tenant_site.subdomain_slug) || ''
+const _ROLE = { primary: '--c-primary', accent: '--c-accent', background: '--c-bg', surface: '--c-surface', text: '--c-text', muted: '--c-muted', border: '--c-border' }
+const _HEX = /^#[0-9a-fA-F]{6}$/
+const _themeColors = (it.config && it.config.theme && it.config.theme.colors) || {}
+const _DEF = { primary: _themeColors.primary || (it.config && it.config.primary_colour) || '#630812', accent: _themeColors.accent || '#f4a7b9', background: _themeColors.background || '#ffffff', surface: _themeColors.surface || '#f9f6f1', text: _themeColors.text || '#1a1a1a', muted: _themeColors.muted || '#666666', border: _themeColors.border || '#e5e7eb' }
+const _col = function (v, dflt) {
+  if (v && _HEX.test(v)) return v
+  return _ROLE[v] ? 'var(' + _ROLE[v] + ')' : dflt
+}
+const _hexOf = function (v, dflt) {
+  if (v && _HEX.test(v)) return v
+  return _DEF[v] || dflt
+}
+const _onHex = function (hex) {
+  if (!hex || !_HEX.test(hex)) return '#ffffff'
+  const n = parseInt(hex.slice(1), 16)
+  return (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255 > 0.6 ? '#111111' : '#ffffff'
+}
+const _accent = d.accent || 'primary'
+const _panel = d.panel || 'surface'
+const _card = (_l && _l.card) || { background: '#1f2937', text: '#ffffff', accent: '#ffffff' }
+const _cardBg = d.card_bg ? _col(d.card_bg, _card.background) : _card.background
+const _cardText = d.card_text ? _col(d.card_text, _card.text) : (d.card_bg ? _onHex(_hexOf(d.card_bg, _card.background)) : _card.text)
+const _vars = [
+  '--mloy-primary:' + _col(_accent, 'var(--c-primary)'),
+  '--mloy-on-primary:' + _onHex(_hexOf(_accent, _DEF.primary)),
+  '--mloy-bg:var(--c-bg)',
+  '--mloy-surface:' + _col(_panel, 'var(--c-surface)'),
+  '--mloy-text:var(--c-text)',
+  '--mloy-muted:var(--c-muted)',
+  '--mloy-border:var(--c-border)',
+  '--mloy-card-bg:' + _cardBg,
+  '--mloy-card-text:' + _cardText,
+  '--mloy-card-accent:' + (d.card_text ? _cardText : (d.card_bg ? _cardText : _card.accent)),
+  '--mloy-title-font:var(--f-heading)',
+  '--mloy-title-size:clamp(1.6rem, 4vw, 2.2rem)',
+  'font-family:var(--f-body)',
+].join(';')
+const _max = d.container === 'wide' ? '1100px' : d.container === 'boxed' ? '780px' : '520px'
+const _pad = d.boxed_step ? ('var(--boxed-step-' + Number(d.boxed_step) + ')') : 'var(--boxed-pad, 24px)'
+const _bid = String(it.block.id || 'card').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40) || 'card'
+const _opts = {
+  slug: _slug, api: '/loyalty-api', titleTag: 'h2',
+  title: String(d.heading || '').trim(),
+  alwaysTitle: !!String(d.heading || '').trim(),
+  intro: String(d.intro || '').trim(),
+  parts: {
+    how: d.show_how !== false, stamps: d.show_stamps !== false, rewards: d.show_rewards !== false,
+    history: d.show_history !== false, settings: d.show_settings !== false, wallet: d.show_wallet !== false,
+  },
+}
+const _json = JSON.stringify(_opts).replace(/</g, '\\u003c')
+%>
+<% if (_l && _slug) { %>
+<section class="block block-loyalty-card" data-loyalty-card style="padding:40px 0;">
+  <div style="max-width:<%= _max %>; margin:0 auto; padding:0 <%= _pad %>;">
+    <div id="mloy-<%= _bid %>" style="<%~ _vars %>"><noscript>Your loyalty card needs JavaScript switched on.</noscript></div>
+  </div>
+</section>
+<script type="module">
+import { mountLoyalty } from '/loyalty-api/app.js'
+mountLoyalty(document.getElementById('mloy-<%= _bid %>'), <%~ _json %>)
+</script>
+<% } %>

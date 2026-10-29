@@ -33,6 +33,8 @@ const _aid = _cleanAnchor || _fallbackAnchor
   <%~ include('./promo_cta', it) %>
 <% } else if (t === 'loyalty_cta') { %>
   <%~ include('./loyalty_cta', it) %>
+<% } else if (t === 'loyalty_card') { %>
+  <%~ include('./loyalty_card', it) %>
 <% } else if (t === 'ai_chat') { %>
   <%~ include('./ai_chat', it) %>
 <% } else if (t === 'menu_inline') { %>

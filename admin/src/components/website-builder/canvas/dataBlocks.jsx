@@ -11,7 +11,9 @@
 // The previous shared DataPlaceholderCanvas has been replaced. Each
 // block now has its own canvas component registered in canvasRegistry.
 
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { qrSvg } from '@shared/qr.js'
 import { useApi } from '@/lib/api'
 import { ImageIcon, Clock, MapPin, Phone, BookOpen, AlertTriangle, Loader2, Calendar, ShoppingBag, BadgePercent, Star } from 'lucide-react'
 import { promoSummary, promoTerms, promoLink, promoRunning } from '@shared/promotions.js'
@@ -800,6 +802,124 @@ export function LoyaltyCtaCanvas({ data, onChange }) {
         <div style={{ ...box, textAlign: 'center' }}>
           <div style={card ? undefined : wrap}>{inner}</div>
         </div>
+      </div>
+    </section>
+  )
+}
+
+// ── Loyalty card ─────────────────────────────────────────
+// Mirrors blocks/loyalty_card.eta: the guest's card, drawn on the site by
+// /loyalty-api/app.js (api/src/assets/loyaltyApp.js). Here a sample shows
+// how it looks signed out and signed in (tap to switch).
+
+const SAMPLE_QR = qrSvg('MCRN-SAMPLE-CARD', { margin: 2, title: 'Sample card' })
+
+function hexLight(hex) {
+  if (!/^#[0-9a-fA-F]{6}$/.test(hex || '')) return false
+  const n = parseInt(hex.slice(1), 16)
+  return (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255 > 0.6
+}
+
+export function LoyaltyCardCanvas({ data }) {
+  const api = useApi()
+  const { data: res, isLoading } = useLoyaltyTeaser()
+  const { data: site } = useQuery({ queryKey: ['tenant-site'], queryFn: () => api.get('/website/tenant-site'), staleTime: 60_000 })
+  const [view, setView] = useState('out')
+  const t = res?.teaser || null
+  if (!t) {
+    return (
+      <section className="block" style={{ padding: '32px 0' }} data-testid="loyalty-card-canvas">
+        <EmptyPanel Icon={isLoading ? Loader2 : Star} title="Loyalty card"
+          hint={isLoading ? 'Loading the programme…' : 'Hidden on the website: switch loyalty and its web app on (Loyalty page, Programme).'} />
+      </section>
+    )
+  }
+  const colours = site?.theme?.colors || {}
+  const hexOf = v => (/^#[0-9a-fA-F]{6}$/.test(v || '') ? v : colours[v === 'background' ? 'background' : v] || (v === 'primary' ? '#630812' : null))
+  const accent = data.accent || 'primary'
+  const onAccent = hexLight(hexOf(accent)) ? '#111111' : '#ffffff'
+  const card = t.card || { background: '#1f2937', text: '#ffffff', accent: '#ffffff' }
+  const cardBg = data.card_bg ? promoColour(data.card_bg, card.background) : card.background
+  const cardText = data.card_text ? promoColour(data.card_text, card.text) : data.card_bg ? (hexLight(hexOf(data.card_bg)) ? '#111111' : '#ffffff') : card.text
+  const cardAccent = data.card_text || data.card_bg ? cardText : card.accent
+  const panel = promoColour(data.panel || 'surface', 'var(--c-surface)')
+  const btn = { display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 48, borderRadius: 10, background: promoColour(accent, 'var(--c-primary)'), color: onAccent, fontWeight: 600, fontSize: 15, marginTop: 14 }
+  const box = { background: panel, border: '1px solid var(--c-border)', borderRadius: 14, padding: 16, margin: '14px 0' }
+  const max = data.container === 'wide' ? 1100 : data.container === 'boxed' ? 780 : 520
+  const heading = (data.heading || '').trim()
+  const intro = (data.intro || '').trim()
+  const how = data.show_how !== false ? teaserText(t) : ''
+  const tabs = [['card', 'My card'], ...(data.show_history !== false ? [['h', 'History']] : []), ...(data.show_settings !== false ? [['s', 'Settings']] : [])]
+  return (
+    <section className="block" style={{ padding: '40px 0' }} data-testid="loyalty-card-canvas">
+      <div style={{ ...innerContainerStyle('boxed', data.boxed_step), maxWidth: max, fontFamily: 'var(--f-body)', color: 'var(--c-text)' }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginBottom: 6 }}>
+          {[['out', 'Signed out'], ['in', 'Signed in']].map(([k, l]) => (
+            <button key={k} type="button" onClick={() => setView(k)} aria-pressed={view === k} data-testid={'loyalty-card-view-' + k}
+              style={{ fontSize: 11, padding: '4px 10px', borderRadius: 999, border: '1px solid var(--c-border)', background: view === k ? 'var(--c-text)' : 'transparent', color: view === k ? 'var(--c-bg)' : 'inherit' }}>
+              {l}
+            </button>
+          ))}
+        </div>
+        {(view === 'out' || heading) && (
+          <h2 style={{ fontFamily: 'var(--f-heading)', fontSize: 'clamp(1.6rem, 4vw, 2.2rem)', margin: '12px 0 6px', color: 'inherit' }}>{heading || t.name}</h2>
+        )}
+        {view === 'out' ? (
+          <>
+            {intro ? <p style={{ color: 'var(--c-muted)', fontSize: 14 }}>{intro}</p> : how ? <p style={{ color: 'var(--c-muted)', fontSize: 14 }}>{how}</p> : null}
+            <div style={box}>
+              <div style={{ fontWeight: 700, fontSize: 17, marginBottom: 10 }}>Join or sign in</div>
+              <div style={{ color: 'var(--c-muted)', fontSize: 14 }}>We&apos;ll email you a 6-digit code. No password needed.</div>
+              <div style={{ fontWeight: 600, fontSize: 14, margin: '12px 0 6px' }}>Email</div>
+              <div style={{ minHeight: 48, border: '1px solid var(--c-border)', borderRadius: 10, background: '#fff' }} />
+              <div style={btn}>Send me a code</div>
+            </div>
+          </>
+        ) : (
+          <>
+            {tabs.length > 1 && (
+              <div style={{ display: 'flex', gap: 6, marginTop: 14 }}>
+                {tabs.map(([k, l]) => (
+                  <div key={k} style={{ ...btn, marginTop: 0, flex: 1, ...(k === 'card' ? {} : { background: 'transparent', color: 'inherit', border: '1px solid var(--c-border)' }) }}>{l}</div>
+                ))}
+              </div>
+            )}
+            <div style={{ background: cardBg, color: cardText, borderRadius: 18, padding: 18, margin: '14px 0', boxShadow: '0 6px 22px rgba(0,0,0,.12)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                <div><div style={{ fontSize: 11, letterSpacing: '.08em', textTransform: 'uppercase', color: cardAccent, fontWeight: 700 }}>Member</div><div style={{ fontSize: 18, fontWeight: 700 }}>Sam Sample</div></div>
+                {t.points && <div style={{ textAlign: 'right' }}><div style={{ fontSize: 11, letterSpacing: '.08em', textTransform: 'uppercase', color: cardAccent, fontWeight: 700 }}>{t.points.label}</div><div style={{ fontSize: 34, fontWeight: 800, lineHeight: 1.05 }}>120</div></div>}
+              </div>
+              <div style={{ background: '#fff', borderRadius: 12, padding: 10, margin: '16px auto 6px', width: 'min(240px, 70%)' }} dangerouslySetInnerHTML={{ __html: SAMPLE_QR }} />
+              <div style={{ textAlign: 'center', letterSpacing: 2, fontSize: 15, opacity: 0.9 }}>123 456 789</div>
+            </div>
+            {data.show_stamps !== false && t.stamp_cards.length > 0 && (
+              <div style={box}>
+                <div style={{ fontWeight: 700, fontSize: 17, marginBottom: 10 }}>Stamp cards</div>
+                {t.stamp_cards.slice(0, 2).map(c => (
+                  <div key={c.id} style={{ marginBottom: 8 }}>
+                    <strong>{c.name}</strong>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
+                      {Array.from({ length: Math.min(c.stamps_needed, 12) }, (_, i) => (
+                        <span key={i} style={{ width: 30, height: 30, borderRadius: '50%', border: '2px solid ' + promoColour(accent, 'var(--c-primary)'), background: i < 3 ? promoColour(accent, 'var(--c-primary)') : 'transparent' }} />
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {data.show_rewards !== false && t.rewards.length > 0 && (
+              <div style={box}>
+                <div style={{ fontWeight: 700, fontSize: 17, marginBottom: 10 }}>Rewards</div>
+                {t.rewards.slice(0, 3).map(r => (
+                  <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '8px 0', borderTop: '1px solid var(--c-border)' }}>
+                    <span><strong>{r.name}</strong><br /><span style={{ color: 'var(--c-muted)', fontSize: 14 }}>{r.summary}</span></span>
+                    <span style={{ fontSize: 12, fontWeight: 700 }}>{r.points_cost} {t.points ? t.points.label : 'points'}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
       </div>
     </section>
   )

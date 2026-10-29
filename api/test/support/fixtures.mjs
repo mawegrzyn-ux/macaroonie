@@ -263,6 +263,14 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx', loy
   await step('staging password', () => put('/api/website/tenant-site/staging-access', { password: slug + '-secret-1' }))
   await step('email template', () => post('/api/email-templates', { venue_id: V, type: 'confirmation', subject: mark + ' Thanks', body_html: '<p>' + mark + ' see you</p>' }))
   await step('website page', () => post('/api/website/pages', { venue_id: null, slug: slug + '-about', title: mark + ' About', kind: 'page', blocks: [] }))
+  // The built-in Loyalty page (migration 214): its blocks change like any page's.
+  const sitePages = await step('website pages', () => get('/api/website/pages?venue_id=tenant'))
+  const loyaltyPage = (sitePages || []).find(p => p.system_key === 'loyalty')
+  if (loyaltyPage) {
+    await step('loyalty page', () => patch('/api/website/pages/' + loyaltyPage.id, {
+      title: mark + ' Loyalty', blocks: [{ id: 'loy-card', type: 'loyalty_card', data: { heading: mark + ' Your card', show_history: false } }],
+    }))
+  }
   await step('review', () => post('/api/reviews', { venue_id: V, platform: 'google', reviewer_name: mark + ' Gus', rating: 4, review_text: mark + ' good' }))
   await step('promotion', () => post('/api/promotions', { name: mark + ' 10% off', kind: 'basket', discount_type: 'percent', discount_value: 10, apply_mode: 'auto' }))
   await step('issue', () => post('/api/issues', { title: mark + ' Printer jam', description: mark + ' jammed', category: 'incident', impact: 'low', urgency: 'low' }))

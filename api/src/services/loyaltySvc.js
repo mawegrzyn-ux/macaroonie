@@ -31,6 +31,7 @@ import { upsertCustomer } from '../routes/customers.js'
 import { sendEmail, emailCredentials } from './emailSvc.js'
 import { seal, unseal } from './vault.js'
 import { makeLink, readLink } from './previewLinks.js'
+import { cardColours } from './walletSvc.js'
 
 export const CODE_MINUTES = 15
 const MAX_ATTEMPTS = 5
@@ -900,6 +901,8 @@ export async function loyaltyTeaser(tx, tenantId) {
     rewards: forPoints.map(r => ({ id: r.id, name: r.name, summary: rewardSummary(r, names), points_cost: r.points_cost })),
     stamp_cards: cards.map(c => ({ id: c.id, name: c.name, stamps_needed: c.stamps_needed })),
     link: '/loyalty',
+    // The card's colours, for the Loyalty card block (blocks/loyalty_card.eta).
+    card: cardColours(s, (await tenantSite(tx, tenantId))?.colors || {}),
   }
 }
 

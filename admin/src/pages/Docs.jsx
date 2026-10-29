@@ -4859,9 +4859,10 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             />
             <H3>Ordering page and block (migration 126)</H3>
             <P>
-              <Mono>website_pages.system_key</Mono> (<Mono>'order'</Mono>, unique per tenant, tenant-level)
+              <Mono>website_pages.system_key</Mono> (<Mono>'order'</Mono>, unique per tenant, tenant-level; also{' '}
+              <Mono>'loyalty'</Mono> since migration 214, see Loyalty)
               marks the built-in ordering page. Migration 126 seeds one per tenant with a website;{' '}
-              <Mono>ensureTenantSite()</Mono> calls <Mono>ensureOrderPage()</Mono> for new sites. The
+              <Mono>ensureTenantSite()</Mono> calls <Mono>ensureSystemPages()</Mono> (<Mono>services/systemPages.js</Mono>) for new sites. The
               pages API ignores slug / kind / is_published changes on it and refuses to delete it,
               unpublish it or make it a modal (422). <Mono>publishSvc</Mono> includes{' '}
               <Mono>system_key</Mono> in the snapshot. The <Mono>online_ordering</Mono> block picks its
@@ -4981,7 +4982,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['POST /order-api/venues/:id/orders', "Place an order; returns token, status and the payment client action."],
                 ['GET /order-api/orders/:token; POST .../pay; POST .../payments/:id/confirm', "Guest status, retry, browser confirmation."],
                 ['/api/orders (admin)', "GET / (board: venue + day), GET /:id (events, payments), POST /:id/status | promised | mark-paid | refund, GET|PUT /settings/:venueId, POST /pause/:venueId (web_orders manage, no setup rights needed), GET|PUT /availability/:venueId[/:itemId], GET /report, GET /transactions[.csv] (see Transactions below), GET /gateways."],
-                ['Site', "/order (sole ordering venue, or a location picker) and /locations/:slug/order render the tenant's built-in ordering page (website_pages.system_key = 'order', migration 126) through page.eta, passing orderView/orderVenue(s); its online_ordering block (blocks/online_ordering.eta) includes shared/ordering.eta. Sites published before 126 use DEFAULT_ORDER_PAGE (services/orderPage.js) until republished. /p/<slug> of that page redirects to /order. /order/status/:token still renders each template's order.eta around shared/ordering.eta."],
+                ['Site', "/order (sole ordering venue, or a location picker) and /locations/:slug/order render the tenant's built-in ordering page (website_pages.system_key = 'order', migration 126) through page.eta, passing orderView/orderVenue(s); its online_ordering block (blocks/online_ordering.eta) includes shared/ordering.eta. Sites published before 126 use DEFAULT_ORDER_PAGE (services/systemPages.js) until republished. /p/<slug> of that page redirects to /order. /order/status/:token still renders each template's order.eta around shared/ordering.eta."],
               ]}
             />
             <H3>Admin</H3>
@@ -5230,13 +5231,20 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             </P>
             <H3>The guest web app and its API (routes/loyaltyApi.js, /loyalty-api)</H3>
             <P>
-              The page is <Mono>views/site/loyalty.eta</Mono> (vanilla JS, served by{' '}
-              <Mono>serveLoyaltyApp()</Mono> in <Mono>services/loyaltyPage.js</Mono> with its own manifest and a
-              small service worker) on two addresses: <Mono>/loyalty</Mono> on the tenant&apos;s site (subdomain or
-              verified custom domain, <Mono>siteRenderer.js</Mono>) and <Mono>loyalty.{'{root}'}/&lt;site slug&gt;</Mono>{' '}
-              (<Mono>routes/loyaltySite.js</Mono>, platform host kind <Mono>loyalty</Mono>, reserved subdomain). The
-              session is kept in <Mono>localStorage</Mono> <Mono>mcrn_loyalty_&lt;slug&gt;</Mono>; the ordering page
-              reads the same key, so one sign-in covers both on the tenant&apos;s site.
+              The guest&apos;s card, sign-in and join are one module, <Mono>api/src/assets/loyaltyApp.js</Mono>,
+              served as <Mono>/loyalty-api/app.js</Mono>: <Mono>mountLoyalty(el, opts)</Mono> draws into any element
+              (styles scoped to <Mono>.mloy</Mono>, coloured by <Mono>--mloy-*</Mono> variables the host sets; opts{' '}
+              <Mono>slug</Mono>, <Mono>title</Mono>, <Mono>alwaysTitle</Mono>, <Mono>intro</Mono>, <Mono>titleTag</Mono>,{' '}
+              <Mono>parts</Mono> {'{ how, stamps, rewards, history, settings, wallet }'}, <Mono>autofocus</Mono>). Two
+              hosts use it: the stand-alone web app <Mono>views/site/loyalty.eta</Mono> (served by{' '}
+              <Mono>serveLoyaltyApp()</Mono> in <Mono>services/loyaltyPage.js</Mono> with its own manifest and a small
+              service worker) at <Mono>loyalty.{'{root}'}/&lt;site slug&gt;</Mono> (<Mono>routes/loyaltySite.js</Mono>,
+              platform host kind <Mono>loyalty</Mono>, reserved subdomain), and the website&apos;s{' '}
+              <Mono>loyalty_card</Mono> block (below) on the built-in Loyalty page <Mono>/loyalty</Mono> or any page.
+              The session is kept in <Mono>localStorage</Mono> <Mono>mcrn_loyalty_&lt;slug&gt;</Mono>; the ordering page
+              reads the same key, so one sign-in covers both on the tenant&apos;s site. A sign-in or sign-out
+              dispatches <Mono>mcrn-loyalty-session</Mono> on <Mono>window</Mono> (and other tabs see the storage
+              event), so every card block and the ordering page on the page follow it.
             </P>
             <DataTable
               head={['Route', 'Does']}
@@ -5245,7 +5253,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['POST /t/:slug/code', 'Email a six-digit code (15 minutes; the reply is the same for members and others; at most 4 an hour per address, 6 a minute per IP).'],
                 ['POST /t/:slug/verify', 'A member gets { session, member }; anyone else a join ticket (30 minutes). Five wrong tries end the code.'],
                 ['POST /t/:slug/join', 'With the join ticket, a name and agreed: true (the words stored with the time), optional phone and newsletter: 201, welcome points.'],
-                ['GET /t/:slug/me, /me/rewards', 'The card (Authorization: Loyalty <session>): points, stamps, held rewards, history, the QR code.'],
+                ['GET /t/:slug/me, /me/rewards', 'The card (Authorization: Loyalty <session>): points, stamps, held rewards, history, the QR code. /me/rewards (the ordering page) also returns the member\'s name, email and phone to fill checkout.'],
+                ['GET /app.js, /qr.js', 'assets/loyaltyApp.js (the card for the web app and the Loyalty card block) and shared/qr.js. Public, cached 5 minutes.'],
                 ['PATCH /t/:slug/me, POST /me/new-card, GET /me/export, POST /me/delete, POST /me/signout', 'Their details and newsletter, a new card token, their data as JSON, erase themselves, sign out.'],
                 ['POST /t/:slug/me/wallet/apple, GET /pass/loyalty.pkpass', 'A signed link (15 minutes) to the member\'s .pkpass (applePass(): pass.json, icons drawn in the brand\'s colours, manifest, PKCS#7 signature by openssl, zipped without dependencies).'],
                 ['POST /t/:slug/me/wallet/google', 'The Add to Google Wallet link (googleSaveUrl(): a loyalty class and object in an RS256 JWT).'],
@@ -5283,6 +5292,42 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <P>
               Reward and stamp card dishes are kept only when they are the tenant&apos;s (another tenant&apos;s
               ids are dropped), and so is a stamp card&apos;s reward that isn&apos;t the tenant&apos;s.
+            </P>
+            <H3>The Loyalty page and the Loyalty card block (migration 214)</H3>
+            <P>
+              <Mono>website_pages.system_key</Mono> takes <Mono>'loyalty'</Mono> beside <Mono>'order'</Mono>: the
+              built-in Loyalty page, seeded for every site by migration 214 and by <Mono>ensureSystemPages()</Mono>{' '}
+              (<Mono>services/systemPages.js</Mono>, which replaced <Mono>orderPage.js</Mono>) for new ones, with one{' '}
+              <Mono>loyalty_card</Mono> block. <Mono>/loyalty</Mono> on the tenant&apos;s site renders it through{' '}
+              <Mono>page.eta</Mono> with <Mono>loyaltyPwa</Mono> (the head links <Mono>/loyalty/manifest.webmanifest</Mono>{' '}
+              and marks it noindex), 404 while <Mono>bundle.site_loyalty</Mono> is null; a snapshot from before 214
+              uses <Mono>DEFAULT_LOYALTY_PAGE</Mono>. The pages API guards it like the ordering page (no delete,
+              unpublish, modal or slug change, 422). Addresses of built-in pages come only from{' '}
+              <Mono>pagePath()</Mono> / <Mono>SYSTEM_PAGES</Mono> in <Mono>shared/sitePages.js</Mono> (site routes,
+              sitemap and llms.txt, LinkPicker, the Pages list); the sitemap leaves <Mono>/loyalty</Mono> out.
+            </P>
+            <P>
+              The block: <Mono>views/site/blocks/loyalty_card.eta</Mono> renders a container and a module script calling{' '}
+              <Mono>mountLoyalty()</Mono> with its options as JSON (<Mono>&lt;</Mono> escaped); nothing while{' '}
+              <Mono>site_loyalty</Mono> is null. Data: heading (blank: the programme name, signed out only; set:
+              also on the card, <Mono>alwaysTitle</Mono>), intro, show_how / show_stamps / show_rewards /
+              show_wallet / show_history / show_settings (on unless false), container narrow | boxed | wide,
+              boxed_step, accent (buttons) and panel (boxes) as theme roles or codes, card_bg / card_text (blank:
+              the programme&apos;s card colours, <Mono>loyaltyTeaser().card</Mono> from <Mono>cardColours()</Mono>).
+              Canvas <Mono>LoyaltyCardCanvas</Mono> in <Mono>canvas/dataBlocks.jsx</Mono> (a signed out / signed in
+              sample, its own QR code), editor <Mono>editors/LoyaltyCardEditor.jsx</Mono>.
+            </P>
+            <H3>Checkout: member or guest</H3>
+            <P>
+              In <Mono>views/site/shared/ordering.eta</Mono>, checkout with loyalty on (<Mono>data.loyalty</Mono>) and
+              nobody signed in starts with <Mono>whoHtml()</Mono> (Sign in or join, with what the order earns, or
+              Continue as a guest) and the order summary only. <Mono>loy.who</Mono> is <Mono>member</Mono> |{' '}
+              <Mono>guest</Mono> | null: a guest pick is kept in <Mono>sessionStorage</Mono>{' '}
+              <Mono>mcrn_order_who_&lt;slug&gt;</Mono> for the visit; member shows the sign-in steps (gated
+              <Mono> loyaltyHtml(q, true)</Mono> with Continue as a guest instead) until signed in; a session already
+              in <Mono>localStorage</Mono> skips the question. <Mono>loadLoyalty()</Mono> fills empty name, email and
+              phone from <Mono>/me/rewards</Mono> and remembers what it filled (<Mono>loy.filled</Mono>); sign out
+              clears those fields (unless the guest changed them) and asks again.
             </P>
             <H3>The Loyalty website block (loyalty_cta)</H3>
             <P>

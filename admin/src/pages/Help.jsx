@@ -3074,6 +3074,13 @@ export default function Help() {
               published and can&apos;t be deleted; switch ordering on or off in Online orders, Setup.
               The Online ordering block can also go on another page (one per page).
             </P>
+            <P>
+              The list also always includes <strong>Loyalty</strong>, your loyalty page at{' '}
+              <Mono>/loyalty</Mono> (marked <em>Loyalty</em>), holding the <strong>Loyalty card</strong>{' '}
+              block where guests join, sign in and see their card. It works the same way: rename it and
+              design around the block, but it stays at <Mono>/loyalty</Mono>, stays published and
+              can&apos;t be deleted. See Loyalty, The Loyalty page on your website.
+            </P>
 
             <H3>SEO &amp; Analytics</H3>
             <P>
@@ -4444,7 +4451,8 @@ export default function Help() {
 
             <H3>How guests join and sign in</H3>
             <P>
-              The web app is at <Mono>/loyalty</Mono> on your website, and also at{' '}
+              Guests use their card on your website&apos;s <strong>Loyalty</strong> page,{' '}
+              <Mono>/loyalty</Mono>, and on the loyalty web app at{' '}
               <Mono>loyalty.macaroonie.com/your-web-address</Mono>. Set up your website address first
               (Website, Domain). The Overview tab shows both links. Guests type their email and get a
               six-digit code that works for 15 minutes; there is no password. A new guest then gives a
@@ -4498,10 +4506,43 @@ export default function Help() {
 
             <H3>Loyalty in online ordering</H3>
             <P>
-              At checkout, the panel with your programme&apos;s name offers <strong>Sign in or join</strong>{' '}
-              with the same emailed code as the web app (a guest signed in on the web app is signed in
-              here too). Signed in, they see their points and what the order earns, and can tap{' '}
-              <strong>Use</strong> on their rewards.
+              At checkout, guests first choose <strong>How would you like to order?</strong>:{' '}
+              <strong>Sign in or join</strong> your programme (it says what the order earns) or{' '}
+              <strong>Continue as a guest</strong>. The rest of checkout shows once they have chosen.
+              Members sign in with the same emailed code as the web app, or join there and then; their
+              name, email and phone fill in Your details. Signed in, they see their points and what the
+              order earns, and can tap <strong>Use</strong> on their rewards. A guest who chose to order as
+              a guest isn&apos;t asked again on that visit and can still tap{' '}
+              <strong>Sign in or join instead</strong>. A guest already signed in on your website or the
+              web app skips the question. <strong>Not you? Sign out</strong> clears the details the card
+              filled in and asks again.
+            </P>
+
+            <H3>The Loyalty page on your website</H3>
+            <P>
+              Website, <strong>Pages &amp; modals</strong> always lists <strong>Loyalty</strong>, your
+              loyalty page at <Mono>/loyalty</Mono> (marked <em>Loyalty</em>), the address on receipts,
+              kiosks and wallet cards. Design it like any other page: it holds the{' '}
+              <strong>Loyalty card</strong> block, and you can add a heading, text or photos around it.
+              You can rename it, but it always stays at <Mono>/loyalty</Mono>, stays published and
+              can&apos;t be deleted. It shows only while loyalty and its web app are switched on; at other
+              times the address says loyalty isn&apos;t open.
+            </P>
+
+            <H3>The Loyalty card block</H3>
+            <P>
+              The <strong>Loyalty card</strong> block is the guest&apos;s own card on your website.
+              Signed out, it shows the programme&apos;s name, how points and stamps are earned and the
+              email sign-in or join. Signed in, it shows their QR card with their points and member
+              number, stamp cards, rewards, wallet buttons, and the History and Settings tabs. It is on
+              the Loyalty page and can go on any other page too. In its settings you can set a heading
+              (blank: the programme&apos;s name, shown until they sign in; a heading of your own shows on
+              the card too), the words above the sign-in, which parts show (How it works, Stamp cards,
+              Rewards, Wallet buttons, History tab, Settings tab), the width (Narrow, Boxed, Wide), the
+              button and box colours, and the card&apos;s colours (blank: the ones set in Programme). In
+              the builder, tap <strong>Signed out</strong> or <strong>Signed in</strong> above the
+              block to see a sample of each. Signing in on one block (or at checkout) signs the guest in
+              on every block on that browser.
             </P>
 
             <H3>The Loyalty website block</H3>
