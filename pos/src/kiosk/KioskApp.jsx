@@ -24,6 +24,7 @@ import { Basket, Details, Pay, Card, Placing, Done, Failed } from './Checkout.js
 import { cx, Sheet } from './parts.jsx'
 import { useKioskViewport, useKioskBox, screenZoom } from './viewport.js'
 import { useJourneyState, startJourneys, listenForReplay, useReplayBox } from './journey.js'
+import { pullTimes, pullText } from '@shared/pos/pullTimes.js'
 import './kiosk.css'
 
 const IDLE_FREE = new Set(['start', 'done', 'placing'])
@@ -135,6 +136,11 @@ function videosText(v) {
 // When the menu, prices and sold out were last asked for (lib/livePull.js).
 const clock = t => (t ? new Date(t).toLocaleTimeString('en-GB') : 'not yet')
 const checkedText = c => 'Prices and sold out ' + clock(c?.live) + ', whole menu ' + clock(c?.content)
+// How often this kiosk asks (Store tech, Device updates).
+const pullLine = pull => {
+  const t = pullTimes(pull)
+  return (t.live ? 'Prices every ' + pullText(t.live) : 'Prices only when told') + ', menu every ' + pullText(t.content)
+}
 
 // The screen as the browser reports it, against the design's (viewport.js):
 // the zoom it gets and whether bars keep the design's shape.
@@ -174,6 +180,7 @@ function StaffPanel({ s, box, onClose }) {
           <span className="k-muted">Pictures on this kiosk</span><span data-testid="k-staff-photos">{photosText(s.photos)}</span>
           <span className="k-muted">Videos on this kiosk</span><span data-testid="k-staff-videos">{videosText(s.videos)}</span>
           <span className="k-muted">Last checked</span><span data-testid="k-staff-checked">{checkedText(s.checked)}</span>
+          <span className="k-muted">Checks for changes</span><span data-testid="k-staff-pull">{pullLine(c?.pull)}</span>
           <span className="k-muted">Orders waiting to send</span><span>{s.outbox.length}</span>
           <span className="k-muted">Menu version</span><span>{c?.version}</span>
         </div>

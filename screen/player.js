@@ -37,8 +37,16 @@ import { qrSvg } from '/lib/qr.js'
 const APP_VERSION = '1.4.0'
 const PLAYER_VERSION = document.querySelector('meta[name="player-version"]')?.content || ''
 const KEYS = { device: 'mcrn_screen_device', config: 'mcrn_screen_config', pairing: 'mcrn_screen_pairing', reloaded: 'mcrn_screen_reloaded_at' }
-const POLL_MS = 60_000
+// How often to ask for changes (pushes do most of it): the location's times
+// from the config (Store tech, Device updates, migration 216), else these.
+const PULL_DEFAULT = { screen: 60, board: 15 }
+const PULL_LIMITS = { screen: [30, 3600], board: [5, 300] }
 const HEARTBEAT_MS = 60_000
+// Inside the Macaroonie Android app (android-app/), a WebView with a bridge.
+const IN_APP = typeof window !== 'undefined' && !!window.ReactNativeWebView
+function tellApp(msg) {
+  try { window.ReactNativeWebView?.postMessage(JSON.stringify(msg)); return true } catch { return false }
+}
 const PAIR_POLL_MS = 3_000
 
 const stage = document.getElementById('stage')
@@ -200,9 +208,15 @@ function showCode(p) {
         '<p>Or in the admin: <strong>Screens</strong>, <strong>Add screen</strong>, and type this code.</p>' +
       '</div>' +
     '</div>' +
-    '<p class="small">Screen ' + Math.round(info.width * info.dpr) + ' x ' + Math.round(info.height * info.dpr) + ' · code changes in about ' + Math.max(1, left) + ' min</p>'
+    '<p class="small">Screen ' + Math.round(info.width * info.dpr) + ' x ' + Math.round(info.height * info.dpr) + ' · code changes in about ' + Math.max(1, left) + ' min</p>' +
+    (IN_APP ? '<p><button class="app-choose" data-app-choose>Change device type</button></p>' : '')
   )
 }
+
+// The Macaroonie Android app's question again, from the pairing screen.
+document.addEventListener('click', e => {
+  if (e.target.closest?.('[data-app-choose]')) tellApp({ type: 'macaroonie:choose-app' })
+})
 
 async function pollPairing(p) {
   clearTimeout(pairTimer)
@@ -247,13 +261,13 @@ let videoTimer = null
 let ws = null
 let wsTimer = null
 // Order numbers for Order status blocks (config.needs_orders): fetched on
-// start, on a kitchen.board push and every ORDERS_MS as a check.
+// start, on a kitchen.board push and every config.pull.board seconds as a check.
 let orders = null
 let orderMoves = []
 let movesTimer = null
 let ordersTimer = null
 let ordersSoon = null
-const ORDERS_MS = 15_000
+let pullKey = null
 let wsDelay = 2000
 let wsOpenedBefore = false
 
@@ -262,13 +276,33 @@ function startPaired() {
   syncClock().then(() => { if (config) schedule() })
   fetchConfig()
   connect()
-  clearInterval(pollTimer); pollTimer = setInterval(fetchConfig, POLL_MS)
+  setPullTimers(true)
   clearInterval(beatTimer); beatTimer = setInterval(heartbeat, HEARTBEAT_MS)
   clearInterval(tickTimer); tickTimer = setInterval(tick, 5000)
   clearInterval(clockTimer); clockTimer = setInterval(syncClock, 10 * 60_000)
   clearInterval(videoTimer); videoTimer = setInterval(syncVideos, 1000)
-  clearInterval(ordersTimer); ordersTimer = setInterval(fetchOrders, ORDERS_MS)
   setTimeout(heartbeat, 5000)
+}
+
+// The two pull times in ms from the config, within their limits.
+function pullEvery() {
+  const out = {}
+  for (const k of Object.keys(PULL_DEFAULT)) {
+    const v = Math.round(Number(config?.pull?.[k]))
+    const [min, max] = PULL_LIMITS[k]
+    out[k] = (Number.isFinite(v) && v > 0 ? Math.min(max, Math.max(min, v)) : PULL_DEFAULT[k]) * 1000
+  }
+  return out
+}
+
+// (Re)start the config and order number pulls when their times changed.
+function setPullTimers(force) {
+  const every = pullEvery()
+  const key = every.screen + '/' + every.board
+  if (!force && key === pullKey) return
+  pullKey = key
+  clearInterval(pollTimer); pollTimer = setInterval(fetchConfig, every.screen)
+  clearInterval(ordersTimer); ordersTimer = setInterval(fetchOrders, every.board)
 }
 
 function stopPaired() {
@@ -422,6 +456,7 @@ async function fetchOrders() {
 
 function applyConfig() {
   hidePanel()
+  if (pollTimer) setPullTimers()
   if (config.needs_orders && !orders) fetchOrders()
   fontsFor(Object.values(config.designs || {}))
   cacheVideos()
@@ -748,6 +783,12 @@ function countTap() {
   return true
 }
 
+function secsText(n) {
+  if (n < 60) return n + ' seconds'
+  const m = Math.round(n / 60)
+  return m + (m === 1 ? ' minute' : ' minutes')
+}
+
 function openSettings(confirm = false) {
   if (!device) return
   const s = config?.screen || {}
@@ -757,6 +798,7 @@ function openSettings(confirm = false) {
     ['Venue', config?.venue?.name || ''],
     ['Showing', showing?.name || 'Nothing'],
     ['Connection', online ? 'Online' : 'Offline'],
+    ['Checks for changes', 'every ' + secsText(pullEvery().screen / 1000) + (config?.needs_orders ? ', order numbers every ' + secsText(pullEvery().board / 1000) : '')],
     ['Player', APP_VERSION],
   ]
   settingsEl.querySelector('.box').innerHTML =
@@ -765,7 +807,10 @@ function openSettings(confirm = false) {
     (confirm
       ? '<p class="note"><b>Disconnect this screen?</b> It stops showing boards and shows a new code. In Macaroonie, Screens keeps its name and boards: use New device for this screen to link it again.</p>' +
         '<div class="row"><button data-act="disconnect" class="bad">Yes, disconnect</button><button data-act="back">Cancel</button></div>'
-      : '<div class="row"><button data-act="close">Close</button><button data-act="reload">Reload</button><button data-act="ask" class="bad">Disconnect this screen</button></div>')
+      : '<div class="row"><button data-act="close">Close</button><button data-act="reload">Reload</button>' +
+        // In the Macaroonie Android app: back to its What is this device? question.
+        (IN_APP ? '<button data-act="app">Change device type</button>' : '') +
+        '<button data-act="ask" class="bad">Disconnect this screen</button></div>')
   settingsEl.classList.add('on')
   settingsEl.querySelector('button')?.focus()
   armSettingsTimer()
@@ -796,6 +841,7 @@ settingsEl.addEventListener('click', e => {
   else if (act === 'ask') openSettings(true)
   else if (act === 'back') openSettings(false)
   else if (act === 'disconnect') disconnectScreen()
+  else if (act === 'app') { closeSettings(); tellApp({ type: 'macaroonie:choose-app' }) }
   else if (e.target === settingsEl) closeSettings()
 })
 document.addEventListener('keydown', e => {

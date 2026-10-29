@@ -77,6 +77,7 @@ import {
   SHARE_MODES, RUSH_COUNT_MAX,
 } from '../../../shared/pos/kitchen.js'
 import { KITCHEN_COLOUR_KEYS, SECTION_COLOURS_MAX, normaliseKitchenColours } from '../../../shared/pos/kitchenColours.js'
+import { PULL_TIMES } from '../../../shared/pos/pullTimes.js'
 import { deviceOrigin, installerOrigin } from '../services/platformHost.js'
 import { linkCodeHash } from '../services/linkCodes.js'
 import { hubRelease } from '../services/hubRelease.js'
@@ -113,6 +114,14 @@ async function kiosksChanged(tx, tenantId) {
   for (const r of rows) configChanged(r.venue_id)
 }
 
+// How often the location's devices ask for changes (migration 216,
+// shared/pos/pullTimes.js): seconds, within each one's limits.
+const PULL_FIELD = Object.fromEntries(PULL_TIMES.map(d => [d.key,
+  z.number().int().refine(v => (d.canBeOff && v === 0) || (v >= d.min && v <= d.max),
+    { message: d.label + ': between ' + d.min + ' and ' + d.max + ' seconds' + (d.canBeOff ? ', or 0 for off' : '') }).optional()]))
+const PullBody = z.object(PULL_FIELD)
+const pullColumns = pull => Object.fromEntries(PULL_TIMES.filter(d => pull[d.key] != null).map(d => [d.column, pull[d.key]]))
+
 const SettingsBody = z.object({
   day_starts_at:             TIME.optional(),
   vat_number:                z.string().max(40).nullable().optional(),
@@ -142,6 +151,7 @@ const SettingsBody = z.object({
     states:   z.record(z.enum(KITCHEN_COLOUR_KEYS), HEX_COLOUR).default({}),
     sections: z.array(z.object({ name: z.string().trim().min(1).max(80), colour: HEX_COLOUR })).max(SECTION_COLOURS_MAX).default([]),
   }).optional(),
+  pull:                      PullBody.optional(),
 })
 
 // Ask for a customer name / tent number when the order type is picked:
@@ -771,6 +781,8 @@ export default async function posSetupRoutes(app) {
         set.kds_gloriafood_types = tx.json(body.kds_gloriafood_types)
       }
       if (body.kds_colours) set.kds_colours = tx.json(normaliseKitchenColours(body.kds_colours))
+      delete set.pull
+      if (body.pull) Object.assign(set, pullColumns(body.pull))
       const keys = Object.keys(set)
       const [row] = await tx`
         UPDATE pos_settings SET ${tx(set, ...keys)}
@@ -779,7 +791,30 @@ export default async function posSetupRoutes(app) {
       return settingsView(row)
     })
     configChanged(venueId)
+    // Menu screens read their pull times from their config too.
+    if (body.pull) broadcast('screens:' + venueId, { type: 'screens.changed' })
     return out
+  })
+
+  // The same pull times at every location of the group (Device updates →
+  // Use these at every location).
+  app.post('/pull-times/everywhere', { preHandler: canSetup }, async req => {
+    const pull = PullBody.parse(req.body?.pull || {})
+    const cols = pullColumns(pull)
+    if (!Object.keys(cols).length) throw httpError(400, 'Nothing to copy')
+    const venues = await withTenant(req.tenantId, async tx => {
+      const rows = await tx`SELECT id FROM venues WHERE tenant_id = ${req.tenantId} ORDER BY name`
+      for (const v of rows) {
+        await ensureSettings(tx, req.tenantId, v.id)
+        await tx`UPDATE pos_settings SET ${tx({ ...cols, updated_at: new Date() })} WHERE venue_id = ${v.id} AND tenant_id = ${req.tenantId}`
+      }
+      return rows
+    })
+    for (const v of venues) {
+      configChanged(v.id)
+      broadcast('screens:' + v.id, { type: 'screens.changed' })
+    }
+    return { venues: venues.length }
   })
 
   // ── Revenue streams ─────────────────────────────────────────────

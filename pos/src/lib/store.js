@@ -25,7 +25,7 @@ import { printTickets } from './print.js'
 import { startDevicePrinting, hasOwnPrinter } from './devicePrint.js'
 import { checkForUpdate } from './appUpdate.js'
 import { HOST_APP, takePairCode, movedTo, setMovedTo, moveDevice, tellDisconnect } from './appHost.js'
-import { withLive, pricesChanged, keepStorage, CONTENT_EVERY_MS, LIVE_EVERY_MS } from './livePull.js'
+import { withLive, pricesChanged, keepStorage, createPullTimers } from './livePull.js'
 
 const OUTBOX_KEY = 'outbox'
 // v170: checks gained order types and revenue streams (migration 170); an older snapshot is dropped and pulled again.
@@ -308,6 +308,7 @@ export async function loadConfig() {
     if (!res.unchanged) {
       await idb.set(CONFIG_KEY, res)
       setState({ config: res, online: true })
+      pulls?.check()
       // Someone signed in whose role or PIN changed: refresh them.
       if (state.staff) {
         const s = res.staff.find(x => x.id === state.staff.id)
@@ -333,7 +334,7 @@ async function applyLive(reply, opts) {
 }
 
 /**
- * Prices and sold out (every LIVE_EVERY_MS, lib/livePull.js): sold out
+ * Prices and sold out (every config.pull.live, lib/livePull.js): sold out
  * changes in place; a new prices stamp fetches the config with the new prices.
  */
 export async function pullLive() {
@@ -726,8 +727,7 @@ function tick() {
 }
 
 let started = false
-let contentTimer = null
-let liveTimer = null
+let pulls = null
 export function startSync() {
   if (started) return
   started = true
@@ -744,9 +744,8 @@ export function startSync() {
   loop()
   // Pushes bring changes at once; the till asks as well, so it never
   // depends on them: the whole config every few minutes, prices and sold
-  // out every 30 s.
-  contentTimer = setInterval(loadConfig, CONTENT_EVERY_MS)
-  liveTimer = setInterval(pullLive, LIVE_EVERY_MS)
+  // out more often (the location's times, config.pull).
+  pulls = createPullTimers(() => state.config, { content: loadConfig, live: pullLive })
   tick()
 }
 function stopSync() {
@@ -754,8 +753,8 @@ function stopSync() {
   devicePrinting?.stop()
   devicePrinting = null
   clearTimeout(pollTimer)
-  clearInterval(contentTimer)
-  clearInterval(liveTimer)
+  pulls?.stop()
+  pulls = null
   try { socket?.close() } catch { /* ignore */ }
   socket = null
 }

@@ -3,21 +3,67 @@
 // (IndexedDB), so it opens with its menu straight away, with the internet
 // down too; then it asks:
 //
-//   the whole config  every CONTENT_EVERY_MS (GET /pos-api/config?version=,
+//   the whole config  every `content` (GET /pos-api/config?version=,
 //                     answered "unchanged" when nothing changed), and at once
 //                     on a pos.config push
-//   prices and sold   every LIVE_EVERY_MS on a till or kiosk (GET /pos-api/live:
-//   out               { sold_out, prices }). Dishes sold out change in place;
-//                     a prices stamp other than the config's means prices
-//                     changed (a menu published, a scheduled one gone live, an
-//                     option or a promotion changed): the device fetches the config.
+//   prices and sold   every `live` on a till or kiosk (GET /pos-api/live:
+//   out               { sold_out, prices }), unless the location turned it
+//                     off. Dishes sold out change in place; a prices stamp
+//                     other than the config's means prices changed (a menu
+//                     published, a scheduled one gone live, an option or a
+//                     promotion changed): the device fetches the config.
 //
-// Sold out and the prices stamp aren't in the config's version (liveFields()
-// in api/src/services/posSvc.js), and every config reply carries them, an
-// unchanged one too.
+// The times are the location's (Store tech -> Device updates, migration 216),
+// in every config as `pull`; shared/pos/pullTimes.js has the defaults used
+// until a config says otherwise. Sold out and the prices stamp aren't in the
+// config's version (liveFields() in api/src/services/posSvc.js), and every
+// config reply carries them, an unchanged one too.
 
-export const CONTENT_EVERY_MS = 3 * 60 * 1000
-export const LIVE_EVERY_MS = 30 * 1000
+import { pullMs } from '@shared/pos/pullTimes.js'
+
+// A pull that is off is looked at again this often, in case it is turned on.
+const OFF_RECHECK_MS = 60 * 1000
+
+/**
+ * Timers for a device's pulls. `tasks` maps a pull's key (content, live) to
+ * the function that asks; each runs, then waits as long as the current
+ * config's `pull` says (read again every time). Call check() after a new
+ * config: when its times differ from the ones the timers were set with, they
+ * start again with the new times (so a change from 30 minutes to 3 doesn't
+ * wait out the 30). stop() ends them.
+ */
+export function createPullTimers(getConfig, tasks) {
+  const timers = {}
+  let key = null
+  let stopped = false
+  const msOf = name => pullMs(getConfig()?.pull)[name]
+  const schedule = name => {
+    clearTimeout(timers[name])
+    if (stopped) return
+    const ms = msOf(name)
+    timers[name] = setTimeout(async () => {
+      if (ms != null) { try { await tasks[name]() } catch { /* the task shows its own error */ } }
+      schedule(name)
+    }, ms ?? OFF_RECHECK_MS)
+  }
+  const start = () => {
+    key = JSON.stringify(pullMs(getConfig()?.pull))
+    for (const name of Object.keys(tasks)) schedule(name)
+  }
+  start()
+  return {
+    check() {
+      if (stopped || JSON.stringify(pullMs(getConfig()?.pull)) === key) return
+      start()
+    },
+    stop() {
+      stopped = true
+      for (const t of Object.values(timers)) clearTimeout(t)
+    },
+    /** What each pull waits now, in ms (null = off), for the settings panels. */
+    times: () => pullMs(getConfig()?.pull),
+  }
+}
 
 const sameList = (a, b) => JSON.stringify(a || []) === JSON.stringify(b || [])
 

@@ -13,7 +13,7 @@
 import { useParams, useSearchParams, Navigate } from 'react-router-dom'
 import {
   Loader2, MonitorSmartphone, Waypoints, ListOrdered, Printer, ReceiptText, CreditCard, CookingPot,
-  TabletSmartphone, KeyRound, ShieldCheck, UtensilsCrossed, Receipt, ArrowRightLeft,
+  TabletSmartphone, KeyRound, ShieldCheck, UtensilsCrossed, Receipt, ArrowRightLeft, RefreshCw,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { usePermission } from '@/hooks/usePermission'
@@ -31,6 +31,7 @@ import StaffSection from '@/components/pos/StaffSection'
 import RolesSection from '@/components/pos/RolesSection'
 import CoursesSection from '@/components/pos/CoursesSection'
 import { ReceiptSettingsSection, ReconSection } from '@/components/pos/SettingsSection'
+import { DeviceUpdatesSection } from '@/components/pos/DeviceUpdatesSection'
 
 // The keys are the page addresses (/pos/tills ...): the main menu (ROUTE_CATALOG
 // in api/src/routes/nav.js, DEFAULT_NAV_TREE) links to each one.
@@ -41,6 +42,7 @@ export const TABS = [
   { key: 'printers', label: 'Printers', icon: Printer, render: p => <PrintersSection {...p} /> },
   { key: 'printing', label: 'Printing', icon: ReceiptText, render: p => <PrintingSection {...p} /> },
   { key: 'cards', label: 'Card machines', icon: CreditCard, render: p => <CardMachinesSection {...p} /> },
+  { key: 'updates', label: 'Device updates', icon: RefreshCw, render: p => <DeviceUpdatesSection {...p} /> },
   { key: 'kitchen', label: 'Kitchen screens', icon: CookingPot, wide: true, render: p => <KitchenSection {...p} /> },
   { key: 'kiosks', label: 'Kiosks', icon: TabletSmartphone, render: p => <KiosksSection {...p} /> },
   { key: 'staff', label: 'Staff and PINs', icon: KeyRound, render: p => <StaffSection {...p} /> },

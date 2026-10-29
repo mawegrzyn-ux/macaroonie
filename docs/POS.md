@@ -424,8 +424,14 @@ reconnecting). So tills, kiosks and kitchen screens also ask, on timers in `pos/
 
 | What | How often | Route | Effect |
 |---|---|---|---|
-| The whole config | every 3 minutes (`CONTENT_EVERY_MS`), and on a push | `GET /pos-api/config?version=` | "unchanged" costs one reply; anything else is downloaded and kept on the device |
-| Prices and sold out (till, kiosk) | every 30 s (`LIVE_EVERY_MS`) | `GET /pos-api/live` -> `{ sold_out, prices }` | sold out changes in place; a new prices stamp fetches the config |
+| The whole config | standard every 3 minutes (`pull.content`), and on a push | `GET /pos-api/config?version=` | "unchanged" costs one reply; anything else is downloaded and kept on the device |
+| Prices and sold out (till, kiosk) | standard every 30 s (`pull.live`, can be off) | `GET /pos-api/live` -> `{ sold_out, prices }` | sold out changes in place; a new prices stamp fetches the config |
+| A menu screen's boards | standard every minute (`pull.screen`) | `GET /screen-api/config?version=` | as the whole config |
+| Order ready board numbers | standard every 15 s (`pull.board`) | `GET /screen-api/orders` | redrawn |
+
+The times are the location's (migration 216, Store tech -> Device updates; `shared/pos/pullTimes.js`
+has the limits and the defaults), carried in every device config as `pull`. `createPullTimers()`
+reads them before every wait and starts again when a new config brings other times.
 
 `liveFields()` (`services/posSvc.js`) works out both: the venue's sold out rows now, and a stamp
 over the tenant's live menu releases (so a scheduled publish changes it the moment it goes live,

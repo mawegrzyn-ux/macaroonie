@@ -4046,7 +4046,7 @@ export default function Help() {
               back</strong>, or <strong>Back on sale</strong>. It changes the till, online ordering, the
               Online orders board and the screens at once. Till roles need <strong>Mark dishes sold
               out</strong> (Supervisor and Manager have it), or a manager types their PIN. It needs the
-              till to be online. Tills and kiosks also check what is sold out every 30 seconds, so one
+              till to be online. Tills and kiosks also check what is sold out every 30 seconds (or as set in Store tech, Device updates), so one
               that missed the change catches up within half a minute.
             </P>
             <InfoBox type="tip">
@@ -5680,6 +5680,32 @@ export default function Help() {
                 ['Kitchen', 'Speed of service from the kitchen screens: per station, tickets, dishes, average, middle and slowest times, how many were on time and late, the average by hour, and every remake with its reason. Download CSV for every bump and remake.'],
               ]}
             />
+
+            <H3>Device updates</H3>
+            <P>
+              Store tech, <strong>Device updates</strong> sets how often this location&apos;s tills, kiosks, kitchen
+              screens and menu screens ask Macaroonie for changes. They are told about a change the moment you
+              save it (a menu published, a dish sold out, a setting); asking now and then is only a safety net for
+              a device that missed being told. Asking less often eases the load on the server and on a weak
+              connection; a change a device missed then takes longer to show.
+            </P>
+            <DataTable
+              head={['Time', 'Which devices', 'Standard']}
+              rows={[
+                ['Menus, pictures and settings', 'Tills, kiosks and kitchen screens', 'Every 3 minutes'],
+                ['Prices and sold out', 'Tills and kiosks (Off: only when they are told, and with the menu)', 'Every 30 seconds'],
+                ['Menu screen boards', 'Menu screens', 'Every minute'],
+                ['Order ready board numbers', 'Menu screens showing order numbers', 'Every 15 seconds'],
+              ]}
+            />
+            <P>
+              Start from <strong>Standard</strong>, <strong>Less often</strong> (about a quarter of the asks) or{' '}
+              <strong>Least often</strong>, or pick each time yourself, then <strong>Save</strong>. The box under
+              the times says roughly how many times an hour this location&apos;s devices ask, before and after
+              your change. <strong>Use these at every location</strong> copies the saved times to every location of
+              the group (it asks first). Devices pick the new times up straight away when they are online. Orders,
+              payments and kitchen taps are never held back by these times: they go at once.
+            </P>
           </section>
 
           {/* ── KITCHEN SCREENS ─────────────────────────────── */}
@@ -6032,7 +6058,7 @@ export default function Help() {
               <li>Without the internet the kiosk stops taking new orders. A card order already paid when the internet goes is kept on the kiosk and sent when it's back; the guest gets the kiosk's own number (KS1-0012) to show at the counter.</li>
               <li>The kiosk notices a lost connection within seconds (within about half a minute when the shop's router loses the internet but the Wi-Fi stays up). It tries twice more straight away, so a short blip doesn't pause ordering; only then does the start screen say ordering is paused. It then tries every few seconds and opens ordering again as soon as it gets through.</li>
               <li>Every picture on the menu (dishes, sections, choices, banners, the logo) is kept on the kiosk after each menu change, and so are the design&apos;s videos (start screen and reach band), so the kiosk opens with its menu, pictures and videos straight away and a guest already ordering when the internet goes still sees them all. A video the design stops playing is deleted from the kiosk.</li>
-              <li>The kiosk checks for prices and sold out dishes every 30 seconds and for the whole menu and design every 3 minutes, as well as hearing about changes straight away (see Keeping tablets up to date in Android app).</li>
+              <li>The kiosk checks for prices and sold out dishes every 30 seconds and for the whole menu and design every 3 minutes (Store tech, Device updates, can change both), as well as hearing about changes straight away (see Keeping tablets up to date in Android app).</li>
               <li>The staff panel (five quick taps in the top-left corner of the start screen) shows the connection (Online, Checking or Offline), how many of the menu&apos;s pictures and the design&apos;s videos are saved on the kiosk, and when it last checked prices and sold out and the whole menu.</li>
             </ul>
 
@@ -6171,9 +6197,9 @@ export default function Help() {
           <section id="android-app" data-help="">
             <H2>Android app</H2>
             <P>
-              The <strong>Macaroonie</strong> Android app runs a till, a kitchen screen or a self-order kiosk on an
-              Android tablet. It opens the same apps as Chrome does at pos., kitchen. and kiosk.macaroonie.com,
-              but straight away and full screen: no address bar, no Android bars at the top or bottom, the screen
+              The <strong>Macaroonie</strong> Android app runs a till, a kitchen screen, a self-order kiosk or a
+              menu screen on an Android tablet, TV box or smart TV. It opens the same apps as Chrome does at pos.,
+              kitchen., kiosk. and screens.macaroonie.com, but straight away and full screen: no address bar, no Android bars at the top or bottom, the screen
               stays on and the back button does nothing, so staff and guests can&apos;t leave it by accident. The
               apps inside it update themselves like the web pages do; the app itself rarely needs updating.
             </P>
@@ -6193,8 +6219,8 @@ export default function Help() {
             <H3>Setting up a tablet with the app</H3>
             <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
               <li>Install the app on the tablet (above).</li>
-              <li>Open it and pick what the tablet is: <strong>Till</strong>, <strong>Kitchen screen</strong> or <strong>Self-order kiosk</strong>.</li>
-              <li>It shows a six-letter code and a QR code. Link it as any other device: scan the QR code with your phone (the installer app), or type the code in Store tech (<strong>Add a till</strong>, <strong>Add a screen</strong>, <strong>Add a kiosk</strong>).</li>
+              <li>Open it and pick what the tablet is: <strong>Till</strong>, <strong>Kitchen screen</strong>, <strong>Self-order kiosk</strong> or <strong>Menu screen</strong>.</li>
+              <li>It shows a six-letter code and a QR code. Link it as any other device: scan the QR code with your phone (the installer app), or type the code in Store tech (<strong>Add a till</strong>, <strong>Add a screen</strong>, <strong>Add a kiosk</strong>) or, for a menu screen, on the Screens page (<strong>Add screen</strong>).</li>
               <li>From then on the tablet opens that app every time it starts.</li>
             </ol>
 
@@ -6206,11 +6232,13 @@ export default function Help() {
             </P>
             <ul className="list-disc ml-5 space-y-2 text-sm text-muted-foreground mb-4">
               <li><strong>Straight away</strong>: the tablet is told as soon as you save something it shows (a menu published, a dish sold out, a setting in Store tech).</li>
-              <li><strong>By checking</strong>, in case it missed being told: tills and kiosks check prices and sold out dishes every 30 seconds, and every tablet checks its whole menu and settings every 3 minutes. A dish sold out changes on the tablet straight away; new prices (a menu published, a publish you scheduled going live, an option or a promotion changed) download the menu again.</li>
+              <li><strong>By checking</strong>, in case it missed being told: as standard, tills and kiosks check prices and sold out dishes every 30 seconds, every tablet checks its whole menu and settings every 3 minutes, and menu screens check their boards every minute. How often is yours to choose per location: Store tech, <strong>Device updates</strong> (see <a href="#device-updates" className="underline">Device updates</a>). A dish sold out changes on the tablet straight away; new prices (a menu published, a publish you scheduled going live, an option or a promotion changed) download the menu again.</li>
             </ul>
             <P>
               A till&apos;s settings show when it last checked (<strong>Prices and sold out checked</strong>,{' '}
-              <strong>Whole menu checked</strong>); on a kiosk, the staff panel&apos;s <strong>Last checked</strong>.
+              <strong>Whole menu checked</strong>) and how often it checks; on a kiosk, the staff panel&apos;s{' '}
+              <strong>Last checked</strong> and <strong>Checks for changes</strong>; on a menu screen, its settings
+              panel.
             </P>
 
             <H3>Changing what a tablet is</H3>
@@ -6232,8 +6260,25 @@ export default function Help() {
             </P>
             <InfoBox type="info">
               The corner works from version 1.1 of the app (shown under the choices on What is this device?).
-              A tablet with version 1.0 needs the new download installed over it first.
+              A tablet with version 1.0 needs the new download installed over it first. Menu screens need
+              version 1.2.
             </InfoBox>
+
+            <H3>Menu screens on a TV box or smart TV</H3>
+            <P>
+              Pick <strong>Menu screen</strong> to show menu boards and order ready boards (the boards and
+              playlists you made on the Screens page). From version 1.2 the app shows on an Android TV&apos;s
+              home screen too, so a TV box or a smart TV running Android TV can install it from the download
+              like a tablet (sideloading: allow installing from the browser or file manager you use). With a
+              remote, the arrows move between the choices on <strong>What is this device?</strong> and OK picks.
+            </P>
+            <P>
+              A screen with no touch can&apos;t use the top left corner: press <strong>OK five times</strong> on
+              the remote to open the screen&apos;s own settings, then <strong>Change device type</strong> (shown
+              only inside the app). A screen not linked yet has <strong>Change device type</strong> under its
+              code. Like in Chrome, a linked menu screen keeps its boards, pictures and videos and keeps showing
+              them with the internet down.
+            </P>
 
             <H3>Printing and the camera</H3>
             <P>

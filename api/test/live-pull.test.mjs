@@ -163,3 +163,51 @@ test('an option group or a promotion changes the stamp', async () => {
   assert.notEqual(l.prices, stamp, 'a new promotion')
   assert.equal((await config(till)).prices, l.prices)
 })
+
+// How often devices ask (migration 216, Store tech → Device updates): per
+// location, in every config as `pull`, within limits, copied to every
+// location on request; a viewer and another group can't change them.
+test('pull times are set per location and reach every device kind', async () => {
+  const setup = await ok(owner.get(`/api/pos/venues/${V}/setup`))
+  assert.deepEqual(setup.settings.pull, { content: 180, live: 30, screen: 60, board: 15 }, 'the standard times')
+  for (const d of [till, kiosk]) assert.deepEqual((await config(d)).pull, { content: 180, live: 30, screen: 60, board: 15 })
+  const before = await config(till)
+
+  const saved = await ok(owner.patch(`/api/pos/venues/${V}/settings`, { pull: { content: 600, live: 0, board: 30 } }))
+  assert.deepEqual(saved.pull, { content: 600, live: 0, screen: 60, board: 30 }, 'only what was sent changes; live can be off')
+  const c = await config(till, before.version)
+  assert.ok(!c.unchanged, 'the till config changes, so tills restart their timers')
+  assert.deepEqual(c.pull, saved.pull)
+  assert.deepEqual((await config(kiosk)).pull, saved.pull)
+  assert.equal((await config(screen)).pull.content, 600, 'the kitchen screen gets its time')
+
+  // A menu screen of the location reads its two times.
+  const app = await getApp()
+  const p = (await app.inject({ method: 'POST', url: '/screen-api/pairings', payload: {} })).json()
+  const ms = await ok(owner.post('/api/screens/screens/claim', { code: p.code, name: 'Pull board', venue_id: V }))
+  const sc = (await app.inject({ method: 'GET', url: '/screen-api/config', headers: { authorization: `Screen ${ms.id}.${p.secret}` } })).json()
+  assert.deepEqual(sc.pull, { screen: 60, board: 30 })
+
+  // Out of range, or off where it can't be: refused, nothing saved.
+  for (const bad of [{ content: 30 }, { content: 7200 }, { live: 5 }, { screen: 0 }, { board: 301 }, { content: 90.5 }]) {
+    const r = await owner.patch(`/api/pos/venues/${V}/settings`, { pull: bad })
+    assert.equal(r.status, 400, JSON.stringify(bad))
+  }
+  assert.deepEqual((await ok(owner.get(`/api/pos/venues/${V}/setup`))).settings.pull, saved.pull)
+
+  // Another group can't change this location's, nor a viewer.
+  assert.equal((await other.patch(`/api/pos/venues/${V}/settings`, { pull: { content: 60 } })).status, 404)
+  assert.equal((await as(A.viewer, ids.a).patch(`/api/pos/venues/${V}/settings`, { pull: { content: 60 } })).status, 403)
+  assert.equal((await as(A.viewer, ids.a).post('/api/pos/pull-times/everywhere', { pull: { content: 60 } })).status, 403)
+
+  // Every location of the group, and only this group's.
+  const two = await ok(owner.post('/api/venues', { name: 'Pull second', slug: 'pull-second' }))
+  assert.equal((await owner.post('/api/pos/pull-times/everywhere', { pull: {} })).status, 400, 'nothing to copy')
+  const all = await ok(owner.post('/api/pos/pull-times/everywhere', { pull: { content: 900, live: 120, screen: 300, board: 60 } }))
+  assert.ok(all.venues >= 2)
+  for (const v of [V, two.id]) {
+    assert.deepEqual((await ok(owner.get(`/api/pos/venues/${v}/setup`))).settings.pull, { content: 900, live: 120, screen: 300, board: 60 })
+  }
+  assert.deepEqual((await config(otherTill)).pull, { content: 180, live: 30, screen: 60, board: 15 }, "the other group's tills keep theirs")
+  await ok(owner.patch(`/api/pos/venues/${V}/settings`, { pull: { content: 180, live: 30, screen: 60, board: 15 } }))
+})

@@ -5,6 +5,16 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-29 — Choose how often devices check for changes; menu screens in the Android app]
+
+- Store tech → **Device updates**: how often this location's tills, kiosks, kitchen screens and menu screens ask Macaroonie for changes they may have missed (menus, pictures and settings; prices and sold out; menu screen boards; order ready board numbers). Start from Standard, Less often or Least often, or pick each time; the page says roughly how many times an hour the location's devices ask. **Use these at every location** copies the times to the whole group. Prices and sold out checking can be switched off (devices then rely on being told). Devices pick up new times straight away.
+- The till's settings, the kiosk's staff panel and a menu screen's settings panel show how often they check.
+- The Android app (version 1.2) can be a **Menu screen**: menu boards and order ready boards from the Screens page, full screen with the screen kept on. It now also shows on an Android TV's home screen, and What is this device? works with a TV remote. On a menu screen with a remote, press OK five times for its settings and **Change device type**.
+- Fixed: a kitchen screen's whole-config check kept running after it was disconnected.
+- Migration 216.
+
+---
+
 ## [2026-10-29 — Tills and kiosks open with their content and keep checking for changes]
 
 - Tills and kiosks now check for prices and sold out dishes every 30 seconds, and every till, kitchen screen and kiosk checks its whole menu and settings every 3 minutes, as well as being told about changes straight away. A dish sold out changes on them within half a minute even if they missed being told; new prices (a menu published, a scheduled publish going live, an option or a promotion changed) download the menu again.
