@@ -5,6 +5,15 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-29 — Loyalty card block, a Loyalty page you can design, and member or guest at checkout]
+
+- New website block **Loyalty card**: the guest's own card on any page. They sign in or join with an emailed code, then see their QR card, points, stamp cards, rewards, history and settings, with Apple / Google Wallet buttons. Its settings pick the heading, words, which parts show, width and colours.
+- The tenant site's **/loyalty** is now a page in Website → Pages & modals (Loyalty, at /loyalty). Its title and blocks can be changed like any page; it can't be deleted, unpublished or moved, and shows only while loyalty and its web app are on.
+- Online ordering checkout asks a guest who isn't signed in **How would you like to order?**: sign in or join the loyalty programme (with what the order earns) or continue as a guest. Signed in, their name, email and phone fill from their card.
+- Migration 214.
+
+---
+
 ## [2026-10-28 — Platform link; the Android app link on the setup screens]
 
 - The sidebar's **Tenants** link (platform admins only) is now called **Platform**, the page it opens.

@@ -42,6 +42,7 @@ import { BrandHeaderSection } from '@/components/website-builder/BrandHeaderSect
 import { BrandFooterSection } from '@/components/website-builder/BrandFooterSection'
 import { FONT_OPTIONS, googleFontsUrl } from '@shared/fonts.js'
 import { websiteThemeFromKit } from '@shared/themeKit.js'
+import { SYSTEM_PAGES, pagePath } from '@shared/sitePages.js'
 import { ThemeMakerButton, useFontLink } from '@/components/themes/ThemeMaker'
 
 // ── Section lists ────────────────────────────────────────────
@@ -3428,9 +3429,10 @@ function PagesSection({ venueId, tenantSite, venues = [], tenantName = '' }) {
   })
 
   const editingPage = editing && editing !== 'new' ? pages.find(p => p.id === editing) : null
-  // The built-in online ordering page (migration 126): always a published
-  // standalone page at /order, can't be deleted. Only its title and blocks change.
-  const isOrderPage = editingPage?.system_key === 'order'
+  // The built-in pages (Order online, migration 126; Loyalty, migration 214):
+  // always a published standalone page at their own address (shared/sitePages.js),
+  // can't be deleted. Only their title and blocks change.
+  const systemPage = editingPage?.system_key || null
   // Save details stays inactive until something in the form differs from the saved page.
   const detailsDirty = editing === 'new' || !editingPage || (
     form.title !== (editingPage.title || '')
@@ -3499,12 +3501,19 @@ function PagesSection({ venueId, tenantSite, venues = [], tenantName = '' }) {
             <TextInput value={form.title} autoFocus
               onChange={e => setForm(f => ({ ...f, title: e.target.value }))} />
           </FormRow>
-          {isOrderPage ? (
+          {systemPage === 'order' ? (
             <p className="text-sm text-muted-foreground">
               Your online ordering page. It always lives at <span className="font-mono">/order</span> (and
               <span className="font-mono"> /locations/&lt;location&gt;/order</span> for one location). Keep the
               Online ordering block on it; add anything you like around it. Switch ordering on or off in
               Online orders, Setup.
+            </p>
+          ) : systemPage === 'loyalty' ? (
+            <p className="text-sm text-muted-foreground" data-testid="loyalty-page-note">
+              Your loyalty page, where guests join, sign in and see their card. It always lives at
+              <span className="font-mono"> /loyalty</span>, the address on receipts, kiosks and wallet cards. Keep
+              the Loyalty card block on it; add anything you like around it. It shows only while loyalty and its
+              web app are switched on (Loyalty, Programme).
             </p>
           ) : (<>
           <FormRow label="URL slug" hint={pathHint}>
@@ -3534,7 +3543,7 @@ function PagesSection({ venueId, tenantSite, venues = [], tenantName = '' }) {
             Published
           </label>
           </>)}
-          {!isOrderPage && (!editingPage?.blocks || editingPage.blocks.length === 0) && (
+          {!systemPage && (!editingPage?.blocks || editingPage.blocks.length === 0) && (
             <FormRow label="HTML fallback"
               hint="Used only when the page has no blocks. Prefer the builder below after creating.">
               <TextArea value={form.content} className="min-h-[120px] font-mono text-xs"
@@ -3594,12 +3603,12 @@ function PagesSection({ venueId, tenantSite, venues = [], tenantName = '' }) {
                 <div className="min-w-0">
                   <p className="text-sm font-medium truncate">{p.title}</p>
                   <p className="text-xs text-muted-foreground truncate">
-                    {p.system_key === 'order' ? '/order' : p.kind === 'modal' ? `#modal/${p.slug}` : `/p/${p.slug}`}
+                    {p.system_key ? pagePath(p) : p.kind === 'modal' ? `#modal/${p.slug}` : `/p/${p.slug}`}
                   </p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium uppercase">
-                    {p.system_key === 'order' ? 'Ordering' : p.kind === 'modal' ? 'Modal' : 'Page'}
+                    {p.system_key ? (SYSTEM_PAGES[p.system_key]?.label || 'Built in') : p.kind === 'modal' ? 'Modal' : 'Page'}
                   </span>
                   {p.is_published ? (
                     <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 font-medium">LIVE</span>

@@ -20,6 +20,7 @@
 //   GET  /pass/loyalty.pkpass?t=       the .pkpass for a download link
 //   /apple/v1/...                      Apple's pass web service (register, list, fetch, log)
 //   GET  /qr.js                         shared/qr.js, for the page to draw the card's QR code
+//   GET  /app.js                        assets/loyaltyApp.js: the card, sign-in and join (web app + Loyalty card block)
 
 import crypto from 'node:crypto'
 import fs from 'node:fs'
@@ -40,6 +41,8 @@ import { seal, unseal } from '../services/vault.js'
 
 const uuid = z.string().uuid()
 const QR_JS = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '../../../shared/qr.js'), 'utf8')
+// The guest's card, sign-in and join (the web app and the website's Loyalty card block).
+const APP_JS = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '../assets/loyaltyApp.js'), 'utf8')
 
 /** The tenant a site slug belongs to (active), or 404. */
 export async function tenantBySlug(slug) {
@@ -91,6 +94,10 @@ export default async function loyaltyApiRoutes(app) {
   app.get('/qr.js', async (req, reply) => {
     reply.header('Cache-Control', 'public, max-age=300')
     return reply.type('application/javascript; charset=utf-8').send(QR_JS)
+  })
+  app.get('/app.js', async (req, reply) => {
+    reply.header('Cache-Control', 'public, max-age=300')
+    return reply.type('application/javascript; charset=utf-8').send(APP_JS)
   })
 
   // ── The programme as guests see it ──────────────────────────────────────
@@ -179,7 +186,8 @@ export default async function loyaltyApiRoutes(app) {
     reply.header('Cache-Control', 'no-store')
     return withTenant(tenantId, async tx => {
       const s = await memberSummary(tx, member, programme, { channel: 'online', names: await itemNames(tx, tenantId) })
-      return { member: { id: s.id, name: s.name, member_no: s.member_no, points: s.points }, rewards: s.rewards, points_label: programme.settings.points.label }
+      // The member's own name, email and phone fill the ordering page's details.
+      return { member: { id: s.id, name: s.name, email: s.email, phone: s.phone, member_no: s.member_no, points: s.points }, rewards: s.rewards, points_label: programme.settings.points.label }
     })
   })
 

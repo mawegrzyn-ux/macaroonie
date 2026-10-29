@@ -23,7 +23,8 @@ import { normalizeBimiSvg } from '../services/bimiSvg.js'
 import { loadOpeningHours } from '../services/siteDataSvc.js'
 import { RESERVED_SUBDOMAINS, STAGING_PREFIX } from './siteRenderer.js'
 import { publishTenantSite, overrideStagingWithProduction, publishStatus } from '../services/publishSvc.js'
-import { ensureOrderPage } from '../services/orderPage.js'
+import { ensureSystemPages } from '../services/systemPages.js'
+import { SYSTEM_PAGES } from '../../../shared/sitePages.js'
 import { publishQueue } from '../jobs/queues.js'
 import { hashPassword, loadStagingAccess, previewKey, stagingOrigin, MIN_PASSWORD } from '../services/stagingAccess.js'
 import { ICON_MIME, mayBeIcon, isIcon } from '../utils/icon.js'
@@ -489,8 +490,9 @@ async function ensureTenantSite(tx, tenantId) {
     ON CONFLICT (tenant_id) DO UPDATE SET updated_at = now()
     RETURNING *
   `
-  // Every site gets the built-in online ordering page (migration 126).
-  await ensureOrderPage(tx, tenantId)
+  // Every site gets the built-in pages: Order online (migration 126) and
+  // Loyalty (migration 214).
+  await ensureSystemPages(tx, tenantId)
   return created
 }
 
@@ -1103,12 +1105,19 @@ export default async function websiteRoutes(app) {
     const body = {}
     for (const k of fields) body[k] = parsed[k]
     return withTenant(req.tenantId, async tx => {
-      // The built-in ordering page (migration 126) always lives at /order
-      // as a published standalone page: only its title and blocks change.
+      // A built-in page (migrations 126, 214) always lives at its own
+      // address as a published standalone page: only its title and blocks
+      // change (shared/sitePages.js).
       const [cur] = await tx`SELECT system_key FROM website_pages WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}`
       if (cur?.system_key) {
-        if ('kind' in body && body.kind !== 'page') throw httpError(422, 'The ordering page can\'t be a modal')
-        if ('is_published' in body && !body.is_published) throw httpError(422, 'The ordering page is always published. Pause or switch off online ordering in Ordering setup instead.')
+        const sys = SYSTEM_PAGES[cur.system_key]
+        const What = sys.what.charAt(0).toUpperCase() + sys.what.slice(1)
+        if ('kind' in body && body.kind !== 'page') throw httpError(422, What + ' can\'t be a modal')
+        if ('is_published' in body && !body.is_published) {
+          throw httpError(422, cur.system_key === 'order'
+            ? 'The ordering page is always published. Pause or switch off online ordering in Ordering setup instead.'
+            : 'The loyalty page is always published. It shows only while loyalty and its web app are switched on (Loyalty, Programme).')
+        }
         for (const k of ['slug', 'kind', 'is_published']) {
           if (k in body) { delete body[k]; fields.splice(fields.indexOf(k), 1) }
         }
@@ -1132,7 +1141,7 @@ export default async function websiteRoutes(app) {
   app.delete('/pages/:id', { preHandler: PERM.manage}, async (req) => {
     const [row] = await withTenant(req.tenantId, async tx => {
       const [cur] = await tx`SELECT system_key FROM website_pages WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}`
-      if (cur?.system_key) throw httpError(422, 'The ordering page can\'t be deleted')
+      if (cur?.system_key) throw httpError(422, SYSTEM_PAGES[cur.system_key].what.replace(/^t/, 'T') + ' can\'t be deleted')
       return tx`
         DELETE FROM website_pages
          WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}

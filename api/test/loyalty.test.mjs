@@ -181,6 +181,11 @@ test('the web app: a code by email, join with consent, welcome points; signing i
   const me = await guest(again.json.session, 'GET', '/me')
   assert.equal(me.json.points, 50)
   assert.equal(me.json.history[0].kind, 'welcome')
+  // The ordering page's loyalty box fills the guest's details from it.
+  const forOrder = await guest(again.json.session, 'GET', '/me/rewards')
+  assert.equal(forOrder.json.member.email, 'sam@zqx.test')
+  assert.equal(forOrder.json.member.name, 'Sam Lee')
+  assert.ok('phone' in forOrder.json.member)
   assert.equal((await guest('ls_' + 'x'.repeat(32), 'GET', '/me')).status, 401)
   // Another tenant's slug doesn't know the session.
   const other = await call('GET', '/loyalty-api/t/bqx-site/me', { headers: { authorization: 'Loyalty ' + samSession } })

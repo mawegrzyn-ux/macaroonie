@@ -26,7 +26,7 @@ import {
   Image as ImageIcon, Type, Sparkles, MapPin, Phone,
   Calendar, Clock, BookOpen, AlignLeft, Minus, FileText, AlertTriangle,
   Layout, Columns, PanelTop, PanelBottom, Megaphone, Quote, ChefHat, BookText,
-  ShoppingBag, BookOpen as MenuIcon, ExternalLink, BadgePercent, Heading, Folders, MessageCircle, Star,
+  ShoppingBag, BookOpen as MenuIcon, ExternalLink, BadgePercent, Heading, Folders, MessageCircle, Star, QrCode,
 } from 'lucide-react'
 
 import { HeroEditor }          from './editors/HeroEditor'
@@ -44,6 +44,7 @@ import { GuestplanWidgetEditor } from './editors/GuestplanWidgetEditor'
 import { OnlineOrderingEditor } from './editors/OnlineOrderingEditor'
 import { PromoCtaEditor } from './editors/PromoCtaEditor'
 import { LoyaltyCtaEditor } from './editors/LoyaltyCtaEditor'
+import { LoyaltyCardEditor } from './editors/LoyaltyCardEditor'
 import { AiChatEditor } from './editors/AiChatEditor'
 import { HeadingEditor } from './editors/HeadingEditor'
 import { HEADING_DEFAULTS } from '@shared/headingBlock.js'
@@ -508,6 +509,19 @@ export const BLOCKS = [
       container: 'boxed',
     },
     editor:      LoyaltyCtaEditor,
+  },
+  {
+    key:         'loyalty_card',
+    label:       'Loyalty card',
+    description: 'The guest\'s own loyalty card: join or sign in with an emailed code, then their QR card, points, stamp cards, rewards and history. On the built-in Loyalty page (/loyalty); it can go on any page. Shows nothing while loyalty or its web app is off.',
+    icon:        QrCode,
+    category:    'data',
+    defaultData: {
+      heading: '', intro: '', show_how: true, show_stamps: true, show_rewards: true, show_wallet: true,
+      show_history: true, show_settings: true, container: 'narrow', accent: 'primary', panel: 'surface',
+      card_bg: '', card_text: '',
+    },
+    editor:      LoyaltyCardEditor,
   },
   {
     key:         'ai_chat',

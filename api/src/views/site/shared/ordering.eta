@@ -199,6 +199,8 @@ const cfgJson = JSON.stringify(cfg).split('<').join('\\u003c')
 :is(.mo, .mo-sheet-back) .mo-choice { display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 8px 12px; border: 1px solid var(--c-border, #e5e7eb); border-radius: var(--r-md, 8px); margin-bottom: 8px; cursor: pointer; }
 :is(.mo, .mo-sheet-back) .mo-choice input { width: 20px; height: 20px; }
 :is(.mo, .mo-sheet-back) .mo-choice.is-on { border-color: var(--c-primary, #630812); }
+.mo .mo-who { background: var(--c-bg, #fff); color: inherit; font: inherit; min-height: 64px; touch-action: manipulation; }
+.mo .mo-who:hover { border-color: var(--c-primary, #630812); }
 .mo .mo-consent { align-items: flex-start; }
 .mo .mo-consent input { margin-top: 2px; flex-shrink: 0; }
 :is(.mo, .mo-sheet-back) .mo-slots { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(88px, 100%), 1fr)); gap: 8px; }
@@ -434,8 +436,16 @@ async function startOrdering() {
   // once the order is paid or collected.
   const LOY = data.loyalty
   const LKEY = LOY ? 'mcrn_loyalty_' + LOY.slug : null
-  const loy = { session: null, member: null, rewards: [], picks: [], step: null, email: '', code: '', ticket: null, name: '', phone: '', agreed: false, marketing: false, busy: false, error: null, note: null }
+  const loy = { session: null, member: null, rewards: [], picks: [], step: null, email: '', code: '', ticket: null, name: '', phone: '', agreed: false, marketing: false, busy: false, error: null, note: null, who: null }
   try { loy.session = LKEY ? localStorage.getItem(LKEY) : null } catch {}
+  // At checkout the guest first picks how to order: as a loyalty member (sign
+  // in or join) or as a guest. A guest's pick is kept for this visit only.
+  const WKEY = LOY ? 'mcrn_order_who_' + LOY.slug : null
+  try { loy.who = loy.session ? 'member' : (WKEY && sessionStorage.getItem(WKEY) === 'guest' ? 'guest' : null) } catch {}
+  function setWho(w) {
+    loy.who = w
+    try { w === 'guest' ? sessionStorage.setItem(WKEY, 'guest') : sessionStorage.removeItem(WKEY) } catch {}
+  }
   async function loyApi(path, body) {
     const res = await fetch('/loyalty-api/t/' + encodeURIComponent(LOY.slug) + path, {
       method: body ? 'POST' : 'GET',
@@ -450,19 +460,38 @@ async function startOrdering() {
   function loySaveSession(s) {
     loy.session = s || null
     try { s ? localStorage.setItem(LKEY, s) : localStorage.removeItem(LKEY) } catch {}
+    // Tell a Loyalty card block on the same page (assets/loyaltyApp.js).
+    try { window.dispatchEvent(new CustomEvent('mcrn-loyalty-session', { detail: { slug: LOY.slug, from: 'ordering' } })) } catch {}
   }
   async function loadLoyalty() {
     if (!LOY || !loy.session) return
+    loy.loading = true
     try {
       const r = await loyApi('/me/rewards')
       loy.member = r.member
+      loy.who = 'member'
       loy.rewards = r.rewards || []
       loy.picks = loy.picks.filter(k => loy.rewards.some(x => x.key === k))
+      // The member's own details fill the boxes the guest hasn't filled
+      // (remembered, so signing out takes them away again).
+      const f = state.form
+      loy.filled = loy.filled || {}
+      for (const k of ['name', 'email', 'phone']) {
+        if (!f[k].trim() && r.member[k]) { f[k] = r.member[k]; loy.filled[k] = r.member[k] }
+      }
     } catch (e) {
-      if (e.status === 401) { loySaveSession(null); loy.member = null; loy.rewards = []; loy.picks = [] }
+      if (e.status === 401) { loySaveSession(null); loy.member = null; loy.rewards = []; loy.picks = []; if (loy.who === 'member') loy.who = null }
     }
+    loy.loading = false
     draw()
   }
+  // Signed in or out on a Loyalty card block on this page.
+  window.addEventListener('mcrn-loyalty-session', e => {
+    if (!LOY || e.detail?.slug !== LOY.slug || e.detail.from === 'ordering') return
+    try { loy.session = localStorage.getItem(LKEY) } catch {}
+    if (loy.session) loadLoyalty()
+    else { loy.member = null; loy.rewards = []; loy.picks = []; if (loy.who === 'member') loy.who = null; draw() }
+  })
   // The rewards picked, as priceBasket takes them (shared/loyalty.js rewardDiscount).
   function pickedRewards() {
     return loy.picks.map(k => loy.rewards.find(x => x.key === k)).filter(Boolean)
@@ -1222,6 +1251,14 @@ async function startOrdering() {
     h += '<h1>Checkout</h1><p class="mo-muted">Collection from ' + esc(venue.name) + (venue.address_line1 ? ', ' + esc(venue.address_line1) : '') + '</p>'
     if (state.error) h += '<div class="mo-error">' + esc(state.error) + '</div>'
 
+    // Loyalty member or guest, first (migration 211 loyalty, online channel).
+    if (LOY && !loy.member) {
+      if (!loy.who) return h + whoHtml(q) + orderSummaryHtml(q)
+      if (loy.who === 'member') return h + loyaltyHtml(q, true) + orderSummaryHtml(q)
+      h += '<p class="mo-muted" data-loy-guest style="margin:0 0 12px;">Ordering as a guest. ' +
+        '<button type="button" class="mo-link" data-loy="member">Sign in or join ' + esc(LOY.name) + ' instead</button></p>'
+    }
+
     h += '<div class="mo-panel"><h2 style="margin-top:0;">When</h2>'
     if (ord.dates.length > 1) {
       h += '<div class="mo-tabs" style="position:static;">' + ord.dates.map(d => '<button class="mo-tab' + (d === state.date ? ' is-on' : '') + '" data-date="' + d + '">' + esc(fmtDay(d, ord.today)) + '</button>').join('') + '</div>'
@@ -1255,7 +1292,7 @@ async function startOrdering() {
       '<label class="mo-field"><span>Anything else? (optional)</span><textarea data-f="notes" maxlength="500">' + esc(f.notes) + '</textarea></label>' +
       '</div>'
 
-    if (LOY) h += loyaltyHtml(q)
+    if (LOY && loy.member) h += loyaltyHtml(q)
 
     // GDPR (migration 125): the wording comes from the server, which
     // records the same text on the order.
@@ -1292,7 +1329,28 @@ async function startOrdering() {
     return h
   }
 
-  function loyaltyHtml(q) {
+  // The first thing at checkout when loyalty is on: order as a member or a guest.
+  function whoHtml(q) {
+    const st = pointsSettings()
+    const earns = LOY.earn && LOY.points ? pointsFor(q.subtotal_pence - q.discount_pence, st) : 0
+    const what = LOY.points ? (LOY.points_label || 'points') : 'stamps'
+    const why = earns > 0 ? 'Earn ' + pointsText(earns, st) + ' with this order' + (LOY.redeem ? ' and use your rewards.' : '.')
+      : LOY.redeem ? 'Use your rewards and collect ' + what + '.' : 'Collect ' + what + ' with this order.'
+    return '<div class="mo-panel" data-loy-who><h2 style="margin-top:0;">How would you like to order?</h2>' +
+      '<button type="button" class="mo-choice mo-who" data-loy="member" style="width:100%;text-align:left;">' +
+        '<span style="flex:1;"><strong>Sign in or join ' + esc(LOY.name) + '</strong><br><span class="mo-muted">' + esc(why) + ' We\'ll email you a code: no password.</span></span><span aria-hidden="true">&rsaquo;</span></button>' +
+      '<button type="button" class="mo-choice mo-who" data-loy="guest" style="width:100%;text-align:left;">' +
+        '<span style="flex:1;"><strong>Continue as a guest</strong><br><span class="mo-muted">No account needed.</span></span><span aria-hidden="true">&rsaquo;</span></button>' +
+      '</div>'
+  }
+  // The basket and total, shown under the member-or-guest step.
+  function orderSummaryHtml(q) {
+    let h = '<div class="mo-panel"><h2 style="margin-top:0;">Your order</h2>' + basketHtml(true)
+    h += '<div class="mo-row mo-total"><span>Total</span><span>' + money(q.total_pence) + '</span></div>'
+    return h + '</div>'
+  }
+
+  function loyaltyHtml(q, gate) {
     const st = pointsSettings()
     const earns = LOY.earn && LOY.points ? pointsFor(q.subtotal_pence - q.discount_pence, st) : 0
     let h = '<div class="mo-panel" data-loyalty><h2 style="margin-top:0;">' + esc(LOY.name) + '</h2>'
@@ -1313,6 +1371,8 @@ async function startOrdering() {
         }
       }
       h += '<p style="margin:8px 0 0;"><button type="button" class="mo-btn mo-btn-ghost" data-loy="signout">Not you? Sign out</button></p>'
+    } else if (!loy.step && gate && loy.loading) {
+      h += '<p class="mo-muted" style="margin-top:0;">Loading your card&hellip;</p>'
     } else if (!loy.step) {
       h += '<p class="mo-muted" style="margin-top:0;">' + (earns > 0 ? 'Earn ' + esc(pointsText(earns, st)) + ' with this order. ' : '') + 'Sign in with your email to collect points and use your rewards.</p>' +
         '<button type="button" class="mo-btn" data-loy="start">Sign in or join</button>'
@@ -1332,16 +1392,24 @@ async function startOrdering() {
         '<label class="mo-choice mo-consent' + (loy.marketing ? ' is-on' : '') + '"><input type="checkbox" data-lc="marketing"' + (loy.marketing ? ' checked' : '') + '><span>' + esc(LOY.marketing_text) + '</span></label>' +
         '<button type="button" class="mo-btn" data-loy="join"' + (loy.busy || !loy.agreed ? ' disabled' : '') + '>Join</button>'
     }
+    if (gate) h += '<p style="margin:12px 0 0;"><button type="button" class="mo-link" data-loy="guest">Continue as a guest instead</button></p>'
     return h + '</div>'
   }
 
   async function loyAction(what) {
     loy.error = null
     loy.note = null
-    if (what === 'start') { loy.step = 'email'; loy.email = loy.email || state.form.email.trim(); loy.code = ''; draw(); return }
+    if (what === 'start' || what === 'member') {
+      if (what === 'member') setWho('member')
+      loy.step = 'email'; loy.email = loy.email || state.form.email.trim(); loy.code = ''; draw(); toAppTop(true); return
+    }
+    if (what === 'guest') { setWho('guest'); loy.step = null; draw(); toAppTop(true); return }
     if (what === 'signout') {
       try { await loyApi('/me/signout', {}) } catch {}
-      loySaveSession(null); loy.member = null; loy.rewards = []; loy.picks = []; loy.step = null
+      loySaveSession(null); loy.member = null; loy.rewards = []; loy.picks = []; loy.step = null; setWho(null)
+      // "Not you?": the card's details leave with it, unless the guest changed them.
+      for (const [k, v] of Object.entries(loy.filled || {})) if (state.form[k] === v) state.form[k] = ''
+      loy.filled = {}; loy.email = ''; loy.name = ''; loy.phone = ''
       draw(); return
     }
     loy.busy = true

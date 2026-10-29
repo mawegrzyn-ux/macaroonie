@@ -31,7 +31,8 @@ import { headingLayout, styleString } from '../../../shared/headingBlock.js'
 import { allergenKey } from '../../../shared/menuTags.js'
 import { comboMenuPrice } from '../../../shared/orderPricing.js'
 import { env }            from '../config/env.js'
-import { ORDER_PAGE_KEY, DEFAULT_ORDER_PAGE } from '../services/orderPage.js'
+import { ORDER_PAGE_KEY, DEFAULT_ORDER_PAGE, LOYALTY_PAGE_KEY, DEFAULT_LOYALTY_PAGE } from '../services/systemPages.js'
+import { pagePath, SYSTEM_PAGES } from '../../../shared/sitePages.js'
 import { serveLoyaltyApp } from '../services/loyaltyPage.js'
 import { loyaltyTeaser } from '../services/loyaltySvc.js'
 import {
@@ -440,7 +441,7 @@ export default async function siteRendererRoutes(app) {
   })
 
   // /order and /locations/:slug/order render the tenant's built-in
-  // ordering page (migration 126, services/orderPage.js): whatever blocks
+  // ordering page (migration 126, services/systemPages.js): whatever blocks
   // the operator put on it, with the Online ordering block showing the
   // venue (or the location picker) chosen here.
   const renderOrderPage = (req, reply, bundle, extra) => {
@@ -472,7 +473,26 @@ export default async function siteRendererRoutes(app) {
     return renderOrderPage(req, reply, bundle, { orderView: 'order', orderVenue: venue })
   })
 
-  // ── The loyalty web app (migration 211, services/loyaltyPage.js) ──
+  // ── Loyalty ─────────────────────────────────────────────
+  // /loyalty renders the tenant's built-in Loyalty page (migration 214,
+  // services/systemPages.js): whatever blocks the operator put on it around
+  // the Loyalty card block (blocks/loyalty_card.eta). Not found while
+  // loyalty or its web app is off. The page's manifest and worker keep it
+  // installable as before (services/loyaltyPage.js); the stand-alone web
+  // app is loyalty.<domain>/<slug> (routes/loyaltySite.js).
+  app.get('/loyalty', async (req, reply) => {
+    if (!req.siteHost) return reply.callNotFound()
+    const bundle = await loadOrRender404(req, reply)
+    if (!bundle) return
+    if (!bundle.site_loyalty) return renderNotFound(reply, 'Loyalty isn\'t open here')
+    const page = (bundle.pages || []).find(p => p.system_key === LOYALTY_PAGE_KEY) || DEFAULT_LOYALTY_PAGE
+    return renderSite(reply, 'page', {
+      ...baseCtx(req, bundle),
+      page: { kind: 'custom', ...page },
+      pageTitle: page.title + ' – ' + (bundle.config?.site_name || bundle.tenant_name || ''),
+      loyaltyPwa: true,
+    })
+  })
   async function loyaltyApp(req, reply, what) {
     if (!req.siteHost) return reply.callNotFound()
     const { slug, customDomain } = req.siteHost
@@ -483,7 +503,6 @@ export default async function siteRendererRoutes(app) {
     if (!out) return renderNotFound(reply, 'Loyalty isn\'t open here')
     return out
   }
-  app.get('/loyalty', (req, reply) => loyaltyApp(req, reply, 'page'))
   app.get('/loyalty/c/:token', (req, reply) => (req.siteHost ? reply.redirect('/loyalty', 302) : reply.callNotFound()))
   app.get('/loyalty/manifest.webmanifest', (req, reply) => loyaltyApp(req, reply, 'manifest'))
   app.get('/loyalty/sw.js', (req, reply) => loyaltyApp(req, reply, 'sw'))
@@ -504,8 +523,8 @@ export default async function siteRendererRoutes(app) {
     if (!bundle) return
     const page = bundle.pages.find(p => p.slug === req.params.pageSlug)
     if (!page) return renderNotFound(reply, 'Page not found')
-    // The built-in ordering page lives at /order.
-    if (page.system_key === ORDER_PAGE_KEY) return reply.redirect('/order', 302)
+    // The built-in pages live at their own address (/order, /loyalty).
+    if (page.system_key && SYSTEM_PAGES[page.system_key]) return reply.redirect(SYSTEM_PAGES[page.system_key].path, 302)
     return renderSite(reply, 'page', {
       ...baseCtx(req, bundle),
       page: { kind: 'custom', ...page },
@@ -543,7 +562,7 @@ export default async function siteRendererRoutes(app) {
       `${base}/`,
       ...((multiVenue && !bundle.tenant_site.hide_locations_index) ? [`${base}/locations`] : []),
       ...(multiVenue ? bundle.venues.map(v => `${base}/locations/${v.slug}`) : []),
-      ...bundle.pages.map(p => base + (p.system_key === 'order' ? '/order' : `/p/${p.slug}`)),
+      ...bundle.pages.filter(p => p.system_key !== LOYALTY_PAGE_KEY).map(p => base + pagePath(p)),
     ]
     const body =
       `<?xml version="1.0" encoding="UTF-8"?>\n` +
@@ -616,7 +635,7 @@ export default async function siteRendererRoutes(app) {
       lines.push('## Pages')
       lines.push('')
       for (const p of bundle.pages) {
-        lines.push('- [' + p.title + '](' + base + (p.system_key === 'order' ? '/order' : '/p/' + p.slug) + ')')
+        lines.push('- [' + p.title + '](' + base + pagePath(p) + ')')
       }
       lines.push('')
     }

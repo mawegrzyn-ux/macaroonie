@@ -257,6 +257,11 @@ const _ldBreadcrumb = (_isLoc && it.venue) ? {
   <% if (it.config.favicon_url) { %>
     <link rel="icon" href="<%= it.config.favicon_url %>" />
   <% } %>
+  <% if (it.loyaltyPwa) { %>
+    <% /* The built-in Loyalty page (/loyalty) stays installable as the loyalty app. */ %>
+    <link rel="manifest" href="/loyalty/manifest.webmanifest" />
+    <meta name="robots" content="noindex" />
+  <% } %>
 
   <% if (gfUrl) { %>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
