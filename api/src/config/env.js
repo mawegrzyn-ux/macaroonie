@@ -27,6 +27,13 @@ const schema = z.object({
   // Stripe
   STRIPE_SECRET_KEY:     z.string(),
   STRIPE_WEBHOOK_SECRET: z.string(),
+  // Card payments for online ordering and Stripe card machines through the
+  // group's own Stripe account (Connect, migration 215,
+  // services/stripeConnect.js): the platform's publishable key and its
+  // Connect webhook endpoint's signing secret. Both can be saved on the
+  // Platform page instead (Payments), which wins over these.
+  STRIPE_PUBLISHABLE_KEY:        z.string().optional(),
+  STRIPE_CONNECT_WEBHOOK_SECRET: z.string().optional(),
 
   // Email (SendGrid)
   SENDGRID_API_KEY:      z.string().optional(),

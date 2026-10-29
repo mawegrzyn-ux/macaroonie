@@ -10,7 +10,10 @@
 // the amount. The result is the PaymentIntent's status (succeeded), or the
 // reader's action (failed with a failure_message when the card is
 // declined). The key is the tenant's own Stripe secret or restricted key
-// (the tenant is the merchant), not Stripe Connect.
+// (the tenant is the merchant), or, for an account in connect mode
+// (migration 215), the platform's key on the group's connected Stripe
+// account: `account.connect` is sent as the Stripe-Account header
+// (cardSvc.js cardAccount(), services/stripeConnect.js).
 
 import { env } from '../../config/env.js'
 import { call, CardMachineError, providerMessage, brandName } from './http.js'
@@ -22,7 +25,12 @@ function api(account, path, opts = {}) {
   return call(NAME, env.STRIPE_API_URL, path, {
     ...opts,
     auth: 'Bearer ' + account.secret,
-    headers: { 'Stripe-Version': VERSION, ...(opts.idempotency ? { 'Idempotency-Key': opts.idempotency } : {}), ...(opts.headers || {}) },
+    headers: {
+      'Stripe-Version': VERSION,
+      ...(account.connect ? { 'Stripe-Account': account.connect } : {}),
+      ...(opts.idempotency ? { 'Idempotency-Key': opts.idempotency } : {}),
+      ...(opts.headers || {}),
+    },
   })
 }
 
@@ -51,7 +59,7 @@ const stripe = {
   needsLocation: true,
 
   async check(account) {
-    if (!/^(sk|rk)_(test|live)_/.test(account.secret || '')) {
+    if (!account.connect && !/^(sk|rk)_(test|live)_/.test(account.secret || '')) {
       throw new CardMachineError('That isn\'t a Stripe secret key: it starts with sk_ or rk_ (Developers, API keys)')
     }
     const r = must(await api(account, '/v1/terminal/locations', { query: { limit: 100 } }), 'the key')
@@ -59,6 +67,14 @@ const stripe = {
       mode: modeOf(account.secret),
       locations: (r.data || []).map(l => ({ id: l.id, name: l.display_name || l.id })),
     }
+  },
+
+  /** A Terminal location (readers belong to one) from a venue's address. */
+  async createLocation(account, { name, address }) {
+    const r = must(await api(account, '/v1/terminal/locations', {
+      method: 'POST', form: { display_name: name, address },
+    }), 'the location')
+    return { id: r.id, name: r.display_name || name }
   },
 
   async listReaders(account) {

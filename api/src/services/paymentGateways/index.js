@@ -14,7 +14,7 @@
 //   online       true              false = paid at the counter later
 //   description  one line for the ordering settings page
 //
-//   isAvailable({ tenant, venue })            -> boolean
+//   isAvailable({ tenant, venue })            -> boolean   (tenant from paymentContext())
 //       Can this venue use it right now? (e.g. Stripe needs a connected
 //       account). Unavailable gateways are hidden at checkout.
 //
@@ -45,10 +45,22 @@
 
 import payAtVenue from './payAtVenue.js'
 import demo from './demo.js'
+import stripe from './stripe.js'
+import { paymentContext as stripeContext } from '../stripeConnect.js'
 
 const GATEWAYS = {
   [payAtVenue.key]: payAtVenue,
+  [stripe.key]:     stripe,
   [demo.key]:       demo,
+}
+
+/**
+ * What isAvailable() and start() get beside the venue: { tenant: { id,
+ * stripe_account_id, stripe_ready } } (the group's Stripe account,
+ * migration 215). Loaded once per request by the ordering routes.
+ */
+export async function paymentContext(venue) {
+  return stripeContext(venue.tenant_id)
 }
 
 // Counter payments staff record by hand ("Mark paid"). Not gateways: they

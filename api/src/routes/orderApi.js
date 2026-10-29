@@ -25,7 +25,7 @@ import { fileURLToPath } from 'node:url'
 import { z } from 'zod'
 import { sql, withTenant, systemSql } from '../config/db.js'
 import { httpError } from '../middleware/error.js'
-import { getGateway, checkoutGateways } from '../services/paymentGateways/index.js'
+import { getGateway, checkoutGateways, paymentContext } from '../services/paymentGateways/index.js'
 import {
   loadSettings, loadOrderingMenu, loadPrivacy, publicItem, computeSlots, orderingDates, itemOffAt, basketCombos,
   createOrder, startPayment, applyPaymentResult, loadPublicOrderByToken, publicOrder, localParts,
@@ -155,7 +155,7 @@ export default async function orderApiRoutes(app) {
       await deviceLoyalty(tx, venue.tenant_id, venue.id, 'online'),
       await tenantSite(tx, venue.tenant_id),
     ])
-    const gateways = checkoutGateways(settings, { venue })
+    const gateways = checkoutGateways(settings, { venue, ...(await paymentContext(venue)) })
     return {
       venue: {
         id: venue.id, name: venue.name, slug: venue.slug, timezone: venue.timezone, currency: venue.currency || 'GBP',

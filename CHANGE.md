@@ -5,6 +5,19 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-29 — Card payments with Stripe: online ordering, tills and kiosks]
+
+- Each restaurant group can connect its own Stripe account: Ordering setup → Payment methods → **Your Stripe account** → Connect Stripe (owners and admins). Stripe's sign-up opens and comes back to the page; the card then says whether the account can take payments, with Continue on Stripe, Check again, the Stripe dashboard and Unlink.
+- Guests can pay by **Card** on the ordering page (cards, Apple Pay, Google Pay, whatever the group's Stripe account offers). The money goes to the group's own account; Macaroonie's online ordering fee is taken by Stripe at the same time and given back on a refund. Card is offered only while the account can take payments.
+- Paying with a bank's security check comes back to the order's status page, which finishes the payment; an order left unpaid can be paid from its status page.
+- Refunds and cancellations from the Online orders board go back to the card through Stripe.
+- Store tech → Card machines: a Stripe account can now be **Our connected Stripe account** (no key to paste), and Add a card machine can make the Stripe location from the venue's address. Tills and kiosks then take card payments into the group's own Stripe account.
+- Platform admins: Platform → **Payments** holds Macaroonie's Stripe keys and shows the webhook address to add in Stripe.
+- Fixed: the order status page stopped with a script error when it drew the order's dishes, so guests saw no order details after paying.
+- Migration 215.
+
+---
+
 ## [2026-10-29 — Loyalty card block, a Loyalty page you can design, and member or guest at checkout]
 
 - New website block **Loyalty card**: the guest's own card on any page. They sign in or join with an emailed code, then see their QR card, points, stamp cards, rewards, history and settings, with Apple / Google Wallet buttons. Its settings pick the heading, words, which parts show, width and colours.

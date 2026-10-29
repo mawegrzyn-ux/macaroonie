@@ -14,6 +14,7 @@
 import { withTenant, systemSql } from '../config/db.js'
 import { httpError } from '../middleware/error.js'
 import { unseal } from './vault.js'
+import { tenantStripe, platformKeys } from './stripeConnect.js'
 import { provider, FINAL, CardMachineError } from './cardMachines/index.js'
 import { checkTotals } from '../../../shared/pos/pricing.js'
 
@@ -53,20 +54,43 @@ async function loadRow(tenantId, id) {
 }
 
 /** The account (key unsealed) and reader an attempt uses. */
+/**
+ * What a provider adapter is handed for a pos_card_accounts row: its own key,
+ * or, for a Stripe account in connect mode (settings.connect, migration 215),
+ * the platform's key on the group's connected Stripe account (`connect`, the
+ * Stripe-Account header; services/stripeConnect.js).
+ */
+export async function cardAccount(tenantId, a) {
+  if (a.provider === 'stripe' && a.settings?.connect) {
+    const t = await tenantStripe(tenantId)
+    if (!t?.stripe_account_id) throw httpError(422, 'Your Stripe account isn\'t connected any more: connect it again in Store tech, Card machines')
+    const { keys } = await platformKeys()
+    if (!keys.secret) throw httpError(503, 'Stripe isn\'t set up on this platform yet (Platform page, Payments)')
+    return {
+      provider: 'stripe', secret: keys.secret, connect: t.stripe_account_id,
+      settings: a.settings, mode: /_test_/.test(keys.secret) ? 'test' : 'live',
+    }
+  }
+  if (!a.secret) throw httpError(422, 'This card machine\'s account was removed: add it again in Store tech')
+  return { provider: a.provider, secret: unseal(a.secret), settings: a.settings || {}, mode: a.mode }
+}
+
 async function machineFor(tenantId, readerId) {
-  return withTenant(tenantId, async tx => {
-    const [reader] = await tx`
-      SELECT r.*, a.provider AS account_provider, a.secret, a.settings AS account_settings, a.mode
+  const reader = await withTenant(tenantId, async tx => {
+    const [r] = await tx`
+      SELECT r.*, a.provider AS account_provider, a.secret, a.settings AS account_settings, a.mode, a.removed_at AS account_removed_at
         FROM pos_card_readers r
         LEFT JOIN pos_card_accounts a ON a.id = r.account_id AND a.tenant_id = r.tenant_id
        WHERE r.id = ${readerId} AND r.tenant_id = ${tenantId}`
-    if (!reader) throw httpError(404, 'Card machine not found')
-    if (reader.provider !== 'test' && !reader.secret) throw httpError(422, 'This card machine\'s account was removed: add it again in Store tech')
-    const account = reader.provider === 'test'
-      ? { provider: 'test', mode: 'test', settings: {} }
-      : { provider: reader.provider, secret: unseal(reader.secret), settings: reader.account_settings || {}, mode: reader.mode }
-    return { reader, account, adapter: provider(reader.provider) }
+    return r
   })
+  if (!reader) throw httpError(404, 'Card machine not found')
+  if (reader.provider === 'test') return { reader, account: { provider: 'test', mode: 'test', settings: {} }, adapter: provider('test') }
+  if (reader.account_removed_at) throw httpError(422, 'This card machine\'s account was removed: add it again in Store tech')
+  const account = await cardAccount(tenantId, {
+    provider: reader.provider, secret: reader.secret, settings: reader.account_settings || {}, mode: reader.mode,
+  })
+  return { reader, account, adapter: provider(reader.provider) }
 }
 
 async function writeResult(tenantId, id, res, { final = false } = {}) {

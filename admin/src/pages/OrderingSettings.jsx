@@ -15,6 +15,7 @@ import { ReadOnlyNotice, ReadOnlyFieldset } from '@/components/ReadOnlyNotice'
 import { cn } from '@/lib/utils'
 import { isScheduled, scheduleProblem } from '@shared/menuSchedule.js'
 import { ScheduleEditor } from '@/components/orders/ScheduleEditor'
+import StripeAccountCard, { useStripeAccount } from '@/components/orders/StripeAccountCard'
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 const DAY_ORDER = [1, 2, 3, 4, 5, 6, 0]
@@ -97,6 +98,7 @@ export default function OrderingSettings() {
   const windowsOf = day => ((f?.hours || []).find(h => h.day === day)?.windows) || []
 
   const gateways = q.data?.gateways || []
+  const { data: stripe } = useStripeAccount()
   const orderTypes = (q.data?.order_types || []).filter(t => t.is_active || Object.values(f?.order_type_ids || {}).includes(t.id))
   const streams = (q.data?.revenue_streams || []).filter(r => r.is_active || r.id === f?.revenue_stream_id)
   const menuNames = Object.fromEntries((q.data?.menus || []).map(m => [m.id, m.name]))
@@ -260,7 +262,7 @@ export default function OrderingSettings() {
                 )}
               </Section>
 
-              <Section title="Payment methods" hint="What guests can choose at checkout, in this order. Card payments through a payment provider appear here once one is connected.">
+              <Section title="Payment methods" hint="What guests can choose at checkout, in this order.">
                 {gateways.map(g => {
                   const on = f.payment_methods.includes(g.key)
                   return (
@@ -270,9 +272,20 @@ export default function OrderingSettings() {
                       {g.key === 'demo' && on && (
                         <p className="ml-8 text-xs font-medium text-amber-700">Test payments take no money. Turn this off before taking real orders.</p>
                       )}
+                      {g.key === 'stripe' && on && stripe && !stripe.ready && (
+                        <p className="ml-8 text-xs font-medium text-amber-700" data-testid="stripe-not-ready">
+                          Guests won't see this at checkout until your Stripe account below can take payments.
+                        </p>
+                      )}
                     </div>
                   )
                 })}
+                {gateways.some(g => g.key === 'stripe') && (
+                  <div className="pt-1">
+                    <p className="text-sm font-medium mb-2">Your Stripe account</p>
+                    <StripeAccountCard module="web_ordering_setup" purpose="ordering" />
+                  </div>
+                )}
               </Section>
 
               <Section title="Messages for guests">

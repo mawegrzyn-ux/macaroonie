@@ -6,8 +6,11 @@
 // also need an owner or admin.
 //
 //   GET    /card-accounts                    the tenant's accounts (no keys), and the providers
-//   POST   /card-accounts                    { provider, name, secret, settings } checked with the provider first
+//   POST   /card-accounts                    { provider, name, secret, settings } checked with the provider first,
+//                                            or { provider: 'stripe', name, connect: true }: no key, the group's
+//                                            connected Stripe account (migration 215, services/stripeConnect.js)
 //   PATCH  /card-accounts/:id                { name?, secret?, settings? } (a new key or settings is checked)
+//   POST   /card-accounts/:id/locations      { venue_id }: a Stripe Terminal location from the venue's address
 //   POST   /card-accounts/:id/check          ask the provider again (mode, Stripe locations)
 //   DELETE /card-accounts/:id                key forgotten, its machines removed (past payments kept)
 //   GET    /card-accounts/:id/readers        the provider's own list, each marked where it is added
@@ -31,7 +34,8 @@ import { httpError } from '../middleware/error.js'
 import { broadcast } from '../config/ws.js'
 import { seal, unseal } from '../services/vault.js'
 import { PROVIDERS, PROVIDER_KEYS, provider } from '../services/cardMachines/index.js'
-import { paymentView } from '../services/cardSvc.js'
+import { paymentView, cardAccount } from '../services/cardSvc.js'
+import { tenantStripe } from '../services/stripeConnect.js'
 
 const canView = requirePermission('pos_setup', 'view')
 // Card payments are takings too: Till reports can see them.
@@ -57,7 +61,7 @@ function accountView(a) {
   const s = a.settings || {}
   return {
     id: a.id, provider: a.provider, provider_label: PROVIDERS[a.provider]?.label || a.provider,
-    name: a.name, hint: a.hint, mode: a.mode,
+    name: a.name, hint: a.hint, mode: a.mode, connect: !!s.connect,
     settings: {
       merchant_code: s.merchant_code || null, merchant_name: s.merchant_name || null,
       software_house_id: s.software_house_id || null, reseller_id: s.reseller_id || null,
@@ -67,11 +71,11 @@ function accountView(a) {
   }
 }
 
-/** Ask the provider whether the key works; what it says goes into settings. */
-async function checkAccount(providerKey, secret, settings) {
+/** Ask the provider whether the key works; what it says goes into settings. `account` instead of a key: a connect-mode Stripe account (cardAccount()). */
+async function checkAccount(providerKey, secret, settings, account = null) {
   const p = provider(providerKey)
   try {
-    const r = await p.check({ provider: providerKey, secret: String(secret).trim(), settings })
+    const r = await p.check(account || { provider: providerKey, secret: String(secret).trim(), settings })
     return {
       mode: r.mode ?? null,
       settings: {
@@ -110,9 +114,30 @@ export default async function cardSetupRoutes(app) {
     const b = z.object({
       provider: z.enum(PROVIDER_KEYS),
       name:     z.string().trim().min(1).max(60),
-      secret:   z.string().trim().min(8).max(400),
+      secret:   z.string().trim().min(8).max(400).optional(),
+      connect:  z.boolean().optional(),
       settings: AccountSettings,
     }).parse(req.body)
+    if (b.connect) {
+      // Stripe through the group's connected account: no key of its own.
+      if (b.provider !== 'stripe') throw httpError(400, 'Only Stripe card machines can use your connected Stripe account')
+      const t = await tenantStripe(req.tenantId)
+      if (!t?.stripe_account_id) throw httpError(422, 'Connect your Stripe account first (Card machines, Your Stripe account)')
+      if (!t.stripe_charges_enabled) throw httpError(422, 'Your Stripe account can\'t take payments yet: finish Stripe\'s sign-up first')
+      const [dup] = await withTenant(req.tenantId, tx => tx`
+        SELECT id FROM pos_card_accounts WHERE tenant_id = ${req.tenantId} AND removed_at IS NULL AND provider = 'stripe' AND (settings->>'connect')::boolean`)
+      if (dup) throw httpError(409, 'Your connected Stripe account is already added')
+      const settings = { connect: true }
+      const checked = await checkAccount('stripe', null, settings, await cardAccount(req.tenantId, { provider: 'stripe', settings }))
+      const [a] = await withTenant(req.tenantId, tx => tx`
+        INSERT INTO pos_card_accounts (tenant_id, provider, name, secret, hint, mode, settings, checked_at, created_by)
+        VALUES (${req.tenantId}, 'stripe', ${b.name}, NULL, NULL, ${checked.mode},
+                ${tx.json({ ...checked.settings, connect: true })}, now(), ${by(req)})
+        RETURNING *`)
+      reply.code(201)
+      return accountView(a)
+    }
+    if (!b.secret) throw httpError(400, 'Type the account\'s key')
     const checked = await checkAccount(b.provider, b.secret, b.settings)
     const [a] = await withTenant(req.tenantId, tx => tx`
       INSERT INTO pos_card_accounts (tenant_id, provider, name, secret, hint, mode, settings, checked_at, created_by)
@@ -131,12 +156,14 @@ export default async function cardSetupRoutes(app) {
       settings: AccountSettings.optional(),
     }).parse(req.body)
     const before = await withTenant(req.tenantId, tx => loadAccount(tx, req.tenantId, id))
+    if (before.settings?.connect && b.secret) throw httpError(422, 'This account is your connected Stripe account: it has no key of its own')
     let mode = before.mode
     let settings = before.settings || {}
     if (b.secret || b.settings) {
-      const secret = b.secret || unseal(before.secret)
       const merged = { ...settings, ...(b.settings || {}) }
-      const checked = await checkAccount(before.provider, secret, merged)
+      const checked = before.settings?.connect
+        ? await checkAccount('stripe', null, merged, await cardAccount(req.tenantId, { ...before, settings: merged }))
+        : await checkAccount(before.provider, b.secret || unseal(before.secret), merged)
       mode = checked.mode
       settings = checked.settings
     }
@@ -156,7 +183,7 @@ export default async function cardSetupRoutes(app) {
   app.post('/card-accounts/:id/check', { preHandler: canManage }, async req => {
     const id = UUID.parse(req.params.id)
     const a = await withTenant(req.tenantId, tx => loadAccount(tx, req.tenantId, id))
-    const checked = await checkAccount(a.provider, unseal(a.secret), a.settings || {})
+    const checked = await checkAccount(a.provider, null, a.settings || {}, await cardAccount(req.tenantId, a))
     const [row] = await withTenant(req.tenantId, tx => tx`
       UPDATE pos_card_accounts SET mode = ${checked.mode}, settings = ${tx.json(checked.settings)}, checked_at = now(), updated_at = now()
        WHERE id = ${id} AND tenant_id = ${req.tenantId} RETURNING *`)
@@ -179,6 +206,43 @@ export default async function cardSetupRoutes(app) {
     return { ok: true }
   })
 
+  // A Stripe Terminal location for a venue, from its address (website
+  // details); the new location joins the account's list.
+  app.post('/card-accounts/:id/locations', { preHandler: canManage }, async (req, reply) => {
+    const id = UUID.parse(req.params.id)
+    const { venue_id } = z.object({ venue_id: UUID }).parse(req.body)
+    const { a, v } = await withTenant(req.tenantId, async tx => {
+      const acc = await loadAccount(tx, req.tenantId, id)
+      const [venue] = await tx`
+        SELECT v.id, v.name, wc.address_line1, wc.address_line2, wc.city, wc.postcode
+          FROM venues v LEFT JOIN website_config wc ON wc.venue_id = v.id AND wc.tenant_id = v.tenant_id
+         WHERE v.id = ${venue_id} AND v.tenant_id = ${req.tenantId}`
+      return { a: acc, v: venue }
+    })
+    if (!v) throw httpError(404, 'Venue not found')
+    const p = provider(a.provider)
+    if (!p.createLocation) throw httpError(422, p.label + ' has no locations to make')
+    if (!v.address_line1 || !v.city || !v.postcode) {
+      throw httpError(422, 'Add ' + v.name + '\'s address first (Website, the location\'s Find us), or make the location in Stripe')
+    }
+    const account = await cardAccount(req.tenantId, a)
+    let made
+    try {
+      made = await p.createLocation(account, {
+        name: v.name,
+        address: { line1: v.address_line1, line2: v.address_line2 || undefined, city: v.city, postal_code: v.postcode, country: 'GB' },
+      })
+    } catch (e) {
+      throw httpError(422, e.message || 'Stripe didn\'t make the location', { code: e.code || 'card' })
+    }
+    const checked = await checkAccount(a.provider, null, a.settings || {}, account)
+    const [row] = await withTenant(req.tenantId, tx => tx`
+      UPDATE pos_card_accounts SET settings = ${tx.json(checked.settings)}, checked_at = now(), updated_at = now()
+       WHERE id = ${id} AND tenant_id = ${req.tenantId} RETURNING *`)
+    reply.code(201)
+    return { location: made, account: accountView(row) }
+  })
+
   app.get('/card-accounts/:id/readers', { preHandler: canManage }, async req => {
     const id = UUID.parse(req.params.id)
     const { a, added } = await withTenant(req.tenantId, async tx => ({
@@ -190,7 +254,7 @@ export default async function cardSetupRoutes(app) {
     }))
     let list
     try {
-      list = await provider(a.provider).listReaders({ provider: a.provider, secret: unseal(a.secret), settings: a.settings || {}, mode: a.mode })
+      list = await provider(a.provider).listReaders(await cardAccount(req.tenantId, a))
     } catch (e) {
       throw httpError(422, e.message || 'The card machine list couldn\'t be read', { code: e.code || 'card' })
     }
@@ -241,7 +305,7 @@ export default async function cardSetupRoutes(app) {
     if (!b.account_id || (!b.provider_reader_id && !b.code)) throw httpError(422, 'Pick the account and the card machine, or type the code it shows')
     const a = await withTenant(req.tenantId, tx => loadAccount(tx, req.tenantId, b.account_id))
     const p = provider(a.provider)
-    const account = { provider: a.provider, secret: unseal(a.secret), settings: a.settings || {}, mode: a.mode }
+    const account = await cardAccount(req.tenantId, a)
     let found
     try {
       if (b.code) {
