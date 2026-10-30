@@ -23,6 +23,7 @@ import { useAuth0 } from '@auth0/auth0-react'
 import {
   X, Clock, Phone, Mail, AlertTriangle, Printer, CheckCircle2, ChefHat, PackageCheck,
   Ban, RotateCcw, Loader2, Volume2, VolumeX, ChevronDown, ChevronUp, Banknote, CreditCard, MapPin,
+  Pause, Play, Clock3,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { usePermission } from '@/hooks/usePermission'
@@ -229,7 +230,9 @@ export function printTicket(order, venue) {
 
 // ── Board ────────────────────────────────────────────────────
 
-export function OrderBoard({ venueId, date, compact = false, showUnpaid = false }) {
+// compact (the phone): `tools` (sold out, pause, hours) share one row with
+// the sound button, icons only; `banner` (paused, longer hours) goes under it.
+export function OrderBoard({ venueId, date, compact = false, showUnpaid = false, tools = null, banner = null }) {
   const q = useOrders(venueId, date, { includeUnpaid: showUnpaid })
   // Online orders = View: the board and each order can be looked at; status
   // buttons, pay, refund and timing changes are hidden.
@@ -321,7 +324,13 @@ export function OrderBoard({ venueId, date, compact = false, showUnpaid = false 
     </div>
   )
 
-  const soundBtn = (
+  const soundBtn = compact ? (
+    <button onClick={chime.on ? chime.disable : chime.enable} data-testid="orders-sound"
+      aria-label={chime.on ? 'Sound on: tap to turn off' : 'Sound off: tap to turn on'} aria-pressed={chime.on}
+      className={cn('w-12 h-12 shrink-0 inline-flex items-center justify-center border rounded-md touch-manipulation', chime.on ? 'bg-primary/10 border-primary/40 text-primary' : 'bg-background text-muted-foreground')}>
+      {chime.on ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
+    </button>
+  ) : (
     <button onClick={chime.on ? chime.disable : chime.enable}
       className={cn('inline-flex items-center gap-1.5 text-sm border rounded-md px-3 min-h-[44px] touch-manipulation', chime.on && 'bg-primary/10 border-primary/40')}>
       {chime.on ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />} {chime.on ? 'Sound on' : 'Sound off'}
@@ -334,12 +343,27 @@ export function OrderBoard({ venueId, date, compact = false, showUnpaid = false 
 
   return (
     <div>
-      <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
-        <p className="text-sm text-muted-foreground">
-          {sales.length} orders · {money(sales.reduce((s, o) => s + o.total_pence, 0))}
-        </p>
-        {soundBtn}
-      </div>
+      {compact ? (
+        <>
+          <div className="flex items-center gap-2 mb-2" data-testid="orders-tools">
+            {tools || <p className="flex-1 text-sm text-muted-foreground">{sales.length} orders · {money(sales.reduce((s, o) => s + o.total_pence, 0))}</p>}
+            {soundBtn}
+          </div>
+          {banner}
+          {tools && (
+            <p className="text-sm text-muted-foreground mb-2" data-testid="orders-summary">
+              {sales.length} orders · {money(sales.reduce((s, o) => s + o.total_pence, 0))}
+            </p>
+          )}
+        </>
+      ) : (
+        <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
+          <p className="text-sm text-muted-foreground">
+            {sales.length} orders · {money(sales.reduce((s, o) => s + o.total_pence, 0))}
+          </p>
+          {soundBtn}
+        </div>
+      )}
       {actionError && <p className="text-sm text-destructive mb-2">{actionError}</p>}
 
       {compact ? (
@@ -772,7 +796,7 @@ export function AvailabilityModal({ venueId, onClose }) {
 
 // ── Pause ────────────────────────────────────────────────────
 
-export function PauseButton({ venueId, ordering }) {
+export function PauseButton({ venueId, ordering, iconOnly = false }) {
   const api = useApi()
   const qc = useQueryClient()
   const [asking, setAsking] = useState(false)
@@ -783,6 +807,45 @@ export function PauseButton({ venueId, ordering }) {
     onSuccess: () => { setAsking(false); qc.invalidateQueries({ queryKey: ['orders', venueId] }) },
   })
   if (!ordering || !canManage) return null
+  if (iconOnly) {
+    return (
+      <>
+        {ordering.is_paused ? (
+          <button onClick={() => m.mutate({ paused: false })} disabled={m.isPending} data-testid="orders-pause"
+            aria-label="Orders are paused: tap to resume" aria-pressed="true"
+            className="w-12 h-12 shrink-0 inline-flex items-center justify-center rounded-md bg-amber-500 text-white touch-manipulation disabled:opacity-50">
+            {m.isPending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Play className="w-5 h-5" />}
+          </button>
+        ) : (
+          <button onClick={() => setAsking(true)} data-testid="orders-pause" aria-label="Pause orders"
+            className="w-12 h-12 shrink-0 inline-flex items-center justify-center rounded-md border bg-background touch-manipulation">
+            <Pause className="w-5 h-5" />
+          </button>
+        )}
+        {asking && (
+          <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={() => setAsking(false)}>
+            <div className="bg-background rounded-xl shadow-2xl w-full max-w-sm max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()} data-testid="pause-modal">
+              <div className="px-5 h-14 border-b flex items-center justify-between">
+                <h2 className="font-semibold">Pause online orders</h2>
+                <button onClick={() => setAsking(false)} aria-label="Close" className="w-11 h-11 flex items-center justify-center rounded hover:bg-accent"><X className="w-5 h-5" /></button>
+              </div>
+              <div className="p-5 space-y-3">
+                <p className="text-sm text-muted-foreground">Guests can still see the menu but can&apos;t order until you resume. Orders already placed carry on.</p>
+                <input value={msg} onChange={e => setMsg(e.target.value)} placeholder="Message for guests (optional)"
+                  className="w-full border rounded-md px-3 min-h-[48px] text-sm bg-background" />
+                {m.error && <p className="text-sm text-destructive">{m.error.message}</p>}
+                <div className="flex gap-2">
+                  <button onClick={() => m.mutate({ paused: true, message: msg || null })} disabled={m.isPending}
+                    className="flex-1 min-h-[48px] rounded-md bg-amber-500 text-white text-sm font-semibold touch-manipulation disabled:opacity-50">Pause orders</button>
+                  <button onClick={() => setAsking(false)} className="min-h-[48px] px-4 rounded-md border text-sm touch-manipulation">Cancel</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </>
+    )
+  }
   if (ordering.is_paused) {
     return (
       <button onClick={() => m.mutate({ paused: false })} disabled={m.isPending}
@@ -806,5 +869,126 @@ export function PauseButton({ venueId, ordering }) {
     <button onClick={() => setAsking(true)} className="min-h-[44px] px-4 rounded-md border text-sm font-medium touch-manipulation">
       Pause orders
     </button>
+  )
+}
+
+// ── Ordering hours today (migration 223) ─────────────────────
+
+const toMinutes = t => { const [h, m] = String(t).split(':').map(Number); return h * 60 + m }
+const asTime = m => String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0')
+const windowsText = ws => ws.map(w => `${w.open}–${w.close}`).join(', ')
+
+// Taking orders later than usual today: shown under the board's buttons.
+export function HoursNotice({ ordering }) {
+  const h = ordering?.hours_today
+  if (!ordering?.is_enabled || !h?.extended) return null
+  const usual = h.usual.length ? h.usual[h.usual.length - 1].close : null
+  return (
+    <div className="rounded-md bg-emerald-50 text-emerald-900 border border-emerald-200 p-3 text-sm mb-2" data-testid="hours-notice">
+      Taking online orders until <strong>{h.extended.until}</strong> today{usual ? ` (usually ${usual})` : ''}.
+    </div>
+  )
+}
+
+// The clock button: take orders later today, or back to the usual hours.
+export function HoursButton({ venueId, ordering, iconOnly = false }) {
+  const [open, setOpen] = useState(false)
+  const { canManage } = usePermission('web_orders')
+  const h = ordering?.hours_today
+  if (!ordering?.is_enabled || !canManage || !h) return null
+  const label = h.extended ? `Ordering hours: open until ${h.extended.until} today` : 'Ordering hours today'
+  return (
+    <>
+      {iconOnly ? (
+        <button onClick={() => setOpen(true)} aria-label={label} data-testid="orders-hours"
+          className={cn('w-12 h-12 shrink-0 inline-flex items-center justify-center rounded-md border touch-manipulation',
+            h.extended ? 'bg-emerald-600 border-emerald-600 text-white' : 'bg-background')}>
+          <Clock3 className="w-5 h-5" />
+        </button>
+      ) : (
+        <button onClick={() => setOpen(true)} data-testid="orders-hours"
+          className={cn('inline-flex items-center gap-1.5 min-h-[44px] px-4 rounded-md border text-sm font-medium touch-manipulation',
+            h.extended && 'bg-emerald-600 border-emerald-600 text-white')}>
+          <Clock3 className="w-4 h-4" /> {h.extended ? `Open until ${h.extended.until}` : 'Hours today'}
+        </button>
+      )}
+      {open && <HoursModal venueId={venueId} hours={h} onClose={() => setOpen(false)} />}
+    </>
+  )
+}
+
+function HoursModal({ venueId, hours: h, onClose }) {
+  const api = useApi()
+  const qc = useQueryClient()
+  const now = toMinutes(h.now)
+  const last = h.windows.length ? toMinutes(h.windows[h.windows.length - 1].close) : null
+  const usualClose = h.usual.length ? toMinutes(h.usual[h.usual.length - 1].close) : null
+  // Choices every half hour after the later of today's close and now.
+  const base = Math.max(last ?? now, Math.ceil(now / 15) * 15)
+  const choices = [30, 60, 90, 120].map(d => base + d).filter(m => m <= 23 * 60 + 59).map(asTime)
+  const [until, setUntil] = useState(choices[0] || '')
+  const m = useMutation({
+    mutationFn: body => api.post(`/orders/hours/${venueId}`, body),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['orders', venueId] }); onClose() },
+  })
+  const u = /^\d{2}:\d{2}$/.test(until) ? toMinutes(until) : null
+  const problem = u == null ? 'Pick a time'
+    : u <= now ? `Pick a time later than now (${h.now})`
+    : usualClose != null && u <= usualClose ? `Online ordering already runs until ${asTime(usualClose)} today`
+    : null
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-background rounded-xl shadow-2xl w-full max-w-sm max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()} data-testid="hours-modal">
+        <div className="px-5 h-14 border-b flex items-center justify-between sticky top-0 bg-background">
+          <h2 className="font-semibold">Online ordering hours today</h2>
+          <button onClick={onClose} aria-label="Close" className="w-11 h-11 flex items-center justify-center rounded hover:bg-accent"><X className="w-5 h-5" /></button>
+        </div>
+        <div className="p-5 space-y-4">
+          <p className="text-sm" data-testid="hours-usual">
+            <span className="text-muted-foreground">Usual hours today: </span>
+            <strong>{h.usual.length ? windowsText(h.usual) : 'closed'}</strong>
+          </p>
+          {h.extended && (
+            <div className="rounded-md bg-emerald-50 border border-emerald-200 p-3 text-sm space-y-2">
+              <p>Taking orders until <strong>{h.extended.until}</strong> today{h.extended.by ? ` (set by ${h.extended.by})` : ''}.</p>
+              <button onClick={() => m.mutate({ until: null })} disabled={m.isPending} data-testid="hours-reset"
+                className="min-h-[48px] px-4 rounded-md border bg-background text-sm font-medium touch-manipulation disabled:opacity-50">
+                Back to the usual hours
+              </button>
+            </div>
+          )}
+          <div>
+            <p className="text-sm font-medium mb-2">Take orders until</p>
+            {choices.length > 0 && (
+              <div className="grid grid-cols-4 gap-2 mb-2">
+                {choices.map(c => (
+                  <button key={c} onClick={() => setUntil(c)} aria-pressed={until === c}
+                    className={cn('min-h-[48px] rounded-md border text-sm font-semibold touch-manipulation',
+                      until === c ? 'bg-primary text-primary-foreground border-primary' : 'bg-background')}>
+                    {c}
+                  </button>
+                ))}
+              </div>
+            )}
+            <label className="flex items-center gap-2 text-sm">
+              <span className="text-muted-foreground">Another time</span>
+              <input type="time" value={until} onChange={e => setUntil(e.target.value)} step={300} max="23:59" data-testid="hours-time"
+                className="border rounded-md px-3 min-h-[48px] text-sm bg-background" />
+            </label>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Guests can pick collection times up to then, today only: tomorrow goes back to the usual hours. Menus with set times still follow them.
+          </p>
+          {(m.error || (until && problem)) && <p className="text-sm text-destructive">{m.error?.message || problem}</p>}
+          <div className="flex gap-2">
+            <button onClick={() => m.mutate({ until })} disabled={!!problem || m.isPending} data-testid="hours-save"
+              className="flex-1 min-h-[48px] rounded-md bg-primary text-primary-foreground text-sm font-semibold touch-manipulation disabled:opacity-50">
+              {m.isPending ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : `Take orders until ${problem ? '…' : until}`}
+            </button>
+            <button onClick={onClose} className="min-h-[48px] px-4 rounded-md border text-sm touch-manipulation">Cancel</button>
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }

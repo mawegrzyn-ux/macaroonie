@@ -1892,7 +1892,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['hs', '/hs-dashboard (HSDashboard.jsx)', '/api/hs-dashboards', 'hs_dashboard'],
                 ['cash', '/cash-dashboard (CashDashboard.jsx)', '/api/cash-dashboards', 'cash_dashboard'],
                 ['rota', '/rota-dashboard (RotaDashboard.jsx)', '/api/rota-dashboards', 'rota_dashboard'],
-                ['custom', '/dashboards (Dashboards.jsx), /mobile/dashboards', '/api/custom-dashboards', 'custom_dashboard (core, no tenant switch)'],
+                ['custom', '/dashboards (Dashboards.jsx; not on the phone)', '/api/custom-dashboards', 'custom_dashboard (core, no tenant switch)'],
               ]}
             />
             <H3>API (routes/hsDashboards.js)</H3>
@@ -1981,8 +1981,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               Phone: <Mono>pages/mobile/MobileDashboard.jsx</Mono> exports{' '}
               <Mono>MobileDashboardPage({'{ apiBase, keyPrefix, defaultNav, emptyText, emptyWidgetsText }'})</Mono>{' '}
               (read-only layout, any widget, same navigator); <Mono>MobileHSDashboard.jsx</Mono> is
-              that page for the H&amp;S kind, and the default export is <Mono>/mobile/dashboards</Mono>{' '}
-              (custom kind). <Mono>PayHeader</Mono>/<Mono>TipsHeader</Mono> moved from{' '}
+              that page for the H&amp;S kind. The blank (custom) dashboards aren&apos;t on the phone
+              (<Mono>/mobile/dashboards</Mono> was removed; old links land on the hub through the
+              mobile routes&apos; catch-all). <Mono>PayHeader</Mono>/<Mono>TipsHeader</Mono> moved from{' '}
               <Mono>RotaDashboard.jsx</Mono> to <Mono>staff/rotaWidgets.jsx</Mono> (the Rota page
               imports them from there).
             </P>
@@ -2425,7 +2426,27 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>defaultNav.js</Mono>. <Mono>MobileHub.jsx</Mono> (the <Mono>/mobile</Mono>{' '}
               index route) renders one tile per entry, in a two-column grid. Shipping a new mobile-optimised page is:
               add an entry here, add the route in <Mono>main.jsx</Mono>, build the page — no
-              changes to the shell or hub.
+              changes to the shell or hub. An entry&apos;s <Mono>areas</Mono> (the Today feed&apos;s task
+              areas, or <Mono>'all'</Mono>) give its tile a badge: <Mono>tileBadge()</Mono> in{' '}
+              <Mono>mobile/today.js</Mono> counts that area&apos;s tasks from <Mono>GET /api/ops/today</Mono>{' '}
+              for the venue picked on Today (<Mono>maca_today_venue</Mono>), red when one is late;{' '}
+              <Mono>todayLine()</Mono> words the Today tile. The hub and the Today page share one query
+              (<Mono>useTodayFeed()</Mono>, key <Mono>['ops-today', venueId]</Mono>, the office Today
+              page&apos;s key).
+            </P>
+            <H3>Today on the phone</H3>
+            <P>
+              <Mono>pages/mobile/MobileToday.jsx</Mono> (<Mono>/mobile/today</Mono>, the first tile) is the office
+              Today page in one column, built from its exported parts (<Mono>Glance</Mono>,{' '}
+              <Mono>TaskBoard</Mono>, <Mono>FormSheet</Mono>, <Mono>greeting()</Mono>, <Mono>readVenue()</Mono>{' '}
+              in <Mono>pages/OpsToday.jsx</Mono>), which take <Mono>linkFor</Mono>: <Mono>opsLink(path)</Mono>{' '}
+              sends an office path to the phone&apos;s own page (<Mono>/purchasing</Mono> to{' '}
+              <Mono>/mobile/purchasing</Mono> with its query, <Mono>/cash-recon</Mono> to{' '}
+              <Mono>/mobile/cash-up</Mono>, <Mono>/orders</Mono>, <Mono>/food-safety</Mono> and{' '}
+              <Mono>/checklists</Mono> to their phone pages), else to the office site on{' '}
+              <Mono>ops.</Mono> (<Mono>standardHref()</Mono>, an <Mono>&lt;a href&gt;</Mono>). Pepper is its
+              own tile; the page links to it. The mobile routes end with a catch-all to the hub, so
+              links to pages the phone no longer has (<Mono>/mobile/dashboards</Mono>) land there.
             </P>
             <H3>Service worker</H3>
             <P>
@@ -4946,7 +4967,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <DataTable
               head={['Table', 'Notes']}
               rows={[
-                ['ordering_settings', "One row per venue (PK venue_id): is_enabled, is_paused + pause_message, hours jsonb [{ day 0-6 (0 = Sunday), windows: [{ open, close }] }], menu_ids uuid[], menu_schedules jsonb (migration 130, { menuId: { from, until, times: [{ days, start, end }] } }, see Menu schedules below), allow_asap, lead_time_mins, slot_interval_mins, max_orders_per_slot (NULL = no limit), max_days_ahead, min_order_pence, auto_accept, order_type_ids jsonb { collection, delivery, eat_in } + revenue_stream_id (migration 170: the sale context for tax and the kitchen; a fulfilment with no type uses the tenant's type of that name, fillOrderTypes() in loadSettings()), tips_enabled + tip_percents int[], payment_methods text[] (gateway keys, checkout order), collection_instructions, confirmation_note. No row = defaults (disabled); GET fills hours from loadOpeningHours()."],
+                ['ordering_settings', "One row per venue (PK venue_id): is_enabled, is_paused + pause_message, hours jsonb [{ day 0-6 (0 = Sunday), windows: [{ open, close }] }], menu_ids uuid[], menu_schedules jsonb (migration 130, { menuId: { from, until, times: [{ days, start, end }] } }, see Menu schedules below), allow_asap, lead_time_mins, slot_interval_mins, max_orders_per_slot (NULL = no limit), max_days_ahead, min_order_pence, auto_accept, order_type_ids jsonb { collection, delivery, eat_in } + revenue_stream_id (migration 170: the sale context for tax and the kitchen; a fulfilment with no type uses the tenant's type of that name, fillOrderTypes() in loadSettings()), tips_enabled + tip_percents int[], payment_methods text[] (gateway keys, checkout order), collection_instructions, confirmation_note, hours_extension jsonb (migration 223: today's hours later than usual, see Collection slots). No row = defaults (disabled); GET fills hours from loadOpeningHours()."],
                 ['ordering_item_availability', "Per-venue sold out: (venue_id, item_id, sold_out_until). NULL until = until turned back on. item_id has no FK because menu saves re-insert items (with the same ids since migration 121)."],
                 ['orders', "service_date (venue-local collection day) + order_number (1, 2, 3 per venue per day, UNIQUE) under pg_advisory_xact_lock on venue + day. public_token is the guest key (status page, like manage_token). status: pending_payment, placed, accepted, preparing, ready, completed, rejected, cancelled, expired. promised_at is the ready time (ASAP or the chosen slot). Money in pence: subtotal, tip, total, vat (VAT-inclusive), paid, refunded; payment_status unpaid | pending | paid | failed | partially_refunded | refunded."],
                 ['order_items', "Copies name, options [{ group, label, price_pence, mode }], unit and line totals, vat_rate and vat_pence at the time of ordering. menu_item_id is a plain uuid (no FK), for reports only."],
@@ -5108,6 +5129,21 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               later of now + lead time and the opening, rounded up to 5 minutes. Venue-local times
               go through <Mono>zonedToUtc()</Mono> / <Mono>localParts()</Mono> (Intl, DST-safe).
             </P>
+            <P>
+              A day&apos;s windows come only from <Mono>dayWindows(settings, date)</Mono> (sorted,{' '}
+              <Mono>HH:MM</Mono>). Migration 223&apos;s <Mono>ordering_settings.hours_extension</Mono>{' '}
+              (<Mono>{'{ date, until, open, by, at }'}</Mono>, set by <Mono>POST /api/orders/hours/:venueId</Mono>{' '}
+              from the board&apos;s clock button) applies on its date only: the last window closes at{' '}
+              <Mono>until</Mono>, or a day with no windows opens at <Mono>open</Mono> (when it was set,
+              to 5 minutes) until <Mono>until</Mono>. <Mono>extensionFor()</Mono> checks a new one (later
+              than now and than the usual close, a real time up to 23:59: windows don&apos;t cross
+              midnight); a stored value that isn&apos;t a real time is ignored. Nothing clears it the next
+              day: another date simply doesn&apos;t match. <Mono>todayHours()</Mono> is the board&apos;s{' '}
+              <Mono>ordering.hours_today</Mono> (<Mono>usual</Mono>, <Mono>windows</Mono>,{' '}
+              <Mono>extended</Mono>); Ordering setup&apos;s save leaves the column alone. Admin:{' '}
+              <Mono>HoursButton</Mono> / <Mono>HoursModal</Mono> / <Mono>HoursNotice</Mono> in{' '}
+              <Mono>components/orders/shared.jsx</Mono>.
+            </P>
             <H3>Payment gateways</H3>
             <P>
               <Mono>api/src/services/paymentGateways/</Mono>. The order flow only calls the gateway
@@ -5169,7 +5205,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['POST /order-api/venues/:id/quote', "priceBasket() for display."],
                 ['POST /order-api/venues/:id/orders', "Place an order; returns token, status and the payment client action."],
                 ['GET /order-api/orders/:token; POST .../pay; POST .../payments/:id/confirm', "Guest status, retry, browser confirmation."],
-                ['/api/orders (admin)', "GET / (board: venue + day), GET /:id (events, payments), POST /:id/status | promised | mark-paid | refund, GET|PUT /settings/:venueId, POST /pause/:venueId (web_orders manage, no setup rights needed), GET|PUT /availability/:venueId[/:itemId], GET /report, GET /transactions[.csv] (see Transactions below), GET /gateways."],
+                ['/api/orders (admin)', "GET / (board: venue + day), GET /:id (events, payments), POST /:id/status | promised | mark-paid | refund, GET|PUT /settings/:venueId, POST /pause/:venueId (web_orders manage, no setup rights needed), POST /hours/:venueId ({ until: 'HH:MM' | null }, web_orders manage: today's hours later than usual, migration 223), GET|PUT /availability/:venueId[/:itemId], GET /report, GET /transactions[.csv] (see Transactions below), GET /gateways."],
                 ['Site', "/order (sole ordering venue, or a location picker) and /locations/:slug/order render the tenant's built-in ordering page (website_pages.system_key = 'order', migration 126) through page.eta, passing orderView/orderVenue(s); its online_ordering block (blocks/online_ordering.eta) includes shared/ordering.eta. Sites published before 126 use DEFAULT_ORDER_PAGE (services/systemPages.js) until republished. /p/<slug> of that page redirects to /order. /order/status/:token still renders each template's order.eta around shared/ordering.eta."],
               ]}
             />

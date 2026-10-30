@@ -1831,9 +1831,9 @@ export default function Help() {
               H&amp;S follows opening days is on). The Action log and Allergen lookup don't depend on a date.
             </P>
             <P>
-              On the phone (ops.macaroonie.com), the <strong>Dashboards</strong> tile shows the same
-              dashboards in one column, for logging and looking only; build and arrange them on the
-              desktop page.
+              These dashboards are on the desktop only. On the phone (ops.macaroonie.com) the{' '}
+              <strong>H&amp;S Dashboard</strong> tile shows your H&amp;S dashboards, and{' '}
+              <strong>Today</strong> lists what needs doing.
             </P>
           </section>
 
@@ -2346,10 +2346,18 @@ export default function Help() {
               On the phone the <strong>H&amp;S Dashboard</strong> is for logging checks only: switch
               between your dashboards with the tabs (the small arrows scroll them when there are
               more), tick checklists and enter temperatures. Adding, removing and arranging widgets
-              and dashboards is done on the H&amp;S Dashboard in the office admin. The{' '}
-              <strong>Dashboards</strong> tile does the same for the dashboards you made on the
-              Dashboards page. Both show any widget the dashboard holds, cash and rota ones included,
-              with the same date bar as the desktop.
+              and dashboards is done on the H&amp;S Dashboard in the office admin. It shows any widget
+              the dashboard holds, cash and rota ones included, with the same date bar as the desktop.
+              The dashboards you make on the Dashboards page aren&apos;t on the phone.
+            </P>
+            <P>
+              <strong>Today</strong> is the first tile: the same list as the Today page in the office
+              (Late, Now, Next, Later) in one column. Fridge, hold, cooking and checklist tasks open
+              their form right there; the rest open the phone&apos;s own page (Purchasing on the order,
+              Cash Up, Online orders), or the office site when the phone has no page for it (the H&amp;S
+              action log). The other tiles show how many things there are to do in their area today:
+              a red number when one of them is late, amber otherwise. The numbers are for the venue
+              picked on the Today page (its name shows on the Today tile when you have more than one).
             </P>
             <P>
               If you open the regular desktop admin portal on a phone held upright, you'll see a
@@ -4374,6 +4382,7 @@ export default function Help() {
                 ['Print a ticket', "The printer icon in the order prints an 80mm ticket through the browser."],
                 ['Run out of a dish', "Sold out on the board: Today (back on at midnight) or Until back on. The till and the menu screens show it too (and the till can set it: hold a dish down)."],
                 ['Stop orders for a while', "Pause orders, with an optional message. Guests can still see the menu. Resume orders when you are ready."],
+                ['Take orders later tonight', "Hours today (the clock on the phone): pick a time, or type one, and Take orders until. Guests can choose collection times up to then, today only: tomorrow goes back to the usual hours. On a day with no ordering hours it opens online ordering from now. Back to the usual hours undoes it. Menus with set times still follow them."],
               ]}
             />
             <InfoBox type="warn">

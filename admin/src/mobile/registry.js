@@ -3,25 +3,29 @@
 // Single source of truth for what shows up on the /mobile hub. Add an
 // entry here + a route in main.jsx to ship a new mobile-optimised module —
 // same "one registry drives nav + a picker" pattern as modules.js /
-// defaultNav.js elsewhere in this app.
+// defaultNav.js elsewhere in this app. `areas` are the Today feed's task
+// areas (api/src/services/opsToday.js) a tile's badge counts; Today counts
+// every task.
 
-import { LayoutGrid, LayoutTemplate, Receipt, ShoppingCart, Wallet, Users, ShoppingBag, Wheat, Sparkles } from 'lucide-react'
+import { ListTodo, LayoutGrid, Receipt, ShoppingCart, Wallet, Users, ShoppingBag, Wheat, Sparkles } from 'lucide-react'
 import { ASSISTANT_NAME } from '@shared/assistant.js'
 
 export const MOBILE_MODULES = [
+  {
+    key: 'today',
+    label: 'Today',
+    description: 'What needs doing now: checks, deliveries, orders, the cash-up',
+    icon: ListTodo,
+    path: '/mobile/today',
+    areas: 'all',
+  },
   {
     key: 'hs-dashboard',
     label: 'H&S Dashboard',
     description: 'Checklists, temperature checks, deliveries, holds and the action log',
     icon: LayoutGrid,
     path: '/mobile/hs-dashboard',
-  },
-  {
-    key: 'dashboards',
-    label: 'Dashboards',
-    description: 'Your own dashboards: any mix of checks, cash, rota and allergens',
-    icon: LayoutTemplate,
-    path: '/mobile/dashboards',
+    areas: ['food_safety', 'checklists', 'hs_actions'],
   },
   {
     key: 'expenses',
@@ -36,6 +40,7 @@ export const MOBILE_MODULES = [
     description: 'Order from your lists, send orders and book deliveries in',
     icon: ShoppingCart,
     path: '/mobile/purchasing',
+    areas: ['purchasing'],
   },
   {
     key: 'cash-up',
@@ -43,6 +48,7 @@ export const MOBILE_MODULES = [
     description: 'This week\'s days at a glance - status, income and variance',
     icon: Wallet,
     path: '/mobile/cash-up',
+    areas: ['cash'],
   },
   {
     key: 'wages',
@@ -57,6 +63,7 @@ export const MOBILE_MODULES = [
     description: 'Today\'s web orders: accept, mark ready, collected; pause and sold out',
     icon: ShoppingBag,
     path: '/mobile/orders',
+    areas: ['online_orders'],
   },
   {
     key: 'allergens',

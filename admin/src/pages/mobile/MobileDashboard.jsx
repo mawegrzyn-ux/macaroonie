@@ -1,8 +1,8 @@
 // src/pages/mobile/MobileDashboard.jsx
 //
-// MobileDashboardPage: the Ops app's phone-portrait view of any desktop
-// dashboard kind (H&S: /mobile/hs-dashboard, blank Dashboards:
-// /mobile/dashboards). Same named dashboards (as tabs), widgets and
+// MobileDashboardPage: the Ops app's phone-portrait view of a desktop
+// dashboard kind (the H&S Dashboard: /mobile/hs-dashboard; the blank
+// Dashboards page isn't on the phone). Same named dashboards (as tabs), widgets and
 // widget bodies as the desktop page (components/dashboards/widgetTypes.jsx),
 // with the same shared navigator (components/dashboards/nav.jsx), single
 // column and touch-first. Layout is read-only here: dashboards and widgets
@@ -190,16 +190,5 @@ export function MobileDashboardPage({ apiBase, keyPrefix, defaultNav = 'day', em
         </>
       )}
     </div>
-  )
-}
-
-export default function MobileDashboards() {
-  return (
-    <MobileDashboardPage
-      apiBase="/custom-dashboards"
-      keyPrefix="custom"
-      emptyText="No dashboards yet. Create one on the Dashboards page in the office admin."
-      emptyWidgetsText="Nothing on this dashboard yet. Add widgets to it on the Dashboards page in the office admin."
-    />
   )
 }

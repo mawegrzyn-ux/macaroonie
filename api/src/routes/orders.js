@@ -8,6 +8,8 @@
 //   GET    /settings/:venueId                ordering settings (+ menus to pick from)
 //   PUT    /settings/:venueId                save ordering settings
 //   POST   /pause/:venueId                   pause / resume taking orders
+//   POST   /hours/:venueId                   { until: 'HH:MM' | null } take orders later
+//                                            today (or back to the usual hours), migration 223
 //   GET    /availability/:venueId            orderable dishes with sold-out state
 //   PUT    /availability/:venueId/:itemId    { sold_out: 'today' | 'indefinite' | false }
 //   GET    /report?venue_id=&from=&to=       totals, by day, by payment, top dishes, promotions
@@ -39,7 +41,7 @@ import { httpError } from '../middleware/error.js'
 import { listGateways, COUNTER_METHODS } from '../services/paymentGateways/index.js'
 import {
   loadSettings, loadOrderingMenu, loadAdminOrder, adminOrder, localParts,
-  changeStatus, changePromisedTime, markPaid, refundOrder,
+  changeStatus, changePromisedTime, markPaid, refundOrder, todayHours, extensionFor,
 } from '../services/orderSvc.js'
 import { broadcast } from '../config/ws.js'
 import { boardOrders, boardOrder } from '../services/gloriafoodSvc.js'
@@ -244,6 +246,26 @@ export default async function ordersRoutes(app) {
     return row
   })
 
+  // Today's online ordering hours, later than usual (the board's clock
+  // button), or back to the usual hours with until = null. Today only:
+  // dayWindows() ignores the extension on any other date.
+  app.post('/hours/:venueId', { preHandler: manage }, async (req) => {
+    const b = z.object({ until: hm.nullable() }).parse(req.body)
+    const today = await withTenant(req.tenantId, async tx => {
+      const venue = await venueOf(tx, req.params.venueId)
+      const settings = await loadSettings(tx, venue.id)
+      const ext = extensionFor(settings, venue, b.until, { by: req.user?.email ?? null })
+      await tx`
+        INSERT INTO ordering_settings (venue_id, tenant_id, hours_extension)
+        VALUES (${venue.id}, ${req.tenantId}, ${ext ? tx.json(ext) : null})
+        ON CONFLICT (venue_id) DO UPDATE SET hours_extension = EXCLUDED.hours_extension, updated_at = now()
+      `
+      return todayHours({ ...settings, hours_extension: ext }, venue)
+    })
+    broadcast(req.params.venueId, { type: 'ordering.settings', data: { hours_today: today } })
+    return today
+  })
+
   // ── Sold out ─────────────────────────────────────────────
 
   app.get('/availability/:venueId', { preHandler: view }, async (req) => {
@@ -432,7 +454,10 @@ export default async function ordersRoutes(app) {
       return {
         date,
         venue: { id: venue.id, name: venue.name, timezone: venue.timezone },
-        ordering: { is_enabled: settings.is_enabled, is_paused: settings.is_paused, pause_message: settings.pause_message },
+        ordering: {
+          is_enabled: settings.is_enabled, is_paused: settings.is_paused, pause_message: settings.pause_message,
+          hours_today: todayHours(settings, venue),
+        },
         gloriafood: { show_on_board: !!gf?.show_on_board },
         orders: all,
       }
