@@ -6381,6 +6381,16 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               Renders on the website via the <Mono>menu_inline</Mono> block, and standalone as a
               printable page at <Mono>GET /api/menus/:id/print</Mono>.
             </P>
+            <P>
+              <Mono>DELETE /api/menus/:id</Mono> calls <Mono>forgetMenu()</Mono> in the same
+              transaction: the id comes out of <Mono>ordering_settings.menu_ids</Mono> and{' '}
+              <Mono>menu_schedules</Mono>, <Mono>pos_revenue_streams.menu_ids</Mono> and{' '}
+              <Mono>deliveroo_settings.menu_ids</Mono> (uuid arrays with no foreign key). Before
+              migration 222, which cleared the ids left behind, a stale id was sent back unseen by
+              Ordering setup and every save failed with "A chosen menu wasn't found". The ordering
+              and Deliveroo settings reads also return only menus their page lists, and the
+              revenue stream window drops ids it doesn't list.
+            </P>
             <H3>Reading a menu from files</H3>
             <P>
               <Mono>/api/ai/menus</Mono> (<Mono>routes/menuImport.js</Mono>, under /api/ai for the 5-minute proxy timeout).{' '}

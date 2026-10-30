@@ -40,7 +40,8 @@ function StreamModal({ venueId, setup, stream, onClose }) {
   const types = setup.order_types || []
   const [form, setForm] = useState({
     name: stream?.name || '',
-    menu_ids: stream?.menu_ids || [],
+    // Only menus listed below: one deleted or moved to another venue would be refused on save.
+    menu_ids: (stream?.menu_ids || []).filter(id => setup.menus.some(m => m.id === id)),
     service_charge_percent: stream ? Number(stream.service_charge_percent) : 0,
     service_charge_min_covers: stream?.service_charge_min_covers ?? 0,
     colour: stream?.colour || null,

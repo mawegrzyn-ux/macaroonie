@@ -3351,6 +3351,12 @@ export default function Help() {
               (Highlight, Tax, New page…). Deleting a section is in its panel and asks you to confirm.
             </P>
             <P>
+              Deleting a whole menu also takes it off <strong>Ordering setup</strong> (with its menu
+              times), every <strong>revenue stream</strong> that named it and the{' '}
+              <strong>Deliveroo menu file</strong> settings. A revenue stream left with no menus shows
+              every menu on its tills.
+            </P>
+            <P>
               To change the order of dishes, drag a dish by its grip (the dotted handle on the left
               of the row) up or down. A dish stays in its own section; to move it to another
               section, delete it and add it there. The small arrows still move a dish one place at
