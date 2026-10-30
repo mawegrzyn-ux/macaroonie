@@ -23,7 +23,7 @@
 // paid, migration 210; cleared once the receipt is sent).
 // Hints (last 4 characters) are kept beside them in plain text for display.
 
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto'
+import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes } from 'node:crypto'
 import { systemSql } from '../config/db.js'
 
 const PREFIX = 'v1:'
@@ -86,6 +86,16 @@ export function unseal(value) {
   } catch {
     throw new Error('A stored key could not be read (was SECRETS_KEY changed?). Type the key in again where it was set up.')
   }
+}
+
+/**
+ * A key worked out from the master key and a label (base64url, 32 bytes),
+ * the same every time for the same label: nothing to store. Used for the
+ * key a till, kiosk or kitchen screen shows the venue hub (migration 218,
+ * labelled with its pairing, so pairing it again changes the key).
+ */
+export function deriveKey(label) {
+  return createHmac('sha256', masterKey()).update('macaroonie:' + String(label)).digest('base64url')
 }
 
 /**

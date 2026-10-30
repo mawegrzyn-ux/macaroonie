@@ -175,7 +175,7 @@ function StaffPanel({ s, box, onClose }) {
           <span className="flex items-center gap-1" data-testid="k-staff-link">
             {s.link === 'down' ? <><WifiOff size={16} /> Offline: ordering paused, trying every few seconds</>
               : s.link === 'checking' ? <><Wifi size={16} /> Checking the connection…</>
-                : <><Wifi size={16} /> Online</>}
+                : <><Wifi size={16} /> {s.hub === true ? 'Online, orders go to the venue hub' : 'Online'}</>}
           </span>
           <span className="k-muted">Pictures on this kiosk</span><span data-testid="k-staff-photos">{photosText(s.photos)}</span>
           <span className="k-muted">Videos on this kiosk</span><span data-testid="k-staff-videos">{videosText(s.videos)}</span>

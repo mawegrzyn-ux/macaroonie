@@ -152,6 +152,8 @@ const SettingsBody = z.object({
     sections: z.array(z.object({ name: z.string().trim().min(1).max(80), colour: HEX_COLOUR })).max(SECTION_COLOURS_MAX).default([]),
   }).optional(),
   pull:                      PullBody.optional(),
+  // Hub first (migration 218): devices on the venue network talk to the venue hub first.
+  hub_first:                 z.boolean().optional(),
 })
 
 // Ask for a customer name / tent number when the order type is picked:
@@ -800,8 +802,8 @@ export default async function posSetupRoutes(app) {
       return settingsView(row)
     })
     configChanged(venueId)
-    // Menu screens read their pull times from their config too.
-    if (body.pull) broadcast('screens:' + venueId, { type: 'screens.changed' })
+    // Menu screens read their pull times (and the hub's address) from their config too.
+    if (body.pull || body.hub_first !== undefined) broadcast('screens:' + venueId, { type: 'screens.changed' })
     return out
   })
 

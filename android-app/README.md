@@ -29,6 +29,11 @@ and never need a new build of this app. The app only adds what a browser can't:
   page to the app, which calls `expo-print`);
 - the camera works for QR scanning (Android asks for permission the first time);
 - if the address can't be reached it says so and tries again every 5 seconds.
+- at a location with a venue hub (hub first, `docs/POS.md` section 11) the
+  apps call the hub on the venue network over plain http, which a browser
+  won't do from an https page: the app allows it (`plugins/withVenueNetwork.js`
+  and the WebView's `mixedContentMode`), so the venue keeps trading on the hub
+  with the internet down (version 1.3).
 
 To change what a device is: tap the top left corner of the screen five times
 quickly (within three seconds). **What is this device?** comes back over the

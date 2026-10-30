@@ -28,6 +28,8 @@ $Api = if ($env:MACAROONIE_API) { $env:MACAROONIE_API } else { '__MACAROONIE_API
 $HubHome = if ($env:MACAROONIE_HUB_HOME) { $env:MACAROONIE_HUB_HOME } else { Join-Path $env:ProgramData 'Macaroonie\Hub' }
 $NodeDist = if ($env:MACAROONIE_NODE_DIST) { $env:MACAROONIE_NODE_DIST } else { 'https://nodejs.org/dist/latest-v22.x' }
 $Port = 9180
+# Hub first: the port the tills, kiosks and kitchen screens on the venue network use.
+$LanPort = 9181
 $TaskName = 'Macaroonie hub'
 
 function Fail($message) { throw "Install stopped: $message" }
@@ -109,7 +111,7 @@ try {
   # 3. The scheduled task: at start-up, as SYSTEM, started again if it stops.
   $log = Join-Path $HubHome 'hub.log'
   $action = New-ScheduledTaskAction -Execute $node -WorkingDirectory $HubHome `
-    -Argument ('"' + (Join-Path $HubHome 'launcher.mjs') + '" --api ' + $Api + ' --http-port ' + $Port + ' --log-file "' + $log + '"')
+    -Argument ('"' + (Join-Path $HubHome 'launcher.mjs') + '" --api ' + $Api + ' --http-port ' + $Port + ' --lan-port ' + $LanPort + ' --log-file "' + $log + '"')
   $trigger = New-ScheduledTaskTrigger -AtStartup
   $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable `
     -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -MultipleInstances IgnoreNew
@@ -125,6 +127,10 @@ try {
   # The status page on the venue's network.
   if (-not (Get-NetFirewallRule -DisplayName 'Macaroonie hub status page' -ErrorAction SilentlyContinue)) {
     New-NetFirewallRule -DisplayName 'Macaroonie hub status page' -Direction Inbound -Protocol TCP -LocalPort $Port -Action Allow -Profile Private, Domain | Out-Null
+  }
+  # And the port the venue's devices use (hub first).
+  if (-not (Get-NetFirewallRule -DisplayName 'Macaroonie hub for devices' -ErrorAction SilentlyContinue)) {
+    New-NetFirewallRule -DisplayName 'Macaroonie hub for devices' -Direction Inbound -Protocol TCP -LocalPort $LanPort -Action Allow -Profile Private, Domain | Out-Null
   }
 
   # 4. The code to link it (or that it is linked already).

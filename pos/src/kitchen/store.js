@@ -47,6 +47,8 @@ let state = {
   confirmed: {},
   outbox: [],
   seq: 0,
+  seqSource: null,        // 'cloud' or the venue hub ('hub:<id>'): another source starts the cursor again
+  hub: null,              // the venue hub (hub first): true in use, false not answering, null none
   online: navigator.onLine,
   socket: 'closed',
   syncing: false,
@@ -149,14 +151,18 @@ export async function bootKitchen(device, benchLink = null) {
     prefsKey = 'maca_kds_bench_' + device.id
     api = benchLink.transport
   } else {
-    api = createTransport(device, { pending: () => state.outbox.length })
+    api = createTransport(device, {
+      pending: () => state.outbox.length,
+      hub: () => state.config?.hub || null,
+      onHub: h => { setState({ hub: h.ok }); if (h.ok) pull() },
+    })
     keepStorage()
   }
   const [config, snapshot, outbox] = await Promise.all([keep.get(CONFIG_KEY), keep.get(SNAPSHOT_KEY), keep.get(OUTBOX_KEY)])
   setState({
     prefs: bench ? loadPrefs() : state.prefs,
     device, config: config || null,
-    confirmed: snapshot?.orders || {}, seq: snapshot?.seq || 0, offset: snapshot?.offset || 0,
+    confirmed: snapshot?.orders || {}, seq: snapshot?.seq || 0, seqSource: snapshot?.source || null, offset: snapshot?.offset || 0,
     outbox: outbox || [], phase: 'ready',
   })
   await loadConfig()
@@ -173,7 +179,15 @@ export async function loadConfig() {
       setState({ config: res, online: true })
       flowNotice(before, res)
       pulls?.check()
-    } else setState({ online: true })
+    } else {
+      setState({ online: true })
+      // The venue hub's address travels with every reply (hub first).
+      if ('hub' in res && JSON.stringify(res.hub ?? null) !== JSON.stringify(state.config?.hub ?? null)) {
+        const next = { ...state.config, hub: res.hub ?? null }
+        setState({ config: next })
+        await keep.set(CONFIG_KEY, next)
+      }
+    }
   } catch (err) {
     handleError(err)
   }
@@ -340,7 +354,8 @@ export async function flush() {
       toast('Not saved: ' + r.error, 'bad', 6000)
     }
     const outbox = state.outbox.filter(e => !answered.has(e.id))
-    setState({ confirmed, outbox, online: true })
+    // Through the venue hub the cloud may still be out of reach.
+    setState({ confirmed, outbox, ...(String(res.source || '').startsWith('hub:') ? {} : { online: true }) })
     await keep.set(OUTBOX_KEY, outbox)
     await pull()
   } catch (err) {
@@ -385,7 +400,8 @@ export async function pull() {
   pulling = (async () => {
     const sent = Date.now()
     try {
-      const res = await api.get('/pos-api/kitchen/sync?since=' + (state.seq || 0))
+      const res = await api.get('/pos-api/kitchen/sync?since=' + (state.seq || 0) + '&source=' + encodeURIComponent(state.seqSource || 'cloud'))
+      const source = res.source || 'cloud'
       const rtt = Date.now() - sent
       const offset = res.server_time ? Date.parse(res.server_time) + rtt / 2 - Date.now() : state.offset
       let confirmed = res.reset ? {} : { ...state.confirmed }
@@ -395,7 +411,7 @@ export async function pull() {
       const arrivals = state.lastSync ? newArrivals(state.confirmed, confirmed) : []
       const alerts = { ...state.alerts }
       for (const id of arrivals) alerts[id] = Date.now()
-      setState({ confirmed, seq: res.seq, offset, online: true, lastSync: Date.now(), alerts })
+      setState({ confirmed, seq: res.seq, seqSource: source, offset, lastSync: Date.now(), alerts, ...(source === 'cloud' ? { online: true } : {}) })
       if (arrivals.length) chime()
       saveSnapshot()
     } catch (err) {
@@ -410,7 +426,7 @@ export async function pull() {
 let snapTimer = null
 function saveSnapshot() {
   clearTimeout(snapTimer)
-  snapTimer = setTimeout(() => keep.set(SNAPSHOT_KEY, { seq: state.seq, orders: state.confirmed, offset: state.offset }), 600)
+  snapTimer = setTimeout(() => keep.set(SNAPSHOT_KEY, { seq: state.seq, source: state.seqSource, orders: state.confirmed, offset: state.offset }), 600)
 }
 
 function onMessage(m) {
@@ -460,15 +476,16 @@ function startSync() {
   if (started) return
   started = true
   if (!bench && !devicePrinting) {
-    devicePrinting = startDevicePrinting({ post: (p, b) => api.post(p, b) }, () => hasOwnPrinter(state.config, state.device?.id))
+    devicePrinting = startDevicePrinting({ post: (p, b, o) => api.post(p, b, o), onHub: () => api.onHub?.() }, () => hasOwnPrinter(state.config, state.device?.id))
   }
   window.addEventListener('online', () => { setState({ online: true }); tick() })
   window.addEventListener('offline', () => setState({ online: false }))
   document.addEventListener('visibilitychange', () => { if (!document.hidden) { tick(); loadConfig() } })
   connectSocket()
   const loop = () => {
-    // Without the socket ask every 3 s; with it every 20 s as a check.
-    const ms = state.socket === 'open' ? 20000 : 3000
+    // On the venue hub ask it every 2 s (it has no push); without the
+    // socket ask every 3 s; with it every 20 s as a check.
+    const ms = api.onHub?.() ? 2000 : state.socket === 'open' ? 20000 : 3000
     pollTimer = setTimeout(() => { tick(); loop() }, ms)
   }
   loop()

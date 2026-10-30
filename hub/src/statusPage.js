@@ -93,6 +93,25 @@ export function renderPage(state) {
     }).join('')}</table>` : '<p class="muted">No printers for this hub yet: add them in Store tech → Printers.</p>'}</section>`)
   }
 
+  // Hub first (venue.js): the copy of the venue the network's devices use.
+  const v = s.venue
+  if (s.phase === 'running' && v) {
+    const words = v.on ? 'On: the tills, kiosks and kitchen screens here use this hub first'
+      : v.hub_first === false ? 'Off (switched off in Store tech → Printers)'
+      : v.primary === false ? 'Another hub at this location takes the events; this one prints'
+      : 'Starting'
+    const devs = v.devices || []
+    parts.push(`<section data-testid="venue"><h2>Hub first</h2><table>
+      ${row('Hub first', esc(words), v.on ? 'ok' : 'muted')}
+      ${row('Devices using it', devs.length ? esc(devs.map(d => d.name).join(', ')) : '<span class="muted">None in the last 2 minutes</span>')}
+      ${row('Waiting to go up', v.to_send ? '<span class="warn">' + v.to_send + ' change' + (v.to_send === 1 ? '' : 's') + '</span>' : '<span class="ok">Nothing</span>')}
+      ${row('Last sent up', esc(ago(v.last_upload_at)))}
+      ${row('Cloud read', esc(ago(v.last_follow_at)) + (v.error ? ' · <span class="bad">' + esc(v.error) + '</span>' : ''))}
+      ${row('Trading day', v.day ? esc(v.day.business_date) + (String(v.day.id || '').startsWith('hub-day-') ? ' (opened here, the cloud hasn\'t heard yet)' : '') : '<span class="muted">Closed</span>')}
+      ${(v.conflicts || []).length ? row('Refused', esc(v.conflicts.length + ' change' + (v.conflicts.length === 1 ? '' : 's') + ' no longer applied (Till reports lists them)'), 'warn') : ''}
+    </table></section>`)
+  }
+
   const local = s.local_printers || []
   parts.push(`<section><h2>Plugged into this computer</h2>${local.length
     ? `<table>${local.map(p => row(p.name, esc(p.path || '') + (p.escpos ? '' : ' · <span class="warn">may not be a receipt printer</span>'))).join('')}</table>`

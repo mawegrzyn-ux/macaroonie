@@ -91,12 +91,12 @@ import { hubRelease, installScript, hubSetupPage } from '../services/hubRelease.
 import { LINK_MINUTES, newLinkCode, linkCodeHash, linkCodeTaken, linkUrl } from '../services/linkCodes.js'
 import { dayFigures } from '../../../shared/pos/reports.js'
 import { permissionProblem } from '../../../shared/pos/permissions.js'
-import { KITCHEN_SERVER_EVENTS } from '../../../shared/pos/kitchen.js'
-import { CHECK_EVENTS } from '../../../shared/pos/checks.js'
+import { deviceEvent } from '../../../shared/pos/deviceRules.js'
 import { kioskConfig, readPreviewToken, previewDevice } from '../services/kioskSvc.js'
 import { saveVisits, MAX_VISITS } from '../services/kioskJourneySvc.js'
 import { kioskReceipt, sendWaitingReceipts } from '../services/receiptSvc.js'
 import { settleChangedChecks } from '../services/loyaltySvc.js'
+import { hubFor, hubContext, hubSync, hubTime, HUB_DEVICE_KINDS } from '../services/hubFirstSvc.js'
 import { loyaltyDeviceRoutes } from './loyaltyPos.js'
 import { setSoldOut, soldOutItemIds, announceSoldOut } from '../services/soldOut.js'
 import { kdsConfig, kitchenSync, onlineMoves, switchFlow, readKitchenTestToken, kitchenTestData } from '../services/kitchenSvc.js'
@@ -154,9 +154,10 @@ const KIOSK_ROUTES = new Set(['GET /pos-api/me', 'GET /pos-api/config', 'GET /po
   'POST /pos-api/kiosk/journeys', 'POST /pos-api/kiosk/receipts',
   'POST /pos-api/loyalty/lookup', 'POST /pos-api/loyalty/redemptions', 'POST /pos-api/loyalty/redemptions/:id/release',
   'POST /pos-api/card/payments', 'GET /pos-api/card/payments/:id', 'POST /pos-api/card/payments/:id/cancel', 'POST /pos-api/card/payments/:id/test'])
-// A venue hub (hub/) prints and reports, nothing else.
+// A venue hub (hub/) prints and reports, and at a hub-first location keeps a
+// copy of the venue (migration 218): its context, the cloud's log, its events.
 const HUB_ROUTES = new Set(['GET /pos-api/me', 'GET /pos-api/config', 'POST /pos-api/print-jobs/claim', 'POST /pos-api/print-jobs/:id/status',
-  'POST /pos-api/hub/status', 'POST /pos-api/disconnect'])
+  'POST /pos-api/hub/status', 'POST /pos-api/disconnect', 'GET /pos-api/hub/context', 'GET /pos-api/hub/sync', 'POST /pos-api/hub/events'])
 // A collected ticket nobody reported on (the device went off) is collected again.
 const CLAIM_STALE = '2 minutes'
 
@@ -191,6 +192,21 @@ const HubReport = z.object({
     node: z.string().max(20).nullable().optional(),
     addresses: z.array(z.string().max(60)).max(20).default([]),
     status_port: z.number().int().min(1).max(65535).nullable().optional(),
+    // Hub first (migration 218): the port devices on the venue network use,
+    // and how its copy of the venue stands.
+    lan_port: z.number().int().min(1).max(65535).nullable().optional(),
+    mirror: z.object({
+      on: z.boolean().optional(),
+      rev: z.number().int().min(0).optional(),
+      cloud_seq: z.number().int().min(0).optional(),
+      pending: z.number().int().min(0).optional(),
+      to_send: z.number().int().min(0).optional(),
+      conflicts: z.number().int().min(0).optional(),
+      devices: z.number().int().min(0).optional(),
+      last_upload_at: z.string().max(40).nullable().optional(),
+      last_follow_at: z.string().max(40).nullable().optional(),
+      error: z.string().max(200).nullable().optional(),
+    }).optional(),
     local_printers: z.array(z.object({
       id: z.string().max(200),
       name: z.string().max(120),
@@ -580,10 +596,15 @@ export default async function posApiRoutes(app) {
       // A till's or kiosk's own numbers today (shared/pos/numbers.js): not in
       // the version either, so a device that lost its storage carries on.
       const numbers = d.kind === 'terminal' || d.kind === 'kiosk' ? await deviceNumbers(d) : {}
+      // Hub first (migration 218): where the venue hub is and this device's
+      // key for it, outside the version too (the hub's address may move).
+      const hub = HUB_DEVICE_KINDS.includes(d.kind)
+        ? { hub: await withTenant(d.tenant_id, tx => hubFor(tx, d.tenant_id, d.venue_id, { kind: 'device', id: d.id, secretHash: d.secret_hash })) }
+        : {}
       if (req.query.version && req.query.version === config.version) {
-        return { unchanged: true, version: config.version, ...(config.prices ? { sold_out: config.sold_out, prices: config.prices } : {}), ...numbers }
+        return { unchanged: true, version: config.version, ...(config.prices ? { sold_out: config.sold_out, prices: config.prices } : {}), ...numbers, ...hub }
       }
-      return { ...config, device, ...numbers }
+      return { ...config, device, ...numbers, ...hub }
     })
 
     // What changes during service (a till or kiosk asks every 30 s): dishes
@@ -599,8 +620,8 @@ export default async function posApiRoutes(app) {
     // showing what is ready). shared/pos/kitchen.js has their shape.
     scoped.get('/kitchen/sync', async req => {
       const d = req.posDevice
-      const since = Math.max(0, Number(req.query.since) || 0)
-      return withTenant(d.tenant_id, tx => kitchenSync(tx, d.tenant_id, d.venue_id, since))
+      const since = fromSource(req) ? Math.max(0, Number(req.query.since) || 0) : 0
+      return { ...(await withTenant(d.tenant_id, tx => kitchenSync(tx, d.tenant_id, d.venue_id, since))), source: 'cloud' }
     })
 
     // The kitchen screen's flow button: dishes sent from now follow the flow
@@ -730,12 +751,12 @@ export default async function posApiRoutes(app) {
 
     scoped.get('/sync', async req => {
       const d = req.posDevice
-      const since = Math.max(0, Number(req.query.since) || 0)
+      const since = fromSource(req) ? Math.max(0, Number(req.query.since) || 0) : 0
       return withTenant(d.tenant_id, async tx => {
         const [st] = await tx`SELECT last_seq, device_numbers FROM pos_venue_state WHERE venue_id = ${d.venue_id} AND tenant_id = ${d.tenant_id}`
         const seq = Number(st?.last_seq || 0)
         const day = await currentDay(tx, d.tenant_id, d.venue_id)
-        const extra = { day, presence: presenceFor(d.venue_id), server_time: new Date().toISOString(), numbers: st?.device_numbers?.[d.id] || null }
+        const extra = { source: 'cloud', day, presence: presenceFor(d.venue_id), server_time: new Date().toISOString(), numbers: st?.device_numbers?.[d.id] || null }
         if (since === 0 || since > seq || seq - since > SYNC_WINDOW) {
           // Start again: every open check, plus this trading day's closed ones.
           const rows = await tx`
@@ -760,76 +781,7 @@ export default async function posApiRoutes(app) {
     scoped.post('/events', { bodyLimit: 2 * 1024 * 1024 }, async req => {
       const d = req.posDevice
       const { events } = z.object({ events: z.array(z.record(z.any())).min(1).max(MAX_BATCH) }).parse(req.body)
-      const seqr = sequencer(d.tenant_id, d.venue_id, { deviceId: d.id })
-      const results = []
-      const raw_results = []
-      const changed = {}
-      const kitchen = {}
-      const kinds = new Set()
-      let accepted = 0
-      let printing = false
-      let kioskIds = null
-      for (const raw of events) {
-        // The till names itself and its venue by its pairing, not by the event.
-        const e = { ...raw, venue_id: d.venue_id, device_id: d.id }
-        delete e.seq
-        delete e.assigned
-        delete e.received_at
-        // Online orders reach the kitchen from the server only.
-        if (KITCHEN_SERVER_EVENTS.includes(e.type)) {
-          results.push({ id: e.id, ok: false, error: 'Not allowed from a device', code: 'invalid' })
-          continue
-        }
-        // A kiosk is its own "staff member" (shared/kiosk.js): its events are
-        // its own whatever they say, and only check events (the kiosk rules
-        // in shared/pos/checks.js decide which). Nobody else may act as one.
-        if (d.kind === 'kiosk') {
-          e.staff_id = d.id
-          if (!CHECK_EVENTS.includes(e.type)) {
-            results.push({ id: e.id, ok: false, error: 'A kiosk can\'t do this', code: 'kiosk' })
-            continue
-          }
-        } else if (e.staff_id && kioskIds === null) {
-          kioskIds = new Set((await withTenant(d.tenant_id, tx => tx`
-            SELECT id FROM pos_devices WHERE tenant_id = ${d.tenant_id} AND venue_id = ${d.venue_id} AND kind = 'kiosk'`)).map(r => r.id))
-        }
-        if (d.kind !== 'kiosk' && kioskIds?.has(e.staff_id)) {
-          results.push({ id: e.id, ok: false, error: 'Only the kiosk itself can do this', code: 'kiosk' })
-          continue
-        }
-        const r = await seqr.submit(e)
-        raw_results.push(r)
-        if (r.jobs?.length && !r.duplicate) printing = true
-        if (r.ok) {
-          if (!r.duplicate) accepted++
-          for (const [id, c] of Object.entries(r.checks || {})) { changed[id] = c; kinds.add('checks') }
-          for (const [id, o] of Object.entries(r.kitchen || {})) { kitchen[id] = o; kinds.add('kitchen') }
-          results.push({ id: e.id, ok: true, seq: r.seq, duplicate: !!r.duplicate, assigned: r.event?.assigned || null })
-          if (e.type === 'day.closed' && !r.duplicate) afterZ(req, d, r.event.assigned?.day_id)
-        } else {
-          results.push({ id: e.id, ok: false, error: r.error, code: r.code, duplicate: !!r.duplicate })
-        }
-      }
-      const [st] = await withTenant(d.tenant_id, tx => tx`SELECT last_seq FROM pos_venue_state WHERE venue_id = ${d.venue_id} AND tenant_id = ${d.tenant_id}`)
-      const seq = Number(st?.last_seq || 0)
-      if (accepted) {
-        broadcast('pos:' + d.venue_id, { type: 'pos.seq', seq, from: d.id, kinds: kinds.size ? [...kinds] : ['checks'] })
-        if (kinds.has('kitchen')) broadcast('screens:' + d.venue_id, { type: 'kitchen.board' })
-      }
-      // Tickets to print: whoever prints for those printers collects them now.
-      if (printing) broadcast('pos:' + d.venue_id, { type: 'pos.print' })
-      afterKitchen(req, d, raw_results)
-      // A check that was paid or cancelled may have a kiosk receipt waiting to
-      // be emailed (migration 210). The minute sweep catches anything missed.
-      if (Object.values(changed).some(c => c?.status && c.status !== 'open')) {
-        sendWaitingReceipts({ tenantId: d.tenant_id, venueId: d.venue_id, log: req.log })
-          .catch(err => req.log.warn({ err }, 'kiosk receipts after payment failed'))
-      }
-      // Loyalty on the checks that changed: rewards used or put back, points
-      // and stamps worked out again (migration 211; the minute sweep catches
-      // anything missed).
-      settleChangedChecks(d.tenant_id, d.venue_id, changed, req.log)
-      return { results, seq, checks: Object.values(changed), kitchen: Object.values(kitchen) }
+      return takeEvents(req, d, events.map(raw => ({ raw, device: d })))
     })
 
     scoped.get('/checks', async req => {
@@ -958,7 +910,153 @@ export default async function posApiRoutes(app) {
       })
       return { ok: true }
     })
+
+    // ── Hub first (migration 218, docs/POS.md section 11) ──
+
+    // What the hub decides with (services/hubFirstSvc.js hubContext()):
+    // unchanged: true when its version matches.
+    scoped.get('/hub/context', async req => {
+      const d = req.posDevice
+      if (d.kind !== 'hub') throw httpError(403, 'Only a venue hub asks for this')
+      const ctx = await withTenant(d.tenant_id, tx => hubContext(tx, d.tenant_id, d.venue_id, d.id))
+      if (req.query.version && req.query.version === ctx.version) return { unchanged: true, version: ctx.version }
+      return ctx
+    })
+
+    // The cloud's log and state since the hub's last look (hubSync()).
+    scoped.get('/hub/sync', async req => {
+      const d = req.posDevice
+      if (d.kind !== 'hub') throw httpError(403, 'Only a venue hub asks for this')
+      const since = Math.max(0, Number(req.query.since) || 0)
+      return withTenant(d.tenant_id, tx => hubSync(tx, d.tenant_id, d.venue_id, since, presenceFor(d.venue_id)))
+    })
+
+    // The events the hub decided first, in its order, each for the device that
+    // made it: decided again here with the same device rules as POST /events,
+    // at the hub's time. hub_printed: the hub printed the tickets (they are
+    // kept as printed). rejections: changes the hub refused itself, for the
+    // managers' Refused changes list.
+    scoped.post('/hub/events', { bodyLimit: 4 * 1024 * 1024 }, async req => {
+      const d = req.posDevice
+      if (d.kind !== 'hub') throw httpError(403, 'Only a venue hub sends events for other devices')
+      const body = z.object({
+        events: z.array(z.record(z.any())).max(MAX_BATCH).default([]),
+        rejections: z.array(z.object({
+          event: z.record(z.any()),
+          error: z.string().max(300),
+          code: z.string().max(40).nullable().optional(),
+        })).max(MAX_BATCH).default([]),
+      }).parse(req.body || {})
+      const rows = await withTenant(d.tenant_id, tx => tx`
+        SELECT id, tenant_id, venue_id, kind, name, short_code, revoked_at FROM pos_devices
+         WHERE tenant_id = ${d.tenant_id} AND venue_id = ${d.venue_id} AND kind = ANY(${HUB_DEVICE_KINDS}::text[])`)
+      const devices = new Map(rows.map(r => [r.id, r]))
+      const items = []
+      const refused = []
+      for (const raw of body.events) {
+        const dev = devices.get(raw.device_id)
+        // A device removed after it made the change still counts (the sale happened).
+        if (!dev || (dev.revoked_at && hubTime(raw.hub_at) > dev.revoked_at)) {
+          refused.push({ id: raw.id, ok: false, error: 'This device isn\'t one of the location\'s', code: 'device' })
+          continue
+        }
+        items.push({ raw, device: dev })
+      }
+      const out = items.length ? await takeEvents(req, d, items, { hubId: d.id, kiosks: rows.filter(r => r.kind === 'kiosk') }) : { results: [], seq: null, checks: [], kitchen: [] }
+      if (body.rejections.length) {
+        await withTenant(d.tenant_id, async tx => {
+          for (const { event: e, error, code } of body.rejections) {
+            const dev = devices.get(e.device_id)
+            if (!dev || typeof e.id !== 'string' || !e.id || e.id.length > 64) continue
+            await tx`
+              INSERT INTO pos_event_rejections (id, tenant_id, venue_id, check_id, device_id, staff_id, type, payload, client_at, error, code, hub_id)
+              VALUES (${e.id}, ${d.tenant_id}, ${d.venue_id}, ${typeof e.check_id === 'string' ? e.check_id.slice(0, 64) : null}, ${dev.id},
+                      ${UUID.safeParse(e.staff_id).success ? e.staff_id : null}, ${String(e.type || 'unknown').slice(0, 60)},
+                      ${tx.json(e.payload && typeof e.payload === 'object' ? e.payload : {})}, ${validTime(e.client_at)}, ${error}, ${code ?? null}, ${d.id})
+              ON CONFLICT (id) DO NOTHING`
+          }
+        })
+      }
+      const byId = new Map(out.results.map(r => [r.id, r]))
+      return { ...out, results: body.events.map(e => byId.get(e.id) || refused.find(r => r.id === e.id)).filter(Boolean) }
+    })
   })
+}
+
+const fromSource = req => !req.query.source || req.query.source === 'cloud'
+
+function validTime(v) {
+  const t = v ? new Date(v) : null
+  return t && !Number.isNaN(t.getTime()) ? t.toISOString() : null
+}
+
+/**
+ * Events for the venue's sequencer, in order: a device's own (POST /events)
+ * or a venue hub's for its devices (POST /hub/events, `hubId`). The device
+ * rules apply (deviceEvent(): each event belongs to its device whatever it
+ * says, online orders reach the kitchen from the server only, a kiosk only
+ * sends its own check events, nobody else acts as a kiosk), then the
+ * sequencer decides it. After the batch: the venue's
+ * devices are told, kitchen and loyalty follow-ups run.
+ */
+async function takeEvents(req, from, items, { hubId = null, kiosks = null } = {}) {
+  const seqr = sequencer(from.tenant_id, from.venue_id, { deviceId: from.id, hubId })
+  const results = []
+  const byDevice = new Map()
+  const changed = {}
+  const kitchen = {}
+  const kinds = new Set()
+  let accepted = 0
+  let printing = false
+  let kioskIds = kiosks ? new Set(kiosks.map(k => k.id)) : null
+  for (const { raw, device: d } of items) {
+    // The device rules (shared/pos/deviceRules.js), the same at the venue hub.
+    if (d.kind !== 'kiosk' && raw.staff_id && kioskIds === null) {
+      kioskIds = new Set((await withTenant(from.tenant_id, tx => tx`
+        SELECT id FROM pos_devices WHERE tenant_id = ${from.tenant_id} AND venue_id = ${from.venue_id} AND kind = 'kiosk'`)).map(r => r.id))
+    }
+    const ruled = deviceEvent(raw, d, from.venue_id, kioskIds)
+    if (!ruled.event) {
+      results.push({ id: raw.id, ok: false, error: ruled.error, code: ruled.code })
+      continue
+    }
+    const e = ruled.event
+    seqr.opts.deviceId = d.id
+    seqr.opts.printed = !!(hubId && raw.hub_printed)
+    const r = await seqr.submit(e, { now: hubId ? hubTime(raw.hub_at) : new Date() })
+    if (!byDevice.has(d.id)) byDevice.set(d.id, { device: d, results: [] })
+    byDevice.get(d.id).results.push(r)
+    if (r.jobs?.length && !r.duplicate && !seqr.opts.printed) printing = true
+    if (r.ok) {
+      if (!r.duplicate) accepted++
+      for (const [id, c] of Object.entries(r.checks || {})) { changed[id] = c; kinds.add('checks') }
+      for (const [id, o] of Object.entries(r.kitchen || {})) { kitchen[id] = o; kinds.add('kitchen') }
+      results.push({ id: e.id, ok: true, seq: r.seq, duplicate: !!r.duplicate, assigned: r.event?.assigned || null })
+      if (e.type === 'day.closed' && !r.duplicate) afterZ(req, d, r.event.assigned?.day_id)
+    } else {
+      results.push({ id: e.id, ok: false, error: r.error, code: r.code, duplicate: !!r.duplicate })
+    }
+  }
+  const [st] = await withTenant(from.tenant_id, tx => tx`SELECT last_seq FROM pos_venue_state WHERE venue_id = ${from.venue_id} AND tenant_id = ${from.tenant_id}`)
+  const seq = Number(st?.last_seq || 0)
+  if (accepted) {
+    broadcast('pos:' + from.venue_id, { type: 'pos.seq', seq, from: from.id, kinds: kinds.size ? [...kinds] : ['checks'] })
+    if (kinds.has('kitchen')) broadcast('screens:' + from.venue_id, { type: 'kitchen.board' })
+  }
+  // Tickets to print: whoever prints for those printers collects them now.
+  if (printing) broadcast('pos:' + from.venue_id, { type: 'pos.print' })
+  for (const { device, results: rs } of byDevice.values()) afterKitchen(req, device, rs)
+  // A check that was paid or cancelled may have a kiosk receipt waiting to
+  // be emailed (migration 210). The minute sweep catches anything missed.
+  if (Object.values(changed).some(c => c?.status && c.status !== 'open')) {
+    sendWaitingReceipts({ tenantId: from.tenant_id, venueId: from.venue_id, log: req.log })
+      .catch(err => req.log.warn({ err }, 'kiosk receipts after payment failed'))
+  }
+  // Loyalty on the checks that changed: rewards used or put back, points
+  // and stamps worked out again (migration 211; the minute sweep catches
+  // anything missed).
+  settleChangedChecks(from.tenant_id, from.venue_id, changed, req.log)
+  return { results, seq, checks: Object.values(changed), kitchen: Object.values(kitchen) }
 }
 
 /**

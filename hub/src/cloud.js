@@ -46,11 +46,16 @@ export async function codeStatus(api, pairing, { fetchImpl = fetch } = {}) {
 /** The API as a linked hub. */
 export function cloudClient({ api, deviceId, secret, fetchImpl = fetch }) {
   const auth = { authorization: 'Device ' + deviceId + '.' + secret }
-  const req = (method, path, body) => call(fetchImpl, api + path, { method, headers: auth, body })
+  const req = (method, path, body, timeoutMs) => call(fetchImpl, api + path, { method, headers: auth, body, timeoutMs })
   return {
+    deviceId,
     config: () => req('GET', '/pos-api/config'),
     claim: (limit = 20) => req('POST', '/pos-api/print-jobs/claim', { limit }),
     done: (id, status, error = null) => req('POST', '/pos-api/print-jobs/' + id + '/status', { status, error }),
     report: body => req('POST', '/pos-api/hub/status', body),
+    // Hub first (docs/POS.md section 11): the venue's copy.
+    hubContext: version => req('GET', '/pos-api/hub/context' + (version ? '?version=' + encodeURIComponent(version) : '')),
+    hubSync: since => req('GET', '/pos-api/hub/sync?since=' + (Number(since) || 0), undefined, 10000),
+    hubEvents: body => req('POST', '/pos-api/hub/events', body, 20000),
   }
 }

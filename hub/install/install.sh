@@ -32,6 +32,8 @@ NODE_DIST="${MACAROONIE_NODE_DIST:-https://nodejs.org/dist/latest-v22.x}"
 SYSTEMD_DIR="${MACAROONIE_SYSTEMD_DIR:-/etc/systemd/system}"
 SYSTEMCTL="${MACAROONIE_SYSTEMCTL:-systemctl}"
 HTTP_PORT="${MACAROONIE_HUB_HTTP_PORT:-9180}"
+# Hub first: the port the tills, kiosks and kitchen screens on the venue network use.
+LAN_PORT="${MACAROONIE_HUB_LAN_PORT:-9181}"
 WAIT_SECONDS="${MACAROONIE_WAIT_SECONDS:-40}"
 SERVICE=macaroonie-hub
 
@@ -140,7 +142,7 @@ Wants=network-online.target
 User=$HUB_USER
 WorkingDirectory=$HUB_HOME
 Environment=MACAROONIE_HUB_HOME=$HUB_HOME
-ExecStart=$HUB_HOME/node/bin/node $HUB_HOME/launcher.mjs --api $API --http-port $HTTP_PORT
+ExecStart=$HUB_HOME/node/bin/node $HUB_HOME/launcher.mjs --api $API --http-port $HTTP_PORT --lan-port $LAN_PORT
 Restart=always
 RestartSec=3
 NoNewPrivileges=yes
@@ -157,9 +159,10 @@ $SYSTEMCTL enable "$SERVICE" >/dev/null 2>&1 || $SYSTEMCTL enable "$SERVICE"
 rm -f "$HUB_HOME/state.json"   # read what the new start says, not the last one
 $SYSTEMCTL restart "$SERVICE"
 
-# The status page on the venue's network, when the firewall is on.
+# The status page and the port the devices use on the venue's network, when the firewall is on.
 if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then
   ufw allow "$HTTP_PORT/tcp" comment "Macaroonie hub status page" >/dev/null 2>&1 || true
+  ufw allow "$LAN_PORT/tcp" comment "Macaroonie hub for the venue's devices" >/dev/null 2>&1 || true
 fi
 
 # 5. The code to link it (or that it is linked already).

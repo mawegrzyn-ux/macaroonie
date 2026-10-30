@@ -37,6 +37,7 @@ import {
   forgetScreen,
 } from '../services/screenAuth.js'
 import { screenConfig } from '../services/screenSvc.js'
+import { hubFor } from '../services/hubFirstSvc.js'
 import { linkCodeTaken, linkUrl } from '../services/linkCodes.js'
 import { boardFor } from '../services/kitchenSvc.js'
 
@@ -106,11 +107,17 @@ export default async function screenApiRoutes(app) {
 
     scoped.get('/config', async req => {
       const s = req.screen
-      const config = await withTenant(s.tenant_id, tx => screenConfig(tx, s.tenant_id, s.id))
+      const [config, hub] = await withTenant(s.tenant_id, async tx => [
+        await screenConfig(tx, s.tenant_id, s.id),
+        // Hub first (migration 218): an order ready board reads its numbers
+        // from the venue hub when it can (outside the version: the hub's
+        // address may move).
+        await hubFor(tx, s.tenant_id, s.venue_id, { kind: 'screen', id: s.id, secretHash: s.secret_hash }),
+      ])
       if (!config) throw httpError(401, 'This screen was removed')
       const server_time = new Date().toISOString()
-      if (req.query.version && req.query.version === config.version) return { unchanged: true, version: config.version, server_time }
-      return { ...config, server_time }
+      if (req.query.version && req.query.version === config.version) return { unchanged: true, version: config.version, server_time, hub }
+      return { ...config, server_time, hub }
     })
 
     scoped.post('/disconnect', async req => {

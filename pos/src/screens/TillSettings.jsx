@@ -43,6 +43,7 @@ export default function TillSettings() {
             <div data-testid="till-checked">Prices and sold out checked: <b>{s.checked?.live ? new Date(s.checked.live).toLocaleTimeString('en-GB') : 'not yet'}</b></div>
             <div data-testid="till-pull">Checks for changes: <b>{pullTimes(s.config.pull).live ? 'prices every ' + pullText(pullTimes(s.config.pull).live) + ', ' : ''}menu every {pullText(pullTimes(s.config.pull).content)}</b></div>
             <div>Whole menu checked: <b>{s.checked?.content ? new Date(s.checked.content).toLocaleTimeString('en-GB') : 'not yet'}</b></div>
+            {s.config.hub && <HubLine on={s.hub} />}
           </div>
           <div className="flex gap-2 flex-wrap">
             <button className="btn" onClick={async () => { await flush(); await pull(); await loadConfig(); toast('Synced', 'ok') }}><RefreshCw size={18} /> Sync now</button>
@@ -108,4 +109,13 @@ function Toggle({ on, label, hint, onChange }) {
       <span><span className="font-semibold block">{label}</span><span className="text-sm text-muted">{hint}</span></span>
     </button>
   )
+}
+
+// Hub first (docs/POS.md section 11): which venue hub this till sends to.
+function HubLine({ on }) {
+  const st = server.hubStatus()
+  const text = !st.configured ? 'not used here (it needs the Macaroonie app)'
+    : on === true ? 'in use' + (st.url ? ' (' + st.url.replace(/^https?:\/\//, '') + ')' : '')
+    : on === false ? 'not answering: the cloud instead, asked again every 30 s' : 'checking'
+  return <div data-testid="till-hub">Venue hub: <b>{text}</b></div>
 }

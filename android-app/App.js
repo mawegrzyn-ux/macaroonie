@@ -264,7 +264,9 @@ function Shell({ kind, url, onFollow, onChooseApp, onDeviceMenu, onReload }) {
       mediaPlaybackRequiresUserAction={false}
       allowsFullscreenVideo
       setSupportMultipleWindows={false}
-      mixedContentMode="never"
+      // Hub first: the https pages call the venue hub over plain http on the
+      // venue network (plugins/withVenueNetwork.js allows the traffic).
+      mixedContentMode="always"
       allowFileAccess={false}
       applicationNameForUserAgent={`MacaroonieApp/${VERSION}`}
       webviewDebuggingEnabled={WEB_DEBUG}

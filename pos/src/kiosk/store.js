@@ -45,6 +45,7 @@ let state = {
   shared: null,       // a shared preview's names (bootShare): { design, venue, company, expires_at, menu }
   online: true,            // false shows ordering paused (link 'down')
   link: 'up',              // 'up' | 'checking' (trying the server again) | 'down'
+  hub: null,               // the venue hub (hub first): true in use, false not answering, null none
   photos: null,            // { total, saved, busy } pictures kept on the device; saved null = can't keep them here
   videos: null,            // the same for the design's videos
   checked: null,           // { content, live }: when the whole config and prices / sold out were last pulled
@@ -121,7 +122,12 @@ let raw = null
 let tradingDay = null
 
 export async function bootKiosk(device) {
-  api = createTransport(device, { pending: () => state.outbox.length })
+  api = createTransport(device, {
+    pending: () => state.outbox.length,
+    // Hub first (docs/POS.md section 11): orders go to the venue hub first.
+    hub: () => raw?.hub || null,
+    onHub: h => setState({ hub: h.ok }),
+  })
   keepStorage()
   const [config, outbox] = await Promise.all([idb.get(CONFIG_KEY), idb.get(OUTBOX_KEY)])
   raw = config || null
@@ -223,6 +229,11 @@ async function fetchConfig(opts) {
     } else {
       // Unchanged, but sold out and the prices stamp travel with every reply.
       await applyLive(res, { prices: true })
+      // So does the venue hub's address (hub first).
+      if (raw && 'hub' in res && JSON.stringify(res.hub ?? null) !== JSON.stringify(raw.hub ?? null)) {
+        raw = { ...raw, hub: res.hub ?? null }
+        await idb.set(CONFIG_KEY, raw)
+      }
     }
     setState({ checked: { ...state.checked, content: Date.now(), live: Date.now() } })
     return true
@@ -788,10 +799,15 @@ function linkTrouble() {
   quickTry(0)
 }
 
+/** Can the kiosk take orders: the cloud answers, or the venue hub (hub first) takes them. */
+async function reachable() {
+  return (await fetchConfig({ timeoutMs: TRY_TIMEOUT_MS })) || (await api.pingHub?.())
+}
+
 function quickTry(n) {
   clearTimeout(checkTimer)
   checkTimer = setTimeout(async () => {
-    const ok = await fetchConfig({ timeoutMs: TRY_TIMEOUT_MS })
+    const ok = await reachable()
     if (!started || state.link !== 'checking') return
     if (ok) return linkOk()
     if (n + 1 < QUICK_TRIES_MS.length) return quickTry(n + 1)
@@ -803,7 +819,7 @@ function quickTry(n) {
 function keepChecking(ms) {
   clearTimeout(checkTimer)
   checkTimer = setTimeout(async () => {
-    const ok = await fetchConfig({ timeoutMs: TRY_TIMEOUT_MS })
+    const ok = await reachable()
     if (!started || state.link !== 'down') return
     if (ok) linkOk()
     else keepChecking(CHECK_EVERY_MS)
