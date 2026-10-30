@@ -5,6 +5,14 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-30 — Cash Recon settings show which fields other systems fill]
+
+- On **Cash Recon settings** (Income Sources, Payment Channels, Service Charges), a field filled by another system says so under its name: *Filled by Tills and kiosks: All sales − Refunds*, *Filled by GloriaFood: Payment: Paid online*, *Filled by Loyverse: Net sales*. Fields without it are typed in on the day.
+- A **Filled from other systems** box at the top of each tab lists those systems and opens where each is set up (Store tech → Cash Recon link, the Loyverse or GloriaFood tab).
+- New systems that fill Cash Recon later show up the same way.
+
+---
+
 ## [2026-10-30 — Ordering setup saves again after a menu was deleted]
 
 - **Ordering setup** said "A chosen menu wasn't found" on every save when a menu it had once used had been deleted: the deleted menu stayed in its settings, hidden, and was sent back each time. Fixed.

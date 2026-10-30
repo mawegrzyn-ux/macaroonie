@@ -1453,6 +1453,20 @@ export default function Help() {
               (see Fill from Loyverse below). The staff list has moved to its
               own <strong>Staff</strong> page in the sidebar (see Staff &amp; Rota).
             </P>
+            <H3>Fields filled by other systems</H3>
+            <P>
+              On the <strong>Income Sources</strong>, <strong>Payment Channels</strong> and{' '}
+              <strong>Service Charges</strong> tabs, a field another system fills says so under its
+              name, for example <em>Filled by Tills and kiosks: All sales − Refunds</em> or{' '}
+              <em>Filled by GloriaFood: Payment: Paid online</em>. A field can be filled by more
+              than one. Fields with no such line are typed in on the day.
+            </P>
+            <P>
+              The <strong>Filled from other systems</strong> box at the top of each tab lists those
+              systems; tap one to change what it fills: tills and kiosks open{' '}
+              <strong>Store tech → Cash Recon link</strong>, Loyverse and GloriaFood open their own
+              tabs here. Online orders don't fill Cash Recon yet, so they don't show.
+            </P>
             <H3>Staff list — Fixed or Hourly</H3>
             <P>
               Each person on the Staff page has a <strong>pay type</strong>. Hourly staff are paid hours

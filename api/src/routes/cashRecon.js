@@ -55,6 +55,7 @@ import { getStorage }                   from '../services/storageSvc.js'
 import path                             from 'node:path'
 import { randomUUID }                   from 'node:crypto'
 import { openDatesOrNull }              from '../services/openDays.js'
+import { reconLinks }                   from '../services/reconLinks.js'
 
 // Cash reconciliation permission: view reads, manage changes. Settings and
 // unsubmitting a day also stay owner / admin (operators have manage by default).
@@ -391,6 +392,18 @@ export default async function cashReconRoutes(app) {
 
   // ── GET /:venueId/cash-recon/config ────────────────────────
   // Returns all config arrays for the venue in a single call.
+  // Which fields other systems fill (tills and kiosks, Loyverse,
+  // GloriaFood): services/reconLinks.js. Shown on the settings tabs.
+  app.get('/:venueId/cash-recon/links', {
+    preHandler: PERM.view,
+  }, async (req) => {
+    const { venueId } = req.params
+    return withTenant(req.tenantId, async tx => {
+      await assertVenueOwnership(tx, req.tenantId, venueId)
+      return reconLinks(tx, req.tenantId, venueId)
+    })
+  })
+
   app.get('/:venueId/cash-recon/config', {
     preHandler: PERM.view,
   }, async (req) => {
