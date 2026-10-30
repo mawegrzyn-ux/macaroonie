@@ -127,12 +127,12 @@ function till(cfg) {
 
 function openTable(t, extra = {}) {
   const id = ulid()
-  t.send({ ...ev('check.opened', { mode: 'table', table_id: TABLE5, revenue_stream_id: RC_REST, order_type_id: EAT, ...extra }, { check_id: id }), assigned: { number: 12 } })
+  t.send({ ...ev('check.opened', { mode: 'table', table_id: TABLE5, revenue_stream_id: RC_REST, order_type_id: EAT, number: 12, ...extra }, { check_id: id }) })
   return id
 }
 function openCounter(t, orderNo = 57) {
   const id = ulid()
-  t.send({ ...ev('check.opened', { mode: 'counter', revenue_stream_id: RC_TAKEAWAY, order_type_id: OUT, tent: '14' }, { check_id: id }), assigned: { number: 3, order_no: orderNo } })
+  t.send({ ...ev('check.opened', { mode: 'counter', revenue_stream_id: RC_TAKEAWAY, order_type_id: OUT, tent: '14', number: 3, order_no: orderNo }, { check_id: id }) })
   return id
 }
 function addAndSend(t, checkId, lines, held = []) {
@@ -729,7 +729,7 @@ test('moving dishes and merging checks moves them in the kitchen', () => {
 })
 
 function memoryStore(kitchenCfg) {
-  const s = { events: new Map(), rejections: new Map(), checks: new Map(), orders: new Map(), log: [], state: { last_seq: 0, next_check_no: 1, next_order_no: 1, day: null }, days: [] }
+  const s = { events: new Map(), rejections: new Map(), checks: new Map(), orders: new Map(), log: [], state: { last_seq: 0, numbers: {}, day: null }, days: [] }
   let queue = Promise.resolve()
   return {
     data: s,

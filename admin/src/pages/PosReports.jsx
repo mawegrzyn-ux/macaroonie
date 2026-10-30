@@ -16,6 +16,7 @@ import { cn, openPicker } from '@/lib/utils'
 import { usePermission } from '@/hooks/usePermission'
 import { checkTotals, modifierText, groupModifiers } from '@shared/pos/pricing.js'
 import { TENDERS } from '@shared/pos/checks.js'
+import { numberText } from '@shared/pos/numbers.js'
 import { PageHeader, VenueSelect, usePosVenue, ErrorNote, Btn, Segmented, money, inputCls } from '@/components/pos/shared'
 
 const TABS = [
@@ -267,7 +268,7 @@ function CheckDetail({ checkId, onBack, staffNames }) {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <Btn onClick={onBack}><ChevronLeft className="w-4 h-4" /> Checks</Btn>
-        <h2 className="text-base font-semibold flex-1">Check {c.order_no != null ? '#' + c.order_no : c.number} · {c.status}</h2>
+        <h2 className="text-base font-semibold flex-1">Check {numberText(c)}{c.order_no != null ? ' · order #' + c.order_no : ''} · {c.status}</h2>
       </div>
       <p className="text-sm text-muted-foreground" data-testid="check-details">
         {[
@@ -353,7 +354,10 @@ function ChecksTab({ venueId, dayId, setDayId }) {
             {checks.map(c => (
               <button key={c.id} type="button" onClick={() => setCheckId(c.id)}
                 className="w-full text-left flex items-center gap-3 px-4 py-2.5 hover:bg-muted touch-manipulation min-h-[52px]">
-                <span className="w-14 text-sm font-semibold tabular-nums">{c.order_no != null ? '#' + c.order_no : c.number}</span>
+                <span className="w-16 tabular-nums" data-testid="report-check-no">
+                  <span className="block text-sm font-semibold">{c.order_no != null ? '#' + c.order_no : numberText(c)}</span>
+                  {c.order_no != null && c.number_code && <span className="block text-[11px] text-muted-foreground">{numberText(c)}</span>}
+                </span>
                 <span className="flex-1 min-w-0">
                   <span className="block text-sm truncate">{c.table_label ? 'Table ' + c.table_label : c.tab_name || (c.mode === 'counter' ? 'Counter' : 'Tab')}</span>
                   <span className="block text-xs text-muted-foreground truncate">
@@ -386,7 +390,7 @@ function ConflictRow({ c, onResolved }) {
         <div className="flex-1 min-w-0 text-sm">
           <p className="font-medium">{what}</p>
           <p className="text-xs text-muted-foreground">
-            {c.check_number ? 'Check ' + c.check_number + ' (' + c.check_status + ') · ' : ''}{c.staff_name || 'Unknown'} · {when(c.client_at || c.created_at)}
+            {c.check_number ? 'Check ' + (c.check_order_no != null ? '#' + c.check_order_no : numberText({ number: c.check_number, number_code: c.check_number_code })) + ' (' + c.check_status + ') · ' : ''}{c.staff_name || 'Unknown'} · {when(c.client_at || c.created_at)}
           </p>
           <p className="text-xs text-amber-800 mt-0.5">Refused: {c.error}</p>
         </div>

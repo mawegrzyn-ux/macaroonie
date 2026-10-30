@@ -10,7 +10,7 @@ import { printTickets } from '../lib/print.js'
 import { Keypad, cx, money, poundsToPence, useApproval } from '../components/ui.jsx'
 
 export default function Reports() {
-  const { config, day, online } = useTill()
+  const { config, day, online, outbox } = useTill()
   const checks = useChecks()
   const approve = useApproval()
   const [allowed, setAllowed] = useState(can('reports'))
@@ -76,6 +76,7 @@ export default function Reports() {
             {(f?.open_checks || []).length > 0
               ? <div className="rounded-xl bg-bad-soft text-bad p-3 font-semibold flex gap-2"><AlertTriangle size={20} />{f.open_checks.length} check{f.open_checks.length > 1 ? 's are' : ' is'} still open. Close or pay them first.</div>
               : <div className="text-[15px]">Count the cash in the drawer (without the float) and type it in. The day's figures go to Cash Recon.</div>}
+            <WaitingDevices waiting={remote?.waiting} own={(outbox || []).length} />
             <div className="grid sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <div className="label">Cash counted</div>
@@ -92,6 +93,30 @@ export default function Reports() {
         )}
         {f ? <Figures f={f} names={names} /> : <div className="text-muted">No trading yet today.</div>}
       </div>
+    </div>
+  )
+}
+
+/**
+ * Devices that may hold changes not sent yet (migration 217): the day's
+ * figures miss them until they are sent. A warning, not a stop: a device that
+ * is broken or gone mustn't keep the day open.
+ */
+function WaitingDevices({ waiting, own }) {
+  const list = [
+    ...(own ? [{ id: 'self', text: 'This till has ' + own + ' change' + (own > 1 ? 's' : '') + ' it hasn\'t sent yet.' }] : []),
+    ...(waiting || []).map(d => ({
+      id: d.id,
+      text: d.pending
+        ? d.name + ' has ' + d.pending + ' change' + (d.pending > 1 ? 's' : '') + ' it hasn\'t sent yet.'
+        : d.name + ' hasn\'t been in touch since ' + new Date(d.last_seen_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) + ': it may have changes it hasn\'t sent.',
+    })),
+  ]
+  if (!list.length) return null
+  return (
+    <div className="rounded-xl bg-warn-soft text-warn p-3 text-sm font-semibold space-y-1" data-testid="z-waiting">
+      <div className="flex gap-2"><AlertTriangle size={18} className="shrink-0" />Before closing: the day's figures won't include these until they are sent.</div>
+      {list.map(x => <div key={x.id} className="pl-7">{x.text}</div>)}
     </div>
   )
 }

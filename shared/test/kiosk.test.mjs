@@ -14,7 +14,7 @@ import {
 } from '../kiosk.js'
 import { contrast } from '../themeKit.js'
 import { VARIATION_TYPES, VARIATION_TYPE_KEYS } from '../procurement.js'
-import { applyEvent, KIOSK_EVENTS } from '../pos/checks.js'
+import { applyEvent, KIOSK_EVENTS, checkLabel } from '../pos/checks.js'
 import { checkTotals } from '../pos/pricing.js'
 import { createSequencer } from '../pos/sequencer.js'
 import { ulid } from '../pos/ids.js'
@@ -54,7 +54,7 @@ const config = {
   section_items: { [SECTION]: [WINGS.id, FRIES.id, MEAL.id], [DRINKS]: [COLA.id] },
   promotions: [], sold_out: [],
 }
-const KIOSK = { id: uuid(), venue_id: VENUE, name: 'Kiosk 1' }
+const KIOSK = { id: uuid(), venue_id: VENUE, name: 'Kiosk 1', short_code: 'KS1' }
 const TILL_PERSON = uuid()
 const staffById = { [KIOSK.id]: kioskStaff(KIOSK), [TILL_PERSON]: { id: TILL_PERSON, name: 'Anna', permissions: { void: true } } }
 
@@ -478,14 +478,14 @@ test('kiosk rules: counter orders only, its own orders only, menu dishes, card o
   assert.equal(state[kioskOrderPlaced.check.id].status, 'closed')
 })
 
-test('sequencer: takes a kiosk order, numbers it, refuses a kiosk working on a till check', async () => {
-  const s = { events: new Map(), rejections: new Map(), checks: new Map(), state: { last_seq: 0, next_check_no: 1, next_order_no: 1, day: null } }
+test('sequencer: takes a kiosk order with its own numbers, refuses a kiosk working on a till check', async () => {
+  const s = { events: new Map(), rejections: new Map(), checks: new Map(), state: { last_seq: 0, numbers: {}, day: null } }
   let queue = Promise.resolve()
   const store = {
     run: (_v, fn) => (queue = queue.then(fn, fn)),
     findEvent: id => s.events.get(id) || null,
     findRejection: id => s.rejections.get(id) || null,
-    context: () => ({ staffById, print: {}, timezone: 'Europe/London', settings: { order_no_start: 40 } }),
+    context: () => ({ staffById, print: {}, timezone: 'Europe/London', settings: {}, devices: { [KIOSK.id]: { short_code: 'KS1', kind: 'kiosk' } } }),
     venueState: () => ({ ...s.state }),
     openDay: ({ business_date }) => (s.state.day = { id: uuid(), business_date }),
     loadChecks: ids => Object.fromEntries(ids.filter(id => s.checks.has(id)).map(id => [id, s.checks.get(id)])),
@@ -498,13 +498,16 @@ test('sequencer: takes a kiosk order, numbers it, refuses a kiosk working on a t
     closeDay: () => {},
   }
   const seq = createSequencer(store)
-  const r = order([wings(), { item_id: COLA.id, qty: 1 }], { payment: { ref: 'T' } })
+  const r = order([wings(), { item_id: COLA.id, qty: 1 }], { payment: { ref: 'T' }, number: 7, order_no: 140 })
   const results = await seq.submitAll(r.events)
   assert.ok(results.every(x => x.ok), JSON.stringify(results.filter(x => !x.ok)))
-  assert.equal(results[0].event.assigned.order_no, 40)
+  assert.equal(results[0].event.assigned.number_code, 'KS1')
   const stored = s.checks.get(r.check.id)
   assert.equal(stored.status, 'closed')
-  assert.equal(stored.order_no, 40)
+  assert.equal(stored.order_no, 140)
+  assert.equal(stored.number, 7)
+  assert.equal(checkLabel(stored), '#140')
+  assert.deepEqual(s.state.numbers[KIOSK.id], { date: s.state.day.business_date, check: 7, order: 140 }, 'the kiosk\'s numbers are kept for it')
   const tillId = ulid()
   await seq.submit(ev('check.opened', { mode: 'counter' }, { check_id: tillId, staff_id: TILL_PERSON, device_id: 'T1' }))
   const bad = await seq.submit(ev('line.added', { line: { ...r.check.lines[0], id: ulid() } }, { check_id: tillId }))
@@ -539,7 +542,7 @@ test('sequencer: a kiosk order\'s reward is checked against its redemption; a wr
   const reward = { ...normaliseReward({ name: '£5 off', kind: 'amount_off', value: 500 }), id: uuid() }
   const reds = new Map()
   const make = () => {
-    const s = { events: new Map(), rejections: new Map(), checks: new Map(), state: { last_seq: 0, next_check_no: 1, next_order_no: 1, day: null } }
+    const s = { events: new Map(), rejections: new Map(), checks: new Map(), state: { last_seq: 0, numbers: {}, day: null } }
     let queue = Promise.resolve()
     return createSequencer({
       run: (_v, fn) => (queue = queue.then(fn, fn)),

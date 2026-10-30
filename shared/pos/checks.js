@@ -15,13 +15,16 @@
 //             payload, client_at, assigned }
 //   id          ULID made on the device (shared/pos/ids.js)
 //   approved_by staff id of the person who typed their PIN to allow it
-//   assigned    filled in by the sequencer: { number, order_no } on check.opened
+//   assigned    filled in by the sequencer: { day_id }, plus on check.opened the
+//               device's code (number_code). The check and order numbers come
+//               from the device itself (payload number, order_no; numbers.js)
 //
 // Pure: no I/O, no clock (times come from the event: client_at).
 
 import { isId } from './ids.js'
 import { permissionProblem } from './permissions.js'
 import { checkTotals, isActiveLine, lineGross } from './pricing.js'
+import { CHECK_NO_MAX, ORDER_NO_MAX, numberText } from './numbers.js'
 
 export const CHECK_EVENTS = [
   'check.opened', 'check.covers_set', 'check.table_moved', 'check.server_changed',
@@ -145,6 +148,10 @@ export function eventProblem(e) {
       if (p.order_type_id != null && !isUuid(p.order_type_id)) return bad('order_type_id')
       if (!optText(p.tent, 20)) return bad('tent')
       if (p.server_id != null && !isUuid(p.server_id)) return bad('server_id')
+      // The device's own numbers (numbers.js).
+      if (p.number != null && !(Number.isInteger(p.number) && p.number >= 1 && p.number <= CHECK_NO_MAX)) return bad('number')
+      if (p.order_no != null && !(Number.isInteger(p.order_no) && p.order_no >= 1 && p.order_no <= ORDER_NO_MAX)) return bad('order_no')
+      if (!optText(p.number_code, 12)) return bad('number_code')
       return null
     case 'check.covers_set':
       return Number.isInteger(p.covers) && p.covers >= 0 && p.covers <= 500 ? null : bad('covers')
@@ -305,9 +312,10 @@ function newCheck(e) {
   return {
     id: e.check_id,
     venue_id: e.venue_id ?? null,
-    number: e.assigned?.number ?? null,
-    order_no: e.assigned?.order_no ?? null,
-    provisional_no: p.provisional_no || null,
+    // The device numbered it (numbers.js); the sequencer stamps the device's code.
+    number: p.number ?? null,
+    number_code: e.assigned?.number_code ?? p.number_code ?? null,
+    order_no: p.order_no ?? null,
     day_id: e.assigned?.day_id ?? null,
     mode: p.mode,
     table_id: p.table_id ?? null,
@@ -804,12 +812,11 @@ export function heldCourses(c) {
   return [...ids]
 }
 
-/** Display number: the real one once numbered, else the till's own. */
+/** Display number: a counter order's number (#112), else the check's (T2-47). */
 export function checkLabel(c) {
   if (!c) return ''
   if (c.order_no != null) return '#' + c.order_no
-  if (c.number != null) return String(c.number)
-  return c.provisional_no || '…'
+  return numberText(c) || '…'
 }
 
 export { lineGross }

@@ -14,7 +14,7 @@ import { Plus, Loader2, Pencil, MonitorSmartphone, Link2, Smartphone, RotateCcw 
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { installerHref } from '@/lib/hosts'
-import { Section, Modal, Field, inputCls, ErrorNote, ConfirmDelete, Segmented, Btn, ago } from './shared'
+import { Section, Modal, Field, inputCls, ErrorNote, ConfirmDelete, Segmented, Btn, ago, NumberBox } from './shared'
 import { CardMachinePick, useCardReaders } from './CardMachinesSection'
 
 const MODES = [
@@ -214,6 +214,38 @@ export function InstallerLine({ setup }) {
   )
 }
 
+/**
+ * A till's or kiosk's own counter order numbers (migration 217): every device
+ * numbers its own orders from its range, so two never give out the same
+ * number, even offline. A device being added gets the next free block of a
+ * hundred; afterwards it can be changed here. The API refuses a range another
+ * device of the location uses.
+ */
+export function orderRangeOf(device) {
+  const r = device?.settings?.order_numbers
+  return { from: r?.from ?? null, to: r?.to ?? null }
+}
+export const orderRangeReady = r => Number.isInteger(r.from) && Number.isInteger(r.to) && r.from >= 1 && r.from <= r.to
+export function OrderNumbersField({ setup, device, value, onChange }) {
+  if (!device) {
+    return <p className="text-xs text-muted-foreground" data-testid="order-numbers-new">It gets its own block of counter order numbers (the next free one, e.g. 100-199). You can change it here afterwards.</p>
+  }
+  const clash = orderRangeReady(value) && setup.devices.find(d => d.id !== device.id && !d.revoked_at
+    && (d.kind === 'terminal' || d.kind === 'kiosk') && d.settings?.order_numbers
+    && d.settings.order_numbers.from <= value.to && value.from <= d.settings.order_numbers.to)
+  return (
+    <Field group label="Order numbers" hint={'Counter orders from this ' + (device.kind === 'kiosk' ? 'kiosk' : 'till') + ' get these numbers, going round. Its checks are numbered ' + (device.short_code || 'T1') + '-1, ' + (device.short_code || 'T1') + '-2, ... each trading day.'}>
+      <div className="flex items-center gap-2" data-testid="order-numbers">
+        <NumberBox value={value.from} min={1} max={9999} onChange={v => onChange({ ...value, from: v })} ariaLabel="Order numbers from" />
+        <span className="text-sm text-muted-foreground">to</span>
+        <NumberBox value={value.to} min={1} max={9999} onChange={v => onChange({ ...value, to: v })} ariaLabel="Order numbers to" />
+      </div>
+      {!orderRangeReady(value) && <p className="text-xs text-destructive mt-1">Type two numbers from 1 to 9999, the first no bigger than the second.</p>}
+      {clash && <p className="text-xs text-destructive mt-1" data-testid="order-numbers-clash">{clash.name} uses {clash.settings.order_numbers.from}-{clash.settings.order_numbers.to}. Pick numbers no other till or kiosk here uses.</p>}
+    </Field>
+  )
+}
+
 function TillModal({ venueId, setup, device, onClose }) {
   const api = useApi()
   const qc = useQueryClient()
@@ -227,6 +259,7 @@ function TillModal({ venueId, setup, device, onClose }) {
     floor_area_id: s.floor_area_id || '',
     receipt_printer_id: s.receipt_printer_id || '',
     card_reader: s.card_reader || 'none',
+    order_numbers: orderRangeOf(device),
   })
   const set = patch => setForm(f => ({ ...f, ...patch }))
   const body = () => ({
@@ -237,6 +270,7 @@ function TillModal({ venueId, setup, device, onClose }) {
       floor_area_id: form.mode === 'table' ? (form.floor_area_id || null) : null,
       receipt_printer_id: form.receipt_printer_id || null,
       card_reader: form.card_reader,
+      ...(device && orderRangeReady(form.order_numbers) ? { order_numbers: form.order_numbers } : {}),
     },
   })
   const refresh = () => qc.invalidateQueries({ queryKey: ['pos-setup', venueId] })
@@ -254,7 +288,7 @@ function TillModal({ venueId, setup, device, onClose }) {
   return (
     <Modal title={device ? 'Edit ' + device.name : 'Add a till'} onClose={onClose}
       footer={<>
-        <Btn variant="primary" className="flex-1" disabled={(!reuseId && !form.name.trim()) || (!device && !codeReady(code)) || save.isPending} onClick={() => save.mutate()} data-testid="device-save">
+        <Btn variant="primary" className="flex-1" disabled={(!reuseId && !form.name.trim()) || (!device && !codeReady(code)) || (device && !orderRangeReady(form.order_numbers)) || save.isPending} onClick={() => save.mutate()} data-testid="device-save">
           {save.isPending && <Loader2 className="w-4 h-4 animate-spin" />} {device ? 'Save' : reuseId ? reuseLabel(setup, reuseId) : 'Add the till'}
         </Btn>
         {device && <ConfirmDelete label="Remove till" confirmLabel="Yes, remove" onConfirm={() => remove.mutate()} disabled={remove.isPending} />}
@@ -289,6 +323,7 @@ function TillModal({ venueId, setup, device, onClose }) {
           </select>
         </Field>
         <CardMachinePick venueId={venueId} value={form.card_reader} onChange={v => set({ card_reader: v })} />
+        <OrderNumbersField setup={setup} device={device} value={form.order_numbers} onChange={v => set({ order_numbers: v })} />
       </>}
       <ErrorNote error={save.error || remove.error} />
     </Modal>
@@ -336,6 +371,7 @@ export default function TillsSection({ venueId, setup }) {
                     {d.settings?.mode === 'counter' ? 'Counter' : 'Table service'}
                     {rcName(d.settings?.revenue_stream_id) ? ' · ' + rcName(d.settings.revenue_stream_id) : ''}
                     {machineName(d.settings?.card_reader) ? ' · Card machine: ' + machineName(d.settings.card_reader) : ''}
+                    {d.settings?.mode === 'counter' && d.settings?.order_numbers ? ' · Orders ' + d.settings.order_numbers.from + '-' + d.settings.order_numbers.to : ''}
                   </p>
                   <p className={cn('text-xs', st.tone === 'ok' ? 'text-green-700' : st.tone === 'warn' ? 'text-amber-700' : 'text-muted-foreground')}>{st.text}</p>
                 </div>

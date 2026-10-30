@@ -3249,13 +3249,13 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               rows={[
                 ['pos_events', 'Every accepted event (id ULID text, seq per venue, assigned jsonb). The source of truth.'],
                 ['pos_event_rejections', 'Refused events with error + code; resolved_at / by / resolution from Till reports.'],
-                ['pos_checks', 'Projection: state jsonb (the whole check) plus number, order_no, status, table, server, totals, day_id for queries.'],
+                ['pos_checks', 'Projection: state jsonb (the whole check) plus number, number_code (the opening device\'s short code, migration 217: the check is T2-47), order_no, status, table, server, totals, day_id for queries.'],
                 ['pos_check_lines / pos_payments', 'Projections for reporting (payments kind payment | refund).'],
                 ['pos_days', 'Trading days: business_date (from day_starts_at), z_number, figures jsonb at Z, declared_cash, recon_filled_at / recon_error. One open per venue.'],
-                ['pos_venue_state', 'last_seq, next_check_no, next_order_no, next_z_number.'],
+                ['pos_venue_state', 'last_seq, next_z_number, device_numbers jsonb { device_id: { date, check, order } } (each till\'s or kiosk\'s highest numbers per trading day, migration 217; next_check_no / next_order_no dropped).'],
                 ['pos_print_jobs', 'Print queue (ops jsonb from tickets.js), status queued | printing | printed | failed, for the hub.'],
-                ['pos_devices', 'Tills, kitchen screens, kiosks and venue hubs: kind terminal | kds | kiosk | hub, short_code, secret_hash, pairing_code_hash + pairing_expires_at (only the move hand-over code of POST /pos-api/move), settings jsonb (mode, revenue_stream_id, receipt_printer_id, floor_area_id; a hub\'s auto_update), revoked_at; a hub\'s info + info_at (what it says about itself) and update_requested_at (migration 195).'],
-                ['pos_settings', 'Per venue: pin_salt, day_starts_at, receipt texts, tenders jsonb, tips, require_covers, order_no_start, auto_logout_secs, recon_map, recon_auto_fill. (Migration 170 dropped the VAT defaults and counter_revenue_centre_id.)'],
+                ['pos_devices', 'Tills, kitchen screens, kiosks and venue hubs: kind terminal | kds | kiosk | hub, short_code, secret_hash, pairing_code_hash + pairing_expires_at (only the move hand-over code of POST /pos-api/move), settings jsonb (mode, revenue_stream_id, receipt_printer_id, floor_area_id, order_numbers { from, to } for tills and kiosks (migration 217); a hub\'s auto_update), pending_changes + pending_at (changes the device says it hasn\'t sent, X-Pos-Pending), revoked_at; a hub\'s info + info_at (what it says about itself) and update_requested_at (migration 195).'],
+                ['pos_settings', 'Per venue: pin_salt, day_starts_at, receipt texts, tenders jsonb, tips, require_covers, auto_logout_secs, recon_map, recon_auto_fill. (Migration 170 dropped the VAT defaults and counter_revenue_centre_id.)'],
                 ['pos_revenue_streams', 'Migration 170 (was pos_revenue_centres): name, menu_ids, service_charge_percent + min covers, colour, sort_order, is_active, default_order_type_id. Which order types it offers and what each asks for: pos_stream_order_types (stream_id, order_type_id, enabled, ask_name / ask_tent off | ask | required; no row = off). See Tax, Order Types & Streams.'],
                 ['pos_roles / pos_courses', 'Tenant-wide. Role permissions jsonb (shared/pos/permissions.js); courses with hold_by_default.'],
                 ['pos_printers', 'Printers (host, port, columns, backup); connection hub | device + device_id; status / status_at from the hub (migration 191); local_id: a USB printer on the venue hub\'s computer (migration 195). pos_print_routes was dropped: kitchen tickets come from the kitchen flow.'],
@@ -3567,10 +3567,43 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               that used the old on-screen test reader to a test card machine. Tests:{' '}
               <Mono>shared/pos/test/cards.test.mjs</Mono>, <Mono>api/test/card-machines.test.mjs</Mono>.
             </P>
+            <H3>Check and order numbers (per device)</H3>
+            <P>
+              Migration 217: every till and kiosk numbers its own checks, so the cloud, the venue hub and a
+              device working alone can all accept checks without handing numbers out. Rules in{' '}
+              <Mono>shared/pos/numbers.js</Mono>: a check is the device's <Mono>short_code</Mono> and its own
+              count for the trading day (<Mono>numberText()</Mono>: T2-47); a counter order (till or kiosk) also
+              takes the next <Mono>order_no</Mono> in the device's <Mono>settings.order_numbers</Mono>{' '}
+              <Mono>{'{ from, to }'}</Mono>, going round (<Mono>nextNumbers()</Mono>). The device puts{' '}
+              <Mono>number</Mono> / <Mono>order_no</Mono> in the <Mono>check.opened</Mono> payload
+              (<Mono>takeNumbers()</Mono> in <Mono>pos/src/lib/numbers.js</Mono>, its last numbers in localStorage{' '}
+              <Mono>pos_numbers_&lt;device id&gt;</Mono>); the sequencer stamps <Mono>assigned.number_code</Mono>{' '}
+              from the device's own code (never the payload's) and keeps each device's highest numbers per day
+              (<Mono>noteNumbers()</Mono> into <Mono>pos_venue_state.device_numbers</Mono>), returned as{' '}
+              <Mono>numbers</Mono> in <Mono>GET /pos-api/sync</Mono> and every <Mono>/pos-api/config</Mono> reply
+              (an unchanged one too) and merged in by <Mono>keepServerNumbers()</Mono> /{' '}
+              <Mono>mergeNumbers()</Mono> (later day, then higher check number), so a device that lost its
+              storage carries on. The trading day a device counts under: the open day's date when the server
+              said one (the till's sync <Mono>day</Mono>, the config's <Mono>trading_day</Mono>), else{' '}
+              <Mono>businessDate()</Mono> by its own clock.
+            </P>
+            <P>
+              Ranges: <Mono>POST /api/pos/venues/:id/link</Mono> gives a new till or kiosk the first free block of
+              a hundred (<Mono>freeOrderRange()</Mono>: 1-99, 100-199, ...), a device brought back keeps its own
+              unless another took it; <Mono>PATCH /api/pos/devices/:id</Mono> keeps the range when the settings
+              leave it out and answers 422 <Mono>order_numbers</Mono> naming the device whose range it overlaps.
+              Store tech's till and kiosk windows edit it (<Mono>OrderNumbersField</Mono> in{' '}
+              <Mono>TillsSection.jsx</Mono>). Unsent changes: devices send <Mono>X-Pos-Pending: n</Mono> on every
+              request (<Mono>createTransport(device, {'{ pending }'})</Mono>), stored in{' '}
+              <Mono>pos_devices.pending_changes</Mono>; <Mono>GET /pos-api/reports/day</Mono> returns{' '}
+              <Mono>waiting</Mono> (devices with changes, or not heard from for 10 minutes but seen today), shown by
+              the till's Close the day (<Mono>WaitingDevices</Mono> in <Mono>pos/src/screens/Reports.jsx</Mono>).
+              Tests: <Mono>shared/pos/test/numbers.test.mjs</Mono>, <Mono>api/test/device-numbers.test.mjs</Mono>.
+            </P>
             <H3>Trading days, Z and Cash Recon</H3>
             <P>
               The first event after a Z opens a day (<Mono>business_date</Mono> by <Mono>day_starts_at</Mono> in
-              the venue time zone) and resets order numbers. <Mono>day.closed</Mono> needs no open checks; the
+              the venue time zone); devices start their numbers again for it (below). <Mono>day.closed</Mono> needs no open checks; the
               server stores <Mono>dayFigures()</Mono> (<Mono>shared/pos/reports.js</Mono>, also the till's X / Z)
               and, with <Mono>recon_auto_fill</Mono>, calls <Mono>fillReconFromDay()</Mono>:{' '}
               <Mono>reconValues()</Mono> maps figures through <Mono>recon_map</Mono> (income: revenue stream ids
@@ -4157,7 +4190,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>shared/kiosk.js</Mono> is the one place for what the kiosk app, the API and the admin share.{' '}
               <Mono>kioskOrder(config, basket, opts)</Mono> turns a basket into events, checked with{' '}
               <Mono>replay()</Mono> (the sequencer's rules): <Mono>check.opened</Mono> (counter, the kiosk's
-              stream, the order type, <Mono>tab_name</Mono>, <Mono>tent</Mono>, <Mono>provisional_no</Mono>), one{' '}
+              stream, the order type, <Mono>tab_name</Mono>, <Mono>tent</Mono>, the kiosk's own <Mono>number</Mono> and <Mono>order_no</Mono>), one{' '}
               <Mono>line.added</Mono> per entry (<Mono>kioskLine()</Mono>: <Mono>priceItem()</Mono> and{' '}
               <Mono>posTax()</Mono>), <Mono>promotions.set</Mono> when <Mono>checkOffers()</Mono>{' '}
               (<Mono>shared/pos/offers.js</Mono>: automatic combos and automatic till promotions) finds any, then
@@ -4562,7 +4595,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <DataTable
               head={['File', 'What it does']}
               rows={[
-                ['store.js', 'State (section: a section id, \'home\', or \'tiles\' for the section tiles page; startOrder() opens the tiles when the design has no rail); bootKiosk() (IndexedDB kiosk_config, kiosk_outbox), bootPreview() (listens for kiosk.design, kiosk.restart, kiosk.show { screen: menu } from the parent window, then posts kiosk.ready); loadConfig() with version (fetchConfig(): true when the server answered, a 4xx counts, 5xx and no reply don\'t); the connection: link up | checking | down (state.link, state.online = not down). A dropped or failed live link, a heartbeat with no pong (a ping every 15 s on the socket, 6 s to answer; only once the server\'s connected message says heartbeat: true, answered in config/ws.js), a request with no reply or the browser\'s offline event: linkTrouble() makes two quick tries (after 1 s and 2 s more, 4 s timeout each) and only then link down (ordering paused), then keepChecking() every 5 s until linkOk(); the online event checks at once; socket pos.config reloads, pos.revoked forgets; placeOrder(); the outbox for card orders paid but not sent (sent again until accepted; the guest gets the provisional number short_code-NNNN); textsFor() (translations, then UI_TEXT, money with narrowSymbol); allergen levels (itemLevels(): a combo is the union of its dishes).'],
+                ['store.js', 'State (section: a section id, \'home\', or \'tiles\' for the section tiles page; startOrder() opens the tiles when the design has no rail); bootKiosk() (IndexedDB kiosk_config, kiosk_outbox), bootPreview() (listens for kiosk.design, kiosk.restart, kiosk.show { screen: menu } from the parent window, then posts kiosk.ready); loadConfig() with version (fetchConfig(): true when the server answered, a 4xx counts, 5xx and no reply don\'t); the connection: link up | checking | down (state.link, state.online = not down). A dropped or failed live link, a heartbeat with no pong (a ping every 15 s on the socket, 6 s to answer; only once the server\'s connected message says heartbeat: true, answered in config/ws.js), a request with no reply or the browser\'s offline event: linkTrouble() makes two quick tries (after 1 s and 2 s more, 4 s timeout each) and only then link down (ordering paused), then keepChecking() every 5 s until linkOk(); the online event checks at once; socket pos.config reloads, pos.revoked forgets; placeOrder(); the outbox for card orders paid but not sent (sent again until accepted; the guest gets the order number at once: the kiosk numbers its own orders, takeNumbers() with tradingDay from the config\'s trading_day); textsFor() (translations, then UI_TEXT, money with narrowSymbol); allergen levels (itemLevels(): a combo is the union of its dishes).'],
                 ['fly.js', 'flyToBasket(from): Add to order\'s flight. A copy of the picture (from.cloneNode(true): the dish page\'s .k-hero-img, a card\'s .k-item-img, a hexagon\'s .k-hex without its band, marks and fit badge, an upsell card\'s photo) goes into .k-root (so the root\'s picture style classes and --k-* colours still apply) as .k-fly, fixed, its place and size inline, then animates (Web Animations, FLY_MS 700) to the middle of the first visible [data-fly-target=basket] (the menu\'s View order, the order page\'s Checkout): a small lift, then faster and smaller into it (end scale about the button\'s icon), fading to 0.55; on landing it is removed and the button found again (the bar may have been drawn again) gets a scale(1.12) bounce. Returns false (no flight) without a picture, a target or animate(), with prefers-reduced-motion or the design\'s layout.fly_to_order off (data-fly-to-order on the root). Callers pass the result to addToBasket(entry, key, { flew }), which then leaves the order button\'s own k-bump (state.added) to the landing. Wired in DishBuilder and ComboBuilder (heroPicture(), not when editing: builder.key), tapItem(item, ..., { from }) for + and plain dishes in Menu.jsx (and banners / featured tiles that add a dish), and the order page\'s "Anything else?".'],
                 ['photos.js', 'savePhotos(config, report): every picture the config can show (configImages() in shared/kiosk.js: logo, start pictures (not videos), every image_url / logo_url, own origin only, each once, at most MAX_SAVED_PICTURES) that the kiosk-images cache (service worker, StaleWhileRevalidate, 2000 entries, a year) doesn\'t have yet, loaded as <img> three at a time (a fetch() wouldn\'t match the picture rule); counted again from the cache after. Run after each config change, at boot and when the link comes back; previews never run it. state.photos { total, saved, busy } for the staff panel (saved null = no service worker). Then saveVideos(config, report): the design\'s videos (configVideos(): start screen and reach band, own origin, at most MAX_SAVED_VIDEOS) downloaded whole with fetch() one at a time (status 200 and a video type only, 10 minute limit) into the kiosk-videos cache; the service worker\'s video route (request.destination video, CacheFirst, rangeRequests, cacheableResponse 200, matchOptions ignoreVary) slices the Range requests a video element makes out of the saved file, and a video not saved plays from the network. Videos the design no longer plays are deleted. state.videos for the staff panel.'],
                 ['KioskApp.jsx', 'The design as CSS variables (--k-*), fonts, the idle warning and restart, reach, wake lock (not in the preview), the small-screen zoom (useKioskViewport(), viewport.js), the staff panel (Screen and Card machine lines among others), screens. Root classes k-tiles-<style> (data-tiles) and k-icons drive the layout options in kiosk.css; data-option-pictures and data-option-align say how choices show (for tests; the displays read the design themselves).'],

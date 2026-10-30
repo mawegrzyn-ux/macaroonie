@@ -90,6 +90,7 @@
 
 import { modifierText, groupModifiers } from './pricing.js'
 import { isId } from './ids.js'
+import { numberText } from './numbers.js'
 
 export const KITCHEN_DEVICE_EVENTS = [
   'kitchen.item_done', 'kitchen.item_checked', 'kitchen.bumped', 'kitchen.recalled', 'kitchen.remake', 'kitchen.priority', 'kitchen.collected',
@@ -948,7 +949,7 @@ function kitchenMods(mods = []) {
 
 function headerFromCheck(check, cfg) {
   const number = check.order_no != null ? String(check.order_no)
-    : check.number != null ? String(check.number) : (check.provisional_no || '')
+    : (numberText(check) || '')
   return {
     number,
     counter: check.mode === 'counter',

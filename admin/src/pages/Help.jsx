@@ -5402,7 +5402,7 @@ export default function Help() {
               <li><strong>Receipts and payments</strong>: when the trading day starts, the name, address and VAT number on receipts, the ways to pay, tips, asking for covers, and when staff are signed out. Tax rates are set on Menus → Tax rates.</li>
               <li><strong>Cash Recon link</strong>: which till figures go into which Cash Recon fields when the day is closed (see End of day).</li>
               <li><strong>Floor plan</strong> (Store tech → Floor plan): add an area (e.g. Restaurant), tap tables to put them on it, drag them where they stand, drag the round corner to resize, Turn, Square / Round, and add walls, the bar, plants and labels. Save the area. Tables themselves are added on the Tables page.</li>
-              <li><strong>Tills</strong>: open the till address on the tablet: it shows a six-letter code and a QR code. Tap <strong>Add a till</strong>, type the code, give it a name, table service or counter, and <strong>Add the till</strong>: the tablet sets itself up. Or scan the QR code with your phone and do the same in the installer app. <strong>New device</strong> on a till's row puts it on another tablet (type the code that tablet shows; the old one stops), and so does choosing <strong>One already here</strong> in Add a till. Removing a till signs it out; <strong>Bring back</strong> on the Removed line links it again with its settings.</li>
+              <li><strong>Tills</strong>: open the till address on the tablet: it shows a six-letter code and a QR code. Tap <strong>Add a till</strong>, type the code, give it a name, table service or counter, and <strong>Add the till</strong>: the tablet sets itself up. Or scan the QR code with your phone and do the same in the installer app. <strong>New device</strong> on a till's row puts it on another tablet (type the code that tablet shows; the old one stops), and so does choosing <strong>One already here</strong> in Add a till. Removing a till signs it out; <strong>Bring back</strong> on the Removed line links it again with its settings. Each till and kiosk gets its own block of counter <strong>order numbers</strong> when it is added (the first 1-99, the next 100-199, and so on), shown on its row; change it in the till's window (<strong>Order numbers</strong>, from and to). Two tills or kiosks at a location can't share numbers: the window says which one already uses them.</li>
             </ol>
 
             <H3>Printers and the venue hub</H3>
@@ -5659,11 +5659,25 @@ export default function Help() {
               now checks with the server what each device is, so this can&apos;t happen again.
             </P>
 
+            <H3>Check and order numbers</H3>
+            <P>
+              Every till and kiosk numbers its own checks and orders, so they never clash, even when one is
+              working without the internet. A check is numbered by the till that opened it: <strong>T2-47</strong>{' '}
+              is till T2's 47th check of the trading day (the code is on the till's row in Store tech, Tills). A
+              counter order also gets a short <strong>order number</strong> for calling out and the order ready
+              boards, from that till's or kiosk's own range (Front till 100-199, Kiosk 300-399...), going back to the
+              start of the range after the last one. Numbers start again each trading day. Till reports shows
+              both: #101 with T2-2 under it.
+            </P>
+
             <H3>End of day</H3>
             <P>
               <strong>Reports</strong> on the till shows today's figures so far (X report). <strong>Close the day (Z)</strong>{' '}
               needs every check closed: count the cash in the drawer (without the float) and type it in, then
-              <strong>Print Z</strong> for the cash-up. The next sale starts a new trading day. If <strong>Fill Cash Recon when the
+              <strong>Print Z</strong> for the cash-up. Before closing, the till lists any till or kiosk that still has
+              changes it hasn't sent (it was offline, or can't reach the server), and any that hasn't been in touch
+              for a while today: the day's figures won't include those changes until they are sent, so check those
+              devices first if you can. It's a warning only: a broken or lost device doesn't stop the day closing. The next sale starts a new trading day. If <strong>Fill Cash Recon when the
               day is closed</strong> is on (Store tech → Cash Recon link), the day's sales, takings by way of paying,
               service charge and tips are written into that day of Cash Recon; otherwise use{' '}
               <strong>Fill Cash Recon</strong> on the day in Till reports. A submitted Cash Recon day isn't changed.
@@ -6055,7 +6069,7 @@ export default function Help() {
               <li><strong>Tents</strong>: keep numbered tents (table stands) on a stand beside the kiosk or till. For an order type whose revenue stream asks for a tent, the kiosk says "Your tent number" and "Take a numbered tent from the stand", and the order number screen says "Put tent 12 on your table: we'll bring your order to you." The tent number goes to the kitchen screens, kitchen tickets and the order ready board. If your guests sit down first and type the number on their table instead, set <strong>Number to type</strong> to <em>Table number</em> in the design's Paying panel.</li>
               <li>Nobody tapping for a while: "Still there?", then the kiosk starts again. The reach button brings everything down to the lower half of the screen; the top shows the design's reach pictures or videos if it has any, with a button at their foot to move the screen back up. A dish marked sold out on the till greys out on the kiosk straight away.</li>
               <li><strong>Paying by card</strong>: the kiosk sends the order&apos;s total to its card machine and waits ("Follow the instructions on the card reader"). Once the machine approves, the order goes to the till and the kitchen. Declined: Try again, or pay at the counter if the design allows it. Back from the card step cancels the payment on the machine. On a test card machine (and in previews) Approve and Decline buttons stand in for the card.</li>
-              <li>Without the internet the kiosk stops taking new orders. A card order already paid when the internet goes is kept on the kiosk and sent when it's back; the guest gets the kiosk's own number (KS1-0012) to show at the counter.</li>
+              <li>Without the internet the kiosk stops taking new orders. A card order already paid when the internet goes is kept on the kiosk and sent when it's back; the guest gets the order number straight away (the kiosk numbers its own orders) to show at the counter.</li>
               <li>The kiosk notices a lost connection within seconds (within about half a minute when the shop's router loses the internet but the Wi-Fi stays up). It tries twice more straight away, so a short blip doesn't pause ordering; only then does the start screen say ordering is paused. It then tries every few seconds and opens ordering again as soon as it gets through.</li>
               <li>Every picture on the menu (dishes, sections, choices, banners, the logo) is kept on the kiosk after each menu change, and so are the design&apos;s videos (start screen and reach band), so the kiosk opens with its menu, pictures and videos straight away and a guest already ordering when the internet goes still sees them all. A video the design stops playing is deleted from the kiosk.</li>
               <li>The kiosk checks for prices and sold out dishes every 30 seconds and for the whole menu and design every 3 minutes (Store tech, Device updates, can change both), as well as hearing about changes straight away (see Keeping tablets up to date in Android app).</li>

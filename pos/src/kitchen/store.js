@@ -149,7 +149,7 @@ export async function bootKitchen(device, benchLink = null) {
     prefsKey = 'maca_kds_bench_' + device.id
     api = benchLink.transport
   } else {
-    api = createTransport(device)
+    api = createTransport(device, { pending: () => state.outbox.length })
     keepStorage()
   }
   const [config, snapshot, outbox] = await Promise.all([keep.get(CONFIG_KEY), keep.get(SNAPSHOT_KEY), keep.get(OUTBOX_KEY)])

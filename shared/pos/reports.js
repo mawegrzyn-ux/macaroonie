@@ -11,6 +11,7 @@
 
 import { checkTotals, isActiveLine, lineGross } from './pricing.js'
 import { TENDERS } from './checks.js'
+import { numberText } from './numbers.js'
 
 /** Venue-local date a moment belongs to, when the trading day starts at `dayStartsAt` ('04:00'). */
 export function businessDate(at, timeZone = 'Europe/London', dayStartsAt = '00:00') {
@@ -55,7 +56,7 @@ export function dayFigures(checks, dayId) {
 
     if (inDay && c.status === 'open') {
       const t = checkTotals(c)
-      openChecks.push({ id: c.id, number: c.number, order_no: c.order_no, table_id: c.table_id, tab_name: c.tab_name, total: t.total, balance: t.balance, server_id: c.server_id })
+      openChecks.push({ id: c.id, number: numberText(c), order_no: c.order_no, table_id: c.table_id, tab_name: c.tab_name, total: t.total, balance: t.balance, server_id: c.server_id })
     }
 
     if (inDay && c.status === 'closed') {
@@ -102,7 +103,7 @@ export function dayFigures(checks, dayId) {
     for (const r of c.refunds || []) {
       if (r.day_id !== dayId) continue
       refunds.count++; refunds.amount += r.amount
-      refunds.lines.push({ check_id: c.id, number: c.number, tender: r.tender, amount: r.amount, reason: r.reason, by: r.by, approved_by: r.approved_by || null, at: r.at })
+      refunds.lines.push({ check_id: c.id, number: numberText(c), tender: r.tender, amount: r.amount, reason: r.reason, by: r.by, approved_by: r.approved_by || null, at: r.at })
       const row = add(byTender, r.tender, () => ({ tender: r.tender, count: 0, amount: 0, tips: 0, refunds: 0 }))
       row.refunds += r.amount
     }
@@ -110,7 +111,7 @@ export function dayFigures(checks, dayId) {
       if (isActiveLine(l) || l.voided?.day_id !== dayId) continue
       const value = lineGross(l)
       voids.count++; voids.qty += l.qty; voids.value += value
-      voids.lines.push({ check_id: c.id, number: c.number, name: l.name, qty: l.qty, value, reason: l.voided.reason, waste: l.voided.waste, by: l.voided.by, approved_by: l.voided.approved_by, at: l.voided.at })
+      voids.lines.push({ check_id: c.id, number: numberText(c), name: l.name, qty: l.qty, value, reason: l.voided.reason, waste: l.voided.waste, by: l.voided.by, approved_by: l.voided.approved_by, at: l.voided.at })
     }
   }
 

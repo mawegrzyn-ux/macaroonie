@@ -25,6 +25,7 @@ import { withTenant } from '../../config/db.js'
 import { ToolError, callApi, requireStaffPermission } from '../context.js'
 import { loadMenuVersions } from '../../services/menuReleases.js'
 import { soldOutRows } from '../../services/soldOut.js'
+import { numberText } from '../../../../shared/pos/numbers.js'
 import {
   DateStr, TimeStr, VenueText, venueFor, venueToday, longDate, shortDate, localParts, zonedInstant,
   pence, plural, pickByName, audited,
@@ -436,7 +437,7 @@ export const orderTools = [
         revenue_streams: f.revenue_streams.map(s => nm('revenue_streams', s.id) + ': ' + pence(s.gross, cur)),
         order_types: f.order_types.map(t => nm('order_types', t.id) + ': ' + plural(t.checks, 'check') + ', ' + pence(t.total, cur)),
         staff: f.staff.filter(s => s.checks || s.tips).map(s => nm('staff', s.id) + ': ' + plural(s.checks, 'check') + ', ' + pence(s.total, cur) + (s.tips ? ', tips ' + pence(s.tips, cur) : '')),
-        ...(f.open_checks.length ? { open_checks: f.open_checks.map(c => '#' + c.number + ' ' + pence(c.balance, cur) + ' to pay') } : {}),
+        ...(f.open_checks.length ? { open_checks: f.open_checks.map(c => (c.order_no != null ? 'order ' + c.order_no : 'check ' + c.number) + ' ' + pence(c.balance, cur) + ' to pay') } : {}),
         cash_expected: pence(f.cash_expected, cur),
         ...(r.declared_cash != null ? { cash_declared: pence(r.declared_cash, cur) } : {}),
         cash_recon: r.recon_filled_at ? 'filled' : r.recon_error ? 'not filled: ' + r.recon_error : r.live ? 'fills when the day is closed' : 'not filled',
@@ -466,7 +467,7 @@ export const orderTools = [
       return {
         venue: venue.name, day: longDate(day.business_date),
         checks: checks.map(c => ({
-          number: '#' + c.number + (c.order_no ? ' (order ' + c.order_no + ')' : ''),
+          number: numberText(c) + (c.order_no ? ' (order ' + c.order_no + ')' : ''),
           ...(c.table_label ? { table: c.table_label } : {}), ...(c.tab_name ? { name: c.tab_name } : {}),
           ...(c.server_name ? { server: c.server_name } : {}), ...(c.order_type_name ? { type: c.order_type_name } : {}),
           status: c.status, total: pence(c.total, cur), paid: pence(c.paid, cur),

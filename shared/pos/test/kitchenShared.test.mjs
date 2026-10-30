@@ -112,7 +112,7 @@ test('till events at two locations follow one shared flow to their own stations;
         orders = { ...orders, ...kitchenForCheckEvent(e, before, res.checks, orders, cfg) }
       }
       const id = ulid()
-      send({ ...ev('check.opened', { mode: 'counter', order_type_id: EAT }, id), assigned: { number: 1, order_no: 1 } })
+      send({ ...ev('check.opened', { mode: 'counter', order_type_id: EAT, number: 1, order_no: 1 }, id) })
       const wings = { id: ulid(), item_id: WINGS, section_id: FOOD, name: 'Wings', qty: 1, unit_price: 500, modifiers: [], vat_rate: 20 }
       const fries = { id: ulid(), item_id: FRIES, section_id: SIDES, name: 'Fries', qty: 1, unit_price: 300, modifiers: [], vat_rate: 20 }
       for (const l of [wings, fries]) send(ev('line.added', { line: l }, id))

@@ -26,13 +26,13 @@ import { startDevicePrinting, hasOwnPrinter } from './devicePrint.js'
 import { checkForUpdate } from './appUpdate.js'
 import { HOST_APP, takePairCode, movedTo, setMovedTo, moveDevice, tellDisconnect } from './appHost.js'
 import { withLive, pricesChanged, keepStorage, createPullTimers } from './livePull.js'
+import { takeNumbers, keepServerNumbers } from './numbers.js'
 
 const OUTBOX_KEY = 'outbox'
 // v170: checks gained order types and revenue streams (migration 170); an older snapshot is dropped and pulled again.
 const SNAPSHOT_KEY = 'snapshot-170'
 const CONFIG_KEY = 'config'
 const DEVICE_KEY = 'device'
-const COUNTER_KEY = 'local_no'
 const PREFS_KEY = 'maca_till_prefs'
 
 // ── State ────────────────────────────────────────────────────────
@@ -152,7 +152,7 @@ export async function boot() {
     return
   }
   if (openOtherApp(device)) return
-  api = createTransport(device)
+  api = createTransport(device, { pending: () => state.outbox.length })
   keepStorage()
   const [config, snapshot, outbox] = await Promise.all([idb.get(CONFIG_KEY), idb.get(SNAPSHOT_KEY), idb.get(OUTBOX_KEY)])
   if (config?.device?.kind && config.device.kind !== (device.kind || 'terminal')) { await relabel(device, config.device.kind); return }
@@ -303,6 +303,7 @@ export async function loadConfig() {
   try {
     const v = state.config?.version
     const res = await api.get('/pos-api/config' + (v ? '?version=' + encodeURIComponent(v) : ''))
+    keepServerNumbers(state.device?.id, res.numbers)
     const kind = res.device?.kind
     if (kind && state.device && kind !== (state.device.kind || 'terminal')) { await relabel(state.device, kind); return }
     if (!res.unchanged) {
@@ -403,17 +404,11 @@ export function touch() {
 
 // ── Making events ────────────────────────────────────────────────
 
-function nextProvisionalNo() {
-  let n = 0
-  try { n = Number(localStorage.getItem(COUNTER_KEY)) || 0 } catch { /* ignore */ }
-  n = n >= 9999 ? 1 : n + 1
-  try { localStorage.setItem(COUNTER_KEY, String(n)) } catch { /* ignore */ }
-  return (state.device?.short_code || 'T') + '-' + String(n).padStart(4, '0')
-}
-
 function makeEvent(type, payload, { check_id = null, approved_by = null, staff_id = null } = {}) {
   const p = { ...(payload || {}) }
-  if (type === 'check.opened' && !p.provisional_no) p.provisional_no = nextProvisionalNo()
+  // The till numbers its own checks (lib/numbers.js): T2-47, and a counter
+  // order's number from its own range.
+  if (type === 'check.opened' && p.number == null && state.device) Object.assign(p, takeNumbers(state.device, state.config, { counter: p.mode === 'counter', day: state.day?.business_date || null }))
   return {
     id: ulid(), venue_id: state.device?.venue_id, device_id: state.device?.id,
     staff_id: staff_id || state.staff?.id, approved_by: approved_by || null,
@@ -669,6 +664,7 @@ export async function pull() {
   pulling = (async () => {
     try {
       const res = await api.get('/pos-api/sync?since=' + (state.seq || 0))
+      keepServerNumbers(state.device?.id, res.numbers)
       let confirmed = res.reset ? {} : { ...state.confirmed }
       for (const c of res.checks || []) confirmed[c.id] = c
       // Keep open checks, this trading day's, and any opened from Closed checks; drop older closed ones.

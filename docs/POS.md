@@ -86,8 +86,10 @@ Trial 2 proves option A on the venue's own tablets.
 - **Merging after a split**: logs are unions keyed by event id; state is rebuilt by replaying
   in order. Events that no longer apply (paying a check closed elsewhere, voiding a line already
   voided) become **conflicts** listed for a manager. Money is never merged silently.
-- **Check numbers** come from the hub; a terminal on its own uses its prefix (`T2-0041`)
-  until it syncs.
+- **Check numbers** come from the device that opens the check (migration 217, section 8.4):
+  T2-47 is till T2's 47th check of the trading day, and counter orders take order numbers from
+  the device's own range. Nothing hands numbers out, so a device alone, the hub and the cloud
+  never give the same one twice.
 - Cloud tables (`pos_checks`, lines, payments) are **projections** rebuilt from events;
   reports read the projections.
 
@@ -448,6 +450,41 @@ and, since this change, its design's videos (start screen, reach band) in `kiosk
 service worker serves the parts out of the saved file (`rangeRequests`); videos the design stops
 playing are deleted. `keepStorage()` asks the browser to keep all of it when space runs short.
 
+### 8.4 Every device numbers its own checks (migration 217, 29 Oct 2026)
+
+Numbers used to come from venue counters in `pos_venue_state` (`next_check_no`, `next_order_no`,
+`pos_settings.order_no_start`), given out by the sequencer. That works only while one place
+sequences: a till working alone, a hub and the cloud would each count from the same counter and
+hand out the same numbers. So every till and kiosk numbers its own (`shared/pos/numbers.js`):
+
+- **Check number**: the device's code and its own count for the trading day, `T2-47`
+  (`numberText()`). The device puts `number` in the `check.opened` payload; the sequencer stamps
+  `assigned.number_code` from the device's `short_code` (never from the payload) and the check
+  stores `number_code`.
+- **Order number** (counter orders, tills and kiosks): from the device's range,
+  `settings.order_numbers { from, to }`, going round within it. A device gets the next free block
+  of a hundred when it is linked (1-99, 100-199, ...; `freeOrderRange()`), keeps it when brought
+  back unless another device took it, and Store tech refuses a range that overlaps another till
+  or kiosk at the location (422 `order_numbers`, naming it). A kiosk's number is known at once,
+  so a paid card order waiting in the outbox shows its real number, not a provisional one.
+- **Trading day**: a device counts under the open trading day's date as the server last said
+  (the till's sync `day`, a kiosk's config `trading_day`), so a day not closed by the next
+  morning keeps counting; with no open day it counts under its own clock's date
+  (`businessDate()` with `day_starts_at`), the date the sequencer gives the day it opens.
+- **Recovery**: the device keeps `{ date, check, order }` (the last it gave out) in localStorage
+  (`pos/src/lib/numbers.js`). The sequencer remembers each device's highest numbers per day
+  (`noteNumbers()`, `pos_venue_state.device_numbers`), sent back in every `/sync` and `/config`
+  reply (an unchanged one too); `mergeNumbers()` keeps the later day, then the higher check
+  number, so a device that lost its storage carries on instead of starting at 1 again.
+- **Closing the day**: devices report how many changes they haven't sent yet on every request
+  (`X-Pos-Pending`, stored as `pos_devices.pending_changes`). The day report (`/reports/day`)
+  lists `waiting`: devices that said they have changes, and devices not heard from for
+  10 minutes but seen today. The till's Close the day shows them as a warning (a broken or lost
+  device mustn't keep the day open).
+
+This is the first step of hub-first locations: with numbers made on the devices, any place that
+sequences (the cloud, the hub, a till on its own) accepts them without coordinating.
+
 ---
 
 ## 9. Kitchen screens (KDS)
@@ -680,8 +717,8 @@ and the ConnectSmart Kitchen guide.
   ordering is paused until it is back: a pay-at-counter order needs the till to see it, and a card
   payment needs the order to reach the kitchen.
 - A card payment that went through when the order can't be sent is kept in the kiosk's outbox and
-  sent again until accepted; the guest gets the kiosk's own number (`KS1-0012`) to show at the
-  counter. The check carries it as `provisional_no`.
+  sent again until accepted; the guest gets the order number at once, since the kiosk numbers its
+  own orders (section 8.4; it was a provisional `KS1-0012` before migration 217).
 - A pay-at-counter order whose reply was lost is sent again with the same events; the server skips
   event ids it already has and returns the order number, so the till never gets it twice.
 - Noticing (19 Oct 2026): the live link carries a heartbeat (a ping every 15 s, 6 s for the pong),

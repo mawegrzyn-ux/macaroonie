@@ -5,6 +5,18 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-29 — Every till and kiosk numbers its own checks and orders]
+
+- Every till and kiosk now numbers its own checks and counter orders, so two devices never give out the same number, even when one is working without the internet. A check is numbered by the till that opened it: **T2-47** is till T2's 47th check of the trading day. Counter orders get their order number from the till's or kiosk's own range (the first till 1-99, the next 100-199, the kiosk 300-399...), going back to the start after the last one.
+- Store tech → Tills and Kiosks: each device's range is on its row; change it in the device's window (**Order numbers**, from and to). A range another till or kiosk at the location uses is refused, naming it. **Order numbers start at** in Receipts and payments has gone (each device has its range now).
+- A kiosk shows the order number straight away, also for a card order that is still waiting to reach the till (it used to show a temporary number like KS1-0012).
+- A till or kiosk whose saved numbers were lost carries on from the numbers the server saw, instead of starting at 1 again.
+- **Close the day (Z)** on the till lists any till or kiosk that still has changes it hasn't sent, or hasn't been in touch for a while today: the day's figures won't include those changes until they are sent. A warning only, so a broken device doesn't stop the day closing.
+- Till reports shows each check by its order number with its check number under it (#101, T2-2).
+- Migration 217: tills and kiosks already linked get a block of a hundred each, in the order they were added.
+
+---
+
 ## [2026-10-29 — Choose how often devices check for changes; menu screens in the Android app]
 
 - Store tech → **Device updates**: how often this location's tills, kiosks, kitchen screens and menu screens ask Macaroonie for changes they may have missed (menus, pictures and settings; prices and sold out; menu screen boards; order ready board numbers). Start from Standard, Less often or Least often, or pick each time; the page says roughly how many times an hour the location's devices ask. **Use these at every location** copies the times to the whole group. Prices and sold out checking can be switched off (devices then rely on being told). Devices pick up new times straight away.

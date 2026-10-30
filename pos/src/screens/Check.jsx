@@ -126,7 +126,7 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
       <button className="flex-1 min-w-0 text-left" onClick={() => setModal({ kind: 'actions' })}>
         <div className="font-bold text-lg truncate">
           {table ? 'Table ' + table.label : check.order_no != null ? 'Order #' + check.order_no : check.tab_name || 'Tab'}
-          {check.order_no == null && <span className="text-muted font-normal text-sm ml-2">#{checkLabel(check)}</span>}
+          {check.order_no == null && <span className="text-muted font-normal text-sm ml-2">{checkLabel(check)}</span>}
         </div>
         <div className="text-xs text-muted truncate flex items-center gap-2">
           {check.covers ? <span className="flex items-center gap-1"><Users size={12} />{check.covers}</span> : null}
