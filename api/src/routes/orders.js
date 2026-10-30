@@ -140,7 +140,15 @@ export default async function ordersRoutes(app) {
         loadOrderTypes(tx, req.tenantId),
         tx`SELECT id, name, is_active FROM pos_revenue_streams WHERE tenant_id = ${req.tenantId} AND venue_id = ${req.params.venueId} ORDER BY sort_order, name`,
       ])
-      return { settings, menus, gateways: listGateways(), order_types: orderTypes, revenue_streams: streams }
+      // Only menus this page lists: an id it can't show (a deleted menu, or
+      // another venue's own) would go back unseen with the next save.
+      const listed = new Set(menus.map(m => m.id))
+      const chosen = {
+        ...settings,
+        menu_ids: (settings.menu_ids || []).filter(id => listed.has(id)),
+        menu_schedules: Object.fromEntries(Object.entries(settings.menu_schedules || {}).filter(([id]) => listed.has(id))),
+      }
+      return { settings: chosen, menus, gateways: listGateways(), order_types: orderTypes, revenue_streams: streams }
     })
   })
 

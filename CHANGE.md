@@ -5,6 +5,14 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-30 — Ordering setup saves again after a menu was deleted]
+
+- **Ordering setup** said "A chosen menu wasn't found" on every save when a menu it had once used had been deleted: the deleted menu stayed in its settings, hidden, and was sent back each time. Fixed.
+- Deleting a menu now takes it off Ordering setup (and its menu times), every revenue stream that named it and the Deliveroo menu file settings. A revenue stream left with no menus shows every menu, as Store tech already said.
+- Migration 222 clears the menus already left behind.
+
+---
+
 ## [2026-10-30 — Today: what needs doing, with Pepper beside it]
 
 - A new **Today** page at the top of the menu: a greeting, the day at a glance (bookings and covers, big parties, who's on the rota, closed today) and everything that needs doing at the venue, grouped **Late**, **Now**, **Next** and **Later**.

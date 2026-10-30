@@ -187,6 +187,8 @@ async function loadSetup(tx, tenantId, venueId) {
   }
   const known = new Set(menus.map(m => m.id))
   const chosen = settings.menu_ids.filter(id => known.has(id))
+  // The page sends its menu list back on save: never one it can't show.
+  settings.menu_ids = chosen
   const menuIds = chosen.length ? chosen : menus.filter(m => m.live_published).map(m => m.id)
   const dishes = await loadDishes(tx, tenantId, menuIds, saleContext(venueId, settings.order_type_id, settings.revenue_stream_id))
   return { venue, settings, tags, menus, menu_ids_used: menuIds, dishes, links, order_types: orderTypes, revenue_streams: streams }
