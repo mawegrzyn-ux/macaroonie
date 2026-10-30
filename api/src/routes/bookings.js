@@ -16,6 +16,8 @@ import { notificationQueue } from '../jobs/queues.js'
 import { broadcastBooking } from '../services/broadcastSvc.js'
 import { upsertCustomer } from './customers.js'
 import { assertAllocationFree, ensureUnallocatedTable } from '../services/occupancySvc.js'
+import { scheduleReminder } from '../services/holdBooking.js'
+import { cancelDepositIntent } from '../services/depositSvc.js'
 
 // Bookings permission: view reads, manage changes. Deleting a booking also
 // stays owner / admin (operators have manage by default).
@@ -23,35 +25,6 @@ const PERM = {
   view:        requirePermission('bookings', 'view'),
   manage:      requirePermission('bookings', 'manage'),
   adminManage: [requireRole('admin', 'owner'), requirePermission('bookings', 'manage')],
-}
-
-// Schedule a reminder email as a delayed BullMQ job.
-// Fires `reminder_hours_before` hours before `starts_at`.
-// If the venue hasn't configured email settings, defaults to 24h.
-async function scheduleReminder(req, booking) {
-  const { withTenant: wt } = await import('../config/db.js')
-  const [settings] = await wt(req.tenantId, tx => tx`
-    SELECT reminder_enabled, reminder_hours_before
-      FROM venue_email_settings
-     WHERE venue_id = ${booking.venue_id}
-  `)
-  if (settings && !settings.reminder_enabled) return
-
-  const hoursBefore = settings?.reminder_hours_before ?? 24
-  const startsAt    = new Date(booking.starts_at).getTime()
-  const reminderAt  = startsAt - hoursBefore * 3600_000
-  const delay       = Math.max(reminderAt - Date.now(), 5000) // min 5s
-
-  await notificationQueue.add('booking_email', {
-    bookingId: booking.id,
-    tenantId:  req.tenantId,
-    venueId:   booking.venue_id,
-    type:      'reminder',
-  }, {
-    delay,
-    jobId:           `reminder-${booking.id}`,
-    removeOnComplete: true,
-  })
 }
 
 // ── Schemas ──────────────────────────────────────────────────
@@ -173,35 +146,22 @@ export default async function bookingsRoutes(app) {
   // ── DELETE /holds/:holdId ────────────────────────────────
   // Guest cancels during payment flow → slot freed immediately.
   app.delete('/holds/:holdId', { preHandler: PERM.manage }, async (req) => {
-    const [hold] = await withTenant(req.tenantId, async tx => {
-      // Also cancel Stripe PI if one was attached
-      const [h] = await tx`
-        SELECT id, stripe_pi_id FROM booking_holds
-         WHERE id = ${req.params.holdId}
-           AND tenant_id = ${req.tenantId}
-      `
-      if (!h) throw httpError(404, 'Hold not found')
-
-      if (h.stripe_pi_id) {
-        // Import lazily to avoid circular dep
-        const { cancelPaymentIntent } = await import('../services/paymentService.js')
-        await cancelPaymentIntent(h.stripe_pi_id)
-      }
-
-      return tx`
-        DELETE FROM booking_holds
-         WHERE id = ${req.params.holdId}
-           AND tenant_id = ${req.tenantId}
-        RETURNING id
-      `
-    })
+    const [hold] = await withTenant(req.tenantId, tx => tx`
+      DELETE FROM booking_holds
+       WHERE id = ${req.params.holdId}
+         AND tenant_id = ${req.tenantId}
+      RETURNING id, stripe_pi_id, stripe_account
+    `)
     if (!hold) throw httpError(404, 'Hold not found')
+    // A deposit started on this hold can't be paid any more (best effort).
+    if (hold.stripe_pi_id) cancelDepositIntent(hold).catch(() => {})
     return { ok: true }
   })
 
   // ── POST /bookings ────────────────────────────────────────
-  // Confirm a FREE booking (no deposit required).
-  // Payment path goes through /payments/intent → Stripe webhook → auto-confirm.
+  // Staff confirm a hold. No deposit is taken here, even at a venue whose
+  // guests pay one in the reservations widget (services/depositSvc.js): the
+  // host stand has no card form.
   app.post('/', { preHandler: PERM.manage }, async (req, reply) => {
     const body = BookingBody.parse(req.body)
 
@@ -228,14 +188,6 @@ export default async function bookingsRoutes(app) {
         SELECT * FROM booking_holds WHERE id = ${body.hold_id}
       `
       if (!h) throw httpError(404, 'Hold not found after confirmation')
-
-      // Verify venue does not require deposit
-      const [deposit] = await tx`
-        SELECT requires_deposit FROM deposit_rules WHERE venue_id = ${h.venue_id}
-      `
-      if (deposit?.requires_deposit) {
-        throw httpError(422, 'This venue requires a deposit — use the payment flow')
-      }
 
       // Determine initial status: unconfirmed when the venue has the call-to-confirm flow enabled
       const [bookingRules] = await tx`
@@ -281,7 +233,7 @@ export default async function bookingsRoutes(app) {
     }).catch(e => req.log.warn({ err: e }, 'notification queue unavailable — confirmation email skipped'))
 
     // Schedule reminder email (delayed job)
-    scheduleReminder(req, booking).catch(() => {})
+    scheduleReminder(req.tenantId, booking).catch(() => {})
 
     broadcastBooking('booking.created', booking)
 
@@ -548,7 +500,7 @@ export default async function bookingsRoutes(app) {
       venueId: booking.venue_id, type: 'confirmation',
       guestEmail: booking.guest_email,
     }).catch(e => req.log.warn({ err: e }, 'notification queue unavailable — booking created but confirmation email skipped'))
-    scheduleReminder(req, booking).catch(() => {})
+    scheduleReminder(req.tenantId, booking).catch(() => {})
     broadcastBooking('booking.created', booking)
     for (const d of displacedBookings) broadcastBooking('booking.updated', d)
     return reply.code(201).send(booking)
@@ -572,6 +524,9 @@ export default async function bookingsRoutes(app) {
         p.id         AS payment_id,
         p.amount     AS payment_amount,
         p.status     AS payment_status,
+        p.currency   AS payment_currency,
+        p.refunded_amount     AS payment_refunded,
+        p.refund_hours_before AS payment_refund_hours_before,
         -- All member table IDs for combination bookings (for timeline row expansion)
         CASE WHEN b.combination_id IS NOT NULL THEN (
           SELECT json_agg(m.table_id ORDER BY t2.sort_order, t2.label)

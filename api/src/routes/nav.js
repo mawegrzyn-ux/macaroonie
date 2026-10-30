@@ -26,6 +26,7 @@ import { seedDefaultNav } from '../config/defaultNav.js'
 // or pick a different one (e.g. to gate an item more/less strictly than
 // its page's own default guard).
 export const ROUTE_CATALOG = [
+  { route: '/today', label: 'Today', icon: 'Sun', module: 'dashboard' },
   { route: '/', label: 'Overview', icon: 'LayoutDashboard', module: 'dashboard' },
   { route: '/dashboards', label: 'Dashboards', icon: 'LayoutTemplate', module: 'custom_dashboard' },
   { route: '/timeline', label: 'Timeline', icon: 'CalendarDays', module: 'bookings' },
@@ -44,6 +45,7 @@ export const ROUTE_CATALOG = [
   { route: '/pos/floor', label: 'Floor plan', icon: 'LayoutPanelTop', module: 'pos_setup' },
   { route: '/pos/kiosks', label: 'Kiosks', icon: 'TabletSmartphone', module: 'pos_setup' },
   { route: '/pos/kitchen', label: 'Kitchen screens', icon: 'CookingPot', module: 'pos_setup' },
+  { route: '/pos/hub', label: 'Venue hub', icon: 'Server', module: 'pos_setup' },
   { route: '/pos/printers', label: 'Printers', icon: 'Printer', module: 'pos_setup' },
   { route: '/pos/printing', label: 'Printing', icon: 'ReceiptText', module: 'pos_setup' },
   { route: '/pos/cards', label: 'Card machines', icon: 'CreditCard', module: 'pos_setup' },

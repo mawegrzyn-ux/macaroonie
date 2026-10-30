@@ -82,7 +82,8 @@ export async function startFakeStripe({ port = 0 } = {}) {
         st.pis[id] = {
           id, object: 'payment_intent', account: acct, status: 'requires_payment_method', client_secret: id + '_secret_' + st.n,
           amount: Number(f.amount), currency: f.currency, application_fee_amount: f.application_fee_amount ? Number(f.application_fee_amount) : null,
-          automatic: f['automatic_payment_methods[enabled]'] === 'true', payment_method_types: f['payment_method_types[]'] ? [f['payment_method_types[]']] : ['card'],
+          automatic: f['automatic_payment_methods[enabled]'] === 'true', allow_redirects: f['automatic_payment_methods[allow_redirects]'] || null,
+          receipt_email: f.receipt_email || null, payment_method_types: f['payment_method_types[]'] ? [f['payment_method_types[]']] : ['card'],
           description: f.description || null, metadata: Object.fromEntries(Object.entries(f).filter(([k]) => k.startsWith('metadata[')).map(([k, v]) => [k.slice(9, -1), v])),
           last_payment_error: null, latest_charge: null,
         }
@@ -102,7 +103,7 @@ export async function startFakeStripe({ port = 0 } = {}) {
       if (p === '/v1/refunds') {
         const pi = st.pis[f.payment_intent]
         if (!pi || pi.account !== acct) return send(res, 404, { error: { message: 'No such payment_intent' } })
-        const r = { id: 're_' + (++st.n), status: 'succeeded', amount: Number(f.amount), payment_intent: pi.id, account: acct, refund_application_fee: f.refund_application_fee === 'true' }
+        const r = { id: 're_' + (++st.n), status: 'succeeded', amount: f.amount ? Number(f.amount) : pi.amount, payment_intent: pi.id, account: acct, refund_application_fee: f.refund_application_fee === 'true' }
         st.refunds.push(r)
         return send(res, 200, keep(r))
       }

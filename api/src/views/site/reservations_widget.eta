@@ -371,6 +371,9 @@ const _accentEffective = _btnBg || it.accent
     .rcheck    { display: inline-block; width: 48px; height: 48px; line-height: 48px; border-radius: 50%; background: #16a34a; color: #fff; font-size: 28px; margin-bottom: 12px; }
     .rcenter   { text-align: center; }
     .rtimer    { text-align: center; font-size: 13px; color: var(--r-muted); margin-top: 12px; }
+    .rdeposit  { border: 1px solid var(--r-border); border-radius: var(--r-radius); padding: 12px 14px; margin-top: 14px; font-size: 14px; }
+    .rdeposit strong { display: block; font-size: 15px; margin-bottom: 2px; }
+    .rdeposit .rsub { margin: 4px 0 0; font-size: 13px; }
     .rloader {
       display: inline-block; width: 18px; height: 18px;
       border: 2px solid var(--r-border); border-top-color: var(--r-accent);
@@ -432,6 +435,7 @@ const _accentEffective = _btnBg || it.accent
       var CONFIRM_HEADING   = <%~ JSON.stringify(_confirmHeading  || '') %>;
       var CONFIRM_BODY_HTML = <%~ JSON.stringify(_confirmBodyHtml || '') %>;
       var CONFIRM_CTAS      = <%~ JSON.stringify(_confirmCtas) %>;
+      var THEME             = <%~ JSON.stringify(it.theme === 'dark' ? 'dark' : 'light') %>;
 
       var venuesById = Object.fromEntries(VENUES.map(function(v){ return [v.id, v]; }));
 
@@ -440,7 +444,7 @@ const _accentEffective = _btnBg || it.accent
         ? venuesById[INITIAL_VENUE_ID]
         : (VENUES.length === 1 ? VENUES[0] : null);
 
-      // Step indices: 0 location | 1 covers | 2 date | 3 time | 4 details | 5 confirmed
+      // Step indices: 0 location | 1 covers | 2 date | 3 time | 4 details | 6 deposit | 5 confirmed
       var state = {
         step: initialVenue ? 1 : 0,
         venue: initialVenue,
@@ -452,6 +456,7 @@ const _accentEffective = _btnBg || it.accent
         slotsError: null,
         hold: null,
         holdExpiresAt: null,
+        pay: null,          // the deposit's payment form (step 6)
         booking: null,
         details: { name: '', email: '', phone: '', notes: '' },
         loading: false,
@@ -592,6 +597,7 @@ const _accentEffective = _btnBg || it.accent
               var msg = (data && data.error) || ('HTTP ' + res.status);
               var err = new Error(msg);
               err.status = res.status;
+              err.data = data;
               throw err;
             }
             return data;
@@ -629,6 +635,7 @@ const _accentEffective = _btnBg || it.accent
         dbgAction('pickDate ' + iso);
         state.date = iso;
         state.slot = null;
+        state.error = null;
         loadSlots();
       }
       function pickSlot(s) {
@@ -718,9 +725,234 @@ const _accentEffective = _btnBg || it.accent
         });
       }
 
+      // ── Deposits (services/depositSvc.js) ─────────────────────
+      // A venue that takes a deposit: the guest's details, then the hold,
+      // then Stripe's payment form on the group's own Stripe account (step
+      // 6). The booking is made by the server once Stripe says it is paid;
+      // the form never leaves the page (payment methods that redirect are
+      // off), 3D Secure opens over it.
+      function depositOf(v) { return (v && v.deposit && v.deposit.required) ? v.deposit : null; }
+      function depositPence(v, covers) {
+        var d = depositOf(v);
+        if (!d) return 0;
+        return d.type === 'per_cover' ? d.amount_pence * Math.max(1, covers || 1) : d.amount_pence;
+      }
+      function money(pence, currency) {
+        try { return new Intl.NumberFormat('en-GB', { style: 'currency', currency: currency || 'GBP' }).format(pence / 100); }
+        catch (e) { return (pence / 100).toFixed(2); }
+      }
+      function depositRuleText(d) {
+        var h = d && d.refund_hours_before;
+        if (h == null) return 'The deposit isn\'t refunded if you cancel.';
+        if (h === 0) return 'Refunded if you cancel before your booking.';
+        return 'Refunded if you cancel at least ' + h + (h === 1 ? ' hour' : ' hours') + ' before.';
+      }
+      function depositLine(v, covers) {
+        var d = depositOf(v);
+        if (!d) return '';
+        var total = money(depositPence(v, covers), d.currency);
+        return d.type === 'per_cover'
+          ? total + ' (' + money(d.amount_pence, d.currency) + ' a guest)'
+          : total;
+      }
+
+      var stripeJs = null;
+      function loadStripeJs() {
+        if (window.Stripe) return Promise.resolve(window.Stripe);
+        if (!stripeJs) {
+          stripeJs = new Promise(function(resolve, reject){
+            var sc = document.createElement('script');
+            sc.src = 'https://js.stripe.com/v3/';
+            sc.onload = function(){ window.Stripe ? resolve(window.Stripe) : reject(new Error('The card form could not be loaded.')); };
+            sc.onerror = function(){ stripeJs = null; sc.remove(); reject(new Error('The card form could not be loaded. Check your connection and try again.')); };
+            document.head.appendChild(sc);
+          });
+        }
+        return stripeJs;
+      }
+
+      function holdBody() {
+        return {
+          starts_at:      state.date + 'T' + state.slot.slot_time + ':00',
+          covers:         state.covers,
+          guest_name:     state.details.name,
+          guest_email:    state.details.email || null,
+          guest_phone:    state.details.phone || null,
+          guest_notes:    state.details.notes || null,
+          table_id:       state.slot.table_id       || null,
+          combination_id: state.slot.combination_id || null,
+        };
+      }
+
+      function createHoldThenPay() {
+        if (state.loading) return;
+        state.loading = true; state.error = null; render();
+        api('/venues/' + state.venue.id + '/holds', { method: 'POST', body: JSON.stringify(holdBody()) })
+          .then(function(hold){
+            state.hold = hold;
+            return api('/venues/' + state.venue.id + '/holds/' + hold.id + '/deposit', {
+              method: 'POST', body: JSON.stringify({ guest_notes: state.details.notes || null }),
+            });
+          })
+          .then(function(pay){
+            state.loading = false;
+            state.pay = pay;
+            if (pay.paid || pay.processing) return finishDeposit(0);
+            goto(6);
+          })
+          .catch(function(e){
+            state.loading = false;
+            state.error = e.message || 'Could not hold your table.';
+            render();
+          });
+      }
+
+      // Back from the payment form: the table is let go, its payment cancelled.
+      function releaseHold() {
+        var h = state.hold;
+        state.hold = null; state.pay = null;
+        if (h && h.id && state.venue) {
+          api('/venues/' + state.venue.id + '/holds/' + h.id, { method: 'DELETE' }).catch(function(){});
+        }
+      }
+
+      function payEls() {
+        return {
+          err:  document.getElementById('rpay-err'),
+          note: document.getElementById('rpay-note'),
+          btn:  document.getElementById('rpay-btn'),
+          back: document.getElementById('rpay-back'),
+        };
+      }
+      function payError(msg) {
+        var e = payEls().err;
+        if (!e) return;
+        e.textContent = msg || '';
+        e.style.display = msg ? '' : 'none';
+      }
+      function payBusy(on, label) {
+        var p = payEls();
+        if (p.btn) { p.btn.disabled = !!on || !state.payReady; p.btn.textContent = label || ('Pay ' + money(state.pay.amount_pence, state.pay.currency)); }
+        if (p.back) p.back.disabled = !!on;
+      }
+
+      // Paid (Stripe.js said so): the server reads it back from Stripe and books it.
+      function finishDeposit(tries) {
+        var pi = state.pay && state.pay.payment_intent;
+        if (!pi || !state.hold) return;
+        payBusy(true, 'Booking your table\u2026');
+        api('/venues/' + state.venue.id + '/holds/' + state.hold.id + '/deposit/confirm', {
+          method: 'POST', body: JSON.stringify({ payment_intent: pi }),
+        })
+          .then(function(b){
+            if (b && b.status === 'pending') {
+              if (tries < 15) { setTimeout(function(){ finishDeposit(tries + 1); }, 2000); return; }
+              var n = payEls().note;
+              if (n) { n.textContent = 'Your payment is still being checked. We\'ll email you as soon as your table is booked.'; n.style.display = ''; }
+              payBusy(true, 'Payment being checked');
+              return;
+            }
+            state.booking = b;
+            state.pay = null;
+            goto(5);
+            try {
+              window.parent && window.parent.postMessage(
+                { type: 'macaroonie:booking-confirmed', reference: b.reference, bookingId: b.id }, '*');
+            } catch (e) {}
+          })
+          .catch(function(e){
+            if (e.data && e.data.refunded) {
+              // Paid, but the table went: refunded. Start again from the times.
+              state.hold = null; state.pay = null; state.slot = null;
+              state.error = e.message;
+              state.step = 3;
+              loadSlots();
+              return;
+            }
+            payError(e.message || 'The payment didn\'t go through. Please try again.');
+            payBusy(false);
+          });
+      }
+
+      function renderPay(root) {
+        var p = state.pay;
+        var d = depositOf(state.venue) || {};
+        state.payReady = false;
+        var until = '';
+        try { until = new Date(p.expires_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false }); } catch (e) {}
+        var box = el('div', { id: 'rpay', 'data-testid': 'rw-pay' },
+          el('p', { class: 'rstep' }, 'Pay the deposit'),
+          el('div', { class: 'rsummary' },
+            el('div', { class: 'rline' }, el('span', { class: 'rlbl' }, 'When'),    el('span', {}, fmtFullDate(state.date) + ' at ' + state.slot.slot_time)),
+            el('div', { class: 'rline' }, el('span', { class: 'rlbl' }, 'Guests'),  el('span', {}, String(state.covers))),
+            el('div', { class: 'rline' }, el('span', { class: 'rlbl' }, 'Deposit'), el('span', { 'data-testid': 'rw-pay-amount' }, money(p.amount_pence, p.currency))),
+          ),
+          until ? el('p', { class: 'rsub', style: 'margin:10px 0 0;font-size:13px' }, 'We\'re holding your table until ' + until + '.') : null,
+          el('p', { class: 'rerr', id: 'rpay-err', role: 'alert', style: 'display:none' }),
+          el('div', { id: 'rpay-el', style: 'min-height:120px;margin-top:14px' }, el('p', { class: 'rsub' }, 'Loading the card form\u2026')),
+          el('p', { class: 'rsub', id: 'rpay-note', style: 'display:none;margin-top:10px' }),
+          el('p', { class: 'rsub', style: 'margin-top:10px;font-size:13px' }, depositRuleText(d)),
+          el('div', { class: 'rnav' },
+            el('button', { class: 'rbtn secondary', id: 'rpay-back', onclick: function(){ releaseHold(); goto(4); } }, '\u2190 Details'),
+            el('button', { class: 'rbtn', id: 'rpay-btn', 'data-testid': 'rw-pay-btn', disabled: true, onclick: payNow }, 'Pay ' + money(p.amount_pence, p.currency)),
+          ),
+          el('p', { class: 'rsub', style: 'margin-top:10px;font-size:12px' }, 'Paid securely through Stripe. Your card details never reach this website.'),
+        );
+        root.appendChild(box);
+        mountPayment();
+      }
+
+      var stripeNow = null;
+      function mountPayment() {
+        var p = state.pay;
+        loadStripeJs().then(function(Stripe){
+          if (state.pay !== p) return;
+          var css = getComputedStyle(document.documentElement);
+          var stripe = Stripe(p.publishable_key, { stripeAccount: p.account });
+          var elements = stripe.elements({
+            clientSecret: p.client_secret,
+            appearance: {
+              theme: THEME === 'dark' ? 'night' : 'stripe',
+              variables: {
+                colorPrimary: (css.getPropertyValue('--r-accent') || '').trim() || '#2563eb',
+                fontFamily: getComputedStyle(document.body).fontFamily,
+                borderRadius: (css.getPropertyValue('--r-radius') || '').trim() || '8px',
+              },
+            },
+          });
+          var pe = elements.create('payment', { layout: 'tabs' });
+          var at = document.getElementById('rpay-el');
+          if (!at) return;
+          at.innerHTML = '';
+          pe.mount(at);
+          pe.on('ready', function(){ state.payReady = true; payBusy(false); });
+          pe.on('loaderror', function(ev){ payError((ev && ev.error && ev.error.message) || 'The card form could not be loaded.'); });
+          stripeNow = { stripe: stripe, elements: elements, pay: p };
+        }).catch(function(e){ payError(e.message); });
+      }
+
+      function payNow() {
+        if (!stripeNow || stripeNow.pay !== state.pay) return;
+        payError(null);
+        payBusy(true, 'Paying\u2026');
+        stripeNow.stripe.confirmPayment({ elements: stripeNow.elements, redirect: 'if_required' })
+          .then(function(res){
+            if (res && res.error) {
+              payError(res.error.message || 'The payment didn\'t go through. Please try again.');
+              payBusy(false);
+              return;
+            }
+            finishDeposit(0);
+          })
+          .catch(function(e){ payError(e.message); payBusy(false); });
+      }
+
       // ── Render ─────────────────────────────────────────────────
       function render() {
         renderDebug();
+        // The payment form lives in Stripe's iframe: it is drawn once and
+        // never redrawn (redrawing would empty what the guest typed).
+        if (state.step === 6 && document.getElementById('rpay')) return;
         var prog = document.getElementById('rprog');
         var root = document.getElementById('rroot');
         if (!prog || !root) return;
@@ -729,8 +961,9 @@ const _accentEffective = _btnBg || it.accent
 
         // Progress dots — 5 total (covers/date/time/details/confirmed),
         // venue picker step doesn't get a dot since not all flows have it.
+        var shownStep = state.step === 6 ? 4 : state.step;
         for (var i = 1; i <= 5; i++) {
-          var d = el('div', state.step >= i ? { class: 'done' } : {});
+          var d = el('div', shownStep >= i ? { class: 'done' } : {});
           prog.appendChild(d);
         }
 
@@ -741,6 +974,7 @@ const _accentEffective = _btnBg || it.accent
           case 3: return renderSlots(root);
           case 4: return renderDetails(root);
           case 5: return renderConfirmed(root);
+          case 6: return renderPay(root);
         }
       }
 
@@ -765,6 +999,17 @@ const _accentEffective = _btnBg || it.accent
         var v = state.venue;
         var min = (v && v.min_covers) || 1;
         var max = Math.min(8, (v && v.max_covers) || 8);
+        var dep = depositOf(v);
+        if (dep && !dep.online) {
+          root.appendChild(el('p', { class: 'rstep' }, 'Booking online'));
+          root.appendChild(el('p', { class: 'rsub', 'data-testid': 'rw-deposit-offline' },
+            'This restaurant takes a deposit with bookings, which can\'t be paid online just now. Please call them to book.'));
+          if (MODE === 'tenant' && VENUES.length > 1 && !INITIAL_VENUE_ID) {
+            root.appendChild(el('div', { class: 'rnav' },
+              el('button', { class: 'rbtn secondary', onclick: function(){ goto(0); } }, '\u2190 Change location')));
+          }
+          return;
+        }
         root.appendChild(el('p', { class: 'rstep' }, 'How many guests?'));
         var row = el('div', { class: 'rrow' });
         for (var n = min; n <= max; n++) (function(n){
@@ -774,6 +1019,10 @@ const _accentEffective = _btnBg || it.accent
           }, String(n)));
         })(n);
         root.appendChild(row);
+        if (dep) {
+          root.appendChild(el('p', { class: 'rsub', style: 'margin-top:14px', 'data-testid': 'rw-deposit-note' },
+            'A deposit of ' + money(dep.amount_pence, dep.currency) + (dep.type === 'per_cover' ? ' a guest' : '') + ' is taken when you book.'));
+        }
         if (LARGE_PARTY_TEXT) {
           root.appendChild(el('p', { class: 'rsub', style: 'margin-top:14px' }, LARGE_PARTY_TEXT));
         }
@@ -896,6 +1145,8 @@ const _accentEffective = _btnBg || it.accent
       function renderSlots(root) {
         root.appendChild(el('p', { class: 'rstep' },
           'Times for ' + fmtFullDate(state.date) + ' · ' + state.covers + ' guest' + (state.covers > 1 ? 's' : '')));
+        // Why the guest is back here (a paid deposit whose table went, refunded).
+        if (state.error) root.appendChild(el('p', { class: 'rerr', 'data-testid': 'rw-back-reason', style: 'margin:0 0 10px' }, state.error));
 
         if (state.slotsLoading) {
           root.appendChild(el('p', { class: 'rempty' },
@@ -957,7 +1208,7 @@ const _accentEffective = _btnBg || it.accent
             el('input', { type: 'text', value: state.details.name, oninput: setField('name'), placeholder: 'Your name' }),
           ),
           el('div', { class: 'rfield' },
-            el('label', {}, 'Email'),
+            el('label', {}, depositOf(state.venue) ? 'Email *' : 'Email'),
             el('input', { type: 'email', value: state.details.email, oninput: setField('email'), placeholder: 'you@example.com', inputmode: 'email' }),
           ),
           el('div', { class: 'rfield' },
@@ -970,6 +1221,14 @@ const _accentEffective = _btnBg || it.accent
           ),
         );
         root.appendChild(form);
+
+        var dep = depositOf(state.venue);
+        if (dep) {
+          root.appendChild(el('div', { class: 'rdeposit', 'data-testid': 'rw-deposit' },
+            el('strong', {}, 'Deposit ' + depositLine(state.venue, state.covers)),
+            el('p', { class: 'rsub' }, 'Paid now to hold your table. ' + depositRuleText(dep)),
+          ));
+        }
 
         if (state.error) {
           root.appendChild(el('p', { class: 'rerr' }, state.error));
@@ -995,9 +1254,22 @@ const _accentEffective = _btnBg || it.accent
                 if (nameInput) nameInput.focus();
                 return;
               }
+              if (dep) {
+                var email = (state.details.email || '').trim();
+                if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+                  state.error = 'Please enter your email address, for the deposit receipt.';
+                  render();
+                  var emailInput = document.querySelector('.rfield input[type="email"]');
+                  if (emailInput) emailInput.focus();
+                  return;
+                }
+                return createHoldThenPay();
+              }
               createHoldThenConfirm();
             },
-          }, state.loading ? 'Booking…' : 'Confirm booking'),
+          }, state.loading ? (dep ? 'Holding your table\u2026' : 'Booking…')
+             : dep ? 'Continue to payment \u00b7 ' + money(depositPence(state.venue, state.covers), dep.currency)
+             : 'Confirm booking'),
         ));
       }
 
@@ -1024,6 +1296,9 @@ const _accentEffective = _btnBg || it.accent
           el('div', { class: 'rline' }, el('span', { class: 'rlbl' }, 'Name'),   el('span', {}, b.guest_name || '—')),
           el('div', { class: 'rline' }, el('span', { class: 'rlbl' }, 'When'),   el('span', {}, fmtFullDate(state.date) + ' at ' + state.slot.slot_time)),
           el('div', { class: 'rline' }, el('span', { class: 'rlbl' }, 'Guests'), el('span', {}, String(state.covers))),
+          b.deposit_pence
+            ? el('div', { class: 'rline', 'data-testid': 'rw-paid' }, el('span', { class: 'rlbl' }, 'Deposit paid'), el('span', {}, money(b.deposit_pence, b.deposit_currency)))
+            : null,
         ));
         if (b.guest_email) {
           root.appendChild(el('p', { class: 'rsub rcenter', style: 'margin-top:14px' },

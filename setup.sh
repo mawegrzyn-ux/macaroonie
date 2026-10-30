@@ -163,8 +163,8 @@ REDIS_URL=redis://:sd94mr95fmsdkDH84DN2dj40wlo47G4Y@127.0.0.1:6379
 AUTH0_DOMAIN=obscurekitty.uk.auth0.com
 AUTH0_AUDIENCE=https://api.macaroonie.com
 
-STRIPE_SECRET_KEY=sk_live_REPLACEME
-STRIPE_WEBHOOK_SECRET=whsec_REPLACEME
+# Stripe keys can be saved on the Platform page (Payments) instead.
+STRIPE_SECRET_KEY=
 
 SENDGRID_API_KEY=SG.REPLACEME
 EMAIL_FROM=noreply@macaroonie.com
@@ -458,8 +458,7 @@ echo -e "${GREEN}${BOLD}══════════════════�
 echo ""
 echo -e "${YELLOW}${BOLD}Before the API will fully start, fill in:${NC}"
 echo "  nano ${APP_DIR}/api/.env"
-echo "  → STRIPE_SECRET_KEY"
-echo "  → STRIPE_WEBHOOK_SECRET"
+echo "  → Stripe keys: Platform page, Payments (or STRIPE_* in this file)"
 echo "  → REDIS_URL password (match /etc/redis/redis.conf requirepass)"
 echo "  → VITE_AUTH0_CLIENT_ID in ${APP_DIR}/admin/.env then rebuild:"
 echo "    cd ${APP_DIR}/admin && npm run build"

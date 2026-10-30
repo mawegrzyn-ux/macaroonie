@@ -5,6 +5,37 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-30 — Today: what needs doing, with Pepper beside it]
+
+- A new **Today** page at the top of the menu: a greeting, the day at a glance (bookings and covers, big parties, who's on the rota, closed today) and everything that needs doing at the venue, grouped **Late**, **Now**, **Next** and **Later**.
+- Tasks come from your own set-up and records, so they show even with Pepper switched off: fridge and hold check times not logged, cooking checks short, readings out of range with no corrective action, checklists not done, H&S actions due, supplier orders to send, deliveries due today, orders waiting for your approval, yesterday's cash-up and online orders waiting. A task goes away by itself once it's done.
+- Each task has one button. Fridge, hold and cooking checks and checklists open right on the page, the same forms as the Food safety and Checklists pages; the rest open their page. People who can only view an area get **View**.
+- Your menu as big tiles, the pages with something to do first, and Pepper beside it all with suggestions for the day.
+- Migration 221 (adds the Today link to every group's menu).
+
+---
+
+## [2026-10-30 — Deposits for online bookings]
+
+- A venue can take a deposit when guests book online. Turn it on in **Booking rules** → **Deposit**: one amount per booking or an amount per guest, and how many hours before the booking a guest can cancel and get it back (leave it empty to keep it).
+- Guests pay in the booking widget by card, Apple Pay or Google Pay, straight into your own Stripe account (the one connected in **Online orders** → **Ordering setup**). The table is held for 15 minutes while they pay. The booking is only made once Stripe confirms the money was taken, even if the guest closes the page.
+- Guests who cancel from their confirmation email get the deposit back by itself when it is early enough; the page tells them before and after whether it will be refunded.
+- The booking's **Deposit** part shows what was paid and refunded. Owners and admins can refund all of it or part of it from there.
+- Bookings staff add themselves take no deposit. While deposits are on and Stripe isn't ready, guests are asked to phone instead, and the Booking rules page says so.
+- Migration 220. The old deposit code on the platform's own Stripe account is gone (`STRIPE_WEBHOOK_SECRET` is no longer used).
+
+---
+
+## [2026-10-30 — The venue hub gets its own page]
+
+- Store tech has a new **Venue hub** page, just before Printers in the main menu: link a hub, its state, version and updates, the USB printers plugged into it (with **Add it**), the **Hub first** switch and how to set one up. It used to sit at the bottom of the Printers page.
+- The Printers page now lists the printers only, with a line saying which hub prints them and a link to the Venue hub page.
+- The hub's own page and the installers point at Store tech → Venue hub.
+- Migration 219 adds the link to every group's menu (seen by the same roles as Printers).
+- Scoped, not built: running the venue hub on an Android device (`docs/ANDROID_HUB.md`).
+
+---
+
 ## [2026-10-30 — Hub first: the location keeps trading on the venue hub with the internet down]
 
 - At a location with a venue hub, tills, kiosks, kitchen screens and order ready boards now send their orders to the hub on the venue's own network, and the hub sends everything on to Macaroonie. With the internet down the location carries on: tills see each other's orders, kitchen screens get and bump their tickets, order ready boards show numbers, tickets print and the X report adds up. When the internet is back the hub sends everything in order; nothing is lost or counted twice. If the hub is off, devices go straight to Macaroonie.

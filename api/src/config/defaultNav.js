@@ -4,12 +4,14 @@
 // tenant creation route) and what "Reset to defaults" in the nav designer
 // restores. Grouped by job, each page once. Migration 196 put every tenant
 // on this tree and migration 202 replaced Till setup and Menu screens with the
-// Store tech section; api/test/nav-default.test.mjs checks 196's tree with
-// 202's change applied matches this one, so change them together.
+// Store tech section (later migrations add single links, e.g. 219's Venue
+// hub, 221's Today); api/test/nav-default.test.mjs checks 196's tree with those changes
+// applied matches this one, so change them together.
 
 export const DEFAULT_NAV_TREE = [
   {
     label: 'Home', children: [
+      { label: 'Today', icon: 'Sun', route: '/today', module: 'dashboard' },
       { label: 'Overview', icon: 'LayoutDashboard', route: '/', module: 'dashboard' },
       { label: 'Dashboards', icon: 'LayoutTemplate', route: '/dashboards', module: 'custom_dashboard' },
       { label: 'Pepper', icon: 'Sparkles', route: '/ai', module: 'ai_assistant' },
@@ -121,6 +123,7 @@ export const DEFAULT_NAV_TREE = [
       { label: 'Kiosks', icon: 'TabletSmartphone', route: '/pos/kiosks', module: 'pos_setup' },
       { label: 'Kitchen screens', icon: 'CookingPot', route: '/pos/kitchen', module: 'pos_setup' },
       { label: 'Menu screens', icon: 'Monitor', route: '/screens', module: 'screens' },
+      { label: 'Venue hub', icon: 'Server', route: '/pos/hub', module: 'pos_setup' },
       { label: 'Printers', icon: 'Printer', route: '/pos/printers', module: 'pos_setup' },
       { label: 'Printing', icon: 'ReceiptText', route: '/pos/printing', module: 'pos_setup' },
       { label: 'Card machines', icon: 'CreditCard', route: '/pos/cards', module: 'pos_setup' },

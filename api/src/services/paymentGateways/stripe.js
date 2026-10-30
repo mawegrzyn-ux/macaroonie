@@ -12,8 +12,9 @@
 // "done" (confirmFromClient) is never trusted: the PaymentIntent is read
 // back from Stripe. Webhooks (POST /webhooks/payments/stripe, the
 // platform's Connect endpoint) settle what the page never reported (a
-// closed tab, a payment that was still processing) and keep the group's
-// account details fresh (account.updated).
+// closed tab, a payment that was still processing), hand booking deposits
+// to services/depositSvc.js and keep the group's account details fresh
+// (account.updated).
 
 import { randomUUID } from 'node:crypto'
 import { httpError } from '../../middleware/error.js'
@@ -103,7 +104,11 @@ export default {
       await applyAccountEvent(event.type, event.type === 'account.updated' ? obj : { id: event.account })
       return null
     }
-    // Only online orders' payments (card machine and deposit ones come here too).
+    // Booking deposits (services/depositSvc.js): the route settles them.
+    if (obj?.object === 'payment_intent' && obj.metadata?.kind === 'deposit') {
+      return { deposit: { type: event.type, pi: obj, account: event.account || null } }
+    }
+    // Only online orders' payments (card machine ones come here too).
     if (!obj || obj.object !== 'payment_intent' || !obj.metadata?.order_id) return null
     const status = event.type === 'payment_intent.succeeded' ? 'succeeded'
       : event.type === 'payment_intent.payment_failed' ? 'failed'

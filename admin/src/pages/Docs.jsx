@@ -38,6 +38,7 @@ const SECTIONS = [
   { id: 'web-ordering', label: 'Web Ordering' },
   { id: 'loyalty', label: 'Loyalty' },
   { id: 'ai-assistant', label: 'Pepper (AI assistant) & MCP' },
+  { id: 'ops-today', label: 'Today (the ops front door)' },
   { id: 'store-openings', label: 'New locations (store openings)' },
   { id: 'menus',        label: 'Menus' },
   { id: 'combos',       label: 'Combos' },
@@ -970,11 +971,11 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['exception_sittings', 'Sittings for an exception day template. Also has name (nullable) from migration 023.', 'template_id, opens_at, closes_at, default_max_covers, doors_close_time, sort_order, name text nullable'],
                 ['exception_sitting_slot_caps', 'Sparse per-slot cover cap overrides within exception sittings.', 'sitting_id, slot_time, max_covers'],
                 ['booking_rules', 'Per-venue booking constraints. Smart-allocation flags, status-flow toggles (unconfirmed, reconfirmed, arrived).', 'venue_id, hold_ttl_secs, min_covers, max_covers, cutoff_before_mins, slot_duration_mins, allow_cross_section_combo, allow_non_adjacent_combo, allow_widget_bookings_after_doors_close, enable_unconfirmed_flow, enable_reconfirmed_status, enable_arrived_status'],
-                ['deposit_rules', 'Per-venue deposit configuration.', 'venue_id, requires_deposit, amount_pence, stripe_account_id'],
-                ['booking_holds', 'Temporary slot reservations. UNIQUE (table_id, starts_at).', 'venue_id, table_id, combination_id, starts_at, ends_at, expires_at, guest_name, guest_email'],
+                ['deposit_rules', 'Per-venue deposit for online bookings (Booking rules page). refund_hours_before NULL = kept when the guest cancels (CHECK >= 0, migration 220).', 'venue_id, requires_deposit, deposit_type fixed | per_cover, deposit_amount (pounds), currency, refund_hours_before'],
+                ['booking_holds', 'Temporary slot reservations. UNIQUE (table_id, starts_at). A deposit hold carries its PaymentIntent and lives at least 15 minutes (migration 220).', 'venue_id, table_id, combination_id, starts_at, ends_at, expires_at, guest_name, guest_email, guest_notes, stripe_pi_id, stripe_account, deposit_pence'],
                 ['bookings', 'Confirmed bookings.', 'venue_id, table_id, combination_id, starts_at, ends_at, covers, status, reference, guest_name, guest_email, guest_phone, guest_notes, operator_notes, customer_id'],
                 ['customers', 'Customer profiles with GDPR support. Auto-created on booking confirm. is_anonymised flag for GDPR erasure.', 'tenant_id, name, email, phone, notes, is_anonymised, anonymised_at, created_at'],
-                ['payments', 'Stripe payment records.', 'booking_id, stripe_pi_id, amount, currency, status'],
+                ['payments', 'Booking deposits, one row per paid booking (UNIQUE stripe_pi_id). status succeeded | partially_refunded | refunded; refund_hours_before copied from the rule when paid; refund_ids are Stripe refund ids already counted (migration 220).', 'booking_id, stripe_pi_id, stripe_account, amount, currency, status, refunded_amount, refund_hours_before, refund_ids'],
                 ['disallowed_table_pairs', 'Junction table — specific table pairs the smart-allocation engine must never combine. Normalised so table_id_a < table_id_b.', 'venue_id, tenant_id, table_id_a, table_id_b (UNIQUE)'],
               ].map(([name, desc, cols]) => (
                 <div key={name} className="border rounded-lg p-3">
@@ -1017,7 +1018,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               rows={[
                 ['POST', '/holds', 'any', 'Create a hold. UNIQUE (table_id, starts_at) guards concurrent requests.'],
                 ['DELETE', '/holds/:id', 'any', 'Release a hold immediately. Cancels attached Stripe PI.'],
-                ['POST', '/', 'any', 'Confirm a free booking (no deposit path).'],
+                ['POST', '/', 'any', 'Make a booking from a staff hold. Staff bookings take no deposit, even at a deposit venue.'],
                 ['GET', '/', 'any', 'List bookings — filter by venue_id, date, status. Returns member_table_ids for combos.'],
                 ['GET', '/:id', 'any', 'Single booking detail.'],
                 ['PATCH', '/:id/status', 'operator', 'Transition booking status.'],
@@ -1092,9 +1093,33 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <DataTable
               head={['Method', 'Path', 'Auth', 'Description']}
               rows={[
-                ['POST', '/intent', 'any', 'Create Stripe PaymentIntent for a hold'],
-                ['POST', '/webhook', 'Stripe sig', 'Stripe webhook — confirms booking on payment_intent.succeeded'],
-                ['POST', '/:id/refund', 'admin', 'Issue refund via Stripe for a payment'],
+                ['POST', '/:id/refund', 'owner / admin + bookings manage', "Refund a booking deposit: { amount_pence? } (left out = all that is left). 422 over what is left or already refunded. Returns { ok, status, refunded_pence }."],
+              ]}
+            />
+
+            <H3>Booking deposits (migration 220)</H3>
+            <P>
+              Guests booking online at a venue whose <Mono>deposit_rules.requires_deposit</Mono> is on pay by card in the
+              reservations widget, on the group&apos;s own Stripe account (Connect direct charge, no platform fee). The
+              server never books on the browser&apos;s word: it reads the PaymentIntent back from Stripe. Staff bookings
+              (<Mono>POST /api/bookings</Mono>, admin-override) take no deposit. The old platform-account flow
+              (<Mono>services/paymentService.js</Mono>, <Mono>/api/payments/intent</Mono>, <Mono>/api/payments/webhook</Mono>,{' '}
+              <Mono>STRIPE_WEBHOOK_SECRET</Mono>) is gone.
+            </P>
+            <DataTable
+              head={['Piece', 'What it does']}
+              rows={[
+                ['GET /widget-api/venues/:id', "deposit: { required, online, type, amount_pence, currency, refund_hours_before } from depositPublic(); online = the group's Stripe account can take payments (depositsOnline())."],
+                ['POST /widget-api/venues/:id/holds', 'At a deposit venue: 422 when Stripe isn\'t ready ("call them to book") or without an email (the receipt goes there); stores guest_notes on the hold.'],
+                ['POST .../holds/:holdId/deposit', "startDeposit(): a PaymentIntent on the group's account (automatic_payment_methods, allow_redirects never, metadata kind deposit + hold, tenant, venue, receipt_email), reused while payable for the same amount; the hold gets stripe_pi_id, stripe_account, deposit_pence and lives at least DEPOSIT_HOLD_SECS (900). Returns client_secret, publishable_key, account, amount_pence, currency, expires_at. 410 hold gone."],
+                ['POST .../holds/:holdId/deposit/confirm', "{ payment_intent }: confirmDeposit() reads it from Stripe (404 for another venue's), settleDeposit() books it. 201 booking (+ deposit_pence), 202 still processing (the widget asks again), 402 not paid, 409 { refunded: true } when it can't be booked."],
+                ['POST .../holds/:holdId/confirm', '422 at a deposit venue: pay first.'],
+                ['settleDeposit()', "Advisory lock per PaymentIntent, then: a payments row already there = booked (idempotent, never refunds); the hold locked FOR UPDATE and booked with confirm_hold(..., p_allow_expired true) (paid but expired still books if the table is free); a hold gone or its table taken = refund with key mcrn-deposit-unbooked-<pi>; an amount or account that doesn't match = mismatch, nothing booked. bookFromHold() + afterNewBooking() (customer, email, reminder, Timeline push) in services/holdBooking.js."],
+                ['Webhook', 'POST /webhooks/payments/stripe (the Connect endpoint): parseWebhook() hands PaymentIntents with metadata.kind deposit to depositWebhook(), which books on payment_intent.succeeded only when the metadata venue belongs to the metadata tenant. So a guest who closes the tab after paying still gets the booking.'],
+                ['Refunds', "refundDeposit() (services/depositSvc.js) on payments.stripe_account, idempotency key mcrn-deposit-refund-<id>-<refunded so far>-<amount>, refund_ids so a retry isn't counted twice. Guest cancel (guestBookingSvc.cancelBooking()) refunds in full while refundRule() allows (refund_hours_before set and starts_at minus that many hours still ahead), else keeps it; the manage page says which before and after. The booking drawer's Deposit part refunds all or part (owners and admins)."],
+                ['Giving up', 'DELETE of a hold (widget or staff) cancels its PaymentIntent (cancelDepositIntent()).'],
+                ['Admin', "Rules page Deposit card (deposit-not-ready / deposit-ready from GET /api/venues/:id/deposit-rules' card_payments_ready); BookingDrawer's Deposit part (payment_currency, payment_refunded, payment_refund_hours_before on GET /api/bookings)."],
+                ['Widget', "views/site/reservations_widget.eta step 6 (#rpay): Stripe.js with the group's account, the Payment Element, confirmPayment({ redirect: 'if_required' }), then deposit/confirm (finishDeposit() asks again on 202)."],
               ]}
             />
 
@@ -2810,6 +2835,13 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               already has <Mono>/pos/tills</Mono> is skipped. The nav test applies 202's change to 196's JSON and
               compares the result with <Mono>DEFAULT_NAV_TREE</Mono>.
             </P>
+            <P>
+              Later migrations add single links the same way (insert beside a known route, copy its{' '}
+              <Mono>hidden_role_ids</Mono>, skip tenants that already have the route): 208 Kiosk analytics, 211 Loyalty,
+              216 Device updates, and 219 <strong>Venue hub</strong> (<Mono>/pos/hub</Mono>, just before{' '}
+              <Mono>/pos/printers</Mono>, 30 Oct 2026: the hub moved off the Printers page onto its own,{' '}
+              <Mono>components/pos/HubSection.jsx</Mono>). The nav test applies each of them too.
+            </P>
             <H3>Launcher personalisation (admin/src/pages/Launcher.jsx)</H3>
             <P>
               Tile order and visibility are per-user, per-tenant, stored in
@@ -3438,7 +3470,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['Launcher', 'hub/bin/launcher.js, copied to <home>/launcher.mjs: runs the version in current.json, starts it again at once after exit 75 (an update), else after 2 s growing to 30 s; three stops within a minute of starting go back to current.previous and add the version to bad_versions (rolled_back_from). --log-file writes a log kept under 5 MB.'],
                 ['Updates', 'hub/src/update.js createUpdater(): the hub\'s config (hubConfig()) carries release and update { auto: settings.auto_update !== false, requested: update_requested_at set }. At a quiet moment (a claim with no jobs, at most every 30 s) it downloads, checks the sha256 and release.json\'s version, unpacks with tar into releases/<v>.part, runs --self-test, renames, copies the launcher, writes current.json (keeping the version before) and exits 75. Not again for 30 minutes after a failure (5 when asked); a version in bad_versions only when asked. A copy run from the repository (no MACAROONIE_HUB_HOME) only reports updates: manual. POST /api/pos/devices/:id/update sets update_requested_at; a report with the latest version clears it.'],
                 ['USB printers', 'hub/src/usb.js. Linux: /sys/class/usbmisc/lp*/device (ieee1284_id, and the USB device\'s idVendor, idProduct, serial or port) gives { id: usb:<vendor>:<product>:<serial | port-…>, name, escpos, path: /dev/usb/lpN }; printing writes the device file non-blocking (EAGAIN = wait), status asks DLE EOT and reads the answer back (no answer = unknown). Windows: Get-Printer (virtual printers left out), id win:<name>; a RAW job through winspool (OpenPrinter / StartDocPrinter RAW / WritePrinter) in an encoded PowerShell command, the name and a temp file in environment variables; status from PrinterStatus. Printers are found again by id at every print, never by device file. Prints and status questions to one printer are queued together.'],
-                ['Printers in the cloud', 'A USB printer on the hub is pos_printers connection device, device_id = the hub, local_id = its id (checkPrinterDevice() needs local_id for a hub, clears it otherwise; host is null). hubConfig() sends network printers and the hub\'s own USB printers with interface network | usb; the claim already matches device printers by device_id. POST /pos-api/hub/status (HubReport) stores info (computer, addresses, status_port, local_printers, update) and info_at on pos_devices and updates state for its network printers and its own USB printers. Store tech shows info, hub_release, Update now, Add it; the installer app lists hubs (KINDS.hub) with info.'],
+                ['Printers in the cloud', 'A USB printer on the hub is pos_printers connection device, device_id = the hub, local_id = its id (checkPrinterDevice() needs local_id for a hub, clears it otherwise; host is null). hubConfig() sends network printers and the hub\'s own USB printers with interface network | usb; the claim already matches device printers by device_id. POST /pos-api/hub/status (HubReport) stores info (computer, addresses, status_port, local_printers, update) and info_at on pos_devices and updates state for its network printers and its own USB printers. Store tech → Venue hub (components/pos/HubSection.jsx, /pos/hub since migration 219) shows info, hub_release, Update now, Add it (the printer window from PrintersSection.jsx); the Printers page links to it (HubNote); the installer app lists hubs (KINDS.hub) with info.'],
                 ['Status page', 'hub/src/statusPage.js on port 9180 (--http-port, 0 = none): GET / (refreshes every 5 s, CSP default-src none) and /status.json. Linking: the code and qrSvg() of the installer link; then cloud, version, update state, printers in words, USB printers found, the last 20 tickets as kind, printer, printed or the reason (never titles or contents). publicState() never includes a secret. The hub also writes state.json beside hub.json for hub.js status and the installers.'],
                 ['Linking', 'bin/hub.js shows a code until linked (console, page, state.json); a 401 from the cloud (removed in Store tech) clears hub.json and shows a new code instead of stopping (a stop would make the launcher go back a version).'],
               ]}
@@ -3619,7 +3651,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['Cursors', '/pos-api/sync and /pos-api/kitchen/sync take source; anything but cloud starts the cursor again (reset), and replies say source: cloud. The hub\'s replies say hub:<id>. Devices keep seqSource and send it back.'],
                 ['The hub', 'hub/src/venue.js startVenue(): the context every 30 s and after the first report; follow every 5 s, upload every 2 s while pending; venue.json (atomic, every 10 s and when the set-up loads) and venue.log (each accepted event appended + fsync before the answer), replayed on start (held while there is no set-up); tickets for the hub\'s printers to printOwn(), for a printer plugged into a device queued for that device (hub-<ulid>). hub/src/lan.js startLan(): port 9181 (--lan-port, HUB_LAN_PORT; the installers open it), CORS + Access-Control-Allow-Private-Network, GET /lan/ping, the device calls, /screen-api/orders for screen keys; 409 hub_off while not taking events; an unknown key loads the context again (at most every 10 s). service.js reports info.lan_port and info.mirror (on, rev, cloud_seq, pending, to_send, conflicts, devices, last upload / follow, error) every minute and when taking starts or stops.'],
                 ['Devices', 'pos/src/lib/transport.js createTransport(device, { pending, hub, onHub }): HUB_PATHS (events, sync, kitchen sync, day report, checks, presence) to the hub first with HUB_TIMEOUT_MS 2500, then the cloud on no answer / 409 / 401; then a quiet /lan/ping every HUB_RETRY_MS 30 s (HUB_RETRY_UNKNOWN_MS 5 s after a 401). hubAllowed(): inside the Android app (IN_APP) or a page on http. Tills and kitchen screens poll every 2 s on the hub; the kiosk\'s reachable() counts the hub; screen/player.js fetchOrders() reads the hub first. StatusDot / kds-link / the kiosk staff panel / the till settings say venue hub. Android app 1.3: mixedContentMode always, plugins/withVenueNetwork.js (usesCleartextTraffic).'],
-                ['Admin', 'components/pos/PrintersSection.jsx: HubFirstSetting (the switch, PATCH /api/pos/venues/:id/settings { hub_first }, which also tells screens), HubFirstLine on each hub\'s row from info.mirror.'],
+                ['Admin', 'components/pos/HubSection.jsx (Store tech → Venue hub, /pos/hub, migration 219): HubFirstSetting (the switch, PATCH /api/pos/venues/:id/settings { hub_first }, which also tells screens), HubFirstLine on each hub\'s row from info.mirror.'],
               ]}
             />
 
@@ -5092,7 +5124,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['The group\'s account', "tenants.stripe_account_id + stripe_charges_enabled, stripe_details_submitted, stripe_account_name, stripe_checked_at, stripe_domains. POST /api/stripe/connect { return_url } (owner/admin + manage on web_ordering_setup or pos_setup): makes the account the first time (POST /v1/accounts, idempotency key per tenant per minute, so a double click makes one but connecting again after Unlink makes a new one) and returns an account link (account_onboarding); return_url must be https on the root domain (localhost outside production, safeReturnUrl()). GET /api/stripe (view, stripeView()), POST /api/stripe/refresh (GET /v1/accounts/:id; 403 / 404 = the account was disconnected: charges off, 422), DELETE /api/stripe (forget the link; nothing is deleted at Stripe)."],
                 ['Apple Pay / Google Pay', "refreshAccount() registers the group's site addresses (subdomain, staging, a verified custom domain) with POST /v1/payment_method_domains on the account once charges are on, recorded in stripe_domains so each goes once."],
                 ['Gateway', "paymentGateways/stripe.js: isAvailable = tenant.stripe_ready (account linked and charges_enabled, platform ready). start() makes a PaymentIntent on the account (automatic_payment_methods, metadata.order_id / tenant_id / venue_id / order_number, application fee) and returns client { type: 'stripe', publishable_key, account, client_secret, amount_pence, currency }. confirmFromClient() reads the PaymentIntent back (never the browser's word; an order_id that differs = failed). piStatus(): succeeded, canceled -> cancelled, requires_payment_method with last_payment_error -> failed, else pending. refund() with refund_application_fee and an idempotency key per payment, refunded so far and amount; cancel() cancels the intent."],
-                ['Webhook', "Connect endpoint on the platform account, address POST /webhooks/payments/stripe, events payment_intent.succeeded / payment_failed / canceled, account.updated, account.application.deauthorized. parseWebhook() checks Stripe-Signature (t=, v1= HMAC-SHA256 of t.body with the webhook secret, 300 s tolerance; verifySignature()), applies account events to the tenant (applyAccountEvent()), and passes only PaymentIntents with metadata.order_id on (card machine sales and deposits come to the same endpoint). applyPaymentResult() is idempotent, so a webhook after the page confirmed does nothing."],
+                ['Webhook', "Connect endpoint on the platform account, address POST /webhooks/payments/stripe, events payment_intent.succeeded / payment_failed / canceled, account.updated, account.application.deauthorized. parseWebhook() checks Stripe-Signature (t=, v1= HMAC-SHA256 of t.body with the webhook secret, 300 s tolerance; verifySignature()), applies account events to the tenant (applyAccountEvent()), hands booking deposits (metadata.kind deposit) to depositWebhook() in services/depositSvc.js, and passes only PaymentIntents with metadata.order_id on as order payments (card machine sales come to the same endpoint). applyPaymentResult() is idempotent, so a webhook after the page confirmed does nothing."],
                 ['Guest page', "views/site/shared/ordering.eta: when the payment's client.type is stripe, draw() hands over to showStripe(), which loads https://js.stripe.com/v3/ once (loadStripeJs()), mounts the Payment Element once per payment (draw() never redraws it, or what the guest typed is lost) with colorPrimary from --c-primary, and confirmPayment({ redirect: 'if_required', return_url: status page ?pay=<payment id> }). Success or processing: POST .../payments/:id/confirm, then the status page. A bank redirect comes back to the status page, which confirms the ?pay= payment, cleans the address and loads. The status page offers the same form while an order is still pending_payment."],
                 ['Admin', "components/orders/StripeAccountCard.jsx (useStripeAccount(); Connect / Continue on Stripe, Check again (automatic when over 5 minutes old and after ?stripe=return), Stripe dashboard, Unlink with a confirm; the platform-not-ready note): in Ordering setup under Payment methods and in Store tech > Card machines' account window."],
               ]}
@@ -6189,6 +6221,69 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               connects with an access token, for example:
             </P>
             <Code>{'claude mcp add --transport http macaroonie https://macaroonie.com/mcp/staff/<slug> \\\n  --header "Authorization: Bearer mcp_..."'}</Code>
+          </section>
+
+          <section id="ops-today" data-doc="">
+            <H2>Today (the ops front door)</H2>
+            <P>
+              The first slice of the chat-first front door in <Mono>docs/CHAT_FIRST.md</Mono> (requirement ids in
+              brackets). <Mono>/today</Mono> (<Mono>admin/src/pages/OpsToday.jsx</Mono>, nav link at the top of Home,
+              migration 221, module <Mono>dashboard</Mono>) shows the day at a glance, the tasks for a venue grouped
+              Late / Now / Next / Later, the person's menu as tiles and Pepper beside them. The tasks come from data and
+              rules, never the model (P1, Q1), so the page works with Pepper off.
+            </P>
+            <H3>GET /api/ops/today</H3>
+            <P>
+              <Mono>routes/ops.js</Mono> (<Mono>?venue_id=&amp;date=&amp;time=</Mono>; no venue = the tenant's first
+              active venue by name; <Mono>time</Mono> HH:MM judges the groups at another moment, default the venue's time
+              now, a past day = 23:59, a future day = 00:00). Open to anyone signed in; it builds a staff tool context
+              (<Mono>makeContext()</Mono>) and calls <Mono>opsToday()</Mono> in <Mono>services/opsToday.js</Mono>, which
+              reads every source through the admin routes in-process as the person (<Mono>callApi()</Mono>), so each
+              part keeps its route's permission check and tenant filter. Areas the person has no level on (from{' '}
+              <Mono>permissionLevels()</Mono>) or that answer 403 are listed in <Mono>not_included</Mono>, other
+              failures in <Mono>errors</Mono>; the rest still loads.
+            </P>
+            <DataTable
+              head={['Area (module)', 'Tasks (kind)', 'Read from']}
+              rows={[
+                ['food_safety (food_safety)', 'fridge_check and hold_check per check time with units not logged; cooking_check per session short of required_items_count; corrective_action per out-of-range reading or failed delivery with no action', '/api/food-safety equipment, capture-times, temp-logs, hold-stations, hold-capture-times, holds, cooking-sessions, cooking, deliveries'],
+                ['checklists (checklists)', 'checklist per template not completed (daily = now, weekly / monthly = later)', '/api/checklists/due'],
+                ['hs_actions (hs_action_log)', 'hs_action per open entry due today or overdue', '/api/hs-action-log/entries'],
+                ['purchasing (purchasing)', 'po_to_send; delivery_due (sent, delivery today); orders_to_approve (only with purchasing_approve manage)', '/api/purchasing/pos, /api/purchasing/orders'],
+                ['cash (cash_recon)', "cash_up when yesterday's report isn't submitted and the venue was open (openDatesOrNull())", '/api/venues/:id/cash-recon/daily/:date'],
+                ['online_orders (web_orders)', 'online_orders when orders are placed but not accepted', '/api/orders'],
+              ]}
+            />
+            <P>
+              Every task: <Mono>{'{ key, area, kind, compliance, title, detail, due, group, action, can_act }'}</Mono>.{' '}
+              <Mono>key</Mono> is stable (one card per thing to do, C6), <Mono>action</Mono> is{' '}
+              <Mono>{'{ form, label, ref }'}</Mono> (temps, holds, cooking, checklist) or{' '}
+              <Mono>{'{ path, label }'}</Mono>, and <Mono>can_act</Mono> is Manage on the task's module (U1).
+              <Mono> groupFor()</Mono> decides the group (<Mono>GRACE_MINS</Mono> 30, <Mono>NEXT_MINS</Mono> 120) and{' '}
+              <Mono>sortTasks()</Mono> the order: group, compliance first, then time (S1). A closed day
+              (<Mono>/api/hs-settings</Mono> <Mono>closed</Mono>) expects no check rounds (R4). There is no task store
+              yet: tasks are worked out on every request, done when their record exists (R2). The response also carries{' '}
+              <Mono>summary</Mono> (bookings and big parties from <Mono>day_overview</Mono>, people on the rota from{' '}
+              <Mono>whos_working</Mono>), <Mono>counts</Mono> and the <Mono>venues</Mono> for the switch.
+            </P>
+            <H3>The page</H3>
+            <P>
+              Forms open in a sheet on the page with the shared panels (<Mono>TempChecksTable</Mono>,{' '}
+              <Mono>HoldChecksTable</Mono>, <Mono>CookingChecksPanel</Mono>, <Mono>ChecklistRunPanel</Mono>), so they save
+              through the same routes and keep their own read-only rules (F1, F3, F5); Done refetches the feed. The tiles
+              are <Mono>/api/me</Mono>'s <Mono>nav_tree</Mono> links, pages with tasks first (<Mono>AREA_ROUTES</Mono>).
+              Pepper is <Mono>ChatView</Mono> with <Mono>pageAware</Mono> (the page calls <Mono>usePepperPage()</Mono>
+              with the venue and day) and a <Mono>suggestions</Mono> list for the day; the conversation is the drawer's
+              remembered one (<Mono>useRememberedConversation()</Mono>). The venue choice is kept in{' '}
+              <Mono>maca_today_venue</Mono>. Tests: <Mono>api/test/ops-today.test.mjs</Mono>.
+            </P>
+            <InfoBox type="info">
+              Not built yet from <Mono>docs/CHAT_FIRST.md</Mono>: a task store with owners, snooze, skip and escalation
+              (sections 3 and 5), manual and learned tasks (C3, L1-L6), watchers and push (M1-M7), forms inside the chat
+              itself (F1 in the conversation, F6, F7), the shared-device person switch (U2) and the per-group chat-first
+              switch (G1). Adding a source: a function in <Mono>SOURCES</Mono> with its module in <Mono>AREAS</Mono>,
+              reading through the routes with <Mono>callApi()</Mono>, and a row in this table.
+            </InfoBox>
           </section>
 
           <section id="store-openings" data-doc="">
@@ -8001,14 +8096,15 @@ Guest cancels or abandons
   → DELETE /bookings/holds/:id → slot freed immediately
   → Stripe PI cancelled if attached
 
-── Payment flow (deposit venues) ──────────────────────────
-  → POST /payments/intent → Stripe PaymentIntent created
-  → Guest completes 3DS / card in widget
-  → Stripe fires webhook → POST /payments/webhook
-      confirm_hold(hold_id, tenant_id)
-        → SELECT ... FOR UPDATE NOWAIT   (second race guard)
-        → INSERT bookings  (copies combination_id + guest_notes from hold)
-        → DELETE booking_holds
+── Deposit venues (widget only) ───────────────────────────
+  → POST /widget-api/venues/:id/holds/:hold/deposit
+      PaymentIntent on the group's Stripe account, hold kept 15 min
+  → Guest pays in the widget (Payment Element, 3DS in place)
+  → POST .../deposit/confirm  (or the Connect webhook, whichever first)
+      Stripe asked → settleDeposit()
+        confirm_hold(hold_id, tenant_id, allow_expired)
+        → INSERT bookings + payments, DELETE booking_holds
+        (table gone → deposit refunded, guest picks another time)
       broadcastBooking('booking.created') → WS push to Timeline
 
 ── Free booking (no deposit) ───────────────────────────────
@@ -8165,8 +8261,9 @@ allTables sorted by sort_order → target at index i
             />
 
             <InfoBox type="warn">
-              Bookings only become permanent via the Stripe webhook.
-              Never trust client-side payment confirmation. <Mono>confirm_hold()</Mono> uses{' '}
+              A deposit booking is only made once the server has read the PaymentIntent back from Stripe
+              (the widget&apos;s confirm or the Connect webhook, through <Mono>settleDeposit()</Mono>), never on the
+              browser&apos;s word. <Mono>confirm_hold()</Mono> uses{' '}
               <Mono>FOR UPDATE NOWAIT</Mono> to prevent double-booking under concurrent requests.
             </InfoBox>
           </section>
@@ -8275,8 +8372,7 @@ allTables sorted by sort_order → target at index i
                 ['REDIS_URL', 'API', 'BullMQ + hold sweep. Update password to match Redis config.'],
                 ['AUTH0_DOMAIN', 'API + Admin', 'Auth0 tenant domain'],
                 ['AUTH0_AUDIENCE', 'API', 'JWT audience identifier'],
-                ['STRIPE_SECRET_KEY', 'API', 'Stripe secret key'],
-                ['STRIPE_WEBHOOK_SECRET', 'API', 'Stripe webhook signing secret (whsec_...)'],
+                ['STRIPE_SECRET_KEY', 'API', "Optional fallback for the platform's Stripe secret key (the Platform page's Payments tab wins). STRIPE_WEBHOOK_SECRET is gone (migration 220): the Connect webhook's secret is STRIPE_CONNECT_WEBHOOK_SECRET or the Payments tab."],
                 ['VITE_AUTH0_DOMAIN', 'Admin', 'Auth0 domain for SPA login'],
                 ['VITE_AUTH0_CLIENT_ID', 'Admin', 'Auth0 SPA client ID'],
                 ['VITE_AUTH0_AUDIENCE', 'Admin', 'JWT audience (same as API)'],

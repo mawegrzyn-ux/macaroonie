@@ -39,6 +39,7 @@ import {
   loadStagingAccess, checkPassword, cookieValue, cookieOk, previewKeyOk,
   setCookieHeader, readCookie, safeNext,
 } from '../services/stagingAccess.js'
+import { depositPublic, depositsOnline } from '../services/depositSvc.js'
 
 // Exported so api/src/routes/website.js can validate against the same
 // reserved list when an operator picks a subdomain slug.
@@ -724,11 +725,13 @@ export default async function siteRendererRoutes(app) {
              br.book_until_days, br.hold_ttl_secs,
              ts.primary_colour, ts.font_family, ts.site_name AS tenant_site_name,
              ts.widget_settings, ts.theme,
-             wc.hero_heading
+             wc.hero_heading,
+             dr.requires_deposit, dr.deposit_type, dr.deposit_amount, dr.currency, dr.refund_hours_before
         FROM venues v
         LEFT JOIN booking_rules  br ON br.venue_id  = v.id
         LEFT JOIN tenant_site    ts ON ts.tenant_id = v.tenant_id
         LEFT JOIN website_config wc ON wc.venue_id  = v.id
+        LEFT JOIN deposit_rules  dr ON dr.venue_id  = v.id
        WHERE v.id = ${venueId} AND v.is_active = true
        LIMIT 1
     `
@@ -755,6 +758,7 @@ export default async function siteRendererRoutes(app) {
         max_covers:          venue.max_covers ?? 8,
         booking_window_days: venue.book_until_days ?? 30,
         hold_ttl_secs:       venue.hold_ttl_secs ?? 300,
+        deposit:             depositPublic(venue, venue.requires_deposit ? await depositsOnline(venue.tenant_id) : false),
       }],
       initialVenueId: venue.id,
       tenantName:     venue.tenant_site_name || venue.name,
@@ -855,10 +859,12 @@ export default async function siteRendererRoutes(app) {
       SELECT v.id, v.name, v.timezone,
              br.slot_duration_mins, br.min_covers, br.max_covers,
              br.book_until_days, br.hold_ttl_secs,
-             wc.address_line1, wc.city, wc.postcode
+             wc.address_line1, wc.city, wc.postcode,
+             dr.requires_deposit, dr.deposit_type, dr.deposit_amount, dr.currency, dr.refund_hours_before
         FROM venues v
         LEFT JOIN booking_rules  br ON br.venue_id  = v.id
         LEFT JOIN website_config wc ON wc.venue_id  = v.id
+        LEFT JOIN deposit_rules  dr ON dr.venue_id  = v.id
        WHERE v.tenant_id = ${tenantId} AND v.is_active = true
        ORDER BY v.name
     `
@@ -866,6 +872,7 @@ export default async function siteRendererRoutes(app) {
       reply.code(404)
       return reply.view('site/not-found.eta', { message: 'No bookable locations', rootDomain: env.PUBLIC_ROOT_DOMAIN })
     }
+    const online = venues.some(v => v.requires_deposit) ? await depositsOnline(tenantId) : false
 
     reply.header('X-Frame-Options', 'ALLOWALL')
     reply.header('Content-Security-Policy', "frame-ancestors *")
@@ -888,6 +895,7 @@ export default async function siteRendererRoutes(app) {
         max_covers:          v.max_covers ?? 8,
         booking_window_days: v.book_until_days ?? 30,
         hold_ttl_secs:       v.hold_ttl_secs ?? 300,
+        deposit:             depositPublic(v, online),
       })),
       initialVenueId,
       tenantName:     tenantSite.site_name || tenantSite.tenant_name,

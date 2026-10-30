@@ -16,6 +16,7 @@ import {
   loadBookingByToken, canModify, canCancel, venueLocalParts,
   rescheduleBooking, cancelBooking,
 } from '../services/guestBookingSvc.js'
+import { bookingDeposit, refundRule, money } from '../services/depositSvc.js'
 
 // The change / cancel rules live in services/guestBookingSvc.js, shared
 // with the AI booking tools.
@@ -26,7 +27,31 @@ const ModifyBody = z.object({
   covers: z.coerce.number().int().min(1).max(50).optional(),
 })
 
-async function renderManage(reply, { booking, token, flash, error }) {
+/** What the manage page says about the booking's deposit, or null. */
+async function depositView(booking) {
+  const p = await bookingDeposit(booking.t_tenant_id, booking.id)
+  if (!p) return null
+  const paid = Math.round(Number(p.amount) * 100)
+  const refunded = Math.round(Number(p.refunded_amount || 0) * 100)
+  const rule = refundRule(p, booking.starts_at)
+  let untilText = null
+  if (rule.until) {
+    untilText = new Intl.DateTimeFormat('en-GB', {
+      timeZone: booking.venue_timezone || 'Europe/London', weekday: 'long', day: 'numeric', month: 'long',
+      hour: '2-digit', minute: '2-digit', hour12: false,
+    }).format(rule.until)
+  }
+  return {
+    paid: money(paid, p.currency),
+    refunded: refunded ? money(refunded, p.currency) : null,
+    fully_refunded: refunded >= paid,
+    non_refundable: p.refund_hours_before == null,
+    refundable_now: rule.refundable && refunded < paid,
+    until: untilText,
+  }
+}
+
+async function renderManage(reply, { booking, token, flash, error, depositFlash }) {
   const startDate = new Date(booking.starts_at)
   const endDate   = booking.ends_at ? new Date(booking.ends_at) : null
   const local     = await venueLocalParts(booking.starts_at, booking.venue_timezone)
@@ -42,6 +67,8 @@ async function renderManage(reply, { booking, token, flash, error }) {
     rootDomain: env.PUBLIC_ROOT_DOMAIN,
     flash:     flash || null,
     error:     error || null,
+    deposit:   await depositView(booking).catch(() => null),
+    depositFlash: depositFlash || null,
   })
 }
 
@@ -57,6 +84,7 @@ export default async function manageBookingRoutes(app) {
       booking,
       token: req.params.token,
       flash: req.query.flash || null,
+      depositFlash: ['refunded', 'kept', 'error'].includes(req.query.deposit) ? req.query.deposit : null,
     })
   })
 
@@ -102,8 +130,10 @@ export default async function manageBookingRoutes(app) {
       })
     }
 
-    await cancelBooking(booking)
+    const row = await cancelBooking(booking)
+    const d = row?.deposit
+    const tag = !d ? '' : d.refunded_pence ? '&deposit=refunded' : d.kept_pence ? '&deposit=kept' : d.error ? '&deposit=error' : ''
 
-    reply.redirect(`/manage/${req.params.token}?flash=cancelled`)
+    reply.redirect(`/manage/${req.params.token}?flash=cancelled${tag}`)
   })
 }

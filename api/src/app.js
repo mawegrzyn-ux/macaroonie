@@ -22,7 +22,7 @@ import schedulesRoutes  from './routes/schedules.js'
 import slotsRoutes      from './routes/slots.js'
 import bookingsRoutes   from './routes/bookings.js'
 import customersRoutes  from './routes/customers.js'
-import paymentsRoutes, { webhookRoutes } from './routes/payments.js'
+import paymentsRoutes   from './routes/payments.js'
 import orderApiRoutes, { paymentWebhookRoutes } from './routes/orderApi.js'
 import ordersRoutes from './routes/orders.js'
 import promotionsRoutes from './routes/promotions.js'
@@ -71,6 +71,7 @@ import storeOpeningRoutes    from './routes/storeOpenings.js'
 import themeRoutes           from './routes/themes.js'
 import menuImportRoutes      from './routes/menuImport.js'
 import documentReadRoutes    from './routes/documentRead.js'
+import opsRoutes             from './routes/ops.js'
 import aiApiRoutes           from './routes/aiApi.js'
 import posSite               from './routes/posSite.js'
 import posSetupRoutes        from './routes/posSetup.js'
@@ -219,9 +220,8 @@ export async function buildApp() {
   // Every tenant's loyalty web app on loyalty.{root}/<slug> (routes/loyaltySite.js).
   await app.register(loyaltySite)
 
-  // Stripe webhook first — must bypass JSON body parser
-  await app.register(webhookRoutes)
-  // Payment gateway webhooks for web orders (raw body, per gateway)
+  // Payment gateway webhooks (raw body, per gateway): web orders, and on
+  // the Stripe Connect endpoint booking deposits too.
   await app.register(paymentWebhookRoutes)
   // GloriaFood "Push Accepted Order" (migration 159): POST /webhooks/gloriafood/:token
   await app.register(gloriafoodWebhookRoutes)
@@ -292,6 +292,7 @@ export async function buildApp() {
   await app.register(themeRoutes,        { prefix: '/api/ai/themes' })
   await app.register(menuImportRoutes,   { prefix: '/api/ai/menus' })
   await app.register(documentReadRoutes, { prefix: '/api/ai' })
+  await app.register(opsRoutes,          { prefix: '/api/ops' })
   await app.register(aiApiRoutes, { prefix: '/ai-api' })
   // Till (POS): admin setup + reports, and the tills' own API (device auth).
   await app.register(posSetupRoutes, { prefix: '/api/pos' })

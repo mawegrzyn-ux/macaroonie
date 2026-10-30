@@ -28,12 +28,16 @@ const BookingRulesSchema = z.object({
   enable_arrived_status:                    z.boolean().default(true),
 })
 
+// An empty box is "not set" (null), not 0: z.coerce.number('') would be 0.
+const blankToNull = v => (v === '' || v == null ? null : v)
 const DepositSchema = z.object({
   requires_deposit:    z.boolean(),
   deposit_type:        z.enum(['fixed', 'per_cover']).optional(),
-  deposit_amount:      z.coerce.number().min(0).optional(),
-  currency:            z.string().length(3),
-  refund_hours_before: z.coerce.number().int().min(0).nullable().optional(),
+  deposit_amount:      z.preprocess(blankToNull, z.coerce.number().positive('Enter the deposit').nullable()).optional(),
+  currency:            z.string().length(3).default('GBP'),
+  refund_hours_before: z.preprocess(blankToNull, z.coerce.number().int().min(0).nullable()).optional(),
+}).superRefine((d, ctx) => {
+  if (d.requires_deposit && !d.deposit_amount) ctx.addIssue({ code: 'custom', path: ['deposit_amount'], message: 'Enter the deposit' })
 })
 
 function FormField({ label, hint, error, children }) {
@@ -121,7 +125,7 @@ export default function Rules() {
 
   const rulesMutation = useMutation({
     mutationFn: (data) => api.post(`/venues/${venueId}/rules`, data),
-    onSuccess:  () => qc.invalidateQueries(['booking-rules', venueId]),
+    onSuccess:  () => qc.invalidateQueries({ queryKey: ['booking-rules', venueId] }),
   })
 
   // ── Deposit rules form ──────────────────────────────────
@@ -132,14 +136,14 @@ export default function Rules() {
     formState: { errors: errDeposit },
   } = useForm({
     resolver: zodResolver(DepositSchema),
-    values: deposit?.venue_id ? deposit : { requires_deposit: false },
+    values: deposit?.venue_id ? deposit : { requires_deposit: false, deposit_type: 'fixed', currency: 'GBP' },
   })
 
   const requiresDeposit = watchDeposit('requires_deposit')
 
   const depositMutation = useMutation({
     mutationFn: (data) => api.post(`/venues/${venueId}/deposit-rules`, data),
-    onSuccess:  () => qc.invalidateQueries(['deposit-rules', venueId]),
+    onSuccess:  () => qc.invalidateQueries({ queryKey: ['deposit-rules', venueId] }),
   })
 
   return (
@@ -353,43 +357,66 @@ export default function Rules() {
           <form onSubmit={submitDeposit(data => depositMutation.mutate(data))}>
             <Section
               title="Deposit"
-              description="Require a payment deposit at time of booking."
+              description="Guests booking online pay a deposit by card to hold their table, to your own Stripe account. Bookings your staff add take no deposit."
             >
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" {...regDeposit('requires_deposit')} className="w-4 h-4" />
-                <span className="text-sm">Require deposit</span>
+              <label className="flex items-center gap-2 cursor-pointer min-h-[48px] touch-manipulation">
+                <input type="checkbox" {...regDeposit('requires_deposit')} className="w-5 h-5" data-testid="deposit-on" />
+                <span className="text-sm">Take a deposit with online bookings</span>
               </label>
+
+              {requiresDeposit && deposit && !deposit.card_payments_ready && (
+                <p className="text-sm rounded-md border border-amber-300 bg-amber-50 text-amber-900 px-3 py-2" data-testid="deposit-not-ready">
+                  Guests can&apos;t book this venue online until card payments are set up: connect your Stripe account
+                  in <a href="/orders/settings" className="underline font-medium">Online orders, Ordering setup</a>.
+                </p>
+              )}
+              {requiresDeposit && deposit?.card_payments_ready && (
+                <p className="text-sm rounded-md border border-green-300 bg-green-50 text-green-900 px-3 py-2" data-testid="deposit-ready">
+                  Guests pay the deposit by card in the booking widget. It goes to your Stripe account.
+                </p>
+              )}
 
               {requiresDeposit && (
                 <div className="space-y-4 pl-6 border-l-2 border-primary/30">
-                  <FormField label="Deposit type">
-                    <select {...regDeposit('deposit_type')} className="w-full border rounded-md px-3 py-2 text-sm">
-                      <option value="fixed">Fixed amount per booking</option>
-                      <option value="per_cover">Amount per cover</option>
+                  <FormField label="How it's worked out">
+                    <select {...regDeposit('deposit_type')} className="w-full border rounded-md px-3 py-2 text-sm min-h-[48px] touch-manipulation">
+                      <option value="fixed">One amount per booking</option>
+                      <option value="per_cover">An amount per guest</option>
                     </select>
                   </FormField>
                   <div className="grid grid-cols-2 gap-4">
                     <FormField label="Amount" error={errDeposit.deposit_amount?.message}>
-                      <TextInput type="number" step="0.01" {...regDeposit('deposit_amount')} />
+                      <TextInput type="number" step="0.01" inputMode="decimal" {...regDeposit('deposit_amount')} data-testid="deposit-amount" />
                     </FormField>
                     <FormField label="Currency">
                       <TextInput {...regDeposit('currency')} maxLength={3} className="uppercase" />
                     </FormField>
                   </div>
-                  <FormField label="Refund if cancelled X hours before" hint="Leave blank = non-refundable">
-                    <TextInput type="number" {...regDeposit('refund_hours_before')} className="w-40" />
+                  <FormField
+                    label="Refunded when the guest cancels at least this many hours before"
+                    hint="Leave empty to keep the deposit when a guest cancels. Staff can always refund it from the booking."
+                    error={errDeposit.refund_hours_before?.message}
+                  >
+                    <TextInput type="number" inputMode="numeric" {...regDeposit('refund_hours_before')} className="w-40" data-testid="deposit-refund-hours" />
                   </FormField>
                 </div>
               )}
+              {depositMutation.isError && (
+                <p className="text-sm text-destructive">{depositMutation.error?.message || 'Couldn\'t save'}</p>
+              )}
 
-              <button
-                type="submit"
-                disabled={depositMutation.isPending}
-                className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm disabled:opacity-50"
-              >
-                <Save className="w-4 h-4" />
-                {depositMutation.isPending ? 'Saving…' : 'Save deposit rules'}
-              </button>
+              <div className="flex items-center gap-3">
+                <button
+                  type="submit"
+                  disabled={depositMutation.isPending}
+                  className="flex items-center gap-2 px-4 min-h-[48px] bg-primary text-primary-foreground rounded-md text-sm disabled:opacity-50 touch-manipulation"
+                  data-testid="deposit-save"
+                >
+                  <Save className="w-4 h-4" />
+                  {depositMutation.isPending ? 'Saving…' : 'Save deposit rules'}
+                </button>
+                {depositMutation.isSuccess && <span className="text-sm text-green-700" data-testid="deposit-saved">Saved</span>}
+              </div>
             </Section>
           </form>
         </ReadOnlyFieldset>

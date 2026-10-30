@@ -14,6 +14,7 @@ import { httpError }        from '../middleware/error.js'
 import { broadcastBooking } from './broadcastSvc.js'
 import { notificationQueue } from '../jobs/queues.js'
 import { allocateBestFit, combinationIsFree, ensureUnallocatedTable, tableIsFree } from './occupancySvc.js'
+import { bookingDeposit, refundDeposit, refundRule } from './depositSvc.js'
 
 // A fragment per query (postgres.js fragments are built inline).
 const bookingSelect = () => sql`
@@ -267,17 +268,40 @@ export function coversLimit(time, left) {
   return 'Over the ' + time + ' covers limit (' + (left > 0 ? left + (left === 1 ? ' cover' : ' covers') + ' left' : 'full') + ')'
 }
 
-/** Cancel a booking (callers check canCancel / permissions first). */
+/**
+ * The guest cancels (callers check canCancel first). A deposit is given
+ * back when the guest cancels more than the venue's refund_hours_before
+ * ahead (as it was when they paid); otherwise the restaurant keeps it.
+ * The row comes back with `deposit`: null (none), { refunded_pence },
+ * { kept_pence, until } or { error, pence } (the refund failed: staff
+ * refund it from the booking).
+ */
 export async function cancelBooking(booking) {
-  const [row] = await withTenant(booking.t_tenant_id, tx => tx`
+  const tenantId = booking.t_tenant_id
+  const [row] = await withTenant(tenantId, tx => tx`
     UPDATE bookings
        SET status = 'cancelled', updated_at = now()
-     WHERE id = ${booking.id} AND tenant_id = ${booking.t_tenant_id}
+     WHERE id = ${booking.id} AND tenant_id = ${tenantId}
     RETURNING *
   `)
   if (row) broadcastBooking('booking.updated', row)
   queueBookingEmail(booking, 'cancellation')
-  return row
+  let deposit = null
+  const paid = row ? await bookingDeposit(tenantId, booking.id) : null
+  if (paid && ['succeeded', 'partially_refunded'].includes(paid.status)) {
+    const pence = Math.round(Number(paid.amount) * 100) - Math.round(Number(paid.refunded_amount || 0) * 100)
+    const rule = refundRule(paid, booking.starts_at)
+    if (!rule.refundable) deposit = { kept_pence: pence, currency: paid.currency, until: rule.until }
+    else {
+      try {
+        await refundDeposit(tenantId, paid.id)
+        deposit = { refunded_pence: pence, currency: paid.currency }
+      } catch (err) {
+        deposit = { error: err.message, pence, currency: paid.currency }
+      }
+    }
+  }
+  return row ? { ...row, deposit } : row
 }
 
 /** Best-effort guest email; never blocks or fails the request. */

@@ -222,9 +222,11 @@ export default function BookingDrawer({ booking, onClose, onUpdated, panelMode =
     onSuccess:  () => onUpdated(),
   })
 
+  // Deposit refunds (services/depositSvc.js): all that is left, or a part.
+  const [refund, setRefund] = useState(null)   // null | { amount: 'text' }
   const refundMutation = useMutation({
-    mutationFn: () => api.post(`/payments/${booking.payment_id}/refund`, {}),
-    onSuccess:  onUpdated,
+    mutationFn: (amount_pence) => api.post(`/payments/${booking.payment_id}/refund`, amount_pence ? { amount_pence } : {}),
+    onSuccess:  () => { setRefund(null); onUpdated() },
   })
 
   const moveMutation = useMutation({
@@ -745,31 +747,79 @@ export default function BookingDrawer({ booking, onClose, onUpdated, panelMode =
               )}
             </div>
 
-            {/* ── Payment ───────────────────────────────────── */}
-            {booking.payment_id && (
-              <div>
-                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">Payment</p>
-                <div className="flex items-center gap-2 text-sm">
-                  <CreditCard className="w-4 h-4 text-muted-foreground shrink-0" />
-                  <span>
-                    {booking.payment_amount} {booking.payment_currency ?? ''} ·{' '}
-                    <span className={cn('font-medium',
-                      booking.payment_status === 'succeeded' ? 'text-green-700' : 'text-yellow-700')}>
-                      {booking.payment_status}
+            {/* ── Deposit ───────────────────────────────────── */}
+            {booking.payment_id && (() => {
+              const cur = booking.payment_currency || 'GBP'
+              const fmt = v => { try { return new Intl.NumberFormat('en-GB', { style: 'currency', currency: cur }).format(Number(v) || 0) } catch { return (Number(v) || 0).toFixed(2) } }
+              const paid = Number(booking.payment_amount) || 0
+              const back = Number(booking.payment_refunded) || 0
+              const left = Math.round((paid - back) * 100)
+              const hours = booking.payment_refund_hours_before
+              const typed = refund ? Math.round(Number(String(refund.amount).replace(',', '.')) * 100) : 0
+              const typedOk = refund && (refund.amount === '' || (typed > 0 && typed <= left))
+              return (
+                <div data-testid="drawer-deposit">
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">Deposit</p>
+                  <div className="flex items-center gap-2 text-sm">
+                    <CreditCard className="w-4 h-4 text-muted-foreground shrink-0" />
+                    <span>
+                      {fmt(paid)} paid
+                      {back > 0 && <span className="text-muted-foreground"> · {booking.payment_status === 'refunded' ? 'refunded' : fmt(back) + ' refunded'}</span>}
                     </span>
-                  </span>
+                  </div>
+                  {booking.payment_status !== 'refunded' && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {hours == null ? 'Kept if the guest cancels.' : 'Refunded by itself if the guest cancels at least ' + hours + (hours === 1 ? ' hour' : ' hours') + ' before.'}
+                    </p>
+                  )}
+                  {canManage && isOwnerOrAdmin && left > 0 && !refund && (
+                    <button
+                      onClick={() => setRefund({ amount: '' })}
+                      className="mt-2 min-h-[44px] px-3 rounded-md border text-sm text-destructive touch-manipulation"
+                      data-testid="drawer-refund"
+                    >
+                      Refund…
+                    </button>
+                  )}
+                  {refund && (
+                    <div className="mt-2 rounded-lg border border-destructive/40 bg-destructive/5 p-3 space-y-2">
+                      <label className="block text-xs text-muted-foreground" htmlFor="refund-amount">
+                        Amount to refund (empty = all {fmt(left / 100)})
+                      </label>
+                      <input
+                        id="refund-amount"
+                        type="text" inputMode="decimal" placeholder={(left / 100).toFixed(2)}
+                        value={refund.amount}
+                        onChange={e => setRefund({ amount: e.target.value })}
+                        className="w-32 border rounded-md px-3 py-2 text-sm min-h-[44px]"
+                        data-testid="drawer-refund-amount"
+                      />
+                      {!typedOk && <p className="text-xs text-destructive">Up to {fmt(left / 100)}</p>}
+                      <p className="text-sm">
+                        Refund {refund.amount === '' ? fmt(left / 100) : typedOk ? fmt(typed / 100) : '…'} to the guest&apos;s card?
+                      </p>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => refundMutation.mutate(refund.amount === '' ? null : typed)}
+                          disabled={!typedOk || refundMutation.isPending}
+                          className="min-h-[44px] px-3 rounded-md bg-destructive text-white text-sm disabled:opacity-50 touch-manipulation"
+                          data-testid="drawer-refund-yes"
+                        >
+                          {refundMutation.isPending ? 'Refunding…' : 'Yes, refund'}
+                        </button>
+                        <button
+                          onClick={() => { setRefund(null); refundMutation.reset() }}
+                          className="min-h-[44px] px-3 rounded-md border text-sm touch-manipulation"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                      {refundMutation.isError && <p className="text-xs text-destructive">{refundMutation.error?.message}</p>}
+                    </div>
+                  )}
                 </div>
-                {canManage && isOwnerOrAdmin && booking.payment_status === 'succeeded' && (
-                  <button
-                    onClick={() => refundMutation.mutate()}
-                    disabled={refundMutation.isPending}
-                    className="mt-2 text-sm text-destructive underline-offset-2 hover:underline disabled:opacity-50"
-                  >
-                    {refundMutation.isPending ? 'Processing…' : 'Issue refund'}
-                  </button>
-                )}
-              </div>
-            )}
+              )
+            })()}
 
             {/* ── Delete booking ────────────────────────────── */}
             {canManage && isOwnerOrAdmin && <div className="pt-2 border-t">

@@ -886,7 +886,7 @@ export default async function posApiRoutes(app) {
     // A venue hub's report (every minute): its version, how each of its
     // printers is (network printers and the USB printers plugged into it),
     // and what it says about itself (migration 195: computer, USB printers
-    // found, updates), shown in Store tech -> Printers.
+    // found, updates), shown in Store tech -> Venue hub.
     scoped.post('/hub/status', async req => {
       const d = req.posDevice
       if (d.kind !== 'hub') throw httpError(403, 'Only a venue hub reports printers')

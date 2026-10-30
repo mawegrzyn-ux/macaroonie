@@ -47,7 +47,7 @@ export function computerInfo(statusPort = null) {
   }
 }
 
-/** What the cloud hears about the hub's copy of the venue (Store tech → Printers). */
+/** What the cloud hears about the hub's copy of the venue (Store tech → Venue hub). */
 export function mirrorReport(v) {
   return {
     on: !!v.on, rev: v.rev || 0, cloud_seq: v.cloud_seq || 0, pending: v.pending || 0, to_send: v.to_send || 0,

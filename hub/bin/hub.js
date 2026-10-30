@@ -2,7 +2,7 @@
 // hub/bin/hub.js
 //
 // The venue hub. Installed on a mini PC by the printers (the installer from
-// Store tech → Printers sets it up as a service), or run by hand:
+// Store tech → Venue hub sets it up as a service), or run by hand:
 //
 //   node hub/bin/hub.js                          link it (first time), then print
 //   node hub/bin/hub.js --api https://pos.macaroonie.com
@@ -15,8 +15,8 @@
 //   node hub/bin/hub.js --self-test              checks this copy works (used by updates)
 //
 // Until it is linked it shows a six-letter code (here, on its status page
-// at http://<this computer>:9180 and as a QR code there): type it in Till
-// setup → Printers → Link a hub, or scan it with the installer app. The link
+// at http://<this computer>:9180 and as a QR code there): type it in Store
+// tech → Venue hub → Link a hub, or scan it with the installer app. The link
 // (the device id and its secret) is kept in hub.json beside this folder (or
 // --config); keep that file private. Removed in Store tech, it shows a new
 // code by itself.
@@ -107,7 +107,7 @@ async function link(api, state) {
     state.cloud = { ok: true, at: new Date().toISOString(), error: null }
     state.link = { code: pairing.code, link_url: pairing.link_url || null, expires_at: pairing.expires_at || null }
     console.log('')
-    console.log('  Link this hub: in Store tech → Printers → Link a hub, type')
+    console.log('  Link this hub: in Store tech → Venue hub → Link a hub, type')
     console.log('')
     console.log('        ' + pairing.code)
     console.log('')

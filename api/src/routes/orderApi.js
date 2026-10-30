@@ -34,6 +34,7 @@ import { priceBasket } from '../../../shared/orderPricing.js'
 import { venuePromotions, publicPromotion, findByCode } from '../services/promoSvc.js'
 import { loadAllergenNotice } from './menus.js'
 import { sessionMember, onlineRewardPicks, ensureProgramme, deviceLoyalty, tenantSite } from '../services/loyaltySvc.js'
+import { depositWebhook } from '../services/depositSvc.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // shared/orderPricing.js imports ./promotions.js, which imports
@@ -327,6 +328,12 @@ export async function paymentWebhookRoutes(app) {
     } catch (err) {
       req.log.warn({ err, gateway: gateway.key }, 'Payment webhook rejected')
       return reply.code(400).send({ error: 'Invalid webhook' })
+    }
+    // A booking deposit paid in the reservations widget: book it now (an
+    // error here is a 500, so Stripe sends the event again).
+    if (event?.deposit) {
+      await depositWebhook(event.deposit)
+      return { received: true }
     }
     if (!event?.ref) return { received: true }
     const [payment] = await systemSql`

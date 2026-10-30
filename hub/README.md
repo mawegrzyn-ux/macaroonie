@@ -43,7 +43,7 @@ Ubuntu or Debian Linux, or Windows 10 / 11, on a cable to the router, with a fix
 on the router. Plug USB receipt printers into it.
 
 **The easy way.** On the mini PC, open `pos.macaroonie.com/hub` in the browser (Store tech
-→ Printers → Venue hub shows the address) and press **Download the installer**:
+→ Venue hub shows the address) and press **Download the installer**:
 
 - Windows: open `macaroonie-hub-setup.cmd` from the downloads. Windows warns about a file
   from the internet: **More info**, then **Run anyway**, then **Yes** to allow changes. When
@@ -54,7 +54,7 @@ on the router. Plug USB receipt printers into it.
 
 Or with one command:
 
-**Linux.** In a terminal on the mini PC (Store tech → Printers → Venue hub shows the
+**Linux.** In a terminal on the mini PC (Store tech → Venue hub shows the
 command with your address, and a Copy button):
 
 ```
@@ -81,7 +81,7 @@ A printer installed in Windows (install the printer's own driver first) shows in
 hub's list by its Windows name. To remove it: `$env:MACAROONIE_HUB_UNINSTALL = '1'` then
 the same `irm ... | iex`.
 
-**Then:** in Macaroonie, Store tech → Printers → **Link a hub** and type the code (or scan
+**Then:** in Macaroonie, Store tech → Venue hub → **Link a hub** and type the code (or scan
 the QR code on the hub's page with the installer app). Add the network printers (On the
 network, their address) and the USB ones (Add it beside each printer the hub found). Running
 the installer again updates the hub and keeps its link. The hub updates itself after that

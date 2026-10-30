@@ -7,6 +7,7 @@ import { helpSlug } from '@shared/help.js'
 
 const SECTIONS = [
   { id: 'getting-started',     label: 'Getting Started' },
+  { id: 'today',               label: 'Today: What Needs Doing' },
   { id: 'overview',            label: 'The Overview Page' },
   { id: 'venues',              label: 'Managing Venues' },
   { id: 'new-location',        label: 'Setting Up a New Venue' },
@@ -141,7 +142,7 @@ export default function Help() {
                 ['Set up table combinations', 'If adjacent tables can be pushed together for larger parties, create a combination (e.g. T1 + T2 = combined table for 6).'],
                 ['Configure your weekly schedule', 'Define which days you open and add sittings (Lunch, Dinner). Each sitting has its own slot duration, interval, and cover cap.'],
                 ['Set booking rules', 'Configure minimum and maximum covers per booking, the hold time limit, and the cutoff before a slot starts.'],
-                ['(Optional) Enable deposits', 'Connect a Stripe account and set a deposit amount if you want to require payment to confirm bookings.'],
+                ['(Optional) Enable deposits', 'Connect your Stripe account in Ordering setup, then turn deposits on in Booking rules: guests booking online pay by card.'],
                 ['Test the booking widget', 'Go to Widget Test in the sidebar and run a test booking end-to-end before going live.'],
               ].map(([title, desc], i) => (
                 <div key={i} className="flex gap-3">
@@ -188,6 +189,73 @@ export default function Help() {
           </section>
 
           {/* ── OVERVIEW PAGE ─────────────────────────────── */}
+          <section id="today" data-help="">
+            <H2>Today: What Needs Doing</H2>
+            <P>
+              <strong>Today</strong> (top of the main menu) is the place to start a shift. It says hello,
+              shows the day at a glance (bookings and covers, parties of 8 or more, how many people are on
+              the rota, and whether the venue is closed today), then everything that needs doing at the venue,
+              with Pepper beside it. Pick the venue at the top right if you work at more than one;
+              the page remembers it.
+            </P>
+            <H3>Where the tasks come from</H3>
+            <P>
+              Tasks are worked out from your own set-up and records, not by Pepper, so the list is
+              there even when Pepper is switched off. They update every minute and when you tap Refresh.
+            </P>
+            <DataTable
+              head={['Task', 'Shows when']}
+              rows={[
+                ['Fridge and freezer check', 'A check time in Food safety settings has fridges not logged yet'],
+                ['Hot and cold hold check', 'A hold check time has stations not logged yet'],
+                ['Cooking checks', 'A cooking session has fewer checks than it needs'],
+                ['Corrective action needed', 'A reading (fridge, hold, cooking or delivery) is out of range with no corrective action'],
+                ['A checklist', 'A checklist due today, this week or this month is not finished'],
+                ['H&S action', 'An open action log entry is due today or overdue'],
+                ['Send the order to...', 'A supplier order is waiting to be sent'],
+                ['Book in the delivery from...', 'A supplier order sent earlier is due to arrive today'],
+                ['Supplier orders waiting for approval', 'Someone asked for an order and you can approve orders'],
+                ['Cash-up not submitted', "Yesterday's cash-up isn't submitted (and the venue was open)"],
+                ['Online orders waiting', 'Online orders are waiting to be accepted'],
+              ]}
+            />
+            <P>
+              A task goes away by itself once the record exists: log the reading, tick the checklist, send the
+              order. Closed days expect no fridge, hold or cooking checks when your group follows opening days
+              in H&amp;S settings. You only see the areas your role can see; the page says which ones it left out.
+            </P>
+            <H3>Late, Now, Next and Later</H3>
+            <DataTable
+              head={['Group', 'Means']}
+              rows={[
+                ['Late', 'More than 30 minutes past its time, or overdue by nature (a reading needing an action, yesterday\'s cash-up)'],
+                ['Now', 'Due within 30 minutes either side, or due some time today with no set time'],
+                ['Next', 'Due in the next two hours'],
+                ['Later', 'Later today, or due this week or month'],
+              ]}
+            />
+            <H3>Doing a task from the page</H3>
+            <P>
+              Each task has one button. Fridge, hold and cooking checks and checklists open right on the page,
+              the same forms as the Food safety and Checklists pages: type the readings or tick the tasks, then
+              tap <strong>Done</strong>. <strong>Open the full page</strong> takes you to the page itself. Other
+              tasks (a supplier order, the cash-up, online orders) open their page. If your role can only view an
+              area, the button says <strong>View</strong> and the form is read only.
+            </P>
+            <H3>Go to</H3>
+            <P>
+              Your main menu as big tiles, the pages with something to do first, with a count on each.
+              Tap <strong>Everything</strong> to see every page.
+            </P>
+            <H3>Asking Pepper on the Today page</H3>
+            <P>
+              Pepper sits beside the tasks (below them on a narrower screen) with suggestions for the
+              day. It's the same chat as the Pepper panel, so it carries on where you left off; tap
+              <strong> New chat</strong> to start again. Your messages tell Pepper which venue and day
+              you're looking at.
+            </P>
+          </section>
+
           <section id="overview" data-help="">
             <H2>The Overview Page</H2>
             <P>
@@ -279,9 +347,8 @@ export default function Help() {
 
             <H3>Venue settings</H3>
             <P>
-              From the venue detail page you can also access <strong>Booking Rules</strong> and{' '}
-              <strong>Deposit Rules</strong> — shortcut links are shown below the venue details.
-              These settings are per-venue, so each location can have different rules.
+              Booking length, party sizes, how far ahead guests can book and deposits are set per venue on the{' '}
+              <strong>Booking rules</strong> page (pick the venue at the top), so each location can have different rules.
             </P>
           </section>
 
@@ -740,37 +807,58 @@ export default function Help() {
           <section id="deposits" data-help="">
             <H2>Deposits &amp; Payments</H2>
             <P>
-              Macaroonie integrates with Stripe Connect so each restaurant can take deposits directly into
-              their own bank account. The platform deducts a small fee automatically.
+              A venue can take a deposit when guests book online. The guest pays by card in the booking
+              widget, and the money goes straight to your own Stripe account (the one you connect for online
+              orders). Bookings your staff add on the Timeline or the Bookings page take no deposit.
             </P>
 
-            <H3>Setting up Stripe</H3>
+            <H3>Turning deposits on</H3>
             <ol className="space-y-2 text-sm text-muted-foreground list-decimal list-inside ml-2 mb-4">
-              <li>Go to your venue's <strong>Deposit Rules</strong> page.</li>
-              <li>Click <strong>Connect with Stripe</strong> and complete the Stripe onboarding flow.</li>
-              <li>Once connected, enable <strong>Require deposit</strong> and set the deposit amount in pence (e.g. 1000 = £10.00).</li>
-              <li>Save. New bookings for this venue will now require payment before confirmation.</li>
+              <li>
+                Connect your Stripe account first: <strong>Online orders</strong> &gt; <strong>Ordering setup</strong> &gt;{' '}
+                <strong>Your Stripe account</strong> &gt; <strong>Connect Stripe</strong>. Guests can&apos;t pay a deposit
+                until Stripe says your account can take payments.
+              </li>
+              <li>Open <strong>Booking rules</strong>, pick the venue and tick <strong>Take a deposit with online bookings</strong>.</li>
+              <li>Choose <strong>One amount per booking</strong> or <strong>An amount per guest</strong>, and type the amount in pounds (for example 10 or 7.50).</li>
+              <li>
+                Under <strong>Refunded when the guest cancels at least this many hours before</strong>, type the hours
+                (for example 24). Leave it empty to keep the deposit whenever a guest cancels.
+              </li>
+              <li>Press <strong>Save deposit rules</strong>.</li>
             </ol>
-
-            <H3>How the deposit flow works</H3>
-            <ol className="space-y-2 text-sm text-muted-foreground list-decimal list-inside ml-2 mb-4">
-              <li>Guest selects a slot — a hold is created (slot is temporarily reserved).</li>
-              <li>Guest sees the deposit amount and completes payment in the widget.</li>
-              <li>Stripe confirms payment via webhook → booking is confirmed automatically.</li>
-              <li>If the guest abandons, the hold expires and the slot is released. No charge is taken.</li>
-            </ol>
-
             <InfoBox type="warn">
-              Bookings are only confirmed after Stripe's webhook is received — not when the guest sees
-              the payment success screen. This prevents double-bookings and ensures payment has actually
-              cleared before the slot is permanently held.
+              While deposits are on and Stripe isn&apos;t connected (or not ready yet), the Booking rules page says so in
+              amber, and guests can&apos;t book that venue online at all: the widget asks them to phone instead.
             </InfoBox>
 
-            <H3>Issuing refunds</H3>
+            <H3>What the guest sees</H3>
+            <ol className="space-y-2 text-sm text-muted-foreground list-decimal list-inside ml-2 mb-4">
+              <li>The widget says a deposit is taken (for example &quot;A deposit of £5.00 a guest&quot;) when they choose the party size.</li>
+              <li>They pick a date and time, then type their details. Email is needed for a deposit: Stripe sends the receipt there.</li>
+              <li><strong>Continue to payment</strong> holds the table for 15 minutes while they pay with card, Apple Pay or Google Pay.</li>
+              <li>Once Stripe confirms the payment, the booking is made and the confirmation page shows the deposit paid.</li>
+              <li>If they go back or give up, the table is let go and nothing is charged.</li>
+            </ol>
             <P>
-              Open the booking from the Timeline, click the booking tile to open the detail drawer, and
-              click <strong>Issue refund</strong> in the Payment section. The refund is processed
-              immediately via Stripe and returns to the guest's original payment method within 5–10 days.
+              The booking is only made once Macaroonie has checked with Stripe that the money was taken; what the guest&apos;s
+              browser says is never enough. If the payment goes through but the table was taken in the meantime (the guest
+              waited far too long), the deposit is refunded straight away and the guest is asked to pick another time.
+            </P>
+
+            <H3>When a guest cancels</H3>
+            <P>
+              Guests can cancel from the link in their confirmation email. If they cancel at least the hours you set before
+              the booking, the deposit goes back to their card by itself, and the page tells them so. Later than that (or if
+              you left the hours empty), the deposit is kept, and the page says that before they confirm.
+            </P>
+
+            <H3>Refunding a deposit yourself</H3>
+            <P>
+              Open the booking (Timeline or Bookings). The <strong>Deposit</strong> part of the booking shows what was paid,
+              anything refunded and the cancellation rule. Owners and admins see <strong>Refund…</strong>: leave the amount
+              empty to refund all that is left, or type part of it (for example 5), then press <strong>Yes, refund</strong>.
+              You can refund in several parts. The money goes back to the guest&apos;s card, usually within 5 to 10 working days.
             </P>
           </section>
 
@@ -1152,10 +1240,9 @@ export default function Help() {
 
             <H3>Issuing a refund</H3>
             <P>
-              If a deposit was taken, a <strong>Payment</strong> section appears in the drawer showing
-              the amount and status. Click <strong>Issue refund</strong> to process a full refund via
-              Stripe. The refund is instant on Macaroonie's side; the guest receives funds within 5–10
-              business days depending on their bank.
+              If a deposit was taken, a <strong>Deposit</strong> part appears in the drawer with what was paid and
+              refunded. Owners and admins press <strong>Refund…</strong>, leave the amount empty for all of it or type
+              part, then <strong>Yes, refund</strong>. See Deposits &amp; Payments.
             </P>
 
             <H3>Viewing all bookings</H3>
@@ -2497,7 +2584,7 @@ export default function Help() {
               <li><strong>Date</strong> — guest picks a date from the calendar.</li>
               <li><strong>Time slot</strong> — available slots are shown based on your schedule and current bookings.</li>
               <li><strong>Guest details</strong> — name, email, phone (optional), and special notes.</li>
-              <li><strong>Payment</strong> (if deposit required) — guest completes card payment.</li>
+              <li><strong>Payment</strong> (if the venue takes a deposit): the guest pays by card, Apple Pay or Google Pay.</li>
               <li><strong>Confirmation</strong> — booking reference shown; confirmation email sent.</li>
             </ol>
 
@@ -5378,9 +5465,9 @@ export default function Help() {
               the other tills when the connection is back.
             </P>
             <InfoBox type="info">
-              Card payments are taken on your own card machine for now: the till records them as Card. Links
-              to card machines (Dojo, SumUp, Zettle, Stripe, Adyen) come later. Printers are set up on the
-              Printers tab: a network printer prints through the venue hub, a printer plugged into a till or
+              Card payments go through a linked card machine (Dojo, Stripe or SumUp; see Card machines below) or
+              a card machine of your own, recorded as Card. Printers are set up on the Printers page: a network
+              printer prints through the venue hub (its own page, Venue hub), a printer plugged into a till or
               kitchen screen prints from that device (see Printers and the venue hub below).
             </InfoBox>
 
@@ -5396,7 +5483,8 @@ export default function Help() {
               <li><strong>Courses</strong> (shared by every venue): Starters, Mains, Desserts, in the order they go to the kitchen. A course <strong>held by default</strong> waits to be fired when it goes with an earlier course.</li>
               <li><strong>Till roles</strong> (shared by every venue): what Server, Supervisor and Manager may do: void sent items, refund, comp, discounts up to a %, open the drawer, reopen checks, take over other people's checks, change prices, move items between checks, see reports, close the day, approve for others.</li>
               <li><strong>Staff and PINs</strong>: give each person a till role and a 4 to 6 digit PIN (not 1111 or 1234, and different from everyone else's at the venue). People come from the Staff page.</li>
-              <li><strong>Printers</strong>: each printer, on the network, USB on the venue hub, or plugged into a till, kitchen screen or kiosk, and the venue hub that prints the network and USB ones (see Printers and the venue hub below). Kitchen tickets print where the kitchen flow sends dishes: a <strong>Kitchen printer</strong> box in Kitchen screens.</li>
+              <li><strong>Venue hub</strong>: the small computer on the venue&apos;s network that prints the network and USB printers and, with <strong>Hub first</strong> on, keeps the tills, kiosks, kitchen screens and order ready boards trading with the internet down. Link it, see its state and updates, the USB printers plugged into it, and how to install one (see Set up the venue hub on a mini PC and Hub first below).</li>
+              <li><strong>Printers</strong>: each printer, on the network, USB on the venue hub, or plugged into a till, kitchen screen or kiosk (see Printers and the venue hub below). Kitchen tickets print where the kitchen flow sends dishes: a <strong>Kitchen printer</strong> box in Kitchen screens.</li>
               <li><strong>Printing</strong>: how kitchen tickets, receipts and bills look (see Ticket and receipt designs below).</li>
               <li><strong>Card machines</strong>: your Dojo, Stripe or SumUp account and the card machines at the venue; each till and kiosk picks its machine (see Card machines below).</li>
               <li><strong>Receipts and payments</strong>: when the trading day starts, the name, address and VAT number on receipts, the ways to pay, tips, asking for covers, and when staff are signed out. Tax rates are set on Menus → Tax rates.</li>
@@ -5416,8 +5504,9 @@ export default function Help() {
               <li><strong>Plugged into a till or screen</strong>: a USB or Bluetooth printer set up as the printer of a till, kitchen screen or kiosk. That device prints its tickets through Chrome. Start Chrome with <strong>--kiosk-printing</strong> so it prints without asking each time. A kiosk&apos;s printer prints that kiosk&apos;s receipts only.</li>
             </ul>
             <P>
-              The <strong>venue hub</strong> is a small program on a mini PC on the venue&apos;s network, next to the printers
-              (see Set up the venue hub on a mini PC below). Every minute it tells Macaroonie how each of its printers is (ready,
+              The <strong>venue hub</strong> is a small program on a mini PC on the venue&apos;s network, next to the printers.
+              It has its own page, Store tech → <strong>Venue hub</strong> (see Set up the venue hub on a mini PC below); the
+              Printers page says which hub prints its printers, with a link to it. Every minute it tells Macaroonie how each of its printers is (ready,
               paper low, out of paper, cover open, not answering), shown on the printer&apos;s row. A printer&apos;s
               <strong> Tickets</strong> button lists the last day&apos;s tickets; one that didn&apos;t print can be printed again
               with <strong>Print again</strong>.
@@ -5447,10 +5536,10 @@ export default function Help() {
             <DataTable
               head={['Step', 'What to do']}
               rows={[
-                ['1. Install it', 'On the mini PC, open the address shown under Store tech → Printers → Venue hub (pos. and your web address, then /hub) and press Download the installer. On Windows, open the downloaded macaroonie-hub-setup.cmd; if Windows says it protected your PC, press More info, then Run anyway, and answer Yes when it asks to allow changes. On Linux, run sh ~/Downloads/macaroonie-hub-setup.sh in a terminal and type the password. It installs everything the hub needs and starts it with the computer. (The same box also has the one-line commands, under Or run a command.)'],
+                ['1. Install it', 'On the mini PC, open the address shown on Store tech → Venue hub (pos. and your web address, then /hub) and press Download the installer. On Windows, open the downloaded macaroonie-hub-setup.cmd; if Windows says it protected your PC, press More info, then Run anyway, and answer Yes when it asks to allow changes. On Linux, run sh ~/Downloads/macaroonie-hub-setup.sh in a terminal and type the password. It installs everything the hub needs and starts it with the computer. (The same box also has the one-line commands, under Or run a command.)'],
                 ['2. Link it', 'When it finishes it shows a six-letter code (on Windows the hub\'s page opens with it). Tap Link a hub and type it, or scan the QR code on the hub\'s page with the installer app on your phone.'],
-                ['3. Add its printers', 'Network printers: Add, On the network, type the address. USB printers: the hub lists the ones plugged into it under Venue hub; tap Add it beside one (or Add, USB on the hub, and pick it).'],
-                ['4. Check it', 'The hub\'s row shows its computer, version and a link to its page; each printer\'s row says whether it is ready. Print a test ticket from the till.'],
+                ['3. Add its printers', 'Network printers: on the Printers page, Add, On the network, type the address. USB printers: the Venue hub page lists the ones plugged into the hub; tap Add it beside one (or on the Printers page, Add, USB on the hub, and pick it).'],
+                ['4. Check it', 'On the Venue hub page, the hub\'s row shows its computer, version and a link to its page; on the Printers page, each printer\'s row says whether it is ready. Print a test ticket from the till.'],
               ]}
             />
             <P>
@@ -5489,7 +5578,7 @@ export default function Help() {
             <DataTable
               head={['What', 'How']}
               rows={[
-                ['Switch it on or off', 'Store tech → Printers → Venue hub: Hub first, then Save. It is on as standard once a hub is linked. Off, every device uses Macaroonie directly and the hub only prints.'],
+                ['Switch it on or off', 'Store tech → Venue hub: Hub first, then Save. It is on as standard once a hub is linked. Off, every device uses Macaroonie directly and the hub only prints.'],
                 ['What devices need', 'The Macaroonie Android app (version 1.3 or later) on each till, kiosk, kitchen screen and menu screen. A device in a web browser can\'t reach the hub (browsers block it from a secure page) and simply keeps using Macaroonie.'],
                 ['How to tell it is working', 'The till\'s dot at the top says Live · venue hub, or Venue hub · internet down (still green). The kitchen screen\'s bar says the same. On the till, Settings shows the hub\'s address. In Store tech, the hub\'s row says how many devices use it and whether everything has gone to Macaroonie.'],
                 ['What needs the internet', 'Card machine payments and refunds, loyalty rewards, receipts by email or QR code, online and GloriaFood orders, and changes made in the admin (a new price, a new PIN) until the hub picks them up (within half a minute).'],
