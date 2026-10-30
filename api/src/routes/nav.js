@@ -44,6 +44,7 @@ export const ROUTE_CATALOG = [
   { route: '/pos/floor', label: 'Floor plan', icon: 'LayoutPanelTop', module: 'pos_setup' },
   { route: '/pos/kiosks', label: 'Kiosks', icon: 'TabletSmartphone', module: 'pos_setup' },
   { route: '/pos/kitchen', label: 'Kitchen screens', icon: 'CookingPot', module: 'pos_setup' },
+  { route: '/pos/hub', label: 'Venue hub', icon: 'Server', module: 'pos_setup' },
   { route: '/pos/printers', label: 'Printers', icon: 'Printer', module: 'pos_setup' },
   { route: '/pos/printing', label: 'Printing', icon: 'ReceiptText', module: 'pos_setup' },
   { route: '/pos/cards', label: 'Card machines', icon: 'CreditCard', module: 'pos_setup' },

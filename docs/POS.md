@@ -198,6 +198,12 @@ without app-store packaging.
   off = Update now in Store tech.
 - **Not yet**: the offline role (SQLite sequencer, serving `/pos-api` on the LAN with a venue
   certificate, tills using `hub_url`); serial printers on Linux; a cash drawer kick on its own.
+  (The offline role came with hub first, section 11, without SQLite or a venue certificate.)
+- **Store tech**: the hub has its own page, Store tech → Venue hub (`/pos/hub`, migration 219,
+  `admin/src/components/pos/HubSection.jsx`): linking, its state, version and updates, the USB
+  printers it found, Hub first and the install instructions. The Printers page keeps the printers.
+- **On Android**: scoped, not built: `docs/ANDROID_HUB.md` (the same hub JavaScript under
+  nodejs-mobile in a small Android app with a foreground service).
 
 ---
 

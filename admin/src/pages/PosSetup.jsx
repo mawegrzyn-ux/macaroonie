@@ -4,7 +4,7 @@
 // main menu's Store tech section (/pos/<key>, TABS below; /pos opens Tills).
 // Per venue: tills and pairing,
 // revenue streams (with the order types each offers), printers and what
-// prints where, kitchen screens (stations, the kitchen flows, pairing),
+// prints where, the venue hub (linking, updates, Hub first), kitchen screens (stations, the kitchen flows, pairing),
 // self-order kiosks, staff PINs, receipts and payments, the Cash Recon link.
 // Company-wide: order types, kiosk designs, print designs (with which prints
 // where per venue), till roles and courses.
@@ -13,7 +13,7 @@
 import { useParams, useSearchParams, Navigate } from 'react-router-dom'
 import {
   Loader2, MonitorSmartphone, Waypoints, ListOrdered, Printer, ReceiptText, CreditCard, CookingPot,
-  TabletSmartphone, KeyRound, ShieldCheck, UtensilsCrossed, Receipt, ArrowRightLeft, RefreshCw,
+  TabletSmartphone, KeyRound, ShieldCheck, UtensilsCrossed, Receipt, ArrowRightLeft, RefreshCw, Server,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { usePermission } from '@/hooks/usePermission'
@@ -23,6 +23,7 @@ import TillsSection from '@/components/pos/TillsSection'
 import RevenueStreamsSection from '@/components/pos/RevenueStreamsSection'
 import OrderTypesSection from '@/components/pos/OrderTypesSection'
 import PrintersSection from '@/components/pos/PrintersSection'
+import HubSection from '@/components/pos/HubSection'
 import PrintingSection from '@/components/pos/PrintingSection'
 import CardMachinesSection from '@/components/pos/CardMachinesSection'
 import KitchenSection from '@/components/pos/KitchenSection'
@@ -39,6 +40,7 @@ export const TABS = [
   { key: 'tills', label: 'Tills', icon: MonitorSmartphone, render: p => <TillsSection {...p} /> },
   { key: 'streams', label: 'Revenue streams', icon: Waypoints, render: p => <RevenueStreamsSection {...p} /> },
   { key: 'types', label: 'Order types', icon: ListOrdered, render: p => <OrderTypesSection {...p} /> },
+  { key: 'hub', label: 'Venue hub', icon: Server, render: p => <HubSection {...p} /> },
   { key: 'printers', label: 'Printers', icon: Printer, render: p => <PrintersSection {...p} /> },
   { key: 'printing', label: 'Printing', icon: ReceiptText, render: p => <PrintingSection {...p} /> },
   { key: 'cards', label: 'Card machines', icon: CreditCard, render: p => <CardMachinesSection {...p} /> },

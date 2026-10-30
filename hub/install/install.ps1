@@ -7,7 +7,7 @@
 # the hub from the cloud (checked against its sha256), and runs it as a
 # scheduled task that starts with the computer (as SYSTEM, no one needs to
 # sign in) and starts again if it stops. Then it shows the six-letter code:
-# link it in Store tech -> Printers -> Link a hub, or scan the QR code on
+# link it in Store tech -> Venue hub -> Link a hub, or scan the QR code on
 # the hub's page (http://<this computer>:9180) with the installer app. A
 # printer installed in Windows (USB, serial, Bluetooth) can then be picked in
 # Store tech as "USB on the hub". Running it again updates the hub and keeps
@@ -46,7 +46,7 @@ if ($env:MACAROONIE_HUB_UNINSTALL -eq '1') {
     Where-Object { $_.CommandLine -like "*$HubHome*" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
   Remove-NetFirewallRule -DisplayName 'Macaroonie hub status page' -ErrorAction SilentlyContinue
   Remove-Item -Recurse -Force $HubHome -ErrorAction SilentlyContinue
-  Write-Host 'Removed. Remove the hub in Store tech -> Printers too.'
+  Write-Host 'Removed. Remove the hub in Store tech -> Venue hub too.'
   return
 }
 
@@ -146,7 +146,7 @@ try {
   }
   Write-Host ''
   if ($state -and $state.phase -eq 'linking') {
-    Write-Host '  Link this hub: in Macaroonie open Store tech -> Printers -> Link a hub and type'
+    Write-Host '  Link this hub: in Macaroonie open Store tech -> Venue hub -> Link a hub and type'
     Write-Host ''
     Write-Host ('        ' + $state.link.code) -ForegroundColor Green
     Write-Host ''

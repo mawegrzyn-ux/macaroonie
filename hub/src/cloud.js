@@ -2,7 +2,7 @@
 //
 // The hub's side of the cloud's /pos-api (api/src/routes/posApi.js): asking
 // for a link code (shown in the hub's window, typed in Store tech →
-// Printers), waiting for it to be linked, then calling the API as the
+// Venue hub), waiting for it to be linked, then calling the API as the
 // linked device (`Authorization: Device <id>.<secret>`).
 
 const UA = 'macaroonie-hub'

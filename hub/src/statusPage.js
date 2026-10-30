@@ -64,7 +64,7 @@ export function renderPage(state) {
   if (s.phase === 'linking' && s.link?.code) {
     parts.push(`<section class="link">
       <h2>Link this hub</h2>
-      <p>Scan the code with a phone (the installer app), or in Macaroonie open <b>Store tech → Printers → Link a hub</b> and type:</p>
+      <p>Scan the code with a phone (the installer app), or in Macaroonie open <b>Store tech → Venue hub → Link a hub</b> and type:</p>
       <p class="code" data-testid="link-code">${esc(s.link.code)}</p>
       ${s.link.link_url ? `<div class="qr">${qrSvg(s.link.link_url, { title: 'Link code ' + s.link.code })}</div>` : ''}
       <p class="muted">The code works until ${esc(time(s.link.expires_at))}; a new one comes after that.</p>
@@ -97,7 +97,7 @@ export function renderPage(state) {
   const v = s.venue
   if (s.phase === 'running' && v) {
     const words = v.on ? 'On: the tills, kiosks and kitchen screens here use this hub first'
-      : v.hub_first === false ? 'Off (switched off in Store tech → Printers)'
+      : v.hub_first === false ? 'Off (switched off in Store tech → Venue hub)'
       : v.primary === false ? 'Another hub at this location takes the events; this one prints'
       : 'Starting'
     const devs = v.devices || []

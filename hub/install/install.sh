@@ -9,7 +9,7 @@
 # makes a user for it (in the lp group, for USB printers), and runs it as a
 # systemd service that starts with the computer and starts again if it
 # stops. Then it shows the six-letter code: link it in Store tech ->
-# Printers -> Link a hub, or scan the QR code on the hub's page
+# Venue hub -> Link a hub, or scan the QR code on the hub's page
 # (http://<this computer>:9180) with the installer app. Running it again
 # updates the hub and keeps its link. The hub updates itself afterwards.
 #
@@ -57,7 +57,7 @@ if [ "${1:-}" = "--uninstall" ]; then
   $SYSTEMCTL daemon-reload >/dev/null 2>&1 || true
   rm -rf "$HUB_HOME"
   if id "$HUB_USER" >/dev/null 2>&1; then userdel "$HUB_USER" >/dev/null 2>&1 || true; fi
-  say "Removed. Remove the hub in Store tech -> Printers too."
+  say "Removed. Remove the hub in Store tech -> Venue hub too."
   exit 0
 fi
 
@@ -186,7 +186,7 @@ say ""
 case "$summary" in
   code*)
     set -- $summary
-    say "  Link this hub: in Macaroonie open Store tech -> Printers -> Link a hub and type"
+    say "  Link this hub: in Macaroonie open Store tech -> Venue hub -> Link a hub and type"
     say ""
     say "        $2"
     say ""

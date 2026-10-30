@@ -5378,9 +5378,9 @@ export default function Help() {
               the other tills when the connection is back.
             </P>
             <InfoBox type="info">
-              Card payments are taken on your own card machine for now: the till records them as Card. Links
-              to card machines (Dojo, SumUp, Zettle, Stripe, Adyen) come later. Printers are set up on the
-              Printers tab: a network printer prints through the venue hub, a printer plugged into a till or
+              Card payments go through a linked card machine (Dojo, Stripe or SumUp; see Card machines below) or
+              a card machine of your own, recorded as Card. Printers are set up on the Printers page: a network
+              printer prints through the venue hub (its own page, Venue hub), a printer plugged into a till or
               kitchen screen prints from that device (see Printers and the venue hub below).
             </InfoBox>
 
@@ -5396,7 +5396,8 @@ export default function Help() {
               <li><strong>Courses</strong> (shared by every venue): Starters, Mains, Desserts, in the order they go to the kitchen. A course <strong>held by default</strong> waits to be fired when it goes with an earlier course.</li>
               <li><strong>Till roles</strong> (shared by every venue): what Server, Supervisor and Manager may do: void sent items, refund, comp, discounts up to a %, open the drawer, reopen checks, take over other people's checks, change prices, move items between checks, see reports, close the day, approve for others.</li>
               <li><strong>Staff and PINs</strong>: give each person a till role and a 4 to 6 digit PIN (not 1111 or 1234, and different from everyone else's at the venue). People come from the Staff page.</li>
-              <li><strong>Printers</strong>: each printer, on the network, USB on the venue hub, or plugged into a till, kitchen screen or kiosk, and the venue hub that prints the network and USB ones (see Printers and the venue hub below). Kitchen tickets print where the kitchen flow sends dishes: a <strong>Kitchen printer</strong> box in Kitchen screens.</li>
+              <li><strong>Venue hub</strong>: the small computer on the venue&apos;s network that prints the network and USB printers and, with <strong>Hub first</strong> on, keeps the tills, kiosks, kitchen screens and order ready boards trading with the internet down. Link it, see its state and updates, the USB printers plugged into it, and how to install one (see Set up the venue hub on a mini PC and Hub first below).</li>
+              <li><strong>Printers</strong>: each printer, on the network, USB on the venue hub, or plugged into a till, kitchen screen or kiosk (see Printers and the venue hub below). Kitchen tickets print where the kitchen flow sends dishes: a <strong>Kitchen printer</strong> box in Kitchen screens.</li>
               <li><strong>Printing</strong>: how kitchen tickets, receipts and bills look (see Ticket and receipt designs below).</li>
               <li><strong>Card machines</strong>: your Dojo, Stripe or SumUp account and the card machines at the venue; each till and kiosk picks its machine (see Card machines below).</li>
               <li><strong>Receipts and payments</strong>: when the trading day starts, the name, address and VAT number on receipts, the ways to pay, tips, asking for covers, and when staff are signed out. Tax rates are set on Menus → Tax rates.</li>
@@ -5416,8 +5417,9 @@ export default function Help() {
               <li><strong>Plugged into a till or screen</strong>: a USB or Bluetooth printer set up as the printer of a till, kitchen screen or kiosk. That device prints its tickets through Chrome. Start Chrome with <strong>--kiosk-printing</strong> so it prints without asking each time. A kiosk&apos;s printer prints that kiosk&apos;s receipts only.</li>
             </ul>
             <P>
-              The <strong>venue hub</strong> is a small program on a mini PC on the venue&apos;s network, next to the printers
-              (see Set up the venue hub on a mini PC below). Every minute it tells Macaroonie how each of its printers is (ready,
+              The <strong>venue hub</strong> is a small program on a mini PC on the venue&apos;s network, next to the printers.
+              It has its own page, Store tech → <strong>Venue hub</strong> (see Set up the venue hub on a mini PC below); the
+              Printers page says which hub prints its printers, with a link to it. Every minute it tells Macaroonie how each of its printers is (ready,
               paper low, out of paper, cover open, not answering), shown on the printer&apos;s row. A printer&apos;s
               <strong> Tickets</strong> button lists the last day&apos;s tickets; one that didn&apos;t print can be printed again
               with <strong>Print again</strong>.
@@ -5447,10 +5449,10 @@ export default function Help() {
             <DataTable
               head={['Step', 'What to do']}
               rows={[
-                ['1. Install it', 'On the mini PC, open the address shown under Store tech → Printers → Venue hub (pos. and your web address, then /hub) and press Download the installer. On Windows, open the downloaded macaroonie-hub-setup.cmd; if Windows says it protected your PC, press More info, then Run anyway, and answer Yes when it asks to allow changes. On Linux, run sh ~/Downloads/macaroonie-hub-setup.sh in a terminal and type the password. It installs everything the hub needs and starts it with the computer. (The same box also has the one-line commands, under Or run a command.)'],
+                ['1. Install it', 'On the mini PC, open the address shown on Store tech → Venue hub (pos. and your web address, then /hub) and press Download the installer. On Windows, open the downloaded macaroonie-hub-setup.cmd; if Windows says it protected your PC, press More info, then Run anyway, and answer Yes when it asks to allow changes. On Linux, run sh ~/Downloads/macaroonie-hub-setup.sh in a terminal and type the password. It installs everything the hub needs and starts it with the computer. (The same box also has the one-line commands, under Or run a command.)'],
                 ['2. Link it', 'When it finishes it shows a six-letter code (on Windows the hub\'s page opens with it). Tap Link a hub and type it, or scan the QR code on the hub\'s page with the installer app on your phone.'],
-                ['3. Add its printers', 'Network printers: Add, On the network, type the address. USB printers: the hub lists the ones plugged into it under Venue hub; tap Add it beside one (or Add, USB on the hub, and pick it).'],
-                ['4. Check it', 'The hub\'s row shows its computer, version and a link to its page; each printer\'s row says whether it is ready. Print a test ticket from the till.'],
+                ['3. Add its printers', 'Network printers: on the Printers page, Add, On the network, type the address. USB printers: the Venue hub page lists the ones plugged into the hub; tap Add it beside one (or on the Printers page, Add, USB on the hub, and pick it).'],
+                ['4. Check it', 'On the Venue hub page, the hub\'s row shows its computer, version and a link to its page; on the Printers page, each printer\'s row says whether it is ready. Print a test ticket from the till.'],
               ]}
             />
             <P>
@@ -5489,7 +5491,7 @@ export default function Help() {
             <DataTable
               head={['What', 'How']}
               rows={[
-                ['Switch it on or off', 'Store tech → Printers → Venue hub: Hub first, then Save. It is on as standard once a hub is linked. Off, every device uses Macaroonie directly and the hub only prints.'],
+                ['Switch it on or off', 'Store tech → Venue hub: Hub first, then Save. It is on as standard once a hub is linked. Off, every device uses Macaroonie directly and the hub only prints.'],
                 ['What devices need', 'The Macaroonie Android app (version 1.3 or later) on each till, kiosk, kitchen screen and menu screen. A device in a web browser can\'t reach the hub (browsers block it from a secure page) and simply keeps using Macaroonie.'],
                 ['How to tell it is working', 'The till\'s dot at the top says Live · venue hub, or Venue hub · internet down (still green). The kitchen screen\'s bar says the same. On the till, Settings shows the hub\'s address. In Store tech, the hub\'s row says how many devices use it and whether everything has gone to Macaroonie.'],
                 ['What needs the internet', 'Card machine payments and refunds, loyalty rewards, receipts by email or QR code, online and GloriaFood orders, and changes made in the admin (a new price, a new PIN) until the hub picks them up (within half a minute).'],

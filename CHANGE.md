@@ -5,6 +5,16 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-30 — The venue hub gets its own page]
+
+- Store tech has a new **Venue hub** page, just before Printers in the main menu: link a hub, its state, version and updates, the USB printers plugged into it (with **Add it**), the **Hub first** switch and how to set one up. It used to sit at the bottom of the Printers page.
+- The Printers page now lists the printers only, with a line saying which hub prints them and a link to the Venue hub page.
+- The hub's own page and the installers point at Store tech → Venue hub.
+- Migration 219 adds the link to every group's menu (seen by the same roles as Printers).
+- Scoped, not built: running the venue hub on an Android device (`docs/ANDROID_HUB.md`).
+
+---
+
 ## [2026-10-30 — Hub first: the location keeps trading on the venue hub with the internet down]
 
 - At a location with a venue hub, tills, kiosks, kitchen screens and order ready boards now send their orders to the hub on the venue's own network, and the hub sends everything on to Macaroonie. With the internet down the location carries on: tills see each other's orders, kitchen screens get and bump their tickets, order ready boards show numbers, tickets print and the X report adds up. When the internet is back the hub sends everything in order; nothing is lost or counted twice. If the hub is off, devices go straight to Macaroonie.

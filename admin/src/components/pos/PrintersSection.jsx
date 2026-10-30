@@ -3,7 +3,8 @@
 // Store tech > Printers (migration 191): the venue's printers and who prints
 // for them. A network printer (an address on the venue's network) is
 // printed by the venue hub, a small program on a mini PC by the printers
-// (hub/, installed by one command, linked by the code it shows). A USB
+// (hub/; installed, linked and watched on its own page, Store tech > Venue
+// hub, HubSection.jsx). A USB
 // printer plugged into the hub's own computer is printed by the hub too
 // (migration 195: connection 'device', device_id = the hub, local_id = which
 // of the printers it found). A printer plugged into a till, kitchen screen
@@ -13,12 +14,12 @@
 // receipt printer (Tills > Edit), or print in the device's own browser.
 
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Plus, Loader2, Pencil, Server, RotateCcw, Printer, Copy, Check, Download, Usb, ExternalLink } from 'lucide-react'
+import { Plus, Loader2, Pencil, Server, RotateCcw, Printer, Usb, ChevronRight, Check } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { Section, Modal, Field, inputCls, ErrorNote, ConfirmDelete, Segmented, Btn, NumberBox, Toggle, ago } from './shared'
-import { ShownCodeField, LinkDeviceModal, LinkDeviceButton, linkShownCode, codeReady, status, ReusePick, defaultReuse, reuseLabel, RemovedDevices } from './TillsSection'
 
 const KINDS = [
   { value: 'station', label: 'Kitchen / bar' },
@@ -34,13 +35,13 @@ const DEVICE_KINDS = { terminal: 'Till', kds: 'Kitchen screen', kiosk: 'Kiosk' }
 
 /** The devices a printer can be plugged into (the hub has its own option). */
 const plugDevices = setup => setup.devices.filter(d => !d.revoked_at && DEVICE_KINDS[d.kind])
-const liveHubs = setup => setup.devices.filter(d => d.kind === 'hub' && !d.revoked_at)
+export const liveHubs = setup => setup.devices.filter(d => d.kind === 'hub' && !d.revoked_at)
 /** Is this printer plugged into a venue hub's computer? */
 export const onHub = (p, setup) => p.connection === 'device' && setup.devices.find(d => d.id === p.device_id)?.kind === 'hub'
 /** The hub a new USB printer starts on: one that found USB printers, else the first. */
 const defaultHub = hubs => (hubs.find(h => h.info?.local_printers?.length) || hubs[0])?.id || ''
 /** The hub has been heard from in the last few minutes. */
-const hubOnline = d => !!d?.paired && !!d.last_seen_at && Date.now() - new Date(d.last_seen_at).getTime() < 5 * 60_000
+export const hubOnline = d => !!d?.paired && !!d.last_seen_at && Date.now() - new Date(d.last_seen_at).getTime() < 5 * 60_000
 
 /** What we know about a printer, in a few words: [text, tone]. */
 export function printerState(p, setup) {
@@ -60,7 +61,7 @@ export function printerState(p, setup) {
   }
   const hubs = liveHubs(setup)
   if (!p.host) return ['Type its address on the network', 'warn']
-  if (!hubs.length) return ['Waiting for a venue hub: link one below', 'warn']
+  if (!hubs.length) return ['Waiting for a venue hub: link one on the Venue hub page', 'warn']
   return hubPrinterState(p)
 }
 
@@ -76,9 +77,9 @@ function hubPrinterState(p) {
   return ['Ready' + when, 'ok']
 }
 
-const TONE = { ok: 'text-green-700', warn: 'text-amber-700', bad: 'text-red-700', muted: 'text-muted-foreground' }
+export const TONE = { ok: 'text-green-700', warn: 'text-amber-700', bad: 'text-red-700', muted: 'text-muted-foreground' }
 
-function PrinterModal({ venueId, setup, printer, preset, onClose }) {
+export function PrinterModal({ venueId, setup, printer, preset, onClose }) {
   const api = useApi()
   const qc = useQueryClient()
   const hubs = liveHubs(setup)
@@ -129,7 +130,7 @@ function PrinterModal({ venueId, setup, printer, preset, onClose }) {
       </Field>
       {onNetwork && (
         <>
-          <p className="text-xs text-muted-foreground">An Epson (or other ESC/POS) printer with a network cable or Wi-Fi. The venue hub prints to it: link one under Venue hub.</p>
+          <p className="text-xs text-muted-foreground">An Epson (or other ESC/POS) printer with a network cable or Wi-Fi. The venue hub prints to it: link one on the Venue hub page (Store tech).</p>
           <div className="flex flex-wrap gap-4">
             <Field label="IP address" hint="Give the printer a fixed address on the router.">
               <input className={cn(inputCls, 'w-48')} value={form.host} maxLength={120} onChange={e => set({ host: e.target.value })} placeholder="192.168.1.50" inputMode="decimal" data-testid="printer-host" />
@@ -174,7 +175,7 @@ function PrinterModal({ venueId, setup, printer, preset, onClose }) {
 /** Which hub, and which of the USB printers it found (from its last report). */
 function HubPrinterPick({ setup, hubs, hubId, localId, selfId, onHub: pickHub, onPick }) {
   const hub = hubs.find(h => h.id === hubId)
-  if (!hubs.length) return <p className="text-sm text-amber-700">Link a venue hub first (Venue hub, below), then plug the printer into its computer.</p>
+  if (!hubs.length) return <p className="text-sm text-amber-700">Link a venue hub first (Store tech → Venue hub), then plug the printer into its computer.</p>
   const found = hub?.info?.local_printers || []
   const missing = localId && !found.some(p => p.id === localId)
   const used = new Map(setup.printers.filter(p => p.id !== selfId && onHub(p, setup) && p.device_id === hubId).map(p => [p.local_id, p.name]))
@@ -257,227 +258,9 @@ function TicketsModal({ venueId, printer, canManage, onClose }) {
   )
 }
 
-function HubModal({ venueId, setup, hub, onClose }) {
-  const api = useApi()
-  const qc = useQueryClient()
-  const [code, setCode] = useState('')
-  const [reuseId, setReuseId] = useState(() => hub ? null : defaultReuse(setup, 'hub'))
-  const [name, setName] = useState(hub?.name || 'Venue hub')
-  const [autoUpdate, setAutoUpdate] = useState(hub ? hub.settings?.auto_update !== false : true)
-  const refresh = () => qc.invalidateQueries({ queryKey: ['pos-setup', venueId] })
-  const save = useMutation({
-    mutationFn: () => hub
-      ? api.patch(`/pos/devices/${hub.id}`, { name: name.trim(), settings: { ...(hub.settings || {}), auto_update: autoUpdate } })
-      : linkShownCode(api, venueId, 'hub', code, reuseId ? { device_id: reuseId } : { name: name.trim(), settings: { auto_update: autoUpdate } }),
-    onSuccess: () => { refresh(); onClose() },
-  })
-  const remove = useMutation({ mutationFn: () => api.delete(`/pos/devices/${hub.id}`), onSuccess: () => { refresh(); onClose() } })
-  return (
-    <Modal title={hub ? 'Edit ' + hub.name : 'Link a venue hub'} onClose={onClose}
-      footer={<>
-        <Btn variant="primary" className="flex-1" disabled={(!reuseId && !name.trim()) || (!hub && !codeReady(code)) || save.isPending} onClick={() => save.mutate()} data-testid="hub-save">
-          {save.isPending && <Loader2 className="w-4 h-4 animate-spin" />} {hub ? 'Save' : reuseId ? reuseLabel(setup, reuseId) : 'Link the hub'}
-        </Btn>
-        {hub && <ConfirmDelete label="Remove hub" confirmLabel="Yes, remove" onConfirm={() => remove.mutate()} disabled={remove.isPending} />}
-      </>}>
-      {!hub && <ShownCodeField setup={setup} kind="hub" value={code} onChange={setCode} autoFocus />}
-      {!hub && <p className="text-xs text-muted-foreground">The code shows when the installer finishes, and on the hub's own page (http://&lt;its address&gt;:9180) with a QR code for the installer app.</p>}
-      {!hub && <ReusePick setup={setup} kind="hub" value={reuseId} onChange={setReuseId} />}
-      {!reuseId && <>
-        <Field label="Name"><input className={inputCls} value={name} maxLength={60} onChange={e => setName(e.target.value)} data-testid="hub-name" /></Field>
-        <Toggle label="Update by itself" hint="It installs a new version at a quiet moment (nothing printing), and goes back to the one before if the new one doesn't run. Off: it waits for Update now." checked={autoUpdate} onChange={setAutoUpdate} />
-      </>}
-      <ErrorNote error={save.error || remove.error} />
-    </Modal>
-  )
-}
-
-/** The command that installs (or updates) the hub on a mini PC, with Copy. */
-/** A copy button that says Copied for two seconds. */
-function CopyButton({ text, title, testid }) {
-  const [copied, setCopied] = useState(false)
-  const copy = async () => {
-    try { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2000) } catch { /* the text is on screen to copy by hand */ }
-  }
-  return <Btn onClick={copy} title={title} data-testid={testid}>{copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}</Btn>
-}
-
-function InstallCommands({ setup }) {
-  const api = (setup.device_urls?.terminal || setup.till_url || '').replace(/\/+$/, '')
-  const page = api + '/hub'
-  const [os, setOs] = useState('windows')
-  const cmd = os === 'linux'
-    ? `curl -fsSL ${api}/pos-api/hub/install.sh | sudo sh`
-    : `irm ${api}/pos-api/hub/install.ps1 | iex`
-  const link = 'inline-flex items-center gap-1.5 min-h-[40px] px-3 rounded-lg border text-sm hover:bg-accent touch-manipulation'
-  return (
-    <div className="rounded-xl border p-3 space-y-3" data-testid="hub-install">
-      <div className="flex items-center gap-3">
-        <Download className="w-4 h-4 shrink-0" />
-        <p className="text-sm font-medium flex-1">Set up a hub on a mini PC</p>
-      </div>
-      <div className="space-y-1.5">
-        <p className="text-xs text-muted-foreground">On the mini PC, with the internet on, open this address in its browser and download the installer:</p>
-        <div className="flex items-stretch gap-2">
-          <code className="flex-1 min-w-0 rounded-lg bg-muted px-3 py-2 text-sm font-mono font-semibold break-all select-all" data-testid="hub-install-page">{page.replace(/^https?:\/\//, '')}</code>
-          <CopyButton text={page} title="Copy the address" testid="hub-install-page-copy" />
-        </div>
-        <p className="text-xs text-muted-foreground flex flex-wrap items-center gap-2">
-          <span>On the mini PC already?</span>
-          <a className={link} href={api + '/pos-api/hub/setup.cmd'} download data-testid="hub-download-windows"><Download className="w-4 h-4" /> Windows installer</a>
-          <a className={link} href={api + '/pos-api/hub/setup.sh'} download data-testid="hub-download-linux"><Download className="w-4 h-4" /> Linux installer</a>
-        </p>
-      </div>
-      <details className="group">
-        <summary className="text-xs text-muted-foreground cursor-pointer touch-manipulation min-h-[32px] flex items-center">Or run a command</summary>
-        <div className="space-y-2 pt-1">
-          <Segmented value={os} options={[{ value: 'windows', label: 'Windows' }, { value: 'linux', label: 'Linux' }]} onChange={setOs} />
-          <p className="text-xs text-muted-foreground">
-            {os === 'linux'
-              ? 'On the mini PC (Ubuntu or Debian), open a terminal and run:'
-              : 'On the mini PC (Windows 10 or 11), open PowerShell as administrator and run:'}
-          </p>
-          <div className="flex items-stretch gap-2">
-            <code className="flex-1 min-w-0 rounded-lg bg-muted px-3 py-2 text-xs font-mono break-all select-all" data-testid="hub-install-command">{cmd}</code>
-            <CopyButton text={cmd} title="Copy the command" testid="hub-install-copy" />
-          </div>
-        </div>
-      </details>
-      <p className="text-xs text-muted-foreground">
-        It installs the hub as a service that starts with the computer, then shows a code: link it here with Link a hub.
-        Running it again updates the hub and keeps its link. Help → Till → Venue hub has the details.
-      </p>
-    </div>
-  )
-}
-
-/** A hub's version and updates, in words: [text, tone]. */
-function updateState(d, latest) {
-  const u = d.info?.update || {}
-  if (!d.app_version) return ['Version not known yet', 'muted']
-  if (!latest || d.app_version === latest) return ['Up to date (' + d.app_version + ')', 'ok']
-  if (u.updates === 'manual') return ['Version ' + d.app_version + ' · ' + latest + ' is out: this copy updates by hand (install it again)', 'warn']
-  if (u.state === 'failed') return ['Update to ' + latest + ' failed: ' + (u.error || 'it tries again in half an hour'), 'bad']
-  if (u.state === 'held_back') return ['Went back to ' + d.app_version + ': ' + latest + ' kept stopping. Update now tries it again', 'bad']
-  if (d.update_requested_at) return ['Updating to ' + latest + ' at the next quiet moment', 'warn']
-  if (d.settings?.auto_update === false) return ['Version ' + d.app_version + ' · ' + latest + ' is out', 'warn']
-  return ['Version ' + d.app_version + ' · updating to ' + latest + ' at the next quiet moment', 'warn']
-}
-
-function HubRow({ venueId, setup, hub: d, canManage, onEdit, onLink, onAddPrinter }) {
-  const api = useApi()
-  const qc = useQueryClient()
-  const st = status(d)
-  const info = d.info || {}
-  const latest = setup.hub_release?.version || null
-  const [utext, utone] = updateState(d, latest)
-  const update = useMutation({
-    mutationFn: () => api.post(`/pos/devices/${d.id}/update`, {}),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-setup', venueId] }),
-  })
-  const found = info.local_printers || []
-  const setUp = new Set(setup.printers.filter(p => onHub(p, setup) && p.device_id === d.id).map(p => p.local_id))
-  const pages = info.status_port ? (info.addresses || []).map(a => `http://${a}:${info.status_port}`) : []
-  const canUpdate = latest && d.app_version && d.app_version !== latest && info.update?.updates !== 'manual' && !d.update_requested_at
-  return (
-    <div className="px-3 py-2 space-y-2" data-testid="hub-row">
-      <div className="flex flex-wrap items-center gap-3">
-        <span className="w-11 h-11 rounded-lg bg-muted flex items-center justify-center text-xs font-semibold shrink-0">{d.short_code}</span>
-        <div className="flex-1 min-w-[160px]">
-          <p className="text-sm font-medium">{d.name}</p>
-          <p className={cn('text-xs', st.tone === 'ok' ? 'text-green-700' : 'text-amber-700')}>{st.text}</p>
-          <p className={cn('text-xs', TONE[utone])} data-testid="hub-update">{utext}</p>
-        </div>
-        {canManage && canUpdate && (
-          <Btn onClick={() => update.mutate()} disabled={update.isPending} data-testid="hub-update-now">
-            {update.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />} Update now
-          </Btn>
-        )}
-        <LinkDeviceButton device={d} onClick={onLink} />
-        <Btn onClick={onEdit} title={'Edit ' + d.name}><Pencil className="w-4 h-4" /></Btn>
-      </div>
-      {d.info && (
-        <div className="pl-14 space-y-1 text-xs text-muted-foreground" data-testid="hub-info">
-          <p>{[info.hostname, info.os, info.arch].filter(Boolean).join(' · ')}{d.info_at ? ' · reported ' + ago(d.info_at) : ''}</p>
-          {!!pages.length && (
-            <p className="flex flex-wrap gap-x-3 gap-y-1">
-              <span>Its page (on the venue's network):</span>
-              {pages.map(u => <a key={u} href={u} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 underline text-foreground" data-testid="hub-page">{u.replace('http://', '')}<ExternalLink className="w-3 h-3" /></a>)}
-            </p>
-          )}
-          {info.mirror && <HubFirstLine m={info.mirror} hubFirst={setup.settings?.hub_first !== false} />}
-          <p>{found.length ? 'USB printers plugged into it:' : 'No USB printers plugged into it.'}</p>
-          {found.map(p => (
-            <div key={p.id} className="flex flex-wrap items-center gap-2" data-testid="hub-found-printer">
-              <Usb className="w-3.5 h-3.5 shrink-0" />
-              <span className="text-foreground">{p.name}</span>
-              {setUp.has(p.id)
-                ? <span className="text-green-700">set up</span>
-                : canManage && <button type="button" onClick={() => onAddPrinter({ connection: 'hub_usb', device_id: d.id, local_id: p.id, name: p.name })}
-                    className="h-9 px-3 rounded-lg border text-xs font-medium bg-background hover:bg-muted touch-manipulation" data-testid="hub-found-add">Add it</button>}
-            </div>
-          ))}
-        </div>
-      )}
-      <ErrorNote error={update.error} />
-    </div>
-  )
-}
-
-// Hub first (migration 218, docs/POS.md section 11): what the hub's copy of
-// the venue is doing, from its last report.
-function HubFirstLine({ m, hubFirst }) {
-  // The switch wins: the hub's report may be up to a minute old.
-  if (!hubFirst) return <p data-testid="hub-first-state">Hub first is off: devices send to the cloud, the hub only prints.</p>
-  if (!m.on) return <p data-testid="hub-first-state">Hub first: standing by (another hub takes the venue&apos;s events, or it hasn&apos;t loaded the venue yet).</p>
-  const parts = [
-    m.devices + (m.devices === 1 ? ' device' : ' devices') + ' using it',
-    m.to_send ? m.to_send + ' changes waiting to go to the cloud' : 'everything sent to the cloud',
-  ]
-  if (m.last_upload_at) parts.push('last sent ' + ago(m.last_upload_at))
-  return (
-    <>
-      <p data-testid="hub-first-state" className="text-foreground">Hub first: takes the venue&apos;s events · {parts.join(' · ')}</p>
-      {m.conflicts > 0 && <p className="text-red-700" data-testid="hub-first-conflicts">{m.conflicts} change{m.conflicts === 1 ? '' : 's'} the cloud refused: the till that made {m.conflicts === 1 ? 'it' : 'them'} lists {m.conflicts === 1 ? 'it' : 'them'} under Not saved.</p>}
-      {m.error && <p className="text-amber-700">Last problem: {m.error}</p>}
-    </>
-  )
-}
-
-/** The location's Hub first switch, with its own Save. */
-function HubFirstSetting({ venueId, setup, canManage }) {
-  const api = useApi()
-  const qc = useQueryClient()
-  const saved = setup.settings?.hub_first !== false
-  const [on, setOn] = useState(saved)
-  const save = useMutation({
-    mutationFn: () => api.patch(`/pos/venues/${venueId}/settings`, { hub_first: on }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-setup', venueId] }),
-  })
-  return (
-    <div className="rounded-xl border p-3 space-y-2" data-testid="hub-first">
-      <Toggle checked={on} disabled={!canManage} onChange={setOn}
-        label="Hub first: tills, kiosks, kitchen screens and order ready boards use the hub"
-        hint="They send their orders to the hub on the venue network and the hub sends everything to the cloud, so the location keeps trading, printing and sharing orders between devices with the internet down. Needs the Macaroonie Android app on the devices (a browser can't call the hub from a secure page). Off: every device uses the cloud and the hub only prints." />
-      {canManage && on !== saved && (
-        <div className="flex gap-2">
-          <Btn variant="primary" onClick={() => save.mutate()} disabled={save.isPending} data-testid="hub-first-save">
-            {save.isPending && <Loader2 className="w-4 h-4 animate-spin" />} Save
-          </Btn>
-          <Btn onClick={() => setOn(saved)}>Cancel</Btn>
-        </div>
-      )}
-      <ErrorNote error={save.error} />
-    </div>
-  )
-}
-
 export default function PrintersSection({ venueId, setup, canManage }) {
   const [editing, setEditing] = useState(null)
-  const [preset, setPreset] = useState(null)
   const [tickets, setTickets] = useState(null)
-  const [hubEditing, setHubEditing] = useState(null)
-  const [linking, setLinking] = useState(null)
   const hubs = liveHubs(setup)
   const needsHub = setup.printers.some(p => p.is_active && p.connection !== 'device')
   const where = p => {
@@ -486,72 +269,67 @@ export default function PrintersSection({ venueId, setup, canManage }) {
     return p.host ? p.host + ':' + p.port : 'no address yet'
   }
   return (
-    <>
-      <Section title="Printers"
-        hint="Kitchen tickets print where the kitchen flow sends dishes: add a Kitchen printer box in Kitchen screens > Kitchen flow. Bills and receipts print on each till's receipt printer (Tills > Edit), or in the till's own browser when it has none."
-        actions={<Btn variant="primary" onClick={() => { setPreset(null); setEditing('new') }} data-testid="printer-add"><Plus className="w-4 h-4" /> Add</Btn>}>
-        {!setup.printers.length
-          ? <p className="text-sm text-muted-foreground">No printers yet.</p>
-          : (
-            <div className="rounded-xl border divide-y">
-              {setup.printers.map(p => {
-                const [text, tone] = printerState(p, setup)
-                const jobs = p.jobs || { waiting: 0, failed: 0 }
-                return (
-                  <div key={p.id} className="flex flex-wrap items-center gap-3 px-3 py-2" data-testid="printer-row">
-                    <span className="w-11 h-11 rounded-lg bg-muted flex items-center justify-center shrink-0">{onHub(p, setup) ? <Usb className="w-5 h-5" /> : <Printer className="w-5 h-5" />}</span>
-                    <div className="flex-1 min-w-[160px]">
-                      <p className={cn('text-sm font-medium', !p.is_active && 'line-through text-muted-foreground')}>{p.name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {p.kind === 'receipt' ? 'Receipts' : 'Kitchen / bar'} · {where(p)} · {p.columns} characters
-                        {p.backup_printer_id && ' · backup ' + (setup.printers.find(x => x.id === p.backup_printer_id)?.name || '')}
-                      </p>
-                      <p className={cn('text-xs', TONE[tone])} data-testid="printer-state">{text}</p>
-                      {(jobs.waiting > 0 || jobs.failed > 0) && (
-                        <p className="text-xs" data-testid="printer-jobs">
-                          {jobs.waiting > 0 && <span className="text-amber-700">{jobs.waiting} waiting to print</span>}
-                          {jobs.waiting > 0 && jobs.failed > 0 && ' · '}
-                          {jobs.failed > 0 && <span className="text-red-700">{jobs.failed} didn&apos;t print</span>}
-                        </p>
-                      )}
-                    </div>
-                    {/* A span: the Store tech page is a disabled fieldset for View users, who may still look. */}
-                    <span role="button" tabIndex={0} onClick={() => setTickets(p)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setTickets(p) } }}
-                      className="h-12 px-3 rounded-lg border text-sm font-medium inline-flex items-center touch-manipulation cursor-pointer hover:bg-accent"
-                      title={'Tickets for ' + p.name} data-testid="printer-tickets-open">Tickets</span>
-                    <Btn onClick={() => { setPreset(null); setEditing(p) }} title={'Edit ' + p.name}><Pencil className="w-4 h-4" /></Btn>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        {editing && <PrinterModal venueId={venueId} setup={setup} printer={editing === 'new' ? null : editing} preset={preset} onClose={() => { setEditing(null); setPreset(null) }} />}
-        {tickets && <TicketsModal venueId={venueId} printer={tickets} canManage={canManage} onClose={() => setTickets(null)} />}
-      </Section>
-      <Section title="Venue hub"
-        hint="A small program on a mini PC on the venue's network, next to the printers. It prints to the network printers and the USB printers plugged into it, tells you how they are, and updates itself. With Hub first on, the location's devices also trade through it, so the venue keeps going with the internet down. Install it with the command below; it shows a six-letter code: link it here."
-        actions={<Btn variant="primary" onClick={() => setHubEditing('new')} data-testid="hub-add"><Plus className="w-4 h-4" /> Link a hub</Btn>}>
-        {!hubs.length && (
-          <div className={cn('text-sm flex items-start gap-3', needsHub ? 'text-amber-700' : 'text-muted-foreground')}>
-            <Server className="w-5 h-5 shrink-0 mt-0.5" />
-            <p>{needsHub ? 'Network printers print only through a venue hub: tickets for them wait until one is linked.' : 'No hub yet. Needed for network printers, and for USB printers by a mini PC.'}</p>
-          </div>
-        )}
-        {!!hubs.length && (
+    <Section title="Printers"
+      hint="Kitchen tickets print where the kitchen flow sends dishes: add a Kitchen printer box in Kitchen screens > Kitchen flow. Bills and receipts print on each till's receipt printer (Tills > Edit), or in the till's own browser when it has none."
+      actions={<Btn variant="primary" onClick={() => setEditing('new')} data-testid="printer-add"><Plus className="w-4 h-4" /> Add</Btn>}>
+      {!setup.printers.length
+        ? <p className="text-sm text-muted-foreground">No printers yet.</p>
+        : (
           <div className="rounded-xl border divide-y">
-            {hubs.map(d => (
-              <HubRow key={d.id} venueId={venueId} setup={setup} hub={d} canManage={canManage}
-                onEdit={() => setHubEditing(d)} onLink={() => setLinking(d)}
-                onAddPrinter={p => { setPreset(p); setEditing('new') }} />
-            ))}
+            {setup.printers.map(p => {
+              const [text, tone] = printerState(p, setup)
+              const jobs = p.jobs || { waiting: 0, failed: 0 }
+              return (
+                <div key={p.id} className="flex flex-wrap items-center gap-3 px-3 py-2" data-testid="printer-row">
+                  <span className="w-11 h-11 rounded-lg bg-muted flex items-center justify-center shrink-0">{onHub(p, setup) ? <Usb className="w-5 h-5" /> : <Printer className="w-5 h-5" />}</span>
+                  <div className="flex-1 min-w-[160px]">
+                    <p className={cn('text-sm font-medium', !p.is_active && 'line-through text-muted-foreground')}>{p.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {p.kind === 'receipt' ? 'Receipts' : 'Kitchen / bar'} · {where(p)} · {p.columns} characters
+                      {p.backup_printer_id && ' · backup ' + (setup.printers.find(x => x.id === p.backup_printer_id)?.name || '')}
+                    </p>
+                    <p className={cn('text-xs', TONE[tone])} data-testid="printer-state">{text}</p>
+                    {(jobs.waiting > 0 || jobs.failed > 0) && (
+                      <p className="text-xs" data-testid="printer-jobs">
+                        {jobs.waiting > 0 && <span className="text-amber-700">{jobs.waiting} waiting to print</span>}
+                        {jobs.waiting > 0 && jobs.failed > 0 && ' · '}
+                        {jobs.failed > 0 && <span className="text-red-700">{jobs.failed} didn&apos;t print</span>}
+                      </p>
+                    )}
+                  </div>
+                  {/* A span: the Store tech page is a disabled fieldset for View users, who may still look. */}
+                  <span role="button" tabIndex={0} onClick={() => setTickets(p)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setTickets(p) } }}
+                    className="h-12 px-3 rounded-lg border text-sm font-medium inline-flex items-center touch-manipulation cursor-pointer hover:bg-accent"
+                    title={'Tickets for ' + p.name} data-testid="printer-tickets-open">Tickets</span>
+                  <Btn onClick={() => setEditing(p)} title={'Edit ' + p.name}><Pencil className="w-4 h-4" /></Btn>
+                </div>
+              )
+            })}
           </div>
         )}
-        <HubFirstSetting key={String(setup.settings?.hub_first !== false)} venueId={venueId} setup={setup} canManage={canManage} />
-        <RemovedDevices devices={setup.devices.filter(d => d.kind === 'hub' && d.revoked_at)} onBringBack={setLinking} />
-        <InstallCommands setup={setup} />
-        {hubEditing && <HubModal venueId={venueId} setup={setup} hub={hubEditing === 'new' ? null : hubEditing} onClose={() => setHubEditing(null)} />}
-        {linking && <LinkDeviceModal venueId={venueId} setup={setup} device={linking} onClose={() => setLinking(null)} />}
-      </Section>
-    </>
+      <HubNote hubs={hubs} needsHub={needsHub} />
+      {editing && <PrinterModal venueId={venueId} setup={setup} printer={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
+      {tickets && <TicketsModal venueId={venueId} printer={tickets} canManage={canManage} onClose={() => setTickets(null)} />}
+    </Section>
+  )
+}
+
+/** Who prints the network and USB-on-hub printers, with a link to the Venue hub page. */
+function HubNote({ hubs, needsHub }) {
+  const online = hubs.filter(hubOnline)
+  const text = !hubs.length
+    ? (needsHub ? 'Network printers print only through a venue hub: tickets for them wait until one is linked.' : 'Network printers, and USB printers by a mini PC, are printed by a venue hub.')
+    : hubs.length === 1
+      ? 'Network printers are printed by ' + hubs[0].name + (online.length ? '.' : ', which is offline.')
+      : 'Network printers are printed by the venue hub (' + online.length + ' of ' + hubs.length + ' online).'
+  const warn = (!hubs.length && needsHub) || (hubs.length && !online.length)
+  // A link, not a button: the page is a disabled fieldset for View users, who may still go there.
+  return (
+    <Link to="/pos/hub" data-testid="printers-hub-link"
+      className={cn('flex items-center gap-3 rounded-xl border p-3 min-h-[48px] text-sm hover:bg-accent touch-manipulation', warn ? 'text-amber-700' : 'text-muted-foreground')}>
+      <Server className="w-5 h-5 shrink-0" />
+      <span className="flex-1">{text}</span>
+      <span className="font-medium text-foreground shrink-0 inline-flex items-center">Venue hub <ChevronRight className="w-4 h-4" /></span>
+    </Link>
   )
 }
