@@ -45,7 +45,7 @@ import { withTenant, systemSql } from '../config/db.js'
 import { broadcast } from '../config/ws.js'
 import { httpError } from '../middleware/error.js'
 import { ulid } from '../../../shared/pos/ids.js'
-import { onlineOrderId, gloriaFoodOrderId, stationSettings, boardNumbers, STALE_HOURS, BUMP_KINDS, resolveSharedFlow } from '../../../shared/pos/kitchen.js'
+import { onlineOrderId, gloriaFoodOrderId, stationSettings, boardFeed, STALE_HOURS, BUMP_KINDS, resolveSharedFlow } from '../../../shared/pos/kitchen.js'
 import { typeLabel as gfTypeLabel, TYPE_LABELS as GF_TYPE_LABELS } from '../../../shared/gloriafood.js'
 import { createHash } from 'node:crypto'
 import { makeLink, readLink } from './previewLinks.js'
@@ -738,12 +738,5 @@ export async function boardFor(tenantId, venueId, { clearMins = 10 } = {}) {
     return { rows, cfg: { stations: by(stations, stationView) } }
   })
   const orders = Object.fromEntries(rows.map(r => [r.state.id, r.state]))
-  const now = new Date().toISOString()
-  const out = boardNumbers(orders, now, { clearMins, max: 40, cfg })
-  out.boards = {}
-  for (const s of Object.values(cfg.stations)) {
-    if (s.kind !== 'board') continue
-    out.boards[s.name.trim().toLowerCase()] = boardNumbers(orders, now, { clearMins, max: 40, boardId: s.id, cfg })
-  }
-  return out
+  return boardFeed(orders, new Date().toISOString(), { clearMins, max: 40, cfg })
 }

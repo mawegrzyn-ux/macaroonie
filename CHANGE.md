@@ -5,6 +5,17 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-30 — Hub first: the location keeps trading on the venue hub with the internet down]
+
+- At a location with a venue hub, tills, kiosks, kitchen screens and order ready boards now send their orders to the hub on the venue's own network, and the hub sends everything on to Macaroonie. With the internet down the location carries on: tills see each other's orders, kitchen screens get and bump their tickets, order ready boards show numbers, tickets print and the X report adds up. When the internet is back the hub sends everything in order; nothing is lost or counted twice. If the hub is off, devices go straight to Macaroonie.
+- Store tech → Printers → Venue hub: a **Hub first** switch (on as standard) with its own Save, and on each hub's row how many devices use it, whether everything has reached Macaroonie and when it last sent, plus any change Macaroonie refused.
+- The till's status dot says **Live · venue hub**, or **Venue hub · internet down** (green). The kitchen screen's bar, the till's settings and the kiosk's staff panel say the same; a menu screen's settings say where its order numbers come from.
+- Needs the Macaroonie Android app 1.3 on the devices (it lets the app's pages reach the hub on the venue network); a device in a browser keeps using Macaroonie directly.
+- The hub (version 1.2.0) serves the venue network on port 9181 (the installers open it), keeps its copy of the venue on disk so a restart loses nothing, and reports what it is doing to Store tech as soon as it starts or stops.
+- Migration 218.
+
+---
+
 ## [2026-10-29 — Every till and kiosk numbers its own checks and orders]
 
 - Every till and kiosk now numbers its own checks and counter orders, so two devices never give out the same number, even when one is working without the internet. A check is numbered by the till that opened it: **T2-47** is till T2's 47th check of the trading day. Counter orders get their order number from the till's or kiosk's own range (the first till 1-99, the next 100-199, the kiosk 300-399...), going back to the start after the last one.

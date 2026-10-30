@@ -324,8 +324,10 @@ async function fetchConfig() {
       save(KEYS.config, r)
       if (maybeReloadForNewPlayer()) return
       applyConfig()
-    } else if (!stage.firstChild && config) {
-      applyConfig()
+    } else {
+      // The venue hub (hub first) is outside the version: it may move.
+      if (config && JSON.stringify(config.hub || null) !== JSON.stringify(r.hub || null)) { config.hub = r.hub || null; save(KEYS.config, config) }
+      if (!stage.firstChild && config) applyConfig()
     }
     lastError = null
   } catch (e) {
@@ -434,12 +436,51 @@ function cacheVideos() {
   navigator.serviceWorker.ready.then(reg => reg.active?.postMessage({ type: 'videos', urls })).catch(() => {})
 }
 
+// Hub first (docs/POS.md section 11): at a location with a venue hub the
+// numbers come from the hub on the venue network, so a board keeps working
+// with the internet down. Plain http, so only inside the Macaroonie Android
+// app (or a player served over http); a hub that doesn't answer is asked
+// again after 30 s, the cloud meanwhile.
+const HUB_TIMEOUT_MS = 2500
+const HUB_RETRY_MS = 30_000
+const hubState = { key: null, url: null, ok: null, retryAt: 0 }
+function hubCfg() {
+  const h = config?.hub
+  if (!h?.lan_key || !h?.urls?.length || !device?.id) return null
+  if (!(IN_APP || location.protocol === 'http:')) return null
+  const key = h.lan_key + '|' + h.urls.join(',')
+  if (hubState.key !== key) Object.assign(hubState, { key, url: null, ok: null, retryAt: 0 })
+  return h
+}
+async function hubOrders(h) {
+  const urls = hubState.url ? [hubState.url, ...h.urls.filter(u => u !== hubState.url)] : h.urls
+  for (const base of urls) {
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), HUB_TIMEOUT_MS)
+    try {
+      const res = await fetch(base + '/screen-api/orders', { headers: { Accept: 'application/json', Authorization: 'Lan ' + device.id + '.' + h.lan_key }, cache: 'no-store', signal: ctrl.signal })
+      if (!res.ok) break   // switched off (409) or not one of its screens (401): the cloud
+      const data = await res.json()
+      Object.assign(hubState, { url: base, ok: true })
+      return data
+    } catch { /* this address doesn't answer: the next one */ } finally {
+      clearTimeout(timer)
+    }
+  }
+  Object.assign(hubState, { ok: false, retryAt: Date.now() + HUB_RETRY_MS })
+  return null
+}
+
 // The order numbers (preparing / ready) the kitchen screens keep.
 async function fetchOrders() {
   if (!device || !config?.needs_orders) return
   try {
-    const r = await api('/screen-api/orders', { auth: screenAuth() })
-    setServerTime(r.server_time)
+    const h = hubCfg()
+    let r = h && Date.now() >= hubState.retryAt ? await hubOrders(h) : null
+    if (!r) {
+      r = await api('/screen-api/orders', { auth: screenAuth() })
+      setServerTime(r.server_time)
+    }
     const next = r.orders || { preparing: [], ready: [] }
     const changed = JSON.stringify(next) !== JSON.stringify(orders)
     // Numbers that changed status, for the blocks' change animation; drawn
@@ -798,6 +839,7 @@ function openSettings(confirm = false) {
     ['Venue', config?.venue?.name || ''],
     ['Showing', showing?.name || 'Nothing'],
     ['Connection', online ? 'Online' : 'Offline'],
+    ...(hubCfg() && config?.needs_orders ? [['Order numbers', hubState.ok ? 'from the venue hub' : hubState.ok === false ? 'from the cloud (the venue hub isn\'t answering)' : 'from the venue hub, when it answers']] : []),
     ['Checks for changes', 'every ' + secsText(pullEvery().screen / 1000) + (config?.needs_orders ? ', order numbers every ' + secsText(pullEvery().board / 1000) : '')],
     ['Player', APP_VERSION],
   ]

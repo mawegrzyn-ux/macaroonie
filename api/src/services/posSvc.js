@@ -134,6 +134,7 @@ export function settingsView(s) {
     kds_gloriafood_lead_mins: s.kds_gloriafood_lead_mins ?? 20,
     kds_colours: normaliseKitchenColours(s.kds_colours),
     pull: pullTimes(s),
+    hub_first: s.hub_first !== false,
   }
 }
 
@@ -501,13 +502,41 @@ export async function loadDayChecks(tx, tenantId, venueId, dayId) {
 // ── Sequencer over Postgres ──────────────────────────────────────
 
 /**
- * A sequencer for one venue. The cloud is the venue's sequencer until a hub
- * is installed (docs/POS.md): every event goes through here, one at a time
- * per venue (advisory lock), each in its own transaction.
+ * What the sequencer decides a venue's events with (shared/pos/sequencer.js
+ * context()): staff and their permissions, the printing and kitchen config,
+ * each device's code. The venue hub gets the same (GET /pos-api/hub/context,
+ * without PIN hashes), so it decides events the way the cloud does.
  */
-export function sequencer(tenantId, venueId, { deviceId = null } = {}) {
+export async function sequencerContext(tx, tenantId, venueId) {
+  const staff = await loadTillStaff(tx, tenantId, venueId)
+  // Self-order kiosks are known by their device id, with the kiosk rules
+  // (shared/pos/checks.js) and no permissions.
+  const devices = await tx`
+    SELECT id, name, kind, short_code, revoked_at FROM pos_devices
+     WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`
+  const kiosks = devices.filter(d => d.kind === 'kiosk' && !d.revoked_at)
+  const print = await printConfig(tx, tenantId, venueId)
+  const settings = print.settings
+  return {
+    staffById: Object.fromEntries([...kiosks.map(kioskStaff), ...staff].map(s => [s.id, s])),
+    print, settings, timezone: print.timezone,
+    kitchen: await loadKitchenConfig(tx, tenantId, venueId),
+    // Each device's code, stamped on the checks it opens (shared/pos/numbers.js).
+    devices: Object.fromEntries(devices.map(d => [d.id, { short_code: d.short_code, kind: d.kind }])),
+  }
+}
+
+/**
+ * A sequencer for one venue: every event goes through here, one at a time
+ * per venue (advisory lock), each in its own transaction. Events a venue hub
+ * decided first come through POST /pos-api/hub/events with `opts` set per
+ * event (docs/POS.md section 11): `hubId` is recorded on the event, and with
+ * `printed` the hub printed its tickets already, so they are saved printed.
+ */
+export function sequencer(tenantId, venueId, { deviceId = null, hubId = null } = {}) {
   let tx = null
   let ctxCache = null
+  const opts = { deviceId, hubId, printed: false }
 
   const store = {
     run: (_venue, fn) => withTenant(tenantId, async t => {
@@ -531,22 +560,7 @@ export function sequencer(tenantId, venueId, { deviceId = null } = {}) {
         ctxCache = { ...ctxCache, kitchen: await loadKitchenConfig(tx, tenantId, venueId) }
       }
       if (ctxCache) return ctxCache
-      const staff = await loadTillStaff(tx, tenantId, venueId)
-      // Self-order kiosks are known by their device id, with the kiosk rules
-      // (shared/pos/checks.js) and no permissions.
-      const devices = await tx`
-        SELECT id, name, kind, short_code, revoked_at FROM pos_devices
-         WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`
-      const kiosks = devices.filter(d => d.kind === 'kiosk' && !d.revoked_at)
-      const print = await printConfig(tx, tenantId, venueId)
-      const settings = print.settings
-      ctxCache = {
-        staffById: Object.fromEntries([...kiosks.map(kioskStaff), ...staff].map(s => [s.id, s])),
-        print, settings, timezone: print.timezone,
-        kitchen: await loadKitchenConfig(tx, tenantId, venueId),
-        // Each device's code, stamped on the checks it opens (shared/pos/numbers.js).
-        devices: Object.fromEntries(devices.map(d => [d.id, { short_code: d.short_code, kind: d.kind }])),
-      }
+      ctxCache = await sequencerContext(tx, tenantId, venueId)
       return ctxCache
     },
     async venueState() {
@@ -578,10 +592,10 @@ export function sequencer(tenantId, venueId, { deviceId = null } = {}) {
     },
     async saveEvent(e) {
       await tx`
-        INSERT INTO pos_events (id, tenant_id, venue_id, seq, day_id, check_id, device_id, staff_id, approved_by, type, payload, assigned, client_at)
+        INSERT INTO pos_events (id, tenant_id, venue_id, seq, day_id, check_id, device_id, staff_id, approved_by, type, payload, assigned, client_at, hub_id)
         VALUES (${e.id}, ${tenantId}, ${venueId}, ${e.seq}, ${e.assigned?.day_id ?? null}, ${e.check_id ?? null},
-                ${e.device_id ?? deviceId}, ${e.staff_id ?? null}, ${e.approved_by ?? null}, ${e.type}, ${tx.json(e.payload || {})},
-                ${tx.json(e.assigned || {})}, ${e.client_at ?? null})`
+                ${e.device_id ?? opts.deviceId}, ${e.staff_id ?? null}, ${e.approved_by ?? null}, ${e.type}, ${tx.json(e.payload || {})},
+                ${tx.json(e.assigned || {})}, ${e.client_at ?? null}, ${opts.hubId})`
     },
     async saveChecks(changed, e) {
       for (const c of Object.values(changed)) await saveCheck(tx, tenantId, venueId, c, e.seq)
@@ -653,11 +667,17 @@ export function sequencer(tenantId, venueId, { deviceId = null } = {}) {
       }
     },
     async saveJobs(jobs, e) {
+      // Printed by the venue hub when it decided the event (it prints at
+      // the venue straight away): kept for the Printers tab's Tickets and
+      // Print again, never collected again.
+      const printed = !!(opts.printed && opts.hubId)
       for (const j of jobs) {
         await tx`
-          INSERT INTO pos_print_jobs (tenant_id, venue_id, printer_id, event_id, check_id, kind, title, ops, station_id, kitchen_order_id)
+          INSERT INTO pos_print_jobs (tenant_id, venue_id, printer_id, event_id, check_id, kind, title, ops, station_id, kitchen_order_id,
+                                      status, claimed_by, printed_at)
           VALUES (${tenantId}, ${venueId}, ${j.printer_id}, ${e.id}, ${j.check_id}, ${j.kind}, ${j.title || null}, ${tx.json(j.ops)},
-                  ${j.station_id || null}, ${j.kitchen_order_id || null})`
+                  ${j.station_id || null}, ${j.kitchen_order_id || null},
+                  ${printed ? 'printed' : 'queued'}, ${printed ? opts.hubId : null}, ${printed ? new Date() : null})`
       }
     },
     // Card machine attempts (shared/pos/cards.js): locked for the event, used once.
@@ -697,10 +717,10 @@ export function sequencer(tenantId, venueId, { deviceId = null } = {}) {
     },
     async saveRejection(e, error, code) {
       await tx`
-        INSERT INTO pos_event_rejections (id, tenant_id, venue_id, check_id, device_id, staff_id, type, payload, client_at, error, code)
-        VALUES (${String(e.id || crypto.randomUUID())}, ${tenantId}, ${venueId}, ${e.check_id ?? null}, ${e.device_id ?? deviceId},
+        INSERT INTO pos_event_rejections (id, tenant_id, venue_id, check_id, device_id, staff_id, type, payload, client_at, error, code, hub_id)
+        VALUES (${String(e.id || crypto.randomUUID())}, ${tenantId}, ${venueId}, ${e.check_id ?? null}, ${e.device_id ?? opts.deviceId},
                 ${/^[0-9a-f-]{36}$/i.test(e.staff_id || '') ? e.staff_id : null}, ${String(e.type || 'unknown')},
-                ${tx.json(e.payload || {})}, ${validTime(e.client_at)}, ${error}, ${code})
+                ${tx.json(e.payload || {})}, ${validTime(e.client_at)}, ${error}, ${code}, ${opts.hubId})
         ON CONFLICT (id) DO NOTHING`
     },
     async saveVenueState(v) {
@@ -721,7 +741,7 @@ export function sequencer(tenantId, venueId, { deviceId = null } = {}) {
       await tx`UPDATE pos_venue_state SET next_z_number = next_z_number + 1 WHERE venue_id = ${venueId} AND tenant_id = ${tenantId}`
     },
   }
-  return createSequencer(store)
+  return { ...createSequencer(store), opts }
 }
 
 function validTime(v) {

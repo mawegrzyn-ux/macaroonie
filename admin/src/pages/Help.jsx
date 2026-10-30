@@ -5473,8 +5473,33 @@ export default function Help() {
             </P>
             <InfoBox type="info">
               Most USB receipt printers (Epson TM-T20, TM-T88, TM-m30, Star, POS-80 and similar) work. On Windows, install the
-              printer&apos;s own driver first; it then appears in the hub&apos;s list by its Windows name. The hub needs the
-              internet: with it down, tickets wait until it is back.
+              printer&apos;s own driver first; it then appears in the hub&apos;s list by its Windows name. With Hub first on
+              (below) the hub keeps printing with the internet down; with it off, tickets wait until the internet is back.
+            </InfoBox>
+
+            <H3>Hub first: keep trading with the internet down</H3>
+            <P>
+              With a venue hub linked, the location&apos;s tills, kiosks, kitchen screens and order ready boards send their
+              orders to the hub over the venue&apos;s own network, and the hub sends everything on to Macaroonie. If the
+              internet goes down the location carries on as normal: the tills still see each other&apos;s orders, the kitchen
+              screens still get their tickets and bump them, the order ready boards still show numbers, tickets still print and
+              the X report still adds up. When the internet is back the hub sends everything it kept, in order, and nothing is
+              lost or counted twice. If the hub itself is switched off, the devices go straight to Macaroonie by themselves.
+            </P>
+            <DataTable
+              head={['What', 'How']}
+              rows={[
+                ['Switch it on or off', 'Store tech → Printers → Venue hub: Hub first, then Save. It is on as standard once a hub is linked. Off, every device uses Macaroonie directly and the hub only prints.'],
+                ['What devices need', 'The Macaroonie Android app (version 1.3 or later) on each till, kiosk, kitchen screen and menu screen. A device in a web browser can\'t reach the hub (browsers block it from a secure page) and simply keeps using Macaroonie.'],
+                ['How to tell it is working', 'The till\'s dot at the top says Live · venue hub, or Venue hub · internet down (still green). The kitchen screen\'s bar says the same. On the till, Settings shows the hub\'s address. In Store tech, the hub\'s row says how many devices use it and whether everything has gone to Macaroonie.'],
+                ['What needs the internet', 'Card machine payments and refunds, loyalty rewards, receipts by email or QR code, online and GloriaFood orders, and changes made in the admin (a new price, a new PIN) until the hub picks them up (within half a minute).'],
+                ['A change Macaroonie refused', 'Rare: two tills changed the same order at once, one through the hub, one straight to Macaroonie. The hub\'s row in Store tech counts them; the till that made the change lists it under Not saved, as for a till that was offline.'],
+              ]}
+            />
+            <InfoBox type="info">
+              Give the hub&apos;s mini PC a fixed address on the router and a network cable, and keep tablets on the same
+              network (not a guest Wi-Fi that keeps devices apart). A second hub at the same location stands by: it takes over
+              if the first hasn&apos;t been seen for 15 minutes.
             </InfoBox>
 
             <H3>Ticket and receipt designs</H3>

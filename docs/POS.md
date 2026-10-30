@@ -745,3 +745,120 @@ and the ConnectSmart Kitchen guide.
 - The design editor has no undo beyond Discard.
 - Tested in Chromium at kiosk sizes (1080 x 1920 and 1920 x 1080); not yet on a real kiosk screen,
   with a real card terminal, or with a screen reader.
+
+## 11. Hub-first locations (migration 218, built 30 Oct 2026)
+
+The user's ask: "would like to rearchitect for hub first if hub present", after asking how a
+cloud-only till keeps working when the hub running the restaurant goes. Step one (per-device
+numbers, section 8.4) came first; this section is step two, built as designed below (11.3 says
+where each piece lives, 11.4 what isn't covered).
+
+### 11.1 The shape
+
+- **One record, the cloud's.** `pos_events` in the cloud stays the one ordered log (`seq`) for a
+  venue. Nothing else may give an event its final place, so there is never a second log to merge
+  by hand, and cloud-only devices (a till on 4G, a kiosk in a browser, online and GloriaFood orders,
+  kitchen events from the server) keep working whether the hub is up or not.
+- **The hub decides first.** At a location whose hub is linked and switched to hub first
+  (`pos_settings.hub_first`, on by default), tills, kiosks, kitchen screens and order ready boards on
+  the venue network talk to the hub. The hub keeps a mirror of the venue: the cloud's state (checks,
+  kitchen orders, the trading day, each device's numbers) plus its own **pending** events, the ones
+  it accepted that the cloud hasn't confirmed yet. It runs the same sequencer (`shared/pos/sequencer.js`)
+  over that mirror, so a LAN device gets its answer, the other tills see the change and the kitchen
+  ticket prints within the venue, at LAN speed, with or without the internet.
+- **The cloud confirms.** The hub sends its pending events to the cloud in its own order
+  (`POST /pos-api/hub/events`, keeping each event's device), where the cloud's sequencer decides
+  them again. With nothing else happening at the venue the answers are the same (same rules, same
+  state, same order). The hub follows the cloud's log (`GET /pos-api/hub/sync`) and, whenever the
+  cloud's state moves, **rebases**: the mirror becomes the cloud's state with the pending events
+  replayed on top (each at its original time). An event that no longer applies on top is refused
+  there and then, and the cloud refuses it too: a conflict for a manager, as a till's offline change
+  is today. Money is never merged silently.
+- **Hub down**: devices fall back to the cloud (the transport tries the hub with a short timeout,
+  then the cloud), which is the canonical log anyway, so nothing is lost or doubled: event ids make
+  every send idempotent wherever it lands first. **Internet down**: the venue keeps trading on the
+  hub; online orders and cloud-only devices carry on in the cloud; when the line comes back the
+  hub's pending events go up and the two meet in the cloud's log. **Both down**: each device works
+  alone, as today.
+
+### 11.2 What runs where
+
+| | Hub (LAN, `http://<hub>:9181`) | Cloud only |
+|---|---|---|
+| Tills, kiosks | events, sync, day report (X / Z), print jobs for printers plugged into them | config, live prices and sold out, pairing, card machine payments, loyalty, receipts by email, kiosk journeys |
+| Kitchen screens | events (bumps), kitchen sync | config, flow switch |
+| Order ready boards | `/screen-api/orders` | boards, playlists, config |
+| Printing | every ticket for the venue's printers, made from its own decisions | nothing for hub-decided events (they arrive marked printed) |
+
+Events that need the cloud to decide (a card machine payment or refund, a loyalty reward, both
+reserved there) pass through: the hub sends its pending events first, then this one, and answers
+with the cloud's result; offline they are refused ("needs the internet"), as card machines need it
+anyway.
+
+### 11.3 Pieces (as built)
+
+- `shared/pos/mirror.js`: the hub's copy of its venue. The sequencer store in memory over the
+  cloud's state (the base) plus the pending events, `submit()`, `applyCloud()` (new cloud events and
+  states, then rebase: pending events replayed at their own times, one that no longer applies goes
+  to `conflicts`), `sync(since)` / `kitchenSync(since)` with the hub's own `rev` (replies say
+  `source: 'hub:<id>'`), `dayReport()` (opens the trading day itself when the internet is down, an
+  offline Z included), `listChecks()` / `getCheck()`, `needsCloud()` (card machine and loyalty
+  events), `snapshot()` for the disk. `shared/pos/deviceRules.js`: `deviceEvent()`, the rules of
+  `POST /pos-api/events` per device (kiosks only their own counter orders, no server-only kitchen
+  events), shared by the cloud and the hub. `boardFeed()` in `shared/pos/kitchen.js`: an order ready
+  board's numbers, the same in the cloud (`boardFor()`) and on the hub.
+- Cloud (`routes/posApi.js`, `services/hubFirstSvc.js`): `GET /pos-api/hub/context` (what the
+  sequencer needs: staff and permissions without PIN hashes, devices and screens with the sha256 of
+  their LAN keys, settings, print and kitchen config, `hub_first`, `primary`),
+  `GET /pos-api/hub/sync?since=` (event ids and seqs, changed checks and kitchen orders, the day,
+  each device's numbers, Splitter turns, presence; a reset from 0), `POST /pos-api/hub/events`
+  (events in the hub's order, each decided again by the cloud's sequencer at the hub's time
+  (`hub_at`, clamped to the last three days), `pos_events.hub_id` / `pos_event_rejections.hub_id`,
+  `hub_printed` jobs saved as printed by the hub, a revoked device's later events refused). The
+  devices' configs carry `hub { id, urls, lan_key }` (`hubFor()`) while hub first is on and the
+  venue has a **primary hub** (linked, reported its venue network port, seen in the last 15 minutes;
+  the oldest if there are several). The LAN key is derived, never stored:
+  `deriveKey('lan:' + kind + ':' + id + ':' + secret_hash)` (`services/vault.js`, an HMAC of the
+  master key), so linking a device again gives it a new key. `/pos-api/sync` and
+  `/pos-api/kitchen/sync` take `source`: a cursor from anywhere but the cloud starts again.
+  Migration 218: `pos_settings.hub_first` (default on), the two `hub_id` columns.
+- Hub (`hub/src/venue.js`, `hub/src/lan.js`, hub version 1.2.0):
+  the venue network on port 9181 (`--lan-port`, the installers open it in the firewall), CORS and
+  `Access-Control-Allow-Private-Network`, `Authorization: Lan <id>.<key>` checked against the
+  context's hashes (an unknown key loads the context again, at most every 10 s). The copy is kept
+  in `venue.json` (written atomically every 10 s and as soon as the set-up loads) and `venue.log`
+  (every accepted event appended and fsynced before the device is answered), replayed after a
+  restart; with no set-up yet the log is kept, not truncated. Upload every 2 s while there is
+  something to send, else follow every 5 s; the set-up every 30 s, and again after the hub's first
+  report (the cloud only makes it primary once it knows the port). Card machine and loyalty events
+  go through to the cloud after everything pending. Tickets for the hub's own printers print at
+  once; tickets for a printer plugged into a till or kitchen screen are queued on the hub
+  (`hub-<ulid>` ids, collected by that device over the venue network). The hub reports its copy's
+  state (`info.mirror`) every minute and as soon as it starts or stops taking events; its status
+  page has a Hub first section.
+- Devices (`pos/src/lib/transport.js`): the LAN calls (events, sync, kitchen sync, the day report,
+  checks, presence) go to the hub first, 2.5 s timeout, then the cloud; after a failure the hub is
+  asked again by a quiet `GET /lan/ping` every 30 s (5 s when the hub didn't know the device yet).
+  On the hub a till or kitchen screen asks every 2 s (no pushes from the hub); the cursor follows
+  the reply's `source`. A kiosk counts the hub as a working connection (orders at the counter keep
+  going with the internet down). Order ready boards (`screen/player.js`) read their numbers from
+  the hub first. Only where the page may call plain http: the Macaroonie Android app 1.3
+  (`mixedContentMode="always"`, cleartext allowed by `plugins/withVenueNetwork.js`) or a page served
+  over http; a browser on https stays on the cloud and still works. The till's status dot says
+  Live · venue hub, or Venue hub · internet down (green), the kitchen screen's top bar likewise.
+- Store tech → Printers → Venue hub: the Hub first switch (own Save), and per hub what its copy is
+  doing (devices using it, changes waiting for the cloud, last sent, changes the cloud refused).
+
+### 11.4 Not covered
+
+- A device that times out on the hub and sends the same events to the cloud is safe (event ids), but
+  a ticket can print twice if the hub had already printed it before the timeout.
+- The hub's decisions use the set-up it last loaded (up to 30 s old): a till PIN, a printer or a menu
+  price changed in the admin reaches the hub's decisions within that time.
+- Kiosk receipts (QR / email) and card machine payments need the cloud; a kiosk order placed on the
+  hub may reach the cloud a few seconds later, so an email receipt asked for at once can be refused
+  until it has (try again).
+- One hub decides per venue; a second hub stands by (it still prints) and takes over only when the
+  first hasn't been seen for 15 minutes.
+- Not tried on a real venue network: the Android app's WebView calling the hub, a router that isolates
+  Wi-Fi clients, or a mini PC's power cut mid-write (tested by killing the process).

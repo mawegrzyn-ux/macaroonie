@@ -2002,3 +2002,19 @@ export function boardNumbers(orders, now, { clearMins = 10, max = 30, boardId = 
   }
   return { preparing: preparing.slice(0, max).map(view), ready: ready.slice(0, max).map(view) }
 }
+
+/**
+ * What an order ready board's player reads (GET /screen-api/orders): every
+ * counter and online order, plus each board box's own numbers by its name
+ * (`boards[name]`, lower case). The cloud (kitchenSvc.js boardFor()) and the
+ * venue hub (from its copy of the venue) both answer with this.
+ */
+export function boardFeed(orders, now, { clearMins = 10, max = 40, cfg = null } = {}) {
+  const out = boardNumbers(orders, now, { clearMins, max, cfg })
+  out.boards = {}
+  for (const st of Object.values(cfg?.stations || {})) {
+    if (st.kind !== 'board') continue
+    out.boards[String(st.name || '').trim().toLowerCase()] = boardNumbers(orders, now, { clearMins, max, boardId: st.id, cfg })
+  }
+  return out
+}

@@ -405,6 +405,7 @@ function HubRow({ venueId, setup, hub: d, canManage, onEdit, onLink, onAddPrinte
               {pages.map(u => <a key={u} href={u} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 underline text-foreground" data-testid="hub-page">{u.replace('http://', '')}<ExternalLink className="w-3 h-3" /></a>)}
             </p>
           )}
+          {info.mirror && <HubFirstLine m={info.mirror} hubFirst={setup.settings?.hub_first !== false} />}
           <p>{found.length ? 'USB printers plugged into it:' : 'No USB printers plugged into it.'}</p>
           {found.map(p => (
             <div key={p.id} className="flex flex-wrap items-center gap-2" data-testid="hub-found-printer">
@@ -419,6 +420,54 @@ function HubRow({ venueId, setup, hub: d, canManage, onEdit, onLink, onAddPrinte
         </div>
       )}
       <ErrorNote error={update.error} />
+    </div>
+  )
+}
+
+// Hub first (migration 218, docs/POS.md section 11): what the hub's copy of
+// the venue is doing, from its last report.
+function HubFirstLine({ m, hubFirst }) {
+  // The switch wins: the hub's report may be up to a minute old.
+  if (!hubFirst) return <p data-testid="hub-first-state">Hub first is off: devices send to the cloud, the hub only prints.</p>
+  if (!m.on) return <p data-testid="hub-first-state">Hub first: standing by (another hub takes the venue&apos;s events, or it hasn&apos;t loaded the venue yet).</p>
+  const parts = [
+    m.devices + (m.devices === 1 ? ' device' : ' devices') + ' using it',
+    m.to_send ? m.to_send + ' changes waiting to go to the cloud' : 'everything sent to the cloud',
+  ]
+  if (m.last_upload_at) parts.push('last sent ' + ago(m.last_upload_at))
+  return (
+    <>
+      <p data-testid="hub-first-state" className="text-foreground">Hub first: takes the venue&apos;s events · {parts.join(' · ')}</p>
+      {m.conflicts > 0 && <p className="text-red-700" data-testid="hub-first-conflicts">{m.conflicts} change{m.conflicts === 1 ? '' : 's'} the cloud refused: the till that made {m.conflicts === 1 ? 'it' : 'them'} lists {m.conflicts === 1 ? 'it' : 'them'} under Not saved.</p>}
+      {m.error && <p className="text-amber-700">Last problem: {m.error}</p>}
+    </>
+  )
+}
+
+/** The location's Hub first switch, with its own Save. */
+function HubFirstSetting({ venueId, setup, canManage }) {
+  const api = useApi()
+  const qc = useQueryClient()
+  const saved = setup.settings?.hub_first !== false
+  const [on, setOn] = useState(saved)
+  const save = useMutation({
+    mutationFn: () => api.patch(`/pos/venues/${venueId}/settings`, { hub_first: on }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-setup', venueId] }),
+  })
+  return (
+    <div className="rounded-xl border p-3 space-y-2" data-testid="hub-first">
+      <Toggle checked={on} disabled={!canManage} onChange={setOn}
+        label="Hub first: tills, kiosks, kitchen screens and order ready boards use the hub"
+        hint="They send their orders to the hub on the venue network and the hub sends everything to the cloud, so the location keeps trading, printing and sharing orders between devices with the internet down. Needs the Macaroonie Android app on the devices (a browser can't call the hub from a secure page). Off: every device uses the cloud and the hub only prints." />
+      {canManage && on !== saved && (
+        <div className="flex gap-2">
+          <Btn variant="primary" onClick={() => save.mutate()} disabled={save.isPending} data-testid="hub-first-save">
+            {save.isPending && <Loader2 className="w-4 h-4 animate-spin" />} Save
+          </Btn>
+          <Btn onClick={() => setOn(saved)}>Cancel</Btn>
+        </div>
+      )}
+      <ErrorNote error={save.error} />
     </div>
   )
 }
@@ -480,7 +529,7 @@ export default function PrintersSection({ venueId, setup, canManage }) {
         {tickets && <TicketsModal venueId={venueId} printer={tickets} canManage={canManage} onClose={() => setTickets(null)} />}
       </Section>
       <Section title="Venue hub"
-        hint="A small program on a mini PC on the venue's network, next to the printers. It prints to the network printers and the USB printers plugged into it, tells you how they are, and updates itself. Install it with the command below; it shows a six-letter code: link it here."
+        hint="A small program on a mini PC on the venue's network, next to the printers. It prints to the network printers and the USB printers plugged into it, tells you how they are, and updates itself. With Hub first on, the location's devices also trade through it, so the venue keeps going with the internet down. Install it with the command below; it shows a six-letter code: link it here."
         actions={<Btn variant="primary" onClick={() => setHubEditing('new')} data-testid="hub-add"><Plus className="w-4 h-4" /> Link a hub</Btn>}>
         {!hubs.length && (
           <div className={cn('text-sm flex items-start gap-3', needsHub ? 'text-amber-700' : 'text-muted-foreground')}>
@@ -497,6 +546,7 @@ export default function PrintersSection({ venueId, setup, canManage }) {
             ))}
           </div>
         )}
+        <HubFirstSetting key={String(setup.settings?.hub_first !== false)} venueId={venueId} setup={setup} canManage={canManage} />
         <RemovedDevices devices={setup.devices.filter(d => d.kind === 'hub' && d.revoked_at)} onBringBack={setLinking} />
         <InstallCommands setup={setup} />
         {hubEditing && <HubModal venueId={venueId} setup={setup} hub={hubEditing === 'new' ? null : hubEditing} onClose={() => setHubEditing(null)} />}

@@ -12,6 +12,10 @@
 // hub's config (GET /pos-api/config), fetched again when it changed; the
 // config also names the hub's latest version, which the updater installs
 // at a quiet moment (update.js).
+//
+// At a hub-first location (venue.js) the hub also prints the tickets of the
+// events it decided itself (printLocal()): straight away, without the cloud,
+// tried again every 10 s for 10 minutes while the printer is down.
 
 import os from 'node:os'
 import { render } from './escpos.js'
@@ -22,6 +26,9 @@ import { VERSION } from './version.js'
 export { VERSION }
 
 const RECENT = 20
+// A ticket the hub made itself is tried again this often, for this long.
+const LOCAL_RETRY_MS = 10_000
+const LOCAL_GIVE_UP_MS = 10 * 60_000
 
 /** The computer the hub runs on, for Store tech and the status page. */
 export function computerInfo(statusPort = null) {
@@ -37,6 +44,15 @@ export function computerInfo(statusPort = null) {
     node: process.version,
     addresses,
     status_port: statusPort,
+  }
+}
+
+/** What the cloud hears about the hub's copy of the venue (Store tech → Printers). */
+export function mirrorReport(v) {
+  return {
+    on: !!v.on, rev: v.rev || 0, cloud_seq: v.cloud_seq || 0, pending: v.pending || 0, to_send: v.to_send || 0,
+    conflicts: (v.conflicts || []).length, devices: (v.devices || []).length,
+    last_upload_at: v.last_upload_at || null, last_follow_at: v.last_follow_at || null, error: v.error ? String(v.error).slice(0, 200) : null,
   }
 }
 
@@ -66,6 +82,7 @@ export function startHub({
   pollMs = 2000, statusMs = 60000,
   print = sendToPrinter, printerStatus = askPrinter,
   local = { find: findPrinters, print: printLocal, status: localStatus, sys: usbSystem() },
+  venue = null, lanPort = null, savedConfig = null, onConfig = null,
 }) {
   let printers = new Map()
   let configVersion = null
@@ -74,6 +91,9 @@ export function startHub({
   let busy = false
   let lastConfigAt = 0
   let lastUpdateCheck = 0
+  // Tickets the hub made itself (hub first): { job, first, next }
+  let localJobs = []
+  let localBusy = false
   const timers = []
   state.phase = 'running'
   state.version = version
@@ -84,6 +104,14 @@ export function startHub({
     if (!force && Date.now() - lastConfigAt < 60000) return
     const c = await cloud.config()
     lastConfigAt = Date.now()
+    const fresh = c.version !== configVersion
+    applyConfig(c)
+    if (fresh && onConfig) onConfig(c)
+  }
+
+  // The printers, from the cloud or (started with the internet down) from
+  // the copy kept on disk (hub.js), so the hub prints its own tickets anyway.
+  function applyConfig(c) {
     lastConfig = c
     if (c.version !== configVersion) {
       printers = new Map((c.printers || []).map(p => [p.id, p]))
@@ -145,6 +173,60 @@ export function startHub({
     }
   }
 
+  /**
+   * A ticket from an event the hub decided itself (venue.js): printed here
+   * now, on this hub's printer (or its backup). Returns false when the
+   * printer isn't one of this hub's (a till's own printer: venue.js keeps it
+   * for that till).
+   */
+  function printOwn(job) {
+    if (!printers.has(job.printer_id)) return false
+    localJobs.push({ job, first: Date.now(), next: 0 })
+    drainLocal()
+    return true
+  }
+
+  async function drainLocal() {
+    if (localBusy) return
+    localBusy = true
+    try {
+      const now = Date.now()
+      for (const entry of [...localJobs]) {
+        if (entry.next > now) continue
+        const { job } = entry
+        const p = printers.get(job.printer_id)
+        try {
+          if (!ready(p)) throw new Error(p?.interface === 'usb' ? 'Pick the USB printer in Store tech' : 'The hub doesn\'t know this printer\'s address')
+          await send(p, job)
+          remember(job, p, true)
+          log(`Printed ${job.title || job.kind} on ${p.name}`)
+          localJobs = localJobs.filter(x => x !== entry)
+        } catch (e) {
+          const b = p?.backup_printer_id && printers.get(p.backup_printer_id)
+          if (ready(b)) {
+            try {
+              await send(b, job)
+              remember(job, b, true)
+              log(`Printed ${job.title || job.kind} on ${b.name} (backup for ${p.name}: ${e.message})`)
+              localJobs = localJobs.filter(x => x !== entry)
+              continue
+            } catch { /* the backup is down too */ }
+          }
+          if (Date.now() - entry.first > LOCAL_GIVE_UP_MS) {
+            remember(job, p, false, String(e.message || e).slice(0, 300))
+            log(`Not printed: ${job.title || job.kind} on ${p?.name || 'a printer'}: ${e.message} (gave up after 10 minutes)`)
+            localJobs = localJobs.filter(x => x !== entry)
+          } else {
+            entry.next = Date.now() + LOCAL_RETRY_MS
+            if (!entry.told) { log(`Not printed yet: ${job.title || job.kind} on ${p?.name || 'a printer'}: ${e.message} (trying again)`); entry.told = true }
+          }
+        }
+      }
+    } finally {
+      localBusy = false
+    }
+  }
+
   /** At a quiet moment (nothing printed this round): install a newer version when there is one. */
   async function maybeUpdate() {
     if (!updater || !lastConfig?.release || Date.now() - lastUpdateCheck < 30000) return
@@ -164,17 +246,27 @@ export function startHub({
       // A job for a printer added since the last config: load it again first.
       if (jobs.some(j => !printers.has(j.printer_id))) await loadConfig(true)
       for (const job of jobs) await printJob(job)
-      if (!jobs.length) await maybeUpdate()
+      if (!jobs.length && !localJobs.length) await maybeUpdate()
     } catch (e) {
       if (e.status === 401 && onUnlinked && !stopped) { onUnlinked(); return }
       state.cloud = { ok: false, at: state.cloud.at, error: e.message }
       log('Couldn\'t reach the cloud: ' + e.message)
     } finally {
       busy = false
+      if (localJobs.length) drainLocal()
+      if (venue) {
+        state.venue = venue.status()
+        // Started or stopped taking the venue's events (hub first switched,
+        // another hub, the set-up loaded): tell the cloud now, not in a minute.
+        if (lastOn !== null && state.venue.on !== lastOn) report()
+        lastOn = state.venue.on
+      }
     }
   }
 
   /** Ask every printer how it is and tell the cloud, with what the hub knows about itself. */
+  let reported = false
+  let lastOn = null
   async function report() {
     try {
       await loadConfig()
@@ -209,19 +301,28 @@ export function startHub({
           ...state.computer,
           local_printers: state.local_printers.map(({ id, name, model, escpos, path }) => ({ id, name, model, escpos, path })),
           update: state.update || { updates: 'manual', state: 'idle' },
+          ...(lanPort ? { lan_port: lanPort } : {}),
+          ...(venue ? { mirror: mirrorReport(venue.status()) } : {}),
         },
       })
+      // The cloud learns the venue network port from the first report: only
+      // then can it make this hub the one that takes the venue's events.
+      if (!reported) { reported = true; if (venue && !venue.taking()) venue.refresh?.() }
     } catch (e) {
       log('Couldn\'t report the printers: ' + e.message)
     }
   }
 
+  if (savedConfig?.printers) {
+    try { applyConfig({ ...savedConfig, version: 'saved:' + (savedConfig.version || '') }) } catch { /* a broken copy: wait for the cloud */ }
+    lastConfigAt = 0
+  }
   timers.push(setInterval(tick, pollMs))
   timers.push(setInterval(report, statusMs))
   tick()
   report()
   return {
-    tick, report,
+    tick, report, printOwn,
     forceConfig: () => loadConfig(true),
     stop() { stopped = true; for (const t of timers) clearInterval(t) },
   }

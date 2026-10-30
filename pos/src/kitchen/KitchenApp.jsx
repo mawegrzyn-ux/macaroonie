@@ -281,9 +281,11 @@ function Kitchen() {
 
   const counts = Object.fromEntries(FILTERS.map(f => [f.key, all.filter(t => f.test(t.order)).length]))
   const live = s.online && s.socket === 'open'
-  const mode = !s.online ? { text: 'Offline', cls: 'bg-red-600 text-white' }
-    : live ? { text: 'Live', cls: 'bg-[#9be7a1] text-black' }
-      : { text: 'Checking every few seconds', cls: 'bg-amber-400 text-black' }
+  // Hub first: on the venue hub the screen works with the internet down too.
+  const mode = s.hub === true ? { text: s.online ? 'Live · venue hub' : 'Venue hub · internet down', cls: 'bg-[#9be7a1] text-black' }
+    : !s.online ? { text: 'Offline', cls: 'bg-red-600 text-white' }
+      : live ? { text: 'Live', cls: 'bg-[#9be7a1] text-black' }
+        : { text: 'Checking every few seconds', cls: 'bg-amber-400 text-black' }
 
   return (
     <div className="h-full flex flex-col">
@@ -327,8 +329,8 @@ function Kitchen() {
         <Stat label="Avg bump" value={clockSecs(stats.avg_secs)} />
         <Stat label="Last 10" value={clockSecs(stats.moving_secs)} />
         <Stat label="Done today" value={stats.done} />
-        <span className={cx('px-3 h-8 rounded flex items-center font-bold', mode.cls)}>
-          {s.online ? <Wifi size={15} className="mr-1.5" /> : <WifiOff size={15} className="mr-1.5" />}
+        <span className={cx('px-3 h-8 rounded flex items-center font-bold', mode.cls)} data-testid="kds-link">
+          {s.online || s.hub === true ? <Wifi size={15} className="mr-1.5" /> : <WifiOff size={15} className="mr-1.5" />}
           {mode.text}{s.outbox.length ? ' · ' + s.outbox.length + ' to send' : ''}
         </span>
         <Stat label="On time" value={stats.on_time_pct == null ? '-' : stats.on_time_pct + '%'} />

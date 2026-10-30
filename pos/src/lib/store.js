@@ -47,6 +47,8 @@ let state = {
   confirmed: {},
   outbox: [],
   seq: 0,
+  seqSource: null,         // where seq came from: 'cloud' or the venue hub ('hub:<id>'); another source starts again
+  hub: null,               // the venue hub (hub first, lib/transport.js): true in use, false not answering, null none
   day: null,
   presence: [],
   online: navigator.onLine,
@@ -152,13 +154,17 @@ export async function boot() {
     return
   }
   if (openOtherApp(device)) return
-  api = createTransport(device, { pending: () => state.outbox.length })
+  api = createTransport(device, {
+    pending: () => state.outbox.length,
+    hub: () => state.config?.hub || null,
+    onHub: h => { setState({ hub: h.ok }); if (h.ok) pull() },
+  })
   keepStorage()
   const [config, snapshot, outbox] = await Promise.all([idb.get(CONFIG_KEY), idb.get(SNAPSHOT_KEY), idb.get(OUTBOX_KEY)])
   if (config?.device?.kind && config.device.kind !== (device.kind || 'terminal')) { await relabel(device, config.device.kind); return }
   setState({
     device, config: config || null,
-    confirmed: snapshot?.checks || {}, seq: snapshot?.seq || 0, day: snapshot?.day || null,
+    confirmed: snapshot?.checks || {}, seq: snapshot?.seq || 0, seqSource: snapshot?.source || null, day: snapshot?.day || null,
     outbox: outbox || [],
     phase: config ? 'ready' : 'loading',
   })
@@ -319,6 +325,12 @@ export async function loadConfig() {
       setState({ online: true })
       // Unchanged, but sold out and the prices stamp travel with every reply.
       await applyLive(res, { prices: true })
+      // So does the venue hub's address (hub first).
+      if ('hub' in res && JSON.stringify(res.hub ?? null) !== JSON.stringify(state.config?.hub ?? null)) {
+        const next = { ...state.config, hub: res.hub ?? null }
+        setState({ config: next })
+        await idb.set(CONFIG_KEY, next)
+      }
     }
     setState({ checked: { ...state.checked, content: Date.now(), live: Date.now() } })
   } catch (err) {
@@ -479,7 +491,7 @@ function printLocally(events, before, after) {
 let devicePrinting = null
 function ensureDevicePrinting() {
   if (devicePrinting || !state.device) return
-  devicePrinting = startDevicePrinting({ post: (p, b) => api.post(p, b) }, () => hasOwnPrinter(state.config, state.device?.id))
+  devicePrinting = startDevicePrinting({ post: (p, b, o) => api.post(p, b, o), onHub: () => api.onHub() }, () => hasOwnPrinter(state.config, state.device?.id))
 }
 
 /** Print the bill or receipt of a check here, without an event (reprint). */
@@ -634,6 +646,7 @@ export async function flush() {
   try {
     const batch = state.outbox.slice(0, 100)
     const res = await api.post('/pos-api/events', { events: batch }, { timeoutMs: 20000 })
+    const viaHub = String(res.source || '').startsWith('hub:')
     const answered = new Set(res.results.map(r => r.id))
     const refused = res.results.filter(r => !r.ok)
     const confirmed = { ...state.confirmed }
@@ -645,7 +658,8 @@ export async function flush() {
       conflicts.unshift({ id: r.id, type: e?.type, check_id: e?.check_id, error: r.error, code: r.code, at: new Date().toISOString() })
       toast('Not saved: ' + r.error, 'bad', 7000)
     }
-    setState({ confirmed, outbox, conflicts: conflicts.slice(0, 50), online: true })
+    // Through the venue hub the cloud may still be out of reach.
+    setState({ confirmed, outbox, conflicts: conflicts.slice(0, 50), ...(viaHub ? {} : { online: true }) })
     await idb.set(OUTBOX_KEY, outbox)
     await pull()
   } catch (err) {
@@ -663,14 +677,17 @@ export async function pull() {
   if (pulling) return pulling
   pulling = (async () => {
     try {
-      const res = await api.get('/pos-api/sync?since=' + (state.seq || 0))
+      // The cursor means something only to whoever gave it (the cloud or the
+      // venue hub): asked of the other, it starts again (reset).
+      const res = await api.get('/pos-api/sync?since=' + (state.seq || 0) + '&source=' + encodeURIComponent(state.seqSource || 'cloud'))
+      const source = res.source || 'cloud'
       keepServerNumbers(state.device?.id, res.numbers)
       let confirmed = res.reset ? {} : { ...state.confirmed }
       for (const c of res.checks || []) confirmed[c.id] = c
       // Keep open checks, this trading day's, and any opened from Closed checks; drop older closed ones.
       const dayId = res.day?.id || null
       confirmed = Object.fromEntries(Object.entries(confirmed).filter(([id, c]) => c.status === 'open' || (dayId && c.day_id === dayId) || pinned.has(id)))
-      setState({ confirmed, seq: res.seq, day: res.day, presence: res.presence || [], online: true, lastSync: Date.now() })
+      setState({ confirmed, seq: res.seq, seqSource: source, day: res.day, presence: res.presence || [], lastSync: Date.now(), ...(source === 'cloud' ? { online: true } : {}) })
       saveSnapshot()
     } catch (err) {
       handleError(err)
@@ -684,7 +701,7 @@ export async function pull() {
 let snapTimer = null
 function saveSnapshot() {
   clearTimeout(snapTimer)
-  snapTimer = setTimeout(() => idb.set(SNAPSHOT_KEY, { seq: state.seq, checks: state.confirmed, day: state.day }), 500)
+  snapTimer = setTimeout(() => idb.set(SNAPSHOT_KEY, { seq: state.seq, source: state.seqSource, checks: state.confirmed, day: state.day }), 500)
 }
 
 function connectSocket() {
@@ -733,8 +750,9 @@ export function startSync() {
   connectSocket()
   ensureDevicePrinting()
   const loop = () => {
-    // Without the push socket, ask every 4 s; with it, every 30 s as a check.
-    const ms = state.socket === 'open' ? 30000 : 4000
+    // On the venue hub, ask it every 2 s (it has no push); without the push
+    // socket, ask every 4 s; with it, every 30 s as a check.
+    const ms = api.onHub() ? 2000 : state.socket === 'open' ? 30000 : 4000
     pollTimer = setTimeout(() => { tick(); loop() }, ms)
   }
   loop()
@@ -791,4 +809,6 @@ export const server = {
   days: () => api.get('/pos-api/days'),
   printJobs: status => api.get('/pos-api/print-jobs?status=' + (status || 'queued')),
   printJobDone: (id, status) => api.post('/pos-api/print-jobs/' + id + '/status', { status }),
+  /** The venue hub (hub first): { configured, ok, url }. */
+  hubStatus: () => api.hubStatus(),
 }

@@ -8,6 +8,11 @@
 // the socket) and every 20 seconds while this device has a printer, then
 // tells the cloud each one printed. A ticket collected but never reported
 // (the device went off mid-way) is collected again after two minutes.
+//
+// At a hub-first location (docs/POS.md section 11) the venue hub keeps the
+// tickets of the events it decided itself (ids starting hub-): the device
+// collects from the hub as well as from the cloud, and reports each to
+// whichever gave it (lib/transport.js sends hub- ids to the hub).
 
 import { printTickets } from './print.js'
 
@@ -17,8 +22,9 @@ export function hasOwnPrinter(config, deviceId) {
 }
 
 /**
- * Start collecting. api: the device's transport; own(): whether it has a
- * printer now (the config can change). Returns { nudge(), stop() }.
+ * Start collecting. api: { post(path, body, opts), onHub() } from the
+ * device's transport; own(): whether it has a printer now (the config can
+ * change). Returns { nudge(), stop() }.
  */
 export function startDevicePrinting(api, own, { everyMs = 20000 } = {}) {
   let busy = false
@@ -30,8 +36,10 @@ export function startDevicePrinting(api, own, { everyMs = 20000 } = {}) {
     try {
       for (let round = 0; round < 5; round++) {
         again = false
-        const jobs = await api.post('/pos-api/print-jobs/claim', { limit: 10 })
-        if (!jobs?.length) break
+        const fromCloud = await api.post('/pos-api/print-jobs/claim', { limit: 10 }, { via: 'cloud' }).catch(() => [])
+        const fromHub = api.onHub?.() ? await api.post('/pos-api/print-jobs/claim', { limit: 10 }, { via: 'hub' }).catch(() => []) : []
+        const jobs = [...(fromHub || []), ...(fromCloud || [])]
+        if (!jobs.length) break
         // One print for the lot: one dialog at most on a tablet without silent printing.
         try {
           printTickets(jobs.map(j => j.ops))
@@ -39,7 +47,7 @@ export function startDevicePrinting(api, own, { everyMs = 20000 } = {}) {
         } catch (e) {
           for (const j of jobs) await api.post(`/pos-api/print-jobs/${j.id}/status`, { status: 'failed', error: String(e?.message || e).slice(0, 300) }).catch(() => {})
         }
-        if (!again && jobs.length < 10) break
+        if (!again && (fromCloud || []).length < 10 && (fromHub || []).length < 10) break
       }
     } catch {
       // Offline or refused: the next nudge or tick tries again.

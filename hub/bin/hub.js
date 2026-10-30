@@ -8,6 +8,8 @@
 //   node hub/bin/hub.js --api https://pos.macaroonie.com
 //   node hub/bin/hub.js --config /opt/macaroonie-hub/hub.json
 //   node hub/bin/hub.js --http-port 9180         the status page's port (0 = none)
+//   node hub/bin/hub.js --lan-port 9181          hub first: the port tills, kiosks and kitchen
+//                                                screens on the venue network use (0 = none)
 //   node hub/bin/hub.js --forget                 unlink: show a new code
 //   node hub/bin/hub.js status                   what the running hub shows (state.json)
 //   node hub/bin/hub.js --self-test              checks this copy works (used by updates)
@@ -18,6 +20,11 @@
 // (the device id and its secret) is kept in hub.json beside this folder (or
 // --config); keep that file private. Removed in Store tech, it shows a new
 // code by itself.
+//
+// Hub first (docs/POS.md section 11): once linked it also keeps a copy of
+// the venue (venue.js, venue.json and venue.log beside hub.json) and serves
+// the venue network on --lan-port (lan.js): the venue keeps trading on the
+// hub with the internet down, and everything goes up when it is back.
 
 import fs from 'node:fs'
 import path from 'node:path'
@@ -27,6 +34,8 @@ import { startHub, newState } from '../src/service.js'
 import { createUpdater, hubVersion, writeJsonAtomic } from '../src/update.js'
 import { startStatusPage, publicState, STATUS_PORT } from '../src/statusPage.js'
 import { findPrinters } from '../src/usb.js'
+import { startVenue } from '../src/venue.js'
+import { startLan, LAN_PORT } from '../src/lan.js'
 
 const args = process.argv.slice(2)
 const option = (name, fallback) => {
@@ -53,6 +62,9 @@ async function selfTest() {
   const { kitchenTicket } = await import('../../shared/pos/tickets.js')
   const { renderPage } = await import('../src/statusPage.js')
   await import('../src/usb.js')
+  await import('../src/lan.js')
+  const { createMirror } = await import('../../shared/pos/mirror.js')
+  await createMirror({ hubId: 'self-test' }).ready
   const bytes = render(kitchenTicket({ station: 'Test', table: '1', sentAt: new Date(), courses: [{ name: '', lines: [{ qty: 1, name: 'Test dish' }] }] }))
   if (!bytes.length || !renderPage(newState()).includes('Macaroonie hub')) throw new Error('self test failed')
   console.log('ok ' + version)
@@ -139,6 +151,9 @@ async function main() {
   setInterval(saveState, 2000).unref()
 
   const port = Number(option('http-port', process.env.HUB_HTTP_PORT ?? STATUS_PORT))
+  const lanPortWanted = Number(option('lan-port', process.env.HUB_LAN_PORT ?? LAN_PORT))
+  const dir = path.dirname(configPath)
+  const printersFile = path.join(dir, 'printers.json')
   const page = await startStatusPage({ port, getState: () => state, log })
   state.computer.status_port = page?.port || null
 
@@ -174,13 +189,34 @@ async function main() {
       }
       log('Couldn\'t reach the cloud yet (' + e.message + '): carrying on, it tries again.')
     }
+    // Hub first: the venue's copy, and the venue network served from it.
+    let hub = null
+    const venue = startVenue({
+      cloud, hubId: c.device_id, dir, log,
+      onJobs: jobs => {
+        for (const j of jobs) {
+          const p = venue.printerOf(j.printer_id)
+          // A printer plugged into a till or kitchen screen: it collects the ticket here.
+          if (p?.connection === 'device' && p.device_id && p.device_id !== c.device_id) venue.queueForDevice(j, p.device_id)
+          else if (!hub?.printOwn(j)) log(`Not printed: ${j.title || j.kind} (this hub doesn't know the printer yet)`)
+        }
+      },
+    })
+    const lan = lanPortWanted ? await startLan({ venue, port: lanPortWanted, log }) : null
+    let savedConfig = null
+    try { savedConfig = JSON.parse(fs.readFileSync(printersFile, 'utf8')) } catch { /* none yet */ }
     // Runs until the cloud says the hub was removed, then links again.
     await new Promise(resolve => {
-      const hub = startHub({
+      hub = startHub({
         cloud, log, state, updater, version, statusPort: state.computer.status_port,
+        venue, lanPort: lan?.port || null, savedConfig,
+        onConfig: cfg => { try { writeJsonAtomic(printersFile, cfg, 0o600) } catch { /* the folder is read-only: prints once the cloud answers */ } },
         onUnlinked: () => { hub.stop(); resolve() },
       })
+      venue.started.catch(e => { if (e.status === 401) { hub.stop(); resolve() } })
     })
+    await venue.stop()
+    await lan?.close()
     log('This hub was unlinked or removed in Store tech: showing a new code.')
     state.phase = 'unlinked'
     c = {}
