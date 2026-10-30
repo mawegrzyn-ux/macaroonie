@@ -1451,6 +1451,23 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               the kind of thing that looks fine until one of the two silently stops applying —
               pick one mechanism per layout and keep spacing there, not split across both.
             </InfoBox>
+            <H3>Fields filled by other systems</H3>
+            <P>
+              <Mono>GET /api/venues/:venueId/cash-recon/links</Mono> (Cash Recon view) returns,
+              from <Mono>reconLinks()</Mono> in <Mono>services/reconLinks.js</Mono>,{' '}
+              <Mono>{'{ sources: [{ key, label, where, note, fields }], fields: { "income:<id>": [{ source, label, terms: [{ label, sign }] }] } }'}</Mono>.
+              Groups are <Mono>income</Mono>, <Mono>takings</Mono> (payment channels) and{' '}
+              <Mono>sc</Mono>, the same keys every filler maps by. <Mono>LINK_SOURCES</Mono> holds one
+              entry per system: <Mono>pos</Mono> (<Mono>pos_settings.recon_map</Mono>, revenue
+              streams and tenders by name, set in Store tech, <Mono>where.route</Mono>),{' '}
+              <Mono>loyverse</Mono> and <Mono>gloriafood</Mono> (<Mono>*_venue_links.mappings</Mono>,
+              worded by each one's <Mono>termLabel()</Mono>, <Mono>where.tab</Mono>). A system not set
+              up at the venue is left out; a field nothing fills has no entry. The settings tabs
+              (<Mono>useReconLinks()</Mono>, <Mono>LinkedFrom</Mono>, <Mono>LinkedSystems</Mono> in{' '}
+              <Mono>CashRecon.jsx</Mono>) read it on every visit, since the Loyverse and GloriaFood
+              tabs change it. A new system that fills Cash Recon through <Mono>fillReconDay()</Mono>{' '}
+              adds its entry to <Mono>LINK_SOURCES</Mono>; the tabs show it with no other change.
+            </P>
             <H3>Loyverse (migration 154)</H3>
             <P>
               Fills a day's income, SC and takings rows from the venue's Loyverse POS sales. Two

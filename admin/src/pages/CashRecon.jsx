@@ -17,8 +17,9 @@ import {
   ArrowLeft, Settings, ChevronLeft, ChevronRight,
   Plus, Trash2, Pencil, Check, Camera, X, Loader2,
   ChevronUp, ChevronDown, Lock, MessageSquare, Table2,
-  AlertTriangle, CreditCard,
+  AlertTriangle, CreditCard, Link2,
 } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { useApi } from '@/lib/api'
 import { usePermission } from '@/hooks/usePermission'
 import { ReadOnlyNotice } from '@/components/ReadOnlyNotice'
@@ -836,7 +837,7 @@ export function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWee
               className="flex items-center justify-center w-9 h-9 rounded-xl touch-manipulation hover:bg-muted">
               <ChevronDown className="w-4 h-4 rotate-0" />
             </button>
-            <button type="button" onClick={onSettings}
+            <button type="button" onClick={onSettings} title="Settings" aria-label="Cash Recon settings"
               className="flex items-center justify-center w-9 h-9 rounded-xl touch-manipulation hover:bg-muted">
               <Settings className="w-4 h-4" />
             </button>
@@ -2145,9 +2146,9 @@ function SettingsView({ venueId, onBack }) {
         {!canManage && <ReadOnlyNotice what="these settings" className="mb-4" />}
         <CashReadOnly.Provider value={!canManage}>
         {tab === 'general'  && <GeneralTab           venueId={venueId} venueSettings={config?.venue_settings} onRefetch={refetchConfig} api={api} />}
-        {tab === 'income'   && <IncomeSourcesTab     venueId={venueId} items={config?.income_sources      ?? []} onRefetch={refetchConfig} api={api} />}
-        {tab === 'channels' && <PaymentChannelsTab   venueId={venueId} items={config?.payment_channels  ?? []} onRefetch={refetchConfig} api={api} />}
-        {tab === 'sc'       && <ScSourcesTab         venueId={venueId} items={config?.sc_sources        ?? []} onRefetch={refetchConfig} api={api} />}
+        {tab === 'income'   && <IncomeSourcesTab     venueId={venueId} items={config?.income_sources      ?? []} onRefetch={refetchConfig} api={api} onOpenTab={setTab} />}
+        {tab === 'channels' && <PaymentChannelsTab   venueId={venueId} items={config?.payment_channels  ?? []} onRefetch={refetchConfig} api={api} onOpenTab={setTab} />}
+        {tab === 'sc'       && <ScSourcesTab         venueId={venueId} items={config?.sc_sources        ?? []} onRefetch={refetchConfig} api={api} onOpenTab={setTab} />}
         {tab === 'expenses' && <ExpenseCategoriesTab venueId={venueId} items={config?.expense_categories ?? []} onRefetch={refetchConfig} api={api} />}
         {tab === 'loyverse' && <LoyverseSettings venueId={venueId} config={config} />}
         {tab === 'gloriafood' && <GloriaFoodSettings venueId={venueId} config={config} />}
@@ -2198,9 +2199,78 @@ function GeneralTab({ venueId, venueSettings, onRefetch, api }) {
   )
 }
 
+// ── Fields filled by other systems ──────────────────────────────────────────
+//
+// GET .../cash-recon/links (services/reconLinks.js): which income sources,
+// payment channels and SC sources tills and kiosks, Loyverse or GloriaFood
+// fill, and with what. Read on every tab visit, since the Loyverse and
+// GloriaFood tabs change it.
+
+function useReconLinks(venueId) {
+  const api = useApi()
+  return useQuery({
+    queryKey: ['cash-recon-links', venueId],
+    queryFn: () => api.get(`/venues/${venueId}/cash-recon/links`),
+    enabled: !!venueId,
+    staleTime: 0,
+  }).data
+}
+
+/** "Net sales − Refunds", "Card machine + Card". */
+const linkTermsText = terms => terms
+  .map((t, i) => (i === 0 ? (t.sign < 0 ? '− ' : '') : (t.sign < 0 ? ' − ' : ' + ')) + t.label)
+  .join('')
+
+/** Under a field's name: what fills it. */
+function LinkedFrom({ entries }) {
+  if (!entries?.length) return null
+  return (
+    <div className="mt-1 space-y-0.5" data-testid="recon-linked">
+      {entries.map(e => (
+        <p key={e.source} className="text-xs text-muted-foreground flex items-start gap-1" data-source={e.source}>
+          <Link2 className="w-3 h-3 mt-0.5 shrink-0" />
+          <span><span className="font-medium text-foreground">Filled by {e.label}:</span> {linkTermsText(e.terms)}</span>
+        </p>
+      ))}
+    </div>
+  )
+}
+
+/** Above a tab's list: the systems that fill its fields and where to change that. */
+function LinkedSystems({ links, group, onOpenTab }) {
+  const used = new Set(Object.entries(links?.fields || {})
+    .filter(([key]) => key.startsWith(group + ':'))
+    .flatMap(([, entries]) => entries.map(e => e.source)))
+  const sources = (links?.sources || []).filter(s => used.has(s.key))
+  if (!sources.length) return null
+  const btn = 'min-h-[48px] px-3 py-2 rounded-xl border text-left touch-manipulation hover:bg-muted flex flex-col justify-center'
+  return (
+    <div className="rounded-xl border p-3 mb-3" data-testid="recon-linked-systems">
+      <p className="text-sm font-medium">Filled from other systems</p>
+      <p className="text-xs text-muted-foreground mt-0.5 mb-2">
+        Fields marked <Link2 className="w-3 h-3 inline -mt-0.5" /> below are filled by these systems; the rest are typed in on the day.
+        Change what fills a field where it is set up.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {sources.map(src => {
+          const body = (
+            <>
+              <span className="text-sm font-medium">{src.label}</span>
+              <span className="text-xs text-muted-foreground">{[src.note, 'set in ' + src.where.label].filter(Boolean).join(' · ')}</span>
+            </>
+          )
+          return src.where.route
+            ? <Link key={src.key} to={src.where.route} className={btn} data-source={src.key}>{body}</Link>
+            : <button key={src.key} type="button" onClick={() => onOpenTab?.(src.where.tab)} className={btn} data-source={src.key}>{body}</button>
+        })}
+      </div>
+    </div>
+  )
+}
+
 // ── Generic list manager for settings tabs ────────────────────────────────────
 
-function SettingsListManager({ items, onMove, onToggleActive, onDelete, onSave, renderForm, renderMeta, emptyLabel, addLabel }) {
+function SettingsListManager({ items, onMove, onToggleActive, onDelete, onSave, renderForm, renderMeta, emptyLabel, addLabel, linksFor }) {
   const readOnly = useContext(CashReadOnly)
   const [editId,  setEditId]  = useState(null)
   const [editVals, setEditVals] = useState({})
@@ -2273,6 +2343,7 @@ function SettingsListManager({ items, onMove, onToggleActive, onDelete, onSave, 
                 {item.type && <TypeBadge type={item.type} />}
                 {renderMeta?.(item)}
               </div>
+              <LinkedFrom entries={linksFor?.(item)} />
             </div>
 
             <Toggle checked={item.is_active} onChange={() => onToggleActive(item.id, !item.is_active)} />
@@ -2314,7 +2385,8 @@ function SettingsListManager({ items, onMove, onToggleActive, onDelete, onSave, 
 
 // ── Income Sources tab ───────────────────────────────────────────────────────
 
-function IncomeSourcesTab({ venueId, items, onRefetch, api }) {
+function IncomeSourcesTab({ venueId, items, onRefetch, api, onOpenTab }) {
+  const links = useReconLinks(venueId)
   const [localItems, setLocalItems] = useState(items)
   useEffect(() => setLocalItems(items), [items])
 
@@ -2374,7 +2446,10 @@ function IncomeSourcesTab({ venueId, items, onRefetch, api }) {
   }
 
   return (
+    <>
+    <LinkedSystems links={links} group="income" onOpenTab={onOpenTab} />
     <SettingsListManager
+      linksFor={item => links?.fields?.['income:' + item.id]}
       items={localItems}
       onMove={handleMove}
       onToggleActive={handleToggleActive}
@@ -2384,12 +2459,14 @@ function IncomeSourcesTab({ venueId, items, onRefetch, api }) {
       emptyLabel="No income sources yet."
       addLabel="Add income source"
     />
+    </>
   )
 }
 
 // ── Payment Channels tab ─────────────────────────────────────────────────────
 
-function PaymentChannelsTab({ venueId, items, onRefetch, api }) {
+function PaymentChannelsTab({ venueId, items, onRefetch, api, onOpenTab }) {
+  const links = useReconLinks(venueId)
   const [localItems, setLocalItems] = useState(items)
   useEffect(() => setLocalItems(items), [items])
 
@@ -2447,7 +2524,10 @@ function PaymentChannelsTab({ venueId, items, onRefetch, api }) {
   }
 
   return (
+    <>
+    <LinkedSystems links={links} group="takings" onOpenTab={onOpenTab} />
     <SettingsListManager
+      linksFor={item => links?.fields?.['takings:' + item.id]}
       items={localItems}
       onMove={handleMove}
       onToggleActive={handleToggleActive}
@@ -2457,12 +2537,14 @@ function PaymentChannelsTab({ venueId, items, onRefetch, api }) {
       emptyLabel="No payment channels yet."
       addLabel="Add payment channel"
     />
+    </>
   )
 }
 
 // ── Service Charges tab ──────────────────────────────────────────────────────
 
-function ScSourcesTab({ venueId, items, onRefetch, api }) {
+function ScSourcesTab({ venueId, items, onRefetch, api, onOpenTab }) {
+  const links = useReconLinks(venueId)
   const [localItems, setLocalItems] = useState(items)
   useEffect(() => setLocalItems(items), [items])
 
@@ -2528,7 +2610,10 @@ function ScSourcesTab({ venueId, items, onRefetch, api }) {
   }
 
   return (
+    <>
+    <LinkedSystems links={links} group="sc" onOpenTab={onOpenTab} />
     <SettingsListManager
+      linksFor={item => links?.fields?.['sc:' + item.id]}
       items={localItems}
       onMove={handleMove}
       onToggleActive={handleToggleActive}
@@ -2538,6 +2623,7 @@ function ScSourcesTab({ venueId, items, onRefetch, api }) {
       emptyLabel="No service charge sources yet."
       addLabel="Add service charge source"
     />
+    </>
   )
 }
 
