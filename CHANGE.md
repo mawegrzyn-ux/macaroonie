@@ -5,6 +5,16 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-30 — Today: what needs doing, with Pepper beside it]
+
+- A new **Today** page at the top of the menu: a greeting, the day at a glance (bookings and covers, big parties, who's on the rota, closed today) and everything that needs doing at the venue, grouped **Late**, **Now**, **Next** and **Later**.
+- Tasks come from your own set-up and records, so they show even with Pepper switched off: fridge and hold check times not logged, cooking checks short, readings out of range with no corrective action, checklists not done, H&S actions due, supplier orders to send, deliveries due today, orders waiting for your approval, yesterday's cash-up and online orders waiting. A task goes away by itself once it's done.
+- Each task has one button. Fridge, hold and cooking checks and checklists open right on the page, the same forms as the Food safety and Checklists pages; the rest open their page. People who can only view an area get **View**.
+- Your menu as big tiles, the pages with something to do first, and Pepper beside it all with suggestions for the day.
+- Migration 221 (adds the Today link to every group's menu).
+
+---
+
 ## [2026-10-30 — Deposits for online bookings]
 
 - A venue can take a deposit when guests book online. Turn it on in **Booking rules** → **Deposit**: one amount per booking or an amount per guest, and how many hours before the booking a guest can cancel and get it back (leave it empty to keep it).

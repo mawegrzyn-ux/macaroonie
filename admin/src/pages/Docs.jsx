@@ -38,6 +38,7 @@ const SECTIONS = [
   { id: 'web-ordering', label: 'Web Ordering' },
   { id: 'loyalty', label: 'Loyalty' },
   { id: 'ai-assistant', label: 'Pepper (AI assistant) & MCP' },
+  { id: 'ops-today', label: 'Today (the ops front door)' },
   { id: 'store-openings', label: 'New locations (store openings)' },
   { id: 'menus',        label: 'Menus' },
   { id: 'combos',       label: 'Combos' },
@@ -6220,6 +6221,69 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               connects with an access token, for example:
             </P>
             <Code>{'claude mcp add --transport http macaroonie https://macaroonie.com/mcp/staff/<slug> \\\n  --header "Authorization: Bearer mcp_..."'}</Code>
+          </section>
+
+          <section id="ops-today" data-doc="">
+            <H2>Today (the ops front door)</H2>
+            <P>
+              The first slice of the chat-first front door in <Mono>docs/CHAT_FIRST.md</Mono> (requirement ids in
+              brackets). <Mono>/today</Mono> (<Mono>admin/src/pages/OpsToday.jsx</Mono>, nav link at the top of Home,
+              migration 221, module <Mono>dashboard</Mono>) shows the day at a glance, the tasks for a venue grouped
+              Late / Now / Next / Later, the person's menu as tiles and Pepper beside them. The tasks come from data and
+              rules, never the model (P1, Q1), so the page works with Pepper off.
+            </P>
+            <H3>GET /api/ops/today</H3>
+            <P>
+              <Mono>routes/ops.js</Mono> (<Mono>?venue_id=&amp;date=&amp;time=</Mono>; no venue = the tenant's first
+              active venue by name; <Mono>time</Mono> HH:MM judges the groups at another moment, default the venue's time
+              now, a past day = 23:59, a future day = 00:00). Open to anyone signed in; it builds a staff tool context
+              (<Mono>makeContext()</Mono>) and calls <Mono>opsToday()</Mono> in <Mono>services/opsToday.js</Mono>, which
+              reads every source through the admin routes in-process as the person (<Mono>callApi()</Mono>), so each
+              part keeps its route's permission check and tenant filter. Areas the person has no level on (from{' '}
+              <Mono>permissionLevels()</Mono>) or that answer 403 are listed in <Mono>not_included</Mono>, other
+              failures in <Mono>errors</Mono>; the rest still loads.
+            </P>
+            <DataTable
+              head={['Area (module)', 'Tasks (kind)', 'Read from']}
+              rows={[
+                ['food_safety (food_safety)', 'fridge_check and hold_check per check time with units not logged; cooking_check per session short of required_items_count; corrective_action per out-of-range reading or failed delivery with no action', '/api/food-safety equipment, capture-times, temp-logs, hold-stations, hold-capture-times, holds, cooking-sessions, cooking, deliveries'],
+                ['checklists (checklists)', 'checklist per template not completed (daily = now, weekly / monthly = later)', '/api/checklists/due'],
+                ['hs_actions (hs_action_log)', 'hs_action per open entry due today or overdue', '/api/hs-action-log/entries'],
+                ['purchasing (purchasing)', 'po_to_send; delivery_due (sent, delivery today); orders_to_approve (only with purchasing_approve manage)', '/api/purchasing/pos, /api/purchasing/orders'],
+                ['cash (cash_recon)', "cash_up when yesterday's report isn't submitted and the venue was open (openDatesOrNull())", '/api/venues/:id/cash-recon/daily/:date'],
+                ['online_orders (web_orders)', 'online_orders when orders are placed but not accepted', '/api/orders'],
+              ]}
+            />
+            <P>
+              Every task: <Mono>{'{ key, area, kind, compliance, title, detail, due, group, action, can_act }'}</Mono>.{' '}
+              <Mono>key</Mono> is stable (one card per thing to do, C6), <Mono>action</Mono> is{' '}
+              <Mono>{'{ form, label, ref }'}</Mono> (temps, holds, cooking, checklist) or{' '}
+              <Mono>{'{ path, label }'}</Mono>, and <Mono>can_act</Mono> is Manage on the task's module (U1).
+              <Mono> groupFor()</Mono> decides the group (<Mono>GRACE_MINS</Mono> 30, <Mono>NEXT_MINS</Mono> 120) and{' '}
+              <Mono>sortTasks()</Mono> the order: group, compliance first, then time (S1). A closed day
+              (<Mono>/api/hs-settings</Mono> <Mono>closed</Mono>) expects no check rounds (R4). There is no task store
+              yet: tasks are worked out on every request, done when their record exists (R2). The response also carries{' '}
+              <Mono>summary</Mono> (bookings and big parties from <Mono>day_overview</Mono>, people on the rota from{' '}
+              <Mono>whos_working</Mono>), <Mono>counts</Mono> and the <Mono>venues</Mono> for the switch.
+            </P>
+            <H3>The page</H3>
+            <P>
+              Forms open in a sheet on the page with the shared panels (<Mono>TempChecksTable</Mono>,{' '}
+              <Mono>HoldChecksTable</Mono>, <Mono>CookingChecksPanel</Mono>, <Mono>ChecklistRunPanel</Mono>), so they save
+              through the same routes and keep their own read-only rules (F1, F3, F5); Done refetches the feed. The tiles
+              are <Mono>/api/me</Mono>'s <Mono>nav_tree</Mono> links, pages with tasks first (<Mono>AREA_ROUTES</Mono>).
+              Pepper is <Mono>ChatView</Mono> with <Mono>pageAware</Mono> (the page calls <Mono>usePepperPage()</Mono>
+              with the venue and day) and a <Mono>suggestions</Mono> list for the day; the conversation is the drawer's
+              remembered one (<Mono>useRememberedConversation()</Mono>). The venue choice is kept in{' '}
+              <Mono>maca_today_venue</Mono>. Tests: <Mono>api/test/ops-today.test.mjs</Mono>.
+            </P>
+            <InfoBox type="info">
+              Not built yet from <Mono>docs/CHAT_FIRST.md</Mono>: a task store with owners, snooze, skip and escalation
+              (sections 3 and 5), manual and learned tasks (C3, L1-L6), watchers and push (M1-M7), forms inside the chat
+              itself (F1 in the conversation, F6, F7), the shared-device person switch (U2) and the per-group chat-first
+              switch (G1). Adding a source: a function in <Mono>SOURCES</Mono> with its module in <Mono>AREAS</Mono>,
+              reading through the routes with <Mono>callApi()</Mono>, and a row in this table.
+            </InfoBox>
           </section>
 
           <section id="store-openings" data-doc="">

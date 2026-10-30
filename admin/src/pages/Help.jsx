@@ -7,6 +7,7 @@ import { helpSlug } from '@shared/help.js'
 
 const SECTIONS = [
   { id: 'getting-started',     label: 'Getting Started' },
+  { id: 'today',               label: 'Today: What Needs Doing' },
   { id: 'overview',            label: 'The Overview Page' },
   { id: 'venues',              label: 'Managing Venues' },
   { id: 'new-location',        label: 'Setting Up a New Venue' },
@@ -188,6 +189,73 @@ export default function Help() {
           </section>
 
           {/* ── OVERVIEW PAGE ─────────────────────────────── */}
+          <section id="today" data-help="">
+            <H2>Today: What Needs Doing</H2>
+            <P>
+              <strong>Today</strong> (top of the main menu) is the place to start a shift. It says hello,
+              shows the day at a glance (bookings and covers, parties of 8 or more, how many people are on
+              the rota, and whether the venue is closed today), then everything that needs doing at the venue,
+              with Pepper beside it. Pick the venue at the top right if you work at more than one;
+              the page remembers it.
+            </P>
+            <H3>Where the tasks come from</H3>
+            <P>
+              Tasks are worked out from your own set-up and records, not by Pepper, so the list is
+              there even when Pepper is switched off. They update every minute and when you tap Refresh.
+            </P>
+            <DataTable
+              head={['Task', 'Shows when']}
+              rows={[
+                ['Fridge and freezer check', 'A check time in Food safety settings has fridges not logged yet'],
+                ['Hot and cold hold check', 'A hold check time has stations not logged yet'],
+                ['Cooking checks', 'A cooking session has fewer checks than it needs'],
+                ['Corrective action needed', 'A reading (fridge, hold, cooking or delivery) is out of range with no corrective action'],
+                ['A checklist', 'A checklist due today, this week or this month is not finished'],
+                ['H&S action', 'An open action log entry is due today or overdue'],
+                ['Send the order to...', 'A supplier order is waiting to be sent'],
+                ['Book in the delivery from...', 'A supplier order sent earlier is due to arrive today'],
+                ['Supplier orders waiting for approval', 'Someone asked for an order and you can approve orders'],
+                ['Cash-up not submitted', "Yesterday's cash-up isn't submitted (and the venue was open)"],
+                ['Online orders waiting', 'Online orders are waiting to be accepted'],
+              ]}
+            />
+            <P>
+              A task goes away by itself once the record exists: log the reading, tick the checklist, send the
+              order. Closed days expect no fridge, hold or cooking checks when your group follows opening days
+              in H&amp;S settings. You only see the areas your role can see; the page says which ones it left out.
+            </P>
+            <H3>Late, Now, Next and Later</H3>
+            <DataTable
+              head={['Group', 'Means']}
+              rows={[
+                ['Late', 'More than 30 minutes past its time, or overdue by nature (a reading needing an action, yesterday\'s cash-up)'],
+                ['Now', 'Due within 30 minutes either side, or due some time today with no set time'],
+                ['Next', 'Due in the next two hours'],
+                ['Later', 'Later today, or due this week or month'],
+              ]}
+            />
+            <H3>Doing a task from the page</H3>
+            <P>
+              Each task has one button. Fridge, hold and cooking checks and checklists open right on the page,
+              the same forms as the Food safety and Checklists pages: type the readings or tick the tasks, then
+              tap <strong>Done</strong>. <strong>Open the full page</strong> takes you to the page itself. Other
+              tasks (a supplier order, the cash-up, online orders) open their page. If your role can only view an
+              area, the button says <strong>View</strong> and the form is read only.
+            </P>
+            <H3>Go to</H3>
+            <P>
+              Your main menu as big tiles, the pages with something to do first, with a count on each.
+              Tap <strong>Everything</strong> to see every page.
+            </P>
+            <H3>Asking Pepper on the Today page</H3>
+            <P>
+              Pepper sits beside the tasks (below them on a narrower screen) with suggestions for the
+              day. It's the same chat as the Pepper panel, so it carries on where you left off; tap
+              <strong> New chat</strong> to start again. Your messages tell Pepper which venue and day
+              you're looking at.
+            </P>
+          </section>
+
           <section id="overview" data-help="">
             <H2>The Overview Page</H2>
             <P>

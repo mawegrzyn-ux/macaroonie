@@ -1,7 +1,15 @@
 # Chat-first front door: requirements
 
-Status: requirements, 30 Oct 2026. Nothing here is built yet. Each requirement
-has an id (H1, F3...) so a later plan, pull request or test can point at it.
+Status: requirements, 30 Oct 2026. Each requirement has an id (H1, F3...) so a
+later plan, pull request or test can point at it.
+
+Built so far (30 Oct 2026): the Today page (`/today`,
+`admin/src/pages/OpsToday.jsx`) and its task feed (`GET /api/ops/today`,
+`api/src/services/opsToday.js`): P1, P2, P3; H1, H2 (not cached), H3, H4, H5,
+H6, H7, H8 (the remembered chat only); C1 and C2 in part (the sources listed in
+Docs → Today), C6; R2, R4; S1, S2 (by permission), S3, S7 (counts from the
+feed); F1 (as a sheet on the page, not inside the conversation), F2, F3, F5,
+F8; N2, N6; U1; Q1. Everything else below is still to do.
 
 ## What we're making
 
