@@ -135,7 +135,7 @@ export default function OpsToday() {
                 <div className="min-w-0">
                   <p className="text-xl sm:text-2xl font-semibold leading-tight">{hello}{name ? ', ' + name : ''}</p>
                   <p className="text-sm text-muted-foreground mt-1">
-                    {d ? <>{d.day.replace(/, \d{4}$/, '')} · {d.now} · {d.venue.name}</> : 'Working out your day...'}
+                    {d ? <>{d.day.replace(/,/g, '').replace(/ \d{4}$/, '')} · {d.now} · {d.venue.name}</> : 'Working out your day...'}
                   </p>
                 </div>
               </div>
@@ -159,7 +159,7 @@ export default function OpsToday() {
             {me && <ModuleTiles me={me} tasks={d?.tasks || []} all={showAllTiles} onAll={() => setShowAllTiles(v => !v)} />}
 
             {canPepper && (
-              <div className="lg:hidden rounded-lg border bg-background overflow-hidden h-[70vh] flex flex-col">
+              <div className="lg:hidden rounded-lg border bg-background overflow-hidden h-[70vh] flex flex-col" data-testid="today-pepper-inline">
                 <PepperPanel tasks={d?.tasks || []} />
               </div>
             )}
