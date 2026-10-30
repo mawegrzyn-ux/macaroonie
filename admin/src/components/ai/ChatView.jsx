@@ -97,7 +97,7 @@ export function useAiStatus() {
   return useQuery({ queryKey: ['ai-status'], queryFn: () => api.get('/ai/status'), staleTime: 60_000 })
 }
 
-export default function ChatView({ conversationId, onConversationId, className, pageAware = false }) {
+export default function ChatView({ conversationId, onConversationId, className, pageAware = false, suggestions = SUGGESTIONS }) {
   const api = useApi()
   const qc  = useQueryClient()
   const [draft, setDraft]     = useState('')
@@ -290,7 +290,7 @@ export default function ChatView({ conversationId, onConversationId, className, 
             <p className="font-medium">Ask {ASSISTANT_NAME}</p>
             <p className="text-sm text-muted-foreground mb-4">Bookings, customers, the rota and staff, cash up and wages, online orders, sold out and the till, H&S checks, menus, purchasing and the website. Attach a photo, screenshot, PDF or CSV to work from. You confirm every change.</p>
             <div className="flex flex-col gap-2 max-w-sm mx-auto">
-              {SUGGESTIONS.map(s => (
+              {suggestions.map(s => (
                 <button key={s} type="button" onClick={() => submit(s)}
                   className="text-sm text-left px-3 min-h-[44px] rounded-md border hover:bg-accent touch-manipulation">
                   {s}

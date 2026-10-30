@@ -5,12 +5,13 @@
 // restores. Grouped by job, each page once. Migration 196 put every tenant
 // on this tree and migration 202 replaced Till setup and Menu screens with the
 // Store tech section (later migrations add single links, e.g. 219's Venue
-// hub); api/test/nav-default.test.mjs checks 196's tree with those changes
+// hub, 221's Today); api/test/nav-default.test.mjs checks 196's tree with those changes
 // applied matches this one, so change them together.
 
 export const DEFAULT_NAV_TREE = [
   {
     label: 'Home', children: [
+      { label: 'Today', icon: 'Sun', route: '/today', module: 'dashboard' },
       { label: 'Overview', icon: 'LayoutDashboard', route: '/', module: 'dashboard' },
       { label: 'Dashboards', icon: 'LayoutTemplate', route: '/dashboards', module: 'custom_dashboard' },
       { label: 'Pepper', icon: 'Sparkles', route: '/ai', module: 'ai_assistant' },
