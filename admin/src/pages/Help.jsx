@@ -178,6 +178,14 @@ export default function Help() {
               arrow) to open the restaurant picker. If your account only has one restaurant, the
               name is shown without an arrow — there's nothing to switch to.
             </P>
+            <P>
+              When you sign in to a restaurant (by picking it on the login screen, or from an
+              invitation link), that's the restaurant you work in, even if this browser was last used
+              for another one. Switching in the sidebar afterwards sticks until you next sign in.
+              Otherwise Macaroonie opens the restaurant you used last on that browser. On the phone
+              (ops.macaroonie.com) the restaurant&apos;s name is in the top bar next to the page&apos;s
+              title, with a switch button (two arrows) next to sign out to change it.
+            </P>
 
             <H3>Menu on tablets</H3>
             <P>
@@ -2304,6 +2312,14 @@ export default function Help() {
               a separate app too. The first time you open it you sign in again (and pick your
               restaurant, if you have more than one). If you installed it earlier from
               macaroonie.com/mobile, remove that icon and add it again from ops.macaroonie.com.
+            </P>
+            <P>
+              The top bar shows the restaurant you&apos;re working in next to the page&apos;s title
+              (<strong>Ops</strong> on the home screen). If your account is connected to more than one
+              restaurant, the switch button (two arrows) next to sign out picks another; the page you
+              were on opens again in that restaurant. The phone app keeps it until you switch again, and
+              signing in again opens the restaurant you sign in to. The office and the phone app each
+              remember their own choice, so switching on one doesn&apos;t switch the other.
             </P>
             <P>
               More mobile-optimised pages will appear on the <strong>/mobile</strong> hub screen

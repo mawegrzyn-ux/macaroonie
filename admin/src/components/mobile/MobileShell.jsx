@@ -14,8 +14,9 @@ import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth0 } from '@auth0/auth0-react'
 import { useQuery } from '@tanstack/react-query'
-import { ArrowLeft, LogOut, LayoutGrid } from 'lucide-react'
-import { useApi } from '@/lib/api'
+import { ArrowLeft, ArrowLeftRight, LogOut, LayoutGrid } from 'lucide-react'
+import { useApi, setSelectedTenant } from '@/lib/api'
+import TenantSwitcherModal from '@/components/TenantSwitcherModal'
 import { applySiteTheme } from '@/contexts/SettingsContext'
 import { MOBILE_MODULES } from '@/mobile/registry'
 import { IS_OPS_HOST } from '@/lib/hosts'
@@ -49,7 +50,7 @@ export function MobileLogoutButton({ className }) {
     <button
       type="button"
       onClick={handleLogout}
-      className={className ?? 'w-10 h-10 flex items-center justify-center rounded-lg hover:bg-accent text-muted-foreground shrink-0 touch-manipulation'}
+      className={className ?? 'w-12 h-12 flex items-center justify-center rounded-lg hover:bg-accent text-muted-foreground shrink-0 touch-manipulation'}
       aria-label="Sign out"
     >
       <LogOut className="w-5 h-5" />
@@ -95,7 +96,6 @@ function useMobileManifest() {
 export default function MobileShell() {
   useMobileManifest()
 
-  const { logout } = useAuth0()
   const location = useLocation()
   const navigate = useNavigate()
   const api = useApi()
@@ -117,9 +117,18 @@ export default function MobileShell() {
   const activeModule = MOBILE_MODULES.find(m => location.pathname.startsWith(m.path))
   const title = isHub ? 'Ops' : (activeModule?.label ?? 'Ops')
 
-  function handleLogout() {
-    try { localStorage.removeItem('maca_auth0_org_hint') } catch {}
-    logout({ logoutParams: { returnTo: window.location.origin } })
+  // The restaurant this phone works in, beside the title on every page; the
+  // ops screens have no sidebar, so Switch sits next to sign out. A switch
+  // opens the same page fresh (no query: an order or PO id in the address
+  // would be the other restaurant's).
+  const tenant = me?.current_tenant
+  const canSwitch = !!tenant && (me?.available_tenants?.length ?? 0) > 1
+  const [switching, setSwitching] = useState(false)
+  function switchTenant(id) {
+    if (!id) return
+    if (id === tenant?.id) { setSwitching(false); return }
+    setSelectedTenant(id)
+    window.location.assign(isHub ? '/mobile' : (activeModule?.path ?? '/mobile'))
   }
 
   const [headerHidden, setHeaderHidden] = useState(false)
@@ -132,32 +141,56 @@ export default function MobileShell() {
     >
       {!headerHidden && (
         <header
-          className="shrink-0 flex items-center gap-2 border-b px-3 bg-background z-10"
-          style={{ paddingTop: 'max(0.625rem, env(safe-area-inset-top))', paddingBottom: '0.625rem' }}
+          className="shrink-0 flex items-center gap-1.5 border-b px-2 bg-background z-10"
+          style={{ paddingTop: 'max(0.375rem, env(safe-area-inset-top))', paddingBottom: '0.375rem' }}
         >
           {isHub ? (
-            <span className="w-10 h-10 flex items-center justify-center rounded-lg bg-[#0f5c4f]/10 text-[#0f5c4f] shrink-0">
-              <LayoutGrid className="w-5 h-5" />
+            <span className="w-12 h-12 flex items-center justify-center shrink-0">
+              <span className="w-10 h-10 flex items-center justify-center rounded-lg bg-[#0f5c4f]/10 text-[#0f5c4f]">
+                <LayoutGrid className="w-5 h-5" />
+              </span>
             </span>
           ) : (
             <NavLink
               to="/mobile"
-              className="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-accent shrink-0 touch-manipulation"
+              className="w-12 h-12 flex items-center justify-center rounded-lg hover:bg-accent shrink-0 touch-manipulation"
               aria-label="Back to Ops home"
             >
               <ArrowLeft className="w-5 h-5" />
             </NavLink>
           )}
-          <h1 className="flex-1 min-w-0 text-base font-semibold truncate">{title}</h1>
-          <button
-            type="button"
-            onClick={handleLogout}
-            className="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-accent text-muted-foreground shrink-0 touch-manipulation"
-            aria-label="Sign out"
-          >
-            <LogOut className="w-5 h-5" />
-          </button>
+          <div className="flex-1 min-w-0 flex items-baseline gap-2">
+            <h1 className="shrink-0 max-w-[60%] text-base font-semibold truncate">{title}</h1>
+            {tenant && (
+              <span className="min-w-0 truncate text-sm font-medium text-[#0f5c4f]" data-testid="mobile-tenant-name">
+                {tenant.name}
+              </span>
+            )}
+          </div>
+          {canSwitch && (
+            <button
+              type="button"
+              onClick={() => setSwitching(true)}
+              className="w-12 h-12 flex items-center justify-center rounded-lg hover:bg-accent text-muted-foreground shrink-0 touch-manipulation"
+              aria-label="Switch restaurant"
+              title="Switch restaurant"
+              data-testid="mobile-tenant-switch"
+            >
+              <ArrowLeftRight className="w-5 h-5" />
+            </button>
+          )}
+          <MobileLogoutButton />
         </header>
+      )}
+      {switching && (
+        <TenantSwitcherModal
+          tenants={me?.available_tenants ?? []}
+          currentTenantId={tenant?.id}
+          onPick={switchTenant}
+          onClose={() => setSwitching(false)}
+          title="Switch restaurant"
+          subtitle="Pick which restaurant to work in."
+        />
       )}
 
       <main className="flex-1 overflow-y-auto overscroll-contain">
