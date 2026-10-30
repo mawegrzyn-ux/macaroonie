@@ -22,7 +22,7 @@ import schedulesRoutes  from './routes/schedules.js'
 import slotsRoutes      from './routes/slots.js'
 import bookingsRoutes   from './routes/bookings.js'
 import customersRoutes  from './routes/customers.js'
-import paymentsRoutes, { webhookRoutes } from './routes/payments.js'
+import paymentsRoutes   from './routes/payments.js'
 import orderApiRoutes, { paymentWebhookRoutes } from './routes/orderApi.js'
 import ordersRoutes from './routes/orders.js'
 import promotionsRoutes from './routes/promotions.js'
@@ -219,9 +219,8 @@ export async function buildApp() {
   // Every tenant's loyalty web app on loyalty.{root}/<slug> (routes/loyaltySite.js).
   await app.register(loyaltySite)
 
-  // Stripe webhook first — must bypass JSON body parser
-  await app.register(webhookRoutes)
-  // Payment gateway webhooks for web orders (raw body, per gateway)
+  // Payment gateway webhooks (raw body, per gateway): web orders, and on
+  // the Stripe Connect endpoint booking deposits too.
   await app.register(paymentWebhookRoutes)
   // GloriaFood "Push Accepted Order" (migration 159): POST /webhooks/gloriafood/:token
   await app.register(gloriafoodWebhookRoutes)

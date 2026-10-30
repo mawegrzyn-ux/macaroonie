@@ -141,7 +141,7 @@ export default function Help() {
                 ['Set up table combinations', 'If adjacent tables can be pushed together for larger parties, create a combination (e.g. T1 + T2 = combined table for 6).'],
                 ['Configure your weekly schedule', 'Define which days you open and add sittings (Lunch, Dinner). Each sitting has its own slot duration, interval, and cover cap.'],
                 ['Set booking rules', 'Configure minimum and maximum covers per booking, the hold time limit, and the cutoff before a slot starts.'],
-                ['(Optional) Enable deposits', 'Connect a Stripe account and set a deposit amount if you want to require payment to confirm bookings.'],
+                ['(Optional) Enable deposits', 'Connect your Stripe account in Ordering setup, then turn deposits on in Booking rules: guests booking online pay by card.'],
                 ['Test the booking widget', 'Go to Widget Test in the sidebar and run a test booking end-to-end before going live.'],
               ].map(([title, desc], i) => (
                 <div key={i} className="flex gap-3">
@@ -279,9 +279,8 @@ export default function Help() {
 
             <H3>Venue settings</H3>
             <P>
-              From the venue detail page you can also access <strong>Booking Rules</strong> and{' '}
-              <strong>Deposit Rules</strong> — shortcut links are shown below the venue details.
-              These settings are per-venue, so each location can have different rules.
+              Booking length, party sizes, how far ahead guests can book and deposits are set per venue on the{' '}
+              <strong>Booking rules</strong> page (pick the venue at the top), so each location can have different rules.
             </P>
           </section>
 
@@ -740,37 +739,58 @@ export default function Help() {
           <section id="deposits" data-help="">
             <H2>Deposits &amp; Payments</H2>
             <P>
-              Macaroonie integrates with Stripe Connect so each restaurant can take deposits directly into
-              their own bank account. The platform deducts a small fee automatically.
+              A venue can take a deposit when guests book online. The guest pays by card in the booking
+              widget, and the money goes straight to your own Stripe account (the one you connect for online
+              orders). Bookings your staff add on the Timeline or the Bookings page take no deposit.
             </P>
 
-            <H3>Setting up Stripe</H3>
+            <H3>Turning deposits on</H3>
             <ol className="space-y-2 text-sm text-muted-foreground list-decimal list-inside ml-2 mb-4">
-              <li>Go to your venue's <strong>Deposit Rules</strong> page.</li>
-              <li>Click <strong>Connect with Stripe</strong> and complete the Stripe onboarding flow.</li>
-              <li>Once connected, enable <strong>Require deposit</strong> and set the deposit amount in pence (e.g. 1000 = £10.00).</li>
-              <li>Save. New bookings for this venue will now require payment before confirmation.</li>
+              <li>
+                Connect your Stripe account first: <strong>Online orders</strong> &gt; <strong>Ordering setup</strong> &gt;{' '}
+                <strong>Your Stripe account</strong> &gt; <strong>Connect Stripe</strong>. Guests can&apos;t pay a deposit
+                until Stripe says your account can take payments.
+              </li>
+              <li>Open <strong>Booking rules</strong>, pick the venue and tick <strong>Take a deposit with online bookings</strong>.</li>
+              <li>Choose <strong>One amount per booking</strong> or <strong>An amount per guest</strong>, and type the amount in pounds (for example 10 or 7.50).</li>
+              <li>
+                Under <strong>Refunded when the guest cancels at least this many hours before</strong>, type the hours
+                (for example 24). Leave it empty to keep the deposit whenever a guest cancels.
+              </li>
+              <li>Press <strong>Save deposit rules</strong>.</li>
             </ol>
-
-            <H3>How the deposit flow works</H3>
-            <ol className="space-y-2 text-sm text-muted-foreground list-decimal list-inside ml-2 mb-4">
-              <li>Guest selects a slot — a hold is created (slot is temporarily reserved).</li>
-              <li>Guest sees the deposit amount and completes payment in the widget.</li>
-              <li>Stripe confirms payment via webhook → booking is confirmed automatically.</li>
-              <li>If the guest abandons, the hold expires and the slot is released. No charge is taken.</li>
-            </ol>
-
             <InfoBox type="warn">
-              Bookings are only confirmed after Stripe's webhook is received — not when the guest sees
-              the payment success screen. This prevents double-bookings and ensures payment has actually
-              cleared before the slot is permanently held.
+              While deposits are on and Stripe isn&apos;t connected (or not ready yet), the Booking rules page says so in
+              amber, and guests can&apos;t book that venue online at all: the widget asks them to phone instead.
             </InfoBox>
 
-            <H3>Issuing refunds</H3>
+            <H3>What the guest sees</H3>
+            <ol className="space-y-2 text-sm text-muted-foreground list-decimal list-inside ml-2 mb-4">
+              <li>The widget says a deposit is taken (for example &quot;A deposit of £5.00 a guest&quot;) when they choose the party size.</li>
+              <li>They pick a date and time, then type their details. Email is needed for a deposit: Stripe sends the receipt there.</li>
+              <li><strong>Continue to payment</strong> holds the table for 15 minutes while they pay with card, Apple Pay or Google Pay.</li>
+              <li>Once Stripe confirms the payment, the booking is made and the confirmation page shows the deposit paid.</li>
+              <li>If they go back or give up, the table is let go and nothing is charged.</li>
+            </ol>
             <P>
-              Open the booking from the Timeline, click the booking tile to open the detail drawer, and
-              click <strong>Issue refund</strong> in the Payment section. The refund is processed
-              immediately via Stripe and returns to the guest's original payment method within 5–10 days.
+              The booking is only made once Macaroonie has checked with Stripe that the money was taken; what the guest&apos;s
+              browser says is never enough. If the payment goes through but the table was taken in the meantime (the guest
+              waited far too long), the deposit is refunded straight away and the guest is asked to pick another time.
+            </P>
+
+            <H3>When a guest cancels</H3>
+            <P>
+              Guests can cancel from the link in their confirmation email. If they cancel at least the hours you set before
+              the booking, the deposit goes back to their card by itself, and the page tells them so. Later than that (or if
+              you left the hours empty), the deposit is kept, and the page says that before they confirm.
+            </P>
+
+            <H3>Refunding a deposit yourself</H3>
+            <P>
+              Open the booking (Timeline or Bookings). The <strong>Deposit</strong> part of the booking shows what was paid,
+              anything refunded and the cancellation rule. Owners and admins see <strong>Refund…</strong>: leave the amount
+              empty to refund all that is left, or type part of it (for example 5), then press <strong>Yes, refund</strong>.
+              You can refund in several parts. The money goes back to the guest&apos;s card, usually within 5 to 10 working days.
             </P>
           </section>
 
@@ -1152,10 +1172,9 @@ export default function Help() {
 
             <H3>Issuing a refund</H3>
             <P>
-              If a deposit was taken, a <strong>Payment</strong> section appears in the drawer showing
-              the amount and status. Click <strong>Issue refund</strong> to process a full refund via
-              Stripe. The refund is instant on Macaroonie's side; the guest receives funds within 5–10
-              business days depending on their bank.
+              If a deposit was taken, a <strong>Deposit</strong> part appears in the drawer with what was paid and
+              refunded. Owners and admins press <strong>Refund…</strong>, leave the amount empty for all of it or type
+              part, then <strong>Yes, refund</strong>. See Deposits &amp; Payments.
             </P>
 
             <H3>Viewing all bookings</H3>
@@ -2497,7 +2516,7 @@ export default function Help() {
               <li><strong>Date</strong> — guest picks a date from the calendar.</li>
               <li><strong>Time slot</strong> — available slots are shown based on your schedule and current bookings.</li>
               <li><strong>Guest details</strong> — name, email, phone (optional), and special notes.</li>
-              <li><strong>Payment</strong> (if deposit required) — guest completes card payment.</li>
+              <li><strong>Payment</strong> (if the venue takes a deposit): the guest pays by card, Apple Pay or Google Pay.</li>
               <li><strong>Confirmation</strong> — booking reference shown; confirmation email sent.</li>
             </ol>
 

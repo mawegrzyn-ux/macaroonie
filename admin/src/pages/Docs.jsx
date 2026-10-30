@@ -970,11 +970,11 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['exception_sittings', 'Sittings for an exception day template. Also has name (nullable) from migration 023.', 'template_id, opens_at, closes_at, default_max_covers, doors_close_time, sort_order, name text nullable'],
                 ['exception_sitting_slot_caps', 'Sparse per-slot cover cap overrides within exception sittings.', 'sitting_id, slot_time, max_covers'],
                 ['booking_rules', 'Per-venue booking constraints. Smart-allocation flags, status-flow toggles (unconfirmed, reconfirmed, arrived).', 'venue_id, hold_ttl_secs, min_covers, max_covers, cutoff_before_mins, slot_duration_mins, allow_cross_section_combo, allow_non_adjacent_combo, allow_widget_bookings_after_doors_close, enable_unconfirmed_flow, enable_reconfirmed_status, enable_arrived_status'],
-                ['deposit_rules', 'Per-venue deposit configuration.', 'venue_id, requires_deposit, amount_pence, stripe_account_id'],
-                ['booking_holds', 'Temporary slot reservations. UNIQUE (table_id, starts_at).', 'venue_id, table_id, combination_id, starts_at, ends_at, expires_at, guest_name, guest_email'],
+                ['deposit_rules', 'Per-venue deposit for online bookings (Booking rules page). refund_hours_before NULL = kept when the guest cancels (CHECK >= 0, migration 220).', 'venue_id, requires_deposit, deposit_type fixed | per_cover, deposit_amount (pounds), currency, refund_hours_before'],
+                ['booking_holds', 'Temporary slot reservations. UNIQUE (table_id, starts_at). A deposit hold carries its PaymentIntent and lives at least 15 minutes (migration 220).', 'venue_id, table_id, combination_id, starts_at, ends_at, expires_at, guest_name, guest_email, guest_notes, stripe_pi_id, stripe_account, deposit_pence'],
                 ['bookings', 'Confirmed bookings.', 'venue_id, table_id, combination_id, starts_at, ends_at, covers, status, reference, guest_name, guest_email, guest_phone, guest_notes, operator_notes, customer_id'],
                 ['customers', 'Customer profiles with GDPR support. Auto-created on booking confirm. is_anonymised flag for GDPR erasure.', 'tenant_id, name, email, phone, notes, is_anonymised, anonymised_at, created_at'],
-                ['payments', 'Stripe payment records.', 'booking_id, stripe_pi_id, amount, currency, status'],
+                ['payments', 'Booking deposits, one row per paid booking (UNIQUE stripe_pi_id). status succeeded | partially_refunded | refunded; refund_hours_before copied from the rule when paid; refund_ids are Stripe refund ids already counted (migration 220).', 'booking_id, stripe_pi_id, stripe_account, amount, currency, status, refunded_amount, refund_hours_before, refund_ids'],
                 ['disallowed_table_pairs', 'Junction table — specific table pairs the smart-allocation engine must never combine. Normalised so table_id_a < table_id_b.', 'venue_id, tenant_id, table_id_a, table_id_b (UNIQUE)'],
               ].map(([name, desc, cols]) => (
                 <div key={name} className="border rounded-lg p-3">
@@ -1017,7 +1017,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               rows={[
                 ['POST', '/holds', 'any', 'Create a hold. UNIQUE (table_id, starts_at) guards concurrent requests.'],
                 ['DELETE', '/holds/:id', 'any', 'Release a hold immediately. Cancels attached Stripe PI.'],
-                ['POST', '/', 'any', 'Confirm a free booking (no deposit path).'],
+                ['POST', '/', 'any', 'Make a booking from a staff hold. Staff bookings take no deposit, even at a deposit venue.'],
                 ['GET', '/', 'any', 'List bookings — filter by venue_id, date, status. Returns member_table_ids for combos.'],
                 ['GET', '/:id', 'any', 'Single booking detail.'],
                 ['PATCH', '/:id/status', 'operator', 'Transition booking status.'],
@@ -1092,9 +1092,33 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <DataTable
               head={['Method', 'Path', 'Auth', 'Description']}
               rows={[
-                ['POST', '/intent', 'any', 'Create Stripe PaymentIntent for a hold'],
-                ['POST', '/webhook', 'Stripe sig', 'Stripe webhook — confirms booking on payment_intent.succeeded'],
-                ['POST', '/:id/refund', 'admin', 'Issue refund via Stripe for a payment'],
+                ['POST', '/:id/refund', 'owner / admin + bookings manage', "Refund a booking deposit: { amount_pence? } (left out = all that is left). 422 over what is left or already refunded. Returns { ok, status, refunded_pence }."],
+              ]}
+            />
+
+            <H3>Booking deposits (migration 220)</H3>
+            <P>
+              Guests booking online at a venue whose <Mono>deposit_rules.requires_deposit</Mono> is on pay by card in the
+              reservations widget, on the group&apos;s own Stripe account (Connect direct charge, no platform fee). The
+              server never books on the browser&apos;s word: it reads the PaymentIntent back from Stripe. Staff bookings
+              (<Mono>POST /api/bookings</Mono>, admin-override) take no deposit. The old platform-account flow
+              (<Mono>services/paymentService.js</Mono>, <Mono>/api/payments/intent</Mono>, <Mono>/api/payments/webhook</Mono>,{' '}
+              <Mono>STRIPE_WEBHOOK_SECRET</Mono>) is gone.
+            </P>
+            <DataTable
+              head={['Piece', 'What it does']}
+              rows={[
+                ['GET /widget-api/venues/:id', "deposit: { required, online, type, amount_pence, currency, refund_hours_before } from depositPublic(); online = the group's Stripe account can take payments (depositsOnline())."],
+                ['POST /widget-api/venues/:id/holds', 'At a deposit venue: 422 when Stripe isn\'t ready ("call them to book") or without an email (the receipt goes there); stores guest_notes on the hold.'],
+                ['POST .../holds/:holdId/deposit', "startDeposit(): a PaymentIntent on the group's account (automatic_payment_methods, allow_redirects never, metadata kind deposit + hold, tenant, venue, receipt_email), reused while payable for the same amount; the hold gets stripe_pi_id, stripe_account, deposit_pence and lives at least DEPOSIT_HOLD_SECS (900). Returns client_secret, publishable_key, account, amount_pence, currency, expires_at. 410 hold gone."],
+                ['POST .../holds/:holdId/deposit/confirm', "{ payment_intent }: confirmDeposit() reads it from Stripe (404 for another venue's), settleDeposit() books it. 201 booking (+ deposit_pence), 202 still processing (the widget asks again), 402 not paid, 409 { refunded: true } when it can't be booked."],
+                ['POST .../holds/:holdId/confirm', '422 at a deposit venue: pay first.'],
+                ['settleDeposit()', "Advisory lock per PaymentIntent, then: a payments row already there = booked (idempotent, never refunds); the hold locked FOR UPDATE and booked with confirm_hold(..., p_allow_expired true) (paid but expired still books if the table is free); a hold gone or its table taken = refund with key mcrn-deposit-unbooked-<pi>; an amount or account that doesn't match = mismatch, nothing booked. bookFromHold() + afterNewBooking() (customer, email, reminder, Timeline push) in services/holdBooking.js."],
+                ['Webhook', 'POST /webhooks/payments/stripe (the Connect endpoint): parseWebhook() hands PaymentIntents with metadata.kind deposit to depositWebhook(), which books on payment_intent.succeeded only when the metadata venue belongs to the metadata tenant. So a guest who closes the tab after paying still gets the booking.'],
+                ['Refunds', "refundDeposit() (services/depositSvc.js) on payments.stripe_account, idempotency key mcrn-deposit-refund-<id>-<refunded so far>-<amount>, refund_ids so a retry isn't counted twice. Guest cancel (guestBookingSvc.cancelBooking()) refunds in full while refundRule() allows (refund_hours_before set and starts_at minus that many hours still ahead), else keeps it; the manage page says which before and after. The booking drawer's Deposit part refunds all or part (owners and admins)."],
+                ['Giving up', 'DELETE of a hold (widget or staff) cancels its PaymentIntent (cancelDepositIntent()).'],
+                ['Admin', "Rules page Deposit card (deposit-not-ready / deposit-ready from GET /api/venues/:id/deposit-rules' card_payments_ready); BookingDrawer's Deposit part (payment_currency, payment_refunded, payment_refund_hours_before on GET /api/bookings)."],
+                ['Widget', "views/site/reservations_widget.eta step 6 (#rpay): Stripe.js with the group's account, the Payment Element, confirmPayment({ redirect: 'if_required' }), then deposit/confirm (finishDeposit() asks again on 202)."],
               ]}
             />
 
@@ -5099,7 +5123,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['The group\'s account', "tenants.stripe_account_id + stripe_charges_enabled, stripe_details_submitted, stripe_account_name, stripe_checked_at, stripe_domains. POST /api/stripe/connect { return_url } (owner/admin + manage on web_ordering_setup or pos_setup): makes the account the first time (POST /v1/accounts, idempotency key per tenant per minute, so a double click makes one but connecting again after Unlink makes a new one) and returns an account link (account_onboarding); return_url must be https on the root domain (localhost outside production, safeReturnUrl()). GET /api/stripe (view, stripeView()), POST /api/stripe/refresh (GET /v1/accounts/:id; 403 / 404 = the account was disconnected: charges off, 422), DELETE /api/stripe (forget the link; nothing is deleted at Stripe)."],
                 ['Apple Pay / Google Pay', "refreshAccount() registers the group's site addresses (subdomain, staging, a verified custom domain) with POST /v1/payment_method_domains on the account once charges are on, recorded in stripe_domains so each goes once."],
                 ['Gateway', "paymentGateways/stripe.js: isAvailable = tenant.stripe_ready (account linked and charges_enabled, platform ready). start() makes a PaymentIntent on the account (automatic_payment_methods, metadata.order_id / tenant_id / venue_id / order_number, application fee) and returns client { type: 'stripe', publishable_key, account, client_secret, amount_pence, currency }. confirmFromClient() reads the PaymentIntent back (never the browser's word; an order_id that differs = failed). piStatus(): succeeded, canceled -> cancelled, requires_payment_method with last_payment_error -> failed, else pending. refund() with refund_application_fee and an idempotency key per payment, refunded so far and amount; cancel() cancels the intent."],
-                ['Webhook', "Connect endpoint on the platform account, address POST /webhooks/payments/stripe, events payment_intent.succeeded / payment_failed / canceled, account.updated, account.application.deauthorized. parseWebhook() checks Stripe-Signature (t=, v1= HMAC-SHA256 of t.body with the webhook secret, 300 s tolerance; verifySignature()), applies account events to the tenant (applyAccountEvent()), and passes only PaymentIntents with metadata.order_id on (card machine sales and deposits come to the same endpoint). applyPaymentResult() is idempotent, so a webhook after the page confirmed does nothing."],
+                ['Webhook', "Connect endpoint on the platform account, address POST /webhooks/payments/stripe, events payment_intent.succeeded / payment_failed / canceled, account.updated, account.application.deauthorized. parseWebhook() checks Stripe-Signature (t=, v1= HMAC-SHA256 of t.body with the webhook secret, 300 s tolerance; verifySignature()), applies account events to the tenant (applyAccountEvent()), hands booking deposits (metadata.kind deposit) to depositWebhook() in services/depositSvc.js, and passes only PaymentIntents with metadata.order_id on as order payments (card machine sales come to the same endpoint). applyPaymentResult() is idempotent, so a webhook after the page confirmed does nothing."],
                 ['Guest page', "views/site/shared/ordering.eta: when the payment's client.type is stripe, draw() hands over to showStripe(), which loads https://js.stripe.com/v3/ once (loadStripeJs()), mounts the Payment Element once per payment (draw() never redraws it, or what the guest typed is lost) with colorPrimary from --c-primary, and confirmPayment({ redirect: 'if_required', return_url: status page ?pay=<payment id> }). Success or processing: POST .../payments/:id/confirm, then the status page. A bank redirect comes back to the status page, which confirms the ?pay= payment, cleans the address and loads. The status page offers the same form while an order is still pending_payment."],
                 ['Admin', "components/orders/StripeAccountCard.jsx (useStripeAccount(); Connect / Continue on Stripe, Check again (automatic when over 5 minutes old and after ?stripe=return), Stripe dashboard, Unlink with a confirm; the platform-not-ready note): in Ordering setup under Payment methods and in Store tech > Card machines' account window."],
               ]}
@@ -8008,14 +8032,15 @@ Guest cancels or abandons
   → DELETE /bookings/holds/:id → slot freed immediately
   → Stripe PI cancelled if attached
 
-── Payment flow (deposit venues) ──────────────────────────
-  → POST /payments/intent → Stripe PaymentIntent created
-  → Guest completes 3DS / card in widget
-  → Stripe fires webhook → POST /payments/webhook
-      confirm_hold(hold_id, tenant_id)
-        → SELECT ... FOR UPDATE NOWAIT   (second race guard)
-        → INSERT bookings  (copies combination_id + guest_notes from hold)
-        → DELETE booking_holds
+── Deposit venues (widget only) ───────────────────────────
+  → POST /widget-api/venues/:id/holds/:hold/deposit
+      PaymentIntent on the group's Stripe account, hold kept 15 min
+  → Guest pays in the widget (Payment Element, 3DS in place)
+  → POST .../deposit/confirm  (or the Connect webhook, whichever first)
+      Stripe asked → settleDeposit()
+        confirm_hold(hold_id, tenant_id, allow_expired)
+        → INSERT bookings + payments, DELETE booking_holds
+        (table gone → deposit refunded, guest picks another time)
       broadcastBooking('booking.created') → WS push to Timeline
 
 ── Free booking (no deposit) ───────────────────────────────
@@ -8172,8 +8197,9 @@ allTables sorted by sort_order → target at index i
             />
 
             <InfoBox type="warn">
-              Bookings only become permanent via the Stripe webhook.
-              Never trust client-side payment confirmation. <Mono>confirm_hold()</Mono> uses{' '}
+              A deposit booking is only made once the server has read the PaymentIntent back from Stripe
+              (the widget&apos;s confirm or the Connect webhook, through <Mono>settleDeposit()</Mono>), never on the
+              browser&apos;s word. <Mono>confirm_hold()</Mono> uses{' '}
               <Mono>FOR UPDATE NOWAIT</Mono> to prevent double-booking under concurrent requests.
             </InfoBox>
           </section>
@@ -8282,8 +8308,7 @@ allTables sorted by sort_order → target at index i
                 ['REDIS_URL', 'API', 'BullMQ + hold sweep. Update password to match Redis config.'],
                 ['AUTH0_DOMAIN', 'API + Admin', 'Auth0 tenant domain'],
                 ['AUTH0_AUDIENCE', 'API', 'JWT audience identifier'],
-                ['STRIPE_SECRET_KEY', 'API', 'Stripe secret key'],
-                ['STRIPE_WEBHOOK_SECRET', 'API', 'Stripe webhook signing secret (whsec_...)'],
+                ['STRIPE_SECRET_KEY', 'API', "Optional fallback for the platform's Stripe secret key (the Platform page's Payments tab wins). STRIPE_WEBHOOK_SECRET is gone (migration 220): the Connect webhook's secret is STRIPE_CONNECT_WEBHOOK_SECRET or the Payments tab."],
                 ['VITE_AUTH0_DOMAIN', 'Admin', 'Auth0 domain for SPA login'],
                 ['VITE_AUTH0_CLIENT_ID', 'Admin', 'Auth0 SPA client ID'],
                 ['VITE_AUTH0_AUDIENCE', 'Admin', 'JWT audience (same as API)'],

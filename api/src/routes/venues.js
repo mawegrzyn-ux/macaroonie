@@ -5,6 +5,7 @@ import { withTenant } from '../config/db.js'
 import { requireAuth, requirePermission } from '../middleware/auth.js'
 import { requireOwnVenue } from '../middleware/venue.js'
 import { httpError } from '../middleware/error.js'
+import { depositsOnline } from '../services/depositSvc.js'
 
 // Changes need manage on the module they belong to. Reads stay open to every
 // member of the tenant: venues, tables and rules are reference data that the
@@ -442,20 +443,22 @@ export default async function venuesRoutes(app) {
   // ── DEPOSIT RULES ─────────────────────────────────────────
 
   // GET /venues/:id/deposit-rules
+  // card_payments_ready: the group's Stripe account can take deposits now
+  // (services/depositSvc.js); without it guests can't book a deposit venue online.
   app.get('/:id/deposit-rules', async (req) => {
     const [rules] = await withTenant(req.tenantId, tx => tx`
       SELECT * FROM deposit_rules
        WHERE venue_id  = ${req.params.id}
          AND tenant_id = ${req.tenantId}
     `)
-    return rules ?? {}
+    return { ...(rules ?? {}), card_payments_ready: await depositsOnline(req.tenantId) }
   })
 
   // POST /venues/:id/deposit-rules
   app.post('/:id/deposit-rules', { preHandler: PERM.rules}, async (req, reply) => {
     const body = DepositRulesBody.parse(req.body)
     if (body.requires_deposit && (!body.deposit_type || !body.deposit_amount)) {
-      throw httpError(422, 'deposit_type and deposit_amount are required when requires_deposit is true')
+      throw httpError(422, 'Enter the deposit amount and how it is worked out')
     }
     const [rules] = await withTenant(req.tenantId, tx => tx`
       INSERT INTO deposit_rules
@@ -494,7 +497,7 @@ export default async function venuesRoutes(app) {
       const type   = body.deposit_type   ?? existing?.deposit_type
       const amount = body.deposit_amount ?? existing?.deposit_amount
       if (!type || !amount) {
-        throw httpError(422, 'deposit_type and deposit_amount must be set before enabling deposit requirement')
+        throw httpError(422, 'Enter the deposit amount and how it is worked out first')
       }
     }
 

@@ -90,7 +90,10 @@
   <% if (it.flash === 'modified') { %>
     <div class="flash flash-modified">Your booking has been updated.</div>
   <% } else if (it.flash === 'cancelled') { %>
-    <div class="flash flash-cancelled">Your booking has been cancelled.</div>
+    <div class="flash flash-cancelled">Your booking has been cancelled.<%
+      if (it.depositFlash === 'refunded') { %> Your deposit is on its way back to your card (it can take a few days to show).<% }
+      else if (it.depositFlash === 'kept') { %> The deposit isn't refunded, as the booking was cancelled too close to the time.<% }
+      else if (it.depositFlash === 'error') { %> We couldn't refund your deposit just now: the restaurant will refund it.<% } %></div>
   <% } %>
   <% if (it.error) { %>
     <div class="flash flash-error"><%= it.error %></div>
@@ -123,6 +126,17 @@
       <div class="detail-row">
         <span class="label">Table</span>
         <span class="value"><%= it.booking.table_label %></span>
+      </div>
+    <% } %>
+    <% if (it.deposit) { %>
+      <div class="detail-row" data-testid="manage-deposit">
+        <span class="label">Deposit</span>
+        <span class="value" style="max-width:60%; text-align:right;">
+          <%= it.deposit.paid %> paid<% if (it.deposit.fully_refunded) { %>, refunded<% } else if (it.deposit.refunded) { %>, <%= it.deposit.refunded %> refunded<% } %>
+          <% if (!it.deposit.fully_refunded && it.booking.status !== 'cancelled') { %>
+            <br><span style="font-size:13px; color:#666;"><% if (it.deposit.non_refundable) { %>Not refunded if you cancel.<% } else if (it.deposit.refundable_now) { %>Refunded if you cancel before <%= it.deposit.until %>.<% } else { %>No longer refunded if you cancel.<% } %></span>
+          <% } %>
+        </span>
       </div>
     <% } %>
     <% if (it.booking.guest_notes) { %>
@@ -170,6 +184,9 @@
       <% if (it.canCancel) { %>
         <div class="cancel-confirm" id="cancel-confirm">
           <p>Are you sure you want to cancel this booking?</p>
+          <% if (it.deposit && !it.deposit.fully_refunded) { %>
+            <p style="color:#444;" data-testid="manage-deposit-cancel"><% if (it.deposit.refundable_now) { %>Your deposit will be refunded to your card.<% } else { %>Your deposit won't be refunded.<% } %></p>
+          <% } %>
           <form method="POST" action="/manage/<%= it.token %>/cancel">
             <button type="submit" class="btn btn-danger" style="width:100%;">Yes, cancel my booking</button>
           </form>

@@ -17,13 +17,13 @@
 //   POST   /venues/:venueId/holds                      — create a hold (widget multi-step flow)
 //   DELETE /venues/:venueId/holds/:holdId              — cancel a hold
 //   POST   /venues/:venueId/holds/:holdId/confirm      — confirm a free booking
+//   POST   /venues/:venueId/holds/:holdId/deposit      — the deposit's payment form (Stripe, services/depositSvc.js)
+//   POST   /venues/:venueId/holds/:holdId/deposit/confirm — paid: read back from Stripe, book it
 
 import { z } from 'zod'
 import { sql, withTenant, systemSql } from '../config/db.js'
 import { httpError } from '../middleware/error.js'
 import { broadcastBooking } from '../services/broadcastSvc.js'
-import { upsertCustomer } from '../routes/customers.js'
-import { notificationQueue } from '../jobs/queues.js'
 import { env } from '../config/env.js'
 import {
   allocateBestFit,
@@ -31,6 +31,10 @@ import {
   canWidgetDisplace,
   tryDisplaceCombo,
 } from '../services/occupancySvc.js'
+import { bookFromHold, afterNewBooking, widgetBooking } from '../services/holdBooking.js'
+import {
+  depositPublic, depositsOnline, loadDepositRule, depositFor, startDeposit, confirmDeposit, cancelDepositIntent,
+} from '../services/depositSvc.js'
 
 const HoldBody = z.object({
   starts_at:     z.string(),                // ISO 8601
@@ -40,6 +44,14 @@ const HoldBody = z.object({
   guest_name:    z.string().min(1).max(200),
   guest_email:   z.string().email().nullable().optional(),
   guest_phone:   z.string().min(1).max(50).nullable().optional(),
+  guest_notes:   z.string().max(2000).nullable().optional(),
+})
+
+const DepositBody = z.object({
+  guest_notes:   z.string().max(2000).nullable().optional(),
+})
+const DepositConfirmBody = z.object({
+  payment_intent: z.string().regex(/^pi_[A-Za-z0-9_]{1,250}$/),
 })
 
 const ConfirmBody = z.object({
@@ -299,7 +311,7 @@ export default async function widgetApiRoutes(app) {
     const [extras] = await withTenant(venue.tenant_id, tx => tx`
       SELECT br.slot_duration_mins, br.min_covers, br.max_covers,
              br.book_until_days, br.cutoff_before_mins, br.hold_ttl_secs,
-             dr.requires_deposit, dr.deposit_type, dr.deposit_amount, dr.currency,
+             dr.requires_deposit, dr.deposit_type, dr.deposit_amount, dr.currency, dr.refund_hours_before,
              ts.primary_colour, ts.secondary_colour, ts.font_family,
              ts.theme, ts.site_name
         FROM venues v
@@ -325,6 +337,8 @@ export default async function widgetApiRoutes(app) {
       deposit_amount_pence: extras?.deposit_amount != null ? Math.round(Number(extras.deposit_amount) * 100) : null,
       deposit_type:         extras?.deposit_type || null,
       deposit_currency:     extras?.currency || venue.currency,
+      // online: the group's Stripe account can take it now (else guests can't book here online).
+      deposit: depositPublic(extras, extras?.requires_deposit ? await depositsOnline(venue.tenant_id) : false),
       // Theme: prefer explicit theme JSONB → primary colour → tenant default
       primary_colour: extras?.primary_colour || extras?.theme?.colors?.primary || '#2563eb',
       font_family:    extras?.font_family    || extras?.theme?.typography?.body_font || 'system-ui',
@@ -631,25 +645,8 @@ export default async function widgetApiRoutes(app) {
     const manageUrl = 'https://' + (req.headers.host || env.PUBLIC_ROOT_DOMAIN) +
                       '/manage/' + bk.manage_token
 
-    // Customer upsert + confirmation email (fire-and-forget)
-    withTenant(venue.tenant_id, async tx => {
-      const customerId = await upsertCustomer(tx, venue.tenant_id, {
-        name:  bk.guest_name,
-        email: bk.guest_email,
-        phone: bk.guest_phone,
-      })
-      if (customerId) {
-        await tx`UPDATE bookings SET customer_id = ${customerId} WHERE id = ${bk.id}`
-      }
-    }).catch(() => {})
-
-    notificationQueue.add('booking_email', {
-      bookingId: bk.id, tenantId: venue.tenant_id,
-      venueId:   bk.venue_id, type: 'confirmation',
-      guestEmail: bk.guest_email,
-    }).catch(() => {})
-
-    broadcastBooking('booking.created', bk)
+    // Customer record, emails, timeline (best effort).
+    afterNewBooking(venue.tenant_id, bk)
     for (const row of displaced || []) broadcastBooking('booking.updated', row)
 
     const dateLabel = new Intl.DateTimeFormat('en-GB', {
@@ -691,6 +688,13 @@ export default async function widgetApiRoutes(app) {
       if (!rules) throw httpError(404, 'Venue booking rules not configured')
       if (body.covers < rules.min_covers || body.covers > rules.max_covers) {
         throw httpError(422, `Covers must be between ${rules.min_covers} and ${rules.max_covers}`)
+      }
+      // A deposit venue: only when the deposit can be paid online, with an email for its receipt.
+      if (depositFor(await loadDepositRule(tx, venue.tenant_id, venue.id), body.covers) > 0) {
+        if (!await depositsOnline(venue.tenant_id)) {
+          throw httpError(422, 'This restaurant can\'t take deposits online just now. Please call them to book.')
+        }
+        if (!body.guest_email) throw httpError(422, 'An email address is needed for the deposit receipt')
       }
 
       const startsAt   = new Date(body.starts_at)
@@ -756,12 +760,12 @@ export default async function widgetApiRoutes(app) {
       const [newHold] = await tx`
         INSERT INTO booking_holds
           (venue_id, table_id, combination_id, tenant_id, starts_at, ends_at, covers,
-           guest_name, guest_email, guest_phone, expires_at)
+           guest_name, guest_email, guest_phone, guest_notes, expires_at)
         VALUES
           (${venue.id}, ${tableId}, ${combinationId}, ${venue.tenant_id},
            ${startsAt.toISOString()}, ${endsAt.toISOString()}, ${body.covers},
            ${body.guest_name}, ${body.guest_email ?? null}, ${body.guest_phone ?? null},
-           ${expiresAt.toISOString()})
+           ${body.guest_notes ?? null}, ${expiresAt.toISOString()})
         RETURNING *
       `
       return { hold: newHold, displaced }
@@ -778,25 +782,31 @@ export default async function widgetApiRoutes(app) {
     const venue = await resolveTenant(req.params.venueId)
     if (!venue) throw httpError(404, 'Venue not found')
 
-    await withTenant(venue.tenant_id, tx => tx`
+    const [gone] = await withTenant(venue.tenant_id, tx => tx`
       DELETE FROM booking_holds
-       WHERE id = ${req.params.holdId} AND tenant_id = ${venue.tenant_id}
+       WHERE id = ${req.params.holdId} AND tenant_id = ${venue.tenant_id} AND venue_id = ${venue.id}
+      RETURNING stripe_pi_id, stripe_account
     `)
+    // A deposit started on it can't be paid any more (best effort).
+    if (gone?.stripe_pi_id) cancelDepositIntent(gone).catch(() => {})
     return { ok: true }
   })
 
   // ── POST /venues/:venueId/holds/:holdId/confirm ─────────
-  // Free booking only. Stripe deposit flow is a follow-up.
+  // A free booking. Deposit venues book through .../deposit and .../deposit/confirm.
   app.post('/venues/:venueId/holds/:holdId/confirm', async (req, reply) => {
     const venue = await resolveTenant(req.params.venueId)
     if (!venue) throw httpError(404, 'Venue not found')
     const body = ConfirmBody.parse(req.body)
 
     const booking = await withTenant(venue.tenant_id, async tx => {
-      // Block deposit-required venues from this path
-      const [deposit] = await tx`SELECT requires_deposit FROM deposit_rules WHERE venue_id = ${venue.id}`
-      if (deposit?.requires_deposit) {
-        throw httpError(422, 'This venue requires a deposit — payment flow not yet wired into the public widget')
+      const [h0] = await tx`
+        SELECT covers FROM booking_holds
+         WHERE id = ${req.params.holdId} AND tenant_id = ${venue.tenant_id} AND venue_id = ${venue.id}
+      `
+      if (!h0) throw httpError(404, 'Hold not found or already used')
+      if (depositFor(await loadDepositRule(tx, venue.tenant_id, venue.id), body.covers ?? h0.covers) > 0) {
+        throw httpError(422, 'This booking needs a deposit: pay it first')
       }
 
       // confirm_hold validates and locks
@@ -813,65 +823,43 @@ export default async function widgetApiRoutes(app) {
         throw httpError(code, msg)
       }
 
-      const [h] = await tx`SELECT * FROM booking_holds WHERE id = ${req.params.holdId}`
+      const [h] = await tx`SELECT * FROM booking_holds WHERE id = ${req.params.holdId} AND tenant_id = ${venue.tenant_id}`
       if (!h) throw httpError(404, 'Hold not found after confirmation')
-
-      const [bookingRules] = await tx`SELECT enable_unconfirmed_flow FROM booking_rules WHERE venue_id = ${h.venue_id}`
-      const initialStatus = bookingRules?.enable_unconfirmed_flow ? 'unconfirmed' : 'confirmed'
-
-      // Hold always has a table assigned (set at hold-creation time).
-      // Guard against stale null-table holds from before this fix.
-      if (!h.table_id) throw httpError(409, 'This hold has no table — please start a new booking')
-
-      const [bk] = await tx`
-        INSERT INTO bookings
-          (venue_id, table_id, combination_id, tenant_id, starts_at, ends_at, covers,
-           guest_name, guest_email, guest_phone, guest_notes, status)
-        VALUES
-          (${h.venue_id}, ${h.table_id}, ${h.combination_id ?? null}, ${venue.tenant_id},
-           ${h.starts_at}, ${h.ends_at}, ${body.covers ?? h.covers},
-           ${body.guest_name ?? h.guest_name},
-           ${body.guest_email || h.guest_email || null},
-           ${body.guest_phone ?? h.guest_phone ?? null},
-           ${body.guest_notes ?? null},
-           ${initialStatus}::booking_status)
-        RETURNING *
-      `
-
-      await tx`DELETE FROM booking_holds WHERE id = ${req.params.holdId}`
-      return bk
-    })
-
-    // Customer upsert + emails (fire-and-forget)
-    withTenant(venue.tenant_id, async tx => {
-      const customerId = await upsertCustomer(tx, venue.tenant_id, {
-        name:  booking.guest_name,
-        email: booking.guest_email,
-        phone: booking.guest_phone,
+      return bookFromHold(tx, h, {
+        covers: body.covers, name: body.guest_name, email: body.guest_email,
+        phone: body.guest_phone, notes: body.guest_notes,
       })
-      if (customerId) {
-        await tx`UPDATE bookings SET customer_id = ${customerId} WHERE id = ${booking.id}`
-      }
-    }).catch(() => {})
-
-    notificationQueue.add('booking_email', {
-      bookingId: booking.id, tenantId: venue.tenant_id,
-      venueId:   booking.venue_id, type: 'confirmation',
-      guestEmail: booking.guest_email,
-    }).catch(() => {})
-
-    broadcastBooking('booking.created', booking)
-
-    // Strip server-only fields before returning to the public widget.
-    return reply.code(201).send({
-      id:           booking.id,
-      reference:    booking.id.slice(0, 8).toUpperCase(),
-      manage_token: booking.manage_token,
-      starts_at:    booking.starts_at,
-      covers:       booking.covers,
-      guest_name:   booking.guest_name,
-      guest_email:  booking.guest_email,
-      status:       booking.status,
     })
+
+    afterNewBooking(venue.tenant_id, booking)
+    return reply.code(201).send(widgetBooking(booking))
+  })
+
+  // ── POST /venues/:venueId/holds/:holdId/deposit ─────────
+  // The deposit's payment form: what Stripe.js needs to show it on the
+  // group's account. The hold then waits at least DEPOSIT_HOLD_SECS.
+  // { paid: true } when this hold's deposit has already gone through.
+  app.post('/venues/:venueId/holds/:holdId/deposit', async (req) => {
+    const venue = await resolveTenant(req.params.venueId)
+    if (!venue) throw httpError(404, 'Venue not found')
+    const body = DepositBody.parse(req.body || {})
+    return startDeposit({ tenantId: venue.tenant_id, venue, holdId: req.params.holdId, notes: body.guest_notes })
+  })
+
+  // ── POST /venues/:venueId/holds/:holdId/deposit/confirm ─
+  // The guest paid (Stripe.js said so): the server reads the payment back
+  // from Stripe and books it. 201 booked; 202 still being checked; 402 not
+  // paid (the card's message); 409 paid but the table has gone, refunded.
+  app.post('/venues/:venueId/holds/:holdId/deposit/confirm', async (req, reply) => {
+    const venue = await resolveTenant(req.params.venueId)
+    if (!venue) throw httpError(404, 'Venue not found')
+    const body = DepositConfirmBody.parse(req.body || {})
+    const res = await confirmDeposit({
+      tenantId: venue.tenant_id, venueId: venue.id, holdId: req.params.holdId, paymentIntent: body.payment_intent,
+    })
+    if (res.status === 'booked') return reply.code(201).send(res.booking)
+    if (res.status === 'pending') return reply.code(202).send({ status: 'pending' })
+    if (res.status === 'refunded') return reply.code(409).send({ error: res.message, refunded: true })
+    return reply.code(402).send({ error: res.message || 'The payment didn\'t go through. Please try again.' })
   })
 }

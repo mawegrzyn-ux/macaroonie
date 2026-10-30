@@ -5,6 +5,17 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-30 — Deposits for online bookings]
+
+- A venue can take a deposit when guests book online. Turn it on in **Booking rules** → **Deposit**: one amount per booking or an amount per guest, and how many hours before the booking a guest can cancel and get it back (leave it empty to keep it).
+- Guests pay in the booking widget by card, Apple Pay or Google Pay, straight into your own Stripe account (the one connected in **Online orders** → **Ordering setup**). The table is held for 15 minutes while they pay. The booking is only made once Stripe confirms the money was taken, even if the guest closes the page.
+- Guests who cancel from their confirmation email get the deposit back by itself when it is early enough; the page tells them before and after whether it will be refunded.
+- The booking's **Deposit** part shows what was paid and refunded. Owners and admins can refund all of it or part of it from there.
+- Bookings staff add themselves take no deposit. While deposits are on and Stripe isn't ready, guests are asked to phone instead, and the Booking rules page says so.
+- Migration 220. The old deposit code on the platform's own Stripe account is gone (`STRIPE_WEBHOOK_SECRET` is no longer used).
+
+---
+
 ## [2026-10-30 — The venue hub gets its own page]
 
 - Store tech has a new **Venue hub** page, just before Printers in the main menu: link a hub, its state, version and updates, the USB printers plugged into it (with **Add it**), the **Hub first** switch and how to set one up. It used to sit at the bottom of the Printers page.
