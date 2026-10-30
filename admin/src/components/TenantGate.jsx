@@ -8,6 +8,15 @@ import { useQuery } from '@tanstack/react-query'
 import { useApi, getSelectedTenant, setSelectedTenant } from '@/lib/api'
 import TenantSwitcherModal from '@/components/TenantSwitcherModal'
 
+// The organisation picked on Auth0's login screen wins once per login:
+// the stored pick (the last restaurant used in this browser) would
+// otherwise send another restaurant on every request. The key is the login
+// session and its organisation, so a refreshed token doesn't count as a new
+// login and switching in the sidebar afterwards sticks.
+const LOGIN_ORG_KEY = 'maca_login_org'
+const appliedLogin = () => { try { return localStorage.getItem(LOGIN_ORG_KEY) } catch { return null } }
+const markLogin = key => { try { localStorage.setItem(LOGIN_ORG_KEY, key) } catch {} }
+
 function Screen({ children }) {
   return (
     <div className="flex items-center justify-center min-h-screen bg-page px-4">
@@ -17,10 +26,27 @@ function Screen({ children }) {
 }
 
 export default function TenantGate({ children }) {
-  const { user, logout } = useAuth0()
+  const { user, logout, getIdTokenClaims } = useAuth0()
   const api = useApi()
   const [selected, setSelected] = useState(() => getSelectedTenant())
   const tried = useRef(new Set())
+
+  // { org, key } of this login; undefined until read, null when none.
+  const [login, setLogin] = useState(undefined)
+  useEffect(() => {
+    let live = true
+    if (!getIdTokenClaims) { setLogin(null); return }
+    getIdTokenClaims()
+      .then(c => {
+        if (!live) return
+        const org = c?.org_id || null
+        setLogin(org ? { org, key: org + '|' + (c.sid || c.auth_time || c.iat || '') } : null)
+      })
+      .catch(() => live && setLogin(null))
+    return () => { live = false }
+    // Read once: the claims belong to this page load's login.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const { data: me, isLoading, error, refetch, isFetching } = useQuery({
     queryKey: ['me', selected ?? 'none'],
@@ -30,6 +56,21 @@ export default function TenantGate({ children }) {
 
   const tenants = me?.available_tenants ?? []
   const selectedIsValid = !!(selected && me?.current_tenant?.id === selected)
+
+  // A login with an organisation not applied yet in this browser: its
+  // restaurant replaces the stored pick (once).
+  const freshLogin = login && appliedLogin() !== login.key ? login : null
+  const loginTenant = me && freshLogin ? tenants.find(t => t.auth0_org_id === freshLogin.org) : null
+  useEffect(() => {
+    if (!me || !freshLogin) return
+    markLogin(freshLogin.key)
+    if (loginTenant && loginTenant.id !== selected) {
+      tried.current.add(loginTenant.id)
+      setSelectedTenant(loginTenant.id)
+      setSelected(loginTenant.id)
+    }
+  }, [me, freshLogin, loginTenant, selected])
+  const switchingToLogin = !!(loginTenant && loginTenant.id !== selected)
 
   // Same candidate logic the effect below acts on, computed at render time
   // too so we know — before the effect has had a chance to run — whether
@@ -62,7 +103,8 @@ export default function TenantGate({ children }) {
     logout({ logoutParams: { returnTo: window.location.origin } })
   }
 
-  if (!error && !selectedIsValid && (isLoading || isFetching || !me || willAutoSelect)) {
+  if (!error && (login === undefined || switchingToLogin
+      || (!selectedIsValid && (isLoading || isFetching || !me || willAutoSelect)))) {
     return (
       <Screen>
         <p className="text-sm text-muted-foreground animate-pulse text-center">Loading…</p>

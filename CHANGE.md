@@ -5,6 +5,13 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-30 — The restaurant picked at login is the one you work in]
+
+- Someone with more than one restaurant who picked one on the login screen kept working in the restaurant this browser used last, and only the office sidebar could change it. Now the restaurant picked at login is the one you work in; switching in the sidebar afterwards still sticks until the next login.
+- The phone (ops) screens show which restaurant you're working in, with a **Switch** button when you have more than one.
+
+---
+
 ## [2026-10-30 — Cash Recon settings show which fields other systems fill]
 
 - On **Cash Recon settings** (Income Sources, Payment Channels, Service Charges), a field filled by another system says so under its name: *Filled by Tills and kiosks: All sales − Refunds*, *Filled by GloriaFood: Payment: Paid online*, *Filled by Loyverse: Net sales*. Fields without it are typed in on the day.
