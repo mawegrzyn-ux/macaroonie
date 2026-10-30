@@ -32,11 +32,11 @@ function MobileDayDeclaration({ venueId, date, onBack }) {
   return (
     <div className="h-full flex flex-col">
       <header
-        className="shrink-0 flex items-center gap-2 border-b px-3 bg-background z-10"
-        style={{ paddingTop: 'max(0.625rem, env(safe-area-inset-top))', paddingBottom: '0.625rem' }}
+        className="shrink-0 flex items-center gap-1.5 border-b px-2 bg-background z-10"
+        style={{ paddingTop: 'max(0.375rem, env(safe-area-inset-top))', paddingBottom: '0.375rem' }}
       >
         <button type="button" onClick={onBack}
-          className="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-accent shrink-0 touch-manipulation"
+          className="w-12 h-12 flex items-center justify-center rounded-lg hover:bg-accent shrink-0 touch-manipulation"
           aria-label="Back to Cash Up">
           <ArrowLeft className="w-5 h-5" />
         </button>
@@ -46,12 +46,12 @@ function MobileDayDeclaration({ venueId, date, onBack }) {
         </div>
         {!dayState.isSubmitted ? (dayState.canSubmit && (
           <button type="button" disabled={dayState.submitPending} onClick={dayState.submit}
-            className="h-10 px-3 rounded-lg bg-green-600 text-white text-sm font-medium touch-manipulation hover:bg-green-700 disabled:opacity-50 shrink-0">
+            className="h-12 px-3 rounded-lg bg-green-600 text-white text-sm font-medium touch-manipulation hover:bg-green-700 disabled:opacity-50 shrink-0">
             {dayState.submitPending ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Submit'}
           </button>
         )) : (dayState.canUnsubmit && (
           <button type="button" disabled={dayState.submitPending} onClick={dayState.unsubmit}
-            className="h-10 px-3 rounded-lg border text-sm font-medium touch-manipulation hover:bg-muted disabled:opacity-50 shrink-0">
+            className="h-12 px-3 rounded-lg border text-sm font-medium touch-manipulation hover:bg-muted disabled:opacity-50 shrink-0">
             {dayState.submitPending ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Unsubmit'}
           </button>
         ))}

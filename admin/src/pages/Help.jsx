@@ -183,8 +183,8 @@ export default function Help() {
               invitation link), that's the restaurant you work in, even if this browser was last used
               for another one. Switching in the sidebar afterwards sticks until you next sign in.
               Otherwise Macaroonie opens the restaurant you used last on that browser. On the phone
-              (ops.macaroonie.com) the top of the home screen says which restaurant you're working in,
-              with a <strong>Switch</strong> button to change it.
+              (ops.macaroonie.com) the restaurant&apos;s name is in the top bar next to the page&apos;s
+              title, with a switch button (two arrows) next to sign out to change it.
             </P>
 
             <H3>Menu on tablets</H3>
@@ -2314,11 +2314,12 @@ export default function Help() {
               macaroonie.com/mobile, remove that icon and add it again from ops.macaroonie.com.
             </P>
             <P>
-              If your account is connected to more than one restaurant, the top of the home screen
-              says which one you&apos;re <strong>Working in</strong>. Tap <strong>Switch</strong> to
-              pick another; the phone app keeps it until you switch again, and signing in again opens
-              the restaurant you sign in to. The office and the phone app each remember their own
-              choice, so switching on one doesn&apos;t switch the other.
+              The top bar shows the restaurant you&apos;re working in next to the page&apos;s title
+              (<strong>Ops</strong> on the home screen). If your account is connected to more than one
+              restaurant, the switch button (two arrows) next to sign out picks another; the page you
+              were on opens again in that restaurant. The phone app keeps it until you switch again, and
+              signing in again opens the restaurant you sign in to. The office and the phone app each
+              remember their own choice, so switching on one doesn&apos;t switch the other.
             </P>
             <P>
               More mobile-optimised pages will appear on the <strong>/mobile</strong> hub screen

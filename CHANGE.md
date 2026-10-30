@@ -5,6 +5,13 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-30 — Ops: the restaurant in the top bar]
+
+- The phone app's top bar shows the restaurant you're working in next to the page's title (**Ops** on the home screen), on every page. The switch button (two arrows) sits next to sign out and replaces the Working in card on the home screen; after a switch, the page you were on opens again in the other restaurant.
+- The top bar's buttons, and those on the Cash Up day page, are 48 px; the bar stays the same height.
+
+---
+
 ## [2026-10-30 — The restaurant picked at login is the one you work in]
 
 - Someone with more than one restaurant who picked one on the login screen kept working in the restaurant this browser used last, and only the office sidebar could change it. Now the restaurant picked at login is the one you work in; switching in the sidebar afterwards still sticks until the next login.
