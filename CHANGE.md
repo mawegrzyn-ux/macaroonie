@@ -5,6 +5,16 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-31 — Till: an allergy flag on the whole order]
+
+No migration (the flag is kept on the check with its other details).
+
+- **Allergies on an order**: More → **Allergy**, or an **Allergy** button in a Buttons zone of a till layout. Tap the allergens to keep out and the diets to keep to (the menu's own, from Menus → Allergens & dietary) and type a note for the kitchen if needed. The order shows a red Allergy bar at the top; tap it to change the flag. **Take the flag off** asks first.
+- **Dishes that don't suit say why**, from what the menu says about them: Contains Peanuts, May contain Peanuts, Milk can be left out: ask, Not Vegan. A meal deal counts every dish picked in it. The window lists the dishes on the order that clash as you pick.
+- **The kitchen gets it on every ticket**: kitchen screens show it in red at the top of the order, printed kitchen tickets have an ALLERGY line above the dishes, and a change after dishes were sent reaches the screens at once and prints an ALLERGY UPDATE ticket on kitchen printers that already printed the order. Dishes moved to another check, or a check merged into another, take the flag with them. Till reports shows it in the check's history.
+
+---
+
 ## [2026-10-31 — Access: a Use level for the everyday checks, and dashboards per role]
 
 Migration: `229_dashboard_roles.sql` (`hs_dashboards.hidden_role_ids`, the roles a dashboard is hidden from).

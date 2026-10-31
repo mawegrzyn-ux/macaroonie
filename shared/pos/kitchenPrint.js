@@ -21,6 +21,12 @@
 // kitchen.print_due, for dishes whose time has come) and by the test bench.
 // The item keeps what was printed: item.printed / item.hold_printed /
 // item.void_printed = { [stationId]: at }.
+//
+// The order's allergy flag (o.allergy: the till's flag, shared/pos/allergy.js,
+// or an online guest's note) prints on every ticket. When it changes after a
+// printer printed the order, that printer prints an ALLERGY UPDATE ticket
+// (kind 'allergy'). The order keeps what each printer last printed with it:
+// o.allergy_printed = { [stationId]: allergy text ('' for none) }.
 
 import { kitchenTicket } from './tickets.js'
 import { isFired, flowTimes, START } from './kitchen.js'
@@ -56,6 +62,7 @@ function sendHeader(o, at) {
     covers: o.covers || null,
     server: o.server || null,
     checkNo: o.number || null,
+    allergy: o.allergy || null,
     sentAt: at ? new Date(at) : new Date(),
   }
 }
@@ -150,17 +157,39 @@ export function kitchenPrintJobs(orders, cfg, at) {
       mark(entry.item, 'hold_printed', sid)
       changed.add(o.id)
     }
+    const where = (o.table ? 'Table ' + o.table : 'Order ' + (o.number || '')).trim()
+    const allergyNow = o.allergy || ''
     for (const [sid, kinds] of groups) {
       const st = cfg.stations[sid]
       for (const [kind, entries] of kinds) {
         const send = { ...sendHeader(o, at), station: st.name, void: kind === 'void', courses: courses(entries, kind === 'fire') }
         jobs.push({
           printer_id: st.settings.printer_id, station_id: sid, kind,
-          title: (kind === 'void' ? 'Void ' : kind === 'fire' ? 'Fire ' : '') + (o.table ? 'Table ' + o.table : 'Order ' + (o.number || '')).trim(),
+          title: (kind === 'void' ? 'Void ' : kind === 'fire' ? 'Fire ' : '') + where,
           ops: kitchenTicket(send, cfg.ticket_layout || null),
           check_id: o.check_id || null, kitchen_order_id: o.id,
         })
       }
+      // This ticket carries the flag as it is now.
+      if ((o.allergy_printed?.[sid] ?? null) !== allergyNow) {
+        o.allergy_printed = { ...(o.allergy_printed || {}), [sid]: allergyNow }
+        changed.add(o.id)
+      }
+    }
+    // The flag changed since a printer printed this order (and nothing is
+    // printing there now to carry it): an ALLERGY UPDATE ticket there.
+    for (const [sid, last] of Object.entries(o.allergy_printed || {})) {
+      if (groups.has(sid) || last === allergyNow || !isPrinter(cfg, sid) || o.status === 'merged') continue
+      const st = cfg.stations[sid]
+      const send = { ...sendHeader(o, at), station: st.name, allergyUpdate: true, courses: [] }
+      jobs.push({
+        printer_id: st.settings.printer_id, station_id: sid, kind: 'allergy',
+        title: 'Allergy ' + where,
+        ops: kitchenTicket(send, cfg.ticket_layout || null),
+        check_id: o.check_id || null, kitchen_order_id: o.id,
+      })
+      o.allergy_printed = { ...o.allergy_printed, [sid]: allergyNow }
+      changed.add(o.id)
     }
   }
   return { jobs, changed: [...changed] }

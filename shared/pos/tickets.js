@@ -57,13 +57,18 @@ function textLines(ops, text, style) {
  * Kitchen / bar ticket for one send, drawn from a layout (shared/pos/ticketLayout.js;
  * none = the built-in one).
  * send: { station, table, tab, name, tabName, number, type, tent, covers, server, checkNo, sentAt, reprint, void,
+ *         allergy, allergyUpdate,
  *         courses: [{ name, hold, lines: [{ qty, name, seat, modifiers: [{ kind: 'add'|'remove'|'note', text }], note, allergies }] }] }
+ * allergy: the order's allergy flag as one line (shared/pos/allergy.js), printed
+ * at the top of the dishes on every ticket; allergyUpdate: a ticket of its own
+ * saying the flag changed (shared/pos/kitchenPrint.js).
  */
 export function kitchenTicket(send, layout = null) {
   const L = layout?.blocks ? layout : defaultLayout('kitchen')
   const ops = []
   if (send.void) ops.push({ t: 'text', text: ' VOID ', align: 'center', bold: true, tall: true, wide: true, invert: true })
   if (send.reprint) ops.push({ t: 'text', text: '** REPRINT **', align: 'center', bold: true })
+  if (send.allergyUpdate) ops.push({ t: 'text', text: ' ALLERGY UPDATE ', align: 'center', bold: true, tall: true, wide: true, invert: true })
   const who = { number: send.number, tent: send.tent, table: send.table, name: send.tabName ?? send.name, type_name: send.type }
   for (const b of L.blocks) {
     const o = b.opts || {}
@@ -95,6 +100,14 @@ export function kitchenTicket(send, layout = null) {
       else ops.push({ t: 'text', text: parts.join('  '), align: 'center', ...sized(o.size) })
     } else if (b.type === 'items') {
       const tall = o.size !== 'normal'
+      // The order's allergy flag, on every ticket (the dishes block can't be left out).
+      if (send.allergy) {
+        ops.push({ t: 'rule', char: '=' })
+        ops.push({ t: 'text', text: ' ALLERGY: ' + send.allergy.toUpperCase() + ' ', align: 'center', bold: true, tall: true, invert: true })
+      } else if (send.allergyUpdate) {
+        ops.push({ t: 'rule', char: '=' })
+        ops.push({ t: 'text', text: 'ALLERGY FLAG TAKEN OFF', align: 'center', bold: true, tall: true })
+      }
       for (const course of send.courses || []) {
         ops.push({ t: 'rule', char: '=' })
         const name = (course.name || '').toUpperCase()

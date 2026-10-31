@@ -112,6 +112,7 @@ export const BUTTON_ACTIONS = [
   { key: 'order_type', label: 'Order type', check: true, group: 'Order' },
   { key: 'name', label: 'Name', check: true, group: 'Order' },
   { key: 'tent', label: 'Tent number', check: true, group: 'Order' },
+  { key: 'allergy', label: 'Allergy', check: true, group: 'Order' },
   { key: 'table', label: 'Table', check: true, group: 'Order' },
   { key: 'move', label: 'Split / move items', check: true, group: 'Order' },
   { key: 'merge', label: 'Merge checks', check: true, group: 'Order' },

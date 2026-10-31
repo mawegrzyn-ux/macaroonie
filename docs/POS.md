@@ -568,6 +568,27 @@ must-pick modifiers zone can add the dish on the tap that completes a one-pick c
 (`auto_add`), and each modifiers zone can leave out the dish's name, description and prices.
 Still not built: a layout per order type, revenue stream or time of day.
 
+### 8.8 The order's allergy flag (31 Oct 2026, no migration)
+
+A guest's allergy can be flagged on the whole check, not only on one dish: More → Allergy, the
+red bar on the check, or a till layout button (action `allergy`). The flag is
+`{ allergens: [{ code, name }], diets: [{ code, name }], note }` (`shared/pos/allergy.js`), set
+by the event `check.allergy_set` and kept on the check like its other details; codes are the
+menu's tag codes and names are kept beside them, so the kitchen, tickets and reports read it
+without the menu. It follows dishes moved to another check and checks merged into another
+(`mergeAllergy()`).
+
+The kitchen gets it as words (`allergyText()`) on the kitchen order, the same field online
+orders' allergy note uses, so kitchen screens show it at the top of the ticket with no change
+of their own. Kitchen printers print it above the dishes, inside the items part of the ticket
+that no print design can leave out; each printer box records what it printed with the order
+(`o.allergy_printed`), and a change after printing prints an ALLERGY UPDATE ticket (job kind
+`allergy`) to the printers that already had the order. The till marks each line that doesn't
+suit the flag with the kiosk's own reading of a dish's tags (`dishLevels()` / `mergeLevels()`
+in `shared/kiosk.js`; `pos/src/lib/allergyFit.js`), meal deals by the dishes picked in them.
+Not linked yet: the kiosk's allergens screen picks and online orders' allergy note stay as they
+were (the kiosk's picks don't become the order's flag).
+
 ---
 
 ## 9. Kitchen screens (KDS)

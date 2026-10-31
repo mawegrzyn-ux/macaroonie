@@ -486,7 +486,7 @@ function Ticket({ t, n, station, now, text, selected, alert, onSelect, names, ty
         </div>
       </div>
       <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar">
-        {o.allergy && <div className="bg-red-600 px-2 py-1 font-bold text-[13px]"><AlertTriangle size={14} className="inline -mt-0.5 mr-1" />Allergy: {o.allergy}</div>}
+        {o.allergy && <div className="bg-red-600 px-2 py-1 font-bold text-[13px]" data-testid="kds-allergy"><AlertTriangle size={14} className="inline -mt-0.5 mr-1" />Allergy: {o.allergy}</div>}
         {o.note && <div className="bg-yellow-300 text-black px-2 py-1 font-semibold text-[13px]">{o.note}</div>}
         {t.elsewhere?.length > 0 && (
           <div className="bg-zinc-800 text-white/80 px-2 py-0.5 text-[12px] font-semibold" data-testid="kds-elsewhere">

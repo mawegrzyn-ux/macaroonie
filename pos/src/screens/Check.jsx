@@ -23,6 +23,7 @@ import ItemModal from '../components/ItemModal.jsx'
 import LineModal from '../components/LineModal.jsx'
 import PayModal from '../components/PayModal.jsx'
 import LoyaltyModal from '../components/LoyaltyModal.jsx'
+import AllergyModal from '../components/AllergyModal.jsx'
 import {
   ActionsMenu, SendModal, needsSendChoice, FireModal, DiscountModal, ChargesModal, OffersModal, MoveModal,
   MergeModal, TableModal, NameModal, ServerModal, StreamModal, OrderTypeModal, GuestsModal, OpenItemModal, NoSale, SoldOutModal,
@@ -235,7 +236,8 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
       {others.length > 0 && (
         <div className="px-3 py-1.5 bg-warn-soft text-warn text-sm font-semibold flex items-center gap-2"><Eye size={14} />Also open on {others.map(o => o.device_name).join(', ')}</div>
       )}
-    </>} footer={footer} font={orderZone?.font || null} onLine={line => setModal({ kind: 'line', line })} onAction={swipeAction} onRegroup={regroup} />
+    </>} footer={footer} font={orderZone?.font || null} onLine={line => setModal({ kind: 'line', line })} onAction={swipeAction} onRegroup={regroup}
+      onAllergy={() => setModal({ kind: 'allergy' })} />
   )
 
   // A till layout's button (shared/pos/tillLayout.js BUTTON_ACTIONS). Dishes
@@ -271,6 +273,7 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
       case 'order_type': return setModal({ kind: 'type' })
       case 'name': return setModal({ kind: 'name' })
       case 'tent': return setModal({ kind: 'tent' })
+      case 'allergy': return setModal({ kind: 'allergy' })
       case 'table': return setModal({ kind: 'table' })
       case 'move': return setModal({ kind: 'move' })
       case 'merge': return setModal({ kind: 'merge' })
@@ -325,6 +328,7 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
       {modal?.kind === 'sc' && <ChargesModal check={check} config={config} onClose={close} />}
       {modal?.kind === 'offers' && <OffersModal check={check} config={config} onClose={close} />}
       {modal?.kind === 'loyalty' && <LoyaltyModal check={check} config={config} onClose={close} />}
+      {modal?.kind === 'allergy' && <AllergyModal check={check} config={config} onClose={close} />}
       {modal?.kind === 'move' && <MoveModal check={check} config={config} preselect={modal.lineIds || []} onClose={close} onOpen={onOpen} />}
       {modal?.kind === 'merge' && <MergeModal check={check} config={config} onClose={close} />}
       {modal?.kind === 'table' && <TableModal check={check} config={config} onClose={close} />}
