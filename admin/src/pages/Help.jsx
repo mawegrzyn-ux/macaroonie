@@ -5602,8 +5602,26 @@ export default function Help() {
             <P>
               <strong>A new or replaced mini PC.</strong> Run the command on it, then on the old hub&apos;s row tap
               <strong> New device</strong> and type the new code: it keeps the hub&apos;s name and its printers (pick the USB
-              printers again if they moved). Removed in Store tech, a hub shows a new code by itself. Running the command again
-              on the same mini PC updates it and keeps its link.
+              printers again if they moved). Removed in Store tech, a hub shows a new code by itself.
+            </P>
+            <P>
+              <strong>Running the installer again.</strong> On a mini PC that is already a hub, the installer says which restaurant
+              and venue it is linked to and asks what to do:
+            </P>
+            <DataTable
+              head={['Choice', 'What happens']}
+              rows={[
+                ['1. Keep it (Enter alone)', 'The hub is updated and stays linked where it is.'],
+                ['2. Link it to another restaurant or venue', 'The hub first sends Macaroonie anything it hasn\'t had yet (sales taken while the internet was down), then leaves its venue (that restaurant\'s Venue hub page shows it as not linked) and deletes that venue\'s files from the computer. Then it shows a new code: link it in the other restaurant\'s Store tech → Venue hub.'],
+                ['3. Remove the hub', 'It leaves its venue the same way, then everything is removed from the computer.'],
+              ]}
+            />
+            <P>
+              If sales are still waiting and Macaroonie can&apos;t be reached, nothing changes: connect the mini PC to the internet and
+              run the installer again (or type LOSE to go ahead and lose them). One mini PC is one hub for one venue: two
+              restaurants at the same site each need their own. Without being asked: on Windows, run{' '}
+              <strong>macaroonie-hub-setup.cmd switch</strong> (or keep, or uninstall) in a Command Prompt; on Linux, add{' '}
+              <strong>--switch</strong>, <strong>--keep</strong> or <strong>--uninstall</strong> to the command.
             </P>
             <InfoBox type="info">
               Most USB receipt printers (Epson TM-T20, TM-T88, TM-m30, Star, POS-80 and similar) work. On Windows, install the

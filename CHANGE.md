@@ -5,6 +5,16 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-31 — Venue hub: move a mini PC to another restaurant; no hub left running on Windows]
+
+- **Running the hub installer again** on a computer that is already a hub now says which restaurant and venue it is linked to and asks: **1** keep it (and update it), **2** link it to another restaurant or venue, **3** remove it. Before, running it again kept the old link without saying so, so installing a second restaurant's hub on the same mini PC quietly carried on as the first.
+- **Link it to another restaurant or venue** sends Macaroonie whatever the hub still holds (sales taken while the internet was down), leaves the old venue (its Venue hub page shows the hub as not linked), deletes that venue's files from the computer, then shows a new code. If sales are waiting and Macaroonie can't be reached, nothing changes (type LOSE to go ahead and lose them). **Remove** leaves the venue the same way first.
+- **Windows**: running the installer again stopped the hub's launcher but left the hub itself running, still linked and holding ports 9180 and 9181, so the new copy couldn't open them. Every hub process is now stopped first, and a hub whose launcher has gone stops by itself.
+- A hub removed in Store tech, or linked elsewhere, forgets the last venue's files, and never replays another venue's events.
+- The hub's page and the installer name the restaurant group as well as the venue.
+
+---
+
 ## [2026-10-30 — Ops: Today tile, tiles with things to do, a tidier orders screen, later ordering hours]
 
 Migration 223 (`ordering_settings.hours_extension`).

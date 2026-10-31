@@ -78,7 +78,8 @@ async function main() {
     const started = Date.now()
     child = spawn(process.execPath, [entry, '--config', path.join(home, 'hub.json'), ...hubArgs], {
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, MACAROONIE_HUB_HOME: home },
+      // The hub stops by itself when this launcher has gone (hub.js watchLauncher()).
+      env: { ...process.env, MACAROONIE_HUB_HOME: home, MACAROONIE_HUB_LAUNCHER_PID: String(process.pid) },
       windowsHide: true,
     })
     child.stdout.on('data', write)

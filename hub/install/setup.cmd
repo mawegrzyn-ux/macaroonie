@@ -3,8 +3,9 @@ rem Macaroonie venue hub: setup for a Windows mini PC (Windows 10 or 11).
 rem Download it from __MACAROONIE_API__/hub on the mini PC and double-click it.
 rem Windows asks to allow changes (Yes); it then downloads the hub's
 rem installer (install.ps1) from __MACAROONIE_API__, runs it, and opens the hub's
-rem page with its link code. Running it again updates the hub and keeps its link.
-rem To remove the hub: in a Command Prompt, run  macaroonie-hub-setup.cmd uninstall
+rem page with its link code. Run again on a hub, it asks whether to keep it,
+rem link it to another restaurant or venue, or remove it. Without asking, in a
+rem Command Prompt: macaroonie-hub-setup.cmd keep / switch / uninstall
 setlocal
 title Macaroonie hub setup
 
@@ -20,11 +21,15 @@ if errorlevel 1 (
 )
 
 if /i "%~1"=="uninstall" set "MACAROONIE_HUB_UNINSTALL=1"
+if /i "%~1"=="keep" set "MACAROONIE_HUB_CHOICE=keep"
+if /i "%~1"=="switch" set "MACAROONIE_HUB_CHOICE=switch"
 
-powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $ProgressPreference = 'SilentlyContinue'; $f = Join-Path $env:TEMP 'macaroonie-hub-install.ps1'; try { Invoke-WebRequest -UseBasicParsing -Uri '__MACAROONIE_API__/pos-api/hub/install.ps1' -OutFile $f } catch { Write-Host ('Could not download the installer: ' + $_.Exception.Message) -ForegroundColor Red; exit 1 }; & $f; Remove-Item $f -ErrorAction SilentlyContinue; if ($global:MacaroonieHubFailed) { exit 1 }"
-if errorlevel 1 (
+powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $ProgressPreference = 'SilentlyContinue'; $f = Join-Path $env:TEMP 'macaroonie-hub-install.ps1'; try { Invoke-WebRequest -UseBasicParsing -Uri '__MACAROONIE_API__/pos-api/hub/install.ps1' -OutFile $f } catch { Write-Host ('Could not download the installer: ' + $_.Exception.Message) -ForegroundColor Red; exit 1 }; & $f; Remove-Item $f -ErrorAction SilentlyContinue; if ($global:MacaroonieHubFailed) { exit 1 }; if ($global:MacaroonieHubRemoved) { exit 3 }"
+set "MACAROONIE_RESULT=%errorlevel%"
+if "%MACAROONIE_RESULT%"=="3" set "MACAROONIE_HUB_UNINSTALL=1"
+if "%MACAROONIE_RESULT%"=="1" (
   echo.
-  echo The hub was not set up. Check the internet connection and open this file again.
+  echo The hub was not set up: see the message above, then open this file again.
   pause
   exit /b 1
 )

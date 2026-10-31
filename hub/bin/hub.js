@@ -10,8 +10,12 @@
 //   node hub/bin/hub.js --http-port 9180         the status page's port (0 = none)
 //   node hub/bin/hub.js --lan-port 9181          hub first: the port tills, kiosks and kitchen
 //                                                screens on the venue network use (0 = none)
-//   node hub/bin/hub.js --forget                 unlink: show a new code
 //   node hub/bin/hub.js status                   what the running hub shows (state.json)
+//   node hub/bin/hub.js link-info [--api URL]    what it is linked to, one line of JSON (the installer)
+//   node hub/bin/hub.js unlink [--force]         take it off its venue (src/link.js): sends what
+//                                                waits, tells the cloud, deletes the venue's files;
+//                                                refuses (exit 2) while sales wait to go up and the
+//                                                cloud doesn't answer, unless --force. Stop the hub first.
 //   node hub/bin/hub.js --self-test              checks this copy works (used by updates)
 //
 // Until it is linked it shows a six-letter code (here, on its status page
@@ -19,7 +23,9 @@
 // tech → Venue hub → Link a hub, or scan it with the installer app. The link
 // (the device id and its secret) is kept in hub.json beside this folder (or
 // --config); keep that file private. Removed in Store tech, it shows a new
-// code by itself.
+// code by itself, and forgets that venue's files. To move the computer to
+// another venue or restaurant group, run the installer again and pick Link it
+// to another (it runs `unlink`).
 //
 // Hub first (docs/POS.md section 11): once linked it also keeps a copy of
 // the venue (venue.js, venue.json and venue.log beside hub.json) and serves
@@ -36,6 +42,7 @@ import { startStatusPage, publicState, STATUS_PORT } from '../src/statusPage.js'
 import { findPrinters } from '../src/usb.js'
 import { startVenue } from '../src/venue.js'
 import { startLan, LAN_PORT } from '../src/lan.js'
+import { readLink, writeLink, forgetVenue, linkInfo, unlink } from '../src/link.js'
 
 const args = process.argv.slice(2)
 const option = (name, fallback) => {
@@ -49,12 +56,8 @@ const log = line => console.log(new Date().toLocaleTimeString('en-GB') + '  ' + 
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 const version = hubVersion()
 
-function readConfig() {
-  try { return JSON.parse(fs.readFileSync(configPath, 'utf8')) } catch { return {} }
-}
-function writeConfig(c) {
-  fs.writeFileSync(configPath, JSON.stringify(c, null, 2) + '\n', { mode: 0o600 })
-}
+const readConfig = () => readLink(configPath)
+const writeConfig = c => writeLink(configPath, c)
 
 /** `hub.js --self-test`: everything loads and a ticket renders. Prints "ok <version>". */
 async function selfTest() {
@@ -77,7 +80,7 @@ function printStatus() {
     console.log('The hub isn\'t running yet (no ' + statePath + ').')
     process.exit(1)
   }
-  console.log(`Macaroonie hub ${s.version}: ${s.phase}${s.name ? ', ' + s.name : ''}${s.venue_name ? ' at ' + s.venue_name : ''}`)
+  console.log(`Macaroonie hub ${s.version}: ${s.phase}${s.name ? ', ' + s.name : ''}${s.venue_name ? ' at ' + s.venue_name : ''}${s.tenant_name ? ' (' + s.tenant_name + ')' : ''}`)
   if (s.phase === 'linking' && s.link?.code) {
     console.log('')
     console.log('  Link code: ' + s.link.code)
@@ -124,22 +127,46 @@ async function link(api, state) {
       }
       state.cloud = { ok: true, at: new Date().toISOString(), error: null }
       if (s.status === 'paired') {
-        log(`Linked as ${s.name} at ${s.venue_name}`)
+        log(`Linked as ${s.name} at ${s.venue_name}${s.tenant_name ? ' (' + s.tenant_name + ')' : ''}`)
         state.link = null
-        return { api, device_id: s.device_id, secret: pairing.secret, name: s.name, venue_name: s.venue_name }
+        return { api, device_id: s.device_id, secret: pairing.secret, name: s.name, venue_name: s.venue_name, tenant_name: s.tenant_name || null }
       }
       if (s.status === 'expired') break
     }
   }
 }
 
+// Started by the launcher (bin/launcher.js): stop when it has gone. On
+// Windows, ending the scheduled task ends the launcher only, and a hub left
+// running would keep its ports and its link while a new copy starts.
+function watchLauncher() {
+  const pid = Number(process.env.MACAROONIE_HUB_LAUNCHER_PID)
+  if (!pid || pid === process.pid) return
+  setInterval(() => {
+    try { process.kill(pid, 0) } catch (e) {
+      if (e.code === 'ESRCH') { log('The launcher has stopped: stopping too'); process.exit(0) }
+    }
+  }, 5000).unref()
+}
+
 async function main() {
   if (args.includes('--self-test')) return selfTest()
   if (args[0] === 'status') return printStatus()
+  if (args[0] === 'link-info') {
+    const api = option('api', null)
+    console.log(JSON.stringify(await linkInfo({ configPath, api: api ? api.replace(/\/+$/, '') : null })))
+    return
+  }
+  if (args[0] === 'unlink') {
+    const r = await unlink({ configPath, force: args.includes('--force') })
+    console.log(JSON.stringify(r))
+    if (!r.ok) process.exitCode = 2
+    return
+  }
+  watchLauncher()
 
   let c = readConfig()
   const api = (option('api', c.api || process.env.HUB_API || 'https://pos.macaroonie.com')).replace(/\/+$/, '')
-  if (args.includes('--forget')) c = {}
 
   const state = newState({ api, version })
   let written = ''
@@ -171,24 +198,34 @@ async function main() {
 
   for (;;) {
     if (!c.device_id || !c.secret || c.api !== api) {
+      // A new link starts clean: nothing of a venue this computer served before.
+      if (forgetVenue(dir).some(f => f !== 'state.json')) log('Forgot the files of the venue this hub was linked to before')
       c = await link(api, state)
       writeConfig(c)
     }
-    state.name = c.name || null
-    state.venue_name = c.venue_name || null
-    log(`Macaroonie hub ${version}: ${c.name || 'hub'} at ${c.venue_name || 'the venue'}, ${api}`)
     const cloud = cloudClient({ api, deviceId: c.device_id, secret: c.secret })
     try {
       await cloud.config()
+      // The names as they are now (renamed in Store tech, or linked before hub.json kept the group's name).
+      const me = await cloud.me().catch(() => null)
+      if (me && (me.name !== c.name || me.venue_name !== c.venue_name || (me.tenant_name || null) !== (c.tenant_name || null))) {
+        c = { ...c, name: me.name, venue_name: me.venue_name, tenant_name: me.tenant_name || null }
+        writeConfig(c)
+      }
     } catch (e) {
       if (e.status === 401) {
         log('This hub was unlinked or removed in Store tech: showing a new code.')
+        forgetVenue(dir)
         c = {}
         writeConfig(c)
         continue
       }
       log('Couldn\'t reach the cloud yet (' + e.message + '): carrying on, it tries again.')
     }
+    state.name = c.name || null
+    state.venue_name = c.venue_name || null
+    state.tenant_name = c.tenant_name || null
+    log(`Macaroonie hub ${version}: ${c.name || 'hub'} at ${c.venue_name || 'the venue'}${c.tenant_name ? ' (' + c.tenant_name + ')' : ''}, ${api}`)
     // Hub first: the venue's copy, and the venue network served from it.
     let hub = null
     const venue = startVenue({
@@ -219,6 +256,8 @@ async function main() {
     await lan?.close()
     log('This hub was unlinked or removed in Store tech: showing a new code.')
     state.phase = 'unlinked'
+    state.tenant_name = null
+    forgetVenue(dir)
     c = {}
     writeConfig(c)
   }

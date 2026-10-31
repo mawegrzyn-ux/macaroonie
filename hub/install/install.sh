@@ -10,10 +10,18 @@
 # systemd service that starts with the computer and starts again if it
 # stops. Then it shows the six-letter code: link it in Store tech ->
 # Venue hub -> Link a hub, or scan the QR code on the hub's page
-# (http://<this computer>:9180) with the installer app. Running it again
-# updates the hub and keeps its link. The hub updates itself afterwards.
+# (http://<this computer>:9180) with the installer app. The hub updates
+# itself afterwards.
 #
-#   ... | sudo sh -s -- --uninstall      remove the hub (and its link)
+# Run again on a computer that is already a hub, it says which restaurant and
+# venue the hub is linked to and asks: keep it (and update it), link it to
+# another restaurant or venue (it sends what the old one hasn't had yet, leaves
+# it and forgets its files, then shows a new code), or remove the hub.
+#
+#   ... | sudo sh -s -- --keep           keep the hub's link without asking
+#   ... | sudo sh -s -- --switch         link it to another restaurant or venue
+#   ... | sudo sh -s -- --uninstall      remove the hub (it leaves its venue first)
+#   add --force to go ahead even with sales the cloud hasn't had yet (lost)
 #
 # Or download it as a file (pos.<domain>/hub, macaroonie-hub-setup.sh) and
 # run `sh macaroonie-hub-setup.sh`: run from a file, it asks for sudo itself.
@@ -40,6 +48,27 @@ SERVICE=macaroonie-hub
 say() { printf '%s\n' "$*"; }
 fail() { say "Install stopped: $*" >&2; exit 1; }
 
+CHOICE=""
+FORCE=0
+for arg in "$@"; do
+  case "$arg" in
+    --uninstall|--remove) CHOICE=remove ;;
+    --keep) CHOICE=keep ;;
+    --switch) CHOICE=switch ;;
+    --force) FORCE=1 ;;
+  esac
+done
+UNINSTALL=0
+[ "$CHOICE" = remove ] && UNINSTALL=1
+
+# Someone at a terminal to ask (piped from curl, stdin is the script: ask on the terminal).
+has_tty() { (: < /dev/tty) 2>/dev/null; }
+ask() {
+  printf '%s' "$1" > /dev/tty
+  REPLY=""
+  read -r REPLY < /dev/tty || REPLY=""
+}
+
 # Run from a downloaded file without sudo: run itself again with sudo.
 if [ "$(id -u)" != 0 ] && [ -f "$0" ] && command -v sudo >/dev/null 2>&1; then
   case "$0" in
@@ -50,14 +79,78 @@ fi
 [ "$(id -u)" = 0 ] || fail "run it as root: put sudo before sh"
 [ "$(uname -s)" = Linux ] || fail "this installer is for Linux (on Windows use install.ps1)"
 
-if [ "${1:-}" = "--uninstall" ]; then
-  say "Removing the Macaroonie hub..."
+# "WingVibes, Ware (Venue hub)" from a line of link-info's JSON (on stdin).
+describe_link() {
+  "$1" -e '
+let s = ""; process.stdin.on("data", d => { s += d }).on("end", () => {
+  let i = {}; try { i = JSON.parse(s.trim().split("\n").pop()) } catch {}
+  const where = [i.tenant_name, i.venue_name].filter(Boolean).join(", ") || "its venue"
+  console.log(where + (i.name ? " (" + i.name + ")" : ""))
+})'
+}
+json_field() { "$1" -e 'let s = ""; process.stdin.on("data", d => { s += d }).on("end", () => { let i = {}; try { i = JSON.parse(s.trim().split("\n").pop()) } catch {}; const v = i[process.argv[1]]; console.log(v === undefined || v === null ? "" : String(v)) })' "$2"; }
+
+# Take this computer off its venue with the hub's own unlink (src/link.js):
+# what waits goes to the cloud first, then the venue's files are deleted.
+# Returns 1 when sales still wait and nobody agreed to lose them.
+leave_venue() {  # node hub.js what
+  force_arg=""
+  [ "$FORCE" = 1 ] && force_arg="--force"
+  while :; do
+    out=$("$1" "$2" unlink --config "$HUB_HOME/hub.json" $force_arg 2>/dev/null || true)
+    ok=$(printf '%s' "$out" | json_field "$1" ok)
+    if [ "$ok" = true ]; then
+      if [ "$(printf '%s' "$out" | json_field "$1" disconnected)" = true ]; then say "  Left $3. Store tech there shows this hub as not linked."
+      elif [ "$(printf '%s' "$out" | json_field "$1" removed)" = true ]; then say "  $3 had removed this hub already."
+      else say "  Left $3 here, but the cloud didn't answer: remove the hub in its Store tech -> Venue hub."; fi
+      return 0
+    fi
+    unsent=$(printf '%s' "$out" | json_field "$1" unsent)
+    [ -n "$unsent" ] || { say "  The hub couldn't leave $3." >&2; return 1; }
+    why=$(printf '%s' "$out" | json_field "$1" error)
+    say ""
+    say "  $unsent sale(s) or change(s) from $3 are still on this computer and haven't reached the cloud${why:+ ($why)}."
+    say "  Connect this computer to the internet and run this again: they go up first."
+    has_tty || return 1
+    ask "  To go ahead anyway and lose them, type LOSE (anything else stops here): "
+    [ "$REPLY" = LOSE ] || return 1
+    force_arg="--force"
+  done
+}
+
+remove_hub() {
   $SYSTEMCTL disable --now "$SERVICE" >/dev/null 2>&1 || true
   rm -f "$SYSTEMD_DIR/$SERVICE.service"
   $SYSTEMCTL daemon-reload >/dev/null 2>&1 || true
   rm -rf "$HUB_HOME"
   if id "$HUB_USER" >/dev/null 2>&1; then userdel "$HUB_USER" >/dev/null 2>&1 || true; fi
-  say "Removed. Remove the hub in Store tech -> Venue hub too."
+}
+
+# Back to running as before (nothing was changed).
+restart_hub() {
+  chown -R "$HUB_USER": "$HUB_HOME" 2>/dev/null || true
+  $SYSTEMCTL start "$SERVICE" >/dev/null 2>&1 || true
+}
+
+if [ "$UNINSTALL" = 1 ]; then
+  say "Removing the Macaroonie hub..."
+  $SYSTEMCTL stop "$SERVICE" >/dev/null 2>&1 || true
+  node="$HUB_HOME/node/bin/node"
+  cur_dir=""
+  if [ -x "$node" ] && [ -f "$HUB_HOME/current.json" ]; then
+    cur_dir=$("$node" -p 'require(process.argv[1]).dir || ""' "$HUB_HOME/current.json" 2>/dev/null || true)
+  fi
+  hub_js="$HUB_HOME/$cur_dir/hub/bin/hub.js"
+  # Hubs from before unlink existed would start running instead.
+  if [ -n "$cur_dir" ] && [ -f "$HUB_HOME/hub.json" ] && [ -f "$hub_js" ] && grep -q "'unlink'" "$hub_js"; then
+    what=$("$node" "$hub_js" link-info --config "$HUB_HOME/hub.json" 2>/dev/null | describe_link "$node")
+    if ! leave_venue "$node" "$hub_js" "$what"; then
+      restart_hub
+      fail "nothing was removed, the hub is running again"
+    fi
+  fi
+  remove_hub
+  say "Removed."
   exit 0
 fi
 
@@ -115,6 +208,56 @@ rm -rf "$HUB_HOME/$DIR"
 mkdir -p "$HUB_HOME/$DIR"
 tar -xzf "$TMP/hub.tgz" -C "$HUB_HOME/$DIR"
 "$NODE" "$HUB_HOME/$DIR/hub/bin/hub.js" --self-test >/dev/null || fail "the hub didn't pass its check"
+
+# Already a hub here: keep it, link it to another restaurant or venue, or remove it.
+NEW_HUB="$HUB_HOME/$DIR/hub/bin/hub.js"
+if [ -f "$HUB_HOME/hub.json" ]; then
+  info=$("$NODE" "$NEW_HUB" link-info --config "$HUB_HOME/hub.json" --api "$API" 2>/dev/null || true)
+  linked=$(printf '%s' "$info" | json_field "$NODE" linked)
+  same=$(printf '%s' "$info" | json_field "$NODE" same_api)
+  status=$(printf '%s' "$info" | json_field "$NODE" status)
+  what=$(printf '%s' "$info" | describe_link "$NODE")
+  if [ "$linked" = true ] && [ "$same" = true ] && [ "$status" = removed ]; then
+    say "This computer was the hub for $what, which removed it: it shows a new code to link it again."
+  elif [ "$linked" = true ] && [ "$same" = true ]; then
+    if [ -z "$CHOICE" ]; then
+      say ""
+      say "  This computer is already the venue hub for $what."
+      [ "$status" = offline ] && say "  (The cloud didn't say what it is now: that's from when it was linked.)"
+      say ""
+      say "    1  Keep it for $what and update it"
+      say "    2  Link it to another restaurant or venue instead"
+      say "    3  Remove the hub from this computer"
+      say ""
+      if has_tty; then
+        while [ -z "$CHOICE" ]; do
+          ask "  Type 1, 2 or 3 and press Enter (Enter alone keeps it): "
+          case "$REPLY" in
+            ""|1) CHOICE=keep ;;
+            2) CHOICE=switch ;;
+            3) CHOICE=remove ;;
+          esac
+        done
+      else
+        CHOICE=keep
+        say "  Kept (no one to ask). To change it, run this again with --switch or --uninstall."
+      fi
+    fi
+    if [ "$CHOICE" != keep ]; then
+      $SYSTEMCTL stop "$SERVICE" >/dev/null 2>&1 || true
+      if ! leave_venue "$NODE" "$NEW_HUB" "$what"; then
+        restart_hub
+        fail "nothing changed: the hub is running again for $what"
+      fi
+      if [ "$CHOICE" = remove ]; then
+        remove_hub
+        say "Removed the hub from this computer."
+        exit 0
+      fi
+      say "  Linking it again: it shows a new code below."
+    fi
+  fi
+fi
 cp "$HUB_HOME/$DIR/hub/bin/launcher.js" "$HUB_HOME/launcher.mjs"
 "$NODE" -e '
 const fs = require("fs"), path = require("path")
@@ -174,7 +317,7 @@ while [ "$i" -lt "$WAIT_SECONDS" ]; do
     summary=$("$NODE" -e '
 const s = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))
 if (s.phase === "linking" && s.link && s.link.code) console.log("code " + s.link.code + " " + (s.link.link_url || ""))
-else if (s.phase === "running") console.log("running " + (s.name || "") + (s.venue_name ? " at " + s.venue_name : ""))' "$HUB_HOME/state.json" 2>/dev/null || true)
+else if (s.phase === "running") console.log("running " + (s.name || "") + (s.venue_name ? " at " + s.venue_name : "") + (s.tenant_name ? ", " + s.tenant_name : ""))' "$HUB_HOME/state.json" 2>/dev/null || true)
     [ -n "$summary" ] && break
   fi
   sleep 1

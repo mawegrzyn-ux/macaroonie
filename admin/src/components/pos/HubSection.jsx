@@ -107,7 +107,8 @@ function InstallCommands({ setup }) {
       </details>
       <p className="text-xs text-muted-foreground">
         It installs the hub as a service that starts with the computer, then shows a code: link it here with Link a hub.
-        Running it again updates the hub and keeps its link. Help → Set up the venue hub on a mini PC has the details.
+        Running it again on a hub asks whether to keep it (and update it), link it to another restaurant or venue, or
+        remove it. Help → Set up the venue hub on a mini PC has the details.
       </p>
     </div>
   )

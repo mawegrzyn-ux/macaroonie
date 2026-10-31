@@ -22,9 +22,11 @@
 //
 // On disk (beside hub.json): venue.json, the copy's snapshot (written every
 // 10 s when it changed, atomically), and venue.log, each event taken since,
-// one JSON line each, written and flushed before the device hears back. On a
-// restart the snapshot is read and the log decided again on top, so nothing
-// a device was told it had is lost.
+// one JSON line each with the hub's id, written and flushed before the device
+// hears back. On a restart the snapshot is read and the log decided again on
+// top, so nothing a device was told it had is lost. Both belong to one link:
+// a snapshot or log line of another hub id is never used, and link.js deletes
+// them when the computer is linked elsewhere.
 //
 // Events that need the cloud to decide them (a card machine payment, a
 // loyalty reward: both reserved in the cloud) pass through: the hub sends
@@ -143,6 +145,9 @@ export function startVenue({
       if (!lineText.trim()) continue
       let entry
       try { entry = JSON.parse(lineText) } catch { continue }   // a line cut short by a crash: never answered
+      // Only this hub's own events: a computer linked to another venue since
+      // (link.js) must never decide that venue's events here.
+      if (entry?.hub ? entry.hub !== hubId : !own) continue
       if (!entry?.event?.id || mirror.holds(entry.event.id)) continue
       const r = await mirror.submit(entry.event, { now: new Date(entry.at), printed: entry.printed })
       if (r.ok) n++
@@ -287,7 +292,7 @@ export function startVenue({
       const at = new Date()
       const r = await mirror.submit(e, { now: at, printed: true })
       if (r.ok && !r.duplicate) {
-        appendLog({ event: e, at: at.toISOString(), printed: !!r.jobs?.length })
+        appendLog({ hub: hubId, event: e, at: at.toISOString(), printed: !!r.jobs?.length })
         if (r.jobs?.length) onJobs(r.jobs)
       }
       if (r.ok) {

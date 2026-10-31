@@ -59,7 +59,7 @@ export function renderPage(state) {
   const s = publicState(state)
   const row = (label, value, tone = '') => `<tr><th>${esc(label)}</th><td class="${tone}">${value}</td></tr>`
   const parts = []
-  parts.push(`<header><h1>Macaroonie hub</h1><p>${esc(s.name || 'Not linked yet')}${s.venue_name ? ' · ' + esc(s.venue_name) : ''}</p></header>`)
+  parts.push(`<header><h1>Macaroonie hub</h1><p data-testid="linked-to">${esc(s.name || 'Not linked yet')}${s.venue_name ? ' · ' + esc(s.venue_name) : ''}${s.tenant_name ? ' · ' + esc(s.tenant_name) : ''}</p></header>`)
 
   if (s.phase === 'linking' && s.link?.code) {
     parts.push(`<section class="link">
@@ -70,7 +70,7 @@ export function renderPage(state) {
       <p class="muted">The code works until ${esc(time(s.link.expires_at))}; a new one comes after that.</p>
     </section>`)
   } else if (s.phase === 'unlinked') {
-    parts.push('<section><h2>Unlinked</h2><p>This hub was removed or unlinked in Store tech. Run the installer again, or restart it with --forget, to link it with a new code.</p></section>')
+    parts.push('<section><h2>Unlinked</h2><p>This hub was removed or unlinked in Store tech. It forgets that venue and shows a new code to link it again, to the same restaurant or another one.</p></section>')
   }
 
   const cloud = s.cloud || {}
