@@ -137,8 +137,9 @@ async function link(api, state) {
 }
 
 // Started by the launcher (bin/launcher.js): stop when it has gone. On
-// Windows, ending the scheduled task ends the launcher only, and a hub left
-// running would keep its ports and its link while a new copy starts.
+// Windows, ending the scheduled task (hubs installed before the service) ends
+// the launcher only, and a hub left running would keep its ports and its link
+// while a new copy starts. The service ends the whole job itself.
 function watchLauncher() {
   const pid = Number(process.env.MACAROONIE_HUB_LAUNCHER_PID)
   if (!pid || pid === process.pid) return
