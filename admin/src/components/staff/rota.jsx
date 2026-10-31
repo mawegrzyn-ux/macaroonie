@@ -55,9 +55,9 @@ export function useRotaPerms() {
   const p = me?.permissions ?? {}
   return {
     canEditRota: admin || p.rota === 'manage',
-    canSeePay:   admin || p.rota_pay === 'view' || p.rota_pay === 'manage',
+    canSeePay:   admin || (!!p.rota_pay && p.rota_pay !== 'none'),
     canEditPay:  admin || p.rota_pay === 'manage',
-    canSeeTips:  admin || p.rota_tips === 'view' || p.rota_tips === 'manage',
+    canSeeTips:  admin || (!!p.rota_tips && p.rota_tips !== 'none'),
     canEditTips: admin || p.rota_tips === 'manage',
   }
 }

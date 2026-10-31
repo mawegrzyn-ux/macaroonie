@@ -20,6 +20,7 @@
 import { z } from 'zod'
 import { withTenant } from '../config/db.js'
 import { requireAuth, requireAnyPermission, permissionLevels } from '../middleware/auth.js'
+import { PERMISSION_RANK as rank } from '../config/modules.js'
 import { httpError } from '../middleware/error.js'
 import { requireOwnVenue } from '../middleware/venue.js'
 import { deviceOrigin, screensOrigin } from '../services/platformHost.js'
@@ -32,7 +33,6 @@ const UUID = z.string().uuid()
 // recently (it says so at most once a minute).
 const DEVICE_ONLINE_MS = 5 * 60_000
 
-const rank = { none: 0, view: 1, manage: 2 }
 
 function deviceView(d) {
   const s = d.settings || {}

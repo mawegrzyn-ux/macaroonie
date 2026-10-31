@@ -1819,6 +1819,22 @@ export default function Help() {
               a dashboard that has one, they see "You don't have access to ..." in that widget instead
               of its figures. Access is set per module in Access, as before.
             </InfoBox>
+            <H3>Who sees each dashboard</H3>
+            <P>
+              A dashboard can be hidden from some roles, for example a Managers dashboard your
+              supervisors don&apos;t need. In <strong>Edit layout</strong>, pick its tab and tap{' '}
+              <strong>Seen by</strong> (it says Everyone, or who it is hidden from). Untick the roles
+              that shouldn&apos;t see it and tap Save. A role made later sees it until it is unticked
+              there.
+            </P>
+            <P>
+              The roles it is hidden from don&apos;t get its tab, on the desktop or the phone. People
+              who can edit the page&apos;s layout (Manage on that dashboard page) still get every
+              dashboard while editing, with an eye icon on the hidden ones; one hidden from your own
+              role leaves your tabs when you tap Done editing. Hiding a dashboard only tidies what each
+              role sees: what its widgets show still follows each area&apos;s own access. It works the
+              same on the H&amp;S, Cash and Rota dashboards and this page.
+            </P>
             <H3>The date bar</H3>
             <P>
               One date bar drives every widget on the dashboard, and it changes with what's on it:
@@ -1875,7 +1891,9 @@ export default function Help() {
               widget (enter figures, tick a checklist, log a temperature) comes from that
               widget&apos;s own area: for example, the cash widgets follow the Cash Reconciliation
               permission, so View on Cash Recon Dashboard with Manage on Cash Reconciliation lets
-              someone fill in the week without changing the layout.
+              someone fill in the week without changing the layout. The checks need only{' '}
+              <strong>Use</strong> on Checklists and Food safety logs (see Modules &amp; Roles), and a
+              dashboard can be hidden from roles that don&apos;t need it (see Dashboards).
             </P>
             <DataTable
               head={['Widget', 'Shows']}
@@ -6996,13 +7014,16 @@ export default function Help() {
             <P>
               Four built-in roles ship per tenant: Owner, Admin, Operator, Viewer. Each has
               a permissions matrix showing every module set to <strong>none</strong>,
-              <strong> view</strong>, or <strong>manage</strong>. Built-in roles can be edited
-              (e.g. take Email Templates away from Admin) but not deleted.
+              <strong> view</strong>, or <strong>manage</strong> (Checklists, Food safety logs and
+              the H&amp;S Action Log also offer <strong>use</strong>, see below). Built-in roles can be
+              edited (e.g. take Email Templates away from Admin) but not deleted.
             </P>
             <P>
               Click <strong>+ New role</strong> to define custom roles like &ldquo;Manager&rdquo;
               or &ldquo;Host&rdquo; with their own matrix. Custom roles can be deleted as long
-              as no users are assigned. Assign custom roles in the Team page once they exist.
+              as no users are assigned: tap the bin on its row, then <strong>Delete</strong> (or
+              <strong> Keep</strong>); a role someone still has says how many people to move to another
+              role first. Assign custom roles in the Team page once they exist.
             </P>
             <InfoBox type="info">
               Disabling a module at the tenant level wins over role permissions — even an
@@ -7032,6 +7053,31 @@ export default function Help() {
               Recon, the rota, online orders and H&amp;S checks, and can view customers, venues,
               tables, the schedule and menus; a Viewer can view bookings, customers, menus and the
               H&amp;S pages. Change any of these in the role&apos;s matrix.
+            </P>
+
+            <H3>Use: the checks without the setup</H3>
+            <P>
+              Checklists, Food safety logs and the H&amp;S Action Log have a fourth level between View
+              and Manage: <strong>Use</strong>. It is for people who do the everyday work but
+              shouldn&apos;t change how it is set up, such as a supervisor who completes the checklists
+              and logs the fridge temperatures. In Access → Roles those three modules show{' '}
+              <strong>Use</strong> between View and Manage, with a line saying what it allows; the
+              other modules stay None, View or Manage.
+            </P>
+            <DataTable
+              head={['Area', 'Use can', 'Still needs Manage']}
+              rows={[
+                ['Checklists', 'Tick checklists (Tick all too) and write their notes, wherever they show: the Checklists page, dashboards, Today and the phone', 'Making and changing the checklists and their tasks'],
+                ['Food safety logs', 'Log and correct fridge, hold, cooking and delivery checks, and add corrective actions', 'Fridges and freezers, check times, hold stations, cooking sessions and dishes (H&S settings), and deleting a cooking reading'],
+                ['H&S Action Log', 'Add actions, change them and tick them off', 'Deleting an action and changing the categories'],
+              ]}
+            />
+            <P>
+              For a supervisor, make a role (for example Supervisor) with Use on those three and View on
+              the H&amp;S Dashboard: they open the dashboards and fill in their widgets but can&apos;t
+              change the layout. On <strong>Today</strong> they get each check&apos;s own button instead
+              of View, and Pepper logs readings, ticks checklists and adds actions for them too. The
+              built-in roles keep their levels (Operator Manage, Viewer View) unless you change them.
             </P>
           </section>
 

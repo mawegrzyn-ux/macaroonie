@@ -39,9 +39,16 @@
 // the card's height; the admin grid snaps it to whole rows
 // (admin/src/lib/dashboardGrid.js) so tall widgets span several rows.
 //
+// Who sees a dashboard (migration 229): hidden_role_ids lists the roles it is
+// hidden from, like menu links and Overview tiles. GET /dashboards leaves those
+// out for the caller's role; with ?all=1, someone who can manage the page (and
+// a platform admin, always) gets every dashboard, to edit the layout. A hidden
+// dashboard's widgets are 404 for the rest. Hiding is about what each role
+// works from, not data: every widget still reads its own module's routes.
+//
 // Dashboards:
-//   GET    /dashboards?venue_id=&active=
-//   POST   /dashboards
+//   GET    /dashboards?venue_id=&active=&all=
+//   POST   /dashboards                     { venue_id, name, column_count?, hidden_role_ids? }
 //   PATCH  /dashboards/:id
 //   DELETE /dashboards/:id                 (soft — is_active=false)
 //   PUT    /dashboards/reorder              { venue_id, ids }
@@ -59,6 +66,7 @@ import { z } from 'zod'
 import { withTenant } from '../config/db.js'
 import { requireAuth, requirePermission, permissionLevel } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
+import { effectiveRoleId, ownRoleIds } from '../services/roles.js'
 
 // Every widget type, and the module whose data it shows. Keep in step with
 // WIDGET_TYPES in admin/src/components/dashboards/widgetTypes.jsx and the
@@ -100,6 +108,8 @@ const DashboardBody = z.object({
   name:         z.string().min(1).max(200),
   sort_order:   z.number().int().optional(),
   column_count: z.number().int().min(1).max(6).optional(),
+  // The roles this dashboard is hidden from (the tenant's own, checked).
+  hidden_role_ids: z.array(z.string().uuid()).max(100).optional(),
 })
 
 const DashboardPatch = DashboardBody.partial().omit({ venue_id: true }).extend({
@@ -143,6 +153,15 @@ async function loadDashboard(tx, tenantId, dashboardId, kind) {
   return d
 }
 
+/** Who sees every dashboard of this page whatever its roles: platform admins
+ *  and people who can manage the page (they edit the layout). Everyone else
+ *  gets their role id, to leave out the dashboards hidden from it. */
+async function dashboardViewer(req, moduleKey) {
+  if (req.isPlatformAdmin) return { seesAll: true, roleId: null }
+  const canManage = (await permissionLevel(req, moduleKey)) === 'manage'
+  return { canManage, roleId: await effectiveRoleId(req) }
+}
+
 export default async function hsDashboardsRoutes(app, opts) {
   const kind      = opts?.kind ?? 'hs'
   const moduleKey = opts?.moduleKey ?? 'hs_dashboard'
@@ -154,17 +173,23 @@ export default async function hsDashboardsRoutes(app, opts) {
   app.get('/dashboards', {
     preHandler: requirePermission(moduleKey, 'view'),
   }, async (req) => {
-    const { venue_id, active } = req.query
+    const { venue_id, active, all } = req.query
     if (!venue_id) throw httpError(400, 'venue_id required')
+    const viewer = await dashboardViewer(req, moduleKey)
+    // ?all=1: every dashboard for the people who edit the layout; else the
+    // ones the caller's role isn't hidden from.
+    const seesAll = viewer.seesAll || (all === '1' && viewer.canManage)
 
     return withTenant(req.tenantId, tx => {
       const activeFilter = active === 'all' ? tx`` : tx`AND is_active = true`
+      const roleFilter = seesAll || !viewer.roleId ? tx`` : tx`AND NOT (${viewer.roleId}::uuid = ANY(hidden_role_ids))`
       return tx`
         SELECT * FROM hs_dashboards
          WHERE tenant_id = ${req.tenantId}
            AND venue_id  = ${venue_id}
            AND kind      = ${kind}
            ${activeFilter}
+           ${roleFilter}
          ORDER BY sort_order, name
       `
     })
@@ -182,9 +207,10 @@ export default async function hsDashboardsRoutes(app, opts) {
         SELECT COALESCE(MAX(sort_order) + 1, 0)::int AS next FROM hs_dashboards
          WHERE tenant_id = ${req.tenantId} AND venue_id = ${body.venue_id} AND kind = ${kind} AND is_active = true
       `
+      const hidden = await ownRoleIds(tx, req.tenantId, body.hidden_role_ids)
       const [row] = await tx`
-        INSERT INTO hs_dashboards (tenant_id, venue_id, kind, name, sort_order, column_count)
-        VALUES (${req.tenantId}, ${body.venue_id}, ${kind}, ${body.name}, ${body.sort_order ?? next}, ${body.column_count ?? 4})
+        INSERT INTO hs_dashboards (tenant_id, venue_id, kind, name, sort_order, column_count, hidden_role_ids)
+        VALUES (${req.tenantId}, ${body.venue_id}, ${kind}, ${body.name}, ${body.sort_order ?? next}, ${body.column_count ?? 4}, ${hidden}::uuid[])
         RETURNING *
       `
       return row
@@ -198,15 +224,18 @@ export default async function hsDashboardsRoutes(app, opts) {
     const fields = Object.keys(body).filter(k => body[k] !== undefined)
     if (!fields.length) throw httpError(400, 'No fields to update')
 
-    const [row] = await withTenant(req.tenantId, tx => tx`
-      UPDATE hs_dashboards
-         SET ${tx(Object.fromEntries(fields.map(k => [k, body[k]])), ...fields)},
-             updated_at = now()
-       WHERE id = ${req.params.id}
-         AND tenant_id = ${req.tenantId}
-         AND kind      = ${kind}
-       RETURNING *
-    `)
+    const [row] = await withTenant(req.tenantId, async tx => {
+      if (body.hidden_role_ids) body.hidden_role_ids = await ownRoleIds(tx, req.tenantId, body.hidden_role_ids)
+      return tx`
+        UPDATE hs_dashboards
+           SET ${tx(Object.fromEntries(fields.map(k => [k, body[k]])), ...fields)},
+               updated_at = now()
+         WHERE id = ${req.params.id}
+           AND tenant_id = ${req.tenantId}
+           AND kind      = ${kind}
+         RETURNING *
+      `
+    })
     if (!row) throw httpError(404, 'Dashboard not found')
     return row
   })
@@ -255,8 +284,13 @@ export default async function hsDashboardsRoutes(app, opts) {
     preHandler: requirePermission(moduleKey, 'view'),
   }, async (req) => {
     const { active } = req.query
+    const viewer = await dashboardViewer(req, moduleKey)
     return withTenant(req.tenantId, async tx => {
-      await loadDashboard(tx, req.tenantId, req.params.id, kind)
+      const d = await loadDashboard(tx, req.tenantId, req.params.id, kind)
+      // Hidden from the caller's role: not there for them (managers see it).
+      if (!viewer.seesAll && !viewer.canManage && viewer.roleId && (d.hidden_role_ids ?? []).includes(viewer.roleId)) {
+        throw httpError(404, 'Dashboard not found')
+      }
       const activeFilter = active === 'all' ? tx`` : tx`AND w.is_active = true`
       return tx`
         SELECT w.*, t.name AS checklist_name, t.frequency AS checklist_frequency

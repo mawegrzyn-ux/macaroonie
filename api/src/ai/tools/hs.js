@@ -149,7 +149,7 @@ function tempCard(kind, input, plan) {
 }
 
 async function runTemp(ctx, kind, tool, input) {
-  await requireStaffPermission(ctx, 'food_safety', 'manage')
+  await requireStaffPermission(ctx, 'food_safety', 'use')
   const plan = await tempPlan(ctx, kind, input)
   const body = {
     venue_id: plan.venue.id,
@@ -353,8 +353,9 @@ export const hsTools = [
       'about it and pass it as corrective_action.',
     input: z.object({ ...TempInput, fridge: z.string().min(1).max(200).describe('The fridge or freezer, by name') }),
     confirm: true,
+    needs: 'use',
     async describe(ctx, input) {
-      await requireStaffPermission(ctx, 'food_safety', 'manage')
+      await requireStaffPermission(ctx, 'food_safety', 'use')
       return tempCard('fridge', input, await tempPlan(ctx, 'fridge', input))
     },
     run: (ctx, input) => runTemp(ctx, 'fridge', 'log_temperature', input),
@@ -368,8 +369,9 @@ export const hsTools = [
       'Logging the same check again replaces the earlier reading. Out of range: ask for the corrective action.',
     input: z.object({ ...TempInput, station: z.string().min(1).max(200).describe('The hold station, by name') }),
     confirm: true,
+    needs: 'use',
     async describe(ctx, input) {
-      await requireStaffPermission(ctx, 'food_safety', 'manage')
+      await requireStaffPermission(ctx, 'food_safety', 'use')
       return tempCard('hold', input, await tempPlan(ctx, 'hold', input))
     },
     run: (ctx, input) => runTemp(ctx, 'hold', 'log_hold_check', input),
@@ -391,8 +393,9 @@ export const hsTools = [
       notes:             z.string().max(2000).optional(),
     }),
     confirm: true,
+    needs: 'use',
     async describe(ctx, input) {
-      await requireStaffPermission(ctx, 'food_safety', 'manage')
+      await requireStaffPermission(ctx, 'food_safety', 'use')
       const p = await cookingPlan(ctx, input)
       return {
         title: 'Log this cooking check?',
@@ -412,7 +415,7 @@ export const hsTools = [
       }
     },
     async run(ctx, input) {
-      await requireStaffPermission(ctx, 'food_safety', 'manage')
+      await requireStaffPermission(ctx, 'food_safety', 'use')
       const p = await cookingPlan(ctx, input)
       try {
         const row = await callApi(ctx, 'POST', '/api/food-safety/cooking', {
@@ -461,8 +464,9 @@ export const hsTools = [
       notes:             z.string().max(2000).optional(),
     }),
     confirm: true,
+    needs: 'use',
     async describe(ctx, input) {
-      await requireStaffPermission(ctx, 'food_safety', 'manage')
+      await requireStaffPermission(ctx, 'food_safety', 'use')
       const venue = await staffVenue(ctx, input.venue_id)
       const date = dayOf(venue, input.date)
       const failed = deliveryFailures(input)
@@ -485,7 +489,7 @@ export const hsTools = [
       }
     },
     async run(ctx, input) {
-      await requireStaffPermission(ctx, 'food_safety', 'manage')
+      await requireStaffPermission(ctx, 'food_safety', 'use')
       const venue = await staffVenue(ctx, input.venue_id)
       try {
         const row = await callApi(ctx, 'POST', '/api/food-safety/deliveries', {
@@ -523,8 +527,9 @@ export const hsTools = [
       corrective_action: z.string().min(1).max(2000),
     }),
     confirm: true,
+    needs: 'use',
     async describe(ctx, input) {
-      await requireStaffPermission(ctx, 'food_safety', 'manage')
+      await requireStaffPermission(ctx, 'food_safety', 'use')
       const r = await loadReading(ctx, input.type, input.reading_id)
       return {
         title: 'Add this corrective action?',
@@ -534,7 +539,7 @@ export const hsTools = [
       }
     },
     async run(ctx, input) {
-      await requireStaffPermission(ctx, 'food_safety', 'manage')
+      await requireStaffPermission(ctx, 'food_safety', 'use')
       const r = await loadReading(ctx, input.type, input.reading_id)
       const path = { fridge: 'temp-logs', hold: 'holds', cooking: 'cooking', delivery: 'deliveries' }[input.type]
       try {
@@ -615,8 +620,9 @@ export const hsTools = [
       date:         DateStr.optional(),
     }),
     confirm: true,
+    needs: 'use',
     async describe(ctx, input) {
-      await requireStaffPermission(ctx, 'checklists', 'manage')
+      await requireStaffPermission(ctx, 'checklists', 'use')
       const c = await loadChecklist(ctx, input.checklist_id, input.date)
       const plan = tickPlan(c, input)
       const doneAfter = c.items.length > 0 && c.items.every(i => plan.next.has(i.id))
@@ -636,7 +642,7 @@ export const hsTools = [
       }
     },
     async run(ctx, input) {
-      await requireStaffPermission(ctx, 'checklists', 'manage')
+      await requireStaffPermission(ctx, 'checklists', 'use')
       const c = await loadChecklist(ctx, input.checklist_id, input.date)
       const plan = tickPlan(c, input)
       const audited = { ...input, date: c.date }
@@ -712,8 +718,9 @@ export const hsTools = [
       assigned_to: z.string().max(200).optional(),
     }),
     confirm: true,
+    needs: 'use',
     async describe(ctx, input) {
-      await requireStaffPermission(ctx, 'hs_action_log', 'manage')
+      await requireStaffPermission(ctx, 'hs_action_log', 'use')
       const { venue, category } = await actionPlan(ctx, input)
       return {
         title: 'Add this to the action log?',
@@ -729,7 +736,7 @@ export const hsTools = [
       }
     },
     async run(ctx, input) {
-      await requireStaffPermission(ctx, 'hs_action_log', 'manage')
+      await requireStaffPermission(ctx, 'hs_action_log', 'use')
       const { venue, category } = await actionPlan(ctx, input)
       try {
         const row = await callApi(ctx, 'POST', '/api/hs-action-log/entries', {
@@ -756,8 +763,9 @@ export const hsTools = [
     description: 'Marks an action log entry done (or, with done: false, not done again).',
     input: z.object({ action_id: Id, done: z.boolean().default(true) }),
     confirm: true,
+    needs: 'use',
     async describe(ctx, { action_id, done }) {
-      await requireStaffPermission(ctx, 'hs_action_log', 'manage')
+      await requireStaffPermission(ctx, 'hs_action_log', 'use')
       const a = await loadAction(ctx, action_id)
       return {
         title: done ? 'Mark this done?' : 'Reopen this action?',
@@ -766,7 +774,7 @@ export const hsTools = [
       }
     },
     async run(ctx, { action_id, done }) {
-      await requireStaffPermission(ctx, 'hs_action_log', 'manage')
+      await requireStaffPermission(ctx, 'hs_action_log', 'use')
       const a = await loadAction(ctx, action_id)
       try {
         await callApi(ctx, 'PATCH', `/api/hs-action-log/entries/${a.id}/complete`, { body: { is_completed: done } })

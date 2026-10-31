@@ -4,6 +4,9 @@
 // (migrated from the legacy "ActionLog" spreadsheet tab). Categories are a
 // small tenant-managed reorderable list (same pattern as fs_hold_stations),
 // not a fixed enum. Mounted at /api/hs-action-log in app.js.
+//
+// Access: reading needs hs_action_log View; adding, changing and ticking off
+// entries Use; deleting an entry and the categories Manage.
 
 import { z } from 'zod'
 import { withTenant } from '../config/db.js'
@@ -161,7 +164,7 @@ export default async function hsActionLogRoutes(app) {
   })
 
   app.post('/entries', {
-    preHandler: requirePermission('hs_action_log', 'manage'),
+    preHandler: requirePermission('hs_action_log', 'use'),
   }, async (req) => {
     const body = EntryBody.parse(req.body)
 
@@ -187,7 +190,7 @@ export default async function hsActionLogRoutes(app) {
   })
 
   app.patch('/entries/:id', {
-    preHandler: requirePermission('hs_action_log', 'manage'),
+    preHandler: requirePermission('hs_action_log', 'use'),
   }, async (req) => {
     const body = EntryPatch.parse(req.body)
     const fields = Object.keys(body).filter(k => body[k] !== undefined)
@@ -213,7 +216,7 @@ export default async function hsActionLogRoutes(app) {
   // Dedicated toggle so completed_by/completed_at are always set server-side,
   // never trusted from the client (matches checklist_instances' convention).
   app.patch('/entries/:id/complete', {
-    preHandler: requirePermission('hs_action_log', 'manage'),
+    preHandler: requirePermission('hs_action_log', 'use'),
   }, async (req) => {
     const { is_completed } = z.object({ is_completed: z.boolean() }).parse(req.body)
     const completedBy = req.user?.email ?? null

@@ -25,9 +25,11 @@ import { ReadOnlyNotice, ReadOnlyFieldset } from '@/components/ReadOnlyNotice'
 const AUTOSAVE_DEBOUNCE_MS = 600
 
 // Food safety logs = View: readings are shown, nothing can be logged or
-// changed (the API refuses it too).
+// changed (the API refuses it too). Use logs and corrects readings, deliveries
+// and corrective actions; deleting a cooking reading and the setup (H&S
+// settings) need Manage.
 function useFoodSafetyReadOnly() {
-  return !usePermission('food_safety').canManage
+  return !usePermission('food_safety').canUse
 }
 
 // A logged reading as plain text, coloured like the editable cell (red =
@@ -1436,7 +1438,7 @@ function CookingEntryModal({ target, venueId, date, sessions, defaultSessionId, 
             className="w-full bg-primary text-primary-foreground rounded px-4 py-2 text-sm font-medium min-h-[44px] disabled:opacity-50" disabled={isSaving}>
             {isSaving ? 'Saving…' : 'Done'}
           </button>
-          {checkId && (
+          {checkId && onDelete && (
             confirmDelete ? (
               <div className="flex gap-2">
                 <button type="button" onClick={() => onDelete(checkId)} disabled={isDeleting}
@@ -1482,6 +1484,8 @@ export function CookingChecksPanel({ venueId, date }) {
   const api = useApi()
   const qc = useQueryClient()
   const readOnly = useFoodSafetyReadOnly()
+  // Deleting a reading needs Manage; Use can correct one but not remove it.
+  const canDelete = usePermission('food_safety').canManage
   // The last session picked in the pop-up, reused for the next reading.
   const [lastSessionId, setLastSessionId] = useState('')
   const [activeSectionId, setActiveSectionId] = useState('')
@@ -1680,7 +1684,7 @@ export function CookingChecksPanel({ venueId, date }) {
           onClose={() => setEntryTarget(null)}
           onCreate={(body, cb) => createCheck.mutate(body, { onSuccess: row => cb(row.id) })}
           onUpdate={(id, body) => updateCheck.mutate({ id, ...body })}
-          onDelete={id => deleteCheck.mutate(id)}
+          onDelete={canDelete ? id => deleteCheck.mutate(id) : null}
           isDeleting={deleteCheck.isPending}
           isSaving={createCheck.isPending || updateCheck.isPending}
         />

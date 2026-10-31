@@ -24,7 +24,7 @@ import jwksClient from 'jwks-rsa'
 import { createVerifier } from 'fast-jwt'   // fast-jwt ships with fastify/jwt, no extra dep
 import { env } from '../config/env.js'
 import { sql, systemSql, withTenant } from '../config/db.js'
-import { resolvePermission, MODULES } from '../config/modules.js'
+import { resolvePermission, MODULES, PERMISSION_RANK } from '../config/modules.js'
 import { isMember } from '../services/membershipSvc.js'
 
 const CLAIM_NS = 'https://macaroonie.com/claims/'
@@ -358,23 +358,24 @@ export async function requirePlatformAdmin(req, reply) {
  *
  * Platform admins always pass.
  *
- * Required level: 'view' (default) or 'manage'.
+ * Required level: 'view' (default), 'use' (the everyday work, on modules that
+ * offer it: workLevel() in config/modules.js) or 'manage'.
  *
  * @example
  *   preHandler: [requireAuth, requirePermission('cash_recon', 'manage')]
  */
-const PERMISSION_RANK = { none: 0, view: 1, manage: 2 }
 const MODULE_LABEL = Object.fromEntries(MODULES.map(m => [m.key, m.label]))
 
 /** "Your role can view Cash reconciliation but not change it." */
 function permissionMessage(moduleKey, actual, required) {
   const label = MODULE_LABEL[moduleKey] ?? moduleKey
-  if (actual === 'view' && required === 'manage') return `Your role can view ${label} but not change it.`
+  if (actual === 'use' && required === 'manage') return `Your role can use ${label} but not change how it is set up.`
+  if (actual === 'view' && (required === 'manage' || required === 'use')) return `Your role can view ${label} but not change it.`
   return `Your role doesn't have access to ${label}.`
 }
 
 /**
- * The caller's effective level ('none' | 'view' | 'manage') for a module:
+ * The caller's effective level ('none' | 'view' | 'use' | 'manage') for a module:
  * 'none' when the tenant has the module switched off, else the role's
  * permission (custom role first, then the built-in role for users.role,
  * then the registry default). Platform admins always get 'manage'.
@@ -419,7 +420,7 @@ export async function permissionLevel(req, moduleKey) {
 
 /**
  * permissionLevel() for several modules at once (two queries, not two per
- * module): { [moduleKey]: 'none' | 'view' | 'manage' }. The MCP connector
+ * module): { [moduleKey]: 'none' | 'view' | 'use' | 'manage' }. The MCP connector
  * uses it to list only the tools a person can use.
  */
 export async function permissionLevels(req, moduleKeys) {
@@ -454,7 +455,7 @@ export function requirePermission(moduleKey, requiredLevel = 'view') {
     if (!req.tenantId) return reply.code(400).send({ error: 'No tenant context' })
 
     const actual = await permissionLevel(req, moduleKey)
-    if (PERMISSION_RANK[actual] < PERMISSION_RANK[requiredLevel]) {
+    if ((PERMISSION_RANK[actual] ?? 0) < PERMISSION_RANK[requiredLevel]) {
       return reply.code(403).send({ error: permissionMessage(moduleKey, actual, requiredLevel) })
     }
   }
@@ -468,10 +469,10 @@ export function requireAnyPermission(moduleKeys, requiredLevel = 'view') {
 
     for (const key of moduleKeys) {
       const actual = await permissionLevel(req, key)
-      if (PERMISSION_RANK[actual] >= PERMISSION_RANK[requiredLevel]) return
+      if ((PERMISSION_RANK[actual] ?? 0) >= PERMISSION_RANK[requiredLevel]) return
     }
     const labels = moduleKeys.map(k => MODULE_LABEL[k] ?? k).join(' or ')
-    return reply.code(403).send({ error: requiredLevel === 'manage'
+    return reply.code(403).send({ error: requiredLevel !== 'view'
       ? `Your role can't change this: it needs ${labels}.`
       : `Your role doesn't have access to ${labels}.` })
   }

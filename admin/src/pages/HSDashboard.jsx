@@ -24,13 +24,14 @@ import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Plus, Minus, X, ChevronLeft, ChevronRight, ChevronUp, ChevronDown,
-  Pencil, Trash2, Check, LayoutGrid, Maximize2, Minimize2,
+  Pencil, Trash2, Check, LayoutGrid, Maximize2, Minimize2, Users, EyeOff,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { MIN_ROWS, MAX_ROWS, rowSpanFor, heightForRows, gridStyle } from '@/lib/dashboardGrid'
 import { ChecklistHeaderAction, FREQUENCY_LABELS } from '@/components/checklists/shared'
 import { TitleRename } from '@/components/dashboards/TitleRename'
+import { RoleVisibilityModal, visibilityText } from '@/components/dashboards/RoleVisibilityModal'
 import { HsSettingsButton, ClosedDayNotice } from '@/components/hs/HsSettings'
 import {
   WIDGET_TYPES, WIDGET_TYPE_BY_KEY, WIDGET_GROUPS, canUseWidget, hasHsDayWidget, renderWidget, NoAccess,
@@ -390,6 +391,8 @@ export function DashboardPage({ config }) {
   const canEditLayout = !!me?.is_platform_admin || me?.permissions?.[config.moduleKey] === 'manage'
   const editing = canEditLayout && editingOn
   const [dashModal, setDashModal] = useState(null) // 'new' | dashboard row | null
+  // Who can see a dashboard (migration 229): the roles window for this row.
+  const [rolesFor, setRolesFor] = useState(null)
   const [confirmDeleteDash, setConfirmDeleteDash] = useState(false)
   const [addWidgetOpen, setAddWidgetOpen] = useState(false)
   // Full screen: the real Fullscreen API where the browser offers it
@@ -441,11 +444,23 @@ export function DashboardPage({ config }) {
     if (!venueId && venues.length) setVenueId(venues[0].id)
   }, [venues, venueId])
 
+  // Editing the layout lists every dashboard (all=1), also those hidden from
+  // the editor's own role; otherwise the ones their role sees.
   const { data: dashboards = [] } = useQuery({
-    queryKey: [`${keyPrefix}-dashboards`, venueId],
-    queryFn: () => api.get(`${apiBase}/dashboards?venue_id=${venueId}`),
+    queryKey: [`${keyPrefix}-dashboards`, venueId, editing ? 'all' : 'mine'],
+    queryFn: () => api.get(`${apiBase}/dashboards?venue_id=${venueId}${editing ? '&all=1' : ''}`),
     enabled: !!venueId,
+    // Keep the tabs while switching edit mode (same venue), so the open
+    // dashboard stays open.
+    placeholderData: (prev, prevQuery) => (prevQuery?.queryKey?.[1] === venueId ? prev : undefined),
   })
+  const { data: allRoles = [] } = useQuery({
+    queryKey: ['access-roles'],
+    queryFn: () => api.get('/access/roles'),
+    enabled: editing,
+  })
+  const roles = allRoles.filter(r => r.is_active !== false)
+  const myRoleId = me?.effective_role?.id ?? null
 
   useEffect(() => {
     if (!dashboards.some(d => d.id === activeDashboardId)) {
@@ -468,7 +483,7 @@ export function DashboardPage({ config }) {
   })
   const patchDashboard = useMutation({
     mutationFn: ({ id, ...body }) => api.patch(`${apiBase}/dashboards/${id}`, body),
-    onSuccess: () => { invalidateDashboards(); setDashModal(null) },
+    onSuccess: () => { invalidateDashboards(); setDashModal(null); setRolesFor(null) },
   })
   const deleteDashboard = useMutation({
     mutationFn: id => api.delete(`${apiBase}/dashboards/${id}`),
@@ -580,15 +595,25 @@ export function DashboardPage({ config }) {
 
         {dashboards.length > 0 && (
           <div className="flex-1 flex items-center gap-1 overflow-x-auto min-w-0">
-            {dashboards.map(d => (
-              <button key={d.id} type="button" onClick={() => setActiveDashboardId(d.id)} title={d.name}
-                className={cn(
-                  'w-36 shrink-0 px-3 py-1.5 rounded-md text-sm font-medium truncate text-center transition-colors touch-manipulation',
-                  d.id === activeDashboardId ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent',
-                )}>
-                {d.name}
-              </button>
-            ))}
+            {dashboards.map(d => {
+              // Editing: mark the dashboards some roles don't see (and those
+              // hidden from the editor's own role, shown only while editing).
+              const hidden = editing && (d.hidden_role_ids?.length ?? 0) > 0
+              const fromMe = hidden && !!myRoleId && d.hidden_role_ids.includes(myRoleId)
+              return (
+                <button key={d.id} type="button" onClick={() => setActiveDashboardId(d.id)}
+                  data-testid="dash-tab" data-hidden={hidden ? '1' : undefined} data-hidden-from-me={fromMe ? '1' : undefined}
+                  title={d.name + (fromMe ? ' (hidden from your role: you see it while editing the layout)' : hidden ? ' (' + visibilityText(d.hidden_role_ids, roles) + ')' : '')}
+                  className={cn(
+                    'w-36 shrink-0 px-3 py-1.5 rounded-md text-sm font-medium truncate text-center transition-colors touch-manipulation inline-flex items-center justify-center gap-1',
+                    d.id === activeDashboardId ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent',
+                    fromMe && 'opacity-70',
+                  )}>
+                  {hidden && <EyeOff className="w-3.5 h-3.5 shrink-0" />}
+                  <span className="truncate">{d.name}</span>
+                </button>
+              )
+            })}
             {editing && (
               <button type="button" onClick={() => setDashModal('new')}
                 className="w-9 h-9 shrink-0 flex items-center justify-center rounded-md text-muted-foreground hover:bg-accent touch-manipulation"
@@ -641,6 +666,11 @@ export function DashboardPage({ config }) {
               <button type="button" onClick={() => setDashModal(activeDashboard)}
                 className="inline-flex items-center gap-1 px-2 py-1.5 rounded hover:bg-accent touch-manipulation">
                 <Pencil className="w-3.5 h-3.5" /> Rename
+              </button>
+              <button type="button" onClick={() => setRolesFor(activeDashboard)} data-testid="dash-roles"
+                className="inline-flex items-center gap-1 px-2 py-1.5 rounded hover:bg-accent touch-manipulation max-w-[16rem]">
+                <Users className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate">Seen by: {visibilityText(activeDashboard.hidden_role_ids, roles)}</span>
               </button>
               <span className="w-px h-5 bg-border mx-1" />
               <span className="text-muted-foreground">Columns</span>
@@ -735,6 +765,19 @@ export function DashboardPage({ config }) {
             </div>
           )}
         </>
+      )}
+
+      {rolesFor && (
+        <RoleVisibilityModal
+          title="Who can see this dashboard"
+          hint={'Untick a role to hide "' + rolesFor.name + '" from it. A role made later sees it until it is unticked here.'}
+          note="People who can edit this page's layout still see every dashboard while editing. Hiding a dashboard doesn't take away the widgets' data: each widget still needs its own area's access."
+          hiddenRoleIds={rolesFor.hidden_role_ids}
+          roles={roles}
+          onClose={() => setRolesFor(null)}
+          onSave={hidden_role_ids => patchDashboard.mutate({ id: rolesFor.id, hidden_role_ids })}
+          isSaving={patchDashboard.isPending}
+        />
       )}
 
       {dashModal && (

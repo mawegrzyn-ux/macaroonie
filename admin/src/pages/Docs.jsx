@@ -778,7 +778,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               head={['Table', 'Purpose', 'Key columns']}
               rows={[
                 ['tenant_modules', 'Per-tenant on/off switch per module. Disabled modules are hidden from nav AND rejected at the API.', 'tenant_id, module_key, is_enabled, config jsonb. UNIQUE(tenant_id, module_key).'],
-                ['tenant_roles',   'Custom roles per tenant. permissions JSONB maps module_key → "manage" | "view" | "none".', 'tenant_id, key, label, is_builtin, is_active, permissions, sort_order. UNIQUE(tenant_id, key).'],
+                ['tenant_roles',   'Custom roles per tenant. permissions JSONB maps module_key → "manage" | "use" | "view" | "none" ("use" only on modules that offer it, migration 229).', 'tenant_id, key, label, is_builtin, is_active, permissions, sort_order. UNIQUE(tenant_id, key).'],
                 ['users.custom_role_id (added)', 'Optional FK to tenant_roles. When NULL, the legacy users.role enum is used + mapped to a built-in role with the same key.', 'nullable uuid, ON DELETE SET NULL'],
               ]}
             />
@@ -869,7 +869,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             </P>
             <P>
               Admin side: <Mono>usePermission(moduleKey)</Mono> (<Mono>hooks/usePermission.js</Mono>)
-              returns <Mono>{'{ level, canView, canManage, isOwnerOrAdmin, isOwner, loaded }'}</Mono>{' '}
+              returns <Mono>{'{ level, canView, canUse, canManage, isOwnerOrAdmin, isOwner, loaded }'}</Mono>{' '}
               from <Mono>/me</Mono>. Screens hide or disable their change controls when{' '}
               <Mono>canManage</Mono> is false and show <Mono>ReadOnlyNotice</Mono>; a settings form
               is wrapped in <Mono>ReadOnlyFieldset</Mono> (a native{' '}
@@ -879,6 +879,44 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono> MenuReadOnly</Mono>). Dashboards use the page config&apos;s{' '}
               <Mono>moduleKey</Mono> (see H&amp;S Dashboard). The API refuses the change regardless,
               so the admin only decides what is shown.
+            </P>
+
+            <H3>Use: a level between View and Manage (migration 229)</H3>
+            <P>
+              <Mono>PERMISSION_LEVELS</Mono> is <Mono>none, view, use, manage</Mono> (lowest first)
+              and <Mono>PERMISSION_RANK</Mono> its order, shared by <Mono>auth.js</Mono>,{' '}
+              <Mono>ai/context.js</Mono> and <Mono>routes/installer.js</Mono>. Only a module whose{' '}
+              <Mono>MODULES</Mono> entry has a <Mono>use</Mono> text offers it: checklists,
+              food_safety, hs_action_log. <Mono>levelsOf(key)</Mono> lists a module&apos;s levels
+              (<Mono>GET /api/access/modules</Mono> sends them as <Mono>levels</Mono>, with the{' '}
+              <Mono>use</Mono> text for the Access page), <Mono>workLevel(key)</Mono> is the level that
+              does its everyday work (<Mono>use</Mono> where offered, else <Mono>manage</Mono>), and{' '}
+              <Mono>permissionAtLeast()</Mono> compares by rank. The role routes refuse a level a
+              module doesn&apos;t offer (400 &ldquo;Cash reconciliation has no use level: pick None,
+              View or Manage.&rdquo;), and <Mono>resolvePermission()</Mono> reads a stored{' '}
+              <Mono>use</Mono> on any other module as <Mono>view</Mono>.
+            </P>
+            <DataTable
+              head={['Module', 'Use (requirePermission(m, \'use\'))', 'Manage only']}
+              rows={[
+                ['checklists', 'PUT /checklists/instance', 'templates and their items'],
+                ['food_safety', 'POST / PATCH of temp-logs, deliveries, holds and cooking', 'equipment, capture times, hold stations and times, cooking sessions, settings and items; DELETE /cooking/:id'],
+                ['hs_action_log', 'POST /entries, PATCH /entries/:id and /complete', 'DELETE /entries/:id, the categories'],
+              ]}
+            />
+            <P>
+              Elsewhere: the Today feed&apos;s <Mono>can_act</Mono> is{' '}
+              <Mono>permissionAtLeast(level, workLevel(module))</Mono> (<Mono>services/opsToday.js</Mono>);
+              Pepper&apos;s eight H&amp;S change tools check <Mono>use</Mono> and say{' '}
+              <Mono>needs: &apos;use&apos;</Mono>, which <Mono>toolAllowed()</Mono> reads for the
+              connector&apos;s list (other change tools still need manage). In the admin,{' '}
+              <Mono>canUse</Mono> (use or manage) unlocks the check panels in{' '}
+              <Mono>components/checklists</Mono>, <Mono>foodSafety</Mono> and{' '}
+              <Mono>hsActionLog</Mono>; their setup, deleting and category controls stay on{' '}
+              <Mono>canManage</Mono>. Anything that asks whether someone can see a module must test{' '}
+              <Mono>level !== &apos;none&apos;</Mono> (or the rank), never{' '}
+              <Mono>level === &apos;view&apos; || level === &apos;manage&apos;</Mono>, which hides it
+              from Use (the dashboards&apos; <Mono>canUseWidget()</Mono> did).
             </P>
           </section>
 
@@ -1928,6 +1966,31 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               the Overview link (<Mono>route = '/'</Mono>), or at the end of the top level when a
               tenant has no Overview link. <Mono>ROUTE_CATALOG</Mono>, <Mono>defaultNav.js</Mono>,
               the Overview <Mono>SHORTCUT_OPTIONS</Mono> and the mobile registry include it.
+            </P>
+            <H3>Dashboards per role (migration 229)</H3>
+            <P>
+              <Mono>hs_dashboards.hidden_role_ids</Mono> (uuid[], default empty) lists the roles a
+              dashboard is hidden from, as <Mono>nav_items</Mono> and <Mono>dashboard_tiles</Mono>{' '}
+              do. <Mono>GET /dashboards</Mono> leaves out those hidden from the caller&apos;s role{' '}
+              (<Mono>effectiveRoleId()</Mono> in <Mono>services/roles.js</Mono>: the custom role, else
+              the built-in row for <Mono>users.role</Mono>); with <Mono>?all=1</Mono> someone with
+              Manage on the page gets every dashboard (the admin asks for it while editing the
+              layout), and platform admins always do. <Mono>GET /dashboards/:id/widgets</Mono> is 404
+              for a hidden dashboard to anyone below Manage. <Mono>POST</Mono> and{' '}
+              <Mono>PATCH /dashboards</Mono> take <Mono>hidden_role_ids</Mono>, checked by{' '}
+              <Mono>ownRoleIds()</Mono> (the tenant&apos;s own roles, duplicates dropped, else 400),
+              which the nav item and Overview tile routes now use too (they stored any uuid before;
+              the nav PATCH also checks <Mono>parent_id</Mono> is the tenant&apos;s). Hiding is not
+              access control for data: every widget still reads its own module&apos;s routes.
+            </P>
+            <P>
+              Admin: <Mono>components/dashboards/RoleVisibilityModal.jsx</Mono>{' '}
+              (<Mono>RoleVisibilityModal</Mono>, a tick per role; <Mono>visibilityText()</Mono>) is
+              shared by the Overview tiles and <Mono>DashboardPage</Mono> (<Mono>HSDashboard.jsx</Mono>):
+              the edit strip&apos;s <Mono>Seen by</Mono> button (<Mono>dash-roles</Mono>), tabs marked
+              with an eye while editing (<Mono>data-hidden</Mono>, <Mono>data-hidden-from-me</Mono>),
+              the list query keyed by edit mode with <Mono>placeholderData</Mono> kept for the same
+              venue so the open tab survives the switch.
             </P>
             <H3>Admin: one catalog, one navigator</H3>
             <P>

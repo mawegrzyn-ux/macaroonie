@@ -199,9 +199,16 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx', loy
   await step('H&S test data', () => post(`/api/venues/${V}/test-data/hs/generate`, { date_from: '2026-10-12', date_to: '2026-10-14', kinds: ['temps', 'holds', 'cooking', 'orders', 'deliveries', 'checklists'] }))
 
   // ── Dashboards ──
+  // A dashboard and a menu link hidden from the viewer role (migration 229),
+  // so the sweep sends the other tenant this tenant's role ids.
+  const roles = await step('roles', () => get('/api/access/roles'))
+  const viewerRole = (roles || []).find(r => r.key === 'viewer')
   for (const kind of ['hs', 'cash', 'rota', 'custom']) {
     const d = await step('dashboard ' + kind, () => post(`/api/${kind}-dashboards/dashboards`, { venue_id: V, name: mark + ' ' + kind }))
     if (d) await step('widget ' + kind, () => post(`/api/${kind}-dashboards/dashboards/${d.id}/widgets`, { widget_type: 'temp_checks' }))
+    if (d && viewerRole && kind === 'hs') {
+      await step('dashboard roles', () => patch(`/api/hs-dashboards/dashboards/${d.id}`, { hidden_role_ids: [viewerRole.id] }))
+    }
   }
 
   // ── Purchasing ──
@@ -292,7 +299,8 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx', loy
   }))
   // A discount on the company's list (migration 225).
   const tillDiscount = await step('till discount', () => post('/api/pos/discounts', { name: mark + ' Staff meal', kind: 'percent', value: 50, scope: 'check', needs_manager: true }))
-  await step('nav item', () => post('/api/nav/items', { label: mark + ' Link', route: '/rota', parent_id: null }))
+  const navItem = await step('nav item', () => post('/api/nav/items', { label: mark + ' Link', route: '/rota', parent_id: null }))
+  if (navItem && viewerRole) await step('nav item roles', () => patch(`/api/nav/items/${navItem.id}`, { hidden_role_ids: [viewerRole.id] }))
   await step('ordering settings', () => put(`/api/orders/settings/${V}`, {
     is_enabled: true, hours: [0, 1, 2, 3, 4, 5, 6].map(day => ({ day, windows: [{ open: '11:00', close: '22:00' }] })),
     menu_ids: menu ? [menu.id] : [], lead_time_mins: 15, slot_interval_mins: 15, max_orders_per_slot: 10, max_days_ahead: 2,

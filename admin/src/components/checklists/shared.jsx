@@ -42,7 +42,8 @@ export function ChecklistRunPanel({ template, date, onClose, hideHeader = false,
   const api = useApi()
   const qc = useQueryClient()
   // Checklists = View: ticks and notes are shown, nothing can be changed.
-  const readOnly = !usePermission('checklists').canManage
+  // Use (or Manage) ticks and writes notes.
+  const readOnly = !usePermission('checklists').canUse
   const [checks, setChecks] = useState({})
   const [notes, setNotes] = useState('')
   const notesTimerRef = useRef(null)

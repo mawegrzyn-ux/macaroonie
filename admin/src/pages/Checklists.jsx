@@ -492,8 +492,9 @@ export default function Checklists() {
   const [venueId, setVenueId] = useState('')
   const [date, setDate] = useState(todayStr())
   // Checklists = View: today's checklists can be looked at, not ticked, and
-  // the checklist builder isn't shown.
-  const { canManage } = usePermission('checklists')
+  // the checklist builder isn't shown. Use ticks them (ChecklistRunPanel);
+  // the builder needs Manage.
+  const { canUse, canManage } = usePermission('checklists')
   const tabs = canManage ? TABS : TABS.filter(t => t.key === 'today')
   const shownTab = canManage ? tab : 'today'
 
@@ -526,7 +527,7 @@ export default function Checklists() {
           </div>
         </div>
 
-        {!canManage && <ReadOnlyNotice what="the checklists" className="mb-4" />}
+        {!canUse && <ReadOnlyNotice what="the checklists" className="mb-4" />}
         {tabs.length > 1 && <div className="flex gap-1 mb-4">
           {tabs.map(t => {
             const Icon = t.icon

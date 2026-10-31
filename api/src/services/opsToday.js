@@ -18,6 +18,7 @@
 //   later  due later today, or this week / month
 
 import { withTenant } from '../config/db.js'
+import { permissionAtLeast, workLevel } from '../config/modules.js'
 import { callApi, ToolError } from '../ai/context.js'
 import { localParts, longDate, shortDate } from '../ai/tools/util.js'
 import { staffTools } from '../ai/tools/staff.js'
@@ -270,9 +271,10 @@ export async function opsToday(ctx, venue, { date, time, levels }) {
     if ((levels[AREAS[area]] || 'none') === 'none') { notIncluded.push(area); return }
     try {
       for (const t of await fn(ctx, venue, s)) {
-        // can_act: the person can do it here, not only look (U1).
+        // can_act: the person can do it here, not only look (U1): Use where
+        // the module offers it (checks, checklists, H&S actions), else Manage.
         const module = t.kind === 'orders_to_approve' ? 'purchasing_approve' : AREAS[area]
-        tasks.push({ ...t, can_act: levels[module] === 'manage' })
+        tasks.push({ ...t, can_act: permissionAtLeast(levels[module], workLevel(module)) })
       }
     } catch (err) {
       if (err instanceof ToolError && err.status === 403) notIncluded.push(area)

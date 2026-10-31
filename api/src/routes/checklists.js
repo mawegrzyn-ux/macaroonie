@@ -27,6 +27,9 @@
 // There is no separate "complete" step: an instance is 'completed' as soon
 // as every active task is ticked (who/when = the save that ticked the last
 // one), and goes back to 'in_progress' when any task is unticked.
+//
+// Access: reading needs checklists View, ticking (PUT /instance) Use, the
+// templates and their tasks Manage (Use = the everyday work, migration 229).
 
 import { z } from 'zod'
 import { withTenant } from '../config/db.js'
@@ -365,7 +368,7 @@ export default async function checklistsRoutes(app) {
   })
 
   app.put('/instance', {
-    preHandler: requirePermission('checklists', 'manage'),
+    preHandler: requirePermission('checklists', 'use'),
   }, async (req) => {
     const body = InstancePutBody.parse(req.body)
 

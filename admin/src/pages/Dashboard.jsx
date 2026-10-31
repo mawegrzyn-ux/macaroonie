@@ -26,6 +26,7 @@ import { useApi } from '@/lib/api'
 import { cn, formatTime, STATUS_COLOURS, STATUS_LABELS } from '@/lib/utils'
 import { MIN_ROWS, MAX_ROWS, rowSpanFor, heightForRows, gridStyle } from '@/lib/dashboardGrid'
 import { TitleRename } from '@/components/dashboards/TitleRename'
+import { RoleVisibilityModal } from '@/components/dashboards/RoleVisibilityModal'
 import { AllergenLookup } from '@/components/menus/AllergenMatrix'
 import { ASSISTANT_NAME } from '@shared/assistant.js'
 
@@ -544,43 +545,6 @@ function AddTileModal({ catalog, existingTypes, onClose, onAdd, isSaving }) {
   )
 }
 
-// ── Visibility modal — which roles can see this tile ────────────────────────
-
-function VisibilityModal({ tile, roles, onClose, onSave, isSaving }) {
-  const [hidden, setHidden] = useState(tile.hidden_role_ids ?? [])
-
-  function toggle(roleId) {
-    setHidden(ids => ids.includes(roleId) ? ids.filter(x => x !== roleId) : [...ids, roleId])
-  }
-
-  return (
-    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-background rounded-xl shadow-xl w-full max-w-sm max-h-[85vh] overflow-y-auto p-6" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-1">
-          <h2 className="text-lg font-semibold">Visible to</h2>
-          <button type="button" onClick={onClose} className="p-1.5 rounded hover:bg-accent"><X className="w-4 h-4" /></button>
-        </div>
-        <p className="text-xs text-muted-foreground mb-4">Untick a role to hide this tile from it.</p>
-        <div className="border rounded-md divide-y mb-4">
-          {roles.map(r => (
-            <label key={r.id} className="flex items-center gap-2 px-3 py-2.5 text-sm touch-manipulation min-h-[44px]">
-              <input type="checkbox" checked={!hidden.includes(r.id)} onChange={() => toggle(r.id)} className="w-4 h-4" />
-              {r.label}
-            </label>
-          ))}
-        </div>
-        <div className="flex gap-2">
-          <button type="button" onClick={onClose} className="flex-1 px-4 py-2 border rounded text-sm min-h-[44px] touch-manipulation">Cancel</button>
-          <button type="button" disabled={isSaving} onClick={() => onSave(hidden)}
-            className="flex-1 bg-primary text-primary-foreground rounded px-4 py-2 text-sm font-medium min-h-[44px] disabled:opacity-50 touch-manipulation">
-            {isSaving ? 'Saving…' : 'Save'}
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
@@ -771,8 +735,9 @@ export default function Dashboard() {
       )}
 
       {visibilityFor && (
-        <VisibilityModal
-          tile={visibilityFor}
+        <RoleVisibilityModal
+          hint="Untick a role to hide this tile from it."
+          hiddenRoleIds={visibilityFor.hidden_role_ids}
           roles={roles}
           onClose={() => setVisibilityFor(null)}
           onSave={(hidden_role_ids) => patchTile.mutate({ id: visibilityFor.id, hidden_role_ids })}

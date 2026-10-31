@@ -69,7 +69,7 @@ export function canUseWidget(meta, me) {
   if (!meta) return false
   if (me?.is_platform_admin) return true
   const level = me?.permissions?.[meta.module]
-  return level === 'view' || level === 'manage'
+  return !!level && level !== 'none'
 }
 
 /** True when the widgets include an H&S check that follows the selected day. */
