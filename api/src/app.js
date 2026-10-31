@@ -54,6 +54,7 @@ import purchasingRoutes      from './routes/purchasing.js'
 import loyverseRoutes        from './routes/loyverse.js'
 import gloriafoodRoutes, { gloriafoodWebhookRoutes } from './routes/gloriafood.js'
 import deliverooRoutes       from './routes/deliveroo.js'
+import menuTimesRoutes       from './routes/menuTimes.js'
 import testDataRoutes        from './routes/testData.js'
 import foodSafetyRoutes      from './routes/foodSafety.js'
 import checklistsRoutes      from './routes/checklists.js'
@@ -271,6 +272,7 @@ export async function buildApp() {
   await app.register(loyverseRoutes,         { prefix: '/api/loyverse' })
   await app.register(gloriafoodRoutes,       { prefix: '/api/gloriafood' })
   await app.register(deliverooRoutes,        { prefix: '/api/deliveroo' })
+  await app.register(menuTimesRoutes,        { prefix: '/api/menu-times' })
   await app.register(testDataRoutes,         { prefix: '/api/venues' })
   await app.register(foodSafetyRoutes,       { prefix: '/api/food-safety' })
   await app.register(checklistsRoutes,       { prefix: '/api/checklists' })

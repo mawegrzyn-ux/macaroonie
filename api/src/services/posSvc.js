@@ -18,6 +18,7 @@ import crypto from 'node:crypto'
 import { withTenant } from '../config/db.js'
 import { httpError } from '../middleware/error.js'
 import { loadMenuVersions } from './menuReleases.js'
+import { channelMenuTimes } from './menuTimesSvc.js'
 import { venuePromotions, publicPromotion } from './promoSvc.js'
 import { fillReconDay, reconFields } from './reconFill.js'
 import { createSequencer } from '../../../shared/pos/sequencer.js'
@@ -213,12 +214,17 @@ export async function tillMenus(tx, tenantId, venueId, streams, version = 'live'
  * venue; the till works the rate out per check (shared/tax.js), since the
  * order type and revenue stream decide it.
  */
-export async function tillMenuData(tx, tenantId, venueId, streams, { guest = false, allStreams = streams, version = 'live' } = {}) {
+export async function tillMenuData(tx, tenantId, venueId, streams, { guest = false, allStreams = streams, version = 'live', channel = null } = {}) {
   const menus = []
   const items = {}
   let dietary = []
   const streamIds = new Set(allStreams.map(r => r.id))
+  // Menu times (migration 230, shared/menuTimes.js): with a channel ('till',
+  // 'kiosk') each menu carries its times there (null = any time) and a menu
+  // that is off there is left out.
+  const times = channel ? await channelMenuTimes(tx, tenantId, venueId, channel) : {}
   for (const full of await tillMenus(tx, tenantId, venueId, streams, version)) {
+    if (times[full.id] === false) continue
     const menuTax = taxForVenue(full.tax, venueId, streamIds)
     const rules = variantRules(full)
     dietary = full.dietary_tags || dietary
@@ -254,7 +260,7 @@ export async function tillMenuData(tx, tenantId, venueId, streams, { guest = fal
         ...(guest ? { subtitle: s.subtitle || null, image_url: s.image_url || null } : {}),
       })
     }
-    menus.push({ id: full.id, name: full.name, sections })
+    menus.push({ id: full.id, name: full.name, sections, ...(channel ? { times: times[full.id] ?? null } : {}) })
   }
   // Combos (shared/combos.js) find a section option's dishes through this:
   // every dish of the section the till knows.
@@ -302,7 +308,7 @@ export async function tillConfig(tx, tenantId, venueId) {
         WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND revoked_at IS NULL`,
   ])
   const staff = await loadTillStaff(tx, tenantId, venueId, { signIn: true })
-  const { menus, items, section_items: sectionItems, dietary } = await tillMenuData(tx, tenantId, venueId, streams)
+  const { menus, items, section_items: sectionItems, dietary } = await tillMenuData(tx, tenantId, venueId, streams, { channel: 'till' })
 
   const tz = venue.timezone || 'Europe/London'
   const promotions = (await venuePromotions(tx, { id: venueId, tenant_id: tenantId }, venueNow(tz).date, 'pos'))

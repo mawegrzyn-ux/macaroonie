@@ -303,8 +303,13 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx', loy
   if (navItem && viewerRole) await step('nav item roles', () => patch(`/api/nav/items/${navItem.id}`, { hidden_role_ids: [viewerRole.id] }))
   await step('ordering settings', () => put(`/api/orders/settings/${V}`, {
     is_enabled: true, hours: [0, 1, 2, 3, 4, 5, 6].map(day => ({ day, windows: [{ open: '11:00', close: '22:00' }] })),
-    menu_ids: menu ? [menu.id] : [], lead_time_mins: 15, slot_interval_mins: 15, max_orders_per_slot: 10, max_days_ahead: 2,
+    lead_time_mins: 15, slot_interval_mins: 15, max_orders_per_slot: 10, max_days_ahead: 2,
     min_order_pence: 0, payment_methods: ['pay_at_venue'],
+  }))
+  // Menu times (migration 230): the menu online (its times: on since 2026,
+  // at any time of day), on the kiosks at any time, on the tills by its times.
+  if (menu) await step('menu times', () => put(`/api/menu-times/venues/${V}`, {
+    rows: [{ menu_id: menu.id, times: { from: '2026-01-01', until: null, times: [] }, web: { use: 'menu' }, kiosk: { use: 'always' }, till: { use: 'menu' } }],
   }))
   // Today's ordering hours back to the usual ones (migration 223): no time of day needed.
   await step('ordering hours today', () => post(`/api/orders/hours/${V}`, { until: null }))

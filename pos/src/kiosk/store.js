@@ -24,6 +24,8 @@ import {
   dishLevels, mergeLevels, itemLevels as sharedItemLevels, guestFit, countFits, cleanPrefs,
 } from '@shared/kiosk.js'
 import { soldOutMap, comboCtx, configItem } from '@shared/pos/offers.js'
+import { venueNow } from '@shared/promotions.js'
+import { menusOnNow, nextStart } from '@shared/menuTimes.js'
 import { billOps } from '@shared/pos/printing.js'
 import * as idb from '../lib/idb.js'
 import { createTransport, OfflineError } from '../lib/transport.js'
@@ -61,6 +63,10 @@ let state = {
   error: null,
   reach: false,
   prefs: { avoid: [], diet: [] }, // the guest's allergens and diets (allergens screen), marked on the menu
+  // The menus on now (Menus > Menu times, migration 230), kept for the whole
+  // visit so the menu doesn't change under a guest; looked at again on the
+  // start screen. null: every menu (a preview, which ignores the times).
+  menuIds: null,
   outbox: [],
   toast: null,
   ended: null,             // { why, n }: the last restart() (journey.js ends the visit's record on it)
@@ -133,7 +139,7 @@ export async function bootKiosk(device) {
   raw = config || null
   tradingDay = config?.trading_day ?? null
   const c = withDesign(config || null)
-  setState({ device, config: c, outbox: outbox || [], lang: c?.design?.languages?.source || 'en', phase: c ? 'ready' : 'loading' })
+  setState({ device, config: c, outbox: outbox || [], lang: c?.design?.languages?.source || 'en', phase: c ? 'ready' : 'loading', menuIds: menusOnNowFor(c, false) })
   startSync()
   await loadConfig()
   setState({ phase: 'ready' })
@@ -224,6 +230,8 @@ async function fetchConfig(opts) {
       const c = withDesign(res)
       const keep = c.design.languages.enabled.includes(state.lang)
       setState({ config: c, ...(keep ? {} : { lang: c.design.languages.source }) })
+      // New menu times: the next guest gets them (a guest ordering keeps theirs).
+      refreshMenus()
       savePhotosSoon()
       pulls?.check()
     } else {
@@ -357,12 +365,44 @@ export function setReach(reach) { setState({ reach }) }
 /** To another screen; an "Added" toast from the menu doesn't follow the guest there. */
 export function go(screen, patch = {}) { setState({ screen, error: null, ...(screen !== state.screen ? { toast: null } : {}), ...patch }) }
 
-/** The menu's sections the kiosk shows, in order, with dishes it can sell. */
-export function kioskSections(config) {
+/**
+ * The menus on now at the venue (each kiosk menu carries its times, null =
+ * any time): their ids, or null in a preview (every menu).
+ */
+export function menusOnNowFor(config, preview = state.preview) {
+  if (!config || preview) return null
+  return menusOnNow(config.menus || [], venueNow(config.venue?.timezone || 'Europe/London'))
+}
+
+/** When no menu is on now: the next time today one comes on (HH:MM), or null. */
+export function nextMenuAt(config) {
+  if (!config) return null
+  return nextStart(config.menus || [], venueNow(config.venue?.timezone || 'Europe/London'))
+}
+
+/** No menu is on now (not in a preview): the kiosk doesn't take orders. */
+export const noMenuOn = (s = state) => !s.preview && Array.isArray(s.menuIds) && !s.menuIds.length
+
+// The menus on now, looked at again while nobody is ordering (the start
+// screen): the next guest gets the menus on when they start.
+function refreshMenus() {
+  if (state.screen !== 'start' || !state.config) return
+  const ids = menusOnNowFor(state.config)
+  if (JSON.stringify(ids) !== JSON.stringify(state.menuIds)) setState({ menuIds: ids })
+}
+setInterval(refreshMenus, 30000)
+
+/**
+ * The menu's sections the kiosk shows, in order, with dishes it can sell:
+ * the menus on now (menuIds; null = every menu).
+ */
+export function kioskSections(config, menuIds = state.menuIds) {
   const hidden = new Set(config?.design?.menu?.hidden_section_ids || [])
   const out = []
   const seen = new Set()
+  const only = Array.isArray(menuIds) ? new Set(menuIds) : null
   for (const m of config?.menus || []) {
+    if (only && !only.has(m.id)) continue
     for (const s of m.sections || []) {
       if (hidden.has(s.id) || seen.has(s.id)) continue
       const ids = (s.item_ids || []).filter(id => config.items?.[id])
@@ -382,10 +422,12 @@ export function hasHome(config) {
 /** Start an order: the order type picked on the start screen. */
 export function startOrder(orderTypeId) {
   const config = state.config
+  // The menus on now, fixed for this guest's visit.
+  const menuIds = menusOnNowFor(config)
   // No sections down the side: the menu opens on the section tiles page.
-  const first = config?.design?.menu?.rail === 'none' ? 'tiles' : hasHome(config) ? 'home' : kioskSections(config)[0]?.id || null
+  const first = config?.design?.menu?.rail === 'none' ? 'tiles' : hasHome(config) ? 'home' : kioskSections(config, menuIds)[0]?.id || null
   setState({
-    screen: 'menu', orderType: orderTypeId, section: first, basket: [], builder: null,
+    screen: 'menu', orderType: orderTypeId, section: first, basket: [], builder: null, menuIds,
     details: { name: '', tent: '' }, method: null, result: null, error: null, doneHold: false,
   })
 }
@@ -406,6 +448,7 @@ export function restart(why) {
     loyalty: null,
     screen: 'start', orderType: null, basket: [], builder: null, details: { name: '', tent: '' },
     method: null, result: null, error: null, reach: false, prefs: { avoid: [], diet: [] }, lang: state.config?.design?.languages?.source || 'en',
+    menuIds: menusOnNowFor(state.config),
     // The next guest starts on the menu's first page.
     section: null, detailStep: null, added: null, toast: null, doneHold: false,
     ended: { why: typeof why === 'string' ? why : 'guest', n: (state.ended?.n || 0) + 1 },
@@ -489,13 +532,31 @@ export const fitOf = (config, item, prefs = state.prefs) => guestFit(config, ite
 
 export function setPrefs(prefs) { setState({ prefs: cleanPrefs(prefs) }) }
 
-/** The dishes on the kiosk's menu, each once: what the allergens screen counts. */
-export function kioskItemIds(config) {
-  return [...new Set(kioskSections(config).flatMap(sec => sec.item_ids))]
+/** The dishes on the kiosk's menu (the menus on now), each once: what the allergens screen counts. */
+export function kioskItemIds(config, menuIds = state.menuIds) {
+  return [...new Set(kioskSections(config, menuIds).flatMap(sec => sec.item_ids))]
+}
+
+/**
+ * A dish only on menus that aren't on now (a dinner dish at lunch): the home
+ * page's tiles, banners and "Anything else?" don't offer it. A dish on no
+ * menu at all (a meal deal's part) isn't held back.
+ */
+export function itemOffNow(config, id, menuIds = state.menuIds) {
+  if (!Array.isArray(menuIds)) return false
+  let onSome = false
+  for (const m of config?.menus || []) {
+    for (const sec of m.sections || []) {
+      if (!(sec.item_ids || []).includes(id)) continue
+      if (menuIds.includes(m.id)) return false
+      onSome = true
+    }
+  }
+  return onSome
 }
 
 /** { total, fits } for the guest's picks (sold out dishes left out). */
-export const countFor = (config, prefs = state.prefs) => countFits(config, kioskItemIds(config), prefs, ctxOf(config))
+export const countFor = (config, prefs = state.prefs, menuIds = state.menuIds) => countFits(config, kioskItemIds(config, menuIds), prefs, ctxOf(config))
 
 /** Dishes sold out now (services/soldOut.js), from the config. */
 export const soldOut = (config = state.config) => soldOutMap(config)

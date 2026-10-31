@@ -1023,20 +1023,18 @@ async function ensureDietaryTags(tx, tenantId, tags) {
 
 /**
  * Takes a deleted menu out of the settings that pick menus by id: online
- * ordering (and its menu times), revenue streams and the Deliveroo file.
- * Those are uuid arrays with no foreign key, so a stale id stayed behind,
- * the settings page sent it back unseen and every save failed with "A
- * chosen menu wasn't found"; a stream naming only deleted menus showed the
- * till nothing. Migration 222 cleared the ids already left behind.
+ * ordering, revenue streams and the Deliveroo file. Those are uuid arrays
+ * with no foreign key, so a stale id stayed behind, the settings page sent
+ * it back unseen and every save failed with "A chosen menu wasn't found"; a
+ * stream naming only deleted menus showed the till nothing. Migration 222
+ * cleared the ids already left behind. Its menu times (menu_times,
+ * migration 230) go with the menu (a foreign key).
  */
 export async function forgetMenu(tx, tenantId, menuId) {
   await tx`
     UPDATE ordering_settings
-       SET menu_ids = array_remove(menu_ids, ${menuId}::uuid),
-           menu_schedules = menu_schedules - ${menuId}::text,
-           updated_at = now()
-     WHERE tenant_id = ${tenantId}
-       AND (${menuId}::uuid = ANY(menu_ids) OR menu_schedules -> ${menuId}::text IS NOT NULL)
+       SET menu_ids = array_remove(menu_ids, ${menuId}::uuid), updated_at = now()
+     WHERE tenant_id = ${tenantId} AND ${menuId}::uuid = ANY(menu_ids)
   `
   await tx`
     UPDATE pos_revenue_streams SET menu_ids = array_remove(menu_ids, ${menuId}::uuid)

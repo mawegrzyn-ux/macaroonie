@@ -3399,6 +3399,40 @@ export default function Help() {
               groups themselves (Menus &rarr; Variant groups), print designs and which one prints,
               and dishes marked sold out for online ordering.
             </P>
+            <H3>Menu times</H3>
+            <P>
+              <strong>Menus &rarr; Menu times</strong> is the one place that says when each menu is on at a
+              location, on the website (online ordering), the self-order kiosks and the tills. Pick the
+              location at the top. Each menu is a row; the columns are its <strong>Times</strong> and the three
+              places, <strong>Website</strong>, <strong>Kiosks</strong> and <strong>Tills</strong>.
+            </P>
+            <DataTable
+              head={['Column', 'What it does']}
+              rows={[
+                ['Times', "The menu's own times: Set times opens the days, the times of day (for example lunch Monday to Friday 11:00 to 15:00, with more rows for other days or hours) and dates (From and Until, to change menus on a day: the old menu Until 31 May, the new one From 1 June). None set: any time."],
+                ['Website, Kiosks, Tills', "Menu's times: that place follows the menu's own times. Any time: on there all day, whatever the times say (drinks, a menu the tills always need). Own times: different times for that place only (dinner on the kiosks from 18:00); Change times edits them. Off: not on there at all (Off in Website takes it off online ordering)."],
+              ]}
+            />
+            <P>
+              Several menus can be on at once: each place then shows them all (lunch and drinks, their sections
+              one after another). Menus on at the same time get a note under the table, not a refusal. A time that
+              ends before it starts, or a date range that ends before it begins, says what is wrong and Save waits
+              until it is fixed. <strong>Save</strong> saves the whole table; Discard puts it back. The website has
+              the change at once, and tills and kiosks that are online straight away (any that missed it, at their next
+              check for changes: Store tech &rarr; Device updates).
+            </P>
+            <P>
+              On a <strong>till</strong>, the menus on now show by themselves, and change as their times do: at
+              15:00 lunch goes and at 17:00 dinner comes. With no menu on (between lunch and dinner, say) the till
+              shows every menu rather than none. Staff can show other menus with <strong>More &rarr; Menus</strong>
+              (or the Menus button on the counter, or a Menus button in a till layout): tap the menus to show and
+              Done. That pick stays until the menus on now change, then the till follows the menu times again;
+              Follow the menu times goes back straight away. On a <strong>kiosk</strong>, a guest keeps the menus
+              that were on when they started, so nothing changes under them; between menus the kiosk says
+              &quot;Not taking orders right now&quot; and when it opens again (&quot;Orders start again at
+              17:00.&quot;). Kiosk previews show every menu. Tills and kiosks show only the menus their revenue
+              stream offers (Store tech &rarr; Revenue streams), at these times.
+            </P>
             <H3>Sections and dishes</H3>
             <P>
               Click <strong>Add section</strong> to create a category, then <strong>Add
@@ -4281,8 +4315,7 @@ export default function Help() {
             <DataTable
               head={['Setting', 'What it does']}
               rows={[
-                ['Menus', "Which of your menus guests can order from. Dishes you switch off for ordering, or dishes without a price, are left out."],
-                ['Menu times and dates', "Under each chosen menu, tap Set times and dates. Times of day: pick the days and the hours it is served (for example lunch Mon to Fri 11:00 to 15:00); add more rows for other days or hours. Dates: From and Until, to schedule a menu change (old menu Until 31 May, new menu From 1 June). Menus with times or dates can't overlap each other, and Save stays off with a message until they don't. A menu with neither, such as drinks, is always available alongside the others. Make it always available clears the schedule."],
+                ['Menus', "The menus guests can order from at this location, with their times. Which menus are online, and when each is on, are set on Menus > Menu times (the Website column), together with the kiosks and tills: Choose menus and their times on Menu times opens it. Dishes you switch off for ordering, or dishes without a price, are left out."],
                 ['Ordering hours', "When guests can collect, per day. Filled in from your opening hours the first time. A day can have several windows, such as lunch and dinner. No window = closed."],
                 ['Preparation time', "The earliest a new order can be ready. ASAP orders are promised this many minutes from now."],
                 ['Time slots / orders per slot', "Guests pick a collection time from these slots. Set a maximum per slot and full slots are greyed out."],
@@ -5795,6 +5828,17 @@ export default function Help() {
               from £11.00&rdquo;. Save the menu as usual.
             </P>
             <P>
+              A till shows the menus of its revenue stream that are on now, by Menus &rarr;{' '}
+              <strong>Menu times</strong> (the Tills column), and changes by itself as their times start and end:
+              at 15:00 the lunch dishes go and at 17:00 the dinner ones come. The categories of every menu on now
+              show together. When none of them is on, the till shows all of them, so it can always sell. To show
+              other menus for a while, open <strong>More &rarr; Menus</strong> (on a counter till, the{' '}
+              <strong>Menus</strong> button beside the order; a till layout can have a Menus button too) and tap the
+              menus to show. That pick holds until the menus on now change (lunch ends), then the till follows the
+              menu times again; <strong>Follow the menu times</strong> goes back straight away. The pick is for that
+              till only.
+            </P>
+            <P>
               Tapping a combo opens its steps one under another, with a chip for each at the top (red until
               it&apos;s done; tap one to jump to it). A step behind a button shows as &ldquo;+ Sauce
               pot&rdquo;; a step that picks itself shows &ldquo;Included&rdquo;. A dish picked in a step asks
@@ -5835,7 +5879,7 @@ export default function Help() {
               <li><strong>Order</strong>: <strong>Text size of the order</strong> (its items and totals), and <strong>Its own buttons</strong>: tap Back, Cancel order, More, Send, Bill or Pay to leave it out when a Buttons zone does its job instead (the buttons left share the bar under the order). A button left out with no button doing its job is listed in amber (Cancel order and Print bill are still in More). <strong>Colours</strong>: pick Cancel order, More, Send, Bill or Pay, then a colour (None keeps its usual look); the preview on the canvas follows.</li>
               <li>Each zone with buttons has its own grid: <strong>Buttons across</strong> and <strong>Buttons down</strong> set how big they are (fewer makes them bigger), with the <strong>Text size</strong> and <strong>Bold</strong>. <strong>When more than fits</strong>: <strong>Scroll</strong> (down, or across in a zone one button high), <strong>Pages</strong> (arrows under the zone), <strong>More button</strong> (the rest open from a More button in the last place) or <strong>Hide the rest</strong>.</li>
               <li><strong>Categories</strong>: <strong>All of the till&apos;s menus</strong>, or <strong>Pick them</strong> to choose which sections show, in your order (drag them; X takes one out). <strong>Dishes</strong> shows the dishes of the category tapped, with a search box and prices if you want them.</li>
-              <li><strong>Buttons</strong>: <strong>Add a button</strong> and pick what it does: a dish, Exact cash, Exact card, Pay by (a way to pay), Pay, Print bill, Last receipt, a discount from your list, Discount, Send, Fire a course, More, Guests, Order type, Name, Tent number, Allergy, Table, Split / move items, Merge checks, Charges, Offers, Loyalty, Item not on menu, Cancel order, No sale (open drawer), Back, Till menu or Sign out. Tap a button in the list to change its words, colour and size (it can take several places across or down); drag the list to change their order. The canvas turns to the page the button you are changing is on.</li>
+              <li><strong>Buttons</strong>: <strong>Add a button</strong> and pick what it does: a dish, Exact cash, Exact card, Pay by (a way to pay), Pay, Print bill, Last receipt, a discount from your list, Discount, Send, Fire a course, More, Guests, Order type, Name, Tent number, Allergy, Table, Split / move items, Merge checks, Charges, Offers, Loyalty, Item not on menu, Cancel order, No sale (open drawer), Menus (which menus show), Back, Till menu or Sign out. Tap a button in the list to change its words, colour and size (it can take several places across or down); drag the list to change their order. The canvas turns to the page the button you are changing is on.</li>
               <li><strong>Dish choices</strong>: shows a dish&apos;s choices on the screen, instead of in a window, while it is being added: <strong>All choices</strong> in one zone, or two zones, one <strong>Must pick</strong> and one <strong>Optional</strong>. Each draws over <strong>Its own space</strong> (the zones under it) or <strong>The whole screen</strong>. The zone with the must-pick choices has the dish&apos;s name and description, the quantity, Cancel, Add and <strong>Note &amp; more</strong> (the choices window, for a note, allergies, seat, course or price). Without a Dish choices zone, choices open in a window as on the standard screen.</li>
               <li>What a Dish choices zone <strong>Shows</strong>: <strong>The dish&apos;s name</strong>, <strong>The dish&apos;s description</strong> (both on the must-pick zone) and <strong>Prices on the choices</strong>, each on or off; the Add button always shows the total, and a choice that has sold out still says so. <strong>Add the dish on its last must-pick tap</strong>: when a must-pick choice takes one pick (a size, a sauce) and nothing else is left to pick, tapping it puts the dish on the order straight away, with no Add tap. Optional choices tapped before it go on with it, so tap the extras first and the must-pick choice last.</li>
               <li>Dish choices zones are drawn as dashed outlines over the zones under them, as the till looks between dishes: taps go through to the zone under the outline, and the outline&apos;s name tab (top right) selects it or drags it. Selected, it fills. <strong>Show a dish being added</strong> fills them all, as on the till while a dish is being added. Pick the screen to preview on beside it (tablets, a big screen, an upright tablet); the canvas uses the dishes, discounts and ways to pay of the venue picked at the top.</li>
@@ -5861,7 +5905,7 @@ export default function Help() {
               <li>Tap an item on the check to change it: before it's sent you can change or delete it; after, <strong>Void</strong> it with a reason (the kitchen gets a VOID ticket), or <strong>Comp</strong> it.</li>
               <li><strong>Swipe an item to the left</strong> for its button: <strong>Delete</strong> before it&apos;s sent (a message offers <strong>Undo</strong> for a few seconds), <strong>Void</strong> once the kitchen has it (the void window opens: pick a reason). A long swipe deletes straight away.</li>
               <li><strong>Drag an item by its grip</strong> (the dots on its left) to another course: every course shows while you drag, so you can drop it into an empty one too. Only items not sent yet move between courses. Grouped <strong>By seat</strong>, drag an item to another seat (sent items too).</li>
-              <li><strong>More</strong>: guests, move table, name, order type, tent number, <strong>Allergy</strong> (see Allergies on an order), server, revenue stream, discount, charges, offers, split or move items to another check, merge checks, an item not on the menu, print bill, no sale, close an empty check, <strong>Cancel order</strong>. On a till whose layout leaves out the top bar, More starts with the till menu (the till&apos;s pages, Sign out and its details).</li>
+              <li><strong>More</strong>: <strong>Menus</strong> (which menus show, when the stream has more than one; see The menu on the till), guests, move table, name, order type, tent number, <strong>Allergy</strong> (see Allergies on an order), server, revenue stream, discount, charges, offers, split or move items to another check, merge checks, an item not on the menu, print bill, no sale, close an empty check, <strong>Cancel order</strong>. On a till whose layout leaves out the top bar, More starts with the till menu (the till&apos;s pages, Sign out and its details).</li>
               <li><strong>Pay</strong>: <strong>Exact cash</strong> and <strong>Exact card</strong> take the amount shown in one tap (Exact card goes to the till&apos;s card machine when it has one, otherwise it records a card payment taken on your own machine). Or pick a way to pay: cash (with change), card, card machine (see Card machines), voucher and so on, a tip if switched on, and as many payments as needed to split the bill. When it&apos;s all paid the till closes the check with or without a receipt, as set in Receipts and payments (or the till&apos;s own window): <strong>Ask each time</strong> shows the two buttons, <strong>Always print</strong> and <strong>Don&apos;t print</strong> close it straight away.</li>
             </ol>
             <P>
@@ -6212,6 +6256,14 @@ export default function Help() {
               <li><strong>Add a kiosk</strong>: its name, its <strong>revenue stream</strong> (the stream's order types are the kiosk's Staying or going? buttons, and the stream decides whether it asks for a name or a tent number), its design, its <strong>card machine</strong> (see Card machines; none = guests pay at the counter) and the receipt printer.</li>
               <li>On the screen, open the kiosk address (kiosk.macaroonie.com, shown on the tab) in Chrome: it shows a code. Type that code in the Add a kiosk window (or scan its QR code with a phone), and set the address as the kiosk browser's start page. For a screen guests can't leave, run Chrome in kiosk mode or use a kiosk browser (such as Fully Kiosk). <strong>New device</strong> on the kiosk's row moves it to another screen; the old one stops.</li>
             </ol>
+            <P>
+              A kiosk offers the menus of its revenue stream that are on now, by Menus &rarr; <strong>Menu times</strong>{' '}
+              (the Kiosks column). A guest keeps the menus that were on when they started, so a dish doesn&apos;t go
+              while they choose; the next guest gets the menus on then. Dishes on the home page, banners and
+              &ldquo;Anything else?&rdquo; that are only on menus not on now are left out. With none of its menus on,
+              the start screen says the kiosk isn&apos;t taking orders and when it starts again. Previews and shared
+              preview links show every menu, whatever the time.
+            </P>
 
             <H3>Screens of another shape or size</H3>
             <P>

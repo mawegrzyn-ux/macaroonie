@@ -1,4 +1,4 @@
-// The default main menu (migrations 196 + 202 + 208 + 211 + 216 + 219 + 221 + 225 + 227 + 228): the migrations' tree is the
+// The default main menu (migrations 196 + 202 + 208 + 211 + 216 + 219 + 221 + 225 + 227 + 228 + 230): the migrations' tree is the
 // same as DEFAULT_NAV_TREE, every page in the route catalogue is in it once,
 // and a new tenant gets it through /api/me.
 import { test, after } from 'node:test'
@@ -22,7 +22,7 @@ const routes = nodes => nodes.flatMap(n => [...(n.route ? [n.route] : []), ...ro
 
 // Migration 196's tree with 202's change applied: Till setup (and its Floor
 // plan) and Menu screens out, the Store tech section in after Venues.
-test('migrations 196 + 202 + 208 + 211 + 216 + 219 + 221 + 225 + 227 + 228 hold the same tree as DEFAULT_NAV_TREE', () => {
+test('migrations 196 + 202 + 208 + 211 + 216 + 219 + 221 + 225 + 227 + 228 + 230 hold the same tree as DEFAULT_NAV_TREE', () => {
   const read = f => fs.readFileSync(new URL('../../migrations/' + f, import.meta.url), 'utf8').match(/\$nav\$([\s\S]*?)\$nav\$/)[1]
   const drop = nodes => nodes.filter(n => !['/pos', '/pos/floor', '/screens'].includes(n.route))
     .map(n => (n.children ? { ...n, children: drop(n.children) } : n))
@@ -56,6 +56,17 @@ test('migrations 196 + 202 + 208 + 211 + 216 + 219 + 221 + 225 + 227 + 228 hold 
     { label: 'Today', icon: 'Sun', route: '/today', module: 'dashboard' })
   // 227: Today for everyone, its module gone.
   delete home.children.find(n => n.route === '/today').module
+  // 230: Menu times first under the Menus link.
+  const findRoute = (nodes, r) => {
+    for (const n of nodes) {
+      if (n.route === r) return n
+      const hit = findRoute(n.children || [], r)
+      if (hit) return hit
+    }
+    return null
+  }
+  const menusLink = findRoute(tree, '/menus')
+  menusLink.children.unshift({ label: 'Menu times', icon: 'Clock', route: '/menus/times', module: 'menus' })
   assert.deepEqual(strip(tree), strip(DEFAULT_NAV_TREE))
 })
 

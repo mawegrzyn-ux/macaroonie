@@ -595,6 +595,9 @@ const AREAS = {
         return ['Nothing to copy: set up, switched off']
       }
       const lost = s.lostMenus(tpl?.menu_ids)
+      // Menu times (migration 230) come with it: the shared menus' times on
+      // the website, kiosks and tills (the location's own menus aren't copied).
+      await copyTable(s, 'menu_times', { need: ['menu_id'], set: { updated_by: s.by || null } })
       // Menus picked in the wizard are added to the copied ones.
       const extra = (await planMenus(s, plan)).filter(id => !(rows[0].menu_ids || []).includes(id))
       if (extra.length) await tx`UPDATE ordering_settings SET menu_ids = menu_ids || ${extra}::uuid[] WHERE venue_id = ${to} AND tenant_id = ${tenantId}`

@@ -12,7 +12,7 @@ import { checkTotals } from '@shared/pos/pricing.js'
 import { configItem, comboCtx } from '@shared/pos/offers.js'
 import { TK, basketCheck, BANNER_RATIOS } from '@shared/kiosk.js'
 import {
-  useKiosk, textsFor, kioskSections, hasHome, openSection, openBuilder, addToBasket, go, restart, setLang, setReach, soldOut, fitOf, countFor, loyaltyForOrder,
+  useKiosk, textsFor, kioskSections, hasHome, openSection, openBuilder, addToBasket, go, restart, setLang, setReach, soldOut, fitOf, countFor, loyaltyForOrder, itemOffNow,
 } from './store.js'
 import { cx, Pic, Photo, Sheet, Flag, BackButton, HexGrid, HexTile, FitPicture } from './parts.jsx'
 import { priceLabel, DietaryBadges } from './Builder.jsx'
@@ -105,9 +105,14 @@ function linkTo(link, config, texts, from = null) {
   if (link.kind === 'section') openSection(link.id)
   else if (link.kind === 'item') {
     const it = configItem(config, link.id)
-    if (it) tapItem(it, config, texts, { from })
+    // Not a dish from a menu that isn't on now (Menus > Menu times).
+    if (it && !itemOffNow(config, it.id)) tapItem(it, config, texts, { from })
   }
 }
+
+/** A banner's or tile's link that leads somewhere now: not to a dish or section of a menu that isn't on. */
+const linkOn = (link, config, sections) => !link || link.kind === 'none'
+  || (link.kind === 'item' ? !itemOffNow(config, link.id) : link.kind === 'section' ? sections.some(x => x.id === link.id) : true)
 
 function Banners({ banners, secs, shape, config, texts }) {
   const [i, setI] = useState(0)
@@ -143,14 +148,16 @@ function Banners({ banners, secs, shape, config, texts }) {
   )
 }
 
-function Home({ config, texts }) {
+function Home({ config, texts, sections }) {
   const m = config.design.menu
+  // Tiles for a dish or section of a menu that isn't on now stay out of sight.
+  const featured = m.featured.filter(f => linkOn(f.link, config, sections))
   return (
     <div className="flex flex-col gap-[var(--k-pad)]" data-testid="k-home">
       <Banners banners={m.banners} secs={m.banner_secs} shape={m.banner_shape} config={config} texts={texts} />
-      {m.featured.length > 0 && (
+      {featured.length > 0 && (
         <div className="grid gap-[var(--k-gap)] grid-cols-2">
-          {m.featured.map(f => {
+          {featured.map(f => {
             const title = f.title ? texts.t(TK.design(config.design.id, 'featured:' + f.id + ':title'), f.title) : null
             const sub = f.subtitle ? texts.t(TK.design(config.design.id, 'featured:' + f.id + ':subtitle'), f.subtitle) : null
             return (
@@ -288,7 +295,7 @@ function SectionTiles({ config, texts, sections, home }) {
   const cols = d.menu.columns
   return (
     <div className="flex flex-col gap-[var(--k-pad)] k-fade" data-testid="k-tiles">
-      {home && <Home config={config} texts={texts} />}
+      {home && <Home config={config} texts={texts} sections={sections} />}
       {tiles === 'hexagon' ? (
         <HexGrid cols={cols} target={hexTarget()} testId="k-tiles-grid">
           {ordered.map(sec => (
@@ -322,7 +329,8 @@ export default function Menu() {
   const { config } = s
   const texts = textsFor(s)
   const ctx = useMemo(() => comboCtx(config), [config])
-  const sections = useMemo(() => kioskSections(config), [config])
+  // The menus on now's sections (Menus > Menu times; fixed for the guest's visit).
+  const sections = useMemo(() => kioskSections(config, s.menuIds), [config, s.menuIds])
   const home = hasHome(config)
   const sold = soldOut(config)
   const rail = config.design.menu.rail
@@ -338,7 +346,7 @@ export default function Menu() {
   const dishes = section ? section.item_ids.map(id => configItem(config, id)).filter(Boolean) : []
   // The guest's allergens and diets (the allergens screen): what to mark.
   const fitFor = it => fitOf(config, it, s.prefs)
-  const count = useMemo(() => countFor(config, s.prefs), [config, s.prefs])
+  const count = useMemo(() => countFor(config, s.prefs, s.menuIds), [config, s.prefs, s.menuIds])
   return (
     <div className="absolute inset-0 flex flex-col" data-testid="k-menu">
       <TopBar texts={texts} config={config} />
@@ -367,7 +375,7 @@ export default function Menu() {
         <main className="flex-1 min-w-0 k-scroll p-[var(--k-pad)] flex flex-col gap-[var(--k-gap)]" key={current}>
           <PrefsStrip prefs={s.prefs} count={count} config={config} texts={texts} />
           {current === 'tiles' ? <SectionTiles config={config} texts={texts} sections={sections} home={home} />
-            : current === 'home' ? <Home config={config} texts={texts} /> : section && (
+            : current === 'home' ? <Home config={config} texts={texts} sections={sections} /> : section && (
               <div className="flex flex-col gap-[var(--k-gap)] k-fade">
                 <h2 className="k-head text-[2.1em] m-0">{sectionTitle(section)}</h2>
                 {section.subtitle && <div className="k-muted">{texts.t(TK.section(section.id, 'subtitle'), section.subtitle)}</div>}

@@ -589,6 +589,26 @@ in `shared/kiosk.js`; `pos/src/lib/allergyFit.js`), meal deals by the dishes pic
 Not linked yet: the kiosk's allergens screen picks and online orders' allergy note stay as they
 were (the kiosk's picks don't become the order's flag).
 
+### 8.9 Menu times (migration 230, 31 Oct 2026)
+
+When each menu is on is one table per location for the website, the kiosks and the tills
+(Menus > Menu times, `menu_times`, rules in `shared/menuTimes.js`): the menu's own times, and a
+cell per channel (the menu's times, any time, the channel's own times, or off). The device
+configs carry each menu's times for their channel (`tillMenuData(..., { channel })`); a menu off
+on that channel isn't in the config at all. The times are content, not live data: they change
+the config version and reach devices by the `pos.config` push or the content pull (8.3).
+
+- **Tills** show the revenue stream's menus that are on now, worked out on the till every 30 s
+  in the venue's time zone (`useShownMenus()`), and every menu when none is on, so the till can
+  always sell. Staff can pick other menus (More > Menus, the counter's Menus button, the layout
+  button action `menus`); the pick is the till's own (prefs `menu_pick`) and lapses when the
+  menus on now change. Nothing about menus goes into events or checks: a dish rung up is a dish
+  rung up, whichever menus showed.
+- **Kiosks** fix a visit's menus when it starts (`state.menuIds`) and change them only on the
+  start screen, so a guest never loses a dish mid-order; with no menu on, the start screen is
+  closed and says when it opens. Previews show every menu.
+- The hub needs nothing: devices decide what shows, and the hub decides events as before.
+
 ---
 
 ## 9. Kitchen screens (KDS)

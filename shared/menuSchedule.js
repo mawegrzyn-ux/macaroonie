@@ -1,10 +1,10 @@
 // shared/menuSchedule.js
 //
-// When a menu can be ordered online (migration 130,
-// ordering_settings.menu_schedules). One implementation used by the API
-// (services/orderSvc.js: which menus are on at a collection time, and
-// routes/orders.js: rejecting overlaps on save) and by the admin Ordering
-// setup page (live overlap check before saving).
+// A schedule: when something is on (menus since migration 130, menu times
+// per channel since migration 230 in shared/menuTimes.js; promotions,
+// menu screen playlists). Used by the API (services/orderSvc.js: which
+// menus are on at a collection time), the till, the kiosk, the guest
+// ordering page and the admin (ScheduleEditor, Menu times, Promotions).
 //
 // A schedule, per venue per menu:
 //   { from: 'YYYY-MM-DD' | null,   first day the menu is on (null = no start)
@@ -109,6 +109,27 @@ export function daysLabel(days) {
 }
 
 /**
+ * What is wrong with one schedule, or null: the end date before the start,
+ * a time with no days, a time ending before it starts, two of its own times
+ * overlapping. who names it in the message ("Lunch", "Lunch on tills").
+ */
+export function scheduleError(s, who = 'A menu') {
+  if (!isScheduled(s)) return null
+  if (s.from && s.until && s.from > s.until) return `${who}: the end date is before the start date.`
+  for (const t of s.times || []) {
+    if (!t.days?.length) return `${who}: pick at least one day for each time.`
+    if (!(toMins(t.end) > toMins(t.start))) return `${who}: each time must end after it starts (${t.start}–${t.end}).`
+  }
+  const ts = s.times || []
+  for (let i = 0; i < ts.length; i++) {
+    for (let j = i + 1; j < ts.length; j++) {
+      if (windowsMeet(ts[i], ts[j])) return `${who}: its times overlap (${ts[i].start}–${ts[i].end} and ${ts[j].start}–${ts[j].end}).`
+    }
+  }
+  return null
+}
+
+/**
  * First problem with the schedules of the chosen menus, or null.
  * @param {string[]} menuIds   chosen menus, in order
  * @param {object}   schedules { menuId: schedule }
@@ -119,18 +140,8 @@ export function scheduleProblem(menuIds, schedules, names = {}, today = null) {
   const name = id => names[id] || 'A menu'
   const list = menuIds.filter(id => isScheduled(schedules?.[id]))
   for (const id of list) {
-    const s = schedules[id]
-    if (s.from && s.until && s.from > s.until) return `${name(id)}: the end date is before the start date.`
-    for (const t of s.times || []) {
-      if (!t.days?.length) return `${name(id)}: pick at least one day for each time.`
-      if (!(toMins(t.end) > toMins(t.start))) return `${name(id)}: each time must end after it starts (${t.start}–${t.end}).`
-    }
-    const ts = s.times || []
-    for (let i = 0; i < ts.length; i++) {
-      for (let j = i + 1; j < ts.length; j++) {
-        if (windowsMeet(ts[i], ts[j])) return `${name(id)}: its times overlap (${ts[i].start}–${ts[i].end} and ${ts[j].start}–${ts[j].end}).`
-      }
-    }
+    const e = scheduleError(schedules[id], name(id))
+    if (e) return e
   }
   for (let i = 0; i < list.length; i++) {
     for (let j = i + 1; j < list.length; j++) {

@@ -71,6 +71,7 @@ import MenuVariantGroups from '@/pages/MenuVariantGroups'
 import MenuDietaryTags from '@/pages/MenuDietaryTags'
 import MenuAllergenMatrix from '@/pages/MenuAllergenMatrix'
 import MenuTax from '@/pages/MenuTax'
+import MenuTimes from '@/pages/MenuTimes'
 import MenuDeliveroo from '@/pages/MenuDeliveroo'
 import MenuTranslations from '@/pages/MenuTranslations'
 import MenuDesigner from '@/pages/MenuDesigner'
@@ -270,6 +271,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 <Route path="menus/dietary-tags"    element={<MenuDietaryTags />} />
                 <Route path="menus/allergens"       element={<MenuAllergenMatrix />} />
                 <Route path="menus/tax"             element={<MenuTax />} />
+                <Route path="menus/times"           element={<MenuTimes />} />
                 <Route path="menus/deliveroo"       element={<MenuDeliveroo />} />
                 <Route path="menus/translations"    element={<MenuTranslations />} />
                 <Route path="menus/:id/design"      element={<MenuDesigner />} />

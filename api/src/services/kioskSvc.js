@@ -106,7 +106,7 @@ export async function kioskConfig(tx, tenantId, venueId, device, { designOverrid
     loadDesign(tx, tenantId, ds.design_id || null),
   ])
   const stream = streams.find(r => r.id === ds.revenue_stream_id) || streams[0] || null
-  const { menus, items, section_items, dietary } = await tillMenuData(tx, tenantId, venueId, stream ? [stream] : [], { guest: true, allStreams: streams, version })
+  const { menus, items, section_items, dietary } = await tillMenuData(tx, tenantId, venueId, stream ? [stream] : [], { guest: true, allStreams: streams, version, channel: 'kiosk' })
   const tz = venue.timezone || 'Europe/London'
   const promotions = (await venuePromotions(tx, { id: venueId, tenant_id: tenantId }, venueNow(tz).date, 'pos'))
     .map(p => ({ ...publicPromotion(p, { withCode: false }), max_uses: p.max_uses ?? null }))

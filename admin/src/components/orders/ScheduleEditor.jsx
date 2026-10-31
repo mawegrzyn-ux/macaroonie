@@ -1,7 +1,7 @@
 // components/orders/ScheduleEditor.jsx
 //
-// Date range + times-of-day editor shared by Ordering setup (menu
-// schedules) and Promotions. Rules and checks: shared/menuSchedule.js.
+// Date range + times-of-day editor shared by Menu times (pages/MenuTimes.jsx)
+// and Promotions. Rules and checks: shared/menuSchedule.js.
 
 import { useState } from 'react'
 import { Plus, Trash2, Clock, X, CalendarDays } from 'lucide-react'
@@ -37,9 +37,11 @@ const WEEK = [1, 2, 3, 4, 5, 6, 0]
  * shared/menuSchedule.js: ordering menus (migration 130) and promotions
  * (migration 131). onChange(null) = always on.
  */
-export function ScheduleEditor({ value, onChange, className = '', alwaysLabel = 'Always available', resetLabel = 'Clear times and dates', datesLabel = 'Dates' }) {
+export function ScheduleEditor({ value, onChange, className = '', alwaysLabel = 'Always available', resetLabel = 'Clear times and dates', datesLabel = 'Dates', alwaysOpen = false }) {
   const sched = value || { from: null, until: null, times: [] }
-  const [open, setOpen] = useState(false)
+  const [opened, setOpen] = useState(false)
+  // alwaysOpen: the editor itself, no button to open it (Menu times' window).
+  const open = alwaysOpen || opened
   const times = sched.times || []
   const put = patch => onChange({ ...sched, ...patch })
   const setTime = (i, patch) => put({ times: times.map((t, j) => (j === i ? { ...t, ...patch } : t)) })
@@ -52,14 +54,16 @@ export function ScheduleEditor({ value, onChange, className = '', alwaysLabel = 
 
   return (
     <div className={className}>
-      <button type="button" onClick={() => setOpen(o => !o)}
-        className="inline-flex items-center gap-1.5 min-h-[40px] text-sm text-primary touch-manipulation">
-        <Clock className="w-4 h-4" />
-        {isScheduled(sched) ? scheduleLabel(sched) : alwaysLabel}
-        <span className="text-muted-foreground underline underline-offset-2">{open ? 'Done' : 'Set times and dates'}</span>
-      </button>
+      {!alwaysOpen && (
+        <button type="button" onClick={() => setOpen(o => !o)}
+          className="inline-flex items-center gap-1.5 min-h-[40px] text-sm text-primary touch-manipulation">
+          <Clock className="w-4 h-4" />
+          {isScheduled(sched) ? scheduleLabel(sched) : alwaysLabel}
+          <span className="text-muted-foreground underline underline-offset-2">{open ? 'Done' : 'Set times and dates'}</span>
+        </button>
+      )}
       {open && (
-        <div className="mt-2 rounded-lg border bg-muted/30 p-3 space-y-3">
+        <div className={cn('rounded-lg border bg-muted/30 p-3 space-y-3', !alwaysOpen && 'mt-2')}>
           <div>
             <p className="text-xs font-medium text-muted-foreground mb-1">{datesLabel}</p>
             <div className="flex flex-wrap gap-2">

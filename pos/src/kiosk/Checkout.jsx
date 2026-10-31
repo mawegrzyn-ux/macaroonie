@@ -12,7 +12,7 @@ import { TK, pickImages, bundleParts, doneInfo, doneLook, isEmail } from '@share
 import { qrSvg } from '@shared/qr.js'
 import {
   useKiosk, textsFor, go, openBuilder, setQty, addToBasket, setDetails, placeOrder, methods, restart, soldOut, printResultReceipt,
-  receiptLink, emailReceipt, getState as getFresh, cardStart, cardCheck, cardCancel, cardTest, setCardWaiting,
+  receiptLink, emailReceipt, getState as getFresh, cardStart, cardCheck, cardCancel, cardTest, setCardWaiting, itemOffNow,
 } from './store.js'
 import { ulid } from '@shared/pos/ids.js'
 import { cx, Photo, PickPhoto, BundlePhoto, Keyboard, NumberPad, EmailKeyboard, Sheet, BackButton, usePortrait } from './parts.jsx'
@@ -83,7 +83,7 @@ export function Basket() {
   const sold = soldOut(config)
   const inBasket = new Set(s.basket.map(e => e.item_id))
   const upsell = config.design.checkout.upsell
-    ? config.design.checkout.upsell_item_ids.map(id => configItem(config, id)).filter(it => it && !sold.has(it.id) && !inBasket.has(it.id))
+    ? config.design.checkout.upsell_item_ids.map(id => configItem(config, id)).filter(it => it && !sold.has(it.id) && !inBasket.has(it.id) && !itemOffNow(config, it.id, s.menuIds))
     : []
   const upsellTitle = config.design.checkout.upsell_title ? texts.t(TK.design(config.design.id, 'upsell_title'), config.design.checkout.upsell_title) : ui('anything_else')
   const offers = (totals?.discounts || []).filter(d => d.amount > 0)

@@ -77,6 +77,7 @@ export const ROUTE_CATALOG = [
   { route: '/brand', label: 'Brand & theme', icon: 'Palette', module: 'website' },
   { route: '/website', label: 'Website', icon: 'Globe', module: 'website' },
   { route: '/menus', label: 'Menus', icon: 'ChefHat', module: 'menus' },
+  { route: '/menus/times', label: 'Menu times', icon: 'Clock', module: 'menus' },
   { route: '/menus/variant-groups', label: 'Menu variant groups', icon: 'Layers', module: 'menus' },
   { route: '/menus/dietary-tags', label: 'Menu allergens & dietary tags', icon: 'Tag', module: 'menus' },
   { route: '/menus/allergens', label: 'Allergen matrix', icon: 'Grid3x3', module: 'menus' },
