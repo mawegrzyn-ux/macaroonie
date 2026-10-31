@@ -5,7 +5,7 @@
 // web_ordering_setup (ordering settings).
 //
 //   GET    /gateways                         payment gateways the platform knows
-//   GET    /settings/:venueId                ordering settings (+ menus to pick from)
+//   GET    /settings/:venueId                ordering settings (+ the menus online, set on Menus > Menu times)
 //   PUT    /settings/:venueId                save ordering settings
 //   POST   /pause/:venueId                   pause / resume taking orders
 //   POST   /hours/:venueId                   { until: 'HH:MM' | null } take orders later
@@ -48,7 +48,7 @@ import { boardOrders, boardOrder } from '../services/gloriafoodSvc.js'
 import { kitchenOnGloriaFood } from '../services/kitchenSvc.js'
 import { setSoldOut, soldOutItemIds, announceSoldOut } from '../services/soldOut.js'
 import { onlineTransactions, transactionsCsv, MAX_DAYS } from '../services/onlineSalesSvc.js'
-import { isScheduled, scheduleProblem } from '../../../shared/menuSchedule.js'
+import { isScheduled, scheduleLabel } from '../../../shared/menuSchedule.js'
 
 const uuid = z.string().uuid()
 const hm = z.string().regex(/^\d{2}:\d{2}$/)
@@ -73,8 +73,6 @@ const SettingsBody = z.object({
     day:     z.number().int().min(0).max(6),
     windows: z.array(z.object({ open: hm, close: hm })).max(6).default([]),
   })).max(7),
-  menu_ids:                z.array(uuid).max(20).default([]),
-  menu_schedules:          z.record(uuid, MenuSchedule).default({}),
   allow_asap:              z.boolean().default(true),
   lead_time_mins:          z.number().int().min(0).max(240),
   slot_interval_mins:      z.union([z.literal(5), z.literal(10), z.literal(15), z.literal(20), z.literal(30), z.literal(60)]),
@@ -142,15 +140,16 @@ export default async function ordersRoutes(app) {
         loadOrderTypes(tx, req.tenantId),
         tx`SELECT id, name, is_active FROM pos_revenue_streams WHERE tenant_id = ${req.tenantId} AND venue_id = ${req.params.venueId} ORDER BY sort_order, name`,
       ])
-      // Only menus this page lists: an id it can't show (a deleted menu, or
-      // another venue's own) would go back unseen with the next save.
-      const listed = new Set(menus.map(m => m.id))
-      const chosen = {
-        ...settings,
-        menu_ids: (settings.menu_ids || []).filter(id => listed.has(id)),
-        menu_schedules: Object.fromEntries(Object.entries(settings.menu_schedules || {}).filter(([id]) => listed.has(id))),
-      }
-      return { settings: chosen, menus, gateways: listGateways(), order_types: orderTypes, revenue_streams: streams }
+      // Which menus are online, and when, is Menus > Menu times (migration
+      // 230, routes/menuTimes.js): this page shows them and never saves
+      // them, so an older copy of this form can't put a menu back online.
+      const byId = new Map(menus.map(m => [m.id, m]))
+      const online = (settings.menu_ids || []).filter(id => byId.has(id)).map(id => ({
+        id, name: byId.get(id).name,
+        times: isScheduled(settings.menu_schedules?.[id]) ? scheduleLabel(settings.menu_schedules[id]) : null,
+      }))
+      const { menu_ids: _ids, menu_schedules: _times, ...rest } = settings
+      return { settings: rest, menus, online_menus: online, gateways: listGateways(), order_types: orderTypes, revenue_streams: streams }
     })
   })
 
@@ -165,27 +164,8 @@ export default async function ordersRoutes(app) {
         if (w.close < w.open) throw httpError(400, 'An ordering window closes before it opens')
       }
     }
-    // Keep only schedules of chosen menus, and only ones that say something.
-    const schedules = {}
-    for (const id of b.menu_ids) {
-      const sc = b.menu_schedules[id]
-      if (!isScheduled(sc)) continue
-      schedules[id] = { from: sc.from || null, until: sc.until || null,
-        times: sc.times.map(t => ({ days: [...new Set(t.days)].sort(), start: t.start, end: t.end })) }
-    }
     const row = await withTenant(req.tenantId, async tx => {
       const venue = await venueOf(tx, req.params.venueId)
-      const menuIds = [...new Set(b.menu_ids)]
-      if (menuIds.length) {
-        const own = await tx`SELECT id FROM menus WHERE id = ANY(${menuIds}::uuid[]) AND tenant_id = ${req.tenantId}`
-        if (own.length !== menuIds.length) throw httpError(422, 'A chosen menu wasn\'t found')
-      }
-      if (Object.keys(schedules).length) {
-        const menus = await tx`SELECT id, name FROM menus WHERE id = ANY(${Object.keys(schedules)}::uuid[]) AND tenant_id = ${req.tenantId}`
-        const today = localParts(new Date(), venue.timezone || 'Europe/London').date
-        const problem = scheduleProblem(b.menu_ids, schedules, Object.fromEntries(menus.map(m => [m.id, m.name])), today)
-        if (problem) throw httpError(422, problem)
-      }
       const typeIds = Object.fromEntries(Object.entries(b.order_type_ids || {}).filter(([, v]) => v))
       if (Object.keys(typeIds).length) {
         const found = await tx`SELECT id FROM order_types WHERE tenant_id = ${req.tenantId} AND id = ANY(${Object.values(typeIds)}::uuid[])`
@@ -196,20 +176,20 @@ export default async function ordersRoutes(app) {
         if (!rs) throw httpError(422, 'Revenue stream not found')
       }
       const [s] = await tx`
-        INSERT INTO ordering_settings (venue_id, tenant_id, is_enabled, is_paused, pause_message, hours, menu_ids, menu_schedules,
+        INSERT INTO ordering_settings (venue_id, tenant_id, is_enabled, is_paused, pause_message, hours,
                                        allow_asap, lead_time_mins, slot_interval_mins, max_orders_per_slot, max_days_ahead,
                                        min_order_pence, auto_accept, order_type_ids, revenue_stream_id,
                                        tips_enabled, tip_percents,
                                        payment_methods, collection_instructions, confirmation_note)
         VALUES (${req.params.venueId}, ${req.tenantId}, ${b.is_enabled}, ${b.is_paused}, ${b.pause_message ?? null},
-                ${tx.json(b.hours)}, ${b.menu_ids}::uuid[], ${tx.json(schedules)},
+                ${tx.json(b.hours)},
                 ${b.allow_asap}, ${b.lead_time_mins}, ${b.slot_interval_mins}, ${b.max_orders_per_slot}, ${b.max_days_ahead},
                 ${b.min_order_pence}, ${b.auto_accept}, ${tx.json(typeIds)}, ${b.revenue_stream_id ?? null},
                 ${b.tips_enabled}, ${b.tip_percents}::int[],
                 ${methods}::text[], ${b.collection_instructions ?? null}, ${b.confirmation_note ?? null})
         ON CONFLICT (venue_id) DO UPDATE SET
           is_enabled = EXCLUDED.is_enabled, is_paused = EXCLUDED.is_paused, pause_message = EXCLUDED.pause_message,
-          hours = EXCLUDED.hours, menu_ids = EXCLUDED.menu_ids, menu_schedules = EXCLUDED.menu_schedules, allow_asap = EXCLUDED.allow_asap,
+          hours = EXCLUDED.hours, allow_asap = EXCLUDED.allow_asap,
           lead_time_mins = EXCLUDED.lead_time_mins, slot_interval_mins = EXCLUDED.slot_interval_mins,
           max_orders_per_slot = EXCLUDED.max_orders_per_slot, max_days_ahead = EXCLUDED.max_days_ahead,
           min_order_pence = EXCLUDED.min_order_pence, auto_accept = EXCLUDED.auto_accept,

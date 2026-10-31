@@ -76,6 +76,7 @@ export const DEFAULT_NAV_TREE = [
       {
         label: 'Menus', icon: 'ChefHat', route: '/menus', module: 'menus',
         children: [
+          { label: 'Menu times', icon: 'Clock', route: '/menus/times', module: 'menus' },
           { label: 'Variant groups', icon: 'Layers', route: '/menus/variant-groups', module: 'menus' },
           { label: 'Allergens & dietary', icon: 'Tag', route: '/menus/dietary-tags', module: 'menus' },
           { label: 'Allergen matrix', icon: 'Grid3x3', route: '/menus/allergens', module: 'menus' },

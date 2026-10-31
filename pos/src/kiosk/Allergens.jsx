@@ -44,10 +44,10 @@ export default function Allergens() {
   const allergens = (config.dietary_tags || []).filter(x => x.kind === 'allergen')
   // Diets: only ones a dish on this kiosk's menu carries.
   const diets = useMemo(() => {
-    const used = new Set(kioskItemIds(config).flatMap(id => configItem(config, id)?.dietary || []))
+    const used = new Set(kioskItemIds(config, s.menuIds).flatMap(id => configItem(config, id)?.dietary || []))
     return (config.dietary_tags || []).filter(x => x.kind !== 'allergen' && used.has(x.code))
-  }, [config])
-  const count = useMemo(() => countFor(config, prefs), [config, prefs])
+  }, [config, s.menuIds])
+  const count = useMemo(() => countFor(config, prefs, s.menuIds), [config, prefs, s.menuIds])
   const on = prefsOn(prefs)
   const toggle = key => code => setPrefs({ ...prefs, [key]: prefs[key].includes(code) ? prefs[key].filter(x => x !== code) : [...prefs[key], code] })
   const types = config.order_types || []

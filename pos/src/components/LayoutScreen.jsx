@@ -3,8 +3,10 @@
 // own grid of buttons (ZoneGrid.jsx).
 //
 //   check       what the host gives (the check panel, or the counter's New order and waiting orders)
-//   categories  the till's menu sections (the ones picked in the designer, in that order;
-//               with none picked every section, the menus first when there are several)
+//   categories  the sections of the menus on now (lib/tillMenus.js: the menu times, or what
+//               staff picked in More > Menus): the ones picked in the designer, in that
+//               order (with none of them on a menu on now, every one picked), else every
+//               section of those menus
 //   items       the dishes of the section picked, or every dish when the layout has no
 //               categories; a search box on top if the zone has one
 //   buttons     the designer's buttons: a dish, or a function (onButton)
@@ -34,11 +36,11 @@ function useRemembered(key, initial) {
 
 const area = z => ({ gridColumn: `${z.x + 1} / span ${z.w}`, gridRow: `${z.y + 1} / span ${z.h}` })
 
-/** A category (or menu) button: filled in its colour when it is the one open. */
-function SectionButton({ label, colour, on, onTap, menu = false, testid }) {
+/** A category button: filled in its colour when it is the one open. */
+function SectionButton({ label, colour, on, onTap, testid }) {
   return (
     <button onClick={onTap} data-testid={testid} data-on={on ? '1' : '0'}
-      className={cx('w-full h-full rounded-xl px-2 leading-tight border-2 touch-manipulation flex items-center justify-center text-center', menu && 'border-dashed')}
+      className="w-full h-full rounded-xl px-2 leading-tight border-2 touch-manipulation flex items-center justify-center text-center"
       style={on ? { background: colour, borderColor: colour, color: '#fff' } : { borderColor: colour, color: colour, background: '#fff' }}>
       <span className="line-clamp-2 break-words">{label}</span>
     </button>
@@ -60,32 +62,14 @@ function LayoutButton({ b, label, disabled, sub = null, onTap, onHold }) {
   )
 }
 
-function CategoriesZone({ zone, layoutId, menus, sectionId, setSectionId, menuId, setMenuId }) {
-  const cells = []
-  // The sections picked in the designer, in that order (any of the till's menus);
-  // none picked: the menus first (when there are several), then the open menu's sections.
-  if (zone.sections) {
-    const all = new Map()
-    menus.forEach(m => m.sections.forEach((s, i) => { if (!all.has(s.id)) all.set(s.id, { s, i }) }))
-    zone.sections.forEach(id => {
-      const hit = all.get(id)
-      if (hit) cells.push({ key: 's:' + id, s: hit.s, i: hit.i })
-    })
-  } else {
-    if (menus.length > 1) menus.forEach(m => cells.push({ key: 'm:' + m.id, menu: m }))
-    const menu = menus.find(m => m.id === menuId) || menus[0]
-    ;(menu?.sections || []).forEach((s, i) => cells.push({ key: 's:' + s.id, s, i }))
-  }
+function CategoriesZone({ zone, layoutId, sections, sectionId, setSectionId, resetKey }) {
   return (
-    <ZoneGrid zone={zone} memoKey={'cats:' + layoutId + ':' + zone.id} resetKey={zone.sections ? '' : menuId || ''} moreTitle="Categories"
-      empty="No categories on this till's menus." testid="zone-categories"
-      cells={cells.map(c => ({
-        key: c.key,
-        node: c.menu
-          ? <SectionButton menu label={c.menu.name} colour="#334155" on={c.menu.id === (menuId || menus[0]?.id)} testid="category-menu"
-              onTap={() => { setMenuId(c.menu.id); setSectionId(null) }} />
-          : <SectionButton label={c.s.title} colour={c.s.colour || SECTION_COLOURS[c.i % SECTION_COLOURS.length]} on={c.s.id === sectionId} testid="category"
-              onTap={() => setSectionId(c.s.id)} />,
+    <ZoneGrid zone={zone} memoKey={'cats:' + layoutId + ':' + zone.id} resetKey={resetKey} moreTitle="Categories"
+      empty="No categories on the menus on now." testid="zone-categories"
+      cells={sections.map(c => ({
+        key: 's:' + c.s.id,
+        node: <SectionButton label={c.s.title} colour={c.s.colour || SECTION_COLOURS[c.i % SECTION_COLOURS.length]} on={c.s.id === sectionId} testid="category"
+          onTap={() => setSectionId(c.s.id)} />,
       }))} />
   )
 }
@@ -109,7 +93,7 @@ function ItemsZone({ zone, layoutId, config, menus, section, sectionIndex, hasCa
       }
       return out.slice(0, 60)
     }
-    // No categories zone: every dish of the till's menus, in menu order.
+    // No categories zone: every dish of the menus on now, in menu order.
     if (!hasCategories) {
       for (const m of menus) for (const s of m.sections) for (const id of s.item_ids) add(id)
       return out
@@ -129,7 +113,7 @@ function ItemsZone({ zone, layoutId, config, menus, section, sectionIndex, hasCa
       )}
       <div className="flex-1 min-h-0">
         <ZoneGrid zone={zone} memoKey={'items:' + layoutId + ':' + zone.id} resetKey={(section?.id || '') + '|' + q.trim()} moreTitle={section?.title || 'Dishes'}
-          empty={q ? 'No dish matches.' : hasCategories ? 'This category has no dishes.' : 'No dishes on this till\'s menus.'} testid="zone-items"
+          empty={q ? 'No dish matches.' : hasCategories ? 'This category has no dishes.' : 'No dishes on the menus on now.'} testid="zone-items"
           cells={items.map(it => ({
             key: it.id,
             node: <DishButton fill item={it} colour={it.colour || colour} priceText={dishPriceText(config, it.id, comboRefs)}
@@ -171,7 +155,7 @@ function ButtonsZone({ zone, layoutId, config, check, soldOut, onDish, onHold, o
  * onMoreChoices({ selection, qty }).
  */
 export default function LayoutScreen({
-  layout, config, check = null, checkZone, menuIds = null, covers = null,
+  layout, config, check = null, checkZone, menus, tillMenus = menus, covers = null,
   seat, setSeat, course, setCourse,
   onDish, onHold, onButton, canBack = true,
   choosing = null, onChosen, onCancelChoosing, onMoreChoices,
@@ -179,26 +163,24 @@ export default function LayoutScreen({
   const layoutId = layout.id || 'layout'
   const soldOut = useMemo(() => soldOutMap(config), [config])
   const comboRefs = useMemo(() => ({ itemsById: config.items || {}, sectionItems: config.section_items || {} }), [config])
-  const menus = useMemo(() => {
-    const all = config.menus || []
-    const only = menuIds?.length ? all.filter(m => menuIds.includes(m.id)) : all
-    return only.length ? only : all
-  }, [config, menuIds])
-  const [menuId, setMenuId] = useRemembered(layoutId + ':menu', null)
   const [sectionPick, setSectionId] = useRemembered(layoutId + ':section', null)
   const cats = layout.zones.find(z => z.type === 'categories')
+  // The categories the zone shows: { s, i (its place in its menu, for the colour) }.
+  const sections = useMemo(() => {
+    const list = ms => {
+      const out = []
+      ms.forEach(m => m.sections.forEach((s, i) => out.push({ s, i })))
+      return out
+    }
+    const shown = list(menus)
+    if (!cats?.sections) return shown
+    const pick = from => cats.sections.map(id => from.find(x => x.s.id === id)).filter(Boolean)
+    const on = pick(shown)
+    return on.length ? on : pick(list(tillMenus))
+  }, [menus, tillMenus, cats])
   // The category open: the one picked, else the first the categories zone shows.
-  const allSections = useMemo(() => {
-    const out = []
-    menus.forEach(m => m.sections.forEach((s, i) => out.push({ s, i, menu: m.id })))
-    return out
-  }, [menus])
-  const firstShown = () => {
-    if (cats?.sections) return cats.sections.map(id => allSections.find(x => x.s.id === id)).find(Boolean)
-    const menu = menus.find(m => m.id === menuId) || menus[0]
-    return allSections.find(x => x.menu === menu?.id)
-  }
-  const open = allSections.find(x => x.s.id === sectionPick) || firstShown() || null
+  const open = sections.find(x => x.s.id === sectionPick) || sections[0] || null
+  const shownKey = menus.map(m => m.id).join(',')
 
   const zones = choiceZones(layout)
   const solid = layout.zones.filter(z => z.type !== 'modifiers')
@@ -207,7 +189,7 @@ export default function LayoutScreen({
   const zoneBody = z => {
     if (z.type === 'check') return checkZone
     if (z.type === 'categories') {
-      return <CategoriesZone zone={z} layoutId={layoutId} menus={menus} sectionId={open?.s.id || null} setSectionId={setSectionId} menuId={menuId} setMenuId={setMenuId} />
+      return <CategoriesZone zone={z} layoutId={layoutId} sections={sections} sectionId={open?.s.id || null} setSectionId={setSectionId} resetKey={shownKey} />
     }
     if (z.type === 'items') {
       return <ItemsZone zone={z} layoutId={layoutId} config={config} menus={menus} section={open?.s || null} sectionIndex={open?.i || 0}

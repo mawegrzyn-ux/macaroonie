@@ -1,5 +1,7 @@
-// The till's menu on the standard screen: menus and sections as tabs, dishes
-// as big buttons, a search box, and the seat / course the next dish goes to.
+// The till's menu on the standard screen: the sections of the menus on now
+// as tabs (lib/tillMenus.js: the menu times, or what staff picked in More >
+// Menus), dishes as big buttons, a search box, and the seat / course the next
+// dish goes to.
 // A till with a layout (Store tech > Till layouts) draws LayoutScreen.jsx
 // instead, from the same pieces (DishButton, SeatCourseBar, dishPriceText).
 //
@@ -93,20 +95,16 @@ export function SeatCourseBar({ config, seat, setSeat, course, setCourse, covers
   )
 }
 
-export default function MenuPanel({ config, menuIds = null, onPick, onHold, seat, setSeat, course, setCourse, covers, onOpenItem }) {
+/** menus: the menus to show now (useShownMenus().shown), their sections one after another. */
+export default function MenuPanel({ config, menus, onPick, onHold, seat, setSeat, course, setCourse, covers, onOpenItem }) {
   const soldOut = useMemo(() => soldOutMap(config), [config])
   // Combos' dishes, for their "from" price (shared/combos.js).
   const comboRefs = useMemo(() => ({ itemsById: config.items || {}, sectionItems: config.section_items || {} }), [config])
-  const menus = useMemo(() => {
-    const all = config.menus || []
-    const only = menuIds?.length ? all.filter(m => menuIds.includes(m.id)) : all
-    return only.length ? only : all
-  }, [config, menuIds])
-  const [menuId, setMenuId] = useState(menus[0]?.id)
-  const menu = menus.find(m => m.id === menuId) || menus[0]
   const [sectionId, setSectionId] = useState(null)
   const [q, setQ] = useState('')
-  const sections = menu?.sections || []
+  // Each section with its place in its menu (for its colour).
+  const tabs = useMemo(() => (menus || []).flatMap(m => m.sections.map((s, i) => ({ s, i }))), [menus])
+  const sections = tabs.map(t => t.s)
   const section = sections.find(s => s.id === sectionId) || sections[0]
 
   const items = useMemo(() => {
@@ -114,7 +112,7 @@ export default function MenuPanel({ config, menuIds = null, onPick, onHold, seat
       const words = q.toLowerCase().split(/\s+/).filter(Boolean)
       const seen = new Set()
       const out = []
-      for (const m of menus) for (const s of m.sections) for (const id of s.item_ids) {
+      for (const m of menus || []) for (const s of m.sections) for (const id of s.item_ids) {
         const it = config.items[id]
         if (!it || seen.has(id)) continue
         const hay = (it.name + ' ' + (it.kitchen_name || '')).toLowerCase()
@@ -126,18 +124,11 @@ export default function MenuPanel({ config, menuIds = null, onPick, onHold, seat
   }, [q, menus, section, config])
 
   const colourOf = (s, i) => s?.colour || SECTION_COLOURS[i % SECTION_COLOURS.length]
-  const sectionIndex = sections.indexOf(section)
+  const sectionIndex = tabs.find(t => t.s === section)?.i ?? 0
 
   return (
     <div className="h-full flex flex-col min-w-0">
       <div className="flex items-center gap-2 p-3 pb-2">
-        {menus.length > 1 && (
-          <div className="flex gap-1 scroll-x shrink-0 max-w-[45%]">
-            {menus.map(m => (
-              <button key={m.id} className={cx('chip shrink-0', m.id === menu?.id && 'chip-on')} onClick={() => { setMenuId(m.id); setSectionId(null) }}>{m.name}</button>
-            ))}
-          </div>
-        )}
         <div className="relative flex-1 min-w-[140px]">
           <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
           <input className="input pl-10 pr-10" placeholder="Find a dish" value={q} onChange={e => setQ(e.target.value)} />
@@ -148,8 +139,8 @@ export default function MenuPanel({ config, menuIds = null, onPick, onHold, seat
 
       {!q && (
         <div className="flex gap-2 px-3 pb-2 scroll-x shrink-0">
-          {sections.map((s, i) => (
-            <button key={s.id} onClick={() => setSectionId(s.id)}
+          {tabs.map(({ s, i }) => (
+            <button key={s.id} onClick={() => setSectionId(s.id)} data-testid="section-tab" data-on={s.id === section?.id ? '1' : '0'}
               className={cx('shrink-0 rounded-xl px-4 min-h-[48px] font-semibold border-2 touch-manipulation', s.id === section?.id ? 'text-white' : 'bg-white')}
               style={s.id === section?.id ? { background: colourOf(s, i), borderColor: colourOf(s, i) } : { borderColor: colourOf(s, i), color: colourOf(s, i) }}>
               {s.title}
@@ -164,7 +155,7 @@ export default function MenuPanel({ config, menuIds = null, onPick, onHold, seat
             const colour = it.colour || (!q ? colourOf(section, sectionIndex) : '#64708a')
             return <DishButton key={it.id} item={it} colour={colour} priceText={dishPriceText(config, it.id, comboRefs)} soldOut={soldOut.has(it.id)} onPick={onPick} onHold={onHold} />
           })}
-          {!items.length && <div className="text-muted p-4 col-span-full">{q ? 'No dish matches.' : 'This section has no dishes.'}</div>}
+          {!items.length && <div className="text-muted p-4 col-span-full">{q ? 'No dish matches.' : sections.length ? 'This section has no dishes.' : 'No menu on this till.'}</div>}
         </div>
       </div>
 

@@ -122,6 +122,7 @@ export const BUTTON_ACTIONS = [
   { key: 'open_item', label: 'Item not on menu', check: true, group: 'Order' },
   { key: 'cancel_order', label: 'Cancel order', check: true, group: 'Order' },
   { key: 'no_sale', label: 'No sale (open drawer)', check: false, group: 'Till' },
+  { key: 'menus', label: 'Menus', check: false, group: 'Till' },
   { key: 'back', label: 'Back', check: false, group: 'Till' },
   { key: 'till_menu', label: 'Till menu', check: false, group: 'Till' },
   { key: 'sign_out', label: 'Sign out', check: false, group: 'Till' },

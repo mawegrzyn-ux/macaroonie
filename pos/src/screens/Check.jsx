@@ -24,6 +24,8 @@ import LineModal from '../components/LineModal.jsx'
 import PayModal from '../components/PayModal.jsx'
 import LoyaltyModal from '../components/LoyaltyModal.jsx'
 import AllergyModal from '../components/AllergyModal.jsx'
+import MenusModal from '../components/MenusModal.jsx'
+import { useShownMenus } from '../lib/tillMenus.js'
 import {
   ActionsMenu, SendModal, needsSendChoice, FireModal, DiscountModal, ChargesModal, OffersModal, MoveModal,
   MergeModal, TableModal, NameModal, ServerModal, StreamModal, OrderTypeModal, GuestsModal, OpenItemModal, NoSale, SoldOutModal,
@@ -47,6 +49,8 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
   const orderZone = layout?.zones.find(z => z.type === 'check') || null
   const hidden = new Set(orderZone?.hide || [])
   const colourOf = key => orderZone?.colours?.[key] || null
+  // The menus on now (the menu times, or what staff picked in More > Menus).
+  const shownMenus = useShownMenus(config, check ? streamOf(config, check.revenue_stream_id)?.menu_ids : null)
 
   useEffect(() => {
     setPresence(checkId)
@@ -284,6 +288,7 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
       case 'cancel_order': return check.lines.length ? setModal({ kind: 'cancel' }) : toast('Nothing on the order to cancel', 'bad')
       case 'no_sale': return setModal({ kind: 'nosale' })
       case 'back': return onBack()
+      case 'menus': return setModal({ kind: 'menus' })
       case 'till_menu': return nav.openMenu()
       case 'sign_out': return signOut()
       default: return null
@@ -294,7 +299,7 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
     <div className="h-full flex">
       {layout ? (
         <div className="flex-1 min-w-0">
-          <LayoutScreen layout={layout} config={config} check={check} checkZone={panel} menuIds={stream?.menu_ids} covers={check.covers}
+          <LayoutScreen layout={layout} config={config} check={check} checkZone={panel} menus={shownMenus.shown} tillMenus={shownMenus.menus} covers={check.covers}
             seat={seat} setSeat={setSeat} course={course} setCourse={setCourse}
             onDish={pick} onHold={item => setModal({ kind: 'sold_out', item })} onButton={runButton}
             choosing={choosing} onChosen={o => added(choosing.item, { ...o, seat, course })} onCancelChoosing={() => setChoosing(null)}
@@ -304,7 +309,7 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
         <>
           <div className="w-[42%] max-w-[480px] min-w-[320px] shrink-0">{panel}</div>
           <div className="flex-1 min-w-0">
-            <MenuPanel config={config} menuIds={stream?.menu_ids} onPick={pick} onHold={item => setModal({ kind: 'sold_out', item })} seat={seat} setSeat={setSeat} course={course} setCourse={setCourse}
+            <MenuPanel config={config} menus={shownMenus.shown} onPick={pick} onHold={item => setModal({ kind: 'sold_out', item })} seat={seat} setSeat={setSeat} course={course} setCourse={setCourse}
               covers={check.covers} onOpenItem={() => setModal({ kind: 'open_item' })} />
           </div>
         </>
@@ -320,7 +325,8 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
             initial: { selection: comboStartFrom(line, start, combo, config), qty: line.qty },
           })} />
       )}
-      {modal?.kind === 'actions' && <ActionsMenu check={check} config={config} onClose={close} onPick={action} />}
+      {modal?.kind === 'actions' && <ActionsMenu check={check} config={config} menus={shownMenus} onClose={close} onPick={action} />}
+      {modal?.kind === 'menus' && <MenusModal shown={shownMenus} onClose={close} />}
       {modal?.kind === 'send' && <SendModal check={check} config={config} onClose={close} onSent={() => { close(); toast('Sent to the kitchen', 'ok'); if (!counter) onBack() }} />}
       {modal?.kind === 'fire' && <FireModal check={check} config={config} onClose={close} />}
       {modal?.kind === 'cancel' && <CancelOrderModal check={check} onClose={close} onCancelled={close} />}

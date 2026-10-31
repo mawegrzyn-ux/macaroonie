@@ -8,13 +8,11 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Settings2, Plus, Trash2, ExternalLink, Loader2, ArrowLeft, Clock, X, CalendarDays } from 'lucide-react'
+import { Settings2, Plus, Trash2, ExternalLink, Loader2, ArrowLeft, Clock } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { usePermission } from '@/hooks/usePermission'
 import { ReadOnlyNotice, ReadOnlyFieldset } from '@/components/ReadOnlyNotice'
 import { cn } from '@/lib/utils'
-import { isScheduled, scheduleProblem } from '@shared/menuSchedule.js'
-import { ScheduleEditor } from '@/components/orders/ScheduleEditor'
 import StripeAccountCard, { useStripeAccount } from '@/components/orders/StripeAccountCard'
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
@@ -101,15 +99,6 @@ export default function OrderingSettings() {
   const { data: stripe } = useStripeAccount()
   const orderTypes = (q.data?.order_types || []).filter(t => t.is_active || Object.values(f?.order_type_ids || {}).includes(t.id))
   const streams = (q.data?.revenue_streams || []).filter(r => r.is_active || r.id === f?.revenue_stream_id)
-  const menuNames = Object.fromEntries((q.data?.menus || []).map(m => [m.id, m.name]))
-  const todayIso = new Date().toLocaleDateString('en-CA', { timeZone: venue?.timezone || undefined })
-  const schedProblem = f ? scheduleProblem(f.menu_ids, f.menu_schedules || {}, menuNames, todayIso) : null
-  function setSchedule(menuId, sched) {
-    const next = { ...(f.menu_schedules || {}) }
-    if (isScheduled(sched)) next[menuId] = sched
-    else delete next[menuId]   // nothing set = always available
-    set('menu_schedules', next)
-  }
 
   return (
     <div className="h-full overflow-y-auto">
@@ -149,22 +138,23 @@ export default function OrderingSettings() {
                   hint="Off: every new order waits on the board until someone taps Accept." />
               </Section>
 
-              <Section title="Menus" hint="The menus guests can order from. Dishes switched off for ordering (Menus page, dish settings) or without a price are left out. Give a menu times of day (e.g. lunch 11:00 to 15:00) and dates (to schedule a menu change); menus with times or dates can't overlap each other. A menu with neither, such as drinks, is always available.">
-                {!q.data.menus.length && <p className="text-sm text-muted-foreground">No menus yet. Build one on the <Link to="/menus" className="underline">Menus</Link> page.</p>}
-                {q.data.menus.map(m => {
-                  const on = f.menu_ids.includes(m.id)
-                  return (
-                    <div key={m.id}>
-                      <Toggle label={m.name} hint={m.venue_id ? 'This venue only' : 'Shared menu'} checked={on}
-                        onChange={v => {
-                          set('menu_ids', v ? [...f.menu_ids, m.id] : f.menu_ids.filter(x => x !== m.id))
-                          if (!v) setSchedule(m.id, null)
-                        }} />
-                      {on && <ScheduleEditor className="ml-8 -mt-1 mb-2" value={f.menu_schedules?.[m.id]} onChange={sc => setSchedule(m.id, sc)} />}
-                    </div>
-                  )
-                })}
-                {schedProblem && <p className="text-sm text-destructive bg-destructive/10 rounded-md px-3 py-2">{schedProblem}</p>}
+              <Section title="Menus" hint="The menus guests can order from, and when each is on, are set on Menus > Menu times, together with the kiosks and tills. Dishes switched off for ordering (Menus page, dish settings) or without a price are left out.">
+                {!(q.data.online_menus || []).length && (
+                  <p className="text-sm text-muted-foreground" data-testid="ordering-no-menus">No menu is on the website at this location yet.</p>
+                )}
+                {(q.data.online_menus || []).length > 0 && (
+                  <ul className="divide-y rounded-md border" data-testid="ordering-menus">
+                    {q.data.online_menus.map(m => (
+                      <li key={m.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 min-h-[44px] text-sm">
+                        <span className="font-medium flex-1 min-w-[8rem]">{m.name}</span>
+                        <span className="inline-flex items-center gap-1 text-muted-foreground"><Clock className="w-3.5 h-3.5" /> {m.times || 'Any time'}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <Link to="/menus/times" className="inline-flex items-center gap-1 min-h-[44px] text-sm text-primary underline underline-offset-2 touch-manipulation" data-testid="ordering-menu-times">
+                  <Clock className="w-4 h-4" /> Choose menus and their times on Menu times
+                </Link>
               </Section>
 
               <Section title="Ordering hours" hint="When guests can collect. Filled from your opening hours the first time; each day can have several windows (e.g. lunch and dinner).">
@@ -310,8 +300,7 @@ export default function OrderingSettings() {
                 {save.isSuccess && !dirty && <span className="text-sm text-emerald-700">Saved</span>}
                 <button onClick={() => setF(structuredClone(q.data.settings))} disabled={!dirty}
                   className="min-h-[48px] px-4 rounded-md border text-sm touch-manipulation disabled:opacity-40">Discard</button>
-                {schedProblem && <span className="text-sm text-destructive">Fix the menu times first.</span>}
-                <button onClick={() => save.mutate(f)} disabled={!dirty || save.isPending || !!schedProblem || (f.is_enabled && !f.payment_methods.length)}
+                <button onClick={() => save.mutate(f)} disabled={!dirty || save.isPending || (f.is_enabled && !f.payment_methods.length)}
                   className={cn('min-h-[48px] px-6 rounded-md bg-primary text-primary-foreground text-sm font-semibold touch-manipulation disabled:opacity-40')}>
                   {save.isPending ? 'Saving…' : 'Save'}
                 </button>

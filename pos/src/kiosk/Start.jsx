@@ -3,9 +3,9 @@
 // order types (its revenue stream's, Store tech), and the allergens list.
 
 import { useEffect, useState } from 'react'
-import { ShieldAlert, WifiOff } from 'lucide-react'
+import { ShieldAlert, WifiOff, Clock } from 'lucide-react'
 import { TK, KIOSK_LANGUAGES } from '@shared/kiosk.js'
-import { useKiosk, textsFor, setLang, startOrder, go, methods } from './store.js'
+import { useKiosk, textsFor, setLang, startOrder, go, methods, noMenuOn, nextMenuAt } from './store.js'
 import { cx, Flag, TypeIcon, guessTypeIcon, FitPicture } from './parts.jsx'
 
 export function Media({ media, secs }) {
@@ -50,8 +50,8 @@ export function typeLabelOf(d, ty, t) {
 /** "Staying or going?": the design's own words, else the kiosk's. */
 export const typeQuestion = (d, texts) => (d.start.question ? texts.t(TK.design(d.id, 'question'), d.start.question) : texts.ui('staying_or_going'))
 
-/** Ordering is paused: no connection (not in a preview) or no way to pay. */
-export const orderingClosed = s => (!s.online && !s.preview) || !methods(s.config).length
+/** Ordering is paused: no connection (not in a preview), no way to pay, or no menu on now (Menus > Menu times). */
+export const orderingClosed = s => (!s.online && !s.preview) || !methods(s.config).length || noMenuOn(s)
 
 export default function Start() {
   const s = useKiosk()
@@ -61,6 +61,7 @@ export default function Start() {
   const d = config.design
   const types = config.order_types || []
   const closed = orderingClosed(s)
+  const nextAt = noMenuOn(s) ? nextMenuAt(config) : null
   const headline = d.start.headline ? t(TK.design(d.id, 'headline'), d.start.headline) : ui('order_here')
   const question = typeQuestion(d, texts)
   const typeLabel = ty => typeLabelOf(d, ty, t)
@@ -71,8 +72,15 @@ export default function Start() {
     <div className="flex flex-col items-center gap-[calc(var(--k-pad)*1.1)] w-full">
       {d.brand.logo_url && <img src={d.brand.logo_url} alt="" className="max-h-[11cqh] max-w-[60%] object-contain" draggable={false} />}
       <h1 className="k-head text-[2.6em] m-0 text-center">{headline}</h1>
-      {closed ? (
-        <div className="k-card p-[var(--k-pad)] max-w-[640px] text-center flex flex-col items-center gap-[.6em] text-[var(--k-text)]" data-testid="k-closed">
+      {closed && noMenuOn(s) && s.online ? (
+        // No menu is on now: the next one's time when it is later today.
+        <div className="k-card p-[var(--k-pad)] max-w-[640px] text-center flex flex-col items-center gap-[.6em] text-[var(--k-text)]" data-testid="k-closed" data-why="menus">
+          <Clock size={40} />
+          <div className="k-head text-[1.4em]">{ui('no_menu_title')}</div>
+          <div data-testid="k-closed-next">{nextAt ? ui('no_menu_back_at', { time: nextAt }) : ui('no_menu_later')}</div>
+        </div>
+      ) : closed ? (
+        <div className="k-card p-[var(--k-pad)] max-w-[640px] text-center flex flex-col items-center gap-[.6em] text-[var(--k-text)]" data-testid="k-closed" data-why="paused">
           <WifiOff size={40} />
           <div className="k-head text-[1.4em]">{ui('closed_title')}</div>
           <div>{ui('closed_body')}</div>

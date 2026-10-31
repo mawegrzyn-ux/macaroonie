@@ -9,7 +9,7 @@
 import { useEffect, useState } from 'react'
 import {
   Users, Table2, UserRound, Building2, Percent, HandCoins, Gift, Split, Merge, Flame, StickyNote, Printer,
-  Vault, PenLine, Check, Hourglass, Send, XCircle, Ban, RotateCcw, Plus, ShoppingBag, Flag, Star, ShieldCheck, AlertTriangle,
+  Vault, PenLine, Check, Hourglass, Send, XCircle, Ban, RotateCcw, Plus, ShoppingBag, Flag, Star, ShieldCheck, AlertTriangle, BookOpen,
 } from 'lucide-react'
 import { ulid } from '@shared/pos/ids.js'
 import { checkTotals } from '@shared/pos/pricing.js'
@@ -44,9 +44,10 @@ function chargesHint(check) {
   ].filter(Boolean).join(', ')
 }
 
-export function ActionsMenu({ check, config, onPick, onClose }) {
+export function ActionsMenu({ check, config, menus = null, onPick, onClose }) {
   const held = heldCourses(check)
   const items = [
+    menus && menus.menus.length > 1 && { key: 'menus', label: 'Menus', icon: BookOpen, hint: menusHint(menus) },
     { key: 'covers', label: 'Guests', icon: Users, hint: check.covers ? check.covers + ' covers' : 'not set' },
     { key: 'table', label: check.table_id ? 'Move table' : 'Put on a table', icon: Table2 },
     { key: 'name', label: 'Name', icon: StickyNote, hint: check.tab_name || '' },
@@ -89,6 +90,12 @@ export function ActionsMenu({ check, config, onPick, onClose }) {
       </div>
     </Modal>
   )
+}
+
+/** "Lunch, Drinks" or "Lunch, Drinks (picked)": what the till shows now (lib/tillMenus.js). */
+export function menusHint(m) {
+  const names = m.shown.map(x => x.name).join(', ')
+  return m.auto ? (m.none ? 'every menu (none on now)' : names) : names + ' (picked)'
 }
 
 // ── Send ─────────────────────────────────────────────────────────

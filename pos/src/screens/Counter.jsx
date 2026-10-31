@@ -10,7 +10,7 @@
 // the Dish choices zones when the layout has them.
 
 import { useMemo, useState } from 'react'
-import { ShoppingBag, Plus, Pencil, X, Menu as MenuIcon } from 'lucide-react'
+import { ShoppingBag, Plus, Pencil, X, Menu as MenuIcon, BookOpen } from 'lucide-react'
 import { checkLabel } from '@shared/pos/checks.js'
 import { choiceZones } from '@shared/pos/tillLayout.js'
 import { useTill, useChecks, toast, currentChecks, printBill, signOut } from '../lib/store.js'
@@ -27,7 +27,9 @@ import ItemModal from '../components/ItemModal.jsx'
 import OrderPrompt from '../components/OrderPrompt.jsx'
 import CheckScreen from './Check.jsx'
 import { CheckRow } from './Floor.jsx'
-import { SoldOutModal, NoSale } from '../components/CheckActions.jsx'
+import { SoldOutModal, NoSale, menusHint } from '../components/CheckActions.jsx'
+import MenusModal from '../components/MenusModal.jsx'
+import { useShownMenus } from '../lib/tillMenus.js'
 
 export default function Counter() {
   const { config } = useTill()
@@ -43,9 +45,13 @@ export default function Counter() {
   const [course, setCourse] = useState(null)
   const [soldOutItem, setSoldOutItem] = useState(null)
   const [noSale, setNoSale] = useState(false)
+  const [menusOpen, setMenusOpen] = useState(false)
   const layout = useMemo(() => tillLayoutOf(config), [config])
   const zones = layout ? choiceZones(layout) : null
   const nav = useTillNav()
+  const streamId = defaultStreamId(config)
+  // The menus on now (the menu times, or what staff picked in Menus).
+  const shownMenus = useShownMenus(config, streamOf(config, streamId)?.menu_ids)
 
   if (current && checks[current]?.status === 'open') {
     return <CheckScreen checkId={current} counter onBack={() => setCurrent(null)} onOpen={setCurrent} />
@@ -53,7 +59,6 @@ export default function Counter() {
 
   const waiting = Object.values(checks).filter(c => c.status === 'open' && c.mode === 'counter')
     .sort((a, b) => (a.opened_at || '').localeCompare(b.opened_at || ''))
-  const streamId = defaultStreamId(config)
   const types = streamTypes(config, streamId)
   const asks = newOrderAsks(config, streamId)
   const typeId = answers?.typeId && types.some(x => x.type.id === answers.typeId) ? answers.typeId : defaultTypeId(config, streamId)
@@ -100,6 +105,7 @@ export default function Counter() {
       return toast('Receipt printed: ' + checkLabel(last), 'ok')
     }
     if (b.action === 'no_sale') return setNoSale(true)
+    if (b.action === 'menus') return setMenusOpen(true)
     if (b.action === 'till_menu') return nav.openMenu()
     if (b.action === 'sign_out') return signOut()
     return toast('Start an order first', 'info')
@@ -111,9 +117,15 @@ export default function Counter() {
         <div className="p-3 border-b border-line space-y-2">
           <div className="flex items-center gap-2 font-bold">
             <ShoppingBag size={20} className="text-brand" /> New order
+            <span className="ml-auto" />
+            {/* The menus shown, when the till has several. */}
+            {shownMenus.menus.length > 1 && (
+              <button className="btn h-11 px-3 text-sm font-semibold" onClick={() => setMenusOpen(true)} data-testid="counter-menus"
+                title={menusHint(shownMenus)}><BookOpen size={18} /> Menus</button>
+            )}
             {/* No top bar (a till layout): the till menu from here. */}
             {nav.hideBar && (
-              <button className="btn ml-auto h-11 px-3 text-sm font-semibold" onClick={nav.openMenu} data-testid="counter-till-menu"><MenuIcon size={18} /> Till menu</button>
+              <button className="btn h-11 px-3 text-sm font-semibold" onClick={nav.openMenu} data-testid="counter-till-menu"><MenuIcon size={18} /> Till menu</button>
             )}
           </div>
           {answers ? (
@@ -145,7 +157,7 @@ export default function Counter() {
     <div className="h-full flex">
       {layout ? (
         <div className="flex-1 min-w-0">
-          <LayoutScreen layout={layout} config={config} check={null} checkZone={panel('h-full')} menuIds={streamOf(config, streamId)?.menu_ids}
+          <LayoutScreen layout={layout} config={config} check={null} checkZone={panel('h-full')} menus={shownMenus.shown} tillMenus={shownMenus.menus}
             seat={seat} setSeat={setSeat} course={course} setCourse={setCourse} canBack={false}
             onDish={pick} onHold={it => setSoldOutItem(it)} onButton={runButton}
             choosing={choosing} onChosen={o => start(choosing.item, { ...o, seat, course })} onCancelChoosing={() => setChoosing(null)}
@@ -155,7 +167,7 @@ export default function Counter() {
         <>
           {panel('w-[300px] xl:w-[340px] shrink-0 border-r border-line')}
           <div className="flex-1 min-w-0">
-            <MenuPanel config={config} menuIds={streamOf(config, streamId)?.menu_ids} seat={seat} setSeat={setSeat} course={course} setCourse={setCourse}
+            <MenuPanel config={config} menus={shownMenus.shown} seat={seat} setSeat={setSeat} course={course} setCourse={setCourse}
               onPick={pick}
               onHold={it => setSoldOutItem(it)}
               onOpenItem={() => toast('Start the order with a dish first, then add an item not on the menu from More', 'info')} />
@@ -164,6 +176,7 @@ export default function Counter() {
       )}
       {item && <ItemModal item={item.item} config={config} defaults={{ seat, course }} initial={item.initial || null} onClose={() => setItem(null)} onAdd={o => start(item.item, o)} />}
       {noSale && <NoSale onClose={() => setNoSale(false)} />}
+      {menusOpen && <MenusModal shown={shownMenus} onClose={() => setMenusOpen(false)} />}
       {soldOutItem && <SoldOutModal item={soldOutItem} config={config} onClose={() => setSoldOutItem(null)} onAdd={pick} />}
       {prompt && (
         <OrderPrompt title="New order" types={types} typeId={typeId} promptsOf={id => promptsFor(config, streamId, id)}

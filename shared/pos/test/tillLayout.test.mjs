@@ -144,6 +144,8 @@ test('the top bar, the Order zone\'s own buttons, the Dish choices zones\' switc
   assert.deepEqual([p.show_name, p.show_description, p.show_prices, p.auto_add], [true, true, true, false], 'defaults: everything shown, Add needed')
   assert.deepEqual(b.buttons.map(x => [x.action, buttonLabel(x)]), [['till_menu', 'Till menu'], ['sign_out', 'Bye']])
   assert.equal(actionOf('till_menu').check, false, 'the till menu works with no order')
+  assert.equal(actionOf('menus').check, false, 'Menus (which menus show) works with no order')
+  assert.equal(buttonLabel({ action: 'menus' }), 'Menus')
   assert.equal(actionOf('sign_out').check, false)
   for (const cb of CHECK_BUTTONS) assert.ok(actionOf(cb.action), cb.key + ' has a button action that does its job')
 

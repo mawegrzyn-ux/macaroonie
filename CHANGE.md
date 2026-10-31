@@ -5,6 +5,18 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-31 — Menu times: when each menu is on, on the website, kiosks and tills, in one table]
+
+Migration: `230_menu_times.sql` (`menu_times`, one row per location and menu: the menu's own times and a cell for the website, the kiosks and the tills; online ordering's menu times move into it and `ordering_settings.menu_schedules` goes; a Menu times link under Menus in every group's main menu).
+
+- **Menus → Menu times**: pick a location, and each menu is a row with its **Times** (days, times of day and dates, as online ordering had) and a column each for the **Website**, **Kiosks** and **Tills**: the menu's times, Any time, Own times (different times for that place: dinner on the kiosks from 18:00) or Off. Several menus can be on at once (lunch and drinks): a note says so, nothing stops it. Times that end before they start, or dates that end before they begin, say what's wrong and Save waits. One Save for the table.
+- **Online ordering** takes its menus and their times from Menu times: Ordering setup's Menus card now lists the menus online with their times and links to Menu times. Menus on at once are allowed online too (both are listed).
+- **Tills change menu by themselves**: a till shows the menus of its revenue stream that are on now (lunch goes at 15:00, dinner comes at 17:00), and every menu when none is on, so it can always sell. The menu chips above the categories are gone. **More → Menus** (on a counter till also the Menus button beside the order, and a new Menus button for till layouts) shows other menus for a while: the pick holds until the menus on now change, then the till follows the times again; Follow the menu times goes back at once.
+- **Kiosks offer the menus on now**: a guest keeps the menus that were on when they started; the next guest gets the ones on then. Dishes on the home page, banners and Anything else? from menus not on now are left out. With no menu on, the start screen says it isn't taking orders and when it starts again ("Orders start again at 17:00."), in all nine languages. Previews and shared preview links show every menu.
+- A new location copied from another (New location) takes its menu times with its online ordering.
+
+---
+
 ## [2026-10-31 — Till: an allergy flag on the whole order]
 
 No migration (the flag is kept on the check with its other details).

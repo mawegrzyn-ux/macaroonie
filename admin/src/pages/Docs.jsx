@@ -3664,8 +3664,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               colour code or null). Each of the Order zone&apos;s buttons has a button action that does its job
               (<Mono>CHECK_BUTTONS[].action</Mono>; Pay is also done by exact_cash, exact_card and tender), and{' '}
               <Mono>layoutWarnings()</Mono> gives <Mono>hidden_button</Mono> (with <Mono>button</Mono>) for one left out
-              with no such button. Button actions <Mono>till_menu</Mono> and <Mono>sign_out</Mono> work without an
-              order.{' '}
+              with no such button. Button actions <Mono>till_menu</Mono>, <Mono>sign_out</Mono> and <Mono>menus</Mono>{' '}
+              (which menus show, migration 230: see Menus &gt; Menu times) work without an order.{' '}
               <Mono>normaliseTillLayout()</Mono> is the only way a layout is read (unknown zones and buttons dropped, every
               number inside its limits, repeated ids renamed). <Mono>layoutProblems()</Mono> stops a save (no Order zone,
               more zones of a type than its <Mono>max</Mono>, two Dish choices zones that don&apos;t split Must pick and
@@ -5324,7 +5324,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <DataTable
               head={['Table', 'Notes']}
               rows={[
-                ['ordering_settings', "One row per venue (PK venue_id): is_enabled, is_paused + pause_message, hours jsonb [{ day 0-6 (0 = Sunday), windows: [{ open, close }] }], menu_ids uuid[], menu_schedules jsonb (migration 130, { menuId: { from, until, times: [{ days, start, end }] } }, see Menu schedules below), allow_asap, lead_time_mins, slot_interval_mins, max_orders_per_slot (NULL = no limit), max_days_ahead, min_order_pence, auto_accept, order_type_ids jsonb { collection, delivery, eat_in } + revenue_stream_id (migration 170: the sale context for tax and the kitchen; a fulfilment with no type uses the tenant's type of that name, fillOrderTypes() in loadSettings()), tips_enabled + tip_percents int[], payment_methods text[] (gateway keys, checkout order), collection_instructions, confirmation_note, hours_extension jsonb (migration 223: today's hours later than usual, see Collection slots). No row = defaults (disabled); GET fills hours from loadOpeningHours()."],
+                ['ordering_settings', "One row per venue (PK venue_id): is_enabled, is_paused + pause_message, hours jsonb [{ day 0-6 (0 = Sunday), windows: [{ open, close }] }], menu_ids uuid[] (which menus are online, written by Menus > Menu times since migration 230; the column menu_schedules went with that migration, see Menu times online below), allow_asap, lead_time_mins, slot_interval_mins, max_orders_per_slot (NULL = no limit), max_days_ahead, min_order_pence, auto_accept, order_type_ids jsonb { collection, delivery, eat_in } + revenue_stream_id (migration 170: the sale context for tax and the kitchen; a fulfilment with no type uses the tenant's type of that name, fillOrderTypes() in loadSettings()), tips_enabled + tip_percents int[], payment_methods text[] (gateway keys, checkout order), collection_instructions, confirmation_note, hours_extension jsonb (migration 223: today's hours later than usual, see Collection slots). No row = defaults (disabled); GET fills hours from loadOpeningHours()."],
                 ['ordering_item_availability', "Per-venue sold out: (venue_id, item_id, sold_out_until). NULL until = until turned back on. item_id has no FK because menu saves re-insert items (with the same ids since migration 121)."],
                 ['orders', "service_date (venue-local collection day) + order_number (1, 2, 3 per venue per day, UNIQUE) under pg_advisory_xact_lock on venue + day. public_token is the guest key (status page, like manage_token). status: pending_payment, placed, accepted, preparing, ready, completed, rejected, cancelled, expired. promised_at is the ready time (ASAP or the chosen slot). Money in pence: subtotal, tip, total, vat (VAT-inclusive), paid, refunded; payment_status unpaid | pending | paid | failed | partially_refunded | refunded."],
                 ['order_items', "Copies name, options [{ group, label, price_pence, mode }], unit and line totals, vat_rate and vat_pence at the time of ordering. menu_item_id is a plain uuid (no FK), for reports only."],
@@ -5334,20 +5334,27 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['menu additions', "menu_items.is_orderable, min_order_qty (migration 133: NULL or 2-99; loaded as item.min_qty by loadOrderingMenu(); priceBasket() adds a min_qty error per dish when the qty over all its lines is below it; the guest page's openItem() starts at the shortfall and changeQty() removes a line rather than go below); menu_variant_groups.price_mode (base | extra), min_select, max_select. email_log.order_id."],
               ]}
             />
-            <H3>Menu schedules (migration 130)</H3>
+            <H3>Menu times online (migrations 130, 230)</H3>
             <P>
-              <Mono>shared/menuSchedule.js</Mono> is the one implementation, used by{' '}
-              <Mono>orderSvc.js</Mono>, <Mono>routes/orders.js</Mono> and{' '}
-              <Mono>OrderingSettings.jsx</Mono>. A schedule is per venue per menu:{' '}
+              Which menus are online and when each is on are set on Menus &gt; Menu times (see Menus &gt;
+              Menu times), not here. <Mono>loadSettings()</Mono> fills <Mono>settings.menu_schedules</Mono>{' '}
+              from <Mono>webSchedules(tx, venueId)</Mono> (<Mono>services/menuTimesSvc.js</Mono>):{' '}
+              <Mono>{'{ menuId: schedule }'}</Mono> for the menus whose Website cell gives them times
+              (the menu&apos;s own, or the website&apos;s own); a menu with none is on whenever ordering is
+              open. The <Mono>ordering_settings.menu_schedules</Mono> column was dropped by migration 230,
+              which moved its schedules into <Mono>menu_times</Mono> rows (the menu&apos;s times, the website
+              following them, kiosks and tills at any time, as they were). A schedule is{' '}
+              <Mono>shared/menuSchedule.js</Mono>&apos;s:{' '}
               <Mono>{'{ from, until, times: [{ days: [0-6], start, end }] }'}</Mono> (0 = Sunday). No
               times = all day on its dates; no schedule = always on. <Mono>menuOnAt()</Mono> includes a
-              window's end minute (a 15:00 slot is in 11:00–15:00, like ordering hours), windows that
-              only touch don't overlap, and a window must end after it starts (no overnight).{' '}
-              <Mono>scheduleProblem(menuIds, schedules, names, today)</Mono> rejects bad dates or
-              times, a menu's own overlapping windows, and any two scheduled menus on at the same moment
-              from today on (a menu that has already ended never clashes). Unscheduled menus are not
-              checked. PUT /settings keeps schedules of chosen menus only, drops empty ones and returns
-              422 with the problem; the page runs the same check live and disables Save.
+              window&apos;s end minute (a 15:00 slot is in 11:00–15:00, like ordering hours), windows that
+              only touch don&apos;t overlap, and a window must end after it starts (no overnight). Two online
+              menus on at once are allowed now (both are listed); Menu times shows them as a note.{' '}
+              <Mono>GET /api/orders/settings/:venueId</Mono> returns <Mono>online_menus</Mono>{' '}
+              <Mono>[{'{ id, name, times }'}]</Mono> (in <Mono>menu_ids</Mono> order, the times in words or
+              null) and leaves <Mono>menu_ids</Mono> out of <Mono>settings</Mono>;{' '}
+              <Mono>PUT /settings/:venueId</Mono> no longer takes menus, so an older copy of the page
+              can&apos;t put a menu back online.
             </P>
             <P>
               <Mono>loadOrderingMenu(tx, venue, settings, {'{ dates, now }'})</Mono>: with dates (the
@@ -6805,9 +6812,10 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             </P>
             <P>
               <Mono>DELETE /api/menus/:id</Mono> calls <Mono>forgetMenu()</Mono> in the same
-              transaction: the id comes out of <Mono>ordering_settings.menu_ids</Mono> and{' '}
-              <Mono>menu_schedules</Mono>, <Mono>pos_revenue_streams.menu_ids</Mono> and{' '}
-              <Mono>deliveroo_settings.menu_ids</Mono> (uuid arrays with no foreign key). Before
+              transaction: the id comes out of <Mono>ordering_settings.menu_ids</Mono>,{' '}
+              <Mono>pos_revenue_streams.menu_ids</Mono> and{' '}
+              <Mono>deliveroo_settings.menu_ids</Mono> (uuid arrays with no foreign key); its{' '}
+              <Mono>menu_times</Mono> rows go by their foreign key (migration 230). Before
               migration 222, which cleared the ids left behind, a stale id was sent back unseen by
               Ordering setup and every save failed with "A chosen menu wasn't found". The ordering
               and Deliveroo settings reads also return only menus their page lists, and the
@@ -7015,6 +7023,68 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               designs are tenant-wide and stay live: a dish&apos;s own option prices are in the
               release, but the till reads nested option groups from the library.
             </InfoBox>
+            <H3>Menu times (migration 230)</H3>
+            <P>
+              One table per venue of when each menu is on, on the website (online ordering), the self-order
+              kiosks and the tills: Menus &gt; Menu times (<Mono>pages/MenuTimes.jsx</Mono>,{' '}
+              <Mono>/menus/times</Mono>; the migration adds the link first under every group&apos;s Menus,
+              with the same hidden roles). <Mono>shared/menuTimes.js</Mono> is the one set of rules for the
+              API, the page, the till and the kiosk; the schedules themselves are{' '}
+              <Mono>shared/menuSchedule.js</Mono>&apos;s (<Mono>menuOnAt()</Mono>, <Mono>scheduleLabel()</Mono>,
+              the new <Mono>scheduleError()</Mono>).
+            </P>
+            <DataTable
+              head={['Piece', 'What it does']}
+              rows={[
+                ['menu_times', 'PK (venue_id, menu_id), tenant_id (forced RLS), times jsonb (the menu\'s own schedule, NULL = any time), web / kiosk / till jsonb cells { use: off | menu | always | own, times }, updated_at, updated_by. Menu or venue deleted: the rows go (foreign keys). No row: the menu is on the tills and kiosks at any time. The website\'s on / off is ordering_settings.menu_ids, so a stored web cell is never off (switched off, it keeps what it said for when it goes back online).'],
+                ['Cells', "use menu = the menu's own times, always = any time on that channel, own = the cell's own times, off = not on that channel. channelTimes(row, channel) is the only reader: a schedule, null for any time, false for off."],
+                ['GET /api/menu-times/venues/:venueId', 'Menus view. { venue, menus, rows, ordering, streams, devices, warnings }: menus the venue can use (shared ones and its own, with own, is_published and live: a release already live), a row for each with the usual cells filled in (web.use off when the menu isn\'t online), whether online ordering is set up and on, the active revenue streams with their menu_ids, how many tills and kiosks the venue has ({ till, kiosk }), menuTimesWarnings().'],
+                ['PUT /api/menu-times/venues/:venueId', "Menus manage. { rows: [{ menu_id, times, web, kiosk, till }] }, the rows sent only (others left alone). A menu the venue can't use 422, twice 400; menuTimesProblems() 422 with code menu_times and problems; a row that says nothing beyond the usual is deleted. The web cells rewrite ordering_settings.menu_ids (the menus already online that stay on in their order, then the new ones; at most 20). Broadcasts pos.config to the venue's tills and kiosks."],
+                ['shared/menuTimes.js', 'CHANNELS, USES, cleanSchedule() / cleanCell() / cleanRow(), isDefaultRow(), channelTimes(), channelLabel(), timesLabel(), menusOnNow(menus, parts) (menus as { id, times } at venue-local parts), tillMenusShown(menus, parts, pick), nextStart(menus, parts), menuTimesProblems(rows, names) (what stops a save: a bad date range, a time with no days or ending before it starts, a schedule\'s own times overlapping), menuTimesWarnings(rows, names, today) (two menus on at once on a channel, from today on: notes only, both show).'],
+                ['services/menuTimesSvc.js', 'loadMenuTimes(tx, tenantId, venueId) (stored rows, tidied), channelMenuTimes(tx, tenantId, venueId, channel) ({ menuId: times | false }, menus with no row left out: read it with ?? null), webSchedules(tx, venueId) (online ordering\'s schedules, see Web Ordering > Menu times online).'],
+                ['Device configs', "tillMenuData(..., { channel }) with 'till' in tillConfig() and 'kiosk' in kioskConfig(): a menu off there is left out, every other menu carries times (null = any time). The times are part of the config (not liveFields()), so a change reaches devices through the pos.config push or the content pull."],
+                ['Store openings', 'A copied location\'s online ordering (storeSetup.js) copies the template\'s menu_times rows for the shared menus.'],
+              ]}
+            />
+            <P>
+              <strong>The till</strong> (<Mono>pos/src/lib/tillMenus.js</Mono>): <Mono>useShownMenus(config, menuIds)</Mono>{' '}
+              takes the check&apos;s revenue stream menus (<Mono>streamMenus()</Mono>), works out the venue-local time
+              (<Mono>tillNow()</Mono>, the venue&apos;s time zone) every 30 s (<Mono>useTick</Mono>) and returns{' '}
+              <Mono>{'{ menus, shown, ids, auto, onNow, basis, none, pick(ids), follow() }'}</Mono> from{' '}
+              <Mono>tillMenusShown()</Mono>: the menus on now, every menu when none is on, or the till&apos;s pick (prefs{' '}
+              <Mono>menu_pick</Mono> <Mono>{'{ ids, basis }'}</Mono>; the basis is the day and the ids on now, so the
+              pick lapses by itself when they change, and the hook clears it). <Mono>MenuPanel</Mono> has no menu chips
+              any more (its tabs are the sections of the menus shown), and <Mono>LayoutScreen</Mono> takes{' '}
+              <Mono>menus</Mono> (shown) and <Mono>tillMenus</Mono> (all of them): a categories zone with sections picked
+              shows those of the menus shown, falling back to the picked ones when none of them is.{' '}
+              <Mono>components/MenusModal.jsx</Mono> is the pick, opened from More (<Mono>ActionsMenu</Mono>&apos;s{' '}
+              <Mono>menus</Mono> prop and <Mono>menusHint()</Mono>, only with more than one menu), the counter&apos;s{' '}
+              <Mono>counter-menus</Mono> button and the till layout button action <Mono>menus</Mono>{' '}
+              (<Mono>BUTTON_ACTIONS</Mono>, no order needed, group Till) in <Mono>runButton()</Mono> of Check.jsx and
+              Counter.jsx.
+            </P>
+            <P>
+              <strong>The kiosk</strong> (<Mono>pos/src/kiosk/store.js</Mono>): <Mono>state.menuIds</Mono> holds the
+              visit&apos;s menus (null = every menu: previews, share links and replays), set at boot,{' '}
+              <Mono>startOrder()</Mono> and <Mono>restart()</Mono> from <Mono>menusOnNowFor(config, preview)</Mono>;{' '}
+              <Mono>refreshMenus()</Mono> runs every 30 s and after a new config, on the start screen only, so a guest
+              mid-order keeps their menus. <Mono>kioskSections(config, menuIds = state.menuIds)</Mono>,{' '}
+              <Mono>kioskItemIds()</Mono> and <Mono>itemOffNow(config, id, menuIds)</Mono> (home page featured tiles,
+              banner links, &ldquo;Anything else?&rdquo; dishes) and <Mono>countFor(config, prefs, menuIds)</Mono>{' '}
+              (the allergens count) all use it. <Mono>noMenuOn(s)</Mono> closes ordering (<Mono>orderingClosed()</Mono>{' '}
+              in Start.jsx shows the <Mono>k-closed</Mono> card with <Mono>data-why=&quot;menus&quot;</Mono>) and{' '}
+              <Mono>nextMenuAt(config)</Mono> says when it opens; words <Mono>no_menu_title</Mono>,{' '}
+              <Mono>no_menu_back_at</Mono>, <Mono>no_menu_later</Mono> in the nine languages. A journey&apos;s playback
+              uses <Mono>kioskSections(config, null)</Mono>.
+            </P>
+            <P>
+              <strong>Admin</strong>: <Mono>MenuTimes.jsx</Mono> keeps the whole venue as a draft (venue in{' '}
+              <Mono>maca_menu_times_venue</Mono>), a table from md (<Mono>mt-table</Mono>) and cards below
+              (<Mono>mt-cards</Mono>), a select per cell (<Mono>mt-cell</Mono>, Own times opening the times window,
+              which is <Mono>ScheduleEditor</Mono> with <Mono>alwaysOpen</Mono>), problems that disable Save and notes
+              that don&apos;t, and one Save for the table. Ordering setup&apos;s Menus card only lists{' '}
+              <Mono>online_menus</Mono> with a link to Menu times.
+            </P>
             <H3>Schema (relevant to this section)</H3>
             <DataTable
               head={['Table / column', 'Purpose']}

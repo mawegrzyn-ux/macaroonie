@@ -136,7 +136,7 @@ function addNames(r, view, s) {
   const item = id => { if (id && !r.names[id]) put(id, configItem(c, id)?.name) }
   item(view.builder?.item_id)
   for (const e of view.basket) item(e.item_id)
-  if (view.section && !r.names[view.section]) put(view.section, kioskSections(c).find(x => x.id === view.section)?.title)
+  if (view.section && !r.names[view.section]) put(view.section, kioskSections(c, null).find(x => x.id === view.section)?.title)
   if (view.orderType && !r.names[view.orderType]) put(view.orderType, (c.order_types || c.all_order_types || []).find(t => t.id === view.orderType)?.name)
   for (const code of [...view.prefs.avoid, ...view.prefs.diet]) {
     if (!r.names['tag:' + code]) put('tag:' + code, (c.dietary_tags || []).find(t => t.code === code)?.label)

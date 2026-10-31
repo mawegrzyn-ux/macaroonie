@@ -20,6 +20,7 @@ import { getGateway, checkoutGateways, paymentContext, COUNTER_METHODS } from '.
 import { itemChoices, variantRules, fromPrice, priceVaries, isPriced, priceBasket } from '../../../shared/orderPricing.js'
 import { normaliseCombo, stepChoices, dealSwapIds } from '../../../shared/combos.js'
 import { menuOnAt, menuOnDate, scheduleLabel, isScheduled } from '../../../shared/menuSchedule.js'
+import { webSchedules } from './menuTimesSvc.js'
 import { venuePromotions, findByCode, lockUses } from './promoSvc.js'
 import { menuTags } from '../../../shared/menuTags.js'
 import { taxFor } from '../../../shared/tax.js'
@@ -90,7 +91,7 @@ const toMins = t => { const [h, m] = String(t).slice(0, 5).split(':').map(Number
 // ── Settings ────────────────────────────────────────────────────
 
 const SETTINGS_DEFAULTS = {
-  is_enabled: false, is_paused: false, pause_message: null, hours: [], hours_extension: null, menu_ids: [], menu_schedules: {},
+  is_enabled: false, is_paused: false, pause_message: null, hours: [], hours_extension: null, menu_ids: [],
   allow_asap: true, lead_time_mins: 20, slot_interval_mins: 15, max_orders_per_slot: null,
   max_days_ahead: 0, min_order_pence: 0, auto_accept: false,
   order_type_ids: {}, revenue_stream_id: null,
@@ -102,7 +103,6 @@ function normaliseSettings(row, venueId) {
   const s = { ...SETTINGS_DEFAULTS, ...(row || {}), venue_id: venueId }
   s.order_type_ids = s.order_type_ids && typeof s.order_type_ids === 'object' ? s.order_type_ids : {}
   s.hours = Array.isArray(s.hours) ? s.hours : []
-  s.menu_schedules = s.menu_schedules && typeof s.menu_schedules === 'object' ? s.menu_schedules : {}
   return s
 }
 
@@ -126,6 +126,10 @@ export async function loadSettings(tx, venueId, { withDefaultHours = false } = {
   const [row] = await tx`SELECT * FROM ordering_settings WHERE venue_id = ${venueId}`
   const s = normaliseSettings(row, venueId)
   s.exists = !!row
+  // When each online menu is on (migration 230, Menus > Menu times): the
+  // menu's own times or the website's own, { menuId: schedule }. A menu
+  // with none is on whenever ordering is open.
+  s.menu_schedules = await webSchedules(tx, venueId)
   if (withDefaultHours && !s.hours.length) s.hours = await defaultHours(tx, venueId)
   await fillOrderTypes(tx, venueId, s)
   return s
