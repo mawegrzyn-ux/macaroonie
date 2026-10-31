@@ -5,6 +5,15 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-31 — Till: PINs starting with 0 work, and a new PIN is recognised straight away]
+
+- **A PIN that starts with 0 (like 0482) can now be typed on the till.** The till's number pad was made for amounts and quietly dropped a 0 at the start, so such a PIN arrived as 482 and was never recognised. The PIN pad now keeps every digit, and Store tech's PIN box says a 0 at the start is fine.
+- **A PIN saved a moment ago is recognised at once**, even when the till missed the instant update: when a PIN matches nobody, the till asks for its latest staff list and looks again. Pressing OK (or typing the 6th digit) always asks.
+- **The PIN pad says "4 to 6 digits"** and no longer flashes "Checking" after the 4th digit, which made it look as if PINs stopped at 4 digits. It still signs you in as soon as your PIN is complete; a 4 or 5 digit PIN that doesn't, signs in with OK.
+- **No two PINs at a venue can start the same way** (Store tech, Staff and PINs): a PIN can't start with someone else's PIN or be the start of theirs (1234 beside 123456), because the till signs in as soon as the digits typed match someone and would sign the second person in as the first.
+
+---
+
 ## [2026-10-31 — Till: the order type, name and tent number on a screen of their own]
 
 Migration: `226_till_order_prompt.sql` (`pos_settings.order_prompt`, one screen or two steps; a till's own choice is in its settings).

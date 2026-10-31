@@ -27,6 +27,27 @@ export async function hashPin(pin, salt) {
   return 'p1$' + hex(bits)
 }
 
+/**
+ * The PINs that can't sit beside this one at a venue. The till signs in as
+ * soon as the digits typed match someone (at 4, 5 or 6 digits), so no PIN
+ * may start with another person's, nor be the start of theirs: 1234 beside
+ * 123456 would sign the second person in as the first. Returns this PIN's
+ * shorter starts (from 4 digits) and every longer PIN starting with it (to
+ * 6 digits): 110 for a 4-digit PIN, 11 for 5 digits, 2 for 6.
+ */
+export function pinOverlaps(pin) {
+  const p = String(pin)
+  if (!PIN_PATTERN.test(p)) return []
+  const out = []
+  for (let n = 4; n < p.length; n++) out.push(p.slice(0, n))
+  const grow = s => {
+    if (s.length >= 6) return
+    for (let d = 0; d <= 9; d++) { out.push(s + d); grow(s + d) }
+  }
+  grow(p)
+  return out
+}
+
 /** PINs too easy to guess. */
 export function weakPin(pin) {
   const p = String(pin)

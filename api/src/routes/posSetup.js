@@ -91,7 +91,7 @@ import {
 import { checkDesign, ownDesign, previewToken, menuChanges, unpricedDishes } from '../services/kioskSvc.js'
 import { normaliseDesign } from '../../../shared/kiosk.js'
 import { DEFAULT_POS_ROLES, PERMISSION_KEYS, normalisePermissions, MANAGER_ACTION_KEYS, normaliseApprovals } from '../../../shared/pos/permissions.js'
-import { hashPin, PIN_PATTERN, weakPin } from '../../../shared/pos/pin.js'
+import { hashPin, PIN_PATTERN, weakPin, pinOverlaps } from '../../../shared/pos/pin.js'
 import { TENDER_KEYS } from '../../../shared/pos/checks.js'
 import { ensureTaxDefaults, loadOrderTypes, loadStreams } from '../services/taxSvc.js'
 import { DISCOUNT_SCOPES, DISCOUNTS_MAX, DISCOUNT_AMOUNT_MAX } from '../../../shared/pos/discounts.js'
@@ -1914,6 +1914,13 @@ export default async function posSetupRoutes(app) {
         const [taken] = await tx`
           SELECT id FROM cash_staff WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId} AND pos_pin_hash = ${hash} AND id <> ${staffId}`
         if (taken) throw httpError(422, 'Someone else at this venue has that PIN: choose another')
+        // The till signs in as soon as the digits match someone, so no PIN may
+        // start with another person's or be the start of theirs (pinOverlaps()).
+        const near = await Promise.all(pinOverlaps(body.pin).map(p => hashPin(p, settings.pin_salt)))
+        const [clash] = await tx`
+          SELECT id FROM cash_staff WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}
+             AND pos_pin_hash = ANY(${near}::text[]) AND id <> ${staffId}`
+        if (clash) throw httpError(422, 'Someone else at this venue has a PIN that starts the same way, so the till couldn\'t tell you apart: choose another')
       }
       const [row] = await tx`
         UPDATE cash_staff

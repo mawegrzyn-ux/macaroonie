@@ -47,7 +47,7 @@ function StaffModal({ venueId, setup, person, onClose }) {
       </Field>
       {!removePin && (
         <div className="flex flex-wrap gap-4">
-          <Field label={person.has_pin ? 'New PIN' : 'PIN'} hint="4 to 6 digits. Not 1111 or 1234.">
+          <Field label={person.has_pin ? 'New PIN' : 'PIN'} hint="4 to 6 digits, a 0 at the start is fine. Not 1111 or 1234.">
             <input className={cn(inputCls, 'w-36 tracking-widest')} type="password" inputMode="numeric" autoComplete="new-password"
               value={pin} onChange={e => setPin(digits(e.target.value))} aria-label="PIN" />
           </Field>

@@ -34,15 +34,19 @@ export function Modal({ title, onClose, children, footer, wide = false, full = f
   )
 }
 
-/** Digits keypad. value is a string; onChange gets the new string. */
-export function Keypad({ value, onChange, decimal = false, max = 8, big = false }) {
+/**
+ * Digits keypad. value is a string; onChange gets the new string. A number
+ * (an amount, covers) drops a lone leading 0 when the next digit comes; a
+ * code (a PIN) keeps every digit as typed, so 0482 stays 0482.
+ */
+export function Keypad({ value, onChange, decimal = false, max = 8, big = false, code = false }) {
   const press = k => {
     if (k === 'del') return onChange(value.slice(0, -1))
     if (k === 'clear') return onChange('')
     if (k === '.' && (!decimal || value.includes('.'))) return
     if (decimal && value.includes('.') && value.split('.')[1].length >= 2) return
     if (value.replace('.', '').length >= max) return
-    onChange(value === '0' && k !== '.' ? k : value + k)
+    onChange(!code && value === '0' && k !== '.' ? k : value + k)
   }
   const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', decimal ? '.' : 'clear', '0', 'del']
   return (
@@ -98,22 +102,25 @@ export function Keyboard({ value, onChange, max = 80 }) {
 }
 
 /**
- * PIN entry: dots and a keypad. PINs are 4 to 6 digits, so it quietly tries
- * at 4, 5 and 6 digits and says "not recognised" only at 6 or on OK.
- * onSubmit(pin) resolves to { ok, error }.
+ * PIN entry: dots and a keypad. PINs are 4 to 6 digits (a leading 0 counts),
+ * so it tries quietly at 4 and 5 digits and says the outcome at 6 or on OK.
+ * onSubmit(pin, { final }) resolves to { ok, error }; final = OK or 6 digits.
  */
 export function PinPad({ onSubmit }) {
   const [pin, setPin] = useState('')
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
   const tried = useRef('')
-  const attempt = async (value, loud) => {
-    setBusy(true)
-    let r
-    try { r = await onSubmit(value) } catch (err) { r = { ok: false, error: err?.message || 'Couldn\'t check the PIN' }; loud = true }
-    setBusy(false)
+  // A try at 4 or 5 digits is quiet (the PIN may be longer): no "Checking",
+  // no message, nothing cleared.
+  const attempt = async (value, final) => {
+    final = final || value.length >= 6
+    if (final) setBusy(true)
+    let r, say = final
+    try { r = await onSubmit(value, { final }) } catch (err) { r = { ok: false, error: err?.message || 'Couldn\'t check the PIN' }; say = true }
+    if (final) setBusy(false)
     if (r?.ok) { setPin(''); return }
-    if (loud || value.length >= 6) { setError(r?.error || 'PIN not recognised'); setPin('') }
+    if (say) { setError(r?.error || 'PIN not recognised'); setPin('') }
   }
   useEffect(() => {
     if (pin.length >= 4 && pin !== tried.current) { tried.current = pin; attempt(pin, false) }
@@ -125,8 +132,8 @@ export function PinPad({ onSubmit }) {
           <div key={i} className={cx('w-4 h-4 rounded-full mt-2', i < pin.length ? 'bg-ink' : 'bg-line')} />
         ))}
       </div>
-      <div className={cx('text-center text-sm h-6', error ? 'text-bad font-semibold' : 'text-muted')}>{busy ? 'Checking…' : error || ' '}</div>
-      <Keypad value={pin} onChange={v => { tried.current = ''; setError(null); setPin(v) }} max={6} big />
+      <div className={cx('text-center text-sm h-6', error ? 'text-bad font-semibold' : 'text-muted')} data-testid="pin-note">{busy ? 'Checking…' : error || '4 to 6 digits'}</div>
+      <Keypad value={pin} onChange={v => { tried.current = ''; setError(null); setPin(v) }} max={6} big code />
       <button className="btn btn-primary w-full mt-2 h-14" disabled={pin.length < 4 || busy} onClick={() => attempt(pin, true)}>OK</button>
     </div>
   )
@@ -159,8 +166,8 @@ export function ApprovalProvider({ children }) {
 export const useApproval = () => useContext(ApprovalContext)
 
 function ApprovalModal({ ask, onDone }) {
-  const submit = async pin => {
-    const r = await approverFor(pin, ask.key, ask.amount, ask.actions)
+  const submit = async (pin, opts) => {
+    const r = await approverFor(pin, ask.key, ask.amount, ask.actions, opts)
     if (r.ok) onDone(r.staff.id)
     return r
   }
