@@ -7060,7 +7060,7 @@ export default function Help() {
               Checklists, Food safety logs and the H&amp;S Action Log have a fourth level between View
               and Manage: <strong>Use</strong>. It is for people who do the everyday work but
               shouldn&apos;t change how it is set up, such as a supervisor who completes the checklists
-              and logs the fridge temperatures. In Access → Roles those three modules show{' '}
+              and logs the temperature checks. In Access → Roles those three modules show{' '}
               <strong>Use</strong> between View and Manage, with a line saying what it allows; the
               other modules stay None, View or Manage.
             </P>
@@ -7068,15 +7068,15 @@ export default function Help() {
               head={['Area', 'Use can', 'Still needs Manage']}
               rows={[
                 ['Checklists', 'Tick checklists (Tick all too) and write their notes, wherever they show: the Checklists page, dashboards, Today and the phone', 'Making and changing the checklists and their tasks'],
-                ['Food safety logs', 'Log and correct fridge, hold, cooking and delivery checks, and add corrective actions', 'Fridges and freezers, check times, hold stations, cooking sessions and dishes (H&S settings), and deleting a cooking reading'],
-                ['H&S Action Log', 'Add actions, change them and tick them off', 'Deleting an action and changing the categories'],
+                ['Food safety logs', 'Log and correct temperature, hold, cooking and delivery checks, and write corrective actions', 'Everything in H&S settings (the units, check times, hold stations, cooking sessions and dishes), and deleting a cooking reading'],
+                ['H&S Action Log', 'Log actions, change them and tick them off', 'Deleting an action and changing the categories'],
               ]}
             />
             <P>
               For a supervisor, make a role (for example Supervisor) with Use on those three and View on
               the H&amp;S Dashboard: they open the dashboards and fill in their widgets but can&apos;t
               change the layout. On <strong>Today</strong> they get each check&apos;s own button instead
-              of View, and Pepper logs readings, ticks checklists and adds actions for them too. The
+              of View, and Pepper logs readings, ticks checklists and logs actions for them too. The
               built-in roles keep their levels (Operator Manage, Viewer View) unless you change them.
             </P>
           </section>
