@@ -19,6 +19,7 @@ import { chargeLabel, CHARGE_PERCENT_MAX, CHARGE_AMOUNT_MAX } from '@shared/pos/
 import { discountList, fitsScope, discountValueText } from '@shared/pos/discounts.js'
 import { Modal, Keypad, ReasonPicker, cx, money, poundsToPence, useApproval } from './ui.jsx'
 import OrderPrompt from './OrderPrompt.jsx'
+import { useTillNav, TillMenuSection } from './TillMenu.jsx'
 import { dispatch, dispatchMany, toast, useChecks, getState, can, soldOutMap, setItemSoldOut, serverName } from '../lib/store.js'
 import {
   defaultHeld, sendCheck, streamOf, byId, addOpenItem, promotionsFor, refreshPromotions,
@@ -65,8 +66,17 @@ export function ActionsMenu({ check, config, onPick, onClose }) {
     !check.lines.length && !(check.payments || []).some(p => !p.voided) && { key: 'void_check', label: 'Close empty check', icon: XCircle },
     check.lines.length > 0 && { key: 'cancel', label: 'Cancel order', icon: Ban, hint: 'void it all, with a reason', bad: true },
   ].filter(Boolean)
+  // A layout without the till's top bar: the till menu is here too.
+  const { hideBar } = useTillNav()
   return (
     <Modal title={'Check ' + checkLabel(check)} onClose={onClose} wide>
+      {hideBar && (
+        <div className="mb-4 pb-4 border-b border-line space-y-2">
+          <div className="label px-1">Till</div>
+          <TillMenuSection onDone={onClose} />
+          <div className="label px-1 pt-2">This order</div>
+        </div>
+      )}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
         {items.map(it => (
           <button key={it.key} className={cx('btn h-auto min-h-[64px] py-2 justify-start text-left', it.bad && 'text-bad')} onClick={() => onPick(it.key)} data-testid={'action-' + it.key}>

@@ -29,22 +29,22 @@ function LineBody({ line, discountOf, comboOf }) {
       <div className="flex-1 min-w-0">
         <div className={cx('font-semibold leading-snug', voided && 'line-through')}>
           {line.name}
-          {line.seat ? <span className="ml-2 text-xs font-bold text-brand bg-brand-soft rounded px-1.5 py-0.5 align-middle">S{line.seat}</span> : null}
+          {line.seat ? <span className="ml-2 text-[0.75em] font-bold text-brand bg-brand-soft rounded px-1.5 py-0.5 align-middle">S{line.seat}</span> : null}
         </div>
         {mods.length > 0 && (
-          <div className="text-sm text-muted leading-snug">
+          <div className="text-[0.875em] text-muted leading-snug">
             {mods.map((m, i) => <span key={i} className={cx(m.prefix === 'no' && 'text-bad')}>{i ? ', ' : ''}{modifierText(m)}{m.price ? ' +' + money(m.price) : ''}</span>)}
           </div>
         )}
         {countParts(line.combo).map(({ part: c, count }, i) => (
-          <div key={i} className="text-sm text-muted leading-snug pl-3">› {count > 1 ? count + ' x ' : ''}{c.name}{c.upcharge ? ' +' + money(c.upcharge * count) : ''}{(c.modifiers || []).length ? ' (' + groupModifiers(c.modifiers).map(modifierText).join(', ') + ')' : ''}</div>
+          <div key={i} className="text-[0.875em] text-muted leading-snug pl-3">› {count > 1 ? count + ' x ' : ''}{c.name}{c.upcharge ? ' +' + money(c.upcharge * count) : ''}{(c.modifiers || []).length ? ' (' + groupModifiers(c.modifiers).map(modifierText).join(', ') + ')' : ''}</div>
         ))}
-        {comboOf(line.id) && <div className="text-xs font-bold text-brand mt-0.5">In {comboOf(line.id)}</div>}
-        {line.note && <div className="text-sm text-ink italic">“{line.note}”</div>}
+        {comboOf(line.id) && <div className="text-[0.75em] font-bold text-brand mt-0.5">In {comboOf(line.id)}</div>}
+        {line.note && <div className="text-[0.875em] text-ink italic">“{line.note}”</div>}
         {(line.allergies || []).length > 0 && (
-          <div className="text-xs font-bold text-white bg-bad rounded px-1.5 py-0.5 inline-flex items-center gap-1 mt-1"><AlertTriangle size={12} />{line.allergies.join(', ')}</div>
+          <div className="text-[0.75em] font-bold text-white bg-bad rounded px-1.5 py-0.5 inline-flex items-center gap-1 mt-1"><AlertTriangle size={12} />{line.allergies.join(', ')}</div>
         )}
-        <div className="flex gap-2 mt-1 text-xs font-semibold">
+        <div className="flex gap-2 mt-1 text-[0.75em] font-semibold">
           {line.status === 'new' && <span className="text-warn">Not sent</span>}
           {line.status === 'sent' && !line.held && <span className="text-ok flex items-center gap-1"><ChefHat size={12} />Sent</span>}
           {line.status === 'sent' && line.held && <span className="text-held flex items-center gap-1"><Hourglass size={12} />Waiting</span>}
@@ -54,7 +54,7 @@ function LineBody({ line, discountOf, comboOf }) {
       </div>
       <div className="text-right shrink-0 tabular-nums">
         <div className={cx('font-semibold', (voided || off >= gross) && 'line-through text-muted')}>{money(gross)}</div>
-        {off > 0 && !voided && <div className="text-xs text-ok font-semibold">−{money(off)}</div>}
+        {off > 0 && !voided && <div className="text-[0.75em] text-ok font-semibold">−{money(off)}</div>}
       </div>
     </>
   )
@@ -223,7 +223,7 @@ function useDrag({ listRef, by, onDrop }) {
  * Void). onRegroup(line, { by: 'course' | 'seat', id }): dragged to another
  * course (id = course id, '' for none) or seat ('0' = shared).
  */
-export default function CheckPanel({ check, config, onLine, onAction, onRegroup, footer, header }) {
+export default function CheckPanel({ check, config, onLine, onAction, onRegroup, footer, header, font = null }) {
   const [by, setBy] = useState('course')
   const listRef = useRef(null)
   const t = checkTotals(check)
@@ -251,7 +251,7 @@ export default function CheckPanel({ check, config, onLine, onAction, onRegroup,
           <button className={cx('chip min-h-[36px]', by === 'seat' && 'chip-on')} onClick={() => setBy('seat')}>By seat</button>
         </div>
       )}
-      <div ref={listRef} className="flex-1 overflow-y-auto" data-testid="check-lines">
+      <div ref={listRef} className="flex-1 overflow-y-auto" data-testid="check-lines" style={font ? { fontSize: font + 'px' } : undefined}>
         {!check.lines.length && <div className="p-6 text-center text-muted">Nothing on this check yet. Tap dishes on the right.</div>}
         {groups.map(g => {
           const key = groupKey(g)
@@ -261,7 +261,7 @@ export default function CheckPanel({ check, config, onLine, onAction, onRegroup,
             <div key={key || 'none'} data-drop={drag ? key : undefined} data-testid={drag ? 'drop-' + (g.name || '').toLowerCase().replace(/\s+/g, '-') : undefined}
               className={cx(drag && 'transition-colors', over && !isFrom && 'bg-brand-soft')}>
               {(groups.length > 1 || g.id) && (
-                <div className={cx('sticky top-0 z-[1] px-3 py-1.5 flex items-center gap-2 text-xs font-bold uppercase tracking-wide border-b border-line',
+                <div className={cx('sticky top-0 z-[1] px-3 py-1.5 flex items-center gap-2 text-[0.75em] font-bold uppercase tracking-wide border-b border-line',
                   over && !isFrom ? 'bg-brand text-white' : 'bg-page/95 backdrop-blur text-muted')}>
                   {g.name}
                   {by === 'course' && g.state?.held && !fired(g.id) && <span className="text-held flex items-center gap-1"><Hourglass size={12} />waiting to fire</span>}
@@ -283,7 +283,7 @@ export default function CheckPanel({ check, config, onLine, onAction, onRegroup,
           )
         })}
       </div>
-      <div className="border-t border-line px-4 py-3 space-y-1 text-[15px] shrink-0">
+      <div className="border-t border-line px-4 py-3 space-y-1 shrink-0" style={{ fontSize: font ? font * 0.94 + 'px' : '15px' }} data-testid="check-totals">
         <Row label="Subtotal" value={money(t.subtotal)} />
         {t.discounts.filter(d => d.amount > 0).map(d => (
           <Row key={d.id + d.name} label={<span className="flex items-center gap-1">{d.comp ? <Gift size={14} /> : d.combo ? <Layers size={14} /> : <Percent size={14} />}{d.name}</span>} value={'−' + money(d.amount)} className="text-ok" />
@@ -291,7 +291,7 @@ export default function CheckPanel({ check, config, onLine, onAction, onRegroup,
         {t.charges.filter(x => x.amount > 0).map(x => (
           <Row key={x.id} label={chargeLabel(x)} value={money(x.amount)} />
         ))}
-        <Row label={<b>Total</b>} value={<b className="text-xl">{money(t.total)}</b>} />
+        <Row label={<b>Total</b>} value={<b className="text-[1.33em]">{money(t.total)}</b>} />
         {t.paid > 0 && <Row label="Paid" value={money(t.paid)} className="text-ok" />}
         {t.paid > 0 && <Row label={<b>Left to pay</b>} value={<b>{money(t.balance)}</b>} />}
       </div>

@@ -9,6 +9,16 @@ export { money }
 
 export function cx(...parts) { return parts.filter(Boolean).join(' ') }
 
+/** Black or white words on a colour (#rrggbb). */
+export function inkOn(hex) {
+  const n = parseInt(String(hex).slice(1), 16)
+  const lum = (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255
+  return lum > 0.6 ? '#111827' : '#ffffff'
+}
+
+/** A button filled with a colour set in a till layout (null: the button's own look). */
+export const fillStyle = hex => (hex ? { background: hex, borderColor: hex, color: inkOn(hex) } : undefined)
+
 export function Modal({ title, onClose, children, footer, wide = false, full = false }) {
   useEffect(() => {
     const onKey = e => { if (e.key === 'Escape' && onClose) onClose() }

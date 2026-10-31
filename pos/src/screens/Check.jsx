@@ -9,13 +9,14 @@ import { useEffect, useMemo, useState } from 'react'
 import { ArrowLeft, Send, Printer, CreditCard, MoreHorizontal, Flame, Users, Eye, Flag, Star, Ban } from 'lucide-react'
 import { checkLabel, heldCourses } from '@shared/pos/checks.js'
 import { checkTotals } from '@shared/pos/pricing.js'
-import { useTill, useChecks, dispatch, toast, setPresence, othersOn, serverName, printBill } from '../lib/store.js'
+import { useTill, useChecks, dispatch, toast, setPresence, othersOn, serverName, printBill, signOut } from '../lib/store.js'
 import { choiceZones } from '@shared/pos/tillLayout.js'
 import { discountList, fitsScope } from '@shared/pos/discounts.js'
 import { tillLayoutOf, lastReceiptCheck } from '../lib/tillLayout.js'
 import LayoutScreen from '../components/LayoutScreen.jsx'
 import { addItem, needsChoices, streamOf, typeOf, missingDetails, refreshPromotions, sendCheck, comboStartFrom, copyOfLine } from '../lib/checkOps.js'
-import { cx, money, elapsed, useApproval } from '../components/ui.jsx'
+import { cx, money, elapsed, useApproval, fillStyle } from '../components/ui.jsx'
+import { useTillNav } from '../components/TillMenu.jsx'
 import CheckPanel from '../components/CheckPanel.jsx'
 import MenuPanel from '../components/MenuPanel.jsx'
 import ItemModal from '../components/ItemModal.jsx'
@@ -40,6 +41,11 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
   const [choosing, setChoosing] = useState(null)
   const layout = useMemo(() => tillLayoutOf(config), [config])
   const zones = layout ? choiceZones(layout) : null
+  const nav = useTillNav()
+  // The layout's Order zone: which of its own buttons it shows, their colours, its text size.
+  const orderZone = layout?.zones.find(z => z.type === 'check') || null
+  const hidden = new Set(orderZone?.hide || [])
+  const colourOf = key => orderZone?.colours?.[key] || null
 
   useEffect(() => {
     setPresence(checkId)
@@ -167,8 +173,8 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
   }
 
   const header = (
-    <div className="flex items-center gap-2 px-2 py-2 border-b border-line">
-      <button className="btn btn-ghost w-12 px-0" onClick={onBack} aria-label="Back"><ArrowLeft size={22} /></button>
+    <div className={cx('flex items-center gap-2 py-2 border-b border-line', hidden.has('back') ? 'px-3' : 'px-2')}>
+      {!hidden.has('back') && <button className="btn btn-ghost w-12 px-0" onClick={onBack} aria-label="Back" data-testid="check-back"><ArrowLeft size={22} /></button>}
       <button className="flex-1 min-w-0 text-left" onClick={() => setModal({ kind: 'actions' })}>
         <div className="font-bold text-lg truncate">
           {table ? 'Table ' + table.label : check.order_no != null ? 'Order #' + check.order_no : check.tab_name || 'Tab'}
@@ -185,22 +191,41 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
         </div>
       </button>
       {check.tab_name && (table || check.order_no != null) && <div className="text-sm font-semibold truncate max-w-[140px]" data-testid="check-name">{check.tab_name}</div>}
-      {check.lines.length > 0 && (
-        <button className="btn btn-ghost text-bad px-3 shrink-0" onClick={() => setModal({ kind: 'cancel' })} data-testid="check-cancel" aria-label="Cancel order">
+      {check.lines.length > 0 && !hidden.has('cancel') && (
+        <button className={cx('btn px-3 shrink-0', colourOf('cancel') ? '' : 'btn-ghost text-bad')} style={fillStyle(colourOf('cancel'))}
+          onClick={() => setModal({ kind: 'cancel' })} data-testid="check-cancel" aria-label="Cancel order">
           <Ban size={20} /><span className="hidden xl:inline">Cancel order</span>
         </button>
       )}
     </div>
   )
 
-  const footer = (
-    <div className="p-2 grid grid-cols-4 gap-2 border-t border-line">
-      <button className="btn h-16 flex-col gap-0" onClick={() => setModal({ kind: 'actions' })}><MoreHorizontal size={20} /><span className="text-xs">More</span></button>
-      {held.length > 0 && !unsent
-        ? <button className="btn h-16 flex-col gap-0 bg-held text-white border-held" onClick={() => setModal({ kind: 'fire' })}><Flame size={20} /><span className="text-xs">Fire</span></button>
-        : <button className="btn btn-primary h-16 flex-col gap-0" disabled={!unsent} onClick={send}><Send size={20} /><span className="text-xs">Send{unsent ? ' ' + unsent : ''}</span></button>}
-      <button className="btn h-16 flex-col gap-0" disabled={!check.lines.length} onClick={bill}><Printer size={20} /><span className="text-xs">Bill</span></button>
-      <button className="btn btn-ok h-16 flex-col gap-0" disabled={t.total <= 0 && !check.lines.length} onClick={() => pay()}><CreditCard size={20} /><span className="text-xs">Pay {money(Math.max(0, t.balance))}</span></button>
+  // The Order zone's own buttons a layout keeps (all four on the standard screen).
+  const foot = [
+    !hidden.has('more') && (
+      <button key="more" className="btn h-16 flex-col gap-0" style={fillStyle(colourOf('more'))} onClick={() => setModal({ kind: 'actions' })} data-testid="check-more">
+        <MoreHorizontal size={20} /><span className="text-xs">More</span>
+      </button>
+    ),
+    !hidden.has('send') && (held.length > 0 && !unsent
+      ? <button key="send" className="btn h-16 flex-col gap-0 bg-held text-white border-held" onClick={() => setModal({ kind: 'fire' })} data-testid="check-fire"><Flame size={20} /><span className="text-xs">Fire</span></button>
+      : <button key="send" className={cx('btn h-16 flex-col gap-0', !colourOf('send') && 'btn-primary')} style={fillStyle(colourOf('send'))} disabled={!unsent} onClick={send} data-testid="check-send">
+          <Send size={20} /><span className="text-xs">Send{unsent ? ' ' + unsent : ''}</span>
+        </button>),
+    !hidden.has('bill') && (
+      <button key="bill" className="btn h-16 flex-col gap-0" style={fillStyle(colourOf('bill'))} disabled={!check.lines.length} onClick={bill} data-testid="check-bill">
+        <Printer size={20} /><span className="text-xs">Bill</span>
+      </button>
+    ),
+    !hidden.has('pay') && (
+      <button key="pay" className={cx('btn h-16 flex-col gap-0', !colourOf('pay') && 'btn-ok')} style={fillStyle(colourOf('pay'))} disabled={t.total <= 0 && !check.lines.length} onClick={() => pay()} data-testid="check-pay">
+        <CreditCard size={20} /><span className="text-xs">Pay {money(Math.max(0, t.balance))}</span>
+      </button>
+    ),
+  ].filter(Boolean)
+  const footer = foot.length > 0 && (
+    <div className="p-2 grid gap-2 border-t border-line" style={{ gridTemplateColumns: `repeat(${foot.length}, minmax(0, 1fr))` }} data-testid="check-footer">
+      {foot}
     </div>
   )
 
@@ -210,7 +235,7 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
       {others.length > 0 && (
         <div className="px-3 py-1.5 bg-warn-soft text-warn text-sm font-semibold flex items-center gap-2"><Eye size={14} />Also open on {others.map(o => o.device_name).join(', ')}</div>
       )}
-    </>} footer={footer} onLine={line => setModal({ kind: 'line', line })} onAction={swipeAction} onRegroup={regroup} />
+    </>} footer={footer} font={orderZone?.font || null} onLine={line => setModal({ kind: 'line', line })} onAction={swipeAction} onRegroup={regroup} />
   )
 
   // A till layout's button (shared/pos/tillLayout.js BUTTON_ACTIONS). Dishes
@@ -256,6 +281,8 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
       case 'cancel_order': return check.lines.length ? setModal({ kind: 'cancel' }) : toast('Nothing on the order to cancel', 'bad')
       case 'no_sale': return setModal({ kind: 'nosale' })
       case 'back': return onBack()
+      case 'till_menu': return nav.openMenu()
+      case 'sign_out': return signOut()
       default: return null
     }
   }

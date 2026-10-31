@@ -23,6 +23,15 @@
 // and the designer (admin pages/TillLayoutDesigner.jsx) previews it, both with
 // packCells() below, so a button lands in the same cell in both. A till with
 // no layout keeps the standard screen.
+//
+// A layout can also take the till's top bar away on the order screen
+// (top_bar false): the till's pages, sign out and its details are then in
+// More (the till menu, pos/src/components/TillMenu.jsx). The Order zone can
+// leave out its own buttons (hide: CHECK_BUTTONS), each of which a Buttons
+// zone can have instead, and has its own text size and button colours. A
+// Dish choices zone can leave out the dish's name, its description and the
+// prices, and can add the dish as soon as its last must-pick choice that
+// takes one pick is tapped (auto_add).
 
 export const LAYOUT_COLS = { min: 4, max: 24, default: 12 }
 export const LAYOUT_ROWS = { min: 3, max: 16, default: 8 }
@@ -69,6 +78,22 @@ export const COVERS = [
 ]
 export const COVER_KEYS = COVERS.map(c => c.key)
 
+// The Order zone's own buttons, each one a layout can leave out (hide) when
+// a Buttons zone does it instead (action: the button action that does the
+// same). colour: the ones whose colour can be set.
+export const CHECK_BUTTONS = [
+  { key: 'back', label: 'Back', action: 'back', colour: false },
+  { key: 'cancel', label: 'Cancel order', action: 'cancel_order', colour: true },
+  { key: 'more', label: 'More', action: 'more', colour: true },
+  { key: 'send', label: 'Send', action: 'send', colour: true },
+  { key: 'bill', label: 'Bill', action: 'bill', colour: true },
+  { key: 'pay', label: 'Pay', action: 'pay', colour: true },
+]
+export const CHECK_BUTTON_KEYS = CHECK_BUTTONS.map(b => b.key)
+const COLOUR_KEYS = CHECK_BUTTONS.filter(b => b.colour).map(b => b.key)
+// Button actions that pay: any of them stands in for the Order zone's Pay.
+const PAY_ACTIONS = ['pay', 'exact_cash', 'exact_card', 'tender']
+
 // What a button in a buttons zone does. check: needs an order on screen.
 export const BUTTON_ACTIONS = [
   { key: 'item', label: 'A dish', check: false, group: 'Dishes' },
@@ -97,6 +122,8 @@ export const BUTTON_ACTIONS = [
   { key: 'cancel_order', label: 'Cancel order', check: true, group: 'Order' },
   { key: 'no_sale', label: 'No sale (open drawer)', check: false, group: 'Till' },
   { key: 'back', label: 'Back', check: false, group: 'Till' },
+  { key: 'till_menu', label: 'Till menu', check: false, group: 'Till' },
+  { key: 'sign_out', label: 'Sign out', check: false, group: 'Till' },
 ]
 export const ACTION_KEYS = BUTTON_ACTIONS.map(a => a.key)
 export const actionOf = key => BUTTON_ACTIONS.find(a => a.key === key) || null
@@ -192,8 +219,19 @@ function normaliseZone(z, layout, i) {
   if (z.type === 'modifiers') {
     zone.kind = pick(z.kind, CHOICE_KIND_KEYS, 'all')
     zone.cover = pick(z.cover, COVER_KEYS, 'zone')
+    zone.show_name = bool(z.show_name, true)
+    zone.show_description = bool(z.show_description, true)
+    zone.show_prices = bool(z.show_prices, true)
+    zone.auto_add = bool(z.auto_add, false)
   }
   if (z.type === 'seats') zone.font = int(z.font, FONT.min, FONT.max, FONT.default)
+  if (z.type === 'check') {
+    zone.font = int(z.font, FONT.min, FONT.max, FONT.default)
+    const hide = Array.isArray(z.hide) ? z.hide.filter(k => CHECK_BUTTON_KEYS.includes(k)) : []
+    zone.hide = CHECK_BUTTON_KEYS.filter(k => hide.includes(k))
+    const c = z.colours && typeof z.colours === 'object' ? z.colours : {}
+    zone.colours = Object.fromEntries(COLOUR_KEYS.map(k => [k, HEX.test(String(c[k] || '')) ? String(c[k]).toLowerCase() : null]))
+  }
   return zone
 }
 
@@ -203,6 +241,8 @@ export function normaliseTillLayout(raw) {
   const layout = {
     cols: int(r.cols, LAYOUT_COLS.min, LAYOUT_COLS.max, LAYOUT_COLS.default),
     rows: int(r.rows, LAYOUT_ROWS.min, LAYOUT_ROWS.max, LAYOUT_ROWS.default),
+    // The till's top bar on the order screen (false: the till menu is in More).
+    top_bar: bool(r.top_bar, true),
     zones: [],
   }
   const seen = new Set()
@@ -266,6 +306,23 @@ export function layoutWarnings(layout) {
   if (!has('modifiers')) out.push({ code: 'choices_window', message: 'No Dish choices zone: a dish\'s choices open in a window, as on the standard screen.', zones: [] })
   for (const z of zones) {
     if (z.type === 'buttons' && !z.buttons.length) out.push({ code: 'empty_buttons', message: 'A Buttons zone has no buttons yet.', zones: [z.id] })
+  }
+  // The Order zone's own buttons left out with nothing else doing their job.
+  const actions = new Set(zones.filter(z => z.type === 'buttons').flatMap(z => z.buttons.map(b => b.action)))
+  const check = zones.find(z => z.type === 'check')
+  for (const key of check?.hide || []) {
+    const b = CHECK_BUTTONS.find(x => x.key === key)
+    const covered = key === 'pay' ? PAY_ACTIONS.some(a => actions.has(a)) : actions.has(b.action)
+    if (covered) continue
+    const after = {
+      pay: 'the order can\'t be paid.',
+      send: 'nothing can be sent to the kitchen.',
+      more: layout.top_bar === false ? 'the order\'s other actions and the till menu can\'t be reached.' : 'the order\'s other actions can\'t be reached.',
+      back: layout.top_bar === false ? 'the till menu is the only way off the order (More).' : 'the top bar is the only way off the order.',
+      cancel: 'cancel orders from More.',
+      bill: 'print bills from More.',
+    }[key]
+    out.push({ code: 'hidden_button', message: 'The Order zone leaves out ' + b.label + ' and no Buttons zone has it: ' + after, zones: [check.id], button: key })
   }
   const covered = zones.filter(z => z.type === 'modifiers' && z.cover === 'zone')
   for (const m of covered) {

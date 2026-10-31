@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   normaliseTillLayout, layoutProblems, layoutWarnings, choiceZones, packCells, buttonLabel,
-  ownLayout, layoutIds, templateLayout, LAYOUT_TEMPLATES, overlaps,
+  ownLayout, layoutIds, templateLayout, LAYOUT_TEMPLATES, overlaps, actionOf, CHECK_BUTTONS,
 } from '../tillLayout.js'
 
 const A = '11111111-1111-4111-8111-111111111111'
@@ -63,7 +63,7 @@ test('normalise: limits, defaults, unknown zones and buttons dropped', () => {
   assert.equal(mods.cover, 'zone')
 
   const empty = normaliseTillLayout(null)
-  assert.deepEqual(empty, { cols: 12, rows: 8, zones: [] })
+  assert.deepEqual(empty, { cols: 12, rows: 8, top_bar: true, zones: [] })
   assert.equal(normaliseTillLayout({ zones: [{ type: 'categories' }] }).zones[0].sections, null, 'no list: every section')
 })
 
@@ -120,6 +120,53 @@ test('warnings', () => {
     ],
   }), ['categories_alone', 'choices_space', 'empty_buttons', 'no_dishes'])
   assert.deepEqual(codes({ zones: [{ type: 'check', x: 0, y: 0, w: 4, h: 8 }, { type: 'items', x: 4, y: 0, w: 8, h: 8 }, { type: 'modifiers', x: 4, y: 0, w: 8, h: 8 }] }), ['items_alone'])
+})
+
+test('the top bar, the Order zone\'s own buttons, the Dish choices zones\' switches', () => {
+  const l = normaliseTillLayout({
+    top_bar: 'no',
+    zones: [
+      { id: 'o', type: 'check', x: 0, y: 0, w: 4, h: 8, font: 99, hide: ['pay', 'nonsense', 'back', 'pay'], colours: { pay: '#ABCDEF', send: 'red', more: '#12345', bill: '#000000', back: '#ffffff', nonsense: '#111111' } },
+      { id: 'r', type: 'modifiers', x: 4, y: 0, w: 8, h: 6, kind: 'required', show_name: false, show_description: 'x', show_prices: false, auto_add: true },
+      { id: 'p', type: 'modifiers', x: 4, y: 6, w: 8, h: 2, kind: 'optional', auto_add: 'yes' },
+      { id: 'b', type: 'buttons', x: 4, y: 6, w: 8, h: 2, buttons: [{ action: 'till_menu' }, { action: 'sign_out', label: 'Bye' }] },
+    ],
+  })
+  assert.equal(l.top_bar, true, 'not a boolean: the default (the top bar)')
+  assert.equal(normaliseTillLayout({ top_bar: false }).top_bar, false)
+  const [o, r, p, b] = l.zones
+  assert.equal(o.font, 36, 'the order\'s text size inside its limits')
+  assert.deepEqual(o.hide, ['back', 'pay'], 'known buttons, once each, in the Order zone\'s order')
+  assert.deepEqual(o.colours, { cancel: null, more: null, send: null, bill: '#000000', pay: '#abcdef' }, 'colour codes only, in lower case; Back has none')
+  const plain = normaliseTillLayout({ zones: [{ type: 'check' }] }).zones[0]
+  assert.deepEqual([plain.font, plain.hide, Object.values(plain.colours).every(v => v === null)], [16, [], true], 'an Order zone without settings: 16, every button, no colours')
+  assert.deepEqual([r.show_name, r.show_description, r.show_prices, r.auto_add], [false, true, false, true])
+  assert.deepEqual([p.show_name, p.show_description, p.show_prices, p.auto_add], [true, true, true, false], 'defaults: everything shown, Add needed')
+  assert.deepEqual(b.buttons.map(x => [x.action, buttonLabel(x)]), [['till_menu', 'Till menu'], ['sign_out', 'Bye']])
+  assert.equal(actionOf('till_menu').check, false, 'the till menu works with no order')
+  assert.equal(actionOf('sign_out').check, false)
+  for (const cb of CHECK_BUTTONS) assert.ok(actionOf(cb.action), cb.key + ' has a button action that does its job')
+
+  // Leaving an Order zone button out: a warning unless a Buttons zone does its job.
+  const hidden = (hide, actions, top = true) => layoutWarnings(normaliseTillLayout({
+    top_bar: top,
+    zones: [
+      { id: 'o', type: 'check', x: 0, y: 0, w: 4, h: 8, hide },
+      { type: 'items', x: 4, y: 0, w: 8, h: 6 },
+      { type: 'categories', x: 4, y: 6, w: 2, h: 2 },
+      { type: 'buttons', x: 6, y: 6, w: 6, h: 2, buttons: actions.map(action => ({ action, ...(action === 'tender' ? { tender: 'cash' } : {}) })) },
+    ],
+  })).filter(w => w.code === 'hidden_button')
+  assert.deepEqual(hidden(['pay', 'more', 'cancel', 'bill'], ['exact_cash', 'more', 'cancel_order', 'bill']), [], 'every one done by a button')
+  for (const a of ['pay', 'exact_card', 'tender']) assert.deepEqual(hidden(['pay'], [a]), [], a + ' stands in for Pay')
+  const w = hidden(['send', 'pay', 'back'], ['no_sale'])
+  assert.deepEqual(w.map(x => x.button), ['back', 'send', 'pay'])
+  assert.deepEqual(w[0].zones, ['o'])
+  assert.match(w.find(x => x.button === 'pay').message, /can't be paid/)
+  assert.match(w[0].message, /top bar is the only way/)
+  assert.match(hidden(['back'], [], false)[0].message, /till menu is the only way/, 'no top bar: the till menu in More')
+  assert.match(hidden(['more'], [], false)[0].message, /and the till menu/)
+  assert.doesNotMatch(hidden(['more'], [])[0].message, /till menu/, 'with the top bar, the till menu isn\'t in More')
 })
 
 test('which zone shows which choices', () => {

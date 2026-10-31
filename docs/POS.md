@@ -558,6 +558,16 @@ the price from `priceItem()`), modals and Pay as the standard screen. A layout n
 sections and discounts by id; `ownTillLayout()` drops any that aren't the company's when it is
 saved, and a till greys a button whose dish, discount or tender it doesn't have.
 
+Later on 31 Oct 2026 (no migration): a layout can leave out the till's top bar (`top_bar`
+false): the check and counter views then take the whole screen and the till menu (the pages,
+Sign out, the till's details) is in More, on the counter's New order panel and behind a Buttons
+zone's `till_menu` button (`TillNav` and `TillMenuSection` in `pos/src/components/TillMenu.jsx`).
+The order zone has a text size, its own buttons that can be left out when a Buttons zone does
+their job (`hide`, warned about by `layoutWarnings()` when nothing does), and colours. A
+must-pick modifiers zone can add the dish on the tap that completes a one-pick choice
+(`auto_add`), and each modifiers zone can leave out the dish's name, description and prices.
+Still not built: a layout per order type, revenue stream or time of day.
+
 ---
 
 ## 9. Kitchen screens (KDS)
