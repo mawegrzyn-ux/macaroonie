@@ -5588,6 +5588,15 @@ export default function Help() {
               ]}
             />
             <P>
+              <strong>On Windows.</strong> The hub runs as the Windows service <strong>Macaroonie hub</strong> (it is listed in
+              Services): it starts with the computer before anyone signs in, Windows starts it again if it ever stops, and
+              stopping it stops every part of the hub. The installer also stops the mini PC going to sleep on mains power and
+              keeps its USB ports powered, so printers don&apos;t drop off. If Windows won&apos;t run the service (rare: Smart App
+              Control on a new Windows 11 computer), the installer says so and runs the hub as a scheduled task instead. The
+              <strong> Windows protected your PC</strong> warning only comes with the downloaded file: the one-line command in
+              PowerShell (opened as administrator) doesn&apos;t show it.
+            </P>
+            <P>
               <strong>The hub&apos;s page.</strong> Open <strong>http://(its address):9180</strong> on any phone or computer on the
               venue&apos;s network (the link is on the hub&apos;s row). It shows the link code and QR code until it is linked, then
               whether it reaches Macaroonie, its version, each printer and how it is, the USB printers plugged in, and the

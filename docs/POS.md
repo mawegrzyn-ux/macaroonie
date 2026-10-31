@@ -184,7 +184,10 @@ without app-store packaging.
   → Printers (`curl … /pos-api/hub/install.sh | sudo sh`, or `irm … /pos-api/hub/install.ps1
   | iex`). Its own Node 22 (checked against
   nodejs.org's SHASUMS), the hub from the cloud (checked against its sha256), a systemd
-  service as its own user (in `lp`) or a Windows scheduled task as SYSTEM, then the link code.
+  service as its own user (in `lp`) or the Windows service `MacaroonieHub` as LocalSystem
+  (`hub-service.exe`, compiled on the PC from `hub/install/HubService.cs` with Windows' own C#
+  compiler; it runs the launcher in a job object, so stopping it stops every hub process; a
+  scheduled task where Windows won't run it), then the link code.
 - **Link**: the code on the console, on the hub's page (`http://<hub>:9180`, with a QR code for
   the installer app) and in `state.json`; linked like any device. Removed in Store tech, the
   hub shows a new code by itself.
