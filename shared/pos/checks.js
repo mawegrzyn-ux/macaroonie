@@ -27,11 +27,12 @@ import { checkTotals, isActiveLine, lineGross } from './pricing.js'
 import { CHECK_NO_MAX, ORDER_NO_MAX, numberText } from './numbers.js'
 import { chargeProblem, onCheck, switchCharges, CHECK_CHARGES_MAX } from './charges.js'
 import { discountList, presetMismatch } from './discounts.js'
+import { allergyProblem, cleanAllergy, mergeAllergy } from './allergy.js'
 
 export const CHECK_EVENTS = [
   'check.opened', 'check.covers_set', 'check.table_moved', 'check.server_changed',
   'check.stream_set', 'check.order_type_set', 'check.tent_set',
-  'check.renamed', 'check.note_set', 'check.member_set',
+  'check.renamed', 'check.note_set', 'check.allergy_set', 'check.member_set',
   'line.added', 'line.changed', 'line.deleted', 'lines.sent', 'course.fired', 'line.voided',
   'discount.applied', 'discount.removed', 'promotions.set',
   'charge.added', 'charge.removed', 'charge.restored',
@@ -200,6 +201,12 @@ export function eventProblem(e) {
       return optText(p.tab_name, 80) ? null : bad('tab_name')
     case 'check.note_set':
       return optText(p.note, 500) ? null : bad('note')
+    case 'check.allergy_set': {
+      // The order's allergy flag (shared/pos/allergy.js), or null to take it off.
+      if (p.allergy === undefined) return bad('allergy')
+      const a = allergyProblem(p.allergy)
+      return a ? bad(a) : null
+    }
     case 'check.member_set': {
       // The loyalty member on the check (shared/loyalty.js), or null to take them off.
       const m = p.member
@@ -368,6 +375,7 @@ function newCheck(e) {
     closed_at: null,
     closed_by: null,
     note: null,
+    allergy: null,
     lines: [],
     courses: {},
     sends: [],
@@ -391,7 +399,7 @@ function newCheck(e) {
 
 const OPEN_ONLY = new Set([
   'check.covers_set', 'check.table_moved', 'check.server_changed', 'check.stream_set',
-  'check.order_type_set', 'check.tent_set', 'check.renamed',
+  'check.order_type_set', 'check.tent_set', 'check.renamed', 'check.allergy_set',
   'line.added', 'line.changed', 'line.deleted', 'lines.sent', 'course.fired', 'line.voided',
   'discount.applied', 'discount.removed', 'promotions.set',
   'charge.added', 'charge.removed', 'charge.restored',
@@ -501,6 +509,10 @@ export function applyEvent(checks, e, ctx = {}) {
 
     case 'check.note_set':
       c.note = p.note ?? null
+      break
+
+    case 'check.allergy_set':
+      c.allergy = cleanAllergy(p.allergy)
       break
 
     case 'check.member_set': {
@@ -755,6 +767,8 @@ export function applyEvent(checks, e, ctx = {}) {
       t.discounts = [...t.discounts.filter(d => !carry.some(x => x.id === d.id)), ...carry]
       // Courses carry their fired / held state.
       for (const l of moving) if (l.course_id && c.courses[l.course_id] && !t.courses[l.course_id]) t.courses[l.course_id] = c.courses[l.course_id]
+      // The order's allergy flag goes with its dishes (they were made under it).
+      if (c.allergy) t.allergy = mergeAllergy(t.allergy, c.allergy)
       c.promotions = []
       t.promotions = []
       c.billed = false
@@ -775,6 +789,7 @@ export function applyEvent(checks, e, ctx = {}) {
       t.discounts.push(...c.discounts.filter(d => d.scope === 'line'))
       for (const [id, s] of Object.entries(c.courses)) if (!t.courses[id]) t.courses[id] = s
       t.covers = (Number(t.covers) || 0) + (Number(c.covers) || 0) || t.covers
+      if (c.allergy) t.allergy = mergeAllergy(t.allergy, c.allergy)
       t.promotions = []
       t.billed = false
       t.events = (t.events || 0) + 1

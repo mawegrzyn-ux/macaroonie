@@ -91,6 +91,7 @@
 import { modifierText, groupModifiers } from './pricing.js'
 import { isId } from './ids.js'
 import { numberText } from './numbers.js'
+import { allergyText } from './allergy.js'
 
 export const KITCHEN_DEVICE_EVENTS = [
   'kitchen.item_done', 'kitchen.item_checked', 'kitchen.bumped', 'kitchen.recalled', 'kitchen.remake', 'kitchen.priority', 'kitchen.collected',
@@ -105,7 +106,7 @@ export const KITCHEN_EVENTS = [...KITCHEN_DEVICE_EVENTS, ...KITCHEN_SERVER_EVENT
 export const KITCHEN_CHECK_EVENTS = [
   'lines.sent', 'course.fired', 'line.voided', 'lines.moved', 'check.merged',
   'check.table_moved', 'check.renamed', 'check.covers_set', 'check.server_changed', 'check.note_set',
-  'check.order_type_set', 'check.tent_set',
+  'check.order_type_set', 'check.tent_set', 'check.allergy_set',
 ]
 
 // Order types are the tenant's own (order_types, migration 170): a kitchen
@@ -962,6 +963,8 @@ function headerFromCheck(check, cfg) {
     type_name: cfg.order_types?.[check.order_type_id]?.name || null,
     tent: check.tent || null,
     note: check.note || null,
+    // The order's allergy flag (shared/pos/allergy.js) as one line, like an online order's.
+    allergy: allergyText(check.allergy) || null,
   }
 }
 
@@ -1254,7 +1257,7 @@ export function kitchenForCheckEvent(e, before = {}, after = {}, orders = {}, cf
   }
   const refreshHeader = (o, c) => {
     const h = headerFromCheck(c, cfg)
-    for (const k of ['number', 'counter', 'board', 'table', 'tab', 'covers', 'server', 'type', 'type_name', 'tent', 'note']) o[k] = h[k]
+    for (const k of ['number', 'counter', 'board', 'table', 'tab', 'covers', 'server', 'type', 'type_name', 'tent', 'note', 'allergy']) o[k] = h[k]
   }
 
   switch (e.type) {
@@ -1364,7 +1367,7 @@ export function kitchenForCheckEvent(e, before = {}, after = {}, orders = {}, cf
     }
 
     default: {
-      // Header changes: table moved, renamed, covers, server, note.
+      // Header changes: table moved, renamed, covers, server, note, allergy flag.
       const o = get(e.check_id)
       if (!o) return {}
       refreshHeader(o, check)

@@ -3734,6 +3734,47 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               (<Mono>till-layout</Mono>). Tests: <Mono>shared/pos/test/tillLayout.test.mjs</Mono>,{' '}
               <Mono>api/test/till-layouts.test.mjs</Mono>.
             </P>
+            <H3>The order&apos;s allergy flag</H3>
+            <P>
+              <Mono>shared/pos/allergy.js</Mono> holds the rules: a check&apos;s <Mono>allergy</Mono> is{' '}
+              <Mono>&#123; allergens: [&#123; code, name &#125;], diets: [&#123; code, name &#125;], note &#125;</Mono> or null,
+              the codes being <Mono>menu_dietary_tags</Mono> codes and the names as the till showed them, so the kitchen,
+              tickets and reports read it without the tag list (up to <Mono>ALLERGY_TAGS_MAX</Mono> 30 tags of each kind, a
+              note of <Mono>ALLERGY_NOTE_MAX</Mono> 300). <Mono>allergyProblem()</Mono> checks an event&apos;s payload,{' '}
+              <Mono>cleanAllergy()</Mono> tidies it (codes once each, words trimmed, null when it says nothing),{' '}
+              <Mono>allergyText()</Mono> is the one line the kitchen shows (allergens, then diets, then the note, joined by
+              a middle dot), <Mono>allergyPrefs()</Mono> gives the kiosk&apos;s <Mono>&#123; avoid, diet &#125;</Mono> shape
+              and <Mono>mergeAllergy()</Mono> joins two flags.
+            </P>
+            <P>
+              Event <Mono>check.allergy_set</Mono> (<Mono>&#123; allergy &#125;</Mono>, null takes it off; open checks only)
+              in <Mono>shared/pos/checks.js</Mono> stores <Mono>cleanAllergy(p.allergy)</Mono> on the check (in{' '}
+              <Mono>pos_checks.state</Mono>, no column). <Mono>lines.moved</Mono> and <Mono>check.merged</Mono> merge the
+              flag into the check that gets the dishes. The kitchen: <Mono>check.allergy_set</Mono> is in{' '}
+              <Mono>KITCHEN_CHECK_EVENTS</Mono>; <Mono>headerFromCheck()</Mono> puts <Mono>allergyText()</Mono> in the kitchen
+              order&apos;s <Mono>allergy</Mono> (the field online orders&apos; allergy note already used), and{' '}
+              <Mono>refreshHeader()</Mono> follows changes, so kitchen screens show it in red at the top of the ticket
+              (<Mono>kds-allergy</Mono>). Printing (<Mono>shared/pos/kitchenPrint.js</Mono>): a kitchen ticket carries it as
+              an <Mono>ALLERGY</Mono> line above the dishes (<Mono>kitchenTicket()</Mono>, inside the required items part so
+              no print design can leave it out), each printer box remembers what it printed in{' '}
+              <Mono>o.allergy_printed[stationId]</Mono>, and a later change prints a job of kind <Mono>allergy</Mono> (ALLERGY
+              UPDATE, the flag or ALLERGY FLAG TAKEN OFF) to the printers that already printed the order.
+            </P>
+            <P>
+              Till: <Mono>pos/src/components/AllergyModal.jsx</Mono> (chips from <Mono>config.dietary_tags</Mono>: allergens
+              and the other kinds as diets; a tag the flag holds that the menu no longer lists stays; a note; the dishes that
+              clash as you pick; Take the flag off asks first), opened from More (<Mono>action-allergy</Mono> in{' '}
+              <Mono>ActionsMenu</Mono>), the bar on the check (<Mono>check-allergy</Mono>, <Mono>onAllergy</Mono> on{' '}
+              <Mono>CheckPanel</Mono>) and the till layout button action <Mono>allergy</Mono> (<Mono>check: true</Mono>,{' '}
+              <Mono>runButton()</Mono> in <Mono>Check.jsx</Mono>). <Mono>pos/src/lib/allergyFit.js</Mono>:{' '}
+              <Mono>lineClash(config, line, allergy)</Mono> reads a line&apos;s dish and its meal deal parts with the
+              kiosk&apos;s <Mono>dishLevels()</Mono> / <Mono>mergeLevels()</Mono> (<Mono>shared/kiosk.js</Mono>): an allergen at
+              contains or may contain clashes, removable is &quot;can be left out: ask&quot;, a diet is missing unless the dish
+              (or the deal itself) has it or every dish in the deal does; a line not on the menu gives nothing.{' '}
+              <Mono>clashWords()</Mono> words it for <Mono>line-clash</Mono> under the line. Till reports names the event in a
+              check&apos;s history (<Mono>PosReports.jsx</Mono>). Tests: <Mono>shared/pos/test/allergy.test.mjs</Mono>,{' '}
+              <Mono>api/test/till-allergy.test.mjs</Mono>.
+            </P>
             <H3>Device kinds and app updates</H3>
             <P>
               One app at <Mono>pos.&lt;domain&gt;</Mono> serves tills, kitchen screens and kiosks;{' '}

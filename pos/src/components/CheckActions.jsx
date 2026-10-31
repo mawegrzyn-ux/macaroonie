@@ -9,7 +9,7 @@
 import { useEffect, useState } from 'react'
 import {
   Users, Table2, UserRound, Building2, Percent, HandCoins, Gift, Split, Merge, Flame, StickyNote, Printer,
-  Vault, PenLine, Check, Hourglass, Send, XCircle, Ban, RotateCcw, Plus, ShoppingBag, Flag, Star, ShieldCheck,
+  Vault, PenLine, Check, Hourglass, Send, XCircle, Ban, RotateCcw, Plus, ShoppingBag, Flag, Star, ShieldCheck, AlertTriangle,
 } from 'lucide-react'
 import { ulid } from '@shared/pos/ids.js'
 import { checkTotals } from '@shared/pos/pricing.js'
@@ -17,6 +17,7 @@ import { heldCourses, checkLabel } from '@shared/pos/checks.js'
 import { MANAGER_ALWAYS } from '@shared/pos/permissions.js'
 import { chargeLabel, CHARGE_PERCENT_MAX, CHARGE_AMOUNT_MAX } from '@shared/pos/charges.js'
 import { discountList, fitsScope, discountValueText } from '@shared/pos/discounts.js'
+import { allergyText, allergyOn } from '@shared/pos/allergy.js'
 import { Modal, Keypad, ReasonPicker, cx, money, poundsToPence, useApproval } from './ui.jsx'
 import OrderPrompt from './OrderPrompt.jsx'
 import { useTillNav, TillMenuSection } from './TillMenu.jsx'
@@ -51,6 +52,7 @@ export function ActionsMenu({ check, config, onPick, onClose }) {
     { key: 'name', label: 'Name', icon: StickyNote, hint: check.tab_name || '' },
     { key: 'type', label: 'Order type', icon: ShoppingBag, hint: [typeOf(config, check.order_type_id)?.name, check.tent ? 'Tent ' + check.tent : null].filter(Boolean).join(' · ') },
     (checkPrompts(config, check).ask_tent !== 'off' || check.tent) && { key: 'tent', label: 'Tent number', icon: Flag, hint: check.tent || 'not set' },
+    { key: 'allergy', label: 'Allergy', icon: AlertTriangle, hint: allergyText(check.allergy) || 'none on this order', bad: allergyOn(check.allergy) },
     { key: 'server', label: 'Server', icon: UserRound, hint: serverName(config, check.server_id) },
     (config.revenue_streams || []).length > 1 && { key: 'stream', label: 'Revenue stream', icon: Building2, hint: streamOf(config, check.revenue_stream_id)?.name },
     held.length > 0 && { key: 'fire', label: 'Fire a course', icon: Flame, hint: held.length + ' waiting' },

@@ -18,6 +18,7 @@ import { checkTotals, modifierText, groupModifiers } from '@shared/pos/pricing.j
 import { TENDERS } from '@shared/pos/checks.js'
 import { numberText } from '@shared/pos/numbers.js'
 import { chargeLabel } from '@shared/pos/charges.js'
+import { allergyText } from '@shared/pos/allergy.js'
 import { PageHeader, VenueSelect, usePosVenue, ErrorNote, Btn, Segmented, money, inputCls } from '@/components/pos/shared'
 
 const TABS = [
@@ -258,6 +259,7 @@ function eventText(e, lines, names, lookups = {}) {
     case 'check.tent_set': return p.tent ? 'Tent ' + p.tent : 'Tent number removed'
     case 'check.renamed': return 'Renamed ' + (p.tab_name || '(no name)')
     case 'check.note_set': return 'Note: ' + (p.note || '(removed)')
+    case 'check.allergy_set': return p.allergy ? 'Allergy flag: ' + allergyText(p.allergy) : 'Allergy flag taken off'
     case 'line.added': return 'Added ' + p.line.qty + ' × ' + p.line.name + ' ' + money(p.line.unit_price * p.line.qty)
     case 'line.changed': return 'Changed ' + lineName(p.line_id) + (p.qty != null ? ' to ' + p.qty : '')
     case 'line.deleted': return 'Deleted ' + lineName(p.line_id) + ' (not sent)'

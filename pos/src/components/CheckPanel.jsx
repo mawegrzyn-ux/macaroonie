@@ -5,20 +5,26 @@
 // Void once the kitchen has it); a long swipe does it straight away. Drag an
 // item by its grip to another course (items not sent yet) or, grouped by
 // seat, to another seat.
+//
+// The order's allergy flag (shared/pos/allergy.js) shows as a red bar under
+// the header (tap it to change it: onAllergy), and each dish that clashes with
+// it says how (pos/src/lib/allergyFit.js).
 
 import { useEffect, useRef, useState } from 'react'
 import { Send, Hourglass, Flame, Ban, Gift, Percent, ChefHat, AlertTriangle, Layers, GripVertical, Trash2 } from 'lucide-react'
 import { checkTotals, lineGross, modifierText, groupModifiers, isActiveLine } from '@shared/pos/pricing.js'
 import { countParts } from '@shared/combos.js'
 import { chargeLabel } from '@shared/pos/charges.js'
+import { allergyText, allergyOn } from '@shared/pos/allergy.js'
 import { cx, money } from './ui.jsx'
 import { groupByCourse, groupBySeat, canRegroup } from '../lib/checkOps.js'
+import { lineClash, clashWords } from '../lib/allergyFit.js'
 
 const ACTION_W = 104   // the button a swipe shows
 const SWIPE_START = 12 // px sideways before a press counts as a swipe
 const EDGE = 64        // px from the list's top or bottom that scrolls it while dragging
 
-function LineBody({ line, discountOf, comboOf }) {
+function LineBody({ line, discountOf, comboOf, clashOf }) {
   const voided = line.status === 'voided'
   const gross = lineGross(line)
   const off = discountOf(line.id)
@@ -44,6 +50,9 @@ function LineBody({ line, discountOf, comboOf }) {
         {(line.allergies || []).length > 0 && (
           <div className="text-[0.75em] font-bold text-white bg-bad rounded px-1.5 py-0.5 inline-flex items-center gap-1 mt-1"><AlertTriangle size={12} />{line.allergies.join(', ')}</div>
         )}
+        {clashOf?.(line)?.length > 0 && (
+          <div className="text-[0.75em] font-bold text-bad flex items-center gap-1 mt-1" data-testid="line-clash"><AlertTriangle size={12} className="shrink-0" />{clashOf(line).join(', ')}</div>
+        )}
         <div className="flex gap-2 mt-1 text-[0.75em] font-semibold">
           {line.status === 'new' && <span className="text-warn">Not sent</span>}
           {line.status === 'sent' && !line.held && <span className="text-ok flex items-center gap-1"><ChefHat size={12} />Sent</span>}
@@ -60,7 +69,7 @@ function LineBody({ line, discountOf, comboOf }) {
   )
 }
 
-function LineRow({ line, discountOf, comboOf, swipe, dragOn, grip, dragging, onTap, onAction }) {
+function LineRow({ line, discountOf, comboOf, clashOf, swipe, dragOn, grip, dragging, onTap, onAction }) {
   const voided = line.status === 'voided'
   const shift = swipe.shiftOf(line.id)
   const sent = line.status !== 'new'
@@ -86,7 +95,7 @@ function LineRow({ line, discountOf, comboOf, swipe, dragOn, grip, dragging, onT
           onClick={() => { if (swipe.swallow(line.id)) return; onTap(line) }}
           style={{ touchAction: 'pan-y' }}
           className={cx('flex-1 min-w-0 text-left py-2.5 pr-3 flex gap-3 items-start touch-manipulation active:bg-page select-none', !dragOn && 'pl-3')}>
-          <LineBody line={line} discountOf={discountOf} comboOf={comboOf} />
+          <LineBody line={line} discountOf={discountOf} comboOf={comboOf} clashOf={clashOf} />
         </button>
       </div>
     </div>
@@ -223,7 +232,7 @@ function useDrag({ listRef, by, onDrop }) {
  * Void). onRegroup(line, { by: 'course' | 'seat', id }): dragged to another
  * course (id = course id, '' for none) or seat ('0' = shared).
  */
-export default function CheckPanel({ check, config, onLine, onAction, onRegroup, footer, header, font = null }) {
+export default function CheckPanel({ check, config, onLine, onAction, onRegroup, onAllergy, footer, header, font = null }) {
   const [by, setBy] = useState('course')
   const listRef = useRef(null)
   const t = checkTotals(check)
@@ -231,6 +240,10 @@ export default function CheckPanel({ check, config, onLine, onAction, onRegroup,
   // Automatic combos (shared/combos.js) found among the dishes: each dish says which.
   const comboById = {}
   for (const p of check.promotions || []) if (p.kind === 'combo') for (const id of Object.keys(p.lines || {})) comboById[id] = p.name
+  // The order's allergy flag: what each dish clashes with (words), worked out once per render.
+  const clashes = {}
+  if (allergyOn(check.allergy)) for (const l of check.lines) clashes[l.id] = clashWords(lineClash(config, l, check.allergy), check.allergy)
+  const clashOf = line => clashes[line.id] || []
   const swipe = useSwipe({ onAction: line => onAction?.(line) })
   const { drag, start } = useDrag({ listRef, by, onDrop: (line, to) => onRegroup?.(line, to) })
   const hasSeats = check.lines.some(l => l.seat)
@@ -245,6 +258,15 @@ export default function CheckPanel({ check, config, onLine, onAction, onRegroup,
   return (
     <div className="h-full flex flex-col bg-white border-r border-line min-w-0">
       {header}
+      {allergyOn(check.allergy) && (onAllergy ? (
+        <button className="px-3 py-2 bg-bad text-white font-bold text-sm flex items-start gap-2 text-left touch-manipulation min-h-[48px]" onClick={onAllergy} data-testid="check-allergy">
+          <AlertTriangle size={18} className="shrink-0 mt-0.5" /><span>Allergy: {allergyText(check.allergy)}</span>
+        </button>
+      ) : (
+        <div className="px-3 py-2 bg-bad text-white font-bold text-sm flex items-start gap-2" data-testid="check-allergy">
+          <AlertTriangle size={18} className="shrink-0 mt-0.5" /><span>Allergy: {allergyText(check.allergy)}</span>
+        </div>
+      ))}
       {hasSeats && (
         <div className="flex gap-1 px-3 py-2 border-b border-line">
           <button className={cx('chip min-h-[36px]', by === 'course' && 'chip-on')} onClick={() => setBy('course')}>By course</button>
@@ -269,7 +291,7 @@ export default function CheckPanel({ check, config, onLine, onAction, onRegroup,
                 </div>
               )}
               {g.lines.map(l => (
-                <LineRow key={l.id} line={l} discountOf={id => offById[id] || 0} comboOf={id => comboById[id] || null}
+                <LineRow key={l.id} line={l} discountOf={id => offById[id] || 0} comboOf={id => comboById[id] || null} clashOf={clashOf}
                   swipe={swipe} dragOn={dragOn} dragging={drag?.line.id === l.id}
                   grip={canDrag && canRegroup(l, by) ? (e, line) => { swipe.close(); start(e, line, key) } : null}
                   onTap={onLine} onAction={line => { swipe.close(); onAction?.(line) }} />
