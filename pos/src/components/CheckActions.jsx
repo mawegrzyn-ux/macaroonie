@@ -6,7 +6,7 @@
 // (with the name and tent number it asks for) or revenue stream, items not on
 // the menu, no sale, dishes sold out.
 
-import { useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   Users, Table2, UserRound, Building2, Percent, HandCoins, Gift, Split, Merge, Flame, StickyNote, Printer,
   Vault, PenLine, Check, Hourglass, Send, XCircle, Ban, RotateCcw, Plus, ShoppingBag, Flag, Star, ShieldCheck,
@@ -18,10 +18,11 @@ import { MANAGER_ALWAYS } from '@shared/pos/permissions.js'
 import { chargeLabel, CHARGE_PERCENT_MAX, CHARGE_AMOUNT_MAX } from '@shared/pos/charges.js'
 import { discountList, fitsScope, discountValueText } from '@shared/pos/discounts.js'
 import { Modal, Keypad, ReasonPicker, cx, money, poundsToPence, useApproval } from './ui.jsx'
+import OrderPrompt from './OrderPrompt.jsx'
 import { dispatch, dispatchMany, toast, useChecks, getState, can, soldOutMap, setItemSoldOut, serverName } from '../lib/store.js'
 import {
   defaultHeld, sendCheck, streamOf, byId, addOpenItem, promotionsFor, refreshPromotions,
-  streamTypes, typeOf, checkPrompts, rerateLines, defaultTypeId, chargesFor,
+  streamTypes, typeOf, checkPrompts, rerateLines, defaultTypeId, chargesFor, orderPromptOf,
 } from '../lib/checkOps.js'
 import { CoversModal, CheckRow } from '../screens/Floor.jsx'
 
@@ -542,19 +543,20 @@ export function TableModal({ check, config, onClose }) {
   )
 }
 
+/** The name on the check (a tab's, the customer's): typed on the till's own keys. */
 export function NameModal({ check, onClose }) {
-  const [name, setName] = useState(check.tab_name || '')
-  const save = () => {
-    const r = dispatch('check.renamed', { tab_name: name.trim() || null }, { check_id: check.id })
+  const save = ({ name }) => {
+    if ((name || null) === (check.tab_name || null)) return onClose()
+    const r = dispatch('check.renamed', { tab_name: name || null }, { check_id: check.id })
     if (!r.ok) return toast(r.error, 'bad')
     onClose()
   }
   return (
-    <Modal title="Name on the check" onClose={onClose} footer={<button className="btn btn-primary" onClick={save}>Save</button>}>
-      <input className="input" autoFocus value={name} onChange={e => setName(e.target.value)} maxLength={80} placeholder="e.g. Smith" />
-    </Modal>
+    <OrderPrompt title="Name on the check" name={check.tab_name || ''} doneLabel="Save"
+      promptsOf={() => ONLY_NAME} onDone={save} onClose={onClose} />
   )
 }
+const ONLY_NAME = { ask_name: 'ask', ask_tent: 'off' }
 
 export function ServerModal({ check, config, onClose }) {
   const approve = useApproval()
@@ -579,55 +581,25 @@ export function ServerModal({ check, config, onClose }) {
   )
 }
 
-const PROMPT_TEXT = { ask: '', required: ' (needed)' }
-
-/** Customer name and tent number fields, as the order type asks for them. */
-export function DetailFields({ prompts, name, setName, tent, setTent, autoFocus = false }) {
-  return (
-    <div className="space-y-3">
-      {prompts.ask_name !== 'off' && (
-        <label className="block">
-          <span className="label">Customer name{PROMPT_TEXT[prompts.ask_name]}</span>
-          <input className="input mt-1" data-testid="detail-name" autoFocus={autoFocus} value={name} onChange={e => setName(e.target.value)} maxLength={80} placeholder="e.g. Sam" />
-        </label>
-      )}
-      {prompts.ask_tent !== 'off' && (
-        <label className="block">
-          <span className="label">Tent number{PROMPT_TEXT[prompts.ask_tent]}</span>
-          <input className="input mt-1" data-testid="detail-tent" inputMode="numeric" autoFocus={autoFocus && prompts.ask_name === 'off'}
-            value={tent} onChange={e => setTent(e.target.value)} maxLength={20} placeholder="e.g. 14" />
-        </label>
-      )}
-    </div>
-  )
-}
-
-/** Which required details are still empty, as words for a message. */
-export function missingText(prompts, name, tent) {
-  const out = []
-  if (prompts.ask_name === 'required' && !name.trim()) out.push('a customer name')
-  if (prompts.ask_tent === 'required' && !tent.trim()) out.push('a tent number')
-  return out.length ? 'Enter ' + out.join(' and ') : null
-}
-
 /**
  * The check's order type (Eat in, Take out, ...): the types its revenue
- * stream offers, then the name and tent number the chosen one asks for.
- * Changing the type re-rates every item (tax can depend on it).
+ * stream offers, then the name and tent number the chosen one asks for, on
+ * the order prompt (components/OrderPrompt.jsx: one screen or two steps, as
+ * the till is set). Changing the type re-rates every item (tax can depend on
+ * it) and swaps the charges. focus 'tent': the tent number alone; start
+ * 'details': straight to what the check is missing (two steps).
  */
-export function OrderTypeModal({ check, config, onClose, focus = null }) {
+export function OrderTypeModal({ check, config, onClose, focus = null, start = 'type' }) {
   const types = streamTypes(config, check.revenue_stream_id)
-  const [typeId, setTypeId] = useState(check.order_type_id || types[0]?.type.id || null)
-  const [name, setName] = useState(check.tab_name || '')
-  const [tent, setTent] = useState(check.tent || '')
-  // At a table nobody takes a tent number (checkPrompts).
-  const prompts = checkPrompts(config, check, typeId)
-  const save = () => {
-    const missing = missingText(prompts, name, tent)
-    if (missing) return toast(missing, 'bad')
+  // A stream with no order types switched on: say why there is nothing to pick
+  // (the prompt still asks what the check's own type asks, or closes).
+  useEffect(() => {
+    if (focus !== 'tent' && !types.length) toast('This revenue stream has no order types switched on (Store tech, Revenue streams)', 'info')
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  const save = ({ typeId, name, tent }) => {
     const payload = { order_type_id: typeId }
-    if ((name.trim() || null) !== (check.tab_name || null)) payload.tab_name = name.trim() || null
-    if ((tent.trim() || null) !== (check.tent || null)) payload.tent = tent.trim() || null
+    if ((name || null) !== (check.tab_name || null)) payload.tab_name = name || null
+    if ((tent || null) !== (check.tent || null)) payload.tent = tent || null
     // The new type's tax for every item, and its charges.
     if (typeId !== check.order_type_id) {
       payload.lines = rerateLines(check, config, { order_type_id: typeId })
@@ -638,31 +610,27 @@ export function OrderTypeModal({ check, config, onClose, focus = null }) {
     if (!r.ok) return toast(r.error, 'bad')
     onClose()
   }
+  if (focus === 'tent') {
+    // At a table nobody takes a tent number (checkPrompts); asked for here, it is typed anyway.
+    const ask = checkPrompts(config, check).ask_tent
+    return (
+      <OrderPrompt title="Tent number" typeId={check.order_type_id} name={check.tab_name || ''} tent={check.tent || ''}
+        promptsOf={() => ({ ask_name: 'off', ask_tent: ask === 'off' ? 'ask' : ask })} doneLabel="Save" onDone={save} onClose={onClose} />
+    )
+  }
+  const noteFor = id => {
+    if (id === check.order_type_id) return null
+    const words = []
+    if (check.lines.some(l => l.status !== 'voided')) words.push('The items already on the check take this order type\'s tax.')
+    const charges = chargesFor(config, id)
+    if (charges.length) words.push('Charges: ' + charges.map(chargeLabel).join(', ') + '.')
+    else if ((check.charges || []).some(x => !x.added)) words.push('This order type has no charges: the check\'s come off.')
+    return words.join(' ') || null
+  }
   return (
-    <Modal title={focus === 'tent' ? 'Tent number' : 'Order type'} onClose={onClose} footer={<button className="btn btn-primary h-14 min-w-[160px]" data-testid="type-save" onClick={save}>Save</button>}>
-      <div className="space-y-4">
-        {focus !== 'tent' && (
-          <div className="grid grid-cols-2 gap-2" role="group" aria-label="Order type">
-            {types.map(({ type }) => (
-              <button key={type.id} className={cx('btn h-14', type.id === typeId && 'btn-primary')} onClick={() => setTypeId(type.id)}>{type.name}</button>
-            ))}
-            {!types.length && <div className="text-sm text-muted col-span-2">This revenue stream has no order types switched on (Store tech, Revenue streams).</div>}
-          </div>
-        )}
-        <DetailFields prompts={focus === 'tent' ? { ask_name: 'off', ask_tent: prompts.ask_tent === 'off' ? 'ask' : prompts.ask_tent } : prompts}
-          name={name} setName={setName} tent={tent} setTent={setTent} autoFocus={focus === 'tent'} />
-        {typeId !== check.order_type_id && check.lines.some(l => l.status !== 'voided') && (
-          <div className="text-sm text-muted">The items already on the check take this order type's tax.</div>
-        )}
-        {typeId !== check.order_type_id && (
-          <div className="text-sm text-muted" data-testid="type-charges">
-            {chargesFor(config, typeId).length
-              ? 'Charges: ' + chargesFor(config, typeId).map(chargeLabel).join(', ') + '.'
-              : (check.charges || []).some(x => !x.added) ? 'This order type has no charges: the check\'s come off.' : ''}
-          </div>
-        )}
-      </div>
-    </Modal>
+    <OrderPrompt title="Order type" types={types} typeId={check.order_type_id || types[0]?.type.id || null}
+      promptsOf={id => checkPrompts(config, check, id)} name={check.tab_name || ''} tent={check.tent || ''}
+      style={orderPromptOf(config)} start={start} doneLabel="Save" noteFor={noteFor} onDone={save} onClose={onClose} />
   )
 }
 

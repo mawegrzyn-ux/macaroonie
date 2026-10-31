@@ -5,6 +5,18 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-31 — Till: the order type, name and tent number on a screen of their own]
+
+Migration: `226_till_order_prompt.sql` (`pos_settings.order_prompt`, one screen or two steps; a till's own choice is in its settings).
+
+- **A new counter order or tab takes over the screen** to ask what the order is: its order type, then the customer name and tent number that type asks for. Tap **New order**, or just tap the first dish: the till asks first, then opens the order with that dish. From New order the answers wait on the left (Change, or clear them) until the first dish.
+- **Keys on the screen**: letters for the name (each word starts with a capital by itself, Shift for MacDonald, ' and - for O'Neil and Smith-Jones, Space, Clear, Delete) and a big number pad for the tent number. The tablet's own keyboard no longer pops up and covers half the screen; a keyboard plugged into the till still types (Enter moves on).
+- **One screen or two steps** (Store tech, Receipts and payments; a till can have its own in Store tech, Tills): one screen shows the order types and the name and tent number together; two steps shows big order type buttons first, then only what that type asks, with Back.
+- An order type that asks for nothing (Delivery, say) needs only the one tap. A name or tent number the type must have keeps Done greyed out and says what's missing.
+- **The same screen** opens for the check's More, Order type, Name and Tent number, and at Send or Pay when the check is missing a name or tent number its order type must have.
+
+---
+
 ## [2026-10-31 — Till: charges per order type and a list of discounts]
 
 Migration: `225_order_type_charges_discounts.sql` (`order_types.charges`, new `pos_discounts`; the revenue stream's service charge and the venue's service charge label are gone. A group whose active streams all charged the same service charge keeps it as an optional charge on its Eat in order type. A Discounts link is added to every Store tech menu after Order types).

@@ -162,6 +162,9 @@ const SettingsBody = z.object({
   // Migration 224: the receipt when a check is paid, and actions that need a
   // manager every time (shared/pos/permissions.js MANAGER_ACTIONS).
   receipt_mode:              z.enum(['ask', 'always', 'never']).optional(),
+  // Migration 226: how the till asks for a new order's order type, name and
+  // tent number: one screen, or two steps (the order type first).
+  order_prompt:              z.enum(['one', 'two']).optional(),
   approvals:                 z.object(Object.fromEntries(MANAGER_ACTION_KEYS.map(k => [k, z.boolean().optional()]))).strict().optional(),
 })
 
@@ -244,6 +247,9 @@ const DeviceSettings = z.object({
   // A till's own receipt when a check is paid (migration 224): 'venue' (or
   // absent) = the venue's Receipts and payments setting.
   receipt_mode:       z.enum(['venue', 'ask', 'always', 'never']).optional(),
+  // A till's own order prompt (migration 226): 'venue' (or absent) = the
+  // venue's Receipts and payments setting.
+  order_prompt:       z.enum(['venue', 'one', 'two']).optional(),
   // A till's or kiosk's own counter order numbers (migration 217,
   // shared/pos/numbers.js): no two at a location may overlap.
   order_numbers:      z.object({

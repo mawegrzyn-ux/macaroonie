@@ -12,7 +12,7 @@ import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { TimeSelect } from '@/components/staff/shared'
 import { Section, Field, inputCls, ErrorNote, Btn, Toggle, Segmented } from './shared'
-import { RECEIPT_MODES } from './TillsSection'
+import { RECEIPT_MODES, ORDER_PROMPTS } from './TillsSection'
 import { MANAGER_ACTIONS } from '@shared/pos/permissions.js'
 import { typeCharges } from '@shared/pos/charges.js'
 
@@ -44,6 +44,7 @@ function fromSettings(s) {
     require_covers: !!s.require_covers,
     auto_logout_secs: s.auto_logout_secs,
     receipt_mode: s.receipt_mode || 'ask',
+    order_prompt: s.order_prompt === 'two' ? 'two' : 'one',
     approvals: Object.fromEntries(MANAGER_ACTIONS.map(a => [a.key, !!s.approvals?.[a.key]])),
   }
 }
@@ -68,6 +69,7 @@ export function ReceiptSettingsSection({ venueId, setup }) {
       require_covers: form.require_covers,
       auto_logout_secs: form.auto_logout_secs,
       receipt_mode: form.receipt_mode,
+      order_prompt: form.order_prompt,
       approvals: form.approvals,
     })
   }
@@ -119,6 +121,10 @@ export function ReceiptSettingsSection({ venueId, setup }) {
       </div>
       <Field group label="Receipt when a check is paid" hint="Ask: the till offers Close and print or Close, no receipt. A till can have its own (Tills).">
         <Segmented value={form.receipt_mode} options={RECEIPT_MODES} onChange={v => set({ receipt_mode: v })} className="flex-wrap" />
+      </Field>
+      <Field group label="Asking for the order type, name and tent number"
+        hint="When a counter order or a tab starts, and when a check is missing a name or tent number, the till takes over the screen with its own keys: letters for the name, digits for the tent number. One screen: the order types and the details together. Two steps: the order type first, then what it asks for. A till can have its own (Tills).">
+        <Segmented value={form.order_prompt} options={ORDER_PROMPTS} onChange={v => set({ order_prompt: v })} className="flex-wrap" />
       </Field>
       <div data-testid="manager-approvals">
         <p className="text-sm font-medium mb-1">Needs a manager every time</p>

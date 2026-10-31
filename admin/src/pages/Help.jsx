@@ -3990,8 +3990,8 @@ export default function Help() {
 
             <H3>On the till</H3>
             <ul className="list-disc ml-5 space-y-2 text-sm text-muted-foreground mb-4">
-              <li><strong>Counter</strong>: tap the order type, then type the customer name or tent number if asked, then tap dishes.</li>
-              <li><strong>A check</strong>: More → <strong>Order type</strong> changes it (items already on the check take the new type&apos;s tax) and the name or tent number; More → <strong>Tent number</strong> sets just the tent.</li>
+              <li><strong>Counter</strong> and <strong>New tab</strong>: the till takes over the screen to ask the order type, then the customer name or tent number that type asks for, with keys on the screen (one screen, or two steps: see Till (POS) → Asking for the order type, name and tent number); then tap dishes.</li>
+              <li><strong>A check</strong>: More → <strong>Order type</strong> changes it (items already on the check take the new type&apos;s tax) and the name or tent number, on the same screen; More → <strong>Tent number</strong> sets just the tent.</li>
               <li>A detail the type must have and the check is missing is asked for at <strong>Send</strong> and <strong>Pay</strong>.</li>
               <li>The order type, customer name and tent number print on kitchen tickets and receipts and show on the kitchen screens.</li>
             </ul>
@@ -5535,7 +5535,7 @@ export default function Help() {
               <li><strong>Printers</strong>: each printer, on the network, USB on the venue hub, or plugged into a till, kitchen screen or kiosk (see Printers and the venue hub below). Kitchen tickets print where the kitchen flow sends dishes: a <strong>Kitchen printer</strong> box in Kitchen screens.</li>
               <li><strong>Printing</strong>: how kitchen tickets, receipts and bills look (see Ticket and receipt designs below).</li>
               <li><strong>Card machines</strong>: your Dojo, Stripe or SumUp account and the card machines at the venue; each till and kiosk picks its machine (see Card machines below).</li>
-              <li><strong>Receipts and payments</strong>: when the trading day starts, the name, address and VAT number on receipts, the ways to pay, tips, asking for covers, when staff are signed out, whether a receipt prints when a check is paid (<strong>Ask each time</strong>, <strong>Always print</strong> or <strong>Don&apos;t print</strong>; a till can have its own in its window), and what <strong>needs a manager every time</strong> (see Manager approvals below). Tax rates are set on Menus → Tax rates.</li>
+              <li><strong>Receipts and payments</strong>: when the trading day starts, the name, address and VAT number on receipts, the ways to pay, tips, asking for covers, when staff are signed out, whether a receipt prints when a check is paid (<strong>Ask each time</strong>, <strong>Always print</strong> or <strong>Don&apos;t print</strong>; a till can have its own in its window), how the till asks for a new order&apos;s order type, name and tent number (<strong>One screen</strong> or <strong>Two steps</strong>; a till can have its own too, see Asking for the order type, name and tent number below), and what <strong>needs a manager every time</strong> (see Manager approvals below). Tax rates are set on Menus → Tax rates.</li>
               <li><strong>Cash Recon link</strong>: which till figures go into which Cash Recon fields when the day is closed (see End of day).</li>
               <li><strong>Floor plan</strong> (Store tech → Floor plan): add an area (e.g. Restaurant), tap tables to put them on it, drag them where they stand, drag the round corner to resize, Turn, Square / Round, and add walls, the bar, plants and labels. Save the area. Tables themselves are added on the Tables page.</li>
               <li><strong>Tills</strong>: open the till address on the tablet: it shows a six-letter code and a QR code. Tap <strong>Add a till</strong>, type the code, give it a name, table service or counter, and <strong>Add the till</strong>: the tablet sets itself up. Or scan the QR code with your phone and do the same in the installer app. <strong>New device</strong> on a till's row puts it on another tablet (type the code that tablet shows; the old one stops), and so does choosing <strong>One already here</strong> in Add a till. Removing a till signs it out; <strong>Bring back</strong> on the Removed line links it again with its settings. Each till and kiosk gets its own block of counter <strong>order numbers</strong> when it is added (the first 1-99, the next 100-199, and so on), shown on its row; change it in the till's window (<strong>Order numbers</strong>, from and to). Two tills or kiosks at a location can't share numbers: the window says which one already uses them.</li>
@@ -5796,7 +5796,7 @@ export default function Help() {
             <H3>Taking an order</H3>
             <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
               <li>Sign in with your PIN. The till signs you out after the time set in Receipts and payments. A PIN set or changed in Store tech works straight away; if the till is offline it needs to have been online once since.</li>
-              <li><strong>Floor</strong>: tap a table (it asks for covers if set to), or <strong>New tab</strong> for a named tab. Colours show which tables are free, open, waiting for a held course, or billed. A check at a table never asks for a tent number (the table says where the food goes); a tab or counter order asks when its order type does.</li>
+              <li><strong>Floor</strong>: tap a table (it asks for covers if set to), or <strong>New tab</strong> for a named tab (the till asks its name, and its order type and tent number when there is a choice or the type asks for one). Colours show which tables are free, open, waiting for a held course, or billed. A check at a table never asks for a tent number (the table says where the food goes); a tab or counter order asks when its order type does.</li>
               <li>Tap dishes. Pick a <strong>seat</strong> and <strong>course</strong> in the bar at the bottom of the menu first if you want them (its buttons are as big as Pay). Dishes with choices and combos open a window to pick them, add a note or allergies.</li>
               <li><strong>Send</strong> sends new items to the kitchen. If a later course is held, <strong>Fire</strong> sends it when it's time.</li>
               <li>Tap an item on the check to change it: before it's sent you can change or delete it; after, <strong>Void</strong> it with a reason (the kitchen gets a VOID ticket), or <strong>Comp</strong> it.</li>
@@ -5807,10 +5807,13 @@ export default function Help() {
             </ol>
             <P>
               <strong>Counter</strong> takes an order with a number (from the till&apos;s own range of order
-              numbers, see Check and order numbers), pays it, and sends it to the kitchen when it's closed. Pick the
-              order type first (Eat in, Take out...: the ones the till's revenue stream offers) and type
-              the customer name or tent number if that type asks for them; one it must have can't be
-              skipped.{' '}
+              numbers, see Check and order numbers), pays it, and sends it to the kitchen when it's closed. Tap{' '}
+              <strong>New order</strong>, or just tap the first dish: the till takes over the screen to ask the
+              order type (Eat in, Take out...: the ones the till's revenue stream offers) and the customer name
+              or tent number that type asks for (see Asking for the order type, name and tent number below); one
+              it must have can't be skipped. The order then opens with that dish. Answered from New order, the
+              answers wait on the left (<strong>Change</strong>, or X to clear them) until you tap the first dish.
+              With one order type that asks for nothing, a dish starts the order straight away.{' '}
               <strong>Closed</strong> lists today's closed checks: print the receipt again, <strong>Refund</strong>{' '}
               or <strong>Reopen</strong>.
             </P>
@@ -5824,6 +5827,26 @@ export default function Help() {
               whose role has <strong>Approve for others</strong> types their PIN on the same till, and the check
               records who approved it.
             </InfoBox>
+
+            <H3>Asking for the order type, name and tent number</H3>
+            <P>
+              When a counter order or a tab starts, the till takes over the whole screen to ask what the order
+              is: its order type, then the customer name and tent number that type asks for (Store tech →
+              Revenue streams: No, Ask or Must). It has keys of its own, so it works the same on every tablet
+              and the tablet&apos;s own keyboard never pops up: letters for the name (each word starts with a
+              capital by itself; <strong>Shift</strong> for a capital in the middle, as in MacDonald; &apos; and -
+              for names like O&apos;Neil or Smith-Jones; Space, Clear and Delete) and a number pad for the tent number. Tap a
+              field to type into it, or <strong>Next</strong>. A keyboard plugged into the till types too (Enter
+              moves on). A name or tent number the type must have keeps <strong>Done</strong> greyed out, with
+              what is missing beside it. Tapping an order type that asks for nothing (Delivery, say) finishes
+              straight away. <strong>X</strong> (or Escape) closes it without starting anything.
+            </P>
+            <ul className="list-disc ml-5 space-y-2 text-sm text-muted-foreground mb-4">
+              <li><strong>One screen</strong> (the usual): the order types along the top and the name and tent number under them, all at once.</li>
+              <li><strong>Two steps</strong>: big order type buttons first (<em>Which kind of order?</em>), then the name or tent number that type asks for, with Back to change the type.</li>
+              <li>Pick the way in Store tech → <strong>Receipts and payments</strong> (<strong>Asking for the order type, name and tent number</strong>); a till can have its own in its window (Store tech → Tills).</li>
+              <li>The same screen opens for More → <strong>Order type</strong>, <strong>Name</strong> and <strong>Tent number</strong> on a check, and at Send or Pay when a check is missing a name or tent number its order type must have (straight on the name or tent). A check at a table is never asked for a tent number.</li>
+            </ul>
 
             <H3>Cancelling an order</H3>
             <P>

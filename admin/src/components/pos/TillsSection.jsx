@@ -261,6 +261,7 @@ function TillModal({ venueId, setup, device, onClose }) {
     card_reader: s.card_reader || 'none',
     order_numbers: orderRangeOf(device),
     receipt_mode: s.receipt_mode || 'venue',
+    order_prompt: s.order_prompt || 'venue',
   })
   const set = patch => setForm(f => ({ ...f, ...patch }))
   const body = () => ({
@@ -272,6 +273,7 @@ function TillModal({ venueId, setup, device, onClose }) {
       receipt_printer_id: form.receipt_printer_id || null,
       card_reader: form.card_reader,
       receipt_mode: form.receipt_mode,
+      order_prompt: form.order_prompt,
       ...(device && orderRangeReady(form.order_numbers) ? { order_numbers: form.order_numbers } : {}),
     },
   })
@@ -330,6 +332,12 @@ function TillModal({ venueId, setup, device, onClose }) {
             {RECEIPT_MODES.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
           </select>
         </Field>
+        <Field label="Asking for the order type, name and tent number" hint={'Venue setting: ' + (ORDER_PROMPTS.find(m => m.value === (setup.settings.order_prompt || 'one'))?.label || 'One screen') + ' (Receipts and payments).'}>
+          <select className={inputCls} value={form.order_prompt} onChange={e => set({ order_prompt: e.target.value })} data-testid="till-order-prompt">
+            <option value="venue">As the venue</option>
+            {ORDER_PROMPTS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+          </select>
+        </Field>
         <CardMachinePick venueId={venueId} value={form.card_reader} onChange={v => set({ card_reader: v })} />
         <OrderNumbersField setup={setup} device={device} value={form.order_numbers} onChange={v => set({ order_numbers: v })} />
       </>}
@@ -343,6 +351,16 @@ export const RECEIPT_MODES = [
   { value: 'ask', label: 'Ask each time' },
   { value: 'always', label: 'Always print' },
   { value: 'never', label: 'Don\'t print' },
+]
+
+/**
+ * How the till asks for a new order's order type, name and tent number
+ * (pos_settings.order_prompt, migration 226): both take over the screen with
+ * the till's own keys.
+ */
+export const ORDER_PROMPTS = [
+  { value: 'one', label: 'One screen' },
+  { value: 'two', label: 'Two steps' },
 ]
 
 /** The address a device of this kind opens (Store tech's device_urls). */
