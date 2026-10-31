@@ -34,8 +34,12 @@ export function readLink(configPath) {
   } catch { return {} }
 }
 
+/** Written to a new file and renamed over hub.json, so a hub stopped in the
+ *  middle (the service ends it at once) never leaves half a link. */
 export function writeLink(configPath, c) {
-  fs.writeFileSync(configPath, JSON.stringify(c, null, 2) + '\n', { mode: 0o600 })
+  const tmp = configPath + '.tmp'
+  fs.writeFileSync(tmp, JSON.stringify(c, null, 2) + '\n', { mode: 0o600 })
+  fs.renameSync(tmp, configPath)
 }
 
 const linked = c => !!(c.device_id && c.secret && c.api)

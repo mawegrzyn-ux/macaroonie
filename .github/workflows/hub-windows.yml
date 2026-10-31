@@ -1,0 +1,63 @@
+name: Venue hub on Windows
+
+# The Windows installer (hub/install/install.ps1) run for real on a Windows
+# machine, against a stand-in cloud (hub/test/windows/standin.mjs): the hub as
+# the MacaroonieHub service (compiled there from hub/install/HubService.cs),
+# restarts, stopping, the scheduled task fallback, moving a linked hub,
+# uninstalling. Once with Windows PowerShell 5.1 (what setup.cmd and a plain
+# "PowerShell as administrator" run) and once with PowerShell 7.
+
+on:
+  pull_request:
+    paths:
+      - 'hub/**'
+      - 'api/src/services/hubRelease.js'
+      - '.github/workflows/hub-windows.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'hub/**'
+      - 'api/src/services/hubRelease.js'
+      - '.github/workflows/hub-windows.yml'
+  workflow_dispatch:
+
+jobs:
+  install:
+    name: Windows installer (${{ matrix.shell }})
+    runs-on: windows-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        shell: [powershell, pwsh]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Only for the stand-in cloud: the installer downloads its own Node.js.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # The stand-in cloud and the test in one step: a process started in one
+      # step isn't guaranteed to outlive it.
+      - name: Install, run, restart, move and remove the hub
+        shell: pwsh
+        run: |
+          $cloud = Start-Process -FilePath node -ArgumentList 'hub/test/windows/standin.mjs', '8790' -PassThru -NoNewWindow `
+            -RedirectStandardOutput standin.log -RedirectStandardError standin.err
+          $up = $false
+          for ($i = 0; $i -lt 30 -and -not $up; $i++) {
+            try { Invoke-RestMethod http://127.0.0.1:8790/__calls | Out-Null; $up = $true } catch { Start-Sleep -Seconds 1 }
+          }
+          if (-not $up) { Get-Content standin.log, standin.err -ErrorAction SilentlyContinue; throw 'the stand-in cloud did not start' }
+          $exe = if ('${{ matrix.shell }}' -eq 'powershell') { 'powershell.exe' } else { 'pwsh.exe' }
+          & $exe -NoProfile -ExecutionPolicy Bypass -File ./hub/test/windows/install-test.ps1 -Api http://127.0.0.1:8790
+          $code = $LASTEXITCODE
+          Stop-Process -Id $cloud.Id -Force -ErrorAction SilentlyContinue
+          exit $code
+
+      - name: What the stand-in cloud was asked
+        if: always()
+        shell: pwsh
+        run: Get-Content standin.log -Tail 80 -ErrorAction SilentlyContinue

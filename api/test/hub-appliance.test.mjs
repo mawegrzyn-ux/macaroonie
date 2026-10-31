@@ -102,6 +102,11 @@ test('the hub\'s code: release, a tar.gz that unpacks and passes its own check, 
   assert.equal(ps1.statusCode, 200)
   assert.ok(ps1.body.includes(`irm ${deviceOrigin('terminal')}/pos-api/hub/install.ps1 | iex`))
   assert.ok(!ps1.body.includes('__MACAROONIE_API__'))
+  // The Windows service's source travels in the installer, whole, in a here-string.
+  const cs = fs.readFileSync(new URL('../../hub/install/HubService.cs', import.meta.url), 'utf8').replace(/\s+$/, '')
+  assert.ok(!ps1.body.includes('__MACAROONIE_HUB_SERVICE_CS__'))
+  assert.ok(ps1.body.includes("$global:MacaroonieHubServiceSource = @'\n" + cs + "\n'@"), 'HubService.cs is in install.ps1')
+  assert.ok(ps1.body.includes("New-Service -Name $ServiceName"))
 })
 
 test('USB printers on the hub: which printer needed, only a hub of this venue, in the hub\'s config only', async () => {

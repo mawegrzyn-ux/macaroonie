@@ -76,14 +76,24 @@ or its page. Without asking: `... | sudo sh -s -- --keep`, `--switch` or `--unin
 irm https://pos.macaroonie.com/pos-api/hub/install.ps1 | iex
 ```
 
-It installs into `C:\ProgramData\Macaroonie\Hub` with its own Node.js, as a scheduled task
-that starts with the computer (as SYSTEM) and starts again if it stops, opens port 9180 on
-private networks, and shows the link code. Its log: `C:\ProgramData\Macaroonie\Hub\hub.log`.
+It installs into `C:\ProgramData\Macaroonie\Hub` with its own Node.js, as the Windows
+service **Macaroonie hub** (`MacaroonieHub`): it starts with the computer as LocalSystem (no
+one needs to sign in), and Windows starts it again if it fails. The service is a small program,
+`hub-service.exe`, compiled on the PC from `install/HubService.cs` (carried inside install.ps1)
+with the C# compiler Windows comes with: nothing else is downloaded and nothing needs signing.
+It runs the launcher in a job object, so stopping the service (or the program dying) stops
+every hub process. Where Windows won't run it (no compiler, Smart App Control), the installer
+says so and uses a scheduled task as before (`$env:MACAROONIE_HUB_RUN_AS = 'task'` asks for
+that). It also opens ports 9180 and 9181 on private networks, stops the computer sleeping on
+mains power and keeps USB ports powered (`$env:MACAROONIE_HUB_POWER = 'leave'` doesn't), and
+shows the link code. Its logs: `C:\ProgramData\Macaroonie\Hub\hub.log` (the hub) and
+`service.log` (the service). The one-line command shows no "Windows protected your PC"
+warning; the downloaded setup file does (More info, Run anyway).
 A printer installed in Windows (install the printer's own driver first) shows in the
 hub's list by its Windows name. Without asking: `$env:MACAROONIE_HUB_CHOICE = 'keep'`,
 `'switch'` or `'remove'` (or `$env:MACAROONIE_HUB_UNINSTALL = '1'`), then the same `irm ... | iex`.
-Every hub process is stopped before an update: ending the scheduled task only ends the
-launcher, and a hub left running kept the ports and the old link.
+The installer is tested on a Windows machine by `.github/workflows/hub-windows.yml`
+(`test/windows/`).
 
 **Then:** in Macaroonie, Store tech → Venue hub → **Link a hub** and type the code (or scan
 the QR code on the hub's page with the installer app). Add the network printers (On the

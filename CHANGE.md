@@ -5,6 +5,17 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-31 — Venue hub on Windows runs as a Windows service]
+
+- **On a Windows mini PC the hub now runs as the Windows service "Macaroonie hub"** instead of a scheduled task. It starts with the computer before anyone signs in, Windows restarts it if it ever stops, and stopping it stops every part of the hub (nothing is left running holding the ports or the link).
+- No extra download and nothing to sign: the installer builds the small service program on the computer with the C# compiler Windows already has. If Windows won't run it (rare: Smart App Control on a new Windows 11 computer), the installer says so and uses the scheduled task as before.
+- Running the installer on a hub installed before this moves it to the service by itself (keep, switch and remove work as before).
+- The installer also stops the mini PC sleeping on mains power and keeps its USB ports powered, so USB printers don't drop off.
+- The hub saves its link so that a hub stopped mid-save can't lose it.
+- The Windows installer is now tested on a real Windows machine on every change to the hub (new check: Venue hub on Windows).
+
+---
+
 ## [2026-10-31 — Venue hub: move a mini PC to another restaurant; no hub left running on Windows]
 
 - **Running the hub installer again** on a computer that is already a hub now says which restaurant and venue it is linked to and asks: **1** keep it (and update it), **2** link it to another restaurant or venue, **3** remove it. Before, running it again kept the old link without saying so, so installing a second restaurant's hub on the same mini PC quietly carried on as the first.

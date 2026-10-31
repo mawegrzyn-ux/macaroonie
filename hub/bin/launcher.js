@@ -2,8 +2,9 @@
 // hub/bin/launcher.js
 //
 // Keeps an installed hub running. The installer copies this file to
-// <home>/launcher.mjs and the service (systemd on Linux, a scheduled task on
-// Windows) runs it:
+// <home>/launcher.mjs and the service (systemd on Linux; on Windows the
+// MacaroonieHub service, hub/install/HubService.cs, or a scheduled task on
+// hubs installed before it) runs it:
 //
 //   <home>/node/bin/node <home>/launcher.mjs
 //

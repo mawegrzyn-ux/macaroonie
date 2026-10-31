@@ -4,13 +4,22 @@
 #   irm __MACAROONIE_API__/pos-api/hub/install.ps1 | iex
 #
 # It installs its own Node.js (in C:\ProgramData\Macaroonie\Hub\node), downloads
-# the hub from the cloud (checked against its sha256), and runs it as a
-# scheduled task that starts with the computer (as SYSTEM, no one needs to
-# sign in) and starts again if it stops. Then it shows the six-letter code:
-# link it in Store tech -> Venue hub -> Link a hub, or scan the QR code on
-# the hub's page (http://<this computer>:9180) with the installer app. A
-# printer installed in Windows (USB, serial, Bluetooth) can then be picked in
-# Store tech as "USB on the hub". The hub updates itself afterwards.
+# the hub from the cloud (checked against its sha256), and runs it as the
+# Windows service "Macaroonie hub" (MacaroonieHub): it starts with the
+# computer as LocalSystem (no one needs to sign in), and Windows starts it
+# again if it stops. The service is a small program compiled here, with the
+# C# compiler Windows comes with, from the source at the end of this file
+# (hub/install/HubService.cs): nothing else is downloaded and there is
+# nothing to sign. Where Windows won't run it, the hub runs as a scheduled
+# task instead (as before); $env:MACAROONIE_HUB_RUN_AS = 'task' asks for that.
+# It also keeps the computer from sleeping on mains power and its USB
+# printers powered ($env:MACAROONIE_HUB_POWER = 'leave' doesn't).
+#
+# Then it shows the six-letter code: link it in Store tech -> Venue hub ->
+# Link a hub, or scan the QR code on the hub's page (http://<this computer>:9180)
+# with the installer app. A printer installed in Windows (USB, serial,
+# Bluetooth) can then be picked in Store tech as "USB on the hub". The hub
+# updates itself afterwards.
 #
 # Run again on a computer that is already a hub, it says which restaurant and
 # venue the hub is linked to and asks: keep it (and update it), link it to
@@ -36,6 +45,8 @@ $Port = 9180
 # Hub first: the port the tills, kiosks and kitchen screens on the venue network use.
 $LanPort = 9181
 $TaskName = 'Macaroonie hub'
+$ServiceName = 'MacaroonieHub'
+$ServiceExe = Join-Path $HubHome 'hub-service.exe'
 
 function Fail($message) { throw "Install stopped: $message" }
 
@@ -45,22 +56,116 @@ if (-not $admin) { Fail 'open PowerShell as administrator (right-click, Run as a
 $hubJson = Join-Path $HubHome 'hub.json'
 $canAsk = [Environment]::UserInteractive -and -not [Console]::IsInputRedirected
 
-# Stop the hub: the task, then every node.exe running from the hub's folder.
-# Ending the task ends the launcher only; the hub it started keeps running
-# (its ports, its link) unless it is stopped too.
+# Stop the hub: the service (or the scheduled task of hubs installed before
+# the service), then anything of the hub's still running. The service stops
+# everything it started (a job object); ending the task ends the launcher only,
+# and the hub it started would keep running (its ports, its link).
 function Stop-Hub {
+  if (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) {
+    Stop-Service -Name $ServiceName -Force -ErrorAction SilentlyContinue
+  }
   Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
-  Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" -ErrorAction SilentlyContinue |
-    Where-Object { $_.CommandLine -like "*$HubHome*" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+  Get-CimInstance Win32_Process -Filter "Name = 'node.exe' OR Name = 'hub-service.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -like "*$HubHome*" -or $_.ExecutablePath -like "$HubHome*" } |
+    ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
   Start-Sleep -Seconds 1
+}
+
+# Start it again however it is installed (after a refused change).
+function Start-Hub {
+  if (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) { Start-Service -Name $ServiceName -ErrorAction SilentlyContinue }
+  else { Start-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue }
+}
+
+function Remove-HubService {
+  if (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) {
+    Stop-Service -Name $ServiceName -Force -ErrorAction SilentlyContinue
+    $null = & sc.exe delete $ServiceName
+    for ($i = 0; $i -lt 10 -and (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue); $i++) { Start-Sleep -Milliseconds 500 }
+  }
 }
 
 function Remove-Hub {
   Stop-Hub
+  Remove-HubService
   Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
   Remove-NetFirewallRule -DisplayName 'Macaroonie hub status page' -ErrorAction SilentlyContinue
   Remove-NetFirewallRule -DisplayName 'Macaroonie hub for devices' -ErrorAction SilentlyContinue
-  Remove-Item -Recurse -Force $HubHome -ErrorAction SilentlyContinue
+  # The service's program can take a moment to let go of its file.
+  for ($i = 0; $i -lt 5 -and (Test-Path $HubHome); $i++) {
+    Remove-Item -Recurse -Force $HubHome -ErrorAction SilentlyContinue
+    if (Test-Path $HubHome) { Start-Sleep -Seconds 1 }
+  }
+  if (Test-Path $HubHome) { Write-Host "  Couldn't delete everything in ${HubHome}: delete it after a restart." -ForegroundColor Yellow }
+}
+
+# The hub as the Windows service: compile hub-service.exe from the source at
+# the end of this file with Windows' own C# compiler (.NET Framework 4), then
+# register it (or update it) and start it. Throws when any of it fails.
+function Install-HubService($hubArgs) {
+  $source = $global:MacaroonieHubServiceSource
+  if (-not $source -or $source -notmatch 'class HubService') {
+    $beside = if ($PSScriptRoot) { Join-Path $PSScriptRoot 'HubService.cs' } else { $null }
+    if ($beside -and (Test-Path $beside)) { $source = Get-Content -Raw $beside }
+    else { throw 'this copy of the installer has no service in it' }
+  }
+  $csc = @('Framework64', 'FrameworkArm64', 'Framework') |
+    ForEach-Object { Join-Path $env:WINDIR "Microsoft.NET\$_\v4.0.30319\csc.exe" } |
+    Where-Object { Test-Path $_ } | Select-Object -First 1
+  if (-not $csc) { throw "Windows' C# compiler (.NET Framework 4) isn't on this computer" }
+  $cs = Join-Path $HubHome 'hub-service.cs'
+  [IO.File]::WriteAllText($cs, $source, (New-Object Text.UTF8Encoding $false))
+  Remove-Item -Force $ServiceExe -ErrorAction SilentlyContinue
+  # A native program's messages must not stop the install (Windows PowerShell
+  # turns them into errors when $ErrorActionPreference is Stop).
+  $ErrorActionPreference = 'Continue'
+  $out = & $csc /nologo /target:exe /optimize+ "/out:$ServiceExe" /r:System.ServiceProcess.dll $cs 2>&1
+  if ($LASTEXITCODE -ne 0 -or -not (Test-Path $ServiceExe)) { throw ("the service didn't compile: " + (($out | Out-String).Trim())) }
+  [IO.File]::WriteAllLines((Join-Path $HubHome 'service-args.txt'), [string[]]$hubArgs, (New-Object Text.UTF8Encoding $false))
+
+  $binPath = '"' + $ServiceExe + '"'
+  $existing = Get-CimInstance Win32_Service -Filter "Name = '$ServiceName'" -ErrorAction SilentlyContinue
+  if ($existing) {
+    if ($existing.PathName -ne $binPath -or $existing.StartMode -ne 'Auto') {
+      $r = Invoke-CimMethod -InputObject $existing -MethodName Change -Arguments @{ PathName = $binPath; StartMode = 'Automatic' } -ErrorAction Stop
+      if ($r.ReturnValue -ne 0) { throw "Windows didn't update the service (error $($r.ReturnValue))" }
+    }
+  } else {
+    New-Service -Name $ServiceName -BinaryPathName $binPath -DisplayName 'Macaroonie hub' -StartupType Automatic `
+      -Description 'Macaroonie venue hub: prints for the tills and kitchen, and keeps the venue trading without the internet' -ErrorAction Stop | Out-Null
+  }
+  # Windows starts it again if it fails: after 5 s, 10 s, then every 30 s; the count starts over after a day.
+  $null = & sc.exe failure $ServiceName reset= 86400 actions= restart/5000/restart/10000/restart/30000
+  $null = & sc.exe failureflag $ServiceName 1
+  Start-Service -Name $ServiceName -ErrorAction Stop
+  (Get-Service -Name $ServiceName).WaitForStatus('Running', (New-TimeSpan -Seconds 20))
+}
+
+# The hub as a scheduled task (before the service, and where Windows won't run it).
+function Install-HubTask($hubArgs) {
+  $node = Join-Path $HubHome 'node\node.exe'
+  $quoted = $hubArgs | ForEach-Object { if ($_ -match '[\s"]') { '"' + $_ + '"' } else { $_ } }
+  $action = New-ScheduledTaskAction -Execute $node -WorkingDirectory $HubHome `
+    -Argument ((@('"' + (Join-Path $HubHome 'launcher.mjs') + '"') + @($quoted)) -join ' ')
+  $trigger = New-ScheduledTaskTrigger -AtStartup
+  $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable `
+    -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -MultipleInstances IgnoreNew
+  $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
+  Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal `
+    -Description 'Macaroonie venue hub: prints for the tills and kitchen' -Force | Out-Null
+  Start-ScheduledTask -TaskName $TaskName
+}
+
+# A hub must stay awake: no sleep or hibernation on mains power, and USB
+# printers kept powered (USB selective suspend off).
+function Set-HubPower {
+  if ($env:MACAROONIE_HUB_POWER -eq 'leave') { return }
+  $ErrorActionPreference = 'Continue'
+  $null = & powercfg.exe /change standby-timeout-ac 0
+  $null = & powercfg.exe /change hibernate-timeout-ac 0
+  $null = & powercfg.exe /setacvalueindex SCHEME_CURRENT 2a737441-1930-4402-8d77-b2bebba308a3 48e6b7a6-50f5-4782-a5d4-53bb8f07e226 0
+  $null = & powercfg.exe /setactive SCHEME_CURRENT
+  Write-Host 'Power: this computer no longer sleeps on mains power, and keeps its USB printers powered.'
 }
 
 # "WingVibes, Ware (Venue hub)" from what link-info says.
@@ -123,7 +228,7 @@ if ($env:MACAROONIE_HUB_UNINSTALL -eq '1') {
       if ($i.linked) { $what = Describe-Link $i }
     } catch { $what = 'its venue' }
     if (-not (Leave-Venue $installed.node $installed.hubJs $what)) {
-      Start-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+      Start-Hub
       Fail 'nothing was removed, the hub is running again'
     }
   }
@@ -154,7 +259,10 @@ try {
     $zip = Join-Path $tmp $file
     Invoke-WebRequest -UseBasicParsing "$NodeDist/$file" -OutFile $zip
     if ((Get-FileHash -Algorithm SHA256 $zip).Hash.ToLower() -ne $expected.ToLower()) { Fail "the Node.js download doesn't match its checksum" }
-    Expand-Archive -Path $zip -DestinationPath $tmp -Force
+    # Not Expand-Archive: in Windows PowerShell 5.1 it takes many minutes
+    # over Node's thousands of files (its progress bar).
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    [IO.Compression.ZipFile]::ExtractToDirectory($zip, $tmp)
     $unpacked = Join-Path $tmp ([IO.Path]::GetFileNameWithoutExtension($file))
     $nodeDir = Join-Path $HubHome 'node'
     if (Test-Path $nodeDir) { Remove-Item -Recurse -Force $nodeDir }
@@ -212,7 +320,7 @@ try {
       if ($choice -ne 'keep') {
         Stop-Hub
         if (-not (Leave-Venue $node $newHub $what)) {
-          Start-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+          Start-Hub
           Fail "nothing changed: the hub is running again for $what"
         }
         if ($choice -eq 'remove') {
@@ -240,19 +348,28 @@ try {
   [IO.File]::WriteAllText($currentFile, ($next | ConvertTo-Json -Depth 4), (New-Object Text.UTF8Encoding $false))
   Write-Host "Hub $($release.version) installed in $HubHome"
 
-  # 3. The scheduled task: at start-up, as SYSTEM, started again if it stops.
+  # 3. Run it: the Windows service (or, where Windows won't, the scheduled task).
   $log = Join-Path $HubHome 'hub.log'
-  $action = New-ScheduledTaskAction -Execute $node -WorkingDirectory $HubHome `
-    -Argument ('"' + (Join-Path $HubHome 'launcher.mjs') + '" --api ' + $Api + ' --http-port ' + $Port + ' --lan-port ' + $LanPort + ' --log-file "' + $log + '"')
-  $trigger = New-ScheduledTaskTrigger -AtStartup
-  $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable `
-    -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -MultipleInstances IgnoreNew
-  $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
+  $hubArgs = @('--api', $Api, '--http-port', "$Port", '--lan-port', "$LanPort", '--log-file', $log)
   Stop-Hub
   Remove-Item -Force (Join-Path $HubHome 'state.json') -ErrorAction SilentlyContinue
-  Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal `
-    -Description 'Macaroonie venue hub: prints for the tills and kitchen' -Force | Out-Null
-  Start-ScheduledTask -TaskName $TaskName
+  $runAs = if ($env:MACAROONIE_HUB_RUN_AS -eq 'task') { 'task' } else { 'service' }
+  if ($runAs -eq 'service') {
+    try {
+      Install-HubService $hubArgs
+      # Hubs installed before the service ran as a scheduled task.
+      Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
+    } catch {
+      Write-Host ("  The hub couldn't run as a Windows service (" + $_.Exception.Message + "): it runs as a scheduled task instead.") -ForegroundColor Yellow
+      Remove-HubService
+      $runAs = 'task'
+    }
+  }
+  if ($runAs -eq 'task') {
+    Remove-HubService
+    Install-HubTask $hubArgs
+  }
+  Set-HubPower
 
   # The status page on the venue's network.
   if (-not (Get-NetFirewallRule -DisplayName 'Macaroonie hub status page' -ErrorAction SilentlyContinue)) {
@@ -291,12 +408,20 @@ try {
   Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
     Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' } |
     ForEach-Object { Write-Host "  Its page on the venue's network: http://$($_.IPAddress):$Port" }
+  if ($runAs -eq 'service') { Write-Host "  It runs as the Windows service 'Macaroonie hub' (in Services), starting with the computer." }
+  else { Write-Host "  It runs as the scheduled task 'Macaroonie hub', starting with the computer." }
   Write-Host "  Its log: $log"
   Write-Host ''
 } finally {
   Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
 }
 }
+
+# The Windows service's program (hub/install/HubService.cs), compiled here.
+# The API puts the file in when it serves this installer.
+$global:MacaroonieHubServiceSource = @'
+__MACAROONIE_HUB_SERVICE_CS__
+'@
 
 # $MacaroonieHubFailed and $MacaroonieHubRemoved tell macaroonie-hub-setup.cmd
 # (pos.<domain>/hub) whether it worked, and not to open the hub's page.

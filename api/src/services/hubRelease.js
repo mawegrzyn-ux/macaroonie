@@ -133,10 +133,18 @@ const INSTALL_FILES = { sh: 'hub/install/install.sh', ps1: 'hub/install/install.
 
 /** The installer for a platform, with the cloud's address (the device address
  *  hubs use) filled in. The .cmd gets Windows line endings: cmd.exe misreads
- *  some lines of a file without them. */
+ *  some lines of a file without them. The Windows installer carries the
+ *  service's source (hub/install/HubService.cs), which it compiles on the
+ *  mini PC. */
 export function installScript(kind, api, { root = ROOT } = {}) {
-  const text = fs.readFileSync(path.join(root, INSTALL_FILES[kind] || INSTALL_FILES.sh), 'utf8')
-    .replaceAll('__MACAROONIE_API__', api.replace(/\/+$/, ''))
+  let text = fs.readFileSync(path.join(root, INSTALL_FILES[kind] || INSTALL_FILES.sh), 'utf8')
+  if (kind === 'ps1') {
+    const cs = fs.readFileSync(path.join(root, 'hub/install/HubService.cs'), 'utf8').replace(/\s+$/, '')
+    // A single-quoted here-string ends at a line starting with '@.
+    if (/^'@/m.test(cs)) throw new Error("HubService.cs can't have a line starting with '@")
+    text = text.replace(/^__MACAROONIE_HUB_SERVICE_CS__$/m, () => cs)
+  }
+  text = text.replaceAll('__MACAROONIE_API__', api.replace(/\/+$/, ''))
   return kind === 'cmd' ? text.replace(/\r?\n/g, '\r\n') : text
 }
 
