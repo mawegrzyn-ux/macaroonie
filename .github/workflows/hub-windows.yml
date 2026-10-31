@@ -39,22 +39,23 @@ jobs:
         with:
           node-version: 22
 
-      - name: Start the stand-in cloud
+      # The stand-in cloud and the test in one step: a process started in one
+      # step isn't guaranteed to outlive it.
+      - name: Install, run, restart, move and remove the hub
         shell: pwsh
         run: |
-          $p = Start-Process -FilePath node -ArgumentList 'hub/test/windows/standin.mjs', '8790' -PassThru -NoNewWindow `
+          $cloud = Start-Process -FilePath node -ArgumentList 'hub/test/windows/standin.mjs', '8790' -PassThru -NoNewWindow `
             -RedirectStandardOutput standin.log -RedirectStandardError standin.err
-          for ($i = 0; $i -lt 30; $i++) {
-            try { Invoke-RestMethod http://127.0.0.1:8790/__calls | Out-Null; Write-Host 'Stand-in cloud is up'; exit 0 } catch { Start-Sleep -Seconds 1 }
+          $up = $false
+          for ($i = 0; $i -lt 30 -and -not $up; $i++) {
+            try { Invoke-RestMethod http://127.0.0.1:8790/__calls | Out-Null; $up = $true } catch { Start-Sleep -Seconds 1 }
           }
-          Get-Content standin.log, standin.err -ErrorAction SilentlyContinue
-          throw 'the stand-in cloud did not start'
-
-      - name: Install, run, restart, move and remove the hub
-        shell: ${{ matrix.shell }}
-        run: |
-          & ./hub/test/windows/install-test.ps1 -Api http://127.0.0.1:8790
-          exit $LASTEXITCODE
+          if (-not $up) { Get-Content standin.log, standin.err -ErrorAction SilentlyContinue; throw 'the stand-in cloud did not start' }
+          $exe = if ('${{ matrix.shell }}' -eq 'powershell') { 'powershell.exe' } else { 'pwsh.exe' }
+          & $exe -NoProfile -ExecutionPolicy Bypass -File ./hub/test/windows/install-test.ps1 -Api http://127.0.0.1:8790
+          $code = $LASTEXITCODE
+          Stop-Process -Id $cloud.Id -Force -ErrorAction SilentlyContinue
+          exit $code
 
       - name: What the stand-in cloud was asked
         if: always()
