@@ -289,7 +289,7 @@ test('set up new, with no location to copy from', async () => {
       areas: AREA_KEYS.map(key => ({ key, mode: 'new', note: '', deep_dive: false })),
       hours: { slot_interval_mins: 30, days: [...days, { day: 0, open: false, sittings: [] }] },
       tables: { sections: [{ name: 'Main', tables: [{ label: 'T1', min_covers: 1, max_covers: 4 }, { label: 'T2', min_covers: 1, max_covers: 4 }] }] },
-      till: { receipt_name: '', streams: [{ name: 'Restaurant', service_charge_percent: 12.5 }] },
+      till: { receipt_name: '', streams: [{ name: 'Restaurant' }] },
       devices: { tills: 2, kitchen_screens: 1, kiosks: 1, menu_screens: 2 },
       food_safety: { equipment: [{ name: 'Walk-in', type: 'fridge' }, { name: 'Chest', type: 'freezer' }], check_times: ['09:00', '16:00'], hold_stations: [{ name: 'Pass', hold_type: 'hot' }], hold_check_times: ['12:00'], cooking_sessions: [{ label: 'Lunch', time: '12:00', required: 2 }] },
       checklists: [{ name: 'Opening', frequency: 'daily', tasks: ['Lights on', 'Fridges checked'] }],
@@ -319,8 +319,8 @@ test('set up new, with no location to copy from', async () => {
   assert.equal(cash.n, 2)
   const [items] = await sql`SELECT count(*)::int AS n FROM checklist_template_items i JOIN checklist_templates t ON t.id = i.template_id WHERE t.venue_id = ${V}`
   assert.equal(items.n, 2)
-  const [stream] = await sql`SELECT service_charge_percent::float8 AS pct FROM pos_revenue_streams WHERE venue_id = ${V}`
-  assert.equal(stream.pct, 12.5)
+  const [stream] = await sql`SELECT name FROM pos_revenue_streams WHERE venue_id = ${V}`
+  assert.equal(stream.name, 'Restaurant')
 })
 
 test('someone who can\'t set up an area: it is left out and listed for someone else', async () => {

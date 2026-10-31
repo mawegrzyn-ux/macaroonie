@@ -17,6 +17,7 @@ import { usePermission } from '@/hooks/usePermission'
 import { checkTotals, modifierText, groupModifiers } from '@shared/pos/pricing.js'
 import { TENDERS } from '@shared/pos/checks.js'
 import { numberText } from '@shared/pos/numbers.js'
+import { chargeLabel } from '@shared/pos/charges.js'
 import { PageHeader, VenueSelect, usePosVenue, ErrorNote, Btn, Segmented, money, inputCls } from '@/components/pos/shared'
 
 const TABS = [
@@ -91,7 +92,7 @@ function DayDetail({ venueId, dayId, onBack, onShowChecks }) {
             ['Before discounts', money(f.sales.gross)],
             f.sales.discounts ? ['Discounts', '−' + money(f.sales.discounts)] : null,
             ['Sales', money(f.sales.net)],
-            f.sales.service_charge ? ['Service charge', money(f.sales.service_charge)] : null,
+            f.sales.service_charge ? ['Charges', money(f.sales.service_charge)] : null,
             ['Total', money(f.sales.total), true],
             ['Of which VAT', money(f.sales.vat_total)],
             ['Checks', f.counts.closed + (f.counts.open ? ' (+' + f.counts.open + ' open)' : '')],
@@ -125,6 +126,18 @@ function DayDetail({ venueId, dayId, onBack, onShowChecks }) {
         <Card title="Discounts and comps">
           <Rows rows={f.discounts.length ? f.discounts.map(d => [d.name + (d.comp && !/^comp/i.test(d.name) ? ' (comp)' : '') + ' × ' + d.count, money(d.amount)]) : [['None', '']]} />
         </Card>
+        {(f.charges || []).length > 0 && (
+          <Card title="Charges">
+            <ul className="divide-y text-sm" data-testid="report-charges">
+              {f.charges.map(x => (
+                <li key={x.name} className="py-1.5">
+                  <div className="flex justify-between gap-2"><span>{x.name}{x.count ? ' × ' + x.count : ''}</span><span className="tabular-nums">{money(x.amount)}</span></div>
+                  {x.removed > 0 && <p className="text-xs text-muted-foreground">Taken off {x.removed} × ({money(x.removed_value)})</p>}
+                </li>
+              ))}
+            </ul>
+          </Card>
+        )}
         <Card title={'Voids (' + f.voids.count + ')'}>
           {f.voids.lines.length ? (
             <ul className="divide-y text-sm">
@@ -251,10 +264,12 @@ function eventText(e, lines, names, lookups = {}) {
     case 'lines.sent': return 'Sent ' + p.line_ids.length + ' item' + (p.line_ids.length === 1 ? '' : 's') + (p.held_course_ids?.length ? ', some courses held' : '')
     case 'course.fired': return 'Fired a course'
     case 'line.voided': return 'Voided ' + (p.qty ? p.qty + ' × ' : '') + lineName(p.line_id) + ': ' + p.reason
-    case 'discount.applied': return (p.discount.comp ? 'Comp ' : 'Discount ') + (p.discount.name || '') + (p.discount.type === 'percent' ? ' ' + p.discount.value + '%' : p.discount.type === 'amount' ? ' ' + money(p.discount.value) : '') + (p.discount.reason ? ': ' + p.discount.reason : '')
+    case 'discount.applied': return (p.discount.comp ? 'Comp ' : p.discount.preset_id ? 'Discount from the list: ' : 'Discount ') + (p.discount.name || '') + (p.discount.type === 'percent' ? ' ' + p.discount.value + '%' : p.discount.type === 'amount' ? ' ' + money(p.discount.value) : '') + (p.discount.reason ? ': ' + p.discount.reason : '')
     case 'discount.removed': return 'Discount removed'
     case 'promotions.set': return p.promotions.length ? 'Offers: ' + p.promotions.map(x => x.name).join(', ') : 'Offers removed'
-    case 'service_charge.set': return p.removed ? 'Service charge taken off' + (p.reason ? ': ' + p.reason : '') : 'Service charge set'
+    case 'charge.added': return 'Charge added: ' + chargeLabel(p.charge)
+    case 'charge.removed': return 'Took off ' + (lookups.charges?.[p.charge_id] || 'a charge') + (p.reason ? ': ' + p.reason : '')
+    case 'charge.restored': return 'Put back ' + (lookups.charges?.[p.charge_id] || 'a charge')
     case 'lines.moved': return 'Moved ' + p.line_ids.length + ' item' + (p.line_ids.length === 1 ? '' : 's') + ' to another check'
     case 'check.merged': return 'Merged into another check'
     case 'bill.printed': return 'Bill printed'
@@ -276,6 +291,11 @@ function CheckDetail({ checkId, onBack, staffNames }) {
   const t = checkTotals(c)
   const lines = Object.fromEntries(c.lines.map(l => [l.id, l]))
   for (const e of data.events) if (e.type === 'line.added') lines[e.payload.line.id] = lines[e.payload.line.id] || e.payload.line
+  // Charge names for the history, from the check and every event that carried charges.
+  const charges = Object.fromEntries((c.charges || []).map(x => [x.id, x.name]))
+  for (const e of data.events) {
+    for (const x of [...(e.payload?.charges || []), ...(e.payload?.charge ? [e.payload.charge] : [])]) charges[x.id] = charges[x.id] || x.name
+  }
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
@@ -305,7 +325,12 @@ function CheckDetail({ checkId, onBack, staffNames }) {
           <div className="mt-3 pt-3 border-t">
             <Rows rows={[
               t.discount ? ['Discounts', '−' + money(t.discount)] : null,
-              t.service_charge ? ['Service charge', money(t.service_charge)] : null,
+              ...t.charges.map(x => {
+                if (x.amount) return [chargeLabel(x), money(x.amount)]
+                if (!x.removed || !x.would_be) return null
+                const why = (c.charges || []).find(y => y.id === x.id)?.reason
+                return [chargeLabel(x) + ' taken off' + (why ? ': ' + why : ''), <span className="line-through">{money(x.would_be)}</span>]
+              }),
               ['Total', money(t.total), true],
               ['Paid', money(t.paid)],
               t.tips ? ['Tips', money(t.tips)] : null,
@@ -320,7 +345,7 @@ function CheckDetail({ checkId, onBack, staffNames }) {
               <li key={e.id} className="flex gap-3">
                 <span className="text-xs text-muted-foreground tabular-nums w-12 shrink-0 pt-0.5">{time(e.client_at || e.created_at)}</span>
                 <span className="flex-1">
-                  {eventText(e, lines, staffNames, data.names)}
+                  {eventText(e, lines, staffNames, { ...data.names, charges })}
                   <span className="block text-xs text-muted-foreground">{e.staff_name || 'Unknown'}{e.approver_name ? ', approved by ' + e.approver_name : ''}</span>
                 </span>
               </li>

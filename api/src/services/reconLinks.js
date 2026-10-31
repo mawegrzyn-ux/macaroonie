@@ -51,7 +51,8 @@ export const LINK_SOURCES = [
           return { label: 'Sales: ' + (streamName.get(t) || 'a revenue stream no longer there'), sign: 1 }
         }
         if (group === 'takings') return { label: tenderName(t), sign: 1 }
-        return { label: t === 'tips' ? 'Tips' : 'Service charge', sign: 1 }
+        if (t === 'tips') return { label: 'Tips', sign: 1 }
+        return { label: t.startsWith('charge:') ? t.slice(7) : 'All charges', sign: 1 }
       })
       return {
         fields,

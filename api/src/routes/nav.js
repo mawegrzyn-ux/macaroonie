@@ -50,6 +50,7 @@ export const ROUTE_CATALOG = [
   { route: '/pos/printing', label: 'Printing', icon: 'ReceiptText', module: 'pos_setup' },
   { route: '/pos/cards', label: 'Card machines', icon: 'CreditCard', module: 'pos_setup' },
   { route: '/pos/types', label: 'Order types', icon: 'ListOrdered', module: 'pos_setup' },
+  { route: '/pos/discounts', label: 'Discounts', icon: 'BadgePercent', module: 'pos_setup' },
   { route: '/pos/streams', label: 'Revenue streams', icon: 'Waypoints', module: 'pos_setup' },
   { route: '/pos/courses', label: 'Courses', icon: 'UtensilsCrossed', module: 'pos_setup' },
   { route: '/pos/staff', label: 'Staff and PINs', icon: 'KeyRound', module: 'pos_setup' },

@@ -139,8 +139,14 @@ function Figures({ f, names }) {
         <Table title="Order types" rows={(f.order_types || []).map(r => [(names.order_types[r.id] || 'Other') + ' (' + r.checks + ')', money(r.net)])} />
         <Table title="Sales" rows={[
           ['Before discounts', money(f.sales.gross)], ['Discounts', '−' + money(f.sales.discounts)],
-          ['Service charge', money(f.sales.service_charge)], ['Tips', money(f.tips)], ['Average check', money(f.sales.average_check)],
+          ['Charges', money(f.sales.service_charge)], ['Tips', money(f.tips)], ['Average check', money(f.sales.average_check)],
         ]} />
+        {(f.charges || []).length > 0 && (
+          <Table title="Charges" rows={f.charges.map(x => [
+            x.name + (x.count ? ' x' + x.count : '') + (x.removed ? ' · taken off ' + x.removed + 'x' : ''),
+            money(x.amount),
+          ])} />
+        )}
         <Table title="VAT" rows={f.vat.map(v => [v.rate + '% on ' + money(v.net), money(v.vat)])} />
         <Table title={'Voids (' + f.voids.count + ')'} rows={f.voids.lines.slice(0, 20).map(v => [v.qty + ' x ' + v.name + ' · ' + v.reason, money(v.value)])} />
         <Table title="Discounts and comps" rows={f.discounts.map(d => [d.name + ' x' + d.count, '−' + money(d.amount)])} />

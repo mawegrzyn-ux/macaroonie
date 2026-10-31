@@ -20,6 +20,7 @@
 import { itemChoices, vatIncluded, basePrice } from '../orderPricing.js'
 import { isCombo, priceCombo, dealChoices, withDealPicks } from '../combos.js'
 import { taxFor } from '../tax.js'
+import { chargeAmount, chargeApplies } from './charges.js'
 
 export { vatIncluded }
 
@@ -292,8 +293,11 @@ function discountOff(d, base) {
  *   1. line discounts and comps (comps first), each on what is left on its lines
  *   2. automatic promotions (check.promotions, set by the till at bill / pay time)
  *   3. check discounts, spread over the lines by what is left on them
- *   4. service charge on what is left (check.service_charge.percent or .amount)
+ *   4. charges (check.charges, shared/pos/charges.js): a percent of what is
+ *      left, or an amount; each at its own VAT rate
  * VAT is the VAT inside what is paid for each line, at the line's rate.
+ * service_charge is every charge that counts, added up (pos_checks.service_charge,
+ * reports, Cash Recon); charges lists each, with what it would come to.
  */
 export function checkTotals(check) {
   const lines = (check.lines || []).filter(isActiveLine)
@@ -343,12 +347,19 @@ export function checkTotals(check) {
   const discount = rows.reduce((s, r) => s + r.discount + r.promo, 0)
   const net = subtotal - discount
 
-  const sc = check.service_charge
+  // Charges: each that counts adds to the total; one taken off, or waiting
+  // for more guests, shows what it would come to.
   let serviceCharge = 0
-  if (sc && !sc.removed) {
-    if (sc.amount != null) serviceCharge = Math.max(0, Math.round(Number(sc.amount) || 0))
-    else serviceCharge = Math.round(net * (Number(sc.percent) || 0) / 100)
-  }
+  const charges = (check.charges || []).map(x => {
+    const would = chargeAmount(x, net, lines.length > 0)
+    const applies = chargeApplies(x, check.covers)
+    if (applies) serviceCharge += would
+    return {
+      id: x.id, name: x.name, kind: x.kind, value: x.value, optional: !!x.optional, added: !!x.added,
+      removed: !!x.removed, waiting: !x.removed && !applies, min_covers: x.min_covers || 0,
+      vat_rate: Number(x.vat_rate) || 0, amount: applies ? would : 0, would_be: would,
+    }
+  })
 
   const vatByRate = new Map()
   const lineTotals = rows.map(r => {
@@ -360,11 +371,11 @@ export function checkTotals(check) {
     vatByRate.set(rate, v)
     return { id: r.id, gross: r.gross, discount: r.discount + r.promo, net: paid, vat_rate: rate, vat }
   })
-  if (serviceCharge && sc?.vat_rate) {
-    const rate = Number(sc.vat_rate) || 0
-    const v = vatByRate.get(rate) || { rate, gross: 0, vat: 0 }
-    v.gross += serviceCharge; v.vat += vatIncluded(serviceCharge, rate)
-    vatByRate.set(rate, v)
+  for (const x of charges) {
+    if (!x.amount || !x.vat_rate) continue
+    const v = vatByRate.get(x.vat_rate) || { rate: x.vat_rate, gross: 0, vat: 0 }
+    v.gross += x.amount; v.vat += vatIncluded(x.amount, x.vat_rate)
+    vatByRate.set(x.vat_rate, v)
   }
   const vat = [...vatByRate.values()].filter(v => v.gross).sort((a, b) => a.rate - b.rate)
     .map(v => ({ rate: v.rate, net: v.gross - v.vat, vat: v.vat, gross: v.gross }))
@@ -378,7 +389,7 @@ export function checkTotals(check) {
   return {
     lines: lineTotals,
     subtotal, discount, promotions, discounts,
-    net, service_charge: serviceCharge, total,
+    net, service_charge: serviceCharge, charges, total,
     vat, vat_total: vat.reduce((s, v) => s + v.vat, 0),
     paid, tips, refunded,
     balance: total - paid,
@@ -390,7 +401,7 @@ export function checkTotals(check) {
 // Only line discounts and comps come before promotions, so they are the only
 // ones taken off here; check discounts are taken after promotions.
 export function promoLines(check) {
-  const only = { ...check, promotions: [], service_charge: null, discounts: (check.discounts || []).filter(d => d.scope === 'line') }
+  const only = { ...check, promotions: [], charges: [], discounts: (check.discounts || []).filter(d => d.scope === 'line') }
   const byId = Object.fromEntries(checkTotals(only).lines.map(l => [l.id, l]))
   return (check.lines || []).filter(isActiveLine).map(l => ({
     line_id: l.id, item_id: l.item_id, section_id: l.section_id ?? null, qty: Number(l.qty) || 1,

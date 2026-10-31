@@ -16,7 +16,7 @@ import LineModal from '../components/LineModal.jsx'
 import PayModal from '../components/PayModal.jsx'
 import LoyaltyModal from '../components/LoyaltyModal.jsx'
 import {
-  ActionsMenu, SendModal, needsSendChoice, FireModal, DiscountModal, ServiceChargeModal, OffersModal, MoveModal,
+  ActionsMenu, SendModal, needsSendChoice, FireModal, DiscountModal, ChargesModal, OffersModal, MoveModal,
   MergeModal, TableModal, NameModal, ServerModal, StreamModal, OrderTypeModal, GuestsModal, OpenItemModal, NoSale, SoldOutModal,
   CancelOrderModal,
 } from '../components/CheckActions.jsx'
@@ -215,7 +215,7 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
       {modal?.kind === 'fire' && <FireModal check={check} config={config} onClose={close} />}
       {modal?.kind === 'cancel' && <CancelOrderModal check={check} onClose={close} onCancelled={close} />}
       {modal?.kind === 'discount' && <DiscountModal check={check} config={config} lineIds={modal.lineIds || null} onClose={close} />}
-      {modal?.kind === 'sc' && <ServiceChargeModal check={check} config={config} onClose={close} />}
+      {modal?.kind === 'sc' && <ChargesModal check={check} config={config} onClose={close} />}
       {modal?.kind === 'offers' && <OffersModal check={check} config={config} onClose={close} />}
       {modal?.kind === 'loyalty' && <LoyaltyModal check={check} config={config} onClose={close} />}
       {modal?.kind === 'move' && <MoveModal check={check} config={config} preselect={modal.lineIds || []} onClose={close} onOpen={onOpen} />}

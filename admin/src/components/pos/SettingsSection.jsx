@@ -14,6 +14,7 @@ import { TimeSelect } from '@/components/staff/shared'
 import { Section, Field, inputCls, ErrorNote, Btn, Toggle, Segmented } from './shared'
 import { RECEIPT_MODES } from './TillsSection'
 import { MANAGER_ACTIONS } from '@shared/pos/permissions.js'
+import { typeCharges } from '@shared/pos/charges.js'
 
 const LOGOUTS = [
   { value: 0, label: 'Never' },
@@ -38,7 +39,6 @@ function fromSettings(s) {
     vat_number: s.vat_number || '',
     receipt_name: s.receipt_name || '',
     receipt_address: (s.receipt_address || []).join('\n'),
-    service_charge_label: s.service_charge_label || '',
     tenders: s.tenders.map(t => ({ ...t })),
     tips_enabled: !!s.tips_enabled,
     require_covers: !!s.require_covers,
@@ -63,7 +63,6 @@ export function ReceiptSettingsSection({ venueId, setup }) {
       vat_number: form.vat_number.trim() || null,
       receipt_name: form.receipt_name.trim() || null,
       receipt_address: form.receipt_address.split('\n').map(l => l.trim()).filter(Boolean).slice(0, 6),
-      service_charge_label: form.service_charge_label.trim() || null,
       tenders: form.tenders.map(t => ({ key: t.key, label: t.label.trim() || t.key, enabled: t.enabled })),
       tips_enabled: form.tips_enabled,
       require_covers: form.require_covers,
@@ -97,9 +96,12 @@ export function ReceiptSettingsSection({ venueId, setup }) {
         What receipts, bills and kitchen tickets say and how they look (headings, footers, the order number big) is on the{' '}
         <Link to="/pos/printing" className="font-medium text-foreground underline">Printing</Link> tab.
       </p>
-      <Field label="Service charge name" hint="As printed, e.g. Discretionary service charge.">
-        <input className={inputCls} value={form.service_charge_label} maxLength={60} onChange={e => set({ service_charge_label: e.target.value })} placeholder="Service charge" />
-      </Field>
+      <p className="text-xs text-muted-foreground" data-testid="charges-note">
+        Service charges and other charges (packaging, delivery) come with the order type: set them on{' '}
+        <Link to="/pos/types" className="font-medium text-foreground underline">Order types</Link>, by name as printed.
+        Discounts the till offers by name are on{' '}
+        <Link to="/pos/discounts" className="font-medium text-foreground underline">Discounts</Link>.
+      </p>
       <div>
         <p className="text-sm font-medium mb-1">Ways to pay</p>
         <p className="text-xs text-muted-foreground mb-2">Card payments are taken on your own card machine for now; the till records them. Card machine links come later.</p>
@@ -192,7 +194,17 @@ export function ReconSection({ venueId, setup }) {
     { value: '-refunds', label: 'minus refunds' },
   ]
   const tenderOptions = setup.settings.tenders.map(t => ({ value: t.key, label: t.label }))
-  const scOptions = [{ value: 'service_charge', label: 'Service charge' }, { value: 'tips', label: 'Tips' }]
+  // Charges by name (Order types): one can go to a tip pot's source and
+  // another (a packaging fee) nowhere. All charges = every one together.
+  const chargeNames = [...new Set([
+    ...(setup.order_types || []).flatMap(t => typeCharges(t).map(x => x.name)),
+    ...Object.values(map.sc || {}).flat().filter(v => typeof v === 'string' && v.startsWith('charge:')).map(v => v.slice(7)),
+  ])]
+  const scOptions = [
+    { value: 'service_charge', label: 'All charges' },
+    ...chargeNames.map(n => ({ value: 'charge:' + n, label: n })),
+    { value: 'tips', label: 'Tips' },
+  ]
   const empty = !f.income.length && !f.takings.length && !f.sc.length
   return (
     <Section title="Cash Recon" hint="When the day is closed (Z), the till's figures can fill this venue's Cash Recon day. Pick what goes into each field; fields with nothing picked are left alone.">
@@ -200,7 +212,7 @@ export function ReconSection({ venueId, setup }) {
       {f.income.length > 0 && (
         <div>
           <h3 className="text-sm font-semibold mb-1">Income</h3>
-          <p className="text-xs text-muted-foreground mb-2">Sales after discounts, without service charge or tips.</p>
+          <p className="text-xs text-muted-foreground mb-2">Sales after discounts, without charges or tips.</p>
           <div className="divide-y">
             {f.income.map(src => (
               <div key={src.id} className="flex flex-col sm:flex-row sm:items-center gap-2 py-2">
@@ -227,7 +239,8 @@ export function ReconSection({ venueId, setup }) {
       )}
       {f.sc.length > 0 && (
         <div>
-          <h3 className="text-sm font-semibold mb-1">Service charge and tips</h3>
+          <h3 className="text-sm font-semibold mb-1">Charges and tips</h3>
+          <p className="text-xs text-muted-foreground mb-2">Charges come with the order type (Order types): pick them by name, or All charges together.</p>
           <div className="divide-y">
             {f.sc.map(src => (
               <div key={src.id} className="flex flex-col sm:flex-row sm:items-center gap-2 py-2">

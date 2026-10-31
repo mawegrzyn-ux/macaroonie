@@ -280,6 +280,15 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx', loy
   const tax = await step('tax rate', () => post('/api/tax-rates', { name: mark + ' Zero', rate: 0 }))
   if (tax) await step('tax rate value', () => put(`/api/tax-rates/${tax.id}/values`, { values: { [V]: 5 } }))
   const orderType = await step('order type', () => post('/api/order-types', { name: mark + ' Drive thru' }))
+  // Charges on the order type (migration 225), one naming the tenant's own tax rate.
+  if (orderType) await step('order type charges', () => patch('/api/order-types/' + orderType.id, {
+    charges: [
+      { name: mark + ' Service', kind: 'percent', value: 10, optional: true, min_covers: 6, tax_rate_id: null },
+      { name: mark + ' Packaging', kind: 'amount', value: 30, optional: false, tax_rate_id: tax?.id ?? null },
+    ],
+  }))
+  // A discount on the company's list (migration 225).
+  await step('till discount', () => post('/api/pos/discounts', { name: mark + ' Staff meal', kind: 'percent', value: 50, scope: 'check', needs_manager: true }))
   await step('nav item', () => post('/api/nav/items', { label: mark + ' Link', route: '/rota', parent_id: null }))
   await step('ordering settings', () => put(`/api/orders/settings/${V}`, {
     is_enabled: true, hours: [0, 1, 2, 3, 4, 5, 6].map(day => ({ day, windows: [{ open: '11:00', close: '22:00' }] })),

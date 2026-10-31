@@ -22,6 +22,7 @@
 import { receipt } from './tickets.js'
 import { checkTotals, isActiveLine, modifierText, groupModifiers } from './pricing.js'
 import { countParts } from '../combos.js'
+import { chargeLabel } from './charges.js'
 import { TENDERS, checkLabel } from './checks.js'
 
 function header(check, cfg, at) {
@@ -75,7 +76,8 @@ export function billOps(check, cfg, { preBill = false, at = null, drawer = false
     checkNo: h.checkNo, server: h.server, covers: h.covers, at: h.sentAt, preBill,
     lines,
     discounts: t.discounts.filter(d => d.amount > 0).map(d => ({ name: d.name, amount: d.amount })),
-    serviceCharge: t.service_charge ? { label: s.service_charge_label || ('Service charge' + (check.service_charge?.percent ? ' ' + check.service_charge.percent + '%' : '')), amount: t.service_charge } : null,
+    // Each charge that counts (shared/pos/charges.js): "Service charge 12.5%".
+    charges: t.charges.filter(x => x.amount > 0).map(x => ({ label: chargeLabel(x), amount: x.amount })),
     total: t.total,
     vat: t.vat.map(v => ({ rate: v.rate, net: v.net, vat: v.vat })),
     payments: preBill ? [] : payments,

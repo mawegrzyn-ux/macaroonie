@@ -2,10 +2,10 @@
 //
 // Store tech > Revenue streams (migration 170): groups of tills for
 // recognising revenue by place and/or device (Restaurant, Bar, Kiosk). A
-// stream doesn't decide tax. Each one picks its menus, an optional service
-// charge, which order types it offers and, per type, whether to ask for a
-// customer name and a tent number (off, ask, must have), and the type new
-// checks start as.
+// stream doesn't decide tax or charges (charges come with the order type,
+// Order types page). Each one picks its menus, which order types it offers
+// and, per type, whether to ask for a customer name and a tent number (off,
+// ask, must have), and the type new checks start as.
 
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
@@ -13,7 +13,7 @@ import { Plus, Loader2, Pencil } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import {
-  Section, Modal, Field, inputCls, ErrorNote, ConfirmDelete, SortableRows, Segmented, Btn, NumberBox, ColourPick, Toggle, pct,
+  Section, Modal, Field, inputCls, ErrorNote, ConfirmDelete, SortableRows, Segmented, Btn, ColourPick, Toggle,
 } from './shared'
 
 const PROMPTS = [
@@ -42,8 +42,6 @@ function StreamModal({ venueId, setup, stream, onClose }) {
     name: stream?.name || '',
     // Only menus listed below: one deleted or moved to another venue would be refused on save.
     menu_ids: (stream?.menu_ids || []).filter(id => setup.menus.some(m => m.id === id)),
-    service_charge_percent: stream ? Number(stream.service_charge_percent) : 0,
-    service_charge_min_covers: stream?.service_charge_min_covers ?? 0,
     colour: stream?.colour || null,
     is_active: stream ? stream.is_active : true,
     default_order_type_id: stream?.default_order_type_id || null,
@@ -56,7 +54,6 @@ function StreamModal({ venueId, setup, stream, onClose }) {
   const refresh = () => qc.invalidateQueries({ queryKey: ['pos-setup', venueId] })
   const body = () => ({
     name: form.name.trim(), menu_ids: form.menu_ids, colour: form.colour, is_active: form.is_active,
-    service_charge_percent: form.service_charge_percent || 0, service_charge_min_covers: form.service_charge_min_covers || 0,
     default_order_type_id: def, order_types: form.order_types,
   })
   const save = useMutation({
@@ -124,14 +121,6 @@ function StreamModal({ venueId, setup, stream, onClose }) {
           {!setup.menus.length && <p className="text-sm text-muted-foreground">No menus yet: build one on the Menus page.</p>}
         </div>
       </Field>
-      <div className="flex flex-wrap gap-4">
-        <Field label="Service charge %" hint="Added to new checks. 0 for none.">
-          <NumberBox value={form.service_charge_percent} decimals={2} max={50} onChange={v => set({ service_charge_percent: v ?? 0 })} ariaLabel="Service charge percent" />
-        </Field>
-        <Field label="From covers" hint="Only for tables of at least this many guests. 0 = always.">
-          <NumberBox value={form.service_charge_min_covers} max={100} onChange={v => set({ service_charge_min_covers: v ?? 0 })} ariaLabel="Service charge from covers" />
-        </Field>
-      </div>
       <Field group label="Colour on the till"><ColourPick value={form.colour} onChange={v => set({ colour: v })} /></Field>
       {stream && <Toggle label="In use" hint="Off: the till doesn't offer it. Sales already in it stay in reports." checked={form.is_active} onChange={v => set({ is_active: v })} />}
       <ErrorNote error={save.error || remove.error} />
@@ -168,7 +157,6 @@ export default function RevenueStreamsSection({ venueId, setup }) {
                   <p className="text-xs text-muted-foreground truncate">
                     {typesText(rs) || 'No order types'}
                     {rs.default_order_type_id && typeName(rs.default_order_type_id) && ' · starts as ' + typeName(rs.default_order_type_id)}
-                    {Number(rs.service_charge_percent) > 0 && ' · service charge ' + pct(rs.service_charge_percent) + (rs.service_charge_min_covers ? ' from ' + rs.service_charge_min_covers + ' covers' : '')}
                     {' · '}{menuNames(rs.menu_ids).join(', ') || 'all menus'}
                   </p>
                 </div>

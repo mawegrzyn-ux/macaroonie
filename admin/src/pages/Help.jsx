@@ -3972,7 +3972,9 @@ export default function Help() {
               orders already taken keep it. Order types are used by the till&apos;s buttons, tax exceptions,
               kitchen flow links, the kitchen screens&apos; tabs, tickets and receipts, Till reports, online
               ordering (Ordering setup picks the type collection orders count as) and the Deliveroo file
-              (its settings pick the type, Delivery to start with).
+              (its settings pick the type, Delivery to start with). Each type also has its own{' '}
+              <strong>charges</strong> for till checks (a service charge, a packaging fee), set in its Edit
+              window: see Till (POS) → Charges and discounts.
             </P>
 
             <H3>Revenue streams</H3>
@@ -3981,7 +3983,7 @@ export default function Help() {
               tills offer and, for each one, <strong>Name</strong> and <strong>Tent</strong>: No, Ask
               (can be skipped) or Must (the check can&apos;t go to the kitchen or be paid without it).
               <strong> New checks start as</strong> picks the type a new check starts with. Each stream
-              also picks its menus, an optional service charge and a colour. A till belongs to one (Tills
+              also picks its menus and a colour (charges come with the order type). A till belongs to one (Tills
               tab) and a floor area can name one; staff can move a check to another on the till (More →
               Revenue stream). Till reports show sales by stream and by order type.
             </P>
@@ -5523,8 +5525,9 @@ export default function Help() {
               more than one; order types, courses, till roles and designs are shared by every venue.
             </P>
             <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
-              <li><strong>Order types</strong> (shared by every venue): Eat in, Take out, Delivery, Collection and any you add. They decide how a check is served, can change a dish's tax, and show on tickets and kitchen screens.</li>
-              <li><strong>Revenue streams</strong>: groups of tills for reporting sales by place or device, e.g. Restaurant, Bar, Kiosk. Each picks the order types its tills offer (and for each, whether to ask for a customer name and a tent number: No, Ask or Must), which type new checks start as, its menus and an optional service charge (from a number of covers). A stream doesn't decide tax. Drag them into order. See Tax, Order Types &amp; Streams.</li>
+              <li><strong>Order types</strong> (shared by every venue): Eat in, Take out, Delivery, Collection and any you add. They decide how a check is served, can change a dish's tax, show on tickets and kitchen screens, and carry the <strong>charges</strong> a till check of that type gets: a service charge, a packaging fee and so on (see Charges and discounts below).</li>
+              <li><strong>Discounts</strong> (shared by every venue): the discounts the till offers by name, e.g. Staff meal 50% or NHS 10%, and whether each needs a manager every time (see Charges and discounts below).</li>
+              <li><strong>Revenue streams</strong>: groups of tills for reporting sales by place or device, e.g. Restaurant, Bar, Kiosk. Each picks the order types its tills offer (and for each, whether to ask for a customer name and a tent number: No, Ask or Must), which type new checks start as and its menus. A stream doesn't decide tax or charges. Drag them into order. See Tax, Order Types &amp; Streams.</li>
               <li><strong>Courses</strong> (shared by every venue): Starters, Mains, Desserts, in the order they go to the kitchen. A course <strong>held by default</strong> waits to be fired when it goes with an earlier course.</li>
               <li><strong>Till roles</strong> (shared by every venue): what Server, Supervisor and Manager may do: void sent items, refund, comp, discounts up to a %, open the drawer, reopen checks, take over other people's checks, change prices, move items between checks, see reports, close the day, approve for others.</li>
               <li><strong>Staff and PINs</strong>: give each person a till role and a 4 to 6 digit PIN (not 1111 or 1234, and different from everyone else's at the venue). People come from the Staff page.</li>
@@ -5799,7 +5802,7 @@ export default function Help() {
               <li>Tap an item on the check to change it: before it's sent you can change or delete it; after, <strong>Void</strong> it with a reason (the kitchen gets a VOID ticket), or <strong>Comp</strong> it.</li>
               <li><strong>Swipe an item to the left</strong> for its button: <strong>Delete</strong> before it&apos;s sent (a message offers <strong>Undo</strong> for a few seconds), <strong>Void</strong> once the kitchen has it (the void window opens: pick a reason). A long swipe deletes straight away.</li>
               <li><strong>Drag an item by its grip</strong> (the dots on its left) to another course: every course shows while you drag, so you can drop it into an empty one too. Only items not sent yet move between courses. Grouped <strong>By seat</strong>, drag an item to another seat (sent items too).</li>
-              <li><strong>More</strong>: guests, move table, name, order type, tent number, server, revenue stream, discount, service charge, offers, split or move items to another check, merge checks, an item not on the menu, print bill, no sale, close an empty check, <strong>Cancel order</strong>.</li>
+              <li><strong>More</strong>: guests, move table, name, order type, tent number, server, revenue stream, discount, charges, offers, split or move items to another check, merge checks, an item not on the menu, print bill, no sale, close an empty check, <strong>Cancel order</strong>.</li>
               <li><strong>Pay</strong>: <strong>Exact cash</strong> and <strong>Exact card</strong> take the amount shown in one tap (Exact card goes to the till&apos;s card machine when it has one, otherwise it records a card payment taken on your own machine). Or pick a way to pay: cash (with change), card, card machine (see Card machines), voucher and so on, a tip if switched on, and as many payments as needed to split the bill. When it&apos;s all paid the till closes the check with or without a receipt, as set in Receipts and payments (or the till&apos;s own window): <strong>Ask each time</strong> shows the two buttons, <strong>Always print</strong> and <strong>Don&apos;t print</strong> close it straight away.</li>
             </ol>
             <P>
@@ -5832,15 +5835,49 @@ export default function Help() {
               what the order was worth when it was cancelled; Closed on the till shows it as (cancelled).
             </P>
 
+            <H3>Charges and discounts</H3>
+            <P>
+              <strong>Charges</strong> come with the order type: Store tech → <strong>Order types</strong>, Edit a
+              type, <strong>Add a charge</strong>. Each has a name (as the bill prints it), a <strong>percent</strong>{' '}
+              of the check after its discounts or an <strong>amount</strong> per check, whether it is{' '}
+              <strong>optional</strong>, <strong>from</strong> how many guests (0 = every check; e.g. 2.5% for parties
+              of 6 or more) and the <strong>VAT</strong> on it (No VAT, or one of your tax rates). A type can have up to
+              six, in the order you drag them. Optional service charges usually carry no VAT in the UK and ones guests
+              must pay usually do: check with your accountant.
+            </P>
+            <ul className="list-disc ml-5 space-y-2 text-sm text-muted-foreground mb-4">
+              <li>A new till check gets its order type&apos;s charges, and they show on the check, Pay, the bill and the receipt by name. A charge for parties of 6 waits until the check has 6 guests (More → Guests), then counts by itself.</li>
+              <li><strong>More → Charges</strong> lists them. <strong>Take off</strong> asks for a reason; an optional charge comes off straight away (unless the switch below says a manager), one that isn&apos;t optional needs a manager every time. <strong>Put back</strong> puts it on again. <strong>Add a charge</strong> types one in for this check only (optional, no VAT).</li>
+              <li>Changing the order type (More → Order type) gives the check the new type&apos;s charges; a charge taken off stays off, also if you change the type back, and charges typed on the till stay.</li>
+              <li>Checks already open keep the charges they have when you change an order type&apos;s charges. Kiosk orders don&apos;t get charges.</li>
+            </ul>
+            <P>
+              <strong>Discounts</strong>: Store tech → <strong>Discounts</strong> lists the ones the till offers by
+              name (Staff meal 50%, NHS 10%, £5 off), each a percent or an amount, on the whole check, on items
+              only, or either, and whether it <strong>needs a manager every time</strong>. On the till, More →{' '}
+              <strong>Discount</strong> (or an item&apos;s Discount) shows the ones that fit at the top: anyone signed
+              in can use one that isn&apos;t marked, even without a discount allowance of their own; a marked one asks
+              for a manager&apos;s PIN. Below them, a discount can still be typed in: that follows the person&apos;s
+              till role (discounts up to a %) and the switch below. Checks that had a discount keep it if you change
+              or delete it.
+            </P>
+            <InfoBox type="tip">
+              Cash Recon: Store tech → Cash Recon link can send a charge by name to a service charge source (say the
+              service charge to the tronc and not the packaging fee), or <strong>All charges</strong> together.
+            </InfoBox>
+
             <H3>Manager approvals</H3>
             <P>
               Store tech → Receipts and payments → <strong>Needs a manager every time</strong> makes a manager
               type their PIN for these, whatever the person&apos;s own till role allows: <strong>Taking off items
               not sent yet</strong> (deleting, a swipe, or lowering the quantity), <strong>Voiding items the
-              kitchen has</strong>, <strong>Cancelling a whole order</strong> and <strong>Refunds</strong>. The
-              manager needs <strong>Approve for others</strong>, and for voids and refunds that permission too. A
-              manager doing it themselves isn&apos;t asked. Switched off, the person&apos;s role decides (Till roles).
-              Turning a dish into a combo (Make it a combo) never asks: nothing comes off the order.
+              kitchen has</strong>, <strong>Cancelling a whole order</strong>, <strong>Refunds</strong>,{' '}
+              <strong>Taking an optional charge off</strong> and <strong>Discounts typed in</strong> on the till
+              (discounts from the list follow their own setting). The manager needs <strong>Approve for
+              others</strong>, and for voids and refunds that permission too. A manager doing it themselves
+              isn&apos;t asked. Switched off, the person&apos;s role decides (Till roles). Turning a dish into a
+              combo (Make it a combo) never asks: nothing comes off the order. Charges that aren&apos;t optional
+              always need a manager to come off.
             </P>
 
             <H3>Without the internet</H3>
@@ -5888,7 +5925,7 @@ export default function Help() {
               for a while today: the day's figures won't include those changes until they are sent, so check those
               devices first if you can. It's a warning only: a broken or lost device doesn't stop the day closing. The next sale starts a new trading day. If <strong>Fill Cash Recon when the
               day is closed</strong> is on (Store tech → Cash Recon link), the day's sales, takings by way of paying,
-              service charge and tips are written into that day of Cash Recon; otherwise use{' '}
+              charges and tips are written into that day of Cash Recon; otherwise use{' '}
               <strong>Fill Cash Recon</strong> on the day in Till reports. A submitted Cash Recon day isn't changed.
             </P>
 
@@ -5896,7 +5933,7 @@ export default function Help() {
             <DataTable
               head={['Tab', 'What it shows']}
               rows={[
-                ['Days', 'Each trading day: sales, payments, cash expected and counted, revenue streams, order types, VAT, staff, discounts and comps, voids, cancelled orders (with their reason and what they were worth), refunds, best sellers, open checks. The open day is shown as it stands now.'],
+                ['Days', 'Each trading day: sales, payments, cash expected and counted, revenue streams, order types, VAT, staff, discounts and comps, charges by name (with how often each was taken off and what that came to), voids, cancelled orders (with their reason and what they were worth), refunds, best sellers, open checks. The open day is shown as it stands now.'],
                 ['Checks', 'Every check of a day with its items, totals and full history: who did what, when, and who approved it.'],
                 ['Refused changes', 'Changes a till made offline that couldn\'t be applied when it caught up. Note what was done and mark them dealt with.'],
                 ['Print queue', 'Tickets and other jobs, waiting or printed, with the reason when one didn\'t print.'],

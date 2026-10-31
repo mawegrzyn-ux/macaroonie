@@ -239,7 +239,8 @@ function cleanTill(t) {
     const name = str(s?.name, 60)
     if (!name || seen.has(name.toLowerCase())) continue
     seen.add(name.toLowerCase())
-    streams.push({ name, service_charge_percent: num(s?.service_charge_percent, 0, 30, 0) })
+    // Charges belong to order types (company-wide, migration 225), not streams.
+    streams.push({ name })
   }
   return { receipt_name: str(t?.receipt_name, 80) || null, streams }
 }

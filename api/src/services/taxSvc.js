@@ -49,21 +49,20 @@ export async function loadTaxRates(tx, tenantId) {
 }
 
 export async function loadOrderTypes(tx, tenantId) {
-  return tx`SELECT id, name, colour, sort_order, is_active FROM order_types
+  // charges: the type's charges on a check (migration 225, shared/pos/charges.js).
+  return tx`SELECT id, name, colour, sort_order, is_active, charges FROM order_types
              WHERE tenant_id = ${tenantId} ORDER BY is_active DESC, sort_order, name`
 }
 
 /**
  * A venue's revenue streams with their order type settings:
- *   { id, name, menu_ids, service_charge_percent, service_charge_min_covers,
- *     colour, sort_order, is_active, default_order_type_id,
+ *   { id, name, menu_ids, colour, sort_order, is_active, default_order_type_id,
  *     order_types: [{ order_type_id, enabled, ask_name, ask_tent }] }
  * A type with no row is off for the stream.
  */
 export async function loadStreams(tx, tenantId, venueId, { activeOnly = false } = {}) {
   const [streams, settings] = await Promise.all([
-    tx`SELECT id, name, menu_ids, service_charge_percent::float8 AS service_charge_percent, service_charge_min_covers,
-              colour, sort_order, is_active, default_order_type_id
+    tx`SELECT id, name, menu_ids, colour, sort_order, is_active, default_order_type_id
          FROM pos_revenue_streams
         WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} ${activeOnly ? tx`AND is_active` : tx``}
         ORDER BY sort_order, name`,

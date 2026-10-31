@@ -25,6 +25,7 @@ import { checkTotals, isActiveLine, lineGross } from '../../../shared/pos/pricin
 import { variantRules, itemChoices, isPriced } from '../../../shared/orderPricing.js'
 import { dayFigures } from '../../../shared/pos/reports.js'
 import { normalisePermissions, normaliseApprovals, DEFAULT_POS_ROLES } from '../../../shared/pos/permissions.js'
+import { normaliseDiscount } from '../../../shared/pos/discounts.js'
 import { TENDERS } from '../../../shared/pos/checks.js'
 import { STALE_HOURS } from '../../../shared/pos/kitchen.js'
 import { normaliseKitchenColours } from '../../../shared/pos/kitchenColours.js'
@@ -117,6 +118,19 @@ export async function ensureSettings(tx, tenantId, venueId) {
   return s
 }
 
+/**
+ * The company's discounts the till offers by name (migration 225,
+ * shared/pos/discounts.js), in their order. They go to the tills, the
+ * sequencer and the venue hub inside the venue's settings
+ * (settings.discounts), so the check rules judge them alike everywhere.
+ */
+export async function loadDiscounts(tx, tenantId) {
+  const rows = await tx`
+    SELECT id, name, kind, value::float8 AS value, scope, needs_manager, sort_order
+      FROM pos_discounts WHERE tenant_id = ${tenantId} ORDER BY sort_order, name, id`
+  return rows.map(normaliseDiscount).filter(Boolean)
+}
+
 export function settingsView(s) {
   const tenders = TENDERS.map(t => {
     const saved = (s.tenders || []).find(x => x.key === t.key)
@@ -125,7 +139,6 @@ export function settingsView(s) {
   return {
     day_starts_at: s.day_starts_at,
     vat_number: s.vat_number, receipt_name: s.receipt_name, receipt_address: s.receipt_address || [],
-    service_charge_label: s.service_charge_label,
     tenders, tips_enabled: s.tips_enabled, require_covers: s.require_covers,
     auto_logout_secs: s.auto_logout_secs,
     // Migration 224: the receipt when a check is paid, and what needs a manager.
@@ -292,7 +305,8 @@ export async function tillConfig(tx, tenantId, venueId) {
 
   const config = {
     venue: { id: venue.id, name: venue.name, timezone: tz },
-    settings: settingsView(settings),
+    // The company's discounts ride with the venue's settings (the check rules read them there).
+    settings: { ...settingsView(settings), discounts: await loadDiscounts(tx, tenantId) },
     // How often this till asks for changes (migration 216).
     pull: pullTimes(settings),
     pin_salt: settings.pin_salt,
@@ -405,7 +419,7 @@ export async function hubConfig(tx, tenantId, venueId, hubId) {
 /** The printing config the sequencer gives shared/pos/printing.js. */
 export async function printConfig(tx, tenantId, venueId) {
   const venue = await ownVenue(tx, tenantId, venueId)
-  const settings = settingsView(await ensureSettings(tx, tenantId, venueId))
+  const settings = { ...settingsView(await ensureSettings(tx, tenantId, venueId)), discounts: await loadDiscounts(tx, tenantId) }
   const [printers, tables, staff, courses, devices, orderTypes] = await Promise.all([
     tx`SELECT id, name, kind, connection, device_id, columns FROM pos_printers WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND is_active`,
     tx`SELECT id, label FROM tables WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`,
@@ -758,7 +772,9 @@ function validTime(v) {
  * The Cash Recon fields a day fills (pos_settings.recon_map):
  *   income  { sourceId: [revenue stream ids | 'all' | '-refunds'] }  sales after discounts
  *   takings { channelId: [tender keys] }                             money in, tips included, refunds out
- *   sc      { sourceId: ['service_charge' | 'tips'] }
+ *   sc      { sourceId: ['service_charge' | 'charge:<name>' | 'tips'] }
+ *           service_charge = every charge on the day's checks; charge:<name>
+ *           one charge by its name (figures.charges, shared/pos/reports.js)
  * Amounts in pounds.
  */
 export function reconValues(figures, map, fields) {
@@ -782,7 +798,14 @@ export function reconValues(figures, map, fields) {
     const terms = map.sc?.[sc.id] || []
     if (!terms.length) continue
     let p = 0
+    // Every charge, or the ones named (never both: that would count twice).
     if (terms.includes('service_charge')) p += figures.sales.service_charge
+    else {
+      for (const t of terms) {
+        if (!t.startsWith('charge:')) continue
+        p += (figures.charges || []).filter(x => x.name === t.slice(7)).reduce((s, x) => s + x.amount, 0)
+      }
+    }
     if (terms.includes('tips')) p += figures.tips
     out.push({ group: 'sc', id: sc.id, name: sc.name, amount: pounds(p) })
   }

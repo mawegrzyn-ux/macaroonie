@@ -50,7 +50,7 @@ export const ANSWER_SCHEMA = obj({
     tables: obj({ sections: arr(obj({ name: str, tables: arr(obj({ label: str, min_covers: int, max_covers: int })) })) }),
     booking_rules: obj({ slot_duration_mins: int, min_covers: int, max_covers: int, book_until_days: int, cutoff_before_mins: int }),
     ordering_enabled: bool,
-    till: obj({ receipt_name: str, streams: arr(obj({ name: str, service_charge_percent: num })) }),
+    till: obj({ receipt_name: str, streams: arr(obj({ name: str })) }),
     devices: obj({ tills: int, kitchen_screens: int, kiosks: int, menu_screens: int }),
     food_safety: obj({
       equipment: arr(obj({ name: str, type: oneOf(['fridge', 'freezer']) })),

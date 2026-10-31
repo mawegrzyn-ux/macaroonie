@@ -10,6 +10,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Banknote, CreditCard, Ticket, Wallet, CircleDot, Check, Printer, X, Ban, Split, ListChecks, Nfc, Loader2, AlertTriangle, PenLine } from 'lucide-react'
 import { ulid } from '@shared/pos/ids.js'
 import { checkTotals } from '@shared/pos/pricing.js'
+import { chargeLabel } from '@shared/pos/charges.js'
 import { Modal, Keypad, ReasonPicker, cx, money, poundsToPence, useApproval } from './ui.jsx'
 import {
   dispatch, dispatchMany, toast, useTill, cardStart, cardCheck, cardCancel, cardSignature, cardTest, cardPayments, cardRefund,
@@ -206,7 +207,9 @@ export default function PayModal({ check, onClose, onClosed, counter = false }) 
         <div className="space-y-4 min-w-0">
           <div className="card p-4 space-y-1 text-[15px]">
             <div className="flex justify-between"><span>Total</span><b className="tabular-nums">{money(t.total)}</b></div>
-            {t.service_charge > 0 && <div className="flex justify-between text-muted"><span>incl. service charge</span><span className="tabular-nums">{money(t.service_charge)}</span></div>}
+            {t.charges.filter(x => x.amount > 0).map(x => (
+              <div key={x.id} className="flex justify-between text-muted" data-testid="pay-charge"><span>incl. {chargeLabel(x)}</span><span className="tabular-nums">{money(x.amount)}</span></div>
+            ))}
             <div className="flex justify-between text-ok"><span>Paid</span><span className="tabular-nums">{money(t.paid)}</span></div>
             {t.tips > 0 && <div className="flex justify-between text-muted"><span>Tips</span><span className="tabular-nums">{money(t.tips)}</span></div>}
             <div className="flex justify-between text-2xl font-bold pt-1"><span>Left to pay</span><span className="tabular-nums">{money(Math.max(0, t.balance))}</span></div>

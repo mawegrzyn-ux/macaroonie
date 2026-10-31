@@ -51,9 +51,10 @@ function setup(settings, { by = SERVER } = {}) {
 const apply = (checks, e, settings) => applyEvent(checks, e, { staffById, settings })
 
 test('the switches: shape, defaults, who may approve', () => {
-  assert.deepEqual(MANAGER_ACTION_KEYS, ['delete_unsent', 'void_sent', 'cancel_order', 'refund'])
-  assert.deepEqual(normaliseApprovals(), { delete_unsent: false, void_sent: false, cancel_order: false, refund: false })
-  assert.deepEqual(normaliseApprovals({ refund: 1, junk: true }), { delete_unsent: false, void_sent: false, cancel_order: false, refund: true })
+  assert.deepEqual(MANAGER_ACTION_KEYS, ['delete_unsent', 'void_sent', 'cancel_order', 'refund', 'remove_charge', 'custom_discount'])
+  const off = { delete_unsent: false, void_sent: false, cancel_order: false, refund: false, remove_charge: false, custom_discount: false }
+  assert.deepEqual(normaliseApprovals(), off)
+  assert.deepEqual(normaliseApprovals({ refund: 1, junk: true }), { ...off, refund: true })
   const e = (staff_id, approved_by = null) => ({ staff_id, approved_by })
   // Off: never a problem here (the role's own permission is checked elsewhere).
   assert.equal(managerProblem(staffById, e(SERVER), 'void_sent', ALL_OFF), null)

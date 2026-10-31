@@ -68,7 +68,7 @@ test('the till, GloriaFood and Loyverse each show on the fields they fill', asyn
     gloriafood: [{ label: 'Payment: Paid online', sign: 1 }, { label: 'Payment: Card at the counter', sign: 1 }],
   })
   assert.deepEqual(by('sc:' + sc.id), {
-    pos: [{ label: 'Service charge', sign: 1 }],
+    pos: [{ label: 'All charges', sign: 1 }],
     loyverse: [{ label: 'Tips', sign: 1 }],
   })
   assert.equal(links.fields['income:' + other.id], undefined, 'a field nothing fills is left out')

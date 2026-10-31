@@ -135,7 +135,7 @@ function commonBlock(ops, b) {
  * (shared/pos/ticketLayout.js; none = the built-in one).
  * bill: { venue: { name, address: [], vatNumber }, table, tab, name, tabName, number, type, tent, checkNo, server, covers, at, preBill,
  *         lines: [{ qty, name, total, modifiers: [{ text, price }] }],   total = dish x qty, add-ons priced separately
- *         discounts: [{ name, amount }], serviceCharge: { label, amount },
+ *         discounts: [{ name, amount }], charges: [{ label, amount }],
  *         vat: [{ rate, net, vat }], total, payments: [{ tender, amount }], change, drawer }
  */
 export function receipt(bill, layout = null) {
@@ -175,7 +175,7 @@ export function receipt(bill, layout = null) {
     } else if (b.type === 'totals') {
       if (o.subtotal !== false) pair('Subtotal', money(billSubtotal(bill.lines)))
       for (const d of bill.discounts || []) pair(d.name, money(-Math.abs(d.amount)))
-      if (bill.serviceCharge?.amount) pair(bill.serviceCharge.label || 'Service charge', money(bill.serviceCharge.amount))
+      for (const x of bill.charges || []) if (x.amount) pair(x.label || 'Service charge', money(x.amount))
       ops.push({ t: 'pair', left: 'TOTAL', right: money(bill.total), bold: true, tall: o.size !== 'normal' })
     } else if (b.type === 'vat') {
       if (bill.vat?.length) {
@@ -279,7 +279,10 @@ export function dayReportTicket(f, meta = {}) {
   pair('Covers', String(f.covers || 0))
   pair('Sales before discounts', money(f.sales?.gross))
   pair('Discounts', money(-(f.sales?.discounts || 0)))
-  pair('Service charge', money(f.sales?.service_charge))
+  // Each charge by name (shared/pos/charges.js), else the one total.
+  const charges = (f.charges || []).filter(x => x.amount)
+  if (charges.length) for (const x of charges) pair(x.name, money(x.amount))
+  else if (f.sales?.service_charge) pair('Charges', money(f.sales.service_charge))
   pair('TOTAL SALES', money(f.sales?.total), true)
   pair('Average check', money(f.sales?.average_check))
   ops.push({ t: 'rule' })

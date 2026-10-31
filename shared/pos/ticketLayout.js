@@ -258,11 +258,11 @@ export function sampleTicket(kind, key, venue = {}, at = new Date()) {
   if (key === 'counter') {
     return { venue: v, tab: 'ORDER 57', number: 57, name: 'Sam', tabName: 'Sam', type: 'Take out', tent: '12', checkNo: '57', server: 'Jo', at,
       lines: [{ qty: 2, name: 'Smash burger', total: 1900, modifiers: [{ text: 'Extra cheese', price: 200 }] }, { qty: 1, name: 'Cola', total: 300, modifiers: [] }],
-      discounts: [], serviceCharge: null, total: 2400, vat: [{ rate: 20, net: 2000, vat: 400 }], payments: [{ tender: 'Card', amount: 2400 }], change: 0 }
+      discounts: [], charges: [], total: 2400, vat: [{ rate: 20, net: 2000, vat: 400 }], payments: [{ tender: 'Card', amount: 2400 }], change: 0 }
   }
   const bill = key === 'bill'
   return { venue: v, table: '4', checkNo: '23', server: 'Jo', covers: 2, at, preBill: bill,
     lines: [{ qty: 1, name: 'Chicken wings', total: 750, modifiers: [{ text: 'Hot sauce', price: 50 }] }, { qty: 1, name: 'Ribeye steak', total: 2400, modifiers: [] }, { qty: 2, name: 'House red (glass)', total: 1300, modifiers: [] }],
-    discounts: [{ name: 'Locals 10%', amount: 450 }], serviceCharge: { label: 'Service charge 12.5%', amount: 506 }, total: 4556,
+    discounts: [{ name: 'Locals 10%', amount: 450 }], charges: [{ label: 'Service charge 12.5%', amount: 506 }], total: 4556,
     vat: [{ rate: 20, net: 3797, vat: 759 }], payments: bill ? [] : [{ tender: 'Card', amount: 4556 }, { tender: 'Cash', amount: 500 }], change: bill ? 0 : 500 }
 }

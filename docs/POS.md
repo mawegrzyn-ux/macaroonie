@@ -96,7 +96,8 @@ Trial 2 proves option A on the venue's own tablets.
 First event types: `check.opened`, `check.covers_set`, `check.table_moved`,
 `check.server_changed`, `line.added`, `line.changed` (before send), `line.deleted` (before send),
 `lines.sent`, `course.held`, `course.fired`, `line.voided`, `discount.applied`,
-`discount.removed`, `service_charge.set`, `check.split`, `check.merged`, `lines.moved`,
+`discount.removed`, `charge.added` / `charge.removed` / `charge.restored` (section 8.5; was
+`service_charge.set`), `check.split`, `check.merged`, `lines.moved`,
 `bill.printed`, `payment.added`, `payment.voided`, `check.closed`, `check.reopened`,
 `refund.added`, `drawer.opened`, `day.closed`.
 
@@ -215,7 +216,7 @@ without app-store packaging.
 | Table | Holds |
 |---|---|
 | `pos_devices` | terminals and hubs: venue, kind, name, secret hash, last seen, app version, revoked |
-| `pos_revenue_streams` | venue, name (Restaurant / Bar / Kiosk), menus, service charge, the order types it offers with their prompts, default order type, sort (was `pos_revenue_centres` with a VAT mode; migration 170, section 8.1) |
+| `pos_revenue_streams` | venue, name (Restaurant / Bar / Kiosk), menus, the order types it offers with their prompts, default order type, sort (was `pos_revenue_centres` with a VAT mode; migration 170, section 8.1; its service charge moved to the order types' charges, migration 225, section 8.5) |
 | `pos_printers` | venue, name, IP, port, columns, kind (receipt / station), backup printer |
 | `pos_print_routes` | dish, section or revenue stream → printer |
 | `pos_roles` | permissions and limits per staff role |
@@ -493,6 +494,27 @@ hand out the same numbers. So every till and kiosk numbers its own (`shared/pos/
 
 This is the first step of hub-first locations: with numbers made on the devices, any place that
 sequences (the cloud, the hub, a till on its own) accepts them without coordinating.
+
+### 8.5 Charges per order type and the discount list (migration 225, 31 Oct 2026)
+
+The revenue stream's single service charge (a percent from N covers) gave way to **charges on
+the order type** (`order_types.charges`, `shared/pos/charges.js`): several per type, each a
+percent of the check after its discounts or an amount per check, optional (staff may take it
+off; the venue can make that need a manager) or not (a manager every time), from N guests, with
+or without VAT at one of the tenant's tax rates. A check carries its charges as state, put on
+by the till in `check.opened` and when its type changes (`switchCharges()`: a charge taken off
+stays off, also through a round trip, via `check.charges_off`; charges typed on the till with
+`charge.added` stay). `charge.removed` / `charge.restored` take one off and put it back.
+`checkTotals()` lists each charge (`amount`, `would_be`, `removed`, `waiting`) and sums the ones
+that count as `service_charge`; the bill, receipt, X / Z and Till reports name each one, and the
+Cash Recon link can send a charge by name (`charge:<name>`) or all together. Kiosk orders carry
+none.
+
+**Discounts** set up in Store tech (`pos_discounts`, `shared/pos/discounts.js`) reach every rule
+runner in `settings.discounts`. A discount from the list goes on with its `preset_id`, its
+type, value and scope checked against the list; it needs no discount permission, or a manager
+every time when marked so. Discounts typed in keep the role's limit and can be put behind a
+manager with the venue's `custom_discount` switch (`MANAGER_ACTIONS`).
 
 ---
 

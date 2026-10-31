@@ -44,6 +44,9 @@ export function dayFigures(checks, dayId) {
   const byTender = new Map()
   const byStaff = new Map()
   const discounts = new Map()
+  // Charges by name (shared/pos/charges.js): what they came to, and how
+  // often and how much was taken off.
+  const charges = new Map()
   const items = new Map()
   const voids = { count: 0, qty: 0, value: 0, lines: [] }
   const refunds = { count: 0, amount: 0, lines: [] }
@@ -89,6 +92,12 @@ export function dayFigures(checks, dayId) {
         rs.net += lt.net; rs.vat += lt.vat; rs.gross += lt.gross; rs.discount += lt.discount; rs.items += l.qty
         const it = add(items, l.item_id || l.name, () => ({ item_id: l.item_id || null, name: l.name, qty: 0, net: 0 }))
         it.qty += l.qty; it.net += lt.net
+      }
+      for (const x of t.charges) {
+        if (!x.amount && !(x.removed && x.would_be)) continue
+        const row = add(charges, x.name, () => ({ name: x.name, count: 0, amount: 0, removed: 0, removed_value: 0 }))
+        if (x.amount) { row.count++; row.amount += x.amount }
+        if (x.removed) { row.removed++; row.removed_value += x.would_be }
       }
       for (const d of t.discounts) {
         if (d.amount <= 0) continue
@@ -141,6 +150,7 @@ export function dayFigures(checks, dayId) {
     voids,
     cancelled,
     discounts: [...discounts.values()].sort((a, b) => b.amount - a.amount),
+    charges: [...charges.values()].sort((a, b) => b.amount - a.amount),
     items: [...items.values()].sort((a, b) => b.qty - a.qty),
     staff: [...byStaff.values()],
     open_checks: openChecks,

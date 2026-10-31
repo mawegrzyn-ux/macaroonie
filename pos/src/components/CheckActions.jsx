@@ -1,5 +1,7 @@
 // The check's actions beyond adding dishes: send (holding later courses),
-// fire a course, discounts and comps, service charge, offers, move items to
+// fire a course, discounts and comps (typed in, or from the company's list,
+// shared/pos/discounts.js), charges (the order type's, or typed in;
+// shared/pos/charges.js), offers, move items to
 // another check (split), merge checks, move table, change server, order type
 // (with the name and tent number it asks for) or revenue stream, items not on
 // the menu, no sale, dishes sold out.
@@ -7,18 +9,37 @@
 import { useMemo, useState } from 'react'
 import {
   Users, Table2, UserRound, Building2, Percent, HandCoins, Gift, Split, Merge, Flame, StickyNote, Printer,
-  Vault, PenLine, Check, Hourglass, Send, XCircle, Ban, RotateCcw, Plus, ShoppingBag, Flag, Star,
+  Vault, PenLine, Check, Hourglass, Send, XCircle, Ban, RotateCcw, Plus, ShoppingBag, Flag, Star, ShieldCheck,
 } from 'lucide-react'
 import { ulid } from '@shared/pos/ids.js'
 import { checkTotals } from '@shared/pos/pricing.js'
 import { heldCourses, checkLabel } from '@shared/pos/checks.js'
+import { MANAGER_ALWAYS } from '@shared/pos/permissions.js'
+import { chargeLabel, CHARGE_PERCENT_MAX, CHARGE_AMOUNT_MAX } from '@shared/pos/charges.js'
+import { discountList, fitsScope, discountValueText } from '@shared/pos/discounts.js'
 import { Modal, Keypad, ReasonPicker, cx, money, poundsToPence, useApproval } from './ui.jsx'
 import { dispatch, dispatchMany, toast, useChecks, getState, can, soldOutMap, setItemSoldOut, serverName } from '../lib/store.js'
 import {
   defaultHeld, sendCheck, streamOf, byId, addOpenItem, promotionsFor, refreshPromotions,
-  streamTypes, typeOf, checkPrompts, rerateLines, defaultTypeId,
+  streamTypes, typeOf, checkPrompts, rerateLines, defaultTypeId, chargesFor,
 } from '../lib/checkOps.js'
 import { CoversModal, CheckRow } from '../screens/Floor.jsx'
+
+/** The Charges button's line: what is on, e.g. "Service charge 12.5%" or "2 on, 1 off". */
+// "Service charge 12.5%", "2 on, 1 off", "1 waiting" (a charge for parties
+// that the check hasn't the guests for yet).
+function chargesHint(check) {
+  const list = checkTotals(check).charges
+  if (!list.length) return 'none'
+  const on = list.filter(x => !x.removed && !x.waiting)
+  const off = list.filter(x => x.removed).length
+  const waiting = list.filter(x => x.waiting).length
+  return [
+    on.length === 1 ? chargeLabel(on[0]) : on.length ? on.length + ' on' : null,
+    off ? off + ' off' : null,
+    waiting ? waiting + ' waiting' : null,
+  ].filter(Boolean).join(', ')
+}
 
 export function ActionsMenu({ check, config, onPick, onClose }) {
   const held = heldCourses(check)
@@ -32,7 +53,7 @@ export function ActionsMenu({ check, config, onPick, onClose }) {
     (config.revenue_streams || []).length > 1 && { key: 'stream', label: 'Revenue stream', icon: Building2, hint: streamOf(config, check.revenue_stream_id)?.name },
     held.length > 0 && { key: 'fire', label: 'Fire a course', icon: Flame, hint: held.length + ' waiting' },
     { key: 'discount', label: 'Discount', icon: Percent },
-    { key: 'sc', label: 'Service charge', icon: HandCoins, hint: check.service_charge && !check.service_charge.removed ? (check.service_charge.percent != null ? check.service_charge.percent + '%' : money(check.service_charge.amount)) : 'none' },
+    { key: 'sc', label: 'Charges', icon: HandCoins, hint: chargesHint(check) },
     config.loyalty && { key: 'loyalty', label: config.loyalty.name || 'Loyalty', icon: Star, hint: check.loyalty?.name || 'add a member' },
     (config.promotions || []).length > 0 && { key: 'offers', label: 'Offers', icon: Gift, hint: (check.promotions || []).length ? check.promotions.length + ' on' : '' },
     { key: 'move', label: 'Split / move items', icon: Split },
@@ -190,25 +211,54 @@ export function DiscountModal({ check, config, lineIds = null, onClose }) {
   const off = type === 'percent' ? Math.round(base * Math.min(100, v) / 100) : Math.min(base, v)
   const pct = type === 'percent' ? v : (base ? Math.ceil(v * 100 / base) : 100)
   const names = lineIds ? check.lines.filter(l => lineIds.includes(l.id)).map(l => l.name).join(', ') : 'the whole check'
-  const apply = async () => {
-    const approver = await approve('discount', Math.min(100, pct), 'This discount is more than your role allows.')
-    if (approver === false) return
-    const r = dispatch('discount.applied', {
-      discount: {
-        id: ulid(), scope: lineIds ? 'line' : 'check', line_ids: lineIds || [], type,
-        value: type === 'percent' ? Math.min(100, v) : v,
-        name: type === 'percent' ? v + '% off' : money(v) + ' off', reason: reason.trim(),
-      },
-    }, { check_id: check.id, approved_by: approver })
+  const scope = lineIds ? 'line' : 'check'
+  // The company's list (Store tech > Discounts) for what is picked.
+  const presets = discountList(config?.settings).filter(p => fitsScope(p, scope))
+  const presetOff = p => (p.kind === 'percent' ? Math.round(base * p.value / 100) : Math.min(base, p.value))
+  const put = (discount, approver) => {
+    const r = dispatch('discount.applied', { discount: { id: ulid(), scope, line_ids: lineIds || [], ...discount } }, { check_id: check.id, approved_by: approver })
     if (!r.ok) return toast(r.error, 'bad')
     onClose()
+  }
+  const usePreset = async p => {
+    if (presetOff(p) <= 0) return toast('Nothing left to discount', 'bad')
+    // Marked in Store tech: a manager every time; otherwise anyone may use it.
+    const approver = p.needs_manager ? await approve(null, null, p.name + ' needs a manager every time.', [MANAGER_ALWAYS]) : null
+    if (approver === false) return
+    put({ type: p.kind, value: p.value, name: p.name, reason: '', preset_id: p.id }, approver)
+  }
+  const apply = async () => {
+    const msg = can('discount', Math.min(100, pct)) ? 'Discounts typed in on the till need a manager here.' : 'This discount is more than your role allows.'
+    const approver = await approve('discount', Math.min(100, pct), msg, ['custom_discount'])
+    if (approver === false) return
+    put({
+      type, value: type === 'percent' ? Math.min(100, v) : v,
+      name: type === 'percent' ? v + '% off' : money(v) + ' off', reason: reason.trim(),
+    }, approver)
   }
   const existing = (check.discounts || []).filter(d => d.scope === 'check')
   return (
     <Modal title={'Discount ' + names} onClose={onClose} wide
-      footer={<button className="btn btn-primary h-14 min-w-[200px]" disabled={!v || off <= 0} onClick={apply}><Percent size={18} /> Take off {money(off)}</button>}>
+      footer={<button className="btn btn-primary h-14 min-w-[200px]" disabled={!v || off <= 0} onClick={apply} data-testid="discount-typed"><Percent size={18} /> Take off {money(off)}</button>}>
+      {presets.length > 0 && (
+        <div className="mb-5" data-testid="discount-presets">
+          <div className="label mb-2">Discounts</div>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+            {presets.map(p => (
+              <button key={p.id} className="btn h-auto min-h-[64px] py-2 justify-start text-left" onClick={() => usePreset(p)} data-testid="discount-preset" data-name={p.name}>
+                {p.needs_manager ? <ShieldCheck size={20} className="shrink-0 text-warn" aria-label="Needs a manager" /> : <Percent size={20} className="shrink-0 text-brand" />}
+                <span className="flex flex-col leading-tight min-w-0">
+                  <span className="truncate">{p.name}</span>
+                  <span className="text-xs text-muted font-normal">{discountValueText(p)} · {money(presetOff(p))} off{p.needs_manager ? ' · manager' : ''}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="grid md:grid-cols-2 gap-5">
         <div className="space-y-4">
+          {presets.length > 0 && <div className="label">Or type a discount</div>}
           <div className="flex gap-2">
             <button className={cx('chip flex-1', type === 'percent' && 'chip-on')} onClick={() => { setType('percent'); setValue('') }}>Percent</button>
             <button className={cx('chip flex-1', type === 'amount' && 'chip-on')} onClick={() => { setType('amount'); setValue('') }}>Amount £</button>
@@ -219,7 +269,7 @@ export function DiscountModal({ check, config, lineIds = null, onClose }) {
             </div>
           )}
           <div className="text-3xl font-bold tabular-nums">{type === 'amount' ? '£' : ''}{value || '0'}{type === 'percent' ? '%' : ''}</div>
-          <div className="text-sm text-muted">On {money(base)}{can('discount', pct) ? '' : ' · needs a manager above your limit'}</div>
+          <div className="text-sm text-muted">On {money(base)}{can('discount', pct, ['custom_discount']) ? '' : can('discount', pct) ? ' · needs a manager' : ' · needs a manager above your limit'}</div>
           <ReasonPicker options={DISCOUNT_REASONS} value={reason} onChange={setReason} />
           {existing.length > 0 && !lineIds && (
             <div className="space-y-2">
@@ -239,34 +289,88 @@ export function DiscountModal({ check, config, lineIds = null, onClose }) {
   )
 }
 
-export function ServiceChargeModal({ check, config, onClose }) {
+/**
+ * The check's charges (shared/pos/charges.js): the order type's, and any
+ * typed in here. Optional ones anyone takes off (unless the venue's switch
+ * says a manager); ones that aren't optional need a manager every time.
+ */
+export function ChargesModal({ check, config, onClose }) {
+  const approve = useApproval()
+  const t = checkTotals(check)
+  const [taking, setTaking] = useState(null)
   const [reason, setReason] = useState('')
-  const [custom, setCustom] = useState('')
-  const sc = check.service_charge
-  const set = payload => {
-    const r = dispatch('service_charge.set', payload, { check_id: check.id })
-    if (!r.ok) return toast(r.error, 'bad')
-    onClose()
+  const [kind, setKind] = useState('percent')
+  const [value, setValue] = useState('')
+  const [name, setName] = useState('Service charge')
+  const send = (type, payload, approver = null) => {
+    const r = dispatch(type, payload, { check_id: check.id, approved_by: approver })
+    if (!r.ok) { toast(r.error, 'bad'); return false }
+    return true
   }
-  const rcPct = Number(streamOf(config, check.revenue_stream_id)?.service_charge_percent) || 12.5
+  const takeOff = async x => {
+    const action = x.optional ? 'remove_charge' : MANAGER_ALWAYS
+    const approver = await approve(null, null, x.optional ? 'Taking a charge off needs a manager here.' : x.name + ' isn\'t optional: a manager can take it off.', [action])
+    if (approver === false) return
+    if (send('charge.removed', { charge_id: x.id, reason: reason.trim() }, approver)) { setTaking(null); setReason('') }
+  }
+  const amount = kind === 'percent' ? Number(value) || 0 : poundsToPence(value)
+  const tooMuch = kind === 'percent' ? amount > CHARGE_PERCENT_MAX : amount > CHARGE_AMOUNT_MAX
+  const add = () => {
+    const ok = send('charge.added', { charge: { id: ulid(), name: name.trim() || 'Service charge', kind, value: kind === 'percent' ? Math.round(amount * 100) / 100 : amount } })
+    if (ok) { setValue(''); toast((name.trim() || 'Service charge') + ' added', 'ok') }
+  }
   return (
-    <Modal title="Service charge" onClose={onClose}>
-      <div className="space-y-4">
-        <div className="text-[15px]">Now: <b>{sc && !sc.removed ? (sc.percent != null ? sc.percent + '%' : money(sc.amount)) : 'none'}</b></div>
-        <div className="flex flex-wrap gap-2">
-          {[...new Set([rcPct, 10, 12.5, 15])].map(p => <button key={p} className={cx('chip', sc && !sc.removed && sc.percent === p && 'chip-on')} onClick={() => set({ percent: p })}>{p}%</button>)}
+    <Modal title="Charges" onClose={onClose} wide>
+      <div className="grid md:grid-cols-2 gap-5">
+        <div className="space-y-2" data-testid="charges-list">
+          {!t.charges.length && <div className="text-sm text-muted">No charges on this check. Charges come with the order type (Store tech, Order types), or add one here.</div>}
+          {t.charges.map(x => (
+            <div key={x.id} className={cx('rounded-xl border p-3 space-y-2', x.removed ? 'border-line bg-panel' : 'border-ok bg-ok-soft')} data-testid="charge-row" data-name={x.name}>
+              <div className="flex items-center gap-2">
+                <div className="flex-1 min-w-0">
+                  <div className={cx('font-semibold', x.removed && 'line-through text-muted')}>{chargeLabel(x)}</div>
+                  <div className="text-xs text-muted">
+                    {x.removed ? 'Taken off' + (check.charges.find(y => y.id === x.id)?.reason ? ': ' + check.charges.find(y => y.id === x.id).reason : '')
+                      : x.waiting ? 'From ' + x.min_covers + ' guests' + (check.covers ? ' (' + check.covers + ' now)' : '')
+                        : money(x.amount)}
+                    {!x.optional && !x.removed ? ' · not optional' : ''}{x.added ? ' · added on the till' : ''}
+                  </div>
+                </div>
+                {x.removed
+                  ? <button className="btn min-h-[44px]" data-testid="charge-restore" onClick={() => send('charge.restored', { charge_id: x.id })}><RotateCcw size={16} /> Put back</button>
+                  : taking !== x.id && <button className="btn min-h-[44px]" data-testid="charge-off" onClick={() => { setTaking(x.id); setReason('') }}>{x.optional ? 'Take off' : <><ShieldCheck size={16} className="text-warn" /> Take off</>}</button>}
+              </div>
+              {taking === x.id && !x.removed && (
+                <div className="space-y-3 pt-1">
+                  <ReasonPicker options={['Guest asked', 'Complaint', 'Large party agreed']} value={reason} onChange={setReason} />
+                  <div className="flex gap-2">
+                    <button className="btn btn-bad flex-1" disabled={!reason.trim()} data-testid="charge-off-confirm" onClick={() => takeOff(x)}>Take it off</button>
+                    <button className="btn" onClick={() => setTaking(null)}>Keep it</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+          {t.service_charge > 0 && <div className="text-sm text-muted pt-1">Charges on this check: <b className="text-ink">{money(t.service_charge)}</b></div>}
         </div>
-        <div className="flex gap-2">
-          <input className="input" inputMode="decimal" placeholder="Other %" value={custom} onChange={e => setCustom(e.target.value.replace(/[^0-9.]/g, ''))} />
-          <button className="btn" disabled={!Number(custom)} onClick={() => set({ percent: Math.min(50, Number(custom)) })}>Set</button>
-        </div>
-        {sc && !sc.removed && (
-          <div className="rounded-xl border border-line p-3 space-y-3">
-            <div className="font-semibold">Take service charge off</div>
-            <ReasonPicker options={['Guest asked', 'Complaint', 'Large party agreed']} value={reason} onChange={setReason} />
-            <button className="btn btn-bad" disabled={!reason.trim()} onClick={() => set({ removed: true, reason: reason.trim() })}>Take it off</button>
+        <div className="space-y-3">
+          <div className="label">Add a charge</div>
+          <input className="input" value={name} maxLength={60} onChange={e => setName(e.target.value)} placeholder="Service charge" aria-label="Charge name" />
+          <div className="flex gap-2">
+            <button className={cx('chip flex-1', kind === 'percent' && 'chip-on')} onClick={() => { setKind('percent'); setValue('') }}>Percent</button>
+            <button className={cx('chip flex-1', kind === 'amount' && 'chip-on')} onClick={() => { setKind('amount'); setValue('') }}>Amount £</button>
           </div>
-        )}
+          {kind === 'percent' && (
+            <div className="flex flex-wrap gap-2">
+              {[10, 12.5, 15].map(n => <button key={n} className={cx('chip', Number(value) === n && 'chip-on')} onClick={() => setValue(String(n))}>{n}%</button>)}
+            </div>
+          )}
+          <div className="text-2xl font-bold tabular-nums">{kind === 'amount' ? '£' : ''}{value || '0'}{kind === 'percent' ? '%' : ''}</div>
+          <Keypad value={value} onChange={setValue} decimal max={kind === 'percent' ? 5 : 7} />
+          {tooMuch && <div className="text-sm text-bad">{kind === 'percent' ? 'At most ' + CHARGE_PERCENT_MAX + '%' : 'At most ' + money(CHARGE_AMOUNT_MAX)}</div>}
+          <button className="btn btn-primary w-full h-14" disabled={!amount || tooMuch} data-testid="charge-add" onClick={add}><Plus size={18} /> Add {kind === 'percent' ? (value || 0) + '%' : money(amount)}</button>
+          <div className="text-xs text-muted">A charge added here is optional and has no VAT: it can be taken off again like any optional charge.</div>
+        </div>
       </div>
     </Modal>
   )
@@ -341,7 +445,11 @@ export function MoveModal({ check, config, preselect = [], onClose, onOpen }) {
         table_id: check.table_id, tab_name: check.tab_name ? check.tab_name + ' (split)' : null,
         covers: null, revenue_stream_id: check.revenue_stream_id, order_type_id: check.order_type_id, tent: check.tent || null,
         from_check_id: check.id,
-        service_charge: check.service_charge && !check.service_charge.removed ? { percent: check.service_charge.percent ?? 0, vat_rate: check.service_charge.vat_rate || 0 } : null,
+        // The charges still on the check go with the split (taken off ones stay off).
+        charges: (check.charges || []).filter(x => !x.removed).map(x => ({
+          id: x.id, name: x.name, kind: x.kind, value: x.value, optional: !!x.optional,
+          min_covers: x.min_covers || 0, vat_rate: x.vat_rate || 0, tax_rate_id: x.tax_rate_id || null,
+        })),
       }, { check_id: toId }])
     }
     specs.push(['lines.moved', { to_check_id: toId, line_ids: picked }, { check_id: check.id, approved_by: approver }])
@@ -520,7 +628,11 @@ export function OrderTypeModal({ check, config, onClose, focus = null }) {
     const payload = { order_type_id: typeId }
     if ((name.trim() || null) !== (check.tab_name || null)) payload.tab_name = name.trim() || null
     if ((tent.trim() || null) !== (check.tent || null)) payload.tent = tent.trim() || null
-    if (typeId !== check.order_type_id) payload.lines = rerateLines(check, config, { order_type_id: typeId })
+    // The new type's tax for every item, and its charges.
+    if (typeId !== check.order_type_id) {
+      payload.lines = rerateLines(check, config, { order_type_id: typeId })
+      payload.charges = chargesFor(config, typeId)
+    }
     if (typeId === check.order_type_id && payload.tab_name === undefined && payload.tent === undefined) return onClose()
     const r = dispatch('check.order_type_set', payload, { check_id: check.id })
     if (!r.ok) return toast(r.error, 'bad')
@@ -542,6 +654,13 @@ export function OrderTypeModal({ check, config, onClose, focus = null }) {
         {typeId !== check.order_type_id && check.lines.some(l => l.status !== 'voided') && (
           <div className="text-sm text-muted">The items already on the check take this order type's tax.</div>
         )}
+        {typeId !== check.order_type_id && (
+          <div className="text-sm text-muted" data-testid="type-charges">
+            {chargesFor(config, typeId).length
+              ? 'Charges: ' + chargesFor(config, typeId).map(chargeLabel).join(', ') + '.'
+              : (check.charges || []).some(x => !x.added) ? 'This order type has no charges: the check\'s come off.' : ''}
+          </div>
+        )}
       </div>
     </Modal>
   )
@@ -556,7 +675,7 @@ export function StreamModal({ check, config, onClose }) {
     const specs = [['check.stream_set', { revenue_stream_id: streamId, lines: rerateLines(check, config, { revenue_stream_id: streamId }) }, { check_id: check.id }]]
     if (!offered) {
       const typeId = defaultTypeId(config, streamId)
-      if (typeId) specs.push(['check.order_type_set', { order_type_id: typeId, lines: rerateLines(check, config, { revenue_stream_id: streamId, order_type_id: typeId }) }, { check_id: check.id }])
+      if (typeId) specs.push(['check.order_type_set', { order_type_id: typeId, lines: rerateLines(check, config, { revenue_stream_id: streamId, order_type_id: typeId }), charges: chargesFor(config, typeId) }, { check_id: check.id }])
     }
     const r = dispatchMany(specs)
     if (!r.ok) return toast(r.error, 'bad')
@@ -581,13 +700,8 @@ export function GuestsModal({ check, config, onClose }) {
   return (
     <CoversModal title={table ? 'Table ' + table.label : 'Check ' + checkLabel(check)} max={table?.max_covers} initial={check.covers} onClose={onClose}
       onDone={n => {
-        const specs = [['check.covers_set', { covers: n }, { check_id: check.id }]]
-        // A revenue stream's service charge from N guests up starts when the party reaches N.
-        const rs = streamOf(config, check.revenue_stream_id)
-        if (rs && Number(rs.service_charge_percent) && Number(rs.service_charge_min_covers) && n >= rs.service_charge_min_covers && !check.service_charge) {
-          specs.push(['service_charge.set', { percent: Number(rs.service_charge_percent) }, { check_id: check.id }])
-        }
-        const r = dispatchMany(specs)
+        // A charge for parties of N (the order type's) counts by itself once the party reaches N.
+        const r = dispatch('check.covers_set', { covers: n }, { check_id: check.id })
         if (!r.ok) return toast(r.error, 'bad')
         onClose()
       }} />
