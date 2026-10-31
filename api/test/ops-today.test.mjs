@@ -3,7 +3,8 @@
 // its record exists; each part keeps its own permission; one card per thing.
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { as, ok, closeApp } from './support/app.mjs'
+import fs from 'node:fs'
+import { as, ok, closeApp, sql } from './support/app.mjs'
 import { resetAndSeed, A, B } from './support/seed.mjs'
 import { fillTenant } from './support/fixtures.mjs'
 import { groupFor, sortTasks, GROUPS } from '../src/services/opsToday.js'
@@ -111,4 +112,35 @@ test('another group\'s venue is refused; bad input is a 400', async () => {
   assert.equal((await owner.get(`/api/ops/today?venue_id=${V}&time=25:00`)).status, 400)
   const none = await other.get('/api/ops/today')
   assert.equal(none.status, 404, 'a group with no venues yet')
+})
+
+// Migration 227: the Today link is for every role. A custom role names only
+// the modules it has, so a Supervisor without the Overview (module dashboard)
+// lost Today too while the link was tied to it.
+test('Today is in every role\'s menu, even a role without the Overview', async () => {
+  const links = nodes => nodes.flatMap(n => [...(n.route ? [n.route] : []), ...links(n.children || [])])
+  const role = await ok(owner.post('/api/access/roles', {
+    key: 'supervisor', label: 'Supervisor', permissions: { food_safety: 'manage', checklists: 'manage' },
+  }))
+  await sql`UPDATE users SET custom_role_id = ${role.id} WHERE tenant_id = ${ids.a} AND auth0_user_id = ${A.operator}`
+  const sup = as(A.operator, ids.a)
+  const menu = async () => links((await ok(sup.get('/api/me'))).nav_tree)
+  const me = await ok(sup.get('/api/me'))
+  assert.equal(me.permissions.dashboard, 'none', 'no Overview for the Supervisor')
+  assert.ok(!(await menu()).includes('/'), 'the Overview link is hidden from them')
+  assert.ok((await menu()).includes('/today'), 'a new group\'s menu: Today is there')
+  const d = await feed(sup)
+  assert.ok(d.not_included.includes('cash'), 'their feed names the areas they can\'t see')
+  assert.ok(!d.not_included.includes('food_safety') && !d.not_included.includes('checklists'), 'food safety and checklists are theirs')
+
+  // A link as migration 221 made it (the Overview's module and hidden
+  // roles): hidden from the Supervisor; migration 227 puts it back.
+  await sql`UPDATE nav_items SET module = 'dashboard', hidden_role_ids = ARRAY[${role.id}]::uuid[] WHERE tenant_id = ${ids.a} AND route = '/today'`
+  assert.ok(!(await menu()).includes('/today'), 'tied to the Overview, as before')
+  await sql.unsafe(fs.readFileSync(new URL('../../migrations/227_today_for_everyone.sql', import.meta.url), 'utf8'))
+  assert.ok((await menu()).includes('/today'), 'migration 227: there again')
+  const [row] = await sql`SELECT module, hidden_role_ids FROM nav_items WHERE tenant_id = ${ids.a} AND route = '/today'`
+  assert.equal(row.module, null)
+  assert.deepEqual(row.hidden_role_ids, [])
+  await sql`UPDATE users SET custom_role_id = NULL WHERE tenant_id = ${ids.a} AND auth0_user_id = ${A.operator}`
 })

@@ -6445,9 +6445,19 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <P>
               The first slice of the chat-first front door in <Mono>docs/CHAT_FIRST.md</Mono> (requirement ids in
               brackets). <Mono>/today</Mono> (<Mono>admin/src/pages/OpsToday.jsx</Mono>, nav link at the top of Home,
-              migration 221, module <Mono>dashboard</Mono>) shows the day at a glance, the tasks for a venue grouped
+              migration 221) shows the day at a glance, the tasks for a venue grouped
               Late / Now / Next / Later, the person's menu as tiles and Pepper beside them. The tasks come from data and
               rules, never the model (P1, Q1), so the page works with Pepper off.
+            </P>
+            <H3>Who has the link</H3>
+            <P>
+              Everyone signed in, like the feed itself (<Mono>GET /api/ops/today</Mono> has no module gate; each area
+              is read as the person, so their permissions decide what is on it). The link has no <Mono>module</Mono> in{' '}
+              <Mono>ROUTE_CATALOG</Mono> or <Mono>DEFAULT_NAV_TREE</Mono>. Migration 221 had given it the Overview&apos;s
+              module (<Mono>dashboard</Mono>) and copied the Overview link&apos;s <Mono>hidden_role_ids</Mono>, so a role
+              without the Overview lost Today too: a custom role resolves every module it doesn&apos;t name to{' '}
+              <Mono>none</Mono> (<Mono>resolvePermission()</Mono>). Migration 227 clears both on every group&apos;s{' '}
+              <Mono>/today</Mono> link; the Navigation designer can still hide it from a role.
             </P>
             <H3>GET /api/ops/today</H3>
             <P>

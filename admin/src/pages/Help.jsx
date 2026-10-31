@@ -206,6 +206,12 @@ export default function Help() {
               with Pepper beside it. Pick the venue at the top right if you work at more than one;
               the page remembers it.
             </P>
+            <P>
+              Everyone who signs in has Today in their menu, whatever their role: each person sees the
+              tasks of the areas their role can open (the rest are named at the bottom, so nobody is
+              told something is fine when it simply isn&apos;t theirs to see). To take it out of a
+              role&apos;s menu, hide it in the Navigation designer.
+            </P>
             <H3>Where the tasks come from</H3>
             <P>
               Tasks are worked out from your own set-up and records, not by Pepper, so the list is
