@@ -22,7 +22,7 @@
 // Pure: no I/O, no clock (times come from the event: client_at).
 
 import { isId } from './ids.js'
-import { permissionProblem } from './permissions.js'
+import { permissionProblem, managerProblem } from './permissions.js'
 import { checkTotals, isActiveLine, lineGross } from './pricing.js'
 import { CHECK_NO_MAX, ORDER_NO_MAX, numberText } from './numbers.js'
 
@@ -77,6 +77,7 @@ function kioskProblem(checks, e) {
   }
   const c = checks[e.check_id]
   if (c && c.opened_by !== e.staff_id) return 'A kiosk only changes its own orders'
+  if (e.type === 'check.closed' && p.cancel_reason != null) return 'A kiosk can\'t cancel orders'
   if (e.type === 'line.added' && (!p.line?.item_id || p.line.price_override || p.line.open_item)) return 'A kiosk only adds dishes from the menu'
   if (e.type === 'discount.applied' && !p.discount?.loyalty_redemption_id) return 'A kiosk only takes off loyalty rewards'
   if (e.type === 'payment.added') {
@@ -200,7 +201,10 @@ export function eventProblem(e) {
       if (p.modifiers != null && !Array.isArray(p.modifiers)) return bad('modifiers')
       return null
     case 'line.deleted':
-      return isId(p.line_id) ? null : bad('line_id')
+      if (!isId(p.line_id)) return bad('line_id')
+      if (p.cancel != null && typeof p.cancel !== 'boolean') return bad('cancel')
+      // Made into a combo (the till's Make it a combo): the line that replaced it.
+      return p.replaced_by == null || (isId(p.replaced_by) && p.replaced_by !== p.line_id) ? null : bad('replaced_by')
     case 'lines.sent':
       if (!isId(p.send_id)) return bad('send_id')
       if (!Array.isArray(p.line_ids) || !p.line_ids.length || !p.line_ids.every(isId)) return bad('line_ids')
@@ -210,6 +214,7 @@ export function eventProblem(e) {
       return isUuid(p.course_id) ? null : bad('course_id')
     case 'line.voided':
       if (!isId(p.line_id)) return bad('line_id')
+      if (p.cancel != null && typeof p.cancel !== 'boolean') return bad('cancel')
       if (p.qty != null && !isQty(p.qty)) return bad('qty')
       if (p.qty != null && !isId(p.new_line_id)) return bad('new_line_id')
       if (!isText(p.reason, 200) || !p.reason.trim()) return bad('reason')
@@ -269,6 +274,9 @@ export function eventProblem(e) {
       if (p.card_refund_id != null && !isUuid(p.card_refund_id)) return bad('card_refund_id')
       return isText(p.reason, 200) && p.reason.trim() ? null : bad('reason')
     case 'check.closed':
+      if (p.print_receipt != null && typeof p.print_receipt !== 'boolean') return bad('print_receipt')
+      // Cancel order: the whole order called off, with why.
+      if (p.cancel_reason != null && !(isText(p.cancel_reason, 200) && p.cancel_reason.trim())) return bad('cancel_reason')
       return null
     case 'check.reopened':
       return isText(p.reason, 200) && p.reason.trim() ? null : bad('reason')
@@ -346,6 +354,7 @@ function newCheck(e) {
     reopened: 0,
     split_from: p.from_check_id || null,
     merged_into: null,
+    cancelled: null,
     events: 0,
     updated_at: e.client_at ?? null,
   }
@@ -362,7 +371,8 @@ const OPEN_ONLY = new Set([
 /**
  * Apply one check event.
  *   checks  { [id]: check } with every check in checksTouched(event) that exists
- *   ctx     { staffById } (shared/pos/permissions.js shapes)
+ *   ctx     { staffById, settings } (shared/pos/permissions.js shapes; settings
+ *           = the venue's till settings, for its approvals switches)
  * Returns { ok: true, checks: { [id]: check } } with only the checks it
  * changed (new objects; the input is never changed), or { ok: false, error, code }.
  */
@@ -380,6 +390,11 @@ export function applyEvent(checks, e, ctx = {}) {
   const need = (key, amount) => {
     const why = permissionProblem(staffById, e, key, amount)
     return why ? fail(why, 'permission') : null
+  }
+  // The venue's "needs a manager" switches (settings.approvals, permissions.js).
+  const needManager = action => {
+    const why = managerProblem(staffById, e, action, ctx.settings || null)
+    return why ? fail(why, 'manager') : null
   }
 
   if (e.type === 'check.opened') {
@@ -493,6 +508,7 @@ export function applyEvent(checks, e, ctx = {}) {
         const no = need('price_override'); if (no) return no
         l.price_override = true
       }
+      if (p.qty != null && p.qty < l.qty) { const no = needManager('delete_unsent'); if (no) return no }
       if (p.qty != null) l.qty = p.qty
       if (p.unit_price != null) l.unit_price = p.unit_price
       if (p.modifiers != null) l.modifiers = p.modifiers
@@ -509,6 +525,11 @@ export function applyEvent(checks, e, ctx = {}) {
       const l = findLine(p.line_id)
       if (!l) return fail('Item not found on this check', 'missing')
       if (l.status !== 'new') return fail('This item was sent to the kitchen: void it instead', 'sent')
+      // Swapped for the combo that replaced it: nothing is taken off the order.
+      const swapped = p.replaced_by && c.lines.some(x => x.id === p.replaced_by && x.status === 'new')
+      if (!swapped) { const no = needManager('delete_unsent'); if (no) return no }
+      // Taken off by Cancel order: what the order was worth when cancelled.
+      if (p.cancel) c.cancelling = (c.cancelling || 0) + lineGross(l)
       c.lines = c.lines.filter(x => x.id !== p.line_id)
       c.discounts = c.discounts
         .map(d => (d.scope === 'line' ? { ...d, line_ids: d.line_ids.filter(id => id !== p.line_id) } : d))
@@ -551,13 +572,16 @@ export function applyEvent(checks, e, ctx = {}) {
       if (!l) return fail('Item not found on this check', 'missing')
       if (l.status === 'voided') return fail('This item was already voided', 'voided')
       if (l.status === 'new') return fail('This item hasn\'t been sent: delete it instead', 'not_sent')
-      const no = need('void'); if (no) return no
+      const no = need('void') || needManager('void_sent'); if (no) return no
       const voided = { at: e.client_at ?? null, day_id: e.assigned?.day_id ?? null, by: e.staff_id, approved_by: e.approved_by || null, reason: p.reason.trim(), waste: p.waste !== false }
       if (p.qty != null && p.qty < l.qty) {
         if (findLine(p.new_line_id)) return fail('This item is already on the check', 'duplicate')
         l.qty -= p.qty
-        c.lines.splice(c.lines.indexOf(l) + 1, 0, { ...clone(l), id: p.new_line_id, qty: p.qty, status: 'voided', voided })
+        const part = { ...clone(l), id: p.new_line_id, qty: p.qty, status: 'voided', voided }
+        c.lines.splice(c.lines.indexOf(l) + 1, 0, part)
+        if (p.cancel) c.cancelling = (c.cancelling || 0) + lineGross(part)
       } else {
+        if (p.cancel) c.cancelling = (c.cancelling || 0) + lineGross(l)
         l.status = 'voided'
         l.voided = voided
       }
@@ -723,6 +747,21 @@ export function applyEvent(checks, e, ctx = {}) {
     }
 
     case 'check.closed': {
+      if (p.cancel_reason != null) {
+        // Cancel order: the till voids what was sent and takes the rest off
+        // first (in the same batch), so nothing is left on it to pay for.
+        if (c.lines.some(isActiveLine)) return fail('Take the items off the order first', 'items')
+        if (c.payments.some(x => !x.voided)) return fail('Take the payments off first', 'paid')
+        const no = needManager('cancel_order'); if (no) return no
+        c.status = 'void'
+        c.cancelled = { reason: p.cancel_reason.trim(), value: c.cancelling || 0, by: e.staff_id, approved_by: e.approved_by || null, at: e.client_at ?? null, day_id: e.assigned?.day_id ?? null }
+        delete c.cancelling
+        c.closed_at = e.client_at ?? null
+        c.closed_by = e.staff_id
+        c.billed = false
+        c.final = summary(c)
+        break
+      }
       const t = checkTotals(c)
       const empty = !c.lines.some(isActiveLine) && !c.payments.some(x => !x.voided)
       if (!empty && t.balance !== 0) {
@@ -744,12 +783,14 @@ export function applyEvent(checks, e, ctx = {}) {
       c.closed_by = null
       c.reopened = (c.reopened || 0) + 1
       c.final = null
+      c.cancelled = null
+      delete c.cancelling
       break
     }
 
     case 'refund.added': {
       if (current.status !== 'closed') return fail('Refunds are made on a closed check', 'open')
-      const no = need('refund'); if (no) return no
+      const no = need('refund') || needManager('refund'); if (no) return no
       const r = p.refund
       if (c.refunds.some(y => y.id === r.id)) return fail('This refund is already on the check', 'duplicate')
       const t = checkTotals(c)

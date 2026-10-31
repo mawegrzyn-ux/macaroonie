@@ -2,7 +2,9 @@
 // Card machine (migration 193): the till's own card machine (Store tech) is
 // sent the amount through its provider, and the payment is added once the
 // machine approves it (payment.added naming the attempt). Split the bill
-// evenly, by items, or any amounts.
+// evenly, by items, or any amounts. Exact cash and Exact card pay the amount
+// in one tap. Once it is all paid, the receipt follows the till's choice
+// (receiptModeOf: ask, always print, or don't print).
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Banknote, CreditCard, Ticket, Wallet, CircleDot, Check, Printer, X, Ban, Split, ListChecks, Nfc, Loader2, AlertTriangle, PenLine } from 'lucide-react'
@@ -12,6 +14,7 @@ import { Modal, Keypad, ReasonPicker, cx, money, poundsToPence, useApproval } fr
 import {
   dispatch, dispatchMany, toast, useTill, cardStart, cardCheck, cardCancel, cardSignature, cardTest, cardPayments, cardRefund,
 } from '../lib/store.js'
+import { receiptModeOf } from '../lib/checkOps.js'
 
 const ICONS = { cash: Banknote, card_external: CreditCard, card_integrated: Nfc, voucher: Ticket, account: Wallet, other: CircleDot }
 const CARD_FINAL = ['approved', 'declined', 'cancelled', 'failed']
@@ -49,6 +52,10 @@ export default function PayModal({ check, onClose, onClosed, counter = false }) 
 
   const amountP = Math.min(poundsToPence(amount), Math.max(0, t.balance))
   const paidOff = t.balance <= 0
+  const receiptMode = receiptModeOf(config)
+  // One tap: the amount shown, in cash, or on the card machine (else a card recorded by hand).
+  const exactCash = tenders.find(x => x.key === 'cash') || null
+  const exactCard = tenders.find(x => x.key === 'card_integrated') || tenders.find(x => x.key === 'card_external') || null
 
   const evenShare = ways => {
     const left = Math.max(0, t.balance)
@@ -61,6 +68,16 @@ export default function PayModal({ check, onClose, onClosed, counter = false }) 
     const net = t.lines.filter(l => picked.includes(l.id)).reduce((s, l) => s + l.net, 0)
     return Math.round(net * t.total / t.net)
   }, [picked, t])
+
+  const exact = key => {
+    if (amountP <= 0) return
+    if (key === 'card_integrated') return startCard(0)
+    const r = dispatch('payment.added', {
+      payment: { id: ulid(), tender: key, amount: amountP, tip: 0, tendered: key === 'cash' ? amountP : null, ref: null },
+    }, { check_id: check.id })
+    if (!r.ok) return toast(r.error, 'bad')
+    afterPayment(r)
+  }
 
   const take = () => {
     if (!tender || amountP <= 0) return
@@ -89,8 +106,8 @@ export default function PayModal({ check, onClose, onClosed, counter = false }) 
       follow(r.ok ? r.data : { ...p, message: r.error })
     }, 1500)
   }
-  const startCard = async () => {
-    const tipP = poundsToPence(tip)
+  const startCard = async (tipOverride = null) => {
+    const tipP = tipOverride ?? poundsToPence(tip)
     setCard({ starting: true })
     const r = await cardStart(check, amountP, tipP)
     if (!poll.current.alive) return
@@ -139,6 +156,8 @@ export default function PayModal({ check, onClose, onClosed, counter = false }) 
 
   const afterPayment = r => {
     const nb = checkTotals(r.checks[check.id]).balance
+    // All paid and the till doesn't ask: close now, printing or not as set.
+    if (nb <= 0 && receiptMode !== 'ask') return close(receiptMode === 'always')
     setTender(null); setTendered(''); setTip(''); setRef(''); setPicked([]); setPickLines(false)
     if (split && nb > 0) {
       const done = split.done + 1
@@ -274,7 +293,7 @@ export default function PayModal({ check, onClose, onClosed, counter = false }) 
           ) : card ? (
             <CardPanel card={card} machine={machine} onCancel={() => answer(cardCancel, card.payment.id)}
               onSignature={ok => answer(cardSignature, card.payment.id, ok)} onTest={result => answer(cardTest, card.payment.id, result)}
-              onRetry={() => { setCard(null); startCard() }} onRecord={() => record(card.payment)}
+              onRetry={() => { setCard(null); startCard(card.payment?.tip ?? null) }} onRecord={() => record(card.payment)}
               onClose={() => setCard(null)} />
           ) : (
             <div className="space-y-4">
@@ -289,6 +308,20 @@ export default function PayModal({ check, onClose, onClosed, counter = false }) 
                 <div className="label">Amount</div>
                 <div className="text-4xl font-bold tabular-nums py-2">£{amount || '0'}</div>
               </div>
+              {!tender && (exactCash || exactCard) && amountP > 0 && (
+                <div className="grid grid-cols-2 gap-2">
+                  {exactCash && (
+                    <button className="btn btn-ok h-16 text-lg" onClick={() => exact('cash')} data-testid="pay-exact-cash">
+                      <Banknote size={22} /> Exact cash {money(amountP)}
+                    </button>
+                  )}
+                  {exactCard && (
+                    <button className="btn btn-ok h-16 text-lg" disabled={exactCard.key === 'card_integrated' && online === false} onClick={() => exact(exactCard.key)} data-testid="pay-exact-card">
+                      {exactCard.key === 'card_integrated' ? <Nfc size={22} /> : <CreditCard size={22} />} Exact card {money(amountP)}
+                    </button>
+                  )}
+                </div>
+              )}
               <div className="grid grid-cols-2 lg:grid-cols-3 gap-2">
                 {tenders.map(x => {
                   const I = ICONS[x.key] || CircleDot

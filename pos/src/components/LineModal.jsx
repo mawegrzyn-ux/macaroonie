@@ -15,9 +15,9 @@ import { combosForLine } from '../lib/checkOps.js'
 const VOID_REASONS = ['Wrong item', 'Guest changed mind', 'Quality', 'Took too long', 'Dropped / spilt']
 const COMP_REASONS = ['Quality', 'Took too long', 'Birthday', 'Regular', 'Staff', 'Manager decision']
 
-export default function LineModal({ check, line, config, onClose, onDiscount, onMove, onMakeCombo }) {
+export default function LineModal({ check, line, config, onClose, onDiscount, onMove, onMakeCombo, initialMode = null }) {
   const approve = useApproval()
-  const [mode, setMode] = useState(null)   // 'void' | 'comp' | 'delete'
+  const [mode, setMode] = useState(initialMode)   // 'void' | 'comp' | 'delete'
   const [reason, setReason] = useState('')
   const [voidQty, setVoidQty] = useState(line.qty)
   const [waste, setWaste] = useState(true)
@@ -31,14 +31,23 @@ export default function LineModal({ check, line, config, onClose, onDiscount, on
   const combos = onMakeCombo ? combosForLine(line, config) : []
   const inCombo = (check.promotions || []).filter(p => p.kind === 'combo' && p.lines?.[line.id])
 
-  const change = patch => {
-    const r = dispatch('line.changed', { line_id: line.id, ...patch }, { check_id: check.id })
+  const change = (patch, approvedBy = null) => {
+    const r = dispatch('line.changed', { line_id: line.id, ...patch }, { check_id: check.id, approved_by: approvedBy })
     if (!r.ok) toast(r.error, 'bad')
   }
+  // Fewer of an item not sent yet: the venue may want a manager for it.
+  const fewer = async () => {
+    const approver = await approve(null, null, 'Taking items off needs a manager here.', ['delete_unsent'])
+    if (approver === false) return
+    change({ qty: line.qty - 1 }, approver)
+  }
+
+  // Opened by a swipe straight on Void or Delete: going back closes it.
+  const back = () => (initialMode ? onClose() : setMode(null))
 
   const doVoid = async () => {
     const qty = Math.min(voidQty, line.qty)
-    const approver = await approve('void', null, 'Voiding an item the kitchen already has needs a manager.')
+    const approver = await approve('void', null, 'Voiding an item the kitchen already has needs a manager.', ['void_sent'])
     if (approver === false) return
     const payload = { line_id: line.id, reason: reason.trim(), waste }
     if (qty < line.qty) { payload.qty = qty; payload.new_line_id = ulid() }
@@ -56,8 +65,10 @@ export default function LineModal({ check, line, config, onClose, onDiscount, on
     onClose()
   }
 
-  const doDelete = () => {
-    const r = dispatch('line.deleted', { line_id: line.id }, { check_id: check.id })
+  const doDelete = async () => {
+    const approver = await approve(null, null, 'Taking items off needs a manager here.', ['delete_unsent'])
+    if (approver === false) return
+    const r = dispatch('line.deleted', { line_id: line.id }, { check_id: check.id, approved_by: approver })
     if (!r.ok) return toast(r.error, 'bad')
     onClose()
   }
@@ -79,7 +90,7 @@ export default function LineModal({ check, line, config, onClose, onDiscount, on
             {isNew && (
               <div className="flex items-center gap-3">
                 <span className="label w-20">Quantity</span>
-                <button className="btn w-14 px-0" disabled={line.qty <= 1} onClick={() => change({ qty: line.qty - 1 })}><Minus size={20} /></button>
+                <button className="btn w-14 px-0" disabled={line.qty <= 1} onClick={fewer} aria-label="One fewer"><Minus size={20} /></button>
                 <div className="w-12 text-center text-2xl font-bold tabular-nums">{line.qty}</div>
                 <button className="btn w-14 px-0" onClick={() => change({ qty: line.qty + 1 })}><Plus size={20} /></button>
               </div>
@@ -162,7 +173,7 @@ export default function LineModal({ check, line, config, onClose, onDiscount, on
             <div className="font-semibold">Delete {line.name}? It hasn't gone to the kitchen.</div>
             <div className="flex gap-2">
               <button className="btn btn-bad" onClick={doDelete}><Trash2 size={18} /> Yes, delete</button>
-              <button className="btn" onClick={() => setMode(null)}>Keep it</button>
+              <button className="btn" onClick={back}>Keep it</button>
             </div>
           </div>
         )}
@@ -186,7 +197,7 @@ export default function LineModal({ check, line, config, onClose, onDiscount, on
             </div>
             <div className="flex gap-2">
               <button className="btn btn-bad" disabled={!reason.trim()} onClick={doVoid}><Ban size={18} /> Void {voidQty > 1 ? voidQty : ''}</button>
-              <button className="btn" onClick={() => setMode(null)}>Back</button>
+              <button className="btn" onClick={back}>Back</button>
             </div>
           </div>
         )}

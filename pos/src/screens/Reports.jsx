@@ -145,6 +145,7 @@ function Figures({ f, names }) {
         <Table title={'Voids (' + f.voids.count + ')'} rows={f.voids.lines.slice(0, 20).map(v => [v.qty + ' x ' + v.name + ' · ' + v.reason, money(v.value)])} />
         <Table title="Discounts and comps" rows={f.discounts.map(d => [d.name + ' x' + d.count, '−' + money(d.amount)])} />
         <Table title={'Refunds (' + f.refunds.count + ')'} rows={f.refunds.lines.map(r => [r.reason, '−' + money(r.amount)])} />
+        {f.cancelled?.count > 0 && <Table title={'Cancelled orders (' + f.cancelled.count + ')'} rows={f.cancelled.lines.map(c => [(c.order_no != null ? '#' + c.order_no : c.number) + ' · ' + c.reason, money(c.value)])} />}
         <Table title="Staff" rows={f.staff.filter(s => s.checks || s.tips).map(s => [(names.staff[s.id] || 'Unknown') + ' (' + s.checks + ')', money(s.total) + (s.tips ? ' + tips ' + money(s.tips) : '')])} />
       </div>
     </div>

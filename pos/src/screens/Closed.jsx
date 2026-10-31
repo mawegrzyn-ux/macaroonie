@@ -7,7 +7,7 @@ import { ulid } from '@shared/pos/ids.js'
 import { checkTotals, modifierText, groupModifiers } from '@shared/pos/pricing.js'
 import { checkLabel, TENDERS } from '@shared/pos/checks.js'
 import { numberText } from '@shared/pos/numbers.js'
-import { useTill, useChecks, dispatch, toast, printBill, server, loadCheck, cardRefund } from '../lib/store.js'
+import { useTill, useChecks, dispatch, toast, printBill, server, loadCheck, cardRefund, serverName } from '../lib/store.js'
 import { Modal, Keypad, ReasonPicker, cx, money, poundsToPence, useApproval } from '../components/ui.jsx'
 
 export default function Closed() {
@@ -28,7 +28,7 @@ export default function Closed() {
     const local = Object.values(checks).filter(c => c.status === 'closed' || c.status === 'void')
     const ids = new Set(local.map(c => c.id))
     const rows = [
-      ...local.map(c => ({ id: c.id, number: c.number, number_code: c.number_code, order_no: c.order_no, table_id: c.table_id, tab_name: c.tab_name, closed_at: c.closed_at, total: checkTotals(c).total, status: c.status, local: true })),
+      ...local.map(c => ({ id: c.id, number: c.number, number_code: c.number_code, order_no: c.order_no, table_id: c.table_id, tab_name: c.tab_name, closed_at: c.closed_at, total: checkTotals(c).total, status: c.status, cancelled: !!c.cancelled, local: true })),
       ...remote.filter(r => !ids.has(r.id)),
     ].sort((a, b) => String(b.closed_at || '').localeCompare(String(a.closed_at || '')))
     const term = q.trim().toLowerCase()
@@ -62,7 +62,7 @@ export default function Closed() {
               <button key={r.id} className={cx('w-full p-3 flex items-center gap-3 text-left', selected === r.id && 'bg-brand-soft')} onClick={() => open(r)}>
                 <div className="w-16 font-bold">{checkLabel(r)}</div>
                 <div className="flex-1 min-w-0">
-                  <div className="font-semibold truncate">{table ? 'Table ' + table.label : r.tab_name || 'Tab'}{r.status === 'void' ? ' (empty)' : ''}</div>
+                  <div className="font-semibold truncate">{table ? 'Table ' + table.label : r.tab_name || 'Tab'}{r.status === 'void' ? (r.cancelled ? ' (cancelled)' : ' (empty)') : ''}</div>
                   <div className="text-xs text-muted">{r.closed_at ? new Date(r.closed_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}</div>
                 </div>
                 <div className="font-bold tabular-nums">{money(r.total)}</div>
@@ -100,7 +100,7 @@ function ClosedDetail({ check, config }) {
   const [sale, setSale] = useState(null)
   const [busy, setBusy] = useState(false)
   const refund = async () => {
-    const approver = await approve('refund', null, 'Refunds need a manager.')
+    const approver = await approve('refund', null, 'Refunds need a manager.', ['refund'])
     if (approver === false) return
     let cardRefundId = null
     if (tender === 'card_integrated') {
@@ -128,6 +128,11 @@ function ClosedDetail({ check, config }) {
         </>}
         {check.status === 'open' && <div className="chip chip-on">Open again</div>}
       </div>
+      {check.status === 'void' && check.cancelled && (
+        <div className="rounded-xl bg-bad-soft text-bad p-3 font-semibold" data-testid="closed-cancelled">
+          Order cancelled: {check.cancelled.reason}{check.cancelled.approved_by ? ' · approved by ' + serverName(config, check.cancelled.approved_by) : ''}
+        </div>
+      )}
       {mode === 'reopen' && (
         <div className="card p-4 space-y-3 border-warn border-2">
           <div className="font-semibold">Reopen check {checkLabel(check)}?</div>

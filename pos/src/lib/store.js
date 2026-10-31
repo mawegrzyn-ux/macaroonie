@@ -14,7 +14,7 @@
 
 import { useSyncExternalStore } from 'react'
 import { applyEvent, eventProblem, CHECK_EVENTS } from '@shared/pos/checks.js'
-import { permissionProblem } from '@shared/pos/permissions.js'
+import { permissionProblem, managerProblem } from '@shared/pos/permissions.js'
 import { billOps, receiptHere } from '@shared/pos/printing.js'
 import { hashPin } from '@shared/pos/pin.js'
 import { ulid } from '@shared/pos/ids.js'
@@ -84,10 +84,13 @@ export function setPrefs(patch) {
 
 // ── Toasts ───────────────────────────────────────────────────────
 
-export function toast(text, kind = 'info', ms = kind === 'ok' ? 2200 : 4000) {
+/** A short message at the bottom; `action` { label, run } adds a button (e.g. Undo). */
+export function toast(text, kind = 'info', ms = kind === 'ok' ? 2200 : 4000, action = null) {
   const id = ulid()
-  setState({ toasts: [...state.toasts, { id, text, kind }].slice(-2) })
-  setTimeout(() => setState({ toasts: state.toasts.filter(t => t.id !== id) }), ms)
+  const dismiss = () => setState({ toasts: state.toasts.filter(t => t.id !== id) })
+  const act = action ? { label: action.label, run: () => { dismiss(); action.run() } } : null
+  setState({ toasts: [...state.toasts, { id, text, kind, action: act }].slice(-2) })
+  setTimeout(dismiss, ms)
 }
 
 // ── Derived ──────────────────────────────────────────────────────
@@ -108,7 +111,7 @@ let derived = { confirmed: null, outbox: null, config: null, checks: {} }
 export function currentChecks(s = state) {
   if (derived.confirmed === s.confirmed && derived.outbox === s.outbox && derived.config === s.config) return derived.checks
   let checks = { ...s.confirmed }
-  const ctx = { staffById: staffById(s.config) }
+  const ctx = { staffById: staffById(s.config), settings: s.config?.settings || null }
   for (const e of s.outbox) {
     if (!CHECK_EVENTS.includes(e.type)) continue
     const r = applyEvent(checks, e, ctx)
@@ -437,7 +440,7 @@ export function dispatchMany(specs) {
   if (!state.staff) return { ok: false, error: 'Sign in first' }
   let checks = currentChecks()
   const before = checks
-  const ctx = { staffById: staffById() }
+  const ctx = { staffById: staffById(), settings: state.config?.settings || null }
   const events = []
   for (const [type, payload, opts] of specs) {
     const e = makeEvent(type, payload, opts)
@@ -501,12 +504,21 @@ export function printBill(check, { preBill = false } = {}) {
 
 // ── Manager approval ─────────────────────────────────────────────
 
+/** What stops an event by `event.staff_id` (and its approver): the role's
+ *  permission `key` (null = none) and the venue's manager switches `actions`
+ *  (shared/pos/permissions.js). */
+function doProblem(event, key, amount, actions = []) {
+  const people = staffById()
+  if (key && permissionProblem(people, event, key, amount)) return true
+  return actions.some(a => managerProblem(people, event, a, state.config?.settings || null))
+}
+
 /** Someone with this permission (and the right to approve) by PIN, or an error. */
-export async function approverFor(pin, key, amount = null) {
+export async function approverFor(pin, key, amount = null, actions = []) {
   const s = await staffForPin(pin)
   if (!s) return { ok: false, error: 'PIN not recognised' }
   const fake = { staff_id: state.staff?.id, approved_by: s.id }
-  if (permissionProblem(staffById(), fake, key, amount)) return { ok: false, error: s.name + ' can\'t approve this' }
+  if (doProblem(fake, key, amount, actions)) return { ok: false, error: s.name + ' can\'t approve this' }
   return { ok: true, staff: s }
 }
 
@@ -620,9 +632,11 @@ export async function cardRefund({ checkId, salePaymentId, amount, approvedBy = 
   return { ok: true, refund: r.data, refundId }
 }
 
-export function can(key, amount = null) {
+/** May the signed-in person do it without a manager? key: their role's
+ *  permission (null = none needed); actions: the venue's manager switches. */
+export function can(key, amount = null, actions = []) {
   if (!state.staff) return false
-  return !permissionProblem(staffById(), { staff_id: state.staff.id }, key, amount)
+  return !doProblem({ staff_id: state.staff.id }, key, amount, actions)
 }
 
 // ── Sync ─────────────────────────────────────────────────────────

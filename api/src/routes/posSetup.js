@@ -88,7 +88,7 @@ import {
 } from '../services/kitchenSvc.js'
 import { checkDesign, ownDesign, previewToken, menuChanges, unpricedDishes } from '../services/kioskSvc.js'
 import { normaliseDesign } from '../../../shared/kiosk.js'
-import { DEFAULT_POS_ROLES, PERMISSION_KEYS, normalisePermissions } from '../../../shared/pos/permissions.js'
+import { DEFAULT_POS_ROLES, PERMISSION_KEYS, normalisePermissions, MANAGER_ACTION_KEYS, normaliseApprovals } from '../../../shared/pos/permissions.js'
 import { hashPin, PIN_PATTERN, weakPin } from '../../../shared/pos/pin.js'
 import { TENDER_KEYS } from '../../../shared/pos/checks.js'
 import { ensureTaxDefaults, loadOrderTypes, loadStreams } from '../services/taxSvc.js'
@@ -154,6 +154,10 @@ const SettingsBody = z.object({
   pull:                      PullBody.optional(),
   // Hub first (migration 218): devices on the venue network talk to the venue hub first.
   hub_first:                 z.boolean().optional(),
+  // Migration 224: the receipt when a check is paid, and actions that need a
+  // manager every time (shared/pos/permissions.js MANAGER_ACTIONS).
+  receipt_mode:              z.enum(['ask', 'always', 'never']).optional(),
+  approvals:                 z.object(Object.fromEntries(MANAGER_ACTION_KEYS.map(k => [k, z.boolean().optional()]))).strict().optional(),
 })
 
 // Ask for a customer name / tent number when the order type is picked:
@@ -218,6 +222,9 @@ const DeviceSettings = z.object({
   card_reader:        z.union([z.literal('none'), UUID]).optional(),
   // A venue hub (migration 195): installs its new versions by itself (absent = yes).
   auto_update:        z.boolean().optional(),
+  // A till's own receipt when a check is paid (migration 224): 'venue' (or
+  // absent) = the venue's Receipts and payments setting.
+  receipt_mode:       z.enum(['venue', 'ask', 'always', 'never']).optional(),
   // A till's or kiosk's own counter order numbers (migration 217,
   // shared/pos/numbers.js): no two at a location may overlap.
   order_numbers:      z.object({
@@ -792,6 +799,7 @@ export default async function posSetupRoutes(app) {
         set.kds_gloriafood_types = tx.json(body.kds_gloriafood_types)
       }
       if (body.kds_colours) set.kds_colours = tx.json(normaliseKitchenColours(body.kds_colours))
+      if (body.approvals) set.approvals = tx.json(normaliseApprovals(body.approvals))
       delete set.pull
       if (body.pull) Object.assign(set, pullColumns(body.pull))
       const keys = Object.keys(set)
@@ -2086,7 +2094,8 @@ export default async function posSetupRoutes(app) {
       return tx`
         SELECT c.id, c.number, c.number_code, c.order_no, c.mode, c.table_id, t.label AS table_label, c.tab_name, c.covers,
                c.server_id, COALESCE(s.name, k.name) AS server_name, c.revenue_stream_id, c.order_type_id, o.name AS order_type_name, c.tent, c.status, c.opened_at, c.closed_at,
-               c.subtotal, c.discount, c.service_charge, c.total, c.paid, c.tips, c.refunded, c.day_id
+               c.subtotal, c.discount, c.service_charge, c.total, c.paid, c.tips, c.refunded, c.day_id,
+               c.state->'cancelled'->>'reason' AS cancel_reason
           FROM pos_checks c
           LEFT JOIN tables t ON t.id = c.table_id AND t.tenant_id = c.tenant_id
           LEFT JOIN cash_staff s ON s.id = c.server_id AND s.tenant_id = c.tenant_id

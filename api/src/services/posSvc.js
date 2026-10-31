@@ -24,7 +24,7 @@ import { createSequencer } from '../../../shared/pos/sequencer.js'
 import { checkTotals, isActiveLine, lineGross } from '../../../shared/pos/pricing.js'
 import { variantRules, itemChoices, isPriced } from '../../../shared/orderPricing.js'
 import { dayFigures } from '../../../shared/pos/reports.js'
-import { normalisePermissions, DEFAULT_POS_ROLES } from '../../../shared/pos/permissions.js'
+import { normalisePermissions, normaliseApprovals, DEFAULT_POS_ROLES } from '../../../shared/pos/permissions.js'
 import { TENDERS } from '../../../shared/pos/checks.js'
 import { STALE_HOURS } from '../../../shared/pos/kitchen.js'
 import { normaliseKitchenColours } from '../../../shared/pos/kitchenColours.js'
@@ -128,6 +128,9 @@ export function settingsView(s) {
     service_charge_label: s.service_charge_label,
     tenders, tips_enabled: s.tips_enabled, require_covers: s.require_covers,
     auto_logout_secs: s.auto_logout_secs,
+    // Migration 224: the receipt when a check is paid, and what needs a manager.
+    receipt_mode: s.receipt_mode || 'ask',
+    approvals: normaliseApprovals(s.approvals),
     recon_map: s.recon_map || {}, recon_auto_fill: s.recon_auto_fill,
     kds_online_orders: s.kds_online_orders ?? true, kds_online_ready: s.kds_online_ready ?? true,
     kds_gloriafood: !!s.kds_gloriafood, kds_gloriafood_types: s.kds_gloriafood_types || {},
