@@ -3580,6 +3580,69 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               details at Send / Pay (<Mono>start: &apos;details&apos;</Mono>). Tests:{' '}
               <Mono>api/test/till-order-prompt.test.mjs</Mono>.
             </P>
+            <H3>Till layouts (migration 228)</H3>
+            <P>
+              <Mono>shared/pos/tillLayout.js</Mono> is the one set of rules for the till, the designer and the API. A
+              layout is <Mono>&#123; cols, rows, zones &#125;</Mono> (4-24 x 3-16 cells, 12 x 8 at first); each zone is{' '}
+              <Mono>&#123; id, type, x, y, w, h &#125;</Mono> on that grid. The zones with buttons (<Mono>GRID_ZONES</Mono>:
+              categories, items, buttons, modifiers) add their own <Mono>cols</Mono> x <Mono>rows</Mono> (1-12),{' '}
+              <Mono>font</Mono> (12-36 px), <Mono>bold</Mono> and <Mono>overflow</Mono> (<Mono>scroll</Mono> |{' '}
+              <Mono>pages</Mono> | <Mono>more</Mono> | <Mono>hide</Mono>). Categories carry <Mono>sections</Mono> (ids in
+              order; null = every section of the till&apos;s menus), dishes <Mono>search</Mono> and <Mono>price</Mono>,
+              buttons zones <Mono>buttons</Mono> (<Mono>&#123; id, action, label, colour, w, h &#125;</Mono>, with{' '}
+              <Mono>item_id</Mono>, <Mono>preset_id</Mono> or <Mono>tender</Mono> for the actions that name one;{' '}
+              <Mono>BUTTON_ACTIONS</Mono>, where <Mono>check: true</Mono> means it needs an order on screen), modifiers{' '}
+              <Mono>kind</Mono> (all | required | optional) and <Mono>cover</Mono> (zone | screen).{' '}
+              <Mono>normaliseTillLayout()</Mono> is the only way a layout is read (unknown zones and buttons dropped, every
+              number inside its limits, repeated ids renamed). <Mono>layoutProblems()</Mono> stops a save (no Order zone,
+              more zones of a type than its <Mono>max</Mono>, two Dish choices zones that don&apos;t split Must pick and
+              Optional, zones other than Dish choices overlapping); <Mono>layoutWarnings()</Mono> only advises.{' '}
+              <Mono>packCells(cells, zone)</Mono> places a zone&apos;s buttons (the first free place row by row; a button
+              bigger than the grid is cut down) and returns <Mono>&#123; pages, rest, hidden, rows, cols &#125;</Mono>. The
+              till&apos;s <Mono>ZoneGrid.jsx</Mono> and the designer&apos;s <Mono>GridPreview</Mono> both use it, so a button
+              lands in the same place in both.
+            </P>
+            <P>
+              API (<Mono>routes/tillLayouts.js</Mono>; Store tech view to read, manage to change): <Mono>GET</Mono> and{' '}
+              <Mono>POST /api/pos/till-layouts</Mono> (a new one from <Mono>template</Mono> standard | quick or{' '}
+              <Mono>copy_from</Mono>; 30 per company), <Mono>GET</Mono>, <Mono>PUT</Mono> and{' '}
+              <Mono>DELETE /api/pos/till-layouts/:id</Mono>. <Mono>PUT</Mono> stores <Mono>ownTillLayout()</Mono>&apos;s output
+              (sections, dishes and discounts that aren&apos;t the company&apos;s dropped) and answers 422 with code{' '}
+              <Mono>layout</Mono> and the problems. <Mono>DELETE</Mono> takes the layout off every till that picked it and
+              the foreign key puts <Mono>pos_settings.till_layout_id</Mono> back to null. Every change broadcasts{' '}
+              <Mono>pos.config</Mono> to each venue of the company. Which layout a till draws:{' '}
+              <Mono>pos_settings.till_layout_id</Mono> (venue settings PATCH, null = the standard screen) and a till&apos;s{' '}
+              <Mono>settings.till_layout</Mono> (<Mono>venue</Mono> | <Mono>standard</Mono> | a layout id; device PATCH,
+              checked to be the company&apos;s). <Mono>tillConfig()</Mono> carries the layouts in use at the venue
+              (<Mono>till_layouts</Mono> by id, <Mono>venueTillLayouts()</Mono>), so a till draws its layout offline too.
+            </P>
+            <P>
+              Till: <Mono>tillLayoutOf(config)</Mono> (<Mono>pos/src/lib/tillLayout.js</Mono>) picks the till&apos;s own,
+              else the venue&apos;s, else none; a layout missing from the config or without an Order zone means the standard
+              screen. <Mono>screens/Check.jsx</Mono> and <Mono>screens/Counter.jsx</Mono> then draw{' '}
+              <Mono>components/LayoutScreen.jsx</Mono> instead of the check panel and <Mono>MenuPanel</Mono>, giving it the
+              Order zone&apos;s content (the check panel, or the counter&apos;s New order and waiting orders), dishes to their
+              usual <Mono>pick()</Mono> and every other button to <Mono>runButton()</Mono>: the same windows and{' '}
+              <Mono>PayModal</Mono>, with <Mono>autoExact</Mono> for Exact cash and Exact card and{' '}
+              <Mono>initialTender</Mono> for Pay by. Last receipt prints <Mono>lastReceiptCheck()</Mono> (<Mono>prefs.last_closed</Mono>,
+              set as <Mono>PayModal</Mono> closes a check, else the latest check this till closed today). A dish with choices
+              goes into the Dish choices zones when the layout has one (<Mono>choiceZones()</Mono>;{' '}
+              <Mono>components/LayoutChoices.jsx</Mono>: <Mono>useChoiceBuilder()</Mono> with the choices window&apos;s own
+              picking rules, exported from <Mono>ItemModal.jsx</Mono>, and <Mono>priceItem()</Mono>), else into the window.
+              No event changed: a layout only arranges the screen.
+            </P>
+            <P>
+              Admin: <Mono>components/pos/TillLayoutsSection.jsx</Mono> (Store tech → Till layouts, <Mono>/pos/layouts</Mono>)
+              and <Mono>pages/TillLayoutDesigner.jsx</Mono> (<Mono>/pos/layouts/:id</Mono>). The canvas draws each zone at the
+              chosen screen&apos;s size (the till&apos;s 64 px top bar first), moves and resizes zones on whole cells (pointer
+              events; a ghost committed on pointer up), previews each zone&apos;s buttons with the venue&apos;s menus,
+              discounts and ways to pay (<Mono>usePosSetup()</Mono>, <Mono>/api/pos/discounts</Mono>), turns to the page of
+              the button being edited, and starts with the Dish choices zones hidden (a selected one always shows). The
+              draft is normalised after every edit; Save sends <Mono>&#123; name, layout &#125;</Mono> and stays off while{' '}
+              <Mono>layoutProblems()</Mono> finds any. The till window on Tills has the till&apos;s own choice
+              (<Mono>till-layout</Mono>). Tests: <Mono>shared/pos/test/tillLayout.test.mjs</Mono>,{' '}
+              <Mono>api/test/till-layouts.test.mjs</Mono>.
+            </P>
             <H3>Device kinds and app updates</H3>
             <P>
               One app at <Mono>pos.&lt;domain&gt;</Mono> serves tills, kitchen screens and kiosks;{' '}

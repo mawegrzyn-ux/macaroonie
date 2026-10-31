@@ -2,24 +2,25 @@
 //
 // Store tech (pos_setup module): one page per part, each its own link in the
 // main menu's Store tech section (/pos/<key>, TABS below; /pos opens Tills).
-// Per venue: tills and pairing,
+// Per venue: tills and pairing, which till layout the tills use,
 // revenue streams (with the order types each offers), printers and what
 // prints where, the venue hub (linking, updates, Hub first), kitchen screens (stations, the kitchen flows, pairing),
 // self-order kiosks, staff PINs, receipts and payments, the Cash Recon link.
-// Company-wide: order types (with their charges), discounts, kiosk designs,
+// Company-wide: till layouts (the designer: /pos/layouts/:id), order types (with their charges), discounts, kiosk designs,
 // print designs (with which prints where per venue), till roles and courses.
 // The floor plan has its own page (/pos/floor). docs/POS.md.
 
 import { useParams, useSearchParams, Navigate } from 'react-router-dom'
 import {
   Loader2, MonitorSmartphone, Waypoints, ListOrdered, Printer, ReceiptText, CreditCard, CookingPot,
-  TabletSmartphone, KeyRound, ShieldCheck, UtensilsCrossed, Receipt, ArrowRightLeft, RefreshCw, Server, BadgePercent,
+  TabletSmartphone, KeyRound, ShieldCheck, UtensilsCrossed, Receipt, ArrowRightLeft, RefreshCw, Server, BadgePercent, PanelsTopLeft,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { usePermission } from '@/hooks/usePermission'
 import { ReadOnlyNotice, ReadOnlyFieldset } from '@/components/ReadOnlyNotice'
 import { PageHeader, VenueSelect, usePosVenue, usePosSetup, ErrorNote } from '@/components/pos/shared'
 import TillsSection from '@/components/pos/TillsSection'
+import TillLayoutsSection from '@/components/pos/TillLayoutsSection'
 import RevenueStreamsSection from '@/components/pos/RevenueStreamsSection'
 import OrderTypesSection from '@/components/pos/OrderTypesSection'
 import DiscountsSection from '@/components/pos/DiscountsSection'
@@ -39,6 +40,7 @@ import { DeviceUpdatesSection } from '@/components/pos/DeviceUpdatesSection'
 // in api/src/routes/nav.js, DEFAULT_NAV_TREE) links to each one.
 export const TABS = [
   { key: 'tills', label: 'Tills', icon: MonitorSmartphone, render: p => <TillsSection {...p} /> },
+  { key: 'layouts', label: 'Till layouts', icon: PanelsTopLeft, render: p => <TillLayoutsSection {...p} /> },
   { key: 'streams', label: 'Revenue streams', icon: Waypoints, render: p => <RevenueStreamsSection {...p} /> },
   { key: 'types', label: 'Order types', icon: ListOrdered, render: p => <OrderTypesSection {...p} /> },
   { key: 'discounts', label: 'Discounts', icon: BadgePercent, render: p => <DiscountsSection {...p} /> },

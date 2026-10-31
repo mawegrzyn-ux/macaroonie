@@ -1,7 +1,7 @@
-// The till's menu: menus and sections as tabs, dishes as big buttons, a
-// search box, and the seat / course the next dish goes to. The layout comes
-// from the menu builder for now; a till layout designer (docs/POS.md
-// Phase 7) will be able to arrange the buttons.
+// The till's menu on the standard screen: menus and sections as tabs, dishes
+// as big buttons, a search box, and the seat / course the next dish goes to.
+// A till with a layout (Store tech > Till layouts) draws LayoutScreen.jsx
+// instead, from the same pieces (DishButton, SeatCourseBar, dishPriceText).
 //
 // Holding a dish down (or tapping one that is sold out) calls onHold: the
 // sold out window (CheckActions.jsx SoldOutModal).
@@ -15,39 +15,83 @@ import { soldOutMap } from '../lib/store.js'
 
 const HOLD_MS = 550
 
-// A dish button: tap picks it, holding it down opens the sold out window.
-function DishButton({ item, colour, priceText, soldOut, onPick, onHold }) {
+/** Tap does one thing, holding the button down another (the sold out window). */
+export function useHold(onTap, onHold) {
   const timer = useRef(null)
   const held = useRef(false)
   const start = () => {
     held.current = false
     clearTimeout(timer.current)
-    timer.current = setTimeout(() => { held.current = true; onHold?.(item) }, HOLD_MS)
+    if (onHold) timer.current = setTimeout(() => { held.current = true; onHold() }, HOLD_MS)
   }
   const cancel = () => clearTimeout(timer.current)
+  return {
+    onPointerDown: start, onPointerUp: cancel, onPointerLeave: cancel, onPointerCancel: cancel,
+    onContextMenu: e => e.preventDefault(),
+    onClick: () => {
+      if (held.current) { held.current = false; return }
+      onTap()
+    },
+  }
+}
+
+// A dish button: tap picks it, holding it down opens the sold out window.
+// fill: it takes its cell (till layouts) instead of its own height; font and
+// price follow the zone (the price line can be switched off).
+export function DishButton({ item, colour, priceText, soldOut, onPick, onHold, fill = false, showPrice = true }) {
+  const hold = useHold(() => (soldOut && onHold ? onHold(item) : onPick(item)), onHold ? () => onHold(item) : null)
   return (
-    <button
-      onPointerDown={start} onPointerUp={cancel} onPointerLeave={cancel} onPointerCancel={cancel}
-      onContextMenu={e => e.preventDefault()}
-      onClick={() => {
-        if (held.current) { held.current = false; return }
-        if (soldOut && onHold) return onHold(item)
-        onPick(item)
-      }}
-      className={cx('relative rounded-xl border min-h-[84px] p-3 text-left flex flex-col justify-between touch-manipulation active:scale-[0.97] transition-transform overflow-hidden select-none',
+    <button {...hold} data-testid="dish" data-item={item.id}
+      className={cx('relative rounded-xl border p-3 text-left flex flex-col justify-between touch-manipulation active:scale-[0.97] transition-transform overflow-hidden select-none',
+        fill ? 'w-full h-full py-2' : 'min-h-[84px]',
         soldOut ? 'bg-page border-line text-muted' : 'bg-white border-line')}>
       <span className="absolute left-0 top-0 bottom-0 w-1.5" style={{ background: colour, opacity: soldOut ? 0.35 : 1 }} />
-      <span className={cx('font-semibold leading-tight text-[15px] line-clamp-3 pl-1', soldOut && 'line-through')}>{item.name}</span>
-      <span className="text-sm text-muted pl-1 mt-1 tabular-nums">
-        {soldOut ? <span className="font-bold text-bad uppercase text-xs tracking-wide">Sold out</span> : priceText}
-      </span>
+      <span className={cx('leading-tight line-clamp-3 pl-1', !fill && 'font-semibold text-[15px]', soldOut && 'line-through')}>{item.name}</span>
+      {(showPrice || soldOut) && (
+        <span className={cx('text-muted pl-1 mt-1 tabular-nums', fill ? 'text-[0.8em] font-medium' : 'text-sm')}>
+          {soldOut ? <span className="font-bold text-bad uppercase text-xs tracking-wide">Sold out</span> : priceText}
+        </span>
+      )}
     </button>
   )
 }
 
-const SECTION_COLOURS = ['#2f5bd3', '#0f766e', '#b45309', '#7c3aed', '#be123c', '#0369a1', '#4d7c0f', '#a21caf']
+export const SECTION_COLOURS = ['#2f5bd3', '#0f766e', '#b45309', '#7c3aed', '#be123c', '#0369a1', '#4d7c0f', '#a21caf']
+
+/** "£4.50", "from £8.00", "Combo from £9.95": a dish's price as its button shows it. */
+export function dishPriceText(config, id, comboRefs) {
+  const t = tillItem(config, id)
+  const price = fromPrice(t, t.pos_choices, comboRefs)
+  return (t.kind === 'combo' ? 'Combo ' : '') + (priceVaries(t, t.pos_choices, comboRefs) ? 'from ' : '') + (price != null ? money(price) : '')
+}
+
 // The seat and course buttons: the height of the Pay button.
 const BAR = 'chip shrink-0 h-16 min-w-[64px] rounded-xl px-5 text-base'
+
+/**
+ * The seat and course the next dish goes to. fill: the bar takes its zone's
+ * height (till layouts), with the zone's text size.
+ */
+export function SeatCourseBar({ config, seat, setSeat, course, setCourse, covers, fill = false, font = null }) {
+  const bar = fill ? 'chip shrink-0 h-full max-h-20 min-h-[48px] min-w-[64px] rounded-xl px-5' : BAR
+  return (
+    <div className={cx('flex items-center gap-2 scroll-x', fill ? 'h-full p-2' : 'border-t border-line bg-white p-2 shrink-0')}
+      style={font ? { fontSize: font + 'px' } : undefined} data-testid="seat-course-bar">
+      <span className="label shrink-0 pl-1">Seat</span>
+      <button className={cx(bar, seat == null && 'chip-on')} onClick={() => setSeat(null)}>Shared</button>
+      {Array.from({ length: Math.max(2, Math.min(12, covers || 4)) }).map((_, i) => (
+        <button key={i} className={cx(bar, 'w-16 px-0', seat === i + 1 && 'chip-on')} onClick={() => setSeat(seat === i + 1 ? null : i + 1)}>{i + 1}</button>
+      ))}
+      {(config.courses || []).length > 0 && <>
+        <span className="label shrink-0 ml-3">Course</span>
+        <button className={cx(bar, course == null && 'chip-on')} onClick={() => setCourse(null)}>Usual</button>
+        {config.courses.map(c => (
+          <button key={c.id} className={cx(bar, course === c.id && 'chip-on')} onClick={() => setCourse(course === c.id ? null : c.id)}>{c.short_name || c.name}</button>
+        ))}
+      </>}
+    </div>
+  )
+}
 
 export default function MenuPanel({ config, menuIds = null, onPick, onHold, seat, setSeat, course, setCourse, covers, onOpenItem }) {
   const soldOut = useMemo(() => soldOutMap(config), [config])
@@ -117,31 +161,15 @@ export default function MenuPanel({ config, menuIds = null, onPick, onHold, seat
       <div className="flex-1 overflow-y-auto px-3 pb-3">
         <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(132px, 1fr))' }}>
           {items.map(it => {
-            const t = tillItem(config, it.id)
-            const price = fromPrice(t, t.pos_choices, comboRefs)
             const colour = it.colour || (!q ? colourOf(section, sectionIndex) : '#64708a')
-            const priceText = (t.kind === 'combo' ? 'Combo ' : '') + (priceVaries(t, t.pos_choices, comboRefs) ? 'from ' : '') + (price != null ? money(price) : '')
-            return <DishButton key={it.id} item={it} colour={colour} priceText={priceText} soldOut={soldOut.has(it.id)} onPick={onPick} onHold={onHold} />
+            return <DishButton key={it.id} item={it} colour={colour} priceText={dishPriceText(config, it.id, comboRefs)} soldOut={soldOut.has(it.id)} onPick={onPick} onHold={onHold} />
           })}
           {!items.length && <div className="text-muted p-4 col-span-full">{q ? 'No dish matches.' : 'This section has no dishes.'}</div>}
         </div>
       </div>
 
       {/* As tall as the check's Pay row beside it (p-2 + h-16), so the two line up. */}
-      <div className="border-t border-line bg-white p-2 flex items-center gap-2 scroll-x shrink-0" data-testid="seat-course-bar">
-        <span className="label shrink-0 pl-1">Seat</span>
-        <button className={cx(BAR, seat == null && 'chip-on')} onClick={() => setSeat(null)}>Shared</button>
-        {Array.from({ length: Math.max(2, Math.min(12, covers || 4)) }).map((_, i) => (
-          <button key={i} className={cx(BAR, 'w-16 px-0', seat === i + 1 && 'chip-on')} onClick={() => setSeat(seat === i + 1 ? null : i + 1)}>{i + 1}</button>
-        ))}
-        {(config.courses || []).length > 0 && <>
-          <span className="label shrink-0 ml-3">Course</span>
-          <button className={cx(BAR, course == null && 'chip-on')} onClick={() => setCourse(null)}>Usual</button>
-          {config.courses.map(c => (
-            <button key={c.id} className={cx(BAR, course === c.id && 'chip-on')} onClick={() => setCourse(course === c.id ? null : c.id)}>{c.short_name || c.name}</button>
-          ))}
-        </>}
-      </div>
+      <SeatCourseBar config={config} seat={seat} setSeat={setSeat} course={course} setCourse={setCourse} covers={covers} />
     </div>
   )
 }

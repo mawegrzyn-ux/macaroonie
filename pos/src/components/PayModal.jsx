@@ -13,7 +13,7 @@ import { checkTotals } from '@shared/pos/pricing.js'
 import { chargeLabel } from '@shared/pos/charges.js'
 import { Modal, Keypad, ReasonPicker, cx, money, poundsToPence, useApproval } from './ui.jsx'
 import {
-  dispatch, dispatchMany, toast, useTill, cardStart, cardCheck, cardCancel, cardSignature, cardTest, cardPayments, cardRefund,
+  dispatch, dispatchMany, toast, useTill, setPrefs, cardStart, cardCheck, cardCancel, cardSignature, cardTest, cardPayments, cardRefund,
 } from '../lib/store.js'
 import { receiptModeOf } from '../lib/checkOps.js'
 
@@ -25,9 +25,11 @@ const p2s = p => (p / 100).toFixed(2)
 
 /**
  * onClosed() after the check closes. counter: send unsent items to the kitchen
- * as the check closes (counter service pays first).
+ * as the check closes (counter service pays first). From a till layout's
+ * buttons: autoExact 'cash' | 'card' pays the amount left straight away (as
+ * Exact cash / Exact card), initialTender opens with that tender picked.
  */
-export default function PayModal({ check, onClose, onClosed, counter = false }) {
+export default function PayModal({ check, onClose, onClosed, counter = false, autoExact = null, initialTender = null }) {
   const { config, online } = useTill()
   const approve = useApproval()
   const t = checkTotals(check)
@@ -35,7 +37,7 @@ export default function PayModal({ check, onClose, onClosed, counter = false }) 
   // Card machine only on a till that has one (Store tech, Tills).
   const tenders = (config.settings.tenders || []).filter(x => x.enabled && (x.key !== 'card_integrated' || machine))
   const [amount, setAmount] = useState(p2s(Math.max(0, t.balance)))
-  const [tender, setTender] = useState(null)
+  const [tender, setTender] = useState(() => (initialTender && tenders.some(x => x.key === initialTender) ? initialTender : null))
   const [tendered, setTendered] = useState('')
   const [tip, setTip] = useState('')
   const [ref, setRef] = useState('')
@@ -142,6 +144,15 @@ export default function PayModal({ check, onClose, onClosed, counter = false }) 
     follow(r.data)
   }
 
+  // A layout's Exact cash / Exact card button: pay the amount left at once.
+  useEffect(() => {
+    if (!autoExact || t.balance <= 0) return
+    const x = autoExact === 'cash' ? exactCash : exactCard
+    if (!x) return toast(autoExact === 'cash' ? 'Cash isn\'t a tender on this till' : 'No card tender on this till', 'bad')
+    if (x.key === 'card_integrated' && online === false) return toast('The card machine needs a connection', 'bad')
+    exact(x.key)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   // Opened again after a reload or on another till: a payment still on the
   // card machine is followed; one approved but not on the check is offered.
   useEffect(() => {
@@ -175,6 +186,8 @@ export default function PayModal({ check, onClose, onClosed, counter = false }) 
     specs.push(['check.closed', { print_receipt: !!printReceipt }, { check_id: check.id }])
     const r = dispatchMany(specs)
     if (!r.ok) return toast(r.error, 'bad')
+    // A layout's Last receipt button prints this one (lib/tillLayout.js).
+    setPrefs({ last_closed: check.id })
     onClosed()
   }
 
@@ -329,7 +342,8 @@ export default function PayModal({ check, onClose, onClosed, counter = false }) 
                 {tenders.map(x => {
                   const I = ICONS[x.key] || CircleDot
                   return (
-                    <button key={x.key} className={cx('btn h-16 text-lg', tender === x.key && 'btn-primary')} onClick={() => { setTender(x.key); setTendered(''); setTip('') }}>
+                    <button key={x.key} className={cx('btn h-16 text-lg', tender === x.key && 'btn-primary')} onClick={() => { setTender(x.key); setTendered(''); setTip('') }}
+                      aria-pressed={tender === x.key} data-testid="pay-tender" data-tender={x.key}>
                       <I size={22} /> {x.label}
                     </button>
                   )

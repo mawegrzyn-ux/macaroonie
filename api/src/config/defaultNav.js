@@ -5,7 +5,7 @@
 // restores. Grouped by job, each page once. Migration 196 put every tenant
 // on this tree and migration 202 replaced Till setup and Menu screens with the
 // Store tech section (later migrations add single links, e.g. 219's Venue
-// hub, 221's Today); api/test/nav-default.test.mjs checks 196's tree with those changes
+// hub, 221's Today, 228's Till layouts); api/test/nav-default.test.mjs checks 196's tree with those changes
 // applied matches this one, so change them together.
 
 export const DEFAULT_NAV_TREE = [
@@ -119,6 +119,7 @@ export const DEFAULT_NAV_TREE = [
     // Migration 202 holds this section as JSON (the nav test checks they match).
     label: 'Store tech', children: [
       { label: 'Tills', icon: 'MonitorSmartphone', route: '/pos/tills', module: 'pos_setup' },
+      { label: 'Till layouts', icon: 'PanelsTopLeft', route: '/pos/layouts', module: 'pos_setup' },
       { label: 'Floor plan', icon: 'LayoutPanelTop', route: '/pos/floor', module: 'pos_setup' },
       { label: 'Kiosks', icon: 'TabletSmartphone', route: '/pos/kiosks', module: 'pos_setup' },
       { label: 'Kitchen screens', icon: 'CookingPot', route: '/pos/kitchen', module: 'pos_setup' },

@@ -5,6 +5,20 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-31 — Till layouts: arrange the till's order screen yourself]
+
+Migration: `228_till_layouts.sql` (new `pos_till_layouts`, company wide; `pos_settings.till_layout_id`, the layout a location's tills use; a till's own choice is in its settings; a Till layouts link is added to every Store tech menu after Tills).
+
+- **Store tech → Till layouts** holds the company's layouts. Start one from the standard screen, from Quick service (categories down the side, a dish's choices over the dishes, paying buttons along the bottom) or as a copy of another, then open it in the designer. Pick which layout a location's tills use there; a till can have its own in its window on Tills (As the venue, The standard screen, or a layout). Tills with no layout keep the standard screen.
+- **The designer** splits the screen into a grid of cells (12 x 8 at first, 4-24 across and 3-16 down) and places zones on it: the Order, Categories, Dishes, your own Buttons, Dish choices and Seat and course. Drag a zone to move it, its corner to resize it, or set its place and size with the − and + steps. The canvas draws each zone's buttons from the location's own menus, discounts and tenders, on a 1280 x 800 or 1024 x 768 tablet, a 1920 x 1080 screen or an upright 800 x 1280 tablet. Zones can't overlap (only Dish choices can sit over other zones), and a layout without the Order zone can't be saved; both are shown in red and Save waits.
+- **Each zone has its own grid of buttons**: how many across and down (so the buttons' size follows), the text size, bold or not, and what happens when more than fits: scroll (down, or across in a one-row zone), pages with arrows, a More button in the last cell, or hide the rest.
+- **Categories**: every section of the till's menus, or the ones you pick, in your order. **Dishes**: the dishes of the category tapped, with or without a search box and prices.
+- **Buttons zones** hold buttons you choose: a dish, Exact cash, Exact card, Pay by a tender, Pay, Print bill, Last receipt, a discount from the list, Discount, Send, Fire a course, More, Guests, Order type, Name, Tent number, Table, Split / move items, Merge checks, Charges, Offers, Loyalty, Item not on menu, Cancel order, No sale (open drawer) and Back. Each has its own words, colour and size (several cells wide or high). Buttons that need an order are greyed until there is one. Exact cash and Exact card pay what's left at once; Last receipt prints the last receipt this till took.
+- **Dish choices zones** show a dish's choices on the screen instead of a window while it is being added: the must-pick ones and the optional ones in one zone or split between two, over the zones under them or over the whole screen, with the dish's name, the quantity, Cancel, Add and Note & more (the choices window for a note, allergies, seat, course or price). A layout without one opens the choices window as before.
+- **The till** draws its layout on counter tills and at tables alike; the page each zone is on and the category open stay while the till runs. A layout deleted puts the locations using it back on the standard screen and the tills that picked it back on their location's.
+
+---
+
 ## [2026-10-31 — Today is in every role's menu]
 
 Migration: `227_today_for_everyone.sql` (the Today link needs no permission and is hidden from no role).
