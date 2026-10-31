@@ -26,7 +26,8 @@ import { seedDefaultNav } from '../config/defaultNav.js'
 // or pick a different one (e.g. to gate an item more/less strictly than
 // its page's own default guard).
 export const ROUTE_CATALOG = [
-  { route: '/today', label: 'Today', icon: 'Sun', module: 'dashboard' },
+  // Today: for everyone signed in (its tasks follow each person's own access), migration 227.
+  { route: '/today', label: 'Today', icon: 'Sun' },
   { route: '/', label: 'Overview', icon: 'LayoutDashboard', module: 'dashboard' },
   { route: '/dashboards', label: 'Dashboards', icon: 'LayoutTemplate', module: 'custom_dashboard' },
   { route: '/timeline', label: 'Timeline', icon: 'CalendarDays', module: 'bookings' },

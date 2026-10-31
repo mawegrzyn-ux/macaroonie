@@ -5,6 +5,15 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-31 — Today is in every role's menu]
+
+Migration: `227_today_for_everyone.sql` (the Today link needs no permission and is hidden from no role).
+
+- **Every role has Today in the office menu now.** The link had been tied to the Overview's permission and hidden from the same roles as the Overview, so a role without the Overview (a Supervisor role made in Access, which only gets the areas ticked for it) never saw Today. The page itself was always open to everyone: each person sees the tasks of the areas their role can open, and the rest are named.
+- To take Today out of a role's menu, hide it in the Navigation designer.
+
+---
+
 ## [2026-10-31 — Till: PINs starting with 0 work, and a new PIN is recognised straight away]
 
 - **A PIN that starts with 0 (like 0482) can now be typed on the till.** The till's number pad was made for amounts and quietly dropped a 0 at the start, so such a PIN arrived as 482 and was never recognised. The PIN pad now keeps every digit, and Store tech's PIN box says a 0 at the start is fine.
