@@ -3417,11 +3417,28 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <P>
               A till learns of a new or changed PIN from its config. Setup changes push <Mono>pos.config</Mono>{' '}
               (cross-process through the Redis relay in <Mono>config/ws.js</Mono>); on top of that,{' '}
-              <Mono>staffForPin()</Mono> in <Mono>pos/src/lib/store.js</Mono> fetches the config when a typed PIN
-              matches nobody (online, at most every 5 s) and looks again, so a PIN set a moment ago works even if the
-              push was missed. WebCrypto only exists on https:// (and localhost): <Mono>hashPin()</Mono> throws a
-              clear message without it, <Mono>PinPad</Mono> shows any error instead of hanging on "Checking", and{' '}
-              <Mono>routes/posSite.js</Mono> sends the pos host from http:// (X-Forwarded-Proto) to https://.
+              <Mono>staffForPin(pin, &#123; final &#125;)</Mono> in <Mono>pos/src/lib/store.js</Mono> fetches the config
+              when a typed PIN matches nobody and looks again, so a PIN set a moment ago works even if the push was
+              missed: one request at a time (tries while it is out wait for it), a quiet try (<Mono>PinPad</Mono> tries
+              at 4 and 5 digits without a word) at most every <Mono>PIN_REFRESH_GAP_MS</Mono> (1.5 s), a final one (OK,
+              or 6 digits) always. <Mono>PinPad</Mono> shows "Checking" and "PIN not recognised" only for final tries,
+              and its <Mono>Keypad</Mono> is a <Mono>code</Mono> keypad: every digit stays as typed (a number keypad
+              drops a lone leading 0, so a PIN like 0482 used to arrive as 482 and never match). WebCrypto only exists
+              on https:// (and localhost): <Mono>hashPin()</Mono> throws a clear message without it, <Mono>PinPad</Mono>{' '}
+              shows any error instead of hanging on "Checking", and <Mono>routes/posSite.js</Mono> sends the pos host
+              from http:// (X-Forwarded-Proto) to https://.
+            </P>
+            <P>
+              Saving a PIN (<Mono>PUT /api/pos/venues/:id/staff/:staffId/pos</Mono>) refuses a weak one
+              (<Mono>weakPin()</Mono>), one someone else at the venue has, and one that overlaps someone else&apos;s:{' '}
+              <Mono>pinOverlaps(pin)</Mono> lists its shorter starts (from 4 digits) and every longer PIN starting with
+              it (to 6 digits: 110 for a 4-digit PIN), and the route compares their hashes with the venue&apos;s, 422
+              when one matches. The till signs in as soon as the digits typed match someone, so 1234 beside 123456 would
+              sign the second person in as the first. A person&apos;s own old PIN never blocks their new one. Each
+              candidate is a PBKDF2 hash (60,000 rounds), so saving a 4-digit PIN costs 110 hashes, about a third of a
+              second on four cores (5 digits 11, 6 digits 2). PINs saved before this check aren&apos;t looked at again
+              until one of them is changed. Tests:{' '}
+              <Mono>shared/pos/test/pin.test.mjs</Mono>, <Mono>api/test/till-pins.test.mjs</Mono>.
             </P>
             <H3>Manager switches, Cancel order and the receipt choice (migration 224)</H3>
             <P>

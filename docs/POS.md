@@ -107,8 +107,10 @@ First event types: `check.opened`, `check.covers_set`, `check.table_moved`,
   names the terminal. The cloud creates a `pos_devices` row and a device secret (stored
   hashed). The terminal also receives the hub address and the venue CA to install.
 - **Hub pairing**: a one-time code from admin (POS settings, Hubs, Add hub).
-- **Staff**: 4–6 digit PIN per staff member (`cash_staff`), hashed (scrypt), synced to the hub
-  and terminals, attempts limited. Manager PIN for overrides. Devices can be revoked in admin.
+- **Staff**: 4–6 digit PIN per staff member (`cash_staff`), hashed (PBKDF2, `shared/pos/pin.js`),
+  synced to the terminals. A leading 0 counts, and no PIN may start with another person's or be
+  the start of theirs (`pinOverlaps()`: the till signs in as soon as the digits match someone).
+  Manager PIN for overrides. Devices can be revoked in admin.
 - **POS permissions per role**: void after send, refund, discount up to N%, comp, open
   drawer, reopen check, take over another server's check, price override, manager override.
 

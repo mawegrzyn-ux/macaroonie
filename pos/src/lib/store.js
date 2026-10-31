@@ -380,8 +380,8 @@ function handleError(err) {
 // ── Sign in ──────────────────────────────────────────────────────
 
 let idleTimer = null
-export async function signIn(pin) {
-  const s = await staffForPin(pin)
+export async function signIn(pin, opts) {
+  const s = await staffForPin(pin, opts)
   if (!s) return { ok: false, error: 'PIN not recognised' }
   setState({ staff: s })
   touch()
@@ -391,24 +391,36 @@ export function signOut() {
   setState({ staff: null })
   setPresence(null)
 }
-let lastPinRefresh = 0
+// The config refresh a PIN this till doesn't know is waiting for (one at a
+// time, shared by every try that misses meanwhile), and when the last ended.
+let pinRefresh = null
+let pinRefreshedAt = 0
+export const PIN_REFRESH_GAP_MS = 1500
 /**
  * The person with this PIN. A PIN this till doesn't know may have been set
- * since it last loaded its config, so on a miss it asks for the latest
- * config (when online, at most every 5 s) and looks again.
+ * since it last loaded its config (a push missed), so on a miss it asks for
+ * the latest config when online and looks again. Tries while that request
+ * is out wait for it. A quiet try (4 or 5 digits typed, the PIN may be
+ * longer) asks at most every PIN_REFRESH_GAP_MS; a final one (OK, or 6
+ * digits) always asks, so a PIN saved a moment ago is never turned away.
  */
-export async function staffForPin(pin) {
+export async function staffForPin(pin, { final = true } = {}) {
   if (!state.config || !/^[0-9]{4,6}$/.test(pin)) return null
   const find = async cfg => {
     const hash = await hashPin(pin, cfg.pin_salt)
     return (cfg.staff || []).find(s => s.pin_hash && s.pin_hash === hash) || null
   }
-  const found = await find(state.config)
-  if (found || state.online === false || Date.now() - lastPinRefresh < 5000) return found
-  lastPinRefresh = Date.now()
-  const before = state.config.version
-  await loadConfig()
-  return state.config.version !== before ? find(state.config) : null
+  const cfg = state.config
+  const found = await find(cfg)
+  if (found || state.online === false) return found
+  // A newer config arrived while this PIN was being hashed.
+  if (state.config !== cfg) return find(state.config)
+  if (!pinRefresh) {
+    if (!final && Date.now() - pinRefreshedAt < PIN_REFRESH_GAP_MS) return null
+    pinRefresh = loadConfig().finally(() => { pinRefresh = null; pinRefreshedAt = Date.now() })
+  }
+  await pinRefresh
+  return state.config !== cfg ? find(state.config) : null
 }
 /** Reset the auto sign-out timer (settings.auto_logout_secs, 0 = never). */
 export function touch() {
@@ -514,8 +526,8 @@ function doProblem(event, key, amount, actions = []) {
 }
 
 /** Someone with this permission (and the right to approve) by PIN, or an error. */
-export async function approverFor(pin, key, amount = null, actions = []) {
-  const s = await staffForPin(pin)
+export async function approverFor(pin, key, amount = null, actions = [], opts) {
+  const s = await staffForPin(pin, opts)
   if (!s) return { ok: false, error: 'PIN not recognised' }
   const fake = { staff_id: state.staff?.id, approved_by: s.id }
   if (doProblem(fake, key, amount, actions)) return { ok: false, error: s.name + ' can\'t approve this' }
