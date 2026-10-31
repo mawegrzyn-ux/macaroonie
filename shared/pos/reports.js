@@ -47,12 +47,21 @@ export function dayFigures(checks, dayId) {
   const items = new Map()
   const voids = { count: 0, qty: 0, value: 0, lines: [] }
   const refunds = { count: 0, amount: 0, lines: [] }
+  // Orders called off with Cancel order (checks.js check.closed cancel_reason).
+  const cancelled = { count: 0, lines: [] }
   const openChecks = []
   let tips = 0
 
   for (const c of checks) {
     const inDay = c.day_id === dayId
     if (inDay) counts[c.status] = (counts[c.status] || 0) + 1
+
+    if (c.cancelled && (c.cancelled.day_id ?? c.day_id) === dayId) {
+      // What it was worth when cancelled (checks.js); older ones: every line left on it.
+      const value = c.cancelled.value ?? (c.lines || []).reduce((s, l) => s + lineGross(l), 0)
+      cancelled.count++
+      cancelled.lines.push({ check_id: c.id, number: numberText(c), order_no: c.order_no ?? null, reason: c.cancelled.reason, value, by: c.cancelled.by, approved_by: c.cancelled.approved_by || null, at: c.cancelled.at })
+    }
 
     if (inDay && c.status === 'open') {
       const t = checkTotals(c)
@@ -130,6 +139,7 @@ export function dayFigures(checks, dayId) {
     tips,
     refunds,
     voids,
+    cancelled,
     discounts: [...discounts.values()].sort((a, b) => b.amount - a.amount),
     items: [...items.values()].sort((a, b) => b.qty - a.qty),
     staff: [...byStaff.values()],

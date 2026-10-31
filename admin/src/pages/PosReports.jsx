@@ -137,6 +137,18 @@ function DayDetail({ venueId, dayId, onBack, onShowChecks }) {
             </ul>
           ) : <p className="text-sm text-muted-foreground">None</p>}
         </Card>
+        {f.cancelled?.count > 0 && (
+          <Card title={'Cancelled orders (' + f.cancelled.count + ')'}>
+            <ul className="divide-y text-sm" data-testid="report-cancelled">
+              {f.cancelled.lines.map((c, i) => (
+                <li key={i} className="py-1.5">
+                  <div className="flex justify-between gap-2"><span>Check {c.order_no != null ? '#' + c.order_no : c.number}</span><span className="tabular-nums">{money(c.value)}</span></div>
+                  <p className="text-xs text-muted-foreground">{c.reason} · {staffName(c.by)}{c.approved_by ? ', approved by ' + staffName(c.approved_by) : ''}</p>
+                </li>
+              ))}
+            </ul>
+          </Card>
+        )}
         <Card title={'Refunds (' + f.refunds.count + ')'}>
           {f.refunds.lines.length ? (
             <ul className="divide-y text-sm">
@@ -248,7 +260,7 @@ function eventText(e, lines, names, lookups = {}) {
     case 'bill.printed': return 'Bill printed'
     case 'payment.added': return 'Paid ' + money(p.payment.amount) + ' ' + tenderLabel(p.payment.tender) + (p.payment.tip ? ' + ' + money(p.payment.tip) + ' tip' : '')
     case 'payment.voided': return 'Payment taken back: ' + p.reason
-    case 'check.closed': return 'Closed'
+    case 'check.closed': return p.cancel_reason ? 'Order cancelled: ' + p.cancel_reason : 'Closed' + (p.print_receipt ? ', receipt printed' : '')
     case 'check.reopened': return 'Reopened: ' + p.reason
     case 'refund.added': return 'Refund ' + money(p.refund.amount) + ' ' + tenderLabel(p.refund.tender) + ': ' + p.refund.reason
     default: return e.type
@@ -364,7 +376,8 @@ function ChecksTab({ venueId, dayId, setDayId }) {
                     {[c.order_type_name, c.tent && 'tent ' + c.tent, c.server_name].filter(Boolean).join(' · ')} · {time(c.opened_at)}{c.closed_at ? '–' + time(c.closed_at) : ''}
                   </span>
                 </span>
-                <span className={cn('text-xs rounded-full px-2 py-0.5 border', c.status === 'open' ? 'text-blue-700 border-blue-300 bg-blue-50' : c.status === 'closed' ? 'text-muted-foreground' : 'text-amber-700 border-amber-300 bg-amber-50')}>{c.status}</span>
+                <span className={cn('text-xs rounded-full px-2 py-0.5 border', c.status === 'open' ? 'text-blue-700 border-blue-300 bg-blue-50' : c.status === 'closed' ? 'text-muted-foreground' : c.cancel_reason ? 'text-red-700 border-red-300 bg-red-50' : 'text-amber-700 border-amber-300 bg-amber-50')}
+                  title={c.cancel_reason || undefined}>{c.cancel_reason ? 'cancelled' : c.status}</span>
                 <span className="w-20 text-right text-sm tabular-nums">{money(c.total)}</span>
               </button>
             ))}

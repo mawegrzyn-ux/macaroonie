@@ -97,15 +97,17 @@ export function PinPad({ onSubmit }) {
 const ApprovalContext = createContext(null)
 
 /**
- * Wrap the app. useApproval()(key, amount, label) resolves to null when the
- * signed-in person may do it, the approver's staff id after a manager types
- * their PIN, or false when cancelled.
+ * Wrap the app. useApproval()(key, amount, label, actions) resolves to null
+ * when the signed-in person may do it, the approver's staff id after a
+ * manager types their PIN, or false when cancelled. key: the role permission
+ * it needs (null = none); actions: the venue's "needs a manager" switches it
+ * falls under (shared/pos/permissions.js MANAGER_ACTIONS).
  */
 export function ApprovalProvider({ children }) {
   const [ask, setAsk] = useState(null)
-  const request = useCallback((key, amount = null, label = '') => {
-    if (can(key, amount)) return Promise.resolve(null)
-    return new Promise(resolve => setAsk({ key, amount, label, resolve }))
+  const request = useCallback((key, amount = null, label = '', actions = []) => {
+    if (can(key, amount, actions)) return Promise.resolve(null)
+    return new Promise(resolve => setAsk({ key, amount, label, actions, resolve }))
   }, [])
   return (
     <ApprovalContext.Provider value={request}>
@@ -118,7 +120,7 @@ export const useApproval = () => useContext(ApprovalContext)
 
 function ApprovalModal({ ask, onDone }) {
   const submit = async pin => {
-    const r = await approverFor(pin, ask.key, ask.amount)
+    const r = await approverFor(pin, ask.key, ask.amount, ask.actions)
     if (r.ok) onDone(r.staff.id)
     return r
   }
@@ -139,8 +141,13 @@ export function Toasts() {
   return (
     <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[60] flex flex-col gap-2 items-center pointer-events-none">
       {toasts.map(t => (
-        <div key={t.id} className={cx('rounded-xl px-4 py-3 shadow-lg text-[15px] font-semibold max-w-[90vw]',
-          t.kind === 'bad' ? 'bg-bad text-white' : t.kind === 'ok' ? 'bg-ok text-white' : 'bg-ink text-white')}>{t.text}</div>
+        <div key={t.id} className={cx('rounded-xl px-4 py-3 shadow-lg text-[15px] font-semibold max-w-[90vw] flex items-center gap-4',
+          t.kind === 'bad' ? 'bg-bad text-white' : t.kind === 'ok' ? 'bg-ok text-white' : 'bg-ink text-white')}>
+          <span>{t.text}</span>
+          {t.action && (
+            <button className="pointer-events-auto rounded-lg border border-white/60 px-3 min-h-[40px] font-bold touch-manipulation" data-testid="toast-action" onClick={t.action.run}>{t.action.label}</button>
+          )}
+        </div>
       ))}
     </div>
   )

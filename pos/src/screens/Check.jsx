@@ -3,12 +3,12 @@
 // bill, Pay takes payment and closes the check.
 
 import { useEffect, useState } from 'react'
-import { ArrowLeft, Send, Printer, CreditCard, MoreHorizontal, Flame, Users, Eye, Flag, Star } from 'lucide-react'
+import { ArrowLeft, Send, Printer, CreditCard, MoreHorizontal, Flame, Users, Eye, Flag, Star, Ban } from 'lucide-react'
 import { checkLabel, heldCourses } from '@shared/pos/checks.js'
 import { checkTotals } from '@shared/pos/pricing.js'
 import { useTill, useChecks, dispatch, toast, setPresence, othersOn, serverName } from '../lib/store.js'
-import { addItem, needsChoices, streamOf, typeOf, missingDetails, refreshPromotions, sendCheck, comboStartFrom } from '../lib/checkOps.js'
-import { cx, money, elapsed } from '../components/ui.jsx'
+import { addItem, needsChoices, streamOf, typeOf, missingDetails, refreshPromotions, sendCheck, comboStartFrom, copyOfLine } from '../lib/checkOps.js'
+import { cx, money, elapsed, useApproval } from '../components/ui.jsx'
 import CheckPanel from '../components/CheckPanel.jsx'
 import MenuPanel from '../components/MenuPanel.jsx'
 import ItemModal from '../components/ItemModal.jsx'
@@ -18,12 +18,14 @@ import LoyaltyModal from '../components/LoyaltyModal.jsx'
 import {
   ActionsMenu, SendModal, needsSendChoice, FireModal, DiscountModal, ServiceChargeModal, OffersModal, MoveModal,
   MergeModal, TableModal, NameModal, ServerModal, StreamModal, OrderTypeModal, GuestsModal, OpenItemModal, NoSale, SoldOutModal,
+  CancelOrderModal,
 } from '../components/CheckActions.jsx'
 
 export default function CheckScreen({ checkId, onBack, onOpen, counter = false }) {
   const { config } = useTill()
   const checks = useChecks()
   const check = checks[checkId]
+  const approve = useApproval()
   const [seat, setSeat] = useState(null)
   const [course, setCourse] = useState(null)
   const [modal, setModal] = useState(null)   // { kind, ... }
@@ -82,12 +84,37 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
   const added = (item, o, replace = null) => {
     const r = addItem(check, item, o.selection, { qty: o.qty, seat: o.seat, course: o.course, note: o.note, allergies: o.allergies, unit_price: o.unit_price })
     if (!r.ok) return toast(r.error, 'bad')
-    // Make it a combo: the dish it started from comes off (it hasn't been sent).
+    // Make it a combo: the dish it started from comes off (it hasn't been
+    // sent), swapped for the combo line, so no manager is needed for it.
     if (replace) {
-      const d = dispatch('line.deleted', { line_id: replace }, { check_id: check.id })
+      const e = r.events?.[0]
+      const by = e?.type === 'line.added' ? e.payload.line.id : e?.payload?.line_id
+      const d = dispatch('line.deleted', { line_id: replace, replaced_by: by }, { check_id: check.id })
       if (!d.ok) toast(d.error, 'bad')
     }
     close()
+  }
+  // A swipe's button: an item not sent yet comes off (Undo puts it back);
+  // one the kitchen has opens the void window (a reason is needed).
+  const swipeAction = async line => {
+    if (line.status !== 'new') return setModal({ kind: 'line', line, initialMode: 'void' })
+    const approver = await approve(null, null, 'Taking items off needs a manager here.', ['delete_unsent'])
+    if (approver === false) return
+    const r = dispatch('line.deleted', { line_id: line.id }, { check_id: check.id, approved_by: approver })
+    if (!r.ok) return toast(r.error, 'bad')
+    toast('Took off ' + (line.qty > 1 ? line.qty + ' x ' : '') + line.name, 'ok', 5000, {
+      label: 'Undo',
+      run: () => {
+        const back = dispatch('line.added', { line: copyOfLine(line) }, { check_id: check.id })
+        if (!back.ok) toast(back.error, 'bad')
+      },
+    })
+  }
+  // Dragged to another course (or seat).
+  const regroup = (line, to) => {
+    const patch = to.by === 'seat' ? { seat: Number(to.id) || null } : { course_id: to.id || null }
+    const r = dispatch('line.changed', { line_id: line.id, ...patch }, { check_id: check.id })
+    if (!r.ok) toast(r.error, 'bad')
   }
   const send = () => {
     if (!unsent) return toast('Nothing new to send', 'bad')
@@ -139,6 +166,11 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
         </div>
       </button>
       {check.tab_name && (table || check.order_no != null) && <div className="text-sm font-semibold truncate max-w-[140px]" data-testid="check-name">{check.tab_name}</div>}
+      {check.lines.length > 0 && (
+        <button className="btn btn-ghost text-bad px-3 shrink-0" onClick={() => setModal({ kind: 'cancel' })} data-testid="check-cancel" aria-label="Cancel order">
+          <Ban size={20} /><span className="hidden xl:inline">Cancel order</span>
+        </button>
+      )}
     </div>
   )
 
@@ -161,7 +193,7 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
           {others.length > 0 && (
             <div className="px-3 py-1.5 bg-warn-soft text-warn text-sm font-semibold flex items-center gap-2"><Eye size={14} />Also open on {others.map(o => o.device_name).join(', ')}</div>
           )}
-        </>} footer={footer} onLine={line => setModal({ kind: 'line', line })} />
+        </>} footer={footer} onLine={line => setModal({ kind: 'line', line })} onAction={swipeAction} onRegroup={regroup} />
       </div>
       <div className="flex-1 min-w-0">
         <MenuPanel config={config} menuIds={stream?.menu_ids} onPick={pick} onHold={item => setModal({ kind: 'sold_out', item })} seat={seat} setSeat={setSeat} course={course} setCourse={setCourse}
@@ -171,7 +203,7 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
       {modal?.kind === 'item' && <ItemModal item={modal.item} config={config} defaults={{ seat: modal.seat ?? seat, course: modal.course ?? course, covers: check.covers }}
         initial={modal.initial || null} title={modal.title || null} onClose={close} onAdd={o => added(modal.item, o, modal.replace || null)} />}
       {modal?.kind === 'line' && (
-        <LineModal check={check} line={check.lines.find(l => l.id === modal.line.id) || modal.line} config={config} onClose={close}
+        <LineModal check={check} line={check.lines.find(l => l.id === modal.line.id) || modal.line} config={config} onClose={close} initialMode={modal.initialMode || null}
           onDiscount={ids => setModal({ kind: 'discount', lineIds: ids })} onMove={ids => setModal({ kind: 'move', lineIds: ids })}
           onMakeCombo={(line, combo, start) => setModal({
             kind: 'item', item: combo, title: line.name + ' as ' + combo.name, replace: line.id, seat: line.seat ?? null, course: line.course_id ?? null,
@@ -181,6 +213,7 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
       {modal?.kind === 'actions' && <ActionsMenu check={check} config={config} onClose={close} onPick={action} />}
       {modal?.kind === 'send' && <SendModal check={check} config={config} onClose={close} onSent={() => { close(); toast('Sent to the kitchen', 'ok'); if (!counter) onBack() }} />}
       {modal?.kind === 'fire' && <FireModal check={check} config={config} onClose={close} />}
+      {modal?.kind === 'cancel' && <CancelOrderModal check={check} onClose={close} onCancelled={close} />}
       {modal?.kind === 'discount' && <DiscountModal check={check} config={config} lineIds={modal.lineIds || null} onClose={close} />}
       {modal?.kind === 'sc' && <ServiceChargeModal check={check} config={config} onClose={close} />}
       {modal?.kind === 'offers' && <OffersModal check={check} config={config} onClose={close} />}

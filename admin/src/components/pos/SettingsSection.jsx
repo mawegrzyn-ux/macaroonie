@@ -12,6 +12,8 @@ import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { TimeSelect } from '@/components/staff/shared'
 import { Section, Field, inputCls, ErrorNote, Btn, Toggle, Segmented } from './shared'
+import { RECEIPT_MODES } from './TillsSection'
+import { MANAGER_ACTIONS } from '@shared/pos/permissions.js'
 
 const LOGOUTS = [
   { value: 0, label: 'Never' },
@@ -41,6 +43,8 @@ function fromSettings(s) {
     tips_enabled: !!s.tips_enabled,
     require_covers: !!s.require_covers,
     auto_logout_secs: s.auto_logout_secs,
+    receipt_mode: s.receipt_mode || 'ask',
+    approvals: Object.fromEntries(MANAGER_ACTIONS.map(a => [a.key, !!s.approvals?.[a.key]])),
   }
 }
 
@@ -64,6 +68,8 @@ export function ReceiptSettingsSection({ venueId, setup }) {
       tips_enabled: form.tips_enabled,
       require_covers: form.require_covers,
       auto_logout_secs: form.auto_logout_secs,
+      receipt_mode: form.receipt_mode,
+      approvals: form.approvals,
     })
   }
   return (
@@ -108,6 +114,23 @@ export function ReceiptSettingsSection({ venueId, setup }) {
           ))}
         </div>
         {noTender && <p className="text-xs text-destructive mt-1">Switch on at least one way to pay.</p>}
+      </div>
+      <Field group label="Receipt when a check is paid" hint="Ask: the till offers Close and print or Close, no receipt. A till can have its own (Tills).">
+        <Segmented value={form.receipt_mode} options={RECEIPT_MODES} onChange={v => set({ receipt_mode: v })} className="flex-wrap" />
+      </Field>
+      <div data-testid="manager-approvals">
+        <p className="text-sm font-medium mb-1">Needs a manager every time</p>
+        <p className="text-xs text-muted-foreground mb-2">
+          Switched on, someone whose till role has Approve for others (and, for voids and refunds, that permission too)
+          types their PIN, whatever the person's own role allows. Off: the person's role decides (Till roles).
+        </p>
+        <div className="rounded-xl border divide-y">
+          {MANAGER_ACTIONS.map(a => (
+            <div key={a.key} className="px-3 py-1">
+              <Toggle label={a.label} hint={a.hint} checked={form.approvals[a.key]} onChange={v => set({ approvals: { ...form.approvals, [a.key]: v } })} />
+            </div>
+          ))}
+        </div>
       </div>
       <Toggle label="Ask for a tip when paying" checked={form.tips_enabled} onChange={v => set({ tips_enabled: v })} />
       <Toggle label="Ask for covers when opening a table" checked={form.require_covers} onChange={v => set({ require_covers: v })} />

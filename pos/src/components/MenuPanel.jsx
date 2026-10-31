@@ -46,6 +46,8 @@ function DishButton({ item, colour, priceText, soldOut, onPick, onHold }) {
 }
 
 const SECTION_COLOURS = ['#2f5bd3', '#0f766e', '#b45309', '#7c3aed', '#be123c', '#0369a1', '#4d7c0f', '#a21caf']
+// The seat and course buttons: the height of the Pay button.
+const BAR = 'chip shrink-0 h-16 min-w-[64px] rounded-xl px-5 text-base'
 
 export default function MenuPanel({ config, menuIds = null, onPick, onHold, seat, setSeat, course, setCourse, covers, onOpenItem }) {
   const soldOut = useMemo(() => soldOutMap(config), [config])
@@ -125,17 +127,18 @@ export default function MenuPanel({ config, menuIds = null, onPick, onHold, seat
         </div>
       </div>
 
-      <div className="border-t border-line bg-white px-3 py-2 flex items-center gap-2 scroll-x shrink-0">
-        <span className="label shrink-0">Seat</span>
-        <button className={cx('chip shrink-0', seat == null && 'chip-on')} onClick={() => setSeat(null)}>Shared</button>
+      {/* As tall as the check's Pay row beside it (p-2 + h-16), so the two line up. */}
+      <div className="border-t border-line bg-white p-2 flex items-center gap-2 scroll-x shrink-0" data-testid="seat-course-bar">
+        <span className="label shrink-0 pl-1">Seat</span>
+        <button className={cx(BAR, seat == null && 'chip-on')} onClick={() => setSeat(null)}>Shared</button>
         {Array.from({ length: Math.max(2, Math.min(12, covers || 4)) }).map((_, i) => (
-          <button key={i} className={cx('chip shrink-0 w-11 px-0', seat === i + 1 && 'chip-on')} onClick={() => setSeat(seat === i + 1 ? null : i + 1)}>{i + 1}</button>
+          <button key={i} className={cx(BAR, 'w-16 px-0', seat === i + 1 && 'chip-on')} onClick={() => setSeat(seat === i + 1 ? null : i + 1)}>{i + 1}</button>
         ))}
         {(config.courses || []).length > 0 && <>
           <span className="label shrink-0 ml-3">Course</span>
-          <button className={cx('chip shrink-0', course == null && 'chip-on')} onClick={() => setCourse(null)}>Usual</button>
+          <button className={cx(BAR, course == null && 'chip-on')} onClick={() => setCourse(null)}>Usual</button>
           {config.courses.map(c => (
-            <button key={c.id} className={cx('chip shrink-0', course === c.id && 'chip-on')} onClick={() => setCourse(course === c.id ? null : c.id)}>{c.short_name || c.name}</button>
+            <button key={c.id} className={cx(BAR, course === c.id && 'chip-on')} onClick={() => setCourse(course === c.id ? null : c.id)}>{c.short_name || c.name}</button>
           ))}
         </>}
       </div>

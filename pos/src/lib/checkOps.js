@@ -55,9 +55,21 @@ export function promptsFor(config, streamId, typeId) {
   return { ask_name: hit?.ask_name || 'off', ask_tent: hit?.ask_tent || 'off' }
 }
 
+/** Is the check at a table (table service)? Nobody there takes a tent number. */
+export const atTable = check => !!check?.table_id || check?.mode === 'table'
+
+/**
+ * What a check's order type asks for (promptsFor), without the tent number
+ * at a table: the table number already says where the food goes.
+ */
+export function checkPrompts(config, check, typeId = check?.order_type_id) {
+  const p = promptsFor(config, check?.revenue_stream_id, typeId)
+  return atTable(check) ? { ...p, ask_tent: 'off' } : p
+}
+
 /** Required details a check is still missing: ['name', 'tent']. */
 export function missingDetails(check, config) {
-  const p = promptsFor(config, check.revenue_stream_id, check.order_type_id)
+  const p = checkPrompts(config, check)
   const out = []
   if (p.ask_name === 'required' && !String(check.tab_name || '').trim()) out.push('name')
   if (p.ask_tent === 'required' && !String(check.tent || '').trim()) out.push('tent')
@@ -96,6 +108,27 @@ export function openCheck({ mode, table_id = null, tab_name = null, covers = nul
     service_charge: mode === 'counter' ? null : serviceChargeFor(streamOf(config, streamId), covers),
   }, { check_id: checkId })
   return r.ok ? { ok: true, checkId } : r
+}
+
+/**
+ * What happens to the receipt when a check is paid: the till's own choice
+ * (Store tech, Tills) else the venue's: 'ask' | 'always' | 'never'.
+ */
+export function receiptModeOf(config) {
+  const own = config?.device?.settings?.receipt_mode
+  if (own && own !== 'venue') return own
+  return config?.settings?.receipt_mode || 'ask'
+}
+
+/** A line as new again (Undo after taking it off): same dish, choices and price, a new id. */
+export function copyOfLine(l) {
+  return {
+    id: ulid(), item_id: l.item_id ?? null, section_id: l.section_id ?? null, name: l.name, kitchen_name: l.kitchen_name || null,
+    qty: l.qty, unit_price: l.unit_price, modifiers: l.modifiers || [], combo: l.combo || null,
+    seat: l.seat ?? null, course_id: l.course_id ?? null, note: l.note || null, allergies: l.allergies || [],
+    vat_rate: l.vat_rate, tax_rate_id: l.tax_rate_id ?? null, revenue_stream_id: l.revenue_stream_id ?? null,
+    ...(l.price_override ? { price_override: true } : {}), ...(l.open_item ? { open_item: true } : {}),
+  }
 }
 
 export function needsChoices(config, item) {
@@ -241,10 +274,18 @@ export function comboStartFrom(line, start, combo = null, config = null) {
   }
 }
 
-/** Lines grouped by course (in course order) for the check list. */
-export function groupByCourse(check, config) {
+/**
+ * Lines grouped by course (in course order) for the check list. With `all`,
+ * every course the venue has (and No course) is there, empty or not: the
+ * places an item can be dragged to.
+ */
+export function groupByCourse(check, config, { all = false } = {}) {
   const courses = byId(config?.courses)
   const groups = new Map()
+  if (all) {
+    groups.set('', [])
+    for (const c of config?.courses || []) groups.set(c.id, [])
+  }
   for (const l of check.lines) {
     const key = l.course_id || ''
     if (!groups.has(key)) groups.set(key, [])
@@ -255,14 +296,25 @@ export function groupByCourse(check, config) {
     .map(([id, lines]) => ({ id: id || null, name: id ? (courses[id]?.name || 'Course') : 'No course', lines, state: check.courses?.[id] || null }))
 }
 
-export function groupBySeat(check) {
+/** Lines grouped by seat (Shared first). With `upTo`, seats 1..upTo are there even when empty. */
+export function groupBySeat(check, { upTo = 0 } = {}) {
   const groups = new Map()
+  if (upTo) {
+    groups.set(0, [])
+    for (let n = 1; n <= upTo; n++) groups.set(n, [])
+  }
   for (const l of check.lines) {
     const key = l.seat ?? 0
     if (!groups.has(key)) groups.set(key, [])
     groups.get(key).push(l)
   }
   return [...groups.entries()].sort((a, b) => a[0] - b[0]).map(([seat, lines]) => ({ id: String(seat), name: seat ? 'Seat ' + seat : 'Shared', lines }))
+}
+
+/** Can an item be dragged to another group? Courses: only before it is sent. Seats: unless voided. */
+export function canRegroup(line, by) {
+  if (line.status === 'voided') return false
+  return by === 'seat' || line.status === 'new'
 }
 
 export { lineGross, isActiveLine, dispatchMany }

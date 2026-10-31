@@ -69,6 +69,40 @@ export function has(staff, key, amount = null) {
   return !!p[key]
 }
 
+// What a venue can make need a manager every time, whatever the person's
+// role allows (pos_settings.approvals, migration 224; Store tech > Receipts
+// and payments). With a switch on, someone whose role has Approve for others
+// (and the action's own permission, where it has one) does it themselves or
+// types their PIN for whoever does.
+export const MANAGER_ACTIONS = [
+  { key: 'delete_unsent', permission: null,     label: 'Taking off items not sent yet', hint: 'Deleting an item before it goes to the kitchen, or lowering its quantity.' },
+  { key: 'void_sent',     permission: 'void',   label: 'Voiding items the kitchen has', hint: 'Taking back an item already sent (a VOID ticket goes to the kitchen).' },
+  { key: 'cancel_order',  permission: null,     label: 'Cancelling a whole order',      hint: 'The order\'s Cancel order button.' },
+  { key: 'refund',        permission: 'refund', label: 'Refunds',                       hint: 'Giving money back on a closed check.' },
+]
+export const MANAGER_ACTION_KEYS = MANAGER_ACTIONS.map(a => a.key)
+
+/** The venue's switches with every key present (all off by default). */
+export function normaliseApprovals(a = {}) {
+  const out = {}
+  for (const key of MANAGER_ACTION_KEYS) out[key] = !!(a && a[key])
+  return out
+}
+
+/**
+ * With the venue's switch on for `action` (settings.approvals), a manager
+ * must allow it: the person themselves when they may approve, else the
+ * event's approver. Returns null when allowed, else a reason.
+ */
+export function managerProblem(staffById, event, action, settings) {
+  if (!settings?.approvals?.[action]) return null
+  const def = MANAGER_ACTIONS.find(a => a.key === action)
+  const ok = s => !!s && has(s, 'manager') && (!def?.permission || has(s, def.permission))
+  if (ok(staffById[event.staff_id])) return null
+  if (event.approved_by) return ok(staffById[event.approved_by]) ? null : 'The approver isn\'t allowed to do this'
+  return 'Needs a manager'
+}
+
 /**
  * May the event's person do `key`, themselves or with the approver's PIN?
  * staffById: { [id]: { id, name, permissions, is_active } }.

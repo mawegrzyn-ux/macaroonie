@@ -3421,6 +3421,61 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               clear message without it, <Mono>PinPad</Mono> shows any error instead of hanging on "Checking", and{' '}
               <Mono>routes/posSite.js</Mono> sends the pos host from http:// (X-Forwarded-Proto) to https://.
             </P>
+            <H3>Manager switches, Cancel order and the receipt choice (migration 224)</H3>
+            <P>
+              <Mono>pos_settings.approvals</Mono> (jsonb, one boolean per key of <Mono>MANAGER_ACTIONS</Mono> in{' '}
+              <Mono>shared/pos/permissions.js</Mono>: <Mono>delete_unsent</Mono>, <Mono>void_sent</Mono>,{' '}
+              <Mono>cancel_order</Mono>, <Mono>refund</Mono>; <Mono>normaliseApprovals()</Mono> fills the rest with
+              false) are the venue&apos;s "needs a manager every time" switches. <Mono>managerProblem(staffById, event,
+              action, settings)</Mono> is the one rule: off = no problem; on = the person or the event&apos;s{' '}
+              <Mono>approved_by</Mono> must have <Mono>manager</Mono> plus the action&apos;s own permission (void, refund).
+              <Mono> applyEvent()</Mono> now takes <Mono>ctx.settings</Mono> beside <Mono>staffById</Mono> and checks it
+              on <Mono>line.changed</Mono> (a lower qty), <Mono>line.deleted</Mono> (not when <Mono>replaced_by</Mono>{' '}
+              names a new line on the check: Make it a combo), <Mono>line.voided</Mono>, <Mono>refund.added</Mono> and the
+              cancel; refusal code <Mono>manager</Mono>. Every place that applies events passes the venue&apos;s settings:
+              the till store (<Mono>state.config.settings</Mono>), the cloud sequencer (<Mono>settingsView()</Mono> in its
+              context) and the venue hub&apos;s mirror (<Mono>sequencerContext()</Mono>). On the till,{' '}
+              <Mono>can(key, amount, actions)</Mono> / <Mono>approverFor(pin, key, amount, actions)</Mono> in{' '}
+              <Mono>pos/src/lib/store.js</Mono> and <Mono>useApproval()(key, amount, label, actions)</Mono> in{' '}
+              <Mono>components/ui.jsx</Mono> take the actions an event falls under, so the PIN pad shows before the
+              sequencer would refuse.
+            </P>
+            <P>
+              <strong>Cancel order</strong> (<Mono>CancelOrderModal</Mono> in <Mono>CheckActions.jsx</Mono>) is one{' '}
+              <Mono>dispatchMany()</Mono> batch: <Mono>line.voided</Mono> for every sent line and{' '}
+              <Mono>line.deleted</Mono> for every new one, both with <Mono>cancel: true</Mono>, then{' '}
+              <Mono>check.closed &#123; cancel_reason &#125;</Mono>. The close is refused while an active line is left
+              (<Mono>items</Mono>) or a payment is on (<Mono>paid</Mono>), and from kiosks; it sets status{' '}
+              <Mono>void</Mono> and <Mono>c.cancelled = &#123; reason, value, by, approved_by, at, day_id &#125;</Mono>, where{' '}
+              <Mono>value</Mono> is the gross of the lines the cancel took off (summed on the check as{' '}
+              <Mono>c.cancelling</Mono> by the flagged void / delete events), so a line voided earlier for another reason
+              isn&apos;t counted. <Mono>check.reopened</Mono> clears both. <Mono>dayFigures()</Mono> lists them as{' '}
+              <Mono>cancelled</Mono> (<Mono>value</Mono> falls back to the lines left on the check for any without one);
+              Till reports shows a Cancelled orders card, the Checks list marks them (<Mono>cancel_reason</Mono> from{' '}
+              <Mono>state</Mono> in <Mono>GET /api/pos/venues/:id/checks</Mono>) and the history says "Order cancelled".
+            </P>
+            <P>
+              <strong>Receipts</strong>: <Mono>pos_settings.receipt_mode</Mono> (<Mono>ask</Mono> default,{' '}
+              <Mono>always</Mono>, <Mono>never</Mono>, CHECK) and a till&apos;s own{' '}
+              <Mono>pos_devices.settings.receipt_mode</Mono> (<Mono>venue</Mono> = follow it); <Mono>receiptModeOf(config)</Mono>{' '}
+              in <Mono>pos/src/lib/checkOps.js</Mono> decides. <Mono>PayModal</Mono> closes a paid-off check at once with{' '}
+              <Mono>print_receipt</Mono> set unless it is <Mono>ask</Mono>. <Mono>Exact cash</Mono> / <Mono>Exact card</Mono>{' '}
+              pay the amount shown in one tap (card: <Mono>card_integrated</Mono> through the till&apos;s card machine when
+              it has one, else <Mono>card_external</Mono>).
+            </P>
+            <P>
+              <strong>The check list</strong> (<Mono>components/CheckPanel.jsx</Mono>): <Mono>useSwipe()</Mono> (pointer
+              events on the row with <Mono>touch-action: pan-y</Mono>, window listeners, pointer capture once it is a swipe;
+              past half the row it acts, past half the button it stays open; the click after a swipe is swallowed) shows
+              Delete (new) or Void (sent): Delete goes through <Mono>swipeAction</Mono> in <Mono>Check.jsx</Mono> with a
+              5 s toast whose Undo adds <Mono>copyOfLine()</Mono> back; Void opens <Mono>LineModal</Mono> with{' '}
+              <Mono>initialMode: 'void'</Mono>. <Mono>useDrag()</Mono> (the grip, <Mono>touch-action: none</Mono>) shows
+              every course (or seat) as a <Mono>data-drop</Mono> target while dragging, a floating copy, and scrolls the
+              list near its edges; a drop sends <Mono>line.changed &#123; course_id &#125;</Mono> (new lines only,{' '}
+              <Mono>canRegroup()</Mono>) or <Mono>&#123; seat &#125;</Mono>. At a table (<Mono>atTable()</Mono>: a{' '}
+              <Mono>table_id</Mono> or mode table) <Mono>checkPrompts()</Mono> never asks for a tent number;{' '}
+              <Mono>missingDetails()</Mono> and the order type window use it.
+            </P>
             <H3>Device kinds and app updates</H3>
             <P>
               One app at <Mono>pos.&lt;domain&gt;</Mono> serves tills, kitchen screens and kiosks;{' '}

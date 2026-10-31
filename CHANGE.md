@@ -5,6 +5,21 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-31 — Till: swipe, drag between courses, Cancel order, exact payments, receipts and manager switches]
+
+Migration: `224_till_receipts_approvals.sql` (`pos_settings.receipt_mode`, `pos_settings.approvals`).
+
+- **Swipe an item to the left** on the check: **Delete** before it's sent (with **Undo** for a few seconds), **Void** once the kitchen has it (the void window opens on its reasons). A long swipe deletes straight away; a tap still opens the item.
+- **Drag an item by its grip** to another course (items not sent yet); every course shows while you drag, empty ones too. Grouped by seat, drag to another seat.
+- **The seat and course bar** under the menu is as tall as the Pay button.
+- **No tent number at a table**: a check at a table never asks for one, even when its order type does. Tabs and counter orders still ask.
+- **Cancel order** (top of the check, and in More): a reason, made-or-not, and the whole order comes off: sent items are voided (VOID tickets to the kitchen), the rest deleted, and the check closes as cancelled. Refused while a payment is on it. Day reports list cancelled orders with the reason, who and who approved, and what the order was worth; the till's Closed list shows them as (cancelled).
+- **Exact cash and Exact card** on Pay take the amount shown in one tap (Exact card goes to the till's card machine when it has one).
+- **Receipt when a check is paid** (Store tech, Receipts and payments): Ask each time, Always print or Don't print; each till can have its own (Store tech, Tills, the till's window).
+- **Needs a manager every time** (same page): switches for taking off items not sent yet, voiding items the kitchen has, cancelling a whole order and refunds. Switched on, a manager types their PIN whatever the person's role allows. The tills, the cloud and the venue hub all apply them.
+
+---
+
 ## [2026-10-31 — Venue hub on Windows runs as a Windows service]
 
 - **On a Windows mini PC the hub now runs as the Windows service "Macaroonie hub"** instead of a scheduled task. It starts with the computer before anyone signs in, Windows restarts it if it ever stops, and stopping it stops every part of the hub (nothing is left running holding the ports or the link).

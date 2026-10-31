@@ -5532,7 +5532,7 @@ export default function Help() {
               <li><strong>Printers</strong>: each printer, on the network, USB on the venue hub, or plugged into a till, kitchen screen or kiosk (see Printers and the venue hub below). Kitchen tickets print where the kitchen flow sends dishes: a <strong>Kitchen printer</strong> box in Kitchen screens.</li>
               <li><strong>Printing</strong>: how kitchen tickets, receipts and bills look (see Ticket and receipt designs below).</li>
               <li><strong>Card machines</strong>: your Dojo, Stripe or SumUp account and the card machines at the venue; each till and kiosk picks its machine (see Card machines below).</li>
-              <li><strong>Receipts and payments</strong>: when the trading day starts, the name, address and VAT number on receipts, the ways to pay, tips, asking for covers, and when staff are signed out. Tax rates are set on Menus → Tax rates.</li>
+              <li><strong>Receipts and payments</strong>: when the trading day starts, the name, address and VAT number on receipts, the ways to pay, tips, asking for covers, when staff are signed out, whether a receipt prints when a check is paid (<strong>Ask each time</strong>, <strong>Always print</strong> or <strong>Don&apos;t print</strong>; a till can have its own in its window), and what <strong>needs a manager every time</strong> (see Manager approvals below). Tax rates are set on Menus → Tax rates.</li>
               <li><strong>Cash Recon link</strong>: which till figures go into which Cash Recon fields when the day is closed (see End of day).</li>
               <li><strong>Floor plan</strong> (Store tech → Floor plan): add an area (e.g. Restaurant), tap tables to put them on it, drag them where they stand, drag the round corner to resize, Turn, Square / Round, and add walls, the bar, plants and labels. Save the area. Tables themselves are added on the Tables page.</li>
               <li><strong>Tills</strong>: open the till address on the tablet: it shows a six-letter code and a QR code. Tap <strong>Add a till</strong>, type the code, give it a name, table service or counter, and <strong>Add the till</strong>: the tablet sets itself up. Or scan the QR code with your phone and do the same in the installer app. <strong>New device</strong> on a till's row puts it on another tablet (type the code that tablet shows; the old one stops), and so does choosing <strong>One already here</strong> in Add a till. Removing a till signs it out; <strong>Bring back</strong> on the Removed line links it again with its settings. Each till and kiosk gets its own block of counter <strong>order numbers</strong> when it is added (the first 1-99, the next 100-199, and so on), shown on its row; change it in the till's window (<strong>Order numbers</strong>, from and to). Two tills or kiosks at a location can't share numbers: the window says which one already uses them.</li>
@@ -5793,16 +5793,18 @@ export default function Help() {
             <H3>Taking an order</H3>
             <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
               <li>Sign in with your PIN. The till signs you out after the time set in Receipts and payments. A PIN set or changed in Store tech works straight away; if the till is offline it needs to have been online once since.</li>
-              <li><strong>Floor</strong>: tap a table (it asks for covers if set to), or <strong>New tab</strong> for a named tab. Colours show which tables are free, open, waiting for a held course, or billed.</li>
-              <li>Tap dishes. Pick a <strong>seat</strong> and <strong>course</strong> at the bottom of the menu first if you want them. Dishes with choices and combos open a window to pick them, add a note or allergies.</li>
+              <li><strong>Floor</strong>: tap a table (it asks for covers if set to), or <strong>New tab</strong> for a named tab. Colours show which tables are free, open, waiting for a held course, or billed. A check at a table never asks for a tent number (the table says where the food goes); a tab or counter order asks when its order type does.</li>
+              <li>Tap dishes. Pick a <strong>seat</strong> and <strong>course</strong> in the bar at the bottom of the menu first if you want them (its buttons are as big as Pay). Dishes with choices and combos open a window to pick them, add a note or allergies.</li>
               <li><strong>Send</strong> sends new items to the kitchen. If a later course is held, <strong>Fire</strong> sends it when it's time.</li>
               <li>Tap an item on the check to change it: before it's sent you can change or delete it; after, <strong>Void</strong> it with a reason (the kitchen gets a VOID ticket), or <strong>Comp</strong> it.</li>
-              <li><strong>More</strong>: guests, move table, name, order type, tent number, server, revenue stream, discount, service charge, offers, split or move items to another check, merge checks, an item not on the menu, print bill, no sale, close an empty check.</li>
-              <li><strong>Pay</strong>: cash (with change), card, card machine (the amount goes straight to the till&apos;s card machine, see Card machines), voucher and so on, a tip if switched on, and as many payments as needed to split the bill. Then close with or without a receipt.</li>
+              <li><strong>Swipe an item to the left</strong> for its button: <strong>Delete</strong> before it&apos;s sent (a message offers <strong>Undo</strong> for a few seconds), <strong>Void</strong> once the kitchen has it (the void window opens: pick a reason). A long swipe deletes straight away.</li>
+              <li><strong>Drag an item by its grip</strong> (the dots on its left) to another course: every course shows while you drag, so you can drop it into an empty one too. Only items not sent yet move between courses. Grouped <strong>By seat</strong>, drag an item to another seat (sent items too).</li>
+              <li><strong>More</strong>: guests, move table, name, order type, tent number, server, revenue stream, discount, service charge, offers, split or move items to another check, merge checks, an item not on the menu, print bill, no sale, close an empty check, <strong>Cancel order</strong>.</li>
+              <li><strong>Pay</strong>: <strong>Exact cash</strong> and <strong>Exact card</strong> take the amount shown in one tap (Exact card goes to the till&apos;s card machine when it has one, otherwise it records a card payment taken on your own machine). Or pick a way to pay: cash (with change), card, card machine (see Card machines), voucher and so on, a tip if switched on, and as many payments as needed to split the bill. When it&apos;s all paid the till closes the check with or without a receipt, as set in Receipts and payments (or the till&apos;s own window): <strong>Ask each time</strong> shows the two buttons, <strong>Always print</strong> and <strong>Don&apos;t print</strong> close it straight away.</li>
             </ol>
             <P>
-              <strong>Counter</strong> takes an order with a number (from the number set in Receipts and
-              payments, each day), pays it, and sends it to the kitchen when it's closed. Pick the
+              <strong>Counter</strong> takes an order with a number (from the till&apos;s own range of order
+              numbers, see Check and order numbers), pays it, and sends it to the kitchen when it's closed. Pick the
               order type first (Eat in, Take out...: the ones the till's revenue stream offers) and type
               the customer name or tent number if that type asks for them; one it must have can't be
               skipped.{' '}
@@ -5819,6 +5821,27 @@ export default function Help() {
               whose role has <strong>Approve for others</strong> types their PIN on the same till, and the check
               records who approved it.
             </InfoBox>
+
+            <H3>Cancelling an order</H3>
+            <P>
+              <strong>Cancel order</strong> (the button at the top of the check, or in More) calls off the whole
+              order: pick a reason (Guest left, Wrong order...) and whether what the kitchen made is waste, then
+              <strong> Cancel the order</strong>. Everything sent is voided (the kitchen gets VOID tickets), the
+              rest comes off, and the check closes as cancelled. A payment on it has to come off first (in Pay).
+              The day&apos;s report lists cancelled orders with their reason, who did it and who approved it, and
+              what the order was worth when it was cancelled; Closed on the till shows it as (cancelled).
+            </P>
+
+            <H3>Manager approvals</H3>
+            <P>
+              Store tech → Receipts and payments → <strong>Needs a manager every time</strong> makes a manager
+              type their PIN for these, whatever the person&apos;s own till role allows: <strong>Taking off items
+              not sent yet</strong> (deleting, a swipe, or lowering the quantity), <strong>Voiding items the
+              kitchen has</strong>, <strong>Cancelling a whole order</strong> and <strong>Refunds</strong>. The
+              manager needs <strong>Approve for others</strong>, and for voids and refunds that permission too. A
+              manager doing it themselves isn&apos;t asked. Switched off, the person&apos;s role decides (Till roles).
+              Turning a dish into a combo (Make it a combo) never asks: nothing comes off the order.
+            </P>
 
             <H3>Without the internet</H3>
             <P>
@@ -5873,7 +5896,7 @@ export default function Help() {
             <DataTable
               head={['Tab', 'What it shows']}
               rows={[
-                ['Days', 'Each trading day: sales, payments, cash expected and counted, revenue streams, order types, VAT, staff, discounts and comps, voids, refunds, best sellers, open checks. The open day is shown as it stands now.'],
+                ['Days', 'Each trading day: sales, payments, cash expected and counted, revenue streams, order types, VAT, staff, discounts and comps, voids, cancelled orders (with their reason and what they were worth), refunds, best sellers, open checks. The open day is shown as it stands now.'],
                 ['Checks', 'Every check of a day with its items, totals and full history: who did what, when, and who approved it.'],
                 ['Refused changes', 'Changes a till made offline that couldn\'t be applied when it caught up. Note what was done and mark them dealt with.'],
                 ['Print queue', 'Tickets and other jobs, waiting or printed, with the reason when one didn\'t print.'],

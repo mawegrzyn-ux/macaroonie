@@ -260,6 +260,7 @@ function TillModal({ venueId, setup, device, onClose }) {
     receipt_printer_id: s.receipt_printer_id || '',
     card_reader: s.card_reader || 'none',
     order_numbers: orderRangeOf(device),
+    receipt_mode: s.receipt_mode || 'venue',
   })
   const set = patch => setForm(f => ({ ...f, ...patch }))
   const body = () => ({
@@ -270,6 +271,7 @@ function TillModal({ venueId, setup, device, onClose }) {
       floor_area_id: form.mode === 'table' ? (form.floor_area_id || null) : null,
       receipt_printer_id: form.receipt_printer_id || null,
       card_reader: form.card_reader,
+      receipt_mode: form.receipt_mode,
       ...(device && orderRangeReady(form.order_numbers) ? { order_numbers: form.order_numbers } : {}),
     },
   })
@@ -322,6 +324,12 @@ function TillModal({ venueId, setup, device, onClose }) {
             {receiptPrinters.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
         </Field>
+        <Field label="Receipt when a check is paid" hint={'Venue setting: ' + (RECEIPT_MODES.find(m => m.value === (setup.settings.receipt_mode || 'ask'))?.label || 'Ask') + ' (Receipts and payments).'}>
+          <select className={inputCls} value={form.receipt_mode} onChange={e => set({ receipt_mode: e.target.value })} data-testid="till-receipt-mode">
+            <option value="venue">As the venue</option>
+            {RECEIPT_MODES.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+          </select>
+        </Field>
         <CardMachinePick venueId={venueId} value={form.card_reader} onChange={v => set({ card_reader: v })} />
         <OrderNumbersField setup={setup} device={device} value={form.order_numbers} onChange={v => set({ order_numbers: v })} />
       </>}
@@ -329,6 +337,13 @@ function TillModal({ venueId, setup, device, onClose }) {
     </Modal>
   )
 }
+
+/** What happens to the receipt when a check is paid (pos_settings.receipt_mode, migration 224). */
+export const RECEIPT_MODES = [
+  { value: 'ask', label: 'Ask each time' },
+  { value: 'always', label: 'Always print' },
+  { value: 'never', label: 'Don\'t print' },
+]
 
 /** The address a device of this kind opens (Store tech's device_urls). */
 export const deviceUrl = (setup, kind) => setup.device_urls?.[kind] || setup.till_url

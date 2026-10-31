@@ -16,7 +16,7 @@ import { Modal, Keypad, ReasonPicker, cx, money, poundsToPence, useApproval } fr
 import { dispatch, dispatchMany, toast, useChecks, getState, can, soldOutMap, setItemSoldOut, serverName } from '../lib/store.js'
 import {
   defaultHeld, sendCheck, streamOf, byId, addOpenItem, promotionsFor, refreshPromotions,
-  streamTypes, typeOf, promptsFor, rerateLines, defaultTypeId,
+  streamTypes, typeOf, checkPrompts, rerateLines, defaultTypeId,
 } from '../lib/checkOps.js'
 import { CoversModal, CheckRow } from '../screens/Floor.jsx'
 
@@ -27,7 +27,7 @@ export function ActionsMenu({ check, config, onPick, onClose }) {
     { key: 'table', label: check.table_id ? 'Move table' : 'Put on a table', icon: Table2 },
     { key: 'name', label: 'Name', icon: StickyNote, hint: check.tab_name || '' },
     { key: 'type', label: 'Order type', icon: ShoppingBag, hint: [typeOf(config, check.order_type_id)?.name, check.tent ? 'Tent ' + check.tent : null].filter(Boolean).join(' · ') },
-    (promptsFor(config, check.revenue_stream_id, check.order_type_id).ask_tent !== 'off' || check.tent) && { key: 'tent', label: 'Tent number', icon: Flag, hint: check.tent || 'not set' },
+    (checkPrompts(config, check).ask_tent !== 'off' || check.tent) && { key: 'tent', label: 'Tent number', icon: Flag, hint: check.tent || 'not set' },
     { key: 'server', label: 'Server', icon: UserRound, hint: serverName(config, check.server_id) },
     (config.revenue_streams || []).length > 1 && { key: 'stream', label: 'Revenue stream', icon: Building2, hint: streamOf(config, check.revenue_stream_id)?.name },
     held.length > 0 && { key: 'fire', label: 'Fire a course', icon: Flame, hint: held.length + ' waiting' },
@@ -41,13 +41,14 @@ export function ActionsMenu({ check, config, onPick, onClose }) {
     { key: 'bill', label: 'Print bill', icon: Printer },
     { key: 'drawer', label: 'No sale (open drawer)', icon: Vault },
     !check.lines.length && !(check.payments || []).some(p => !p.voided) && { key: 'void_check', label: 'Close empty check', icon: XCircle },
+    check.lines.length > 0 && { key: 'cancel', label: 'Cancel order', icon: Ban, hint: 'void it all, with a reason', bad: true },
   ].filter(Boolean)
   return (
     <Modal title={'Check ' + checkLabel(check)} onClose={onClose} wide>
       <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
         {items.map(it => (
-          <button key={it.key} className="btn h-auto min-h-[64px] py-2 justify-start text-left" onClick={() => onPick(it.key)}>
-            <it.icon size={22} className="shrink-0 text-brand" />
+          <button key={it.key} className={cx('btn h-auto min-h-[64px] py-2 justify-start text-left', it.bad && 'text-bad')} onClick={() => onPick(it.key)} data-testid={'action-' + it.key}>
+            <it.icon size={22} className={cx('shrink-0', it.bad ? 'text-bad' : 'text-brand')} />
             <span className="flex flex-col leading-tight min-w-0"><span>{it.label}</span>{it.hint ? <span className="text-xs text-muted font-normal truncate">{it.hint}</span> : null}</span>
           </button>
         ))}
@@ -108,6 +109,67 @@ export function FireModal({ check, config, onClose }) {
           }}><Flame size={22} /> Fire {courses[id]?.name || 'course'} ({check.lines.filter(l => l.course_id === id && l.held).length})</button>
         ))}
         {!held.length && <div className="text-muted">Nothing is waiting.</div>}
+      </div>
+    </Modal>
+  )
+}
+
+// ── Cancel the whole order ───────────────────────────────────────
+
+const CANCEL_REASONS = ['Guest left', 'Guest changed their mind', 'Wrong order', 'Kitchen can\'t make it', 'Test order']
+
+/**
+ * Cancel order: every item the kitchen has is voided (VOID tickets go to
+ * it), the rest taken off, and the check closes as cancelled, with a reason.
+ * Payments come off first (Pay). A manager may be needed: for voiding sent
+ * items, and when the venue says so (Store tech, Receipts and payments).
+ */
+export function CancelOrderModal({ check, onClose, onCancelled }) {
+  const approve = useApproval()
+  const [reason, setReason] = useState('')
+  const [waste, setWaste] = useState(true)
+  const sent = check.lines.filter(l => l.status === 'sent')
+  const fresh = check.lines.filter(l => l.status === 'new')
+  const paid = (check.payments || []).filter(p => !p.voided)
+  const go = async () => {
+    const actions = ['cancel_order']
+    if (sent.length) actions.push('void_sent')
+    if (fresh.length) actions.push('delete_unsent')
+    const approver = await approve(sent.length ? 'void' : null, null, 'Cancelling this order needs a manager.', actions)
+    if (approver === false) return
+    const why = reason.trim()
+    const at = { check_id: check.id, approved_by: approver }
+    const r = dispatchMany([
+      ...sent.map(l => ['line.voided', { line_id: l.id, reason: why, waste, cancel: true }, at]),
+      ...fresh.map(l => ['line.deleted', { line_id: l.id, cancel: true }, at]),
+      ['check.closed', { cancel_reason: why }, at],
+    ])
+    if (!r.ok) return toast(r.error, 'bad')
+    toast('Order cancelled', 'ok')
+    onCancelled()
+  }
+  return (
+    <Modal title={'Cancel order ' + checkLabel(check)} onClose={onClose}
+      footer={<button className="btn btn-bad h-14 min-w-[200px]" disabled={!reason.trim() || paid.length > 0} onClick={go} data-testid="cancel-order-go"><Ban size={18} /> Cancel the order</button>}>
+      <div className="space-y-4">
+        {paid.length > 0 ? (
+          <div className="rounded-xl bg-warn-soft text-warn p-3 font-semibold" data-testid="cancel-order-paid">
+            This order has {paid.length === 1 ? 'a payment' : paid.length + ' payments'} ({money(paid.reduce((s, p) => s + p.amount, 0))}). Take {paid.length === 1 ? 'it' : 'them'} off in Pay first.
+          </div>
+        ) : (
+          <div className="text-[15px]">
+            {sent.length > 0 && <>The kitchen gets a VOID ticket for the {sent.reduce((s, l) => s + l.qty, 0)} item{sent.reduce((s, l) => s + l.qty, 0) === 1 ? '' : 's'} it has. </>}
+            {fresh.length > 0 && <>{fresh.reduce((s, l) => s + l.qty, 0)} item{fresh.reduce((s, l) => s + l.qty, 0) === 1 ? '' : 's'} not sent yet come{fresh.reduce((s, l) => s + l.qty, 0) === 1 ? 's' : ''} off. </>}
+            The order shows as cancelled in the day's report.
+          </div>
+        )}
+        <ReasonPicker options={CANCEL_REASONS} value={reason} onChange={setReason} />
+        {sent.length > 0 && (
+          <div className="flex gap-2">
+            <button className={cx('chip', waste && 'chip-on')} onClick={() => setWaste(true)}>Made: waste</button>
+            <button className={cx('chip', !waste && 'chip-on')} onClick={() => setWaste(false)}>Not made</button>
+          </div>
+        )}
       </div>
     </Modal>
   )
@@ -450,7 +512,8 @@ export function OrderTypeModal({ check, config, onClose, focus = null }) {
   const [typeId, setTypeId] = useState(check.order_type_id || types[0]?.type.id || null)
   const [name, setName] = useState(check.tab_name || '')
   const [tent, setTent] = useState(check.tent || '')
-  const prompts = promptsFor(config, check.revenue_stream_id, typeId)
+  // At a table nobody takes a tent number (checkPrompts).
+  const prompts = checkPrompts(config, check, typeId)
   const save = () => {
     const missing = missingText(prompts, name, tent)
     if (missing) return toast(missing, 'bad')
