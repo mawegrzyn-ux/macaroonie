@@ -3592,7 +3592,17 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               buttons zones <Mono>buttons</Mono> (<Mono>&#123; id, action, label, colour, w, h &#125;</Mono>, with{' '}
               <Mono>item_id</Mono>, <Mono>preset_id</Mono> or <Mono>tender</Mono> for the actions that name one;{' '}
               <Mono>BUTTON_ACTIONS</Mono>, where <Mono>check: true</Mono> means it needs an order on screen), modifiers{' '}
-              <Mono>kind</Mono> (all | required | optional) and <Mono>cover</Mono> (zone | screen).{' '}
+              <Mono>kind</Mono> (all | required | optional), <Mono>cover</Mono> (zone | screen),{' '}
+              <Mono>show_name</Mono>, <Mono>show_description</Mono>, <Mono>show_prices</Mono> (default true) and{' '}
+              <Mono>auto_add</Mono> (default false). The layout has <Mono>top_bar</Mono> (default true; false = the
+              order screens without the till&apos;s top bar), and the Order zone <Mono>font</Mono> (12-36, 16 = the
+              standard size), <Mono>hide</Mono> (keys of <Mono>CHECK_BUTTONS</Mono>: back, cancel, more, send, bill, pay,
+              kept in that order) and <Mono>colours</Mono> (<Mono>&#123; cancel, more, send, bill, pay &#125;</Mono>, a
+              colour code or null). Each of the Order zone&apos;s buttons has a button action that does its job
+              (<Mono>CHECK_BUTTONS[].action</Mono>; Pay is also done by exact_cash, exact_card and tender), and{' '}
+              <Mono>layoutWarnings()</Mono> gives <Mono>hidden_button</Mono> (with <Mono>button</Mono>) for one left out
+              with no such button. Button actions <Mono>till_menu</Mono> and <Mono>sign_out</Mono> work without an
+              order.{' '}
               <Mono>normaliseTillLayout()</Mono> is the only way a layout is read (unknown zones and buttons dropped, every
               number inside its limits, repeated ids renamed). <Mono>layoutProblems()</Mono> stops a save (no Order zone,
               more zones of a type than its <Mono>max</Mono>, two Dish choices zones that don&apos;t split Must pick and
@@ -3629,7 +3639,21 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               goes into the Dish choices zones when the layout has one (<Mono>choiceZones()</Mono>;{' '}
               <Mono>components/LayoutChoices.jsx</Mono>: <Mono>useChoiceBuilder()</Mono> with the choices window&apos;s own
               picking rules, exported from <Mono>ItemModal.jsx</Mono>, and <Mono>priceItem()</Mono>), else into the window.
-              No event changed: a layout only arranges the screen.
+              With the must-pick zone&apos;s <Mono>auto_add</Mono>, <Mono>useChoiceBuilder(item, config, initial, &#123;
+              onAutoAdd &#125;)</Mono> adds the dish on a tap that picks a choice taking exactly one pick
+              (<Mono>min &gt;= 1</Mono>, <Mono>max === 1</Mono>, a group or a combo step) once <Mono>priceItem()</Mono> is
+              happy with the whole selection; its picks are read through a ref (<Mono>commit()</Mono>), so the tap that
+              completes the dish adds what is on screen. <Mono>ChoiceZone</Mono> drops the dish&apos;s name, description
+              and the choices&apos; prices by the zone&apos;s switches (a sold out choice keeps its words). With the
+              layout&apos;s <Mono>top_bar</Mono> false, <Mono>Main</Mono> in <Mono>App.jsx</Mono> leaves the bar off the
+              check and counter views (<Mono>hideBar</Mono>), and <Mono>TillNav</Mono> (<Mono>components/TillMenu.jsx</Mono>:
+              <Mono>go</Mono>, <Mono>view</Mono>, <Mono>counterMode</Mono>, <Mono>hideBar</Mono>, <Mono>openMenu</Mono>)
+              carries the till menu down: <Mono>TillMenuSection</Mono> (details, <Mono>tillPages()</Mono>, Sign out) at the
+              top of More (<Mono>ActionsMenu</Mono>), <Mono>TillMenuModal</Mono> from the counter&apos;s Till menu button
+              and the <Mono>till_menu</Mono> button. <Mono>Check.jsx</Mono> leaves the Order zone&apos;s hidden buttons out
+              (the footer grid takes as many columns as buttons left), colours them with <Mono>fillStyle()</Mono>{' '}
+              (<Mono>ui.jsx</Mono>, black or white words by <Mono>inkOn()</Mono>) and passes <Mono>font</Mono> to{' '}
+              <Mono>CheckPanel</Mono>, whose line sizes are in em. No event changed: a layout only arranges the screen.
             </P>
             <P>
               Admin: <Mono>components/pos/TillLayoutsSection.jsx</Mono> (Store tech → Till layouts, <Mono>/pos/layouts</Mono>)
@@ -3637,8 +3661,12 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               chosen screen&apos;s size (the till&apos;s 64 px top bar first), moves and resizes zones on whole cells (pointer
               events; a ghost committed on pointer up), previews each zone&apos;s buttons with the venue&apos;s menus,
               discounts and ways to pay (<Mono>usePosSetup()</Mono>, <Mono>/api/pos/discounts</Mono>), turns to the page of
-              the button being edited, and starts with the Dish choices zones hidden (a selected one always shows). The
-              draft is normalised after every edit; Save sends <Mono>&#123; name, layout &#125;</Mono> and stays off while{' '}
+              the button being edited, and draws the Dish choices zones as outlines (<Mono>data-outline</Mono>:
+              pointer-events none, so taps reach the zone under them; their name tab <Mono>tl-zone-tab</Mono> selects and
+              drags them; selected, or with <Mono>Show a dish being added</Mono>, they fill). The canvas fits the
+              column&apos;s width and the window&apos;s height, and its scroller keeps <Mono>scrollbar-gutter: stable</Mono>:
+              without it a scrollbar appearing narrowed the canvas, which shortened the page, which hid the scrollbar, round
+              and round (the shake with some zones selected). The draft is normalised after every edit; Save sends <Mono>&#123; name, layout &#125;</Mono> and stays off while{' '}
               <Mono>layoutProblems()</Mono> finds any. The till window on Tills has the till&apos;s own choice
               (<Mono>till-layout</Mono>). Tests: <Mono>shared/pos/test/tillLayout.test.mjs</Mono>,{' '}
               <Mono>api/test/till-layouts.test.mjs</Mono>.

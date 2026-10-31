@@ -9,6 +9,14 @@
 // packCells(), as the till does, using the dishes, discounts and tenders of
 // the venue picked at the top. Explicit Save; a layout with problems (no
 // Order zone, zones overlapping) can't be saved.
+//
+// Dish choices zones are drawn as outlines over the zones under them (they
+// only fill while a dish is being added: Show a dish being added fills them),
+// so the zones under them stay in sight and can be tapped. The page keeps
+// room for its scrollbar (scrollbar-gutter): the canvas takes its size from
+// the width, and a scrollbar coming and going would otherwise resize it in a
+// loop (the shake). A tall screen (upright tablet) is fitted to the window's
+// height.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
@@ -24,7 +32,7 @@ import {
 } from '@/components/pos/shared'
 import { usedByText } from '@/components/pos/TillLayoutsSection'
 import {
-  ZONE_TYPES, zoneLabel, GRID_ZONES, OVERFLOWS, CHOICE_KINDS, COVERS, BUTTON_ACTIONS, actionOf,
+  ZONE_TYPES, zoneLabel, GRID_ZONES, OVERFLOWS, CHOICE_KINDS, COVERS, BUTTON_ACTIONS, actionOf, CHECK_BUTTONS,
   normaliseTillLayout, layoutProblems, layoutWarnings, packCells, buttonLabel, choiceZones, overlaps,
   LAYOUT_COLS, LAYOUT_ROWS, ZONE_GRID, FONT, MAX_ZONES, MAX_BUTTONS, LABEL_MAX,
 } from '@shared/pos/tillLayout.js'
@@ -76,11 +84,21 @@ function useWidth(ref) {
   const [w, setW] = useState(0)
   useEffect(() => {
     if (!ref.current) return
-    const ro = new ResizeObserver(([e]) => setW(e.contentRect.width))
+    const ro = new ResizeObserver(([e]) => setW(Math.floor(e.contentRect.width)))
     ro.observe(ref.current)
     return () => ro.disconnect()
   }, [ref])
   return w
+}
+
+function useWindowHeight() {
+  const [h, setH] = useState(() => window.innerHeight)
+  useEffect(() => {
+    const on = () => setH(window.innerHeight)
+    window.addEventListener('resize', on)
+    return () => window.removeEventListener('resize', on)
+  }, [])
+  return h
 }
 
 export default function TillLayoutDesigner() {
@@ -97,7 +115,7 @@ export default function TillLayoutDesigner() {
   const [selId, setSelId] = useState(null)
   // The button being edited in the selected zone: its page shows in the preview.
   const [selB, setSelB] = useState(null)
-  // Dish choices zones start hidden: the screen as the till shows it between dishes.
+  // Dish choices zones are outlines until this fills them (a dish being added).
   const [showChoices, setShowChoices] = useState(false)
   const [leaving, setLeaving] = useState(false)
   const [screenKey, setScreenKey] = useState(() => { try { return localStorage.getItem('maca_layout_screen') || SCREENS[0].key } catch { return SCREENS[0].key } })
@@ -177,7 +195,9 @@ export default function TillLayoutDesigner() {
           <Btn onClick={() => setLeaving(false)}>Stay</Btn>
         </div>
       )}
-      <div className="flex-1 overflow-y-auto">
+      {/* Room for the scrollbar always: the canvas sizes from the width, so a
+          scrollbar coming and going would resize it in a loop (a shake). */}
+      <div className="flex-1 overflow-y-auto" style={{ scrollbarGutter: 'stable' }} data-testid="tl-scroller">
         <div className="p-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_380px] items-start max-w-[1600px] mx-auto">
           <div className="space-y-3 min-w-0">
             {!canManage && <ReadOnlyNotice what="till layouts" />}
@@ -190,7 +210,7 @@ export default function TillLayoutDesigner() {
               {layout.zones.some(z => z.type === 'modifiers') && (
                 <Btn onClick={() => setShowChoices(v => !v)} aria-pressed={showChoices} data-testid="tl-show-choices">
                   {showChoices ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  {showChoices ? 'Hide dish choices zones' : 'Show dish choices zones'}
+                  {showChoices ? 'Back to the screen between dishes' : 'Show a dish being added'}
                 </Btn>
               )}
               <span className="text-xs text-muted-foreground">Dishes, discounts and tenders from {setup?.venue?.name || 'the venue'}.</span>
@@ -199,7 +219,7 @@ export default function TillLayoutDesigner() {
               canEdit={canManage} onMove={patchZone} ctx={ctx} focus={selB}
               bad={new Set(problems.flatMap(p => p.zones))} />
             <p className="text-xs text-muted-foreground">
-              Tap a zone to change it. {canManage ? 'Drag it to move it, its corner to resize it. ' : ''}Dish choices zones show only while a dish is being added, over the zones under them.
+              Tap a zone to change it. {canManage ? 'Drag it to move it, its corner to resize it. ' : ''}Dish choices zones (dashed) show on the till only while a dish is being added, over the zones under them: tap a dashed zone's name to change it.
             </p>
           </div>
 
@@ -221,6 +241,12 @@ export default function TillLayoutDesigner() {
                           onChange={v => setLayout(l => ({ ...l, rows: v }))} />
                       </div>
                       <p className="text-xs text-muted-foreground">The screen is split into this grid; each zone takes a block of its cells.</p>
+                      <Toggle label="The till's top bar on the order screen" checked={layout.top_bar !== false} onChange={v => setLayout(l => ({ ...l, top_bar: v }))} />
+                      <p className="text-xs text-muted-foreground -mt-1" data-testid="tl-top-bar-hint">
+                        {layout.top_bar !== false
+                          ? 'The bar with Floor, Counter, Closed, Reports, Till and sign out stays across the top.'
+                          : 'Off: the layout takes the whole screen. The till\'s pages, sign out and its details are in More (and on the counter\'s New order panel); the other pages keep the bar.'}
+                      </p>
                     </Section>
                   </ReadOnlyFieldset>
                   <Section title="Zones" hint="Tap one to change it.">
@@ -299,10 +325,14 @@ function Stepper({ label, value, min, max, step = 1, onChange, testid }) {
 
 function Canvas({ layout, screen, selId, onSelect, showChoices, canEdit, onMove, ctx, bad, focus = null }) {
   const ref = useRef(null)
-  const width = useWidth(ref)
-  const scale = width ? width / screen.w : 0
-  const barH = TOP_BAR * scale
-  const height = (screen.h - TOP_BAR) * scale
+  const avail = useWidth(ref)
+  // As wide as the column, but a tall screen (upright tablet) fits the window's height.
+  const fitH = Math.max(320, useWindowHeight() - 200)
+  const scale = avail ? Math.min(avail / screen.w, fitH / screen.h) : 0
+  const width = Math.floor(screen.w * scale)
+  const topBar = layout.top_bar !== false
+  const barH = topBar ? TOP_BAR * scale : 0
+  const height = (screen.h - (topBar ? TOP_BAR : 0)) * scale
   const cw = width / layout.cols
   const rh = height / layout.rows
   const drag = useRef(null)
@@ -340,56 +370,71 @@ function Canvas({ layout, screen, selId, onSelect, showChoices, canEdit, onMove,
 
   const at = z => (ghost?.id === z.id ? { ...z, ...ghost } : z)
   const solid = layout.zones.filter(z => z.type !== 'modifiers')
-  const mods = layout.zones.filter(z => z.type === 'modifiers')
   const bar = choiceZones(layout).required
-  const drawn = [...solid, ...(showChoices ? mods : mods.filter(m => m.id === selId))]
-  // The selected zone on top, so its handle can always be reached.
-  drawn.sort((a, b) => (a.id === selId) - (b.id === selId))
+  // Every zone is drawn; the selected one on top, so its handle can always be reached.
+  const drawn = [...layout.zones].sort((a, b) => (a.id === selId) - (b.id === selId))
+  const label = z => zoneLabel(z.type) + (z.type === 'modifiers' ? ' · ' + CHOICE_KINDS.find(k => k.key === z.kind)?.label + (z.cover === 'screen' ? ' · whole screen' : '') : '')
 
   return (
-    <div ref={ref} className="w-full rounded-xl border bg-white overflow-hidden select-none" data-testid="tl-canvas"
-      style={{ touchAction: 'none' }} onPointerDown={() => onSelect(null)}>
-      <div style={{ height: barH }} className="bg-slate-800 text-white/70 flex items-center px-2 overflow-hidden"
-        aria-hidden="true"><span style={{ fontSize: Math.max(8, 14 * scale) }}>The till's top bar</span></div>
-      <div className="relative" style={{ height }}>
-        {/* The cells. */}
-        <div className="absolute inset-0 grid" aria-hidden="true"
-          style={{ gridTemplateColumns: `repeat(${layout.cols}, 1fr)`, gridTemplateRows: `repeat(${layout.rows}, 1fr)` }}>
-          {Array.from({ length: layout.cols * layout.rows }).map((_, i) => <div key={i} className="border border-dashed border-slate-200" />)}
-        </div>
-        {width > 0 && drawn.map(z0 => {
-          const z = at(z0)
-          const isSel = z.id === selId
-          const isMod = z.type === 'modifiers'
-          const clash = ghost?.id === z.id && !isMod && solid.some(o => o.id !== z.id && overlaps(o, z))
-          return (
-            <div key={z.id} data-testid="tl-zone" data-zone-id={z.id} data-type={z.type} data-selected={isSel ? '1' : '0'}
-              data-x={z.x} data-y={z.y} data-w={z.w} data-h={z.h}
-              onPointerDown={e => start(e, z0, 'move')} onPointerMove={move} onPointerUp={end} onPointerCancel={end}
-              className={cn('absolute rounded-md overflow-hidden', canEdit ? 'cursor-move' : 'cursor-pointer',
-                isSel ? 'ring-4 ring-primary z-30' : isMod ? 'z-20' : 'z-10',
-                (bad.has(z.id) || clash) && 'ring-4 ring-red-500')}
-              style={{
-                left: z.x * cw + 2, top: z.y * rh + 2, width: z.w * cw - 4, height: z.h * rh - 4,
-                background: isMod ? 'rgba(224, 242, 254, 0.88)' : TINTS[z.type],
-                border: isMod ? '2px dashed #0284c7' : '1px solid rgba(15, 23, 42, 0.15)',
-              }}>
-              <span className="absolute left-1 top-1 z-10 rounded bg-white/90 px-1.5 py-0.5 text-[10px] font-semibold text-slate-700 pointer-events-none">
-                {zoneLabel(z.type)}{isMod ? ' · ' + CHOICE_KINDS.find(k => k.key === z.kind)?.label + (z.cover === 'screen' ? ' · whole screen' : '') : ''}
-              </span>
-              <div className="absolute inset-0 p-1 pt-6 pointer-events-none">
-                <ZonePreview zone={z} scale={scale} ctx={ctx} hasBar={bar?.id === z.id} focus={isSel ? focus : null} />
+    <div ref={ref} className="w-full" data-testid="tl-canvas-wrap">
+      <div className="mx-auto rounded-xl border bg-white overflow-hidden select-none" data-testid="tl-canvas" data-top-bar={topBar ? '1' : '0'}
+        style={{ touchAction: 'none', width: width || undefined }} onPointerDown={() => onSelect(null)}>
+        {topBar && (
+          <div style={{ height: barH }} className="bg-slate-800 text-white/70 flex items-center px-2 overflow-hidden" data-testid="tl-top-bar"
+            aria-hidden="true"><span style={{ fontSize: Math.max(8, 14 * scale) }}>The till's top bar</span></div>
+        )}
+        <div className="relative" style={{ height }}>
+          {/* The cells. */}
+          <div className="absolute inset-0 grid" aria-hidden="true"
+            style={{ gridTemplateColumns: `repeat(${layout.cols}, 1fr)`, gridTemplateRows: `repeat(${layout.rows}, 1fr)` }}>
+            {Array.from({ length: layout.cols * layout.rows }).map((_, i) => <div key={i} className="border border-dashed border-slate-200" />)}
+          </div>
+          {width > 0 && drawn.map(z0 => {
+            const z = at(z0)
+            const isSel = z.id === selId
+            const isMod = z.type === 'modifiers'
+            // A Dish choices zone is an outline over the zones under it (they stay
+            // in sight and can be tapped); selected, or with a dish being added, it fills.
+            const outline = isMod && !isSel && !showChoices
+            const clash = ghost?.id === z.id && !isMod && solid.some(o => o.id !== z.id && overlaps(o, z))
+            return (
+              <div key={z.id} data-testid="tl-zone" data-zone-id={z.id} data-type={z.type} data-selected={isSel ? '1' : '0'} data-outline={outline ? '1' : undefined}
+                data-x={z.x} data-y={z.y} data-w={z.w} data-h={z.h}
+                onPointerDown={outline ? undefined : e => start(e, z0, 'move')} onPointerMove={move} onPointerUp={end} onPointerCancel={end}
+                className={cn('absolute rounded-md overflow-hidden', outline ? 'pointer-events-none' : canEdit ? 'cursor-move' : 'cursor-pointer',
+                  isSel ? 'ring-4 ring-primary z-30' : isMod ? 'z-20' : 'z-10',
+                  (bad.has(z.id) || clash) && 'ring-4 ring-red-500')}
+                style={{
+                  left: z.x * cw + 2, top: z.y * rh + 2, width: z.w * cw - 4, height: z.h * rh - 4,
+                  background: outline ? 'transparent' : isMod ? 'rgba(224, 242, 254, 0.94)' : TINTS[z.type],
+                  border: isMod ? '2px dashed #0284c7' : '1px solid rgba(15, 23, 42, 0.15)',
+                }}>
+                {isMod ? (
+                  // The name tab, top right (clear of the zone under it): tap or drag it.
+                  // A drag that starts on the tab keeps the tab's pointer (capture) as the zone fills.
+                  <span onPointerDown={outline ? e => start(e, z0, 'move') : undefined} onPointerMove={move} onPointerUp={end} onPointerCancel={end}
+                    data-testid="tl-zone-tab" className="absolute right-1 top-1 z-10 rounded px-1.5 py-0.5 text-[10px] font-semibold border border-sky-600 bg-sky-50 text-sky-800 pointer-events-auto cursor-pointer">
+                    {label(z)}
+                  </span>
+                ) : (
+                  <span className="absolute left-1 top-1 z-10 rounded bg-white/90 px-1.5 py-0.5 text-[10px] font-semibold text-slate-700 pointer-events-none">{label(z)}</span>
+                )}
+                {!outline && (
+                  <div className="absolute inset-0 p-1 pt-6 pointer-events-none">
+                    <ZonePreview zone={z} scale={scale} ctx={ctx} hasBar={bar?.id === z.id} focus={isSel ? focus : null} />
+                  </div>
+                )}
+                {isSel && canEdit && (
+                  <span onPointerDown={e => start(e, z0, 'size')} onPointerMove={move} onPointerUp={end} onPointerCancel={end}
+                    data-testid="tl-resize" aria-label={'Resize ' + zoneLabel(z.type)}
+                    className="absolute right-0 bottom-0 w-11 h-11 flex items-end justify-end cursor-nwse-resize touch-none">
+                    <span className="w-5 h-5 m-1 rounded-sm bg-primary border-2 border-white shadow" />
+                  </span>
+                )}
               </div>
-              {isSel && canEdit && (
-                <span onPointerDown={e => start(e, z0, 'size')} onPointerMove={move} onPointerUp={end} onPointerCancel={end}
-                  data-testid="tl-resize" aria-label={'Resize ' + zoneLabel(z.type)}
-                  className="absolute right-0 bottom-0 w-11 h-11 flex items-end justify-end cursor-nwse-resize touch-none">
-                  <span className="w-5 h-5 m-1 rounded-sm bg-primary border-2 border-white shadow" />
-                </span>
-              )}
-            </div>
-          )
-        })}
+            )
+          })}
+        </div>
       </div>
     </div>
   )
@@ -398,7 +443,7 @@ function Canvas({ layout, screen, selId, onSelect, showChoices, canEdit, onMove,
 // What a zone shows, drawn small: the same packing as the till.
 function ZonePreview({ zone, scale, ctx, hasBar, focus = null }) {
   const font = Math.max(7, (zone.font || FONT.default) * scale)
-  if (zone.type === 'check') return <CheckPreview scale={scale} />
+  if (zone.type === 'check') return <CheckPreview scale={scale} zone={zone} />
   if (zone.type === 'seats') {
     return (
       <div className="h-full flex items-center gap-1 overflow-hidden" style={{ fontSize: font }}>
@@ -413,7 +458,7 @@ function ZonePreview({ zone, scale, ctx, hasBar, focus = null }) {
   return (
     <div className="h-full flex flex-col min-h-0">
       {zone.type === 'items' && zone.search && <div className="shrink-0 rounded border bg-white px-1 mb-0.5 text-slate-400" style={{ fontSize: Math.max(7, 12 * scale) }}>Find a dish</div>}
-      {zone.type === 'modifiers' && hasBar && <div className="shrink-0 font-bold truncate" style={{ fontSize: Math.max(7, 16 * scale) }}>A dish's name</div>}
+      {zone.type === 'modifiers' && hasBar && zone.show_name !== false && <div className="shrink-0 font-bold truncate" style={{ fontSize: Math.max(7, 16 * scale) }}>A dish's name</div>}
       <div className="flex-1 min-h-0"><GridPreview zone={zone} cells={cells} font={font} focus={focus} /></div>
       {zone.type === 'modifiers' && hasBar && (
         <div className="shrink-0 flex gap-0.5 mt-0.5" style={{ fontSize: Math.max(7, 12 * scale) }}>
@@ -426,17 +471,29 @@ function ZonePreview({ zone, scale, ctx, hasBar, focus = null }) {
   )
 }
 
-function CheckPreview({ scale }) {
-  const f = Math.max(7, 13 * scale)
+function CheckPreview({ scale, zone }) {
+  const f = Math.max(7, (zone.font || 16) * 0.8 * scale)
+  const shown = ['more', 'send', 'bill', 'pay'].filter(k => !zone.hide?.includes(k))
+  const words = { more: 'More', send: 'Send', bill: 'Bill', pay: 'Pay' }
+  const colour = k => zone.colours?.[k] || (k === 'pay' ? '#16a34a' : k === 'send' ? '#334155' : null)
   return (
-    <div className="h-full flex flex-col bg-white rounded" style={{ fontSize: f }}>
-      <div className="border-b px-1 font-bold">Order #101</div>
+    <div className="h-full flex flex-col bg-white rounded" style={{ fontSize: f }} data-testid="tl-check-preview">
+      <div className="border-b px-1 font-bold flex items-center gap-1">
+        {!zone.hide?.includes('back') && <span>‹</span>}
+        <span className="flex-1">Order #101</span>
+        {!zone.hide?.includes('cancel') && <span className="font-semibold" style={{ color: zone.colours?.cancel || '#dc2626' }}>Cancel</span>}
+      </div>
       <div className="flex-1 px-1 space-y-0.5 overflow-hidden">
         {['Pad Thai', 'Spring rolls', 'Cola'].map(n => <div key={n} className="flex justify-between"><span>1 {n}</span><span>£6.50</span></div>)}
       </div>
-      <div className="grid grid-cols-4 gap-0.5 p-0.5">
-        {['More', 'Send', 'Bill', 'Pay'].map(b => <span key={b} className={cn('rounded border text-center', b === 'Pay' && 'bg-green-600 text-white')}>{b}</span>)}
-      </div>
+      {shown.length > 0 && (
+        <div className="grid gap-0.5 p-0.5" style={{ gridTemplateColumns: `repeat(${shown.length}, minmax(0, 1fr))` }}>
+          {shown.map(k => {
+            const c = colour(k)
+            return <span key={k} data-k={k} className="rounded border text-center" style={c ? { background: c, color: inkOn(c), borderColor: c } : undefined}>{words[k]}</span>
+          })}
+        </div>
+      )}
     </div>
   )
 }
@@ -580,8 +637,10 @@ function ZonePanel({ zone, ctx, canManage, onBack, onChange, onRemove, selB = nu
               <p className="text-xs text-muted-foreground -mt-2">
                 {zone.cover === 'screen' ? 'Over the whole screen while a dish is being added: every choice shows here.' : 'Over the zones under its own space while a dish is being added.'}
               </p>
+              <ChoiceZoneOptions zone={zone} layout={layout} onChange={onChange} />
             </>
           )}
+          {zone.type === 'check' && <CheckZoneOptions zone={zone} layout={layout} onChange={onChange} />}
           {zone.type === 'seats' && (
             <Stepper label="Text size" value={zone.font} min={FONT.min} max={FONT.max} onChange={v => onChange({ font: v })} testid="tl-font" />
           )}
@@ -593,6 +652,70 @@ function ZonePanel({ zone, ctx, canManage, onBack, onChange, onRemove, selB = nu
         </div>
       )}
     </Section>
+  )
+}
+
+/** A Dish choices zone: what it shows, and adding the dish on its last must-pick tap. */
+function ChoiceZoneOptions({ zone, layout, onChange }) {
+  // The dish's name, description and Add bar are on the zone with the must-pick choices.
+  const hasBar = choiceZones(layout).required?.id === zone.id
+  return (
+    <div className="space-y-1" data-testid="tl-choice-options">
+      <p className="text-xs font-medium text-muted-foreground">Shows</p>
+      {hasBar && <Toggle label="The dish's name" checked={zone.show_name !== false} onChange={v => onChange({ show_name: v })} />}
+      {hasBar && <Toggle label="The dish's description" checked={zone.show_description !== false} onChange={v => onChange({ show_description: v })} />}
+      <Toggle label="Prices on the choices" checked={zone.show_prices !== false} onChange={v => onChange({ show_prices: v })} />
+      <p className="text-xs text-muted-foreground">{hasBar ? 'The Add button still shows the total.' : 'The dish\'s name and the Add button are on the Must pick zone.'}</p>
+      {hasBar && (
+        <>
+          <Toggle label="Add the dish on its last must-pick tap" checked={!!zone.auto_add} onChange={v => onChange({ auto_add: v })} />
+          <p className="text-xs text-muted-foreground" data-testid="tl-auto-add-hint">
+            When a must-pick choice takes one pick (a size, a sauce) and nothing else is left to pick, tapping it puts the dish on the order: no Add tap. Optional choices tapped before it go on with it.
+          </p>
+        </>
+      )}
+    </div>
+  )
+}
+
+/** The Order zone: its text size, which of its own buttons show, their colours. */
+function CheckZoneOptions({ zone, layout, onChange }) {
+  const shown = CHECK_BUTTONS.filter(b => !zone.hide.includes(b.key))
+  const colourable = shown.filter(b => b.colour)
+  const [colourFor, setColourFor] = useState('pay')
+  const target = colourable.find(b => b.key === colourFor) || colourable[0] || null
+  const left = layoutWarnings(layout).filter(w => w.code === 'hidden_button')
+  const toggle = key => onChange({ hide: zone.hide.includes(key) ? zone.hide.filter(k => k !== key) : [...zone.hide, key] })
+  return (
+    <div className="space-y-4" data-testid="tl-check-options">
+      <Stepper label="Text size of the order" value={zone.font} min={FONT.min} max={FONT.max} onChange={v => onChange({ font: v })} testid="tl-check-font" />
+      <Field group label="Its own buttons">
+        <div className="grid grid-cols-3 gap-2" data-testid="tl-check-buttons">
+          {CHECK_BUTTONS.map(b => {
+            const on = !zone.hide.includes(b.key)
+            return (
+              <button key={b.key} type="button" aria-pressed={on} data-k={b.key} onClick={() => toggle(b.key)}
+                className={cn('min-h-[44px] px-2 rounded-lg border text-sm touch-manipulation', on ? 'bg-primary text-primary-foreground border-primary' : 'bg-background hover:bg-muted text-muted-foreground line-through')}>
+                {b.label}
+              </button>
+            )
+          })}
+        </div>
+      </Field>
+      <p className="text-xs text-muted-foreground -mt-2">Tap one to leave it out: a Buttons zone can do its job instead (Back, Cancel order, More, Send, Print bill and Pay are all button actions).</p>
+      {left.map(w => (
+        <p key={w.button} className="text-xs rounded-lg border border-amber-200 bg-amber-50 text-amber-900 px-3 py-2" data-testid="tl-check-left-out" data-k={w.button}>{w.message}</p>
+      ))}
+      {target && (
+        <div className="space-y-2" data-testid="tl-check-colours">
+          <Field group label="Colours">
+            <Segmented value={target.key} options={colourable.map(b => ({ value: b.key, label: b.label }))} onChange={setColourFor} />
+          </Field>
+          <ColourPick value={zone.colours?.[target.key] || null} onChange={v => onChange({ colours: { ...zone.colours, [target.key]: v } })} />
+          <p className="text-xs text-muted-foreground">None: the button's usual look.</p>
+        </div>
+      )}
+    </div>
   )
 }
 

@@ -10,8 +10,14 @@
 //
 // The picking rules are the choices window's (ItemModal.jsx toggleChoice(),
 // tapStep(), ...), and the price comes from priceItem() as there.
+//
+// A zone can leave out the dish's name, its description and the prices
+// (show_name, show_description, show_prices). With auto_add on the zone
+// holding the must-pick choices, a tap on a must-pick choice that takes one
+// pick adds the dish at once when nothing else is left to pick (no Add tap):
+// optional choices tapped before it go on with it.
 
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { Minus, Plus, AlertTriangle, X, PenLine } from 'lucide-react'
 import { priceItem, lineGross, PREFIXES, groupChoice } from '@shared/pos/pricing.js'
 import { resolveSteps, stepRule, askedChoices } from '@shared/combos.js'
@@ -24,11 +30,23 @@ import { toggleChoice, oneLess, choiceHint, tapStep, stepLess, fixedText } from 
 /**
  * The dish being added: its picks, quantity and price, and every cell its
  * choices need ({ kind: head | option | open | note, need, ... }).
+ * opts.onAutoAdd(result): set when the layout adds the dish on the tap that
+ * completes it (a must-pick choice taking one pick, nothing left to pick).
  */
-export function useChoiceBuilder(item, config, initial = null) {
+export function useChoiceBuilder(item, config, initial = null, { onAutoAdd = null } = {}) {
   const it = useMemo(() => tillItem(config, item.id), [config, item.id])
   const ctx = useMemo(() => comboCtx(config), [config])
   const [sel, setSel] = useState(() => ({ choices: {}, combo: {}, ...(initial?.selection || {}) }))
+  // Picks are worked out from the latest selection (two taps between renders
+  // don't lose one), and the tap that completes the dish can add it at once.
+  const latest = useRef(sel)
+  latest.current = sel
+  const commit = fn => {
+    const next = fn(latest.current)
+    latest.current = next
+    setSel(next)
+    return next
+  }
   const [qty, setQty] = useState(initial?.qty || 1)
   const [opened, setOpened] = useState({})
   const [modes, setModes] = useState({})
@@ -37,6 +55,18 @@ export function useChoiceBuilder(item, config, initial = null) {
   const steps = isCombo ? resolveSteps(it, sel.combo || {}, ctx) : null
   const groupsById = config.groups || {}
   const open = key => setOpened(o => ({ ...o, [key]: true }))
+  // What Add puts on the check (as the choices window does).
+  const resultOf = (s, st) => ({
+    selection: { ...s, combo: isCombo ? (st ? st.picks : s.combo) : undefined },
+    qty, seat: undefined, course: undefined, note: '', allergies: [], unit_price: null,
+  })
+  // A tap on a must-pick choice that takes one pick (rule: the group or
+  // step), with the selection it made: added at once when it completes the dish.
+  const quick = (next, rule) => {
+    if (!onAutoAdd || !((rule?.min || 0) >= 1 && rule?.max === 1)) return
+    if (!priceItem(it, next, ctx).ok) return
+    onAutoAdd(resultOf(next, isCombo ? resolveSteps(it, next.combo || {}, ctx) : null))
+  }
 
   const cells = []
   // One option group (and the groups its picked options open).
@@ -63,7 +93,7 @@ export function useChoiceBuilder(item, config, initial = null) {
         label: (choice.repeat && n > 1 ? n + ' x ' : '') + (pre ? pre.label + ' ' : '') + o.label,
         price: o.price_pence ? (choice.mode === 'extra' ? '+' : '') + money(o.price_pence) : '',
         on: e ? (e.prefix === 'no' ? 'no' : 'on') : null,
-        onTap: () => { const next = toggleChoice(choice, value, o, mode); if (next !== value) set(next) },
+        onTap: () => { const next = toggleChoice(choice, value, o, mode); if (next !== value) quick(set(next), choice) },
         onLess: choice.repeat && n > 0 ? () => set(oneLess(value, o.id)) : null,
       })
     }
@@ -81,7 +111,7 @@ export function useChoiceBuilder(item, config, initial = null) {
   }
 
   if (isCombo && steps) {
-    const setStep = (id, list) => setSel(s => ({ ...s, combo: { ...(s.combo || {}), [id]: list } }))
+    const setStep = (id, list) => commit(s => ({ ...s, combo: { ...(s.combo || {}), [id]: list } }))
     for (const { step, choices, auto } of steps.steps.filter(s => s.shown)) {
       const got = steps.picks[step.id] || []
       const need = (step.min || 0) >= 1
@@ -94,7 +124,8 @@ export function useChoiceBuilder(item, config, initial = null) {
       const autoCharge = auto ? choices.reduce((n, c) => n + count(c) * (c.price_pence || 0), 0) : 0
       cells.push({
         kind: 'head', key: path + ':head', need, title: step.name,
-        rule: auto ? 'Included' + (autoCharge ? ' · +' + money(autoCharge) : '') : stepRule(step) + (step.repeat ? ' · tap again for more' : ''),
+        rule: auto ? 'Included' : stepRule(step) + (step.repeat ? ' · tap again for more' : ''),
+        charge: auto && autoCharge ? '+' + money(autoCharge) : '',
         bad: got.length < step.min,
       })
       if (!auto) {
@@ -105,7 +136,7 @@ export function useChoiceBuilder(item, config, initial = null) {
             label: (step.repeat && n > 1 ? n + ' x ' : '') + c.label,
             price: c.sold_out ? 'Sold out' : c.price_pence ? '+' + money(c.price_pence) : '',
             on: n > 0 ? 'on' : null, disabled: !!c.sold_out,
-            onTap: () => { const next = tapStep(step, got, c); if (next !== got) setStep(step.id, next) },
+            onTap: () => { const next = tapStep(step, got, c); if (next !== got) quick(setStep(step.id, next), step) },
             onLess: step.repeat && n > 0 ? () => setStep(step.id, stepLess(got, c)) : null,
           })
         }
@@ -132,25 +163,22 @@ export function useChoiceBuilder(item, config, initial = null) {
     group({
       choice: c, title: c.name, path: 'g:' + c.key,
       value: (sel.choices || {})[c.key] || [],
-      set: v => setSel(s => ({ ...s, choices: { ...(s.choices || {}), [c.key]: v } })),
+      set: v => commit(s => ({ ...s, choices: { ...(s.choices || {}), [c.key]: v } })),
     })
   }
 
-  // What Add puts on the check (as the choices window does).
-  const result = () => ({
-    selection: { ...sel, combo: isCombo ? (priced.ok && steps ? steps.picks : sel.combo) : undefined },
-    qty, seat: undefined, course: undefined, note: '', allergies: [], unit_price: null,
-  })
+  const result = () => resultOf(sel, priced.ok ? steps : null)
   return { it, sel, qty, setQty, priced, cells, result }
 }
 
 function Cell({ c, zone }) {
+  const prices = zone.show_prices !== false
   if (c.kind === 'head') {
     return (
       <div className="h-full flex items-center gap-2 px-1 min-w-0" data-testid="choice-head" data-need={c.need ? '1' : '0'}>
         <div className="min-w-0 flex flex-col leading-tight">
           <span className="truncate">{c.title}</span>
-          <span className={cx('text-xs font-semibold truncate', c.bad ? 'text-bad' : 'text-muted')} style={{ fontSize: Math.max(12, Math.round(zone.font * 0.72)) }}>{c.rule}</span>
+          <span className={cx('text-xs font-semibold truncate', c.bad ? 'text-bad' : 'text-muted')} style={{ fontSize: Math.max(12, Math.round(zone.font * 0.72)) }}>{c.rule}{prices && c.charge ? ' · ' + c.charge : ''}</span>
         </div>
         {c.prefixes && (
           <div className="ml-auto flex gap-1 shrink-0">
@@ -176,7 +204,7 @@ function Cell({ c, zone }) {
           c.on === 'on' ? 'bg-brand text-white border-brand' : c.on === 'no' ? 'bg-bad-soft border-bad text-bad' : 'bg-white border-line',
           c.disabled && 'line-through text-muted')}>
         <span className="line-clamp-3">{c.label}</span>
-        {c.price ? <span className="text-sm opacity-90 font-semibold">{c.price}</span> : null}
+        {c.price && (prices || c.disabled) ? <span className="text-sm opacity-90 font-semibold" data-testid="choice-price">{c.price}</span> : null}
       </button>
       {c.onLess && (
         <button onClick={c.onLess} aria-label={'One less ' + c.label}
@@ -203,10 +231,10 @@ export function ChoiceZone({ zone, build, cells, bar, buildKey, onAdd, onCancel,
   }))
   return (
     <div className="h-full flex flex-col min-h-0" data-testid="choice-zone" data-kind={zone.kind}>
-      {bar && (
+      {bar && (zone.show_name !== false || (zone.show_description !== false && it.description)) && (
         <div className="shrink-0 px-3 pt-2 pb-1 flex items-baseline gap-2 min-w-0">
-          <div className="font-bold text-lg truncate" data-testid="choice-dish">{it.name}</div>
-          {it.description && <div className="text-sm text-muted truncate">{it.description}</div>}
+          {zone.show_name !== false && <div className="font-bold text-lg truncate" data-testid="choice-dish">{it.name}</div>}
+          {zone.show_description !== false && it.description && <div className="text-sm text-muted truncate" data-testid="choice-description">{it.description}</div>}
         </div>
       )}
       <div className="flex-1 min-h-0 p-2">

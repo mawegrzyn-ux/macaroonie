@@ -19,7 +19,7 @@ import { useMemo, useState } from 'react'
 import { Search, X } from 'lucide-react'
 import { choiceZones, overlaps, buttonLabel, actionOf } from '@shared/pos/tillLayout.js'
 import { discountList } from '@shared/pos/discounts.js'
-import { cx } from './ui.jsx'
+import { cx, inkOn } from './ui.jsx'
 import ZoneGrid from './ZoneGrid.jsx'
 import { DishButton, SeatCourseBar, SECTION_COLOURS, dishPriceText, useHold } from './MenuPanel.jsx'
 import { useChoiceBuilder, ChoiceZone } from './LayoutChoices.jsx'
@@ -33,13 +33,6 @@ function useRemembered(key, initial) {
 }
 
 const area = z => ({ gridColumn: `${z.x + 1} / span ${z.w}`, gridRow: `${z.y + 1} / span ${z.h}` })
-
-// Black or white words on a button colour.
-function inkOn(hex) {
-  const n = parseInt(String(hex).slice(1), 16)
-  const lum = (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255
-  return lum > 0.6 ? '#111827' : '#ffffff'
-}
 
 /** A category (or menu) button: filled in its colour when it is the one open. */
 function SectionButton({ label, colour, on, onTap, menu = false, testid }) {
@@ -253,8 +246,9 @@ export default function LayoutScreen({
 
 /** The Dish choices zones while a dish is being added. */
 function Choosing({ config, choosing, zones, mods, onChosen, onCancel, onMore }) {
-  const build = useChoiceBuilder(choosing.item, config, choosing.initial || null)
   const bar = zones.required
+  // Add on the tap that completes the dish (the must-pick zone's auto_add).
+  const build = useChoiceBuilder(choosing.item, config, choosing.initial || null, { onAutoAdd: bar?.auto_add ? onChosen : null })
   // One zone for everything when there is one, or when the must-pick zone covers the screen.
   const together = !zones.optional || zones.optional === bar || bar.cover === 'screen'
   const need = build.cells.filter(c => c.need)

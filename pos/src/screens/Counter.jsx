@@ -10,10 +10,11 @@
 // the Dish choices zones when the layout has them.
 
 import { useMemo, useState } from 'react'
-import { ShoppingBag, Plus, Pencil, X } from 'lucide-react'
+import { ShoppingBag, Plus, Pencil, X, Menu as MenuIcon } from 'lucide-react'
 import { checkLabel } from '@shared/pos/checks.js'
 import { choiceZones } from '@shared/pos/tillLayout.js'
-import { useTill, useChecks, toast, currentChecks, printBill } from '../lib/store.js'
+import { useTill, useChecks, toast, currentChecks, printBill, signOut } from '../lib/store.js'
+import { useTillNav } from '../components/TillMenu.jsx'
 import { tillLayoutOf, lastReceiptCheck } from '../lib/tillLayout.js'
 import LayoutScreen from '../components/LayoutScreen.jsx'
 import { cx } from '../components/ui.jsx'
@@ -44,6 +45,7 @@ export default function Counter() {
   const [noSale, setNoSale] = useState(false)
   const layout = useMemo(() => tillLayoutOf(config), [config])
   const zones = layout ? choiceZones(layout) : null
+  const nav = useTillNav()
 
   if (current && checks[current]?.status === 'open') {
     return <CheckScreen checkId={current} counter onBack={() => setCurrent(null)} onOpen={setCurrent} />
@@ -98,6 +100,8 @@ export default function Counter() {
       return toast('Receipt printed: ' + checkLabel(last), 'ok')
     }
     if (b.action === 'no_sale') return setNoSale(true)
+    if (b.action === 'till_menu') return nav.openMenu()
+    if (b.action === 'sign_out') return signOut()
     return toast('Start an order first', 'info')
   }
   const shown = answers && [typeOf(config, typeId)?.name, answers.name, answers.tent && 'Tent ' + answers.tent].filter(Boolean)
@@ -105,7 +109,13 @@ export default function Counter() {
   const panel = cls => (
       <aside className={cx(cls, 'bg-white flex flex-col')} data-testid="counter-panel">
         <div className="p-3 border-b border-line space-y-2">
-          <div className="flex items-center gap-2 font-bold"><ShoppingBag size={20} className="text-brand" /> New order</div>
+          <div className="flex items-center gap-2 font-bold">
+            <ShoppingBag size={20} className="text-brand" /> New order
+            {/* No top bar (a till layout): the till menu from here. */}
+            {nav.hideBar && (
+              <button className="btn ml-auto h-11 px-3 text-sm font-semibold" onClick={nav.openMenu} data-testid="counter-till-menu"><MenuIcon size={18} /> Till menu</button>
+            )}
+          </div>
           {answers ? (
             <div className="rounded-xl border border-brand bg-brand-soft p-3" data-testid="counter-answers">
               <div className="font-bold text-lg leading-tight">{shown[0]}</div>

@@ -5,6 +5,19 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-31 — Till layouts: no top bar, the Order zone's own buttons, choices that add in one tap, a steady designer]
+
+No migration (new settings inside the stored layouts; layouts saved before keep today's look).
+
+- **A layout can leave out the till's top bar** (Store tech → Till layouts → a layout → The till's top bar on the order screen). The order screen (a check, and the counter) then takes the whole screen, and the till menu moves into **More**: the till's pages (Floor, Counter, Closed, Reports, Till), Sign out, and the location, the till, who is signed in, the time and the connection. A counter till also gets a **Till menu** button on its New order panel. The till's other pages keep the bar.
+- **Two new buttons for Buttons zones**: **Till menu** (opens the till menu) and **Sign out**. Both work with or without an order.
+- **The Order zone's own buttons**: tap Back, Cancel order, More, Send, Bill or Pay to leave it out when a Buttons zone does its job instead; the buttons left share the bar under the order. One left out with no button doing its job is listed in amber (for example Cancel order, still in More). Each of Cancel order, More, Send, Bill and Pay can have its own colour (black or white words to suit), and the order's items and totals have their own **text size**.
+- **Dish choices zones**: switch the dish's name, its description and the prices on the choices on or off, separately (the Add button keeps the total; a sold-out choice still says so). **Add the dish on its last must-pick tap**: when a must-pick choice takes one pick (a size, a sauce) and nothing else is left to pick, tapping it puts the dish on the order straight away, with any extras tapped before it.
+- **The designer no longer shakes**: with some zones selected the page could flick back and forth as a scrollbar came and went (the canvas narrowed, the page got shorter, the scrollbar went, the canvas widened...). The canvas now keeps the scrollbar's room and fits the window's height too, so an upright tablet preview isn't taller than the window.
+- **Dish choices zones are always on the canvas** as dashed outlines over the zones under them (taps go through to those zones); the name tab on an outline selects it or drags it, and selected it fills. **Show a dish being added** fills them all, as on the till while a dish is being added. Before, they were hidden until a button showed them, so they looked lost.
+
+---
+
 ## [2026-10-31 — Till layouts: arrange the till's order screen yourself]
 
 Migration: `228_till_layouts.sql` (new `pos_till_layouts`, company wide; `pos_settings.till_layout_id`, the layout a location's tills use; a till's own choice is in its settings; a Till layouts link is added to every Store tech menu after Tills).
