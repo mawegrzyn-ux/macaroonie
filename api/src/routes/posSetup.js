@@ -165,6 +165,8 @@ const SettingsBody = z.object({
   // Migration 226: how the till asks for a new order's order type, name and
   // tent number: one screen, or two steps (the order type first).
   order_prompt:              z.enum(['one', 'two']).optional(),
+  // Migration 228: the till layout this venue's tills use (null = the standard screen).
+  till_layout_id:            UUID.nullable().optional(),
   approvals:                 z.object(Object.fromEntries(MANAGER_ACTION_KEYS.map(k => [k, z.boolean().optional()]))).strict().optional(),
 })
 
@@ -250,6 +252,9 @@ const DeviceSettings = z.object({
   // A till's own order prompt (migration 226): 'venue' (or absent) = the
   // venue's Receipts and payments setting.
   order_prompt:       z.enum(['venue', 'one', 'two']).optional(),
+  // A till's own screen layout (migration 228): 'venue' (or absent) = the
+  // venue's, 'standard' = the standard screen, or a pos_till_layouts id.
+  till_layout:        z.union([z.enum(['venue', 'standard']), UUID]).optional(),
   // A till's or kiosk's own counter order numbers (migration 217,
   // shared/pos/numbers.js): no two at a location may overlap.
   order_numbers:      z.object({
@@ -773,7 +778,7 @@ export default async function posSetupRoutes(app) {
       // groups with their own kiosk look (migration 206), for the kiosk
       // design editor's groups shown their own way.
       const menuIds = menus.map(m => m.id)
-      const [sections, items, optionGroups] = await Promise.all([
+      const [sections, items, optionGroups, tillLayouts] = await Promise.all([
         tx`SELECT id, menu_id, title FROM menu_sections
             WHERE tenant_id = ${tenantId} AND menu_id = ANY(${menuIds}::uuid[]) ORDER BY sort_order, title`,
         tx`SELECT i.id, i.section_id, i.name FROM menu_items i
@@ -781,6 +786,8 @@ export default async function posSetupRoutes(app) {
             WHERE i.tenant_id = ${tenantId} AND s.menu_id = ANY(${menuIds}::uuid[]) ORDER BY i.sort_order, i.name`,
         tx`SELECT id, name, display_name, kiosk_display, kiosk_tiles, kiosk_pictures, kiosk_entrance
              FROM menu_variant_groups WHERE tenant_id = ${tenantId} ORDER BY sort_order, name`,
+        // Till layouts (migration 228), for the venue's and each till's choice.
+        tx`SELECT id, name FROM pos_till_layouts WHERE tenant_id = ${tenantId} ORDER BY lower(name), created_at`,
       ])
       return {
         venue: { id: venue.id, name: venue.name },
@@ -796,6 +803,7 @@ export default async function posSetupRoutes(app) {
         kds_stations: kdsStations.map(s => ({ ...s, settings: stationSettings(s) })),
         ...kdsFlows,
         kiosk_designs: kioskDesigns.map(d => ({ id: d.id, name: d.name, settings: normaliseDesign(d.settings), updated_at: d.updated_at, shared: d.shared })),
+        till_layouts: tillLayouts,
         recon_fields: await reconFields(tx, tenantId, venueId),
         gloriafood,
         till_url: deviceOrigin('terminal'),
@@ -824,6 +832,10 @@ export default async function posSetupRoutes(app) {
         set.kds_gloriafood_types = tx.json(body.kds_gloriafood_types)
       }
       if (body.kds_colours) set.kds_colours = tx.json(normaliseKitchenColours(body.kds_colours))
+      if (body.till_layout_id) {
+        const [l] = await tx`SELECT id FROM pos_till_layouts WHERE id = ${body.till_layout_id} AND tenant_id = ${req.tenantId}`
+        if (!l) throw httpError(422, 'Till layout not found')
+      }
       if (body.approvals) set.approvals = tx.json(normaliseApprovals(body.approvals))
       delete set.pull
       if (body.pull) Object.assign(set, pullColumns(body.pull))
@@ -1067,6 +1079,10 @@ export default async function posSetupRoutes(app) {
       if (found.length !== ids.length) throw httpError(422, 'Kitchen station not found (order ready boards, Splitters and Sleepers aren\'t shown on a kitchen screen)')
     }
     if (s.design_id) await checkDesign(tx, tenantId, s.design_id)
+    if (s.till_layout && !['venue', 'standard'].includes(s.till_layout)) {
+      const [l] = await tx`SELECT id FROM pos_till_layouts WHERE id = ${s.till_layout} AND tenant_id = ${tenantId}`
+      if (!l) throw httpError(422, 'Till layout not found')
+    }
     if (s.card_reader && s.card_reader !== 'none') {
       const [r] = await tx`SELECT id FROM pos_card_readers WHERE id = ${s.card_reader} AND tenant_id = ${tenantId} AND venue_id = ${venueId} AND removed_at IS NULL`
       if (!r) throw httpError(422, 'Card machine not found at this venue')
@@ -1104,6 +1120,7 @@ export default async function posSetupRoutes(app) {
       s.station_ids = s.station_ids.filter(id => ok.has(id))
     }
     if (s.design_id && !await has(tx`SELECT 1 FROM kiosk_designs WHERE id = ${s.design_id} AND tenant_id = ${tenantId}`)) s.design_id = null
+    if (s.till_layout && !['venue', 'standard'].includes(s.till_layout) && !await has(tx`SELECT 1 FROM pos_till_layouts WHERE id = ${s.till_layout} AND tenant_id = ${tenantId}`)) s.till_layout = 'venue'
     if (s.card_reader && s.card_reader !== 'none' && !await has(tx`SELECT 1 FROM pos_card_readers WHERE id = ${s.card_reader} AND tenant_id = ${tenantId} AND venue_id = ${venueId} AND removed_at IS NULL`)) s.card_reader = 'none'
     return s
   }

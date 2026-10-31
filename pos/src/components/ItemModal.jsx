@@ -17,6 +17,57 @@ import { can } from '../lib/store.js'
 const entriesOf = (sel, key) => ((sel || {})[key] || [])
 
 /**
+ * A tap on an option of a group: the group's picks after it (the same array
+ * when nothing changes). A repeat group adds a pick on every tap; mode is
+ * the prefix for the tap (No, Light, Extra, On the side) or null. Shared
+ * with the till layouts' Dish choices zones (LayoutChoices.jsx).
+ */
+export function toggleChoice(choice, picked, o, mode = null) {
+  const counted = picked.filter(e => e.prefix !== 'no').length
+  if (choice.repeat && !mode) {
+    if (counted >= choice.max) return picked
+    return [...picked, { id: o.id, prefix: null }]
+  }
+  const has = picked.find(e => e.id === o.id)
+  if (has && (has.prefix || null) === (mode || null)) return picked.filter(e => e.id !== o.id)
+  if (has) return picked.map(e => (e.id === o.id ? { ...e, prefix: mode } : e))
+  if (choice.max === 1 && !mode) return [{ id: o.id, prefix: null }]
+  if (mode !== 'no' && counted >= choice.max) {
+    if (choice.max === 1) return [...picked.filter(e => e.prefix === 'no'), { id: o.id, prefix: mode }]
+    return picked
+  }
+  return [...picked, { id: o.id, prefix: mode }]
+}
+
+/** One pick of an option fewer (the last one taken). */
+export function oneLess(picked, id) {
+  const i = picked.map(e => e.id).lastIndexOf(id)
+  return i >= 0 ? picked.filter((_, j) => j !== i) : picked
+}
+
+/** "Choose 1", "Choose 1 to 3", "Up to 2". */
+export const choiceHint = choice => (choice.min && choice.max === choice.min ? 'Choose ' + choice.min
+  : choice.min ? 'Choose ' + choice.min + ' to ' + choice.max : 'Up to ' + choice.max)
+
+/** A tap on a combo step's choice: the step's picks after it. */
+export function tapStep(step, got, c) {
+  const same = e => e.option_id === c.option_id && (e.item_id || null) === c.item_id
+  const n = got.filter(same).length
+  const entry = { option_id: c.option_id, item_id: c.item_id, choices: {} }
+  if (step.repeat) return got.length >= step.max ? got : [...got, entry]
+  if (n) return got.filter(e => !same(e))
+  if (step.max === 1) return [entry]
+  if (got.length >= step.max) return got
+  return [...got, entry]
+}
+
+/** One pick of a combo step's choice fewer. */
+export function stepLess(got, c) {
+  const i = got.map(e => e.option_id + ':' + (e.item_id || '')).lastIndexOf(c.option_id + ':' + (c.item_id || ''))
+  return i >= 0 ? got.filter((_, j) => j !== i) : got
+}
+
+/**
  * One option group. A repeat group adds a pick on every tap (with a minus to
  * take one off); an optional group with on_request waits behind a button.
  */
@@ -27,26 +78,14 @@ export function ChoiceGroup({ choice, value, onChange, groupsById, depth = 0 }) 
   const counted = picked.filter(e => e.prefix !== 'no').length
   const countOf = id => picked.filter(e => e.id === id).length
   const toggle = o => {
-    if (choice.repeat && !mode) {
-      if (counted >= choice.max) return
-      return onChange([...picked, { id: o.id, prefix: null }])
-    }
-    const has = picked.find(e => e.id === o.id)
-    if (has && (has.prefix || null) === (mode || null)) return onChange(picked.filter(e => e.id !== o.id))
-    if (has) return onChange(picked.map(e => (e.id === o.id ? { ...e, prefix: mode } : e)))
-    if (choice.max === 1 && !mode) return onChange([{ id: o.id, prefix: null }])
-    if (mode !== 'no' && counted >= choice.max) {
-      if (choice.max === 1) return onChange([...picked.filter(e => e.prefix === 'no'), { id: o.id, prefix: mode }])
-      return
-    }
-    onChange([...picked, { id: o.id, prefix: mode }])
+    const next = toggleChoice(choice, picked, o, mode)
+    if (next !== picked) onChange(next)
   }
   const takeOne = o => {
-    const i = picked.map(e => e.id).lastIndexOf(o.id)
-    if (i >= 0) onChange(picked.filter((_, j) => j !== i))
+    const next = oneLess(picked, o.id)
+    if (next !== picked) onChange(next)
   }
-  const hint = choice.min && choice.max === choice.min ? 'Choose ' + choice.min
-    : choice.min ? 'Choose ' + choice.min + ' to ' + choice.max : 'Up to ' + choice.max
+  const hint = choiceHint(choice)
   if (!open) {
     return (
       <button className={cx('btn justify-start gap-2 w-full', depth && 'ml-4')} onClick={() => setOpen(true)} data-testid="group-button">
@@ -113,7 +152,7 @@ function Choices({ item, value, onChange, groupsById }) {
 }
 
 /** "Lemon pepper": what the deal picks itself in a dish (its groups left one option), or ''. */
-function fixedText(part) {
+export function fixedText(part) {
   return (part?.pos_choices || []).filter(c => c.fixed)
     .map(c => c.fixed.map(id => c.options.find(o => o.id === id)?.label).filter(Boolean).join(', ')).filter(Boolean).join(', ')
 }
@@ -128,20 +167,12 @@ function ComboSteps({ item, config, picks, onChange, ctx, stepRefs }) {
     const got = resolved[step.id] || []
     const count = (c) => got.filter(e => e.option_id === c.option_id && (e.item_id || null) === c.item_id).length
     const tap = c => {
-      const entry = { option_id: c.option_id, item_id: c.item_id, choices: {} }
-      const n = count(c)
-      if (step.repeat) {
-        if (got.length >= step.max) return
-        return set(step.id, [...got, entry])
-      }
-      if (n) return set(step.id, got.filter(e => !(e.option_id === c.option_id && (e.item_id || null) === c.item_id)))
-      if (step.max === 1) return set(step.id, [entry])
-      if (got.length >= step.max) return
-      set(step.id, [...got, entry])
+      const next = tapStep(step, got, c)
+      if (next !== got) set(step.id, next)
     }
     const takeOne = c => {
-      const i = got.map(e => e.option_id + ':' + (e.item_id || '')).lastIndexOf(c.option_id + ':' + (c.item_id || ''))
-      if (i >= 0) set(step.id, got.filter((_, j) => j !== i))
+      const next = stepLess(got, c)
+      if (next !== got) set(step.id, next)
     }
     const done = got.length >= step.min
     const hidden = step.ask === 'button' && !got.length && !opened[step.id]

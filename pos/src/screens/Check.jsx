@@ -1,12 +1,19 @@
 // The order screen for one check: the check on the left, the menu on the
 // right. Send goes to the kitchen (holding later courses), Bill prints the
-// bill, Pay takes payment and closes the check.
+// bill, Pay takes payment and closes the check. A till with a layout (Store
+// tech > Till layouts) draws its zones instead (components/LayoutScreen.jsx):
+// the check in the Order zone, the designer's buttons doing what they say
+// (runButton), a dish's choices in the Dish choices zones when there are any.
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ArrowLeft, Send, Printer, CreditCard, MoreHorizontal, Flame, Users, Eye, Flag, Star, Ban } from 'lucide-react'
 import { checkLabel, heldCourses } from '@shared/pos/checks.js'
 import { checkTotals } from '@shared/pos/pricing.js'
-import { useTill, useChecks, dispatch, toast, setPresence, othersOn, serverName } from '../lib/store.js'
+import { useTill, useChecks, dispatch, toast, setPresence, othersOn, serverName, printBill } from '../lib/store.js'
+import { choiceZones } from '@shared/pos/tillLayout.js'
+import { discountList, fitsScope } from '@shared/pos/discounts.js'
+import { tillLayoutOf, lastReceiptCheck } from '../lib/tillLayout.js'
+import LayoutScreen from '../components/LayoutScreen.jsx'
 import { addItem, needsChoices, streamOf, typeOf, missingDetails, refreshPromotions, sendCheck, comboStartFrom, copyOfLine } from '../lib/checkOps.js'
 import { cx, money, elapsed, useApproval } from '../components/ui.jsx'
 import CheckPanel from '../components/CheckPanel.jsx'
@@ -18,7 +25,7 @@ import LoyaltyModal from '../components/LoyaltyModal.jsx'
 import {
   ActionsMenu, SendModal, needsSendChoice, FireModal, DiscountModal, ChargesModal, OffersModal, MoveModal,
   MergeModal, TableModal, NameModal, ServerModal, StreamModal, OrderTypeModal, GuestsModal, OpenItemModal, NoSale, SoldOutModal,
-  CancelOrderModal,
+  CancelOrderModal, applyDiscountPreset,
 } from '../components/CheckActions.jsx'
 
 export default function CheckScreen({ checkId, onBack, onOpen, counter = false }) {
@@ -29,9 +36,14 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
   const [seat, setSeat] = useState(null)
   const [course, setCourse] = useState(null)
   const [modal, setModal] = useState(null)   // { kind, ... }
+  // A till layout's Dish choices zones: the dish being added ({ item, initial, key }).
+  const [choosing, setChoosing] = useState(null)
+  const layout = useMemo(() => tillLayoutOf(config), [config])
+  const zones = layout ? choiceZones(layout) : null
 
   useEffect(() => {
     setPresence(checkId)
+    setChoosing(null)
     return () => setPresence(null)
   }, [checkId])
 
@@ -77,13 +89,18 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
   const close = () => setModal(null)
 
   const pick = item => {
-    if (needsChoices(config, item)) return setModal({ kind: 'item', item })
+    if (needsChoices(config, item)) {
+      // A layout with Dish choices zones asks there; else the choices window.
+      if (zones?.required) return setChoosing({ item, key: Date.now() + ':' + item.id })
+      return setModal({ kind: 'item', item })
+    }
     const r = addItem(check, item, {}, { seat, course })
     if (!r.ok) toast(r.error, 'bad')
   }
   const added = (item, o, replace = null) => {
     const r = addItem(check, item, o.selection, { qty: o.qty, seat: o.seat, course: o.course, note: o.note, allergies: o.allergies, unit_price: o.unit_price })
     if (!r.ok) return toast(r.error, 'bad')
+    setChoosing(null)
     // Make it a combo: the dish it started from comes off (it hasn't been
     // sent), swapped for the combo line, so no manager is needed for it.
     if (replace) {
@@ -131,10 +148,12 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
     if (!r.ok) return toast(r.error, 'bad')
     toast('Bill printed', 'ok')
   }
-  const pay = () => {
+  // opts: { autoExact: 'cash' | 'card' } pays the amount left in one tap;
+  // { tender } opens Pay with that tender picked (a layout's buttons).
+  const pay = (opts = {}) => {
     if (needDetails()) return
     refreshPromotions(check.id)
-    setModal({ kind: 'pay' })
+    setModal({ kind: 'pay', ...opts })
   }
   const action = key => {
     if (key === 'bill') { close(); return bill() }
@@ -181,24 +200,85 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
         ? <button className="btn h-16 flex-col gap-0 bg-held text-white border-held" onClick={() => setModal({ kind: 'fire' })}><Flame size={20} /><span className="text-xs">Fire</span></button>
         : <button className="btn btn-primary h-16 flex-col gap-0" disabled={!unsent} onClick={send}><Send size={20} /><span className="text-xs">Send{unsent ? ' ' + unsent : ''}</span></button>}
       <button className="btn h-16 flex-col gap-0" disabled={!check.lines.length} onClick={bill}><Printer size={20} /><span className="text-xs">Bill</span></button>
-      <button className="btn btn-ok h-16 flex-col gap-0" disabled={t.total <= 0 && !check.lines.length} onClick={pay}><CreditCard size={20} /><span className="text-xs">Pay {money(Math.max(0, t.balance))}</span></button>
+      <button className="btn btn-ok h-16 flex-col gap-0" disabled={t.total <= 0 && !check.lines.length} onClick={() => pay()}><CreditCard size={20} /><span className="text-xs">Pay {money(Math.max(0, t.balance))}</span></button>
     </div>
   )
 
+  const panel = (
+    <CheckPanel check={check} config={config} header={<>
+      {header}
+      {others.length > 0 && (
+        <div className="px-3 py-1.5 bg-warn-soft text-warn text-sm font-semibold flex items-center gap-2"><Eye size={14} />Also open on {others.map(o => o.device_name).join(', ')}</div>
+      )}
+    </>} footer={footer} onLine={line => setModal({ kind: 'line', line })} onAction={swipeAction} onRegroup={regroup} />
+  )
+
+  // A till layout's button (shared/pos/tillLayout.js BUTTON_ACTIONS). Dishes
+  // come through pick() (LayoutScreen calls it).
+  const runButton = async b => {
+    const items = () => (check.lines.length ? true : (toast('Nothing on the order yet', 'bad'), false))
+    switch (b.action) {
+      case 'exact_cash': return items() && pay({ autoExact: 'cash' })
+      case 'exact_card': return items() && pay({ autoExact: 'card' })
+      case 'tender': return items() && pay({ tender: b.tender })
+      case 'pay': return items() && pay()
+      case 'bill': return items() && bill()
+      case 'last_receipt': {
+        const last = lastReceiptCheck()
+        if (!last) return toast('No receipt on this till yet today', 'bad')
+        printBill(last)
+        return toast('Receipt printed: ' + checkLabel(last), 'ok')
+      }
+      case 'discount_preset': {
+        const p = discountList(config.settings).find(x => x.id === b.preset_id)
+        if (!p) return toast('That discount is no longer on the list', 'bad')
+        if (!fitsScope(p, 'check')) return toast(p.name + ' is for items: tap an item, then Discount', 'bad')
+        if (!items()) return
+        const r = await applyDiscountPreset(check, p, approve)
+        if (r.cancelled) return
+        return r.ok ? toast(p.name + ' taken off', 'ok') : toast(r.error, 'bad')
+      }
+      case 'discount': return setModal({ kind: 'discount' })
+      case 'send': return send()
+      case 'fire': return held.length ? setModal({ kind: 'fire' }) : toast('No course is waiting to fire', 'bad')
+      case 'more': return setModal({ kind: 'actions' })
+      case 'guests': return setModal({ kind: 'covers' })
+      case 'order_type': return setModal({ kind: 'type' })
+      case 'name': return setModal({ kind: 'name' })
+      case 'tent': return setModal({ kind: 'tent' })
+      case 'table': return setModal({ kind: 'table' })
+      case 'move': return setModal({ kind: 'move' })
+      case 'merge': return setModal({ kind: 'merge' })
+      case 'charges': return setModal({ kind: 'sc' })
+      case 'offers': return (config.promotions || []).length ? setModal({ kind: 'offers' }) : toast('No offers are on', 'bad')
+      case 'loyalty': return config.loyalty ? setModal({ kind: 'loyalty' }) : toast('Loyalty isn\'t switched on', 'bad')
+      case 'open_item': return setModal({ kind: 'open_item' })
+      case 'cancel_order': return check.lines.length ? setModal({ kind: 'cancel' }) : toast('Nothing on the order to cancel', 'bad')
+      case 'no_sale': return setModal({ kind: 'nosale' })
+      case 'back': return onBack()
+      default: return null
+    }
+  }
+
   return (
     <div className="h-full flex">
-      <div className="w-[42%] max-w-[480px] min-w-[320px] shrink-0">
-        <CheckPanel check={check} config={config} header={<>
-          {header}
-          {others.length > 0 && (
-            <div className="px-3 py-1.5 bg-warn-soft text-warn text-sm font-semibold flex items-center gap-2"><Eye size={14} />Also open on {others.map(o => o.device_name).join(', ')}</div>
-          )}
-        </>} footer={footer} onLine={line => setModal({ kind: 'line', line })} onAction={swipeAction} onRegroup={regroup} />
-      </div>
-      <div className="flex-1 min-w-0">
-        <MenuPanel config={config} menuIds={stream?.menu_ids} onPick={pick} onHold={item => setModal({ kind: 'sold_out', item })} seat={seat} setSeat={setSeat} course={course} setCourse={setCourse}
-          covers={check.covers} onOpenItem={() => setModal({ kind: 'open_item' })} />
-      </div>
+      {layout ? (
+        <div className="flex-1 min-w-0">
+          <LayoutScreen layout={layout} config={config} check={check} checkZone={panel} menuIds={stream?.menu_ids} covers={check.covers}
+            seat={seat} setSeat={setSeat} course={course} setCourse={setCourse}
+            onDish={pick} onHold={item => setModal({ kind: 'sold_out', item })} onButton={runButton}
+            choosing={choosing} onChosen={o => added(choosing.item, { ...o, seat, course })} onCancelChoosing={() => setChoosing(null)}
+            onMoreChoices={initial => setModal({ kind: 'item', item: choosing.item, initial })} />
+        </div>
+      ) : (
+        <>
+          <div className="w-[42%] max-w-[480px] min-w-[320px] shrink-0">{panel}</div>
+          <div className="flex-1 min-w-0">
+            <MenuPanel config={config} menuIds={stream?.menu_ids} onPick={pick} onHold={item => setModal({ kind: 'sold_out', item })} seat={seat} setSeat={setSeat} course={course} setCourse={setCourse}
+              covers={check.covers} onOpenItem={() => setModal({ kind: 'open_item' })} />
+          </div>
+        </>
+      )}
 
       {modal?.kind === 'item' && <ItemModal item={modal.item} config={config} defaults={{ seat: modal.seat ?? seat, course: modal.course ?? course, covers: check.covers }}
         initial={modal.initial || null} title={modal.title || null} onClose={close} onAdd={o => added(modal.item, o, modal.replace || null)} />}
@@ -230,7 +310,8 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
       {modal?.kind === 'open_item' && <OpenItemModal check={check} config={config} onClose={close} />}
       {modal?.kind === 'nosale' && <NoSale onClose={close} />}
       {modal?.kind === 'sold_out' && <SoldOutModal item={modal.item} config={config} onClose={close} onAdd={pick} />}
-      {modal?.kind === 'pay' && <PayModal check={check} counter={counter || check.mode === 'counter'} onClose={close} onClosed={() => { close(); onBack() }} />}
+      {modal?.kind === 'pay' && <PayModal check={check} counter={counter || check.mode === 'counter'} autoExact={modal.autoExact || null} initialTender={modal.tender || null}
+        onClose={close} onClosed={() => { close(); onBack() }} />}
     </div>
   )
 }

@@ -52,8 +52,12 @@ import Tables      from '@/pages/Tables'
 import Schedule    from '@/pages/Schedule'
 import Rules       from '@/pages/Rules'
 import WidgetTest  from '@/pages/WidgetTest'
-import Docs        from '@/pages/Docs'
-import Help        from '@/pages/Help'
+// The Docs and Help pages are 1.5 MB of text few people open: their own
+// chunks, loaded when opened, so the main bundle stays under the service
+// worker's precache limit (vite.config.js maximumFileSizeToCacheInBytes).
+const Docs = React.lazy(() => import('@/pages/Docs'))
+const Help = React.lazy(() => import('@/pages/Help'))
+const LoadingPage = () => <div className="p-6 text-sm text-muted-foreground">Loading…</div>
 import Settings    from '@/pages/Settings'
 import Website     from '@/pages/Website'
 import Brand       from '@/pages/Brand'
@@ -105,6 +109,7 @@ import PosReports from '@/pages/PosReports'
 import KioskAnalytics from '@/pages/KioskAnalytics'
 import KioskDesigner from '@/pages/KioskDesigner'
 import PrintDesigner from '@/pages/PrintDesigner'
+import TillLayoutDesigner from '@/pages/TillLayoutDesigner'
 import Promotions from '@/pages/Promotions'
 import MobileOrders    from '@/pages/mobile/MobileOrders'
 import MobileAllergens from '@/pages/mobile/MobileAllergens'
@@ -234,6 +239,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 <Route path="pos/kiosk-analytics" element={<KioskAnalytics />} />
                 <Route path="pos/kiosks/designs/:id" element={<KioskDesigner />} />
                 <Route path="pos/printing/designs/:id" element={<PrintDesigner />} />
+                <Route path="pos/layouts/:id" element={<TillLayoutDesigner />} />
                 <Route path="promotions" element={<Promotions />} />
                 <Route path="venues"    element={<Venues />} />
                 <Route path="new-location"     element={<NewLocation />} />
@@ -283,8 +289,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 <Route path="purchasing/lists"        element={<OrderLists />} />
                 <Route path="inventory"               element={<Inventory />} />
                 <Route path="suppliers"               element={<Suppliers />} />
-                <Route path="docs"               element={<Docs />} />
-                <Route path="help"        element={<Help />} />
+                <Route path="docs"               element={<React.Suspense fallback={<LoadingPage />}><Docs /></React.Suspense>} />
+                <Route path="help"        element={<React.Suspense fallback={<LoadingPage />}><Help /></React.Suspense>} />
                 <Route path="settings"    element={<Settings />} />
                 <Route path="ai"          element={<AiAssistant />} />
                 <Route path="nav-designer" element={<NavDesigner />} />

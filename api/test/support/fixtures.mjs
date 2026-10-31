@@ -98,6 +98,7 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx', loy
   }))
   const vgCopy = vg ? await step('variant group copy', () => post(`/api/menus/variant-groups/${vg.id}/copy`, {})) : null
   let dish = null
+  let menuSection = null
   if (menu) {
     const full = await step('menu load', () => get(`/api/menus/${menu.id}`))
     const large = vg?.options?.find(o => o.label === 'Large')
@@ -129,7 +130,9 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx', loy
     await step('menu publish', () => post(`/api/menus/${menu.id}/publish`, {}))
     await step('menu design', () => post(`/api/menus/${menu.id}/designs`, { name: mark + ' A4', layout: { pages: [{ id: 'p1', blocks: [] }] } }))
     await step('menu preview link', () => post(`/api/menus/${menu.id}/preview-link`, {}))
-    dish = (await step('menu reload', () => get(`/api/menus/${menu.id}`)))?.sections?.[0]?.items?.[0] ?? null
+    const reloaded = await step('menu reload', () => get(`/api/menus/${menu.id}`))
+    menuSection = reloaded?.sections?.[0] ?? null
+    dish = menuSection?.items?.[0] ?? null
   }
   await step('allergen notice', () => put('/api/menus/allergen-notice', { title: mark + ' Allergies', body: mark + ' ask staff', removable_note: '* on request', ordering_text: mark + ' tell us', used_only: true }))
   if (dish) await step('translation', () => put('/api/menus/translations', { lang: 'es', texts: { ['item:' + dish.id + ':name']: mark + ' Pad Thai (es)' } }))
@@ -288,7 +291,7 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx', loy
     ],
   }))
   // A discount on the company's list (migration 225).
-  await step('till discount', () => post('/api/pos/discounts', { name: mark + ' Staff meal', kind: 'percent', value: 50, scope: 'check', needs_manager: true }))
+  const tillDiscount = await step('till discount', () => post('/api/pos/discounts', { name: mark + ' Staff meal', kind: 'percent', value: 50, scope: 'check', needs_manager: true }))
   await step('nav item', () => post('/api/nav/items', { label: mark + ' Link', route: '/rota', parent_id: null }))
   await step('ordering settings', () => put(`/api/orders/settings/${V}`, {
     is_enabled: true, hours: [0, 1, 2, 3, 4, 5, 6].map(day => ({ day, windows: [{ open: '11:00', close: '22:00' }] })),
@@ -415,6 +418,30 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx', loy
     ] } }))
     await step('print design use', () => put('/api/pos/print-design-uses', { venue_id: V, use: 'kitchen', design_id: printDesign.id }))
     await step('print design words', () => put(`/api/pos/print-designs/${printDesign.id}/variations/${V}`, { texts: { tx: { text: mark + ' Ware words' } }, hidden: [] }))
+  }
+  // A till layout (migration 228) naming a section, a dish and a discount of the
+  // tenant's, used by Ware's tills and by the till itself.
+  const tillLayout = await step('till layout', () => post('/api/pos/till-layouts', { name: mark + ' Counter screen', template: 'quick' }))
+  if (tillLayout) {
+    const zones = tillLayout.layout.zones.map(z => {
+      if (z.type === 'categories' && menuSection) return { ...z, sections: [menuSection.id] }
+      if (z.type === 'buttons') {
+        return {
+          ...z,
+          buttons: [
+            ...z.buttons,
+            ...(dish ? [{ id: 'fx-dish', action: 'item', item_id: dish.id, label: mark + ' Pad Thai' }] : []),
+            ...(tillDiscount ? [{ id: 'fx-disc', action: 'discount_preset', preset_id: tillDiscount.id }] : []),
+          ],
+        }
+      }
+      return z
+    })
+    await step('till layout zones', () => put(`/api/pos/till-layouts/${tillLayout.id}`, { name: mark + ' Counter screen', layout: { ...tillLayout.layout, zones } }))
+    await step('venue till layout', () => patch(`/api/pos/venues/${V}/settings`, { till_layout_id: tillLayout.id }))
+    if (tillDevice?.device) {
+      await step('till own layout', () => patch(`/api/pos/devices/${tillDevice.device.id}`, { settings: { mode: 'table', ...(cardMachine ? { card_reader: cardMachine.id } : {}), till_layout: tillLayout.id } }))
+    }
   }
   const design = await step('screen design', () => post('/api/screens/designs', { name: mark + ' Board' }))
   const playlist = await step('screen playlist', () => post('/api/screens/playlists', { name: mark + ' Day' }))

@@ -36,6 +36,7 @@ import { soldOutRows } from './soldOut.js'
 import { loadKitchenConfig, activeFlowSetting } from './kitchenSvc.js'
 import { ensureTaxDefaults, loadTaxRates, loadOrderTypes, loadStreams, taxForVenue } from './taxSvc.js'
 import { printLayouts } from './printDesignSvc.js'
+import { venueTillLayouts } from './tillLayoutSvc.js'
 import { hubRelease } from './hubRelease.js'
 import { deviceLoyalty } from './loyaltySvc.js'
 
@@ -146,6 +147,8 @@ export function settingsView(s) {
     approvals: normaliseApprovals(s.approvals),
     // Migration 226: the order type / name / tent prompt, one screen or two steps.
     order_prompt: s.order_prompt === 'two' ? 'two' : 'one',
+    // Migration 228: the till layout the venue's tills use (null = the standard screen).
+    till_layout_id: s.till_layout_id || null,
     recon_map: s.recon_map || {}, recon_auto_fill: s.recon_auto_fill,
     kds_online_orders: s.kds_online_orders ?? true, kds_online_ready: s.kds_online_ready ?? true,
     kds_gloriafood: !!s.kds_gloriafood, kds_gloriafood_types: s.kds_gloriafood_types || {},
@@ -330,6 +333,9 @@ export async function tillConfig(tx, tenantId, venueId) {
     printers,
     // Print designs (migration 190): null = the built-in layout.
     print_layouts: await printLayouts(tx, tenantId, venueId),
+    // Till layouts (migration 228): the venue's and each till's own, by id
+    // (pos/src/lib/tillLayout.js picks this till's; none = the standard screen).
+    till_layouts: await venueTillLayouts(tx, tenantId, settings, devices),
     promotions,
     // A kiosk's orders name the kiosk as their server (shared/kiosk.js), so
     // the till shows its name from here.

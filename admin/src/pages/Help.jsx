@@ -5545,6 +5545,7 @@ export default function Help() {
               <li><strong>Cash Recon link</strong>: which till figures go into which Cash Recon fields when the day is closed (see End of day).</li>
               <li><strong>Floor plan</strong> (Store tech → Floor plan): add an area (e.g. Restaurant), tap tables to put them on it, drag them where they stand, drag the round corner to resize, Turn, Square / Round, and add walls, the bar, plants and labels. Save the area. Tables themselves are added on the Tables page.</li>
               <li><strong>Tills</strong>: open the till address on the tablet: it shows a six-letter code and a QR code. Tap <strong>Add a till</strong>, type the code, give it a name, table service or counter, and <strong>Add the till</strong>: the tablet sets itself up. Or scan the QR code with your phone and do the same in the installer app. <strong>New device</strong> on a till's row puts it on another tablet (type the code that tablet shows; the old one stops), and so does choosing <strong>One already here</strong> in Add a till. Removing a till signs it out; <strong>Bring back</strong> on the Removed line links it again with its settings. Each till and kiosk gets its own block of counter <strong>order numbers</strong> when it is added (the first 1-99, the next 100-199, and so on), shown on its row; change it in the till's window (<strong>Order numbers</strong>, from and to). Two tills or kiosks at a location can't share numbers: the window says which one already uses them.</li>
+              <li><strong>Till layouts</strong>: arrange the till&apos;s order screen yourself (where the order, the categories, the dishes and your own buttons go, and how big they are), pick the layout this venue&apos;s tills use, and give a till its own in its window (see Till layouts: arrange the order screen below).</li>
             </ol>
 
             <H3>Printers and the venue hub</H3>
@@ -5797,6 +5798,36 @@ export default function Help() {
               and use <strong>Then ask</strong> next to an option to ask another group when it's picked (e.g.
               Steak, then Cooking). Promotions can apply online, on the till, or both (<strong>Where</strong> in
               the promotion).
+            </P>
+
+            <H3>Till layouts: arrange the order screen</H3>
+            <P>
+              Store tech → <strong>Till layouts</strong> lets you arrange the till&apos;s order screen yourself: where the
+              order, the categories, the dishes and your own buttons go, how big their buttons are, and where a
+              dish&apos;s choices show while it is being added. Layouts are shared by every venue. Each venue picks the
+              one its tills use (at the top of the page), and a till can have its own in its window on Tills
+              (<strong>Screen layout</strong>: As the venue, The standard screen, or a layout). Tills with no layout keep
+              the standard screen.
+            </P>
+            <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
+              <li><strong>New layout</strong>: give it a name and start from <strong>Like the standard screen</strong>, <strong>Quick service</strong> (categories down the side, a dish&apos;s choices over the dishes, paying buttons along the bottom) or a copy of one you have. It opens in the designer.</li>
+              <li>The screen is a grid of cells (<strong>Cells across</strong> and <strong>Cells down</strong> under Layout). Each <strong>zone</strong> takes a block of cells: drag it to move it, drag its corner to resize it, or tap it and use the − and + of <strong>From the left</strong>, <strong>From the top</strong>, <strong>Wide</strong> and <strong>High</strong>. <strong>Add a zone</strong> puts a new one in the space left.</li>
+              <li>The zones: <strong>Order</strong> (the check with More, Send, Bill and Pay; on a counter till before an order, New order and the orders waiting), <strong>Categories</strong>, <strong>Dishes</strong>, <strong>Buttons</strong> (up to eight zones of your own buttons), <strong>Dish choices</strong> and <strong>Seat and course</strong>. Only Dish choices can sit over other zones. Zones over each other, or no Order zone, show in red, and Save waits until they are fixed.</li>
+              <li>Each zone with buttons has its own grid: <strong>Buttons across</strong> and <strong>Buttons down</strong> set how big they are (fewer makes them bigger), with the <strong>Text size</strong> and <strong>Bold</strong>. <strong>When more than fits</strong>: <strong>Scroll</strong> (down, or across in a zone one button high), <strong>Pages</strong> (arrows under the zone), <strong>More button</strong> (the rest open from a More button in the last place) or <strong>Hide the rest</strong>.</li>
+              <li><strong>Categories</strong>: <strong>All of the till&apos;s menus</strong>, or <strong>Pick them</strong> to choose which sections show, in your order (drag them; X takes one out). <strong>Dishes</strong> shows the dishes of the category tapped, with a search box and prices if you want them.</li>
+              <li><strong>Buttons</strong>: <strong>Add a button</strong> and pick what it does: a dish, Exact cash, Exact card, Pay by (a way to pay), Pay, Print bill, Last receipt, a discount from your list, Discount, Send, Fire a course, More, Guests, Order type, Name, Tent number, Table, Split / move items, Merge checks, Charges, Offers, Loyalty, Item not on menu, Cancel order, No sale (open drawer) or Back. Tap a button in the list to change its words, colour and size (it can take several places across or down); drag the list to change their order. The canvas turns to the page the button you are changing is on.</li>
+              <li><strong>Dish choices</strong>: shows a dish&apos;s choices on the screen, instead of in a window, while it is being added: <strong>All choices</strong> in one zone, or two zones, one <strong>Must pick</strong> and one <strong>Optional</strong>. Each draws over <strong>Its own space</strong> (the zones under it) or <strong>The whole screen</strong>. The zone with the must-pick choices has the dish&apos;s name, the quantity, Cancel, Add and <strong>Note &amp; more</strong> (the choices window, for a note, allergies, seat, course or price). Without a Dish choices zone, choices open in a window as on the standard screen.</li>
+              <li>Dish choices zones start hidden on the canvas, as on the till between dishes: <strong>Show dish choices zones</strong> draws them over the zones under them. Pick the screen to preview on beside it (tablets, a big screen, an upright tablet); the canvas uses the dishes, discounts and ways to pay of the venue picked at the top.</li>
+              <li><strong>Save</strong>, or <strong>Discard</strong> to go back to what was saved. Tills pick up a saved layout within moments.</li>
+            </ol>
+            <P>
+              On the till, buttons that need an order are greyed until there is one (a counter till before its first
+              dish). <strong>Exact cash</strong> and <strong>Exact card</strong> pay what is left at once;{' '}
+              <strong>Last receipt</strong> prints the last receipt this till took; a dish button adds the dish (on a
+              counter till it starts the order). A button whose dish, discount or way to pay the till doesn&apos;t have
+              stays greyed. The category open and the page each zone is on stay put while the till runs. Deleting a
+              layout puts the venues using it back on the standard screen, and the tills that picked it back on their
+              venue&apos;s.
             </P>
 
             <H3>Taking an order</H3>

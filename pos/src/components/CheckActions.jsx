@@ -201,6 +201,26 @@ export function CancelOrderModal({ check, onClose, onCancelled }) {
 
 const DISCOUNT_REASONS = ['Regular', 'Staff', 'Complaint', 'Manager decision', 'Promotion']
 
+/**
+ * A discount from the company's list (Store tech > Discounts) on the check,
+ * or on some of its items: asks for a manager first when the discount says
+ * so. Returns the dispatch result, { ok: false, error }, or { ok: false,
+ * cancelled: true } when nobody approved. Used by the Discount window and a
+ * till layout's discount button.
+ */
+export async function applyDiscountPreset(check, preset, approve, lineIds = null) {
+  const t = checkTotals(check)
+  const base = lineIds ? t.lines.filter(l => lineIds.includes(l.id)).reduce((s, l) => s + l.net, 0) : t.net
+  const off = preset.kind === 'percent' ? Math.round(base * preset.value / 100) : Math.min(base, preset.value)
+  if (off <= 0) return { ok: false, error: 'Nothing left to discount' }
+  // Marked in Store tech: a manager every time; otherwise anyone may use it.
+  const approver = preset.needs_manager ? await approve(null, null, preset.name + ' needs a manager every time.', [MANAGER_ALWAYS]) : null
+  if (approver === false) return { ok: false, cancelled: true }
+  return dispatch('discount.applied', {
+    discount: { id: ulid(), scope: lineIds ? 'line' : 'check', line_ids: lineIds || [], type: preset.kind, value: preset.value, name: preset.name, reason: '', preset_id: preset.id },
+  }, { check_id: check.id, approved_by: approver })
+}
+
 export function DiscountModal({ check, config, lineIds = null, onClose }) {
   const approve = useApproval()
   const [type, setType] = useState('percent')
@@ -222,11 +242,10 @@ export function DiscountModal({ check, config, lineIds = null, onClose }) {
     onClose()
   }
   const usePreset = async p => {
-    if (presetOff(p) <= 0) return toast('Nothing left to discount', 'bad')
-    // Marked in Store tech: a manager every time; otherwise anyone may use it.
-    const approver = p.needs_manager ? await approve(null, null, p.name + ' needs a manager every time.', [MANAGER_ALWAYS]) : null
-    if (approver === false) return
-    put({ type: p.kind, value: p.value, name: p.name, reason: '', preset_id: p.id }, approver)
+    const r = await applyDiscountPreset(check, p, approve, lineIds)
+    if (r.cancelled) return
+    if (!r.ok) return toast(r.error, 'bad')
+    onClose()
   }
   const apply = async () => {
     const msg = can('discount', Math.min(100, pct)) ? 'Discounts typed in on the till need a manager here.' : 'This discount is more than your role allows.'

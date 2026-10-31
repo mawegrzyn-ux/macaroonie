@@ -262,6 +262,7 @@ function TillModal({ venueId, setup, device, onClose }) {
     order_numbers: orderRangeOf(device),
     receipt_mode: s.receipt_mode || 'venue',
     order_prompt: s.order_prompt || 'venue',
+    till_layout: s.till_layout || 'venue',
   })
   const set = patch => setForm(f => ({ ...f, ...patch }))
   const body = () => ({
@@ -274,6 +275,7 @@ function TillModal({ venueId, setup, device, onClose }) {
       card_reader: form.card_reader,
       receipt_mode: form.receipt_mode,
       order_prompt: form.order_prompt,
+      till_layout: form.till_layout,
       ...(device && orderRangeReady(form.order_numbers) ? { order_numbers: form.order_numbers } : {}),
     },
   })
@@ -338,6 +340,13 @@ function TillModal({ venueId, setup, device, onClose }) {
             {ORDER_PROMPTS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
           </select>
         </Field>
+        <Field label="Screen layout" hint={'Venue setting: ' + layoutName(setup, setup.settings.till_layout_id) + ' (Store tech → Till layouts).'}>
+          <select className={inputCls} value={form.till_layout} onChange={e => set({ till_layout: e.target.value })} data-testid="till-layout">
+            <option value="venue">As the venue</option>
+            <option value="standard">The standard screen</option>
+            {(setup.till_layouts || []).map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+          </select>
+        </Field>
         <CardMachinePick venueId={venueId} value={form.card_reader} onChange={v => set({ card_reader: v })} />
         <OrderNumbersField setup={setup} device={device} value={form.order_numbers} onChange={v => set({ order_numbers: v })} />
       </>}
@@ -345,6 +354,12 @@ function TillModal({ venueId, setup, device, onClose }) {
     </Modal>
   )
 }
+
+/**
+ * A till layout's name (Store tech → Till layouts, migration 228), or the
+ * standard screen when none (or one deleted since) is set.
+ */
+export const layoutName = (setup, id) => (setup.till_layouts || []).find(l => l.id === id)?.name || 'The standard screen'
 
 /** What happens to the receipt when a check is paid (pos_settings.receipt_mode, migration 224). */
 export const RECEIPT_MODES = [
@@ -405,6 +420,7 @@ export default function TillsSection({ venueId, setup }) {
                     {rcName(d.settings?.revenue_stream_id) ? ' · ' + rcName(d.settings.revenue_stream_id) : ''}
                     {machineName(d.settings?.card_reader) ? ' · Card machine: ' + machineName(d.settings.card_reader) : ''}
                     {d.settings?.mode === 'counter' && d.settings?.order_numbers ? ' · Orders ' + d.settings.order_numbers.from + '-' + d.settings.order_numbers.to : ''}
+                    {d.settings?.till_layout && d.settings.till_layout !== 'venue' ? ' · Screen: ' + (d.settings.till_layout === 'standard' ? 'standard' : layoutName(setup, d.settings.till_layout)) : ''}
                   </p>
                   <p className={cn('text-xs', st.tone === 'ok' ? 'text-green-700' : st.tone === 'warn' ? 'text-amber-700' : 'text-muted-foreground')}>{st.text}</p>
                 </div>

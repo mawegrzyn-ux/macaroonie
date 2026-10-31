@@ -533,6 +533,31 @@ nothing finishes on the tap. Nothing changed in the events: the prompt hands bac
 `check.order_type_set` with the re-rated lines and charges and any new name or tent,
 `check.renamed`).
 
+### 8.7 Till layouts (migration 228, 31 Oct 2026)
+
+A till's order screen can be arranged by the company (`pos_till_layouts`, company wide;
+`shared/pos/tillLayout.js` holds every rule). A layout is a grid of cells holding **zones**: the
+order (`check`), `categories`, `items` (dishes), `buttons` (a dish, or a function: a tender,
+exact cash or card, the last receipt, a discount from the list, Send, More ...), `modifiers` (a
+dish's choices while it is added: must-pick, optional or both, in their own rectangle over
+other zones or over the whole screen) and `seats`. Each zone has its own button grid
+(`cols` x `rows`, so a button's size follows the zone), text size, bold, and what happens when
+more than fits (`scroll`, `pages`, a `more` button in the last cell, or `hide`). One function,
+`packCells()`, places the buttons for the till (`pos/src/components/ZoneGrid.jsx`) and the
+designer's preview, so a button lands in the same cell in both. Only modifiers zones may sit over
+other zones; a layout without the order zone, or with zones overlapping, isn't saved
+(`layoutProblems()`).
+
+Which layout a till draws: its own (`pos_devices.settings.till_layout`: a layout id, `standard`,
+or `venue`), else its location's (`pos_settings.till_layout_id`), else none: the standard screen
+(`tillLayoutOf()` in `pos/src/lib/tillLayout.js`). `tillConfig()` carries the layouts in use at
+the venue (`till_layouts` by id), so a till draws its layout offline like the rest of its config.
+Nothing changed in the events: a layout only arranges the screen; dishes, choices and buttons go
+through the same `addItem()`, choices rules (`toggleChoice()` / `tapStep()` from `ItemModal.jsx`,
+the price from `priceItem()`), modals and Pay as the standard screen. A layout names dishes,
+sections and discounts by id; `ownTillLayout()` drops any that aren't the company's when it is
+saved, and a till greys a button whose dish, discount or tender it doesn't have.
+
 ---
 
 ## 9. Kitchen screens (KDS)
