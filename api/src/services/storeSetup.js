@@ -421,8 +421,8 @@ const AREAS = {
     }
     await ensureSettings(tx, tenantId, to)
     await tx`UPDATE pos_settings SET receipt_name = ${receiptName}, receipt_address = ${address} WHERE venue_id = ${to} AND tenant_id = ${tenantId}`
-    const streams = plan.till.streams.length ? plan.till.streams : [{ name: 'Restaurant', service_charge_percent: 0 }]
-    await tx`INSERT INTO pos_revenue_streams ${tx(streams.map((x, i) => ({ tenant_id: tenantId, venue_id: to, name: x.name, service_charge_percent: x.service_charge_percent || 0, sort_order: i })))}`
+    const streams = plan.till.streams.length ? plan.till.streams : [{ name: 'Restaurant' }]
+    await tx`INSERT INTO pos_revenue_streams ${tx(streams.map((x, i) => ({ tenant_id: tenantId, venue_id: to, name: x.name, sort_order: i })))}`
     return ['Receipts say "' + receiptName + '"', 'Revenue streams: ' + streams.map(x => x.name).join(', ')]
   },
 

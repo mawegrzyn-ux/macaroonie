@@ -79,8 +79,14 @@ export const MANAGER_ACTIONS = [
   { key: 'void_sent',     permission: 'void',   label: 'Voiding items the kitchen has', hint: 'Taking back an item already sent (a VOID ticket goes to the kitchen).' },
   { key: 'cancel_order',  permission: null,     label: 'Cancelling a whole order',      hint: 'The order\'s Cancel order button.' },
   { key: 'refund',        permission: 'refund', label: 'Refunds',                       hint: 'Giving money back on a closed check.' },
+  // Migration 225 (shared/pos/charges.js, discounts.js).
+  { key: 'remove_charge', permission: null,     label: 'Taking an optional charge off', hint: 'Like the service charge. Charges that aren\'t optional always need a manager.' },
+  { key: 'custom_discount', permission: null,   label: 'Discounts typed in on the till', hint: 'A discount that isn\'t one of the Discounts set up in Store tech (those say themselves whether they need a manager).' },
 ]
 export const MANAGER_ACTION_KEYS = MANAGER_ACTIONS.map(a => a.key)
+// Not a switch: something that needs a manager every time whatever the venue
+// set (a discount from the list marked so, a charge that isn't optional).
+export const MANAGER_ALWAYS = 'always'
 
 /** The venue's switches with every key present (all off by default). */
 export function normaliseApprovals(a = {}) {
@@ -95,9 +101,19 @@ export function normaliseApprovals(a = {}) {
  * event's approver. Returns null when allowed, else a reason.
  */
 export function managerProblem(staffById, event, action, settings) {
+  if (action === MANAGER_ALWAYS) return approverProblem(staffById, event)
   if (!settings?.approvals?.[action]) return null
   const def = MANAGER_ACTIONS.find(a => a.key === action)
-  const ok = s => !!s && has(s, 'manager') && (!def?.permission || has(s, def.permission))
+  return approverProblem(staffById, event, def?.permission || null)
+}
+
+/**
+ * A manager must allow it: the person themselves when they may approve (and
+ * have `permission`, when one is named), else the event's approver. Returns
+ * null when allowed, else a reason.
+ */
+export function approverProblem(staffById, event, permission = null) {
+  const ok = s => !!s && has(s, 'manager') && (!permission || has(s, permission))
   if (ok(staffById[event.staff_id])) return null
   if (event.approved_by) return ok(staffById[event.approved_by]) ? null : 'The approver isn\'t allowed to do this'
   return 'Needs a manager'

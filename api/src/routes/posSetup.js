@@ -33,6 +33,8 @@
 //   PUT    /floor-areas/:id/layout                tables' positions + decor in one save
 //   PUT    /venues/:venueId/staff/:staffId/pos    PIN (or null to remove) and POS role
 //   GET    /roles  POST /roles  PATCH/DELETE /roles/:id       POS roles (tenant-wide)
+//   GET    /discounts  POST /discounts  PATCH/DELETE /discounts/:id  PUT /discounts/order
+//                                                 the company's discounts the till offers (migration 225)
 //   GET    /courses  POST /courses  PATCH/DELETE /courses/:id  PUT /courses/order
 //   Reports (pos_reports):
 //   GET    /venues/:venueId/days                  trading days (Z reports), newest first
@@ -67,7 +69,7 @@ import { requireAuth, requirePermission, permissionLevel } from '../middleware/a
 import { httpError } from '../middleware/error.js'
 import { broadcast } from '../config/ws.js'
 import {
-  ensureSettings, settingsView, ownVenue,
+  ensureSettings, settingsView, ownVenue, loadDiscounts,
   dayReport, fillReconFromDay, DEFAULT_COURSES,
 } from '../services/posSvc.js'
 import { reconFields } from '../services/reconFill.js'
@@ -92,6 +94,8 @@ import { DEFAULT_POS_ROLES, PERMISSION_KEYS, normalisePermissions, MANAGER_ACTIO
 import { hashPin, PIN_PATTERN, weakPin } from '../../../shared/pos/pin.js'
 import { TENDER_KEYS } from '../../../shared/pos/checks.js'
 import { ensureTaxDefaults, loadOrderTypes, loadStreams } from '../services/taxSvc.js'
+import { DISCOUNT_SCOPES, DISCOUNTS_MAX, DISCOUNT_AMOUNT_MAX } from '../../../shared/pos/discounts.js'
+import { tillsMayNeedConfig } from '../services/posNotify.js'
 
 const UUID = z.string().uuid()
 const TIME = z.string().regex(/^([01][0-9]|2[0-3]):[0-5][0-9]$/)
@@ -128,7 +132,6 @@ const SettingsBody = z.object({
   vat_number:                z.string().max(40).nullable().optional(),
   receipt_name:              z.string().max(80).nullable().optional(),
   receipt_address:           z.array(z.string().max(80)).max(6).optional(),
-  service_charge_label:      z.string().max(60).nullable().optional(),
   tenders:                   z.array(z.object({ key: z.enum(TENDER_KEYS), label: z.string().min(1).max(30), enabled: z.boolean() })).optional(),
   tips_enabled:              z.boolean().optional(),
   require_covers:            z.boolean().optional(),
@@ -136,7 +139,9 @@ const SettingsBody = z.object({
   recon_map:                 z.object({
     income:  z.record(UUID, z.array(z.string().max(40)).max(20)).default({}),
     takings: z.record(UUID, z.array(z.enum(TENDER_KEYS)).max(10)).default({}),
-    sc:      z.record(UUID, z.array(z.enum(['service_charge', 'tips'])).max(2)).default({}),
+    // 'service_charge' = every charge, 'charge:<name>' = one charge by name
+    // (migration 225, shared/pos/charges.js), 'tips'.
+    sc:      z.record(UUID, z.array(z.union([z.enum(['service_charge', 'tips']), z.string().regex(/^charge:\S.{0,59}$/)])).max(12)).default({}),
   }).optional(),
   recon_auto_fill:           z.boolean().optional(),
   kds_online_orders:         z.boolean().optional(),
@@ -169,11 +174,25 @@ const StreamOrderType = z.object({
   ask_name:      z.enum(PROMPTS).default('off'),
   ask_tent:      z.enum(PROMPTS).default('off'),
 })
+// A discount on the company's list (shared/pos/discounts.js): a percent with
+// two decimals, or pence.
+const DiscountBody = z.object({
+  name:          z.string().trim().min(1).max(60),
+  kind:          z.enum(['percent', 'amount']),
+  value:         z.number().positive(),
+  scope:         z.enum(DISCOUNT_SCOPES).default('any'),
+  needs_manager: z.boolean().default(false),
+}).superRefine((d, ctx) => {
+  if (d.kind === 'percent' && d.value > 100) ctx.addIssue({ code: 'custom', path: ['value'], message: 'A percent is at most 100' })
+  if (d.kind === 'amount' && (!Number.isInteger(d.value) || d.value > DISCOUNT_AMOUNT_MAX)) {
+    ctx.addIssue({ code: 'custom', path: ['value'], message: 'An amount is whole pence, at most £1,000' })
+  }
+})
+const discountValue = d => (d.kind === 'percent' ? Math.round(d.value * 100) / 100 : d.value)
+
 const StreamBody = z.object({
   name:                      z.string().trim().min(1).max(60),
   menu_ids:                  z.array(UUID).max(20).default([]),
-  service_charge_percent:    z.number().min(0).max(50).default(0),
-  service_charge_min_covers: z.number().int().min(0).max(100).default(0),
   colour:                    COLOUR,
   is_active:                 z.boolean().default(true),
   default_order_type_id:     UUID.nullable().optional(),
@@ -885,9 +904,8 @@ export default async function posSetupRoutes(app) {
       await checkMenus(tx, req.tenantId, venueId, body.menu_ids)
       const [{ n }] = await tx`SELECT COALESCE(MAX(sort_order), -1)::int + 1 AS n FROM pos_revenue_streams WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}`
       const [rs] = await tx`
-        INSERT INTO pos_revenue_streams (tenant_id, venue_id, name, menu_ids, service_charge_percent, service_charge_min_covers, colour, sort_order, is_active)
-        VALUES (${req.tenantId}, ${venueId}, ${body.name}, ${body.menu_ids}, ${body.service_charge_percent},
-                ${body.service_charge_min_covers}, ${body.colour ?? null}, ${n}, ${body.is_active})
+        INSERT INTO pos_revenue_streams (tenant_id, venue_id, name, menu_ids, colour, sort_order, is_active)
+        VALUES (${req.tenantId}, ${venueId}, ${body.name}, ${body.menu_ids}, ${body.colour ?? null}, ${n}, ${body.is_active})
         RETURNING id`
       await writeStreamTypes(tx, req.tenantId, rs.id, body, true)
       return streamOut(tx, req.tenantId, venueId, rs.id)
@@ -905,7 +923,6 @@ export default async function posSetupRoutes(app) {
       await tx`
         UPDATE pos_revenue_streams
            SET name = ${body.name}, menu_ids = ${body.menu_ids},
-               service_charge_percent = ${body.service_charge_percent}, service_charge_min_covers = ${body.service_charge_min_covers},
                colour = ${body.colour ?? null}, is_active = ${body.is_active}
          WHERE id = ${id} AND tenant_id = ${req.tenantId}`
       await writeStreamTypes(tx, req.tenantId, id, body, false)
@@ -1965,6 +1982,67 @@ export default async function posSetupRoutes(app) {
       if (n) throw httpError(422, n === 1 ? 'One person has this role: give them another first' : n + ' people have this role: give them another first')
       await tx`DELETE FROM pos_roles WHERE id = ${id} AND tenant_id = ${req.tenantId}`
     })
+    return { ok: true }
+  })
+
+  // ── Discounts (migration 225, shared/pos/discounts.js) ─────────
+  // The company's list: the till offers each by name; whether one needs a
+  // manager is its own setting. Changes reach every till (inside the venue
+  // settings in their config), the sequencer and the venue hub.
+  app.get('/discounts', { preHandler: canSetupView }, async req => {
+    return withTenant(req.tenantId, tx => loadDiscounts(tx, req.tenantId))
+  })
+
+  app.post('/discounts', { preHandler: canSetup }, async (req, reply) => {
+    const body = DiscountBody.parse(req.body)
+    const row = await withTenant(req.tenantId, async tx => {
+      const [{ n, count }] = await tx`SELECT COALESCE(MAX(sort_order), -1)::int + 1 AS n, count(*)::int AS count FROM pos_discounts WHERE tenant_id = ${req.tenantId}`
+      if (count >= DISCOUNTS_MAX) throw httpError(422, 'The list has as many discounts as it can take (' + DISCOUNTS_MAX + ')')
+      const [r] = await tx`
+        INSERT INTO pos_discounts (tenant_id, name, kind, value, scope, needs_manager, sort_order)
+        VALUES (${req.tenantId}, ${body.name}, ${body.kind}, ${discountValue(body)}, ${body.scope}, ${body.needs_manager}, ${n})
+        RETURNING id`
+      return (await loadDiscounts(tx, req.tenantId)).find(x => x.id === r.id)
+    })
+    tillsMayNeedConfig(req.tenantId, req.log)
+    return reply.code(201).send(row)
+  })
+
+  app.patch('/discounts/:id', { preHandler: canSetup }, async req => {
+    const id = UUID.parse(req.params.id)
+    const body = DiscountBody.parse(req.body)
+    const row = await withTenant(req.tenantId, async tx => {
+      await ownRow(tx, 'pos_discounts', req.tenantId, id, 'Discount')
+      await tx`
+        UPDATE pos_discounts
+           SET name = ${body.name}, kind = ${body.kind}, value = ${discountValue(body)}, scope = ${body.scope},
+               needs_manager = ${body.needs_manager}, updated_at = now()
+         WHERE id = ${id} AND tenant_id = ${req.tenantId}`
+      return (await loadDiscounts(tx, req.tenantId)).find(x => x.id === id)
+    })
+    tillsMayNeedConfig(req.tenantId, req.log)
+    return row
+  })
+
+  app.put('/discounts/order', { preHandler: canSetup }, async req => {
+    const { ids } = OrderBody.parse(req.body)
+    await withTenant(req.tenantId, async tx => {
+      for (const [i, id] of ids.entries()) {
+        await tx`UPDATE pos_discounts SET sort_order = ${i} WHERE id = ${id} AND tenant_id = ${req.tenantId}`
+      }
+    })
+    tillsMayNeedConfig(req.tenantId, req.log)
+    return { ok: true }
+  })
+
+  // Checks that had it keep its name and amount (the discount is copied on).
+  app.delete('/discounts/:id', { preHandler: canSetup }, async req => {
+    const id = UUID.parse(req.params.id)
+    await withTenant(req.tenantId, async tx => {
+      await ownRow(tx, 'pos_discounts', req.tenantId, id, 'Discount')
+      await tx`DELETE FROM pos_discounts WHERE id = ${id} AND tenant_id = ${req.tenantId}`
+    })
+    tillsMayNeedConfig(req.tenantId, req.log)
     return { ok: true }
   })
 

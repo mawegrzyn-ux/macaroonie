@@ -3328,7 +3328,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['pos_print_jobs', 'Print queue (ops jsonb from tickets.js), status queued | printing | printed | failed, for the hub.'],
                 ['pos_devices', 'Tills, kitchen screens, kiosks and venue hubs: kind terminal | kds | kiosk | hub, short_code, secret_hash, pairing_code_hash + pairing_expires_at (only the move hand-over code of POST /pos-api/move), settings jsonb (mode, revenue_stream_id, receipt_printer_id, floor_area_id, order_numbers { from, to } for tills and kiosks (migration 217); a hub\'s auto_update), pending_changes + pending_at (changes the device says it hasn\'t sent, X-Pos-Pending), revoked_at; a hub\'s info + info_at (what it says about itself) and update_requested_at (migration 195).'],
                 ['pos_settings', 'Per venue: pin_salt, day_starts_at, receipt texts, tenders jsonb, tips, require_covers, auto_logout_secs, recon_map, recon_auto_fill. (Migration 170 dropped the VAT defaults and counter_revenue_centre_id.)'],
-                ['pos_revenue_streams', 'Migration 170 (was pos_revenue_centres): name, menu_ids, service_charge_percent + min covers, colour, sort_order, is_active, default_order_type_id. Which order types it offers and what each asks for: pos_stream_order_types (stream_id, order_type_id, enabled, ask_name / ask_tent off | ask | required; no row = off). See Tax, Order Types & Streams.'],
+                ['pos_revenue_streams', 'Migration 170 (was pos_revenue_centres): name, menu_ids, colour, sort_order, is_active, default_order_type_id (its single service charge went to the order types\' charges, migration 225). Which order types it offers and what each asks for: pos_stream_order_types (stream_id, order_type_id, enabled, ask_name / ask_tent off | ask | required; no row = off). See Tax, Order Types & Streams.'],
+                ['order_types.charges', 'Migration 225: jsonb array, the charges a till check of the type gets (shared/pos/charges.js): { id, name, kind percent | amount, value (percent to 50, or pence to 100000), optional, min_covers 0-100, tax_rate_id | null }, at most 6, in order. See Charges and discounts.'],
+                ['pos_discounts', 'Migration 225, tenant-wide, forced RLS: the discounts the till offers by name: name, kind percent | amount, value numeric(10,2) (percent 0.01-100, or whole pence 1-100000, CHECK), scope any | check | line, needs_manager, sort_order. Reaches every rule runner as settings.discounts.'],
                 ['pos_roles / pos_courses', 'Tenant-wide. Role permissions jsonb (shared/pos/permissions.js); courses with hold_by_default.'],
                 ['pos_printers', 'Printers (host, port, columns, backup); connection hub | device + device_id; status / status_at from the hub (migration 191); local_id: a USB printer on the venue hub\'s computer (migration 195). pos_print_routes was dropped: kitchen tickets come from the kitchen flow.'],
                 ['floor_areas', 'name, width x height in units, revenue_stream_id, decor jsonb. tables gains floor_area_id, pos_x/y/w/h, shape, rotation.'],
@@ -3476,6 +3478,59 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>table_id</Mono> or mode table) <Mono>checkPrompts()</Mono> never asks for a tent number;{' '}
               <Mono>missingDetails()</Mono> and the order type window use it.
             </P>
+            <H3>Charges and discounts (migration 225)</H3>
+            <P>
+              <strong>Charges</strong> (<Mono>shared/pos/charges.js</Mono>, one implementation for the till, the cloud&apos;s
+              sequencer, the venue hub, the API and the admin) belong to the order type: <Mono>order_types.charges</Mono>,
+              saved through <Mono>PATCH /api/order-types/:id</Mono> (<Mono>charges</Mono> = the whole list; left out =
+              unchanged; <Mono>cleanCharges()</Mono> in <Mono>routes/taxSetup.js</Mono> gives a new charge an id, checks the
+              raw values with <Mono>chargeProblem()</Mono> before <Mono>cleanTypeCharge()</Mono> (an amount is whole pence),
+              refuses the same id twice and any tax rate that isn&apos;t the tenant&apos;s, 422). They reach tills with the
+              order types in the config; <Mono>chargesFor(config, typeId)</Mono> (<Mono>pos/src/lib/checkOps.js</Mono>, over{' '}
+              <Mono>chargesForType()</Mono>) adds each tax rate&apos;s % at the venue (<Mono>vat_rate</Mono>). The till puts
+              them in <Mono>check.opened</Mono> (<Mono>charges</Mono>) and in <Mono>check.order_type_set</Mono> /{' '}
+              <Mono>check.stream_set</Mono>&apos;s type change; <Mono>switchCharges(current, next, off)</Mono> keeps a charge
+              taken off off (also through a round trip: <Mono>check.charges_off</Mono> remembers, by id, ones taken off that
+              left with the old type) and keeps charges typed on the till. Events: <Mono>charge.added</Mono> (typed on the
+              till: always optional, from 0 covers, no VAT; refused twice or over 12), <Mono>charge.removed</Mono>{' '}
+              <Mono>&#123; charge_id, reason &#125;</Mono> (an optional one needs the venue&apos;s <Mono>remove_charge</Mono>{' '}
+              switch&apos;s manager, one that isn&apos;t optional <Mono>MANAGER_ALWAYS</Mono>) and <Mono>charge.restored</Mono>;{' '}
+              <Mono>service_charge.set</Mono> is gone. Kiosks can&apos;t send charges.
+            </P>
+            <P>
+              <Mono>checkTotals()</Mono> gives <Mono>charges</Mono> (each with <Mono>amount</Mono>, <Mono>would_be</Mono>,{' '}
+              <Mono>removed</Mono>, <Mono>waiting</Mono> for a <Mono>min_covers</Mono> not reached) and{' '}
+              <Mono>service_charge</Mono>, the sum that counts (still <Mono>pos_checks.service_charge</Mono>). A percent is
+              of the net after every discount and offer; an amount counts only while the check has lines; each charge&apos;s
+              VAT is added to the VAT table at its own rate. <Mono>billOps()</Mono> prints each charge by{' '}
+              <Mono>chargeLabel()</Mono>; <Mono>dayFigures()</Mono> lists <Mono>charges</Mono> by name (<Mono>count</Mono>,{' '}
+              <Mono>amount</Mono>, <Mono>removed</Mono>, <Mono>removed_value</Mono>), printed on the Z and shown in Till
+              reports. Admin: <Mono>ChargesEditor</Mono> in <Mono>components/pos/OrderTypesSection.jsx</Mono>; till:{' '}
+              <Mono>ChargesModal</Mono> in <Mono>CheckActions.jsx</Mono> (More → Charges).
+            </P>
+            <P>
+              <strong>Discounts</strong> (<Mono>shared/pos/discounts.js</Mono>): <Mono>pos_discounts</Mono>, company-wide,
+              through <Mono>GET/POST /api/pos/discounts</Mono>, <Mono>PATCH/DELETE /api/pos/discounts/:id</Mono>,{' '}
+              <Mono>PUT /api/pos/discounts/order</Mono> (Store tech view / manage; at most 50). <Mono>loadDiscounts()</Mono>{' '}
+              puts the list in <Mono>settings.discounts</Mono> of the till config and of <Mono>printConfig()</Mono>, so the
+              sequencer and the hub (<Mono>sequencerContext()</Mono>) judge with it. A discount from the list is{' '}
+              <Mono>discount.applied</Mono> with <Mono>preset_id</Mono>: the rules find it in <Mono>ctx.settings</Mono>{' '}
+              (<Mono>discountList()</Mono>), refuse a changed type, value or scope (<Mono>presetMismatch()</Mono>, code{' '}
+              <Mono>preset</Mono>), need no discount permission, and need a manager every time when{' '}
+              <Mono>needs_manager</Mono>. A discount typed in follows the role&apos;s <Mono>discount_max_pct</Mono> and the
+              venue&apos;s <Mono>custom_discount</Mono> switch. The checks keep the discount as it was (name, value). Admin:{' '}
+              <Mono>components/pos/DiscountsSection.jsx</Mono> (Store tech → Discounts, <Mono>/pos/discounts</Mono>); till:
+              the presets on top of <Mono>DiscountModal</Mono> (<Mono>fitsScope()</Mono> for check or items).
+            </P>
+            <P>
+              <Mono>MANAGER_ACTIONS</Mono> gained <Mono>remove_charge</Mono> and <Mono>custom_discount</Mono>;{' '}
+              <Mono>MANAGER_ALWAYS</Mono> (<Mono>'always'</Mono>) in an <Mono>actions</Mono> list asks a manager whatever the
+              switches say (<Mono>approverProblem()</Mono>). Migration 225 moved a stream service charge to its tenant&apos;s
+              Eat in type when every active stream charged the same, dropped{' '}
+              <Mono>pos_revenue_streams.service_charge_percent</Mono> / <Mono>_min_covers</Mono> and{' '}
+              <Mono>pos_settings.service_charge_label</Mono>, and added the Discounts menu link after Order types. Tests:{' '}
+              <Mono>shared/pos/test/charges.test.mjs</Mono>, <Mono>api/test/till-charges.test.mjs</Mono>.
+            </P>
             <H3>Device kinds and app updates</H3>
             <P>
               One app at <Mono>pos.&lt;domain&gt;</Mono> serves tills, kitchen screens and kiosks;{' '}
@@ -3508,7 +3563,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>posTax(item, check, config)</Mono> (the dish's tax levels resolved by{' '}
               <Mono>taxFor()</Mono> in <Mono>shared/tax.js</Mono> for the venue, the check's order type and
               revenue stream: <Mono>{'{ vat_rate, tax_rate_id }'}</Mono>, stored on each line) and <Mono>checkTotals()</Mono> (line discounts and comps, then promotions, then check
-              discounts, then service charge; VAT inclusive per line rate). Promotions with channel{' '}
+              discounts, then the check&apos;s charges, each at its own VAT rate; VAT inclusive per line rate). Promotions with channel{' '}
               <Mono>pos</Mono> are worked out by the till with <Mono>applyPromotions()</Mono> from{' '}
               <Mono>shared/promotions.js</Mono> and stored as a <Mono>promotions.set</Mono> event, so the server
               and reports never recompute them.
@@ -3758,7 +3813,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               server stores <Mono>dayFigures()</Mono> (<Mono>shared/pos/reports.js</Mono>, also the till's X / Z)
               and, with <Mono>recon_auto_fill</Mono>, calls <Mono>fillReconFromDay()</Mono>:{' '}
               <Mono>reconValues()</Mono> maps figures through <Mono>recon_map</Mono> (income: revenue stream ids
-              / all / -refunds; takings: tender keys, amount + tips − refunds; SC: service_charge / tips) and{' '}
+              / all / -refunds; takings: tender keys, amount + tips − refunds; SC: <Mono>service_charge</Mono> = every
+              charge, <Mono>charge:&lt;name&gt;</Mono> = one charge by name from <Mono>figures.charges</Mono>, never both
+              counted, and <Mono>tips</Mono>) and{' '}
               <Mono>fillReconDay()</Mono> (<Mono>services/reconFill.js</Mono>, shared with Loyverse) writes only
               mapped fields and skips a submitted Cash Recon day.
             </P>
@@ -5445,7 +5502,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <P>
               Points and stamps are never added by the device. <Mono>settleCheck(tenantId, venueId, checkId)</Mono>{' '}
               and <Mono>settleOrder(tenantId, orderId)</Mono> work out what a sale should give its member now
-              (<Mono>pointsFor()</Mono> on the spend after discounts, without tips or service charge, less refunds;{' '}
+              (<Mono>pointsFor()</Mono> on the spend after discounts, without tips or charges, less refunds;{' '}
               <Mono>stampsFor()</Mono> per active card; nothing while the channel doesn&apos;t earn at the venue) and
               add the difference from what the ledger already holds for that source (<Mono>settleSource()</Mono>,
               under an advisory lock per source). So a refund, a member put on after paying, or a member changed on
@@ -7238,8 +7295,9 @@ selection.combo = { [stepId]: [{ option_id, item_id, choices }] }   // item_id n
                 ['GET /api/tax-rates', '{ rates (with values), venues, order_types, streams }: what a tax setting may name. Open to readers (menus pages, Tax box).'],
                 ['POST / PATCH / DELETE /api/tax-rates[/:id], PUT /api/tax-rates/order, PUT /api/tax-rates/:id/values', 'Menus manage. PATCH takes name, rate, is_default (moves the default), is_active. DELETE archives; refused for the default and for a rate a draft menu uses (names the menus). values: { venueId: % | null }.'],
                 ['GET /api/tax-rates/check?venue_id&stream_id&menu_id', 'Every draft dish\'s rate per active order type in that context (the Check card).'],
-                ['GET / POST / PATCH / DELETE /api/order-types[/:id], PUT /api/order-types/order', 'Changes need pos_setup or web_ordering_setup manage. DELETE archives, keeps at least one active, clears stream defaults pointing at it.'],
-                ['POST /api/pos/venues/:id/revenue-streams, PATCH / DELETE /api/pos/revenue-streams/:id, PUT /api/pos/venues/:id/revenue-streams/order', 'Body: name, menu_ids, service charge, colour, is_active, default_order_type_id, order_types [{ order_type_id, enabled, ask_name, ask_tent }]. A new stream offers every active type. The default must be an enabled type (422). DELETE archives a stream with sales.'],
+                ['GET / POST / PATCH / DELETE /api/order-types[/:id], PUT /api/order-types/order', 'Changes need pos_setup or web_ordering_setup manage. DELETE archives, keeps at least one active, clears stream defaults pointing at it. POST / PATCH take charges (the whole list, migration 225; left out of a PATCH = unchanged): each { id?, name, kind, value, optional, min_covers, tax_rate_id }, checked by chargeProblem(), 422 for the same id twice or another tenant\'s tax rate.'],
+                ['POST /api/pos/venues/:id/revenue-streams, PATCH / DELETE /api/pos/revenue-streams/:id, PUT /api/pos/venues/:id/revenue-streams/order', 'Body: name, menu_ids, colour, is_active, default_order_type_id, order_types [{ order_type_id, enabled, ask_name, ask_tent }]. A new stream offers every active type. The default must be an enabled type (422). DELETE archives a stream with sales. Charges are on the order types (migration 225).'],
+                ['GET / POST /api/pos/discounts, PATCH / DELETE /api/pos/discounts/:id, PUT /api/pos/discounts/order', 'Migration 225: the company\'s till discounts. Body: name, kind percent | amount, value (percent to 100, two decimals; amount in whole pence to 100000), scope any | check | line, needs_manager. Store tech view to read, manage to change; at most 50. Changes tell the tills (config).'],
               ]}
             />
             <InfoBox type="info">

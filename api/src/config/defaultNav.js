@@ -129,6 +129,7 @@ export const DEFAULT_NAV_TREE = [
       { label: 'Card machines', icon: 'CreditCard', route: '/pos/cards', module: 'pos_setup' },
       { label: 'Device updates', icon: 'RefreshCw', route: '/pos/updates', module: 'pos_setup' },
       { label: 'Order types', icon: 'ListOrdered', route: '/pos/types', module: 'pos_setup' },
+      { label: 'Discounts', icon: 'BadgePercent', route: '/pos/discounts', module: 'pos_setup' },
       { label: 'Revenue streams', icon: 'Waypoints', route: '/pos/streams', module: 'pos_setup' },
       { label: 'Courses', icon: 'UtensilsCrossed', route: '/pos/courses', module: 'pos_setup' },
       { label: 'Staff and PINs', icon: 'KeyRound', route: '/pos/staff', module: 'pos_setup' },

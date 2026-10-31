@@ -10,6 +10,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Send, Hourglass, Flame, Ban, Gift, Percent, ChefHat, AlertTriangle, Layers, GripVertical, Trash2 } from 'lucide-react'
 import { checkTotals, lineGross, modifierText, groupModifiers, isActiveLine } from '@shared/pos/pricing.js'
 import { countParts } from '@shared/combos.js'
+import { chargeLabel } from '@shared/pos/charges.js'
 import { cx, money } from './ui.jsx'
 import { groupByCourse, groupBySeat, canRegroup } from '../lib/checkOps.js'
 
@@ -287,7 +288,9 @@ export default function CheckPanel({ check, config, onLine, onAction, onRegroup,
         {t.discounts.filter(d => d.amount > 0).map(d => (
           <Row key={d.id + d.name} label={<span className="flex items-center gap-1">{d.comp ? <Gift size={14} /> : d.combo ? <Layers size={14} /> : <Percent size={14} />}{d.name}</span>} value={'−' + money(d.amount)} className="text-ok" />
         ))}
-        {t.service_charge > 0 && <Row label={'Service charge' + (check.service_charge?.percent ? ' ' + check.service_charge.percent + '%' : '')} value={money(t.service_charge)} />}
+        {t.charges.filter(x => x.amount > 0).map(x => (
+          <Row key={x.id} label={chargeLabel(x)} value={money(x.amount)} />
+        ))}
         <Row label={<b>Total</b>} value={<b className="text-xl">{money(t.total)}</b>} />
         {t.paid > 0 && <Row label="Paid" value={money(t.paid)} className="text-ok" />}
         {t.paid > 0 && <Row label={<b>Left to pay</b>} value={<b>{money(t.balance)}</b>} />}

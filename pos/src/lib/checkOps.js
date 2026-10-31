@@ -5,6 +5,7 @@ import { ulid } from '@shared/pos/ids.js'
 import { priceItem, posTax, isActiveLine, lineGross, picksWithin } from '@shared/pos/pricing.js'
 import { combosWithItem, stepWithItem, comboOf } from '@shared/combos.js'
 import { configItem, dealItem, comboCtx, autoCombosFor, checkOffers } from '@shared/pos/offers.js'
+import { chargesForType } from '@shared/pos/charges.js'
 import { dispatch, dispatchMany, getState, currentChecks, soldOutMap } from './store.js'
 
 // Offers, item choices and combo lookups live in shared/pos/offers.js (the
@@ -90,11 +91,13 @@ export function rerateLines(check, config, changes) {
   return out
 }
 
-function serviceChargeFor(stream, covers) {
-  const pct = Number(stream?.service_charge_percent) || 0
-  if (!pct) return null
-  if ((Number(stream.service_charge_min_covers) || 0) > (Number(covers) || 0)) return null
-  return { percent: pct, vat_rate: 0 }
+/**
+ * The charges a check of this order type gets (Store tech > Order types;
+ * shared/pos/charges.js), with each tax rate's % at this venue. A charge for
+ * parties of N goes on now and counts once the check has N guests.
+ */
+export function chargesFor(config, typeId) {
+  return chargesForType(typeOf(config, typeId), config?.venue?.id, config?.tax_rates || [])
 }
 
 /** Open a check. Returns { ok, checkId } or { ok: false, error }. */
@@ -105,7 +108,7 @@ export function openCheck({ mode, table_id = null, tab_name = null, covers = nul
   const checkId = ulid()
   const r = dispatch('check.opened', {
     mode, table_id, tab_name, covers, revenue_stream_id: streamId, order_type_id: typeId, tent: tent || null,
-    service_charge: mode === 'counter' ? null : serviceChargeFor(streamOf(config, streamId), covers),
+    charges: chargesFor(config, typeId),
   }, { check_id: checkId })
   return r.ok ? { ok: true, checkId } : r
 }

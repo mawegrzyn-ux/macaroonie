@@ -167,9 +167,10 @@ test('priceItem: meal deal with upcharge', () => {
 
 // ── Check rules ─────────────────────────────────────────────────
 
+const SERVICE_12 = { id: '0b6f2d1e-4c1a-4a54-9e57-3a0c7f6e2b11', name: 'Service charge', kind: 'percent', value: 12.5, optional: true, min_covers: 0, vat_rate: 0, tax_rate_id: null }
 function open(extra = {}) {
   const id = ulid()
-  const r = applyEvent({}, ev('check.opened', { mode: 'table', table_id: TABLE5, covers: 2, revenue_stream_id: RC_REST, service_charge: { percent: 12.5 }, ...extra }, { check_id: id }), { staffById })
+  const r = applyEvent({}, ev('check.opened', { mode: 'table', table_id: TABLE5, covers: 2, revenue_stream_id: RC_REST, charges: [SERVICE_12], ...extra }, { check_id: id }), { staffById })
   assert.ok(r.ok, r.error)
   return r.checks[id]
 }
@@ -236,7 +237,7 @@ test('send, hold and fire courses; delete before send, void after', () => {
 })
 
 test('payments: no overpaying, cash change, close only when paid, reopen and refund need rights', () => {
-  let c = open({ service_charge: null })
+  let c = open({ charges: [] })
   const a = line(PAD_THAI, { choices: { [PROTEIN]: [CHICKEN] } })
   c = ok(apply(c, 'line.added', { line: a })).checks[c.id]
   assert.equal(apply(c, 'payment.added', { payment: { id: ulid(), tender: 'card_external', amount: 2000 } }).code, 'overpaid')
@@ -283,7 +284,7 @@ test('move items, merge checks, empty check closes as void', () => {
 })
 
 test('promotions set by the till come off before check discounts', () => {
-  let c = open({ service_charge: null })
+  let c = open({ charges: [] })
   const a = line(BURGER), b = line(COLA)
   c = ok(apply(c, 'line.added', { line: a })).checks[c.id]
   c = ok(apply(c, 'line.added', { line: b })).checks[c.id]
@@ -432,7 +433,7 @@ test('dayFigures: sales, tenders, VAT, voids, refunds on the day they happen', a
   const store = memoryStore()
   const seq = createSequencer(store)
   const id = ulid()
-  await seq.submit(ev('check.opened', { mode: 'table', table_id: TABLE5, covers: 2, revenue_stream_id: RC_REST, service_charge: { percent: 10 } }, { check_id: id }))
+  await seq.submit(ev('check.opened', { mode: 'table', table_id: TABLE5, covers: 2, revenue_stream_id: RC_REST, charges: [{ ...SERVICE_12, value: 10 }] }, { check_id: id }))
   const a = line(PAD_THAI, { choices: { [PROTEIN]: [CHICKEN] } }, { revenue_stream_id: RC_REST })
   const b = line(COLA, {}, { qty: 2, revenue_stream_id: RC_REST })
   await seq.submit(ev('line.added', { line: a }, { check_id: id }))
@@ -536,7 +537,7 @@ test('day figures by revenue stream and by order type', () => {
   const EAT = uuid(), OUT = uuid()
   const day = uuid()
   const mk = (type, stream) => {
-    let c = open({ order_type_id: type, revenue_stream_id: stream, service_charge: null })
+    let c = open({ order_type_id: type, revenue_stream_id: stream, charges: [] })
     c = ok(apply(c, 'line.added', { line: line(COLA) })).checks[c.id]
     c.day_id = day
     c = ok(apply(c, 'payment.added', { payment: { id: ulid(), tender: 'cash', amount: 300 } })).checks[c.id]

@@ -57,7 +57,7 @@ const bill = receipt({
   venue: { name: 'One Thai Cafe', address: ['12 High Street', 'Ware SG12 9AA'], vatNumber: 'GB 123 4567 89' },
   table: '12', checkNo: '1042', server: 'Anna', covers: 4, at: now,
   lines,
-  serviceCharge: { label: 'Service charge 12.5%', amount: service },
+  charges: [{ label: 'Service charge 12.5%', amount: service }],
   total,
   vat: [{ rate: 20, net: total - vat, vat }],
   payments: [{ tender: 'Cash', amount: 10000 }],

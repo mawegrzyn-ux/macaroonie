@@ -75,10 +75,10 @@ after(closeApp)
 test('the receipt choice and the switches: saved per venue, cleaned, refused for viewers and other groups', async () => {
   const setup = await ok(owner.get('/api/pos/venues/' + V + '/setup'))
   assert.equal(setup.settings.receipt_mode, 'ask')
-  assert.deepEqual(setup.settings.approvals, { delete_unsent: false, void_sent: false, cancel_order: false, refund: false })
+  assert.deepEqual(setup.settings.approvals, { delete_unsent: false, void_sent: false, cancel_order: false, refund: false, remove_charge: false, custom_discount: false })
   const saved = await ok(owner.patch(`/api/pos/venues/${V}/settings`, { receipt_mode: 'always', approvals: { void_sent: true } }))
   assert.equal(saved.receipt_mode, 'always')
-  assert.deepEqual(saved.approvals, { delete_unsent: false, void_sent: true, cancel_order: false, refund: false })
+  assert.deepEqual(saved.approvals, { delete_unsent: false, void_sent: true, cancel_order: false, refund: false, remove_charge: false, custom_discount: false })
   // Left out of a later save, both stay.
   const again = await ok(owner.patch(`/api/pos/venues/${V}/settings`, { tips_enabled: true }))
   assert.equal(again.receipt_mode, 'always')
@@ -89,7 +89,7 @@ test('the receipt choice and the switches: saved per venue, cleaned, refused for
   assert.equal((await as(B.owner, ids.b).patch(`/api/pos/venues/${V}/settings`, { receipt_mode: 'never' })).status, 404)
   const [row] = await sql`SELECT receipt_mode, approvals FROM pos_settings WHERE venue_id = ${V}`
   assert.equal(row.receipt_mode, 'always')
-  assert.deepEqual(row.approvals, { delete_unsent: false, void_sent: true, cancel_order: false, refund: false })
+  assert.deepEqual(row.approvals, { delete_unsent: false, void_sent: true, cancel_order: false, refund: false, remove_charge: false, custom_discount: false })
 })
 
 test('a till has its own receipt choice; both reach the till in its config', async () => {

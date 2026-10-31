@@ -22,16 +22,19 @@
 // Pure: no I/O, no clock (times come from the event: client_at).
 
 import { isId } from './ids.js'
-import { permissionProblem, managerProblem } from './permissions.js'
+import { permissionProblem, managerProblem, MANAGER_ALWAYS } from './permissions.js'
 import { checkTotals, isActiveLine, lineGross } from './pricing.js'
 import { CHECK_NO_MAX, ORDER_NO_MAX, numberText } from './numbers.js'
+import { chargeProblem, onCheck, switchCharges, CHECK_CHARGES_MAX } from './charges.js'
+import { discountList, presetMismatch } from './discounts.js'
 
 export const CHECK_EVENTS = [
   'check.opened', 'check.covers_set', 'check.table_moved', 'check.server_changed',
   'check.stream_set', 'check.order_type_set', 'check.tent_set',
   'check.renamed', 'check.note_set', 'check.member_set',
   'line.added', 'line.changed', 'line.deleted', 'lines.sent', 'course.fired', 'line.voided',
-  'discount.applied', 'discount.removed', 'promotions.set', 'service_charge.set',
+  'discount.applied', 'discount.removed', 'promotions.set',
+  'charge.added', 'charge.removed', 'charge.restored',
   'lines.moved', 'check.merged', 'bill.printed',
   'payment.added', 'payment.voided', 'check.closed', 'check.reopened', 'refund.added',
 ]
@@ -70,7 +73,8 @@ function kioskProblem(checks, e) {
   if (e.device_id && e.device_id !== e.staff_id) return 'Only the kiosk itself can do this'
   const p = e.payload || {}
   if (e.type === 'check.opened') {
-    if (p.mode !== 'counter' || p.table_id || p.from_check_id || p.service_charge || (p.server_id && p.server_id !== e.staff_id)) {
+    // No charges on kiosk orders yet (shared/pos/charges.js).
+    if (p.mode !== 'counter' || p.table_id || p.from_check_id || (p.charges && p.charges.length) || (p.server_id && p.server_id !== e.staff_id)) {
       return 'A kiosk only opens counter orders'
     }
     return null
@@ -129,6 +133,20 @@ function ratesProblem(lines) {
   return null
 }
 
+// A check's charges as an event carries them (check.opened, check.order_type_set).
+function chargesProblem(list) {
+  if (list == null) return null
+  if (!Array.isArray(list) || list.length > CHECK_CHARGES_MAX) return 'charges'
+  const ids = new Set()
+  for (const x of list) {
+    const why = chargeProblem(x)
+    if (why) return why
+    if (ids.has(x.id)) return 'charges: the same charge twice'
+    ids.add(x.id)
+  }
+  return null
+}
+
 /** What is wrong with an event's shape, or null. Doesn't look at state. */
 export function eventProblem(e) {
   if (!e || typeof e !== 'object') return 'Not an event'
@@ -153,7 +171,10 @@ export function eventProblem(e) {
       if (p.number != null && !(Number.isInteger(p.number) && p.number >= 1 && p.number <= CHECK_NO_MAX)) return bad('number')
       if (p.order_no != null && !(Number.isInteger(p.order_no) && p.order_no >= 1 && p.order_no <= ORDER_NO_MAX)) return bad('order_no')
       if (!optText(p.number_code, 12)) return bad('number_code')
-      return null
+      {
+        const why = chargesProblem(p.charges)
+        return why ? bad(why) : null
+      }
     case 'check.covers_set':
       return Number.isInteger(p.covers) && p.covers >= 0 && p.covers <= 500 ? null : bad('covers')
     case 'check.table_moved':
@@ -170,7 +191,7 @@ export function eventProblem(e) {
       if (!isUuid(p.order_type_id)) return bad('order_type_id')
       if (p.tab_name !== undefined && !optText(p.tab_name, 80)) return bad('tab_name')
       if (p.tent !== undefined && !optText(p.tent, 20)) return bad('tent')
-      const r = ratesProblem(p.lines)
+      const r = ratesProblem(p.lines) || chargesProblem(p.charges)
       return r ? bad(r) : null
     }
     case 'check.tent_set':
@@ -230,6 +251,8 @@ export function eventProblem(e) {
       if (!isText(d.name || '', 80)) return bad('discount.name')
       if (!isText(d.reason || '', 200)) return bad('discount.reason')
       if (d.loyalty_redemption_id != null && (!isUuid(d.loyalty_redemption_id) || d.comp)) return bad('discount.loyalty_redemption_id')
+      // One of the discounts set up in Store tech (shared/pos/discounts.js).
+      if (d.preset_id != null && (!isUuid(d.preset_id) || d.comp || d.loyalty_redemption_id != null)) return bad('discount.preset_id')
       if (d.comp && !(d.reason || '').trim()) return bad('a comp needs a reason')
       return null
     }
@@ -245,11 +268,16 @@ export function eventProblem(e) {
         if (typeof x.lines !== 'object' || Object.entries(x.lines || {}).some(([k, v]) => !isId(k) || !isPence(v))) return bad('promotion lines')
       }
       return null
-    case 'service_charge.set':
-      if (p.percent != null && !(typeof p.percent === 'number' && p.percent >= 0 && p.percent <= 50)) return bad('percent')
-      if (p.amount != null && !isPence(p.amount)) return bad('amount')
-      if (p.vat_rate != null && !(typeof p.vat_rate === 'number' && p.vat_rate >= 0 && p.vat_rate <= 100)) return bad('vat_rate')
-      return optText(p.reason, 200) ? null : bad('reason')
+    // Charges (shared/pos/charges.js).
+    case 'charge.added': {
+      const why = chargeProblem(p.charge)
+      return why ? bad(why) : null
+    }
+    case 'charge.removed':
+      if (!isRef(p.charge_id)) return bad('charge_id')
+      return isText(p.reason, 200) && p.reason.trim() ? null : bad('reason')
+    case 'charge.restored':
+      return isRef(p.charge_id) ? null : bad('charge_id')
     case 'lines.moved':
       if (!isId(p.to_check_id) || p.to_check_id === e.check_id) return bad('to_check_id')
       return Array.isArray(p.line_ids) && p.line_ids.length && p.line_ids.every(isId) ? null : bad('line_ids')
@@ -346,7 +374,8 @@ function newCheck(e) {
     discounts: [],
     promotions: [],
     loyalty: null,
-    service_charge: p.service_charge ? { percent: Number(p.service_charge.percent) || 0, vat_rate: Number(p.service_charge.vat_rate) || 0, removed: false, reason: null } : null,
+    // The order type's charges (shared/pos/charges.js), as the till worked them out.
+    charges: (p.charges || []).map(x => onCheck(x)),
     payments: [],
     refunds: [],
     bills: 0,
@@ -364,7 +393,8 @@ const OPEN_ONLY = new Set([
   'check.covers_set', 'check.table_moved', 'check.server_changed', 'check.stream_set',
   'check.order_type_set', 'check.tent_set', 'check.renamed',
   'line.added', 'line.changed', 'line.deleted', 'lines.sent', 'course.fired', 'line.voided',
-  'discount.applied', 'discount.removed', 'promotions.set', 'service_charge.set',
+  'discount.applied', 'discount.removed', 'promotions.set',
+  'charge.added', 'charge.removed', 'charge.restored',
   'lines.moved', 'check.merged', 'payment.added', 'payment.voided', 'check.closed',
 ])
 
@@ -372,7 +402,8 @@ const OPEN_ONLY = new Set([
  * Apply one check event.
  *   checks  { [id]: check } with every check in checksTouched(event) that exists
  *   ctx     { staffById, settings } (shared/pos/permissions.js shapes; settings
- *           = the venue's till settings, for its approvals switches)
+ *           = the venue's till settings: its approvals switches and its list
+ *           of discounts, settings.discounts, shared/pos/discounts.js)
  * Returns { ok: true, checks: { [id]: check } } with only the checks it
  * changed (new objects; the input is never changed), or { ok: false, error, code }.
  */
@@ -449,6 +480,15 @@ export function applyEvent(checks, e, ctx = {}) {
       if (p.tab_name !== undefined) c.tab_name = p.tab_name || null
       if (p.tent !== undefined) c.tent = p.tent || null
       rerate(p.lines)
+      // The new type's charges; one taken off stays off (also after a round
+      // trip through another type), typed-in ones stay.
+      if (p.charges !== undefined) {
+        const next = switchCharges(c.charges || [], p.charges || [], c.charges_off)
+        c.charges = next.charges
+        if (Object.keys(next.off).length) c.charges_off = next.off
+        else delete c.charges_off
+      }
+      c.billed = false
       break
 
     case 'check.tent_set':
@@ -604,6 +644,14 @@ export function applyEvent(checks, e, ctx = {}) {
         // (shared/loyalty.js loyaltyProblem); no discount permission needed.
         if (!c.loyalty?.member_id) return fail('Add the member to the check first', 'loyalty')
         if (c.discounts.some(x => x.loyalty_redemption_id === d.loyalty_redemption_id)) return fail('This reward is already on the check', 'duplicate')
+      } else if (d.preset_id) {
+        // One of the discounts set up in Store tech (shared/pos/discounts.js):
+        // its own type, value and scope; a manager only when it says so.
+        const preset = discountList(ctx.settings).find(x => x.id === d.preset_id)
+        if (!preset) return fail('This discount isn\'t on the till\'s list any more', 'preset')
+        const why = presetMismatch(preset, d)
+        if (why) return fail(why, 'preset')
+        if (preset.needs_manager) { const no = needManager(MANAGER_ALWAYS); if (no) return no }
       } else if (d.comp) {
         const no = need('comp'); if (no) return no
       } else {
@@ -617,12 +665,15 @@ export function applyEvent(checks, e, ctx = {}) {
           pct = Math.min(100, Math.ceil(d.value * 100 / base))
         }
         const no = need('discount', pct); if (no) return no
+        // The venue's switch: a discount typed in needs a manager every time.
+        const sw = needManager('custom_discount'); if (sw) return sw
       }
       c.discounts.push({
         id: d.id, scope: d.scope, line_ids: d.scope === 'line' ? d.line_ids : [],
         type: d.comp ? 'percent' : d.type, value: d.comp ? 100 : d.value, comp: !!d.comp,
         name: (d.name || (d.comp ? 'Comp' : 'Discount')).trim(), reason: (d.reason || '').trim() || null,
         ...(d.loyalty_redemption_id ? { loyalty_redemption_id: d.loyalty_redemption_id } : {}),
+        ...(d.preset_id ? { preset_id: d.preset_id } : {}),
         by: e.staff_id, approved_by: e.approved_by || null, at: e.client_at ?? null, day_id: e.assigned?.day_id ?? null,
       })
       c.billed = false
@@ -640,16 +691,44 @@ export function applyEvent(checks, e, ctx = {}) {
       c.promotions = p.promotions.map(x => ({ promotion_id: x.promotion_id, name: x.name, ...(x.kind === 'combo' ? { kind: 'combo', count: x.count || 1 } : {}), lines: x.lines }))
       break
 
-    case 'service_charge.set':
-      if (p.removed) c.service_charge = c.service_charge ? { ...c.service_charge, removed: true, reason: p.reason || null } : null
-      else c.service_charge = {
-        percent: p.amount != null ? null : (p.percent ?? c.service_charge?.percent ?? 0),
-        amount: p.amount ?? null,
-        vat_rate: p.vat_rate ?? c.service_charge?.vat_rate ?? 0,
-        removed: false, reason: null,
-      }
+    case 'charge.added': {
+      // A charge typed on the till: always one staff may take off again.
+      const list = c.charges || []
+      if (list.some(x => x.id === p.charge.id)) return fail('This charge is on the check already', 'duplicate')
+      if (list.length >= CHECK_CHARGES_MAX) return fail('This check has as many charges as it can take', 'charges')
+      c.charges = [...list, onCheck({ ...p.charge, optional: true, min_covers: 0 }, {
+        added: true, added_by: e.staff_id, added_at: e.client_at ?? null,
+      })]
       c.billed = false
       break
+    }
+
+    case 'charge.removed': {
+      const x = (c.charges || []).find(y => y.id === p.charge_id)
+      if (!x) return fail('Charge not found', 'missing')
+      if (x.removed) return fail('This charge is off the check already', 'duplicate')
+      // Optional ones by anyone (unless the venue's switch says a manager);
+      // ones that aren't optional by a manager every time.
+      const no = needManager(x.optional ? 'remove_charge' : MANAGER_ALWAYS)
+      if (no) return no
+      c.charges = c.charges.map(y => y.id !== x.id ? y : {
+        ...y, removed: true, reason: p.reason.trim(), removed_by: e.staff_id,
+        approved_by: e.approved_by || null, removed_at: e.client_at ?? null,
+      })
+      c.billed = false
+      break
+    }
+
+    case 'charge.restored': {
+      const x = (c.charges || []).find(y => y.id === p.charge_id)
+      if (!x) return fail('Charge not found', 'missing')
+      if (!x.removed) return fail('This charge is on the check', 'duplicate')
+      c.charges = c.charges.map(y => y.id !== x.id ? y : {
+        ...y, removed: false, reason: null, removed_by: null, approved_by: null, removed_at: null,
+      })
+      c.billed = false
+      break
+    }
 
     case 'lines.moved': {
       const target = checks[p.to_check_id]

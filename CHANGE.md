@@ -5,6 +5,20 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-31 — Till: charges per order type and a list of discounts]
+
+Migration: `225_order_type_charges_discounts.sql` (`order_types.charges`, new `pos_discounts`; the revenue stream's service charge and the venue's service charge label are gone. A group whose active streams all charged the same service charge keeps it as an optional charge on its Eat in order type. A Discounts link is added to every Store tech menu after Order types).
+
+- **Charges per order type** (Store tech, Order types, the type's window): as many as it needs, each a percent of the bill or an amount (a service charge, a packaging or delivery fee, a large party charge), optional or not, from a number of guests if wanted, with or without VAT. The check, Pay, the bill and the receipt show each charge by its name.
+- **Taking a charge off** (the check's More, Charges): an optional charge comes off with a reason; one that isn't optional needs a manager every time. **Put back** brings it back, and **Add a charge** adds one of your own to this check (optional, no VAT). A charge taken off stays off when the order type is changed and changed back.
+- **Discounts** (new, Store tech): the company's discounts the till offers by name, like Staff meal 50% or NHS 10%, in the order you drag them to: a percent or an amount, on the whole check, on items or either, and whether it needs a manager every time. They show at the top of the till's Discount window.
+- **Two more "Needs a manager every time" switches** (Store tech, Receipts and payments): taking an optional charge off, and discounts typed in on the till.
+- **Cash Recon link**: a service charge source can be filled from all charges together, from one charge by its name, and from tips. The same money is never counted twice.
+- **Till reports** list each charge (how often it was on, the amount, and how often it was taken off and what that came to); a check's history says who took a charge off and why.
+- Revenue streams and Receipts and payments no longer have the service charge settings (they moved to the order types).
+
+---
+
 ## [2026-10-31 — Till: swipe, drag between courses, Cancel order, exact payments, receipts and manager switches]
 
 Migration: `224_till_receipts_approvals.sql` (`pos_settings.receipt_mode`, `pos_settings.approvals`).
