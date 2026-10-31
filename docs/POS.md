@@ -378,7 +378,7 @@ ordering, the Deliveroo file, Cash Recon fill through the Z, reports).
   `check.order_type_set` / `check.stream_set` carry the re-rated lines, so a type changed
   offline is applied with the rates the till showed. `check.tent_set` sets the tent number.
   Name and tent can be required per stream and type: the till asks at counter start, Send and
-  Pay.
+  Pay, on its full-screen order prompt (section 8.6).
 - **Kitchen**: kitchen orders carry `type` (the order type id), `type_name` and `tent`; flow
   links filter on the tenant's types; the kitchen screen's tabs are the tenant's types. What a
   ticket's title and an order ready board's tile show (number, tent, table, name) comes from
@@ -515,6 +515,21 @@ runner in `settings.discounts`. A discount from the list goes on with its `prese
 type, value and scope checked against the list; it needs no discount permission, or a manager
 every time when marked so. Discounts typed in keep the role's limit and can be put behind a
 manager with the venue's `custom_discount` switch (`MANAGER_ACTIONS`).
+
+### 8.6 The order prompt (migration 226, 31 Oct 2026)
+
+A counter order, a tab, More → Order type / Name / Tent number, and the missing details at Send
+and Pay all go through one screen, `pos/src/components/OrderPrompt.jsx`. It covers the till and
+brings its own keys (letters for the name, a number pad for the tent), because a tablet's own
+keyboard is unreliable for this (it covers half the screen, and some tablets never show it) and
+staff type the same few things all day. The inputs are `inputMode="none"` but keep the focus, so
+a keyboard plugged in still types. Two ways, per venue (`pos_settings.order_prompt`) with a
+till's own choice (`pos_devices.settings.order_prompt`): `one`, the types above the fields on one
+screen, and `two`, big type buttons first, then only what that type asks. A type that asks for
+nothing finishes on the tap. Nothing changed in the events: the prompt hands back
+`{ typeId, name, tent }` and the callers open or change the check as before (`check.opened`,
+`check.order_type_set` with the re-rated lines and charges and any new name or tent,
+`check.renamed`).
 
 ---
 

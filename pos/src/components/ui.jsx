@@ -57,6 +57,46 @@ export function Keypad({ value, onChange, decimal = false, max = 8, big = false 
   )
 }
 
+// Letters for a name (the order prompt, a tab's name): a capital at the
+// start of each word and small letters after, as names are written; Shift
+// turns the next letter the other way (MacDonald). Digits for "Party of 12".
+const KEY_ROWS = ['1234567890', 'QWERTYUIOP', 'ASDFGHJKL', 'ZXCVBNM']
+
+/** Letters keyboard. value is the text; onChange gets the new text. */
+export function Keyboard({ value, onChange, max = 80 }) {
+  const [shift, setShift] = useState(false)
+  // Capitals now: at the start of a word, unless Shift says otherwise.
+  const caps = (!value || /[\s\-']$/.test(value)) !== shift
+  const type = ch => {
+    if (value.length >= max) return
+    setShift(false)
+    onChange(value + (/[A-Z]/.test(ch) && !caps ? ch.toLowerCase() : ch))
+  }
+  const space = () => { if (value && !/\s$/.test(value) && value.length < max) onChange(value + ' ') }
+  return (
+    <div className="space-y-2 select-none" data-testid="keyboard">
+      {KEY_ROWS.map((row, i) => (
+        <div key={row} className={cx('flex gap-1.5 justify-center', i === 2 && 'px-[4.5%]', i === 3 && 'px-[9%]')}>
+          {[...row].map(k => (
+            <button key={k} type="button" className={cx('btn flex-1 min-w-0 px-0 text-xl', i === 0 ? 'h-12 text-lg' : 'h-14')} data-key={k}
+              onClick={() => type(k)}>
+              {/[A-Z]/.test(k) && !caps ? k.toLowerCase() : k}
+            </button>
+          ))}
+        </div>
+      ))}
+      <div className="flex gap-1.5">
+        <button type="button" className={cx('btn h-14 px-3 basis-[14%]', shift && 'btn-primary')} aria-pressed={shift} data-key="shift" onClick={() => setShift(v => !v)}>Shift</button>
+        <button type="button" className="btn h-14 px-0 basis-[8%] text-xl" data-key="'" onClick={() => type("'")}>'</button>
+        <button type="button" className="btn h-14 px-0 basis-[8%] text-xl" data-key="-" onClick={() => type('-')}>-</button>
+        <button type="button" className="btn h-14 flex-1" data-key="space" onClick={space}>Space</button>
+        <button type="button" className="btn h-14 px-3 basis-[12%]" data-key="clear" onClick={() => { setShift(false); onChange('') }}>Clear</button>
+        <button type="button" className="btn h-14 px-3 basis-[12%]" data-key="del" aria-label="Delete" onClick={() => onChange(value.slice(0, -1))}><Delete size={22} /></button>
+      </div>
+    </div>
+  )
+}
+
 /**
  * PIN entry: dots and a keypad. PINs are 4 to 6 digits, so it quietly tries
  * at 4, 5 and 6 digits and says "not recognised" only at 6 or on OK.

@@ -123,6 +123,29 @@ export function receiptModeOf(config) {
   return config?.settings?.receipt_mode || 'ask'
 }
 
+/**
+ * How the till asks for a new order's order type, name and tent number
+ * (components/OrderPrompt.jsx, migration 226): the till's own choice
+ * (Store tech, Tills) else the venue's: 'one' (one screen) | 'two' (two steps).
+ */
+export function orderPromptOf(config) {
+  const own = config?.device?.settings?.order_prompt
+  if (own === 'one' || own === 'two') return own
+  return config?.settings?.order_prompt === 'two' ? 'two' : 'one'
+}
+
+/**
+ * Whether a new order in a stream has anything to ask: a choice of order
+ * types, or a name or tent number the only type asks for. (A tab always has
+ * its name to ask, so `name` makes the name count.)
+ */
+export function newOrderAsks(config, streamId, { name = false } = {}) {
+  const types = streamTypes(config, streamId)
+  if (types.length > 1) return true
+  const t = types[0]
+  return !!t && (name || t.ask_name !== 'off' || t.ask_tent !== 'off')
+}
+
 /** A line as new again (Undo after taking it off): same dish, choices and price, a new id. */
 export function copyOfLine(l) {
   return {

@@ -47,7 +47,7 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
 
   // A new check whose order type needs a name or tent number asks for it first.
   useEffect(() => {
-    if (check && !check.lines.length && missingDetails(check, config).length) setModal({ kind: 'type' })
+    if (check && !check.lines.length && missingDetails(check, config).length) setModal({ kind: 'type', start: 'details' })
   }, [checkId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!check) {
@@ -68,7 +68,7 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
   const needDetails = () => {
     if (!missing.length) return false
     toast('Enter ' + missing.map(m => (m === 'name' ? 'a customer name' : 'a tent number')).join(' and ') + ' first', 'bad')
-    setModal({ kind: 'type' })
+    setModal({ kind: 'type', start: 'details' })
     return true
   }
   const unsent = check.lines.filter(l => l.status === 'new').length
@@ -224,7 +224,7 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
       {modal?.kind === 'name' && <NameModal check={check} onClose={close} />}
       {modal?.kind === 'server' && <ServerModal check={check} config={config} onClose={close} />}
       {modal?.kind === 'stream' && <StreamModal check={check} config={config} onClose={close} />}
-      {modal?.kind === 'type' && <OrderTypeModal check={check} config={config} onClose={close} />}
+      {modal?.kind === 'type' && <OrderTypeModal check={check} config={config} start={modal.start} onClose={close} />}
       {modal?.kind === 'tent' && <OrderTypeModal check={check} config={config} focus="tent" onClose={close} />}
       {modal?.kind === 'covers' && <GuestsModal check={check} config={config} onClose={close} />}
       {modal?.kind === 'open_item' && <OpenItemModal check={check} config={config} onClose={close} />}

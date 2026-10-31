@@ -3326,8 +3326,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['pos_days', 'Trading days: business_date (from day_starts_at), z_number, figures jsonb at Z, declared_cash, recon_filled_at / recon_error. One open per venue.'],
                 ['pos_venue_state', 'last_seq, next_z_number, device_numbers jsonb { device_id: { date, check, order } } (each till\'s or kiosk\'s highest numbers per trading day, migration 217; next_check_no / next_order_no dropped).'],
                 ['pos_print_jobs', 'Print queue (ops jsonb from tickets.js), status queued | printing | printed | failed, for the hub.'],
-                ['pos_devices', 'Tills, kitchen screens, kiosks and venue hubs: kind terminal | kds | kiosk | hub, short_code, secret_hash, pairing_code_hash + pairing_expires_at (only the move hand-over code of POST /pos-api/move), settings jsonb (mode, revenue_stream_id, receipt_printer_id, floor_area_id, order_numbers { from, to } for tills and kiosks (migration 217); a hub\'s auto_update), pending_changes + pending_at (changes the device says it hasn\'t sent, X-Pos-Pending), revoked_at; a hub\'s info + info_at (what it says about itself) and update_requested_at (migration 195).'],
-                ['pos_settings', 'Per venue: pin_salt, day_starts_at, receipt texts, tenders jsonb, tips, require_covers, auto_logout_secs, recon_map, recon_auto_fill. (Migration 170 dropped the VAT defaults and counter_revenue_centre_id.)'],
+                ['pos_devices', 'Tills, kitchen screens, kiosks and venue hubs: kind terminal | kds | kiosk | hub, short_code, secret_hash, pairing_code_hash + pairing_expires_at (only the move hand-over code of POST /pos-api/move), settings jsonb (mode, revenue_stream_id, receipt_printer_id, floor_area_id, order_numbers { from, to } for tills and kiosks (migration 217), receipt_mode venue | ask | always | never (224) and order_prompt venue | one | two (226) for tills; a hub\'s auto_update), pending_changes + pending_at (changes the device says it hasn\'t sent, X-Pos-Pending), revoked_at; a hub\'s info + info_at (what it says about itself) and update_requested_at (migration 195).'],
+                ['pos_settings', 'Per venue: pin_salt, day_starts_at, receipt texts, tenders jsonb, tips, require_covers, auto_logout_secs, recon_map, recon_auto_fill, approvals jsonb and receipt_mode ask | always | never (224), order_prompt one | two (226: how the till asks a new order\'s type, name and tent number). (Migration 170 dropped the VAT defaults and counter_revenue_centre_id.)'],
                 ['pos_revenue_streams', 'Migration 170 (was pos_revenue_centres): name, menu_ids, colour, sort_order, is_active, default_order_type_id (its single service charge went to the order types\' charges, migration 225). Which order types it offers and what each asks for: pos_stream_order_types (stream_id, order_type_id, enabled, ask_name / ask_tent off | ask | required; no row = off). See Tax, Order Types & Streams.'],
                 ['order_types.charges', 'Migration 225: jsonb array, the charges a till check of the type gets (shared/pos/charges.js): { id, name, kind percent | amount, value (percent to 50, or pence to 100000), optional, min_covers 0-100, tax_rate_id | null }, at most 6, in order. See Charges and discounts.'],
                 ['pos_discounts', 'Migration 225, tenant-wide, forced RLS: the discounts the till offers by name: name, kind percent | amount, value numeric(10,2) (percent 0.01-100, or whole pence 1-100000, CHECK), scope any | check | line, needs_manager, sort_order. Reaches every rule runner as settings.discounts.'],
@@ -3530,6 +3530,38 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>pos_revenue_streams.service_charge_percent</Mono> / <Mono>_min_covers</Mono> and{' '}
               <Mono>pos_settings.service_charge_label</Mono>, and added the Discounts menu link after Order types. Tests:{' '}
               <Mono>shared/pos/test/charges.test.mjs</Mono>, <Mono>api/test/till-charges.test.mjs</Mono>.
+            </P>
+            <H3>The order prompt (migration 226)</H3>
+            <P>
+              <Mono>pos/src/components/OrderPrompt.jsx</Mono> is the one place the till asks for a check&apos;s order type,
+              customer name and tent number. It covers the screen (<Mono>fixed inset-0 z-50</Mono>) and brings its own keys:{' '}
+              <Mono>Keyboard</Mono> in <Mono>components/ui.jsx</Mono> (letters, digits, Shift once, &apos; and -, Space,
+              Clear, Delete; a capital at the start and after a space, hyphen or apostrophe, Shift turning that round for
+              one letter) for the name and the big <Mono>Keypad</Mono> (6 digits) for the tent number. The inputs are{' '}
+              <Mono>inputMode=&quot;none&quot;</Mono> (no tablet keyboard) but keep the DOM focus, so a keyboard plugged in
+              types there too (Enter: the next empty field, else Done); the keys&apos; wrapper cancels{' '}
+              <Mono>mousedown</Mono> so tapping a key never takes the focus. Props: <Mono>types</Mono> (the stream&apos;s{' '}
+              <Mono>streamTypes()</Mono>), <Mono>promptsOf(typeId)</Mono> (off | ask | required per field, usually{' '}
+              <Mono>promptsFor()</Mono>), <Mono>style</Mono>, <Mono>start</Mono> (<Mono>details</Mono> skips step 1),{' '}
+              <Mono>onDone(&#123; typeId, name, tent &#125;)</Mono> (a field the type doesn&apos;t ask keeps the value it came
+              with), <Mono>noteFor</Mono>. The field the keys type into is state picked when the type is picked (its first
+              empty field) or a field is tapped, never moved by typing; the style is frozen when the prompt opens, so a
+              setting pushed meanwhile can&apos;t change the screen under the person&apos;s finger. Tapping a type that asks
+              for nothing calls <Mono>onDone</Mono> straight away; with nothing to choose or ask it never shows.
+            </P>
+            <P>
+              <Mono>pos_settings.order_prompt</Mono> (<Mono>one</Mono> default | <Mono>two</Mono>, CHECK) and a till&apos;s
+              own <Mono>pos_devices.settings.order_prompt</Mono> (<Mono>venue</Mono> | <Mono>one</Mono> | <Mono>two</Mono>,
+              Zod in <Mono>routes/posSetup.js</Mono>); <Mono>orderPromptOf(config)</Mono> in{' '}
+              <Mono>pos/src/lib/checkOps.js</Mono> decides. One screen shows the types as a row above the fields; two steps
+              shows big type buttons first, then the fields with Back. Callers: <Mono>screens/Counter.jsx</Mono> (New order,
+              or the first dish when <Mono>newOrderAsks()</Mono>: more than one type, or the only type asks something; the
+              answers wait on the left with Change / clear until a dish opens the check), <Mono>NewTabModal</Mono> in{' '}
+              <Mono>screens/Floor.jsx</Mono> (the name is at least <Mono>ask</Mono>: it is how a tab is found),{' '}
+              <Mono>OrderTypeModal</Mono> / <Mono>NameModal</Mono> in <Mono>components/CheckActions.jsx</Mono> (More → Order
+              type, Tent number, Name; the events and the re-rating are unchanged) and <Mono>Check.jsx</Mono>&apos;s missing
+              details at Send / Pay (<Mono>start: &apos;details&apos;</Mono>). Tests:{' '}
+              <Mono>api/test/till-order-prompt.test.mjs</Mono>.
             </P>
             <H3>Device kinds and app updates</H3>
             <P>

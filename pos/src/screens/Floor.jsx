@@ -5,10 +5,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Plus, Users, Hourglass, ReceiptText } from 'lucide-react'
 import { useTill, useChecks, toast, serverName } from '../lib/store.js'
-import { openCheck, defaultStreamId, typeOf } from '../lib/checkOps.js'
+import { openCheck, defaultStreamId, typeOf, streamTypes, defaultTypeId, promptsFor, orderPromptOf } from '../lib/checkOps.js'
 import { checkTotals } from '@shared/pos/pricing.js'
 import { checkLabel, heldCourses } from '@shared/pos/checks.js'
 import { Modal, Keypad, cx, money, elapsed, useTick } from '../components/ui.jsx'
+import OrderPrompt from '../components/OrderPrompt.jsx'
 
 const LIST = '__list'
 
@@ -221,22 +222,26 @@ export function CoversModal({ title, max, onClose, onDone, initial = '' }) {
   )
 }
 
+// A tab: a check without a table (bar tabs, people waiting, collections). It
+// starts in the till's revenue stream; the order prompt asks its order type,
+// its name (always offered: it is how the tab is found) and the tent number
+// when the type asks for one.
 function NewTabModal({ onClose, onOpen }) {
   const { config } = useTill()
-  const [name, setName] = useState('')
-  const start = () => {
-    const r = openCheck({ mode: 'tab', tab_name: name.trim() || null })
+  const streamId = defaultStreamId(config)
+  const types = streamTypes(config, streamId)
+  const promptsOf = id => {
+    const p = promptsFor(config, streamId, id)
+    return { ask_name: p.ask_name === 'off' ? 'ask' : p.ask_name, ask_tent: p.ask_tent }
+  }
+  const start = ({ typeId, name, tent }) => {
+    const r = openCheck({ mode: 'tab', tab_name: name || null, revenue_stream_id: streamId, order_type_id: typeId, tent: tent || null })
     if (!r.ok) return toast(r.error, 'bad')
     onOpen(r.checkId)
   }
   return (
-    <Modal title="New tab" onClose={onClose} footer={<button className="btn btn-primary" onClick={start}><Plus size={18} /> Open tab</button>}>
-      <label className="block">
-        <span className="label">Name (optional)</span>
-        <input className="input mt-1" autoFocus value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Smith, bar stool 3" maxLength={80} />
-      </label>
-      <div className="text-sm text-muted mt-3">A tab is a check without a table: bar tabs, people waiting, collections.</div>
-      {(config.revenue_streams || []).length > 1 && <div className="text-xs text-muted mt-2">It starts in this till's revenue stream; change it on the check.</div>}
-    </Modal>
+    <OrderPrompt title="New tab" types={types} typeId={defaultTypeId(config, streamId)} promptsOf={promptsOf}
+      style={orderPromptOf(config)} doneLabel="Open tab" onDone={start} onClose={onClose}
+      noteFor={() => 'A tab is a check without a table: bar tabs, people waiting, collections.'} />
   )
 }
