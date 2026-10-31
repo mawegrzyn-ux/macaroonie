@@ -5,6 +5,18 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-30 — Ops: Today tile, tiles with things to do, a tidier orders screen, later ordering hours]
+
+Migration 223 (`ordering_settings.hours_extension`).
+
+- **Today on the phone**: the first tile opens the Today list (Late, Now, Next, Later) in one column. Checks and checklists open their form right there; purchase orders, the cash-up and online orders open the phone's own pages.
+- **Tiles show what's to do**: H&S Dashboard, Purchasing, Cash Up, Online orders and Today show how many things there are to do today, red when one is late. They follow the venue picked on Today.
+- **Dashboards** are off the phone (the H&S Dashboard stays); an old link opens the home screen.
+- **Online orders on the phone**: Sold out, pause, hours and sound in one row; pause and sound are icons, pause asks for its message in a window.
+- **Take orders later tonight**: the clock button (Hours today on the desktop board) picks a closing time for today's online ordering: guests can choose collection times up to then, today only. Back to the usual hours undoes it. On a day with no ordering hours it opens ordering from now.
+
+---
+
 ## [2026-10-30 — Ops: the restaurant in the top bar]
 
 - The phone app's top bar shows the restaurant you're working in next to the page's title (**Ops** on the home screen), on every page. The switch button (two arrows) sits next to sign out and replaces the Working in card on the home screen; after a switch, the page you were on opens again in the other restaurant.

@@ -33,7 +33,7 @@ import AppShell    from '@/components/layout/AppShell'
 import MobileShell from '@/components/mobile/MobileShell'
 import MobileHub   from '@/pages/mobile/MobileHub'
 import MobileHSDashboard from '@/pages/mobile/MobileHSDashboard'
-import MobileDashboards from '@/pages/mobile/MobileDashboard'
+import MobileToday from '@/pages/mobile/MobileToday'
 import MobileExpenses from '@/pages/mobile/MobileExpenses'
 import MobilePurchasing from '@/pages/mobile/MobilePurchasing'
 import MobileCashUp from '@/pages/mobile/MobileCashUp'
@@ -292,8 +292,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(
               </Route>
               <Route path="mobile" element={IS_INSTALLER_HOST ? <Navigate to="/install" replace /> : <MobileShell />}>
                 <Route index          element={<MobileHub />} />
+                <Route path="today"        element={<MobileToday />} />
                 <Route path="hs-dashboard" element={<MobileHSDashboard />} />
-                <Route path="dashboards"   element={<MobileDashboards />} />
                 <Route path="expenses"     element={<MobileExpenses />} />
                 <Route path="purchasing" element={<MobilePurchasing />} />
                 <Route path="cash-up"      element={<MobileCashUp />} />
@@ -301,6 +301,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 <Route path="orders"       element={<MobileOrders />} />
                 <Route path="allergens"    element={<MobileAllergens />} />
                 <Route path="assistant"    element={<MobileAssistant />} />
+                {/* A page the phone no longer has (Dashboards): the hub. */}
+                <Route path="*"            element={<Navigate to="/mobile" replace />} />
               </Route>
             </Routes>
             </TenantGate>

@@ -12,7 +12,7 @@ import { useQuery } from '@tanstack/react-query'
 import { ShoppingBag, ChevronLeft, ChevronRight, Settings2, Ban, Loader2, BadgePercent } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn, openPicker } from '@/lib/utils'
-import { OrderBoard, AvailabilityModal, PauseButton, useOrders, money, todayIn } from '@/components/orders/shared'
+import { OrderBoard, AvailabilityModal, PauseButton, HoursButton, HoursNotice, useOrders, money, todayIn } from '@/components/orders/shared'
 import { usePermission } from '@/hooks/usePermission'
 import { usePepperPage } from '@/lib/pepperPage'
 import { TransactionsReport } from '@/components/orders/TransactionsReport'
@@ -106,10 +106,12 @@ export default function Orders() {
                   <Ban className="w-4 h-4" /> Sold out
                 </button>
               )}
+              <HoursButton venueId={venueId} ordering={ordering} />
               <PauseButton venueId={venueId} ordering={ordering} />
             </div>
           )}
         </div>
+        {tab === 'board' && <HoursNotice ordering={ordering} />}
 
         {ordering?.is_paused && tab === 'board' && (
           <div className="mb-4 rounded-md bg-amber-100 text-amber-900 p-3 text-sm font-medium">

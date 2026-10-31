@@ -90,7 +90,7 @@ const toMins = t => { const [h, m] = String(t).slice(0, 5).split(':').map(Number
 // ── Settings ────────────────────────────────────────────────────
 
 const SETTINGS_DEFAULTS = {
-  is_enabled: false, is_paused: false, pause_message: null, hours: [], menu_ids: [], menu_schedules: {},
+  is_enabled: false, is_paused: false, pause_message: null, hours: [], hours_extension: null, menu_ids: [], menu_schedules: {},
   allow_asap: true, lead_time_mins: 20, slot_interval_mins: 15, max_orders_per_slot: null,
   max_days_ahead: 0, min_order_pence: 0, auto_accept: false,
   order_type_ids: {}, revenue_stream_id: null,
@@ -363,15 +363,77 @@ async function slotCounts(tx, venueId, date, tz, slotMins, excludeOrderId = null
   return counts
 }
 
+// A day's ordering windows (venue time, sorted), with that day's extension
+// from the orders board (migration 223): the last window closes at `until`,
+// or a day with none opens at `open` until `until`. The one rule: slots,
+// ASAP, order placement and the board's hours all come from it.
+export function dayWindows(settings, date) {
+  const dow = new Date(date + 'T00:00:00Z').getUTCDay()
+  const day = (settings.hours || []).find(h => Number(h.day) === dow)
+  let windows = (day?.windows || [])
+    .filter(w => w.open && w.close && toMins(w.close) >= toMins(w.open))
+    .map(w => ({ open: hhmm(toMins(w.open)), close: hhmm(toMins(w.close)) }))
+    .sort((a, b) => toMins(a.open) - toMins(b.open))
+  const ext = extensionOn(settings, date)
+  if (ext) {
+    const until = toMins(ext.until)
+    if (windows.length) {
+      const last = windows[windows.length - 1]
+      if (until > toMins(last.close)) windows = [...windows.slice(0, -1), { open: last.open, close: hhmm(until) }]
+    } else if (ext.open && until > toMins(ext.open)) {
+      windows = [{ open: hhmm(toMins(ext.open)), close: hhmm(until) }]
+    }
+  }
+  return windows
+}
+
+// A time of day as HH:MM, 00:00 to 23:59.
+const isTime = t => /^([01]\d|2[0-3]):[0-5]\d$/.test(t || '')
+function extensionOn(settings, date) {
+  const ext = settings.hours_extension
+  if (!ext || ext.date !== date || !isTime(ext.until)) return null
+  if (ext.open != null && !isTime(ext.open)) return null
+  return ext
+}
+
+// Today's ordering hours for the board's clock button: the usual windows,
+// the windows with any extension, and the extension itself.
+export function todayHours(settings, venue, now = new Date()) {
+  const { date, minutes } = localParts(now, venue.timezone)
+  const usual = dayWindows({ ...settings, hours_extension: null }, date)
+  const ext = extensionOn(settings, date)
+  return {
+    date, now: hhmm(minutes), usual,
+    windows: dayWindows(settings, date),
+    extended: ext ? { until: ext.until, open: ext.open ?? null, by: ext.by ?? null, at: ext.at ?? null } : null,
+  }
+}
+
+// Extending today's hours (or putting them back with until = null). `until`
+// must be later than now and, on a day with windows, later than its usual
+// close; nothing past 23:59 (windows don't cross midnight).
+export function extensionFor(settings, venue, until, { now = new Date(), by = null } = {}) {
+  if (until == null) return null
+  const { date, minutes } = localParts(now, venue.timezone)
+  if (!isTime(until)) throw httpError(400, 'Pick a time today, up to 23:59')
+  const usual = dayWindows({ ...settings, hours_extension: null }, date)
+  const at = toMins(until)
+  if (at <= minutes) throw httpError(422, `Pick a time later than now (${hhmm(minutes)})`)
+  if (usual.length) {
+    const close = usual[usual.length - 1].close
+    if (at <= toMins(close)) throw httpError(422, `Online ordering already runs until ${close} today: pick a later time`)
+    return { date, until, open: null, by, at: now.toISOString() }
+  }
+  return { date, until, open: hhmm(Math.floor(minutes / 5) * 5), by, at: now.toISOString() }
+}
+
 // Collection times for one day. `now` is a Date. `isOn(minutes)` (optional)
 // says whether the basket's dishes are on the menu at that minute of the
 // day (menu schedules, migration 130); times when they aren't are left out.
 export async function computeSlots(tx, { venue, settings, date, now = new Date(), isOn = null }) {
   const tz = venue.timezone
   const today = localParts(now, tz).date
-  const dow = new Date(date + 'T00:00:00Z').getUTCDay()
-  const day = (settings.hours || []).find(h => Number(h.day) === dow)
-  const windows = (day?.windows || []).filter(w => w.open && w.close && toMins(w.close) >= toMins(w.open))
+  const windows = dayWindows(settings, date)
   const interval = settings.slot_interval_mins
   const slotMins = slotMinutesFor(windows, interval)
   const lastDate = addDays(today, settings.max_days_ahead)

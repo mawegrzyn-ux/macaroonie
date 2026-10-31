@@ -286,6 +286,8 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx', loy
     menu_ids: menu ? [menu.id] : [], lead_time_mins: 15, slot_interval_mins: 15, max_orders_per_slot: 10, max_days_ahead: 2,
     min_order_pence: 0, payment_methods: ['pay_at_venue'],
   }))
+  // Today's ordering hours back to the usual ones (migration 223): no time of day needed.
+  await step('ordering hours today', () => post(`/api/orders/hours/${V}`, { until: null }))
   await step('online order', async () => {
     const [o] = await sql`
       INSERT INTO orders (tenant_id, venue_id, service_date, order_number, promised_at, guest_name, guest_email, subtotal_pence, total_pence, payment_method, status)

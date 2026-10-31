@@ -26,7 +26,7 @@ import { TempChecksTable, HoldChecksTable, CookingChecksPanel } from '@/componen
 import { ChecklistRunPanel } from '@/components/checklists/shared'
 import { ASSISTANT_NAME } from '@shared/assistant.js'
 
-const VENUE_KEY = 'maca_today_venue'
+export const VENUE_KEY = 'maca_today_venue'
 
 const GROUPS = [
   { key: 'late',  label: 'Late',  dot: 'bg-red-500',   note: 'Past their time' },
@@ -60,17 +60,17 @@ const AREA_NAMES = {
   purchasing: 'purchasing', cash: 'cash reconciliation', online_orders: 'online orders',
 }
 
-function readVenue() { try { return localStorage.getItem(VENUE_KEY) || '' } catch { return '' } }
-function keepVenue(id) { try { id ? localStorage.setItem(VENUE_KEY, id) : localStorage.removeItem(VENUE_KEY) } catch {} }
+export function readVenue() { try { return localStorage.getItem(VENUE_KEY) || '' } catch { return '' } }
+export function keepVenue(id) { try { id ? localStorage.setItem(VENUE_KEY, id) : localStorage.removeItem(VENUE_KEY) } catch {} }
 
-function greeting(now) {
+export function greeting(now) {
   const h = Number(String(now || '12:00').slice(0, 2))
   if (h < 12) return { text: 'Good morning', Icon: Sunrise }
   if (h < 18) return { text: 'Good afternoon', Icon: Sun }
   return { text: 'Good evening', Icon: Moon }
 }
 
-function firstName(me) {
+export function firstName(me) {
   const name = (me?.full_name || '').trim()
   if (name) return name.split(/\s+/)[0]
   const mail = (me?.email || '').split('@')[0]
@@ -178,8 +178,14 @@ export default function OpsToday() {
   )
 }
 
+/** A page link; linkFor (the phone app) may send it to another path or host. */
+function Go({ to, linkFor, ...rest }) {
+  const dest = linkFor ? linkFor(to) : { to }
+  return dest.href ? <a href={dest.href} {...rest} /> : <Link to={dest.to} {...rest} />
+}
+
 /** H2: bookings, big parties, who's on, closed. */
-function Glance({ d }) {
+export function Glance({ d, linkFor }) {
   const b = d.summary?.bookings
   const s = d.summary?.staff
   const chips = []
@@ -194,14 +200,14 @@ function Glance({ d }) {
         const cls = cn('inline-flex items-center gap-1.5 rounded-full border px-3 min-h-[36px] text-sm touch-manipulation',
           c.tone === 'amber' ? 'bg-amber-50 border-amber-300 text-amber-900' : c.tone === 'sky' ? 'bg-sky-50 border-sky-300 text-sky-900' : 'bg-muted/50')
         const inner = <><c.Icon className="w-4 h-4 shrink-0" /><span>{c.text}</span></>
-        return c.to ? <Link key={c.key} to={c.to} className={cn(cls, 'hover:bg-accent')}>{inner}</Link> : <span key={c.key} className={cls}>{inner}</span>
+        return c.to ? <Go key={c.key} to={c.to} linkFor={linkFor} className={cn(cls, 'hover:bg-accent')}>{inner}</Go> : <span key={c.key} className={cls}>{inner}</span>
       })}
     </div>
   )
 }
 
 /** H3 + S3: the tasks in their groups, each with one action. */
-function TaskBoard({ d, onForm }) {
+export function TaskBoard({ d, onForm, linkFor }) {
   const total = d.tasks.length
   const urgent = d.counts.late + d.counts.now
   return (
@@ -224,7 +230,7 @@ function TaskBoard({ d, onForm }) {
             <span className="ml-auto text-xs opacity-80 hidden sm:inline">{g.note}</span>
           </div>
           <ul className="divide-y">
-            {d.tasks.filter(t => t.group === g.key).map(t => <TaskRow key={t.key} t={t} onForm={onForm} />)}
+            {d.tasks.filter(t => t.group === g.key).map(t => <TaskRow key={t.key} t={t} onForm={onForm} linkFor={linkFor} />)}
           </ul>
         </section>
       ))}
@@ -240,7 +246,7 @@ function TaskBoard({ d, onForm }) {
   )
 }
 
-function TaskRow({ t, onForm }) {
+function TaskRow({ t, onForm, linkFor }) {
   const Icon = KIND_ICON[t.kind] || ClipboardList
   const label = t.can_act ? t.action.label : 'View'
   const btn = 'shrink-0 inline-flex items-center gap-1.5 min-h-[48px] px-4 rounded-md text-sm font-medium touch-manipulation ' +
@@ -259,13 +265,13 @@ function TaskRow({ t, onForm }) {
       </div>
       {t.action.form
         ? <button type="button" className={btn} onClick={() => onForm(t)} data-testid="today-task-action">{label}<ChevronRight className="w-4 h-4" /></button>
-        : <Link to={t.action.path} className={btn} data-testid="today-task-action">{label}<ChevronRight className="w-4 h-4" /></Link>}
+        : <Go to={t.action.path} linkFor={linkFor} className={btn} data-testid="today-task-action">{label}<ChevronRight className="w-4 h-4" /></Go>}
     </li>
   )
 }
 
 /** F1-F9: the form for a task, the same panel its page uses, saving through the same routes. */
-function FormSheet({ form, venueId, date, onClose }) {
+export function FormSheet({ form, venueId, date, onClose, linkFor }) {
   const meta = FORMS[form.form] || { title: form.task.title, path: '/' }
   const title = form.form === 'checklist' ? form.task.title : meta.title
   return (
@@ -274,9 +280,9 @@ function FormSheet({ form, venueId, date, onClose }) {
         onClick={e => e.stopPropagation()} role="dialog" aria-label={title}>
         <div className="sticky top-0 z-10 bg-background border-b px-4 h-14 flex items-center gap-2">
           <h2 className="font-semibold truncate">{title}</h2>
-          <Link to={meta.path} className="ml-auto inline-flex items-center gap-1 text-sm text-primary min-h-[44px] px-2 touch-manipulation" data-testid="today-form-page">
+          <Go to={meta.path} linkFor={linkFor} className="ml-auto shrink-0 inline-flex items-center gap-1 text-sm text-primary min-h-[44px] px-2 touch-manipulation" data-testid="today-form-page">
             Open the full page <ExternalLink className="w-3.5 h-3.5" />
-          </Link>
+          </Go>
           <button type="button" onClick={onClose} aria-label="Close" data-testid="today-form-close"
             className="w-11 h-11 rounded-md flex items-center justify-center hover:bg-accent touch-manipulation">
             <X className="w-5 h-5" />
@@ -381,7 +387,7 @@ function PepperPanel({ tasks }) {
   )
 }
 
-function Note({ tone, children }) {
+export function Note({ tone, children }) {
   return (
     <div className={cn('rounded-lg border px-4 py-3 text-sm',
       tone === 'red' ? 'bg-red-50 border-red-300 text-red-900' : 'bg-amber-50 border-amber-300 text-amber-900')}>
