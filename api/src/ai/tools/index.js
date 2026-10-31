@@ -32,7 +32,7 @@
 import { zodToJsonSchema } from 'zod-to-json-schema'
 import { ZodError } from 'zod'
 import { ToolError, isStaff } from '../context.js'
-import { MODULE_KEYS } from '../../config/modules.js'
+import { MODULE_KEYS, permissionAtLeast } from '../../config/modules.js'
 import { guestTools } from './guest.js'
 import { staffTools as bookingTools } from './staff.js'
 import { hsTools } from './hs.js'
@@ -87,13 +87,15 @@ export const SECTION_MODULES = {
 // Tools anyone with Pepper can use (no area's permission).
 const OPEN_TOOLS = new Set(['list_venues', 'open_page', 'how_do_i'])
 
-/** Can a person with these module levels use this staff tool (connector list)? */
+/** Can a person with these module levels use this staff tool (connector list)?
+ *  A reading tool needs View on one of its area's modules, a change tool Manage,
+ *  or the level it names itself (`needs: 'use'`: the everyday H&S work). */
 export function toolAllowed(tool, levels) {
   if (OPEN_TOOLS.has(tool.name) || tool.section === 'general') return true
   const modules = SECTION_MODULES[tool.section]
   if (!modules) return true
-  const need = tool.confirm ? 'manage' : 'view'
-  return modules.some(m => levels[m] === 'manage' || (need === 'view' && levels[m] === 'view'))
+  const need = tool.needs ?? (tool.confirm ? 'manage' : 'view')
+  return modules.some(m => permissionAtLeast(levels[m], need))
 }
 
 const withSection = (tools, section) => tools.map(t => (t.section ? t : { ...t, section }))

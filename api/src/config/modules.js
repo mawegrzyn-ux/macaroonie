@@ -308,6 +308,7 @@ export const MODULES = [
     label:  'Food safety logs',
     group:  'food_safety',
     description: 'SFBB temperature logs — fridge/freezer, delivery checks, hot/cold hold, cooking.',
+    use: 'Log and correct readings, deliveries and corrective actions. Setting up fridges, check times, hold stations, cooking sessions and dishes, and deleting a reading, need Manage.',
     default: { owner: 'manage', admin: 'manage', operator: 'manage', viewer: 'view' },
   },
   {
@@ -315,6 +316,7 @@ export const MODULES = [
     label:  'Checklists',
     group:  'checklists',
     description: 'Recurring opening/closing/cleaning checklists — daily, weekly or monthly, fully operator-defined.',
+    use: 'Tick checklists and write their notes. Making and changing the checklists themselves needs Manage.',
     default: { owner: 'manage', admin: 'manage', operator: 'manage', viewer: 'view' },
   },
   {
@@ -329,6 +331,7 @@ export const MODULES = [
     label:  'H&S Action Log',
     group:  'hs_action_log',
     description: 'General facilities & compliance to-do list per venue — repairs, records, training, cleaning tasks with due dates and priority.',
+    use: 'Add actions, change them and tick them off. Deleting an action and changing the categories need Manage.',
     default: { owner: 'manage', admin: 'manage', operator: 'manage', viewer: 'view' },
   },
 ]
@@ -356,7 +359,12 @@ export async function seedBuiltinRoles(tx, tenantId) {
   }
 }
 
-export const PERMISSION_LEVELS = ['none', 'view', 'manage']
+// Access levels, lowest first. 'use' sits between view and manage: doing the
+// everyday work (ticking a checklist, logging a temperature) without changing
+// the setup. Only modules with a `use` line in MODULES offer it; on every other
+// module a role is none, view or manage (levelsOf()).
+export const PERMISSION_LEVELS = ['none', 'view', 'use', 'manage']
+export const PERMISSION_RANK = Object.fromEntries(PERMISSION_LEVELS.map((l, i) => [l, i]))
 
 // ── Module groups (for tenant master switches) ─────────────
 //
@@ -481,6 +489,9 @@ const MODULE_BY_KEY = Object.fromEntries(MODULES.map(m => [m.key, m]))
  */
 export function resolvePermission(moduleKey, permissions, roleKey) {
   const explicit = permissions?.[moduleKey]
+  // A 'use' stored for a module that doesn't offer it (the access routes
+  // refuse that) counts as view, never as more.
+  if (explicit === 'use' && !MODULE_BY_KEY[moduleKey]?.use) return 'view'
   if (explicit !== undefined && explicit !== null) return explicit
   return MODULE_BY_KEY[moduleKey]?.default?.[roleKey] ?? 'none'
 }
@@ -493,8 +504,17 @@ export function groupOf(moduleKey) {
   return null
 }
 
-/** Highest-to-lowest privilege. */
+/** Whether a level is at least another: 'use' passes a 'view' check, 'manage' a 'use' one. */
 export function permissionAtLeast(actual, required) {
-  const idx = (lvl) => PERMISSION_LEVELS.indexOf(lvl ?? 'none')
-  return idx(actual) >= idx(required)
+  return (PERMISSION_RANK[actual ?? 'none'] ?? 0) >= (PERMISSION_RANK[required ?? 'none'] ?? 0)
+}
+
+/** The levels a role can have on a module: none, view and manage, plus use where the module offers it. */
+export function levelsOf(moduleKey) {
+  return MODULE_BY_KEY[moduleKey]?.use ? PERMISSION_LEVELS : PERMISSION_LEVELS.filter(l => l !== 'use')
+}
+
+/** The level that does a module's everyday work: 'use' where the module offers it, else 'manage'. */
+export function workLevel(moduleKey) {
+  return MODULE_BY_KEY[moduleKey]?.use ? 'use' : 'manage'
 }

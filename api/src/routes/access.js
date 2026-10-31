@@ -13,7 +13,7 @@ import { z } from 'zod'
 import { withTenant } from '../config/db.js'
 import { requireAuth, requireRole } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
-import { MODULES, MODULE_KEYS, MODULE_GROUPS, PERMISSION_LEVELS, resolvePermission } from '../config/modules.js'
+import { MODULES, MODULE_KEYS, MODULE_GROUPS, PERMISSION_LEVELS, resolvePermission, levelsOf } from '../config/modules.js'
 
 const PermissionSchema = z.record(
   z.string(),
@@ -42,6 +42,18 @@ const RolePatch = z.object({
   permissions: PermissionSchema.optional(),
 })
 
+/** Every key a real module, every level one that module offers ('use' only
+ *  where it has the everyday-work level), else a 400 naming it. */
+function checkPermissions(permissions) {
+  for (const [k, level] of Object.entries(permissions)) {
+    if (!MODULE_KEYS.includes(k)) throw httpError(400, `Unknown module: ${k}`)
+    if (!levelsOf(k).includes(level)) {
+      const label = MODULES.find(m => m.key === k)?.label ?? k
+      throw httpError(400, `${label} has no ${level} level: pick None, View or Manage.`)
+    }
+  }
+}
+
 export default async function accessRoutes(app) {
   app.addHook('preHandler', requireAuth)
 
@@ -51,7 +63,8 @@ export default async function accessRoutes(app) {
   // the frontend uses this to render the role permission matrix
   // and to compute nav gating.
   app.get('/modules', async (req) => {
-    if (!req.tenantId) return MODULES.map(m => ({ ...m, is_enabled: true, config: {} }))
+    // `levels`: what a role can be set to on the module (Use only where offered).
+    if (!req.tenantId) return MODULES.map(m => ({ ...m, levels: levelsOf(m.key), is_enabled: true, config: {} }))
     const rows = await withTenant(req.tenantId, tx => tx`
       SELECT module_key, is_enabled, config
         FROM tenant_modules
@@ -60,6 +73,7 @@ export default async function accessRoutes(app) {
     const byKey = Object.fromEntries(rows.map(r => [r.module_key, r]))
     return MODULES.map(m => ({
       ...m,
+      levels:     levelsOf(m.key),
       is_enabled: byKey[m.key]?.is_enabled ?? true,
       config:     byKey[m.key]?.config ?? {},
     }))
@@ -164,10 +178,8 @@ export default async function accessRoutes(app) {
     if (!req.tenantId) throw httpError(400, 'No tenant context')
     const body = RoleBody.parse(req.body)
 
-    // Reject permission keys that aren't real modules
-    for (const k of Object.keys(body.permissions)) {
-      if (!MODULE_KEYS.includes(k)) throw httpError(400, `Unknown module: ${k}`)
-    }
+    // Reject permission keys that aren't real modules, and levels they don't offer
+    checkPermissions(body.permissions)
 
     const [row] = await withTenant(req.tenantId, tx => tx`
       INSERT INTO tenant_roles (tenant_id, key, label, description, is_builtin, is_active, sort_order, permissions)
@@ -191,11 +203,7 @@ export default async function accessRoutes(app) {
     const fields = Object.keys(body)
     if (!fields.length) throw httpError(400, 'No fields to update')
 
-    if (body.permissions) {
-      for (const k of Object.keys(body.permissions)) {
-        if (!MODULE_KEYS.includes(k)) throw httpError(400, `Unknown module: ${k}`)
-      }
-    }
+    if (body.permissions) checkPermissions(body.permissions)
 
     const [row] = await withTenant(req.tenantId, tx => tx`
       UPDATE tenant_roles

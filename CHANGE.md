@@ -5,6 +5,18 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-31 — Access: a Use level for the everyday checks, and dashboards per role]
+
+Migration: `229_dashboard_roles.sql` (`hs_dashboards.hidden_role_ids`, the roles a dashboard is hidden from).
+
+- **Use, between View and Manage**, on Checklists, Food safety logs and the H&S Action Log (Access → Roles). Use ticks checklists and writes their notes, logs and corrects fridge, hold, cooking and delivery checks with their corrective actions, and adds, changes and ticks off actions. Making checklists, the food safety setup (fridges, check times, hold stations, cooking sessions and dishes), deleting a cooking reading or an action, and the action categories still need Manage. For a supervisor: a role with Use on those three and View on the H&S Dashboard fills in the dashboard's checks without changing its layout. The other modules stay None, View or Manage, and the role routes refuse Use on them.
+- **Today, Pepper and the dashboards follow it**: Today gives someone with Use each check's own button instead of View; Pepper's health and safety tools (log a reading, tick a checklist, add or tick off an action) need Use, and the staff connector lists them for Use; the checklist, fridge, hold, cooking and action log widgets work with Use. Before, the dashboards showed "You don't have access" in a widget for anything but View or Manage, so this also needed fixing there.
+- **Who sees each dashboard**: in Edit layout, pick a dashboard's tab and tap **Seen by** to untick the roles that shouldn't see it (H&S, Cash and Rota dashboards and the Dashboards page; the phone's H&S Dashboard follows it). Those roles don't get its tab. People who edit the layout still see every dashboard while editing, with an eye on the hidden ones. Hiding only tidies what each role sees: the widgets' data still follows each area's own access.
+- **Only your own roles**: hiding a menu link, an Overview tile or a dashboard from a role now checks the role is one of yours (it took any id before), and a menu link can't be moved under another group's link.
+- The Access page's role editor puts each module's levels under its name on a phone, so the name stays readable with four buttons. Deleting a custom role asks on its row (Delete or Keep) instead of a browser popup, and a role people still have says how many to move first.
+
+---
+
 ## [2026-10-31 — Till layouts: no top bar, the Order zone's own buttons, choices that add in one tap, a steady designer]
 
 No migration (new settings inside the stored layouts; layouts saved before keep today's look).

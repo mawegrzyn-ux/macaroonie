@@ -14,11 +14,15 @@ import {
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
+// Every module offers none / view / manage; a few (checklists, food safety,
+// the H&S action log) also offer use: the everyday work without the setup.
+// GET /access/modules sends each module's own `levels`.
 const LEVELS = ['none', 'view', 'manage']
 
 const LEVEL_COLOURS = {
   none:   'bg-gray-100 text-gray-500',
   view:   'bg-amber-100 text-amber-700',
+  use:    'bg-sky-100 text-sky-700',
   manage: 'bg-emerald-100 text-emerald-700',
 }
 
@@ -179,6 +183,8 @@ function RolesPanel() {
   const qc  = useQueryClient()
   const [editing, setEditing] = useState(null)
   const [creating, setCreating] = useState(false)
+  // Deleting a custom role asks first, in the row (no browser popup).
+  const [confirmDelete, setConfirmDelete] = useState(null)
 
   const { data: me } = useQuery({ queryKey: ['me'], queryFn: () => api.get('/me'), staleTime: 60_000 })
   const isOwner = me?.role === 'owner' || me?.is_platform_admin
@@ -195,7 +201,7 @@ function RolesPanel() {
 
   const remove = useMutation({
     mutationFn: (id) => api.delete(`/access/roles/${id}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['access-roles'] }),
+    onSuccess: () => { setConfirmDelete(null); qc.invalidateQueries({ queryKey: ['access-roles'] }) },
   })
 
   if (isLoading) return <div className="flex justify-center py-12"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
@@ -222,8 +228,9 @@ function RolesPanel() {
 
       <div className="border rounded-xl overflow-hidden bg-background divide-y">
         {roles.map(r => (
-          <button key={r.id} onClick={() => setEditing(r)}
-            className="w-full flex items-center gap-4 px-5 py-3 text-left hover:bg-accent/50 transition-colors touch-manipulation">
+          <div key={r.id} className="flex items-center hover:bg-accent/50 transition-colors" data-testid="access-role-row" data-role-id={r.id}>
+          <button type="button" onClick={() => setEditing(r)}
+            className="flex-1 min-w-0 flex items-center gap-4 px-5 py-3 text-left touch-manipulation">
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
                 <p className="text-sm font-medium truncate">{r.label}</p>
@@ -243,15 +250,31 @@ function RolesPanel() {
                 key: <span className="font-mono">{r.key}</span>
               </p>
             </div>
-            {isOwner && !r.is_builtin && (
-              <button onClick={(e) => { e.stopPropagation(); if (confirm(`Delete role "${r.label}"?`)) remove.mutate(r.id) }}
-                className="p-2 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 touch-manipulation">
+          </button>
+            {isOwner && !r.is_builtin && (confirmDelete === r.id ? (
+              <div className="flex items-center gap-1.5 pr-3 shrink-0">
+                <span className="text-xs text-muted-foreground hidden sm:inline">Delete {r.label}?</span>
+                <button type="button" onClick={() => remove.mutate(r.id)} disabled={remove.isPending} data-testid="access-role-delete-yes"
+                  className="px-4 rounded bg-destructive text-destructive-foreground text-xs font-medium min-h-[48px] disabled:opacity-50 touch-manipulation">
+                  Delete
+                </button>
+                <button type="button" onClick={() => { setConfirmDelete(null); remove.reset() }}
+                  className="px-4 rounded border text-xs min-h-[48px] touch-manipulation">
+                  Keep
+                </button>
+              </div>
+            ) : (
+              <button type="button" onClick={() => { remove.reset(); setConfirmDelete(r.id) }} aria-label={`Delete role ${r.label}`} data-testid="access-role-delete"
+                className="mr-3 p-2 shrink-0 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 min-w-[48px] min-h-[48px] inline-flex items-center justify-center touch-manipulation">
                 <Trash2 className="w-4 h-4" />
               </button>
-            )}
-          </button>
+            ))}
+          </div>
         ))}
       </div>
+      {remove.error && (
+        <p className="text-xs text-destructive" data-testid="access-role-delete-error">{remove.error?.body?.error || remove.error.message}</p>
+      )}
     </div>
   )
 }
@@ -346,12 +369,13 @@ function RoleEditor({ role, modules, onClose }) {
           <h2 className="text-sm font-semibold">Permissions</h2>
           <p className="text-xs text-muted-foreground mt-0.5">
             Module-level access. <span className="font-mono">none</span> = hidden, <span className="font-mono">view</span> = read-only,
-            <span className="font-mono"> manage</span> = full edit.
+            <span className="font-mono"> manage</span> = full edit. Checklists, Food safety logs and the H&amp;S Action Log
+            also offer <span className="font-mono">use</span>: the everyday work (ticking checklists, logging checks) without changing how it is set up.
           </p>
         </div>
         <div className="divide-y">
           {modules.map(m => (
-            <div key={m.key} className="px-5 py-3 flex items-center gap-4">
+            <div key={m.key} className="px-5 py-3 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <p className="text-sm font-medium">{m.label}</p>
@@ -360,10 +384,13 @@ function RoleEditor({ role, modules, onClose }) {
                   )}
                 </div>
                 <p className="text-xs text-muted-foreground">{m.description}</p>
+                {m.use && (
+                  <p className="text-xs text-sky-800 mt-0.5" data-testid="access-use-hint">Use: {m.use}</p>
+                )}
               </div>
-              <div className="flex items-center gap-1 rounded-md border p-0.5 shrink-0">
-                {LEVELS.map(lvl => (
-                  <button key={lvl}
+              <div className="flex items-center gap-1 rounded-md border p-0.5 shrink-0 self-start sm:self-auto" data-testid="access-levels" data-module={m.key}>
+                {(m.levels ?? LEVELS).map(lvl => (
+                  <button key={lvl} data-level={lvl} aria-pressed={permissions[m.key] === lvl}
                     onClick={() => isOwner && setPerm(m.key, lvl)}
                     disabled={!isOwner}
                     className={cn(

@@ -11,6 +11,7 @@
 import { z } from 'zod'
 import { withTenant } from '../config/db.js'
 import { requireAuth, requirePermission } from '../middleware/auth.js'
+import { ownRoleIds } from '../services/roles.js'
 import { httpError } from '../middleware/error.js'
 import { computeHsStatus } from '../services/hsStatus.js'
 
@@ -95,13 +96,17 @@ export default async function dashboardTilesRoutes(app) {
     const fields = Object.keys(body).filter(k => body[k] !== undefined)
     if (!fields.length) throw httpError(400, 'No fields to update')
 
-    const [row] = await withTenant(req.tenantId, tx => tx`
-      UPDATE dashboard_tiles
-         SET ${tx(Object.fromEntries(fields.map(k => [k, body[k]])), ...fields)},
-             updated_at = now()
-       WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
-       RETURNING *
-    `)
+    const [row] = await withTenant(req.tenantId, async tx => {
+      // Only the tenant's own roles (migration 229 tightened this).
+      if (body.hidden_role_ids) body.hidden_role_ids = await ownRoleIds(tx, req.tenantId, body.hidden_role_ids)
+      return tx`
+        UPDATE dashboard_tiles
+           SET ${tx(Object.fromEntries(fields.map(k => [k, body[k]])), ...fields)},
+               updated_at = now()
+         WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
+         RETURNING *
+      `
+    })
     if (!row) throw httpError(404, 'Tile not found')
     return row
   })

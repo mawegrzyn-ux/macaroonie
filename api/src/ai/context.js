@@ -19,7 +19,7 @@
 
 import { sql, systemSql, withTenant } from '../config/db.js'
 import { permissionLevel, INTERNAL_CALL_HEADER, INTERNAL_CALL_SECRET } from '../middleware/auth.js'
-import { MODULES } from '../config/modules.js'
+import { MODULES, PERMISSION_RANK } from '../config/modules.js'
 
 export const CHANNELS = ['guest_mcp', 'guest_chat', 'staff_mcp', 'staff_chat']
 
@@ -30,7 +30,6 @@ export class ToolError extends Error {
   }
 }
 
-const RANK = { none: 0, view: 1, manage: 2 }
 
 /**
  * ctx fields:
@@ -77,9 +76,9 @@ export async function callApi(ctx, method, url, { body } = {}) {
 const DENIED = {
   bookings:      { view: 'see bookings',              manage: 'change bookings' },
   customers:     { view: 'see customers',             manage: 'change customers' },
-  checklists:    { view: 'see checklists',            manage: 'tick checklists' },
-  food_safety:   { view: 'see food safety logs',      manage: 'log food safety checks' },
-  hs_action_log: { view: 'see the H&S action log',    manage: 'change the H&S action log' },
+  checklists:    { view: 'see checklists',            use: 'tick checklists',               manage: 'change how checklists are set up' },
+  food_safety:   { view: 'see food safety logs',      use: 'log food safety checks',        manage: 'change food safety setup or delete readings' },
+  hs_action_log: { view: 'see the H&S action log',    use: 'add to or tick off the H&S action log', manage: 'delete H&S actions or change their categories' },
   purchasing:    { view: 'see supplier orders',       manage: 'fill in, send or receive supplier orders' },
   purchasing_approve: { view: 'approve supplier orders', manage: 'approve supplier orders (change, place, split or cancel them)' },
   purchasing_setup: { view: 'see the inventory, suppliers and prices', manage: 'change the inventory, suppliers, prices or order lists' },
@@ -97,7 +96,7 @@ const DENIED = {
 // Any other module is named by its label from the module registry.
 const MODULE_LABEL = Object.fromEntries(MODULES.map(m => [m.key, m.label]))
 
-/** This staff member's level for a module ('none' | 'view' | 'manage'),
+/** This staff member's level for a module ('none' | 'view' | 'use' | 'manage'),
  *  same rule as requirePermission(). */
 export async function staffPermissionLevel(ctx, moduleKey) {
   if (!isStaff(ctx)) return 'none'
@@ -109,7 +108,7 @@ export async function staffPermissionLevel(ctx, moduleKey) {
   return permissionLevel(req, moduleKey)
 }
 
-export const levelAtLeast = (have, level) => RANK[have] >= RANK[level]
+export const levelAtLeast = (have, level) => (PERMISSION_RANK[have] ?? 0) >= PERMISSION_RANK[level]
 
 /** Staff permission check: throws unless the person has `level` on the module. */
 export async function requireStaffPermission(ctx, moduleKey, level) {
@@ -117,7 +116,7 @@ export async function requireStaffPermission(ctx, moduleKey, level) {
   const have = await staffPermissionLevel(ctx, moduleKey)
   if (!levelAtLeast(have, level)) {
     const what = DENIED[moduleKey]?.[level] ||
-      (MODULE_LABEL[moduleKey] ? (level === 'manage' ? 'change ' : 'see ') + MODULE_LABEL[moduleKey] : 'use this')
+      (MODULE_LABEL[moduleKey] ? (level === 'view' ? 'see ' : 'change ') + MODULE_LABEL[moduleKey] : 'use this')
     throw new ToolError('You don\'t have permission to ' + what + '. Ask an owner or admin.', 403)
   }
 }

@@ -17,6 +17,7 @@
 import { z } from 'zod'
 import { withTenant, sql } from '../config/db.js'
 import { requireAuth, requirePermission } from '../middleware/auth.js'
+import { ownRoleIds } from '../services/roles.js'
 import { httpError } from '../middleware/error.js'
 import { seedDefaultNav } from '../config/defaultNav.js'
 
@@ -151,6 +152,7 @@ export default async function navRoutes(app) {
         const [parent] = await tx`SELECT id FROM nav_items WHERE id = ${body.parent_id} AND tenant_id = ${req.tenantId}`
         if (!parent) throw httpError(404, 'Parent nav item not found')
       }
+      body.hidden_role_ids = await ownRoleIds(tx, req.tenantId, body.hidden_role_ids)
       // New items land at the end of their sibling list.
       const [{ max_sort }] = await tx`
         SELECT COALESCE(MAX(sort_order), -1) AS max_sort FROM nav_items
@@ -246,6 +248,11 @@ export default async function navRoutes(app) {
       if (body.parent_id !== undefined && body.parent_id === req.params.id) {
         throw httpError(400, 'An item cannot be its own parent')
       }
+      if (body.parent_id) {
+        const [parent] = await tx`SELECT id FROM nav_items WHERE id = ${body.parent_id} AND tenant_id = ${req.tenantId}`
+        if (!parent) throw httpError(404, 'Parent nav item not found')
+      }
+      if (body.hidden_role_ids) body.hidden_role_ids = await ownRoleIds(tx, req.tenantId, body.hidden_role_ids)
       const [row] = await tx`
         UPDATE nav_items
            SET ${tx(Object.fromEntries(fields.map(k => [k, body[k]])), ...fields)}

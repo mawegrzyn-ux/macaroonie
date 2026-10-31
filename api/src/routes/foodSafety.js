@@ -2,6 +2,11 @@
 //
 // SFBB-style food safety temperature & delivery logs (per venue).
 // Mounted at /api/food-safety in app.js.
+//
+// Access: reading needs food_safety View; logging and correcting readings,
+// deliveries and corrective actions (POST / PATCH of temp-logs, deliveries,
+// holds, cooking) Use; the setup (equipment, check times, hold stations,
+// cooking sessions, settings and items) and deleting a cooking reading Manage.
 
 import { z } from 'zod'
 import { withTenant } from '../config/db.js'
@@ -388,7 +393,7 @@ export default async function foodSafetyRoutes(app) {
   })
 
   app.post('/temp-logs', {
-    preHandler: requirePermission('food_safety', 'manage'),
+    preHandler: requirePermission('food_safety', 'use'),
   }, async (req) => {
     const body = TempLogBody.parse(req.body)
 
@@ -438,7 +443,7 @@ export default async function foodSafetyRoutes(app) {
   })
 
   app.patch('/temp-logs/:id', {
-    preHandler: requirePermission('food_safety', 'manage'),
+    preHandler: requirePermission('food_safety', 'use'),
   }, async (req) => {
     const body = TempLogPatch.parse(req.body)
     const fields = Object.keys(body).filter(k => body[k] !== undefined)
@@ -495,7 +500,7 @@ export default async function foodSafetyRoutes(app) {
   })
 
   app.post('/deliveries', {
-    preHandler: requirePermission('food_safety', 'manage'),
+    preHandler: requirePermission('food_safety', 'use'),
   }, async (req) => {
     const body = DeliveryBody.parse(req.body)
     const deliveryDate = body.delivery_date || new Date().toISOString().slice(0, 10)
@@ -517,7 +522,7 @@ export default async function foodSafetyRoutes(app) {
   })
 
   app.patch('/deliveries/:id', {
-    preHandler: requirePermission('food_safety', 'manage'),
+    preHandler: requirePermission('food_safety', 'use'),
   }, async (req) => {
     const body = DeliveryPatch.parse(req.body)
     const fields = Object.keys(body).filter(k => body[k] !== undefined)
@@ -717,7 +722,7 @@ export default async function foodSafetyRoutes(app) {
   })
 
   app.post('/holds', {
-    preHandler: requirePermission('food_safety', 'manage'),
+    preHandler: requirePermission('food_safety', 'use'),
   }, async (req) => {
     const body = HoldBody.parse(req.body)
 
@@ -766,7 +771,7 @@ export default async function foodSafetyRoutes(app) {
   })
 
   app.patch('/holds/:id', {
-    preHandler: requirePermission('food_safety', 'manage'),
+    preHandler: requirePermission('food_safety', 'use'),
   }, async (req) => {
     const body = HoldPatch.parse(req.body)
     const fields = Object.keys(body).filter(k => body[k] !== undefined)
@@ -1022,7 +1027,7 @@ export default async function foodSafetyRoutes(app) {
   })
 
   app.post('/cooking', {
-    preHandler: requirePermission('food_safety', 'manage'),
+    preHandler: requirePermission('food_safety', 'use'),
   }, async (req) => {
     const body = CookingBody.parse(req.body)
     const checkDate = body.check_date || new Date().toISOString().slice(0, 10)
@@ -1088,7 +1093,7 @@ export default async function foodSafetyRoutes(app) {
   })
 
   app.patch('/cooking/:id', {
-    preHandler: requirePermission('food_safety', 'manage'),
+    preHandler: requirePermission('food_safety', 'use'),
   }, async (req) => {
     const body = CookingPatch.parse(req.body)
     const fields = Object.keys(body).filter(k => body[k] !== undefined)

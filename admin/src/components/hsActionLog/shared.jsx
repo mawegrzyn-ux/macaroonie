@@ -296,8 +296,10 @@ export function HSActionLogPanel({ venueId }) {
   const api = useApi()
   const qc = useQueryClient()
   // H&S Action Log = View: the list and each action can be read, nothing
-  // can be added, ticked or changed.
-  const readOnly = !usePermission('hs_action_log').canManage
+  // can be added, ticked or changed. Use adds, changes and ticks off actions;
+  // deleting one and the categories need Manage.
+  const { canUse, canManage } = usePermission('hs_action_log')
+  const readOnly = !canUse
   const [status, setStatus] = useState('open')
   const [categoryFilter, setCategoryFilter] = useState('')
   const [entryModal, setEntryModal] = useState(null) // 'new' | entry row | null
@@ -372,10 +374,12 @@ export function HSActionLogPanel({ venueId }) {
         </div>
         {!readOnly && (
           <div className="flex items-center gap-1">
-            <button type="button" onClick={() => setCategoriesOpen(true)}
-              className="p-2 rounded hover:bg-accent text-muted-foreground touch-manipulation" title="Manage categories">
-              <Settings className="w-4 h-4" />
-            </button>
+            {canManage && (
+              <button type="button" onClick={() => setCategoriesOpen(true)}
+                className="p-2 rounded hover:bg-accent text-muted-foreground touch-manipulation" title="Manage categories">
+                <Settings className="w-4 h-4" />
+              </button>
+            )}
             <button type="button" onClick={() => setEntryModal('new')}
               className="inline-flex items-center gap-1.5 bg-primary text-primary-foreground rounded-lg px-3 py-2 text-sm font-medium min-h-[40px] touch-manipulation">
               <Plus className="w-4 h-4" /> Add
@@ -439,7 +443,7 @@ export function HSActionLogPanel({ venueId }) {
           categories={categories}
           onClose={() => setEntryModal(null)}
           onSave={handleSave}
-          onDelete={id => deleteEntry.mutate(id)}
+          onDelete={canManage ? id => deleteEntry.mutate(id) : null}
           isSaving={createEntry.isPending || patchEntry.isPending}
           readOnly={readOnly}
         />
