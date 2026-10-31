@@ -33,7 +33,7 @@ export function requestCode(api, { fetchImpl = fetch, version = null } = {}) {
   return call(fetchImpl, api + '/pos-api/pairings', { method: 'POST', body: { app: 'hub', device: { app_version: version, ua: UA } } })
 }
 
-/** Whether the code was linked: { status: 'waiting' | 'paired' | 'expired', device_id, name, venue_name }. */
+/** Whether the code was linked: { status: 'waiting' | 'paired' | 'expired', device_id, name, venue_name, tenant_name }. */
 export async function codeStatus(api, pairing, { fetchImpl = fetch } = {}) {
   try {
     return await call(fetchImpl, api + '/pos-api/pairings/' + pairing.id, { headers: { authorization: 'Pairing ' + pairing.secret } })
@@ -50,6 +50,10 @@ export function cloudClient({ api, deviceId, secret, fetchImpl = fetch }) {
   return {
     deviceId,
     config: () => req('GET', '/pos-api/config'),
+    // What this hub is: its name, venue and restaurant group (link.js, the installer).
+    me: () => req('GET', '/pos-api/me', undefined, 8000),
+    // The hub leaves its venue (link.js unlink()): Store tech shows it Not linked.
+    disconnect: () => req('POST', '/pos-api/disconnect', {}, 8000),
     claim: (limit = 20) => req('POST', '/pos-api/print-jobs/claim', { limit }),
     done: (id, status, error = null) => req('POST', '/pos-api/print-jobs/' + id + '/status', { status, error }),
     report: body => req('POST', '/pos-api/hub/status', body),

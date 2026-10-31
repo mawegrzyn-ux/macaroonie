@@ -12,6 +12,9 @@
 //   - a restart: events a device was told it had survive (venue.log)
 //   - hub first switched off: devices are sent to the cloud
 //   - order ready boards read their numbers from the hub
+//   - moving the computer to another venue (src/link.js unlink): what waits
+//     goes up first, the cloud hears, the venue's files go; refused while sales
+//     wait and the cloud doesn't answer; another hub's log lines never replayed
 // Run: cd hub && npm test
 
 import test from 'node:test'
@@ -24,6 +27,9 @@ import crypto from 'node:crypto'
 import { startVenue } from '../src/venue.js'
 import { startLan } from '../src/lan.js'
 import { cloudClient } from '../src/cloud.js'
+import { unlink, linkInfo, writeLink, VENUE_FILES } from '../src/link.js'
+import { execFile } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 import { createSequencer } from '../../shared/pos/sequencer.js'
 import { ulid } from '../../shared/pos/ids.js'
 
@@ -57,6 +63,7 @@ async function standInCloud() {
   const s = {
     events: [], byId: new Map(), rejections: new Map(), checks: new Map(), checkSeq: new Map(),
     state: { last_seq: 0, numbers: {}, day: null }, down: false, hubFirst: true, uploads: [], calls: [],
+    removed: false, disconnected: false,
   }
   let queue = Promise.resolve()
   const store = {
@@ -92,9 +99,16 @@ async function standInCloud() {
     req.on('data', c => { text += c })
     req.on('end', async () => {
       const send = (code, data) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(data)) }
-      if (req.headers.authorization !== 'Device ' + HUB + '.hubsecret') return send(401, { error: 'Not linked' })
+      if (s.removed || req.headers.authorization !== 'Device ' + HUB + '.hubsecret') return send(401, { error: 'Not linked' })
       const url = new URL(req.url, 'http://cloud')
       s.calls.push(req.method + ' ' + url.pathname)
+      if (url.pathname === '/pos-api/me') {
+        return send(200, { device_id: HUB, name: 'Venue hub', kind: 'hub', venue_id: VENUE, venue_name: 'Ware', tenant_name: 'WingVibes' })
+      }
+      if (url.pathname === '/pos-api/disconnect' && req.method === 'POST') {
+        s.disconnected = true
+        return send(200, { ok: true })
+      }
       if (url.pathname === '/pos-api/hub/context') {
         const b = ctxBody()
         return send(200, url.searchParams.get('version') === b.version ? { unchanged: true, version: b.version } : b)
@@ -376,6 +390,130 @@ test('restarted with the internet down and no set-up saved: the log waits for th
     await until(() => cloud.s.events.some(e => e.check_id === c1))
     assert.ok(cloud.s.events.some(e => e.check_id === c1), 'decided again with the set-up and sent up')
     assert.equal(hub.venue.taking(), true)
+  } finally {
+    await hub.stop()
+    cloud.server.close()
+  }
+})
+
+// ── Moving the computer to another venue or restaurant group (src/link.js) ──
+
+const HUB_JS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'hub.js')
+
+/** A hub's folder as the installer leaves it: hub.json beside the venue's files. */
+function linkedDir(cloud) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hub-link-'))
+  writeLink(path.join(dir, 'hub.json'), { api: cloud.api, device_id: HUB, secret: 'hubsecret', name: 'Venue hub', venue_name: 'Ware (old name)', tenant_name: null })
+  fs.writeFileSync(path.join(dir, 'printers.json'), '{"printers":[]}')
+  fs.writeFileSync(path.join(dir, 'state.json'), '{"phase":"running"}')
+  return dir
+}
+const left = dir => VENUE_FILES.concat('hub.json').filter(f => fs.existsSync(path.join(dir, f)))
+
+test('moving to another venue: refused while sales wait and the cloud doesn\'t answer; then they go up first, the cloud hears, the files go', async () => {
+  const cloud = await standInCloud()
+  const dir = linkedDir(cloud)
+  const configPath = path.join(dir, 'hub.json')
+  const hub = await hubOn(cloud, dir)
+  const c1 = ulid()
+  try {
+    cloud.s.down = true
+    const r = await call(hub.port, 'POST', '/pos-api/events', { body: { events: [
+      ev(T1, 'check.opened', { mode: 'counter', number: 1, order_no: 100 }, c1),
+      ev(T1, 'line.added', { line: line('Wings', 900) }, c1),
+    ] } })
+    assert.ok(r.json.results.every(x => x.ok))
+    hub.venue.halt()   // the installer stops the hub (no goodbye)
+    await hub.lan.close()
+
+    const offline = await linkInfo({ configPath, api: cloud.api })
+    assert.equal(offline.status, 'offline')
+    assert.equal(offline.venue_name, 'Ware (old name)', 'the names saved when it was linked')
+    const refused = await unlink({ configPath })
+    assert.equal(refused.ok, false)
+    assert.equal(refused.unsent, 2, 'two events the cloud never had')
+    assert.ok(refused.error, 'says why')
+    assert.deepEqual(left(dir).filter(f => f !== 'venue.log').sort(), ['hub.json', 'printers.json', 'state.json', 'venue.json'].sort(), 'nothing deleted')
+    assert.equal(cloud.s.disconnected, false)
+
+    cloud.s.down = false
+    const info = await linkInfo({ configPath, api: cloud.api })
+    assert.deepEqual([info.linked, info.same_api, info.status, info.tenant_name, info.venue_name], [true, true, 'linked', 'WingVibes', 'Ware'])
+    assert.equal((await linkInfo({ configPath, api: 'https://elsewhere.test' })).status, 'other_api')
+
+    const done = await unlink({ configPath })
+    assert.equal(done.ok, true)
+    assert.equal(done.unsent, 0)
+    assert.equal(done.disconnected, true)
+    assert.deepEqual(cloud.s.events.map(e => e.check_id), [c1, c1], 'the sales went up before it left')
+    assert.ok(cloud.s.calls.indexOf('POST /pos-api/disconnect') > cloud.s.calls.lastIndexOf('POST /pos-api/hub/events'), 'it left after sending them')
+    assert.deepEqual(left(dir), [], 'every file of that venue is gone')
+    assert.deepEqual(await linkInfo({ configPath, api: cloud.api }), { linked: false })
+  } finally {
+    cloud.server.close()
+  }
+})
+
+test('moving anyway: --force loses what waits; a hub removed in Store tech just forgets; the command line', async () => {
+  const cloud = await standInCloud()
+  try {
+    // Forced with the cloud down: done, the count lost said, the cloud not told.
+    const dir = linkedDir(cloud)
+    const hub = await hubOn(cloud, dir)
+    cloud.s.down = true
+    assert.ok((await call(hub.port, 'POST', '/pos-api/events', { body: { events: [ev(T1, 'check.opened', { mode: 'counter', number: 2, order_no: 101 }, ulid())] } })).json.results[0].ok)
+    hub.venue.halt()
+    await hub.lan.close()
+    const forced = await unlink({ configPath: path.join(dir, 'hub.json'), force: true })
+    assert.deepEqual([forced.ok, forced.unsent, forced.disconnected], [true, 1, false])
+    assert.deepEqual(left(dir), [])
+
+    // Removed in Store tech: the cloud refuses it, so it just forgets.
+    cloud.s.down = false
+    const dir2 = linkedDir(cloud)
+    cloud.s.removed = true
+    assert.equal((await linkInfo({ configPath: path.join(dir2, 'hub.json'), api: cloud.api })).status, 'removed')
+    const gone = await unlink({ configPath: path.join(dir2, 'hub.json') })
+    assert.deepEqual([gone.ok, gone.removed, gone.disconnected], [true, true, false])
+    assert.deepEqual(left(dir2), [])
+    cloud.s.removed = false
+
+    // The commands the installers run (in another process: this one serves the cloud).
+    const dir3 = linkedDir(cloud)
+    const run = (...a) => new Promise(resolve => execFile(process.execPath, [HUB_JS, ...a, '--config', path.join(dir3, 'hub.json')], { encoding: 'utf8', timeout: 30000 },
+      (err, stdout, stderr) => resolve({ status: err ? (err.code ?? 1) : 0, stdout, stderr })))
+    const info = await run('link-info', '--api', cloud.api + '/')
+    assert.equal(info.status, 0, info.stderr)
+    const parsed = JSON.parse(info.stdout.trim().split('\n').pop())
+    assert.deepEqual([parsed.linked, parsed.same_api, parsed.status, parsed.tenant_name], [true, true, 'linked', 'WingVibes'])
+    const out = await run('unlink')
+    assert.equal(out.status, 0, out.stderr)
+    assert.equal(out.stdout.trim().split('\n').length, 1, 'one line of JSON, nothing else')
+    assert.equal(JSON.parse(out.stdout).disconnected, true)
+    assert.deepEqual(left(dir3), [])
+    const none = await run('unlink')
+    assert.equal(JSON.parse(none.stdout).linked, false, 'nothing to leave: fine')
+  } finally {
+    cloud.server.close()
+  }
+})
+
+test('a venue log left by another hub on this computer is never decided here', async () => {
+  const cloud = await standInCloud()
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hub-venue-'))
+  const theirs = ulid(), oldFormat = ulid()
+  fs.writeFileSync(path.join(dir, 'venue.log'), [
+    { hub: uuid(), event: ev(T1, 'check.opened', { mode: 'counter', number: 9, order_no: 109 }, theirs), at: new Date().toISOString(), printed: false },
+    { event: ev(T1, 'check.opened', { mode: 'counter', number: 8, order_no: 108 }, oldFormat), at: new Date().toISOString(), printed: false },
+  ].map(x => JSON.stringify(x)).join('\n') + '\n')
+  const hub = await hubOn(cloud, dir)
+  try {
+    await until(() => hub.venue.taking())
+    await hub.venue.round()
+    const sync = (await call(hub.port, 'GET', '/pos-api/sync?since=0')).json
+    assert.equal(sync.checks.some(c => c.id === theirs || c.id === oldFormat), false, 'neither replayed')
+    assert.equal(hub.venue.status().to_send, 0)
+    assert.equal(cloud.s.events.length, 0, 'nothing of theirs sent to this hub\'s cloud')
   } finally {
     await hub.stop()
     cloud.server.close()

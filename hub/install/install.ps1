@@ -10,8 +10,13 @@
 # link it in Store tech -> Venue hub -> Link a hub, or scan the QR code on
 # the hub's page (http://<this computer>:9180) with the installer app. A
 # printer installed in Windows (USB, serial, Bluetooth) can then be picked in
-# Store tech as "USB on the hub". Running it again updates the hub and keeps
-# its link. The hub updates itself afterwards.
+# Store tech as "USB on the hub". The hub updates itself afterwards.
+#
+# Run again on a computer that is already a hub, it says which restaurant and
+# venue the hub is linked to and asks: keep it (and update it), link it to
+# another restaurant or venue (it sends what the old one hasn't had yet, leaves
+# it and forgets its files, then shows a new code), or remove the hub.
+# Without asking: $env:MACAROONIE_HUB_CHOICE = 'keep' | 'switch' | 'remove'.
 #
 # To remove it:
 #   $env:MACAROONIE_HUB_UNINSTALL = '1'; irm __MACAROONIE_API__/pos-api/hub/install.ps1 | iex
@@ -37,16 +42,94 @@ function Fail($message) { throw "Install stopped: $message" }
 $admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $admin) { Fail 'open PowerShell as administrator (right-click, Run as administrator) and run this again' }
 
+$hubJson = Join-Path $HubHome 'hub.json'
+$canAsk = [Environment]::UserInteractive -and -not [Console]::IsInputRedirected
+
+# Stop the hub: the task, then every node.exe running from the hub's folder.
+# Ending the task ends the launcher only; the hub it started keeps running
+# (its ports, its link) unless it is stopped too.
+function Stop-Hub {
+  Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+  Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -like "*$HubHome*" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+  Start-Sleep -Seconds 1
+}
+
+function Remove-Hub {
+  Stop-Hub
+  Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
+  Remove-NetFirewallRule -DisplayName 'Macaroonie hub status page' -ErrorAction SilentlyContinue
+  Remove-NetFirewallRule -DisplayName 'Macaroonie hub for devices' -ErrorAction SilentlyContinue
+  Remove-Item -Recurse -Force $HubHome -ErrorAction SilentlyContinue
+}
+
+# "WingVibes, Ware (Venue hub)" from what link-info says.
+function Describe-Link($info) {
+  $where = @($info.tenant_name, $info.venue_name) | Where-Object { $_ }
+  $text = if ($where.Count) { $where -join ', ' } else { 'its venue' }
+  if ($info.name) { $text += ' (' + $info.name + ')' }
+  return $text
+}
+
+# Take this computer off its venue with the hub's own unlink (src/link.js):
+# what waits goes to the cloud first, then the venue's files are deleted.
+# $true when done; $false when sales still wait and nobody agreed to lose them.
+function Leave-Venue($node, $hubJs, $what) {
+  $force = $env:MACAROONIE_HUB_FORCE -eq '1'
+  for (;;) {
+    $hubArgs = @($hubJs, 'unlink', '--config', $hubJson)
+    if ($force) { $hubArgs += '--force' }
+    $out = & $node @hubArgs | Select-Object -Last 1
+    $r = $null
+    try { $r = $out | ConvertFrom-Json } catch { $r = $null }
+    if (-not $r) { Write-Host "  The hub couldn't leave $what." -ForegroundColor Red; return $false }
+    if ($r.ok) {
+      if ($r.disconnected) { Write-Host "  Left $what. Store tech there shows this hub as not linked." }
+      elseif ($r.removed) { Write-Host "  $what had removed this hub already." }
+      else { Write-Host "  Left $what here, but the cloud didn't answer: remove the hub in its Store tech -> Venue hub." }
+      return $true
+    }
+    Write-Host ''
+    Write-Host ("  $($r.unsent) sale(s) or change(s) from $what are still on this computer and haven't reached the cloud" + $(if ($r.error) { " ($($r.error))" } else { '' }) + '.') -ForegroundColor Yellow
+    Write-Host '  Connect this computer to the internet and run the setup again: they go up first.'
+    if (-not $canAsk) { return $false }
+    $answer = Read-Host '  To go ahead anyway and lose them, type LOSE (anything else stops here)'
+    if ($answer -cne 'LOSE') { return $false }
+    $force = $true
+  }
+}
+
+# The hub's own copy of node and hub.js now installed (to remove a hub cleanly).
+function Installed-Hub {
+  $node = Join-Path $HubHome 'node\node.exe'
+  $cur = $null
+  try { $cur = Get-Content -Raw (Join-Path $HubHome 'current.json') | ConvertFrom-Json } catch { $cur = $null }
+  if (-not (Test-Path $node) -or -not $cur -or -not $cur.dir) { return $null }
+  $hubJs = Join-Path $HubHome ($cur.dir + '/hub/bin/hub.js')
+  # Hubs from before unlink existed would start running instead.
+  if (-not (Test-Path $hubJs) -or -not (Select-String -Path $hubJs -SimpleMatch "'unlink'" -Quiet)) { return $null }
+  return @{ node = $node; hubJs = $hubJs }
+}
+
 if ($env:MACAROONIE_HUB_UNINSTALL -eq '1') {
   Remove-Item Env:\MACAROONIE_HUB_UNINSTALL
   Write-Host 'Removing the Macaroonie hub...'
-  Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
-  Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
-  Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" -ErrorAction SilentlyContinue |
-    Where-Object { $_.CommandLine -like "*$HubHome*" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
-  Remove-NetFirewallRule -DisplayName 'Macaroonie hub status page' -ErrorAction SilentlyContinue
-  Remove-Item -Recurse -Force $HubHome -ErrorAction SilentlyContinue
-  Write-Host 'Removed. Remove the hub in Store tech -> Venue hub too.'
+  Stop-Hub
+  $installed = Installed-Hub
+  if ($installed -and (Test-Path $hubJson)) {
+    $what = 'its venue'
+    try {
+      $i = (& $installed.node $installed.hubJs link-info --config $hubJson | Select-Object -Last 1) | ConvertFrom-Json
+      if ($i.linked) { $what = Describe-Link $i }
+    } catch { $what = 'its venue' }
+    if (-not (Leave-Venue $installed.node $installed.hubJs $what)) {
+      Start-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+      Fail 'nothing was removed, the hub is running again'
+    }
+  }
+  Remove-Hub
+  $global:MacaroonieHubRemoved = $true
+  Write-Host 'Removed.'
   return
 }
 
@@ -91,8 +174,57 @@ try {
   New-Item -ItemType Directory -Force -Path $dest | Out-Null
   & tar.exe -xzf $tgz -C $dest
   if ($LASTEXITCODE -ne 0) { Fail "couldn't unpack the hub" }
-  $check = & $node (Join-Path $dest 'hub\bin\hub.js') --self-test
+  $newHub = Join-Path $dest 'hub\bin\hub.js'
+  $check = & $node $newHub --self-test
   if ($LASTEXITCODE -ne 0 -or -not ($check -match '^ok')) { Fail "the hub didn't pass its check" }
+
+  # Already a hub here: keep it, link it to another restaurant or venue, or remove it.
+  if (Test-Path $hubJson) {
+    $info = $null
+    try { $info = (& $node $newHub link-info --config $hubJson --api $Api | Select-Object -Last 1) | ConvertFrom-Json } catch { $info = $null }
+    if ($info -and $info.linked -and $info.same_api -and $info.status -eq 'removed') {
+      Write-Host ('This computer was the hub for ' + (Describe-Link $info) + ', which removed it: it shows a new code to link it again.')
+    } elseif ($info -and $info.linked -and $info.same_api) {
+      $what = Describe-Link $info
+      $choice = "$env:MACAROONIE_HUB_CHOICE".ToLower()
+      if (-not $choice) {
+        Write-Host ''
+        Write-Host "  This computer is already the venue hub for $what." -ForegroundColor Cyan
+        if ($info.status -eq 'offline') { Write-Host "  (The cloud didn't say what it is now: that's from when it was linked.)" }
+        Write-Host ''
+        Write-Host "    1  Keep it for $what and update it"
+        Write-Host '    2  Link it to another restaurant or venue instead'
+        Write-Host '    3  Remove the hub from this computer'
+        Write-Host ''
+        if ($canAsk) {
+          for (;;) {
+            $answer = (Read-Host '  Type 1, 2 or 3 and press Enter (Enter alone keeps it)').Trim()
+            if ($answer -in @('', '1')) { $choice = 'keep'; break }
+            if ($answer -eq '2') { $choice = 'switch'; break }
+            if ($answer -eq '3') { $choice = 'remove'; break }
+          }
+        } else {
+          $choice = 'keep'
+          Write-Host "  Kept (no one to ask). To change it: `$env:MACAROONIE_HUB_CHOICE = 'switch' or 'remove', then run this again."
+        }
+      }
+      if ($choice -notin @('keep', 'switch', 'remove')) { Fail "MACAROONIE_HUB_CHOICE must be keep, switch or remove" }
+      if ($choice -ne 'keep') {
+        Stop-Hub
+        if (-not (Leave-Venue $node $newHub $what)) {
+          Start-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+          Fail "nothing changed: the hub is running again for $what"
+        }
+        if ($choice -eq 'remove') {
+          Remove-Hub
+          $global:MacaroonieHubRemoved = $true
+          Write-Host 'Removed the hub from this computer.'
+          return
+        }
+        Write-Host '  Linking it again: it shows a new code below.'
+      }
+    }
+  }
   Copy-Item -Force (Join-Path $dest 'hub\bin\launcher.js') (Join-Path $HubHome 'launcher.mjs')
 
   $currentFile = Join-Path $HubHome 'current.json'
@@ -116,9 +248,7 @@ try {
   $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable `
     -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -MultipleInstances IgnoreNew
   $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
-  Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
-  Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" -ErrorAction SilentlyContinue |
-    Where-Object { $_.CommandLine -like "*$HubHome*launcher*" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+  Stop-Hub
   Remove-Item -Force (Join-Path $HubHome 'state.json') -ErrorAction SilentlyContinue
   Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal `
     -Description 'Macaroonie venue hub: prints for the tills and kitchen' -Force | Out-Null
@@ -152,7 +282,8 @@ try {
     Write-Host ''
     if ($state.link.link_url) { Write-Host ('  or open ' + $state.link.link_url + ' on a phone.') }
   } elseif ($state -and $state.phase -eq 'running') {
-    Write-Host '  The hub is running and linked. Nothing else to do.'
+    $where = @($state.tenant_name, $state.venue_name) | Where-Object { $_ }
+    Write-Host ('  The hub is running and linked' + $(if ($where.Count) { ' to ' + ($where -join ', ') } else { '' }) + '. Nothing else to do.')
   } else {
     Write-Host "  The hub didn't start in time. See what it says in $log"
   }
@@ -167,6 +298,8 @@ try {
 }
 }
 
-# $MacaroonieHubFailed tells macaroonie-hub-setup.cmd (pos.<domain>/hub) whether it worked.
+# $MacaroonieHubFailed and $MacaroonieHubRemoved tell macaroonie-hub-setup.cmd
+# (pos.<domain>/hub) whether it worked, and not to open the hub's page.
 $global:MacaroonieHubFailed = $false
+$global:MacaroonieHubRemoved = $false
 try { Install-MacaroonieHub } catch { $global:MacaroonieHubFailed = $true; Write-Host $_.Exception.Message -ForegroundColor Red }

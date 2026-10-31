@@ -91,7 +91,7 @@ its network printers with it).
 | Address changing while the internet is down | Devices learn the hub's address from the cloud, so a change while offline isn't seen until the internet is back (true of the mini PC too). Possible later: announce the hub on the LAN (mDNS, Android `NsdManager`) so devices can find it without the cloud. |
 | Plain http on the LAN | Unchanged: the devices already allow it (Android app 1.3, `plugins/withVenueNetwork.js`). The hub app itself only listens. |
 | Network details | `os.networkInterfaces()` may give less on newer Android versions (`getifaddrs` restrictions); the bridge supplies addresses from `ConnectivityManager` when Node's list is empty. Checked in the spike. |
-| Keeping the link secret | `hub.json` (device id and secret) in the app's private storage; optionally sealed with the Android Keystore. Uninstalling the app forgets it (the hub shows a new code, as a mini PC does with `--forget`). |
+| Keeping the link secret | `hub.json` (device id and secret) in the app's private storage; optionally sealed with the Android Keystore. Uninstalling the app forgets it (the hub shows a new code, as a mini PC does after `hub.js unlink`). |
 
 ## Printing on Android
 

@@ -47,8 +47,9 @@ on the router. Plug USB receipt printers into it.
 
 - Windows: open `macaroonie-hub-setup.cmd` from the downloads. Windows warns about a file
   from the internet: **More info**, then **Run anyway**, then **Yes** to allow changes. When
-  it has finished, the hub's page opens with the link code. To remove the hub, run
-  `macaroonie-hub-setup.cmd uninstall` in a Command Prompt.
+  it has finished, the hub's page opens with the link code. Opened again on a hub, it asks
+  what to do (below). Without asking, in a Command Prompt: `macaroonie-hub-setup.cmd keep`,
+  `switch` or `uninstall`.
 - Linux: `sh ~/Downloads/macaroonie-hub-setup.sh` in a terminal (it asks for the password
   itself).
 
@@ -66,7 +67,8 @@ It installs its own Node.js in `/opt/macaroonie-hub/node`, makes a `macaroonie-h
 `macaroonie-hub`, and shows the link code. Its log: `journalctl -u macaroonie-hub -f`.
 What it shows: `sudo -u macaroonie-hub /opt/macaroonie-hub/node/bin/node
 /opt/macaroonie-hub/releases/*/hub/bin/hub.js status --config /opt/macaroonie-hub/hub.json`,
-or its page. To remove it: `curl -fsSL .../install.sh | sudo sh -s -- --uninstall`.
+or its page. Without asking: `... | sudo sh -s -- --keep`, `--switch` or `--uninstall`
+(add `--force` to go ahead with sales the cloud hasn't had yet: they are lost).
 
 **Windows.** In PowerShell opened as administrator:
 
@@ -78,19 +80,36 @@ It installs into `C:\ProgramData\Macaroonie\Hub` with its own Node.js, as a sche
 that starts with the computer (as SYSTEM) and starts again if it stops, opens port 9180 on
 private networks, and shows the link code. Its log: `C:\ProgramData\Macaroonie\Hub\hub.log`.
 A printer installed in Windows (install the printer's own driver first) shows in the
-hub's list by its Windows name. To remove it: `$env:MACAROONIE_HUB_UNINSTALL = '1'` then
-the same `irm ... | iex`.
+hub's list by its Windows name. Without asking: `$env:MACAROONIE_HUB_CHOICE = 'keep'`,
+`'switch'` or `'remove'` (or `$env:MACAROONIE_HUB_UNINSTALL = '1'`), then the same `irm ... | iex`.
+Every hub process is stopped before an update: ending the scheduled task only ends the
+launcher, and a hub left running kept the ports and the old link.
 
 **Then:** in Macaroonie, Store tech → Venue hub → **Link a hub** and type the code (or scan
 the QR code on the hub's page with the installer app). Add the network printers (On the
-network, their address) and the USB ones (Add it beside each printer the hub found). Running
-the installer again updates the hub and keeps its link. The hub updates itself after that
+network, their address) and the USB ones (Add it beside each printer the hub found). The hub
+updates itself after that
 (Update by itself, in the hub's settings), and goes back to the version before if a new
 one doesn't run.
 
+**Running the installer again.** On a computer that is already a hub, the installer says
+which restaurant group and venue it is linked to and asks:
+
+1. **Keep it** (Enter alone): updates it and keeps its link.
+2. **Link it to another restaurant or venue**: the hub sends up whatever the cloud hasn't had
+   yet (sales taken while the internet was down), leaves its venue (that restaurant's Store
+   tech shows it Not linked), deletes that venue's files on the computer (`hub.json`,
+   `venue.json`, `venue.log`, `printers.json`), and shows a new code. If sales are waiting and
+   the cloud doesn't answer, it stops and changes nothing (type LOSE to go ahead anyway).
+3. **Remove the hub** from the computer, leaving its venue the same way first.
+
+One computer is one hub for one venue. Removed in Store tech, a hub forgets that venue's files
+by itself and shows a new code.
+
 **Running it by hand** (a copy of this repository, Node.js 22): `node hub/bin/hub.js
-[--api https://pos.<your domain>] [--config hub.json] [--http-port 9180] [--forget]`. A copy
-run this way doesn't update itself (Store tech says when a new version is out).
+[--api https://pos.<your domain>] [--config hub.json] [--http-port 9180]`; `hub.js link-info`
+says what it is linked to, `hub.js unlink [--force]` takes it off its venue (stop it first).
+A copy run this way doesn't update itself (Store tech says when a new version is out).
 
 ## Trial 1: print on your Epson
 

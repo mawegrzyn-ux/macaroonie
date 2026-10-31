@@ -93,6 +93,10 @@ test('a kitchen screen shows a code, someone links it from the installer, the sc
   assert.equal(paired.venue_id, V)
   const me = await call('GET', '/pos-api/me', { headers: asDevice(dev.id, p.secret) })
   assert.equal(me.status, 200, me.body)
+  // The restaurant group's name: the venue hub's installer says which one it is linked to.
+  const [group] = await sql`SELECT name FROM tenants WHERE id = ${ids.a}`
+  assert.equal(paired.tenant_name, group.name)
+  assert.equal(me.json.tenant_name, group.name)
 
   const again = await owner.post(`/api/pos/venues/${V}/link`, { code: p.code, name: 'Twice' })
   assert.equal(again.status, 422, 'a code links once')

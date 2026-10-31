@@ -447,12 +447,13 @@ export default async function posApiRoutes(app) {
     if (!p || !m || !sameHash(sha256(m[1]), p.secret_hash)) return reply.code(404).send({ error: 'Not found', status: 'expired' })
     if (p.device_id) {
       const [d] = await systemSql`
-        SELECT d.id, d.venue_id, d.kind, d.name, d.short_code, d.secret_hash, d.revoked_at, v.name AS venue_name
+        SELECT d.id, d.venue_id, d.kind, d.name, d.short_code, d.secret_hash, d.revoked_at, v.name AS venue_name, t.name AS tenant_name
           FROM pos_devices d JOIN venues v ON v.id = d.venue_id AND v.tenant_id = d.tenant_id
+          JOIN tenants t ON t.id = d.tenant_id
          WHERE d.id = ${p.device_id}`
       // Linked, and still with this code's secret (not linked again or removed since).
       if (d && !d.revoked_at && sameHash(d.secret_hash, p.secret_hash)) {
-        return { status: 'paired', device_id: d.id, name: d.name, kind: d.kind, short_code: d.short_code, venue_id: d.venue_id, venue_name: d.venue_name }
+        return { status: 'paired', device_id: d.id, name: d.name, kind: d.kind, short_code: d.short_code, venue_id: d.venue_id, venue_name: d.venue_name, tenant_name: d.tenant_name }
       }
       return { status: 'expired' }
     }
@@ -564,8 +565,11 @@ export default async function posApiRoutes(app) {
 
     scoped.get('/me', async req => {
       const d = req.posDevice
-      const [v] = await tenantSql(d.tenant_id)`SELECT name, timezone FROM venues WHERE id = ${d.venue_id} AND tenant_id = ${d.tenant_id}`
-      return { device_id: d.id, name: d.name, kind: d.kind, short_code: d.short_code, settings: d.settings || {}, venue_id: d.venue_id, venue_name: v?.name, timezone: v?.timezone }
+      const [v] = await tenantSql(d.tenant_id)`
+        SELECT v.name, v.timezone, t.name AS tenant_name FROM venues v JOIN tenants t ON t.id = v.tenant_id
+         WHERE v.id = ${d.venue_id} AND v.tenant_id = ${d.tenant_id}`
+      // tenant_name: the restaurant group, which the venue hub's installer names before moving it elsewhere.
+      return { device_id: d.id, name: d.name, kind: d.kind, short_code: d.short_code, settings: d.settings || {}, venue_id: d.venue_id, venue_name: v?.name, tenant_name: v?.tenant_name || null, timezone: v?.timezone }
     })
 
     scoped.get('/config', async req => {

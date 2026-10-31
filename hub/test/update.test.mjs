@@ -177,3 +177,24 @@ test('the launcher: starts again after an update, goes back when a new version k
   await new Promise(r => child.on('exit', r))
   fs.rmSync(home, { recursive: true, force: true })
 })
+
+test('a hub whose launcher has gone stops by itself (Windows ends the task\'s launcher only)', async () => {
+  // A launcher pid that no longer runs.
+  const gone = spawn(process.execPath, ['-e', ''])
+  await new Promise(r => gone.on('exit', r))
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hub-orphan-'))
+  const hub = spawn(process.execPath, [path.join(here, '..', 'bin', 'hub.js'), '--config', path.join(dir, 'hub.json'),
+    '--api', 'http://127.0.0.1:9', '--http-port', '0', '--lan-port', '0'], {
+    env: { ...process.env, MACAROONIE_HUB_LAUNCHER_PID: String(gone.pid) }, stdio: ['ignore', 'pipe', 'pipe'],
+  })
+  let out = ''
+  hub.stdout.on('data', d => { out += d })
+  const started = Date.now()
+  const code = await new Promise(r => {
+    const t = setTimeout(() => { hub.kill(); r('still running') }, 12000)
+    hub.on('exit', c => { clearTimeout(t); r(c) })
+  })
+  assert.equal(code, 0, 'it stopped by itself: ' + out)
+  assert.ok(Date.now() - started < 11000)
+  assert.match(out, /The launcher has stopped/)
+})
