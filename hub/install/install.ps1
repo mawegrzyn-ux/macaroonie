@@ -259,7 +259,10 @@ try {
     $zip = Join-Path $tmp $file
     Invoke-WebRequest -UseBasicParsing "$NodeDist/$file" -OutFile $zip
     if ((Get-FileHash -Algorithm SHA256 $zip).Hash.ToLower() -ne $expected.ToLower()) { Fail "the Node.js download doesn't match its checksum" }
-    Expand-Archive -Path $zip -DestinationPath $tmp -Force
+    # Not Expand-Archive: in Windows PowerShell 5.1 it takes many minutes
+    # over Node's thousands of files (its progress bar).
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    [IO.Compression.ZipFile]::ExtractToDirectory($zip, $tmp)
     $unpacked = Join-Path $tmp ([IO.Path]::GetFileNameWithoutExtension($file))
     $nodeDir = Join-Path $HubHome 'node'
     if (Test-Path $nodeDir) { Remove-Item -Recurse -Force $nodeDir }

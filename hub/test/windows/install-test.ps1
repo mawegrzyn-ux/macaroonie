@@ -47,6 +47,9 @@ function Wait-Until([scriptblock]$cond, [int]$seconds) {
   }
   return $null
 }
+# Count and index these through @(...): a function's one result reaches the
+# caller as that result, not an array, and in Windows PowerShell 5.1 a CIM
+# instance has no Count (it reads as nothing).
 function Hub-Processes {
   @(Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" | Where-Object { $_.ExecutablePath -like "$HubHome*" })
 }
@@ -89,24 +92,24 @@ if ($state) {
   try { $page = (Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:9180/').Content } catch { $page = $null }
   Check ($page -and $page.Contains($state.link.code)) "its page on :9180 shows the code $($state.link.code)"
 }
-Check ((Launchers).Count -eq 1 -and (Hubs).Count -eq 1) "one launcher and one hub ($((Launchers).Count), $((Hubs).Count))"
+Check (@(Launchers).Count -eq 1 -and @(Hubs).Count -eq 1) "one launcher and one hub ($(@(Launchers).Count), $(@(Hubs).Count))"
 Check ((Calls).pairings -ge 1) 'it asked the cloud for a code'
 $svcArgs = Get-Content (Join-Path $HubHome 'service-args.txt')
 Check (($svcArgs -join ' ') -match '--api http://127\.0\.0\.1:\d+ --http-port 9180 --lan-port 9181 --log-file ') "service-args.txt: $($svcArgs -join ' ')"
 
 # ---------------------------------------------------------------------------
 Step '2. The hub stops, then the launcher stops'
-$hub = (Hubs)[0]
+$hub = @(Hubs)[0]
 Stop-Process -Id $hub.ProcessId -Force
-$again = Wait-Until { $h = Hubs; if ($h.Count -eq 1 -and $h[0].ProcessId -ne $hub.ProcessId) { $h[0] } } 30
+$again = Wait-Until { $h = @(Hubs); if ($h.Count -eq 1 -and $h[0].ProcessId -ne $hub.ProcessId) { $h[0] } } 30
 Check $again 'the launcher started the hub again'
-$launcher = (Launchers)[0]
-$hub = (Hubs)[0]
+$launcher = @(Launchers)[0]
+$hub = @(Hubs)[0]
 Stop-Process -Id $launcher.ProcessId -Force
-$newLauncher = Wait-Until { $l = Launchers; if ($l.Count -eq 1 -and $l[0].ProcessId -ne $launcher.ProcessId) { $l[0] } } 30
+$newLauncher = Wait-Until { $l = @(Launchers); if ($l.Count -eq 1 -and $l[0].ProcessId -ne $launcher.ProcessId) { $l[0] } } 30
 Check $newLauncher 'the service started the launcher again'
 Check (-not (Get-Process -Id $hub.ProcessId -ErrorAction SilentlyContinue)) 'the old hub went with the old launcher'
-Check (Wait-Until { (Hubs).Count -eq 1 } 30) 'one hub again'
+Check (Wait-Until { @(Hubs).Count -eq 1 } 30) 'one hub again'
 Check ((Get-Content -Raw (Join-Path $HubHome 'service.log')) -match 'launcher stopped') 'service.log says so'
 
 # ---------------------------------------------------------------------------
@@ -116,22 +119,22 @@ $program = Get-CimInstance Win32_Process -Filter "Name = 'hub-service.exe'"
 Check ($program) 'hub-service.exe is running'
 Stop-Process -Id $program.ProcessId -Force
 Check (Wait-Until { @(Hub-Processes | Where-Object { $before -contains $_.ProcessId }).Count -eq 0 } 15) 'everything it ran stopped with it (job object)'
-$back = Wait-Until { $p = Get-CimInstance Win32_Process -Filter "Name = 'hub-service.exe'"; if ($p -and $p.ProcessId -ne $program.ProcessId -and (Hubs).Count -eq 1) { $p } } 60
+$back = Wait-Until { $p = Get-CimInstance Win32_Process -Filter "Name = 'hub-service.exe'"; if ($p -and $p.ProcessId -ne $program.ProcessId -and @(Hubs).Count -eq 1) { $p } } 60
 Check $back 'Windows started the service again and the hub runs'
 
 # ---------------------------------------------------------------------------
 Step '4. Stopping the service'
 Stop-Service -Name $ServiceName -Force
 Check ((Get-Service -Name $ServiceName).Status -eq 'Stopped') 'stopped'
-Check (Wait-Until { (Hub-Processes).Count -eq 0 } 10) 'no hub process left'
+Check (Wait-Until { @(Hub-Processes).Count -eq 0 } 10) 'no hub process left'
 Start-Service -Name $ServiceName
-Check (Wait-Until { (Hubs).Count -eq 1 } 30) 'started again'
+Check (Wait-Until { @(Hubs).Count -eq 1 } 30) 'started again'
 
 # ---------------------------------------------------------------------------
 Step '5. Installing again over it'
 Check (Install-Hub) 'the installer finished'
 Check ((Get-Service -Name $ServiceName).Status -eq 'Running') 'the service is running'
-Check (Wait-Until { (Launchers).Count -eq 1 -and (Hubs).Count -eq 1 } 30) 'one launcher and one hub'
+Check (Wait-Until { @(Launchers).Count -eq 1 -and @(Hubs).Count -eq 1 } 30) 'one launcher and one hub'
 Check (@(Get-CimInstance Win32_Process -Filter "Name = 'hub-service.exe'").Count -eq 1) 'one service program'
 
 # ---------------------------------------------------------------------------
@@ -142,11 +145,11 @@ Remove-Item Env:\MACAROONIE_HUB_RUN_AS
 Check (-not (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue)) 'no service'
 $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
 Check ($task) 'the scheduled task is there'
-Check (Wait-Until { (Hubs).Count -eq 1 } 60) 'the task runs the hub'
+Check (Wait-Until { @(Hubs).Count -eq 1 } 60) 'the task runs the hub'
 Check (Install-Hub) 'the installer finished (service again)'
 Check ((Get-Service -Name $ServiceName -ErrorAction SilentlyContinue).Status -eq 'Running') 'the service is running'
 Check (-not (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue)) 'the task was removed'
-Check (Wait-Until { (Launchers).Count -eq 1 -and (Hubs).Count -eq 1 } 30) 'one launcher and one hub (the task''s were stopped)'
+Check (Wait-Until { @(Launchers).Count -eq 1 -and @(Hubs).Count -eq 1 } 30) 'one launcher and one hub (the task''s were stopped)'
 
 # ---------------------------------------------------------------------------
 Step '7. A linked hub moved to another venue'
@@ -155,7 +158,7 @@ $hubJson = Join-Path $HubHome 'hub.json'
 $link = [ordered]@{ api = $Api; device_id = 'dev-windows'; secret = ('s' * 32); name = 'Windows test hub'; venue_name = 'Ware'; tenant_name = 'WingVibes' }
 [IO.File]::WriteAllText($hubJson, ($link | ConvertTo-Json), (New-Object Text.UTF8Encoding $false))
 Start-Service -Name $ServiceName
-Check (Wait-Until { (Hubs).Count -eq 1 } 30) 'the linked hub runs'
+Check (Wait-Until { @(Hubs).Count -eq 1 } 30) 'the linked hub runs'
 Start-Sleep -Seconds 3
 $disconnects = (Calls).disconnect
 $env:MACAROONIE_HUB_CHOICE = 'switch'
