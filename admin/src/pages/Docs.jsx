@@ -3271,7 +3271,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <P>
               <Mono>poFile(tenantId, poId, format)</Mono> renders the same document as HTML (print, through a
               hidden iframe in the admin), Excel (<Mono>xlsx</Mono> package) or PDF (<Mono>services/pdfDoc.js</Mono>,
-              a small dependency-free writer with the standard Helvetica fonts). <Mono>GET /pos/:id/file?format=</Mono>.
+              a small dependency-free writer with the standard Helvetica fonts), or the supplier's quick order as a CSV
+              (<Mono>csv</Mono>: code, name, qty, no prices). <Mono>GET /pos/:id/file?format=</Mono> (anything else is the PDF).
               Emails go through the venue's provider (<Mono>venue_email_settings</Mono>,{' '}
               <Mono>emailCredentials()</Mono>); <Mono>sendEmail()</Mono> now takes <Mono>cc</Mono> and{' '}
               <Mono>attachments</Mono> for every provider (SES switches to a raw MIME message when there are
@@ -3353,6 +3354,54 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>late</Mono> ones; the day briefing has <Mono>orders_running_late</Mono>. A new location copies{' '}
               <Mono>supplier_venues</Mono> without the account number, delivery phone and driver instructions.
               Tests: <Mono>api/test/purchasing-delivery.test.mjs</Mono>, <Mono>shared/test/procurement.test.mjs</Mono>.
+            </P>
+            <H3>Supplier codes and the quick order (1 Nov 2026, no migration)</H3>
+            <P>
+              <strong>Searching.</strong> <Mono>GET /purchasing/venues/:id/catalog?search=</Mono> matches the item's
+              name (anywhere), our item code (from its start) and, through an <Mono>EXISTS</Mono> over the item's
+              active quotes (of <Mono>supplier_id</Mono> when given), a supplier's code or product name anywhere.
+              Items whose code or a quote's code equals the search come first (<Mono>exact</Mono>, made with{' '}
+              <Mono>COALESCE(..., false)</Mono>: a NULL would sort before true under <Mono>DESC</Mono>), then by
+              name. When a supplier's code was typed in whole, the item carries <Mono>matched_quote_id</Mono> (that
+              quote): Add an item, Add items on a PO and Pepper add on that quote, not the item's usual one.{' '}
+              <Mono>GET /pos?q=</Mono> also finds a PO with a line whose <Mono>supplier_code</Mono> equals{' '}
+              <Mono>q</Mono> (case-insensitive, whole code). The admin's order form filters with{' '}
+              <Mono>matchesSearch()</Mono> (name, our code, any quote's code or product name), and the Inventory page
+              the same.
+            </P>
+            <P>
+              <strong>Quick order.</strong> <Mono>quickOrder(lines, {'{ sep }'})</Mono> in{' '}
+              <Mono>shared/procurement.js</Mono> takes <Mono>{'[{ code, name, qty }]'}</Mono> and returns{' '}
+              <Mono>{'{ text, coded, noCode }'}</Mono>: <Mono>CODE:QTY</Mono> per code (the same code without
+              regard to case summed once, the first spelling kept), joined by <Mono>sep</Mono> (comma, or a new
+              line); lines without a code go to <Mono>noCode</Mono>, lines without a quantity above 0 are left out.{' '}
+              <Mono>quickOrderCsv(lines)</Mono> is the same as <Mono>code,name,qty</Mono> rows with CRLF, cells quoted
+              when needed and a leading <Mono>= + - @</Mono> made harmless with an apostrophe.{' '}
+              <Mono>GET /pos/:id/file?format=csv</Mono> (<Mono>poFile()</Mono>) is that CSV of the PO's lines (not{' '}
+              <Mono>added_on_receipt</Mono> ones, as on every supplier's copy; name = product name, else the item's).
+              Quantities are packs as ordered. Admin: <Mono>QuickOrderModal</Mono> in{' '}
+              <Mono>components/purchasing/ordering.jsx</Mono> (groups per supplier, On one line / One a line in
+              localStorage <Mono>maca_quick_order_sep</Mono>, Copy via <Mono>copyText()</Mono>, CSV from the file
+              route on the PO page or <Mono>saveBlob()</Mono> on the order form, the lines without a code), opened by
+              Codes for quick order on <Mono>PoDetail</Mono> and Codes on <Mono>OrderForm</Mono> (its fitted
+              quantities per supplier). <Mono>CodeTag</Mono> (<Mono>components/purchasing/shared.jsx</Mono>) shows a
+              code next to the pack on every ordering screen and the Inventory list and panel.
+            </P>
+            <P>
+              <strong>Pepper.</strong> <Mono>find_inventory_items</Mono> matches suppliers' codes and product names
+              (an exact code first); an order line, a PO line (<Mono>pickPoLine()</Mono>), a product to add to a PO
+              and a line in <Mono>split_order</Mono> / <Mono>receive_delivery</Mono> can be named by a supplier's
+              code; on an order, a code names that quote (<Mono>findOrderItem()</Mono>'s <Mono>codeQuote</Mono>,
+              which <Mono>planOrder()</Mono> switches the line to). <Mono>order_form</Mono> gives each supplier's{' '}
+              <Mono>quick_order</Mono> and each item's <Mono>supplier_code</Mono>; <Mono>purchase_orders</Mono> with{' '}
+              <Mono>po</Mono> gives <Mono>quick_order</Mono> and <Mono>not_in_quick_order</Mono>, and{' '}
+              <Mono>product_code</Mono> lists the POs with that code on a line. <Mono>update_supplier</Mono>'s venue
+              settings take <Mono>days_notice</Mono>, <Mono>delivery_phone</Mono>, <Mono>driver_instructions</Mono> and{' '}
+              <Mono>delivery_slot_from</Mono> / <Mono>_to</Mono>, and send every other venue's row back whole
+              (<Mono>venueSettings()</Mono>): <Mono>PUT /suppliers/:id/venues</Mono> replaces every venue, and before
+              this the tool dropped other venues' delivery details. <Mono>needs_their_reference</Mono> sets{' '}
+              <Mono>ref_required</Mono>. Tests: <Mono>api/test/purchasing-codes.test.mjs</Mono>,{' '}
+              <Mono>shared/test/procurement.test.mjs</Mono>.
             </P>
             <H3>Changing an order not yet sent</H3>
             <P>
@@ -6331,26 +6380,26 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <DataTable
               head={['Tool', 'Permission', 'Route(s)', 'Notes']}
               rows={[
-                ['find_inventory_items', 'setup view', 'GET /inventory/items, /quotes/:id/history', 'Search name/code words, category, supplier; venue_id adds ordered_at_venue (chooseQuote); history when 5 or fewer match. 40 shown'],
+                ['find_inventory_items', 'setup view', 'GET /inventory/items, /quotes/:id/history', 'Search name, our code, a supplier\'s code or product name (words; an exact code first), category, supplier; venue_id adds ordered_at_venue (chooseQuote); history when 5 or fewer match. 40 shown'],
                 ['list_suppliers', 'setup view', 'GET /suppliers, /suppliers/:id', 'One supplier: venue settings and up to 150 products'],
                 ['order_lists', 'either view (a list\'s items: setup view)', 'GET /purchasing/lists, /lists/:id', 'Pars shown in packs of the company-choice quote'],
-                ['order_form', 'either view', 'GET /orders?status=draft, GET /orders/:id, POST /orders', 'Opens the venue\'s draft for the list (named, the venue\'s only list, or without_list); makes an empty draft only with purchasing manage, like opening the list on the page. Each supplier says its next delivery day and deadline, how orders go, the delivery slot (slotText()), delivery phone and driver instructions for the venue, whether marking sent needs their reference, and open_orders (the venue\'s open purchase orders from them, from loadOrder()\'s open_pos). Not a confirm tool'],
-                ['purchase_orders', 'either view', 'GET /pos, /pos/:id', 'po = PO-00012, 12 or an id (resolved with a tenant filter); status open = to_send,sent; supplier_ref searches the supplier\'s reference (q on GET /pos, part of it is enough); late: true lists only purchase orders running late (lateOrders(): still to send once deadlinePassed() for their day at the venue\'s time, or sent and not booked in after their delivery day, as Today flags them). Rows carry supplier_ref; one PO in full adds its delivery slot and phone. Also a day_briefing part (orders_running_late)'],
+                ['order_form', 'either view', 'GET /orders?status=draft, GET /orders/:id, POST /orders', 'Opens the venue\'s draft for the list (named, the venue\'s only list, or without_list); makes an empty draft only with purchasing manage, like opening the list on the page. Each supplier says its next delivery day and deadline, how orders go, the delivery slot (slotText()), delivery phone and driver instructions for the venue, whether marking sent needs their reference, open_orders (the venue\'s open purchase orders from them, from loadOrder()\'s open_pos) and quick_order (quickOrder() of its lines at fitQty()); items carry supplier_code. Not a confirm tool'],
+                ['purchase_orders', 'either view', 'GET /pos, /pos/:id', 'po = PO-00012, 12 or an id (resolved with a tenant filter); status open = to_send,sent; supplier_ref searches the supplier\'s reference (q on GET /pos, part of it is enough); late: true lists only purchase orders running late (lateOrders(): still to send once deadlinePassed() for their day at the venue\'s time, or sent and not booked in after their delivery day, as Today flags them). product_code lists POs with that supplier code on a line (q on GET /pos). Rows carry supplier_ref; one PO in full adds its delivery slot and phone, lines\' supplier_code, quick_order and not_in_quick_order (lines without a code). Also a day_briefing part (orders_running_late)'],
                 ['add_inventory_item', 'setup manage', 'POST /categories, /items, /items/:id/quotes', 'Up to 5 prices; base unit from counted_in or the first pack unit; unknown category is made, unknown supplier refused'],
                 ['update_inventory_item', 'setup manage', 'PATCH /items/:id', 'Only changed fields are sent; counted_in refused while it has quotes'],
                 ['add_supplier_price / update_supplier_price', 'setup manage', 'POST /items/:id/quotes, PATCH /quotes/:id, PUT /quotes/:id/venue-prices', 'A price is item + supplier (+ which: supplier code or pack words); a same-pack duplicate is refused; 20% or bigger price changes warn on the card'],
                 ['set_preferred_supplier', 'setup manage', 'PUT /items/:id/preferred', 'venue_id or company; clear: true'],
-                ['add_supplier / update_supplier', 'setup manage', 'POST, PATCH /suppliers, PUT /suppliers/:id/venues', 'Days as names; ref_required (marking sent needs their reference); a venue setting (account, days, cutoff, lead days, delivery phone, driver instructions, slot from / to) is merged into the full PUT list (the route replaces all)'],
+                ['add_supplier / update_supplier', 'setup manage', 'POST, PATCH /suppliers, PUT /suppliers/:id/venues', 'Days as names; needs_their_reference = ref_required (marking sent needs their reference); a venue setting (account, days, cutoff, days_notice, delivery phone, driver instructions, delivery slot from / to; a slot ending before it starts is refused) is merged into the full PUT list with every other venue sent back whole by venueSettings() (the route replaces all)'],
                 ['create_order_list / update_order_list / set_pars', 'setup manage', 'POST, PATCH /lists, PUT /lists/:id/venues|items|pars', 'Items by name or code, every unknown name in one error; pars in packs (company-choice quote) or g/kg/ml/cl/l/each, stored in base units'],
                 ['import_price_list', 'setup manage', 'POST /inventory/import (dry_run on the card)', 'rows (up to 100 per call, read by the model from a PDF, photo or email; a longer list is one call and one card per 100) become a CSV with the template headings; attached_file is a text/CSV ai_attachments row of this conversation and this user (chat only). All rows bad = refused'],
-                ['update_order', 'purchasing or approve manage', 'PUT /orders/:id/lines', 'planOrder(): the venue\'s draft, or order_id (orderVenue(), openOrder()); lines (on the order by code/name, else GET /venues/:id/catalog), supplier/pack switch (a quantity left out converts with convertQty() and the card shows the amount before and after), fill_to_par (packsToPar), clear_all; only changed lines are sent, each with the quote_id the card shows (the API pins it). Lines whose price, supplier or item was switched off are listed under Can\'t be ordered yet. assertCanEdit(): a request waiting for approval only for an approver'],
+                ['update_order', 'purchasing or approve manage', 'PUT /orders/:id/lines', 'planOrder(): the venue\'s draft, or order_id (orderVenue(), openOrder()); lines (on the order by our code, a supplier\'s code (which switches the line to that quote) or name, else GET /venues/:id/catalog, whose matched_quote_id names the quote), supplier/pack switch (a quantity left out converts with convertQty() and the card shows the amount before and after), fill_to_par (packsToPar), clear_all; only changed lines are sent, each with the quote_id the card shows (the API pins it). Lines whose price, supplier or item was switched off are listed under Can\'t be ordered yet. assertCanEdit(): a request waiting for approval only for an approver'],
                 ['request_order', 'purchasing manage', 'PUT /orders/:id/lines, POST /orders/:id/request', 'Card per supplier: the day wanted (deliveries[].date, else "next delivery day when placed": only given days are stored), lines, note for the manager'],
                 ['order_requests', 'any view', 'GET /orders?status=requested|draft, /orders/:id', 'Waiting orders (up to 15 in full: lines with asked_for), sent-back drafts with the reason, you_can_approve. Also a day_briefing part (orders_to_approve)'],
                 ['send_back_order', 'approve manage', 'POST /orders/:id/return', 'order_id + reason'],
                 ['split_order', 'approve manage', 'POST /pos/:id/split | /orders/:id/split', 'po or order_id; lines (item, packs) to move; delivery_date (deliveries[] per supplier for a request); splitPlan() refuses the same day, more than a line holds, the whole order and a split splitProblem() refuses; dayCheck() refuses a past day, and a day the supplier can\'t make unless agreed_with_supplier (top level, or per supplier in deliveries); the card warns when the supplier already has the PO'],
                 ['place_order', 'approve manage (requirePlace(): else "use request_order")', 'PUT /orders/:id/lines, POST /orders/:id/submit', 'The draft, or order_id for a request. Card per supplier: delivery date (deliveries[].date, else the day the request asked for, "(as asked)", else next delivery), how it is sent, lines at fitQty(); warns on rounding, minimum order, a missed cutoff, no email address; dayCheck() (deliveryDayProblem()) refuses a past day, and a day off the delivery days or past its order deadline unless deliveries[].agreed_with_supplier (then a card warning and agreed: true on submit); lines whose price was switched off refuse (lineWarnings()). A supplier\'s note is deliveries[].notes, else the one asked for (also when cleared), else the venue\'s driver instructions, and is always sent. After the day check, a supplier with an open purchase order for that day (open_pos) needs deliveries[].existing_order: without it placeChecks() refuses (409) naming the order so the model asks; add_to_it sends existing: add (refused for one already sent), separate sends existing: separate; the card says added to PO-00012 or a separate order beside it, and the result marks added_to_it. Only overrides and notes are sent, so the route still picks the date at run time. The card pins planned_delivery { supplierId: date } for suppliers without a date given; run() refuses (409) when a supplier\'s first delivery day has moved since (a cutoff passed), so the order is never placed for a day the card didn\'t show'],
                 ['send_purchase_order', 'purchasing or approve manage', 'POST /pos/:id/send | /mark-sent, PATCH /pos/:id', 'email needs an address (resend allowed, warned) and goes now (sent_on / sent_time refused); other ways (printed, pdf, excel, phone, website, other) need To send. supplier_ref is required for a supplier with ref_required when marking sent (sendCheck()), and after an email it is saved with a PATCH; sent_on / sent_time (venue time, sentWhen() with zonedInstant()) give when it went, refused when still to come or over 14 days ago (the API checks again: not before the order was made)'],
-                ['change_purchase_order', 'purchasing or approve manage; lines and add: approve', 'PATCH /pos/:id, PUT /pos/:id/lines', 'supplier_ref sets, corrects or (null) clears the supplier\'s reference at any status but cancelled (a reference alone also on a received order, with no tell-the-supplier warning); lines and add only while To send; add only from the PO\'s supplier (GET /venues/:id/catalog?supplier_id=); a product already on the order tops its line up, and the card says so; changed quantities show fitQty() (the API rounds them the same way); a new delivery_date goes through dayCheck() (agreed_with_supplier); an empty order is refused'],
+                ['change_purchase_order', 'purchasing or approve manage; lines and add: approve', 'PATCH /pos/:id, PUT /pos/:id/lines', 'supplier_ref sets, corrects or (null) clears the supplier\'s reference at any status but cancelled (a reference alone also on a received order, with no tell-the-supplier warning); lines and add only while To send; lines named by their supplier code or item name (pickPoLine()); add only from the PO\'s supplier (GET /venues/:id/catalog?supplier_id=; a code typed in whole adds that quote); a product already on the order tops its line up, and the card says so; changed quantities show fitQty() (the API rounds them the same way); a new delivery_date goes through dayCheck() (agreed_with_supplier); an empty order is refused'],
                 ['cancel_purchase_order', 'approve manage', 'POST /pos/:id/cancel', 'Warns to tell the supplier when already sent'],
                 ['receive_delivery', 'purchasing or approve manage', 'POST /pos/:id/receive', 'Lines not named arrived as ordered (or keep what an earlier booking-in recorded); chilled/frozen temperature asked for when such goods arrived; writes fs_delivery_checks'],
               ]}

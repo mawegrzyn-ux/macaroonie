@@ -41,13 +41,13 @@ import { Modal, Field, inputCls, ErrorNote, Segmented, ConfirmDelete } from '@/c
 import { TempKeypadModal } from '@/components/foodSafety/shared'
 import {
   usePurchasingMeta, QtyStepper, NumInput, DateButton, StorageBadge, PoStatusBadge, Toggle, btn, money, fmtDate,
-  fmtDateLong, printHtml, IS_TOUCH,
+  fmtDateLong, printHtml, IS_TOUCH, CodeTag,
 } from '@/components/purchasing/shared'
 import {
   fitQty, qtyProblem, packsToPar, orderTotals, lineAmounts, fmtNum, poNumberLabel, receiveStatusFor,
   deliveryTempOk, RECEIVE_STATUSES, DELIVERY_TEMP_MAX, deliveryDateChoices, addDays,
   convertQty, splitProblem, deliveryDayProblem, deadlineText, nowAt, formatBase, slotText, checkoutText,
-  deadlinePassed,
+  deadlinePassed, quickOrder, quickOrderCsv,
 } from '@shared/procurement.js'
 import { ASSISTANT_NAME } from '@shared/assistant.js'
 import {
@@ -280,6 +280,7 @@ function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo, onOpenOrd
   const [splitDone, setSplitDone] = useState(null)
   const [result, setResult] = useState(null)
   const [showing, setShowing] = useState(false)
+  const [quick, setQuick] = useState(false)
   const [show, setShow] = useShowPrefs()
   const save = useAutosave(orderId)
   const prices = !!order?.show_prices
@@ -387,7 +388,7 @@ function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo, onOpenOrd
 
   const q = search.trim().toLowerCase()
   const now = nowAt(order.timezone)
-  const visible = order.items.filter(it => (!onlyQty || qtyOf(it) > 0) && (!q || it.name.toLowerCase().includes(q) || (it.code || '').toLowerCase().includes(q)))
+  const visible = order.items.filter(it => (!onlyQty || qtyOf(it) > 0) && (!q || matchesSearch(it, q)))
   const groups = groupRows(visible, groupBy, order, quoteOf, now)
   const lineCount = bySupplier.reduce((n, g) => n + g.lines.length, 0)
   const goneLines = order.items.filter(goneOf)
@@ -423,7 +424,8 @@ function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo, onOpenOrd
         <div className="flex flex-wrap gap-2 mt-2">
           <div className="relative flex-1 min-w-[160px]">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Find an item" className={cn(inputCls, 'pl-9')} />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Find an item or a supplier's code"
+              aria-label="Find an item by name or code" className={cn(inputCls, 'pl-9')} data-testid="order-search" />
           </div>
           <Segmented value={groupBy} onChange={v => { setGroupBy(v); try { localStorage.setItem('maca_purchasing_group', v) } catch { /* private */ } }}
             options={[{ value: 'category', label: 'Category' }, { value: 'supplier', label: 'Supplier' }]} />
@@ -434,6 +436,11 @@ function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo, onOpenOrd
             <Eye className="w-4 h-4" />Show{showCount ? ` (${showCount})` : ''}
           </button>
           {editable && <button type="button" className={btn.outline} onClick={() => setAdding(true)}><Plus className="w-4 h-4" />Add item</button>}
+          {lineCount > 0 && (
+            <button type="button" className={btn.outline} onClick={() => setQuick(true)} data-testid="order-quick-order">
+              <Copy className="w-4 h-4" />Codes
+            </button>
+          )}
         </div>
         <ErrorNote error={save.error} />
       </div>
@@ -512,6 +519,13 @@ function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo, onOpenOrd
           </p>
         </Modal>
       )}
+      {quick && (
+        <QuickOrderModal onClose={() => setQuick(false)}
+          groups={bySupplier.map(g => ({
+            key: g.supplier.id, name: g.supplier.name,
+            lines: g.lines.map(l => ({ code: l.q.supplier_code, name: l.q.product_name || l.it.name, qty: l.qty })),
+          }))} />
+      )}
       {switching && (
         <SwitchSupplierModal it={switching} current={quoteOf(switching)} gone={goneOf(switching)} qty={qtyOf(switching)}
           prices={prices} order={order} now={now}
@@ -589,6 +603,12 @@ function SaveState({ state }) {
   if (state === 'pending') return <span>Editing…</span>
   if (state === 'error') return <span className="text-red-700">Not saved</span>
   return <span>Saved</span>
+}
+
+/** An order line found by its name, our code, or any supplier's product code or name for it. */
+function matchesSearch(it, q) {
+  if (it.name.toLowerCase().includes(q) || (it.code || '').toLowerCase().includes(q)) return true
+  return (it.quotes || []).some(x => (x.supplier_code || '').toLowerCase().includes(q) || (x.product_name || '').toLowerCase().includes(q))
 }
 
 function groupRows(items, groupBy, order, quoteOf, now) {
@@ -671,7 +691,9 @@ function OrderRow({ it, quote, gone, qty, view, hasPars, hasExtras, readOnly, as
               )}
             </div>
           )}
-          {quote?.product_name && <p className="text-xs">{quote.product_name}</p>}
+          {(quote?.supplier_code || quote?.product_name) && (
+            <p className="text-xs flex flex-wrap items-center gap-x-1.5 gap-y-0.5"><CodeTag code={quote.supplier_code} />{quote.product_name}</p>
+          )}
           {details && <p className="text-xs text-muted-foreground">{details}</p>}
           {view.last && last && (
             <p className="text-xs text-muted-foreground">
@@ -758,7 +780,7 @@ function SwitchSupplierModal({ it, current, gone, qty, prices, order, now, onPic
                 {q.id === current?.id && <Check className="w-4 h-4 text-primary" />}
               </span>
               {q.product_name && <span className="block text-sm font-medium">{q.product_name}</span>}
-              <span className="block text-sm">{q.pack_label}{prices && q.price != null ? ` · ${money(q.price)}` : ''}</span>
+              <span className="block text-sm"><CodeTag code={q.supplier_code} className="mr-1.5" />{q.pack_label}{prices && q.price != null ? ` · ${money(q.price)}` : ''}</span>
               {to != null && q.id !== current?.id && (
                 <span className="block text-xs text-blue-900" data-testid="switch-qty">
                   {fmtNum(qty)} × {from.pack_label} {otherPack ? `(${amount(qty, from)}) ` : ''}becomes {fmtNum(to)} × {q.pack_label}
@@ -788,19 +810,27 @@ function AddItemModal({ order, prices, onClose, onAdd }) {
     <Modal title="Add an item" onClose={onClose}>
       <div className="relative">
         <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-        <input className={cn(inputCls, 'pl-9')} value={search} onChange={e => setSearch(e.target.value)} placeholder="Search the inventory" autoFocus={!IS_TOUCH} />
+        <input className={cn(inputCls, 'pl-9')} value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by name or code"
+          aria-label="Search the inventory by name or code" autoFocus={!IS_TOUCH} />
       </div>
       {isFetching && <Loader2 className="w-4 h-4 animate-spin" />}
       <div className="rounded-xl border divide-y">
-        {data.filter(i => !have.has(i.id)).map(i => (
-          <button key={i.id} type="button" onClick={() => onAdd(i, i.quote)}
-            className="w-full text-left px-3 py-2 min-h-[52px] hover:bg-muted/40 touch-manipulation">
-            <span className="block text-sm font-medium">{i.name} <StorageBadge storage={i.storage} /></span>
-            <span className="block text-xs text-muted-foreground">
-              {i.quote ? `${i.quote.supplier_name} · ${i.quote.pack_label}${prices && i.quote.price != null ? ` · ${money(i.quote.price)}` : ''}` : ''}
-            </span>
-          </button>
-        ))}
+        {data.filter(i => !have.has(i.id)).map(i => {
+          // A supplier's code typed in exactly: that supplier's product.
+          const q = (i.matched_quote_id && i.quotes.find(x => x.id === i.matched_quote_id)) || i.quote
+          return (
+            <button key={i.id} type="button" onClick={() => onAdd(i, q)} data-testid="add-item-result"
+              className="w-full text-left px-3 py-2 min-h-[52px] hover:bg-muted/40 touch-manipulation">
+              <span className="block text-sm font-medium">{i.name} <StorageBadge storage={i.storage} /></span>
+              {q && (
+                <span className="block text-xs text-muted-foreground">
+                  <CodeTag code={q.supplier_code} className="mr-1.5" />
+                  {`${q.supplier_name} · ${q.pack_label}${prices && q.price != null ? ` · ${money(q.price)}` : ''}`}
+                </span>
+              )}
+            </button>
+          )
+        })}
         {!isFetching && !data.filter(i => !have.has(i.id)).length && <p className="p-3 text-sm text-muted-foreground">Nothing found.</p>}
       </div>
     </Modal>
@@ -1006,7 +1036,11 @@ function ReviewModal({ order, groups, prices, mode = 'place', onClose, onPlaced,
               {prices && <span className="text-sm font-semibold tabular-nums">{money(g.totals.total)}</span>}
             </div>
             <ul className="text-xs text-muted-foreground space-y-0.5">
-              {g.lines.map(l => <li key={l.it.item_id}>{fmtNum(l.qty)} × {l.it.name} <span className="opacity-75">({l.q.pack_label})</span></li>)}
+              {g.lines.map(l => (
+                <li key={l.it.item_id}>
+                  {fmtNum(l.qty)} × {l.it.name} <CodeTag code={l.q.supplier_code} /> <span className="opacity-75">({l.q.pack_label})</span>
+                </li>
+              ))}
             </ul>
             {below && <p className="text-xs text-amber-800 flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5" />Below their minimum order of {money(s.min_order)}</p>}
             <div className="flex flex-wrap items-start gap-2">
@@ -1110,7 +1144,7 @@ function SplitRequestModal({ order, groups, onClose, onSplit }) {
             {g.lines.map(l => (
               <div key={l.it.item_id} className="flex flex-wrap items-center gap-2">
                 <span className="flex-1 min-w-[140px] text-sm">
-                  {l.it.name} <span className="text-muted-foreground">({fmtNum(l.raw)} {(l.q.pack_name || 'pack').toLowerCase()})</span>
+                  {l.it.name} <CodeTag code={l.q.supplier_code} /> <span className="text-muted-foreground">({fmtNum(l.raw)} {(l.q.pack_name || 'pack').toLowerCase()})</span>
                   {splitIssue(l) && <span className="block text-xs text-red-700" data-testid="split-qty-problem">{splitIssue(l)}</span>}
                 </span>
                 <span className="text-xs text-muted-foreground">Move</span>
@@ -1288,7 +1322,7 @@ function Deliveries({ venueId, meta, onOpen }) {
         <label className="relative flex-1 min-w-[200px] max-w-sm">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <input className={cn(inputCls, 'pl-9 pr-10')} value={search} onChange={e => setSearch(e.target.value)} data-testid="po-search"
-            placeholder="Their reference or PO number" aria-label="Find an order by their reference or PO number" />
+            placeholder="Their reference, PO number or a product code" aria-label="Find an order by their reference, PO number or a product code" />
           {search && (
             <button type="button" onClick={() => setSearch('')} aria-label="Clear the search"
               className="absolute right-0 top-0 w-11 h-11 flex items-center justify-center text-muted-foreground touch-manipulation">
@@ -1350,6 +1384,7 @@ function PoDetail({ poId, meta, phone, onBack, onOpenPo }) {
   // them" (or is dropped): { date, problem }.
   const [dateAsk, setDateAsk] = useState(null)
   const [checkout, setCheckout] = useState(false)
+  const [quick, setQuick] = useState(false)
   // The supplier's order reference being typed (null = not editing).
   const [refEdit, setRefEdit] = useState(null)
   const done = saved => {
@@ -1532,6 +1567,7 @@ function PoDetail({ poId, meta, phone, onBack, onOpenPo }) {
         <button type="button" className={btn.outline} disabled={!!busy} onClick={() => file('pdf')}><FileText className="w-4 h-4" />PDF</button>
         <button type="button" className={btn.outline} disabled={!!busy} onClick={() => file('xlsx')}><FileSpreadsheet className="w-4 h-4" />Excel</button>
         <button type="button" className={btn.outline} onClick={() => setCheckout(true)} data-testid="po-checkout"><Copy className="w-4 h-4" />Copy for checkout</button>
+        <button type="button" className={btn.outline} onClick={() => setQuick(true)} data-testid="po-quick-order"><Copy className="w-4 h-4" />Codes for quick order</button>
         {busy && <Loader2 className="w-4 h-4 animate-spin self-center" />}
       </div>
       <ErrorNote error={send.error || cancel.error || patch.error || fileErr || saveQty.error} />
@@ -1560,7 +1596,7 @@ function PoDetail({ poId, meta, phone, onBack, onOpenPo }) {
               <div className="flex-1 min-w-[160px]">
                 <p className="text-sm font-medium">{l.item_name} <StorageBadge storage={l.storage} />{l.added_on_receipt && <NotOrderedBadge />}</p>
                 {l.product_name && <p className="text-xs">{l.product_name}</p>}
-                <p className="text-xs text-muted-foreground">{[l.supplier_code, l.pack_label].filter(Boolean).join(' · ')}</p>
+                <p className="text-xs text-muted-foreground flex flex-wrap items-center gap-x-1.5"><CodeTag code={l.supplier_code} />{l.pack_label}</p>
                 {l.invoice_name && (l.invoice_name !== l.product_name || (prices && l.invoice_price != null && Math.abs(l.invoice_price - l.price) >= 0.005)) && (
                   <p className="text-xs text-blue-900">
                     Invoiced as {l.invoice_name}{prices && l.invoice_price != null ? ` at ${money(l.invoice_price)}` : ''}
@@ -1599,7 +1635,7 @@ function PoDetail({ poId, meta, phone, onBack, onOpenPo }) {
                 <div className="flex-1 min-w-[160px]">
                   <p className="text-sm font-medium">{x.item.name} <StorageBadge storage={x.item.storage} /><NewLineBadge /></p>
                   {x.quote.product_name && <p className="text-xs">{x.quote.product_name}</p>}
-                  <p className="text-xs text-muted-foreground">{[x.quote.supplier_code, x.quote.pack_label].filter(Boolean).join(' · ')}</p>
+                  <p className="text-xs text-muted-foreground flex flex-wrap items-center gap-x-1.5"><CodeTag code={x.quote.supplier_code} />{x.quote.pack_label}</p>
                   {problem && <p className="text-xs text-amber-700">{problem}: will order {fmtNum(fitQty(x.qty, x.quote))}</p>}
                 </div>
                 <QtyStepper value={x.qty} step={x.quote.order_multiple || 1} min={x.quote.min_qty || 0} onChange={v => setAddedQty(x.quote.id, v)} label={x.item.name} />
@@ -1659,6 +1695,14 @@ function PoDetail({ poId, meta, phone, onBack, onOpenPo }) {
         <MarkSentModal po={po} onClose={() => setMarkSent(false)} onSaved={saved => { done(saved); setMarkSent(false) }} />
       )}
       {checkout && <CheckoutCopyModal po={po} onClose={() => setCheckout(false)} />}
+      {quick && (
+        <QuickOrderModal onClose={() => setQuick(false)}
+          groups={[{
+            key: po.id, name: po.supplier_name,
+            lines: po.lines.filter(l => !l.added_on_receipt).map(l => ({ code: l.supplier_code, name: l.product_name || l.item_name, qty: l.qty })),
+          }]}
+          onCsv={() => api.download(`/purchasing/pos/${poId}/file?format=csv`, `${poNumberLabel(po.number)}-${po.supplier_name.replace(/[^\w-]+/g, '-')}.csv`)} />
+      )}
       {receiving && <ReceiveForm po={po} meta={meta} onClose={() => setReceiving(false)} onSaved={saved => {
         done(saved); setReceiving(false); qc.invalidateQueries({ queryKey: ['fs-deliveries'] })
         if (meta?.can_setup && saved.price_list?.length) setPriceList(true)
@@ -1723,7 +1767,8 @@ function AddPoItemsModal({ po, added, onToggle, onClose }) {
                 <span className="block text-sm font-medium">{item.name} <StorageBadge storage={item.storage} /></span>
                 {quote.product_name && <span className="block text-xs">{quote.product_name}</span>}
                 <span className="block text-xs text-muted-foreground">
-                  {[quote.supplier_code, quote.pack_label, prices && quote.price != null && money(quote.price)].filter(Boolean).join(' · ')}
+                  <CodeTag code={quote.supplier_code} className="mr-1.5" />
+                  {[quote.pack_label, prices && quote.price != null && money(quote.price)].filter(Boolean).join(' · ')}
                 </span>
               </span>
               {already
@@ -1791,7 +1836,7 @@ function SplitPoModal({ po, onClose, onSplit }) {
         {po.lines.map(l => (
           <div key={l.id} className="flex flex-wrap items-center gap-2 px-3 py-2">
             <span className="flex-1 min-w-[140px] text-sm">
-              {l.item_name} <span className="text-muted-foreground">({fmtNum(l.qty)} × {l.pack_label})</span>
+              {l.item_name} <CodeTag code={l.supplier_code} /> <span className="text-muted-foreground">({fmtNum(l.qty)} × {l.pack_label})</span>
               {splitIssue(l) && <span className="block text-xs text-red-700" data-testid="split-qty-problem">{splitIssue(l)}</span>}
             </span>
             <span className="text-xs text-muted-foreground">Move</span>
@@ -1909,6 +1954,98 @@ async function copyText(text) {
   try { ok = document.execCommand('copy') } catch { ok = false }
   ta.remove()
   return ok
+}
+
+/** Save a file made in the browser (the order form's quick order CSV). */
+function saveBlob(blob, name) {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url; a.download = name
+  document.body.appendChild(a); a.click(); a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
+const QUICK_SEP_KEY = 'maca_quick_order_sep'
+
+/**
+ * Codes for quick order: each supplier's codes and quantities (CODE:QTY,
+ * quickOrder() in shared/procurement.js) to paste into the quick order box
+ * on their website or app, and the same as a CSV file (code, name, qty).
+ * groups = [{ key, name, lines: [{ code, name, qty }] }], quantities in the
+ * supplier's packs. onCsv(group) downloads the CSV (default: made here with
+ * quickOrderCsv()). Lines without a supplier code are listed to add by hand.
+ */
+function QuickOrderModal({ groups, onCsv, onClose }) {
+  const [sep, setSepState] = useState(() => {
+    try { return localStorage.getItem(QUICK_SEP_KEY) === 'line' ? 'line' : 'comma' } catch { return 'comma' }
+  })
+  const setSep = v => { setSepState(v); try { localStorage.setItem(QUICK_SEP_KEY, v) } catch { /* private */ } }
+  const [copied, setCopied] = useState(null)
+  const [failed, setFailed] = useState(false)
+  const [busy, setBusy] = useState(null)
+  const [err, setErr] = useState(null)
+  const built = groups.map(g => ({ ...g, ...quickOrder(g.lines, { sep: sep === 'line' ? '\n' : ',' }) }))
+  const copy = async g => {
+    const ok = await copyText(g.text)
+    setFailed(!ok)
+    if (ok) { setCopied(g.key); setTimeout(() => setCopied(c => (c === g.key ? null : c)), 2000) }
+  }
+  const csv = async g => {
+    setBusy(g.key); setErr(null)
+    try {
+      if (onCsv) await onCsv(g)
+      else saveBlob(new Blob([quickOrderCsv(g.lines)], { type: 'text/csv;charset=utf-8' }), `${String(g.name || 'supplier').replace(/[^\w-]+/g, '-')}-quick-order.csv`)
+    } catch (e) { setErr(e) } finally { setBusy(null) }
+  }
+  return (
+    <Modal title="Codes for quick order" onClose={onClose}
+      footer={<button type="button" className={btn.outline} onClick={onClose}>Done</button>}>
+      <p className="text-sm text-muted-foreground">
+        For a supplier's quick order box: their product codes with how many packs, ready to paste. The CSV file has the same lines for websites that take a file.
+      </p>
+      <Field label="Put the codes" group>
+        <Segmented value={sep} onChange={setSep}
+          options={[{ value: 'comma', label: 'On one line' }, { value: 'line', label: 'One a line' }]} />
+      </Field>
+      {built.map(g => (
+        <section key={g.key} className="rounded-xl border overflow-hidden" data-testid="quick-order-group">
+          {groups.length > 1 && <div className="section-head px-3 py-2 text-sm font-semibold">{g.name}</div>}
+          <div className="p-3 space-y-2">
+            {g.coded.length > 0 ? (
+              <textarea readOnly value={g.text} aria-label={`Codes for ${g.name}`} data-testid="quick-order-text"
+                rows={sep === 'line' ? Math.min(Math.max(g.coded.length, 2), 8) : 3}
+                onFocus={e => e.target.select()}
+                className={cn(inputCls, 'h-auto py-2 font-mono text-sm resize-none')} />
+            ) : (
+              <p className="text-sm text-muted-foreground" data-testid="quick-order-none">
+                None of these lines has {g.name}'s product code yet. Add the codes to their prices on the Inventory page.
+              </p>
+            )}
+            {g.coded.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                <button type="button" className={btn.primary} onClick={() => copy(g)} data-testid="quick-order-copy">
+                  {copied === g.key ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}{copied === g.key ? 'Copied' : 'Copy'}
+                </button>
+                <button type="button" className={btn.outline} disabled={busy === g.key} onClick={() => csv(g)} data-testid="quick-order-csv">
+                  {busy === g.key ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileSpreadsheet className="w-4 h-4" />}CSV file
+                </button>
+              </div>
+            )}
+            {g.noCode.length > 0 && (
+              <div className="text-sm rounded-lg bg-amber-50 border border-amber-200 px-3 py-2" data-testid="quick-order-no-code">
+                <p className="font-medium">No product code, so add {g.noCode.length === 1 ? 'this' : 'these'} by hand:</p>
+                <ul className="mt-1 space-y-0.5">
+                  {g.noCode.map((l, i) => <li key={i}>{l.name} x {fmtNum(l.qty)}</li>)}
+                </ul>
+              </div>
+            )}
+          </div>
+        </section>
+      ))}
+      {failed && <p className="text-sm text-amber-800">This browser didn't let us copy. Tap the codes, select them and copy them by hand.</p>}
+      <ErrorNote error={err} />
+    </Modal>
+  )
 }
 
 /**
@@ -2215,7 +2352,7 @@ function ReceiveForm({ po, meta, onClose, onSaved }) {
                       <div className="flex-1 min-w-[160px]">
                         <p className="text-sm font-medium">{l.item_name} <StorageBadge storage={l.storage} />{l.added_on_receipt && <NotOrderedBadge />}</p>
                         {l.product_name && <p className="text-xs">{l.product_name}</p>}
-                        <p className="text-xs text-muted-foreground">{l.pack_label} · ordered {fmtNum(l.qty)}</p>
+                        <p className="text-xs text-muted-foreground flex flex-wrap items-center gap-x-1.5"><CodeTag code={l.supplier_code} />{l.pack_label} · ordered {fmtNum(l.qty)}</p>
                       </div>
                       <QtyStepper value={r.received_qty} onChange={v => setRow(l.id, 'received_qty', v)} label={l.item_name} />
                     </div>

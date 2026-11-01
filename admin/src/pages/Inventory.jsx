@@ -17,7 +17,7 @@ import { cn } from '@/lib/utils'
 import { useVenues, Modal, Field, inputCls, ErrorNote, Segmented, ConfirmDelete, SortableRows, PageHeader } from '@/components/staff/shared'
 import {
   useCategories, useSuppliers, usePurchasingMeta, NumInput, Drawer, Card, Toggle, StorageBadge, btn, money, perUnit,
-  fileToBase64,
+  fileToBase64, CodeTag,
 } from '@/components/purchasing/shared'
 import {
   BASE_UNITS, STORAGE, UNITS, unitsForBase, packBaseQty, packLabel, chooseQuote, formatBase, fmtNum,
@@ -162,7 +162,7 @@ function ItemTable({ rows, onOpen, total }) {
               <span className="text-sm min-w-0">
                 {q ? (
                   <>
-                    <span className="truncate block">{packLabel(q)} · {money(q.price)}</span>
+                    <span className="truncate block"><CodeTag code={q.supplier_code} className="mr-1.5" />{packLabel(q)} · {money(q.price)}</span>
                     <span className="text-xs text-muted-foreground">
                       {perUnit(q.price, q.pack_base_qty, i.base_unit)} · {pick.how === 'default' ? 'company choice' : 'cheapest'}
                     </span>
@@ -339,7 +339,7 @@ function QuoteRow({ q, item, canEdit, isDefault, onStar, onEdit, onVenuePrices, 
         </button>
         <div className="flex-1 min-w-0">
           <p className="font-medium text-sm">
-            {q.supplier_name}{q.supplier_code && <span className="text-muted-foreground font-normal"> · {q.supplier_code}</span>}
+            {q.supplier_name}<CodeTag code={q.supplier_code} className="ml-1.5 font-normal" />
             {!q.is_active && <span className="ml-2 text-[11px] px-1.5 py-0.5 rounded bg-muted font-normal">Off</span>}
             {q.supplier_active === false && <span className="ml-2 text-[11px] px-1.5 py-0.5 rounded bg-muted font-normal">Supplier off</span>}
           </p>

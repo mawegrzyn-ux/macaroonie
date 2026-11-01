@@ -10,6 +10,7 @@ import * as XLSX from 'xlsx'
 import {
   chooseQuote, quotePrice, packLabel, packParts, orderTotals, lineAmounts, fitQty, packBaseQty,
   supplierForVenue, nextDeliveryDate, minutesToCutoff, poNumberLabel, fmtNum, round2, convertQty, slotText,
+  quickOrderCsv,
 } from '../../../shared/procurement.js'
 import { localParts } from './orderSvc.js'
 import { PdfDoc, A4, fitText, wrapText } from './pdfDoc.js'
@@ -562,6 +563,11 @@ export function poPdf({ po, lines, venue, tenant }) {
 /** A PO file: { filename, contentType, content }. format: html | xlsx | pdf. */
 export async function poFile(tenantId, poId, format) {
   const data = await documentData(tenantId, poId)
+  if (format === 'csv') {
+    // The supplier's quick order: their codes and quantities (quickOrderCsv()).
+    const csv = quickOrderCsv(data.lines.map(l => ({ code: l.supplier_code, name: productOf(l), qty: l.qty })))
+    return { filename: poFileName(data.po, 'csv'), contentType: 'text/csv; charset=utf-8', content: Buffer.from(csv) }
+  }
   if (format === 'xlsx') {
     return { filename: poFileName(data.po, 'xlsx'), contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', content: poXlsx(data) }
   }

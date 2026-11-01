@@ -5009,18 +5009,18 @@ export default function Help() {
             <DataTable
               head={['You can', 'Who', 'Notes']}
               rows={[
-                ['Search the inventory', 'Purchasing setup', 'Each item with its supplier prices (pack, price ex VAT, price per kg, litre or each), venue prices, which supplier is chosen, and recent price changes.'],
+                ['Search the inventory', 'Purchasing setup', 'By name, our code or a supplier\'s product code ("what is MEA161?"). Each item with its supplier prices (pack, price ex VAT, price per kg, litre or each), venue prices, which supplier is chosen, and recent price changes.'],
                 ['Add or change items', 'Purchasing setup', 'Name, category, storage, code, notes, switch off. A new item can come with its first supplier prices.'],
                 ['Add or change supplier prices', 'Purchasing setup', 'Price per pack, pack, VAT, supplier code, the supplier\'s product name (a brand), minimum and steps, a venue\'s own price, and which supplier an item is ordered from (for every venue or one).'],
                 ['Add or change suppliers', 'Purchasing setup', 'Contact details, how orders reach them, cutoff, delivery days, minimum order, delivery charge, whether marking an order sent needs their reference, and one venue\'s own account number, days, cutoff, days\' notice, delivery phone, slot and driver instructions.'],
                 ['Make and change order lists, set pars', 'Purchasing setup', 'Pars are in packs unless you give kg, litres or each.'],
                 ['Import a price list', 'Purchasing setup', 'Attach a CSV with the import headings, or a PDF, photo or email of the supplier\'s list: Pepper reads the products out of it. The card shows what would be added and changed, and any rows it would skip, before anything is saved.'],
-                ['See and fill in an order', 'Purchasing', 'The venue\'s draft for a list: quantities, pars, last ordered, other suppliers. Quantities are packs (cases, bags), as on the Purchasing page. Nothing is sent until you place it.'],
+                ['See and fill in an order', 'Purchasing', 'The venue\'s draft for a list: quantities, pars, last ordered, other suppliers, and each supplier\'s quick order codes. Quantities are packs (cases, bags), as on the Purchasing page. An item can be named by a supplier\'s product code: "order 20 MEA161" orders it from that supplier. Nothing is sent until you place it.'],
                 ['Send an order for approval', 'Purchasing', 'For people without Purchasing approval: the card lists the lines and the day wanted from each supplier, and you can add a note for the manager.'],
                 ['See the orders waiting for approval', 'Any purchasing access', 'Who asked and when, the days wanted, each line with what was asked for, and drafts that were sent back with the reason.'],
                 ['Place an order', 'Purchasing approval', 'Your draft, or an order waiting for approval. The card lists each supplier with its delivery date (the day asked for, if any), how the order gets to them and the lines, and warns about rounded-up quantities or a small order. A day the supplier can\'t make (not one of their delivery days, or too late for their cutoff) is refused unless you say it was agreed with them; a line whose price was switched off has to be changed or taken off first. The note to each supplier starts as the venue\'s driver instructions. When the venue already has an order from a supplier for that day, Pepper asks whether to add to it or place a separate one.'],
                 ['Change, split or send back an order waiting for approval', 'Purchasing approval', 'Change quantities, move part of it to a second order for another day, or send it back with the reason.'],
-                ['Send, change, split or cancel a purchase order', 'Purchasing (send, date, reference); Purchasing approval (quantities, split, cancel)', 'Email it, or mark it sent by printout, PDF, Excel, phone or their website, with the supplier\'s order reference (needed for suppliers set to need it) and, if it went earlier, when. Quantities can change while it is waiting to be sent; the date and notes until it is received; the supplier\'s reference any time. A split moves part of it to a second order for another day.'],
+                ['Send, change, split or cancel a purchase order', 'Purchasing (send, date, reference); Purchasing approval (quantities, split, cancel)', 'Email it, or mark it sent by printout, PDF, Excel, phone or their website, with the supplier\'s order reference (needed for suppliers set to need it) and, if it went earlier, when. Quantities can change while it is waiting to be sent (lines and products to add can be named by their product code); the date and notes until it is received; the supplier\'s reference any time. A split moves part of it to a second order for another day. Asking for a purchase order gives its quick order codes ("MEA161:20,POR106:7") for the supplier\'s website, and an order can be found by a product code on it.'],
                 ['Find orders running late', 'Any purchasing access', 'Orders still to send after their cutoff and deliveries never booked in after their day ("which orders are late?"). Also in the day briefing. A purchase order can be found by the supplier\'s reference.'],
                 ['Book a delivery in', 'Purchasing', 'Say what was short or missing and the probe temperatures; everything else counts as arrived. This also saves the delivery check in Food safety.'],
               ]}
@@ -5646,10 +5646,35 @@ export default function Help() {
               Each change shows in the price's History as from the invoice. Updating needs Purchasing setup; staff
               who book deliveries in without it still record the invoice prices for a manager to look at.
             </P>
+            <H3>10. Supplier codes and quick orders</H3>
+            <P>
+              A supplier price's <strong>product code</strong> (the code in the supplier's own catalogue, e.g.{' '}
+              <em>MEA161</em>) shows in a small grey box next to the pack everywhere you order: the order form,
+              Add an item, the supplier switch, the Place order window, splitting, the purchase order page,
+              booking a delivery in and the Inventory list.
+            </P>
+            <DataTable
+              head={['Searching by code', 'Finds']}
+              rows={[
+                ['The order form\'s search box', 'Items by name, our own code, any supplier\'s code (whole or part) or the supplier\'s product name.'],
+                ['Add an item, Add items on a purchase order', 'The same. A supplier\'s code typed in full offers that supplier\'s product, even when the item is usually ordered from someone else.'],
+                ['The Deliveries search', 'An order with that product code on a line (the whole code), besides their reference and our PO number.'],
+                ['Inventory', 'Items by name, code or any supplier\'s code or product name.'],
+              ]}
+            />
+            <P>
+              <strong>Codes for quick order</strong> (on a purchase order) and <strong>Codes</strong> (on the order
+              form) give each supplier's codes with how many packs, ready for the quick order box on their website
+              or app: <em>MEA161:20,POR106:7</em>, on one line or one a line (remembered on this device). Copy puts
+              them on the clipboard; <strong>CSV file</strong> downloads the same lines as code, name and quantity,
+              with no prices. Lines whose price has no product code are listed underneath to add by hand: add the
+              code to the supplier price on the Inventory page and it is there next time.
+            </P>
             <InfoBox type="info">
               All of this can also be done by chat with Pepper (Ask Pepper): ordering, booking deliveries
-              in, changing prices and importing a supplier's price list from a PDF or photo. See Pepper →
-              Purchasing by chat.
+              in, changing prices and importing a supplier's price list from a PDF or photo. Pepper understands
+              suppliers' codes too ("order 20 MEA161", "add 2 POR106 to PO-00012") and gives the quick order codes
+              for an order. See Pepper → Purchasing by chat.
             </InfoBox>
           </section>
 
