@@ -8,10 +8,10 @@
 // /api/purchasing. Every query filters tenant_id itself.
 
 import { z }          from 'zod'
-import * as XLSX      from 'xlsx'
 import { withTenant } from '../config/db.js'
 import { requireAuth, requirePermission } from '../middleware/auth.js'
 import { httpError }  from '../middleware/error.js'
+import { readSheet }  from '../services/sheetRead.js'
 import { UNITS, packBaseQty, packLabel, csvCell } from '../../../shared/procurement.js'
 import {
   openOrderVenues, keepOpenAmounts, openOrderItems, lockSupplierCodes, codeTaken, codeTakenError,
@@ -74,6 +74,7 @@ const QUOTE_COLS = (tx, tenantId) => tx`
   q.pack_count::float8 AS pack_count, q.pack_qty::float8 AS pack_qty, q.pack_base_qty::float8 AS pack_base_qty,
   q.price::float8 AS price, q.vat_rate::float8 AS vat_rate,
   q.min_qty::float8 AS min_qty, q.order_multiple::float8 AS order_multiple, q.updated_at,
+  q.out_of_stock_until::text AS out_of_stock_until, q.out_of_stock_note, q.out_of_stock_by, q.out_of_stock_at,
   s.name AS supplier_name, s.is_active AS supplier_active,
   COALESCE((SELECT jsonb_object_agg(vp.venue_id::text, vp.price::float8)
               FROM inv_quote_venue_prices vp
@@ -204,29 +205,6 @@ const UNIT_ALIASES = {
 const BASE_FOR = { g: 'g', kg: 'g', ml: 'ml', cl: 'ml', l: 'ml', each: 'each' }
 
 class DryRun extends Error {}
-
-/**
- * The first sheet of a CSV or Excel file (base64) as rows of text. A CSV
- * that is UTF-8 is read as UTF-8 (XLSX reads one without a byte-order mark
- * as Latin-1, so £ and accents came out wrong), else as XLSX guesses (an
- * old Windows CSV); a CSV's cells stay as typed (a code like 12-04 isn't
- * read as a date, 00123 keeps its zeros).
- */
-function readSheet(base64) {
-  const buf = Buffer.from(base64, 'base64')
-  const binary = (buf[0] === 0x50 && buf[1] === 0x4b) || (buf[0] === 0xd0 && buf[1] === 0xcf)  // .xlsx (zip), .xls
-  let text = null
-  if (!binary) { try { text = new TextDecoder('utf-8', { fatal: true }).decode(buf) } catch { text = null } }
-  let wb
-  try {
-    wb = text != null
-      ? XLSX.read(text.replace(/^\uFEFF/, ''), { type: 'string', raw: true })
-      : XLSX.read(buf, { type: 'buffer', raw: true })
-  } catch { throw httpError(422, "That file couldn't be read. Save it as CSV or Excel (.xlsx).") }
-  const ws = wb.Sheets[wb.SheetNames[0]]
-  if (!ws) throw httpError(422, 'The file is empty')
-  return XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', blankrows: false, raw: false })
-}
 
 function parseSheet(base64) {
   const rows = readSheet(base64)

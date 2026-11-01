@@ -503,6 +503,8 @@ const TOOL_LABELS = {
   create_order_list: 'Made an order list', update_order_list: 'Changed an order list', set_pars: 'Set pars',
   import_price_list: 'Imported a price list', switch_items: 'Switched inventory items off or on',
   update_prices_by_code: 'Updated prices by product code', update_order: 'Changed an order', place_order: 'Placed an order',
+  import_supplier_basket: 'Brought a supplier\'s basket into an order',
+  set_out_of_stock: 'Marked a supplier price out of stock or back in stock',
   request_order: 'Sent an order for approval', send_back_order: 'Sent an order back', split_order: 'Split an order',
   send_purchase_order: 'Sent a purchase order', change_purchase_order: 'Changed a purchase order',
   cancel_purchase_order: 'Cancelled a purchase order', receive_delivery: 'Booked in a delivery',
@@ -551,6 +553,8 @@ function changeDetail(r) {
     case 'switch_items':          return x.items?.length ? x.items.join(', ') : null
     case 'update_prices_by_code': return x.supplier ? x.supplier + (x.updated != null ? ' (' + x.updated + ' prices)' : '') : null
     case 'update_order':          return [x.venue, x.list].filter(Boolean).join(', ')
+    case 'import_supplier_basket': return x.supplier ? [x.venue, x.supplier].filter(Boolean).join(', ') : null
+    case 'set_out_of_stock':      return x.item ? [x.item, x.supplier, x.out_of_stock_until ? 'until ' + x.out_of_stock_until : x.back_in_stock && 'back in stock'].filter(Boolean).join(', ') : null
     case 'place_order':           return (x.purchase_orders || []).map(p => p.po + ' ' + p.supplier).join(', ') || null
     case 'request_order':         return x.venue || null
     case 'split_order':           return x.new_po ? x.po + ' and ' + x.new_po : null

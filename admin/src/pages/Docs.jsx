@@ -3454,11 +3454,12 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               through <Mono>csvCell()</Mono> from <Mono>shared/procurement.js</Mono>).
             </P>
             <P>
-              <strong>Reading files.</strong> <Mono>readSheet()</Mono> (the import and the price update) reads a CSV
-              that is valid UTF-8 as text (<Mono>TextDecoder</Mono> with <Mono>fatal</Mono>), else (Excel, or a CSV
-              saved as Windows-1252) as bytes, with <Mono>raw: true</Mono> both ways. Before, a CSV without a byte
-              order mark was read as Windows-1252 (£ came out as Â£, Crème as CrÃ¨me) and codes like{' '}
-              <Mono>12-04</Mono> were turned into dates.
+              <strong>Reading files.</strong> <Mono>readSheet()</Mono> (<Mono>services/sheetRead.js</Mono>; the import,
+              the price update and a supplier's basket) reads a CSV that is valid UTF-8 as text (<Mono>TextDecoder</Mono>{' '}
+              with <Mono>fatal</Mono>), else (Excel, or a CSV saved as Windows-1252) as bytes, with <Mono>raw: true</Mono>{' '}
+              both ways. Before, a CSV without a byte order mark was read as Windows-1252 (£ came out as Â£, Crème as
+              CrÃ¨me) and codes like <Mono>12-04</Mono> were turned into dates. <Mono>fileText()</Mono> beside it gives a
+              text file's text (UTF-8 when valid, else Windows-1252) and null for an Excel file (by its first bytes).
             </P>
             <P>
               <strong>Admin.</strong> <Mono>components/purchasing/catalogue.jsx</Mono>: <Mono>CatalogueCheckModal</Mono>{' '}
@@ -3473,6 +3474,109 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>switch_items</Mono>, <Mono>update_prices_by_code</Mono>, and the price and item change tools refuse
               a code another live product of the supplier has (<Mono>liveCodeOwner()</Mono>, <Mono>codeClash()</Mono>).
               Tests: <Mono>api/test/purchasing-catalogue.test.mjs</Mono>.
+            </P>
+            <H3>A supplier&apos;s basket (1 Nov 2026, no migration)</H3>
+            <P>
+              What someone ordered on a supplier's own website, brought into an order by the supplier's product codes.
+              The rules are in <Mono>shared/procurement.js</Mono>: <Mono>basketFromText(text)</Mono> reads the quick
+              order's pairs (<Mono>MEA161:20,POR106:7</Mono>, split on <Mono>,</Mono> / <Mono>;</Mono> when the line has
+              a <Mono>:</Mono>), one a line (<Mono>MEA161 20</Mono>, <Mono>MEA161, 20</Mono>, <Mono>MEA161 x 20</Mono>,{' '}
+              <Mono>20 x MEA161</Mono>; two numbers either side of an x are refused as either way round), and a pasted
+              table (a first line naming a code and a quantity column, a first line of words, or three columns or
+              more) through <Mono>basketFromSheet(rows)</Mono>, the delimiter guessed from the first line (a tab, else{' '}
+              <Mono>;</Mono> when it has no comma, else a comma; quoted cells allowed). Headings are matched by{' '}
+              <Mono>BASKET_HEADINGS</Mono> (code: Code, SKU, Ref, Product code, Stock code ...; qty: Qty, Quantity,
+              Cases, Packs ...; name: Description, Product ...); without headings the first column is the code and the
+              second the quantity; headings naming neither give <Mono>{'{ error }'}</Mono>. Each row is{' '}
+              <Mono>{'{ row, code, qty, name? }'}</Mono> or <Mono>{'{ row, code?, text, error }'}</Mono> with its line
+              number. <Mono>mergeBasket()</Mono> adds up a code's quantities (any case, the first spelling kept).{' '}
+              <Mono>basketDiff({'{ basket, quotes, lines, supplierId, removeMissing }'})</Mono> gives{' '}
+              <Mono>{'{ added, changed, removed, unchanged, unknown, switched_off, ambiguous, errors }'}</Mono>: a code is
+              matched to the supplier's quotes with that code (one live quote, else unknown / switched_off /
+              ambiguous); a second code of an item already matched is an error (one line per item); the quantity is{' '}
+              <Mono>fitQty()</Mono> of the basket's (<Mono>basket_qty</Mono> and <Mono>qty_problem</Mono> when that
+              changed it); a line on another quote says where it was (<Mono>from</Mono>); a basket quantity of 0 takes
+              the line off; with <Mono>removeMissing</Mono> the order's other lines on this supplier's quotes are taken
+              off. <Mono>BASKET_MAX_ROWS</Mono> is 2000.
+            </P>
+            <P>
+              <strong>Routes</strong> (<Mono>routes/purchasing.js</Mono>). <Mono>GET /venues/:venueId/suppliers</Mono>{' '}
+              (read): the suppliers switched on with a live price, and <Mono>codes</Mono> (how many of those prices have
+              a product code). <Mono>POST /orders/:id/reconcile</Mono> (Purchasing or Purchasing approval manage, then{' '}
+              <Mono>assertEditable()</Mono>; body limit 6 MB):{' '}
+              <Mono>{'{ supplier_id, text | file | rows, remove_missing (default true), dry_run }'}</Mono>, exactly one
+              source (400): pasted text, a file (base64, up to 4 MB: <Mono>fileText()</Mono> reads a CSV or text file
+              like pasted text, an Excel file goes through <Mono>readSheet()</Mono> and{' '}
+              <Mono>basketFromSheet()</Mono>) or rows (<Mono>{'[{ code, qty }]'}</Mono>, Pepper). 422 for nothing read, a
+              layout without code and quantity columns, more than 2000 lines or a supplier switched off; 404 for
+              another group's supplier or order. The quotes are the supplier's with a code, live = quote and item
+              switched on; the order's lines with a quantity come with the quote they are pinned to (else the venue's
+              usual one). A dry run returns the diff; applying upserts added and changed lines pinned to the basket's
+              quote at the fitted quantity, sets removed lines to 0 and returns the diff with <Mono>order</Mono> (as{' '}
+              <Mono>loadOrder()</Mono>). Applying the same basket again changes nothing.
+            </P>
+            <P>
+              <strong>Admin.</strong> <Mono>components/purchasing/basket.jsx</Mono>: <Mono>BasketModal</Mono>, opened by
+              Import basket (<Mono>order-basket</Mono>) on <Mono>OrderForm</Mono> when the order is editable (after the
+              autosave is flushed). The supplier is picked when the order's lines are all one supplier's
+              (<Mono>likelySupplier()</Mono>); suppliers without codes can't be picked; a file (up to 2.9 MB) or pasted
+              text; the Take off toggle; Check (dry run, <Mono>basket-result</Mono> scrolled into view), Apply n changes,
+              Change the basket. A code not found offers Add it to people with Purchasing setup
+              (<Mono>meta.can_setup</Mono>): <Mono>AddCodeModal</Mono> picks the inventory item
+              (<Mono>ItemPickModal</Mono>), then gives one of the supplier's prices for it the code
+              (<Mono>PATCH /inventory/quotes/:id</Mono>) or makes a new price (<Mono>POST /inventory/items/:id/quotes</Mono>{' '}
+              with <Mono>PackFields</Mono>), and checks again. Pepper: <Mono>import_supplier_basket</Mono> (rows up to
+              300 or <Mono>attached_file</Mono>, a CSV or text file attached in the chat; <Mono>keep_missing</Mono>; the
+              card is the dry run, refused when nothing would change; pins the order and the supplier). Tests:{' '}
+              <Mono>api/test/purchasing-basket.test.mjs</Mono>, the basket tests in{' '}
+              <Mono>shared/test/procurement.test.mjs</Mono>.
+            </P>
+            <H3>Out of stock until a date (migration 234)</H3>
+            <P>
+              <Mono>inv_quotes.out_of_stock_until</Mono> (date) is the first day the price can be delivered again;{' '}
+              <Mono>out_of_stock_note</Mono> (up to 500), <Mono>out_of_stock_by</Mono> and{' '}
+              <Mono>out_of_stock_at</Mono> say what the supplier said, who marked it and when. A date that has passed
+              means back in stock; nothing clears it. It is company-wide (one row per quote) and changes nothing else:
+              the price stays the usual one, lines stay on it, placing isn't refused. The one rule is{' '}
+              <Mono>outOfStock(quote, date)</Mono> in <Mono>shared/procurement.js</Mono> (<Mono>{'{ until, note }'}</Mono>{' '}
+              when <Mono>date</Mono> is before <Mono>until</Mono>, else null) with <Mono>outOfStockText()</Mono>{' '}
+              ("Out of stock at Brakes until Fri 6 Nov").
+            </P>
+            <P>
+              <Mono>PUT /purchasing/quotes/:id/stock</Mono> (<Mono>{'{ until: "YYYY-MM-DD" | null, note }'}</Mono>; Manage
+              on any of <Mono>purchasing</Mono>, <Mono>purchasing_approve</Mono>, <Mono>purchasing_setup</Mono>, also on
+              orders the person can't change): <Mono>until</Mono> must be after today in London and at most{' '}
+              <Mono>STOCK_DAYS_MAX</Mono> (366) days ahead (422, code <Mono>stock_until</Mono>; a day that doesn't exist
+              is 400); null clears all four columns; <Mono>updated_at</Mono> is left alone (it isn't a price change).{' '}
+              <Mono>GET /purchasing/meta</Mono> has <Mono>can_mark_stock</Mono>. The date reaches the screens through{' '}
+              <Mono>loadItemQuotes()</Mono> / <Mono>loadQuotesById()</Mono> / <Mono>quoteView()</Mono> (order form items),{' '}
+              <Mono>loadPoLines()</Mono> (purchase order lines) and <Mono>QUOTE_COLS</Mono> in{' '}
+              <Mono>routes/inventory.js</Mono>, always as <Mono>::text</Mono>.
+            </P>
+            <DataTable
+              head={['Screen', 'Judged against']}
+              rows={[
+                ['Order form lines, Add an item', 'The supplier\'s next delivery (order.suppliers[id].next_delivery), else today'],
+                ['Place order (StockNote review-stock)', 'The date picked for that supplier'],
+                ['Splitting a request or a purchase order (split-stock)', 'The second order\'s day'],
+                ['Purchase order lines, Add items', 'The order\'s delivery_date'],
+                ['Inventory list and item panel', 'Today'],
+              ]}
+            />
+            <P>
+              <strong>Admin.</strong> <Mono>components/purchasing/stock.jsx</Mono>: <Mono>StockBadge</Mono> (the amber
+              line), <Mono>StockNote</Mono> (a delivery's lines out of stock on its day, with the first day they are all
+              back) and <Mono>StockControl</Mono> (the state with Back in stock and Change, or Out of stock?; a form with
+              the date, Tomorrow / In a week / In 2 weeks / In 4 weeks and a note). On the order form a line out of
+              stock shows <Mono>order-line-stock</Mono> with Pick another price; the pack opens the switch window for
+              anyone who can switch or mark (<Mono>SwitchSupplierModal</Mono>: titled Order X from when they can pick, X:
+              supplier prices when they can't, a <Mono>StockControl</Mono> on each price). The Inventory item panel has a{' '}
+              <Mono>StockControl</Mono> under each active price. Pepper: <Mono>set_out_of_stock</Mono> (by item name or
+              supplier code, supplier and pack; <Mono>until</Mono> or <Mono>back_in_stock</Mono>; card titled Mark it out
+              of stock? / back in stock?, pins the quote); <Mono>order_form</Mono> items and other choices,{' '}
+              <Mono>find_inventory_items</Mono> prices say it; <Mono>place_order</Mono> and <Mono>request_order</Mono>{' '}
+              cards warn about lines out of stock for their day (<Mono>stockWarnings()</Mono>). Tests:{' '}
+              <Mono>api/test/purchasing-stock.test.mjs</Mono>.
             </P>
             <H3>Changing an order not yet sent</H3>
             <P>
@@ -6451,10 +6555,10 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <DataTable
               head={['Tool', 'Permission', 'Route(s)', 'Notes']}
               rows={[
-                ['find_inventory_items', 'setup view', 'GET /inventory/items, /quotes/:id/history', 'Search name, our code, a supplier\'s code or product name (words; an exact code first), category, supplier; venue_id adds ordered_at_venue (chooseQuote); history when 5 or fewer match. 40 shown'],
+                ['find_inventory_items', 'setup view', 'GET /inventory/items, /quotes/:id/history', 'Search name, our code, a supplier\'s code or product name (words; an exact code first), category, supplier; venue_id adds ordered_at_venue (chooseQuote); history when 5 or fewer match; a price marked out of stock says until when (out_of_stock). 40 shown'],
                 ['list_suppliers', 'setup view', 'GET /suppliers, /suppliers/:id', 'One supplier: venue settings and up to 150 products'],
                 ['order_lists', 'either view (a list\'s items: setup view)', 'GET /purchasing/lists, /lists/:id', 'Pars shown in packs of the company-choice quote'],
-                ['order_form', 'either view', 'GET /orders?status=draft, GET /orders/:id, POST /orders', 'Opens the venue\'s draft for the list (named, the venue\'s only list, or without_list); makes an empty draft only with purchasing manage, like opening the list on the page. Each supplier says its next delivery day and deadline, how orders go, the delivery slot (slotText()), delivery phone and driver instructions for the venue, whether marking sent needs their reference, open_orders (the venue\'s open purchase orders from them, from loadOrder()\'s open_pos) and quick_order (quickOrder() of its lines at fitQty()); items carry supplier_code. Not a confirm tool'],
+                ['order_form', 'either view', 'GET /orders?status=draft, GET /orders/:id, POST /orders', 'Opens the venue\'s draft for the list (named, the venue\'s only list, or without_list); makes an empty draft only with purchasing manage, like opening the list on the page. Each supplier says its next delivery day and deadline, how orders go, the delivery slot (slotText()), delivery phone and driver instructions for the venue, whether marking sent needs their reference, open_orders (the venue\'s open purchase orders from them, from loadOrder()\'s open_pos) and quick_order (quickOrder() of its lines at fitQty()); items carry supplier_code, and out_of_stock when their price is out of stock for the supplier\'s next delivery (other_choices say so too). Not a confirm tool'],
                 ['purchase_orders', 'either view', 'GET /pos, /pos/:id', 'po = PO-00012, 12 or an id (resolved with a tenant filter); status open = to_send,sent; supplier_ref searches the supplier\'s reference (q on GET /pos, part of it is enough); late: true lists only purchase orders running late (lateOrders(): still to send once deadlinePassed() for their day at the venue\'s time, or sent and not booked in after their delivery day, as Today flags them). product_code lists POs with that supplier code on a line (q on GET /pos). Rows carry supplier_ref; one PO in full adds its delivery slot and phone, lines\' supplier_code, quick_order and not_in_quick_order (lines without a code). Also a day_briefing part (orders_running_late)'],
                 ['add_inventory_item', 'setup manage', 'POST /categories, /items, /items/:id/quotes', 'Up to 5 prices; base unit from counted_in or the first pack unit; unknown category is made, unknown supplier refused'],
                 ['update_inventory_item', 'setup manage', 'PATCH /items/:id', 'Only changed fields are sent; counted_in refused while it has quotes'],
@@ -6466,12 +6570,14 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['update_prices_by_code', 'setup manage', 'POST /inventory/price-update (dry_run on the card)', 'supplier + rows { code, price } (up to 200, said or read from a PDF, photo or email) or attached_file (a CSV or text file attached in this chat, sent as the file); the card lists each change (code, item, old to new price, % with 20% or more marked) and the codes not found, switched off, on two products and rows left out (priceUpdateCard()); no change = refused. Pins the supplier id'],
                 ['check_catalogue', 'setup view', 'GET /inventory/check', 'Codes on two products, items in use with one name, items nobody sells, prices without a code per supplier; long lists capped with showing / of'],
                 ['switch_items', 'setup manage', 'POST /inventory/items/bulk (dry_run in describe)', 'items (names, codes or ids, up to 50) + on; the card says what changes, items on open orders (switching off) and codes another item uses (switching on: refused). Pins the item ids'],
+                ['set_out_of_stock', 'manage on any purchasing module (requireMarkStock())', 'PUT /purchasing/quotes/:id/stock', 'item (a name, or a supplier\'s code typed in whole: that price), supplier, pack or quote_id (stockPlan()); until (the first day it can be delivered again: after today at the first venue, else refused before a card) or back_in_stock (refused when it isn\'t marked), + note; the card warns when it replaces a date already set. Pins the quote id'],
                 ['update_order', 'purchasing or approve manage', 'PUT /orders/:id/lines', 'planOrder(): the venue\'s draft, or order_id (orderVenue(), openOrder()); lines (on the order by our code, a supplier\'s code (which switches the line to that quote) or name, else GET /venues/:id/catalog, whose matched_quote_id names the quote), supplier/pack switch (a quantity left out converts with convertQty() and the card shows the amount before and after), fill_to_par (packsToPar), clear_all; only changed lines are sent, each with the quote_id the card shows (the API pins it). Lines whose price, supplier or item was switched off are listed under Can\'t be ordered yet. assertCanEdit(): a request waiting for approval only for an approver'],
-                ['request_order', 'purchasing manage', 'PUT /orders/:id/lines, POST /orders/:id/request', 'Card per supplier: the day wanted (deliveries[].date, else "next delivery day when placed": only given days are stored), lines, note for the manager'],
+                ['import_supplier_basket', 'as update_order (requireOrderOrApprove())', 'POST /orders/:id/reconcile (dry_run in describe)', 'The venue\'s draft or order_id (basketTarget(), assertCanEdit()); supplier (switched on); rows { code, quantity } (up to 300, said or read from a PDF, photo or email) or attached_file (a CSV or text file attached in this chat, sent as text); keep_missing sends remove_missing: false. The card is the dry run: every line added, changed (and from which supplier or pack) and taken off (basketLines()), rounded quantities and codes not found, switched off, on two products or unreadable (basketWarnings()); nothing to change = refused. Pins the order and supplier ids'],
+                ['request_order', 'purchasing manage', 'PUT /orders/:id/lines, POST /orders/:id/request', 'Card per supplier: the day wanted (deliveries[].date, else "next delivery day when placed": only given days are stored), lines, note for the manager; lines out of stock for that day are warnings (stockWarnings())'],
                 ['order_requests', 'any view', 'GET /orders?status=requested|draft, /orders/:id', 'Waiting orders (up to 15 in full: lines with asked_for), sent-back drafts with the reason, you_can_approve. Also a day_briefing part (orders_to_approve)'],
                 ['send_back_order', 'approve manage', 'POST /orders/:id/return', 'order_id + reason'],
                 ['split_order', 'approve manage', 'POST /pos/:id/split | /orders/:id/split', 'po or order_id; lines (item, packs) to move; delivery_date (deliveries[] per supplier for a request); splitPlan() refuses the same day, more than a line holds, the whole order and a split splitProblem() refuses; dayCheck() refuses a past day, and a day the supplier can\'t make unless agreed_with_supplier (top level, or per supplier in deliveries); the card warns when the supplier already has the PO'],
-                ['place_order', 'approve manage (requirePlace(): else "use request_order")', 'PUT /orders/:id/lines, POST /orders/:id/submit', 'The draft, or order_id for a request. Card per supplier: delivery date (deliveries[].date, else the day the request asked for, "(as asked)", else next delivery), how it is sent, lines at fitQty(); warns on rounding, minimum order, a missed cutoff, no email address; dayCheck() (deliveryDayProblem()) refuses a past day, and a day off the delivery days or past its order deadline unless deliveries[].agreed_with_supplier (then a card warning and agreed: true on submit); lines whose price was switched off refuse (lineWarnings()). A supplier\'s note is deliveries[].notes, else the one asked for (also when cleared), else the venue\'s driver instructions, and is always sent. After the day check, a supplier with an open purchase order for that day (open_pos) needs deliveries[].existing_order: without it placeChecks() refuses (409) naming the order so the model asks; add_to_it sends existing: add (refused for one already sent), separate sends existing: separate; the card says added to PO-00012 or a separate order beside it, and the result marks added_to_it. Only overrides and notes are sent, so the route still picks the date at run time. The card pins planned_delivery { supplierId: date } for suppliers without a date given; run() refuses (409) when a supplier\'s first delivery day has moved since (a cutoff passed), so the order is never placed for a day the card didn\'t show'],
+                ['place_order', 'approve manage (requirePlace(): else "use request_order")', 'PUT /orders/:id/lines, POST /orders/:id/submit', 'The draft, or order_id for a request. Card per supplier: delivery date (deliveries[].date, else the day the request asked for, "(as asked)", else next delivery), how it is sent, lines at fitQty(); warns on rounding, minimum order, a missed cutoff, no email address; dayCheck() (deliveryDayProblem()) refuses a past day, and a day off the delivery days or past its order deadline unless deliveries[].agreed_with_supplier (then a card warning and agreed: true on submit); lines whose price was switched off refuse (lineWarnings()); lines a supplier said are out of stock for the day are warnings, never a refusal (stockWarnings()). A supplier\'s note is deliveries[].notes, else the one asked for (also when cleared), else the venue\'s driver instructions, and is always sent. After the day check, a supplier with an open purchase order for that day (open_pos) needs deliveries[].existing_order: without it placeChecks() refuses (409) naming the order so the model asks; add_to_it sends existing: add (refused for one already sent), separate sends existing: separate; the card says added to PO-00012 or a separate order beside it, and the result marks added_to_it. Only overrides and notes are sent, so the route still picks the date at run time. The card pins planned_delivery { supplierId: date } for suppliers without a date given; run() refuses (409) when a supplier\'s first delivery day has moved since (a cutoff passed), so the order is never placed for a day the card didn\'t show'],
                 ['send_purchase_order', 'purchasing or approve manage', 'POST /pos/:id/send | /mark-sent, PATCH /pos/:id', 'email needs an address (resend allowed, warned) and goes now (sent_on / sent_time refused); other ways (printed, pdf, excel, phone, website, other) need To send. supplier_ref is required for a supplier with ref_required when marking sent (sendCheck()), and after an email it is saved with a PATCH; sent_on / sent_time (venue time, sentWhen() with zonedInstant()) give when it went, refused when still to come or over 14 days ago (the API checks again: not before the order was made)'],
                 ['change_purchase_order', 'purchasing or approve manage; lines and add: approve', 'PATCH /pos/:id, PUT /pos/:id/lines', 'supplier_ref sets, corrects or (null) clears the supplier\'s reference at any status but cancelled (a reference alone also on a received order, with no tell-the-supplier warning); lines and add only while To send; lines named by their supplier code or item name (pickPoLine()); add only from the PO\'s supplier (GET /venues/:id/catalog?supplier_id=; a code typed in whole adds that quote); a product already on the order tops its line up, and the card says so; changed quantities show fitQty() (the API rounds them the same way); a new delivery_date goes through dayCheck() (agreed_with_supplier); an empty order is refused'],
                 ['cancel_purchase_order', 'approve manage', 'POST /pos/:id/cancel', 'Warns to tell the supplier when already sent'],

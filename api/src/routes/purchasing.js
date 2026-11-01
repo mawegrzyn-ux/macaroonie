@@ -20,6 +20,14 @@
 //           lines, lines added for what arrived but wasn't ordered; then
 //           POST /pos/:id/price-list updates the supplier prices from it
 //           (Purchasing setup manage).
+//   basket  a supplier's basket (their website's basket or quick order,
+//           pasted or as a file) compared with an order and applied to it
+//           (POST /orders/:id/reconcile): matched by the supplier's codes.
+//   stock   a supplier price out of stock until a date (PUT
+//           /quotes/:id/stock, migration 234): anyone who orders, approves
+//           or keeps the catalogue may record what the supplier said.
+//           Orders and purchase orders for a day before it say so; nothing
+//           moves to another price by itself.
 //
 // Restaurant staff see prices only with purchasing_setup view. Every query
 // filters tenant_id itself.
@@ -28,9 +36,11 @@ import { z }          from 'zod'
 import { withTenant } from '../config/db.js'
 import { requireAuth, requirePermission, requireAnyPermission, permissionLevel, permissionLevels } from '../middleware/auth.js'
 import { httpError }  from '../middleware/error.js'
+import { readSheet, fileText } from '../services/sheetRead.js'
 import {
   fitQty, packsToPar, packLabel, quotePrice, orderTotals, receiveStatusFor, deliveryTempOk, poNumberLabel, fmtNum,
   DELIVERY_TEMP_MAX, RECEIVE_STATUSES, deliveryDateChoices, packBaseQty, UNITS, splitProblem, deliveryDayProblem,
+  basketFromText, basketFromSheet, mergeBasket, basketDiff, BASKET_MAX_ROWS, nowAt, addDays,
 } from '../../../shared/procurement.js'
 import {
   resolveQuotes, loadItemQuotes, loadQuotesById, quoteView, loadVenue, venueNow, loadSuppliersForVenue, createPurchaseOrder,
@@ -50,6 +60,7 @@ const canRead        = requireAnyPermission(['purchasing', 'purchasing_setup', '
 const canOrder       = requirePermission('purchasing', 'manage')
 const canApprove     = requirePermission('purchasing_approve', 'manage')
 const canOrderOrApprove = requireAnyPermission(['purchasing', 'purchasing_approve'], 'manage')
+const canMarkStock   = requireAnyPermission(['purchasing', 'purchasing_approve', 'purchasing_setup'], 'manage')
 
 const MONEY_FIELDS = ['subtotal', 'vat', 'delivery_charge', 'total']
 
@@ -203,6 +214,45 @@ async function loadList(tx, tenantId, id) {
 }
 
 // ── Restaurant orders ───────────────────────────────────────────
+
+// A supplier price out of stock until a date (migration 234); until null =
+// back in stock (clears the note and who marked it too).
+const StockBody = z.object({
+  until: date.nullable(),
+  note:  optText(500),
+})
+
+// How far ahead an out of stock date may be.
+const STOCK_DAYS_MAX = 366
+
+const ReconcileBody = z.object({
+  supplier_id:    uuid,
+  text:           z.string().max(200_000).optional(),
+  file:           z.string().max(4_000_000).optional(),
+  rows:           z.array(z.object({ code: z.string().trim().min(1).max(100), qty: qtyNum })).max(BASKET_MAX_ROWS).optional(),
+  remove_missing: z.boolean().optional(),
+  dry_run:        z.boolean().optional(),
+})
+
+/**
+ * An order's lines with a quantity, each with the price it is on (the one
+ * it is pinned to whatever its state, else the venue's usual one), as
+ * basketDiff() takes them.
+ */
+async function orderBasketLines(tx, tenantId, order) {
+  const rows = await tx`
+    SELECT sl.item_id, sl.quote_id, sl.qty::float8 AS qty, i.name AS item_name
+      FROM supply_order_lines sl JOIN inv_items i ON i.id = sl.item_id AND i.tenant_id = ${tenantId}
+     WHERE sl.order_id = ${order.id} AND sl.tenant_id = ${tenantId} AND sl.qty > 0
+  `
+  const pinned = await loadQuotesById(tx, tenantId, [...new Set(rows.map(r => r.quote_id).filter(Boolean))])
+  const loose = rows.filter(r => !r.quote_id || !pinned.has(r.quote_id)).map(r => r.item_id)
+  const { picks } = loose.length ? await resolveQuotes(tx, tenantId, order.venue_id, loose) : { picks: new Map() }
+  return rows.map(r => ({
+    item_id: r.item_id, item_name: r.item_name, qty: r.qty,
+    quote: pinned.get(r.quote_id) || picks.get(r.item_id)?.quote || null,
+  }))
+}
 
 /**
  * Everything the order form needs: list items + extra lines, quotes,
@@ -911,6 +961,23 @@ export default async function purchasingRoutes(app) {
     })
   })
 
+  // Suppliers someone can order from (switched on, with a live price), for
+  // picking whose basket is brought in: codes = their live prices with a
+  // product code. Suppliers aren't secret: their names are on every order.
+  app.get('/venues/:venueId/suppliers', { preHandler: canRead }, async req => withTenant(req.tenantId, async tx => {
+    await loadVenue(tx, req.tenantId, req.params.venueId)
+    return tx`
+      SELECT s.id, s.name,
+             count(q.id) FILTER (WHERE btrim(COALESCE(q.supplier_code, '')) <> '')::int AS codes
+        FROM suppliers s
+        JOIN inv_quotes q ON q.supplier_id = s.id AND q.tenant_id = ${req.tenantId} AND q.is_active
+        JOIN inv_items i ON i.id = q.item_id AND i.tenant_id = ${req.tenantId} AND i.is_active
+       WHERE s.tenant_id = ${req.tenantId} AND s.is_active
+       GROUP BY s.id, s.name
+       ORDER BY lower(s.name)
+    `
+  }))
+
   // ── Restaurant orders ──
   app.get('/orders', { preHandler: canRead }, async req => {
     const venueId = req.query.venue_id || null
@@ -1040,6 +1107,66 @@ export default async function purchasingRoutes(app) {
       assertEditable(o, who)
       await tx`DELETE FROM supply_order_lines WHERE order_id = ${o.id} AND item_id = ${req.params.itemId} AND tenant_id = ${req.tenantId}`
       return { ok: true }
+    })
+  })
+
+  // A supplier's basket brought into the order: pasted text (CODE:QTY,
+  // one a line, or a CSV), a CSV or Excel file (base64) or rows (Pepper).
+  // Codes are matched to the supplier's live prices (one code, one product)
+  // and the order changed to match: lines added, quantities changed (also
+  // moved onto this supplier's price from another), and with
+  // remove_missing (the default) this supplier's lines the basket doesn't
+  // have taken off. Quantities go up to the price's minimum and steps, as
+  // placing does. Codes not found, switched off or on two products are
+  // listed and left out. dry_run says what would change.
+  app.post('/orders/:id/reconcile', { preHandler: canOrderOrApprove, bodyLimit: 6 * 1024 * 1024 }, async req => {
+    const b = ReconcileBody.parse(req.body || {})
+    const given = [b.file, b.text, b.rows].filter(v => v != null).length
+    if (given !== 1) throw httpError(400, 'Send the basket as a file, pasted lines or rows')
+    // A CSV or text file is read like pasted text; an Excel file as a sheet.
+    const fromFile = b.file != null ? fileText(b.file) : null
+    const read = b.file != null ? (fromFile != null ? basketFromText(fromFile) : basketFromSheet(readSheet(b.file)))
+      : b.text != null ? basketFromText(b.text)
+      : { rows: b.rows.map((r, i) => ({ row: i + 1, code: r.code, qty: r.qty })) }
+    if (read.error) throw httpError(422, read.error)
+    if (!read.rows.length) throw httpError(422, 'No codes found in the basket')
+    if (read.rows.length > BASKET_MAX_ROWS) throw httpError(422, `Bring in up to ${BASKET_MAX_ROWS} lines at a time`)
+    const who = await accessOf(req)
+    const apply = !b.dry_run
+    return withTenant(req.tenantId, async tx => {
+      const o = await ownOrder(tx, req.tenantId, req.params.id, { lock: apply })
+      assertEditable(o, who)
+      const [supplier] = await tx`SELECT id, name, is_active FROM suppliers WHERE id = ${b.supplier_id} AND tenant_id = ${req.tenantId}`
+      if (!supplier) throw httpError(404, 'Supplier not found')
+      if (!supplier.is_active) throw httpError(422, `${supplier.name} is switched off in Suppliers`)
+      const quotes = await tx`
+        SELECT q.id, q.item_id, q.supplier_code, q.product_name, q.pack_name, q.pack_count::float8 AS pack_count,
+               q.pack_qty::float8 AS pack_qty, q.pack_unit, q.min_qty::float8 AS min_qty,
+               q.order_multiple::float8 AS order_multiple, (q.is_active AND i.is_active) AS live, i.name AS item_name
+          FROM inv_quotes q JOIN inv_items i ON i.id = q.item_id AND i.tenant_id = ${req.tenantId}
+         WHERE q.tenant_id = ${req.tenantId} AND q.supplier_id = ${supplier.id} AND btrim(COALESCE(q.supplier_code, '')) <> ''
+         ORDER BY lower(i.name), q.id
+      `
+      const lines = await orderBasketLines(tx, req.tenantId, o)
+      const basket = mergeBasket(read.rows)
+      const diff = basketDiff({ basket: basket.lines, quotes, lines, supplierId: supplier.id, removeMissing: b.remove_missing !== false })
+      const out = {
+        supplier: { id: supplier.id, name: supplier.name }, rows: read.rows.length, remove_missing: b.remove_missing !== false,
+        ...diff, errors: [...basket.errors, ...diff.errors], dry_run: !apply,
+      }
+      if (!apply) return out
+      for (const l of [...diff.added, ...diff.changed]) {
+        await tx`
+          INSERT INTO supply_order_lines (order_id, item_id, tenant_id, quote_id, qty)
+          VALUES (${o.id}, ${l.item_id}, ${req.tenantId}, ${l.quote_id}, ${l.qty})
+          ON CONFLICT (order_id, item_id) DO UPDATE SET qty = EXCLUDED.qty, quote_id = EXCLUDED.quote_id
+        `
+      }
+      for (const l of diff.removed) {
+        await tx`UPDATE supply_order_lines SET qty = 0 WHERE order_id = ${o.id} AND item_id = ${l.item_id} AND tenant_id = ${req.tenantId}`
+      }
+      const [u] = await tx`UPDATE supply_orders SET updated_at = now() WHERE id = ${o.id} AND tenant_id = ${req.tenantId} RETURNING *`
+      return { ...out, order: await loadOrder(tx, req.tenantId, u, who) }
     })
   })
 
@@ -1825,6 +1952,41 @@ export default async function purchasingRoutes(app) {
     })
   })
 
+  // ── Out of stock (migration 234) ──
+  // What the supplier said about a price: out of stock until a date (the
+  // first day it can be delivered again), or back in stock (until null).
+  // Company-wide, like the price itself; who and when are kept. Nothing on
+  // any order moves to another price because of it.
+  app.put('/quotes/:id/stock', { preHandler: canMarkStock }, async req => {
+    const { id } = z.object({ id: uuid }).parse(req.params)
+    const body = StockBody.parse(req.body)
+    const until = body.until
+    if (until) {
+      const today = nowAt('Europe/London').date
+      if (addDays(until, 0) !== until) throw httpError(400, 'That date doesn\'t exist')
+      if (until <= today) {
+        throw httpError(422, 'Pick the first day it can be delivered again: a day after today', { code: 'stock_until' })
+      }
+      if (until > addDays(today, STOCK_DAYS_MAX)) {
+        throw httpError(422, 'Pick a day within a year. If nobody knows, pick a day to check again', { code: 'stock_until' })
+      }
+    }
+    return withTenant(req.tenantId, async tx => {
+      const [q] = await tx`
+        UPDATE inv_quotes SET
+          out_of_stock_until = ${until},
+          out_of_stock_note  = ${until ? body.note ?? null : null},
+          out_of_stock_by    = ${until ? by(req) : null},
+          out_of_stock_at    = CASE WHEN ${!!until} THEN now() END
+         WHERE id = ${id} AND tenant_id = ${req.tenantId}
+        RETURNING id, item_id, supplier_id, out_of_stock_until::text AS out_of_stock_until, out_of_stock_note,
+                  out_of_stock_by, out_of_stock_at
+      `
+      if (!q) throw httpError(404, 'Price not found')
+      return q
+    })
+  })
+
   // Limits shown next to the temperature boxes.
   app.get('/meta', { preHandler: canRead }, async req => {
     const lv = await permissionLevels(req, ['purchasing', 'purchasing_setup', 'purchasing_approve'])
@@ -1833,6 +1995,7 @@ export default async function purchasingRoutes(app) {
       can_order: lv.purchasing === 'manage',
       can_approve: lv.purchasing_approve === 'manage',
       can_setup: lv.purchasing_setup === 'manage',
+      can_mark_stock: lv.purchasing === 'manage' || lv.purchasing_approve === 'manage' || lv.purchasing_setup === 'manage',
       delivery_temp_max: DELIVERY_TEMP_MAX,
     }
   })

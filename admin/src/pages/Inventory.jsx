@@ -5,7 +5,8 @@
 // size and a price per pack). An item has no price of its own; what it costs
 // comes from its quotes. Which quote is ordered: a venue's choice, else the
 // company choice (star), else the cheapest per kg / litre / each
-// (chooseQuote in shared/procurement.js, same as the API).
+// (chooseQuote in shared/procurement.js, same as the API). A price can be
+// marked out of stock until a date (StockControl, migration 234).
 // API: routes/inventory.js.
 
 import { useMemo, useState } from 'react'
@@ -23,9 +24,10 @@ import {
   fileToBase64, CodeTag,
 } from '@/components/purchasing/shared'
 import {
-  BASE_UNITS, STORAGE, UNITS, unitsForBase, packBaseQty, packLabel, chooseQuote, formatBase, fmtNum,
+  BASE_UNITS, STORAGE, UNITS, unitsForBase, packBaseQty, packLabel, chooseQuote, formatBase, fmtNum, nowAt,
 } from '@shared/procurement.js'
 import { CatalogueCheckModal, SwitchItemsModal, PriceUpdateModal } from '@/components/purchasing/catalogue'
+import { StockBadge, StockControl } from '@/components/purchasing/stock'
 
 const PACK_NAMES = ['Case', 'Box', 'Bag', 'Tray', 'Tub', 'Bottle', 'Tin', 'Jar', 'Pack', 'Crate', 'Sack', 'Each']
 
@@ -209,6 +211,7 @@ function companyPick(item) {
 
 function ItemTable({ rows, onOpen, total, picked = null }) {
   if (!rows.length) return <p className="text-sm text-muted-foreground py-8 text-center">No items match ({total} in total).</p>
+  const today = nowAt().date
   return (
     <div className="rounded-xl border bg-background overflow-hidden">
       <div className="hidden md:grid grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1.6fr)_minmax(0,1.6fr)_70px] gap-3 px-4 py-2 border-b bg-muted/40 text-xs font-medium text-muted-foreground">
@@ -244,6 +247,7 @@ function ItemTable({ rows, onOpen, total, picked = null }) {
                     <span className="text-xs text-muted-foreground">
                       {perUnit(q.price, q.pack_base_qty, i.base_unit)} · {pick.how === 'default' ? 'company choice' : 'cheapest'}
                     </span>
+                    <StockBadge quote={q} date={today} className="mt-0.5" />
                   </>
                 ) : '—'}
               </span>
@@ -267,6 +271,8 @@ function ItemDrawer({ itemId, canEdit, onCreated, onClose, onOpenItem }) {
     queryKey: ['inv-item', itemId], queryFn: () => api.get(`/inventory/items/${itemId}`), enabled: !!itemId,
   })
   const { data: venues = [] } = useVenues()
+  const { data: meta } = usePurchasingMeta()
+  const today = nowAt().date
   const [quoteEdit, setQuoteEdit] = useState(null)
   const [venuePrices, setVenuePrices] = useState(null)
   const [history, setHistory] = useState(null)
@@ -308,7 +314,8 @@ function ItemDrawer({ itemId, canEdit, onCreated, onClose, onOpenItem }) {
             ) : (
               <div className="divide-y">
                 {item.quotes.map(q => (
-                  <QuoteRow key={q.id} q={q} item={item} canEdit={canEdit}
+                  <QuoteRow key={q.id} q={q} item={item} canEdit={canEdit} today={today} canMark={!!meta?.can_mark_stock}
+                    onStockChanged={() => { qc.invalidateQueries({ queryKey: ['inv-item', itemId] }); refresh() }}
                     isDefault={item.preferred.default === q.id}
                     onStar={() => setDefault.mutate({ venue_id: null, quote_id: item.preferred.default === q.id ? null : q.id })}
                     onEdit={() => setQuoteEdit(q)} onVenuePrices={() => setVenuePrices(q)} onHistory={() => setHistory(q)}
@@ -422,7 +429,7 @@ function ItemForm({ item, canEdit, onSaved, onOpenItem }) {
   )
 }
 
-function QuoteRow({ q, item, canEdit, isDefault, onStar, onEdit, onVenuePrices, onHistory, onDelete }) {
+function QuoteRow({ q, item, canEdit, today, canMark, onStockChanged, isDefault, onStar, onEdit, onVenuePrices, onHistory, onDelete }) {
   const venueCount = Object.keys(q.venue_prices || {}).length
   return (
     <div className={cn('px-4 py-3 space-y-2', (!q.is_active || q.supplier_active === false) && 'opacity-60')}>
@@ -457,6 +464,9 @@ function QuoteRow({ q, item, canEdit, isDefault, onStar, onEdit, onVenuePrices, 
         <button type="button" className={cn(btn.ghost, 'border')} onClick={onHistory}><History className="w-4 h-4" />History</button>
         {canEdit && <span className="ml-auto"><ConfirmDelete label="Delete price" onConfirm={onDelete} /></span>}
       </div>
+      {q.is_active && q.supplier_active !== false && (
+        <StockControl quote={q} today={today} canMark={canMark} onChanged={onStockChanged} className="pl-9" />
+      )}
     </div>
   )
 }
