@@ -5,6 +5,18 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-11-01 — Till layouts: pop-ups opened by a button]
+
+No migration.
+
+- **Pop-ups.** A till layout can have pop-ups: a set of buttons (Drinks, Sauces, Payments...) that shows only when a button opens it, over the part of the screen you placed it on. The rest of the screen waits behind it until it closes. Up to eight in a layout.
+- **Open a pop-up** is a new button for any Buttons zone (or another pop-up, which then shows in its place). It works with or without an order on screen.
+- **How it looks**: keep or hide its border and shadow, and its window controls (a bar with its name and an X). With both off, its buttons sit on the screen as if they were part of it.
+- **How it closes**: a tap outside it, after any of its buttons is used, its X, or a **Close the pop-up** button of your own. The designer won't save a pop-up that nothing could close.
+- On the till a pop-up stays open while you add dishes from it, steps aside for a dish's choices and comes back. In the designer pop-ups are dashed outlines you tap through, picked by the name tab at their bottom left; Opened by lists the buttons that open one, and taking a pop-up out takes those buttons too.
+
+---
+
 ## [2026-11-01 — Kitchen screens: the live view]
 
 No migration.

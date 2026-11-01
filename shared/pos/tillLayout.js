@@ -50,12 +50,23 @@
 // times; show_times: each menu's times under its name) changes what the
 // till shows the same way More > Menus does (switchMenus() in
 // shared/menuTimes.js): the pick holds until the menus on now change.
+//
+// A Pop-up zone (popup) holds buttons as a Buttons zone does, but shows only
+// when a button opens it (action open_popup, its popup_id), over the cells it
+// is placed on (it may sit over other zones), the rest of the screen waiting
+// behind it until it closes. It has a name (title), can leave out its border
+// and shadow (frame) and its window controls, a bar with its name and an X
+// (controls), and closes on a tap outside it (close_outside), after any of
+// its buttons is used (close_on_tap) or with a Close button among its own
+// (close_popup, offered only in pop-ups). popupCloseProblem() refuses a
+// pop-up nothing closes. A button that opens another pop-up shows that one
+// in its place; a pop-up never opens itself.
 
 export const LAYOUT_COLS = { min: 4, max: 24, default: 12 }
 export const LAYOUT_ROWS = { min: 3, max: 16, default: 8 }
 export const ZONE_GRID = { min: 1, max: 12 }
 export const FONT = { min: 12, max: 36, default: 16 }
-export const MAX_ZONES = 16
+export const MAX_ZONES = 24
 export const MAX_BUTTONS = 80
 export const MAX_SECTIONS = 100
 export const MAX_MENUS = 30
@@ -69,11 +80,14 @@ export const ZONE_TYPES = [
   { key: 'buttons', label: 'Buttons', hint: 'Your own buttons: a dish, or a function such as Exact cash or Last receipt.', max: 8 },
   { key: 'modifiers', label: 'Dish choices', hint: 'A dish\'s choices while it is being added: the must-pick ones, the optional ones, or both.', max: 2 },
   { key: 'seats', label: 'Seat and course', hint: 'The seat and course the next dish goes to (or just one of them).', max: 1 },
+  { key: 'popup', label: 'Pop-up', hint: 'Buttons that show only when a button opens them, over the part of the screen you place them on.', max: 8 },
 ]
 export const ZONE_KEYS = ZONE_TYPES.map(t => t.key)
 export const zoneLabel = type => ZONE_TYPES.find(t => t.key === type)?.label || type
 // Zones with a grid of buttons.
-export const GRID_ZONES = ['categories', 'menus', 'items', 'buttons', 'modifiers']
+export const GRID_ZONES = ['categories', 'menus', 'items', 'buttons', 'modifiers', 'popup']
+// Zones that may sit over other zones (they show only some of the time).
+export const FLOATING_ZONES = ['modifiers', 'popup']
 
 // More than fits: carry on in a scroll (down, or across in a one-row zone),
 // in pages with arrows, behind a More button in the last cell, or not at all.
@@ -176,6 +190,8 @@ export const BUTTON_ACTIONS = [
   { key: 'back', label: 'Back', check: false, group: 'Till' },
   { key: 'till_menu', label: 'Till menu', check: false, group: 'Till' },
   { key: 'sign_out', label: 'Sign out', check: false, group: 'Till' },
+  { key: 'open_popup', label: 'Open a pop-up', check: false, group: 'Pop-ups' },
+  { key: 'close_popup', label: 'Close the pop-up', check: false, group: 'Pop-ups' },
 ]
 export const ACTION_KEYS = BUTTON_ACTIONS.map(a => a.key)
 export const actionOf = key => BUTTON_ACTIONS.find(a => a.key === key) || null
@@ -202,6 +218,7 @@ const GRID_DEFAULTS = {
   items: { cols: 4, rows: 4, overflow: 'scroll', align: 'left', valign: 'top' },
   buttons: { cols: 4, rows: 2, overflow: 'pages', align: 'center', valign: 'middle' },
   modifiers: { cols: 4, rows: 4, overflow: 'scroll', align: 'left', valign: 'top' },
+  popup: { cols: 3, rows: 2, overflow: 'pages', align: 'center', valign: 'middle' },
 }
 
 function normaliseButton(b, grid, i) {
@@ -232,6 +249,8 @@ function normaliseButton(b, grid, i) {
     if (!UUID.test(String(b.charge_id || ''))) return null
     out.charge_id = String(b.charge_id).toLowerCase()
   }
+  // Checked against the layout's pop-ups in normaliseTillLayout().
+  if (action === 'open_popup') out.popup_id = String(b.popup_id || '')
   return out
 }
 
@@ -271,17 +290,28 @@ function normaliseZone(z, layout, i) {
     zone.search = bool(z.search, true)
     zone.price = bool(z.price, true)
   }
-  if (z.type === 'buttons') {
-    // A repeated id gets a fresh one rather than dropping the button.
+  if (z.type === 'buttons' || z.type === 'popup') {
+    // A repeated id gets a fresh one rather than dropping the button. Close
+    // the pop-up only in a pop-up (a Buttons zone is behind an open one).
     const seen = new Set()
     zone.buttons = []
     for (const [j, raw] of (Array.isArray(z.buttons) ? z.buttons : []).slice(0, MAX_BUTTONS).entries()) {
       const b = normaliseButton(raw, zone, j)
       if (!b) continue
+      if (b.action === 'close_popup' && z.type !== 'popup') continue
       if (seen.has(b.id)) b.id = freshId(seen, 'b')
       seen.add(b.id)
       zone.buttons.push(b)
     }
+  }
+  if (z.type === 'popup') {
+    zone.title = text(z.title, LABEL_MAX) || 'Pop-up'
+    // Its border and shadow; its window controls (its name and an X).
+    zone.frame = bool(z.frame, true)
+    zone.controls = bool(z.controls, true)
+    // How else it closes: a tap outside it, or any of its buttons used.
+    zone.close_outside = bool(z.close_outside, true)
+    zone.close_on_tap = bool(z.close_on_tap, false)
   }
   if (z.type === 'modifiers') {
     zone.kind = pick(z.kind, CHOICE_KIND_KEYS, 'all')
@@ -326,7 +356,27 @@ export function normaliseTillLayout(raw) {
     seen.add(zone.id)
     layout.zones.push(zone)
   }
+  // A button that opens a pop-up the layout doesn't have (any more) goes, and
+  // a pop-up never opens itself.
+  const popups = new Set(layout.zones.filter(z => z.type === 'popup').map(z => z.id))
+  for (const z of layout.zones) {
+    if (z.buttons) z.buttons = z.buttons.filter(b => b.action !== 'open_popup' || (popups.has(b.popup_id) && b.popup_id !== z.id))
+  }
   return layout
+}
+
+/**
+ * Why nothing could close a pop-up once it is open, or null: it closes with
+ * its window controls (the X), a tap outside it, any of its buttons when
+ * close_on_tap is on (and it has a button), or a Close the pop-up button.
+ */
+export function popupCloseProblem(zone) {
+  if (!zone || zone.type !== 'popup') return null
+  if (zone.controls || zone.close_outside) return null
+  const buttons = zone.buttons || []
+  if (zone.close_on_tap && buttons.length) return null
+  if (buttons.some(b => b.action === 'close_popup')) return null
+  return 'Nothing closes a pop-up once it is open (' + (zone.title || 'Pop-up') + '): keep its window controls, let a tap outside close it, close it after a button is used, or add a Close the pop-up button.'
 }
 
 function freshId(seen, prefix) {
@@ -374,13 +424,17 @@ export function layoutProblems(layout) {
   if (mods.length > 1 && (kinds.includes('all') || new Set(kinds).size < kinds.length)) {
     out.push({ code: 'choice_kinds', message: 'Two Dish choices zones split the choices: one Must pick and one Optional.', zones: mods.map(z => z.id) })
   }
-  const solid = zones.filter(z => z.type !== 'modifiers')
+  const solid = zones.filter(z => !FLOATING_ZONES.includes(z.type))
   for (let i = 0; i < solid.length; i++) {
     for (let j = i + 1; j < solid.length; j++) {
       if (overlaps(solid[i], solid[j])) {
-        out.push({ code: 'overlap', message: zoneLabel(solid[i].type) + ' and ' + zoneLabel(solid[j].type) + ' overlap: only Dish choices can sit over other zones.', zones: [solid[i].id, solid[j].id] })
+        out.push({ code: 'overlap', message: zoneLabel(solid[i].type) + ' and ' + zoneLabel(solid[j].type) + ' overlap: only Dish choices and pop-ups can sit over other zones.', zones: [solid[i].id, solid[j].id] })
       }
     }
+  }
+  for (const p of of('popup')) {
+    const why = popupCloseProblem(p)
+    if (why) out.push({ code: 'popup_stuck', message: why, zones: [p.id] })
   }
   return out
 }
@@ -390,16 +444,22 @@ export function layoutWarnings(layout) {
   const out = []
   const zones = layout?.zones || []
   const has = type => zones.some(z => z.type === type)
-  const dishButtons = zones.some(z => z.type === 'buttons' && z.buttons.some(b => b.action === 'item'))
+  const withButtons = zones.filter(z => z.type === 'buttons' || z.type === 'popup')
+  const dishButtons = withButtons.some(z => z.buttons.some(b => b.action === 'item'))
   if (has('categories') && !has('items')) out.push({ code: 'categories_alone', message: 'Categories pick what the Dishes zone shows: add a Dishes zone.', zones: [] })
   if (has('items') && !has('categories')) out.push({ code: 'items_alone', message: 'No Categories zone: the Dishes zone shows every dish, in menu order.', zones: [] })
   if (!has('items') && !dishButtons) out.push({ code: 'no_dishes', message: 'No Dishes zone and no dish buttons: dishes can only be found by name in the search.', zones: [] })
   if (!has('modifiers')) out.push({ code: 'choices_window', message: 'No Dish choices zone: a dish\'s choices open in a window, as on the standard screen.', zones: [] })
   for (const z of zones) {
     if (z.type === 'buttons' && !z.buttons.length) out.push({ code: 'empty_buttons', message: 'A Buttons zone has no buttons yet.', zones: [z.id] })
+    if (z.type === 'popup' && !z.buttons.length) out.push({ code: 'empty_popup', message: 'A pop-up has no buttons yet (' + z.title + ').', zones: [z.id] })
+    if (z.type === 'popup' && !withButtons.some(o => o.id !== z.id && o.buttons.some(b => b.action === 'open_popup' && b.popup_id === z.id))) {
+      out.push({ code: 'popup_unopened', message: 'No button opens a pop-up (' + z.title + '): add an Open a pop-up button for it.', zones: [z.id] })
+    }
   }
-  // The Order zone's own buttons left out with nothing else doing their job.
-  const actions = new Set(zones.filter(z => z.type === 'buttons').flatMap(z => z.buttons.map(b => b.action)))
+  // The Order zone's own buttons left out with nothing else doing their job
+  // (a button in a pop-up does it too).
+  const actions = new Set(withButtons.flatMap(z => z.buttons.map(b => b.action)))
   const check = zones.find(z => z.type === 'check')
   for (const key of check?.hide || []) {
     const b = CHECK_BUTTONS.find(x => x.key === key)
@@ -417,7 +477,7 @@ export function layoutWarnings(layout) {
   }
   const covered = zones.filter(z => z.type === 'modifiers' && z.cover === 'zone')
   for (const m of covered) {
-    if (!zones.some(z => z.type !== 'modifiers' && overlaps(z, m))) {
+    if (!zones.some(z => !FLOATING_ZONES.includes(z.type) && overlaps(z, m))) {
       out.push({ code: 'choices_space', message: 'A Dish choices zone has its own space: it stays empty until a dish with choices is tapped.', zones: [m.id] })
     }
   }
@@ -524,9 +584,11 @@ class Grid {
 }
 
 /** A button's words: its own label, else from what it does. */
-export function buttonLabel(b, { items = {}, presets = [], tenders = [], charges = [] } = {}) {
+export function buttonLabel(b, { items = {}, presets = [], tenders = [], charges = [], popups = [] } = {}) {
   if (b?.label) return b.label
   if (b?.action === 'item') return items[b.item_id]?.name || 'Dish no longer on the menu'
+  if (b?.action === 'open_popup') return popups.find(p => p.id === b.popup_id)?.title || 'Pop-up no longer in the layout'
+  if (b?.action === 'close_popup') return 'Close'
   if (b?.action === 'discount_preset') return presets.find(p => p.id === b.preset_id)?.name || 'Discount no longer on the list'
   if (b?.action === 'charge') return charges.find(x => x.id === b.charge_id)?.name || 'Charge no longer on the list'
   if (b?.action === 'tender') {
@@ -538,9 +600,10 @@ export function buttonLabel(b, { items = {}, presets = [], tenders = [], charges
 
 /**
  * Drops what a layout names that isn't the company's: sections, menus,
- * dishes, discounts and charges (sets of ids). Buttons pointing at another
- * tenant's dish, discount or charge go; a categories list keeps only the
- * company's sections, a menus list only its menus.
+ * dishes, discounts and charges (sets of ids). Buttons (in Buttons zones and
+ * pop-ups) pointing at another tenant's dish, discount or charge go; a
+ * categories list keeps only the company's sections, a menus list only its
+ * menus.
  */
 export function ownLayout(layout, { sectionIds, itemIds, presetIds, menuIds, chargeIds }) {
   const has = (set, id) => (set instanceof Set ? set.has(id) : (set || []).includes(id))
@@ -549,7 +612,7 @@ export function ownLayout(layout, { sectionIds, itemIds, presetIds, menuIds, cha
     zones: layout.zones.map(z => {
       if (z.type === 'categories' && z.sections) return { ...z, sections: z.sections.filter(id => has(sectionIds, id)) }
       if (z.type === 'menus' && z.menu_ids) return { ...z, menu_ids: z.menu_ids.filter(id => has(menuIds, id)) }
-      if (z.type === 'buttons') {
+      if (z.type === 'buttons' || z.type === 'popup') {
         return {
           ...z,
           buttons: z.buttons.filter(b => (b.action !== 'item' || has(itemIds, b.item_id)) && (b.action !== 'discount_preset' || has(presetIds, b.preset_id))

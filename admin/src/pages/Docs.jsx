@@ -4040,7 +4040,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>shared/pos/tillLayout.js</Mono> is the one set of rules for the till, the designer and the API. A
               layout is <Mono>&#123; cols, rows, zones &#125;</Mono> (4-24 x 3-16 cells, 12 x 8 at first); each zone is{' '}
               <Mono>&#123; id, type, x, y, w, h &#125;</Mono> on that grid. The zones with buttons (<Mono>GRID_ZONES</Mono>:
-              categories, items, buttons, modifiers) add their own <Mono>cols</Mono> x <Mono>rows</Mono> (1-12),{' '}
+              categories, menus, items, buttons, modifiers, popup) add their own <Mono>cols</Mono> x <Mono>rows</Mono> (1-12),{' '}
               <Mono>font</Mono> (12-36 px), <Mono>bold</Mono>, <Mono>overflow</Mono> (<Mono>scroll</Mono> |{' '}
               <Mono>pages</Mono> | <Mono>more</Mono> | <Mono>hide</Mono>) and where the words sit on their buttons:{' '}
               <Mono>align</Mono> (<Mono>ALIGNS</Mono>: left | center | right) and <Mono>valign</Mono> (<Mono>VALIGNS</Mono>:
@@ -4074,7 +4074,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>normaliseTillLayout()</Mono> is the only way a layout is read (unknown zones and buttons dropped, every
               number inside its limits, repeated ids renamed). <Mono>layoutProblems()</Mono> stops a save (no Order zone,
               more zones of a type than its <Mono>max</Mono>, two Dish choices zones that don&apos;t split Must pick and
-              Optional, zones other than Dish choices overlapping); <Mono>layoutWarnings()</Mono> only advises.{' '}
+              Optional, zones overlapping other than Dish choices and pop-ups (<Mono>FLOATING_ZONES</Mono>), a pop-up nothing
+              closes); <Mono>layoutWarnings()</Mono> only advises.{' '}
               <Mono>packCells(cells, zone)</Mono> places a zone&apos;s buttons (the first free place row by row; a button
               bigger than the grid is cut down) and returns <Mono>&#123; pages, rest, hidden, rows, cols &#125;</Mono>. The
               till&apos;s <Mono>ZoneGrid.jsx</Mono> and the designer&apos;s <Mono>GridPreview</Mono> both use it, so a button
@@ -4097,6 +4098,43 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               screen. The designer previews it from the setup&apos;s <Mono>menus</Mono>, which carry{' '}
               <Mono>till_times</Mono> (<Mono>channelMenuTimes(..., &apos;till&apos;)</Mono>: a schedule, null = any time,
               false = off on the tills; those never show in the zone or its preview).
+            </P>
+            <P>
+              Pop-ups (type <Mono>popup</Mono>, up to 8 per layout, 1 Nov 2026; <Mono>MAX_ZONES</Mono> went to 24 so every
+              zone type at its most fits) are zones with buttons like a Buttons zone (the same <Mono>buttons</Mono>, grid and
+              words settings; <Mono>GRID_DEFAULTS.popup</Mono> 3 x 2 in pages), plus <Mono>title</Mono> (default Pop-up),{' '}
+              <Mono>frame</Mono> (border and shadow, default true), <Mono>controls</Mono> (a bar with the title and an X,
+              default true), <Mono>close_outside</Mono> (default true) and <Mono>close_on_tap</Mono> (default false). They
+              are in <Mono>FLOATING_ZONES</Mono> with Dish choices: they may sit over any zone and never count as an{' '}
+              <Mono>overlap</Mono>, against <Mono>choices_space</Mono> or in the designer&apos;s drag clash. Button actions{' '}
+              <Mono>open_popup</Mono> (with <Mono>popup_id</Mono>; no order needed) and <Mono>close_popup</Mono> (kept only
+              in pop-ups by <Mono>normaliseZone()</Mono>). <Mono>normaliseTillLayout()</Mono> drops an opener whose pop-up
+              the layout doesn&apos;t have, or that sits in the pop-up it opens, so taking a pop-up out takes its openers
+              (the designer&apos;s Take out relies on that). <Mono>popupCloseProblem(zone)</Mono> is null when{' '}
+              <Mono>controls</Mono> or <Mono>close_outside</Mono> is on, <Mono>close_on_tap</Mono> with at least one button,
+              or a <Mono>close_popup</Mono> button is there; otherwise <Mono>layoutProblems()</Mono> gives{' '}
+              <Mono>popup_stuck</Mono> and the save is refused (422 code <Mono>layout</Mono>). Warnings:{' '}
+              <Mono>empty_popup</Mono>, <Mono>popup_unopened</Mono> (no opener in another zone or pop-up); a pop-up&apos;s
+              dish buttons count against <Mono>no_dishes</Mono> and its buttons against <Mono>hidden_button</Mono>.{' '}
+              <Mono>buttonLabel(b, &#123; popups &#125;)</Mono> names an opener after its pop-up and a close button Close.{' '}
+              <Mono>ownLayout()</Mono> and <Mono>layoutIds()</Mono> treat a pop-up&apos;s dishes, discounts and charges as
+              a Buttons zone&apos;s.
+            </P>
+            <P>
+              On the till, <Mono>LayoutScreen.jsx</Mono> keeps the open pop-up per layout in{' '}
+              <Mono>useRemembered(layoutId + &apos;:popup&apos;)</Mono>, like the open category, so it stays open as the
+              counter&apos;s first dish opens the order (the counter view gives way to the check view); an effect forgets a
+              pop-up taken out of the layout, or it would open by itself if it came back. <Mono>press(b, from)</Mono>{' '}
+              opens and closes pop-ups itself and closes a <Mono>close_on_tap</Mono> pop-up before passing any other
+              button to <Mono>onButton</Mono> (dishes through <Mono>dishFrom()</Mono>), so the rest still go to{' '}
+              <Mono>runButton()</Mono>. <Mono>Popup</Mono> draws a cover over the layout (<Mono>popup-cover</Mono>, z 24: a
+              tap on it closes the pop-up only with <Mono>close_outside</Mono>, and never reaches the zone under it) and the
+              pop-up over its cells (<Mono>popup</Mono>, a dialog, z 25) with <Mono>ButtonsZone</Mono> inside
+              (<Mono>popup-buttons</Mono>). It isn&apos;t drawn while a dish&apos;s choices show (<Mono>!choosing</Mono>)
+              and comes back after them. In the designer, Add a zone puts a pop-up over the middle half of the screen named
+              Pop-up N; <Mono>PopupOptions</Mono> (<Mono>tl-popup-*</Mono>: name, Looks, Closes with the stuck note, Opened
+              by with Add a button that opens it) and the preview (<Mono>tl-popup-preview</Mono>) follow it, and Add a
+              button offers Close the pop-up only in pop-ups.
             </P>
             <P>
               API (<Mono>routes/tillLayouts.js</Mono>; Store tech view to read, manage to change): <Mono>GET</Mono> and{' '}
@@ -4159,9 +4197,11 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               chosen screen&apos;s size (the till&apos;s 64 px top bar first), moves and resizes zones on whole cells (pointer
               events; a ghost committed on pointer up), previews each zone&apos;s buttons with the venue&apos;s menus,
               discounts and ways to pay (<Mono>usePosSetup()</Mono>, <Mono>/api/pos/discounts</Mono>), turns to the page of
-              the button being edited, and draws the Dish choices zones as outlines (<Mono>data-outline</Mono>:
-              pointer-events none, so taps reach the zone under them; their name tab <Mono>tl-zone-tab</Mono> selects and
-              drags them; selected, or with <Mono>Show a dish being added</Mono>, they fill). The canvas fits the
+              the button being edited, and draws the Dish choices zones and pop-ups as outlines (<Mono>data-outline</Mono>:
+              pointer-events none, so taps reach the zone under them; their name tab <Mono>tl-zone-tab</Mono>, top right for
+              Dish choices and bottom left for a pop-up, selects and drags them; an outline sits above even a selected zone,
+              z 40, so its tab can always be reached; selected, or a Dish choices zone with <Mono>Show a dish being
+              added</Mono>, they fill). The canvas fits the
               column&apos;s width and the window&apos;s height, and its scroller keeps <Mono>scrollbar-gutter: stable</Mono>:
               without it a scrollbar appearing narrowed the canvas, which shortened the page, which hid the scrollbar, round
               and round (the shake with some zones selected). The draft is normalised after every edit; Save sends <Mono>&#123; name, layout &#125;</Mono> and stays off while{' '}

@@ -25,6 +25,12 @@
 // the width, and a scrollbar coming and going would otherwise resize it in a
 // loop (the shake). A tall screen (upright tablet) is fitted to the window's
 // height.
+//
+// Pop-ups (dashed purple, their name tab at the bottom left) are drawn as
+// outlines too: on the till they show only when a button opens them (Open a
+// pop-up), over their own cells with the rest of the screen covered behind
+// them. Selected, one fills to show how it looks: its border and shadow, its
+// window controls (name and X) and its own buttons (one can be Close).
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
@@ -46,7 +52,7 @@ import {
   ZONE_TYPES, zoneLabel, GRID_ZONES, OVERFLOWS, CHOICE_KINDS, COVERS, BUTTON_ACTIONS, actionOf, CHECK_BUTTONS,
   normaliseTillLayout, layoutProblems, layoutWarnings, packCells, buttonLabel, choiceZones, overlaps, buttonTextStyle,
   ALIGNS, VALIGNS, SEAT_PARTS, LAYOUT_COLS, LAYOUT_ROWS, ZONE_GRID, FONT, MAX_ZONES, MAX_BUTTONS, LABEL_MAX,
-  MENU_TAPS, MAX_MENUS,
+  MENU_TAPS, MAX_MENUS, popupCloseProblem, FLOATING_ZONES,
 } from '@shared/pos/tillLayout.js'
 import { chargeValueText } from '@shared/pos/charges.js'
 import { timesLabel } from '@shared/menuTimes.js'
@@ -59,20 +65,30 @@ const SCREENS = [
   { key: '800x1280', w: 800, h: 1280, label: 'Upright tablet, 800 x 1280' },
 ]
 const TOP_BAR = 64
-const TINTS = { check: '#e0e7ff', categories: '#dcfce7', menus: '#ffedd5', items: '#fef3c7', buttons: '#fce7f3', modifiers: '#e0f2fe', seats: '#ede9fe' }
-const NEEDS_TARGET = { item: 'item_id', discount_preset: 'preset_id', tender: 'tender', charge: 'charge_id' }
+const TINTS = { check: '#e0e7ff', categories: '#dcfce7', menus: '#ffedd5', items: '#fef3c7', buttons: '#fce7f3', modifiers: '#e0f2fe', seats: '#ede9fe', popup: '#fae8ff' }
+const NEEDS_TARGET = { item: 'item_id', discount_preset: 'preset_id', tender: 'tender', charge: 'charge_id', open_popup: 'popup_id' }
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v))
 
 function freshId(taken, base) {
   if (!taken.has(base)) return base
   for (let n = 2; ; n++) if (!taken.has(base + n)) return base + n
 }
-const ZONE_BASE = { check: 'order', categories: 'cats', menus: 'menus', items: 'dishes', buttons: 'buttons', modifiers: 'choices', seats: 'seats' }
+const ZONE_BASE = { check: 'order', categories: 'cats', menus: 'menus', items: 'dishes', buttons: 'buttons', modifiers: 'choices', seats: 'seats', popup: 'popup' }
+
+/** How a zone is named in lists and notes: Pop-up: Drinks, Dish choices: Must pick, Buttons 2. */
+function zoneName(z, layout) {
+  if (z.type === 'popup') return 'Pop-up: ' + z.title
+  if (z.type === 'modifiers') return zoneLabel(z.type) + ': ' + (CHOICE_KINDS.find(k => k.key === z.kind)?.label || '')
+  const same = (layout?.zones || []).filter(x => x.type === z.type)
+  return zoneLabel(z.type) + (same.length > 1 ? ' ' + (same.indexOf(z) + 1) : '')
+}
 
 /** Where a new zone goes: a free rectangle as near the wanted size as there is. */
 function placeZone(layout, type) {
   const { cols, rows, zones } = layout
-  const solid = zones.filter(z => z.type !== 'modifiers')
+  const solid = zones.filter(z => !FLOATING_ZONES.includes(z.type))
+  // A pop-up opens over the middle of the screen, over whatever is there.
+  if (type === 'popup') return { x: Math.floor(cols / 4), y: Math.floor(rows / 4), w: Math.max(1, Math.round(cols / 2)), h: Math.max(1, Math.round(rows / 2)) }
   if (type === 'modifiers') {
     const over = zones.find(z => z.type === 'items') || zones.find(z => z.type === 'categories')
     if (over) return { x: over.x, y: over.y, w: over.w, h: over.h }
@@ -178,9 +194,16 @@ export default function TillLayoutDesigner() {
       const kinds = layout.zones.filter(z => z.type === 'modifiers').map(z => z.kind)
       base.kind = kinds.includes('required') ? 'optional' : kinds.includes('optional') ? 'required' : kinds.includes('all') ? 'optional' : 'all'
     }
+    if (type === 'popup') {
+      const titles = new Set(layout.zones.filter(z => z.type === 'popup').map(z => z.title))
+      let n = titles.size + 1
+      while (titles.has('Pop-up ' + n)) n++
+      base.title = 'Pop-up ' + n
+    }
     setLayout(l => ({ ...l, zones: [...l.zones, base] }))
     setSelId(zid)
   }
+  // A pop-up taken out takes the buttons that open it with it (normaliseTillLayout drops them).
   const removeZone = zid => { setLayout(l => ({ ...l, zones: l.zones.filter(z => z.id !== zid) })); setSelId(null) }
   const screen = SCREENS.find(s => s.key === screenKey) || SCREENS[0]
   const pickScreen = k => { setScreenKey(k); try { localStorage.setItem('maca_layout_screen', k) } catch { /* private mode */ } }
@@ -235,14 +258,14 @@ export default function TillLayoutDesigner() {
               canEdit={canManage} onMove={patchZone} ctx={ctx} focus={selB}
               bad={new Set(problems.flatMap(p => p.zones))} />
             <p className="text-xs text-muted-foreground">
-              Tap a zone to change it. {canManage ? 'Drag it to move it, its corner to resize it. ' : ''}Dish choices zones (dashed) show on the till only while a dish is being added, over the zones under them: tap a dashed zone's name to change it.
+              Tap a zone to change it. {canManage ? 'Drag it to move it, its corner to resize it. ' : ''}Dish choices zones (dashed blue) show on the till only while a dish is being added, and pop-ups (dashed purple) only when a button opens them, over the zones under them: tap a dashed zone's name to change it.
             </p>
           </div>
 
           <div className="space-y-4 min-w-0 lg:sticky lg:top-0" data-testid="tl-panel">
             {sel
               ? <ZonePanel zone={sel} ctx={ctx} canManage={canManage} onBack={() => setSelId(null)} selB={selB} setSelB={setSelB}
-                  onChange={patch => patchZone(sel.id, patch)} onRemove={() => removeZone(sel.id)} />
+                  onChange={patch => patchZone(sel.id, patch)} onRemove={() => removeZone(sel.id)} onPatchZone={patchZone} onPick={setSelId} />
               : (
                 <>
                   <ReadOnlyFieldset disabled={!canManage}>
@@ -271,7 +294,7 @@ export default function TillLayoutDesigner() {
                         <button key={z.id} type="button" onClick={() => setSelId(z.id)} data-testid="tl-zone-row" data-zone-id={z.id}
                           className="w-full min-h-[44px] flex items-center gap-2 px-3 rounded-lg border bg-background hover:bg-muted text-left touch-manipulation">
                           <span className="w-3 h-3 rounded-sm shrink-0" style={{ background: TINTS[z.type] }} />
-                          <span className="text-sm font-medium flex-1 min-w-0 truncate">{zoneLabel(z.type)}{z.type === 'modifiers' ? ': ' + CHOICE_KINDS.find(k => k.key === z.kind)?.label : ''}</span>
+                          <span className="text-sm font-medium flex-1 min-w-0 truncate">{zoneName(z, layout)}</span>
                           <span className="text-xs text-muted-foreground tabular-nums">{z.w} x {z.h}</span>
                         </button>
                       ))}
@@ -284,7 +307,7 @@ export default function TillLayoutDesigner() {
                           <option value="">Add a zone…</option>
                           {ZONE_TYPES.map(t => {
                             const full = layout.zones.filter(z => z.type === t.key).length >= t.max
-                            return <option key={t.key} value={t.key} disabled={full}>{t.label}{full ? ' (has one)' : ''}</option>
+                            return <option key={t.key} value={t.key} disabled={full}>{t.label}{full ? (t.max === 1 ? ' (has one)' : ' (has ' + t.max + ')') : ''}</option>
                           })}
                         </select>
                       </label>
@@ -385,11 +408,13 @@ function Canvas({ layout, screen, selId, onSelect, showChoices, canEdit, onMove,
   }
 
   const at = z => (ghost?.id === z.id ? { ...z, ...ghost } : z)
-  const solid = layout.zones.filter(z => z.type !== 'modifiers')
+  const solid = layout.zones.filter(z => !FLOATING_ZONES.includes(z.type))
   const bar = choiceZones(layout).required
   // Every zone is drawn; the selected one on top, so its handle can always be reached.
   const drawn = [...layout.zones].sort((a, b) => (a.id === selId) - (b.id === selId))
-  const label = z => zoneLabel(z.type) + (z.type === 'modifiers' ? ' · ' + CHOICE_KINDS.find(k => k.key === z.kind)?.label + (z.cover === 'screen' ? ' · whole screen' : '') : '')
+  // A pop-up's tab: its name (the dashed purple outline says it is a pop-up).
+  const label = z => (z.type === 'popup' ? z.title
+    : zoneLabel(z.type) + (z.type === 'modifiers' ? ' · ' + CHOICE_KINDS.find(k => k.key === z.kind)?.label + (z.cover === 'screen' ? ' · whole screen' : '') : ''))
 
   return (
     <div ref={ref} className="w-full" data-testid="tl-canvas-wrap">
@@ -409,27 +434,35 @@ function Canvas({ layout, screen, selId, onSelect, showChoices, canEdit, onMove,
             const z = at(z0)
             const isSel = z.id === selId
             const isMod = z.type === 'modifiers'
-            // A Dish choices zone is an outline over the zones under it (they stay
-            // in sight and can be tapped); selected, or with a dish being added, it fills.
-            const outline = isMod && !isSel && !showChoices
-            const clash = ghost?.id === z.id && !isMod && solid.some(o => o.id !== z.id && overlaps(o, z))
+            const isPop = z.type === 'popup'
+            const floating = isMod || isPop
+            // A Dish choices zone or a pop-up is an outline over the zones under it
+            // (they stay in sight and can be tapped); selected (or a Dish choices
+            // zone with a dish being added) it fills. An outline sits above even
+            // a selected zone, so its name tab can always be tapped (taps
+            // anywhere else go through it).
+            const outline = floating && !isSel && !(isMod && showChoices)
+            const clash = ghost?.id === z.id && !floating && solid.some(o => o.id !== z.id && overlaps(o, z))
             return (
               <div key={z.id} data-testid="tl-zone" data-zone-id={z.id} data-type={z.type} data-selected={isSel ? '1' : '0'} data-outline={outline ? '1' : undefined}
                 data-x={z.x} data-y={z.y} data-w={z.w} data-h={z.h}
                 onPointerDown={outline ? undefined : e => start(e, z0, 'move')} onPointerMove={move} onPointerUp={end} onPointerCancel={end}
                 className={cn('absolute rounded-md overflow-hidden', outline ? 'pointer-events-none' : canEdit ? 'cursor-move' : 'cursor-pointer',
-                  isSel ? 'ring-4 ring-primary z-30' : isMod ? 'z-20' : 'z-10',
+                  isSel ? 'ring-4 ring-primary z-30' : outline ? 'z-40' : floating ? 'z-20' : 'z-10',
                   (bad.has(z.id) || clash) && 'ring-4 ring-red-500')}
                 style={{
                   left: z.x * cw + 2, top: z.y * rh + 2, width: z.w * cw - 4, height: z.h * rh - 4,
-                  background: outline ? 'transparent' : isMod ? 'rgba(224, 242, 254, 0.94)' : TINTS[z.type],
-                  border: isMod ? '2px dashed #0284c7' : '1px solid rgba(15, 23, 42, 0.15)',
+                  background: outline ? 'transparent' : isMod ? 'rgba(224, 242, 254, 0.94)' : isPop ? 'rgba(250, 232, 255, 0.96)' : TINTS[z.type],
+                  border: isMod ? '2px dashed #0284c7' : isPop ? '2px dashed #c026d3' : '1px solid rgba(15, 23, 42, 0.15)',
                 }}>
-                {isMod ? (
-                  // The name tab, top right (clear of the zone under it): tap or drag it.
-                  // A drag that starts on the tab keeps the tab's pointer (capture) as the zone fills.
+                {floating ? (
+                  // The name tab (Dish choices top right, pop-ups bottom left: clear of the
+                  // zone under it and of each other): tap or drag it. A drag that starts on
+                  // the tab keeps the tab's pointer (capture) as the zone fills.
                   <span onPointerDown={outline ? e => start(e, z0, 'move') : undefined} onPointerMove={move} onPointerUp={end} onPointerCancel={end}
-                    data-testid="tl-zone-tab" className="absolute right-1 top-1 z-10 rounded px-1.5 py-0.5 text-[10px] font-semibold border border-sky-600 bg-sky-50 text-sky-800 pointer-events-auto cursor-pointer">
+                    data-testid="tl-zone-tab" data-type={z.type}
+                    className={cn('absolute z-10 rounded px-1.5 py-0.5 text-[10px] font-semibold border pointer-events-auto cursor-pointer max-w-[90%] truncate',
+                      isPop ? 'left-1 bottom-1 border-fuchsia-600 bg-fuchsia-50 text-fuchsia-800' : 'right-1 top-1 border-sky-600 bg-sky-50 text-sky-800')}>
                     {label(z)}
                   </span>
                 ) : (
@@ -460,6 +493,20 @@ function Canvas({ layout, screen, selId, onSelect, showChoices, canEdit, onMove,
 function ZonePreview({ zone, scale, ctx, hasBar, focus = null }) {
   const font = Math.max(7, (zone.font || FONT.default) * scale)
   if (zone.type === 'check') return <CheckPreview scale={scale} zone={zone} />
+  if (zone.type === 'popup') {
+    // As on the till: its border and shadow, its window controls, its buttons.
+    return (
+      <div className={cn('h-full flex flex-col min-h-0 bg-white', zone.frame && 'rounded-lg ring-2 ring-primary shadow-lg')}
+        data-testid="tl-popup-preview" data-frame={zone.frame ? '1' : '0'} data-controls={zone.controls ? '1' : '0'}>
+        {zone.controls && (
+          <div className="shrink-0 flex items-center gap-1 px-1 border-b font-bold" style={{ fontSize: Math.max(7, 15 * scale) }} data-testid="tl-popup-bar">
+            <span className="flex-1 min-w-0 truncate">{zone.title}</span><X className="shrink-0" style={{ width: Math.max(8, 20 * scale), height: Math.max(8, 20 * scale) }} />
+          </div>
+        )}
+        <div className="flex-1 min-h-0 p-0.5"><GridPreview zone={zone} cells={previewCells(zone, ctx)} font={font} focus={focus} /></div>
+      </div>
+    )
+  }
   if (zone.type === 'seats') {
     const seats = zone.parts !== 'courses'
     const courses = zone.parts !== 'seats'
@@ -548,10 +595,11 @@ function previewCells(zone, { setup, names, discounts, tenders, charges, layout 
     const list = cats ? (setup?.items || []).filter(i => i.section_id === first) : (setup?.items || [])
     return list.map(i => ({ key: i.id, label: i.name, sub: zone.price ? (i.price_pence != null ? money(i.price_pence) : '£') : null }))
   }
-  if (zone.type === 'buttons') {
+  if (zone.type === 'buttons' || zone.type === 'popup') {
+    const popups = layout.zones.filter(z => z.type === 'popup')
     return zone.buttons.map(b => ({
       key: b.id, w: b.w, h: b.h, colour: b.colour,
-      label: buttonLabel(b, { items: names.items, presets: discounts, tenders, charges }),
+      label: buttonLabel(b, { items: names.items, presets: discounts, tenders, charges, popups }),
     }))
   }
   if (zone.type === 'modifiers') {
@@ -630,6 +678,7 @@ const PLACE_HINTS = {
   items: 'At the top, the price stays at the bottom of the button; in the middle or at the bottom it goes under the dish\'s name.',
   modifiers: 'At the top, a price stays at the bottom of the button; in the middle or at the bottom it goes under the choice. The group headings stay on the left.',
   buttons: 'At the top, a dish button\'s Sold out line stays at the bottom of the button.',
+  popup: 'At the top, a dish button\'s Sold out line stays at the bottom of the button.',
 }
 
 /** One of the two rows of Words on the buttons: three buttons, an icon and a word each. */
@@ -654,9 +703,11 @@ function PlaceRow({ label, value, options, icons, onChange, testid }) {
   )
 }
 
-function ZonePanel({ zone, ctx, canManage, onBack, onChange, onRemove, selB = null, setSelB = () => {} }) {
+function ZonePanel({ zone, ctx, canManage, onBack, onChange, onRemove, onPatchZone = () => {}, onPick = () => {}, selB = null, setSelB = () => {} }) {
   const t = ZONE_TYPES.find(x => x.key === zone.type)
   const { layout } = ctx
+  // A pop-up's openers go with it when it is taken out.
+  const openers = zone.type === 'popup' ? popupOpeners(layout, zone.id) : []
   return (
     <Section title={t.label} hint={t.hint}
       actions={<Btn onClick={onBack} data-testid="tl-zone-back"><ArrowLeft className="w-4 h-4" /> Layout</Btn>}>
@@ -707,7 +758,8 @@ function ZonePanel({ zone, ctx, canManage, onBack, onChange, onRemove, selB = nu
               <Toggle label="Prices on the buttons" checked={zone.price} onChange={v => onChange({ price: v })} />
             </div>
           )}
-          {zone.type === 'buttons' && <ButtonsEditor zone={zone} ctx={ctx} canManage={canManage} onChange={onChange} selB={selB} setSelB={setSelB} />}
+          {zone.type === 'popup' && <PopupOptions zone={zone} layout={layout} openers={openers} canManage={canManage} onChange={onChange} onPatchZone={onPatchZone} onPick={onPick} />}
+          {(zone.type === 'buttons' || zone.type === 'popup') && <ButtonsEditor zone={zone} ctx={ctx} canManage={canManage} onChange={onChange} selB={selB} setSelB={setSelB} />}
           {zone.type === 'modifiers' && (
             <>
               <Field group label="Shows">
@@ -750,10 +802,84 @@ function ZonePanel({ zone, ctx, canManage, onBack, onChange, onRemove, selB = nu
       </ReadOnlyFieldset>
       {canManage && (
         <div className="pt-2 border-t">
-          <ConfirmDelete label={'Take out the ' + t.label + ' zone'} confirmLabel="Yes, take it out" onConfirm={onRemove} />
+          <ConfirmDelete label={zone.type === 'popup' ? 'Take out the pop-up' + (openers.length ? (openers.length === 1 ? ' and the button that opens it' : ' and the ' + openers.length + ' buttons that open it') : '') : 'Take out the ' + t.label + ' zone'}
+            confirmLabel="Yes, take it out" onConfirm={onRemove} />
         </div>
       )}
     </Section>
+  )
+}
+
+/** The buttons that open a pop-up: [{ zone, button }]. */
+function popupOpeners(layout, popupId) {
+  return layout.zones.flatMap(z => (z.buttons || []).filter(b => b.action === 'open_popup' && b.popup_id === popupId).map(b => ({ zone: z, button: b })))
+}
+
+/**
+ * A pop-up: its name, its look (border and shadow, window controls), how it
+ * closes, and the buttons that open it (with a quick way to add one to a
+ * Buttons zone). Its own buttons are edited below (ButtonsEditor).
+ */
+function PopupOptions({ zone, layout, openers, canManage, onChange, onPatchZone, onPick }) {
+  const stuck = popupCloseProblem(zone)
+  const holders = layout.zones.filter(z => z.type === 'buttons' || (z.type === 'popup' && z.id !== zone.id))
+  const [to, setTo] = useState('')
+  const target = holders.find(z => z.id === to) || holders[0] || null
+  const addOpener = () => {
+    if (!target) return
+    const taken = new Set(target.buttons.map(b => b.id))
+    const bid = freshId(taken, 'open-' + zone.id)
+    onPatchZone(target.id, { buttons: [...target.buttons, { id: bid, action: 'open_popup', popup_id: zone.id, w: 1, h: 1 }] })
+  }
+  return (
+    <div className="space-y-4" data-testid="tl-popup-options">
+      <Field label="Name" hint="On its window controls and on the buttons that open it (unless they have their own words).">
+        <input className={inputCls} value={zone.title} maxLength={LABEL_MAX} onChange={e => onChange({ title: e.target.value })} data-testid="tl-popup-title" />
+      </Field>
+      <div className="space-y-1">
+        <p className="text-xs font-medium text-muted-foreground">Looks</p>
+        <div data-testid="tl-popup-frame"><Toggle label="Border and shadow" checked={zone.frame} onChange={v => onChange({ frame: v })} /></div>
+        <div data-testid="tl-popup-controls"><Toggle label="Window controls: its name and a close X" checked={zone.controls} onChange={v => onChange({ controls: v })} /></div>
+        <p className="text-xs text-muted-foreground">Both off, its buttons sit on the screen as if they were part of it.</p>
+      </div>
+      <div className="space-y-1">
+        <p className="text-xs font-medium text-muted-foreground">Closes</p>
+        <div data-testid="tl-popup-outside"><Toggle label="With a tap outside it" checked={zone.close_outside} onChange={v => onChange({ close_outside: v })} /></div>
+        <div data-testid="tl-popup-after"><Toggle label="After any of its buttons is used" checked={zone.close_on_tap} onChange={v => onChange({ close_on_tap: v })} /></div>
+        <p className="text-xs text-muted-foreground">
+          While it is open the rest of the screen waits behind it. Add a <strong>Close the pop-up</strong> button below to close it by hand; a button that opens another pop-up shows that one instead.
+        </p>
+        {stuck && <p className="text-xs rounded-lg border border-red-200 bg-red-50 text-red-800 px-3 py-2" data-testid="tl-popup-stuck">{stuck}</p>}
+      </div>
+      <div className="space-y-2" data-testid="tl-popup-openers">
+        <p className="text-xs font-medium text-muted-foreground">Opened by</p>
+        {openers.length
+          ? openers.map(({ zone: z, button: b }) => (
+            // Not a <button>: View users (a disabled fieldset) can still go to it.
+            <div key={z.id + ':' + b.id} role="button" tabIndex={0} onClick={() => onPick(z.id)}
+              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onPick(z.id) } }}
+              data-testid="tl-popup-opener" data-zone-id={z.id}
+              className="w-full min-h-[48px] flex items-center gap-2 px-3 rounded-lg border bg-background hover:bg-muted text-left text-sm cursor-pointer touch-manipulation">
+              <span className="flex-1 min-w-0 truncate">{b.label || zone.title}</span>
+              <span className="text-xs text-muted-foreground shrink-0">in {zoneName(z, layout)}</span>
+            </div>
+          ))
+          : <p className="text-sm text-muted-foreground" data-testid="tl-popup-no-opener">No button opens it yet.</p>}
+        {canManage && holders.length > 0 && (
+          <div className="flex items-center gap-2">
+            {holders.length > 1 && (
+              <select className={cn(inputCls, 'flex-1 min-w-0')} value={target?.id || ''} onChange={e => setTo(e.target.value)} aria-label="Where the new button goes" data-testid="tl-popup-opener-zone">
+                {holders.map(z => <option key={z.id} value={z.id}>{zoneName(z, layout)}</option>)}
+              </select>
+            )}
+            <Btn onClick={addOpener} data-testid="tl-popup-add-opener" className={holders.length > 1 ? 'shrink-0' : 'w-full'}>
+              <Plus className="w-4 h-4" /> {holders.length > 1 ? 'Add a button that opens it' : 'Add a button that opens it to ' + zoneName(target, layout)}
+            </Btn>
+          </div>
+        )}
+        {canManage && !holders.length && <p className="text-xs text-muted-foreground">Add a Buttons zone to put a button that opens it on the screen.</p>}
+      </div>
+    </div>
   )
 }
 
@@ -955,8 +1081,20 @@ function MenusZoneOptions({ zone, ctx, onChange }) {
 const ACTION_GROUPS = [...new Set(BUTTON_ACTIONS.map(a => a.group))]
 
 /** The dish, discount, tender or charge a button points at. */
-function TargetPick({ action, value, ctx, onChange }) {
-  const { setup, discounts, tenders, charges } = ctx
+function TargetPick({ action, value, ctx, onChange, zoneId = null }) {
+  const { setup, discounts, tenders, charges, layout } = ctx
+  if (action === 'open_popup') {
+    // Any of the layout's pop-ups but the one the button is in.
+    const list = layout.zones.filter(z => z.type === 'popup' && z.id !== zoneId)
+    return (
+      <Field label="Pop-up" hint={list.length ? 'Shows it over its own part of the screen. From a pop-up, it shows in its place.' : 'No other pop-up yet: add a Pop-up zone first.'}>
+        <select className={inputCls} value={value || ''} onChange={e => onChange(e.target.value || null)} data-testid="tl-target" disabled={!list.length}>
+          <option value="">Pick a pop-up…</option>
+          {list.map(z => <option key={z.id} value={z.id}>{z.title}</option>)}
+        </select>
+      </Field>
+    )
+  }
   if (action === 'item') {
     const sections = setup?.sections || []
     return (
@@ -1007,9 +1145,12 @@ function TargetPick({ action, value, ctx, onChange }) {
 
 function ButtonsEditor({ zone, ctx, canManage, onChange, selB, setSelB }) {
   const [adding, setAdding] = useState(null)   // { action, target }
-  const { names, discounts, tenders, charges } = ctx
+  const { names, discounts, tenders, charges, layout } = ctx
   const b = zone.buttons.find(x => x.id === selB) || null
-  const label = x => buttonLabel(x, { items: names.items, presets: discounts, tenders, charges })
+  const popups = layout.zones.filter(z => z.type === 'popup')
+  const label = x => buttonLabel(x, { items: names.items, presets: discounts, tenders, charges, popups })
+  // Close the pop-up only in a pop-up (a Buttons zone is behind an open one).
+  const offered = a => a.key !== 'close_popup' || zone.type === 'popup'
   const setButtons = list => onChange({ buttons: list })
   const patchB = (bid, patch) => setButtons(zone.buttons.map(x => (x.id === bid ? { ...x, ...patch } : x)))
   const addButton = (action, target = null) => {
@@ -1050,13 +1191,13 @@ function ButtonsEditor({ zone, ctx, canManage, onChange, selB, setSelB }) {
               }}>
               {ACTION_GROUPS.map(g => (
                 <optgroup key={g} label={g}>
-                  {BUTTON_ACTIONS.filter(a => a.group === g).map(a => <option key={a.key} value={a.key}>{a.label}</option>)}
+                  {BUTTON_ACTIONS.filter(a => a.group === g && (offered(a) || a.key === b.action)).map(a => <option key={a.key} value={a.key}>{a.label}</option>)}
                 </optgroup>
               ))}
             </select>
           </Field>
           {NEEDS_TARGET[b.action] && (
-            <TargetPick action={b.action} value={b[NEEDS_TARGET[b.action]]} ctx={ctx}
+            <TargetPick action={b.action} value={b[NEEDS_TARGET[b.action]]} ctx={ctx} zoneId={zone.id}
               onChange={v => v && patchB(b.id, { [NEEDS_TARGET[b.action]]: v })} />
           )}
           <Field label="Words on the button" hint="Empty: the dish's or discount's name, or what it does.">
@@ -1079,7 +1220,7 @@ function ButtonsEditor({ zone, ctx, canManage, onChange, selB, setSelB }) {
             <option value="">Add a button…</option>
             {ACTION_GROUPS.map(g => (
               <optgroup key={g} label={g}>
-                {BUTTON_ACTIONS.filter(a => a.group === g).map(a => <option key={a.key} value={a.key}>{a.label}</option>)}
+                {BUTTON_ACTIONS.filter(a => a.group === g && offered(a)).map(a => <option key={a.key} value={a.key}>{a.label}</option>)}
               </optgroup>
             ))}
           </select>
@@ -1088,7 +1229,7 @@ function ButtonsEditor({ zone, ctx, canManage, onChange, selB, setSelB }) {
       {adding && (
         <div className="rounded-xl border border-primary/40 p-3 space-y-3" data-testid="tl-adding">
           <p className="text-sm font-medium">{adding.replace ? 'Change to: ' : 'New button: '}{actionOf(adding.action)?.label}</p>
-          {NEEDS_TARGET[adding.action] && <TargetPick action={adding.action} value={adding.target} ctx={ctx} onChange={v => setAdding(a => ({ ...a, target: v }))} />}
+          {NEEDS_TARGET[adding.action] && <TargetPick action={adding.action} value={adding.target} ctx={ctx} zoneId={zone.id} onChange={v => setAdding(a => ({ ...a, target: v }))} />}
           <div className="flex gap-2">
             <Btn variant="primary" className="flex-1" disabled={!!NEEDS_TARGET[adding.action] && !adding.target} data-testid="tl-adding-ok"
               onClick={() => {
