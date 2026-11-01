@@ -226,6 +226,25 @@ test('create: the location is copied whole, pointing only at its own rows', asyn
   const [pos] = await sql`SELECT p.pin_salt, t.pin_salt AS tpl_salt, p.receipt_name, p.kds_active_flow_id FROM pos_settings p, pos_settings t WHERE p.venue_id = ${V} AND t.venue_id = ${ware}`
   assert.notEqual(pos.pin_salt, pos.tpl_salt, 'its own PIN salt')
   assert.equal(pos.receipt_name, 'Zqx Leeds Briggate')
+  // Its revenue streams keep their order types, covers and courses, and the
+  // charges their checks get (migration 231), on the new streams.
+  const rulesOf = async v => (await sql`
+    SELECT c.name AS charge, s.name AS stream, t.name AS type FROM pos_charge_rules r
+      JOIN pos_charges c ON c.id = r.charge_id JOIN pos_revenue_streams s ON s.id = r.revenue_stream_id
+      JOIN order_types t ON t.id = r.order_type_id
+     WHERE r.venue_id = ${v} ORDER BY 1, 2, 3`).map(r => r.charge + '|' + r.stream + '|' + r.type)
+  const myRules = await rulesOf(V)
+  assert.ok(myRules.length > 0, 'the charge rules come too')
+  assert.deepEqual(myRules, await rulesOf(ware))
+  const [badRule] = await sql`SELECT count(*)::int AS n FROM pos_charge_rules r JOIN pos_revenue_streams s ON s.id = r.revenue_stream_id WHERE r.venue_id = ${V} AND s.venue_id <> ${V}`
+  assert.equal(badRule.n, 0, 'on the new location\'s streams')
+  const typesOf = async v => (await sql`
+    SELECT s.name, x.order_type_id::text AS t, x.enabled FROM pos_stream_order_types x
+      JOIN pos_revenue_streams s ON s.id = x.stream_id WHERE s.venue_id = ${v} ORDER BY 1, 2`).map(r => r.name + '|' + r.t + '|' + r.enabled)
+  assert.ok((await typesOf(V)).length > 0)
+  assert.deepEqual(await typesOf(V), await typesOf(ware))
+  const [bar] = await sql`SELECT covers, courses FROM pos_revenue_streams WHERE venue_id = ${V} AND name LIKE '% Bar'`
+  assert.deepEqual({ ...bar }, { covers: 'must', courses: false })
   const devices = await sql`SELECT kind, secret_hash, paired_at, settings FROM pos_devices WHERE venue_id = ${V}`
   assert.ok(devices.length >= 1)
   assert.ok(devices.every(d => d.secret_hash === null && d.paired_at === null), 'devices wait to be linked')

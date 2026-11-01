@@ -32,6 +32,7 @@ import { DishButton, SeatCourseBar, SECTION_COLOURS, dishPriceText, useHold } fr
 import { useChoiceBuilder, ChoiceZone } from './LayoutChoices.jsx'
 import { soldOutMap } from '../lib/store.js'
 import { menuTimesText } from '../lib/tillMenus.js'
+import { listCharges, seatCourseParts, defaultStreamId } from '../lib/checkOps.js'
 
 // The category and menu open in each layout, kept while the till app runs.
 const placeMemo = new Map()
@@ -186,17 +187,19 @@ function ItemsZone({ zone, layoutId, config, menus, section, sectionIndex, hasCa
 function ButtonsZone({ zone, layoutId, config, check, soldOut, onDish, onHold, onButton, canBack }) {
   const presets = discountList(config.settings)
   const tenders = config.settings?.tenders || []
+  const charges = listCharges(config)
   const place = buttonTextStyle(zone)
   const cells = zone.buttons.map(b => {
     const item = b.action === 'item' ? config.items?.[b.item_id] : null
     const action = actionOf(b.action)
     const missing = (b.action === 'item' && !item) || (b.action === 'discount_preset' && !presets.some(p => p.id === b.preset_id))
       || (b.action === 'tender' && !tenders.some(t => t.key === b.tender && t.enabled))
+      || (b.action === 'charge' && !charges.some(x => x.id === b.charge_id))
     const disabled = missing || (action?.check && !check) || (b.action === 'back' && !canBack)
     const sold = item && soldOut.has(item.id)
     return {
       key: b.id, w: b.w, h: b.h,
-      node: <LayoutButton b={b} disabled={disabled} place={place} label={buttonLabel(b, { items: config.items || {}, presets, tenders })}
+      node: <LayoutButton b={b} disabled={disabled} place={place} label={buttonLabel(b, { items: config.items || {}, presets, tenders, charges })}
         sub={sold ? 'Sold out' : null}
         onTap={() => (item ? (sold ? onHold(item) : onDish(item)) : onButton(b))}
         onHold={item ? () => onHold(item) : null} />,
@@ -263,7 +266,9 @@ export default function LayoutScreen({
       return <ButtonsZone zone={z} layoutId={layoutId} config={config} check={check} soldOut={soldOut} onDish={onDish} onHold={onHold} onButton={onButton} canBack={canBack} />
     }
     if (z.type === 'seats') {
-      return <SeatCourseBar fill font={z.font} parts={z.parts} config={config} seat={seat} setSeat={setSeat} course={course} setCourse={setCourse} covers={covers} />
+      // What the zone shows, as far as the check's revenue stream uses seats and courses.
+      const parts = seatCourseParts(config, check?.revenue_stream_id || defaultStreamId(config), z.parts)
+      return <SeatCourseBar fill font={z.font} parts={parts} config={config} seat={seat} setSeat={setSeat} course={course} setCourse={setCourse} covers={covers} />
     }
     return null
   }

@@ -2,10 +2,12 @@
 //
 // Store tech > Revenue streams (migration 170): groups of tills for
 // recognising revenue by place and/or device (Restaurant, Bar, Kiosk). A
-// stream doesn't decide tax or charges (charges come with the order type,
-// Order types page). Each one picks its menus, which order types it offers
-// and, per type, whether to ask for a customer name and a tent number (off,
-// ask, must have), and the type new checks start as.
+// stream doesn't decide tax. Each one picks its menus, which order types it
+// offers and, per type, whether to ask for a customer name and a tent number
+// (off, ask, must have), and the type new checks start as; whether its tills
+// ask how many guests (covers: off, ask, must) and use courses (migration
+// 231; a till can choose its own). The charges its checks get are on
+// Store tech > Charges (the location's matrix of streams by order types).
 
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
@@ -15,6 +17,7 @@ import { cn } from '@/lib/utils'
 import {
   Section, Modal, Field, inputCls, ErrorNote, ConfirmDelete, SortableRows, Segmented, Btn, ColourPick, Toggle,
 } from './shared'
+import { COVERS_RULES, coversWord } from './TillsSection'
 
 const PROMPTS = [
   { value: 'off', label: 'No' },
@@ -46,6 +49,8 @@ function StreamModal({ venueId, setup, stream, onClose }) {
     is_active: stream ? stream.is_active : true,
     default_order_type_id: stream?.default_order_type_id || null,
     order_types: typeRows(stream, types),
+    covers: stream?.covers || 'ask',
+    courses: stream ? stream.courses !== false : true,
   })
   const set = patch => setForm(f => ({ ...f, ...patch }))
   const setType = (id, patch) => set({ order_types: form.order_types.map(x => (x.order_type_id === id ? { ...x, ...patch } : x)) })
@@ -55,6 +60,7 @@ function StreamModal({ venueId, setup, stream, onClose }) {
   const body = () => ({
     name: form.name.trim(), menu_ids: form.menu_ids, colour: form.colour, is_active: form.is_active,
     default_order_type_id: def, order_types: form.order_types,
+    covers: form.covers, courses: form.courses,
   })
   const save = useMutation({
     mutationFn: () => stream ? api.patch(`/pos/revenue-streams/${stream.id}`, body()) : api.post(`/pos/venues/${venueId}/revenue-streams`, body()),
@@ -107,6 +113,10 @@ function StreamModal({ venueId, setup, stream, onClose }) {
           </select>
         </Field>
       )}
+      <Field group label="Guests (covers)" hint="When a table's check opens. Ask: the till asks, and it can be skipped. Must have: no skipping, and a table's check without them asks again before Send and Pay. Don't ask: no covers and no seat numbers.">
+        <Segmented value={form.covers} options={COVERS_RULES} onChange={v => set({ covers: v })} className="flex-wrap" />
+      </Field>
+      <Toggle label="Use courses" hint="Off: dishes go to the kitchen together, with no course chips on the till." checked={form.courses} onChange={v => set({ courses: v })} />
       <Field group label="Menus on the till" hint="None picked: every published menu.">
         <div className="flex flex-wrap gap-2">
           {setup.menus.map(m => {
@@ -158,6 +168,7 @@ export default function RevenueStreamsSection({ venueId, setup }) {
                     {typesText(rs) || 'No order types'}
                     {rs.default_order_type_id && typeName(rs.default_order_type_id) && ' · starts as ' + typeName(rs.default_order_type_id)}
                     {' · '}{menuNames(rs.menu_ids).join(', ') || 'all menus'}
+                    {' · covers: '}{coversWord(rs.covers)}{rs.courses === false ? ' · no courses' : ''}
                   </p>
                 </div>
                 <Btn onClick={() => setEditing(rs)} title={'Edit ' + rs.name}><Pencil className="w-4 h-4" /></Btn>

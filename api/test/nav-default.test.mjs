@@ -22,7 +22,7 @@ const routes = nodes => nodes.flatMap(n => [...(n.route ? [n.route] : []), ...ro
 
 // Migration 196's tree with 202's change applied: Till setup (and its Floor
 // plan) and Menu screens out, the Store tech section in after Venues.
-test('migrations 196 + 202 + 208 + 211 + 216 + 219 + 221 + 225 + 227 + 228 + 230 hold the same tree as DEFAULT_NAV_TREE', () => {
+test('migrations 196 + 202 + 208 + 211 + 216 + 219 + 221 + 225 + 227 + 228 + 230 + 231 hold the same tree as DEFAULT_NAV_TREE', () => {
   const read = f => fs.readFileSync(new URL('../../migrations/' + f, import.meta.url), 'utf8').match(/\$nav\$([\s\S]*?)\$nav\$/)[1]
   const drop = nodes => nodes.filter(n => !['/pos', '/pos/floor', '/screens'].includes(n.route))
     .map(n => (n.children ? { ...n, children: drop(n.children) } : n))
@@ -47,6 +47,9 @@ test('migrations 196 + 202 + 208 + 211 + 216 + 219 + 221 + 225 + 227 + 228 + 230
   // 225: Discounts after Order types.
   tech.children.splice(tech.children.findIndex(n => n.route === '/pos/types') + 1, 0,
     { label: 'Discounts', icon: 'BadgePercent', route: '/pos/discounts', module: 'pos_setup' })
+  // 231: Charges after Discounts.
+  tech.children.splice(tech.children.findIndex(n => n.route === '/pos/discounts') + 1, 0,
+    { label: 'Charges', icon: 'HandCoins', route: '/pos/charges', module: 'pos_setup' })
   // 228: Till layouts after Tills.
   tech.children.splice(tech.children.findIndex(n => n.route === '/pos/tills') + 1, 0,
     { label: 'Till layouts', icon: 'PanelsTopLeft', route: '/pos/layouts', module: 'pos_setup' })

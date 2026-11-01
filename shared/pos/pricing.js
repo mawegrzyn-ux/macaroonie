@@ -20,7 +20,7 @@
 import { itemChoices, vatIncluded, basePrice } from '../orderPricing.js'
 import { isCombo, priceCombo, dealChoices, withDealPicks } from '../combos.js'
 import { taxFor } from '../tax.js'
-import { chargeAmount, chargeApplies } from './charges.js'
+import { chargeAmount, chargeApplies, chargeBase } from './charges.js'
 
 export { vatIncluded }
 
@@ -335,7 +335,8 @@ function discountOff(d, base) {
  *   2. automatic promotions (check.promotions, set by the till at bill / pay time)
  *   3. check discounts, spread over the lines by what is left on them
  *   4. charges (check.charges, shared/pos/charges.js): a percent of what is
- *      left, or an amount; each at its own VAT rate
+ *      left of the dishes each counts, or an amount (once, or for each dish
+ *      it counts); each at its own VAT rate
  * VAT is the VAT inside what is paid for each line, at the line's rate.
  * service_charge is every charge that counts, added up (pos_checks.service_charge,
  * reports, Cash Recon); charges lists each, with what it would come to.
@@ -389,15 +390,19 @@ export function checkTotals(check) {
   const net = subtotal - discount
 
   // Charges: each that counts adds to the total; one taken off, or waiting
-  // for more guests, shows what it would come to.
+  // for more guests, shows what it would come to. A charge on named dishes
+  // (a cup deposit) counts only those (count: how many, for "x 2").
   let serviceCharge = 0
+  const lineNets = rows.map(r => ({ line: r.line, net: left(r) }))
   const charges = (check.charges || []).map(x => {
-    const would = chargeAmount(x, net, lines.length > 0)
+    const base = chargeBase(x, lineNets)
+    const would = chargeAmount(x, base)
     const applies = chargeApplies(x, check.covers)
     if (applies) serviceCharge += would
     return {
-      id: x.id, name: x.name, kind: x.kind, value: x.value, optional: !!x.optional, added: !!x.added,
+      id: x.id, name: x.name, kind: x.kind, value: x.value, optional: !!x.optional, added: !!x.added, list: !!x.list,
       removed: !!x.removed, waiting: !x.removed && !applies, min_covers: x.min_covers || 0,
+      basis: x.basis === 'dishes' ? 'dishes' : 'check', per: x.per === 'dish' ? 'dish' : 'check', count: base.count,
       vat_rate: Number(x.vat_rate) || 0, amount: applies ? would : 0, would_be: would,
     }
   })

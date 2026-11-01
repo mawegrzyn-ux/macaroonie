@@ -290,13 +290,14 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx', loy
   const tax = await step('tax rate', () => post('/api/tax-rates', { name: mark + ' Zero', rate: 0 }))
   if (tax) await step('tax rate value', () => put(`/api/tax-rates/${tax.id}/values`, { values: { [V]: 5 } }))
   const orderType = await step('order type', () => post('/api/order-types', { name: mark + ' Drive thru' }))
-  // Charges on the order type (migration 225), one naming the tenant's own tax rate.
-  if (orderType) await step('order type charges', () => patch('/api/order-types/' + orderType.id, {
-    charges: [
-      { name: mark + ' Service', kind: 'percent', value: 10, optional: true, min_covers: 6, tax_rate_id: null },
-      { name: mark + ' Packaging', kind: 'amount', value: 30, optional: false, tax_rate_id: tax?.id ?? null },
-    ],
-  }))
+  // Charges on the company's list (migration 231): a service charge from 6
+  // guests, a packaging fee with the tenant's own tax rate, and a cup deposit
+  // for each of a dish and the dishes of a section (the venue's matrix below).
+  const chargeSvc = await step('charge', () => post('/api/pos/charges', { name: mark + ' Service', kind: 'percent', value: 10, optional: true, min_covers: 6 }))
+  const chargePack = await step('charge with a tax rate', () => post('/api/pos/charges', { name: mark + ' Packaging', kind: 'amount', value: 30, tax_rate_id: tax?.id ?? null }))
+  const chargeCup = dish && menuSection
+    ? await step('dish charge', () => post('/api/pos/charges', { name: mark + ' Cup deposit', kind: 'amount', value: 25, optional: true, basis: 'dishes', per: 'dish', item_ids: [dish.id], section_ids: [menuSection.id] }))
+    : null
   // A discount on the company's list (migration 225).
   const tillDiscount = await step('till discount', () => post('/api/pos/discounts', { name: mark + ' Staff meal', kind: 'percent', value: 50, scope: 'check', needs_manager: true }))
   const navItem = await step('nav item', () => post('/api/nav/items', { label: mark + ' Link', route: '/rota', parent_id: null }))
@@ -324,7 +325,12 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx', loy
   await step('email settings', () => post(`/api/email-templates/settings/${V}`, { email_provider: 'smtp', from_name: mark + ' Thai' }))
 
   // ── Till, kitchen, kiosks, screens ──
-  await step('revenue stream', () => post(`/api/pos/venues/${V}/revenue-streams`, { name: mark + ' Bar' }))
+  // Covers that must be had and no courses (migration 231), then which
+  // charges its checks of the Drive thru order type get.
+  const stream = await step('revenue stream', () => post(`/api/pos/venues/${V}/revenue-streams`, { name: mark + ' Bar', covers: 'must', courses: false }))
+  if (stream && orderType && chargeSvc && chargePack) {
+    await step('charge rules', () => put(`/api/pos/venues/${V}/charge-rules`, { rules: [chargeSvc, chargePack, chargeCup].filter(Boolean).map(x => ({ charge_id: x.id, revenue_stream_id: stream.id, order_type_id: orderType.id })) }))
+  }
   const printer = await step('printer', () => post(`/api/pos/venues/${V}/printers`, { name: mark + ' Kitchen', host: '192.168.1.50' }))
   // Devices show a code of their own and are linked by it (migration 184):
   // a till from Store tech, a kitchen screen from the installer.
@@ -432,7 +438,7 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx', loy
     await step('print design use', () => put('/api/pos/print-design-uses', { venue_id: V, use: 'kitchen', design_id: printDesign.id }))
     await step('print design words', () => put(`/api/pos/print-designs/${printDesign.id}/variations/${V}`, { texts: { tx: { text: mark + ' Ware words' } }, hidden: [] }))
   }
-  // A till layout (migration 228) naming a section, a dish and a discount of the
+  // A till layout (migration 228) naming a section, a dish, a discount and a charge of the
   // tenant's, used by Ware's tills and by the till itself.
   const tillLayout = await step('till layout', () => post('/api/pos/till-layouts', { name: mark + ' Counter screen', template: 'quick' }))
   if (tillLayout) {
@@ -445,6 +451,7 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx', loy
             ...z.buttons,
             ...(dish ? [{ id: 'fx-dish', action: 'item', item_id: dish.id, label: mark + ' Pad Thai' }] : []),
             ...(tillDiscount ? [{ id: 'fx-disc', action: 'discount_preset', preset_id: tillDiscount.id }] : []),
+            ...(chargeCup ? [{ id: 'fx-charge', action: 'charge', charge_id: chargeCup.id }] : []),
           ],
         }
       }

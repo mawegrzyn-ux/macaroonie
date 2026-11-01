@@ -396,6 +396,11 @@ const AREAS = {
     const address = [plan.location.address_line1, plan.location.address_line2, [plan.location.city, plan.location.postcode].filter(Boolean).join(' ')].filter(Boolean)
     if (mode === 'copy') {
       const streams = await copyTable(s, 'pos_revenue_streams')
+      // Each stream's order types and what they ask (no venue of their own),
+      // then which charges its checks get (migration 231: the charges are
+      // company-wide, the matrix is the location's).
+      await copyTable(s, 'pos_stream_order_types', { parentCol: 'stream_id', parents: s.copied.pos_revenue_streams || [], need: ['stream_id'] })
+      const chargeRules = await copyTable(s, 'pos_charge_rules', { need: ['revenue_stream_id'] })
       const areas = await copyTable(s, 'floor_areas')
       // A printer plugged into one of the old location's devices waits for one
       // of the new location's (Store tech -> Printers); the hub's last report goes.
@@ -415,6 +420,7 @@ const AREAS = {
       return [
         'Receipts say "' + receiptName + '"',
         ...(printUses.length ? [plural(printUses.length, 'print design choice')] : []),
+        ...(chargeRules.length ? [plural(chargeRules.length, 'charge on a revenue stream and order type', 'charges on revenue streams and order types')] : []),
         streams.length ? 'Revenue streams: ' + streams.map(x => x.name).join(', ') : 'No revenue streams',
         plural(areas.length, 'floor area') + ', ' + plural(printers.length, 'printer') + ' (check each printer\'s address on site)',
       ]

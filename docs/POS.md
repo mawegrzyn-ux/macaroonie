@@ -218,7 +218,9 @@ without app-store packaging.
 | Table | Holds |
 |---|---|
 | `pos_devices` | terminals and hubs: venue, kind, name, secret hash, last seen, app version, revoked |
-| `pos_revenue_streams` | venue, name (Restaurant / Bar / Kiosk), menus, the order types it offers with their prompts, default order type, sort (was `pos_revenue_centres` with a VAT mode; migration 170, section 8.1; its service charge moved to the order types' charges, migration 225, section 8.5) |
+| `pos_revenue_streams` | venue, name (Restaurant / Bar / Kiosk), menus, the order types it offers with their prompts, default order type, covers off / ask / must and courses on / off (migration 231, section 8.10), sort (was `pos_revenue_centres` with a VAT mode; migration 170, section 8.1; its service charge moved to charges, migrations 225 and 231, section 8.5) |
+| `pos_charges` | tenant: the list of charges (percent or amount, optional, from N guests, VAT rate, the whole check or named dishes and sections, once or per dish; migration 231, section 8.5) |
+| `pos_charge_rules` | venue: which charges a check of a revenue stream and order type gets (charge, stream, type) |
 | `pos_printers` | venue, name, IP, port, columns, kind (receipt / station), backup printer |
 | `pos_print_routes` | dish, section or revenue stream → printer |
 | `pos_roles` | permissions and limits per staff role |
@@ -497,20 +499,38 @@ hand out the same numbers. So every till and kiosk numbers its own (`shared/pos/
 This is the first step of hub-first locations: with numbers made on the devices, any place that
 sequences (the cloud, the hub, a till on its own) accepts them without coordinating.
 
-### 8.5 Charges per order type and the discount list (migration 225, 31 Oct 2026)
+### 8.5 Charges and the discount list (migration 225, 31 Oct 2026; migration 231, 1 Nov 2026)
 
-The revenue stream's single service charge (a percent from N covers) gave way to **charges on
-the order type** (`order_types.charges`, `shared/pos/charges.js`): several per type, each a
-percent of the check after its discounts or an amount per check, optional (staff may take it
-off; the venue can make that need a manager) or not (a manager every time), from N guests, with
-or without VAT at one of the tenant's tax rates. A check carries its charges as state, put on
-by the till in `check.opened` and when its type changes (`switchCharges()`: a charge taken off
-stays off, also through a round trip, via `check.charges_off`; charges typed on the till with
-`charge.added` stay). `charge.removed` / `charge.restored` take one off and put it back.
-`checkTotals()` lists each charge (`amount`, `would_be`, `removed`, `waiting`) and sums the ones
-that count as `service_charge`; the bill, receipt, X / Z and Till reports name each one, and the
-Cash Recon link can send a charge by name (`charge:<name>`) or all together. Kiosk orders carry
-none.
+The revenue stream's single service charge (a percent from N covers) first gave way to charges
+on each order type (migration 225), then to **one company list of charges and a matrix per
+location** (migration 231, `shared/pos/charges.js`). The list (`pos_charges`, Store tech >
+Charges) holds every charge: a percent or an amount; optional (staff may take it off; the venue
+can make that need a manager) or not (a manager every time); from N guests; with or without VAT
+at one of the tenant's tax rates; and what it counts: the whole check, or only the dishes and
+menu sections it names (`basis: 'dishes'`), with an amount once or for each dish it counts
+(`per: 'dish'`, a cup deposit of 25p on each hot drink). Each location says which charges a
+check gets in a matrix of its revenue streams by the order types they offer
+(`pos_charge_rules`, one row per charge, stream and type). The list, with each charge's cells for
+the venue (`where`), reaches every rule runner in `settings.charges` (`loadCharges()`). The till
+puts the cell's charges on a check in `check.opened` and when its order type or revenue stream
+changes (`chargesWhere()`, `switchCharges()`: a charge taken off stays off, also through a round
+trip, via `check.charges_off`; one added on the till stays).
+
+A charge on named dishes sits on the check counting nothing until one of them is ordered, so a
+cup deposit appears when the drink is added and grows with each one (`chargeBase()`: a dish
+counts once for each of its quantity; a meal deal counts when the deal itself is named, else
+each named part counts for an amount, so a drink inside a deal pays its deposit). Staff can add
+a charge from the list on the till (More > Charges, or a till layout button with action
+`charge`) or type one in (the whole check, optional, no VAT). `charge.added` with `list: true` is
+judged against the venue's list by the sequencer and the hub (`chargeMismatch()`, code
+`charge`), so a till can't put on a charge the list doesn't have, or one with other terms.
+`charge.removed` / `charge.restored` take one off and put it back. `checkTotals()` lists each
+charge (`amount`, `would_be`, `removed`, `waiting`, `count`) and sums the ones that count as
+`service_charge`; the bill, receipt, X / Z and Till reports name each one ("Cup deposit x 3"),
+and the Cash Recon link can send a charge by name (`charge:<name>`) or all together. Migration
+231 moved each group's order type charges onto its list (one entry per distinct charge) with a
+matrix row for every stream offering that type. Kiosk orders carry none, and online ordering
+doesn't use the list.
 
 **Discounts** set up in Store tech (`pos_discounts`, `shared/pos/discounts.js`) reach every rule
 runner in `settings.discounts`. A discount from the list goes on with its `preset_id`, its
@@ -637,6 +657,27 @@ the config version and reach devices by the `pos.config` push or the content pul
   start screen, so a guest never loses a dish mid-order; with no menu on, the start screen is
   closed and says when it opens. Previews show every menu.
 - The hub needs nothing: devices decide what shows, and the hub decides events as before.
+
+### 8.10 Covers and courses per revenue stream (migration 231, 1 Nov 2026)
+
+Whether a check asks for its number of guests (covers) and whether it uses courses belong to
+its revenue stream (`pos_revenue_streams.covers` off | ask | must, `courses` on or off), with a
+till's own choice above it (`pos_devices.settings.covers` stream | off | ask | must, `courses`
+stream | on | off). The venue-wide `pos_settings.require_covers` is gone: migration 231 made
+every stream of a venue that asked for covers `must`, the rest `off`. One rule on the till
+(`coversOf()`, `coursesOn()` in `pos/src/lib/checkOps.js`): the till's own when set, else its
+check's stream's.
+
+- **Covers**: ask opens a table with the guests window and a Skip; must has no Skip, and Send and
+  Pay ask again while the check has no guests (`coversMissing()`); off shows no window, no
+  Guests item in More and no seat numbers. A check's covers still decide charges for parties of
+  N.
+- **Courses** off: the seat and course bar (and a layout's Seat and course zone,
+  `seatCourseParts()`) shows no course chips, dishes go on no course whatever the menu says, and
+  the Send window has nothing to hold. With covers off too, the bar isn't shown at all.
+- Nothing changed in the events: `check.opened` / `check.covers_set` carry covers and lines carry
+  their course ids as before, and the cloud never refuses a check for missing covers (the till
+  asks; a check opened elsewhere, a kiosk or an online order, has none).
 
 ---
 

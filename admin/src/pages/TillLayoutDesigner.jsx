@@ -6,8 +6,8 @@
 // to move it and its corner to resize it, or set its place with the steps
 // in the panel; each zone has its own grid of buttons, text size and what
 // happens when more than fits. The canvas draws each zone's buttons with
-// packCells(), as the till does, using the dishes, discounts and tenders of
-// the venue picked at the top. Explicit Save; a layout with problems (no
+// packCells(), as the till does, using the dishes, discounts, tenders and
+// charges of the venue picked at the top. Explicit Save; a layout with problems (no
 // Order zone, zones overlapping) can't be saved.
 //
 // Each zone with buttons sets where the words sit on them (across, and up
@@ -48,6 +48,7 @@ import {
   ALIGNS, VALIGNS, SEAT_PARTS, LAYOUT_COLS, LAYOUT_ROWS, ZONE_GRID, FONT, MAX_ZONES, MAX_BUTTONS, LABEL_MAX,
   MENU_TAPS, MAX_MENUS,
 } from '@shared/pos/tillLayout.js'
+import { chargeValueText } from '@shared/pos/charges.js'
 import { timesLabel } from '@shared/menuTimes.js'
 
 // Screens to preview on: the till's top bar takes 64 px, the layout the rest.
@@ -59,7 +60,7 @@ const SCREENS = [
 ]
 const TOP_BAR = 64
 const TINTS = { check: '#e0e7ff', categories: '#dcfce7', menus: '#ffedd5', items: '#fef3c7', buttons: '#fce7f3', modifiers: '#e0f2fe', seats: '#ede9fe' }
-const NEEDS_TARGET = { item: 'item_id', discount_preset: 'preset_id', tender: 'tender' }
+const NEEDS_TARGET = { item: 'item_id', discount_preset: 'preset_id', tender: 'tender', charge: 'charge_id' }
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v))
 
 function freshId(taken, base) {
@@ -185,7 +186,8 @@ export default function TillLayoutDesigner() {
   const pickScreen = k => { setScreenKey(k); try { localStorage.setItem('maca_layout_screen', k) } catch { /* private mode */ } }
   const back = () => (dirty ? setLeaving(true) : navigate('/pos/layouts'))
   const tenders = setup?.settings?.tenders || []
-  const ctx = { setup, names, discounts, tenders, layout }
+  const charges = setup?.charges || []
+  const ctx = { setup, names, discounts, tenders, charges, layout }
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -227,7 +229,7 @@ export default function TillLayoutDesigner() {
                   {showChoices ? 'Back to the screen between dishes' : 'Show a dish being added'}
                 </Btn>
               )}
-              <span className="text-xs text-muted-foreground">Dishes, discounts and tenders from {setup?.venue?.name || 'the venue'}.</span>
+              <span className="text-xs text-muted-foreground">Dishes, discounts, tenders and charges from {setup?.venue?.name || 'the venue'}.</span>
             </div>
             <Canvas layout={layout} screen={screen} selId={selId} onSelect={setSelId} showChoices={showChoices}
               canEdit={canManage} onMove={patchZone} ctx={ctx} focus={selB}
@@ -525,7 +527,7 @@ function tillTimesText(m) {
 }
 
 /** The cells a zone holds, from the venue's menus and the zone's buttons. */
-function previewCells(zone, { setup, names, discounts, tenders, layout }) {
+function previewCells(zone, { setup, names, discounts, tenders, charges, layout }) {
   if (zone.type === 'menus') {
     // The menus the tills have (a menu off on the tills never shows there).
     const menus = (setup?.menus || []).filter(m => m.till_times !== false)
@@ -549,7 +551,7 @@ function previewCells(zone, { setup, names, discounts, tenders, layout }) {
   if (zone.type === 'buttons') {
     return zone.buttons.map(b => ({
       key: b.id, w: b.w, h: b.h, colour: b.colour,
-      label: buttonLabel(b, { items: names.items, presets: discounts, tenders }),
+      label: buttonLabel(b, { items: names.items, presets: discounts, tenders, charges }),
     }))
   }
   if (zone.type === 'modifiers') {
@@ -952,9 +954,9 @@ function MenusZoneOptions({ zone, ctx, onChange }) {
 
 const ACTION_GROUPS = [...new Set(BUTTON_ACTIONS.map(a => a.group))]
 
-/** The dish, discount or tender a button points at. */
+/** The dish, discount, tender or charge a button points at. */
 function TargetPick({ action, value, ctx, onChange }) {
-  const { setup, discounts, tenders } = ctx
+  const { setup, discounts, tenders, charges } = ctx
   if (action === 'item') {
     const sections = setup?.sections || []
     return (
@@ -990,14 +992,24 @@ function TargetPick({ action, value, ctx, onChange }) {
       </Field>
     )
   }
+  if (action === 'charge') {
+    return (
+      <Field label="Charge" hint="From the company's list (Store tech → Charges). Tapped on an order, it goes on (or back on, if it was taken off).">
+        <select className={inputCls} value={value || ''} onChange={e => onChange(e.target.value || null)} data-testid="tl-target">
+          <option value="">Pick a charge…</option>
+          {charges.map(x => <option key={x.id} value={x.id}>{x.name} ({chargeValueText(x)})</option>)}
+        </select>
+      </Field>
+    )
+  }
   return null
 }
 
 function ButtonsEditor({ zone, ctx, canManage, onChange, selB, setSelB }) {
   const [adding, setAdding] = useState(null)   // { action, target }
-  const { names, discounts, tenders } = ctx
+  const { names, discounts, tenders, charges } = ctx
   const b = zone.buttons.find(x => x.id === selB) || null
-  const label = x => buttonLabel(x, { items: names.items, presets: discounts, tenders })
+  const label = x => buttonLabel(x, { items: names.items, presets: discounts, tenders, charges })
   const setButtons = list => onChange({ buttons: list })
   const patchB = (bid, patch) => setButtons(zone.buttons.map(x => (x.id === bid ? { ...x, ...patch } : x)))
   const addButton = (action, target = null) => {

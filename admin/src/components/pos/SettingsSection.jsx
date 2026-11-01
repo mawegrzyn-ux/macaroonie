@@ -14,7 +14,6 @@ import { TimeSelect } from '@/components/staff/shared'
 import { Section, Field, inputCls, ErrorNote, Btn, Toggle, Segmented } from './shared'
 import { RECEIPT_MODES, ORDER_PROMPTS } from './TillsSection'
 import { MANAGER_ACTIONS } from '@shared/pos/permissions.js'
-import { typeCharges } from '@shared/pos/charges.js'
 
 const LOGOUTS = [
   { value: 0, label: 'Never' },
@@ -41,7 +40,6 @@ function fromSettings(s) {
     receipt_address: (s.receipt_address || []).join('\n'),
     tenders: s.tenders.map(t => ({ ...t })),
     tips_enabled: !!s.tips_enabled,
-    require_covers: !!s.require_covers,
     auto_logout_secs: s.auto_logout_secs,
     receipt_mode: s.receipt_mode || 'ask',
     order_prompt: s.order_prompt === 'two' ? 'two' : 'one',
@@ -66,7 +64,6 @@ export function ReceiptSettingsSection({ venueId, setup }) {
       receipt_address: form.receipt_address.split('\n').map(l => l.trim()).filter(Boolean).slice(0, 6),
       tenders: form.tenders.map(t => ({ key: t.key, label: t.label.trim() || t.key, enabled: t.enabled })),
       tips_enabled: form.tips_enabled,
-      require_covers: form.require_covers,
       auto_logout_secs: form.auto_logout_secs,
       receipt_mode: form.receipt_mode,
       order_prompt: form.order_prompt,
@@ -141,7 +138,11 @@ export function ReceiptSettingsSection({ venueId, setup }) {
         </div>
       </div>
       <Toggle label="Ask for a tip when paying" checked={form.tips_enabled} onChange={v => set({ tips_enabled: v })} />
-      <Toggle label="Ask for covers when opening a table" checked={form.require_covers} onChange={v => set({ require_covers: v })} />
+      <p className="text-xs text-muted-foreground" data-testid="covers-note">
+        Whether tills ask how many guests (covers) and use courses is set per revenue stream (
+        <Link to="/pos/streams" className="font-medium text-foreground underline">Revenue streams</Link>), and a till can have its own (
+        <Link to="/pos/tills" className="font-medium text-foreground underline">Tills</Link>).
+      </p>
       <p className="text-xs text-muted-foreground" data-testid="order-numbers-note">
         Check and order numbers: every till and kiosk numbers its own (checks T1-1, T1-2, ... each trading day; counter
         orders from its own range, e.g. 100-199), so they never clash, even offline. Change a device's range under{' '}
@@ -200,10 +201,10 @@ export function ReconSection({ venueId, setup }) {
     { value: '-refunds', label: 'minus refunds' },
   ]
   const tenderOptions = setup.settings.tenders.map(t => ({ value: t.key, label: t.label }))
-  // Charges by name (Order types): one can go to a tip pot's source and
-  // another (a packaging fee) nowhere. All charges = every one together.
+  // Charges by name (Store tech > Charges): one can go to a tip pot's source
+  // and another (a packaging fee) nowhere. All charges = every one together.
   const chargeNames = [...new Set([
-    ...(setup.order_types || []).flatMap(t => typeCharges(t).map(x => x.name)),
+    ...(setup.charges || []).map(x => x.name),
     ...Object.values(map.sc || {}).flat().filter(v => typeof v === 'string' && v.startsWith('charge:')).map(v => v.slice(7)),
   ])]
   const scOptions = [

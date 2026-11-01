@@ -1,6 +1,7 @@
 // The check's actions beyond adding dishes: send (holding later courses),
 // fire a course, discounts and comps (typed in, or from the company's list,
-// shared/pos/discounts.js), charges (the order type's, or typed in;
+// shared/pos/discounts.js), charges (the location's matrix of revenue
+// streams by order types, from the company's list, or typed in;
 // shared/pos/charges.js), offers, move items to
 // another check (split), merge checks, move table, change server, order type
 // (with the name and tent number it asks for) or revenue stream, items not on
@@ -15,7 +16,7 @@ import { ulid } from '@shared/pos/ids.js'
 import { checkTotals } from '@shared/pos/pricing.js'
 import { heldCourses, checkLabel } from '@shared/pos/checks.js'
 import { MANAGER_ALWAYS } from '@shared/pos/permissions.js'
-import { chargeLabel, CHARGE_PERCENT_MAX, CHARGE_AMOUNT_MAX } from '@shared/pos/charges.js'
+import { chargeLabel, chargeValueText, chargeOnText, copyOfCharge, onDishes, CHARGE_PERCENT_MAX, CHARGE_AMOUNT_MAX } from '@shared/pos/charges.js'
 import { discountList, fitsScope, discountValueText } from '@shared/pos/discounts.js'
 import { allergyText, allergyOn } from '@shared/pos/allergy.js'
 import { Modal, Keypad, ReasonPicker, cx, money, poundsToPence, useApproval } from './ui.jsx'
@@ -25,6 +26,7 @@ import { dispatch, dispatchMany, toast, useChecks, getState, can, soldOutMap, se
 import {
   defaultHeld, sendCheck, streamOf, byId, addOpenItem, promotionsFor, refreshPromotions,
   streamTypes, typeOf, checkPrompts, rerateLines, defaultTypeId, chargesFor, orderPromptOf,
+  listCharges, listCharge, chargeNames, coversOf, coursesOn,
 } from '../lib/checkOps.js'
 import { CoversModal, CheckRow } from '../screens/Floor.jsx'
 
@@ -48,7 +50,8 @@ export function ActionsMenu({ check, config, menus = null, onPick, onClose }) {
   const held = heldCourses(check)
   const items = [
     menus && menus.menus.length > 1 && { key: 'menus', label: 'Menus', icon: BookOpen, hint: menusHint(menus) },
-    { key: 'covers', label: 'Guests', icon: Users, hint: check.covers ? check.covers + ' covers' : 'not set' },
+    // The revenue stream may take no covers (Store tech > Revenue streams).
+    (coversOf(config, check.revenue_stream_id) !== 'off' || check.covers) && { key: 'covers', label: 'Guests', icon: Users, hint: check.covers ? check.covers + ' covers' : 'not set' },
     { key: 'table', label: check.table_id ? 'Move table' : 'Put on a table', icon: Table2 },
     { key: 'name', label: 'Name', icon: StickyNote, hint: check.tab_name || '' },
     { key: 'type', label: 'Order type', icon: ShoppingBag, hint: [typeOf(config, check.order_type_id)?.name, check.tent ? 'Tent ' + check.tent : null].filter(Boolean).join(' · ') },
@@ -341,13 +344,20 @@ export function DiscountModal({ check, config, lineIds = null, onClose }) {
 }
 
 /**
- * The check's charges (shared/pos/charges.js): the order type's, and any
- * typed in here. Optional ones anyone takes off (unless the venue's switch
- * says a manager); ones that aren't optional need a manager every time.
+ * The check's charges (shared/pos/charges.js): the ones the location gives
+ * its revenue stream and order type (Store tech > Charges), ones added here
+ * from the company's list, and any typed in here. Optional ones anyone takes
+ * off (unless the venue's switch says a manager); ones that aren't optional
+ * need a manager every time.
  */
 export function ChargesModal({ check, config, onClose }) {
   const approve = useApproval()
   const t = checkTotals(check)
+  const list = listCharges(config)
+  const names = chargeNames(config)
+  const onIds = new Set((check.charges || []).map(x => x.id))
+  const offer = list.filter(x => !onIds.has(x.id))
+  const [typing, setTyping] = useState(!list.length)
   const [taking, setTaking] = useState(null)
   const [reason, setReason] = useState('')
   const [kind, setKind] = useState('percent')
@@ -370,20 +380,33 @@ export function ChargesModal({ check, config, onClose }) {
     const ok = send('charge.added', { charge: { id: ulid(), name: name.trim() || 'Service charge', kind, value: kind === 'percent' ? Math.round(amount * 100) / 100 : amount } })
     if (ok) { setValue(''); toast((name.trim() || 'Service charge') + ' added', 'ok') }
   }
+  // From the company's list, as it is there (the sequencer checks it is).
+  const addFromList = x => {
+    if (send('charge.added', { charge: listCharge(config, x) })) toast(x.name + ' added', 'ok')
+  }
+  const listWords = x => [
+    chargeValueText(x),
+    onDishes(x) ? 'on ' + chargeOnText(x, names) : null,
+    x.optional ? 'optional' : null,
+    x.min_covers ? 'from ' + x.min_covers + ' guests' : null,
+  ].filter(Boolean).join(' · ')
+  const reasonOf = x => check.charges.find(y => y.id === x.id)?.reason || ''
   return (
     <Modal title="Charges" onClose={onClose} wide>
       <div className="grid md:grid-cols-2 gap-5">
         <div className="space-y-2" data-testid="charges-list">
-          {!t.charges.length && <div className="text-sm text-muted">No charges on this check. Charges come with the order type (Store tech, Order types), or add one here.</div>}
+          {!t.charges.length && <div className="text-sm text-muted">No charges on this check. The location's charges for its revenue stream and order type go on by themselves (Store tech, Charges); add one here from the list, or type one in.</div>}
           {t.charges.map(x => (
             <div key={x.id} className={cx('rounded-xl border p-3 space-y-2', x.removed ? 'border-line bg-panel' : 'border-ok bg-ok-soft')} data-testid="charge-row" data-name={x.name}>
               <div className="flex items-center gap-2">
                 <div className="flex-1 min-w-0">
                   <div className={cx('font-semibold', x.removed && 'line-through text-muted')}>{chargeLabel(x)}</div>
                   <div className="text-xs text-muted">
-                    {x.removed ? 'Taken off' + (check.charges.find(y => y.id === x.id)?.reason ? ': ' + check.charges.find(y => y.id === x.id).reason : '')
+                    {x.removed ? 'Taken off' + (reasonOf(x) ? ': ' + reasonOf(x) : '')
                       : x.waiting ? 'From ' + x.min_covers + ' guests' + (check.covers ? ' (' + check.covers + ' now)' : '')
-                        : money(x.amount)}
+                        : x.basis === 'dishes' && !x.count ? 'None of its dishes on the check yet'
+                          : money(x.amount)}
+                    {x.basis === 'dishes' ? ' · on ' + chargeOnText(check.charges.find(y => y.id === x.id) || x, names) : ''}
                     {!x.optional && !x.removed ? ' · not optional' : ''}{x.added ? ' · added on the till' : ''}
                   </div>
                 </div>
@@ -405,22 +428,42 @@ export function ChargesModal({ check, config, onClose }) {
           {t.service_charge > 0 && <div className="text-sm text-muted pt-1">Charges on this check: <b className="text-ink">{money(t.service_charge)}</b></div>}
         </div>
         <div className="space-y-3">
-          <div className="label">Add a charge</div>
-          <input className="input" value={name} maxLength={60} onChange={e => setName(e.target.value)} placeholder="Service charge" aria-label="Charge name" />
-          <div className="flex gap-2">
-            <button className={cx('chip flex-1', kind === 'percent' && 'chip-on')} onClick={() => { setKind('percent'); setValue('') }}>Percent</button>
-            <button className={cx('chip flex-1', kind === 'amount' && 'chip-on')} onClick={() => { setKind('amount'); setValue('') }}>Amount £</button>
-          </div>
-          {kind === 'percent' && (
-            <div className="flex flex-wrap gap-2">
-              {[10, 12.5, 15].map(n => <button key={n} className={cx('chip', Number(value) === n && 'chip-on')} onClick={() => setValue(String(n))}>{n}%</button>)}
+          {list.length > 0 && (
+            <div className="space-y-2" data-testid="charges-from-list">
+              <div className="label">Add from the list</div>
+              {!offer.length && <div className="text-sm text-muted">Every charge on the list is on this check.</div>}
+              {offer.map(x => (
+                <button key={x.id} className="btn w-full h-auto min-h-[56px] py-2 justify-between text-left" data-testid="charge-list-add" data-name={x.name} onClick={() => addFromList(x)}>
+                  <span className="flex flex-col leading-tight min-w-0">
+                    <span className="font-semibold">{x.name}</span>
+                    <span className="text-xs text-muted font-normal truncate">{listWords(x)}</span>
+                  </span>
+                  <Plus size={18} className="shrink-0 text-brand" />
+                </button>
+              ))}
+              {!typing && <button className="btn btn-ghost w-full" data-testid="charge-type-in" onClick={() => setTyping(true)}><PenLine size={16} /> Type a charge in</button>}
             </div>
           )}
-          <div className="text-2xl font-bold tabular-nums">{kind === 'amount' ? '£' : ''}{value || '0'}{kind === 'percent' ? '%' : ''}</div>
-          <Keypad value={value} onChange={setValue} decimal max={kind === 'percent' ? 5 : 7} />
-          {tooMuch && <div className="text-sm text-bad">{kind === 'percent' ? 'At most ' + CHARGE_PERCENT_MAX + '%' : 'At most ' + money(CHARGE_AMOUNT_MAX)}</div>}
-          <button className="btn btn-primary w-full h-14" disabled={!amount || tooMuch} data-testid="charge-add" onClick={add}><Plus size={18} /> Add {kind === 'percent' ? (value || 0) + '%' : money(amount)}</button>
-          <div className="text-xs text-muted">A charge added here is optional and has no VAT: it can be taken off again like any optional charge.</div>
+          {typing && (
+            <div className="space-y-3" data-testid="charge-typed">
+              <div className="label">{list.length ? 'Type a charge in' : 'Add a charge'}</div>
+              <input className="input" value={name} maxLength={60} onChange={e => setName(e.target.value)} placeholder="Service charge" aria-label="Charge name" />
+              <div className="flex gap-2">
+                <button className={cx('chip flex-1', kind === 'percent' && 'chip-on')} onClick={() => { setKind('percent'); setValue('') }}>Percent</button>
+                <button className={cx('chip flex-1', kind === 'amount' && 'chip-on')} onClick={() => { setKind('amount'); setValue('') }}>Amount £</button>
+              </div>
+              {kind === 'percent' && (
+                <div className="flex flex-wrap gap-2">
+                  {[10, 12.5, 15].map(n => <button key={n} className={cx('chip', Number(value) === n && 'chip-on')} onClick={() => setValue(String(n))}>{n}%</button>)}
+                </div>
+              )}
+              <div className="text-2xl font-bold tabular-nums">{kind === 'amount' ? '£' : ''}{value || '0'}{kind === 'percent' ? '%' : ''}</div>
+              <Keypad value={value} onChange={setValue} decimal max={kind === 'percent' ? 5 : 7} />
+              {tooMuch && <div className="text-sm text-bad">{kind === 'percent' ? 'At most ' + CHARGE_PERCENT_MAX + '%' : 'At most ' + money(CHARGE_AMOUNT_MAX)}</div>}
+              <button className="btn btn-primary w-full h-14" disabled={!amount || tooMuch} data-testid="charge-add" onClick={add}><Plus size={18} /> Add {kind === 'percent' ? (value || 0) + '%' : money(amount)}</button>
+              <div className="text-xs text-muted">A charge typed in here is on the whole check, optional and without VAT: it can be taken off again like any optional charge.</div>
+            </div>
+          )}
         </div>
       </div>
     </Modal>
@@ -497,10 +540,7 @@ export function MoveModal({ check, config, preselect = [], onClose, onOpen }) {
         covers: null, revenue_stream_id: check.revenue_stream_id, order_type_id: check.order_type_id, tent: check.tent || null,
         from_check_id: check.id,
         // The charges still on the check go with the split (taken off ones stay off).
-        charges: (check.charges || []).filter(x => !x.removed).map(x => ({
-          id: x.id, name: x.name, kind: x.kind, value: x.value, optional: !!x.optional,
-          min_covers: x.min_covers || 0, vat_rate: x.vat_rate || 0, tax_rate_id: x.tax_rate_id || null,
-        })),
+        charges: (check.charges || []).filter(x => !x.removed).map(copyOfCharge),
       }, { check_id: toId }])
     }
     specs.push(['lines.moved', { to_check_id: toId, line_ids: picked }, { check_id: check.id, approved_by: approver }])
@@ -653,7 +693,7 @@ export function OrderTypeModal({ check, config, onClose, focus = null, start = '
     // The new type's tax for every item, and its charges.
     if (typeId !== check.order_type_id) {
       payload.lines = rerateLines(check, config, { order_type_id: typeId })
-      payload.charges = chargesFor(config, typeId)
+      payload.charges = chargesFor(config, { streamId: check.revenue_stream_id, typeId })
     }
     if (typeId === check.order_type_id && payload.tab_name === undefined && payload.tent === undefined) return onClose()
     const r = dispatch('check.order_type_set', payload, { check_id: check.id })
@@ -672,9 +712,9 @@ export function OrderTypeModal({ check, config, onClose, focus = null, start = '
     if (id === check.order_type_id) return null
     const words = []
     if (check.lines.some(l => l.status !== 'voided')) words.push('The items already on the check take this order type\'s tax.')
-    const charges = chargesFor(config, id)
+    const charges = chargesFor(config, { streamId: check.revenue_stream_id, typeId: id })
     if (charges.length) words.push('Charges: ' + charges.map(chargeLabel).join(', ') + '.')
-    else if ((check.charges || []).some(x => !x.added)) words.push('This order type has no charges: the check\'s come off.')
+    else if ((check.charges || []).some(x => !x.added)) words.push('No charges for this order type here: the check\'s come off.')
     return words.join(' ') || null
   }
   return (
@@ -688,12 +728,16 @@ export function OrderTypeModal({ check, config, onClose, focus = null, start = '
 export function StreamModal({ check, config, onClose }) {
   const set = streamId => {
     if (streamId === check.revenue_stream_id) return onClose()
-    // A type the new stream doesn't offer becomes its default.
+    // A type the new stream doesn't offer becomes its default. The charges
+    // follow the new stream and type (the location's matrix): with the
+    // stream when the type stays, else with the new type.
     const offered = streamTypes(config, streamId).some(x => x.type.id === check.order_type_id)
-    const specs = [['check.stream_set', { revenue_stream_id: streamId, lines: rerateLines(check, config, { revenue_stream_id: streamId }) }, { check_id: check.id }]]
-    if (!offered) {
-      const typeId = defaultTypeId(config, streamId)
-      if (typeId) specs.push(['check.order_type_set', { order_type_id: typeId, lines: rerateLines(check, config, { revenue_stream_id: streamId, order_type_id: typeId }), charges: chargesFor(config, typeId) }, { check_id: check.id }])
+    const typeId = offered ? check.order_type_id : defaultTypeId(config, streamId)
+    const stream = { revenue_stream_id: streamId, lines: rerateLines(check, config, { revenue_stream_id: streamId }) }
+    if (offered || !typeId) stream.charges = chargesFor(config, { streamId, typeId: check.order_type_id })
+    const specs = [['check.stream_set', stream, { check_id: check.id }]]
+    if (!offered && typeId) {
+      specs.push(['check.order_type_set', { order_type_id: typeId, lines: rerateLines(check, config, { revenue_stream_id: streamId, order_type_id: typeId }), charges: chargesFor(config, { streamId, typeId }) }, { check_id: check.id }])
     }
     const r = dispatchMany(specs)
     if (!r.ok) return toast(r.error, 'bad')
@@ -716,9 +760,9 @@ export function StreamModal({ check, config, onClose }) {
 export function GuestsModal({ check, config, onClose }) {
   const table = (config.tables || []).find(t => t.id === check.table_id)
   return (
-    <CoversModal title={table ? 'Table ' + table.label : 'Check ' + checkLabel(check)} max={table?.max_covers} initial={check.covers} onClose={onClose}
+    <CoversModal title={table ? 'Table ' + table.label : 'Check ' + checkLabel(check)} max={table?.max_covers} initial={check.covers} onClose={onClose} doneLabel="Save"
       onDone={n => {
-        // A charge for parties of N (the order type's) counts by itself once the party reaches N.
+        // A charge for parties of N counts by itself once the party reaches N.
         const r = dispatch('check.covers_set', { covers: n }, { check_id: check.id })
         if (!r.ok) return toast(r.error, 'bad')
         onClose()
@@ -745,10 +789,12 @@ export function OpenItemModal({ check, config, onClose }) {
         <div className="space-y-3">
           <input className="input" autoFocus placeholder="What is it?" value={name} onChange={e => setName(e.target.value)} maxLength={120} />
           <div className="text-3xl font-bold tabular-nums">£{price || '0'}</div>
-          <div className="flex flex-wrap gap-2">
-            {(config.courses || []).map(c => <button key={c.id} className={cx('chip', course === c.id && 'chip-on')} onClick={() => setCourse(course === c.id ? null : c.id)}>{c.name}</button>)}
-          </div>
-          <div className="text-xs text-muted">It goes to the venue's default printer, at the venue's default VAT for this revenue centre.</div>
+          {coursesOn(config, check.revenue_stream_id) && (
+            <div className="flex flex-wrap gap-2">
+              {(config.courses || []).map(c => <button key={c.id} className={cx('chip', course === c.id && 'chip-on')} onClick={() => setCourse(course === c.id ? null : c.id)}>{c.name}</button>)}
+            </div>
+          )}
+          <div className="text-xs text-muted">It goes to the venue's default printer, at the venue's default VAT for this revenue stream.</div>
         </div>
         <Keypad value={price} onChange={setPrice} decimal max={7} />
       </div>

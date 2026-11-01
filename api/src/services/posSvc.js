@@ -27,6 +27,7 @@ import { variantRules, itemChoices, isPriced } from '../../../shared/orderPricin
 import { dayFigures } from '../../../shared/pos/reports.js'
 import { normalisePermissions, normaliseApprovals, DEFAULT_POS_ROLES } from '../../../shared/pos/permissions.js'
 import { normaliseDiscount } from '../../../shared/pos/discounts.js'
+import { normaliseCharge } from '../../../shared/pos/charges.js'
 import { TENDERS } from '../../../shared/pos/checks.js'
 import { STALE_HOURS } from '../../../shared/pos/kitchen.js'
 import { normaliseKitchenColours } from '../../../shared/pos/kitchenColours.js'
@@ -133,6 +134,29 @@ export async function loadDiscounts(tx, tenantId) {
   return rows.map(normaliseDiscount).filter(Boolean)
 }
 
+/**
+ * The company's charges (migration 231, shared/pos/charges.js), in their
+ * order. With a venue, each says where it is on there: where = [{ stream,
+ * type }], the location's matrix of revenue streams by order types
+ * (pos_charge_rules). They go to the tills, the sequencer and the venue hub
+ * inside the venue's settings (settings.charges): the till puts them on
+ * checks, the check rules judge a charge added from the list against them.
+ */
+export async function loadCharges(tx, tenantId, venueId = null) {
+  const [rows, rules] = await Promise.all([
+    tx`SELECT id, name, kind, value::float8 AS value, optional, min_covers, tax_rate_id, basis, per, item_ids, section_ids
+         FROM pos_charges WHERE tenant_id = ${tenantId} ORDER BY sort_order, name, id`,
+    venueId
+      ? tx`SELECT charge_id, revenue_stream_id, order_type_id FROM pos_charge_rules
+             WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} ORDER BY revenue_stream_id, order_type_id`
+      : [],
+  ])
+  return rows.map(r => normaliseCharge({
+    ...r,
+    ...(venueId ? { where: rules.filter(x => x.charge_id === r.id).map(x => ({ stream: x.revenue_stream_id, type: x.order_type_id })) } : {}),
+  })).filter(Boolean)
+}
+
 export function settingsView(s) {
   const tenders = TENDERS.map(t => {
     const saved = (s.tenders || []).find(x => x.key === t.key)
@@ -141,7 +165,7 @@ export function settingsView(s) {
   return {
     day_starts_at: s.day_starts_at,
     vat_number: s.vat_number, receipt_name: s.receipt_name, receipt_address: s.receipt_address || [],
-    tenders, tips_enabled: s.tips_enabled, require_covers: s.require_covers,
+    tenders, tips_enabled: s.tips_enabled,
     auto_logout_secs: s.auto_logout_secs,
     // Migration 224: the receipt when a check is paid, and what needs a manager.
     receipt_mode: s.receipt_mode || 'ask',
@@ -318,8 +342,9 @@ export async function tillConfig(tx, tenantId, venueId) {
 
   const config = {
     venue: { id: venue.id, name: venue.name, timezone: tz },
-    // The company's discounts ride with the venue's settings (the check rules read them there).
-    settings: { ...settingsView(settings), discounts: await loadDiscounts(tx, tenantId) },
+    // The company's discounts and charges ride with the venue's settings (the
+    // check rules read them there); the charges with this venue's matrix.
+    settings: { ...settingsView(settings), discounts: await loadDiscounts(tx, tenantId), charges: await loadCharges(tx, tenantId, venueId) },
     // How often this till asks for changes (migration 216).
     pull: pullTimes(settings),
     pin_salt: settings.pin_salt,
@@ -435,7 +460,10 @@ export async function hubConfig(tx, tenantId, venueId, hubId) {
 /** The printing config the sequencer gives shared/pos/printing.js. */
 export async function printConfig(tx, tenantId, venueId) {
   const venue = await ownVenue(tx, tenantId, venueId)
-  const settings = { ...settingsView(await ensureSettings(tx, tenantId, venueId)), discounts: await loadDiscounts(tx, tenantId) }
+  const settings = {
+    ...settingsView(await ensureSettings(tx, tenantId, venueId)),
+    discounts: await loadDiscounts(tx, tenantId), charges: await loadCharges(tx, tenantId, venueId),
+  }
   const [printers, tables, staff, courses, devices, orderTypes] = await Promise.all([
     tx`SELECT id, name, kind, connection, device_id, columns FROM pos_printers WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND is_active`,
     tx`SELECT id, label FROM tables WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`,

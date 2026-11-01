@@ -11,11 +11,10 @@
 //                                         while it is the default or a draft menu names it)
 //   GET    /tax-rates/check?venue_id=&stream_id=   every draft dish's rate per order type there
 //
-//   GET    /order-types                   the tenant's order types (with their charges)
-//   POST   /order-types                   { name, colour, charges? }
-//   PATCH  /order-types/:id               { name?, colour?, is_active?, charges? }
-//                                         charges: the whole list (shared/pos/charges.js);
-//                                         a charge without an id gets one
+//   GET    /order-types                   the tenant's order types
+//   POST   /order-types                   { name, colour }
+//   PATCH  /order-types/:id               { name?, colour?, is_active? }
+//                                         (charges: Store tech > Charges since migration 231)
 //   PUT    /order-types/order             { ids }
 //   DELETE /order-types/:id               removes it from the lists (kept for history)
 //
@@ -30,8 +29,6 @@ import { httpError } from '../middleware/error.js'
 import { notifyTillsOnWrite } from '../services/posNotify.js'
 import { ensureTaxDefaults, loadTaxRates, loadOrderTypes } from '../services/taxSvc.js'
 import { taxFor } from '../../../shared/tax.js'
-import { chargeProblem, cleanTypeCharge, TYPE_CHARGES_MAX } from '../../../shared/pos/charges.js'
-import { randomUUID } from 'node:crypto'
 
 const UUID = z.string().uuid()
 const RATE = z.number().min(0).max(100)
@@ -47,48 +44,13 @@ const RatePatch = z.object({
 })
 const ValuesBody = z.object({ values: z.record(UUID, RATE.nullable()) })
 const OrderBody = z.object({ ids: z.array(UUID).max(200) })
-// A charge as the admin sends it; the shape rules are chargeProblem()'s.
-const ChargeBody = z.object({
-  id: UUID.optional(),
-  name: z.string().trim().min(1).max(60),
-  kind: z.enum(['percent', 'amount']),
-  value: z.number(),
-  optional: z.boolean().default(false),
-  min_covers: z.number().int().min(0).max(100).default(0),
-  tax_rate_id: UUID.nullable().optional(),
-})
+// (Charges aren't the order type's since migration 231: Store tech >
+// Charges, routes/posSetup.js.)
 const TypeBody = z.object({
   name: z.string().trim().min(1).max(40),
   colour: z.string().max(20).nullable().optional(),
-  charges: z.array(ChargeBody).max(TYPE_CHARGES_MAX).optional(),
 })
 const TypePatch = TypeBody.partial().extend({ is_active: z.boolean().optional() })
-
-/**
- * The charges as they are stored: each checked, given an id when new, and
- * naming only the tenant's own tax rates (422 otherwise).
- */
-async function cleanCharges(tx, tenantId, list) {
-  const ids = new Set()
-  const out = list.map(raw => {
-    // Checked as sent (an amount is whole pence), then stored cleaned.
-    const id = raw.id || randomUUID()
-    const why = chargeProblem({ ...raw, id, name: String(raw.name || '').trim() })
-    const x = cleanTypeCharge({ ...raw, id })
-    if (why) throw httpError(422, 'Charge "' + (raw.name || '') + '": ' + (why === 'charge.value'
-      ? (x.kind === 'percent' ? 'the percent must be more than 0 and at most 50' : 'the amount must be more than £0 and at most £1,000')
-      : 'not valid (' + why + ')'))
-    if (ids.has(x.id)) throw httpError(422, 'The same charge is in the list twice')
-    ids.add(x.id)
-    return x
-  })
-  const rateIds = [...new Set(out.map(x => x.tax_rate_id).filter(Boolean))]
-  if (rateIds.length) {
-    const found = await tx`SELECT id FROM tax_rates WHERE tenant_id = ${tenantId} AND id = ANY(${rateIds}::uuid[])`
-    if (found.length !== rateIds.length) throw httpError(422, 'A charge\'s tax rate wasn\'t found')
-  }
-  return out
-}
 
 async function ownRate(tx, tenantId, id) {
   const [r] = await tx`SELECT * FROM tax_rates WHERE id = ${id} AND tenant_id = ${tenantId}`
@@ -263,10 +225,9 @@ export default async function taxSetupRoutes(app) {
     const body = TypeBody.parse(req.body)
     const row = await withTenant(req.tenantId, async tx => {
       await ensureTaxDefaults(tx, req.tenantId)
-      const charges = await cleanCharges(tx, req.tenantId, body.charges || [])
       const [{ n }] = await tx`SELECT COALESCE(max(sort_order), -1)::int + 1 AS n FROM order_types WHERE tenant_id = ${req.tenantId}`
-      const [r] = await tx`INSERT INTO order_types (tenant_id, name, colour, sort_order, charges)
-                           VALUES (${req.tenantId}, ${body.name}, ${body.colour ?? null}, ${n}, ${tx.json(charges)}) RETURNING id`
+      const [r] = await tx`INSERT INTO order_types (tenant_id, name, colour, sort_order)
+                           VALUES (${req.tenantId}, ${body.name}, ${body.colour ?? null}, ${n}) RETURNING id`
       return r
     })
     return reply.code(201).send(row)
@@ -277,11 +238,10 @@ export default async function taxSetupRoutes(app) {
     const body = TypePatch.parse(req.body)
     await withTenant(req.tenantId, async tx => {
       const t = await ownType(tx, req.tenantId, id)
-      const charges = body.charges ? await cleanCharges(tx, req.tenantId, body.charges) : t.charges
       await tx`
         UPDATE order_types
            SET name = ${body.name ?? t.name}, colour = ${body.colour !== undefined ? body.colour : t.colour},
-               is_active = ${body.is_active ?? t.is_active}, charges = ${tx.json(charges || [])}
+               is_active = ${body.is_active ?? t.is_active}
          WHERE id = ${id} AND tenant_id = ${req.tenantId}`
     })
     return { ok: true }
