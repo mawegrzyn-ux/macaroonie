@@ -75,10 +75,10 @@ export function groupChoice(g, { nested = false } = {}) {
 /**
  * A dish's choices on the till: its ad-hoc variants and attached groups
  * (shared with online ordering's itemChoices), plus the till extras from
- * the library: "No / Light / Extra" prefixes and nested groups. A kiosk's
- * dishes carry their menu's option display settings (item.variant_rules,
- * services/posSvc.js tillMenuData()): unpriced options left out, £0 shown
- * without a price, as online ordering does.
+ * the library: "No / Light / Extra" prefixes and nested groups. A till's
+ * and a kiosk's dishes carry their menu's option display settings
+ * (item.variant_rules, services/posSvc.js tillMenuData()): unpriced options
+ * left out, £0 shown without a price, as online ordering does.
  */
 export function posChoices(item, groupsById = {}) {
   return itemChoices(item, item.variant_rules || {}).map(c => {
@@ -135,6 +135,47 @@ export function picksWithin(choices, picked = {}) {
 }
 
 const asEntries = list => (Array.isArray(list) ? list : []).map(e => (typeof e === 'string' ? { id: e } : e)).filter(e => e && e.id)
+
+/**
+ * More picks, more dishes (a till layout's Dish choices zone with
+ * split_picks, pos/src/components/LayoutChoices.jsx): a group that takes one
+ * pick (max 1, no repeats, no No / Light / Extra) can be picked more than
+ * once there, each pick a dish of its own: Pad Thai with Chicken and Prawn
+ * is two Pad Thai, one of each. splitsPicks(): a group that can.
+ */
+export const splitsPicks = c => !!c && c.max === 1 && !c.repeat && !c.prefixes
+
+/**
+ * The selections, one per dish: every other group, and a group picked once,
+ * goes on every dish; groups picked more than once give their first pick to
+ * the first dish, the second to the second, so they must have the same
+ * number of picks. choices: the dish's till choices (posChoices()).
+ * Returns { ok: true, selections } (the selection itself when nothing is
+ * picked more than once) or { ok: false, error }.
+ */
+export function splitPicks(choices, selection = {}) {
+  const picked = selection?.choices || {}
+  const splits = new Map()
+  let n = 1
+  for (const c of choices || []) {
+    if (!splitsPicks(c)) continue
+    const got = asEntries(picked[c.key])
+    if (got.length < 2) continue
+    if (n > 1 && got.length !== n) {
+      return { ok: false, error: c.name + ': pick ' + n + ' (one for each dish) or 1 for all of them' }
+    }
+    n = got.length
+    splits.set(c.key, got)
+  }
+  if (n === 1) return { ok: true, selections: [selection] }
+  const selections = []
+  for (let i = 0; i < n; i++) {
+    const own = {}
+    for (const [key, list] of Object.entries(picked)) own[key] = splits.has(key) ? [splits.get(key)[i]] : list
+    selections.push({ ...selection, choices: own })
+  }
+  return { ok: true, selections }
+}
 
 /**
  * Price a selection against choice definitions.

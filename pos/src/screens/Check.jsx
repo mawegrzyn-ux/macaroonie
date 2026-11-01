@@ -14,7 +14,7 @@ import { choiceZones } from '@shared/pos/tillLayout.js'
 import { discountList, fitsScope } from '@shared/pos/discounts.js'
 import { tillLayoutOf, lastReceiptCheck } from '../lib/tillLayout.js'
 import LayoutScreen from '../components/LayoutScreen.jsx'
-import { addItem, needsChoices, streamOf, typeOf, missingDetails, refreshPromotions, sendCheck, comboStartFrom, copyOfLine } from '../lib/checkOps.js'
+import { addItem, addChosen, needsChoices, streamOf, typeOf, missingDetails, refreshPromotions, sendCheck, comboStartFrom, copyOfLine } from '../lib/checkOps.js'
 import { cx, money, elapsed, useApproval, fillStyle } from '../components/ui.jsx'
 import { useTillNav } from '../components/TillMenu.jsx'
 import CheckPanel from '../components/CheckPanel.jsx'
@@ -109,7 +109,8 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
     if (!r.ok) toast(r.error, 'bad')
   }
   const added = (item, o, replace = null) => {
-    const r = addItem(check, item, o.selection, { qty: o.qty, seat: o.seat, course: o.course, note: o.note, allergies: o.allergies, unit_price: o.unit_price })
+    // One line, or one for each dish (more picks, more dishes).
+    const r = addChosen(check.id, item, o)
     if (!r.ok) return toast(r.error, 'bad')
     setChoosing(null)
     // Make it a combo: the dish it started from comes off (it hasn't been

@@ -566,7 +566,22 @@ The order zone has a text size, its own buttons that can be left out when a Butt
 their job (`hide`, warned about by `layoutWarnings()` when nothing does), and colours. A
 must-pick modifiers zone can add the dish on the tap that completes a one-pick choice
 (`auto_add`), and each modifiers zone can leave out the dish's name, description and prices.
-Still not built: a layout per order type, revenue stream or time of day.
+
+1 Nov 2026 (no migration): each zone with buttons says where the words sit on them (`align`
+left | center | right, `valign` top | middle | bottom; defaults per zone type keep the old
+look), turned into flex styles by one function, `buttonTextStyle()`, for the till and the
+designer's preview. The seats zone shows both, seats only or courses only (`parts`). A
+must-pick modifiers zone can take more picks than a one-pick group allows, a dish each
+(`split_picks`, never with `auto_add`): `splitPicks()` in `shared/pos/pricing.js` makes one
+selection per dish (groups picked more than once pair up in order and need the same count, the
+rest go on every dish) and `addChosen()` adds a line for each through `addItem()`. Tills now
+follow the menu's option settings (Hide unpriced, Hide £0 price) like the kiosks: every
+till item carries `variant_rules`. The Send to the kitchen window is a big button per course,
+green for Cook now, plain with a Wait (hold) label for a course that waits. And `addItem()`'s
+same-line check compares modifiers as data: a line the till had back from the server (jsonb
+reorders keys) never matched a new identical dish before, so it made a second line.
+Still not built: a layout per order type, revenue stream or time of day; more picks for a meal
+deal's steps or the groups a pick opens.
 
 ### 8.8 The order's allergy flag (31 Oct 2026, no migration)
 

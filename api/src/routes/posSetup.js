@@ -774,14 +774,15 @@ export default async function posSetupRoutes(app) {
       const gloriafood = gfLink
         ? { show_on_board: gfLink.show_on_board, types: (await gloriaFoodTypes(tx, tenantId, settings.kds_gloriafood_types)).map }
         : null
-      // Sections and dishes, for the kitchen flow's link filters; option
+      // Sections and dishes, for the kitchen flow's link filters (and each
+      // dish's price, for the till layout designer's preview); option
       // groups with their own kiosk look (migration 206), for the kiosk
       // design editor's groups shown their own way.
       const menuIds = menus.map(m => m.id)
       const [sections, items, optionGroups, tillLayouts] = await Promise.all([
         tx`SELECT id, menu_id, title FROM menu_sections
             WHERE tenant_id = ${tenantId} AND menu_id = ANY(${menuIds}::uuid[]) ORDER BY sort_order, title`,
-        tx`SELECT i.id, i.section_id, i.name FROM menu_items i
+        tx`SELECT i.id, i.section_id, i.name, i.price_pence FROM menu_items i
              JOIN menu_sections s ON s.id = i.section_id AND s.tenant_id = i.tenant_id
             WHERE i.tenant_id = ${tenantId} AND s.menu_id = ANY(${menuIds}::uuid[]) ORDER BY i.sort_order, i.name`,
         tx`SELECT id, name, display_name, kiosk_display, kiosk_tiles, kiosk_pictures, kiosk_entrance

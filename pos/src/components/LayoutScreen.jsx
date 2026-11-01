@@ -19,7 +19,7 @@
 
 import { useMemo, useState } from 'react'
 import { Search, X } from 'lucide-react'
-import { choiceZones, overlaps, buttonLabel, actionOf } from '@shared/pos/tillLayout.js'
+import { choiceZones, overlaps, buttonLabel, actionOf, buttonTextStyle } from '@shared/pos/tillLayout.js'
 import { discountList } from '@shared/pos/discounts.js'
 import { cx, inkOn } from './ui.jsx'
 import ZoneGrid from './ZoneGrid.jsx'
@@ -36,40 +36,47 @@ function useRemembered(key, initial) {
 
 const area = z => ({ gridColumn: `${z.x + 1} / span ${z.w}`, gridRow: `${z.y + 1} / span ${z.h}` })
 
-/** A category button: filled in its colour when it is the one open. */
-function SectionButton({ label, colour, on, onTap, testid }) {
+/**
+ * A category button: filled in its colour when it is the one open. place:
+ * where its words sit (buttonTextStyle() of the zone).
+ */
+function SectionButton({ label, colour, on, onTap, testid, place }) {
   return (
     <button onClick={onTap} data-testid={testid} data-on={on ? '1' : '0'}
-      className="w-full h-full rounded-xl px-2 leading-tight border-2 touch-manipulation flex items-center justify-center text-center"
-      style={on ? { background: colour, borderColor: colour, color: '#fff' } : { borderColor: colour, color: colour, background: '#fff' }}>
-      <span className="line-clamp-2 break-words">{label}</span>
+      className="w-full h-full rounded-xl px-2 py-1 leading-tight border-2 touch-manipulation flex flex-col"
+      style={{ ...place, ...(on ? { background: colour, borderColor: colour, color: '#fff' } : { borderColor: colour, color: colour, background: '#fff' }) }}>
+      <span className="line-clamp-2 break-words" data-testid="button-words">{label}</span>
     </button>
   )
 }
 
-/** A button from the designer: its colour (or white), its words, greyed while it can't be used. */
-function LayoutButton({ b, label, disabled, sub = null, onTap, onHold }) {
+/**
+ * A button from the designer: its colour (or white), its words (where the
+ * zone puts them: place), greyed while it can't be used.
+ */
+function LayoutButton({ b, label, disabled, sub = null, onTap, onHold, place }) {
   const hold = useHold(onTap, onHold)
   const fill = b.colour ? { background: b.colour, borderColor: b.colour, color: inkOn(b.colour) } : null
   return (
     <button {...hold} disabled={disabled} data-testid="layout-button" data-action={b.action} data-button={b.id}
-      className={cx('w-full h-full rounded-xl border-2 px-2 py-1 flex flex-col items-center justify-center text-center leading-tight touch-manipulation active:scale-[0.97] transition-transform select-none',
+      className={cx('w-full h-full rounded-xl border-2 px-2 py-1 flex flex-col leading-tight touch-manipulation active:scale-[0.97] transition-transform select-none',
         !fill && 'bg-white border-line', disabled && 'opacity-40')}
-      style={fill || undefined}>
-      <span className="line-clamp-3 break-words">{label}</span>
+      style={{ ...place, ...fill }}>
+      <span className="line-clamp-3 break-words" data-testid="button-words">{label}</span>
       {sub && <span className="text-[0.75em] font-semibold opacity-80 mt-0.5">{sub}</span>}
     </button>
   )
 }
 
 function CategoriesZone({ zone, layoutId, sections, sectionId, setSectionId, resetKey }) {
+  const place = buttonTextStyle(zone)
   return (
     <ZoneGrid zone={zone} memoKey={'cats:' + layoutId + ':' + zone.id} resetKey={resetKey} moreTitle="Categories"
       empty="No categories on the menus on now." testid="zone-categories"
       cells={sections.map(c => ({
         key: 's:' + c.s.id,
         node: <SectionButton label={c.s.title} colour={c.s.colour || SECTION_COLOURS[c.i % SECTION_COLOURS.length]} on={c.s.id === sectionId} testid="category"
-          onTap={() => setSectionId(c.s.id)} />,
+          place={place} onTap={() => setSectionId(c.s.id)} />,
       }))} />
   )
 }
@@ -102,6 +109,7 @@ function ItemsZone({ zone, layoutId, config, menus, section, sectionIndex, hasCa
     return out
   }, [q, menus, section, config, hasCategories])
   const colour = section && !q ? section.colour || SECTION_COLOURS[sectionIndex % SECTION_COLOURS.length] : '#64708a'
+  const place = buttonTextStyle(zone)
   return (
     <div className="h-full flex flex-col min-h-0">
       {zone.search && (
@@ -116,7 +124,7 @@ function ItemsZone({ zone, layoutId, config, menus, section, sectionIndex, hasCa
           empty={q ? 'No dish matches.' : hasCategories ? 'This category has no dishes.' : 'No dishes on the menus on now.'} testid="zone-items"
           cells={items.map(it => ({
             key: it.id,
-            node: <DishButton fill item={it} colour={it.colour || colour} priceText={dishPriceText(config, it.id, comboRefs)}
+            node: <DishButton fill place={place} item={it} colour={it.colour || colour} priceText={dishPriceText(config, it.id, comboRefs)}
               showPrice={zone.price} soldOut={soldOut.has(it.id)} onPick={onDish} onHold={onHold} />,
           }))} />
       </div>
@@ -127,6 +135,7 @@ function ItemsZone({ zone, layoutId, config, menus, section, sectionIndex, hasCa
 function ButtonsZone({ zone, layoutId, config, check, soldOut, onDish, onHold, onButton, canBack }) {
   const presets = discountList(config.settings)
   const tenders = config.settings?.tenders || []
+  const place = buttonTextStyle(zone)
   const cells = zone.buttons.map(b => {
     const item = b.action === 'item' ? config.items?.[b.item_id] : null
     const action = actionOf(b.action)
@@ -136,7 +145,7 @@ function ButtonsZone({ zone, layoutId, config, check, soldOut, onDish, onHold, o
     const sold = item && soldOut.has(item.id)
     return {
       key: b.id, w: b.w, h: b.h,
-      node: <LayoutButton b={b} disabled={disabled} label={buttonLabel(b, { items: config.items || {}, presets, tenders })}
+      node: <LayoutButton b={b} disabled={disabled} place={place} label={buttonLabel(b, { items: config.items || {}, presets, tenders })}
         sub={sold ? 'Sold out' : null}
         onTap={() => (item ? (sold ? onHold(item) : onDish(item)) : onButton(b))}
         onHold={item ? () => onHold(item) : null} />,
@@ -199,7 +208,7 @@ export default function LayoutScreen({
       return <ButtonsZone zone={z} layoutId={layoutId} config={config} check={check} soldOut={soldOut} onDish={onDish} onHold={onHold} onButton={onButton} canBack={canBack} />
     }
     if (z.type === 'seats') {
-      return <SeatCourseBar fill font={z.font} config={config} seat={seat} setSeat={setSeat} course={course} setCourse={setCourse} covers={covers} />
+      return <SeatCourseBar fill font={z.font} parts={z.parts} config={config} seat={seat} setSeat={setSeat} course={course} setCourse={setCourse} covers={covers} />
     }
     return null
   }
@@ -229,8 +238,12 @@ export default function LayoutScreen({
 /** The Dish choices zones while a dish is being added. */
 function Choosing({ config, choosing, zones, mods, onChosen, onCancel, onMore }) {
   const bar = zones.required
-  // Add on the tap that completes the dish (the must-pick zone's auto_add).
-  const build = useChoiceBuilder(choosing.item, config, choosing.initial || null, { onAutoAdd: bar?.auto_add ? onChosen : null })
+  // Add on the tap that completes the dish (the must-pick zone's auto_add),
+  // or more picks, more dishes (its split_picks; never both).
+  const build = useChoiceBuilder(choosing.item, config, choosing.initial || null, {
+    onAutoAdd: bar?.auto_add && !bar?.split_picks ? onChosen : null,
+    split: !!bar?.split_picks,
+  })
   // One zone for everything when there is one, or when the must-pick zone covers the screen.
   const together = !zones.optional || zones.optional === bar || bar.cover === 'screen'
   const need = build.cells.filter(c => c.need)

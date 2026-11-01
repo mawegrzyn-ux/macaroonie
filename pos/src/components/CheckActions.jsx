@@ -100,7 +100,12 @@ export function menusHint(m) {
 
 // ── Send ─────────────────────────────────────────────────────────
 
-/** Send new items; asks which later courses should wait when there are any. */
+/**
+ * Send new items; asks which later courses should wait when there are any.
+ * Each course is one big button that switches it between Cook now (green
+ * outline and background: what the kitchen starts on) and Wait (a plain
+ * row with a bold Wait (hold) label).
+ */
 export function SendModal({ check, config, onClose, onSent }) {
   const courses = byId(config.courses)
   const fresh = [...new Set(check.lines.filter(l => l.status === 'new' && l.course_id).map(l => l.course_id))]
@@ -111,16 +116,23 @@ export function SendModal({ check, config, onClose, onSent }) {
     onSent()
   }
   return (
-    <Modal title="Send to the kitchen" onClose={onClose} footer={<button className="btn btn-primary h-14 min-w-[200px]" onClick={go}><Send size={20} /> Send</button>}>
+    <Modal title="Send to the kitchen" onClose={onClose} footer={<button className="btn btn-primary h-14 min-w-[200px]" onClick={go} data-testid="send-go"><Send size={20} /> Send</button>}>
       <div className="space-y-3">
-        <div className="text-[15px]">Courses that wait are sent now with HOLD on the ticket; fire them when the table is ready.</div>
+        <div className="text-[15px]">
+          Tap a course to switch it between <span className="font-semibold text-ok">Cook now</span> and <span className="font-semibold text-held">Wait</span>.
+          Courses that wait go on the ticket with HOLD; fire them when the table is ready.
+        </div>
         {fresh.sort((a, b) => (courses[a]?.sort_order ?? 0) - (courses[b]?.sort_order ?? 0)).map(id => {
           const on = held.includes(id)
           return (
-            <button key={id} className={cx('w-full card p-4 flex items-center gap-3 text-left', on && 'border-held bg-held-soft')} onClick={() => setHeld(on ? held.filter(x => x !== id) : [...held, id])}>
-              <span className={cx('w-7 h-7 rounded-lg border-2 flex items-center justify-center', on ? 'bg-held border-held text-white' : 'border-line')}>{on && <Check size={16} />}</span>
-              <span className="flex-1 font-semibold">{courses[id]?.name || 'Course'}</span>
-              <span className={cx('text-sm font-semibold', on ? 'text-held' : 'text-ok')}>{on ? 'Wait (hold)' : 'Cook now'}</span>
+            <button key={id} data-testid="send-course" data-course={id} data-held={on ? '1' : '0'} aria-pressed={!on}
+              className={cx('w-full min-h-[64px] rounded-2xl border-2 px-4 py-3 flex items-center gap-3 text-left touch-manipulation active:scale-[0.99] transition-transform',
+                on ? 'bg-white border-line' : 'bg-ok-soft border-ok')}
+              onClick={() => setHeld(on ? held.filter(x => x !== id) : [...held, id])}>
+              <span className="flex-1 min-w-0 font-semibold text-lg truncate">{courses[id]?.name || 'Course'}</span>
+              {on
+                ? <span className="shrink-0 inline-flex items-center gap-2 rounded-full bg-held text-white px-4 h-11 text-base font-bold" data-testid="send-wait"><Hourglass size={18} /> Wait (hold)</span>
+                : <span className="shrink-0 inline-flex items-center gap-2 text-ok text-base font-bold px-1" data-testid="send-now"><Flame size={18} /> Cook now</span>}
             </button>
           )
         })}

@@ -170,9 +170,17 @@ export function courseFor(item, picked) {
   return item.course_id || null
 }
 
+// Compared as data, not as text: a line the till has back from the server has
+// its keys in another order (Postgres jsonb sorts them), so comparing plain
+// JSON.stringify output never matched once the order had synced, and the
+// same dish with the same choices made a second line. Empty values count as
+// left out.
+const asData = v => JSON.stringify(v ?? null, (k, x) => (x && typeof x === 'object' && !Array.isArray(x)
+  ? Object.keys(x).sort().reduce((o, key) => { if (x[key] != null) o[key] = x[key]; return o }, {})
+  : x))
 const sameLine = (a, b) => a.item_id === b.item_id && a.status === 'new'
-  && JSON.stringify(a.modifiers || []) === JSON.stringify(b.modifiers || [])
-  && JSON.stringify(a.combo || null) === JSON.stringify(b.combo || null)
+  && asData(a.modifiers || []) === asData(b.modifiers || [])
+  && asData(a.combo || null) === asData(b.combo || null)
   && (a.seat ?? null) === (b.seat ?? null) && (a.course_id ?? null) === (b.course_id ?? null)
   && !a.note && !b.note && !(a.allergies || []).length && !(b.allergies || []).length
   && a.unit_price === b.unit_price && !a.price_override && !b.price_override
@@ -204,6 +212,28 @@ export function addItem(check, item, selection = {}, opts = {}) {
     return dispatch('line.changed', { line_id: twin.id, qty: Math.min(999, twin.qty + line.qty) }, { check_id: check.id })
   }
   return dispatch('line.added', { line }, { check_id: check.id, approved_by: opts.approved_by || null })
+}
+
+/**
+ * A dish as the choices window or a till layout's Dish choices zones give
+ * it: o = { selection, qty, seat, course, note, allergies, unit_price,
+ * split? }. With split (more picks, more dishes: LayoutChoices.jsx) each
+ * selection is a dish of its own, added to the check as it then is, so the
+ * same dish picked twice joins one line. Returns the last add's result
+ * with every event.
+ */
+export function addChosen(checkId, item, o) {
+  const list = Array.isArray(o.split) && o.split.length ? o.split : [o.selection || {}]
+  const events = []
+  let r = { ok: true }
+  for (const selection of list) {
+    const check = currentChecks()[checkId]
+    if (!check) return { ok: false, error: 'This check is no longer open' }
+    r = addItem(check, item, selection, { qty: o.qty, seat: o.seat, course: o.course, note: o.note, allergies: o.allergies, unit_price: o.unit_price, approved_by: o.approved_by })
+    if (!r.ok) return r
+    events.push(...(r.events || []))
+  }
+  return { ...r, events }
 }
 
 /** An item not on the menu: name and price typed in. */
