@@ -5,6 +5,19 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-11-01 — Purchasing: lines stay on their price, delivery days checked, minimums and steps on every change]
+
+Migration: `232_pin_open_order_lines.sql` (every line with a quantity on an order being filled in or waiting for approval gets the price it was showing: the venue's usual one, else the company's, else the cheapest).
+
+- **A line stays on its price.** Each line on an order keeps the supplier price it was filled in on, even when another price becomes the usual one. If that price, its supplier or the item is switched off while the order waits, the line turns red and says so, and the order can't be placed or sent for approval until it has **Pick another price** or **Take it off**. Before, it moved to another price (possibly another supplier's) by itself, keeping the number of packs.
+- **The amount is kept when the pack changes.** Switching a line to another supplier or pack (on the order, or with Pepper) keeps the amount: 3 bags of 5 kg become 2 sacks of 10 kg, never less than asked for, and the window says what each choice comes to. Changing a supplier price's pack size (Inventory, or an import) does the same for open orders.
+- **Supplier prices and suppliers an open order uses can't be deleted**: switch them off instead (the order then asks for another price). Items on an open order are switched off instead of deleted.
+- **Delivery days are checked.** Under each date: when to order by for that day ("order by 18:00 today"), worked out from the supplier's cutoff and days' notice for that day, not just today's. A day they don't deliver, or one too late for, is refused unless **Agreed with** the supplier is switched on; a day in the past never. The same check runs when moving a purchase order's date and when splitting. A request for approval only notes it (the manager decides when placing).
+- **Minimums and steps everywhere.** The first + goes straight to the supplier's minimum (and − below it back to 0). Changing quantities on a purchase order rounds up to the minimum and steps, and the line says what it will order. A split must leave both parts of each line orderable ("10 left and 10 moved would both be below the minimum of 20"). The import takes **Minimum order** and **Order in steps of** columns (blank keeps what is stored).
+- **Pepper** follows the same rules: placing, splitting and moving a delivery day refuse a day the supplier can't make unless you say it was agreed with them, a line whose price was switched off has to be changed first, and switching a supplier or pack without a quantity keeps the amount.
+
+---
+
 ## [2026-11-01 — Till charges: one list with a matrix per location, charges on dishes (cup deposit), charge buttons; guests and courses per revenue stream]
 
 Migration: `231_till_charges_covers_courses.sql` (`pos_charges`, the company's list of charges, and `pos_charge_rules`, which charges a check of each revenue stream and order type gets at a location; the charges on order types move into the list and the matrix, and `order_types.charges` goes; `pos_revenue_streams.covers` and `courses`, from the location's Ask for covers setting, which goes; a Charges link after Discounts in every group's main menu).

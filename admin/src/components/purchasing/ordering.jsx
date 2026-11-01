@@ -32,12 +32,12 @@ import { useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft, Loader2, Plus, Search, Printer, FileText, FileSpreadsheet, Mail, Check, AlertTriangle, Truck,
-  ClipboardList, ChevronRight, ChevronDown, X, PackageCheck, Clock, Send, Repeat, Thermometer, Snowflake, Eye,
+  ClipboardList, ChevronRight, ChevronDown, X, PackageCheck, Send, Repeat, Thermometer, Snowflake, Eye,
   Hourglass, Scissors, Undo2,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
-import { Modal, Field, inputCls, ErrorNote, Segmented, ConfirmDelete, hhmm } from '@/components/staff/shared'
+import { Modal, Field, inputCls, ErrorNote, Segmented, ConfirmDelete } from '@/components/staff/shared'
 import { TempKeypadModal } from '@/components/foodSafety/shared'
 import {
   usePurchasingMeta, QtyStepper, NumInput, DateButton, StorageBadge, PoStatusBadge, Toggle, btn, money, fmtDate,
@@ -46,6 +46,7 @@ import {
 import {
   fitQty, qtyProblem, packsToPar, orderTotals, lineAmounts, fmtNum, poNumberLabel, receiveStatusFor,
   deliveryTempOk, RECEIVE_STATUSES, DELIVERY_TEMP_MAX, deliveryDateChoices, addDays,
+  convertQty, splitProblem, deliveryDayProblem, deadlineText, nowAt, formatBase,
 } from '@shared/procurement.js'
 import { ASSISTANT_NAME } from '@shared/assistant.js'
 import {
@@ -311,27 +312,43 @@ function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo, onOpenOrd
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['supply-orders'] }); onBack() },
   })
 
-  const setQty = (itemId, qty) => {
-    setLines(l => ({ ...l, [itemId]: { ...l[itemId], qty } }))
-    save.queue({ item_id: itemId, qty })
+  const qtyOf = it => Number(lines[it.item_id]?.qty) || 0
+  const pickedLive = it => it.quotes.find(q => q.id === lines[it.item_id]?.quote_id) || null
+  // A line with a quantity whose price, supplier or item has been switched
+  // off since it was filled in (it.gone): it waits for another price or to
+  // be taken off, and is never ordered on some other price by itself.
+  const goneOf = it => {
+    if (!it.gone || qtyOf(it) <= 0) return null
+    if (it.gone.why === 'item_off') return it.gone
+    return pickedLive(it) ? null : it.gone
   }
+  const quoteOf = it => pickedLive(it) || it.quote ||
+    (goneOf(it) ? null : it.quotes.find(q => q.id === it.default_quote_id) || null)
+
+  // Each quantity is saved with the price it is shown on (the line keeps it).
+  const setQty = (it, qty) => {
+    const q = quoteOf(it)
+    setLines(l => ({ ...l, [it.item_id]: { ...l[it.item_id], qty, ...(q ? { quote_id: q.id } : {}) } }))
+    save.queue({ item_id: it.item_id, qty, ...(q ? { quote_id: q.id } : {}) })
+  }
+  // Another supplier or pack keeps the amount: 3 x 5 kg becomes 2 x 10 kg.
   const setQuote = (it, quoteId) => {
-    const qty = lines[it.item_id]?.qty ?? 0
-    setLines(l => ({ ...l, [it.item_id]: { ...l[it.item_id], quote_id: quoteId } }))
+    const from = quoteOf(it) || it.gone?.quote || null
+    const to = it.quotes.find(q => q.id === quoteId)
+    const qty = from && to ? convertQty(qtyOf(it), from, to) : qtyOf(it)
+    setLines(l => ({ ...l, [it.item_id]: { ...l[it.item_id], qty, quote_id: quoteId } }))
     save.queue({ item_id: it.item_id, qty, quote_id: quoteId })
   }
-  const quoteOf = it => it.quotes.find(q => q.id === lines[it.item_id]?.quote_id) || it.quote
-  const qtyOf = it => Number(lines[it.item_id]?.qty) || 0
 
   const fillPars = () => {
     for (const it of order.items) {
       const q = quoteOf(it)
       if (!q || it.par_base == null || qtyOf(it) > 0) continue
       const p = packsToPar(it.par_base, q)
-      if (p > 0) setQty(it.item_id, p)
+      if (p > 0) setQty(it, p)
     }
   }
-  const clearAll = () => { for (const it of order.items) if (qtyOf(it) > 0) setQty(it.item_id, 0) }
+  const clearAll = () => { for (const it of order.items) if (qtyOf(it) > 0) setQty(it, 0) }
   const removeExtra = useMutation({
     mutationFn: itemId => api.delete(`/purchasing/orders/${orderId}/lines/${itemId}`),
     onSuccess: (_, itemId) => { setLines(l => { const n = { ...l }; delete n[itemId]; return n }); qc.invalidateQueries({ queryKey: ['supply-order', orderId] }) },
@@ -343,7 +360,7 @@ function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo, onOpenOrd
     for (const it of order?.items || []) {
       const q = quoteOf(it)
       const qty = qtyOf(it)
-      if (!q || qty <= 0) continue
+      if (!q || qty <= 0 || goneOf(it)) continue
       if (!m.has(q.supplier_id)) m.set(q.supplier_id, { supplier: order.suppliers[q.supplier_id] || { id: q.supplier_id, name: q.supplier_name }, lines: [] })
       m.get(q.supplier_id).lines.push({ it, q, raw: qty, qty: fitQty(qty, q), price: q.price, vat_rate: q.vat_rate })
     }
@@ -367,9 +384,11 @@ function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo, onOpenOrd
   }
 
   const q = search.trim().toLowerCase()
+  const now = nowAt(order.timezone)
   const visible = order.items.filter(it => (!onlyQty || qtyOf(it) > 0) && (!q || it.name.toLowerCase().includes(q) || (it.code || '').toLowerCase().includes(q)))
-  const groups = groupRows(visible, groupBy, order, quoteOf)
+  const groups = groupRows(visible, groupBy, order, quoteOf, now)
   const lineCount = bySupplier.reduce((n, g) => n + g.lines.length, 0)
+  const goneLines = order.items.filter(goneOf)
   const grand = prices ? bySupplier.reduce((s, g) => s + g.totals.total, 0) : null
   const hasPars = order.items.some(it => it.par_base != null)
   const hasExtras = editable && order.items.some(it => !it.on_list)
@@ -394,7 +413,7 @@ function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo, onOpenOrd
             </p>
           </div>
           {mainAction && (
-            <button type="button" className={btn.primary} disabled={!lineCount} onClick={openReview}>
+            <button type="button" className={btn.primary} disabled={!lineCount || goneLines.length > 0} onClick={openReview}>
               {mainLabel}{lineCount ? ` (${lineCount})` : ''}
             </button>
           )}
@@ -429,6 +448,15 @@ function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo, onOpenOrd
       )}
       <ErrorNote error={withdraw.error || decline.error} />
       {order.notes && <p className="mx-4 mt-3 text-sm rounded-lg bg-amber-50 border border-amber-200 px-3 py-2">{order.notes}</p>}
+      {goneLines.length > 0 && (
+        <p className="mx-4 mt-3 text-sm rounded-lg bg-red-50 border border-red-200 px-3 py-2 flex items-start gap-2" data-testid="order-gone-note">
+          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-red-700" />
+          <span>
+            {goneLines.length === 1 ? 'A line has' : `${goneLines.length} lines have`} a price or item that has been switched off
+            ({goneLines.map(it => it.name).join(', ')}). Pick another price or take {goneLines.length === 1 ? 'it' : 'them'} off before {mainAction === 'request' ? 'sending it' : 'placing it'}.
+          </span>
+        </p>
+      )}
 
       <div className={cn('flex-1', phone ? 'px-3 py-3' : 'px-4 py-4 max-w-5xl w-full mx-auto', 'space-y-4')}>
         {!order.items.length && <p className="text-sm text-muted-foreground text-center py-8">Nothing here yet. Add items to order.</p>}
@@ -440,9 +468,9 @@ function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo, onOpenOrd
             </div>
             <div className="divide-y">
               {g.items.map(it => (
-                <OrderRow key={it.item_id} it={it} quote={quoteOf(it)} qty={qtyOf(it)} view={view}
+                <OrderRow key={it.item_id} it={it} quote={quoteOf(it)} gone={goneOf(it)} qty={qtyOf(it)} view={view}
                   hasPars={hasPars} hasExtras={hasExtras} readOnly={!editable} asked={requested ? it.requested_qty : undefined}
-                  onQty={v => setQty(it.item_id, v)} onSwitch={() => setSwitching(it)}
+                  onQty={v => setQty(it, v)} onSwitch={() => setSwitching(it)}
                   onRemove={editable && !it.on_list ? () => removeExtra.mutate(it.item_id) : null} />
               ))}
             </div>
@@ -459,7 +487,11 @@ function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo, onOpenOrd
             <strong>{lineCount}</strong> line{lineCount === 1 ? '' : 's'} · {bySupplier.length} supplier{bySupplier.length === 1 ? '' : 's'}
             {prices && <> · <strong>{money(grand)}</strong> inc VAT</>}
           </span>
-          {mainAction && <button type="button" className={btn.primary} onClick={openReview}>{mainAction === 'place' ? 'Review & place' : 'Send for approval'}</button>}
+          {mainAction && (
+            <button type="button" className={btn.primary} disabled={goneLines.length > 0} onClick={openReview}>
+              {mainAction === 'place' ? 'Review & place' : 'Send for approval'}
+            </button>
+          )}
         </div>
       )}
 
@@ -479,7 +511,8 @@ function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo, onOpenOrd
         </Modal>
       )}
       {switching && (
-        <SwitchSupplierModal it={switching} current={quoteOf(switching)} prices={prices} order={order}
+        <SwitchSupplierModal it={switching} current={quoteOf(switching)} gone={goneOf(switching)} qty={qtyOf(switching)}
+          prices={prices} order={order} now={now}
           onPick={qid => { setQuote(switching, qid); setSwitching(null) }} onClose={() => setSwitching(null)} />
       )}
       {adding && (
@@ -556,7 +589,7 @@ function SaveState({ state }) {
   return <span>Saved</span>
 }
 
-function groupRows(items, groupBy, order, quoteOf) {
+function groupRows(items, groupBy, order, quoteOf, now) {
   const m = new Map()
   for (const it of items) {
     let key, name, sort, sub
@@ -566,7 +599,7 @@ function groupRows(items, groupBy, order, quoteOf) {
       key = q?.supplier_id || 'none'
       name = q ? q.supplier_name : 'No supplier'
       sort = name.toLowerCase()
-      sub = s ? deliveryHint(s) : null
+      sub = s ? deliveryHint(s, now) : null
     } else {
       key = it.category_name || 'none'
       name = it.category_name || 'Other'
@@ -579,16 +612,27 @@ function groupRows(items, groupBy, order, quoteOf) {
   return [...m.values()].sort((a, b) => (a.sort < b.sort ? -1 : a.sort > b.sort ? 1 : 0))
 }
 
-function deliveryHint(s) {
-  const parts = [`Next delivery ${fmtDate(s.next_delivery)}`]
-  if (s.cutoff_time && s.minutes_to_cutoff != null) {
-    parts.push(s.minutes_to_cutoff > 0 ? `order by ${hhmm(s.cutoff_time)}` : `today's cutoff ${hhmm(s.cutoff_time)} has passed`)
-  }
-  return parts.join(' · ')
+// The supplier's next delivery and when to order for it (its cutoff for
+// that day, not just today's).
+function deliveryHint(s, now) {
+  return `Next delivery ${fmtDate(s.next_delivery)} · ${deadlineText(s, s.next_delivery, now)}`
 }
 
-function OrderRow({ it, quote, qty, view, hasPars, hasExtras, readOnly, asked, onQty, onSwitch, onRemove }) {
-  const problem = quote ? qtyProblem(qty, quote) : null
+/** Why a line can't be ordered as it is, from loadOrder()'s `gone`. */
+function goneWords(gone) {
+  if (gone.why === 'item_off') return 'Switched off in the inventory: take it off the order.'
+  const q = gone.quote
+  return gone.why === 'supplier_off'
+    ? `${q.supplier_name} has been switched off. Pick another price, or take it off.`
+    : `${q.supplier_name}'s price for ${q.pack_label} has been switched off. Pick another price, or take it off.`
+}
+
+function OrderRow({ it, quote, gone, qty, view, hasPars, hasExtras, readOnly, asked, onQty, onSwitch, onRemove }) {
+  const problem = quote && !gone ? qtyProblem(qty, quote) : null
+  // A switched-off price still shows its pack (struck through) as the
+  // button that picks another.
+  const shownQuote = quote || gone?.quote || null
+  const canSwitch = !readOnly && gone?.why !== 'item_off' && (gone ? it.quotes.length > 0 : it.quotes.length > 1)
   const par = quote && it.par_base != null ? packsToPar(it.par_base, quote) : null
   const details = quote ? [
     view.supplier && quote.supplier_name,
@@ -613,7 +657,18 @@ function OrderRow({ it, quote, qty, view, hasPars, hasExtras, readOnly, asked, o
       <div className="flex-1 min-w-[180px] flex items-start gap-2">
         <div className="flex-1 min-w-0">
           <p className="font-medium text-sm">{it.name} <StorageBadge storage={it.storage} /></p>
-          {!quote && <p className="text-xs text-amber-700">No supplier sells this: ask a manager</p>}
+          {!quote && !gone && <p className="text-xs text-amber-700">No supplier sells this: ask a manager</p>}
+          {gone && (
+            <div className="text-xs text-red-800 space-y-1" data-testid="order-line-gone">
+              <p>{goneWords(gone)}</p>
+              {!readOnly && (
+                <div className="flex flex-wrap gap-2">
+                  {canSwitch && <button type="button" className={btn.outline} onClick={onSwitch}>Pick another price</button>}
+                  <button type="button" className={btn.outline} onClick={() => onQty(0)}>Take it off</button>
+                </div>
+              )}
+            </div>
+          )}
           {quote?.product_name && <p className="text-xs">{quote.product_name}</p>}
           {details && <p className="text-xs text-muted-foreground">{details}</p>}
           {view.last && last && (
@@ -628,8 +683,9 @@ function OrderRow({ it, quote, qty, view, hasPars, hasExtras, readOnly, asked, o
       </div>
       <div className="flex flex-wrap items-center justify-end gap-2 ml-auto">
         {hasPars && <div className="hidden sm:flex w-16 justify-end">{parBtn}</div>}
-        <PackLabel quote={quote} canSwitch={!readOnly && it.quotes.length > 1} onSwitch={onSwitch} />
-        <QtyStepper value={qty} onChange={onQty} step={quote?.order_multiple || 1} disabled={!quote || readOnly} label={it.name} />
+        <PackLabel quote={shownQuote} gone={!!gone && gone.why !== 'item_off'} canSwitch={canSwitch} onSwitch={onSwitch} />
+        <QtyStepper value={qty} onChange={onQty} step={quote?.order_multiple || 1} min={quote?.min_qty || 0}
+          disabled={!quote || readOnly || !!gone} label={it.name} />
         {view.lastQty && <LastQty last={last} otherPack={lastOtherPack} />}
         {hasExtras && <div className="hidden sm:block w-11 shrink-0">{removeBtn}</div>}
       </div>
@@ -639,13 +695,13 @@ function OrderRow({ it, quote, qty, view, hasPars, hasExtras, readOnly, asked, o
 
 // The pack being ordered, big, next to the quantity. With more than one
 // supplier it is the button that switches supplier.
-function PackLabel({ quote, canSwitch, onSwitch }) {
+function PackLabel({ quote, gone, canSwitch, onSwitch }) {
   const width = 'w-[84px] sm:w-28 shrink-0'
   if (!quote) return <span className={width} aria-hidden="true" />
   const name = quote.pack_name || quote.pack_label
   const inner = (
     <>
-      <span className="flex items-center justify-end gap-1 text-base font-semibold leading-tight break-words">
+      <span className={cn('flex items-center justify-end gap-1 text-base font-semibold leading-tight break-words', gone && 'line-through text-muted-foreground')}>
         {name}{canSwitch && <ChevronDown className="w-4 h-4 text-primary shrink-0" />}
       </span>
       {quote.pack_size && <span className="block text-xs text-muted-foreground leading-tight">{quote.pack_size}</span>}
@@ -672,14 +728,27 @@ function LastQty({ last, otherPack }) {
   )
 }
 
-function SwitchSupplierModal({ it, current, prices, order, onPick, onClose }) {
+/**
+ * Picking the price a line is ordered on. With a quantity, each choice
+ * says what it comes to in its packs (the amount is kept: convertQty()).
+ */
+function SwitchSupplierModal({ it, current, gone, qty, prices, order, now, onPick, onClose }) {
+  const from = current || gone?.quote || null
+  const amount = (n, q) => formatBase(n * Number(q.pack_base_qty || 0), it.base_unit)
   return (
     <Modal title={`Order ${it.name} from`} onClose={onClose}>
+      {gone?.quote && (
+        <p className="text-sm rounded-lg bg-red-50 border border-red-200 px-3 py-2">
+          Was {gone.quote.supplier_name}, {gone.quote.pack_label}: no longer offered.
+        </p>
+      )}
       <div className="space-y-2">
         {it.quotes.map(q => {
           const s = order.suppliers[q.supplier_id]
+          const to = from && qty > 0 ? convertQty(qty, from, q) : null
+          const otherPack = from && Math.abs(Number(from.pack_base_qty) - Number(q.pack_base_qty)) > 1e-9
           return (
-            <button key={q.id} type="button" onClick={() => onPick(q.id)}
+            <button key={q.id} type="button" onClick={() => onPick(q.id)} data-testid="switch-quote"
               className={cn('w-full text-left rounded-xl border p-3 touch-manipulation min-h-[56px]', q.id === current?.id ? 'border-primary bg-primary/5' : 'hover:bg-muted/40')}>
               <span className="flex items-center gap-2">
                 <span className="flex-1 font-medium text-sm">{q.supplier_name}</span>
@@ -688,7 +757,13 @@ function SwitchSupplierModal({ it, current, prices, order, onPick, onClose }) {
               </span>
               {q.product_name && <span className="block text-sm font-medium">{q.product_name}</span>}
               <span className="block text-sm">{q.pack_label}{prices && q.price != null ? ` · ${money(q.price)}` : ''}</span>
-              {s && <span className="block text-xs text-muted-foreground">{deliveryHint(s)}</span>}
+              {to != null && q.id !== current?.id && (
+                <span className="block text-xs text-blue-900" data-testid="switch-qty">
+                  {fmtNum(qty)} × {from.pack_label} {otherPack ? `(${amount(qty, from)}) ` : ''}becomes {fmtNum(to)} × {q.pack_label}
+                  {otherPack ? ` (${amount(to, q)})` : ''}
+                </span>
+              )}
+              {s && <span className="block text-xs text-muted-foreground">{deliveryHint(s, now)}</span>}
             </button>
           )
         })}
@@ -760,6 +835,37 @@ function DeliveryDayPicker({ value, onChange, choices, min, exclude, label }) {
 }
 
 /**
+ * Under a picked delivery day: when to order by for it, or why the
+ * supplier can't make it (deliveryDayProblem(), the API's rule). A day they
+ * don't deliver, or past its cutoff, can still be placed when the person
+ * says it was agreed with the supplier (`agree`, a switch); a past day
+ * never. In a request (`asking`) it's only a note: the approver decides.
+ */
+function DayCheck({ supplier: s, date, now, agreed, onAgree, asking = false }) {
+  const problem = deliveryDayProblem(s, date, now, s.name)
+  if (!problem) {
+    return <p className="text-xs text-muted-foreground" data-testid="day-deadline">For {fmtDate(date)}: {deadlineText(s, date, now)}</p>
+  }
+  const past = problem.code === 'past'
+  return (
+    <div className={cn('rounded-lg border px-3 py-2 text-xs space-y-1', past ? 'bg-red-50 border-red-200 text-red-800' : 'bg-amber-50 border-amber-200 text-amber-900')}
+      data-testid="day-problem" data-problem={problem.code}>
+      <p className="flex items-start gap-1.5"><AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />{problem.message}.</p>
+      {!past && (asking
+        ? <p>The manager agrees it with {s.name}, or picks another day, when placing it.</p>
+        : <Toggle checked={!!agreed} onChange={onAgree} label={`Agreed with ${s.name}`} />)}
+    </div>
+  )
+}
+
+/** Whether a day stops the action: past, or a problem nobody agreed. */
+function dayBlocked(s, date, now, agreed, asking = false) {
+  const p = deliveryDayProblem(s, date, now, s.name)
+  if (!p) return false
+  return p.code === 'past' || (!asking && !agreed)
+}
+
+/**
  * Placing the order (mode place) or sending it for approval (mode
  * request): a delivery day and a note per supplier. A request's days and
  * notes are where placing it starts.
@@ -773,8 +879,15 @@ function ReviewModal({ order, groups, prices, mode = 'place', onClose, onPlaced,
     notes: asked[g.supplier.id]?.notes || '',
   }])))
   const [note, setNote] = useState(order.notes || '')
+  const [agreed, setAgreed] = useState({})
+  const now = nowAt(order.timezone)
   const set = (sid, k, v) => setOpts(o => ({ ...o, [sid]: { ...o[sid], [k]: v } }))
-  const suppliers = Object.fromEntries(Object.entries(opts).map(([sid, o]) => [sid, { delivery_date: o.delivery_date, notes: o.notes }]))
+  const sById = Object.fromEntries(groups.map(g => [g.supplier.id, g.supplier]))
+  const suppliers = Object.fromEntries(Object.entries(opts).map(([sid, o]) => [sid, {
+    delivery_date: o.delivery_date, notes: o.notes,
+    ...(!request && agreed[sid] && deliveryDayProblem(sById[sid], o.delivery_date, now) ? { agreed: true } : {}),
+  }]))
+  const blocked = groups.some(g => dayBlocked(g.supplier, opts[g.supplier.id].delivery_date, now, agreed[g.supplier.id], request))
   const send = useMutation({
     mutationFn: () => (request
       ? api.post(`/purchasing/orders/${order.id}/request`, { suppliers, note })
@@ -784,7 +897,7 @@ function ReviewModal({ order, groups, prices, mode = 'place', onClose, onPlaced,
   return (
     <Modal title={request ? 'Send for approval' : 'Place order'} onClose={onClose}
       footer={<>
-        <button type="button" className={btn.primary} disabled={send.isPending} onClick={() => send.mutate()}>
+        <button type="button" className={btn.primary} disabled={send.isPending || blocked} onClick={() => send.mutate()} data-testid="review-send">
           {send.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
           {request ? 'Send for approval' : `Place ${groups.length} order${groups.length === 1 ? '' : 's'}`}
         </button>
@@ -798,7 +911,6 @@ function ReviewModal({ order, groups, prices, mode = 'place', onClose, onPlaced,
       {groups.map(g => {
         const s = g.supplier
         const below = prices && s.min_order && g.totals.subtotal < s.min_order
-        const late = s.cutoff_time && s.minutes_to_cutoff != null && s.minutes_to_cutoff <= 0
         const wanted = asked[s.id]?.delivery_date
         return (
           <div key={s.id} className="rounded-xl border p-3 space-y-2">
@@ -811,14 +923,15 @@ function ReviewModal({ order, groups, prices, mode = 'place', onClose, onPlaced,
               {g.lines.map(l => <li key={l.it.item_id}>{fmtNum(l.qty)} × {l.it.name} <span className="opacity-75">({l.q.pack_label})</span></li>)}
             </ul>
             {below && <p className="text-xs text-amber-800 flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5" />Below their minimum order of {money(s.min_order)}</p>}
-            {late && <p className="text-xs text-amber-800 flex items-center gap-1"><Clock className="w-3.5 h-3.5" />Past today's {hhmm(s.cutoff_time)} cutoff, so the first delivery offered is {fmtDate(s.next_delivery)}</p>}
             <div className="flex flex-wrap items-start gap-2">
               <span className="text-sm h-11 inline-flex items-center">{request ? 'Wanted' : 'Delivery'}</span>
               <div className="flex-1 min-w-[200px]">
                 <DeliveryDayPicker value={opts[s.id].delivery_date} min={order.today} choices={deliveryDateChoices(s)}
-                  onChange={d => set(s.id, 'delivery_date', d)} label={`Delivery date for ${s.name}`} />
+                  onChange={d => { set(s.id, 'delivery_date', d); setAgreed(a => ({ ...a, [s.id]: false })) }} label={`Delivery date for ${s.name}`} />
               </div>
             </div>
+            <DayCheck supplier={s} date={opts[s.id].delivery_date} now={now} asking={request}
+              agreed={agreed[s.id]} onAgree={v => setAgreed(a => ({ ...a, [s.id]: v }))} />
             {!request && wanted && wanted !== opts[s.id].delivery_date && <p className="text-xs text-blue-800">Asked for {fmtDate(wanted)}</p>}
             {!request && <p className="text-xs text-muted-foreground">{sendHint(s)}</p>}
             <input className={inputCls} value={opts[s.id].notes} onChange={e => set(s.id, 'notes', e.target.value)} placeholder="Note for the supplier (optional)" />
@@ -848,22 +961,31 @@ function SplitRequestModal({ order, groups, onClose, onSplit }) {
     const first = firstDay(g.supplier)
     return [g.supplier.id, deliveryDateChoices(g.supplier, 8).find(d => d > first) || addDays(first, 1)]
   })))
+  const [agreed, setAgreed] = useState({})
+  const now = nowAt(order.timezone)
   const moved = l => Number(move[l.it.item_id]) || 0
   const moving = groups.filter(g => g.lines.some(l => moved(l) > 0))
   const everything = groups.every(g => g.lines.every(l => moved(l) >= l.raw))
   const sameDay = moving.filter(g => days[g.supplier.id] === firstDay(g.supplier))
+  // Both parts of a line must stay orderable: a minimum of 20 doesn't split 10 + 10.
+  const splitIssue = l => splitProblem(l.raw, moved(l), l.q)
+  const badSplit = groups.some(g => g.lines.some(splitIssue))
+  const badDay = moving.some(g => dayBlocked(g.supplier, days[g.supplier.id], now, agreed[g.supplier.id]))
   const split = useMutation({
     mutationFn: () => api.post(`/purchasing/orders/${order.id}/split`, {
       lines: groups.flatMap(g => g.lines.filter(l => moved(l) > 0).map(l => ({ item_id: l.it.item_id, qty: moved(l) }))),
-      suppliers: Object.fromEntries(moving.map(g => [g.supplier.id, { delivery_date: days[g.supplier.id] }])),
+      suppliers: Object.fromEntries(moving.map(g => [g.supplier.id, {
+        delivery_date: days[g.supplier.id],
+        ...(agreed[g.supplier.id] && deliveryDayProblem(g.supplier, days[g.supplier.id], now) ? { agreed: true } : {}),
+      }])),
     }),
     onSuccess: res => onSplit(res, [...new Set(moving.map(g => days[g.supplier.id]))].sort()),
   })
   return (
     <Modal title="Split for another day" onClose={onClose}
       footer={<>
-        <button type="button" className={btn.primary} disabled={split.isPending || !moving.length || everything || sameDay.length > 0}
-          onClick={() => split.mutate()}>
+        <button type="button" className={btn.primary} disabled={split.isPending || !moving.length || everything || sameDay.length > 0 || badSplit || badDay}
+          onClick={() => split.mutate()} data-testid="split-order-go">
           {split.isPending && <Loader2 className="w-4 h-4 animate-spin" />}<Scissors className="w-4 h-4" />Split into two orders
         </button>
         <button type="button" className={btn.outline} onClick={onClose}>Back</button>
@@ -885,9 +1007,10 @@ function SplitRequestModal({ order, groups, onClose, onSplit }) {
               <div key={l.it.item_id} className="flex flex-wrap items-center gap-2">
                 <span className="flex-1 min-w-[140px] text-sm">
                   {l.it.name} <span className="text-muted-foreground">({fmtNum(l.raw)} {(l.q.pack_name || 'pack').toLowerCase()})</span>
+                  {splitIssue(l) && <span className="block text-xs text-red-700" data-testid="split-qty-problem">{splitIssue(l)}</span>}
                 </span>
                 <span className="text-xs text-muted-foreground">Move</span>
-                <QtyStepper value={moved(l)} step={l.q.order_multiple || 1} label={l.it.name}
+                <QtyStepper value={moved(l)} step={l.q.order_multiple || 1} max={l.raw} label={l.it.name}
                   onChange={v => setMove(m => ({ ...m, [l.it.item_id]: Math.min(v, l.raw) }))} />
                 <button type="button" className={btn.ghost} onClick={() => setMove(m => ({ ...m, [l.it.item_id]: moved(l) >= l.raw ? 0 : l.raw }))}>
                   {moved(l) >= l.raw ? 'None' : 'All'}
@@ -898,8 +1021,10 @@ function SplitRequestModal({ order, groups, onClose, onSplit }) {
               <div className="border-t pt-2 space-y-1">
                 <p className="text-sm font-medium">Second order from {s.name}</p>
                 <DeliveryDayPicker value={days[s.id]} min={order.today} choices={deliveryDateChoices(s, 8)} exclude={first}
-                  onChange={d => setDays(x => ({ ...x, [s.id]: d }))} label={`Second delivery date for ${s.name}`} />
-                {days[s.id] === first && <p className="text-xs text-amber-800">Pick another day than this order's.</p>}
+                  onChange={d => { setDays(x => ({ ...x, [s.id]: d })); setAgreed(a => ({ ...a, [s.id]: false })) }} label={`Second delivery date for ${s.name}`} />
+                {days[s.id] === first
+                  ? <p className="text-xs text-amber-800">Pick another day than this order's.</p>
+                  : <DayCheck supplier={s} date={days[s.id]} now={now} agreed={agreed[s.id]} onAgree={v => setAgreed(a => ({ ...a, [s.id]: v }))} />}
               </div>
             )}
           </div>
@@ -1056,13 +1181,22 @@ function PoDetail({ poId, meta, phone, onBack, onOpenPo }) {
   const [splitting, setSplitting] = useState(false)
   const [splitDone, setSplitDone] = useState(null)
   const [priceList, setPriceList] = useState(false)
+  // A new delivery day the supplier can't make waits here for "Agreed with
+  // them" (or is dropped): { date, problem }.
+  const [dateAsk, setDateAsk] = useState(null)
   const done = saved => {
     qc.setQueryData(['purchase-order', poId], saved)
     qc.invalidateQueries({ queryKey: ['purchase-orders'] })
   }
   const send = useMutation({ mutationFn: () => api.post(`/purchasing/pos/${poId}/send`), onSuccess: done, onError: () => qc.invalidateQueries({ queryKey: ['purchase-order', poId] }) })
   const cancel = useMutation({ mutationFn: () => api.post(`/purchasing/pos/${poId}/cancel`), onSuccess: done })
-  const patch = useMutation({ mutationFn: body => api.patch(`/purchasing/pos/${poId}`, body), onSuccess: done })
+  const patch = useMutation({ mutationFn: body => api.patch(`/purchasing/pos/${poId}`, body), onSuccess: saved => { done(saved); setDateAsk(null) } })
+  const changeDate = d => {
+    if (!d || d === po.delivery_date) return
+    const problem = deliveryDayProblem(po, d, nowAt(po.timezone), po.supplier_name)
+    if (problem) setDateAsk({ date: d, problem })
+    else patch.mutate({ delivery_date: d })
+  }
   const saveQty = useMutation({
     mutationFn: () => api.put(`/purchasing/pos/${poId}/lines`, {
       lines: Object.entries(editQty).map(([id, qty]) => ({ id, qty })),
@@ -1105,8 +1239,9 @@ function PoDetail({ poId, meta, phone, onBack, onOpenPo }) {
   const open = ['to_send', 'sent'].includes(po.status)
   const editing = editQty != null
   // While changing the order, the totals it will come to.
+  const editedQty = l => (editQty[l.id] == null || editQty[l.id] === l.qty ? l.qty : fitQty(editQty[l.id], l))
   const draft = editing && prices && po.total != null ? orderTotals([
-    ...po.lines.filter(l => !l.added_on_receipt).map(l => ({ price: l.price, vat_rate: l.vat_rate, qty: editQty[l.id] ?? l.qty })),
+    ...po.lines.filter(l => !l.added_on_receipt).map(l => ({ price: l.price, vat_rate: l.vat_rate, qty: editedQty(l) })),
     ...added.map(x => ({ price: x.quote.price, vat_rate: x.quote.vat_rate, qty: fitQty(x.qty, x.quote) })),
   ], po.delivery_charge) : null
   const shown = draft || po
@@ -1126,9 +1261,25 @@ function PoDetail({ poId, meta, phone, onBack, onOpenPo }) {
         <div className="flex flex-wrap items-center gap-3">
           <span className="text-sm text-muted-foreground">Delivery</span>
           {open && canOrder
-            ? <DateButton value={po.delivery_date} onChange={d => patch.mutate({ delivery_date: d })} label="Delivery date" />
+            ? <DateButton value={po.delivery_date} min={po.today} onChange={changeDate} label="Delivery date" />
             : <span className="font-medium">{fmtDateLong(po.delivery_date)}</span>}
         </div>
+        {dateAsk && (
+          <div className={cn('rounded-lg border px-3 py-2 text-sm space-y-2',
+            dateAsk.problem.code === 'past' ? 'bg-red-50 border-red-200 text-red-800' : 'bg-amber-50 border-amber-200 text-amber-900')}
+            data-testid="po-date-problem" data-problem={dateAsk.problem.code}>
+            <p className="flex items-start gap-1.5"><AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />{dateAsk.problem.message}.</p>
+            <div className="flex flex-wrap gap-2">
+              {dateAsk.problem.code !== 'past' && (
+                <button type="button" className={btn.primary} disabled={patch.isPending} data-testid="po-date-agreed"
+                  onClick={() => patch.mutate({ delivery_date: dateAsk.date, agreed: true })}>
+                  {patch.isPending && <Loader2 className="w-4 h-4 animate-spin" />}Agreed with {po.supplier_name}: move it to {fmtDate(dateAsk.date)}
+                </button>
+              )}
+              <button type="button" className={btn.outline} onClick={() => setDateAsk(null)}>Keep {fmtDate(po.delivery_date)}</button>
+            </div>
+          </div>
+        )}
         <p className="text-sm text-muted-foreground">
           {po.requested_by && <>Asked for by {po.requested_by}<br /></>}
           Placed {new Date(po.created_at).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}{po.created_by ? ` by ${po.created_by}` : ''}
@@ -1245,15 +1396,21 @@ function PoDetail({ poId, meta, phone, onBack, onOpenPo }) {
                   </p>
                 )}
                 {editing && !((editQty[l.id] ?? l.qty) > 0) && <p className="text-xs text-red-700">Comes off the order when you save</p>}
+                {editing && (editQty[l.id] ?? l.qty) !== l.qty && qtyProblem(editQty[l.id], l) && (
+                  <p className="text-xs text-amber-700" data-testid="po-line-qty-problem">
+                    {qtyProblem(editQty[l.id], l)}: will order {fmtNum(fitQty(editQty[l.id], l))}
+                  </p>
+                )}
               </div>
               {editing ? (
-                <QtyStepper value={editQty[l.id] ?? l.qty} onChange={v => setEditQty(e => ({ ...e, [l.id]: v }))} label={l.item_name} />
+                <QtyStepper value={editQty[l.id] ?? l.qty} onChange={v => setEditQty(e => ({ ...e, [l.id]: v }))} label={l.item_name}
+                  step={l.order_multiple || 1} min={l.min_qty || 0} />
               ) : (
                 <span className="text-sm tabular-nums font-medium">× {fmtNum(l.added_on_receipt ? l.received_qty ?? 0 : l.qty)}</span>
               )}
               {prices && l.price != null && (
                 <span className={cn('w-24 text-right text-sm tabular-nums', l.added_on_receipt && 'text-blue-900')}>
-                  {money(lineAmounts(l.added_on_receipt ? addedAsLine(l) : editing ? { ...l, qty: editQty[l.id] ?? l.qty } : l).net)}
+                  {money(lineAmounts(l.added_on_receipt ? addedAsLine(l) : editing ? { ...l, qty: editedQty(l) } : l).net)}
                 </span>
               )}
               {editing && added.length > 0 && <span className="hidden sm:block w-11 shrink-0" aria-hidden="true" />}
@@ -1269,7 +1426,7 @@ function PoDetail({ poId, meta, phone, onBack, onOpenPo }) {
                   <p className="text-xs text-muted-foreground">{[x.quote.supplier_code, x.quote.pack_label].filter(Boolean).join(' · ')}</p>
                   {problem && <p className="text-xs text-amber-700">{problem}: will order {fmtNum(fitQty(x.qty, x.quote))}</p>}
                 </div>
-                <QtyStepper value={x.qty} step={x.quote.order_multiple || 1} onChange={v => setAddedQty(x.quote.id, v)} label={x.item.name} />
+                <QtyStepper value={x.qty} step={x.quote.order_multiple || 1} min={x.quote.min_qty || 0} onChange={v => setAddedQty(x.quote.id, v)} label={x.item.name} />
                 {prices && x.quote.price != null && (
                   <span className="w-24 text-right text-sm tabular-nums">
                     {money(lineAmounts({ price: x.quote.price, vat_rate: x.quote.vat_rate, qty: fitQty(x.qty, x.quote) }).net)}
@@ -1416,14 +1573,22 @@ function SplitPoModal({ po, onClose, onSplit }) {
   const api = useApi()
   const [move, setMove] = useState({})
   const [day, setDay] = useState(() => po.delivery_choices.find(d => d > po.delivery_date) || addDays(po.delivery_date, 1))
+  const [agreed, setAgreed] = useState(false)
+  const now = nowAt(po.timezone)
   const moved = l => Number(move[l.id]) || 0
   const any = po.lines.some(l => moved(l) > 0)
   const everything = po.lines.every(l => moved(l) >= l.qty)
   const sameDay = day === po.delivery_date
+  // Both parts of a line must stay orderable (the supplier's minimum and steps).
+  const splitIssue = l => splitProblem(l.qty, moved(l), l)
+  const badSplit = po.lines.some(splitIssue)
+  const settings = { ...po, name: po.supplier_name }
+  const badDay = dayBlocked(settings, day, now, agreed)
   const split = useMutation({
     mutationFn: () => api.post(`/purchasing/pos/${po.id}/split`, {
       lines: po.lines.filter(l => moved(l) > 0).map(l => ({ id: l.id, qty: moved(l) })),
       delivery_date: day,
+      ...(agreed && deliveryDayProblem(po, day, now) ? { agreed: true } : {}),
     }),
     onSuccess: onSplit,
   })
@@ -1436,7 +1601,8 @@ function SplitPoModal({ po, onClose, onSplit }) {
   return (
     <Modal title={`Split ${poNumberLabel(po.number)}`} onClose={onClose}
       footer={<>
-        <button type="button" className={btn.primary} disabled={split.isPending || !any || everything || sameDay} onClick={() => split.mutate()}>
+        <button type="button" className={btn.primary} disabled={split.isPending || !any || everything || sameDay || badSplit || badDay}
+          onClick={() => split.mutate()} data-testid="split-po-go">
           {split.isPending && <Loader2 className="w-4 h-4 animate-spin" />}<Scissors className="w-4 h-4" />Split into two orders
         </button>
         <button type="button" className={btn.outline} onClick={onClose}>Back</button>
@@ -1447,9 +1613,13 @@ function SplitPoModal({ po, onClose, onSplit }) {
       <div className="rounded-xl border divide-y">
         {po.lines.map(l => (
           <div key={l.id} className="flex flex-wrap items-center gap-2 px-3 py-2">
-            <span className="flex-1 min-w-[140px] text-sm">{l.item_name} <span className="text-muted-foreground">({fmtNum(l.qty)} × {l.pack_label})</span></span>
+            <span className="flex-1 min-w-[140px] text-sm">
+              {l.item_name} <span className="text-muted-foreground">({fmtNum(l.qty)} × {l.pack_label})</span>
+              {splitIssue(l) && <span className="block text-xs text-red-700" data-testid="split-qty-problem">{splitIssue(l)}</span>}
+            </span>
             <span className="text-xs text-muted-foreground">Move</span>
-            <QtyStepper value={moved(l)} label={l.item_name} onChange={v => setMove(m => ({ ...m, [l.id]: Math.min(v, l.qty) }))} />
+            <QtyStepper value={moved(l)} label={l.item_name} step={l.order_multiple || 1} max={l.qty}
+              onChange={v => setMove(m => ({ ...m, [l.id]: Math.min(v, l.qty) }))} />
             <button type="button" className={btn.ghost} onClick={() => setMove(m => ({ ...m, [l.id]: moved(l) >= l.qty ? 0 : l.qty }))}>
               {moved(l) >= l.qty ? 'None' : 'All'}
             </button>
@@ -1459,8 +1629,10 @@ function SplitPoModal({ po, onClose, onSplit }) {
       <div className="space-y-1">
         <p className="text-sm font-medium">Second order's delivery <span className="font-normal text-muted-foreground">(this one: {fmtDate(po.delivery_date)})</span></p>
         <DeliveryDayPicker value={day} min={po.today} choices={po.delivery_choices || []} exclude={po.delivery_date}
-          onChange={setDay} label="Second delivery date" />
-        {sameDay && <p className="text-xs text-amber-800">Pick another day than this order's.</p>}
+          onChange={d => { setDay(d); setAgreed(false) }} label="Second delivery date" />
+        {sameDay
+          ? <p className="text-xs text-amber-800">Pick another day than this order's.</p>
+          : <DayCheck supplier={settings} date={day} now={now} agreed={agreed} onAgree={setAgreed} />}
       </div>
       {everything && <p className="text-sm text-amber-800">That moves the whole order: change its delivery day instead.</p>}
       <p className="text-sm text-muted-foreground">{how}</p>

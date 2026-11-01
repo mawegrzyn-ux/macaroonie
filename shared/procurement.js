@@ -189,14 +189,64 @@ export function fitQty(qty, quote) {
   return round4(q)
 }
 
-/** Why a quantity can't be ordered on this quote, or null. */
-export function qtyProblem(qty, quote) {
+/** What stops a quantity on this quote: { kind: 'min' | 'step', value }, or null. */
+function qtyIssue(qty, quote) {
   const q = num(qty)
   if (q <= 0) return null
   const min = num(quote?.min_qty), mult = num(quote?.order_multiple)
-  if (min > 0 && q < min - 1e-9) return `Minimum ${fmtNum(min)}`
-  if (mult > 0 && Math.abs(q / mult - Math.round(q / mult)) > 1e-6) return `In steps of ${fmtNum(mult)}`
+  if (min > 0 && q < min - 1e-9) return { kind: 'min', value: min }
+  if (mult > 0 && Math.abs(q / mult - Math.round(q / mult)) > 1e-6) return { kind: 'step', value: mult }
   return null
+}
+
+/** Why a quantity can't be ordered on this quote, or null. */
+export function qtyProblem(qty, quote) {
+  const i = qtyIssue(qty, quote)
+  if (!i) return null
+  return i.kind === 'min' ? `Minimum ${fmtNum(i.value)}` : `In steps of ${fmtNum(i.value)}`
+}
+
+// "would be below the minimum of 20" / "wouldn't be in steps of 2"; both:
+// "would both be below the minimum of 20".
+const issueWords = (i, both) => (i.kind === 'min'
+  ? `would ${both ? 'both ' : ''}be below the minimum of ${fmtNum(i.value)}`
+  : `wouldn't be in steps of ${fmtNum(i.value)}`)
+
+/**
+ * Why moving `moved` of a line of `total` packs to another order leaves
+ * either part below the quote's minimum or off its steps, or null (moving
+ * none or all of it is always fine): splitting a minimum of 20 into 10 + 10
+ * leaves both orders below it.
+ */
+export function splitProblem(total, moved, quote) {
+  const t = num(total), m = num(moved)
+  if (m <= 0 || m >= t - 1e-9) return null
+  const keep = round4(t - m)
+  const a = qtyIssue(m, quote), b = qtyIssue(keep, quote)
+  if (!a && !b) return null
+  if (a && b) {
+    return a.kind === b.kind && a.value === b.value
+      ? `${fmtNum(keep)} left and ${fmtNum(m)} moved ${issueWords(a, true)}`
+      : `${fmtNum(keep)} left ${issueWords(b)} and ${fmtNum(m)} moved ${issueWords(a)}`
+  }
+  return b ? `${fmtNum(keep)} left ${issueWords(b)}` : `${fmtNum(m)} moved ${issueWords(a)}`
+}
+
+/**
+ * The packs of `to` holding at least what `qty` packs of `from` held
+ * (3 x 5 kg is 15 kg: 2 x 10 kg), then up to to's minimum and steps:
+ * changing supplier or pack never changes the amount by surprise. Without
+ * both pack sizes, the same count fitted to `to`.
+ */
+export function convertQty(qty, from, to) {
+  const q = num(qty)
+  if (q <= 0) return 0
+  const a = num(from?.pack_base_qty), b = num(to?.pack_base_qty)
+  if (!(a > 0) || !(b > 0) || Math.abs(a - b) < 1e-9) return fitQty(q, to)
+  const raw = q * a / b
+  const step = num(to?.order_multiple)
+  // Whole packs, unless the quote is ordered in steps under one pack.
+  return fitQty(step > 0 && step < 1 ? raw : Math.ceil(raw - 1e-9), to)
 }
 
 /** Packs a par (in base units) comes to on a quote, e.g. 1.5. */
@@ -289,6 +339,92 @@ export function deliveryDateChoices({ delivery_days, next_delivery }, count = 4)
     d = addDays(d, 1)
   }
   return out
+}
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const DAY_PLURALS = ['Sundays', 'Mondays', 'Tuesdays', 'Wednesdays', 'Thursdays', 'Fridays', 'Saturdays']
+
+/** "Tue 4 Nov" for a YYYY-MM-DD date. */
+export function dayText(dateStr) {
+  const [y, m, d] = String(dateStr || '').split('-').map(Number)
+  if (!y || !m || !d) return String(dateStr || '')
+  return `${DAY_LABELS[weekdayOf(dateStr)]} ${d} ${MONTHS[m - 1]}`
+}
+
+/**
+ * The last moment an order can go in for delivery on `date`, with a
+ * supplier's settings for the venue ({ cutoff_time, lead_days },
+ * supplierForVenue()): lead_days before, by the cutoff time; time null =
+ * any time that day (no cutoff). The rule nextDeliveryDate() follows.
+ */
+export function orderDeadline({ cutoff_time, lead_days = 1 } = {}, date) {
+  return { date: addDays(date, -num(lead_days)), time: cutoff_time ? String(cutoff_time).slice(0, 5) : null }
+}
+
+// "today" / "tomorrow" / "yesterday" next to `now` (when given), else "Mon 3 Nov".
+function nearDay(date, now) {
+  if (now?.date) {
+    if (date === now.date) return 'today'
+    if (date === addDays(now.date, 1)) return 'tomorrow'
+    if (date === addDays(now.date, -1)) return 'yesterday'
+  }
+  return dayText(date)
+}
+
+function deadlineWords(d, now) {
+  const day = nearDay(d.date, now)
+  if (!d.time) return `the end of ${day}`
+  return day.includes(' ') ? `${day} ${d.time}` : `${d.time} ${day}`
+}
+
+/**
+ * "order by Mon 3 Nov 18:00", "order by 18:00 tomorrow", "order by the end
+ * of today" (no cutoff). now ({ date } at the venue) gives today and
+ * tomorrow their names.
+ */
+export function deadlineText(settings, date, now) {
+  return 'order by ' + deadlineWords(orderDeadline(settings, date), now)
+}
+
+/**
+ * Whether an order can still be delivered on `date` (now = { date, time }
+ * at the venue): null when it can, else { code, message }:
+ *   past              before today: never
+ *   not_delivery_day  the supplier lists delivery days and this isn't one
+ *   late              its order deadline (orderDeadline()) has passed
+ * Placing for a not_delivery_day or late day needs the person to say it was
+ * agreed with the supplier (the API takes `agreed`); a past day never goes.
+ */
+export function deliveryDayProblem(settings = {}, date, now, name = 'The supplier') {
+  if (!date) return null
+  if (now?.date && date < now.date) return { code: 'past', message: `${dayText(date)} is in the past` }
+  const days = (settings.delivery_days || []).map(Number)
+  if (days.length && !days.includes(weekdayOf(date))) {
+    const list = [1, 2, 3, 4, 5, 6, 0].filter(d => days.includes(d)).map(d => DAY_LABELS[d]).join(', ')
+    return { code: 'not_delivery_day', message: `${name} doesn't deliver on ${DAY_PLURALS[weekdayOf(date)]} (they deliver ${list})` }
+  }
+  if (now?.date) {
+    const dl = orderDeadline(settings, date)
+    if (dl.date < now.date || (dl.date === now.date && dl.time && String(now.time) >= dl.time)) {
+      return {
+        code: 'late',
+        message: dl.time
+          ? `Too late for ${dayText(date)}: ${name}'s cutoff for it was ${deadlineWords(dl, now)}`
+          : `Too late for ${dayText(date)}: it had to be ordered by ${deadlineWords(dl, now)}`,
+      }
+    }
+  }
+  return null
+}
+
+/** The date and time now in a time zone: { date: 'YYYY-MM-DD', time: 'HH:MM' }. */
+export function nowAt(tz, at = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: tz || 'Europe/London', hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit',
+  }).formatToParts(at)
+  const m = Object.fromEntries(parts.map(p => [p.type, p.value]))
+  return { date: `${m.year}-${m.month}-${m.day}`, time: `${m.hour}:${m.minute}` }
 }
 
 /** Is it still before today's cutoff? (null when the supplier has no cutoff.) */

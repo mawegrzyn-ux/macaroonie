@@ -75,21 +75,28 @@ export function NumInput({ value, onChange, className, allowNegative = false, ..
   )
 }
 
-/** − qty + with a typed box in the middle (48px targets). */
-export function QtyStepper({ value, onChange, step = 1, disabled, label, className }) {
+/**
+ * − qty + with a typed box in the middle (48px targets). With `min` (a
+ * supplier's minimum order), + from nothing goes straight to the minimum
+ * and − below it goes to 0: there is no orderable amount in between.
+ * `max` stops + there (moving part of a line).
+ */
+export function QtyStepper({ value, onChange, step = 1, min = 0, max = null, disabled, label, className }) {
   const v = Number(value) || 0
+  const r = n => Math.round(n * 1000) / 1000
+  const lo = Number(min) || 0
+  const up = () => onChange(max != null ? Math.min(max, v < lo ? lo : r(v + step)) : v < lo ? lo : r(v + step))
+  const down = () => { const n = r(v - step); onChange(n < lo - 1e-9 || n < 0 ? 0 : n) }
   return (
     <div className={cn('inline-flex items-center rounded-xl border bg-background overflow-hidden', className)}>
-      <button type="button" disabled={disabled || v <= 0} aria-label={`Less ${label || ''}`}
-        onClick={() => onChange(Math.max(0, Math.round((v - step) * 1000) / 1000))}
+      <button type="button" disabled={disabled || v <= 0} aria-label={`Less ${label || ''}`} onClick={down}
         className="w-12 h-12 flex items-center justify-center hover:bg-muted disabled:opacity-30 touch-manipulation">
         <Minus className="w-4 h-4" />
       </button>
       <NumInput value={v || null} onChange={n => onChange(n ?? 0)} disabled={disabled} placeholder="0"
         aria-label={label ? `Quantity of ${label}` : 'Quantity'}
         className={cn('w-14 h-12 rounded-none border-0 border-x px-1 text-center text-base font-semibold', v > 0 && 'bg-primary/5')} />
-      <button type="button" disabled={disabled} aria-label={`More ${label || ''}`}
-        onClick={() => onChange(Math.round((v + step) * 1000) / 1000)}
+      <button type="button" disabled={disabled || (max != null && v >= max - 1e-9)} aria-label={`More ${label || ''}`} onClick={up}
         className="w-12 h-12 flex items-center justify-center hover:bg-muted disabled:opacity-30 touch-manipulation">
         <Plus className="w-4 h-4" />
       </button>

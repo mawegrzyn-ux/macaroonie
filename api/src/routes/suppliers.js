@@ -11,6 +11,7 @@ import { z }          from 'zod'
 import { withTenant } from '../config/db.js'
 import { requireAuth, requirePermission } from '../middleware/auth.js'
 import { httpError }  from '../middleware/error.js'
+import { openOrderVenues } from '../services/purchasingSvc.js'
 
 const uuid = z.string().uuid()
 const optText = (max = 500) => z.string().trim().max(max).nullable().optional()
@@ -131,6 +132,13 @@ export default async function supplierRoutes(app) {
     if (!s) throw httpError(404, 'Supplier not found')
     const [po] = await tx`SELECT 1 FROM purchase_orders WHERE supplier_id = ${s.id} AND tenant_id = ${req.tenantId} LIMIT 1`
     if (po) throw httpError(409, 'This supplier has orders. Switch it off instead of deleting it.')
+    // Its prices go with it: not while an open order has a quantity on one.
+    const quoteIds = (await tx`SELECT id FROM inv_quotes WHERE supplier_id = ${s.id} AND tenant_id = ${req.tenantId}`).map(q => q.id)
+    const venues = await openOrderVenues(tx, req.tenantId, quoteIds)
+    if (venues.length) {
+      throw httpError(409, `This supplier's prices are on an open order at ${venues.join(', ')}. Switch the supplier off instead: those orders then ask for another price.`,
+        { code: 'on_open_order' })
+    }
     await tx`DELETE FROM suppliers WHERE id = ${s.id} AND tenant_id = ${req.tenantId}`
     return { ok: true }
   }))
