@@ -250,8 +250,14 @@ test('create: the location is copied whole, pointing only at its own rows', asyn
   assert.ok(devices.every(d => d.secret_hash === null && d.paired_at === null), 'devices wait to be linked')
   const [ordering] = await sql`SELECT is_enabled FROM ordering_settings WHERE venue_id = ${V}`
   assert.equal(ordering.is_enabled, false, 'ordering stays off until opening')
-  const [sv] = await sql`SELECT account_ref FROM supplier_venues WHERE venue_id = ${V}`
+  const [sv] = await sql`
+    SELECT account_ref, delivery_phone, driver_instructions, slot_from::text AS slot_from, lead_days
+      FROM supplier_venues WHERE venue_id = ${V}`
   assert.equal(sv.account_ref, null, 'supplier account numbers aren\'t copied')
+  assert.equal(sv.delivery_phone, null, 'nor the delivery phone')
+  assert.equal(sv.driver_instructions, null, 'nor the driver instructions')
+  assert.equal(String(sv.slot_from).slice(0, 5), '07:00', 'the slot is')
+  assert.equal(sv.lead_days, 1, 'and the days\' notice')
   const [par] = await sql`SELECT p.par_base::float8 AS mine, t.par_base::float8 AS theirs FROM order_list_pars p JOIN order_list_pars t ON t.list_item_id = p.list_item_id AND t.venue_id = ${ware} WHERE p.venue_id = ${V}`
   assert.equal(par.mine, par.theirs * 1.5, 'pars scaled')
   const [web] = await sql`SELECT address_line1, city, postcode FROM website_config WHERE venue_id = ${V}`

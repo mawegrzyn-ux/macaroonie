@@ -37,7 +37,7 @@ const GROUPS = [
 
 const KIND_ICON = {
   fridge_check: Thermometer, hold_check: Thermometer, cooking_check: Flame, corrective_action: AlertTriangle,
-  checklist: ListChecks, hs_action: ClipboardList, po_to_send: Send, delivery_due: Truck,
+  checklist: ListChecks, hs_action: ClipboardList, po_to_send: Send, delivery_due: Truck, delivery_not_booked: Truck,
   orders_to_approve: ClipboardList, cash_up: Wallet, online_orders: ShoppingBag,
 }
 

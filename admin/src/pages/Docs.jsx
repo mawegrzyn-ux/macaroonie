@@ -3133,15 +3133,15 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               rows={[
                 ['inv_categories', 'Tenant-wide, reorderable. 12 defaults (migration 153 for existing tenants, seedInventoryCategories() for new ones).'],
                 ['inv_items', 'name, category, base_unit (g | ml | each), storage (ambient | chilled | frozen), code, notes, is_active. No price.'],
-                ['suppliers', 'Contact, email + cc_emails, account_ref, send_method (email | print | excel | pdf), email_attachment (none | pdf | excel), cutoff_time, lead_days, delivery_days int[] (0 = Sunday), min_order, delivery_charge.'],
-                ['supplier_venues', 'Per-venue account_ref, delivery_days, cutoff_time; null = the supplier\'s own.'],
+                ['suppliers', 'Contact, email + cc_emails, account_ref, send_method (email | print | excel | pdf), email_attachment (none | pdf | excel), cutoff_time, lead_days, delivery_days int[] (0 = Sunday), min_order, delivery_charge, ref_required (migration 233: marking an order sent needs their supplier_ref).'],
+                ['supplier_venues', 'Per-venue account_ref, delivery_days, cutoff_time, lead_days (migration 233, 0-30); null = the supplier\'s own. Delivery details that exist only per venue (migration 233): delivery_phone, driver_instructions, slot_from / slot_to (time; either may be null, from < to).'],
                 ['inv_quotes', 'An item as one supplier sells it: supplier_code, product_name (the supplier\'s own name or brand, migration 197; copied onto PO lines and printed on the supplier\'s copy), pack_name, pack_count x pack_qty pack_unit, pack_base_qty (base units per pack, computed by packBaseQty()), price per pack ex VAT, vat_rate, min_qty, order_multiple, is_active. Several per supplier allowed (two brands = two quotes).'],
                 ['inv_quote_venue_prices', 'A venue\'s own price for a quote.'],
                 ['inv_price_history', 'Every price a quote had (venue_id null = company price), source manual | import | invoice; po_id for a change made from a delivery\'s invoice (migration 197).'],
                 ['inv_preferred', 'Chosen quote per item: venue_id null = company default, else per venue. Partial unique indexes.'],
                 ['order_lists / order_list_venues / order_list_items / order_list_pars', 'Mixed-supplier lists, the venues on each, items in order, par per venue in BASE units (so a pack change keeps it).'],
-                ['supply_orders / supply_order_lines', 'A venue filling in a list: draft, requested (waiting for approval, migration 180) or submitted. requested_by / requested_at, requested_lines ({ item_id: { qty, quote_id } }: what was asked for), supplier_options ({ supplier_id: { delivery_date, notes } } wanted), returned_by / returned_at / return_note (last sent back), split_from. Lines keep qty in packs of quote_id (null = the resolved choice).'],
-                ['purchase_orders', 'One per supplier per submitted order. number (per tenant, PO-00012), status to_send | sent | received | cancelled, delivery_date, totals, sent_at/by/via/to, send_error, received_at/by, is_generated; requested_by (who asked, when it went through approval), amended_at / amended_by (changed after sending: a split), split_from (migration 180).'],
+                ['supply_orders / supply_order_lines', 'A venue filling in a list: draft, requested (waiting for approval, migration 180) or submitted. requested_by / requested_at, requested_lines ({ item_id: { qty, quote_id } }: what was asked for), supplier_options ({ supplier_id: { delivery_date, notes } } wanted), returned_by / returned_at / return_note (last sent back), split_from, added_to_po_ids uuid[] (open purchase orders its lines were added to when placed, migration 233). Lines keep qty in packs of quote_id (null = the resolved choice).'],
+                ['purchase_orders', 'One per supplier per submitted order. number (per tenant, PO-00012), status to_send | sent | received | cancelled, delivery_date, totals, sent_at/by/via/to, send_error, received_at/by, is_generated; requested_by (who asked, when it went through approval), amended_at / amended_by (changed after sending: a split), split_from (migration 180); supplier_ref (the supplier\'s own order reference, migration 233, indexed on lower()); sent_via email | print | excel | pdf | phone | website | other.'],
                 ['purchase_order_lines', 'Copies of name, category, storage, product_name, pack label, pack_base_qty, price, VAT at ordering time; qty; received_qty, receive_status, receive_note. Migration 197: invoice_id, invoice_name, invoice_code, invoice_pack, invoice_price (per pack ex VAT), invoice_vat_rate (what the invoice said); added_on_receipt (arrived but not ordered: qty 0, the qty CHECK allows 0 only for these); pack_spec { name, count, qty, unit } (the pack as invoiced, for adding it to the price list).'],
                 ['purchase_invoices', 'An invoice read by Pepper while booking in (migration 197, forced RLS): po_id, files [{ name, url, media_type, bytes }] (storage kind invoices), supplier_name, invoice_number, invoice_date, prices_include_vat, subtotal, vat, delivery_charge, total, lines (jsonb, toInvoice() output), notes, read_by / read_at, applied_by / applied_at (set when a receive uses it).'],
                 ['fs_delivery_checks.purchase_order_id', 'The H&S delivery check written by receiving (unique per PO).'],
@@ -3275,7 +3275,84 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               Emails go through the venue's provider (<Mono>venue_email_settings</Mono>,{' '}
               <Mono>emailCredentials()</Mono>); <Mono>sendEmail()</Mono> now takes <Mono>cc</Mono> and{' '}
               <Mono>attachments</Mono> for every provider (SES switches to a raw MIME message when there are
-              attachments). <Mono>POST /pos/:id/mark-sent</Mono> records print / PDF / Excel / phone sends.
+              attachments). <Mono>POST /pos/:id/mark-sent</Mono> records print / PDF / Excel / phone / website
+              sends, with the supplier's reference and an earlier send time (below).
+            </P>
+            <H3>Delivery details, the duplicate guard and sent tracking (migration 233)</H3>
+            <P>
+              <Mono>supplierForVenue(supplier, venueRow)</Mono> (<Mono>shared/procurement.js</Mono>) gives the
+              venue's <Mono>lead_days</Mono> before the supplier's, so <Mono>nextDeliveryDate()</Mono>,{' '}
+              <Mono>deliveryDayProblem()</Mono> and the order form follow a venue that needs more (or less)
+              notice, and adds <Mono>delivery_phone</Mono>, <Mono>driver_instructions</Mono>,{' '}
+              <Mono>slot_from</Mono> / <Mono>slot_to</Mono> (HH:MM). <Mono>slotText()</Mono> words the slot
+              ("07:00-10:00", "from 07:00", "by 10:00"). <Mono>loadSuppliersForVenue()</Mono> and{' '}
+              <Mono>loadPo()</Mono> carry them (the PO with the venue's details as they are now);{' '}
+              <Mono>poHtml()</Mono> / <Mono>poXlsx()</Mono> / <Mono>poPdf()</Mono> and the email print the slot,
+              the delivery phone (<Mono>deliveryPhone()</Mono>: the venue row's, else the venue's own phone from
+              its website settings) and "Your ref". <Mono>GET /pos/:id</Mono> adds <Mono>deliver_to</Mono>{' '}
+              (name, address lines, city, postcode, phone from <Mono>loadVenue()</Mono>) for{' '}
+              <Mono>checkoutText(po, venue)</Mono>: Account, Deliver to, Delivery (day, slot), Phone, Instructions
+              (the PO's notes, else the driver instructions), Our order, one per line.
+            </P>
+            <P>
+              <strong>Notes.</strong> On submit a supplier whose options (the request's, then the body's) have no{' '}
+              <Mono>notes</Mono> key gets the venue's <Mono>driver_instructions</Mono>; a key set to empty stays
+              empty. <Mono>/request</Mono> stores the key only when the body sends it, so a cleared note survives
+              approval. The admin's Place order window starts the note the same way (<Mono>noteFor()</Mono>).
+            </P>
+            <P>
+              <strong>Duplicate guard.</strong> Per supplier, after <Mono>checkDeliveryDay()</Mono>,{' '}
+              <Mono>openPoFor()</Mono> takes an advisory lock on venue + supplier and looks for a{' '}
+              <Mono>to_send</Mono> or <Mono>sent</Mono> PO for that day (<Mono>to_send</Mono> first, then the
+              lowest number). Without an answer in <Mono>suppliers[id].existing</Mono> nothing is placed: 409 code{' '}
+              <Mono>po_exists</Mono> with <Mono>{'conflicts: [{ supplier_id, po_id, po_number, po_status, delivery_date }]'}</Mono>{' '}
+              for every such supplier. <Mono>existing: 'separate'</Mono> places a new PO as before;{' '}
+              <Mono>'add'</Mono> runs <Mono>addToPo()</Mono> (422 code <Mono>po_sent</Mono> once that PO has
+              gone): a quote already on it (not <Mono>added_on_receipt</Mono>) is topped up to{' '}
+              <Mono>fitQty(qty + added)</Mono>, others are new lines copied like{' '}
+              <Mono>createPurchaseOrder()</Mono>, the note is appended unless already there, totals recalculated;
+              its id goes into the order's <Mono>added_to_po_ids</Mono> and the reply's <Mono>added_to</Mono>, and
+              it is emailed whole after commit when the supplier takes email. <Mono>poList()</Mono> by supply
+              order and <Mono>GET /orders</Mono>'s <Mono>po_count</Mono> include the POs added to.{' '}
+              <Mono>loadOrder()</Mono> returns <Mono>open_pos</Mono> (the venue's <Mono>to_send</Mono> /{' '}
+              <Mono>sent</Mono> POs from today for the order's suppliers) so the window asks before placing
+              (<Mono>openPoOn()</Mono>, <Mono>OpenPoChoice</Mono>: Add to / Separate order for one not sent,
+              Place a second order for one sent; Place waits for an answer and refetches the order on a 409).
+            </P>
+            <P>
+              <strong>Sent tracking.</strong> <Mono>POST /pos/:id/mark-sent</Mono> takes{' '}
+              <Mono>supplier_ref</Mono> (422 code <Mono>supplier_ref</Mono> without it when the supplier is{' '}
+              <Mono>ref_required</Mono>) and <Mono>sent_at</Mono> (ISO with offset; 422 code <Mono>sent_at</Mono>{' '}
+              when over 5 minutes ahead, older than <Mono>SENT_AT_DAYS</Mono> 14, or before the minute the order
+              was made); <Mono>via</Mono> may be <Mono>website</Mono>. <Mono>PATCH /pos/:id</Mono> sets or clears{' '}
+              <Mono>supplier_ref</Mono> on any status but cancelled. <Mono>GET /pos?q=</Mono> finds POs by part of
+              the reference (case-insensitive) or the PO number (PO-00012 or 12); <Mono>order=asc</Mono> lists
+              soonest delivery first. <Mono>poList()</Mono> rows carry <Mono>venue_timezone</Mono>,{' '}
+              <Mono>supplier_ref</Mono>, <Mono>ref_required</Mono> and the effective <Mono>cutoff_time</Mono> /{' '}
+              <Mono>lead_days</Mono> / <Mono>delivery_days</Mono> at the venue, so the admin's{' '}
+              <Mono>poLateness()</Mono> marks a card Past their cutoff (<Mono>to_send</Mono> and{' '}
+              <Mono>deadlinePassed()</Mono>, the same rule as the <Mono>late</Mono> day problem) or Not booked in
+              (<Mono>sent</Mono>, delivery day before the venue's today).
+            </P>
+            <P>
+              Admin: Suppliers page <Mono>VenuesCard</Mono> (days' notice Same / Own, delivery phone, slot with{' '}
+              <Mono>OptionalTime</Mono> selects, driver instructions; Save waits while a slot ends before it
+              starts) and the <Mono>ref_required</Mono> switch in <Mono>OrderingCard</Mono>;{' '}
+              <Mono>ReviewModal</Mono> (<Mono>DeliveryDetails</Mono>, <Mono>OpenPoChoice</Mono>),{' '}
+              <Mono>PlacedView</Mono> (added to), <Mono>PoDetail</Mono> (<Mono>PoDeliveryDetails</Mono>,{' '}
+              <Mono>SupplierRefRow</Mono> with its own Save, <Mono>CheckoutCopyModal</Mono> with Copy all and a
+              copy button per line, <Mono>copyText()</Mono> falling back to a selected text box),{' '}
+              <Mono>MarkSentModal</Mono> (reference, Just now / Earlier with a datetime-local and{' '}
+              <Mono>sentAtProblem()</Mono>), <Mono>Deliveries</Mono> search box. Pepper: <Mono>order_form</Mono>{' '}
+              shows each supplier's slot, phone, instructions and open orders; <Mono>place_order</Mono>{' '}
+              takes <Mono>deliveries[].existing_order</Mono> (<Mono>add_to_it</Mono> | <Mono>separate</Mono>) and
+              notes (the instructions by default), checking the day before the open order;{' '}
+              <Mono>send_purchase_order</Mono> takes <Mono>supplier_ref</Mono> and <Mono>sent_on</Mono> /{' '}
+              <Mono>sent_time</Mono> (venue time, refused for an email); <Mono>change_purchase_order</Mono> sets{' '}
+              <Mono>supplier_ref</Mono>; <Mono>purchase_orders</Mono> finds by <Mono>supplier_ref</Mono> and lists{' '}
+              <Mono>late</Mono> ones; the day briefing has <Mono>orders_running_late</Mono>. A new location copies{' '}
+              <Mono>supplier_venues</Mono> without the account number, delivery phone and driver instructions.
+              Tests: <Mono>api/test/purchasing-delivery.test.mjs</Mono>, <Mono>shared/test/procurement.test.mjs</Mono>.
             </P>
             <H3>Changing an order not yet sent</H3>
             <P>
@@ -6257,13 +6334,13 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['find_inventory_items', 'setup view', 'GET /inventory/items, /quotes/:id/history', 'Search name/code words, category, supplier; venue_id adds ordered_at_venue (chooseQuote); history when 5 or fewer match. 40 shown'],
                 ['list_suppliers', 'setup view', 'GET /suppliers, /suppliers/:id', 'One supplier: venue settings and up to 150 products'],
                 ['order_lists', 'either view (a list\'s items: setup view)', 'GET /purchasing/lists, /lists/:id', 'Pars shown in packs of the company-choice quote'],
-                ['order_form', 'either view', 'GET /orders?status=draft, GET /orders/:id, POST /orders', 'Opens the venue\'s draft for the list (named, the venue\'s only list, or without_list); makes an empty draft only with purchasing manage, like opening the list on the page. Not a confirm tool'],
-                ['purchase_orders', 'either view', 'GET /pos, /pos/:id', 'po = PO-00012, 12 or an id (resolved with a tenant filter); status open = to_send,sent'],
+                ['order_form', 'either view', 'GET /orders?status=draft, GET /orders/:id, POST /orders', 'Opens the venue\'s draft for the list (named, the venue\'s only list, or without_list); makes an empty draft only with purchasing manage, like opening the list on the page. Each supplier says its next delivery day and deadline, how orders go, the delivery slot (slotText()), delivery phone and driver instructions for the venue, whether marking sent needs their reference, and open_orders (the venue\'s open purchase orders from them, from loadOrder()\'s open_pos). Not a confirm tool'],
+                ['purchase_orders', 'either view', 'GET /pos, /pos/:id', 'po = PO-00012, 12 or an id (resolved with a tenant filter); status open = to_send,sent; supplier_ref searches the supplier\'s reference (q on GET /pos, part of it is enough); late: true lists only purchase orders running late (lateOrders(): still to send once deadlinePassed() for their day at the venue\'s time, or sent and not booked in after their delivery day, as Today flags them). Rows carry supplier_ref; one PO in full adds its delivery slot and phone. Also a day_briefing part (orders_running_late)'],
                 ['add_inventory_item', 'setup manage', 'POST /categories, /items, /items/:id/quotes', 'Up to 5 prices; base unit from counted_in or the first pack unit; unknown category is made, unknown supplier refused'],
                 ['update_inventory_item', 'setup manage', 'PATCH /items/:id', 'Only changed fields are sent; counted_in refused while it has quotes'],
                 ['add_supplier_price / update_supplier_price', 'setup manage', 'POST /items/:id/quotes, PATCH /quotes/:id, PUT /quotes/:id/venue-prices', 'A price is item + supplier (+ which: supplier code or pack words); a same-pack duplicate is refused; 20% or bigger price changes warn on the card'],
                 ['set_preferred_supplier', 'setup manage', 'PUT /items/:id/preferred', 'venue_id or company; clear: true'],
-                ['add_supplier / update_supplier', 'setup manage', 'POST, PATCH /suppliers, PUT /suppliers/:id/venues', 'Days as names; a venue setting is merged into the full PUT list (the route replaces all)'],
+                ['add_supplier / update_supplier', 'setup manage', 'POST, PATCH /suppliers, PUT /suppliers/:id/venues', 'Days as names; ref_required (marking sent needs their reference); a venue setting (account, days, cutoff, lead days, delivery phone, driver instructions, slot from / to) is merged into the full PUT list (the route replaces all)'],
                 ['create_order_list / update_order_list / set_pars', 'setup manage', 'POST, PATCH /lists, PUT /lists/:id/venues|items|pars', 'Items by name or code, every unknown name in one error; pars in packs (company-choice quote) or g/kg/ml/cl/l/each, stored in base units'],
                 ['import_price_list', 'setup manage', 'POST /inventory/import (dry_run on the card)', 'rows (up to 100 per call, read by the model from a PDF, photo or email; a longer list is one call and one card per 100) become a CSV with the template headings; attached_file is a text/CSV ai_attachments row of this conversation and this user (chat only). All rows bad = refused'],
                 ['update_order', 'purchasing or approve manage', 'PUT /orders/:id/lines', 'planOrder(): the venue\'s draft, or order_id (orderVenue(), openOrder()); lines (on the order by code/name, else GET /venues/:id/catalog), supplier/pack switch (a quantity left out converts with convertQty() and the card shows the amount before and after), fill_to_par (packsToPar), clear_all; only changed lines are sent, each with the quote_id the card shows (the API pins it). Lines whose price, supplier or item was switched off are listed under Can\'t be ordered yet. assertCanEdit(): a request waiting for approval only for an approver'],
@@ -6271,9 +6348,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['order_requests', 'any view', 'GET /orders?status=requested|draft, /orders/:id', 'Waiting orders (up to 15 in full: lines with asked_for), sent-back drafts with the reason, you_can_approve. Also a day_briefing part (orders_to_approve)'],
                 ['send_back_order', 'approve manage', 'POST /orders/:id/return', 'order_id + reason'],
                 ['split_order', 'approve manage', 'POST /pos/:id/split | /orders/:id/split', 'po or order_id; lines (item, packs) to move; delivery_date (deliveries[] per supplier for a request); splitPlan() refuses the same day, more than a line holds, the whole order and a split splitProblem() refuses; dayCheck() refuses a past day, and a day the supplier can\'t make unless agreed_with_supplier (top level, or per supplier in deliveries); the card warns when the supplier already has the PO'],
-                ['place_order', 'approve manage (requirePlace(): else "use request_order")', 'PUT /orders/:id/lines, POST /orders/:id/submit', 'The draft, or order_id for a request. Card per supplier: delivery date (deliveries[].date, else the day the request asked for, "(as asked)", else next delivery), how it is sent, lines at fitQty(); warns on rounding, minimum order, a missed cutoff, no email address; dayCheck() (deliveryDayProblem()) refuses a past day, and a day off the delivery days or past its order deadline unless deliveries[].agreed_with_supplier (then a card warning and agreed: true on submit); lines whose price was switched off refuse (lineWarnings()). Only overrides and notes are sent, so the route still picks the date at run time. The card pins planned_delivery { supplierId: date } for suppliers without a date given; run() refuses (409) when a supplier\'s first delivery day has moved since (a cutoff passed), so the order is never placed for a day the card didn\'t show'],
-                ['send_purchase_order', 'purchasing or approve manage', 'POST /pos/:id/send | /mark-sent', 'email needs an address (resend allowed, warned); other ways need To send'],
-                ['change_purchase_order', 'purchasing or approve manage; lines and add: approve', 'PATCH /pos/:id, PUT /pos/:id/lines', 'Lines and add only while To send; add only from the PO\'s supplier (GET /venues/:id/catalog?supplier_id=); a product already on the order tops its line up, and the card says so; changed quantities show fitQty() (the API rounds them the same way); a new delivery_date goes through dayCheck() (agreed_with_supplier); an empty order is refused'],
+                ['place_order', 'approve manage (requirePlace(): else "use request_order")', 'PUT /orders/:id/lines, POST /orders/:id/submit', 'The draft, or order_id for a request. Card per supplier: delivery date (deliveries[].date, else the day the request asked for, "(as asked)", else next delivery), how it is sent, lines at fitQty(); warns on rounding, minimum order, a missed cutoff, no email address; dayCheck() (deliveryDayProblem()) refuses a past day, and a day off the delivery days or past its order deadline unless deliveries[].agreed_with_supplier (then a card warning and agreed: true on submit); lines whose price was switched off refuse (lineWarnings()). A supplier\'s note is deliveries[].notes, else the one asked for (also when cleared), else the venue\'s driver instructions, and is always sent. After the day check, a supplier with an open purchase order for that day (open_pos) needs deliveries[].existing_order: without it placeChecks() refuses (409) naming the order so the model asks; add_to_it sends existing: add (refused for one already sent), separate sends existing: separate; the card says added to PO-00012 or a separate order beside it, and the result marks added_to_it. Only overrides and notes are sent, so the route still picks the date at run time. The card pins planned_delivery { supplierId: date } for suppliers without a date given; run() refuses (409) when a supplier\'s first delivery day has moved since (a cutoff passed), so the order is never placed for a day the card didn\'t show'],
+                ['send_purchase_order', 'purchasing or approve manage', 'POST /pos/:id/send | /mark-sent, PATCH /pos/:id', 'email needs an address (resend allowed, warned) and goes now (sent_on / sent_time refused); other ways (printed, pdf, excel, phone, website, other) need To send. supplier_ref is required for a supplier with ref_required when marking sent (sendCheck()), and after an email it is saved with a PATCH; sent_on / sent_time (venue time, sentWhen() with zonedInstant()) give when it went, refused when still to come or over 14 days ago (the API checks again: not before the order was made)'],
+                ['change_purchase_order', 'purchasing or approve manage; lines and add: approve', 'PATCH /pos/:id, PUT /pos/:id/lines', 'supplier_ref sets, corrects or (null) clears the supplier\'s reference at any status but cancelled (a reference alone also on a received order, with no tell-the-supplier warning); lines and add only while To send; add only from the PO\'s supplier (GET /venues/:id/catalog?supplier_id=); a product already on the order tops its line up, and the card says so; changed quantities show fitQty() (the API rounds them the same way); a new delivery_date goes through dayCheck() (agreed_with_supplier); an empty order is refused'],
                 ['cancel_purchase_order', 'approve manage', 'POST /pos/:id/cancel', 'Warns to tell the supplier when already sent'],
                 ['receive_delivery', 'purchasing or approve manage', 'POST /pos/:id/receive', 'Lines not named arrived as ordered (or keep what an earlier booking-in recorded); chilled/frozen temperature asked for when such goods arrived; writes fs_delivery_checks'],
               ]}
@@ -6405,7 +6482,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['report_issue / list_issues / request_feature', 'issue_log manage / view, feature_requests manage', 'POST, GET /api/issues, POST /api/feature-requests', 'list_issues keeps only this tenant\'s rows (the route lists every tenant only for a platform admin asking with ?scope=all)'],
                 ['open_page', 'the page\'s own module, view', 'ROUTE_CATALOG (routes/nav.js) + ALSO synonyms', 'Scored match (exact, starts with, word, synonym); only pages the person can view; staff_chat gets a markdown link [Label](/route) that ChatView renders as an in-app Link (only paths starting with one /), MCP gets the full address on officeOrigin(); several matches return choices'],
                 ['how_do_i', 'none (anyone with Pepper; OPEN_TOOLS)', 'searchHelp() in ai/helpIndex.js', 'Up to three Help passages, each with [Help: heading](/help#anchor) in the chat or the full address over MCP; nothing found = answers [] and a note to say so'],
-                ['day_briefing', 'each part its own (the reading tools it calls)', 'day_overview, whos_working, hs_status, purchase_orders, cash_day, online_orders, sold_out, email_log, screens_status (tools/briefing.js PARTS)', 'One venue, default today; a part refused with 403 goes in not_included, any other failure is an error line for that part only'],
+                ['day_briefing', 'each part its own (the reading tools it calls)', 'day_overview, whos_working, hs_status, purchase_orders (due today, and late: true as orders_running_late), order_requests, cash_day, online_orders, sold_out, email_log, screens_status (tools/briefing.js PARTS)', 'One venue, default today; a part refused with 403 goes in not_included, any other failure is an error line for that part only'],
               ]}
             />
             <H3>Help answers, the day briefing and the page note</H3>
@@ -6824,7 +6901,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['food_safety (food_safety)', 'fridge_check and hold_check per check time with units not logged; cooking_check per session short of required_items_count; corrective_action per out-of-range reading or failed delivery with no action', '/api/food-safety equipment, capture-times, temp-logs, hold-stations, hold-capture-times, holds, cooking-sessions, cooking, deliveries'],
                 ['checklists (checklists)', 'checklist per template not completed (daily = now, weekly / monthly = later)', '/api/checklists/due'],
                 ['hs_actions (hs_action_log)', 'hs_action per open entry due today or overdue', '/api/hs-action-log/entries'],
-                ['purchasing (purchasing)', 'po_to_send; delivery_due (sent, delivery today); orders_to_approve (only with purchasing_approve manage)', '/api/purchasing/pos, /api/purchasing/orders'],
+                ['purchasing (purchasing)', 'po_to_send (soonest first; late once deadlinePassed() for its day, listed first); delivery_due (sent, delivery today); delivery_not_booked (sent, delivery day before today: late); orders_to_approve (only with purchasing_approve manage)', '/api/purchasing/pos (order=asc for to_send), /api/purchasing/orders'],
                 ['cash (cash_recon)', "cash_up when yesterday's report isn't submitted and the venue was open (openDatesOrNull())", '/api/venues/:id/cash-recon/daily/:date'],
                 ['online_orders (web_orders)', 'online_orders when orders are placed but not accepted', '/api/orders'],
               ]}

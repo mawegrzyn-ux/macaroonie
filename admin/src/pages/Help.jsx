@@ -226,8 +226,8 @@ export default function Help() {
                 ['Corrective action needed', 'A reading (fridge, hold, cooking or delivery) is out of range with no corrective action'],
                 ['A checklist', 'A checklist due today, this week or this month is not finished'],
                 ['H&S action', 'An open action log entry is due today or overdue'],
-                ['Send the order to...', 'A supplier order is waiting to be sent'],
-                ['Book in the delivery from...', 'A supplier order sent earlier is due to arrive today'],
+                ['Send the order to...', 'A supplier order is waiting to be sent (Late once the supplier\'s cutoff for its delivery day has passed)'],
+                ['Book in the delivery from...', 'A supplier order sent earlier is due to arrive today, or its day has gone and it was never booked in (Late)'],
                 ['Supplier orders waiting for approval', 'Someone asked for an order and you can approve orders'],
                 ['Cash-up not submitted', "Yesterday's cash-up isn't submitted (and the venue was open)"],
                 ['Online orders waiting', 'Online orders are waiting to be accepted'],
@@ -5012,15 +5012,16 @@ export default function Help() {
                 ['Search the inventory', 'Purchasing setup', 'Each item with its supplier prices (pack, price ex VAT, price per kg, litre or each), venue prices, which supplier is chosen, and recent price changes.'],
                 ['Add or change items', 'Purchasing setup', 'Name, category, storage, code, notes, switch off. A new item can come with its first supplier prices.'],
                 ['Add or change supplier prices', 'Purchasing setup', 'Price per pack, pack, VAT, supplier code, the supplier\'s product name (a brand), minimum and steps, a venue\'s own price, and which supplier an item is ordered from (for every venue or one).'],
-                ['Add or change suppliers', 'Purchasing setup', 'Contact details, how orders reach them, cutoff, delivery days, minimum order, delivery charge, and one venue\'s own account number, days or cutoff.'],
+                ['Add or change suppliers', 'Purchasing setup', 'Contact details, how orders reach them, cutoff, delivery days, minimum order, delivery charge, whether marking an order sent needs their reference, and one venue\'s own account number, days, cutoff, days\' notice, delivery phone, slot and driver instructions.'],
                 ['Make and change order lists, set pars', 'Purchasing setup', 'Pars are in packs unless you give kg, litres or each.'],
                 ['Import a price list', 'Purchasing setup', 'Attach a CSV with the import headings, or a PDF, photo or email of the supplier\'s list: Pepper reads the products out of it. The card shows what would be added and changed, and any rows it would skip, before anything is saved.'],
                 ['See and fill in an order', 'Purchasing', 'The venue\'s draft for a list: quantities, pars, last ordered, other suppliers. Quantities are packs (cases, bags), as on the Purchasing page. Nothing is sent until you place it.'],
                 ['Send an order for approval', 'Purchasing', 'For people without Purchasing approval: the card lists the lines and the day wanted from each supplier, and you can add a note for the manager.'],
                 ['See the orders waiting for approval', 'Any purchasing access', 'Who asked and when, the days wanted, each line with what was asked for, and drafts that were sent back with the reason.'],
-                ['Place an order', 'Purchasing approval', 'Your draft, or an order waiting for approval. The card lists each supplier with its delivery date (the day asked for, if any), how the order gets to them and the lines, and warns about rounded-up quantities or a small order. A day the supplier can\'t make (not one of their delivery days, or too late for their cutoff) is refused unless you say it was agreed with them; a line whose price was switched off has to be changed or taken off first.'],
+                ['Place an order', 'Purchasing approval', 'Your draft, or an order waiting for approval. The card lists each supplier with its delivery date (the day asked for, if any), how the order gets to them and the lines, and warns about rounded-up quantities or a small order. A day the supplier can\'t make (not one of their delivery days, or too late for their cutoff) is refused unless you say it was agreed with them; a line whose price was switched off has to be changed or taken off first. The note to each supplier starts as the venue\'s driver instructions. When the venue already has an order from a supplier for that day, Pepper asks whether to add to it or place a separate one.'],
                 ['Change, split or send back an order waiting for approval', 'Purchasing approval', 'Change quantities, move part of it to a second order for another day, or send it back with the reason.'],
-                ['Send, change, split or cancel a purchase order', 'Purchasing (send, date); Purchasing approval (quantities, split, cancel)', 'Email it, or mark it sent by printout, PDF, Excel or phone. Quantities can change while it is waiting to be sent; the date and notes until it is received. A split moves part of it to a second order for another day.'],
+                ['Send, change, split or cancel a purchase order', 'Purchasing (send, date, reference); Purchasing approval (quantities, split, cancel)', 'Email it, or mark it sent by printout, PDF, Excel, phone or their website, with the supplier\'s order reference (needed for suppliers set to need it) and, if it went earlier, when. Quantities can change while it is waiting to be sent; the date and notes until it is received; the supplier\'s reference any time. A split moves part of it to a second order for another day.'],
+                ['Find orders running late', 'Any purchasing access', 'Orders still to send after their cutoff and deliveries never booked in after their day ("which orders are late?"). Also in the day briefing. A purchase order can be found by the supplier\'s reference.'],
                 ['Book a delivery in', 'Purchasing', 'Say what was short or missing and the probe temperatures; everything else counts as arrived. This also saves the delivery check in Food safety.'],
               ]}
             />
@@ -5362,10 +5363,24 @@ export default function Help() {
             <P>
               Also set the <strong>delivery days</strong>, the <strong>order cutoff</strong> (orders placed after
               it count as the next day's), the <strong>days from order to delivery</strong>, and optionally a
-              minimum order and delivery charge. Under <strong>Per venue</strong>, a venue can have its own
-              account number, delivery days or cutoff. These work out the delivery date each order is
-              placed for.
+              minimum order and delivery charge. These work out the delivery date each order is placed for.
+              Switch on <strong>Needs their order reference when an order is marked sent</strong> for suppliers who
+              confirm orders with a reference of their own (their website, app or confirmation email, e.g.
+              S043172591): nobody can mark an order sent without typing it in.
             </P>
+            <P>
+              Under <strong>Per venue</strong>, each venue can have its own account number, delivery days, cutoff
+              and <strong>days from order to delivery</strong> (Same = the supplier's), and its own delivery
+              details:
+            </P>
+            <DataTable
+              head={['Per venue', 'Where it is used']}
+              rows={[
+                ['Delivery phone', 'The number the driver rings. Printed on the order and in Copy for checkout. Empty: the venue\'s own phone.'],
+                ['Delivery slot', 'When drivers may come, from and to (either can be Any). Shown when placing, on the order and its printed copy.'],
+                ['Driver instructions', 'Start the note to the supplier on every order from this venue (it can be changed or cleared when placing), and print on the order.'],
+              ]}
+            />
 
             <H3>2. Inventory (Purchasing → Inventory)</H3>
             <P>
@@ -5436,7 +5451,7 @@ export default function Help() {
               <li><strong>Show</strong> picks what else each line shows: the supplier, the price per pack, the last order (how many and when) and a <strong>Last quantity</strong> column at the end. All are off until you switch them on, and the choice is remembered on that device. Price only appears for people allowed to see prices.</li>
               <li>To order an item from another supplier or another pack this time, tap its pack (it has a small arrow when there is another). The amount stays the same: each choice says what the quantity becomes, e.g. 3 × Bag 5 kg (15 kg) becomes 2 × Sack 10 kg (20 kg). <strong>Add item</strong> adds anything from the inventory.</li>
               <li>Group by <strong>Supplier</strong> to see each supplier's next delivery date and when to order by for it.</li>
-              <li>Tap <strong>Review &amp; place</strong>: one order per supplier, each with its delivery date and an optional note. To deliver on another day, tap one of <strong>Their delivery days</strong> (the supplier's next four) or tap the date to pick any day from the calendar. Under the date it says when to order by for that day (e.g. order by 18:00 today). Then <strong>Place</strong>.</li>
+              <li>Tap <strong>Review &amp; place</strong>: one order per supplier, each with its delivery date and a note for the supplier. The note starts as the venue's driver instructions for that supplier (change or clear it; <strong>Use the driver instructions again</strong> puts them back), and the delivery slot and phone show under the date. To deliver on another day, tap one of <strong>Their delivery days</strong> (the supplier's next four) or tap the date to pick any day from the calendar. Under the date it says when to order by for that day (e.g. order by 18:00 today). Then <strong>Place</strong>.</li>
             </ol>
             <P>
               Quantities save as you type, so a half-filled order is waiting as a <strong>Draft</strong> on the
@@ -5451,6 +5466,21 @@ export default function Help() {
                 ['A day in the past', 'Can\'t be placed: pick another day.'],
               ]}
             />
+            <P>
+              When the venue already has an order from the same supplier for the same day, Place order says so and
+              waits for an answer:
+            </P>
+            <DataTable
+              head={['The order already there', 'What you can do']}
+              rows={[
+                ['Waiting under To send', 'Add to it (the lines go on that order; a product already on it has its quantity topped up) or Separate order (a second order for the same day).'],
+                ['Already with the supplier', 'Only a second order: switch on Place a second order (or pick another day). To change what they already have, phone them.'],
+              ]}
+            />
+            <P>
+              The placed screen says which orders were added to. Sending for approval only notes it: the manager
+              answers when placing.
+            </P>
             <P>
               Each line keeps the supplier price it was filled in on, even if another price becomes the usual one
               later. If that price, its supplier or the item is switched off while the order waits, the line turns
@@ -5485,6 +5515,33 @@ export default function Help() {
               The delivery date can be moved until the delivery is booked in. A day the supplier doesn't deliver, or
               one too late for their cutoff, asks first: tap <strong>Agreed with</strong> the supplier to move it
               anyway, or keep the old date. A day in the past can't be picked.
+            </P>
+            <P>
+              <strong>Mark as sent</strong> asks how the order reached the supplier (including{' '}
+              <strong>Ordered on their website or app</strong>), their <strong>order reference</strong> (needed for
+              suppliers set to need it, otherwise optional) and <strong>when it went</strong>: Just now, or Earlier
+              (any time in the last 14 days since the order was made, e.g. phoned in yesterday and marked today).
+              The reference shows on the order and its card; <strong>Change</strong> (or <strong>Add it</strong>)
+              sets it later, until the order is cancelled.
+            </P>
+            <P>
+              <strong>Copy for checkout</strong> on an order gives what a supplier's website or app asks for at its
+              checkout: the account number, where to deliver (the venue's address from Website, under the location's
+              Find us), the day and slot, the phone, the instructions and our order number. Copy them all at once, or
+              one line at a time with the button beside it for checkouts with separate boxes. The delivery slot,
+              driver's phone and instructions also show on the order and print on its copy.
+            </P>
+            <DataTable
+              head={['On the Deliveries tab', 'Means']}
+              rows={[
+                ['Past their cutoff', 'Still To send after the supplier\'s cutoff for its delivery day: send it now and check they can still make that day, or move it.'],
+                ['Not booked in', 'Sent, and its delivery day has gone without the delivery being booked in: check whether it came, then book it in (or cancel it).'],
+                ['Their ref', 'The supplier\'s own order reference.'],
+              ]}
+            />
+            <P>
+              The search box on the Deliveries tab finds an order by the supplier's reference (part of it is
+              enough) or our PO number, whatever its state. Today lists the same late orders.
             </P>
             <P>
               When a delivery arrives, open it and tap <strong>Book in delivery</strong>: for each line, how

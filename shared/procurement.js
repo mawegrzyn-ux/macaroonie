@@ -293,14 +293,57 @@ export function weekdayOf(dateStr) {
   return new Date(Date.UTC(y, m - 1, d)).getUTCDay()
 }
 
-/** A supplier's ordering settings for one venue (venue rows override). */
+const hhmmOf = t => (t ? String(t).slice(0, 5) : null)
+
+/**
+ * A supplier's ordering settings for one venue (venue rows override): the
+ * delivery days, cutoff, days' notice (lead_days, migration 233) and account
+ * number fall back to the supplier's; the delivery phone, driver
+ * instructions and delivery slot exist only per venue.
+ */
 export function supplierForVenue(supplier, venueRow) {
   return {
     delivery_days: venueRow?.delivery_days ?? supplier?.delivery_days ?? [],
     cutoff_time:   venueRow?.cutoff_time ?? supplier?.cutoff_time ?? null,
-    lead_days:     num(supplier?.lead_days ?? 1),
+    lead_days:     num(venueRow?.lead_days ?? supplier?.lead_days ?? 1),
     account_ref:   venueRow?.account_ref || supplier?.account_ref || null,
+    delivery_phone:      venueRow?.delivery_phone || null,
+    driver_instructions: venueRow?.driver_instructions || null,
+    slot_from:     hhmmOf(venueRow?.slot_from),
+    slot_to:       hhmmOf(venueRow?.slot_to),
   }
+}
+
+/** "07:00-10:00", "from 07:00", "by 10:00", or null: a delivery slot in words. */
+export function slotText({ slot_from: from, slot_to: to } = {}) {
+  const a = hhmmOf(from), b = hhmmOf(to)
+  if (a && b) return `${a}-${b}`
+  if (a) return `from ${a}`
+  if (b) return `by ${b}`
+  return null
+}
+
+/**
+ * The delivery details for a supplier's checkout (their website or app),
+ * one per line, for "Copy for checkout": account, where and when, the
+ * phone, the instructions (the order's note, else the venue's driver
+ * instructions) and our order number as a reference.
+ * po: { number, delivery_date, notes, account_ref, delivery_phone,
+ * driver_instructions, slot_from, slot_to }; venue: { name, address_line1,
+ * address_line2, city, postcode, phone }.
+ */
+export function checkoutText(po, venue) {
+  const where = [venue?.name, venue?.address_line1, venue?.address_line2, venue?.city, venue?.postcode].filter(Boolean).join(', ')
+  const slot = slotText(po || {})
+  const say = po?.notes || po?.driver_instructions || null
+  return [
+    po?.account_ref && `Account: ${po.account_ref}`,
+    where && `Deliver to: ${where}`,
+    po?.delivery_date && `Delivery: ${dayText(po.delivery_date)}${slot ? ', ' + slot : ''}`,
+    (po?.delivery_phone || venue?.phone) && `Phone: ${po?.delivery_phone || venue.phone}`,
+    say && `Instructions: ${say}`,
+    po?.number != null && `Our order: ${poNumberLabel(po.number)}`,
+  ].filter(Boolean).join('\n')
 }
 
 /**
@@ -361,6 +404,17 @@ export function orderDeadline({ cutoff_time, lead_days = 1 } = {}, date) {
   return { date: addDays(date, -num(lead_days)), time: cutoff_time ? String(cutoff_time).slice(0, 5) : null }
 }
 
+/**
+ * Whether the order deadline for a delivery date has passed at `now`
+ * ({ date, time } at the venue): after the deadline day, or on it from the
+ * cutoff minute. Without a cutoff the whole deadline day counts.
+ */
+export function deadlinePassed(settings, date, now) {
+  if (!date || !now?.date) return false
+  const dl = orderDeadline(settings, date)
+  return dl.date < now.date || (dl.date === now.date && !!dl.time && String(now.time) >= dl.time)
+}
+
 // "today" / "tomorrow" / "yesterday" next to `now` (when given), else "Mon 3 Nov".
 function nearDay(date, now) {
   if (now?.date) {
@@ -403,15 +457,13 @@ export function deliveryDayProblem(settings = {}, date, now, name = 'The supplie
     const list = [1, 2, 3, 4, 5, 6, 0].filter(d => days.includes(d)).map(d => DAY_LABELS[d]).join(', ')
     return { code: 'not_delivery_day', message: `${name} doesn't deliver on ${DAY_PLURALS[weekdayOf(date)]} (they deliver ${list})` }
   }
-  if (now?.date) {
+  if (now?.date && deadlinePassed(settings, date, now)) {
     const dl = orderDeadline(settings, date)
-    if (dl.date < now.date || (dl.date === now.date && dl.time && String(now.time) >= dl.time)) {
-      return {
-        code: 'late',
-        message: dl.time
-          ? `Too late for ${dayText(date)}: ${name}'s cutoff for it was ${deadlineWords(dl, now)}`
-          : `Too late for ${dayText(date)}: it had to be ordered by ${deadlineWords(dl, now)}`,
-      }
+    return {
+      code: 'late',
+      message: dl.time
+        ? `Too late for ${dayText(date)}: ${name}'s cutoff for it was ${deadlineWords(dl, now)}`
+        : `Too late for ${dayText(date)}: it had to be ordered by ${deadlineWords(dl, now)}`,
     }
   }
   return null

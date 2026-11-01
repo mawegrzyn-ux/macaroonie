@@ -24,7 +24,7 @@ import { localParts, longDate, shortDate } from '../ai/tools/util.js'
 import { staffTools } from '../ai/tools/staff.js'
 import { rotaTools } from '../ai/tools/rota.js'
 import { openDatesOrNull } from './openDays.js'
-import { poNumberLabel } from '../../../shared/procurement.js'
+import { poNumberLabel, deadlinePassed } from '../../../shared/procurement.js'
 
 export const GRACE_MINS = 30
 export const NEXT_MINS = 120
@@ -163,24 +163,46 @@ const SOURCES = {
     }))
   },
 
+  // Orders to send (late once the supplier's order deadline for the day has
+  // passed, deadlinePassed()), deliveries due today, and deliveries sent for
+  // an earlier day that nobody booked in (late).
   async purchasing(ctx, v, s) {
-    const [toSend, sent] = await Promise.all([
-      callApi(ctx, 'GET', `/api/purchasing/pos?venue_id=${v.id}&status=to_send&limit=60`),
+    const yesterday = addDays(s.date, -1)
+    const [toSend, sent, unbooked] = await Promise.all([
+      callApi(ctx, 'GET', `/api/purchasing/pos?venue_id=${v.id}&status=to_send&order=asc&limit=60`),
       callApi(ctx, 'GET', `/api/purchasing/pos?venue_id=${v.id}&status=sent&from=${s.date}&to=${s.date}&limit=60`),
+      callApi(ctx, 'GET', `/api/purchasing/pos?venue_id=${v.id}&status=sent&to=${yesterday}&limit=60`),
     ])
+    const now = { date: s.date, time: s.now }
+    const lateToSend = p => !!p.delivery_date && deadlinePassed(p, dayOnly(p.delivery_date), now)
+    // Late ones first, then the soonest deliveries (the list comes soonest first).
+    const ordered = [...toSend.filter(lateToSend), ...toSend.filter(p => !lateToSend(p))]
     const tasks = [
-      ...toSend.slice(0, 10).map(p => ({
-        key: 'po_send:' + p.id, area: 'purchasing', kind: 'po_to_send', compliance: false,
-        title: 'Send the order to ' + p.supplier_name,
-        detail: poNumberLabel(p.number) + (p.delivery_date ? ' · delivery ' + shortDate(dayOnly(p.delivery_date)) : '') + (p.send_error ? ' · last try failed' : ''),
-        due: null, group: 'now',
-        action: { path: '/purchasing?po=' + p.id, label: 'Send it' },
-      })),
+      ...ordered.slice(0, 10).map(p => {
+        const day = dayOnly(p.delivery_date)
+        const late = lateToSend(p)
+        return {
+          key: 'po_send:' + p.id, area: 'purchasing', kind: 'po_to_send', compliance: false,
+          title: 'Send the order to ' + p.supplier_name,
+          detail: poNumberLabel(p.number) + (day ? ' · delivery ' + shortDate(day) : '') +
+            (late ? (day < s.date ? ' · the delivery day has passed' : ' · past the order deadline') : '') +
+            (p.send_error ? ' · last try failed' : ''),
+          due: null, group: late ? 'late' : 'now',
+          action: { path: '/purchasing?po=' + p.id, label: 'Send it' },
+        }
+      }),
       ...sent.filter(p => dayOnly(p.delivery_date) === s.date).slice(0, 10).map(p => ({
         key: 'delivery:' + p.id, area: 'purchasing', kind: 'delivery_due', compliance: false,
         title: 'Book in the delivery from ' + p.supplier_name,
         detail: poNumberLabel(p.number) + ' · due today',
         due: null, group: 'now',
+        action: { path: '/purchasing?po=' + p.id, label: 'Book it in' },
+      })),
+      ...unbooked.slice(0, 10).map(p => ({
+        key: 'delivery:' + p.id, area: 'purchasing', kind: 'delivery_not_booked', compliance: false,
+        title: 'Book in the delivery from ' + p.supplier_name,
+        detail: poNumberLabel(p.number) + ' · was due ' + shortDate(dayOnly(p.delivery_date)) + ', not booked in',
+        due: null, group: 'late',
         action: { path: '/purchasing?po=' + p.id, label: 'Book it in' },
       })),
     ]

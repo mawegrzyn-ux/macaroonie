@@ -24,7 +24,8 @@ let farm, other, theirFarm, rice, oil, chilli, riceSack, oilTin, oilBottle, chil
 async function placeRice(qty) {
   const draft = await ok(owner.post('/api/purchasing/orders', { venue_id: V, list_id: list.id }), 'order')
   await ok(owner.put(`/api/purchasing/orders/${draft.id}/lines`, { lines: [{ item_id: rice.id, qty }] }), 'order lines')
-  const placed = await ok(owner.post(`/api/purchasing/orders/${draft.id}/submit`, {}), 'place')
+  // Its own purchase order each time (the venue already has one for the day).
+  const placed = await ok(owner.post(`/api/purchasing/orders/${draft.id}/submit`, { suppliers: { [farm.id]: { existing: 'separate' } } }), 'place')
   return placed.purchase_orders.find(p => p.supplier_id === farm.id).id
 }
 

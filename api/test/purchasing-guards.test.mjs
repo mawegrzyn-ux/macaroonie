@@ -48,6 +48,17 @@ const quoteRow = async id => (await sql`
 `)[0]
 const csv = text => Buffer.from(text).toString('base64')
 
+/** Places an order as its own purchase orders even when the venue already
+ *  has one from a supplier for that day (these tests place many). */
+async function submitAnyway(orderId, body = {}) {
+  const o = await ok(owner.get(`/api/purchasing/orders/${orderId}`), 'order')
+  const suppliers = { ...(body.suppliers || {}) }
+  for (const i of o.items) {
+    if (i.qty > 0 && i.quote) suppliers[i.quote.supplier_id] = { existing: 'separate', ...(suppliers[i.quote.supplier_id] || {}) }
+  }
+  return owner.post(`/api/purchasing/orders/${orderId}/submit`, { ...body, suppliers })
+}
+
 before(async () => {
   ids = await resetAndSeed()
   const filled = await fillTenant(A.owner, ids.a)
@@ -106,7 +117,7 @@ test('a line stays on the price it was filled in on', async () => {
   assert.equal((await stored(o.id, rice.id)).quote_id, farmBag.id)
 
   // A line saved on a price is placed on it: the farm's bag, not the mill.
-  const placed = await ok(owner.post(`/api/purchasing/orders/${o.id}/submit`, {}), 'place')
+  const placed = await ok(submitAnyway(o.id), 'place')
   assert.deepEqual(placed.purchase_orders.map(p => p.supplier_id), [farm.id])
   const po = await ok(owner.get(`/api/purchasing/pos/${placed.purchase_orders[0].id}`))
   assert.equal(po.lines[0].quote_id, farmBag.id)
@@ -144,7 +155,7 @@ test('a switched-off price, supplier or item shows on the order and stops it bei
   got = itemOf(await getOrder(o.id), rice)
   assert.equal(got.gone, undefined)
   assert.equal(got.quote.id, farmSack.id)
-  const placed = await ok(owner.post(`/api/purchasing/orders/${o.id}/submit`, {}), 'place on the sack')
+  const placed = await ok(submitAnyway(o.id), 'place on the sack')
   const po = await ok(owner.get(`/api/purchasing/pos/${placed.purchase_orders[0].id}`))
   assert.deepEqual([po.lines[0].quote_id, po.lines[0].qty], [farmSack.id, 2])
   await ok(owner.patch(`/api/inventory/quotes/${farmBag.id}`, { is_active: true }), 'bag back')
@@ -354,7 +365,7 @@ test('requests, splits and moving a purchase order check the day too', async () 
   assert.equal(r.status, 422)
   assert.equal(r.json.problem, 'late')
   assert.equal(r.json.delivery_date, day(1), 'the day the request asked for')
-  const placed = await ok(owner.post(`/api/purchasing/orders/${o.id}/submit`, { suppliers: { [jay.id]: { agreed: true } } }), 'placed')
+  const placed = await ok(submitAnyway(o.id, { suppliers: { [jay.id]: { agreed: true } } }), 'placed')
   const poId = placed.purchase_orders[0].id
   assert.equal(placed.purchase_orders[0].delivery_date, day(1))
 
@@ -389,7 +400,7 @@ test('minimums and steps hold when a purchase order changes or is split', async 
   const list = await listOf('Minimums', [chicken])
   const o = await draftFor(list)
   await setLines(o, [{ item_id: chicken.id, qty: 20 }])
-  const placed = await ok(owner.post(`/api/purchasing/orders/${o.id}/submit`, {}), 'place')
+  const placed = await ok(submitAnyway(o.id), 'place')
   const poId = placed.purchase_orders[0].id
   let d = await ok(owner.get(`/api/purchasing/pos/${poId}`))
   const line = () => d.lines[0]
@@ -475,7 +486,10 @@ test('Pepper keeps the amount when switching supplier, and asks about days the s
   // Jay's day: too soon without agreement; agreed, it is placed and the card says so.
   await assert.rejects(pepper(A.owner, 'place_order', { order_id: o.id, deliveries: [{ supplier: 'Jay', date: day(1) }] }, { run: false }),
     err => err.status === 422 && /Too late for .*set agreed_with_supplier if Jay Meats agreed to it/.test(err.message))
-  const done = await pepper(A.owner, 'place_order', { order_id: o.id, deliveries: [{ supplier: 'Jay', date: day(1), agreed_with_supplier: true }] })
+  const done = await pepper(A.owner, 'place_order', { order_id: o.id, deliveries: [
+    { supplier: 'Jay', date: day(1), agreed_with_supplier: true, existing_order: 'separate' },
+    { supplier: 'Pin Mill', existing_order: 'separate' },
+  ] })
   assert.ok(done.card.warnings.some(w => /^Agreed with Jay Meats: Too late for /.test(w)), done.card.warnings.join(' | '))
   assert.match(done.out.message, /Order placed/)
   const jayPo = done.out.purchase_orders.find(p => p.supplier === 'Jay Meats')
@@ -495,7 +509,7 @@ test('Pepper keeps the amount when switching supplier, and asks about days the s
   const chickenList = await listOf('Pepper chicken', [chicken])
   const co = await draftFor(chickenList)
   await setLines(co, [{ item_id: chicken.id, qty: 20 }])
-  const cp = await ok(owner.post(`/api/purchasing/orders/${co.id}/submit`, {}), 'place')
+  const cp = await ok(submitAnyway(co.id), 'place')
   const cpo = poNumberLabel(cp.purchase_orders[0].number)
   await assert.rejects(pepper(A.owner, 'split_order', { po: cpo, lines: [{ item: 'chicken', quantity: 10 }], delivery_date: day(5) }, { run: false }),
     err => err.status === 422 && /both be below the minimum of 20/.test(err.message))

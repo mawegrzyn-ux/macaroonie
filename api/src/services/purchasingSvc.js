@@ -9,7 +9,7 @@
 import * as XLSX from 'xlsx'
 import {
   chooseQuote, quotePrice, packLabel, packParts, orderTotals, lineAmounts, fitQty, packBaseQty,
-  supplierForVenue, nextDeliveryDate, minutesToCutoff, poNumberLabel, fmtNum, round2, convertQty,
+  supplierForVenue, nextDeliveryDate, minutesToCutoff, poNumberLabel, fmtNum, round2, convertQty, slotText,
 } from '../../../shared/procurement.js'
 import { localParts } from './orderSvc.js'
 import { PdfDoc, A4, fitText, wrapText } from './pdfDoc.js'
@@ -226,7 +226,9 @@ export async function loadSuppliersForVenue(tx, tenantId, venue, supplierIds = n
     SELECT s.*, s.min_order::float8 AS min_order, s.delivery_charge::float8 AS delivery_charge,
            s.cutoff_time::text AS cutoff_time,
            sv.account_ref AS venue_account_ref, sv.delivery_days AS venue_delivery_days,
-           sv.cutoff_time::text AS venue_cutoff_time
+           sv.cutoff_time::text AS venue_cutoff_time, sv.lead_days AS venue_lead_days,
+           sv.delivery_phone AS venue_delivery_phone, sv.driver_instructions AS venue_driver_instructions,
+           sv.slot_from::text AS venue_slot_from, sv.slot_to::text AS venue_slot_to
       FROM suppliers s
       LEFT JOIN supplier_venues sv ON sv.supplier_id = s.id AND sv.venue_id = ${venue.id} AND sv.tenant_id = ${tenantId}
      WHERE s.tenant_id = ${tenantId}
@@ -237,10 +239,12 @@ export async function loadSuppliersForVenue(tx, tenantId, venue, supplierIds = n
   for (const s of rows) {
     const eff = supplierForVenue(s, {
       account_ref: s.venue_account_ref, delivery_days: s.venue_delivery_days, cutoff_time: s.venue_cutoff_time,
+      lead_days: s.venue_lead_days, delivery_phone: s.venue_delivery_phone,
+      driver_instructions: s.venue_driver_instructions, slot_from: s.venue_slot_from, slot_to: s.venue_slot_to,
     })
     out[s.id] = {
       id: s.id, name: s.name, email: s.email, phone: s.phone, website: s.website,
-      send_method: s.send_method, email_attachment: s.email_attachment,
+      send_method: s.send_method, email_attachment: s.email_attachment, ref_required: !!s.ref_required,
       min_order: s.min_order, delivery_charge: s.delivery_charge,
       ...eff,
       next_delivery: nextDeliveryDate(eff, now),
@@ -316,8 +320,10 @@ export async function loadPo(tx, tenantId, poId) {
            po.subtotal::float8 AS subtotal, po.vat::float8 AS vat, po.delivery_charge::float8 AS delivery_charge,
            po.total::float8 AS total,
            s.name AS supplier_name, s.email AS supplier_email, s.phone AS supplier_phone, s.website AS supplier_website,
-           s.send_method, s.email_attachment, s.cc_emails, s.contact_name AS supplier_contact,
+           s.send_method, s.email_attachment, s.cc_emails, s.contact_name AS supplier_contact, s.ref_required,
            COALESCE(sv.account_ref, s.account_ref) AS account_ref,
+           -- The venue's delivery details for this supplier (migration 233), as they are now.
+           sv.delivery_phone, sv.driver_instructions, sv.slot_from::text AS slot_from, sv.slot_to::text AS slot_to,
            v.name AS venue_name,
            (SELECT p2.number FROM purchase_orders p2 WHERE p2.id = po.split_from AND p2.tenant_id = ${tenantId}) AS split_from_number,
            dc.id AS delivery_check_id, dc.accepted AS delivery_accepted
@@ -353,6 +359,8 @@ const fmtDate = d => {
   return new Date(Date.UTC(y, m - 1, day)).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })
 }
 const address = v => [v.address_line1, v.address_line2, v.city, v.postcode].filter(Boolean)
+// The number the driver rings: the venue's delivery phone for this supplier, else the venue's own.
+const deliveryPhone = (po, venue) => po.delivery_phone || venue.phone || null
 const isoOf = d => (d instanceof Date ? d.toISOString() : String(d ?? ''))
 
 /**
@@ -403,11 +411,12 @@ export function poHtml({ po, lines, venue, tenant }, { forEmail = false } = {}) 
       <div class="right">
         <div class="label">Delivery</div>
         <div class="big">${fmtDate(po.delivery_date)}</div>
+        ${slotText(po) ? `<div>${escapeHtml(slotText(po))}</div>` : ''}
       </div>
     </div>
     <div class="parties">
-      <div><div class="label">Supplier</div><strong>${escapeHtml(po.supplier_name)}</strong>${po.account_ref ? `<div>Account ${escapeHtml(po.account_ref)}</div>` : ''}</div>
-      <div><div class="label">Deliver to</div><strong>${escapeHtml(venue.name)}</strong>${addr.map(a => `<div>${escapeHtml(a)}</div>`).join('')}${venue.phone ? `<div>${escapeHtml(venue.phone)}</div>` : ''}</div>
+      <div><div class="label">Supplier</div><strong>${escapeHtml(po.supplier_name)}</strong>${po.account_ref ? `<div>Account ${escapeHtml(po.account_ref)}</div>` : ''}${po.supplier_ref ? `<div>Your ref ${escapeHtml(po.supplier_ref)}</div>` : ''}</div>
+      <div><div class="label">Deliver to</div><strong>${escapeHtml(venue.name)}</strong>${addr.map(a => `<div>${escapeHtml(a)}</div>`).join('')}${deliveryPhone(po, venue) ? `<div>${escapeHtml(deliveryPhone(po, venue))}</div>` : ''}</div>
     </div>
     <table>
       <thead><tr><th>Code</th><th>Product</th><th>Pack</th><th class="n">Qty</th><th class="n">Price</th><th class="n">Total</th></tr></thead>
@@ -453,6 +462,8 @@ export function poXlsx({ po, lines, venue, tenant }) {
     ['From', tenant?.name || '', 'Venue', venue.name],
     ['Supplier', po.supplier_name, 'Account', po.account_ref || ''],
     ['Delivery date', po.delivery_date, 'Deliver to', address(venue).join(', ')],
+    ...(slotText(po) || deliveryPhone(po, venue) ? [['Delivery time', slotText(po) || '', 'Phone', deliveryPhone(po, venue) || '']] : []),
+    ...(po.supplier_ref ? [['Your ref', po.supplier_ref]] : []),
     [],
     ['Code', 'Product', 'Pack', 'Qty', 'Price', 'VAT %', 'Total ex VAT'],
     ...lines.map(l => [l.supplier_code || '', productOf(l), l.pack_label, num(l.qty), num(l.price), num(l.vat_rate), lineAmounts(l).net]),
@@ -480,6 +491,7 @@ export function poPdf({ po, lines, venue, tenant }) {
   doc.text(L, y, `Purchase order ${poNumberLabel(po.number)}${po.amended_at ? ' (amended)' : ''}`, { size: 18, bold: true })
   doc.text(R, y - 22, 'DELIVERY', { size: 8, align: 'right', gray: 0.4 })
   doc.text(R, y, fmtDate(po.delivery_date), { size: 13, bold: true, align: 'right' })
+  if (slotText(po)) doc.text(R, y + 14, slotText(po), { size: 10, align: 'right' })
   y += 16
   doc.text(L, y, `Ordered ${fmtDate(po.created_at instanceof Date ? po.created_at.toISOString() : po.created_at)}`, { size: 9, gray: 0.3 })
   for (const t of poChangeNotes(po)) {
@@ -491,8 +503,8 @@ export function poPdf({ po, lines, venue, tenant }) {
   doc.text(L, y, 'SUPPLIER', { size: 8, gray: 0.4 })
   doc.text(colB, y, 'DELIVER TO', { size: 8, gray: 0.4 })
   y += 14
-  const left = [po.supplier_name, po.account_ref ? `Account ${po.account_ref}` : null].filter(Boolean)
-  const right = [venue.name, ...address(venue), venue.phone].filter(Boolean)
+  const left = [po.supplier_name, po.account_ref ? `Account ${po.account_ref}` : null, po.supplier_ref ? `Your ref ${po.supplier_ref}` : null].filter(Boolean)
+  const right = [venue.name, ...address(venue), deliveryPhone(po, venue)].filter(Boolean)
   for (let i = 0; i < Math.max(left.length, right.length); i++) {
     if (left[i]) doc.text(L, y, fitText(left[i], 240, 10, i === 0), { size: 10, bold: i === 0 })
     if (right[i]) doc.text(colB, y, fitText(right[i], R - colB, 10, i === 0), { size: 10, bold: i === 0 })
@@ -582,7 +594,7 @@ export async function emailPo(tenantId, poId, sentBy) {
   if (po.email_attachment === 'excel') attachments.push({ filename: poFileName(po, 'xlsx'), contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', content: poXlsx(data) })
 
   const amended = !!po.amended_at
-  const intro = `<p>${amended ? 'Please note our amended order' : 'Please find our order'} ${poNumberLabel(po.number)} for delivery on <strong>${fmtDate(po.delivery_date)}</strong> to ${escapeHtml(venue.name)}.${amended ? ' It replaces the copy we sent earlier: the quantities have changed.' : ''}${po.split_from_number ? ` It is part of ${poNumberLabel(po.split_from_number)}, split off to come on another day.` : ''}${replyTo ? ` Reply to this email with any questions.` : ''}</p>`
+  const intro = `<p>${amended ? 'Please note our amended order' : 'Please find our order'} ${poNumberLabel(po.number)} for delivery on <strong>${fmtDate(po.delivery_date)}${slotText(po) ? ', ' + escapeHtml(slotText(po)) : ''}</strong> to ${escapeHtml(venue.name)}.${amended ? ' It replaces the copy we sent earlier: the quantities have changed.' : ''}${po.split_from_number ? ` It is part of ${poNumberLabel(po.split_from_number)}, split off to come on another day.` : ''}${replyTo ? ` Reply to this email with any questions.` : ''}</p>`
   const html = `${intro}${poHtml(data, { forEmail: true })}`
   const subject = `${amended ? 'Amended order' : 'Order'} ${poNumberLabel(po.number)} from ${venue.name} for ${fmtDate(po.delivery_date)}`
 

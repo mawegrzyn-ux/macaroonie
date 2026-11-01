@@ -249,6 +249,14 @@ async function loadOrder(tx, tenantId, order, who) {
   const supplierIds = [...new Set([...quotes.values()].flat().map(q => q.supplier_id))]
   const suppliers = supplierIds.length ? await loadSuppliersForVenue(tx, tenantId, venue, supplierIds) : {}
   const [list] = order.list_id ? await tx`SELECT name FROM order_lists WHERE id = ${order.list_id} AND tenant_id = ${tenantId}` : []
+  // Purchase orders still open at the venue from these suppliers, so placing
+  // can ask first when one is already going for the same day.
+  const openPos = supplierIds.length && order.status !== 'submitted' ? await tx`
+    SELECT id, number, status, supplier_id, delivery_date::text AS delivery_date FROM purchase_orders
+     WHERE tenant_id = ${tenantId} AND venue_id = ${venue.id} AND supplier_id = ANY(${supplierIds}::uuid[])
+       AND status IN ('to_send', 'sent') AND delivery_date >= ${now.date}::date
+     ORDER BY delivery_date, number
+  ` : []
 
   const asked = order.requested_lines || null
   const items = rows.map(r => {
@@ -290,6 +298,7 @@ async function loadOrder(tx, tenantId, order, who) {
     show_prices: prices, today: now.date, timezone: venue.timezone || 'Europe/London',
     ...orderActions(order, who),
     suppliers: Object.fromEntries(Object.entries(suppliers).map(([id, s]) => [id, supplierView(s, prices)])),
+    open_pos: openPos,
     items,
   }
 }
@@ -367,18 +376,22 @@ async function emailNew(req, pos, prices) {
 
 async function poList(tx, tenantId, f) {
   return tx`
-    SELECT po.id, po.number, po.venue_id, v.name AS venue_name, po.supplier_id, s.name AS supplier_name,
+    SELECT po.id, po.number, po.venue_id, v.name AS venue_name, v.timezone AS venue_timezone, po.supplier_id, s.name AS supplier_name,
            s.send_method, (s.email IS NOT NULL AND s.email <> '') AS has_email, s.phone AS supplier_phone,
            po.status, po.delivery_date::text AS delivery_date, po.created_at, po.created_by,
            po.subtotal::float8 AS subtotal, po.vat::float8 AS vat, po.delivery_charge::float8 AS delivery_charge,
            po.total::float8 AS total, po.sent_at, po.sent_via, po.sent_to, po.send_error, po.received_at, po.received_by,
-           po.supply_order_id, po.requested_by, po.amended_at, po.split_from,
+           po.supply_order_id, po.requested_by, po.amended_at, po.split_from, po.supplier_ref, s.ref_required,
+           -- The supplier's ordering settings at this venue: when an order for its day had to go.
+           COALESCE(sv.cutoff_time, s.cutoff_time)::text AS cutoff_time, COALESCE(sv.lead_days, s.lead_days) AS lead_days,
+           COALESCE(sv.delivery_days, s.delivery_days) AS delivery_days,
            (SELECT p2.number FROM purchase_orders p2 WHERE p2.id = po.split_from AND p2.tenant_id = ${tenantId}) AS split_from_number,
            (SELECT count(*)::int FROM purchase_order_lines l WHERE l.po_id = po.id AND l.tenant_id = ${tenantId}) AS line_count,
            dc.id AS delivery_check_id, dc.accepted AS delivery_accepted
       FROM purchase_orders po
       JOIN suppliers s ON s.id = po.supplier_id AND s.tenant_id = ${tenantId}
       JOIN venues v ON v.id = po.venue_id AND v.tenant_id = ${tenantId}
+      LEFT JOIN supplier_venues sv ON sv.supplier_id = po.supplier_id AND sv.venue_id = po.venue_id AND sv.tenant_id = ${tenantId}
       LEFT JOIN fs_delivery_checks dc ON dc.purchase_order_id = po.id AND dc.tenant_id = ${tenantId}
      WHERE po.tenant_id = ${tenantId}
        ${f.venueId ? tx`AND po.venue_id = ${f.venueId}` : tx``}
@@ -386,8 +399,11 @@ async function poList(tx, tenantId, f) {
        ${f.statuses?.length ? tx`AND po.status = ANY(${f.statuses})` : tx``}
        ${f.from ? tx`AND po.delivery_date >= ${f.from}::date` : tx``}
        ${f.to ? tx`AND po.delivery_date <= ${f.to}::date` : tx``}
-       ${f.supplyOrderId ? tx`AND po.supply_order_id = ${f.supplyOrderId}` : tx``}
-     ORDER BY po.delivery_date DESC, po.number DESC
+       ${f.supplyOrderId ? tx`AND (po.supply_order_id = ${f.supplyOrderId} OR po.id = ANY(
+           SELECT unnest(o.added_to_po_ids) FROM supply_orders o WHERE o.id = ${f.supplyOrderId} AND o.tenant_id = ${tenantId}))` : tx``}
+       ${f.ids ? tx`AND po.id = ANY(${f.ids}::uuid[])` : tx``}
+       ${f.q ? tx`AND (lower(po.supplier_ref) LIKE ${'%' + f.q.toLowerCase() + '%'} OR po.number::text = ${f.q.replace(/^po-?0*/i, '')})` : tx``}
+     ${f.asc ? tx`ORDER BY po.delivery_date, po.number` : tx`ORDER BY po.delivery_date DESC, po.number DESC`}
      LIMIT ${f.limit || 200}
   `
 }
@@ -418,6 +434,11 @@ async function poDetail(tx, tenantId, id, prices) {
     show_prices: prices,
     today: venueNow(venue).date,
     timezone: venue.timezone || 'Europe/London',
+    // Where it goes, for the supplier's own checkout (checkoutText()).
+    deliver_to: {
+      name: venue.name, address_line1: venue.address_line1 ?? null, address_line2: venue.address_line2 ?? null,
+      city: venue.city ?? null, postcode: venue.postcode ?? null, phone: venue.phone ?? null,
+    },
     delivery_days: s?.delivery_days ?? [],
     cutoff_time: s?.cutoff_time ?? null,
     lead_days: s?.lead_days ?? 1,
@@ -488,6 +509,68 @@ async function priceListRows(tx, tenantId, po, lines) {
   return out
 }
 
+/**
+ * The open purchase order (to send or sent) the venue already has from the
+ * supplier for that day, preferring one not yet sent. Takes a lock per venue
+ * and supplier first, so two people placing at once can't both miss it.
+ */
+async function openPoFor(tx, tenantId, venueId, supplierId, day) {
+  await tx`SELECT pg_advisory_xact_lock(hashtextextended(${'po-day:' + venueId + ':' + supplierId}, 0))`
+  const [po] = await tx`
+    SELECT id, number, status, notes, delivery_date::text AS delivery_date FROM purchase_orders
+     WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND supplier_id = ${supplierId}
+       AND delivery_date = ${day}::date AND status IN ('to_send', 'sent')
+     ORDER BY (status = 'to_send') DESC, number
+     LIMIT 1
+  `
+  return po || null
+}
+
+/**
+ * Adds a placed order's lines for one supplier to a purchase order not yet
+ * sent (the duplicate guard's "add to it"): a product already on it tops its
+ * line up to the minimum and steps, the rest become new lines copying the
+ * pack, price and VAT as of now, as createPurchaseOrder() does. The order's
+ * note is added to the PO's when it says something the PO's doesn't.
+ * lines: [{ item, quote, qty }].
+ */
+async function addToPo(tx, tenantId, po, venue, lines, note) {
+  const onOrder = new Map((await tx`
+    SELECT id, quote_id, qty::float8 AS qty FROM purchase_order_lines
+     WHERE po_id = ${po.id} AND tenant_id = ${tenantId} AND quote_id IS NOT NULL AND NOT added_on_receipt
+  `).map(l => [l.quote_id, l]))
+  const [{ n }] = await tx`SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM purchase_order_lines WHERE po_id = ${po.id} AND tenant_id = ${tenantId}`
+  let sort = Number(n)
+  for (const l of lines) {
+    const q = l.quote
+    const have = onOrder.get(q.id)
+    if (have) {
+      have.qty = fitQty(have.qty + l.qty, q)
+      await tx`UPDATE purchase_order_lines SET qty = ${have.qty} WHERE id = ${have.id} AND tenant_id = ${tenantId}`
+      continue
+    }
+    const [added] = await tx`
+      INSERT INTO purchase_order_lines ${tx({
+        tenant_id: tenantId, po_id: po.id, item_id: l.item.id, quote_id: q.id, item_name: l.item.name,
+        category_name: l.item.category_name ?? null, storage: l.item.storage || 'ambient', base_unit: l.item.base_unit,
+        supplier_code: q.supplier_code ?? null, product_name: q.product_name ?? null,
+        pack_label: packLabel(q), pack_base_qty: Number(q.pack_base_qty),
+        price: quotePrice(q, venue.id), vat_rate: Number(q.vat_rate ?? 0), qty: fitQty(l.qty, q), sort_order: sort++,
+      })}
+      RETURNING id, quote_id, qty::float8 AS qty
+    `
+    onOrder.set(q.id, added)
+  }
+  const text = (note || '').trim()
+  if (text && !(po.notes || '').includes(text)) {
+    await tx`
+      UPDATE purchase_orders SET notes = ${po.notes ? po.notes + '\n' + text : text}, updated_at = now()
+       WHERE id = ${po.id} AND tenant_id = ${tenantId}
+    `
+  }
+  await recalcPo(tx, tenantId, po.id)
+}
+
 async function recalcPo(tx, tenantId, poId) {
   const lines = await loadPoLines(tx, tenantId, poId)
   const [po] = await tx`SELECT delivery_charge::float8 AS delivery_charge FROM purchase_orders WHERE id = ${poId} AND tenant_id = ${tenantId}`
@@ -518,10 +601,25 @@ const LinesBody = z.object({
 
 // agreed: the person says the supplier agreed to a day they don't deliver,
 // or one past its order deadline (checkDeliveryDay()).
+// existing: what to do when the venue already has an open purchase order
+// from that supplier for the same day (409 po_exists): add these lines to
+// it (only while it hasn't been sent), or place a separate order anyway.
 const SubmitBody = z.object({
-  suppliers: z.record(uuid, z.object({ delivery_date: date.optional(), notes: optText(2000), agreed: z.boolean().optional() })).optional(),
+  suppliers: z.record(uuid, z.object({
+    delivery_date: date.optional(),
+    notes:         optText(2000),
+    agreed:        z.boolean().optional(),
+    existing:      z.enum(['add', 'separate']).optional(),
+  })).optional(),
 })
 
+// How far back an order marked sent by hand may say it went.
+const SENT_AT_DAYS = 14
+const MarkSentBody = z.object({
+  via:          z.enum(['email', 'print', 'excel', 'pdf', 'phone', 'website', 'other']),
+  supplier_ref: optText(100),
+  sent_at:      z.string().datetime({ offset: true }).optional(),
+})
 const RequestBody = z.object({
   suppliers: z.record(uuid, z.object({ delivery_date: date.nullable().optional(), notes: optText(2000) })).optional(),
   note:      optText(2000),
@@ -801,7 +899,8 @@ export default async function purchasingRoutes(app) {
              o.created_by, o.created_at, o.updated_at, o.submitted_at, o.submitted_by,
              o.requested_by, o.requested_at, o.supplier_options, o.returned_by, o.returned_at, o.return_note, o.split_from,
              (SELECT count(*)::int FROM supply_order_lines sl WHERE sl.order_id = o.id AND sl.tenant_id = ${req.tenantId} AND sl.qty > 0) AS line_count,
-             (SELECT count(*)::int FROM purchase_orders po WHERE po.supply_order_id = o.id AND po.tenant_id = ${req.tenantId}) AS po_count
+             (SELECT count(*)::int FROM purchase_orders po WHERE po.supply_order_id = o.id AND po.tenant_id = ${req.tenantId})
+               + cardinality(o.added_to_po_ids) AS po_count
         FROM supply_orders o
         JOIN venues v ON v.id = o.venue_id AND v.tenant_id = ${req.tenantId}
         LEFT JOIN order_lists l ON l.id = o.list_id AND l.tenant_id = ${req.tenantId}
@@ -951,7 +1050,12 @@ export default async function purchasingRoutes(app) {
       for (const sid of groups.keys()) {
         const opt = b.suppliers?.[sid] || {}
         if (opt.delivery_date && opt.delivery_date < today) throw httpError(422, 'A delivery date is in the past')
-        if (opt.delivery_date || opt.notes) options[sid] = { delivery_date: opt.delivery_date ?? null, notes: opt.notes ?? null }
+        // The notes key only when one was sent: a note left out takes the
+        // venue's driver instructions when placed, one cleared stays empty.
+        const entry = {}
+        if (opt.delivery_date) entry.delivery_date = opt.delivery_date
+        if (opt.notes !== undefined) entry.notes = opt.notes
+        if (Object.keys(entry).length) options[sid] = entry
       }
       const asked = Object.fromEntries(lines.map(l => [l.item_id, { qty: l.qty, quote_id: l.quote.id }]))
       const [u] = await tx`
@@ -1038,7 +1142,10 @@ export default async function purchasingRoutes(app) {
         checkDeliveryDay(s, date, now, b.suppliers[sid].agreed)
         const first = o.supplier_options?.[sid]?.delivery_date || s.next_delivery
         if (date === first) throw httpError(422, `The second order from ${s.name} must be for another day than this one`)
-        options[sid] = { delivery_date: date, notes: b.suppliers[sid].notes ?? o.supplier_options?.[sid]?.notes ?? null }
+        options[sid] = { delivery_date: date }
+        const firstOpt = o.supplier_options?.[sid] || {}
+        if (b.suppliers[sid].notes !== undefined) options[sid].notes = b.suppliers[sid].notes
+        else if (Object.prototype.hasOwnProperty.call(firstOpt, 'notes')) options[sid].notes = firstOpt.notes
       }
       const asked = o.requested_lines || {}
       const newAsked = {}
@@ -1078,8 +1185,13 @@ export default async function purchasingRoutes(app) {
   // Place the order: one purchase order per supplier, each for the day the
   // request asked for (or the supplier's next delivery day) unless one is
   // given here. Quantities are rounded up to the supplier's minimum and
-  // steps. Suppliers that take orders by email are emailed straight after;
-  // the rest wait in "To send". Needs Purchasing approval.
+  // steps. A note never written takes the venue's driver instructions for
+  // that supplier. When the venue already has an open purchase order from a
+  // supplier for that day, nothing is placed (409 po_exists, every such
+  // supplier listed) until the caller says, per supplier, whether to add the
+  // lines to it (not once sent) or place a separate order. Suppliers that
+  // take orders by email are emailed straight after (an order added to is
+  // emailed whole); the rest wait in "To send". Needs Purchasing approval.
   app.post('/orders/:id/submit', { preHandler: canApprove }, async req => {
     const b = SubmitBody.parse(req.body || {})
     const who = await accessOf(req)
@@ -1093,30 +1205,56 @@ export default async function purchasingRoutes(app) {
       const suppliers = await loadSuppliersForVenue(tx, req.tenantId, venue, [...groups.keys()])
       const now = venueNow(venue)
       const asked = o.status === 'requested' ? o.supplier_options || {} : {}
-      const pos = []
+      const pos = [], added = [], conflicts = []
       for (const [sid, group] of groups) {
         const s = suppliers[sid]
-        const opt = { ...(asked[sid] || {}), ...Object.fromEntries(Object.entries(b.suppliers?.[sid] || {}).filter(([, v]) => v !== undefined)) }
+        const sent = b.suppliers?.[sid] || {}
+        const opt = { ...(asked[sid] || {}), ...Object.fromEntries(Object.entries(sent).filter(([, v]) => v !== undefined)) }
         const deliveryDate = opt.delivery_date || s.next_delivery
         // The day asked for may have gone past its cutoff since: the approver
         // agrees it with the supplier or picks another.
-        checkDeliveryDay(s, deliveryDate, now, b.suppliers?.[sid]?.agreed)
+        checkDeliveryDay(s, deliveryDate, now, sent.agreed)
+        const notes = Object.prototype.hasOwnProperty.call(opt, 'notes') ? opt.notes : s.driver_instructions ?? null
+        const lines = group.map(l => ({ item: l.item, quote: l.quote, qty: fitQty(l.qty, l.quote) }))
+        const open = await openPoFor(tx, req.tenantId, venue.id, sid, deliveryDate)
+        if (open && !sent.existing) {
+          conflicts.push({ supplier_id: sid, po_id: open.id, po_number: open.number, po_status: open.status, delivery_date: deliveryDate })
+          continue
+        }
+        if (open && sent.existing === 'add') {
+          if (open.status !== 'to_send') {
+            throw httpError(422, `${poNumberLabel(open.number)} has already gone to ${s.name}: place a separate order instead`,
+              { code: 'po_sent', supplier_id: sid, po_id: open.id })
+          }
+          await addToPo(tx, req.tenantId, open, venue, lines, notes)
+          const [after] = await tx`SELECT subtotal::float8 AS subtotal FROM purchase_orders WHERE id = ${open.id} AND tenant_id = ${req.tenantId}`
+          pos.push({ id: open.id, supplier: s, subtotal: after.subtotal })
+          added.push(open.id)
+          continue
+        }
         const po = await createPurchaseOrder(tx, req.tenantId, {
-          venue, supplier: s, deliveryDate, notes: opt.notes ?? null,
-          lines: group.map(l => ({ item: l.item, quote: l.quote, qty: fitQty(l.qty, l.quote) })),
+          venue, supplier: s, deliveryDate, notes, lines,
           supplyOrderId: o.id, createdBy: by(req), requestedBy: o.status === 'requested' ? o.requested_by : null,
         })
         pos.push({ id: po.id, supplier: s, subtotal: Number(po.subtotal) })
       }
+      if (conflicts.length) {
+        const said = conflicts.map(c => `${suppliers[c.supplier_id].name} already has ${poNumberLabel(c.po_number)} for that day (${c.po_status === 'to_send' ? 'not sent yet' : 'sent'})`)
+        throw httpError(409, `${said.join('. ')}. Add to it, or place a separate order.`, { code: 'po_exists', conflicts })
+      }
       await tx`
-        UPDATE supply_orders SET status = 'submitted', submitted_at = now(), submitted_by = ${by(req)}, updated_at = now()
+        UPDATE supply_orders SET status = 'submitted', submitted_at = now(), submitted_by = ${by(req)},
+               added_to_po_ids = ${added}::uuid[], updated_at = now()
          WHERE id = ${o.id} AND tenant_id = ${req.tenantId}
       `
-      return { orderId: o.id, pos }
+      return { orderId: o.id, pos, added }
     })
     const results = await emailNew(req, created.pos, prices)
     const pos = await withTenant(req.tenantId, tx => poList(tx, req.tenantId, { supplyOrderId: created.orderId }))
-    return { order_id: created.orderId, results, purchase_orders: pos.map(p => hideMoney(p, prices)) }
+    return {
+      order_id: created.orderId, results, added_to: created.added,
+      purchase_orders: pos.map(p => hideMoney(p, prices)),
+    }
   })
 
   // ── Purchase orders ──
@@ -1128,6 +1266,10 @@ export default async function purchasingRoutes(app) {
       venueId: q.venue_id || null, supplierId: q.supplier_id || null, statuses,
       from: /^\d{4}-\d{2}-\d{2}$/.test(q.from || '') ? q.from : null,
       to: /^\d{4}-\d{2}-\d{2}$/.test(q.to || '') ? q.to : null,
+      // A supplier's order reference or our PO number (PO-00012 or 12).
+      q: String(q.q || '').trim().slice(0, 100) || null,
+      // Soonest delivery first (Today's orders to send), else latest first.
+      asc: q.order === 'asc',
       limit: Math.min(Number(q.limit) || 200, 500),
     }))
     return rows.map(r => hideMoney(r, prices))
@@ -1139,13 +1281,20 @@ export default async function purchasingRoutes(app) {
   })
 
   // A new delivery day is checked like placing (checkDeliveryDay(): agreed
-  // for a day the supplier doesn't deliver or one past its cutoff).
+  // for a day the supplier doesn't deliver or one past its cutoff). The day
+  // and notes change only before it arrives; the supplier's order reference
+  // can be added or corrected any time but once cancelled.
   app.patch('/pos/:id', { preHandler: canOrderOrApprove }, async req => {
-    const { agreed, ...b } = z.object({ delivery_date: date.optional(), notes: optText(2000), agreed: z.boolean().optional() }).parse(req.body || {})
+    const { agreed, ...b } = z.object({
+      delivery_date: date.optional(), notes: optText(2000), supplier_ref: optText(100), agreed: z.boolean().optional(),
+    }).parse(req.body || {})
     const prices = await showPrices(req)
     return withTenant(req.tenantId, async tx => {
       const po = await ownPo(tx, req.tenantId, req.params.id, { lock: true })
-      if (!['to_send', 'sent'].includes(po.status)) throw httpError(409, 'This order can no longer be changed')
+      if (po.status === 'cancelled') throw httpError(409, 'This order has been cancelled')
+      if ((b.delivery_date !== undefined || b.notes !== undefined) && !['to_send', 'sent'].includes(po.status)) {
+        throw httpError(409, 'This order can no longer be changed')
+      }
       if (b.delivery_date) {
         const [{ day }] = await tx`SELECT delivery_date::text AS day FROM purchase_orders WHERE id = ${po.id} AND tenant_id = ${req.tenantId}`
         if (b.delivery_date !== day) {
@@ -1240,15 +1389,38 @@ export default async function purchasingRoutes(app) {
     return withTenant(req.tenantId, tx => poDetail(tx, req.tenantId, req.params.id, prices))
   })
 
+  // Marked as sent by hand (printed, phoned, put in on their website): with
+  // the supplier's own order reference (required for suppliers set to need
+  // it) and, when it went earlier, the time it went (the last 14 days, not
+  // before the order was made).
   app.post('/pos/:id/mark-sent', { preHandler: canOrderOrApprove }, async req => {
-    const { via } = z.object({ via: z.enum(['email', 'print', 'excel', 'pdf', 'phone', 'other']) }).parse(req.body || {})
+    const b = MarkSentBody.parse(req.body || {})
     const prices = await showPrices(req)
     return withTenant(req.tenantId, async tx => {
       const po = await ownPo(tx, req.tenantId, req.params.id, { lock: true })
       if (po.status !== 'to_send') throw httpError(409, 'This order is not waiting to be sent')
+      const [s] = await tx`SELECT name, ref_required FROM suppliers WHERE id = ${po.supplier_id} AND tenant_id = ${req.tenantId}`
+      if (s.ref_required && !b.supplier_ref) {
+        throw httpError(422, `${s.name} needs their order reference: type in the reference from their confirmation`, { code: 'supplier_ref' })
+      }
+      let sentAt = null
+      if (b.sent_at) {
+        sentAt = new Date(b.sent_at)
+        const now = Date.now()
+        if (sentAt.getTime() > now + 5 * 60_000) throw httpError(422, 'The time it went can\'t be in the future', { code: 'sent_at' })
+        if (sentAt.getTime() < now - SENT_AT_DAYS * 86_400_000) {
+          throw httpError(422, `The time it went must be in the last ${SENT_AT_DAYS} days`, { code: 'sent_at' })
+        }
+        // To the minute: a time picked as 10:00 counts for an order made at 10:00:30.
+        const made = new Date(po.created_at)
+        made.setSeconds(0, 0)
+        if (sentAt < made) throw httpError(422, 'The time it went can\'t be before the order was made', { code: 'sent_at' })
+      }
       await tx`
-        UPDATE purchase_orders SET status = 'sent', sent_at = now(), sent_by = ${by(req)}, sent_via = ${via},
-               send_error = NULL, updated_at = now()
+        UPDATE purchase_orders
+           SET status = 'sent', sent_at = COALESCE(${sentAt ? sentAt.toISOString() : null}::timestamptz, now()),
+               sent_by = ${by(req)}, sent_via = ${b.via},
+               supplier_ref = COALESCE(${b.supplier_ref ?? null}, supplier_ref), send_error = NULL, updated_at = now()
          WHERE id = ${po.id} AND tenant_id = ${req.tenantId}
       `
       return poDetail(tx, req.tenantId, po.id, prices)
