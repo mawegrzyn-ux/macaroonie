@@ -9,7 +9,7 @@ import { fillTenant } from './support/fixtures.mjs'
 import { linkDevice } from './support/devices.mjs'
 import { INTERNAL_CALL_HEADER, INTERNAL_CALL_SECRET } from '../src/middleware/auth.js'
 
-let ids, owner, operator, other, V, W, till, mine, theirs
+let ids, owner, operator, other, V, W, till, mine, theirs, menuA, menuB
 
 async function config(d) {
   const app = await getApp()
@@ -53,6 +53,8 @@ before(async () => {
   till = await linkDevice(owner, V, { kind: 'terminal', name: 'Zql Till' })
   mine = await menuIds(owner, filled.ids.menu)
   theirs = await menuIds(other, filledB.ids.menu)
+  menuA = filled.ids.menu
+  menuB = filledB.ids.menu
   assert.ok(mine.preset && theirs.preset, 'both groups have a till discount')
   // The fixtures made a layout in each group, used by Ware and its till:
   // start without them (deleting puts both back to the standard screen).
@@ -203,6 +205,53 @@ test('where the words sit on a zone\'s buttons: saved, cleaned, in the till\'s c
   assert.ok(setup.items.length && setup.items.every(i => 'price_pence' in i))
   assert.ok(setup.items.some(i => i.price_pence > 0))
 
+  await ok(owner.delete('/api/pos/till-layouts/' + l.id))
+})
+
+test('Menus zone: the company\'s own menus kept, its options reach the till, the designer gets each menu\'s till times', async () => {
+  const l = await ok(owner.post('/api/pos/till-layouts', { name: 'Zql Menus' }))
+  const base = layoutWith(mine)
+  const layout = {
+    ...base,
+    zones: [
+      ...base.zones.map(z => (z.id === 'dishes' ? { ...z, h: 4, y: 2 } : z)),
+      { id: 'menus', type: 'menus', x: 4, y: 1, w: 8, h: 1, cols: 3, rows: 1, menu_ids: [menuB, menuA], tap: 'several', times_button: false, show_times: true, align: 'left' },
+    ],
+  }
+  const saved = await ok(owner.put('/api/pos/till-layouts/' + l.id, { name: 'Zql Menus', layout }))
+  const z = saved.layout.zones.find(x => x.id === 'menus')
+  assert.deepEqual(z.menu_ids, [menuA], 'another group\'s menu dropped')
+  assert.deepEqual([z.tap, z.times_button, z.show_times, z.cols, z.align, z.overflow], ['several', false, true, 3, 'left', 'scroll'])
+  const [row] = await sql`SELECT layout FROM pos_till_layouts WHERE id = ${l.id}`
+  assert.deepEqual(row.layout.zones.find(x => x.id === 'menus').menu_ids, [menuA], 'stored without it')
+  // Two Menus zones: refused.
+  const two = await owner.put('/api/pos/till-layouts/' + l.id, { name: 'Zql Menus', layout: { ...layout, zones: [...layout.zones, { id: 'menus2', type: 'menus', x: 4, y: 6, w: 8, h: 1 }].filter(x => x.id !== 'pay') } })
+  assert.equal(two.status, 422)
+  assert.equal(two.json.problems[0].code, 'too_many')
+
+  // The till gets the zone.
+  await ok(owner.patch(`/api/pos/venues/${V}/settings`, { till_layout_id: l.id }))
+  const cfg = await config(till)
+  const tz = cfg.till_layouts[l.id].zones.find(x => x.id === 'menus')
+  assert.deepEqual([tz.type, tz.menu_ids, tz.tap, tz.show_times], ['menus', [menuA], 'several', true])
+
+  // The designer: each menu's times on the tills (any time, its own, or off).
+  let setup = await ok(owner.get(`/api/pos/venues/${V}/setup`))
+  const timesOf = (st, id) => st.menus.find(m => m.id === id).till_times
+  assert.deepEqual(timesOf(setup, menuA), { from: '2026-01-01', until: null, times: [] }, 'the fixtures\' menu: its own times on the tills')
+  const lunch = { from: null, until: null, times: [{ days: [1, 2, 3, 4, 5], start: '11:00', end: '15:00' }] }
+  await ok(owner.put(`/api/menu-times/venues/${V}`, { rows: [{ menu_id: menuA, times: null, web: { use: 'menu' }, kiosk: { use: 'always' }, till: { use: 'own', times: lunch } }] }))
+  setup = await ok(owner.get(`/api/pos/venues/${V}/setup`))
+  assert.deepEqual(timesOf(setup, menuA), lunch)
+  await ok(owner.put(`/api/menu-times/venues/${V}`, { rows: [{ menu_id: menuA, times: null, web: { use: 'menu' }, kiosk: { use: 'always' }, till: { use: 'off' } }] }))
+  setup = await ok(owner.get(`/api/pos/venues/${V}/setup`))
+  assert.equal(timesOf(setup, menuA), false, 'off on the tills')
+  await ok(owner.put(`/api/menu-times/venues/${V}`, { rows: [{ menu_id: menuA, times: null, web: { use: 'menu' }, kiosk: { use: 'always' }, till: { use: 'always' } }] }))
+  setup = await ok(owner.get(`/api/pos/venues/${V}/setup`))
+  assert.equal(timesOf(setup, menuA), null, 'any time')
+  assert.equal(setup.menus.some(m => m.id === menuB), false, 'only the venue\'s menus')
+
+  await ok(owner.patch(`/api/pos/venues/${V}/settings`, { till_layout_id: null }))
   await ok(owner.delete('/api/pos/till-layouts/' + l.id))
 })
 

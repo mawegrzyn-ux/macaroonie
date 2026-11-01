@@ -3,7 +3,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   cleanSchedule, cleanCell, cleanRow, isDefaultRow, channelTimes, channelLabel, timesLabel,
-  menusOnNow, tillMenusShown, nextStart, menuTimesProblems, menuTimesWarnings, CHANNELS,
+  menusOnNow, tillMenusShown, nextStart, menuTimesProblems, menuTimesWarnings, CHANNELS, switchMenus,
 } from '../menuTimes.js'
 import { scheduleError, scheduleProblem } from '../menuSchedule.js'
 
@@ -128,4 +128,32 @@ test('scheduleError is the one check of a schedule; scheduleProblem still uses i
     'Lunch: its times overlap (11:00–15:00 and 14:00–16:00).')
   assert.equal(scheduleProblem(['a'], { a: { times: [{ days: [1], start: '12:00', end: '11:00' }] } }, { a: 'Lunch' }),
     'Lunch: each time must end after it starts (12:00–11:00).')
+})
+
+test('a Menus zone tap: just that menu, or add and take off; back to the menu times when it matches them', () => {
+  const menus = [{ id: 'lunch', times: LUNCH }, { id: 'dinner', times: DINNER }, { id: 'drinks', times: null }]
+  const noon = { menus, ...tillMenusShown(menus, at('12:00')) }
+  // Following the menu times at noon: lunch and drinks show.
+  assert.deepEqual(switchMenus(noon, 'dinner'), { ids: ['dinner'] }, 'one: just that menu')
+  assert.deepEqual(switchMenus(noon, 'dinner', 'several'), { ids: ['lunch', 'dinner', 'drinks'] }, 'several: added, in the till\'s order')
+  assert.deepEqual(switchMenus(noon, 'drinks', 'several'), { ids: ['lunch'] }, 'several: taken off')
+  assert.equal(switchMenus(noon, 'gone'), null, 'a menu the till doesn\'t have changes nothing')
+  // Picked dinner alone: tapping it again changes nothing; lunch alone is a new pick.
+  const picked = { menus, ...tillMenusShown(menus, at('12:00'), { ids: ['dinner'], basis: noon.basis }) }
+  assert.equal(picked.auto, false)
+  assert.equal(switchMenus(picked, 'dinner'), null)
+  assert.equal(switchMenus(picked, 'dinner', 'several'), null, 'the last menu shown stays')
+  assert.deepEqual(switchMenus(picked, 'lunch'), { ids: ['lunch'] })
+  // Back to what the menu times show by themselves: follow them again.
+  assert.deepEqual(switchMenus(picked, 'lunch', 'several'), { ids: ['lunch', 'dinner'] })
+  const two = { menus, ...tillMenusShown(menus, at('12:00'), { ids: ['lunch', 'dinner'], basis: noon.basis }) }
+  assert.deepEqual(switchMenus(two, 'dinner', 'several'), { ids: ['lunch'] })
+  const lunchOnly = { menus, ...tillMenusShown(menus, at('12:00'), { ids: ['lunch'], basis: noon.basis }) }
+  assert.deepEqual(switchMenus(lunchOnly, 'drinks', 'several'), { follow: true }, 'lunch and drinks is what the times show')
+  // No menu on now (the till shows every one): every menu is following the times.
+  const timed = [{ id: 'lunch', times: LUNCH }, { id: 'dinner', times: DINNER }]
+  const gap = { menus: timed, ...tillMenusShown(timed, at('16:00')) }
+  assert.deepEqual(switchMenus(gap, 'dinner'), { ids: ['dinner'] })
+  const gapPick = { menus: timed, ...tillMenusShown(timed, at('16:00'), { ids: ['dinner'], basis: gap.basis }) }
+  assert.deepEqual(switchMenus(gapPick, 'lunch', 'several'), { follow: true }, 'both again: following the times')
 })

@@ -3689,11 +3689,29 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               lands in the same place in both.
             </P>
             <P>
+              The Menus zone (type <Mono>menus</Mono>, one per layout, 1 Nov 2026) is a zone with buttons like categories,
+              plus <Mono>menu_ids</Mono> (ids in order, at most <Mono>MAX_MENUS</Mono> 30; null = every menu of the
+              till&apos;s revenue stream), <Mono>tap</Mono> (<Mono>MENU_TAPS</Mono>: one | several),{' '}
+              <Mono>times_button</Mono> (default true) and <Mono>show_times</Mono> (default false).{' '}
+              <Mono>menuZoneMenus(zone, menus)</Mono> gives the picked ones the till has, in the zone&apos;s order, else all
+              of the till&apos;s menus. A tap goes through <Mono>switchMenus(shown, menuId, tap)</Mono> in{' '}
+              <Mono>shared/menuTimes.js</Mono> (shown = <Mono>useShownMenus()</Mono>): null when nothing changes (the menu
+              is the only one showing), <Mono>&#123; follow: true &#125;</Mono> when the result is what the menu times show
+              by themselves (every menu when none is on), else <Mono>&#123; ids &#125;</Mono> in the till&apos;s menu order,
+              stored as the till&apos;s pick (<Mono>prefs.menu_pick</Mono>) and lapsing like one from More → Menus.{' '}
+              <Mono>ownTillLayout()</Mono> keeps only the company&apos;s menus (<Mono>layoutIds().menus</Mono>). The till
+              draws it with <Mono>MenusZone</Mono> / <Mono>MenuButton</Mono> in <Mono>LayoutScreen.jsx</Mono>, from the{' '}
+              <Mono>shownMenus</Mono> that <Mono>Check.jsx</Mono> and <Mono>Counter.jsx</Mono> already work out for the
+              screen. The designer previews it from the setup&apos;s <Mono>menus</Mono>, which carry{' '}
+              <Mono>till_times</Mono> (<Mono>channelMenuTimes(..., &apos;till&apos;)</Mono>: a schedule, null = any time,
+              false = off on the tills; those never show in the zone or its preview).
+            </P>
+            <P>
               API (<Mono>routes/tillLayouts.js</Mono>; Store tech view to read, manage to change): <Mono>GET</Mono> and{' '}
               <Mono>POST /api/pos/till-layouts</Mono> (a new one from <Mono>template</Mono> standard | quick or{' '}
               <Mono>copy_from</Mono>; 30 per company), <Mono>GET</Mono>, <Mono>PUT</Mono> and{' '}
               <Mono>DELETE /api/pos/till-layouts/:id</Mono>. <Mono>PUT</Mono> stores <Mono>ownTillLayout()</Mono>&apos;s output
-              (sections, dishes and discounts that aren&apos;t the company&apos;s dropped) and answers 422 with code{' '}
+              (sections, dishes, discounts and menus that aren&apos;t the company&apos;s dropped) and answers 422 with code{' '}
               <Mono>layout</Mono> and the problems. <Mono>DELETE</Mono> takes the layout off every till that picked it and
               the foreign key puts <Mono>pos_settings.till_layout_id</Mono> back to null. Every change broadcasts{' '}
               <Mono>pos.config</Mono> to each venue of the company. Which layout a till draws:{' '}

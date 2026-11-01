@@ -7,6 +7,10 @@
 //               staff picked in More > Menus): the ones picked in the designer, in that
 //               order (with none of them on a menu on now, every one picked), else every
 //               section of those menus
+//   menus       the till's menus as buttons (the ones picked in the designer, in that
+//               order, else all): tapping one changes what the till shows, as More >
+//               Menus does (switchMenus() in shared/menuTimes.js); a Menu times button
+//               goes back to following the menu times
 //   items       the dishes of the section picked, or every dish when the layout has no
 //               categories; a search box on top if the zone has one
 //   buttons     the designer's buttons: a dish, or a function (onButton)
@@ -19,13 +23,15 @@
 
 import { useMemo, useState } from 'react'
 import { Search, X } from 'lucide-react'
-import { choiceZones, overlaps, buttonLabel, actionOf, buttonTextStyle } from '@shared/pos/tillLayout.js'
+import { choiceZones, overlaps, buttonLabel, actionOf, buttonTextStyle, menuZoneMenus } from '@shared/pos/tillLayout.js'
+import { switchMenus } from '@shared/menuTimes.js'
 import { discountList } from '@shared/pos/discounts.js'
 import { cx, inkOn } from './ui.jsx'
 import ZoneGrid from './ZoneGrid.jsx'
 import { DishButton, SeatCourseBar, SECTION_COLOURS, dishPriceText, useHold } from './MenuPanel.jsx'
 import { useChoiceBuilder, ChoiceZone } from './LayoutChoices.jsx'
 import { soldOutMap } from '../lib/store.js'
+import { menuTimesText } from '../lib/tillMenus.js'
 
 // The category and menu open in each layout, kept while the till app runs.
 const placeMemo = new Map()
@@ -79,6 +85,51 @@ function CategoriesZone({ zone, layoutId, sections, sectionId, setSectionId, res
           place={place} onTap={() => setSectionId(c.s.id)} />,
       }))} />
   )
+}
+
+/** A menu (or Menu times) button: filled while it is what the till shows. */
+function MenuButton({ label, sub, on, onTap, testid, menuId = null, place }) {
+  return (
+    <button onClick={onTap} data-testid={testid} data-menu={menuId || undefined} data-on={on ? '1' : '0'} aria-pressed={on}
+      className={cx('w-full h-full rounded-xl border-2 px-2 py-1 flex flex-col leading-tight touch-manipulation active:scale-[0.97] transition-transform',
+        on ? 'bg-brand border-brand text-white' : 'bg-white border-line')}
+      style={place}>
+      <span className="line-clamp-2 break-words" data-testid="button-words">{label}</span>
+      {sub && <span className="text-[0.75em] font-semibold opacity-80 mt-0.5 line-clamp-1" data-testid="menu-times">{sub}</span>}
+    </button>
+  )
+}
+
+/**
+ * The Menus zone: shown is useShownMenus() of the screen (lib/tillMenus.js).
+ * A menu is filled while the till shows it; Menu times while the till
+ * follows the menu times by itself.
+ */
+function MenusZone({ zone, layoutId, shown }) {
+  const place = buttonTextStyle(zone)
+  const list = menuZoneMenus(zone, shown.menus)
+  const tap = id => {
+    const next = switchMenus(shown, id, zone.tap)
+    if (!next) return
+    if (next.follow) shown.follow()
+    else shown.pick(next.ids)
+  }
+  const cells = []
+  if (zone.times_button) {
+    cells.push({
+      key: 'times',
+      node: <MenuButton label="Menu times" testid="zone-menu-times" place={place} on={shown.auto} onTap={() => shown.follow()}
+        sub={zone.show_times ? (shown.auto ? (shown.none ? 'No menu on now' : 'Following') : 'Back to the times') : null} />,
+    })
+  }
+  for (const m of list) {
+    cells.push({
+      key: 'm:' + m.id,
+      node: <MenuButton label={m.name} menuId={m.id} testid="zone-menu" place={place} on={shown.ids.includes(m.id)} onTap={() => tap(m.id)}
+        sub={zone.show_times ? menuTimesText(m) : null} />,
+    })
+  }
+  return <ZoneGrid zone={zone} cells={cells} memoKey={'menus:' + layoutId + ':' + zone.id} moreTitle="Menus" empty="The till has no menus." testid="zone-menus" />
 }
 
 function ItemsZone({ zone, layoutId, config, menus, section, sectionIndex, hasCategories, soldOut, comboRefs, onDish, onHold }) {
@@ -157,14 +208,15 @@ function ButtonsZone({ zone, layoutId, config, check, soldOut, onDish, onHold, o
 /**
  * layout: the till's layout (lib/tillLayout.js tillLayoutOf). checkZone: the
  * node for the Order zone. check: the open check (null at the counter before
- * an order). onDish(item): a dish tapped (zones or dish buttons). onHold(item):
+ * an order). menus: the menus shown; tillMenus: all of the till's;
+ * shownMenus: useShownMenus() itself (the Menus zone switches with it). onDish(item): a dish tapped (zones or dish buttons). onHold(item):
  * held, or a sold out dish tapped. onButton(button): any other button.
  * choosing: { item, initial, key } while a dish's choices are in the Dish
  * choices zones (the host starts it); onChosen(result), onCancelChoosing(),
  * onMoreChoices({ selection, qty }).
  */
 export default function LayoutScreen({
-  layout, config, check = null, checkZone, menus, tillMenus = menus, covers = null,
+  layout, config, check = null, checkZone, menus, tillMenus = menus, shownMenus = null, covers = null,
   seat, setSeat, course, setCourse,
   onDish, onHold, onButton, canBack = true,
   choosing = null, onChosen, onCancelChoosing, onMoreChoices,
@@ -199,6 +251,9 @@ export default function LayoutScreen({
     if (z.type === 'check') return checkZone
     if (z.type === 'categories') {
       return <CategoriesZone zone={z} layoutId={layoutId} sections={sections} sectionId={open?.s.id || null} setSectionId={setSectionId} resetKey={shownKey} />
+    }
+    if (z.type === 'menus') {
+      return shownMenus ? <MenusZone zone={z} layoutId={layoutId} shown={shownMenus} /> : null
     }
     if (z.type === 'items') {
       return <ItemsZone zone={z} layoutId={layoutId} config={config} menus={menus} section={open?.s || null} sectionIndex={open?.i || 0}

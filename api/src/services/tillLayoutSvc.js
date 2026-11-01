@@ -2,7 +2,7 @@
 //
 // Till layouts (migration 228; shared/pos/tillLayout.js): the layouts a
 // venue's tills use, for their config, and the company's own ids check a
-// saved layout goes through.
+// saved layout goes through (sections, menus, dishes, discounts).
 
 import { normaliseTillLayout, ownLayout, layoutIds } from '../../../shared/pos/tillLayout.js'
 
@@ -28,19 +28,21 @@ export async function venueTillLayouts(tx, tenantId, settings, devices = []) {
   return Object.fromEntries(rows.map(r => [r.id, { id: r.id, name: r.name, ...normaliseTillLayout(r.layout) }]))
 }
 
-/** A layout as stored: normalised, naming only the company's own sections, dishes and discounts. */
+/** A layout as stored: normalised, naming only the company's own sections, menus, dishes and discounts. */
 export async function ownTillLayout(tx, tenantId, raw) {
   const layout = normaliseTillLayout(raw)
   const ids = layoutIds(layout)
-  const [sections, items, presets] = await Promise.all([
+  const [sections, items, presets, menus] = await Promise.all([
     ids.sections.length ? tx`SELECT id FROM menu_sections WHERE tenant_id = ${tenantId} AND id = ANY(${ids.sections}::uuid[])` : [],
     ids.items.length ? tx`SELECT id FROM menu_items WHERE tenant_id = ${tenantId} AND id = ANY(${ids.items}::uuid[])` : [],
     ids.presets.length ? tx`SELECT id FROM pos_discounts WHERE tenant_id = ${tenantId} AND id = ANY(${ids.presets}::uuid[])` : [],
+    ids.menus.length ? tx`SELECT id FROM menus WHERE tenant_id = ${tenantId} AND id = ANY(${ids.menus}::uuid[])` : [],
   ])
   return ownLayout(layout, {
     sectionIds: new Set(sections.map(r => r.id)),
     itemIds: new Set(items.map(r => r.id)),
     presetIds: new Set(presets.map(r => r.id)),
+    menuIds: new Set(menus.map(r => r.id)),
   })
 }
 

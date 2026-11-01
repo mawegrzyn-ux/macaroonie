@@ -300,7 +300,7 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
     <div className="h-full flex">
       {layout ? (
         <div className="flex-1 min-w-0">
-          <LayoutScreen layout={layout} config={config} check={check} checkZone={panel} menus={shownMenus.shown} tillMenus={shownMenus.menus} covers={check.covers}
+          <LayoutScreen layout={layout} config={config} check={check} checkZone={panel} menus={shownMenus.shown} tillMenus={shownMenus.menus} shownMenus={shownMenus} covers={check.covers}
             seat={seat} setSeat={setSeat} course={course} setCourse={setCourse}
             onDish={pick} onHold={item => setModal({ kind: 'sold_out', item })} onButton={runButton}
             choosing={choosing} onChosen={o => added(choosing.item, { ...o, seat, course })} onCancelChoosing={() => setChoosing(null)}

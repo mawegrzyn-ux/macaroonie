@@ -136,6 +136,30 @@ export function tillMenusShown(menus, parts, pick = null) {
   return { ids: onNow.length ? onNow : list.map(m => m.id), auto: true, onNow, basis, none: !onNow.length }
 }
 
+/**
+ * A tap on a menu in a till layout's Menus zone (shared/pos/tillLayout.js):
+ * what the till shows next, from what it shows now (tillMenusShown() plus
+ * the till's menus: { menus, ids, onNow, none }). tap 'one' shows just that
+ * menu; 'several' adds it or takes it off (one always stays). Returns null
+ * when nothing changes, { follow: true } when the result is what the menu
+ * times show by themselves (the till goes back to following them), else
+ * { ids } to pick, in the till's menu order.
+ */
+export function switchMenus({ menus, ids, onNow, none }, menuId, tap = 'one') {
+  const all = (menus || []).map(m => m.id)
+  if (!all.includes(menuId)) return null
+  const cur = (ids || []).filter(id => all.includes(id))
+  let next = tap === 'several'
+    ? (cur.includes(menuId) ? cur.filter(id => id !== menuId) : [...cur, menuId])
+    : [menuId]
+  if (!next.length) return null
+  next = all.filter(id => next.includes(id))
+  const same = (a, b) => a.length === b.length && a.every(id => b.includes(id))
+  if (same(next, none ? all : (onNow || []))) return { follow: true }
+  if (same(next, cur)) return null
+  return { ids: next }
+}
+
 /** The next time today (HH:MM) one of these menus ({ id, times }) comes on after parts, or null. */
 export function nextStart(menus, parts) {
   let best = null

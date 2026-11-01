@@ -157,7 +157,7 @@ export default function Counter() {
     <div className="h-full flex">
       {layout ? (
         <div className="flex-1 min-w-0">
-          <LayoutScreen layout={layout} config={config} check={null} checkZone={panel('h-full')} menus={shownMenus.shown} tillMenus={shownMenus.menus}
+          <LayoutScreen layout={layout} config={config} check={null} checkZone={panel('h-full')} menus={shownMenus.shown} tillMenus={shownMenus.menus} shownMenus={shownMenus}
             seat={seat} setSeat={setSeat} course={course} setCourse={setCourse} canBack={false}
             onDish={pick} onHold={it => setSoldOutItem(it)} onButton={runButton}
             choosing={choosing} onChosen={o => start(choosing.item, { ...o, seat, course })} onCancelChoosing={() => setChoosing(null)}

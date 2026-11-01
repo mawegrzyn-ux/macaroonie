@@ -9,6 +9,9 @@
 //   check       the order: its dishes, totals and More / Send / Bill / Pay
 //               (a counter till before an order: New order and the orders waiting)
 //   categories  the till's menu sections as buttons: all, or the ones picked, in that order
+//   menus       the till's menus as buttons, to switch the menu shown (as More >
+//               Menus does): all of the till's menus, or the ones picked, in that
+//               order; with a Menu times button to follow the menu times again
 //   items       the dishes of the section picked (with a search box on top if set)
 //   buttons     buttons set in the designer: a dish, or a function (a tender,
 //               the last receipt, a discount from the list, Send ...); a button
@@ -40,6 +43,13 @@
 // middle | bottom), drawn by the till and the designer through
 // buttonTextStyle() below. The Seat and course zone can show the seats only
 // or the courses only (parts).
+//
+// The Menus zone (menu_ids: the menus it offers, null = all the till's; tap:
+// one shows just the menu tapped, several adds it or takes it off;
+// times_button: a Menu times button first, back to following the menu
+// times; show_times: each menu's times under its name) changes what the
+// till shows the same way More > Menus does (switchMenus() in
+// shared/menuTimes.js): the pick holds until the menus on now change.
 
 export const LAYOUT_COLS = { min: 4, max: 24, default: 12 }
 export const LAYOUT_ROWS = { min: 3, max: 16, default: 8 }
@@ -48,11 +58,13 @@ export const FONT = { min: 12, max: 36, default: 16 }
 export const MAX_ZONES = 16
 export const MAX_BUTTONS = 80
 export const MAX_SECTIONS = 100
+export const MAX_MENUS = 30
 export const LABEL_MAX = 40
 
 export const ZONE_TYPES = [
   { key: 'check', label: 'Order', hint: 'The order: its dishes, totals and More, Send, Bill and Pay.', max: 1 },
   { key: 'categories', label: 'Categories', hint: 'The menu sections as buttons. Pick which ones show, in your order.', max: 1 },
+  { key: 'menus', label: 'Menus', hint: 'The till\'s menus as buttons: tap one to show it. Pick which ones show, in your order.', max: 1 },
   { key: 'items', label: 'Dishes', hint: 'The dishes of the category picked, with a search box if you want one.', max: 1 },
   { key: 'buttons', label: 'Buttons', hint: 'Your own buttons: a dish, or a function such as Exact cash or Last receipt.', max: 8 },
   { key: 'modifiers', label: 'Dish choices', hint: 'A dish\'s choices while it is being added: the must-pick ones, the optional ones, or both.', max: 2 },
@@ -61,7 +73,7 @@ export const ZONE_TYPES = [
 export const ZONE_KEYS = ZONE_TYPES.map(t => t.key)
 export const zoneLabel = type => ZONE_TYPES.find(t => t.key === type)?.label || type
 // Zones with a grid of buttons.
-export const GRID_ZONES = ['categories', 'items', 'buttons', 'modifiers']
+export const GRID_ZONES = ['categories', 'menus', 'items', 'buttons', 'modifiers']
 
 // More than fits: carry on in a scroll (down, or across in a one-row zone),
 // in pages with arrows, behind a More button in the last cell, or not at all.
@@ -99,6 +111,13 @@ export const VALIGNS = [
   { key: 'bottom', label: 'Bottom' },
 ]
 export const VALIGN_KEYS = VALIGNS.map(a => a.key)
+
+// What tapping a menu in the Menus zone does.
+export const MENU_TAPS = [
+  { key: 'one', label: 'Shows just that menu' },
+  { key: 'several', label: 'Adds it or takes it off' },
+]
+export const MENU_TAP_KEYS = MENU_TAPS.map(t => t.key)
 
 // What the Seat and course zone shows.
 export const SEAT_PARTS = [
@@ -178,6 +197,7 @@ const bool = (v, dflt) => (typeof v === 'boolean' ? v : dflt)
 // words sit, as each zone drew them before they could be set).
 const GRID_DEFAULTS = {
   categories: { cols: 6, rows: 1, overflow: 'scroll', align: 'center', valign: 'middle' },
+  menus: { cols: 4, rows: 1, overflow: 'scroll', align: 'center', valign: 'middle' },
   items: { cols: 4, rows: 4, overflow: 'scroll', align: 'left', valign: 'top' },
   buttons: { cols: 4, rows: 2, overflow: 'pages', align: 'center', valign: 'middle' },
   modifiers: { cols: 4, rows: 4, overflow: 'scroll', align: 'left', valign: 'top' },
@@ -234,6 +254,13 @@ function normaliseZone(z, layout, i) {
   if (z.type === 'categories') {
     const ids = Array.isArray(z.sections) ? z.sections.filter(s => UUID.test(String(s))).map(s => String(s).toLowerCase()) : null
     zone.sections = ids ? [...new Set(ids)].slice(0, MAX_SECTIONS) : null
+  }
+  if (z.type === 'menus') {
+    const ids = Array.isArray(z.menu_ids) ? z.menu_ids.filter(m => UUID.test(String(m))).map(m => String(m).toLowerCase()) : null
+    zone.menu_ids = ids ? [...new Set(ids)].slice(0, MAX_MENUS) : null
+    zone.tap = pick(z.tap, MENU_TAP_KEYS, 'one')
+    zone.times_button = bool(z.times_button, true)
+    zone.show_times = bool(z.show_times, false)
   }
   if (z.type === 'items') {
     zone.search = bool(z.search, true)
@@ -504,16 +531,18 @@ export function buttonLabel(b, { items = {}, presets = [], tenders = [] } = {}) 
 }
 
 /**
- * Drops what a layout names that isn't the company's: sections, dishes and
- * discounts (sets of ids). Buttons pointing at another tenant's dish or
- * discount go; a categories list keeps only the company's sections.
+ * Drops what a layout names that isn't the company's: sections, menus,
+ * dishes and discounts (sets of ids). Buttons pointing at another tenant's
+ * dish or discount go; a categories list keeps only the company's sections,
+ * a menus list only its menus.
  */
-export function ownLayout(layout, { sectionIds, itemIds, presetIds }) {
+export function ownLayout(layout, { sectionIds, itemIds, presetIds, menuIds }) {
   const has = (set, id) => (set instanceof Set ? set.has(id) : (set || []).includes(id))
   return {
     ...layout,
     zones: layout.zones.map(z => {
       if (z.type === 'categories' && z.sections) return { ...z, sections: z.sections.filter(id => has(sectionIds, id)) }
+      if (z.type === 'menus' && z.menu_ids) return { ...z, menu_ids: z.menu_ids.filter(id => has(menuIds, id)) }
       if (z.type === 'buttons') {
         return {
           ...z,
@@ -525,19 +554,33 @@ export function ownLayout(layout, { sectionIds, itemIds, presetIds }) {
   }
 }
 
-/** Every dish, section and discount id a layout names (for ownLayout()). */
+/** Every dish, section, menu and discount id a layout names (for ownLayout()). */
 export function layoutIds(layout) {
   const items = new Set()
   const sections = new Set()
   const presets = new Set()
+  const menus = new Set()
   for (const z of layout?.zones || []) {
     for (const s of z.sections || []) sections.add(s)
+    for (const m of z.menu_ids || []) menus.add(m)
     for (const b of z.buttons || []) {
       if (b.item_id) items.add(b.item_id)
       if (b.preset_id) presets.add(b.preset_id)
     }
   }
-  return { items: [...items], sections: [...sections], presets: [...presets] }
+  return { items: [...items], sections: [...sections], presets: [...presets], menus: [...menus] }
+}
+
+/**
+ * The menus a Menus zone offers on a till, from the till's menus ({ id,
+ * name, times }, in the till's order): the ones the zone picked, in the
+ * zone's order, else (none picked, or none of them on this till) all of them.
+ */
+export function menuZoneMenus(zone, menus) {
+  const list = menus || []
+  if (!zone?.menu_ids) return list
+  const picked = zone.menu_ids.map(id => list.find(m => m.id === id)).filter(Boolean)
+  return picked.length ? picked : list
 }
 
 // Starting points for a new layout. standard: the standard screen as a

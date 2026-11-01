@@ -580,6 +580,20 @@ till item carries `variant_rules`. The Send to the kitchen window is a big butto
 green for Cook now, plain with a Wait (hold) label for a course that waits. And `addItem()`'s
 same-line check compares modifiers as data: a line the till had back from the server (jsonb
 reorders keys) never matched a new identical dish before, so it made a second line.
+
+Later on 1 Nov 2026 (no migration): a `menus` zone (one per layout) shows the till's menus
+as buttons, the same switch as More → Menus (section 8.9, menu times). It is a zone with
+buttons like categories (grid, text size, alignment, overflow), plus: which menus
+(`menu_ids` in order, or null = every menu the till's revenue stream offers; ids that aren't
+the company's are dropped on save, `ownLayout()`; none of them on a till = all of the till's
+menus, `menuZoneMenus()`), what a tap does (`tap` one = shows just that menu; several = adds it
+or takes it off, one always stays: `switchMenus()` in `shared/menuTimes.js`), a Menu times
+button first (`times_button`: back to following the menu times; lit while the till follows
+them) and each menu's till times under its name (`show_times`). A tap that leaves the till
+showing what the menu times show anyway goes back to following them; any other tap is the
+till's pick (`prefs.menu_pick`), which lapses when the menus on now change, as a pick in More →
+Menus does. The designer gets each menu's till times in the setup (`menus[].till_times`, false =
+off on the tills, which never show in the zone).
 Still not built: a layout per order type, revenue stream or time of day; more picks for a meal
 deal's steps or the groups a pick opens.
 
