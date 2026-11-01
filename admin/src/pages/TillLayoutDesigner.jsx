@@ -10,6 +10,9 @@
 // the venue picked at the top. Explicit Save; a layout with problems (no
 // Order zone, zones overlapping) can't be saved.
 //
+// Each zone with buttons sets where the words sit on them (across, and up
+// and down); the preview places them with buttonTextStyle(), as the till does.
+//
 // Dish choices zones are drawn as outlines over the zones under them (they
 // only fill while a dish is being added: Show a dish being added fills them),
 // so the zones under them stay in sight and can be tapped. The page keeps
@@ -21,20 +24,23 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Loader2, Save, PanelsTopLeft, Plus, Minus, Eye, EyeOff, AlertTriangle, Info, X } from 'lucide-react'
+import {
+  ArrowLeft, Loader2, Save, PanelsTopLeft, Plus, Minus, Eye, EyeOff, AlertTriangle, Info, X,
+  AlignLeft, AlignCenter, AlignRight, AlignVerticalJustifyStart, AlignVerticalJustifyCenter, AlignVerticalJustifyEnd,
+} from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { usePermission } from '@/hooks/usePermission'
 import { ReadOnlyNotice, ReadOnlyFieldset } from '@/components/ReadOnlyNotice'
 import {
   PageHeader, Section, Field, Btn, Toggle, Segmented, ErrorNote, ConfirmDelete, SortableRows, inputCls,
-  usePosVenue, usePosSetup, VenueSelect, ColourPick,
+  usePosVenue, usePosSetup, VenueSelect, ColourPick, money,
 } from '@/components/pos/shared'
 import { usedByText } from '@/components/pos/TillLayoutsSection'
 import {
   ZONE_TYPES, zoneLabel, GRID_ZONES, OVERFLOWS, CHOICE_KINDS, COVERS, BUTTON_ACTIONS, actionOf, CHECK_BUTTONS,
-  normaliseTillLayout, layoutProblems, layoutWarnings, packCells, buttonLabel, choiceZones, overlaps,
-  LAYOUT_COLS, LAYOUT_ROWS, ZONE_GRID, FONT, MAX_ZONES, MAX_BUTTONS, LABEL_MAX,
+  normaliseTillLayout, layoutProblems, layoutWarnings, packCells, buttonLabel, choiceZones, overlaps, buttonTextStyle,
+  ALIGNS, VALIGNS, SEAT_PARTS, LAYOUT_COLS, LAYOUT_ROWS, ZONE_GRID, FONT, MAX_ZONES, MAX_BUTTONS, LABEL_MAX,
 } from '@shared/pos/tillLayout.js'
 
 // Screens to preview on: the till's top bar takes 64 px, the layout the rest.
@@ -445,12 +451,18 @@ function ZonePreview({ zone, scale, ctx, hasBar, focus = null }) {
   const font = Math.max(7, (zone.font || FONT.default) * scale)
   if (zone.type === 'check') return <CheckPreview scale={scale} zone={zone} />
   if (zone.type === 'seats') {
+    const seats = zone.parts !== 'courses'
+    const courses = zone.parts !== 'seats'
     return (
-      <div className="h-full flex items-center gap-1 overflow-hidden" style={{ fontSize: font }}>
-        <span className="opacity-60">Seat</span>
-        {['Shared', '1', '2', '3', '4'].map((s, i) => <span key={s} className={cn('rounded border px-1.5 bg-white', i === 0 && 'bg-slate-800 text-white')}>{s}</span>)}
-        <span className="opacity-60 ml-1">Course</span>
-        <span className="rounded border px-1.5 bg-slate-800 text-white">Usual</span>
+      <div className="h-full flex items-center gap-1 overflow-hidden" style={{ fontSize: font }} data-testid="tl-seats-preview" data-parts={zone.parts || 'both'}>
+        {seats && <>
+          <span className="opacity-60">Seat</span>
+          {['Shared', '1', '2', '3', '4'].map((s, i) => <span key={s} className={cn('rounded border px-1.5 bg-white', i === 0 && 'bg-slate-800 text-white')}>{s}</span>)}
+        </>}
+        {courses && <>
+          <span className={cn('opacity-60', seats && 'ml-1')}>Course</span>
+          {['Usual', 'Starters', 'Mains'].map((s, i) => <span key={s} className={cn('rounded border px-1.5 bg-white', i === 0 && 'bg-slate-800 text-white')}>{s}</span>)}
+        </>}
       </div>
     )
   }
@@ -508,7 +520,7 @@ function previewCells(zone, { setup, names, discounts, tenders, layout }) {
     const cats = layout.zones.find(z => z.type === 'categories')
     const first = cats?.sections?.[0] || (setup?.sections || [])[0]?.id
     const list = cats ? (setup?.items || []).filter(i => i.section_id === first) : (setup?.items || [])
-    return list.map(i => ({ key: i.id, label: i.name, sub: zone.price ? '£' : null }))
+    return list.map(i => ({ key: i.id, label: i.name, sub: zone.price ? (i.price_pence != null ? money(i.price_pence) : '£') : null }))
   }
   if (zone.type === 'buttons') {
     return zone.buttons.map(b => ({
@@ -518,7 +530,10 @@ function previewCells(zone, { setup, names, discounts, tenders, layout }) {
   }
   if (zone.type === 'modifiers') {
     const head = t => ({ key: t, label: t, w: zone.cols, head: true })
-    const opts = (p, n) => Array.from({ length: n }).map((_, i) => ({ key: p + i, label: 'Choice ' + (i + 1) }))
+    // Every other choice with an extra price, to show where prices go.
+    const opts = (p, n) => Array.from({ length: n }).map((_, i) => ({
+      key: p + i, label: 'Choice ' + (i + 1), sub: zone.show_prices !== false && i % 2 === 1 ? '+£0.50' : null,
+    }))
     if (zone.kind === 'required') return [head('Must pick'), ...opts('r', 4)]
     if (zone.kind === 'optional') return [head('Optional'), ...opts('o', 4)]
     return [head('Must pick'), ...opts('r', 3), head('Optional'), ...opts('o', 3)]
@@ -540,6 +555,8 @@ function GridPreview({ zone, cells, font, focus = null }) {
   const inMore = fi >= 0 && packed.rest.includes(fi)
   const page = (packed.pages[at] || []).filter(p => p.x < zone.cols && p.y < zone.rows)
   const scrolls = zone.overflow === 'scroll' && (packed.rows > zone.rows || packed.cols > zone.cols)
+  // Where the words sit on the buttons, as on the till.
+  const place = buttonTextStyle(zone)
   if (!cells.length) return <div className="h-full flex items-center justify-center text-center text-slate-500 text-[10px]">Nothing here yet</div>
   return (
     <div className="h-full flex flex-col min-h-0" style={{ fontSize: font, fontWeight: zone.bold === false ? 500 : 700 }} data-testid="tl-grid"
@@ -548,14 +565,16 @@ function GridPreview({ zone, cells, font, focus = null }) {
         {page.map(p => {
           const c = cells[p.i]
           return (
-            <div key={c.key} className={cn('min-w-0 min-h-0 rounded-sm overflow-hidden px-0.5 leading-tight', c.head ? 'text-slate-600' : 'border bg-white')}
+            <div key={c.key} className={cn('min-w-0 min-h-0 rounded-sm overflow-hidden px-0.5 leading-tight', c.head ? 'text-slate-600' : 'border bg-white flex flex-col')}
               style={{
                 gridColumn: `${p.x + 1} / span ${Math.min(p.w, zone.cols - p.x)}`, gridRow: `${p.y + 1} / span ${Math.min(p.h, zone.rows - p.y)}`,
+                ...(c.head ? {} : place),
                 ...(c.colour ? { background: c.colour, color: inkOn(c.colour), borderColor: c.colour } : {}),
                 ...(p.i === fi ? { outline: '2px solid #0284c7', outlineOffset: '-2px' } : {}),
               }}
               data-testid="tl-cell" data-focus={p.i === fi ? '1' : undefined}>
-              <span className="line-clamp-2 break-words">{c.label}</span>
+              <span className="line-clamp-2 break-words" data-testid="tl-cell-words">{c.label}</span>
+              {c.sub && <span className="opacity-70 font-medium" style={{ fontSize: '0.8em' }} data-testid="tl-cell-sub">{c.sub}</span>}
             </div>
           )
         })}
@@ -576,6 +595,37 @@ function GridPreview({ zone, cells, font, focus = null }) {
 }
 
 // ── A zone's settings ──────────────────────────────────────────────
+
+const ALIGN_ICONS = { left: AlignLeft, center: AlignCenter, right: AlignRight }
+const VALIGN_ICONS = { top: AlignVerticalJustifyStart, middle: AlignVerticalJustifyCenter, bottom: AlignVerticalJustifyEnd }
+// What Top means for the second line of a zone's buttons.
+const PLACE_HINTS = {
+  items: 'At the top, the price stays at the bottom of the button; in the middle or at the bottom it goes under the dish\'s name.',
+  modifiers: 'At the top, a price stays at the bottom of the button; in the middle or at the bottom it goes under the choice. The group headings stay on the left.',
+  buttons: 'At the top, a dish button\'s Sold out line stays at the bottom of the button.',
+}
+
+/** One of the two rows of Words on the buttons: three buttons, an icon and a word each. */
+function PlaceRow({ label, value, options, icons, onChange, testid }) {
+  return (
+    <div className="flex items-center gap-2" data-testid={testid}>
+      <span className="w-20 shrink-0 text-xs text-muted-foreground">{label}</span>
+      <div className="flex-1 grid grid-cols-3 gap-1.5">
+        {options.map(o => {
+          const Icon = icons[o.key]
+          const on = value === o.key
+          return (
+            <button key={o.key} type="button" aria-pressed={on} data-k={o.key} onClick={() => onChange(o.key)}
+              className={cn('min-h-[48px] px-1.5 rounded-lg border text-sm touch-manipulation inline-flex items-center justify-center gap-1 min-w-0',
+                on ? 'bg-primary text-primary-foreground border-primary' : 'bg-background hover:bg-muted')}>
+              <Icon className="w-4 h-4 shrink-0" aria-hidden="true" /><span className="truncate">{o.label}</span>
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
 
 function ZonePanel({ zone, ctx, canManage, onBack, onChange, onRemove, selB = null, setSelB = () => {} }) {
   const t = ZONE_TYPES.find(x => x.key === zone.type)
@@ -602,6 +652,13 @@ function ZonePanel({ zone, ctx, canManage, onBack, onChange, onRemove, selB = nu
                 <Stepper label="Text size" value={zone.font} min={FONT.min} max={FONT.max} onChange={v => onChange({ font: v })} testid="tl-font" />
                 <Toggle label="Bold" checked={zone.bold} onChange={v => onChange({ bold: v })} />
               </div>
+              <Field group label="Words on the buttons">
+                <div className="space-y-2">
+                  <PlaceRow label="Across" value={zone.align} options={ALIGNS} icons={ALIGN_ICONS} onChange={v => onChange({ align: v })} testid="tl-align" />
+                  <PlaceRow label="Up and down" value={zone.valign} options={VALIGNS} icons={VALIGN_ICONS} onChange={v => onChange({ valign: v })} testid="tl-valign" />
+                </div>
+              </Field>
+              {PLACE_HINTS[zone.type] && <p className="text-xs text-muted-foreground -mt-2" data-testid="tl-place-hint">{PLACE_HINTS[zone.type]}</p>}
               <Field group label="When more than fits">
                 <div className="grid grid-cols-2 gap-2" data-testid="tl-overflow">
                   {OVERFLOWS.map(o => (
@@ -642,7 +699,24 @@ function ZonePanel({ zone, ctx, canManage, onBack, onChange, onRemove, selB = nu
           )}
           {zone.type === 'check' && <CheckZoneOptions zone={zone} layout={layout} onChange={onChange} />}
           {zone.type === 'seats' && (
-            <Stepper label="Text size" value={zone.font} min={FONT.min} max={FONT.max} onChange={v => onChange({ font: v })} testid="tl-font" />
+            <>
+              <Field group label="Shows">
+                <div className="grid grid-cols-3 gap-1.5" data-testid="tl-seat-parts">
+                  {SEAT_PARTS.map(p => (
+                    <button key={p.key} type="button" aria-pressed={zone.parts === p.key} data-k={p.key} onClick={() => onChange({ parts: p.key })}
+                      className={cn('min-h-[48px] px-2 rounded-lg border text-sm touch-manipulation', zone.parts === p.key ? 'bg-primary text-primary-foreground border-primary' : 'bg-background hover:bg-muted')}>
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              </Field>
+              <p className="text-xs text-muted-foreground -mt-2">
+                {zone.parts === 'seats' ? 'Dishes go to their usual course; staff pick only the seat.'
+                  : zone.parts === 'courses' ? 'Dishes go to the whole table (Shared); staff pick only the course.'
+                    : 'Staff pick the seat and the course the next dish goes to.'}
+              </p>
+              <Stepper label="Text size" value={zone.font} min={FONT.min} max={FONT.max} onChange={v => onChange({ font: v })} testid="tl-font" />
+            </>
           )}
         </div>
       </ReadOnlyFieldset>
@@ -668,9 +742,16 @@ function ChoiceZoneOptions({ zone, layout, onChange }) {
       <p className="text-xs text-muted-foreground">{hasBar ? 'The Add button still shows the total.' : 'The dish\'s name and the Add button are on the Must pick zone.'}</p>
       {hasBar && (
         <>
-          <Toggle label="Add the dish on its last must-pick tap" checked={!!zone.auto_add} onChange={v => onChange({ auto_add: v })} />
+          {/* The two can't go together: one adds on the first tap, the other waits for more. */}
+          <Toggle label="Add the dish on its last must-pick tap" checked={!!zone.auto_add} onChange={v => onChange({ auto_add: v, ...(v ? { split_picks: false } : {}) })} />
           <p className="text-xs text-muted-foreground" data-testid="tl-auto-add-hint">
             When a must-pick choice takes one pick (a size, a sauce) and nothing else is left to pick, tapping it puts the dish on the order: no Add tap. Optional choices tapped before it go on with it.
+          </p>
+          <div data-testid="tl-split-picks">
+            <Toggle label="More picks, more dishes" checked={!!zone.split_picks} onChange={v => onChange({ split_picks: v, ...(v ? { auto_add: false } : {}) })} />
+          </div>
+          <p className="text-xs text-muted-foreground" data-testid="tl-split-picks-hint">
+            A choice that takes one pick (a protein, a size) can take more, each one more dish: Pad Thai, Chicken and Prawn adds two Pad Thai, one of each. Tapping a choice again adds another; the minus takes one off. Turns off adding on the last tap.
           </p>
         </>
       )}

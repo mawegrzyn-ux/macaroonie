@@ -5,6 +5,7 @@ import assert from 'node:assert/strict'
 import {
   normaliseTillLayout, layoutProblems, layoutWarnings, choiceZones, packCells, buttonLabel,
   ownLayout, layoutIds, templateLayout, LAYOUT_TEMPLATES, overlaps, actionOf, CHECK_BUTTONS,
+  buttonTextStyle, ALIGN_KEYS, VALIGN_KEYS,
 } from '../tillLayout.js'
 
 const A = '11111111-1111-4111-8111-111111111111'
@@ -249,4 +250,90 @@ test('button words and the company\'s own ids', () => {
   const own = ownLayout(layout, { sectionIds: new Set([A]), itemIds: [A], presetIds: new Set([B]) })
   assert.deepEqual(own.zones[1].sections, [A])
   assert.deepEqual(own.zones[2].buttons.map(b => b.item_id || b.preset_id || b.action), [A, B, 'send'])
+})
+
+test('where the words sit on a zone\'s buttons: defaults per zone, kept, refused, the styles', () => {
+  const l = normaliseTillLayout({
+    zones: [
+      { id: 'c', type: 'check', x: 0, y: 0, w: 4, h: 8, align: 'right', valign: 'bottom' },
+      { id: 'k', type: 'categories', x: 4, y: 0, w: 8, h: 1 },
+      { id: 'd', type: 'items', x: 4, y: 1, w: 8, h: 4 },
+      { id: 'b', type: 'buttons', x: 4, y: 5, w: 8, h: 2 },
+      { id: 'm', type: 'modifiers', x: 4, y: 1, w: 8, h: 4 },
+      { id: 's', type: 'seats', x: 4, y: 7, w: 8, h: 1, align: 'left' },
+    ],
+  })
+  const by = Object.fromEntries(l.zones.map(z => [z.id, z]))
+  // Nothing set: each zone as it drew its words before they could be set.
+  assert.deepEqual([by.k.align, by.k.valign], ['center', 'middle'])
+  assert.deepEqual([by.d.align, by.d.valign], ['left', 'top'])
+  assert.deepEqual([by.b.align, by.b.valign], ['center', 'middle'])
+  assert.deepEqual([by.m.align, by.m.valign], ['left', 'top'])
+  // Zones without a grid of buttons don't keep them.
+  assert.equal('align' in by.c, false)
+  assert.equal('valign' in by.c, false)
+  assert.equal('align' in by.s, false)
+
+  const set = normaliseTillLayout({
+    zones: [
+      { id: 'd', type: 'items', x: 0, y: 0, w: 4, h: 4, align: 'right', valign: 'bottom' },
+      { id: 'k', type: 'categories', x: 4, y: 0, w: 4, h: 1, align: 'left', valign: 'top' },
+      { id: 'b', type: 'buttons', x: 4, y: 1, w: 4, h: 2, align: 'justify', valign: 'baseline' },
+      { id: 'm', type: 'modifiers', x: 0, y: 0, w: 4, h: 4, align: 'center', valign: 'middle' },
+    ],
+  })
+  const s2 = Object.fromEntries(set.zones.map(z => [z.id, z]))
+  assert.deepEqual([s2.d.align, s2.d.valign], ['right', 'bottom'])
+  assert.deepEqual([s2.k.align, s2.k.valign], ['left', 'top'])
+  assert.deepEqual([s2.b.align, s2.b.valign], ['center', 'middle'], 'not ours: the zone\'s default')
+  assert.deepEqual([s2.m.align, s2.m.valign], ['center', 'middle'])
+  // Normalising again changes nothing.
+  assert.deepEqual(normaliseTillLayout(set), set)
+
+  // The styles: across = alignItems + textAlign; up and down = justifyContent,
+  // the top keeping a second line at the bottom (space-between).
+  const across = { left: 'flex-start', center: 'center', right: 'flex-end' }
+  const down = { top: 'space-between', middle: 'center', bottom: 'flex-end' }
+  for (const align of ALIGN_KEYS) {
+    for (const valign of VALIGN_KEYS) {
+      assert.deepEqual(buttonTextStyle({ type: 'buttons', align, valign }),
+        { alignItems: across[align], justifyContent: down[valign], textAlign: align }, align + ' ' + valign)
+    }
+  }
+  // A zone not normalised yet (or a bad value): its type's default.
+  assert.deepEqual(buttonTextStyle({ type: 'items' }), { alignItems: 'flex-start', justifyContent: 'space-between', textAlign: 'left' })
+  assert.deepEqual(buttonTextStyle({ type: 'categories', align: 'sideways' }), { alignItems: 'center', justifyContent: 'center', textAlign: 'center' })
+  assert.deepEqual(buttonTextStyle(null), { alignItems: 'center', justifyContent: 'center', textAlign: 'center' })
+  // The templates carry them.
+  for (const t of LAYOUT_TEMPLATES) {
+    for (const z of templateLayout(t.key).zones.filter(z => ['categories', 'items', 'buttons', 'modifiers'].includes(z.type))) {
+      assert.ok(ALIGN_KEYS.includes(z.align) && VALIGN_KEYS.includes(z.valign), t.key + ' ' + z.id)
+    }
+  }
+})
+
+test('Seat and course zone: both, seats only or courses only', () => {
+  const l = normaliseTillLayout({
+    zones: [
+      { id: 'c', type: 'check', x: 0, y: 0, w: 4, h: 8 },
+      { id: 'a', type: 'seats', x: 4, y: 7, w: 8, h: 1 },
+    ],
+  })
+  assert.equal(l.zones[1].parts, 'both', 'nothing set: both')
+  for (const parts of ['seats', 'courses', 'both']) {
+    assert.equal(normaliseTillLayout({ zones: [{ id: 'a', type: 'seats', x: 0, y: 0, w: 4, h: 1, parts }] }).zones[0].parts, parts)
+  }
+  assert.equal(normaliseTillLayout({ zones: [{ id: 'a', type: 'seats', x: 0, y: 0, w: 4, h: 1, parts: 'tables' }] }).zones[0].parts, 'both')
+  // Only the Seat and course zone has it.
+  assert.equal('parts' in normaliseTillLayout({ zones: [{ id: 'd', type: 'items', x: 0, y: 0, w: 4, h: 4, parts: 'seats' }] }).zones[0], false)
+})
+
+test('Dish choices zone: more picks, more dishes never goes with adding on the last tap', () => {
+  const zone = raw => normaliseTillLayout({ zones: [{ id: 'm', type: 'modifiers', x: 0, y: 0, w: 4, h: 4, kind: 'required', ...raw }] }).zones[0]
+  assert.deepEqual([zone({}).split_picks, zone({}).auto_add], [false, false])
+  assert.deepEqual([zone({ split_picks: true }).split_picks, zone({ split_picks: true }).auto_add], [true, false])
+  assert.deepEqual([zone({ auto_add: true }).split_picks, zone({ auto_add: true }).auto_add], [false, true])
+  assert.deepEqual([zone({ auto_add: true, split_picks: true }).split_picks, zone({ auto_add: true, split_picks: true }).auto_add], [true, false], 'both asked: more dishes wins')
+  assert.equal(zone({ split_picks: 'yes' }).split_picks, false, 'not a boolean: off')
+  assert.equal('split_picks' in normaliseTillLayout({ zones: [{ id: 'd', type: 'items', x: 0, y: 0, w: 4, h: 4, split_picks: true }] }).zones[0], false)
 })

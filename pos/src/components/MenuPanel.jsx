@@ -39,16 +39,19 @@ export function useHold(onTap, onHold) {
 
 // A dish button: tap picks it, holding it down opens the sold out window.
 // fill: it takes its cell (till layouts) instead of its own height; font and
-// price follow the zone (the price line can be switched off).
-export function DishButton({ item, colour, priceText, soldOut, onPick, onHold, fill = false, showPrice = true }) {
+// price follow the zone (the price line can be switched off), and so does
+// where the words sit (place: the zone's buttonTextStyle()).
+export function DishButton({ item, colour, priceText, soldOut, onPick, onHold, fill = false, showPrice = true, place = null }) {
   const hold = useHold(() => (soldOut && onHold ? onHold(item) : onPick(item)), onHold ? () => onHold(item) : null)
   return (
     <button {...hold} data-testid="dish" data-item={item.id}
-      className={cx('relative rounded-xl border p-3 text-left flex flex-col justify-between touch-manipulation active:scale-[0.97] transition-transform overflow-hidden select-none',
+      className={cx('relative rounded-xl border p-3 flex flex-col touch-manipulation active:scale-[0.97] transition-transform overflow-hidden select-none',
+        !place && 'text-left justify-between',
         fill ? 'w-full h-full py-2' : 'min-h-[84px]',
-        soldOut ? 'bg-page border-line text-muted' : 'bg-white border-line')}>
+        soldOut ? 'bg-page border-line text-muted' : 'bg-white border-line')}
+      style={place || undefined}>
       <span className="absolute left-0 top-0 bottom-0 w-1.5" style={{ background: colour, opacity: soldOut ? 0.35 : 1 }} />
-      <span className={cx('leading-tight line-clamp-3 pl-1', !fill && 'font-semibold text-[15px]', soldOut && 'line-through')}>{item.name}</span>
+      <span className={cx('leading-tight line-clamp-3 pl-1', !fill && 'font-semibold text-[15px]', soldOut && 'line-through')} data-testid="button-words">{item.name}</span>
       {(showPrice || soldOut) && (
         <span className={cx('text-muted pl-1 mt-1 tabular-nums', fill ? 'text-[0.8em] font-medium' : 'text-sm')}>
           {soldOut ? <span className="font-bold text-bad uppercase text-xs tracking-wide">Sold out</span> : priceText}
@@ -72,25 +75,31 @@ const BAR = 'chip shrink-0 h-16 min-w-[64px] rounded-xl px-5 text-base'
 
 /**
  * The seat and course the next dish goes to. fill: the bar takes its zone's
- * height (till layouts), with the zone's text size.
+ * height (till layouts), with the zone's text size. parts: both, seats or
+ * courses (a layout's Seat and course zone can show just one of them).
  */
-export function SeatCourseBar({ config, seat, setSeat, course, setCourse, covers, fill = false, font = null }) {
+export function SeatCourseBar({ config, seat, setSeat, course, setCourse, covers, fill = false, font = null, parts = 'both' }) {
   const bar = fill ? 'chip shrink-0 h-full max-h-20 min-h-[48px] min-w-[64px] rounded-xl px-5' : BAR
+  const seats = parts !== 'courses'
+  const courses = parts !== 'seats' && (config.courses || []).length > 0
   return (
     <div className={cx('flex items-center gap-2 scroll-x', fill ? 'h-full p-2' : 'border-t border-line bg-white p-2 shrink-0')}
-      style={font ? { fontSize: font + 'px' } : undefined} data-testid="seat-course-bar">
-      <span className="label shrink-0 pl-1">Seat</span>
-      <button className={cx(bar, seat == null && 'chip-on')} onClick={() => setSeat(null)}>Shared</button>
-      {Array.from({ length: Math.max(2, Math.min(12, covers || 4)) }).map((_, i) => (
-        <button key={i} className={cx(bar, 'w-16 px-0', seat === i + 1 && 'chip-on')} onClick={() => setSeat(seat === i + 1 ? null : i + 1)}>{i + 1}</button>
-      ))}
-      {(config.courses || []).length > 0 && <>
-        <span className="label shrink-0 ml-3">Course</span>
-        <button className={cx(bar, course == null && 'chip-on')} onClick={() => setCourse(null)}>Usual</button>
-        {config.courses.map(c => (
-          <button key={c.id} className={cx(bar, course === c.id && 'chip-on')} onClick={() => setCourse(course === c.id ? null : c.id)}>{c.short_name || c.name}</button>
+      style={font ? { fontSize: font + 'px' } : undefined} data-testid="seat-course-bar" data-parts={parts}>
+      {seats && <>
+        <span className="label shrink-0 pl-1">Seat</span>
+        <button className={cx(bar, seat == null && 'chip-on')} onClick={() => setSeat(null)} data-testid="seat-shared">Shared</button>
+        {Array.from({ length: Math.max(2, Math.min(12, covers || 4)) }).map((_, i) => (
+          <button key={i} className={cx(bar, 'w-16 px-0', seat === i + 1 && 'chip-on')} onClick={() => setSeat(seat === i + 1 ? null : i + 1)} data-testid="seat-chip">{i + 1}</button>
         ))}
       </>}
+      {courses && <>
+        <span className={cx('label shrink-0', seats ? 'ml-3' : 'pl-1')}>Course</span>
+        <button className={cx(bar, course == null && 'chip-on')} onClick={() => setCourse(null)} data-testid="course-usual">Usual</button>
+        {config.courses.map(c => (
+          <button key={c.id} className={cx(bar, course === c.id && 'chip-on')} onClick={() => setCourse(course === c.id ? null : c.id)} data-testid="course-chip">{c.short_name || c.name}</button>
+        ))}
+      </>}
+      {!seats && !courses && <span className="text-sm text-muted pl-1" data-testid="no-courses">No courses set up at this location.</span>}
     </div>
   )
 }

@@ -31,7 +31,15 @@
 // zone can have instead, and has its own text size and button colours. A
 // Dish choices zone can leave out the dish's name, its description and the
 // prices, and can add the dish as soon as its last must-pick choice that
-// takes one pick is tapped (auto_add).
+// takes one pick is tapped (auto_add), or instead let a choice that takes
+// one pick take more, each one more dish (split_picks: Pad Thai with Chicken
+// and Prawn adds two Pad Thai; never with auto_add).
+//
+// Each zone with a grid of buttons sets where the words sit on its buttons:
+// across (align: left | center | right) and up and down (valign: top |
+// middle | bottom), drawn by the till and the designer through
+// buttonTextStyle() below. The Seat and course zone can show the seats only
+// or the courses only (parts).
 
 export const LAYOUT_COLS = { min: 4, max: 24, default: 12 }
 export const LAYOUT_ROWS = { min: 3, max: 16, default: 8 }
@@ -48,7 +56,7 @@ export const ZONE_TYPES = [
   { key: 'items', label: 'Dishes', hint: 'The dishes of the category picked, with a search box if you want one.', max: 1 },
   { key: 'buttons', label: 'Buttons', hint: 'Your own buttons: a dish, or a function such as Exact cash or Last receipt.', max: 8 },
   { key: 'modifiers', label: 'Dish choices', hint: 'A dish\'s choices while it is being added: the must-pick ones, the optional ones, or both.', max: 2 },
-  { key: 'seats', label: 'Seat and course', hint: 'The seat and course the next dish goes to.', max: 1 },
+  { key: 'seats', label: 'Seat and course', hint: 'The seat and course the next dish goes to (or just one of them).', max: 1 },
 ]
 export const ZONE_KEYS = ZONE_TYPES.map(t => t.key)
 export const zoneLabel = type => ZONE_TYPES.find(t => t.key === type)?.label || type
@@ -77,6 +85,28 @@ export const COVERS = [
   { key: 'screen', label: 'The whole screen' },
 ]
 export const COVER_KEYS = COVERS.map(c => c.key)
+
+// Where the words sit on a zone's buttons: across and up and down.
+export const ALIGNS = [
+  { key: 'left', label: 'Left' },
+  { key: 'center', label: 'Centre' },
+  { key: 'right', label: 'Right' },
+]
+export const ALIGN_KEYS = ALIGNS.map(a => a.key)
+export const VALIGNS = [
+  { key: 'top', label: 'Top' },
+  { key: 'middle', label: 'Middle' },
+  { key: 'bottom', label: 'Bottom' },
+]
+export const VALIGN_KEYS = VALIGNS.map(a => a.key)
+
+// What the Seat and course zone shows.
+export const SEAT_PARTS = [
+  { key: 'both', label: 'Seat and course' },
+  { key: 'seats', label: 'Seat only' },
+  { key: 'courses', label: 'Course only' },
+]
+export const SEAT_PART_KEYS = SEAT_PARTS.map(p => p.key)
 
 // The Order zone's own buttons, each one a layout can leave out (hide) when
 // a Buttons zone does it instead (action: the button action that does the
@@ -144,12 +174,13 @@ const text = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '')
 const pick = (v, keys, dflt) => (keys.includes(v) ? v : dflt)
 const bool = (v, dflt) => (typeof v === 'boolean' ? v : dflt)
 
-// A zone's own button grid when nothing is set.
+// A zone's own button grid when nothing is set (align / valign: where the
+// words sit, as each zone drew them before they could be set).
 const GRID_DEFAULTS = {
-  categories: { cols: 6, rows: 1, overflow: 'scroll' },
-  items: { cols: 4, rows: 4, overflow: 'scroll' },
-  buttons: { cols: 4, rows: 2, overflow: 'pages' },
-  modifiers: { cols: 4, rows: 4, overflow: 'scroll' },
+  categories: { cols: 6, rows: 1, overflow: 'scroll', align: 'center', valign: 'middle' },
+  items: { cols: 4, rows: 4, overflow: 'scroll', align: 'left', valign: 'top' },
+  buttons: { cols: 4, rows: 2, overflow: 'pages', align: 'center', valign: 'middle' },
+  modifiers: { cols: 4, rows: 4, overflow: 'scroll', align: 'left', valign: 'top' },
 }
 
 function normaliseButton(b, grid, i) {
@@ -197,6 +228,8 @@ function normaliseZone(z, layout, i) {
     zone.font = int(z.font, FONT.min, FONT.max, FONT.default)
     zone.bold = bool(z.bold, true)
     zone.overflow = pick(z.overflow, OVERFLOW_KEYS, d.overflow)
+    zone.align = pick(z.align, ALIGN_KEYS, d.align)
+    zone.valign = pick(z.valign, VALIGN_KEYS, d.valign)
   }
   if (z.type === 'categories') {
     const ids = Array.isArray(z.sections) ? z.sections.filter(s => UUID.test(String(s))).map(s => String(s).toLowerCase()) : null
@@ -224,9 +257,14 @@ function normaliseZone(z, layout, i) {
     zone.show_name = bool(z.show_name, true)
     zone.show_description = bool(z.show_description, true)
     zone.show_prices = bool(z.show_prices, true)
-    zone.auto_add = bool(z.auto_add, false)
+    // More picks, more dishes; adding on the last tap can't go with it.
+    zone.split_picks = bool(z.split_picks, false)
+    zone.auto_add = bool(z.auto_add, false) && !zone.split_picks
   }
-  if (z.type === 'seats') zone.font = int(z.font, FONT.min, FONT.max, FONT.default)
+  if (z.type === 'seats') {
+    zone.font = int(z.font, FONT.min, FONT.max, FONT.default)
+    zone.parts = pick(z.parts, SEAT_PART_KEYS, 'both')
+  }
   if (z.type === 'check') {
     zone.font = int(z.font, FONT.min, FONT.max, FONT.default)
     const hide = Array.isArray(z.hide) ? z.hide.filter(k => CHECK_BUTTON_KEYS.includes(k)) : []
@@ -261,6 +299,25 @@ export function normaliseTillLayout(raw) {
 
 function freshId(seen, prefix) {
   for (let n = seen.size + 1; ; n++) if (!seen.has(prefix + n)) return prefix + n
+}
+
+/**
+ * Where the words go on a zone's buttons, as styles for a button laid out
+ * as a column (flex-direction: column): the first line (a name) goes where
+ * the zone says (align, valign); a second line (a price, Sold out) sits at
+ * the bottom when the words are at the top, else right under the first.
+ * The till's buttons and the designer's preview both take it, so the words
+ * land in the same place in both.
+ */
+export function buttonTextStyle(zone) {
+  const d = GRID_DEFAULTS[zone?.type] || { align: 'center', valign: 'middle' }
+  const align = pick(zone?.align, ALIGN_KEYS, d.align)
+  const valign = pick(zone?.valign, VALIGN_KEYS, d.valign)
+  return {
+    alignItems: { left: 'flex-start', center: 'center', right: 'flex-end' }[align],
+    justifyContent: { top: 'space-between', middle: 'center', bottom: 'flex-end' }[valign],
+    textAlign: align,
+  }
 }
 
 export const overlaps = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h

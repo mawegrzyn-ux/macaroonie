@@ -3649,15 +3649,28 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               layout is <Mono>&#123; cols, rows, zones &#125;</Mono> (4-24 x 3-16 cells, 12 x 8 at first); each zone is{' '}
               <Mono>&#123; id, type, x, y, w, h &#125;</Mono> on that grid. The zones with buttons (<Mono>GRID_ZONES</Mono>:
               categories, items, buttons, modifiers) add their own <Mono>cols</Mono> x <Mono>rows</Mono> (1-12),{' '}
-              <Mono>font</Mono> (12-36 px), <Mono>bold</Mono> and <Mono>overflow</Mono> (<Mono>scroll</Mono> |{' '}
-              <Mono>pages</Mono> | <Mono>more</Mono> | <Mono>hide</Mono>). Categories carry <Mono>sections</Mono> (ids in
+              <Mono>font</Mono> (12-36 px), <Mono>bold</Mono>, <Mono>overflow</Mono> (<Mono>scroll</Mono> |{' '}
+              <Mono>pages</Mono> | <Mono>more</Mono> | <Mono>hide</Mono>) and where the words sit on their buttons:{' '}
+              <Mono>align</Mono> (<Mono>ALIGNS</Mono>: left | center | right) and <Mono>valign</Mono> (<Mono>VALIGNS</Mono>:
+              top | middle | bottom), defaulting per type to the look before they existed (<Mono>GRID_DEFAULTS</Mono>:
+              categories and buttons centre / middle, dishes and choices left / top), so older layouts read the same.{' '}
+              <Mono>buttonTextStyle(zone)</Mono> turns them into a flex column&apos;s <Mono>alignItems</Mono>,{' '}
+              <Mono>justifyContent</Mono> and <Mono>textAlign</Mono>; top is <Mono>space-between</Mono>, so a
+              button&apos;s second line (a price, Sold out) stays at its bottom, while middle and bottom put it under the
+              words. The till&apos;s <Mono>SectionButton</Mono>, <Mono>DishButton</Mono> (<Mono>place</Mono>),{' '}
+              <Mono>LayoutButton</Mono> and Dish choices cells and the designer&apos;s <Mono>GridPreview</Mono> all style
+              their buttons with it. The Order zone and the Seat and course zone have none (their buttons are sized to
+              their words). Categories carry <Mono>sections</Mono> (ids in
               order; null = every section of the till&apos;s menus), dishes <Mono>search</Mono> and <Mono>price</Mono>,
               buttons zones <Mono>buttons</Mono> (<Mono>&#123; id, action, label, colour, w, h &#125;</Mono>, with{' '}
               <Mono>item_id</Mono>, <Mono>preset_id</Mono> or <Mono>tender</Mono> for the actions that name one;{' '}
               <Mono>BUTTON_ACTIONS</Mono>, where <Mono>check: true</Mono> means it needs an order on screen), modifiers{' '}
               <Mono>kind</Mono> (all | required | optional), <Mono>cover</Mono> (zone | screen),{' '}
-              <Mono>show_name</Mono>, <Mono>show_description</Mono>, <Mono>show_prices</Mono> (default true) and{' '}
-              <Mono>auto_add</Mono> (default false). The layout has <Mono>top_bar</Mono> (default true; false = the
+              <Mono>show_name</Mono>, <Mono>show_description</Mono>, <Mono>show_prices</Mono> (default true),{' '}
+              <Mono>auto_add</Mono> and <Mono>split_picks</Mono> (default false; never both: with{' '}
+              <Mono>split_picks</Mono> on, <Mono>normaliseZone()</Mono> sets <Mono>auto_add</Mono> false), and the Seat
+              and course zone <Mono>font</Mono> and <Mono>parts</Mono> (<Mono>SEAT_PARTS</Mono>: both | seats | courses,
+              read by <Mono>SeatCourseBar</Mono>&apos;s <Mono>parts</Mono>). The layout has <Mono>top_bar</Mono> (default true; false = the
               order screens without the till&apos;s top bar), and the Order zone <Mono>font</Mono> (12-36, 16 = the
               standard size), <Mono>hide</Mono> (keys of <Mono>CHECK_BUTTONS</Mono>: back, cancel, more, send, bill, pay,
               kept in that order) and <Mono>colours</Mono> (<Mono>&#123; cancel, more, send, bill, pay &#125;</Mono>, a
@@ -3708,6 +3721,18 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               happy with the whole selection; its picks are read through a ref (<Mono>commit()</Mono>), so the tap that
               completes the dish adds what is on screen. <Mono>ChoiceZone</Mono> drops the dish&apos;s name, description
               and the choices&apos; prices by the zone&apos;s switches (a sold out choice keeps its words). With the
+              must-pick zone&apos;s <Mono>split_picks</Mono>, <Mono>useChoiceBuilder(..., &#123; split: true &#125;)</Mono>{' '}
+              lets each of the dish&apos;s own groups that takes one pick (<Mono>splitsPicks()</Mono> in{' '}
+              <Mono>shared/pos/pricing.js</Mono>: <Mono>max === 1</Mono>, no repeat, no No / Light / Extra; not nested
+              groups or meal deal steps) take more, a tap each, and <Mono>splitPicks(choices, selection)</Mono> makes one
+              selection per dish: groups picked more than once pair up in order and must all have the same number (else{' '}
+              <Mono>&#123; ok: false, error &#125;</Mono>), the rest go on every dish. Each dish is priced on its own; the
+              builder returns <Mono>ok</Mono>, <Mono>error</Mono>, <Mono>total</Mono> (every dish, the quantity each) and{' '}
+              <Mono>count</Mono>, and <Mono>result().split</Mono> holds the selections. <Mono>addChosen(checkId, item, o)</Mono>{' '}
+              (<Mono>lib/checkOps.js</Mono>, used by <Mono>Check.jsx</Mono> and <Mono>Counter.jsx</Mono> for every dish from
+              the choices window or the zones) adds a line per selection through <Mono>addItem()</Mono>, which raises an
+              identical new line&apos;s quantity instead (<Mono>sameLine()</Mono>, comparing modifiers and combo as data
+              with <Mono>asData()</Mono>: a line the till has back from the server has its keys in jsonb&apos;s order). With the
               layout&apos;s <Mono>top_bar</Mono> false, <Mono>Main</Mono> in <Mono>App.jsx</Mono> leaves the bar off the
               check and counter views (<Mono>hideBar</Mono>), and <Mono>TillNav</Mono> (<Mono>components/TillMenu.jsx</Mono>:
               <Mono>go</Mono>, <Mono>view</Mono>, <Mono>counterMode</Mono>, <Mono>hideBar</Mono>, <Mono>openMenu</Mono>)
@@ -3733,6 +3758,17 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>layoutProblems()</Mono> finds any. The till window on Tills has the till&apos;s own choice
               (<Mono>till-layout</Mono>). Tests: <Mono>shared/pos/test/tillLayout.test.mjs</Mono>,{' '}
               <Mono>api/test/till-layouts.test.mjs</Mono>.
+            </P>
+            <H3>Sending to the kitchen</H3>
+            <P>
+              <Mono>sendCheck(check, heldCourseIds)</Mono> (<Mono>lib/checkOps.js</Mono>) sends every new line as one{' '}
+              <Mono>lines.sent</Mono> (<Mono>&#123; send_id, line_ids, held_course_ids &#125;</Mono>). When{' '}
+              <Mono>needsSendChoice()</Mono> (more than one course among the new lines, one held by default, or held courses
+              already on the check) <Mono>SendModal</Mono> (<Mono>components/CheckActions.jsx</Mono>) asks first: a 64 px
+              button per course (<Mono>send-course</Mono>, <Mono>data-held</Mono>, <Mono>aria-pressed</Mono> = cooks now),
+              green outline and background with Cook now for a course that cooks now, a plain row with a purple Wait (hold)
+              label (<Mono>send-wait</Mono>) for one that waits, a tap switching it; the courses held by default start
+              held (<Mono>defaultHeld()</Mono>).
             </P>
             <H3>The order&apos;s allergy flag</H3>
             <P>
@@ -5381,9 +5417,10 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               options from the choices (so the server rejects them too),{' '}
               <Mono>hide_zero_priced_variants</Mono> sets <Mono>hide_zero_price</Mono> on each choice
               and <Mono>optionPriceText()</Mono> shows no price for £0 options. Kiosks follow the same
-              settings: <Mono>tillMenuData(..., {'{ guest: true }'})</Mono> puts the menu's{' '}
-              <Mono>variant_rules</Mono> on each dish and <Mono>posChoices()</Mono> passes them to{' '}
-              <Mono>itemChoices()</Mono> (tills get no rules: staff see every option). VAT comes from the dish's
+              settings, and so do the tills (1 Nov 2026; until then tills showed staff every option):{' '}
+              <Mono>tillMenuData()</Mono> puts the menu's <Mono>variant_rules</Mono> on each dish for every device
+              (guest loads add only the pictures and words) and <Mono>posChoices()</Mono> passes them to{' '}
+              <Mono>itemChoices()</Mono>. VAT comes from the dish's
               tax levels (dish, section, menu) resolved by <Mono>taxFor()</Mono> (<Mono>shared/tax.js</Mono>)
               for the order's context, <Mono>orderContext(venueId, settings, fulfilment)</Mono>: the order
               type Ordering setup gives that fulfilment and its revenue stream. <Mono>loadOrderingMenu()</Mono>{' '}

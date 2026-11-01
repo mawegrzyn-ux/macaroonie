@@ -167,6 +167,45 @@ test('the venue\'s layout and a till\'s own reach the till; deleting a layout pu
   await ok(other.delete('/api/pos/till-layouts/' + theirLayout.id))
 })
 
+test('where the words sit on a zone\'s buttons: saved, cleaned, in the till\'s config; older layouts get the defaults', async () => {
+  const l = await ok(owner.post('/api/pos/till-layouts', { name: 'Zql Words' }))
+  const base = layoutWith(mine)
+  const set = { cats: { align: 'right', valign: 'top' }, dishes: { align: 'center', valign: 'bottom' }, pay: { align: 'sideways', valign: 'up' }, check: { align: 'left', valign: 'top' } }
+  const layout = { ...base, zones: base.zones.map(z => ({ ...z, ...set[z.id] })) }
+  const saved = await ok(owner.put('/api/pos/till-layouts/' + l.id, { name: 'Zql Words', layout }))
+  const by = id => saved.layout.zones.find(z => z.id === id)
+  assert.deepEqual([by('cats').align, by('cats').valign], ['right', 'top'])
+  assert.deepEqual([by('dishes').align, by('dishes').valign], ['center', 'bottom'])
+  assert.deepEqual([by('pay').align, by('pay').valign], ['center', 'middle'], 'not ours: the Buttons zone\'s default')
+  assert.equal('align' in by('check'), false, 'the Order zone has no grid of buttons')
+  const [row] = await sql`SELECT layout FROM pos_till_layouts WHERE id = ${l.id}`
+  assert.equal(row.layout.zones.find(z => z.id === 'dishes').valign, 'bottom', 'stored')
+
+  // The till gets them.
+  await ok(owner.patch(`/api/pos/venues/${V}/settings`, { till_layout_id: l.id }))
+  let cfg = await config(till)
+  const tz = id => cfg.till_layouts[l.id].zones.find(z => z.id === id)
+  assert.deepEqual([tz('cats').align, tz('cats').valign, tz('dishes').align, tz('dishes').valign], ['right', 'top', 'center', 'bottom'])
+
+  // A layout stored before they could be set: each zone as it drew its words.
+  const old = { ...row.layout, zones: row.layout.zones.map(({ align, valign, ...z }) => z) }
+  await sql`UPDATE pos_till_layouts SET layout = ${sql.json(old)} WHERE id = ${l.id}`
+  const view = await ok(owner.get('/api/pos/till-layouts/' + l.id))
+  const vz = id => view.layout.zones.find(z => z.id === id)
+  assert.deepEqual([vz('cats').align, vz('cats').valign], ['center', 'middle'])
+  assert.deepEqual([vz('dishes').align, vz('dishes').valign], ['left', 'top'])
+  assert.deepEqual([vz('pay').align, vz('pay').valign], ['center', 'middle'])
+  cfg = await config(till)
+  assert.deepEqual([tz('dishes').align, tz('dishes').valign], ['left', 'top'])
+
+  // The designer's preview shows each dish's price.
+  const setup = await ok(owner.get(`/api/pos/venues/${V}/setup`))
+  assert.ok(setup.items.length && setup.items.every(i => 'price_pence' in i))
+  assert.ok(setup.items.some(i => i.price_pence > 0))
+
+  await ok(owner.delete('/api/pos/till-layouts/' + l.id))
+})
+
 test('Store tech view reads, manage changes; another group can\'t touch them', async () => {
   const l = await ok(owner.post('/api/pos/till-layouts', { name: 'Zql Locked' }))
   assert.equal((await operator.get('/api/pos/till-layouts')).status, 403, 'operators have no Store tech access by default')

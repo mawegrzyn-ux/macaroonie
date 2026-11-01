@@ -13,6 +13,7 @@ import { menuSaveBody } from '../src/routes/menus.js'
 import { withTenant } from '../src/config/db.js'
 import { kioskConfig, previewDevice } from '../src/services/kioskSvc.js'
 import { tillConfig } from '../src/services/posSvc.js'
+import { posChoices } from '../../shared/pos/pricing.js'
 
 let ids, owner, mine, design, M, dishId
 
@@ -124,16 +125,31 @@ test('published: the live preview has the changes and nothing is listed', async 
   assert.ok(dishNamed(cfg, 'Mango sticky rice'))
 })
 
-test('the menu\'s option settings reach the kiosk (Hide £0, Hide unpriced), not the till', async () => {
+test('the menu\'s option settings reach the kiosk and the till (Hide £0, Hide unpriced)', async () => {
   const body = menuSaveBody(await ok(owner.get(`/api/menus/${M}`)))
-  body.hide_zero_priced_variants = true
-  body.hide_unpriced_variants = true
+  // A dish whose own options have one with no price (left out) and one priced.
+  const pad = { id: u(), name: 'Zest Pad Thai', price_pence: 900, is_orderable: true, variants: [{ label: 'Chicken', price_pence: 0 }, { label: 'Prawn', price_pence: 1200 }] }
+  body.sections[0].items.push(pad)
+  // First published without the settings: the till offers both.
   await ok(owner.patch(`/api/menus/${M}`, body))
+  await ok(owner.post(`/api/menus/${M}/publish`, {}))
+  let till = await withTenant(ids.a, tx => tillConfig(tx, ids.a, mine.ids.venue))
+  assert.deepEqual(till.items[pad.id].variant_rules, { hideUnpriced: false, hideZeroPrice: false })
+  assert.deepEqual(posChoices(till.items[pad.id])[0].options.map(o => o.label), ['Chicken', 'Prawn'])
+
+  const again = menuSaveBody(await ok(owner.get(`/api/menus/${M}`)))
+  again.hide_zero_priced_variants = true
+  again.hide_unpriced_variants = true
+  await ok(owner.patch(`/api/menus/${M}`, again))
   await ok(owner.post(`/api/menus/${M}/publish`, {}))
   const cfg = await previewConfig(await previewLink('live'))
   assert.deepEqual(cfg.items[dishId].variant_rules, { hideUnpriced: true, hideZeroPrice: true })
-  const till = await withTenant(ids.a, tx => tillConfig(tx, ids.a, mine.ids.venue))
-  assert.equal(till.items[dishId].variant_rules, undefined, 'staff see every option')
+  // The till follows the menu too (it used to show every option).
+  till = await withTenant(ids.a, tx => tillConfig(tx, ids.a, mine.ids.venue))
+  assert.deepEqual(till.items[dishId].variant_rules, { hideUnpriced: true, hideZeroPrice: true })
+  const choices = posChoices(till.items[pad.id])
+  assert.deepEqual(choices[0].options.map(o => o.label), ['Prawn'], 'the option with no price is left out on the till')
+  assert.equal(choices[0].hide_zero_price, true)
 })
 
 test('another tenant and people without access', async () => {

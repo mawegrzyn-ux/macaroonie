@@ -19,7 +19,7 @@ import { tillLayoutOf, lastReceiptCheck } from '../lib/tillLayout.js'
 import LayoutScreen from '../components/LayoutScreen.jsx'
 import { cx } from '../components/ui.jsx'
 import {
-  openCheck, addItem, needsChoices, defaultStreamId, streamOf, streamTypes, defaultTypeId, promptsFor, typeOf,
+  openCheck, addChosen, needsChoices, defaultStreamId, streamOf, streamTypes, defaultTypeId, promptsFor, typeOf,
   orderPromptOf, newOrderAsks,
 } from '../lib/checkOps.js'
 import MenuPanel from '../components/MenuPanel.jsx'
@@ -72,8 +72,8 @@ export default function Counter() {
       tent: p.ask_tent !== 'off' ? (a?.tent || null) : null,
     })
     if (!o.ok) return toast(o.error, 'bad')
-    const check = currentChecks()[o.checkId]
-    const r = addItem(check, it, opts.selection || {}, { qty: opts.qty, seat: opts.seat, course: opts.course, note: opts.note, allergies: opts.allergies, unit_price: opts.unit_price })
+    // One line, or one for each dish (more picks, more dishes).
+    const r = addChosen(o.checkId, it, opts)
     if (!r.ok) toast(r.error, 'bad')
     setAnswers(null)
     setItem(null)

@@ -5,6 +5,19 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-11-01 — Till layouts: where the words go, more picks more dishes, seat or course only; a clearer Send window]
+
+No migration (till layouts are stored as they are; older layouts read as before).
+
+- **Words on the buttons**: each zone with buttons in a till layout (Categories, Dishes, Buttons, Dish choices) says where its words sit: **Across** Left, Centre or Right and **Up and down** Top, Middle or Bottom. The designer's canvas follows as you pick. At the top a second line (a dish's price, a choice's extra price, Sold out) stays at the bottom of the button; in the middle or at the bottom it goes just under the words. Layouts made before keep their look.
+- **More picks, more dishes** (a Dish choices zone's switch): a choice that takes one pick, like a protein, can take more, a dish each. Pad Thai with Chicken and Prawn adds two Pad Thai, one of each; Chicken twice adds two chicken ones. A second group with one pick goes on every dish, or pairs up when it has a pick for each dish, and the till says when the numbers don't match. The Add button says how many dishes and their total. It can't be on with Add the dish on its last must-pick tap.
+- **Seat and course zone**: shows the seat and the course, the seat only or the course only.
+- **The till follows the menu's option settings**: with **Don't show the variant option at all if it isn't priced** on, options with no price or £0 are left off the till too (they already were online and on kiosks).
+- **Send to the kitchen**: no more tick boxes. Each course is a big button: green with **Cook now** for what the kitchen starts on, plain with a purple **Wait (hold)** label for what waits. Tap a course to switch it.
+- Fixed: adding the same dish with the same choices to an order made a second line once the order had synced, instead of raising the line's quantity.
+
+---
+
 ## [2026-10-31 — Menu times: when each menu is on, on the website, kiosks and tills, in one table]
 
 Migration: `230_menu_times.sql` (`menu_times`, one row per location and menu: the menu's own times and a cell for the website, the kiosks and the tills; online ordering's menu times move into it and `ordering_settings.menu_schedules` goes; a Menu times link under Menus in every group's main menu).
