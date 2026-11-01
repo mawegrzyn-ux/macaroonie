@@ -5,6 +5,21 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-11-01 — Purchasing: tidying the catalogue]
+
+No migration.
+
+- **One code, one product.** A supplier's product code can no longer be on two of that supplier's prices in use: saving one (by hand, by import, from an invoice or with Pepper) is refused, naming the item that has it. A switched-off price can keep its code.
+- **Same names.** Naming an item like one already there shows a warning with Open it.
+- **Catalogue check.** Check on the Inventory page lists what to tidy up: a code on two products, two items with one name, items nobody sells and prices without a product code. Tap an item to open it.
+- **Switch several items off or on.** Select on the Inventory page: tap items, then Switch off or Switch on. The window says which are on open orders and which codes another item already uses.
+- **Update prices by code.** Update prices on the Inventory page: one supplier's new prices from a CSV or Excel file or pasted lines (code, price), matched by their product code. Download their prices now as a CSV to edit. Check shows every change (20% or more marked) and the codes it couldn't use; Update saves them into each price's History.
+- **Pepper** checks the catalogue, switches several items off or on, and updates a supplier's prices by their codes.
+- **Fixed:** importing a CSV saved as UTF-8 without a byte order mark turned £ into Â£ and accented names into strange letters, and codes like 12-04 into dates.
+- **Fixed:** page titles were cut to a few letters on a phone when the page had many buttons.
+
+---
+
 ## [2026-11-01 — Purchasing: suppliers' product codes everywhere, the quick order]
 
 No migration.

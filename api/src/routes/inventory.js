@@ -12,8 +12,11 @@ import * as XLSX      from 'xlsx'
 import { withTenant } from '../config/db.js'
 import { requireAuth, requirePermission } from '../middleware/auth.js'
 import { httpError }  from '../middleware/error.js'
-import { UNITS, packBaseQty } from '../../../shared/procurement.js'
-import { openOrderVenues, keepOpenAmounts } from '../services/purchasingSvc.js'
+import { UNITS, packBaseQty, packLabel, csvCell } from '../../../shared/procurement.js'
+import {
+  openOrderVenues, keepOpenAmounts, openOrderItems, lockSupplierCodes, codeTaken, codeTakenError,
+  itemCodeConflicts, itemCodesError,
+} from '../services/purchasingSvc.js'
 
 const uuid = z.string().uuid()
 const text = (max = 200) => z.string().trim().max(max)
@@ -84,7 +87,7 @@ async function ownItem(tx, tenantId, id) {
 
 async function ownQuote(tx, tenantId, id) {
   const [q] = await tx`
-    SELECT q.*, q.price::float8 AS price, i.base_unit
+    SELECT q.*, q.price::float8 AS price, i.base_unit, i.is_active AS item_active
       FROM inv_quotes q JOIN inv_items i ON i.id = q.item_id AND i.tenant_id = ${tenantId}
      WHERE q.id = ${id} AND q.tenant_id = ${tenantId}
   `
@@ -202,13 +205,31 @@ const BASE_FOR = { g: 'g', kg: 'g', ml: 'ml', cl: 'ml', l: 'ml', each: 'each' }
 
 class DryRun extends Error {}
 
-function parseSheet(base64) {
+/**
+ * The first sheet of a CSV or Excel file (base64) as rows of text. A CSV
+ * that is UTF-8 is read as UTF-8 (XLSX reads one without a byte-order mark
+ * as Latin-1, so £ and accents came out wrong), else as XLSX guesses (an
+ * old Windows CSV); a CSV's cells stay as typed (a code like 12-04 isn't
+ * read as a date, 00123 keeps its zeros).
+ */
+function readSheet(base64) {
+  const buf = Buffer.from(base64, 'base64')
+  const binary = (buf[0] === 0x50 && buf[1] === 0x4b) || (buf[0] === 0xd0 && buf[1] === 0xcf)  // .xlsx (zip), .xls
+  let text = null
+  if (!binary) { try { text = new TextDecoder('utf-8', { fatal: true }).decode(buf) } catch { text = null } }
   let wb
-  try { wb = XLSX.read(Buffer.from(base64, 'base64'), { type: 'buffer', raw: false }) }
-  catch { throw httpError(422, "That file couldn't be read. Save it as CSV or Excel (.xlsx).") }
+  try {
+    wb = text != null
+      ? XLSX.read(text.replace(/^\uFEFF/, ''), { type: 'string', raw: true })
+      : XLSX.read(buf, { type: 'buffer', raw: true })
+  } catch { throw httpError(422, "That file couldn't be read. Save it as CSV or Excel (.xlsx).") }
   const ws = wb.Sheets[wb.SheetNames[0]]
   if (!ws) throw httpError(422, 'The file is empty')
-  const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', blankrows: false, raw: false })
+  return XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', blankrows: false, raw: false })
+}
+
+function parseSheet(base64) {
+  const rows = readSheet(base64)
   if (rows.length < 2) throw httpError(422, 'The file needs a heading row and at least one product')
   const keys = rows[0].map(h => HEADERS[String(h).toLowerCase().replace(/[^a-z]/g, '')] || null)
   if (!keys.includes('item')) throw httpError(422, 'No "Item" column found. Use the template headings.')
@@ -228,7 +249,7 @@ const toNum = v => {
 async function runImport(tx, tenantId, rows, by) {
   const out = { rows: rows.length, items_created: 0, items_matched: 0, categories_created: 0, suppliers_created: 0,
                 quotes_created: 0, quotes_updated: 0, prices_changed: 0, errors: [] }
-  const items = await tx`SELECT id, name, code, base_unit FROM inv_items WHERE tenant_id = ${tenantId}`
+  const items = await tx`SELECT id, name, code, base_unit, is_active FROM inv_items WHERE tenant_id = ${tenantId}`
   const cats = await tx`SELECT id, name FROM inv_categories WHERE tenant_id = ${tenantId}`
   const sups = await tx`SELECT id, name FROM suppliers WHERE tenant_id = ${tenantId}`
   const quotes = await tx`
@@ -242,6 +263,22 @@ async function runImport(tx, tenantId, rows, by) {
   const catByName = new Map(cats.map(c => [c.name.toLowerCase(), c]))
   const supByName = new Map(sups.map(s => [s.name.toLowerCase(), s]))
   let catOrder = cats.length
+  // Each supplier's codes on live prices (lower case -> the item's name),
+  // read once the supplier's lock is held: a new price's code mustn't be one.
+  const liveCodes = new Map()
+  const codesOf = async supplierId => {
+    if (liveCodes.has(supplierId)) return liveCodes.get(supplierId)
+    await lockSupplierCodes(tx, supplierId)
+    const rows = await tx`
+      SELECT lower(btrim(q.supplier_code)) AS code, i.name AS item_name
+        FROM inv_quotes q JOIN inv_items i ON i.id = q.item_id AND i.tenant_id = ${tenantId} AND i.is_active
+       WHERE q.tenant_id = ${tenantId} AND q.supplier_id = ${supplierId} AND q.is_active
+         AND btrim(COALESCE(q.supplier_code, '')) <> ''
+    `
+    const m = new Map(rows.map(r => [r.code, r.item_name]))
+    liveCodes.set(supplierId, m)
+    return m
+  }
 
   for (const r of rows) {
     const err = msg => out.errors.push({ row: r.row, item: r.item, error: msg })
@@ -275,6 +312,17 @@ async function runImport(tx, tenantId, rows, by) {
       quote = { ...fields, price, vat, pbq, minQty, mult }
     }
 
+    // A new live price's code mustn't be another live price's at the
+    // supplier (one already here with this code is updated instead).
+    if (quote && r.supplier_code && (!item || item.is_active)) {
+      const sup0 = supByName.get(r.supplier.toLowerCase())
+      const key = r.supplier_code.trim().toLowerCase()
+      const own = sup0 && item && quotes.some(q => q.item_id === item.id && q.supplier_id === sup0.id
+        && (q.supplier_code || '').trim().toLowerCase() === key)
+      const owner = sup0 && !own ? (await codesOf(sup0.id)).get(key) : null
+      if (owner) { err(`${sup0.name} already has code ${r.supplier_code} on ${owner}`); continue }
+    }
+
     if (item) {
       out.items_matched++
     } else {
@@ -291,7 +339,7 @@ async function runImport(tx, tenantId, rows, by) {
       ;[item] = await tx`
         INSERT INTO inv_items (tenant_id, name, category_id, base_unit, storage, code)
         VALUES (${tenantId}, ${r.item.slice(0, 200)}, ${categoryId}, ${itemBase}, ${storage || 'ambient'}, ${r.code || null})
-        RETURNING id, name, code, base_unit
+        RETURNING id, name, code, base_unit, is_active
       `
       itemByName.set(item.name.toLowerCase(), item)
       if (item.code) itemByCode.set(item.code.toLowerCase(), item)
@@ -336,6 +384,8 @@ async function runImport(tx, tenantId, rows, by) {
         match.price = price
       }
     } else {
+      // Its code is taken from here on (checked above).
+      if (code && item.is_active) (await codesOf(sup.id)).set(code.trim().toLowerCase(), item.name)
       const [q] = await tx`
         INSERT INTO inv_quotes (tenant_id, item_id, supplier_id, supplier_code, product_name, pack_name, pack_count, pack_qty,
                                 pack_unit, pack_base_qty, price, vat_rate, min_qty, order_multiple)
@@ -357,6 +407,198 @@ export const IMPORT_TEMPLATE = [
   'Rapeseed oil,"Oils, Sauces & Condiments",ml,ambient,,Brakes,BR-220,Pure rapeseed oil,Case,2,5,l,18.40,0,2,',
   'Takeaway boxes,Packaging,each,ambient,,Brakes,BR-901,,Case,1,250,each,21.00,20,,2',
 ].join('\n')
+
+// ── Catalogue check ─────────────────────────────────────────────
+
+/**
+ * What to tidy up in the catalogue: a supplier's code on two live prices,
+ * two items switched on with one name, items switched on that no live
+ * price of a supplier switched on sells, and live prices without a code
+ * (by supplier, the first few item names).
+ */
+async function catalogueCheck(tx, tenantId) {
+  const codes = await tx`
+    SELECT q.supplier_id, s.name AS supplier_name, min(btrim(q.supplier_code)) AS code,
+           jsonb_agg(jsonb_build_object(
+             'quote_id', q.id, 'item_id', q.item_id, 'item_name', i.name, 'product_name', q.product_name,
+             'pack_name', q.pack_name, 'pack_count', q.pack_count, 'pack_qty', q.pack_qty, 'pack_unit', q.pack_unit
+           ) ORDER BY lower(i.name), q.id) AS quotes
+      FROM inv_quotes q
+      JOIN inv_items i ON i.id = q.item_id AND i.tenant_id = ${tenantId} AND i.is_active
+      JOIN suppliers s ON s.id = q.supplier_id AND s.tenant_id = ${tenantId}
+     WHERE q.tenant_id = ${tenantId} AND q.is_active AND btrim(COALESCE(q.supplier_code, '')) <> ''
+     GROUP BY q.supplier_id, s.name, lower(btrim(q.supplier_code))
+    HAVING count(*) > 1
+     ORDER BY lower(s.name), lower(min(btrim(q.supplier_code)))
+  `
+  const names = await tx`
+    SELECT min(btrim(i.name)) AS name,
+           jsonb_agg(jsonb_build_object(
+             'item_id', i.id, 'name', i.name, 'category_name', c.name,
+             'prices', (SELECT count(*) FROM inv_quotes q WHERE q.item_id = i.id AND q.tenant_id = ${tenantId} AND q.is_active)
+           ) ORDER BY i.created_at, i.id) AS items
+      FROM inv_items i
+      LEFT JOIN inv_categories c ON c.id = i.category_id AND c.tenant_id = ${tenantId}
+     WHERE i.tenant_id = ${tenantId} AND i.is_active
+     GROUP BY lower(btrim(i.name))
+    HAVING count(*) > 1
+     ORDER BY lower(btrim(i.name))
+  `
+  const noPrice = await tx`
+    SELECT i.id AS item_id, i.name, c.name AS category_name
+      FROM inv_items i
+      LEFT JOIN inv_categories c ON c.id = i.category_id AND c.tenant_id = ${tenantId}
+     WHERE i.tenant_id = ${tenantId} AND i.is_active
+       AND NOT EXISTS (
+         SELECT 1 FROM inv_quotes q JOIN suppliers s ON s.id = q.supplier_id AND s.tenant_id = ${tenantId} AND s.is_active
+          WHERE q.item_id = i.id AND q.tenant_id = ${tenantId} AND q.is_active)
+     ORDER BY lower(i.name)
+     LIMIT 500
+  `
+  const noCode = await tx`
+    SELECT q.supplier_id, s.name AS supplier_name, count(*)::int AS count,
+           (array_agg(i.name ORDER BY lower(i.name)))[1:8] AS items
+      FROM inv_quotes q
+      JOIN inv_items i ON i.id = q.item_id AND i.tenant_id = ${tenantId} AND i.is_active
+      JOIN suppliers s ON s.id = q.supplier_id AND s.tenant_id = ${tenantId} AND s.is_active
+     WHERE q.tenant_id = ${tenantId} AND q.is_active AND btrim(COALESCE(q.supplier_code, '')) = ''
+     GROUP BY q.supplier_id, s.name
+     ORDER BY lower(s.name)
+  `
+  return {
+    duplicate_codes: codes.map(g => ({
+      ...g,
+      quotes: g.quotes.map(({ pack_name, pack_count, pack_qty, pack_unit, ...q }) => ({
+        ...q, pack_label: packLabel({ pack_name, pack_count: Number(pack_count), pack_qty: Number(pack_qty), pack_unit }),
+      })),
+    })),
+    duplicate_names: names.map(g => ({ ...g, items: g.items.map(i => ({ ...i, prices: Number(i.prices) })) })),
+    no_price: noPrice,
+    no_code: noCode,
+  }
+}
+
+// ── Prices by product code ──────────────────────────────────────
+//
+// A supplier's new prices matched to their live prices here by product
+// code: a CSV or Excel file (a code and a price column; their prices now
+// come as one to edit from /price-update/template), lines pasted in
+// ("MEA161, 31.50", "MEA161:31.50", "MEA161 31.50") or rows (Pepper). The
+// price is per pack before VAT; venues' own prices stay as they are.
+
+const PRICE_HEADERS = {
+  code: 'code', suppliercode: 'code', productcode: 'code', itemcode: 'code', sku: 'code', ref: 'code', reference: 'code',
+  productref: 'code', stockcode: 'code', articlecode: 'code', articlenumber: 'code', partnumber: 'code', productid: 'code',
+  price: 'price', newprice: 'price', packprice: 'price', caseprice: 'price', cost: 'price', netprice: 'price',
+  priceexvat: 'price', pricedelivery: 'price', deliveryprice: 'price', delivered: 'price', deliveredprice: 'price',
+  pricecollection: 'collection', collectionprice: 'collection', collection: 'collection',
+}
+const PRICE_TEXT = /^(.*?\S)\s*(?:[,;:\t]|\s)\s*[£$€]?\s*(-?\d+(?:\.\d+)?)\s*$/
+
+function priceRowsFromFile(base64) {
+  const sheet = readSheet(base64)
+  if (!sheet.length) throw httpError(422, 'The file is empty')
+  const keys = sheet[0].map(h => PRICE_HEADERS[String(h).toLowerCase().replace(/[^a-z]/g, '')] || null)
+  let codeCol = keys.indexOf('code'), priceCol = keys.indexOf('price'), start = 1
+  const collectionCol = keys.indexOf('collection')
+  if (codeCol < 0 || priceCol < 0) {
+    // No headings: a code, then a price.
+    if (codeCol < 0 && priceCol < 0 && sheet[0].length >= 2 && !Number.isNaN(toNum(sheet[0][1])) && toNum(sheet[0][1]) != null) {
+      codeCol = 0; priceCol = 1; start = 0
+    } else {
+      throw httpError(422, 'No code and price columns found. Use the headings Code and Price, as in the file of their prices now.')
+    }
+  }
+  const rows = []
+  let collection = false
+  sheet.slice(start).forEach((r, i) => {
+    const code = String(r[codeCol] ?? '').trim()
+    const price = String(r[priceCol] ?? '').trim()
+    if (collectionCol >= 0 && String(r[collectionCol] ?? '').trim()) collection = true
+    if (code || price) rows.push({ row: i + start + 1, code, price })
+  })
+  return { rows, collection }
+}
+
+function priceRowsFromText(text) {
+  const rows = []
+  let first = true
+  String(text).split(/\r?\n/).forEach((line, i) => {
+    const t = line.trim()
+    if (!t) return
+    const m = t.match(PRICE_TEXT)
+    if (!m) {
+      // A first line of headings (code, price) is left out.
+      if (first && /\b(code|price|sku|ref)/i.test(t)) { first = false; return }
+      rows.push({ row: i + 1, code: t.split(/[,;:\t ]/)[0], price: null, unread: true })
+    } else {
+      rows.push({ row: i + 1, code: m[1].replace(/^["']|["']$/g, '').replace(/[\s\-=:]+$/, '').trim(), price: m[2] })
+    }
+    first = false
+  })
+  return rows
+}
+
+async function runPriceUpdate(tx, tenantId, supplier, rows, by, { apply }) {
+  const quotes = await tx`
+    SELECT q.id, q.item_id, q.supplier_code, q.product_name, q.pack_name, q.pack_count::float8 AS pack_count,
+           q.pack_qty::float8 AS pack_qty, q.pack_unit, q.price::float8 AS price, q.is_active,
+           i.is_active AS item_active, i.name AS item_name
+      FROM inv_quotes q JOIN inv_items i ON i.id = q.item_id AND i.tenant_id = ${tenantId}
+     WHERE q.tenant_id = ${tenantId} AND q.supplier_id = ${supplier.id} AND btrim(COALESCE(q.supplier_code, '')) <> ''
+     ORDER BY lower(i.name), q.id
+  `
+  const byCode = new Map()
+  for (const q of quotes) {
+    const k = q.supplier_code.trim().toLowerCase()
+    if (!byCode.has(k)) byCode.set(k, [])
+    byCode.get(k).push(q)
+  }
+  const out = { supplier: { id: supplier.id, name: supplier.name }, rows: rows.length, changes: [], unchanged: 0,
+                unknown: [], switched_off: [], ambiguous: [], errors: [] }
+  const seen = new Map()
+  for (const r of rows) {
+    const code = String(r.code ?? '').trim()
+    if (r.unread) { out.errors.push({ row: r.row, error: "Couldn't read a code and a price on this line" }); continue }
+    if (!code) { out.errors.push({ row: r.row, error: 'No code' }); continue }
+    const price = typeof r.price === 'number' ? r.price : toNum(r.price)
+    if (price == null || Number.isNaN(price) || price < 0 || price > 10000000) {
+      out.errors.push({ row: r.row, code, error: 'Price missing, not a number or below 0' }); continue
+    }
+    const key = code.toLowerCase()
+    if (seen.has(key)) { out.errors.push({ row: r.row, code, error: `Already in row ${seen.get(key)}` }); continue }
+    seen.set(key, r.row)
+    const all = byCode.get(key) || []
+    const live = all.filter(q => q.is_active && q.item_active)
+    if (!all.length) { out.unknown.push({ row: r.row, code }); continue }
+    if (!live.length) { out.switched_off.push({ row: r.row, code, item_name: all[0].item_name }); continue }
+    if (live.length > 1) { out.ambiguous.push({ row: r.row, code, items: [...new Set(live.map(q => q.item_name))] }); continue }
+    const q = live[0]
+    if (Math.abs(q.price - price) < 1e-9) { out.unchanged++; continue }
+    const pct = q.price > 0 ? Math.round((price - q.price) / q.price * 1000) / 10 : null
+    out.changes.push({
+      quote_id: q.id, item_id: q.item_id, code: q.supplier_code, item_name: q.item_name, product_name: q.product_name,
+      pack_label: packLabel(q), old_price: q.price, new_price: price, pct, big: pct == null || Math.abs(pct) >= 20,
+    })
+  }
+  if (apply) {
+    for (const c of out.changes) {
+      await tx`UPDATE inv_quotes SET price = ${c.new_price}, updated_at = now() WHERE id = ${c.quote_id} AND tenant_id = ${tenantId}`
+      await recordPrice(tx, tenantId, c.quote_id, null, c.new_price, by, 'import')
+    }
+  }
+  return out
+}
+
+const PriceUpdateBody = z.object({
+  supplier_id: uuid,
+  file:        z.string().max(4_000_000).optional(),
+  text:        z.string().max(200_000).optional(),
+  rows:        z.array(z.object({ code: z.string().max(100), price: z.union([z.number(), z.string().max(40)]) })).max(5000).optional(),
+  dry_run:     z.boolean().optional(),
+})
+
+const priceText = p => (Math.abs(p * 100 - Math.round(p * 100)) < 1e-6 ? p.toFixed(2) : String(p))
 
 // ── Plugin ──────────────────────────────────────────────────────
 
@@ -444,6 +686,11 @@ export default async function inventoryRoutes(app) {
         `
         if (Number(used.n) > 0) throw httpError(422, 'Remove its supplier quotes and pars before changing how it is counted')
       }
+      // Switching it on: its prices' codes mustn't be other live prices'.
+      if (b.is_active === true && !item.is_active) {
+        const clash = await itemCodeConflicts(tx, req.tenantId, [item.id])
+        if (clash.length) throw itemCodesError(clash)
+      }
       const fields = Object.fromEntries(Object.entries(b).filter(([, v]) => v !== undefined))
       if (Object.keys(fields).length) {
         await tx`UPDATE inv_items SET ${tx(fields)}, updated_at = now() WHERE id = ${item.id} AND tenant_id = ${req.tenantId}`
@@ -474,23 +721,43 @@ export default async function inventoryRoutes(app) {
     return { deleted: true }
   }))
 
+  // Several items at once: a category, storage, or switched off / on.
+  // dry_run says what would change: how many, the items switched off that
+  // open orders have (their lines then ask to be taken off) and, switching
+  // on, codes other live prices have (then refused, 409 duplicate_code).
   app.post('/items/bulk', { preHandler: canManage }, async req => {
     const b = z.object({
       ids:         z.array(uuid).min(1).max(1000),
       category_id: uuid.nullable().optional(),
       is_active:   z.boolean().optional(),
       storage:     z.enum(['ambient', 'chilled', 'frozen']).optional(),
+      dry_run:     z.boolean().optional(),
     }).parse(req.body || {})
     return withTenant(req.tenantId, async tx => {
       if (b.category_id !== undefined) await checkCategory(tx, req.tenantId, b.category_id)
       const fields = Object.fromEntries(Object.entries({ category_id: b.category_id, is_active: b.is_active, storage: b.storage })
         .filter(([, v]) => v !== undefined))
-      if (!Object.keys(fields).length) return { updated: 0 }
-      const rows = await tx`
-        UPDATE inv_items SET ${tx(fields)}, updated_at = now()
-         WHERE id = ANY(${b.ids}::uuid[]) AND tenant_id = ${req.tenantId} RETURNING id
+      const items = await tx`
+        SELECT id, name, category_id, is_active, storage FROM inv_items
+         WHERE id = ANY(${[...new Set(b.ids)]}::uuid[]) AND tenant_id = ${req.tenantId}
+         ORDER BY lower(name)
+         FOR UPDATE
       `
-      return { updated: rows.length }
+      const changing = items.filter(i => Object.entries(fields).some(([k, v]) => i[k] !== v))
+      const out = { updated: changing.length, unchanged: items.length - changing.length, dry_run: !!b.dry_run }
+      if (b.is_active === false) {
+        out.on_open_orders = await openOrderItems(tx, req.tenantId, changing.filter(i => i.is_active).map(i => i.id))
+      }
+      if (b.is_active === true) {
+        out.code_conflicts = await itemCodeConflicts(tx, req.tenantId, changing.filter(i => !i.is_active).map(i => i.id))
+        if (out.code_conflicts.length && !b.dry_run) throw itemCodesError(out.code_conflicts)
+      }
+      if (b.dry_run || !changing.length) return out
+      await tx`
+        UPDATE inv_items SET ${tx(fields)}, updated_at = now()
+         WHERE id = ANY(${changing.map(i => i.id)}::uuid[]) AND tenant_id = ${req.tenantId}
+      `
+      return out
     })
   })
 
@@ -501,6 +768,11 @@ export default async function inventoryRoutes(app) {
       const item = await ownItem(tx, req.tenantId, req.params.id)
       await checkSupplier(tx, req.tenantId, b.supplier_id)
       const v = quoteValues(b, item.base_unit)
+      // A code another live price of the supplier has is refused.
+      if (v.is_active && item.is_active && v.supplier_code) {
+        const taken = await codeTaken(tx, req.tenantId, b.supplier_id, v.supplier_code)
+        if (taken) throw codeTakenError(taken)
+      }
       const [q] = await tx`
         INSERT INTO inv_quotes ${tx({ ...v, tenant_id: req.tenantId, item_id: item.id, supplier_id: b.supplier_id })}
         RETURNING id
@@ -524,6 +796,16 @@ export default async function inventoryRoutes(app) {
         ...Object.fromEntries(Object.entries(b).filter(([, v]) => v !== undefined)),
       }
       const v = quoteValues(merged, q.base_unit)
+      // A new code, another supplier or switching it on: the code mustn't be
+      // another live price's (a price that already shares one can still be
+      // changed otherwise).
+      const supplierId = b.supplier_id || q.supplier_id
+      const norm = c => String(c ?? '').trim().toLowerCase()
+      const codeMoves = norm(v.supplier_code) !== norm(q.supplier_code) || supplierId !== q.supplier_id || (v.is_active && !q.is_active)
+      if (codeMoves && v.is_active && q.item_active && v.supplier_code) {
+        const taken = await codeTaken(tx, req.tenantId, supplierId, v.supplier_code, { except: q.id })
+        if (taken) throw codeTakenError(taken)
+      }
       await tx`
         UPDATE inv_quotes SET ${tx({ ...v, ...(b.supplier_id ? { supplier_id: b.supplier_id } : {}) })}, updated_at = now()
          WHERE id = ${q.id} AND tenant_id = ${req.tenantId}
@@ -615,6 +897,51 @@ export default async function inventoryRoutes(app) {
         `
       }
       return (await loadItems(tx, req.tenantId, [item.id]))[0]
+    })
+  })
+
+  // ── Catalogue check ──
+  app.get('/check', { preHandler: canView }, async req => withTenant(req.tenantId, tx => catalogueCheck(tx, req.tenantId)))
+
+  // ── Prices by product code ──
+  // A supplier's live prices with a code, as a CSV to edit and send back.
+  app.get('/price-update/template', { preHandler: canView }, async (req, reply) => {
+    const { supplier_id } = z.object({ supplier_id: uuid }).parse(req.query || {})
+    const csv = await withTenant(req.tenantId, async tx => {
+      await checkSupplier(tx, req.tenantId, supplier_id)
+      const rows = await tx`
+        SELECT q.supplier_code, q.price::float8 AS price, i.name, q.product_name, q.pack_name,
+               q.pack_count::float8 AS pack_count, q.pack_qty::float8 AS pack_qty, q.pack_unit
+          FROM inv_quotes q JOIN inv_items i ON i.id = q.item_id AND i.tenant_id = ${req.tenantId} AND i.is_active
+         WHERE q.tenant_id = ${req.tenantId} AND q.supplier_id = ${supplier_id} AND q.is_active
+           AND btrim(COALESCE(q.supplier_code, '')) <> ''
+         ORDER BY lower(i.name), lower(q.supplier_code)
+      `
+      return [['Code', 'Price', 'Item', 'Product', 'Pack'],
+        ...rows.map(r => [r.supplier_code, priceText(r.price), r.name, r.product_name || '', packLabel(r)])]
+        .map(r => r.map(csvCell).join(',')).join('\r\n') + '\r\n'
+    })
+    reply.header('Content-Type', 'text/csv; charset=utf-8')
+    reply.header('Content-Disposition', 'attachment; filename="prices.csv"')
+    return csv
+  })
+
+  // dry_run says what would change and touches nothing.
+  app.post('/price-update', { preHandler: canManage, bodyLimit: 6 * 1024 * 1024 }, async req => {
+    const b = PriceUpdateBody.parse(req.body || {})
+    const given = [b.file, b.text, b.rows].filter(v => v != null).length
+    if (given !== 1) throw httpError(400, 'Send a file, pasted lines or rows')
+    let rows, collection = false
+    if (b.file != null) ({ rows, collection } = priceRowsFromFile(b.file))
+    else if (b.text != null) rows = priceRowsFromText(b.text)
+    else rows = b.rows.map((r, i) => ({ row: i + 1, code: r.code, price: r.price }))
+    if (!rows.length) throw httpError(422, 'No prices found')
+    if (rows.length > 5000) throw httpError(422, 'Update up to 5000 prices at a time')
+    return withTenant(req.tenantId, async tx => {
+      const [supplier] = await tx`SELECT id, name FROM suppliers WHERE id = ${b.supplier_id} AND tenant_id = ${req.tenantId}`
+      if (!supplier) throw httpError(404, 'Supplier not found')
+      const out = await runPriceUpdate(tx, req.tenantId, supplier, rows, req.user?.email ?? null, { apply: !b.dry_run })
+      return { ...out, collection_ignored: collection, dry_run: !!b.dry_run }
     })
   })
 

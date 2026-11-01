@@ -220,6 +220,10 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx', loy
     await step('venue price', () => put(`/api/inventory/quotes/${quote.id}/venue-prices`, { prices: [{ venue_id: V, price: 11 }] }))
     await step('preferred quote', () => put(`/api/inventory/items/${item.id}/preferred`, { venue_id: V, quote_id: quote.id }))
   }
+  // Catalogue tidying (1 Nov 2026): a price update by code and switching
+  // items, both dry runs, so the sweep sends them again as the other group.
+  if (supplier) await step('price update by code', () => post('/api/inventory/price-update', { supplier_id: supplier.id, rows: [{ code: mark + '-NONE', price: 1 }], dry_run: true }))
+  if (item) await step('switch items (dry run)', () => post('/api/inventory/items/bulk', { ids: [item.id], is_active: false, dry_run: true }))
   // The venue's delivery details (migration 233): lead days as the
   // supplier's own (1), so no delivery day moves.
   if (supplier) await step('supplier venue', () => put(`/api/suppliers/${supplier.id}/venues`, { venues: [{

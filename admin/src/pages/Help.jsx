@@ -5015,6 +5015,9 @@ export default function Help() {
                 ['Add or change suppliers', 'Purchasing setup', 'Contact details, how orders reach them, cutoff, delivery days, minimum order, delivery charge, whether marking an order sent needs their reference, and one venue\'s own account number, days, cutoff, days\' notice, delivery phone, slot and driver instructions.'],
                 ['Make and change order lists, set pars', 'Purchasing setup', 'Pars are in packs unless you give kg, litres or each.'],
                 ['Import a price list', 'Purchasing setup', 'Attach a CSV with the import headings, or a PDF, photo or email of the supplier\'s list: Pepper reads the products out of it. The card shows what would be added and changed, and any rows it would skip, before anything is saved.'],
+                ['Update a supplier\'s prices by their codes', 'Purchasing setup', 'Attach their new prices as a CSV (code and price), or a PDF, photo or email Pepper reads them from, or say them ("Brakes: MEA161 is now £31.50"). The card lists each change with the old and new price (changes of 20% or more marked) and the codes it couldn\'t use. Only prices change.'],
+                ['Check the catalogue', 'Purchasing setup', 'Codes on two products, two items in use with one name, items nobody sells and prices without a code ("is the catalogue tidy?").'],
+                ['Switch several items off or on', 'Purchasing setup', 'Up to 50 at a time, by name or code. The card says which are on open orders, and switching on is refused for a code another item already uses.'],
                 ['See and fill in an order', 'Purchasing', 'The venue\'s draft for a list: quantities, pars, last ordered, other suppliers, and each supplier\'s quick order codes. Quantities are packs (cases, bags), as on the Purchasing page. An item can be named by a supplier\'s product code: "order 20 MEA161" orders it from that supplier. Nothing is sent until you place it.'],
                 ['Send an order for approval', 'Purchasing', 'For people without Purchasing approval: the card lists the lines and the day wanted from each supplier, and you can add a note for the manager.'],
                 ['See the orders waiting for approval', 'Any purchasing access', 'Who asked and when, the days wanted, each line with what was asked for, and drafts that were sent back with the reason.'],
@@ -5670,11 +5673,33 @@ export default function Help() {
               with no prices. Lines whose price has no product code are listed underneath to add by hand: add the
               code to the supplier price on the Inventory page and it is there next time.
             </P>
+            <H3>11. Tidying the catalogue</H3>
+            <P>
+              A supplier's product code names one product, so it can't be on two of that supplier's prices in use:
+              saving a price with a code the supplier already has on another item is refused, naming that item (an
+              import or an invoice's price list leaves such a row out with the reason). Change one of the codes, or
+              switch the other price off first. A switched-off price or item can keep its code, but switching it back
+              on waits until the code is free again.
+            </P>
+            <P>
+              Naming an item like one already there (capitals and spaces at the ends don't count) shows a warning
+              with <strong>Open it</strong>: staff can't tell two items with one name apart on an order. Rename one,
+              or keep one: add the other's supplier prices to it and switch the other off.
+            </P>
+            <DataTable
+              head={['On the Inventory page', 'What it does']}
+              rows={[
+                ['Check', 'The catalogue check: a code on two products, two items in use with one name, items nobody sells (no price from a supplier that is switched on), and prices without a product code. Tap an item to open it. Anyone who can see Inventory can run it.'],
+                ['Select', 'Tap items to choose them (or Choose all shown), then Switch off or Switch on. The window first says what will change, which items are on open orders (those lines then have to be taken off before the order can be placed) and which codes another item already uses (switching on waits until that is fixed). Switched-off items keep their prices and history.'],
+                ['Update prices', 'One supplier\'s new prices matched by their product code. Pick the supplier, then download their prices now as a CSV to edit, paste lines (code, price), or choose a CSV or Excel file with a Code and a Price column. Check lists what would change, with changes of 20% or more marked, and the codes it couldn\'t use (not found, switched off, on two products, unreadable). Update saves the changes into each price\'s History. Prices without a code and venues\' own prices stay as they are; a collection price column is left out (a supplier price here is the delivered price).'],
+              ]}
+            />
             <InfoBox type="info">
               All of this can also be done by chat with Pepper (Ask Pepper): ordering, booking deliveries
               in, changing prices and importing a supplier's price list from a PDF or photo. Pepper understands
-              suppliers' codes too ("order 20 MEA161", "add 2 POR106 to PO-00012") and gives the quick order codes
-              for an order. See Pepper → Purchasing by chat.
+              suppliers' codes too ("order 20 MEA161", "add 2 POR106 to PO-00012"), gives the quick order codes
+              for an order, checks the catalogue, switches several items off or on, and updates a supplier's prices
+              by their codes. See Pepper → Purchasing by chat.
             </InfoBox>
           </section>
 

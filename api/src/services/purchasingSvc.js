@@ -98,6 +98,116 @@ export async function openOrderVenues(tx, tenantId, quoteIds) {
 }
 
 /**
+ * Items with a quantity on an open order (a draft, or waiting for
+ * approval), with the venues of those orders: switching such an item off
+ * leaves the line asking to be taken off. [{ item_id, item_name, venues }]
+ */
+export async function openOrderItems(tx, tenantId, itemIds) {
+  if (!itemIds.length) return []
+  return tx`
+    SELECT sl.item_id, i.name AS item_name, array_agg(DISTINCT v.name ORDER BY v.name) AS venues
+      FROM supply_order_lines sl
+      JOIN supply_orders o ON o.id = sl.order_id AND o.tenant_id = ${tenantId} AND o.status IN ('draft', 'requested')
+      JOIN venues v ON v.id = o.venue_id AND v.tenant_id = ${tenantId}
+      JOIN inv_items i ON i.id = sl.item_id AND i.tenant_id = ${tenantId}
+     WHERE sl.tenant_id = ${tenantId} AND sl.item_id = ANY(${itemIds}::uuid[]) AND sl.qty > 0
+     GROUP BY sl.item_id, i.name
+     ORDER BY lower(i.name)
+  `
+}
+
+// ── A supplier's product code names one product ─────────────────
+//
+// Among a supplier's prices that are switched on, for items that are
+// switched on, one code is on one price only (case and spaces at the ends
+// don't count): orders by code, quick orders and price updates by code
+// would otherwise not know which product is meant. Switched-off prices
+// and items may keep a code a live one has; switching them on is then
+// refused. Prices that already share a code (from before this check) are
+// listed by the catalogue check and can still be edited, as long as the
+// edit doesn't change their code, supplier or switch them on.
+
+/** One lock per supplier, so two saves of the same code can't both pass. */
+export function lockSupplierCodes(tx, supplierId) {
+  return tx`SELECT pg_advisory_xact_lock(hashtext(${'inv-code:' + supplierId}))`
+}
+
+/**
+ * The live price (switched on, on an item switched on) of this supplier
+ * that has the code already, or null. except: a quote id to leave out
+ * (the price being changed). Takes the supplier's lock first.
+ */
+export async function codeTaken(tx, tenantId, supplierId, code, { except = null } = {}) {
+  const c = String(code ?? '').trim()
+  if (!c || !supplierId) return null
+  await lockSupplierCodes(tx, supplierId)
+  const [row] = await tx`
+    SELECT q.id AS quote_id, q.item_id, i.name AS item_name, s.name AS supplier_name, q.supplier_code AS code
+      FROM inv_quotes q
+      JOIN inv_items i ON i.id = q.item_id AND i.tenant_id = ${tenantId} AND i.is_active
+      JOIN suppliers s ON s.id = q.supplier_id AND s.tenant_id = ${tenantId}
+     WHERE q.tenant_id = ${tenantId} AND q.supplier_id = ${supplierId} AND q.is_active
+       AND lower(btrim(q.supplier_code)) = lower(${c})
+       ${except ? tx`AND q.id <> ${except}` : tx``}
+     ORDER BY lower(i.name), q.id
+     LIMIT 1
+  `
+  return row || null
+}
+
+/** The refusal for a code another live price has (409 duplicate_code). */
+export function codeTakenError(taken) {
+  return httpError(409,
+    `${taken.supplier_name} already has code ${taken.code} on ${taken.item_name}. A product code names one product: ` +
+    'change one of the codes, or switch that price off first.',
+    { code: 'duplicate_code', quote_id: taken.quote_id, item_id: taken.item_id })
+}
+
+/**
+ * Items about to be switched on whose live prices have a code another live
+ * price of the same supplier has (another item's switched on, or one of
+ * these items' own). One entry per supplier and code:
+ * [{ item_id, item_name, supplier_name, code, other_item_id, other_item_name }].
+ * Takes the lock of each supplier involved.
+ */
+export async function itemCodeConflicts(tx, tenantId, itemIds) {
+  if (!itemIds.length) return []
+  const sups = await tx`
+    SELECT DISTINCT supplier_id::text AS id FROM inv_quotes
+     WHERE tenant_id = ${tenantId} AND item_id = ANY(${itemIds}::uuid[]) AND is_active
+       AND btrim(COALESCE(supplier_code, '')) <> ''
+     ORDER BY 1
+  `
+  for (const s of sups) await lockSupplierCodes(tx, s.id)
+  if (!sups.length) return []
+  return tx`
+    SELECT DISTINCT ON (q.supplier_id, lower(btrim(q.supplier_code)))
+           q.item_id, i.name AS item_name, s.name AS supplier_name, q.supplier_code AS code,
+           q2.item_id AS other_item_id, i2.name AS other_item_name
+      FROM inv_quotes q
+      JOIN inv_items i ON i.id = q.item_id AND i.tenant_id = ${tenantId}
+      JOIN suppliers s ON s.id = q.supplier_id AND s.tenant_id = ${tenantId}
+      JOIN inv_quotes q2 ON q2.tenant_id = ${tenantId} AND q2.supplier_id = q.supplier_id AND q2.id <> q.id AND q2.is_active
+       AND lower(btrim(q2.supplier_code)) = lower(btrim(q.supplier_code))
+      JOIN inv_items i2 ON i2.id = q2.item_id AND i2.tenant_id = ${tenantId}
+       AND (i2.is_active OR i2.id = ANY(${itemIds}::uuid[]))
+     WHERE q.tenant_id = ${tenantId} AND q.item_id = ANY(${itemIds}::uuid[]) AND q.is_active
+       AND btrim(COALESCE(q.supplier_code, '')) <> ''
+     ORDER BY q.supplier_id, lower(btrim(q.supplier_code)), lower(i.name), lower(i2.name)
+  `
+}
+
+/** The refusal for switching items on whose codes clash (409 duplicate_code). */
+export function itemCodesError(conflicts) {
+  const c = conflicts[0]
+  const more = conflicts.length > 1 ? ` (and ${conflicts.length - 1} more)` : ''
+  return httpError(409,
+    `${c.item_name}'s code ${c.code} at ${c.supplier_name} is ${c.other_item_name === c.item_name ? 'on another of its prices' : c.other_item_name + "'s"} too${more}. ` +
+    'A product code names one product: change one of the codes, or switch that price off first.',
+    { code: 'duplicate_code', conflicts })
+}
+
+/**
  * A supplier price's pack changed (before -> after, each with pack_base_qty
  * and the new one's min_qty / order_multiple): open orders with a quantity
  * on it keep the amount in the new packs (convertQty(): 3 x 5 kg becomes

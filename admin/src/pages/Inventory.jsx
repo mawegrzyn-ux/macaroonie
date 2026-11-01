@@ -11,7 +11,10 @@
 import { useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Package, Plus, Search, Star, History, Upload, Tags, Loader2, Store, Download, AlertTriangle } from 'lucide-react'
+import {
+  Package, Plus, Search, Star, History, Upload, Tags, Loader2, Store, Download, AlertTriangle, ClipboardCheck, RefreshCw,
+  CheckSquare, Square, X,
+} from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { useVenues, Modal, Field, inputCls, ErrorNote, Segmented, ConfirmDelete, SortableRows, PageHeader } from '@/components/staff/shared'
@@ -22,6 +25,7 @@ import {
 import {
   BASE_UNITS, STORAGE, UNITS, unitsForBase, packBaseQty, packLabel, chooseQuote, formatBase, fmtNum,
 } from '@shared/procurement.js'
+import { CatalogueCheckModal, SwitchItemsModal, PriceUpdateModal } from '@/components/purchasing/catalogue'
 
 const PACK_NAMES = ['Case', 'Box', 'Bag', 'Tray', 'Tub', 'Bottle', 'Tin', 'Jar', 'Pack', 'Crate', 'Sack', 'Each']
 
@@ -34,6 +38,13 @@ export default function Inventory() {
   const [status, setStatus] = useState('active')
   const [showImport, setShowImport] = useState(false)
   const [showCats, setShowCats] = useState(false)
+  const [showCheck, setShowCheck] = useState(false)
+  const [showPrices, setShowPrices] = useState(false)
+  // Choosing several items to switch off or on at once.
+  const [selecting, setSelecting] = useState(false)
+  const [picked, setPicked] = useState(() => new Set())
+  const [switching, setSwitching] = useState(null)
+  const [switched, setSwitched] = useState(null)
   const openId = params.get('item')
   const setOpenId = id => setParams(id ? { item: id } : {}, { replace: true })
 
@@ -56,13 +67,37 @@ export default function Inventory() {
     })
   }, [items, search, categoryId, supplierId, status])
 
+  const toggle = id => setPicked(p => {
+    const next = new Set(p)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    return next
+  })
+  const stopSelecting = () => { setSelecting(false); setPicked(new Set()) }
+  const allShown = rows.length > 0 && rows.every(i => picked.has(i.id))
+  // Icons only on a phone; the words come back from sm up.
+  const label = text => <span className="hidden sm:inline">{text}</span>
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <PageHeader icon={Package} title="Inventory">
+        <button type="button" className={btn.outline} onClick={() => setShowCheck(true)} aria-label="Catalogue check"
+          title="Catalogue check" data-testid="inv-check"><ClipboardCheck className="w-4 h-4" />{label('Check')}</button>
         {canEdit && (
           <>
-            <button type="button" className={btn.outline} onClick={() => setShowCats(true)}><Tags className="w-4 h-4" />Categories</button>
-            <button type="button" className={btn.outline} onClick={() => setShowImport(true)}><Upload className="w-4 h-4" />Import</button>
+            <button type="button" className={btn.outline} onClick={() => setShowPrices(true)} aria-label="Update prices by code"
+              title="Update prices by code" data-testid="inv-price-update"><RefreshCw className="w-4 h-4" />{label('Update prices')}</button>
+            <button type="button" className={cn(btn.outline, selecting && 'bg-muted')} aria-pressed={selecting}
+              onClick={() => (selecting ? stopSelecting() : (setSelecting(true), setSwitched(null)))}
+              aria-label="Select items" title="Select items to switch off or on" data-testid="inv-select">
+              <CheckSquare className="w-4 h-4" />{label('Select')}
+            </button>
+            <button type="button" className={btn.outline} onClick={() => setShowCats(true)} aria-label="Categories" title="Categories">
+              <Tags className="w-4 h-4" />{label('Categories')}
+            </button>
+            <button type="button" className={btn.outline} onClick={() => setShowImport(true)} aria-label="Import" title="Import">
+              <Upload className="w-4 h-4" />{label('Import')}
+            </button>
             <button type="button" className={btn.primary} onClick={() => setOpenId('new')}><Plus className="w-4 h-4" />New item</button>
           </>
         )}
@@ -90,22 +125,60 @@ export default function Inventory() {
           </div>
 
           <ErrorNote error={error} />
+          {switched && (
+            <p className="text-sm rounded-lg bg-green-50 border border-green-200 px-3 py-2" data-testid="inv-switched">{switched}</p>
+          )}
+          {selecting && (
+            <p className="text-sm text-muted-foreground">Tap items to choose them, then switch them off or on below.</p>
+          )}
           {isLoading ? (
             <div className="py-16 flex justify-center"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
           ) : !items.length ? (
             <EmptyState canEdit={canEdit} onNew={() => setOpenId('new')} onImport={() => setShowImport(true)} />
           ) : (
-            <ItemTable rows={rows} onOpen={setOpenId} total={items.length} />
+            <ItemTable rows={rows} onOpen={selecting ? toggle : setOpenId} total={items.length}
+              picked={selecting ? picked : null} />
           )}
         </div>
       </div>
 
+      {selecting && (
+        <div className="border-t bg-background px-4 py-2 flex flex-wrap items-center gap-2 shrink-0" data-testid="inv-select-bar">
+          <span className="text-sm font-medium mr-auto" data-testid="inv-picked">{picked.size} chosen</span>
+          <button type="button" className={btn.outline} disabled={!rows.length}
+            onClick={() => setPicked(p => {
+              const next = new Set(p)
+              for (const i of rows) { if (allShown) next.delete(i.id); else next.add(i.id) }
+              return next
+            })} data-testid="inv-pick-all">
+            {allShown ? 'Clear the ones shown' : `Choose all ${rows.length} shown`}
+          </button>
+          <button type="button" className={btn.outline} disabled={!picked.size} onClick={() => setSwitching(false)}
+            data-testid="inv-switch-off">Switch off</button>
+          <button type="button" className={btn.outline} disabled={!picked.size} onClick={() => setSwitching(true)}
+            data-testid="inv-switch-on">Switch on</button>
+          <button type="button" className={btn.ghost} onClick={stopSelecting} aria-label="Stop choosing" data-testid="inv-select-done">
+            <X className="w-4 h-4" />Done
+          </button>
+        </div>
+      )}
+
       {openId && (
         <ItemDrawer key={openId} itemId={openId === 'new' ? null : openId} canEdit={canEdit}
-          onCreated={id => setOpenId(id)} onClose={() => setOpenId(null)} />
+          onCreated={id => setOpenId(id)} onClose={() => setOpenId(null)} onOpenItem={setOpenId} />
       )}
       {showImport && <ImportModal onClose={() => setShowImport(false)} />}
       {showCats && <CategoriesModal onClose={() => setShowCats(false)} />}
+      {showCheck && <CatalogueCheckModal onOpenItem={setOpenId} onClose={() => setShowCheck(false)} />}
+      {showPrices && <PriceUpdateModal suppliers={suppliers} onClose={() => setShowPrices(false)} />}
+      {switching !== null && (
+        <SwitchItemsModal ids={[...picked]} on={switching} onClose={() => setSwitching(null)}
+          onDone={r => {
+            setSwitched(`Switched ${r.updated} item${r.updated === 1 ? '' : 's'} ${switching ? 'on' : 'off'}.`)
+            setSwitching(null)
+            stopSelecting()
+          }} />
+      )}
     </div>
   )
 }
@@ -134,7 +207,7 @@ function companyPick(item) {
   return chooseQuote(item.quotes.filter(q => q.supplier_active !== false), null, item.preferred)
 }
 
-function ItemTable({ rows, onOpen, total }) {
+function ItemTable({ rows, onOpen, total, picked = null }) {
   if (!rows.length) return <p className="text-sm text-muted-foreground py-8 text-center">No items match ({total} in total).</p>
   return (
     <div className="rounded-xl border bg-background overflow-hidden">
@@ -146,10 +219,15 @@ function ItemTable({ rows, onOpen, total }) {
           const pick = companyPick(i)
           const q = pick?.quote
           return (
-            <button key={i.id} type="button" onClick={() => onOpen(i.id)}
-              className={cn('w-full text-left px-4 py-3 hover:bg-muted/40 touch-manipulation grid gap-1 md:gap-3 md:items-center',
-                'md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1.6fr)_minmax(0,1.6fr)_70px]', !i.is_active && 'opacity-60')}>
+            <button key={i.id} type="button" onClick={() => onOpen(i.id)} data-testid="inv-row" data-id={i.id}
+              {...(picked ? { role: 'checkbox', 'aria-checked': picked.has(i.id) } : {})}
+              className={cn('w-full text-left px-4 py-3 hover:bg-muted/40 touch-manipulation grid gap-1 md:gap-3 md:items-center min-h-[48px]',
+                'md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1.6fr)_minmax(0,1.6fr)_70px]', !i.is_active && 'opacity-60',
+                picked?.has(i.id) && 'bg-primary/10 hover:bg-primary/15')}>
               <span className="min-w-0">
+                {picked && (picked.has(i.id)
+                  ? <CheckSquare className="w-5 h-5 inline mr-2 -mt-0.5 text-primary" aria-hidden />
+                  : <Square className="w-5 h-5 inline mr-2 -mt-0.5 text-muted-foreground" aria-hidden />)}
                 <span className="font-medium">{i.name}</span>
                 {i.code && <span className="ml-2 text-xs text-muted-foreground">{i.code}</span>}
                 <span className="ml-2 align-middle"><StorageBadge storage={i.storage} /></span>
@@ -182,7 +260,7 @@ function ItemTable({ rows, onOpen, total }) {
 
 const EMPTY_ITEM = { name: '', category_id: null, base_unit: 'g', storage: 'ambient', code: '', notes: '', is_active: true }
 
-function ItemDrawer({ itemId, canEdit, onCreated, onClose }) {
+function ItemDrawer({ itemId, canEdit, onCreated, onClose, onOpenItem }) {
   const api = useApi()
   const qc = useQueryClient()
   const { data: item, isLoading } = useQuery({
@@ -216,7 +294,7 @@ function ItemDrawer({ itemId, canEdit, onCreated, onClose }) {
 
   return (
     <Drawer title={item?.name || 'New item'} subtitle={item ? `Counted in ${BASE_UNITS.find(b => b.key === item.base_unit)?.label.toLowerCase()}` : null} onClose={onClose}>
-      <ItemForm item={item} canEdit={canEdit} onSaved={saved => { refresh(saved); if (!item) onCreated(saved.id) }} />
+      <ItemForm item={item} canEdit={canEdit} onOpenItem={onOpenItem} onSaved={saved => { refresh(saved); if (!item) onCreated(saved.id) }} />
 
       {item && (
         <>
@@ -278,14 +356,19 @@ function ItemDrawer({ itemId, canEdit, onCreated, onClose }) {
   )
 }
 
-function ItemForm({ item, canEdit, onSaved }) {
+function ItemForm({ item, canEdit, onSaved, onOpenItem }) {
   const api = useApi()
   const { data: categories = [] } = useCategories()
+  const { data: allItems = [] } = useQuery({ queryKey: ['inv-items'], queryFn: () => api.get('/inventory/items') })
   const initial = item ? { ...EMPTY_ITEM, ...item, code: item.code || '', notes: item.notes || '' } : EMPTY_ITEM
   const [form, setForm] = useState(initial)
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
   const dirty = ['name', 'category_id', 'base_unit', 'storage', 'code', 'notes', 'is_active'].some(k => (form[k] ?? '') !== (initial[k] ?? ''))
   const hasQuotes = !!item?.quotes?.length
+  // Another item with this name (case and spaces at the ends don't count):
+  // staff can't tell the two apart on an order.
+  const nameKey = form.name.trim().toLowerCase()
+  const twin = nameKey ? allItems.find(i => i.id !== item?.id && i.name.trim().toLowerCase() === nameKey) : null
   const save = useMutation({
     mutationFn: () => {
       const body = { name: form.name.trim(), category_id: form.category_id || null, base_unit: form.base_unit,
@@ -303,6 +386,18 @@ function ItemForm({ item, canEdit, onSaved }) {
       )}>
       <div className="space-y-3">
         <Field label="Name"><input className={inputCls} value={form.name} disabled={!canEdit} onChange={e => set('name', e.target.value)} autoFocus={!item && !('ontouchstart' in window)} /></Field>
+        {twin && (
+          <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-sm flex flex-wrap items-center gap-2" data-testid="inv-twin-name">
+            <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0" />
+            <span className="flex-1 min-w-[12rem]">
+              Another item is called {twin.name}{twin.is_active ? '' : ' (switched off)'}. Staff can't tell two items with one
+              name apart on an order: give this one another name, or use that one.
+            </span>
+            {onOpenItem && (
+              <button type="button" className={btn.outline} onClick={() => onOpenItem(twin.id)} data-testid="inv-twin-open">Open it</button>
+            )}
+          </div>
+        )}
         <div className="grid sm:grid-cols-2 gap-3">
           <Field label="Category">
             <select className={inputCls} value={form.category_id || ''} disabled={!canEdit} onChange={e => set('category_id', e.target.value || null)}>
