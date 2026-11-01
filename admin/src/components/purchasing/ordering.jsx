@@ -33,7 +33,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft, Loader2, Plus, Search, Printer, FileText, FileSpreadsheet, Mail, Check, AlertTriangle, Truck,
   ClipboardList, ChevronRight, ChevronDown, X, PackageCheck, Send, Repeat, Thermometer, Snowflake, Eye,
-  Hourglass, Scissors, Undo2,
+  Hourglass, Scissors, Undo2, Copy, Clock, Phone, Pencil,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -46,7 +46,8 @@ import {
 import {
   fitQty, qtyProblem, packsToPar, orderTotals, lineAmounts, fmtNum, poNumberLabel, receiveStatusFor,
   deliveryTempOk, RECEIVE_STATUSES, DELIVERY_TEMP_MAX, deliveryDateChoices, addDays,
-  convertQty, splitProblem, deliveryDayProblem, deadlineText, nowAt, formatBase,
+  convertQty, splitProblem, deliveryDayProblem, deadlineText, nowAt, formatBase, slotText, checkoutText,
+  deadlinePassed,
 } from '@shared/procurement.js'
 import { ASSISTANT_NAME } from '@shared/assistant.js'
 import {
@@ -57,6 +58,7 @@ const SENT_VIA = [
   { key: 'print', label: 'Printed and handed over' },
   { key: 'pdf', label: 'Sent the PDF' },
   { key: 'excel', label: 'Uploaded the Excel file' },
+  { key: 'website', label: 'Ordered on their website or app' },
   { key: 'phone', label: 'Phoned it in' },
   { key: 'email', label: 'Emailed it myself' },
   { key: 'other', label: 'Other' },
@@ -866,38 +868,122 @@ function dayBlocked(s, date, now, agreed, asking = false) {
 }
 
 /**
+ * Where an order's note for a supplier starts: what the request wrote
+ * (empty when it cleared it), else the venue's driver instructions for that
+ * supplier (migration 233), the same rule the API uses on placing.
+ */
+function noteFor(asked, supplier) {
+  if (asked && Object.prototype.hasOwnProperty.call(asked, 'notes')) return asked.notes || ''
+  return supplier.driver_instructions || ''
+}
+
+/**
+ * The venue's open purchase order from a supplier for a day, the one the
+ * API would add to: not sent yet first, then the lowest number.
+ */
+function openPoOn(openPos, supplierId, date) {
+  const same = (openPos || []).filter(p => p.supplier_id === supplierId && p.delivery_date === date)
+  return same.find(p => p.status === 'to_send') || same[0] || null
+}
+
+/** The delivery slot and phone the supplier has for this venue, when set. */
+function DeliveryDetails({ supplier: s }) {
+  const slot = slotText(s)
+  if (!slot && !s.delivery_phone) return null
+  return (
+    <p className="text-xs text-muted-foreground flex flex-wrap gap-x-3 gap-y-0.5" data-testid="review-delivery-details">
+      {slot && <span className="inline-flex items-center gap-1"><Clock className="w-3.5 h-3.5" />Delivery slot {slot}</span>}
+      {s.delivery_phone && <span className="inline-flex items-center gap-1"><Phone className="w-3.5 h-3.5" />Driver rings {s.delivery_phone}</span>}
+    </p>
+  )
+}
+
+/**
+ * The venue already has an order from this supplier for the day picked:
+ * add these lines to it while it waits in To send, or place a separate
+ * order. Once it has gone to the supplier only a separate order is
+ * possible (a second delivery or a call to them). In a request it's only a
+ * note: the approver decides.
+ */
+function OpenPoChoice({ po, supplier: s, asking, value, onChange }) {
+  const sent = po.status !== 'to_send'
+  return (
+    <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-950 space-y-2"
+      data-testid="review-open-po" data-status={po.status}>
+      <p className="flex items-start gap-1.5">
+        <ClipboardList className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+        <span>
+          {poNumberLabel(po.number)} from {s.name} is already {sent ? 'with them' : 'waiting to be sent'} for {fmtDate(po.delivery_date)}.
+          {asking ? ' The manager decides whether to add to it.' : sent ? ' Adding to it would need a call to them.' : ''}
+        </span>
+      </p>
+      {!asking && (sent ? (
+        <Toggle checked={value === 'separate'} onChange={v => onChange(v ? 'separate' : undefined)}
+          label={`Place a second order with ${s.name} for that day`} />
+      ) : (
+        <Segmented value={value || null} onChange={onChange}
+          options={[{ value: 'add', label: `Add to ${poNumberLabel(po.number)}` }, { value: 'separate', label: 'Separate order' }]} />
+      ))}
+      {!asking && !(value === 'separate' || (value === 'add' && !sent)) && (
+        <p data-testid="review-open-po-ask">
+          {sent ? 'Switch this on, or pick another day, to place the order.' : 'Pick one to place the order.'}
+        </p>
+      )}
+    </div>
+  )
+}
+
+/**
  * Placing the order (mode place) or sending it for approval (mode
  * request): a delivery day and a note per supplier. A request's days and
  * notes are where placing it starts.
  */
 function ReviewModal({ order, groups, prices, mode = 'place', onClose, onPlaced, onRequested }) {
   const api = useApi()
+  const qc = useQueryClient()
   const request = mode === 'request'
   const asked = order.supplier_options || {}
+  // A note never written starts as the venue's driver instructions for the
+  // supplier; one a request cleared stays empty (noteFor()).
   const [opts, setOpts] = useState(() => Object.fromEntries(groups.map(g => [g.supplier.id, {
     delivery_date: asked[g.supplier.id]?.delivery_date || g.supplier.next_delivery || order.today,
-    notes: asked[g.supplier.id]?.notes || '',
+    notes: noteFor(asked[g.supplier.id], g.supplier),
   }])))
   const [note, setNote] = useState(order.notes || '')
   const [agreed, setAgreed] = useState({})
+  // An order already open from a supplier for the picked day: add to it, or
+  // place a separate one (supplier id -> 'add' | 'separate'), asked again
+  // when the day changes.
+  const [existing, setExisting] = useState({})
   const now = nowAt(order.timezone)
   const set = (sid, k, v) => setOpts(o => ({ ...o, [sid]: { ...o[sid], [k]: v } }))
   const sById = Object.fromEntries(groups.map(g => [g.supplier.id, g.supplier]))
+  const openFor = sid => openPoOn(order.open_pos, sid, opts[sid].delivery_date)
   const suppliers = Object.fromEntries(Object.entries(opts).map(([sid, o]) => [sid, {
     delivery_date: o.delivery_date, notes: o.notes,
     ...(!request && agreed[sid] && deliveryDayProblem(sById[sid], o.delivery_date, now) ? { agreed: true } : {}),
+    ...(!request && openFor(sid) && existing[sid] ? { existing: existing[sid] } : {}),
   }]))
   const blocked = groups.some(g => dayBlocked(g.supplier, opts[g.supplier.id].delivery_date, now, agreed[g.supplier.id], request))
+  // Placing waits until every open order on the same day has an answer.
+  const unanswered = !request && groups.some(g => {
+    const open = openFor(g.supplier.id)
+    const pick = existing[g.supplier.id]
+    return open && !(pick === 'separate' || (pick === 'add' && open.status === 'to_send'))
+  })
   const send = useMutation({
     mutationFn: () => (request
       ? api.post(`/purchasing/orders/${order.id}/request`, { suppliers, note })
       : api.post(`/purchasing/orders/${order.id}/submit`, { suppliers })),
     onSuccess: r => (request ? onRequested(r) : onPlaced(r)),
+    // Someone placed or sent an order for the same day meanwhile: the order's
+    // open purchase orders are read again so the question shows.
+    onError: e => { if (['po_exists', 'po_sent'].includes(e?.body?.code)) qc.invalidateQueries({ queryKey: ['supply-order', order.id] }) },
   })
   return (
     <Modal title={request ? 'Send for approval' : 'Place order'} onClose={onClose}
       footer={<>
-        <button type="button" className={btn.primary} disabled={send.isPending || blocked} onClick={() => send.mutate()} data-testid="review-send">
+        <button type="button" className={btn.primary} disabled={send.isPending || blocked || unanswered} onClick={() => send.mutate()} data-testid="review-send">
           {send.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
           {request ? 'Send for approval' : `Place ${groups.length} order${groups.length === 1 ? '' : 's'}`}
         </button>
@@ -927,14 +1013,32 @@ function ReviewModal({ order, groups, prices, mode = 'place', onClose, onPlaced,
               <span className="text-sm h-11 inline-flex items-center">{request ? 'Wanted' : 'Delivery'}</span>
               <div className="flex-1 min-w-[200px]">
                 <DeliveryDayPicker value={opts[s.id].delivery_date} min={order.today} choices={deliveryDateChoices(s)}
-                  onChange={d => { set(s.id, 'delivery_date', d); setAgreed(a => ({ ...a, [s.id]: false })) }} label={`Delivery date for ${s.name}`} />
+                  onChange={d => {
+                    set(s.id, 'delivery_date', d)
+                    setAgreed(a => ({ ...a, [s.id]: false }))
+                    setExisting(x => ({ ...x, [s.id]: undefined }))
+                  }} label={`Delivery date for ${s.name}`} />
               </div>
             </div>
             <DayCheck supplier={s} date={opts[s.id].delivery_date} now={now} asking={request}
               agreed={agreed[s.id]} onAgree={v => setAgreed(a => ({ ...a, [s.id]: v }))} />
+            <DeliveryDetails supplier={s} />
+            {openFor(s.id) && (
+              <OpenPoChoice po={openFor(s.id)} supplier={s} asking={request} value={existing[s.id]}
+                onChange={v => setExisting(x => ({ ...x, [s.id]: v }))} />
+            )}
             {!request && wanted && wanted !== opts[s.id].delivery_date && <p className="text-xs text-blue-800">Asked for {fmtDate(wanted)}</p>}
             {!request && <p className="text-xs text-muted-foreground">{sendHint(s)}</p>}
-            <input className={inputCls} value={opts[s.id].notes} onChange={e => set(s.id, 'notes', e.target.value)} placeholder="Note for the supplier (optional)" />
+            <Field label="Note for the supplier (optional)">
+              <textarea className={cn(inputCls, 'min-h-[48px]')} rows={2} value={opts[s.id].notes} data-testid="review-note"
+                onChange={e => set(s.id, 'notes', e.target.value)} placeholder="e.g. Ring the bell at the back door" />
+            </Field>
+            {s.driver_instructions && opts[s.id].notes !== s.driver_instructions && (
+              <button type="button" className="text-xs underline text-muted-foreground min-h-[44px] touch-manipulation" data-testid="review-note-reset"
+                onClick={() => set(s.id, 'notes', s.driver_instructions)}>
+                Use the driver instructions again
+              </button>
+            )}
           </div>
         )
       })}
@@ -1068,18 +1172,31 @@ function sendHint(s) {
 }
 
 function PlacedView({ result, prices, phone, onDone, onOpenPo }) {
+  // Lines added to an order already open for the same day (migration 233)
+  // are on that purchase order, not a new one.
+  const addedTo = new Set(result.added_to || [])
+  const fresh = result.purchase_orders.filter(p => !addedTo.has(p.id)).length
+  const words = [
+    fresh && `${fresh} new purchase order${fresh === 1 ? '' : 's'}`,
+    addedTo.size && `added to ${addedTo.size} already open`,
+  ].filter(Boolean).join(', ')
   return (
     <div className={cn('space-y-4', phone ? 'p-3' : 'p-4 max-w-3xl mx-auto')}>
       <div className="rounded-xl border bg-background p-5 text-center space-y-1">
         <PackageCheck className="w-8 h-8 mx-auto text-green-600" />
         <p className="font-semibold">Order placed</p>
-        <p className="text-sm text-muted-foreground">{result.purchase_orders.length} purchase order{result.purchase_orders.length === 1 ? '' : 's'}</p>
+        <p className="text-sm text-muted-foreground" data-testid="placed-summary">{words.charAt(0).toUpperCase() + words.slice(1)}</p>
       </div>
       {result.purchase_orders.map(p => {
         const r = result.results.find(x => x.id === p.id) || {}
         return (
           <div key={p.id} className="space-y-1">
             <PoCard po={p} prices={prices} onOpen={() => onOpenPo(p.id)} />
+            {addedTo.has(p.id) && (
+              <p className="text-xs text-blue-900 px-1" data-testid="placed-added">
+                Added to {poNumberLabel(p.number)}, already open for {fmtDate(p.delivery_date)}.
+              </p>
+            )}
             {r.emailed && <p className="text-xs text-green-700 px-1">Emailed to the supplier.</p>}
             {r.error && <p className="text-xs text-red-700 px-1">Not emailed: {r.error}. Open it to try again or send it another way.</p>}
             {!r.emailed && !r.error && p.status === 'to_send' && <p className="text-xs text-amber-800 px-1">Open it to print or download it, then mark it as sent.</p>}
@@ -1094,14 +1211,29 @@ function PlacedView({ result, prices, phone, onDone, onOpenPo }) {
 
 // ── Deliveries tab ──────────────────────────────────────────────
 
+/**
+ * A purchase order running late at the venue's time: one still in To send
+ * once the supplier's cutoff for its day has passed ('send'), or one sent
+ * whose delivery day has gone without being booked in ('book_in'). Null
+ * otherwise. The same rules as Today's purchasing tasks.
+ */
+function poLateness(po, now = nowAt(po.venue_timezone || po.timezone)) {
+  if (po.status === 'to_send' && deadlinePassed(po, po.delivery_date, now)) return 'send'
+  if (po.status === 'sent' && po.delivery_date < now.date) return 'book_in'
+  return null
+}
+
 function PoCard({ po, prices, onOpen }) {
+  const late = poLateness(po)
   return (
-    <button type="button" onClick={onOpen}
+    <button type="button" onClick={onOpen} data-testid="po-card" data-late={late || undefined}
       className="w-full text-left rounded-xl border bg-background p-3 hover:shadow-sm touch-manipulation flex items-center gap-3 min-h-[64px]">
       <span className="flex-1 min-w-0">
-        <span className="flex items-center gap-2">
+        <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <span className="font-semibold truncate">{po.supplier_name}</span>
           <PoStatusBadge status={po.status} />
+          {late === 'send' && <span className="text-[11px] px-1.5 py-0.5 rounded bg-red-100 text-red-900">Past their cutoff</span>}
+          {late === 'book_in' && <span className="text-[11px] px-1.5 py-0.5 rounded bg-red-100 text-red-900">Not booked in</span>}
           {po.amended_at && po.status === 'to_send' && <span className="text-[11px] px-1.5 py-0.5 rounded bg-orange-100 text-orange-900">Changed</span>}
           {po.split_from && <span className="text-[11px] px-1.5 py-0.5 rounded bg-muted">Split</span>}
           {po.send_error && po.status === 'to_send' && <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />}
@@ -1110,6 +1242,7 @@ function PoCard({ po, prices, onOpen }) {
           {poNumberLabel(po.number)} · {fmtDate(po.delivery_date)} · {po.line_count} line{po.line_count === 1 ? '' : 's'}
           {prices && po.total != null && <> · {money(po.total)}</>}
         </span>
+        {po.supplier_ref && <span className="block text-xs text-muted-foreground truncate" data-testid="po-card-ref">Their ref {po.supplier_ref}</span>}
       </span>
       <ChevronRight className="w-4 h-4 text-muted-foreground" />
     </button>
@@ -1119,11 +1252,27 @@ function PoCard({ po, prices, onOpen }) {
 function Deliveries({ venueId, meta, onOpen }) {
   const api = useApi()
   const [showDone, setShowDone] = useState(false)
+  // Find an order by the supplier's reference or our PO number, whatever
+  // its state.
+  const [search, setSearch] = useState('')
+  const [q, setQ] = useState('')
+  useEffect(() => {
+    const t = setTimeout(() => setQ(search.trim()), 300)
+    return () => clearTimeout(t)
+  }, [search])
   const { data: pos = [], isLoading, error } = useQuery({
     queryKey: ['purchase-orders', venueId, showDone],
     queryFn: () => api.get(`/purchasing/pos?venue_id=${venueId}&status=${showDone ? 'received,cancelled' : 'to_send,sent'}&limit=200`),
+    enabled: !q,
   })
-  const today = new Date().toISOString().slice(0, 10)
+  const found = useQuery({
+    queryKey: ['purchase-orders', venueId, 'search', q],
+    queryFn: () => api.get(`/purchasing/pos?venue_id=${venueId}&q=${encodeURIComponent(q)}&limit=50`),
+    enabled: !!q,
+  })
+  // The venue's own day, not the browser's (a late night order).
+  const now = nowAt(pos[0]?.venue_timezone)
+  const today = now.date
   const prices = !!meta?.show_prices
   const toSend = pos.filter(p => p.status === 'to_send')
   const sent = pos.filter(p => p.status === 'sent').sort((a, b) => a.delivery_date.localeCompare(b.delivery_date))
@@ -1131,18 +1280,34 @@ function Deliveries({ venueId, meta, onOpen }) {
   const later = sent.filter(p => p.delivery_date > today)
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2">
-        <Segmented value={showDone ? 'done' : 'open'} onChange={v => setShowDone(v === 'done')}
-          options={[{ value: 'open', label: 'Open' }, { value: 'done', label: 'Received & cancelled' }]} />
+      <div className="flex flex-wrap items-center gap-2">
+        {!q && (
+          <Segmented value={showDone ? 'done' : 'open'} onChange={v => setShowDone(v === 'done')}
+            options={[{ value: 'open', label: 'Open' }, { value: 'done', label: 'Received & cancelled' }]} />
+        )}
+        <label className="relative flex-1 min-w-[200px] max-w-sm">
+          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <input className={cn(inputCls, 'pl-9 pr-10')} value={search} onChange={e => setSearch(e.target.value)} data-testid="po-search"
+            placeholder="Their reference or PO number" aria-label="Find an order by their reference or PO number" />
+          {search && (
+            <button type="button" onClick={() => setSearch('')} aria-label="Clear the search"
+              className="absolute right-0 top-0 w-11 h-11 flex items-center justify-center text-muted-foreground touch-manipulation">
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </label>
       </div>
-      <ErrorNote error={error} />
-      {isLoading ? <Loader2 className="w-5 h-5 animate-spin mx-auto my-10 text-muted-foreground" /> : showDone ? (
+      <ErrorNote error={q ? found.error : error} />
+      {q ? (
+        found.isLoading ? <Loader2 className="w-5 h-5 animate-spin mx-auto my-10 text-muted-foreground" />
+          : <Section title="Found" pos={found.data || []} prices={prices} onOpen={onOpen} empty={`No order with "${q}" as their reference or our PO number.`} />
+      ) : isLoading ? <Loader2 className="w-5 h-5 animate-spin mx-auto my-10 text-muted-foreground" /> : showDone ? (
         <Section title="Received and cancelled" pos={[...pos].sort((a, b) => b.delivery_date.localeCompare(a.delivery_date))} prices={prices} onOpen={onOpen} empty="Nothing yet." />
       ) : (
         <>
           {!pos.length && <p className="text-sm text-muted-foreground text-center py-8">No open orders. Place one from the Order tab.</p>}
           {toSend.length > 0 && <Section title="To send" hint="Placed but not with the supplier yet" pos={toSend} prices={prices} onOpen={onOpen} />}
-          {due.length > 0 && <Section title="Due today or overdue" hint="Book them in when they arrive" pos={due} prices={prices} onOpen={onOpen} />}
+          {due.length > 0 && <Section title="Due today or overdue" hint="Book them in when they arrive. Not booked in after their day: check whether it came" pos={due} prices={prices} onOpen={onOpen} />}
           {later.length > 0 && <Section title="Coming up" pos={later} prices={prices} onOpen={onOpen} />}
         </>
       )}
@@ -1184,6 +1349,9 @@ function PoDetail({ poId, meta, phone, onBack, onOpenPo }) {
   // A new delivery day the supplier can't make waits here for "Agreed with
   // them" (or is dropped): { date, problem }.
   const [dateAsk, setDateAsk] = useState(null)
+  const [checkout, setCheckout] = useState(false)
+  // The supplier's order reference being typed (null = not editing).
+  const [refEdit, setRefEdit] = useState(null)
   const done = saved => {
     qc.setQueryData(['purchase-order', poId], saved)
     qc.invalidateQueries({ queryKey: ['purchase-orders'] })
@@ -1191,6 +1359,10 @@ function PoDetail({ poId, meta, phone, onBack, onOpenPo }) {
   const send = useMutation({ mutationFn: () => api.post(`/purchasing/pos/${poId}/send`), onSuccess: done, onError: () => qc.invalidateQueries({ queryKey: ['purchase-order', poId] }) })
   const cancel = useMutation({ mutationFn: () => api.post(`/purchasing/pos/${poId}/cancel`), onSuccess: done })
   const patch = useMutation({ mutationFn: body => api.patch(`/purchasing/pos/${poId}`, body), onSuccess: saved => { done(saved); setDateAsk(null) } })
+  const saveRef = useMutation({
+    mutationFn: ref => api.patch(`/purchasing/pos/${poId}`, { supplier_ref: ref }),
+    onSuccess: saved => { done(saved); setRefEdit(null) },
+  })
   const changeDate = d => {
     if (!d || d === po.delivery_date) return
     const problem = deliveryDayProblem(po, d, nowAt(po.timezone), po.supplier_name)
@@ -1280,6 +1452,9 @@ function PoDetail({ poId, meta, phone, onBack, onOpenPo }) {
             </div>
           </div>
         )}
+        <PoDeliveryDetails po={po} />
+        <SupplierRefRow po={po} canEdit={canOrder && po.status !== 'cancelled'} editing={refEdit} onEdit={setRefEdit}
+          onSave={() => saveRef.mutate(refEdit.trim())} saving={saveRef.isPending} error={saveRef.error} />
         <p className="text-sm text-muted-foreground">
           {po.requested_by && <>Asked for by {po.requested_by}<br /></>}
           Placed {new Date(po.created_at).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}{po.created_by ? ` by ${po.created_by}` : ''}
@@ -1356,6 +1531,7 @@ function PoDetail({ poId, meta, phone, onBack, onOpenPo }) {
         <button type="button" className={btn.outline} disabled={!!busy} onClick={() => file('html')}><Printer className="w-4 h-4" />Print</button>
         <button type="button" className={btn.outline} disabled={!!busy} onClick={() => file('pdf')}><FileText className="w-4 h-4" />PDF</button>
         <button type="button" className={btn.outline} disabled={!!busy} onClick={() => file('xlsx')}><FileSpreadsheet className="w-4 h-4" />Excel</button>
+        <button type="button" className={btn.outline} onClick={() => setCheckout(true)} data-testid="po-checkout"><Copy className="w-4 h-4" />Copy for checkout</button>
         {busy && <Loader2 className="w-4 h-4 animate-spin self-center" />}
       </div>
       <ErrorNote error={send.error || cancel.error || patch.error || fileErr || saveQty.error} />
@@ -1482,6 +1658,7 @@ function PoDetail({ poId, meta, phone, onBack, onOpenPo }) {
       {markSent && (
         <MarkSentModal po={po} onClose={() => setMarkSent(false)} onSaved={saved => { done(saved); setMarkSent(false) }} />
       )}
+      {checkout && <CheckoutCopyModal po={po} onClose={() => setCheckout(false)} />}
       {receiving && <ReceiveForm po={po} meta={meta} onClose={() => setReceiving(false)} onSaved={saved => {
         done(saved); setReceiving(false); qc.invalidateQueries({ queryKey: ['fs-deliveries'] })
         if (meta?.can_setup && saved.price_list?.length) setPriceList(true)
@@ -1653,28 +1830,215 @@ function CheckSummary({ check }) {
   )
 }
 
+/**
+ * The venue's delivery details for this supplier (Suppliers page, per
+ * venue, migration 233): the slot, the phone the driver rings, and the
+ * driver instructions when the order's own note doesn't already carry them.
+ */
+function PoDeliveryDetails({ po }) {
+  const slot = slotText(po)
+  const say = po.driver_instructions && po.driver_instructions !== po.notes ? po.driver_instructions : null
+  if (!slot && !po.delivery_phone && !say) return null
+  return (
+    <div className="text-sm space-y-1" data-testid="po-delivery-details">
+      {slot && <p className="flex items-center gap-1.5"><Clock className="w-4 h-4 text-muted-foreground shrink-0" />Delivery slot {slot}</p>}
+      {po.delivery_phone && (
+        <p className="flex items-center gap-1.5"><Phone className="w-4 h-4 text-muted-foreground shrink-0" />
+          Driver rings <a className="underline" href={`tel:${po.delivery_phone}`}>{po.delivery_phone}</a>
+        </p>
+      )}
+      {say && <p className="text-muted-foreground">Driver instructions: {say}</p>}
+    </div>
+  )
+}
+
+/**
+ * The supplier's own reference for the order (from their confirmation or
+ * website), set when it's marked sent or here later; changed with its own
+ * Save, any time but once cancelled. Shown once it exists, or once the
+ * order has gone (to add it).
+ */
+function SupplierRefRow({ po, canEdit, editing, onEdit, onSave, saving, error }) {
+  if (editing != null) {
+    return (
+      <div className="space-y-2" data-testid="po-ref-edit">
+        <Field label={`${po.supplier_name}'s order reference`}>
+          <input className={inputCls} value={editing} maxLength={100} autoFocus={!IS_TOUCH} data-testid="po-ref-input"
+            onChange={e => onEdit(e.target.value)} placeholder="e.g. S043172591" />
+        </Field>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" className={btn.primary} disabled={saving || editing.trim() === (po.supplier_ref || '')} onClick={onSave} data-testid="po-ref-save">
+            {saving && <Loader2 className="w-4 h-4 animate-spin" />}Save
+          </button>
+          <button type="button" className={btn.ghost} onClick={() => onEdit(null)}>Cancel</button>
+        </div>
+        {po.ref_required && !editing.trim() && po.status !== 'to_send' && (
+          <p className="text-xs text-amber-800">{po.supplier_name} orders are kept with their reference: it helps when chasing or checking the invoice.</p>
+        )}
+        <ErrorNote error={error} />
+      </div>
+    )
+  }
+  if (!po.supplier_ref && po.status === 'to_send') return null
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-sm" data-testid="po-ref">
+      {po.supplier_ref
+        ? <span>Their reference <span className="font-medium tabular-nums" data-testid="po-ref-value">{po.supplier_ref}</span></span>
+        : <span className="text-muted-foreground">No reference from {po.supplier_name}</span>}
+      {canEdit && (
+        <button type="button" className={cn(btn.ghost, 'h-11')} onClick={() => onEdit(po.supplier_ref || '')} data-testid="po-ref-change">
+          <Pencil className="w-3.5 h-3.5" />{po.supplier_ref ? 'Change' : 'Add it'}
+        </button>
+      )}
+    </div>
+  )
+}
+
+/** Copy text to the clipboard, falling back to a selected text box. */
+async function copyText(text) {
+  try {
+    if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(text); return true }
+  } catch { /* the fallback below */ }
+  const ta = document.createElement('textarea')
+  ta.value = text
+  ta.setAttribute('readonly', '')
+  Object.assign(ta.style, { position: 'fixed', top: '0', left: '0', opacity: '0' })
+  document.body.appendChild(ta)
+  ta.select()
+  let ok = false
+  try { ok = document.execCommand('copy') } catch { ok = false }
+  ta.remove()
+  return ok
+}
+
+/**
+ * Copy for checkout: the delivery details a supplier's website or app
+ * asks for (checkoutText(), shared/procurement.js), all at once or a line
+ * at a time for checkouts with separate boxes.
+ */
+function CheckoutCopyModal({ po, onClose }) {
+  const text = checkoutText(po, po.deliver_to)
+  const lines = text.split('\n').map(l => {
+    const at = l.indexOf(': ')
+    return at > 0 ? { label: l.slice(0, at), value: l.slice(at + 2) } : { label: '', value: l }
+  })
+  const [copied, setCopied] = useState(null)
+  const [failed, setFailed] = useState(false)
+  const copy = async (what, key) => {
+    const ok = await copyText(what)
+    setFailed(!ok)
+    if (ok) { setCopied(key); setTimeout(() => setCopied(c => (c === key ? null : c)), 2000) }
+  }
+  return (
+    <Modal title="Copy for checkout" onClose={onClose}
+      footer={<>
+        <button type="button" className={btn.primary} onClick={() => copy(text, 'all')} data-testid="checkout-copy-all">
+          {copied === 'all' ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}{copied === 'all' ? 'Copied' : 'Copy all'}
+        </button>
+        <button type="button" className={btn.outline} onClick={onClose}>Done</button>
+      </>}>
+      <p className="text-sm text-muted-foreground">
+        For ordering on {po.supplier_name}'s website or app: paste these into their checkout, all together or one box at a time.
+      </p>
+      <div className="rounded-xl border divide-y" data-testid="checkout-lines">
+        {lines.map((l, i) => (
+          <div key={i} className="flex items-center gap-2 px-3 py-1.5">
+            <div className="flex-1 min-w-0">
+              {l.label && <p className="text-xs text-muted-foreground">{l.label}</p>}
+              <p className="text-sm break-words">{l.value}</p>
+            </div>
+            <button type="button" onClick={() => copy(l.value, i)} aria-label={`Copy ${l.label || 'this line'}`}
+              className="w-11 h-11 shrink-0 flex items-center justify-center rounded-lg hover:bg-muted touch-manipulation">
+              {copied === i ? <Check className="w-4 h-4 text-green-700" /> : <Copy className="w-4 h-4 text-muted-foreground" />}
+            </button>
+          </div>
+        ))}
+      </div>
+      {failed && <p className="text-sm text-amber-800">This browser didn't let us copy. Select the words above and copy them by hand.</p>}
+      {!po.deliver_to?.address_line1 && (
+        <p className="text-xs text-muted-foreground">No address for {po.venue_name} yet: add it in Website, under the location's Find us, to have it here.</p>
+      )}
+    </Modal>
+  )
+}
+
+const SENT_AT_DAYS = 14
+
+/**
+ * Mark as sent: how the order reached the supplier, their order reference
+ * (needed when the supplier is set to need it, migration 233), and when it
+ * went: now, or earlier (up to 14 days back, not before it was made).
+ */
 function MarkSentModal({ po, onClose, onSaved }) {
   const api = useApi()
   const [via, setVia] = useState(po.send_method === 'excel' ? 'excel' : po.send_method === 'pdf' ? 'pdf' : 'print')
-  const save = useMutation({ mutationFn: () => api.post(`/purchasing/pos/${po.id}/mark-sent`, { via }), onSuccess: onSaved })
+  const [ref, setRef] = useState(po.supplier_ref || '')
+  const [earlier, setEarlier] = useState(false)
+  const [at, setAt] = useState('')
+  const needRef = !!po.ref_required && !ref.trim()
+  const atProblem = earlier ? sentAtProblem(at, po.created_at) : null
+  const save = useMutation({
+    mutationFn: () => api.post(`/purchasing/pos/${po.id}/mark-sent`, {
+      via, supplier_ref: ref.trim() || null, ...(earlier ? { sent_at: new Date(at).toISOString() } : {}),
+    }),
+    onSuccess: onSaved,
+  })
   return (
     <Modal title="Mark as sent" onClose={onClose}
       footer={<>
-        <button type="button" className={btn.primary} disabled={save.isPending} onClick={() => save.mutate()}>Mark as sent</button>
+        <button type="button" className={btn.primary} disabled={save.isPending || needRef || !!atProblem} onClick={() => save.mutate()} data-testid="mark-sent-save">
+          {save.isPending && <Loader2 className="w-4 h-4 animate-spin" />}Mark as sent
+        </button>
         <button type="button" className={btn.outline} onClick={onClose}>Cancel</button>
       </>}>
       <p className="text-sm text-muted-foreground">How did the order reach {po.supplier_name}?</p>
       <div className="space-y-2">
         {SENT_VIA.map(v => (
-          <button key={v.key} type="button" onClick={() => setVia(v.key)}
+          <button key={v.key} type="button" onClick={() => setVia(v.key)} data-testid="mark-sent-via" data-via={v.key}
             className={cn('w-full text-left rounded-xl border px-3 min-h-[48px] text-sm touch-manipulation flex items-center gap-2', via === v.key ? 'border-primary bg-primary/5' : 'hover:bg-muted/40')}>
             <span className="flex-1">{v.label}</span>{via === v.key && <Check className="w-4 h-4 text-primary" />}
           </button>
         ))}
       </div>
+      <Field label={po.ref_required ? `${po.supplier_name}'s order reference (needed)` : `${po.supplier_name}'s order reference (optional)`}>
+        <input className={inputCls} value={ref} maxLength={100} onChange={e => setRef(e.target.value)} data-testid="mark-sent-ref"
+          placeholder="From their confirmation, e.g. S043172591" />
+      </Field>
+      {needRef && <p className="text-xs text-amber-800" data-testid="mark-sent-ref-needed">{po.supplier_name} is set to need their reference: type it in from their confirmation.</p>}
+      <Field group label="When it went">
+        <Segmented value={earlier ? 'earlier' : 'now'} onChange={v => setEarlier(v === 'earlier')}
+          options={[{ value: 'now', label: 'Just now' }, { value: 'earlier', label: 'Earlier' }]} />
+      </Field>
+      {earlier && (
+        <div className="space-y-1">
+          <input type="datetime-local" className={inputCls} value={at} onChange={e => setAt(e.target.value)} data-testid="mark-sent-at"
+            aria-label="When it went" max={localInput(new Date())} min={localInput(new Date(po.created_at))} />
+          {atProblem && <p className="text-xs text-amber-800" data-testid="mark-sent-at-problem">{atProblem}</p>}
+        </div>
+      )}
       <ErrorNote error={save.error} />
     </Modal>
   )
+}
+
+/** A Date as a datetime-local value, in the browser's time. */
+function localInput(d) {
+  const p = n => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
+/** Why an earlier send time can't be used (the API checks the same), or null. */
+function sentAtProblem(value, createdAt) {
+  if (!value) return 'Pick when it went'
+  const t = new Date(value).getTime()
+  if (Number.isNaN(t)) return 'Pick when it went'
+  if (t > Date.now() + 5 * 60_000) return 'That is in the future'
+  if (t < Date.now() - SENT_AT_DAYS * 86_400_000) return `It must be in the last ${SENT_AT_DAYS} days`
+  // To the minute, as the API: an order made at 10:00:30 can go at 10:00.
+  const made = createdAt ? new Date(createdAt) : null
+  if (made) made.setSeconds(0, 0)
+  if (made && t < made.getTime()) return 'That is before the order was made'
+  return null
 }
 
 // ── Receiving ───────────────────────────────────────────────────

@@ -3,12 +3,15 @@
 // keeping the amount when the pack changes (convertQty), and which
 // delivery days a supplier can still make (orderDeadline, deadlineText,
 // deliveryDayProblem), checked against nextDeliveryDate() so the two
-// never disagree.
+// never disagree. Step 2 (migration 233): a venue's own days' notice and
+// delivery details (supplierForVenue), the slot in words (slotText), Copy
+// for checkout (checkoutText), and when an order to send is late
+// (deadlinePassed).
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   qtyProblem, fitQty, splitProblem, convertQty, nextDeliveryDate, orderDeadline, deadlineText, deliveryDayProblem,
-  dayText, nowAt, addDays,
+  dayText, nowAt, addDays, supplierForVenue, slotText, checkoutText, deadlinePassed,
 } from '../procurement.js'
 
 test('qtyProblem keeps its words', () => {
@@ -115,4 +118,75 @@ test('nowAt reads the venue\'s clock', () => {
   assert.deepEqual(nowAt('Europe/London', at), { date: '2026-11-02', time: '23:30' })
   assert.deepEqual(nowAt('Europe/Warsaw', at), { date: '2026-11-03', time: '00:30' })
   assert.equal(fitQty(10, { min_qty: 20 }), 20)
+})
+
+test('supplierForVenue: the venue\'s own notice and delivery details', () => {
+  const supplier = { delivery_days: [1, 3], cutoff_time: '18:00', lead_days: 2, account_ref: 'MAIN' }
+  const plain = supplierForVenue(supplier, null)
+  assert.equal(plain.lead_days, 2)
+  assert.equal(plain.delivery_phone, null)
+  assert.equal(plain.driver_instructions, null)
+  assert.equal(plain.slot_from, null)
+  const own = supplierForVenue(supplier, {
+    lead_days: 0, delivery_phone: '07700 900123', driver_instructions: 'Back door',
+    slot_from: '07:00:00', slot_to: '10:30:00', account_ref: 'WARE',
+  })
+  assert.equal(own.lead_days, 0, 'a venue\'s 0 days is kept, not the supplier\'s 2')
+  assert.equal(own.account_ref, 'WARE')
+  assert.equal(own.delivery_phone, '07700 900123')
+  assert.equal(own.driver_instructions, 'Back door')
+  assert.equal(own.slot_from, '07:00', 'times read as HH:MM')
+  assert.equal(own.slot_to, '10:30')
+  assert.equal(supplierForVenue(supplier, { lead_days: null }).lead_days, 2, 'no notice of its own: the supplier\'s')
+  // The venue's notice moves the first day it can have.
+  const now = { date: '2026-11-02', time: '09:00' } // a Monday
+  assert.equal(nextDeliveryDate(supplierForVenue({ lead_days: 1 }, null), now), '2026-11-03')
+  assert.equal(nextDeliveryDate(supplierForVenue({ lead_days: 1 }, { lead_days: 3 }), now), '2026-11-05')
+})
+
+test('slotText says the slot in words', () => {
+  assert.equal(slotText({ slot_from: '07:00:00', slot_to: '10:00:00' }), '07:00-10:00')
+  assert.equal(slotText({ slot_from: '07:00' }), 'from 07:00')
+  assert.equal(slotText({ slot_to: '10:00' }), 'by 10:00')
+  assert.equal(slotText({}), null)
+  assert.equal(slotText(), null)
+})
+
+test('checkoutText: one line each, the note before the instructions, the venue\'s phone as a fallback', () => {
+  const venue = { name: 'Ware', address_line1: '12 Mill Lane', city: 'Ware', postcode: 'SG12 9AA', phone: '01920 000111' }
+  const po = {
+    number: 12, delivery_date: '2026-11-03', account_ref: 'JJ-555', delivery_phone: '07700 900123',
+    driver_instructions: 'Back door', notes: null, slot_from: '07:00', slot_to: '10:00',
+  }
+  assert.equal(checkoutText(po, venue), [
+    'Account: JJ-555',
+    'Deliver to: Ware, 12 Mill Lane, Ware, SG12 9AA',
+    'Delivery: Tue 3 Nov, 07:00-10:00',
+    'Phone: 07700 900123',
+    'Instructions: Back door',
+    'Our order: PO-00012',
+  ].join('\n'))
+  const plain = checkoutText({ ...po, notes: 'Ring first', delivery_phone: null, slot_from: null, slot_to: null, account_ref: null }, venue)
+  assert.match(plain, /^Deliver to: /, 'no account: the line is left out')
+  assert.match(plain, /Delivery: Tue 3 Nov\n/, 'no slot: just the day')
+  assert.match(plain, /Phone: 01920 000111/, 'no delivery phone: the venue\'s own')
+  assert.match(plain, /Instructions: Ring first/, 'the order\'s note wins')
+  assert.equal(checkoutText({ number: 1 }, {}), 'Our order: PO-00001', 'nothing else known: just our number')
+})
+
+test('deadlinePassed: from the cutoff minute on the deadline day; the whole day without a cutoff', () => {
+  const s = { cutoff_time: '18:00', lead_days: 1 }
+  assert.equal(deadlinePassed(s, '2026-11-03', { date: '2026-11-02', time: '17:59' }), false)
+  assert.equal(deadlinePassed(s, '2026-11-03', { date: '2026-11-02', time: '18:00' }), true, 'the cutoff minute itself has passed')
+  assert.equal(deadlinePassed(s, '2026-11-03', { date: '2026-11-03', time: '06:00' }), true, 'the day after the deadline')
+  assert.equal(deadlinePassed(s, '2026-11-05', { date: '2026-11-02', time: '23:00' }), false, 'a later day is fine')
+  const noCutoff = { cutoff_time: null, lead_days: 1 }
+  assert.equal(deadlinePassed(noCutoff, '2026-11-03', { date: '2026-11-02', time: '23:59' }), false, 'all of the deadline day')
+  assert.equal(deadlinePassed(noCutoff, '2026-11-03', { date: '2026-11-03', time: '00:00' }), true)
+  assert.equal(deadlinePassed(s, null, { date: '2026-11-02', time: '12:00' }), false, 'no day: nothing to be late for')
+  // The same rule as the late problem.
+  for (const time of ['00:00', '17:59', '18:00', '23:59']) {
+    const now = { date: '2026-11-02', time }
+    assert.equal(deliveryDayProblem(s, '2026-11-03', now)?.code === 'late', deadlinePassed(s, '2026-11-03', now), time)
+  }
 })

@@ -3,8 +3,10 @@
 // Suppliers for purchasing (/suppliers, purchasing_setup): contact details,
 // how purchase orders reach them (email with a PDF or Excel copy, or print /
 // Excel / PDF for staff to send), order cutoff, days from order to delivery,
-// delivery days, minimum order and delivery charge, with per-venue account
-// numbers, delivery days and cutoffs. API: routes/suppliers.js.
+// delivery days, minimum order and delivery charge, whether marking an order
+// sent needs their order reference, and per venue: account number, delivery
+// days, cutoff, days' notice, and the delivery phone, driver instructions
+// and delivery slot (migration 233). API: routes/suppliers.js.
 
 import { useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
@@ -12,7 +14,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Truck, Plus, Search, Loader2, Mail, Printer, FileSpreadsheet, FileText } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
-import { useVenues, Field, inputCls, ErrorNote, Segmented, ConfirmDelete, PageHeader, TimeSelect, hhmm } from '@/components/staff/shared'
+import {
+  useVenues, Field, inputCls, ErrorNote, Segmented, ConfirmDelete, PageHeader, TimeSelect, hhmm, timeOptions,
+} from '@/components/staff/shared'
 import {
   useSuppliers, usePurchasingMeta, NumInput, Drawer, Card, Toggle, DayPicker, daysLabel, btn, money, perUnit,
 } from '@/components/purchasing/shared'
@@ -210,7 +214,7 @@ function DetailsCard({ s, canEdit, onSaved }) {
 
 function OrderingCard({ s, canEdit, onSaved }) {
   const api = useApi()
-  const keys = ['send_method', 'email_attachment', 'delivery_days', 'cutoff_time', 'lead_days', 'min_order', 'delivery_charge']
+  const keys = ['send_method', 'email_attachment', 'delivery_days', 'cutoff_time', 'lead_days', 'min_order', 'delivery_charge', 'ref_required']
   const initial = Object.fromEntries(keys.map(k => [k, k === 'cutoff_time' ? (s.cutoff_time ? hhmm(s.cutoff_time) : null) : s[k]]))
   const [f, set] = useForm(initial)
   const dirty = keys.some(k => !same(f[k], initial[k]))
@@ -247,6 +251,14 @@ function OrderingCard({ s, canEdit, onSaved }) {
           <Field label="Minimum order, ex VAT (£)" hint="Optional: orders below it are flagged"><NumInput value={f.min_order} disabled={!canEdit} onChange={v => set('min_order', v)} /></Field>
           <Field label="Delivery charge (£)" hint="Optional: added to each order"><NumInput value={f.delivery_charge} disabled={!canEdit} onChange={v => set('delivery_charge', v)} /></Field>
         </div>
+        <div>
+          <Toggle checked={!!f.ref_required} disabled={!canEdit} onChange={v => set('ref_required', v)}
+            label="Needs their order reference when an order is marked sent" />
+          <p className="text-xs text-muted-foreground">
+            For suppliers who confirm with a reference of their own (their website, app or confirmation email):
+            staff type it in, and it's on the order for chasing it and checking the invoice.
+          </p>
+        </div>
         <ErrorNote error={save.error} />
       </div>
     </Card>
@@ -257,24 +269,34 @@ function VenuesCard({ s, venues, canEdit, onSaved }) {
   const api = useApi()
   const initial = Object.fromEntries(venues.map(v => {
     const row = s.venues.find(x => x.venue_id === v.id)
-    return [v.id, { account_ref: row?.account_ref || '', delivery_days: row?.delivery_days ?? null, cutoff_time: row?.cutoff_time ? hhmm(row.cutoff_time) : null }]
+    return [v.id, {
+      account_ref: row?.account_ref || '', delivery_days: row?.delivery_days ?? null,
+      cutoff_time: row?.cutoff_time ? hhmm(row.cutoff_time) : null, lead_days: row?.lead_days ?? null,
+      delivery_phone: row?.delivery_phone || '', driver_instructions: row?.driver_instructions || '',
+      slot_from: row?.slot_from ? hhmm(row.slot_from) : null, slot_to: row?.slot_to ? hhmm(row.slot_to) : null,
+    }]
   }))
   const [f, setF] = useState(initial)
   const set = (vid, k, val) => setF(x => ({ ...x, [vid]: { ...x[vid], [k]: val } }))
   const dirty = !same(f, initial)
+  // A slot must end after it starts (the API checks the same).
+  const badSlot = venues.find(v => f[v.id].slot_from && f[v.id].slot_to && f[v.id].slot_from >= f[v.id].slot_to)
   const save = useMutation({
     mutationFn: () => api.put(`/suppliers/${s.id}/venues`, { venues: venues.map(v => ({ venue_id: v.id, ...f[v.id] })) }),
     onSuccess: onSaved,
   })
   return (
     <Card title="Per venue"
-      actions={canEdit && <button type="button" className={btn.primary} disabled={!dirty || save.isPending} onClick={() => save.mutate()}>Save</button>}>
-      <p className="text-sm text-muted-foreground mb-3">Only where a venue differs: its own account number, delivery days or cutoff.</p>
+      actions={canEdit && <button type="button" className={btn.primary} disabled={!dirty || !!badSlot || save.isPending} onClick={() => save.mutate()}>Save</button>}>
+      <p className="text-sm text-muted-foreground mb-3">
+        Each venue's account number, delivery days, cutoff and notice where they differ from the supplier's, and its own
+        delivery details: they print on its orders and go in Copy for checkout.
+      </p>
       <div className="space-y-4">
         {venues.map(v => {
           const row = f[v.id]
           return (
-            <div key={v.id} className="rounded-xl border p-3 space-y-2">
+            <div key={v.id} className="rounded-xl border p-3 space-y-2" data-testid="supplier-venue" data-venue={v.id}>
               <p className="font-medium text-sm">{v.name}</p>
               <Field label="Account number"><input className={inputCls} value={row.account_ref} disabled={!canEdit} placeholder={s.account_ref || ''}
                 onChange={e => set(v.id, 'account_ref', e.target.value)} /></Field>
@@ -294,11 +316,57 @@ function VenuesCard({ s, venues, canEdit, onSaved }) {
                   {row.cutoff_time && <TimeSelect value={row.cutoff_time} disabled={!canEdit} onChange={t => set(v.id, 'cutoff_time', t)} label="Cutoff time" />}
                 </div>
               </Field>
+              <Field group label="Days from order to delivery">
+                <div className="flex gap-2 flex-wrap items-center">
+                  <Segmented value={row.lead_days != null ? 'own' : 'same'} disabled={!canEdit}
+                    onChange={m => set(v.id, 'lead_days', m === 'own' ? (s.lead_days ?? 1) : null)}
+                    options={[{ value: 'same', label: `Same (${noticeText(s.lead_days)})` }, { value: 'own', label: 'Own' }]} />
+                  {row.lead_days != null && (
+                    <NumInput value={row.lead_days} disabled={!canEdit} className="w-20" aria-label={`Days from order to delivery at ${v.name}`}
+                      onChange={n => set(v.id, 'lead_days', Math.min(30, Math.max(0, Math.round(n ?? 0))))} />
+                  )}
+                </div>
+              </Field>
+              <div className="grid sm:grid-cols-2 gap-3">
+                <Field label="Delivery phone" hint="The number the driver rings. Empty: the venue's own">
+                  <input type="tel" inputMode="tel" className={inputCls} value={row.delivery_phone} disabled={!canEdit} maxLength={60}
+                    data-testid="supplier-venue-phone" onChange={e => set(v.id, 'delivery_phone', e.target.value)} />
+                </Field>
+                <Field group label="Delivery slot" hint="When drivers may come. Any = no limit">
+                  <div className="flex gap-2 items-center">
+                    <OptionalTime value={row.slot_from} disabled={!canEdit} label={`Deliveries from, at ${v.name}`} onChange={t => set(v.id, 'slot_from', t)} />
+                    <span className="text-sm text-muted-foreground">to</span>
+                    <OptionalTime value={row.slot_to} disabled={!canEdit} label={`Deliveries until, at ${v.name}`} onChange={t => set(v.id, 'slot_to', t)} />
+                  </div>
+                </Field>
+              </div>
+              {badSlot?.id === v.id && <p className="text-xs text-red-700" data-testid="supplier-venue-slot-problem">The slot must end after it starts.</p>}
+              <Field label="Driver instructions" hint="Start the note on this venue's orders (it can be changed when ordering) and print on them">
+                <textarea rows={2} className={cn(inputCls, 'h-auto py-2')} value={row.driver_instructions} disabled={!canEdit} maxLength={1000}
+                  data-testid="supplier-venue-instructions" placeholder="e.g. Back door on Mill Lane, ring the bell"
+                  onChange={e => set(v.id, 'driver_instructions', e.target.value)} />
+              </Field>
             </div>
           )
         })}
         <ErrorNote error={save.error} />
       </div>
     </Card>
+  )
+}
+
+const noticeText = d => (d === 0 ? 'same day' : `${d ?? 1} day${(d ?? 1) === 1 ? '' : 's'}`)
+
+/** A time on the quarter hour, or Any (null). */
+function OptionalTime({ value, onChange, disabled, label }) {
+  const opts = timeOptions(15)
+  const v = value ? hhmm(value) : ''
+  const list = v && !opts.includes(v) ? [v, ...opts] : opts
+  return (
+    <select value={v} disabled={disabled} aria-label={label} onChange={e => onChange(e.target.value || null)}
+      className="h-11 rounded-lg border bg-background px-2 text-sm tabular-nums touch-manipulation disabled:opacity-50">
+      <option value="">Any</option>
+      {list.map(t => <option key={t} value={t}>{t}</option>)}
+    </select>
   )
 }

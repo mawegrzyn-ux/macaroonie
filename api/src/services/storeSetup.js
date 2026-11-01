@@ -718,13 +718,15 @@ const AREAS = {
   // ── Purchasing ──
   async purchasing(s, mode, plan) {
     const pct = plan.purchasing.pars_percent
-    const sv = await copyTable(s, 'supplier_venues', { set: { account_ref: null } })
+    // The template's account numbers, delivery phone and driver instructions
+    // are its own; days, cutoffs, notice and slots carry over.
+    const sv = await copyTable(s, 'supplier_venues', { set: { account_ref: null, delivery_phone: null, driver_instructions: null } })
     const lists = await copyTable(s, 'order_list_venues')
     const pars = await copyTable(s, 'order_list_pars', { set: { par_base: r => Math.max(0, Math.round(Number(r.par_base) * pct) / 100) } })
     const prices = await copyTable(s, 'inv_quote_venue_prices')
     await copyTable(s, 'inv_preferred')
     return [
-      plural(sv.length, 'supplier') + ' with the same delivery days and cutoffs (account numbers left blank)',
+      plural(sv.length, 'supplier') + ' with the same delivery days, cutoffs and slots (account numbers, delivery phones and driver instructions left blank)',
       plural(lists.length, 'order list') + ', ' + plural(pars.length, 'par') + (pct !== 100 ? ' at ' + pct + '%' : ''),
       prices.length ? plural(prices.length, 'price') + ' of its own' : null,
     ].filter(Boolean)

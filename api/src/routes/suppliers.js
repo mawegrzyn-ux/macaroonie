@@ -2,10 +2,12 @@
 //
 // Suppliers for purchasing (migration 153), mounted at /api/suppliers:
 // contact details, how orders reach them (email / print / Excel / PDF),
-// cutoff, lead days, delivery days, minimum order, and per-venue
-// differences (account number, delivery days, cutoff). Setup data:
-// purchasing_setup view to read, manage to change. Every query filters
-// tenant_id itself.
+// cutoff, lead days, delivery days, minimum order, whether marking an order
+// sent needs their order reference (migration 233), and per-venue
+// settings: account number, delivery days, cutoff and days' notice, plus
+// the venue's delivery phone, driver instructions and delivery slot
+// (migration 233). Setup data: purchasing_setup view to read, manage to
+// change. Every query filters tenant_id itself.
 
 import { z }          from 'zod'
 import { withTenant } from '../config/db.js'
@@ -37,16 +39,28 @@ const SupplierBody = z.object({
   delivery_charge:  money.optional(),
   notes:            optText(4000),
   is_active:        z.boolean().optional(),
+  ref_required:     z.boolean().optional(),
 })
 
 const VenuesBody = z.object({
   venues: z.array(z.object({
-    venue_id:      uuid,
-    account_ref:   optText(100),
-    delivery_days: days.nullable().optional(),
-    cutoff_time:   time.optional(),
-  })).max(500),
+    venue_id:            uuid,
+    account_ref:         optText(100),
+    delivery_days:       days.nullable().optional(),
+    cutoff_time:         time.optional(),
+    lead_days:           z.number().int().min(0).max(30).nullable().optional(),
+    delivery_phone:      optText(60),
+    driver_instructions: optText(1000),
+    slot_from:           time.optional(),
+    slot_to:             time.optional(),
+  }).refine(v => !(v.slot_from && v.slot_to) || v.slot_from.slice(0, 5) < v.slot_to.slice(0, 5),
+    { message: 'The delivery slot must end after it starts', path: ['slot_to'] })).max(500),
 })
+
+// The per-venue columns, as read back.
+const VENUE_COLS = tx => tx`
+  sv.account_ref, sv.delivery_days, sv.cutoff_time::text AS cutoff_time, sv.lead_days,
+  sv.delivery_phone, sv.driver_instructions, sv.slot_from::text AS slot_from, sv.slot_to::text AS slot_to`
 
 const canView   = requirePermission('purchasing_setup', 'view')
 const canManage = requirePermission('purchasing_setup', 'manage')
@@ -55,7 +69,7 @@ const SUPPLIER_COLS = tx => tx`
   s.id, s.name, s.contact_name, s.phone, s.email, s.cc_emails, s.website, s.account_ref,
   s.send_method, s.email_attachment, s.cutoff_time::text AS cutoff_time, s.lead_days, s.delivery_days,
   s.min_order::float8 AS min_order, s.delivery_charge::float8 AS delivery_charge, s.notes, s.is_active,
-  s.created_at, s.updated_at`
+  s.ref_required, s.created_at, s.updated_at`
 
 async function loadSupplier(tx, tenantId, id) {
   const [s] = await tx`
@@ -65,7 +79,7 @@ async function loadSupplier(tx, tenantId, id) {
   `
   if (!s) throw httpError(404, 'Supplier not found')
   s.venues = await tx`
-    SELECT sv.venue_id, v.name AS venue_name, sv.account_ref, sv.delivery_days, sv.cutoff_time::text AS cutoff_time
+    SELECT sv.venue_id, v.name AS venue_name, ${VENUE_COLS(tx)}
       FROM supplier_venues sv JOIN venues v ON v.id = sv.venue_id AND v.tenant_id = ${tenantId}
      WHERE sv.supplier_id = ${id} AND sv.tenant_id = ${tenantId}
      ORDER BY v.name
@@ -96,7 +110,10 @@ export default async function supplierRoutes(app) {
            (SELECT count(*)::int FROM inv_quotes q WHERE q.supplier_id = s.id AND q.tenant_id = ${req.tenantId}) AS quote_count,
            (SELECT count(*)::int FROM purchase_orders po WHERE po.supplier_id = s.id AND po.tenant_id = ${req.tenantId}) AS po_count,
            COALESCE((SELECT jsonb_agg(jsonb_build_object('venue_id', sv.venue_id, 'account_ref', sv.account_ref,
-                                                         'delivery_days', sv.delivery_days, 'cutoff_time', sv.cutoff_time::text))
+                                                         'delivery_days', sv.delivery_days, 'cutoff_time', sv.cutoff_time::text,
+                                                         'lead_days', sv.lead_days, 'delivery_phone', sv.delivery_phone,
+                                                         'driver_instructions', sv.driver_instructions,
+                                                         'slot_from', sv.slot_from::text, 'slot_to', sv.slot_to::text))
                        FROM supplier_venues sv WHERE sv.supplier_id = s.id AND sv.tenant_id = ${req.tenantId}), '[]'::jsonb) AS venues
       FROM suppliers s
      WHERE s.tenant_id = ${req.tenantId}
@@ -157,12 +174,18 @@ export default async function supplierRoutes(app) {
       }
       await tx`DELETE FROM supplier_venues WHERE supplier_id = ${s.id} AND tenant_id = ${req.tenantId}`
       const rows = venues
-        .filter(v => v.account_ref || v.delivery_days != null || v.cutoff_time)
+        .filter(v => v.account_ref || v.delivery_days != null || v.cutoff_time || v.lead_days != null ||
+          v.delivery_phone || v.driver_instructions || v.slot_from || v.slot_to)
         .map(v => ({
           supplier_id: s.id, venue_id: v.venue_id, tenant_id: req.tenantId,
           account_ref: v.account_ref ?? null,
           delivery_days: v.delivery_days == null ? null : [...new Set(v.delivery_days)].sort(),
           cutoff_time: v.cutoff_time ?? null,
+          lead_days: v.lead_days ?? null,
+          delivery_phone: v.delivery_phone ?? null,
+          driver_instructions: v.driver_instructions ?? null,
+          slot_from: v.slot_from ?? null,
+          slot_to: v.slot_to ?? null,
         }))
       if (rows.length) await tx`INSERT INTO supplier_venues ${tx(rows)}`
       return loadSupplier(tx, req.tenantId, s.id)

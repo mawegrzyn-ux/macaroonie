@@ -67,6 +67,10 @@ const PARTS = [
     const p = await tool('purchase_orders').run(ctx, { venue_id: v.id, status: 'open', from: date, to: date })
     return { purchase_orders: p.purchase_orders.slice(0, 15) }
   }],
+  ['orders_running_late', async (ctx, v) => {
+    const p = await tool('purchase_orders').run(ctx, { venue_id: v.id, late: true })
+    return { late: p.purchase_orders.length, ...(p.purchase_orders.length ? { purchase_orders: p.purchase_orders.slice(0, 10) } : {}) }
+  }],
   ['orders_to_approve', async (ctx, v) => {
     const r = await tool('order_requests').run(ctx, { venue_id: v.id })
     return {

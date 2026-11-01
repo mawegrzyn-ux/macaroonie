@@ -220,7 +220,12 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx', loy
     await step('venue price', () => put(`/api/inventory/quotes/${quote.id}/venue-prices`, { prices: [{ venue_id: V, price: 11 }] }))
     await step('preferred quote', () => put(`/api/inventory/items/${item.id}/preferred`, { venue_id: V, quote_id: quote.id }))
   }
-  if (supplier) await step('supplier venue', () => put(`/api/suppliers/${supplier.id}/venues`, { venues: [{ venue_id: V, account_ref: mark + '-123' }] }))
+  // The venue's delivery details (migration 233): lead days as the
+  // supplier's own (1), so no delivery day moves.
+  if (supplier) await step('supplier venue', () => put(`/api/suppliers/${supplier.id}/venues`, { venues: [{
+    venue_id: V, account_ref: mark + '-123', lead_days: 1, delivery_phone: '07700 900' + slug.length,
+    driver_instructions: mark + ' back door', slot_from: '07:00', slot_to: '11:00',
+  }] }))
   // A second product from the supplier, added to a purchase order below.
   const oil = supplier ? await step('second inventory item', () => post('/api/inventory/items', { name: mark + ' Oil', base_unit: 'ml', storage: 'ambient' })) : null
   const oilQuote = oil ? (await step('second quote', () => post(`/api/inventory/items/${oil.id}/quotes`, { supplier_id: supplier.id, pack_name: 'Tin', pack_qty: 5, pack_unit: 'l', price: 9 })))?.quotes?.[0] : null

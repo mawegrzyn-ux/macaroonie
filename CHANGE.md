@@ -5,6 +5,19 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-11-01 — Purchasing: delivery details per venue, one order per supplier and day, the supplier's reference]
+
+Migration: `233_purchasing_delivery_and_sent.sql` (a supplier's per-venue settings gain days' notice, a delivery phone, driver instructions and a delivery slot; suppliers can need their own order reference when an order is marked sent; purchase orders keep that reference; a restaurant order remembers purchase orders it was added to; Website as a way an order was sent).
+
+- **Delivery details per venue.** Suppliers → a venue's row: its own days' notice (or the supplier's), the phone the driver rings, a delivery slot (e.g. 07:00-11:00) and driver instructions. The slot and phone show on the order form, Place order and the purchase order, and print on the PDF, Excel, printout and email. Each new order's note to the supplier starts as the driver instructions (change or clear it as you like).
+- **Copy for checkout.** On a purchase order: the account number, delivery address, day and slot, phone, instructions and our order number in one block with a Copy button, to paste into a supplier's own website or app. Mark as sent then takes **Website**.
+- **One order per supplier and day.** Placing an order when the venue already has one going to that supplier for the same delivery day asks first: **Add to it** (the lines go onto the order not sent yet, topping up a product already on it) or **Separate order**. Pepper asks the same question.
+- **The supplier's reference.** Mark as sent takes the supplier's own order number (S043172591) and, if it went earlier, when (up to 14 days back). A supplier can be set to need the reference every time. The reference can be added or corrected later on the purchase order, prints as Your ref, and the Deliveries tab finds an order by it (or by our PO number).
+- **Late orders flagged.** Today and the Deliveries tab flag orders still to send once the supplier's order deadline for their day has passed, and orders sent but not booked in after their delivery day. Pepper lists them (purchase orders running late) and the day briefing includes them.
+- **New locations** copy their supplier days, cutoffs, notice and slots from the location they are like, but not account numbers, delivery phones or driver instructions.
+
+---
+
 ## [2026-11-01 — Purchasing: lines stay on their price, delivery days checked, minimums and steps on every change]
 
 Migration: `232_pin_open_order_lines.sql` (every line with a quantity on an order being filled in or waiting for approval gets the price it was showing: the venue's usual one, else the company's, else the cheapest).

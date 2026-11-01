@@ -60,9 +60,9 @@ import {
   packBaseQty, packLabel, fmtNum, formatBase, perUnitLabel, unitPrice, quotePrice, chooseQuote,
   fitQty, qtyProblem, packsToPar, lineAmounts, orderTotals, supplierForVenue, nextDeliveryDate,
   minutesToCutoff, deliveryTempOk, receiveStatusFor, poNumberLabel, convertQty, splitProblem,
-  deliveryDayProblem, deadlineText,
+  deliveryDayProblem, deadlineText, slotText, deadlinePassed,
 } from '../../../../shared/procurement.js'
-import { DateStr, TimeStr, localParts, longDate, pickByName } from './util.js'
+import { DateStr, TimeStr, localParts, longDate, pickByName, zonedInstant } from './util.js'
 
 const Id = z.string().uuid()
 const PackUnit = z.enum(Object.keys(UNITS))
@@ -525,16 +525,21 @@ async function findOrderItem(ctx, venue, order, text) {
 async function supplierInfo(ctx, venue, ids) {
   if (!ids.length) return {}
   const rows = await withTenant(ctx.tenantId, tx => tx`
-    SELECT s.id, s.name, s.email, s.cc_emails, s.send_method, s.email_attachment,
+    SELECT s.id, s.name, s.email, s.cc_emails, s.send_method, s.email_attachment, s.ref_required,
            s.min_order::float8 AS min_order, s.cutoff_time::text AS cutoff_time, s.lead_days, s.delivery_days,
-           s.account_ref, sv.account_ref AS v_account, sv.delivery_days AS v_days, sv.cutoff_time::text AS v_cutoff
+           s.account_ref, sv.account_ref AS v_account, sv.delivery_days AS v_days, sv.cutoff_time::text AS v_cutoff,
+           sv.lead_days AS v_lead, sv.delivery_phone AS v_phone, sv.driver_instructions AS v_instructions,
+           sv.slot_from::text AS v_from, sv.slot_to::text AS v_to
       FROM suppliers s
       LEFT JOIN supplier_venues sv ON sv.supplier_id = s.id AND sv.venue_id = ${venue.id} AND sv.tenant_id = ${ctx.tenantId}
      WHERE s.tenant_id = ${ctx.tenantId} AND s.id = ANY(${ids}::uuid[])
   `)
   const now = localParts(new Date(), venue.timezone)
   return Object.fromEntries(rows.map(s => {
-    const eff = supplierForVenue(s, { account_ref: s.v_account, delivery_days: s.v_days, cutoff_time: s.v_cutoff })
+    const eff = supplierForVenue(s, {
+      account_ref: s.v_account, delivery_days: s.v_days, cutoff_time: s.v_cutoff, lead_days: s.v_lead,
+      delivery_phone: s.v_phone, driver_instructions: s.v_instructions, slot_from: s.v_from, slot_to: s.v_to,
+    })
     return [s.id, { ...s, ...eff, next_delivery: nextDeliveryDate(eff, now), minutes_to_cutoff: minutesToCutoff(eff.cutoff_time, now) }]
   }))
 }
@@ -633,15 +638,26 @@ function orderView(order, venue, sup, onlyQty) {
           .map(q => q.supplier_name + ', ' + q.pack_label + (order.show_prices ? ' ' + money(q.price, cur) : '')),
       } : {}),
     })),
-    suppliers: Object.values(sup).map(s => ({
-      supplier: s.name,
-      next_delivery: longDate(s.next_delivery),
-      for_it: deadlineText(s, s.next_delivery, localParts(new Date(), venue.timezone)),
-      orders_go_by: sendText(s),
-      ...(order.show_prices && s.min_order ? { minimum_order: money(s.min_order, cur) } : {}),
-    })),
+    suppliers: Object.values(sup).map(s => {
+      const open = (order.open_pos || []).filter(p => p.supplier_id === s.id)
+      return {
+        supplier: s.name,
+        next_delivery: longDate(s.next_delivery),
+        for_it: deadlineText(s, s.next_delivery, localParts(new Date(), venue.timezone)),
+        orders_go_by: sendText(s),
+        ...(slotText(s) ? { delivery_time: slotText(s) } : {}),
+        ...(s.delivery_phone ? { delivery_phone: s.delivery_phone } : {}),
+        ...(s.driver_instructions ? { driver_instructions: s.driver_instructions + ' (goes on the order as its note unless another is given)' } : {}),
+        ...(s.ref_required ? { needs_their_reference: 'marking an order sent needs ' + s.name + '\'s own order reference' } : {}),
+        ...(open.length ? { open_orders: open.map(openText) } : {}),
+        ...(order.show_prices && s.min_order ? { minimum_order: money(s.min_order, cur) } : {}),
+      }
+    }),
   }
 }
+
+/** "PO-00012 for Tue 3 Nov (not sent yet)" */
+const openText = p => poNumberLabel(p.number) + ' for ' + longDate(p.delivery_date) + (p.status === 'to_send' ? ' (not sent yet)' : ' (sent)')
 
 const OrderTarget = {
   venue_id:     Id.optional().describe('Needed unless order_id is given'),
@@ -751,9 +767,19 @@ function orderGroups(plan, deliveries = []) {
     const totals = order.show_prices
       ? orderTotals(gl.map(e => ({ price: e.quote.price, qty: e.fitted, vat_rate: e.quote.vat_rate })))
       : null
+    // The note: given here, else the one asked for (even if cleared), else
+    // the venue's driver instructions for the supplier (as the API does).
+    const askedOpt = asked[id] || {}
+    const notes = d && d.notes !== undefined ? (d.notes || null)
+      : Object.prototype.hasOwnProperty.call(askedOpt, 'notes') ? askedOpt.notes : s.driver_instructions ?? null
+    // An open purchase order from the supplier for that day: placing asks
+    // first (existing_order), as the Purchasing page does.
+    const open = (order.open_pos || []).filter(x => x.supplier_id === id && x.delivery_date === date)
+      .sort((a, b) => (a.status === 'to_send' ? 0 : 1) - (b.status === 'to_send' ? 0 : 1) || a.number - b.number)[0] || null
+    const existing = d?.existing_order === 'add_to_it' ? 'add' : d?.existing_order === 'separate' ? 'separate' : null
     return {
       id, s, date, override: !!(d?.date || wanted), given: !!d?.date, wanted, problem, agreed: !!d?.agreed_with_supplier, now,
-      notes: d?.notes ?? asked[id]?.notes ?? null, lines: gl, totals, cur: venue.currency,
+      notes, open, existing, lines: gl, totals, cur: venue.currency,
     }
   })
 }
@@ -778,6 +804,33 @@ async function findPo(ctx, text) {
   return callApi(ctx, 'GET', '/api/purchasing/pos/' + row.id)
 }
 
+/**
+ * Purchase orders running late, as Today flags them: still to send once the
+ * supplier's order deadline for their day has passed (deadlinePassed(), the
+ * venue's time), or sent but not booked in after their delivery day. q: the
+ * purchase_orders filters (status is set here).
+ */
+async function lateOrders(ctx, q) {
+  const venues = await tenantVenues(ctx)
+  const byId = new Map(venues.map(v => [v.id, v]))
+  const ask = status => { const x = new URLSearchParams(q); x.set('status', status); return callApi(ctx, 'GET', '/api/purchasing/pos?' + x) }
+  const [toSend, sent] = await Promise.all([ask('to_send'), ask('sent')])
+  const out = []
+  for (const p of toSend) {
+    const v = byId.get(p.venue_id)
+    const now = localParts(new Date(), v?.timezone)
+    if (p.delivery_date && deadlinePassed(p, p.delivery_date, now)) {
+      out.push({ ...poRow(p, v?.currency), late: p.delivery_date < now.date ? 'still to send, its delivery day has passed' : 'still to send, past the order deadline' })
+    }
+  }
+  for (const p of sent) {
+    const v = byId.get(p.venue_id)
+    const now = localParts(new Date(), v?.timezone)
+    if (p.delivery_date && p.delivery_date < now.date) out.push({ ...poRow(p, v?.currency), late: 'sent, not booked in since ' + longDate(p.delivery_date) })
+  }
+  return out
+}
+
 function poRow(p, cur) {
   return {
     po: poNumberLabel(p.number),
@@ -791,6 +844,7 @@ function poRow(p, cur) {
     ...(p.status === 'to_send' ? { to_send: p.send_method === 'email' ? (p.has_email === false ? 'by email, but the supplier has no email address' : 'by email') : p.send_method } : {}),
     ...(p.send_error ? { send_error: p.send_error } : {}),
     ...(p.sent_at ? { sent: (p.sent_via || 'sent') + (p.sent_to ? ' to ' + p.sent_to : '') } : {}),
+    ...(p.supplier_ref ? { supplier_ref: p.supplier_ref } : {}),
     ...(p.received_at ? { delivery_check: p.delivery_accepted === false ? 'rejected' : 'accepted' } : {}),
   }
 }
@@ -802,6 +856,8 @@ function poDetailView(d, cur) {
     ...(d.supplier_email ? { supplier_email: d.supplier_email } : {}),
     ...(d.supplier_phone ? { supplier_phone: d.supplier_phone } : {}),
     ...(d.account_ref ? { account: d.account_ref } : {}),
+    ...(slotText(d) ? { delivery_time: slotText(d) } : {}),
+    ...(d.delivery_phone ? { delivery_phone: d.delivery_phone } : {}),
     ...(d.notes ? { notes: d.notes } : {}),
     ...(d.created_by ? { ordered_by: d.created_by } : {}),
     lines: d.lines.map(l => ({
@@ -1022,9 +1078,14 @@ export const purchasingTools = [
     description:
       'Purchase orders (one per supplier per order placed): status To send / Sent / Received / Cancelled, delivery ' +
       'date, totals (with Purchasing setup), send errors and the delivery check. Filter by venue, status ("open" = ' +
-      'to send or sent), supplier or delivery dates. Give po (e.g. PO-00012) for one in full with its lines.',
+      'to send or sent), supplier or delivery dates; supplier_ref finds one by the supplier\'s own order reference ' +
+      '(or part of it); late lists only the ones running late (still to send after the supplier\'s order deadline ' +
+      'for their day, or sent but not booked in after their delivery day). Give po (e.g. PO-00012) for one in full ' +
+      'with its lines.',
     input: z.object({
       po:       z.string().max(60).optional(),
+      supplier_ref: z.string().trim().min(2).max(100).optional(),
+      late:     z.boolean().optional(),
       venue_id: Id.optional(),
       status:   z.enum(['open', 'to_send', 'sent', 'received', 'cancelled']).optional(),
       supplier: z.string().max(200).optional(),
@@ -1043,10 +1104,12 @@ export const purchasingTools = [
       if (input.status) q.set('status', input.status === 'open' ? 'to_send,sent' : input.status)
       if (input.from) q.set('from', input.from)
       if (input.to) q.set('to', input.to)
+      if (input.supplier_ref) q.set('q', input.supplier_ref)
       if (input.supplier) {
         const sups = await withTenant(ctx.tenantId, tx => tx`SELECT id, name FROM suppliers WHERE tenant_id = ${ctx.tenantId} ORDER BY name`)
         q.set('supplier_id', pickSupplier(sups, input.supplier).id)
       }
+      if (input.late) return { purchase_orders: await lateOrders(ctx, q) }
       const [rows, venues] = await Promise.all([callApi(ctx, 'GET', '/api/purchasing/pos?' + q), tenantVenues(ctx)])
       const curOf = new Map(venues.map(v => [v.id, v.currency]))
       return { purchase_orders: rows.map(p => poRow(p, curOf.get(p.venue_id))) }
@@ -1591,7 +1654,9 @@ export const purchasingTools = [
       'lines / fill_to_par, as update_order): it is split into one purchase order per supplier, each for the day a ' +
       'request asked for, else that supplier\'s next delivery day, unless deliveries gives a date. Suppliers that ' +
       'take email are emailed straight away; the rest wait in To send. Quantities are rounded up to each supplier\'s ' +
-      'minimum and steps. Needs Purchasing approval: without it, use request_order.',
+      'minimum and steps. A supplier\'s note defaults to the venue\'s driver instructions for them. When the venue ' +
+      'already has an open purchase order from a supplier for that day, ask the person whether to add to it or place ' +
+      'a separate order (deliveries[].existing_order). Needs Purchasing approval: without it, use request_order.',
     input: z.object({
       ...OrderTarget,
       lines:       z.array(OrderLine).max(300).optional(),
@@ -1602,6 +1667,9 @@ export const purchasingTools = [
         notes:    z.string().max(2000).optional().describe('Note printed on this supplier\'s order'),
         agreed_with_supplier: z.boolean().optional().describe('The supplier agreed to this day although they don\'t ' +
           'deliver on it or its order cutoff has passed. Only when the person says so.'),
+        existing_order: z.enum(['add_to_it', 'separate']).optional().describe('When the venue already has an open ' +
+          'purchase order from this supplier for that day: add these lines to it (only one not sent yet), or place a ' +
+          'separate order. Only as the person says.'),
       })).max(30).optional(),
       planned_delivery: z.record(z.string().uuid(), DateStr).optional().describe('Filled in by the confirm card: leave it out'),
     }),
@@ -1619,8 +1687,11 @@ export const purchasingTools = [
         (p.order.status === 'requested' ? ', asked for by ' + (p.order.requested_by || 'someone') : '')]
       const warnings = []
       for (const g of groups) {
-        lines.push(g.s.name + ': delivery ' + longDate(g.date) + (g.wanted && !g.given ? ' (as asked)' : '') + ', ' + sentHow(g.s) +
+        lines.push(g.s.name + ': delivery ' + longDate(g.date) + (slotText(g.s) ? ', ' + slotText(g.s) : '') +
+          (g.wanted && !g.given ? ' (as asked)' : '') + ', ' +
+          (g.open && g.existing === 'add' ? 'added to ' + poNumberLabel(g.open.number) + ' (not sent yet)' : sentHow(g.s)) +
           (prices ? ', ' + money(g.totals.subtotal, cur) + ' ex VAT' : ''))
+        if (g.open && g.existing === 'separate') lines.push('  A separate order beside ' + openText(g.open))
         for (const e of g.lines) lines.push('  ' + fmtNum(e.fitted) + ' x ' + e.item.name + ' (' + e.quote.pack_label + ')')
         if (g.notes) lines.push('  Note: ' + g.notes)
         for (const e of g.lines) {
@@ -1661,11 +1732,13 @@ export const purchasingTools = [
         const suppliers = {}
         for (const g of groups) {
           const agreed = !!(g.problem && g.agreed)
-          if (g.override || g.notes || agreed) {
-            suppliers[g.id] = { ...(g.override ? { delivery_date: g.date } : {}), ...(g.notes ? { notes: g.notes } : {}), ...(agreed ? { agreed } : {}) }
+          suppliers[g.id] = {
+            ...(g.override ? { delivery_date: g.date } : {}), notes: g.notes ?? null,
+            ...(agreed ? { agreed } : {}), ...(g.existing ? { existing: g.existing } : {}),
           }
         }
         const res = await callApi(ctx, 'POST', '/api/purchasing/orders/' + p.order.id + '/submit', { body: { suppliers } })
+        const addedTo = new Set(res.added_to || [])
         const byId = new Map(res.results.map(r => [r.id, r]))
         return {
           order_id: res.order_id,
@@ -1673,6 +1746,7 @@ export const purchasingTools = [
             const r = byId.get(po.id) || {}
             return {
               po: poNumberLabel(po.number), po_id: po.id, supplier: po.supplier_name, delivery: longDate(po.delivery_date),
+              ...(addedTo.has(po.id) ? { added_to_it: true } : {}),
               ...(po.total !== undefined ? { total: money(po.total, p.venue.currency) } : {}),
               sent: r.emailed ? 'emailed' : r.error ? 'not sent: ' + r.error : 'waiting in To send (' + po.send_method + ')',
             }
@@ -1882,16 +1956,23 @@ export const purchasingTools = [
     title: 'Send a purchase order',
     description:
       'how: email sends the purchase order to the supplier now (again, if it was already sent); printed, pdf, excel, ' +
-      'phone or other marks it as already sent that way (it must be waiting in To send).',
+      'phone, website (put in on the supplier\'s own website or app) or other marks it as already sent that way (it must ' +
+      'be waiting in To send). supplier_ref is the ' +
+      'supplier\'s own order reference from their confirmation (needed when marking sent for suppliers set to need ' +
+      'it). sent_on / sent_time: when it went, if earlier than now (the last 14 days, venue time).',
     input: z.object({
-      po:  z.string().min(1).max(60).describe('Number, e.g. PO-00012'),
-      how: z.enum(['email', 'printed', 'pdf', 'excel', 'phone', 'other']),
+      po:           z.string().min(1).max(60).describe('Number, e.g. PO-00012'),
+      how:          z.enum(['email', 'printed', 'pdf', 'excel', 'phone', 'website', 'other']),
+      supplier_ref: z.string().trim().min(1).max(100).optional().describe('The supplier\'s order reference, e.g. S043172591'),
+      sent_on:      DateStr.optional().describe('The day it went, when not today'),
+      sent_time:    TimeStr.optional().describe('The time it went'),
     }),
     confirm: true,
     async describe(ctx, input) {
       await requireOrderOrApprove(ctx)
       const d = await sendCheck(ctx, input)
       const cur = await poCurrency(ctx, d)
+      const when = await sentWhen(ctx, d, input)
       return {
         title: input.how === 'email' ? 'Email ' + poNumberLabel(d.number) + ' to ' + d.supplier_name + '?' : 'Mark ' + poNumberLabel(d.number) + ' as sent?',
         lines: [
@@ -1900,7 +1981,9 @@ export const purchasingTools = [
           input.how === 'email'
             ? 'To ' + d.supplier_email + (d.cc_emails ? ', copy to ' + d.cc_emails : '') +
               (d.email_attachment === 'pdf' ? ', PDF attached' : d.email_attachment === 'excel' ? ', Excel file attached' : '')
-            : 'Sent ' + ({ printed: 'as a printout', pdf: 'as a PDF', excel: 'as an Excel file', phone: 'by phone', other: 'another way' })[input.how],
+            : 'Sent ' + ({ printed: 'as a printout', pdf: 'as a PDF', excel: 'as an Excel file', phone: 'by phone', website: 'on their website or app', other: 'another way' })[input.how] +
+              (when ? ', ' + when.text : ''),
+          ...(input.supplier_ref ? [d.supplier_name + '\'s reference: ' + input.supplier_ref] : []),
         ],
         ...(d.status === 'sent' ? { warningTitle: 'Already sent', warnings: ['It went ' + (d.sent_via || '') + ' already: the supplier gets it again.'] } : {}),
         confirmLabel: input.how === 'email' ? 'Send email' : 'Mark sent',
@@ -1909,11 +1992,24 @@ export const purchasingTools = [
     async run(ctx, input) {
       await requireOrderOrApprove(ctx)
       const d = await sendCheck(ctx, input)
+      const when = await sentWhen(ctx, d, input)
       return audited(ctx, 'send_purchase_order', input, async () => {
-        const res = input.how === 'email'
-          ? await callApi(ctx, 'POST', '/api/purchasing/pos/' + d.id + '/send')
-          : await callApi(ctx, 'POST', '/api/purchasing/pos/' + d.id + '/mark-sent', { body: { via: input.how === 'printed' ? 'print' : input.how } })
-        return { po: poNumberLabel(res.number), status: PO_STATUSES[res.status], message: input.how === 'email' ? 'Emailed to ' + d.supplier_email + '.' : 'Marked as sent.' }
+        let res
+        if (input.how === 'email') {
+          res = await callApi(ctx, 'POST', '/api/purchasing/pos/' + d.id + '/send')
+          if (input.supplier_ref) res = await callApi(ctx, 'PATCH', '/api/purchasing/pos/' + d.id, { body: { supplier_ref: input.supplier_ref } })
+        } else {
+          res = await callApi(ctx, 'POST', '/api/purchasing/pos/' + d.id + '/mark-sent', { body: {
+            via: input.how === 'printed' ? 'print' : input.how,
+            ...(input.supplier_ref ? { supplier_ref: input.supplier_ref } : {}),
+            ...(when ? { sent_at: when.iso } : {}),
+          } })
+        }
+        return {
+          po: poNumberLabel(res.number), status: PO_STATUSES[res.status],
+          ...(res.supplier_ref ? { supplier_ref: res.supplier_ref } : {}),
+          message: input.how === 'email' ? 'Emailed to ' + d.supplier_email + '.' : 'Marked as sent.',
+        }
       })
     },
   },
@@ -1924,9 +2020,11 @@ export const purchasingTools = [
     description:
       'Changes a purchase order: delivery_date and notes (until it is received), and while it is waiting in To send ' +
       'the quantities (lines; 0 takes a line off) or more products from the same supplier (add; quantities need ' +
-      'Purchasing approval). To send part of it on another day, use split_order.',
+      'Purchasing approval). supplier_ref sets or corrects the supplier\'s own order reference (any time but once ' +
+      'cancelled; null clears it). To send part of it on another day, use split_order.',
     input: z.object({
       po:            z.string().min(1).max(60),
+      supplier_ref:  z.string().trim().max(100).nullable().optional(),
       delivery_date: DateStr.optional(),
       agreed_with_supplier: z.boolean().optional().describe('The supplier agreed to the new delivery day although they ' +
         'don\'t deliver on it or its order cutoff has passed. Only when the person says so.'),
@@ -1959,7 +2057,9 @@ export const purchasingTools = [
         if (p.lineChanges.length || p.adds.length) {
           await callApi(ctx, 'PUT', '/api/purchasing/pos/' + p.d.id + '/lines', { body: { lines: p.lineChanges, add: p.adds } })
         }
-        return { po: poNumberLabel(p.d.number), message: 'Saved.' + (p.d.status === 'sent' ? ' Let the supplier know.' : '') }
+        // Only a change to what was ordered needs the supplier told.
+        const tell = p.d.status === 'sent' && (Object.keys(p.body).some(k => k !== 'supplier_ref') || p.lineChanges.length || p.adds.length)
+        return { po: poNumberLabel(p.d.number), message: 'Saved.' + (tell ? ' Let the supplier know.' : '') }
       })
     },
   },
@@ -2547,7 +2647,22 @@ function placeChecks(plan, input) {
   const problems = lineWarnings(plan)
   if (problems.length) throw new ToolError(problems.join(' '), 422)
   if (!plan.lines.length) throw new ToolError('Nothing to order yet: no line has a quantity.', 422)
-  return orderGroups(plan, input.deliveries || [])
+  const groups = orderGroups(plan, input.deliveries || [])
+  // The day first (another day may not have an open order), as the API does.
+  for (const g of groups) dayCheck(g.s, g.date, g.now, g.agreed)
+  const ask = groups.filter(g => g.open && !g.existing)
+  if (ask.length) {
+    throw new ToolError(ask.map(g => g.s.name + ' already has ' + openText(g.open)).join('. ') +
+      '. Ask the person whether to add these lines to it (deliveries existing_order add_to_it) or place a separate ' +
+      'order (existing_order separate).', 409)
+  }
+  for (const g of groups) {
+    if (g.open && g.existing === 'add' && g.open.status !== 'to_send') {
+      throw new ToolError(poNumberLabel(g.open.number) + ' has already gone to ' + g.s.name + ', so nothing can be added to it: ' +
+        'place a separate order (existing_order separate).', 422)
+    }
+  }
+  return groups
 }
 
 async function sendCheck(ctx, input) {
@@ -2557,10 +2672,34 @@ async function sendCheck(ctx, input) {
     if (!d.supplier_email) {
       throw new ToolError(d.supplier_name + ' has no order email address. Add it with update_supplier, or send the order another way and mark it sent.', 422)
     }
-  } else if (d.status !== 'to_send') {
-    throw new ToolError(poNumberLabel(d.number) + ' isn\'t waiting to be sent (it is ' + PO_STATUSES[d.status].toLowerCase() + ').', 409)
+    if (input.sent_on || input.sent_time) throw new ToolError('An email goes now: sent_on and sent_time are only for marking it sent.', 422)
+  } else {
+    if (d.status !== 'to_send') {
+      throw new ToolError(poNumberLabel(d.number) + ' isn\'t waiting to be sent (it is ' + PO_STATUSES[d.status].toLowerCase() + ').', 409)
+    }
+    if (d.ref_required && !input.supplier_ref) {
+      throw new ToolError(d.supplier_name + ' needs their own order reference when an order is marked sent: ask for it (it is on their ' +
+        'confirmation) and give it as supplier_ref.', 422)
+    }
   }
   return d
+}
+
+/**
+ * When an order marked sent went, from sent_on / sent_time (venue time):
+ * null for now, else { iso, text }. The API checks the limits too (the last
+ * 14 days, not before the order was made, not later than now).
+ */
+async function sentWhen(ctx, d, input) {
+  if (!input.sent_on && !input.sent_time) return null
+  const venue = await venueOf(ctx, d.venue_id)
+  const now = localParts(new Date(), venue.timezone)
+  const day = input.sent_on || now.date
+  const time = input.sent_time || (day === now.date ? now.time : '12:00')
+  const at = new Date(await zonedInstant(day, time, venue.timezone))
+  if (at.getTime() > Date.now() + 5 * 60_000) throw new ToolError('That time is still to come: give when it actually went.', 422)
+  if (at.getTime() < Date.now() - 14 * 86_400_000) throw new ToolError('An order marked sent can say it went at most 14 days ago.', 422)
+  return { iso: at.toISOString(), text: 'went ' + (day === now.date ? 'today' : longDate(day)) + ' at ' + time }
 }
 
 async function poChangePlan(ctx, input) {
@@ -2570,7 +2709,17 @@ async function poChangePlan(ctx, input) {
   const warnings = []
   const lineChanges = []
   const adds = []
-  if (!['to_send', 'sent'].includes(d.status)) throw new ToolError(poNumberLabel(d.number) + ' is ' + PO_STATUSES[d.status].toLowerCase() + ', so it can\'t be changed.', 409)
+  // The supplier's reference can still be added once it has arrived; the
+  // rest only before.
+  const refOnly = input.supplier_ref !== undefined && input.delivery_date === undefined && input.notes === undefined &&
+    !input.lines?.length && !input.add?.length
+  if (d.status === 'cancelled' || (!refOnly && !['to_send', 'sent'].includes(d.status))) {
+    throw new ToolError(poNumberLabel(d.number) + ' is ' + PO_STATUSES[d.status].toLowerCase() + ', so it can\'t be changed.', 409)
+  }
+  if (input.supplier_ref !== undefined && (input.supplier_ref || null) !== (d.supplier_ref || null)) {
+    body.supplier_ref = input.supplier_ref || null
+    lines.push(d.supplier_name + '\'s reference: ' + show(d.supplier_ref) + ' to ' + show(input.supplier_ref))
+  }
   const venue = await venueOf(ctx, d.venue_id)
   if (input.delivery_date !== undefined && input.delivery_date !== d.delivery_date) {
     const note = dayCheck(d, input.delivery_date, localParts(new Date(), venue.timezone), input.agreed_with_supplier, d.supplier_name)
@@ -2628,7 +2777,7 @@ async function poChangePlan(ctx, input) {
     if (left <= 0) throw new ToolError('That would leave the order empty. Cancel it with cancel_purchase_order instead.', 422)
   }
   if (!lines.length) throw new ToolError('Nothing to change on ' + poNumberLabel(d.number) + '.', 422)
-  if (d.status === 'sent') warnings.push(d.supplier_name + ' already has this order: tell them about the change.')
+  if (d.status === 'sent' && !refOnly) warnings.push(d.supplier_name + ' already has this order: tell them about the change.')
   return { d, body, lines, lineChanges, adds, warnings }
 }
 
