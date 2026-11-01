@@ -402,7 +402,9 @@ async function poList(tx, tenantId, f) {
        ${f.supplyOrderId ? tx`AND (po.supply_order_id = ${f.supplyOrderId} OR po.id = ANY(
            SELECT unnest(o.added_to_po_ids) FROM supply_orders o WHERE o.id = ${f.supplyOrderId} AND o.tenant_id = ${tenantId}))` : tx``}
        ${f.ids ? tx`AND po.id = ANY(${f.ids}::uuid[])` : tx``}
-       ${f.q ? tx`AND (lower(po.supplier_ref) LIKE ${'%' + f.q.toLowerCase() + '%'} OR po.number::text = ${f.q.replace(/^po-?0*/i, '')})` : tx``}
+       ${f.q ? tx`AND (lower(po.supplier_ref) LIKE ${'%' + f.q.toLowerCase() + '%'} OR po.number::text = ${f.q.replace(/^po-?0*/i, '')}
+           OR EXISTS (SELECT 1 FROM purchase_order_lines l2 WHERE l2.po_id = po.id AND l2.tenant_id = ${tenantId}
+                       AND lower(l2.supplier_code) = ${f.q.toLowerCase()}))` : tx``}
      ${f.asc ? tx`ORDER BY po.delivery_date, po.number` : tx`ORDER BY po.delivery_date DESC, po.number DESC`}
      LIMIT ${f.limit || 200}
   `
@@ -870,23 +872,42 @@ export default async function purchasingRoutes(app) {
     const prices = await showPrices(req)
     return withTenant(req.tenantId, async tx => {
       const venue = await loadVenue(tx, req.tenantId, req.params.venueId)
+      // The search finds names, our item code (from its start) and the
+      // suppliers' product codes and names; an exact code comes first
+      // (never NULL: DESC would put NULLs before it).
+      const like = '%' + search + '%'
       const items = await tx`
-        SELECT i.id, i.name, i.code, i.base_unit, i.storage, c.name AS category_name
+        SELECT i.id, i.name, i.code, i.base_unit, i.storage, c.name AS category_name,
+               ${search ? tx`(COALESCE(lower(i.code) = lower(${search}), false) OR EXISTS (
+                 SELECT 1 FROM inv_quotes q2 WHERE q2.item_id = i.id AND q2.tenant_id = ${req.tenantId} AND q2.is_active
+                    AND lower(q2.supplier_code) = lower(${search})
+                    ${supplierId ? tx`AND q2.supplier_id = ${supplierId}` : tx``}))` : tx`false`} AS exact
           FROM inv_items i LEFT JOIN inv_categories c ON c.id = i.category_id AND c.tenant_id = ${req.tenantId}
          WHERE i.tenant_id = ${req.tenantId} AND i.is_active
-           ${search ? tx`AND (i.name ILIKE ${'%' + search + '%'} OR i.code ILIKE ${search + '%'})` : tx``}
+           ${search ? tx`AND (i.name ILIKE ${like} OR i.code ILIKE ${search + '%'} OR EXISTS (
+               SELECT 1 FROM inv_quotes q3 WHERE q3.item_id = i.id AND q3.tenant_id = ${req.tenantId} AND q3.is_active
+                  AND (q3.supplier_code ILIKE ${like} OR q3.product_name ILIKE ${like})
+                  ${supplierId ? tx`AND q3.supplier_id = ${supplierId}` : tx``}))` : tx``}
            ${all ? tx`` : tx`AND EXISTS (SELECT 1 FROM inv_quotes q JOIN suppliers s ON s.id = q.supplier_id AND s.tenant_id = ${req.tenantId}
                         WHERE q.item_id = i.id AND q.tenant_id = ${req.tenantId} AND q.is_active AND s.is_active
                           ${supplierId ? tx`AND q.supplier_id = ${supplierId}` : tx``})`}
-         ORDER BY lower(i.name)
+         ORDER BY exact DESC, lower(i.name)
          LIMIT 40
       `
       const { picks, quotes } = await resolveQuotes(tx, req.tenantId, venue.id, items.map(i => i.id))
-      return items.map(i => ({
-        ...i,
-        quote: quoteView(picks.get(i.id)?.quote, venue.id, prices),
-        quotes: (quotes.get(i.id) || []).map(q => quoteView(q, venue.id, prices)),
-      }))
+      const code = search.toLowerCase()
+      return items.map(({ exact, ...i }) => {
+        const qs = quotes.get(i.id) || []
+        // A supplier's code typed in names that product: callers add it on
+        // that price rather than the item's usual one.
+        const named = exact && qs.find(q => (q.supplier_code || '').toLowerCase() === code && (!supplierId || q.supplier_id === supplierId))
+        return {
+          ...i,
+          quote: quoteView(picks.get(i.id)?.quote, venue.id, prices),
+          quotes: qs.map(q => quoteView(q, venue.id, prices)),
+          ...(named ? { matched_quote_id: named.id } : {}),
+        }
+      })
     })
   })
 
@@ -1266,7 +1287,8 @@ export default async function purchasingRoutes(app) {
       venueId: q.venue_id || null, supplierId: q.supplier_id || null, statuses,
       from: /^\d{4}-\d{2}-\d{2}$/.test(q.from || '') ? q.from : null,
       to: /^\d{4}-\d{2}-\d{2}$/.test(q.to || '') ? q.to : null,
-      // A supplier's order reference or our PO number (PO-00012 or 12).
+      // A supplier's order reference, our PO number (PO-00012 or 12) or a
+      // supplier's product code on one of its lines.
       q: String(q.q || '').trim().slice(0, 100) || null,
       // Soonest delivery first (Today's orders to send), else latest first.
       asc: q.order === 'asc',
@@ -1428,9 +1450,10 @@ export default async function purchasingRoutes(app) {
   })
 
   // The PO as a file: pdf, xlsx, or html (for printing). It is the
-  // document the supplier gets, so it always carries the prices.
+  // document the supplier gets, so it always carries the prices. csv is
+  // the supplier's quick order: code, name, qty (no prices).
   app.get('/pos/:id/file', { preHandler: canRead }, async (req, reply) => {
-    const format = ['pdf', 'xlsx', 'html'].includes(req.query.format) ? req.query.format : 'pdf'
+    const format = ['pdf', 'xlsx', 'html', 'csv'].includes(req.query.format) ? req.query.format : 'pdf'
     await withTenant(req.tenantId, tx => ownPo(tx, req.tenantId, req.params.id))
     const f = await poFile(req.tenantId, req.params.id, format)
     reply.header('Content-Type', f.contentType)

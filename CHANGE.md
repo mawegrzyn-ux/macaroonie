@@ -5,6 +5,19 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-11-01 — Purchasing: suppliers' product codes everywhere, the quick order]
+
+No migration.
+
+- **Product codes on every screen.** A supplier price's product code (MEA161) shows in a small box next to the pack on the order form, Add an item, the supplier switch, Place order, splitting, the purchase order, booking a delivery in and the Inventory list and panel.
+- **Search by code.** The order form's search finds items by any supplier's code (whole or part) or the supplier's product name, as well as the name and our own code. In Add an item (and Add items on a purchase order) a supplier's code typed in full offers that supplier's product, even when the item is usually ordered from someone else. The Deliveries search finds an order by a product code on it.
+- **Codes for quick order.** On a purchase order (Codes for quick order) and the order form (Codes): each supplier's product codes with how many packs, ready for the quick order box on their website or app (MEA161:20,POR106:7, on one line or one a line), with Copy and a CSV file (code, name, qty; no prices). Lines without a product code are listed to add by hand.
+- **Pepper** understands suppliers' codes ("order 20 MEA161", "add 2 POR106 to PO-00012", "what is MEA161?"), gives the quick order codes for an order and finds purchase orders by a product code.
+- **Fixed:** changing one venue's supplier settings with Pepper wiped other venues' delivery phone, driver instructions, slot and days' notice. Pepper can now set those, and whether the supplier needs their reference, itself.
+- **Fixed:** in the catalogue search an item whose name only mentioned a code could come before the item with that exact code.
+
+---
+
 ## [2026-11-01 — Purchasing: delivery details per venue, one order per supplier and day, the supplier's reference]
 
 Migration: `233_purchasing_delivery_and_sent.sql` (a supplier's per-venue settings gain days' notice, a delivery phone, driver instructions and a delivery slot; suppliers can need their own order reference when an order is marked sent; purchase orders keep that reference; a restaurant order remembers purchase orders it was added to; Website as a way an order was sent).

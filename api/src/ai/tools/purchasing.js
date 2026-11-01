@@ -60,7 +60,7 @@ import {
   packBaseQty, packLabel, fmtNum, formatBase, perUnitLabel, unitPrice, quotePrice, chooseQuote,
   fitQty, qtyProblem, packsToPar, lineAmounts, orderTotals, supplierForVenue, nextDeliveryDate,
   minutesToCutoff, deliveryTempOk, receiveStatusFor, poNumberLabel, convertQty, splitProblem,
-  deliveryDayProblem, deadlineText, slotText, deadlinePassed,
+  deliveryDayProblem, deadlineText, slotText, deadlinePassed, quickOrder,
 } from '../../../../shared/procurement.js'
 import { DateStr, TimeStr, localParts, longDate, pickByName, zonedInstant } from './util.js'
 
@@ -292,6 +292,7 @@ function supplierSummary(s, cur) {
     delivery_days: daysText(s.delivery_days),
     ...(s.min_order != null ? { minimum_order: money(s.min_order, cur) } : {}),
     ...(s.delivery_charge ? { delivery_charge: money(s.delivery_charge, cur) } : {}),
+    ...(s.ref_required ? { needs_their_reference: 'marking an order sent needs their own order reference' } : {}),
     ...(s.quote_count != null ? { products: s.quote_count } : {}),
     ...(s.po_count != null ? { purchase_orders: s.po_count } : {}),
   }
@@ -313,6 +314,8 @@ const SupplierFields = {
   minimum_order:    z.number().min(0).max(1000000).nullable().optional(),
   delivery_charge:  z.number().min(0).max(1000000).nullable().optional(),
   notes:            z.string().max(4000).nullable().optional(),
+  needs_their_reference: z.boolean().optional().describe('Marking an order sent needs the supplier\'s own order ' +
+    'reference (from their confirmation)'),
 }
 
 function supplierBody(input) {
@@ -321,6 +324,7 @@ function supplierBody(input) {
     account_ref: 'account_ref', send_by: 'send_method', email_attachment: 'email_attachment',
     order_cutoff: 'cutoff_time', lead_days: 'lead_days', minimum_order: 'min_order',
     delivery_charge: 'delivery_charge', notes: 'notes', name: 'name', active: 'is_active',
+    needs_their_reference: 'ref_required',
   }
   const body = {}
   for (const [k, f] of Object.entries(map)) if (input[k] !== undefined) body[f] = input[k]
@@ -333,6 +337,7 @@ const SUPPLIER_LABELS = {
   website: 'Website', account_ref: 'Account number', send_method: 'Orders go by', email_attachment: 'Email attachment',
   cutoff_time: 'Order cutoff', lead_days: 'Lead days', delivery_days: 'Delivery days', min_order: 'Minimum order',
   delivery_charge: 'Delivery charge', notes: 'Notes', is_active: 'Active',
+  ref_required: 'Marking sent needs their reference',
 }
 
 function supplierValue(field, v, cur) {
@@ -340,7 +345,7 @@ function supplierValue(field, v, cur) {
   if (field === 'delivery_days') return daysText(v)
   if (field === 'cutoff_time') return hhmm(v)
   if (field === 'min_order' || field === 'delivery_charge') return money(v, cur)
-  if (field === 'is_active') return v ? 'yes' : 'no'
+  if (field === 'is_active' || field === 'ref_required') return v ? 'yes' : 'no'
   return String(v)
 }
 
@@ -500,8 +505,14 @@ async function openOrder(ctx, venue, input, { create }) {
 /** A line's item: on the order (by code or name), else from the catalogue. */
 async function findOrderItem(ctx, venue, order, text) {
   const raw = String(text ?? '').trim()
-  const byCode = order.items.filter(i => i.code && i.code.toLowerCase() === raw.toLowerCase())
+  const lower = raw.toLowerCase()
+  const byCode = order.items.filter(i => i.code && i.code.toLowerCase() === lower)
   if (byCode.length === 1) return byCode[0]
+  // A supplier's product code names that product: the line is ordered on
+  // it (codeQuote), whichever price the item usually goes on.
+  const bySupplierCode = order.items.flatMap(i => (i.quotes || [])
+    .filter(q => (q.supplier_code || '').toLowerCase() === lower).map(q => ({ i, q })))
+  if (bySupplierCode.length === 1) return { ...bySupplierCode[0].i, codeQuote: bySupplierCode[0].q }
   try {
     return pickByName(order.items, raw, i => i.name, 'item on this order')
   } catch (err) {
@@ -514,10 +525,17 @@ async function findOrderItem(ctx, venue, order, text) {
     if (longest && longest.length >= 3 && longest.toLowerCase() !== raw.toLowerCase()) hits = await search(longest)
   }
   if (!hits.length) throw new ToolError('No product called "' + raw + '" with an active supplier price.', 404)
-  const h = pickByName(hits, raw, x => x.name, 'product')
+  // The catalogue search also finds suppliers' codes: one typed in exactly
+  // names that product.
+  const coded = hits.filter(x => x.matched_quote_id)
+  const h = coded.length === 1 ? coded[0] : pickByName(hits, raw, x => x.name, 'product')
+  const codeQuote = h.matched_quote_id ? h.quotes.find(q => q.id === h.matched_quote_id) : null
+  const onOrder = order.items.find(i => i.item_id === h.id)
+  if (onOrder) return codeQuote ? { ...onOrder, codeQuote } : onOrder
   return {
     id: h.id, item_id: h.id, name: h.name, code: h.code, base_unit: h.base_unit, storage: h.storage,
     category_name: h.category_name ?? null, on_list: false, par_base: null, quote: h.quote, quotes: h.quotes, qty: 0,
+    ...(codeQuote ? { codeQuote } : {}),
   }
 }
 
@@ -627,6 +645,7 @@ function orderView(order, venue, sup, onlyQty) {
       ...(i.is_active === false ? { switched_off: true } : {}),
       supplier: i.quote ? i.quote.supplier_name : i.gone?.quote ? i.gone.quote.supplier_name + ' (no longer offered)' : 'no supplier price',
       ...(i.quote ? { pack: i.quote.pack_label } : i.gone?.quote ? { pack: i.gone.quote.pack_label } : {}),
+      ...(i.quote?.supplier_code ? { supplier_code: i.quote.supplier_code } : {}),
       ...(i.gone ? { problem: goneText(i) } : {}),
       quantity: i.qty,
       ...(i.requested_qty != null && order.status === 'requested' && i.requested_qty !== i.qty ? { asked_for: i.requested_qty } : {}),
@@ -640,6 +659,8 @@ function orderView(order, venue, sup, onlyQty) {
     })),
     suppliers: Object.values(sup).map(s => {
       const open = (order.open_pos || []).filter(p => p.supplier_id === s.id)
+      const quick = quickOrder(order.items.filter(i => i.qty > 0 && i.quote?.supplier_id === s.id)
+        .map(i => ({ code: i.quote.supplier_code, name: i.quote.product_name || i.name, qty: fitQty(i.qty, i.quote) })))
       return {
         supplier: s.name,
         next_delivery: longDate(s.next_delivery),
@@ -650,6 +671,7 @@ function orderView(order, venue, sup, onlyQty) {
         ...(s.driver_instructions ? { driver_instructions: s.driver_instructions + ' (goes on the order as its note unless another is given)' } : {}),
         ...(s.ref_required ? { needs_their_reference: 'marking an order sent needs ' + s.name + '\'s own order reference' } : {}),
         ...(open.length ? { open_orders: open.map(openText) } : {}),
+        ...(quick.text ? { quick_order: quick.text } : {}),
         ...(order.show_prices && s.min_order ? { minimum_order: money(s.min_order, cur) } : {}),
       }
     }),
@@ -667,7 +689,8 @@ const OrderTarget = {
 }
 
 const OrderLine = z.object({
-  item:     z.string().min(1).max(200),
+  item:     z.string().min(1).max(200).describe('Item name, our item code, or a supplier\'s product code (which ' +
+    'orders that supplier\'s product)'),
   quantity: Qty.optional().describe('Packs (cases, bags ...) of the supplier\'s pack; 0 takes it off. Leave it out ' +
     'when changing supplier or pack to keep the same amount in the new packs (3 x 5 kg becomes 2 x 10 kg)'),
   supplier: z.string().max(200).optional().describe('Order it from this supplier instead'),
@@ -705,6 +728,9 @@ async function planOrder(ctx, input) {
     if (l.supplier || l.pack) {
       const q = pickQuote(e.item.name, e.item.quotes || [], l.supplier, l.pack)
       if (q.id !== e.quote?.id) { e.quote = q; e.switched = true; e.from = from }
+    } else if (it.codeQuote && it.codeQuote.id !== e.quote?.id) {
+      // Named by the supplier's code: that product.
+      e.quote = it.codeQuote; e.switched = true; e.from = from
     }
     if (l.quantity !== undefined) e.qty = l.quantity
     else if (e.switched) e.qty = from ? convertQty(e.qty, from, e.quote) : e.qty
@@ -851,6 +877,9 @@ function poRow(p, cur) {
 
 function poDetailView(d, cur) {
   const prices = d.show_prices
+  // For the supplier's quick order on their website or app (quickOrder()).
+  const quick = quickOrder(d.lines.filter(l => !l.added_on_receipt)
+    .map(l => ({ code: l.supplier_code, name: l.product_name || l.item_name, qty: l.qty })))
   return {
     ...poRow(d, cur),
     ...(d.supplier_email ? { supplier_email: d.supplier_email } : {}),
@@ -862,6 +891,7 @@ function poDetailView(d, cur) {
     ...(d.created_by ? { ordered_by: d.created_by } : {}),
     lines: d.lines.map(l => ({
       item: l.item_name,
+      ...(l.supplier_code ? { supplier_code: l.supplier_code } : {}),
       pack: l.pack_label,
       quantity: l.qty,
       storage: l.storage,
@@ -872,6 +902,8 @@ function poDetailView(d, cur) {
         ...(l.receive_note ? { received_note: l.receive_note } : {}),
       } : {}),
     })),
+    ...(quick.text ? { quick_order: quick.text } : {}),
+    ...(quick.text && quick.noCode.length ? { not_in_quick_order: quick.noCode.map(l => fmtNum(l.qty) + ' x ' + l.name + ' (no supplier code)') } : {}),
     ...(prices && d.subtotal !== undefined ? {
       subtotal: money(d.subtotal, cur), vat: money(d.vat, cur),
       ...(d.delivery_charge ? { delivery_charge: money(d.delivery_charge, cur) } : {}),
@@ -904,12 +936,14 @@ export const purchasingTools = [
     name: 'find_inventory_items',
     title: 'Find inventory items',
     description:
-      'Searches the purchasing inventory (the products the company buys) by name or code, category or supplier. ' +
+      'Searches the purchasing inventory (the products the company buys) by name, our code or a supplier\'s ' +
+      'product code (e.g. MEA161), category or supplier. ' +
       'Each item comes with its supplier prices: pack, price ex VAT, price per kg / litre / each, VAT, venue prices and ' +
       'which price is the company or a venue\'s choice. Give venue_id to see which supplier that venue orders it from. ' +
       'history: true adds the recent price changes when up to 5 items match. Needs Purchasing setup.',
     input: z.object({
-      search:      z.string().max(200).optional().describe('Name, code, or words in the name'),
+      search:      z.string().max(200).optional().describe('Name, our item code, a supplier\'s product code, or words ' +
+        'in the name or the supplier\'s product name'),
       category:    z.string().max(100).optional(),
       supplier:    z.string().max(200).optional().describe('Only items this supplier has a price for'),
       venue_id:    Id.optional(),
@@ -931,7 +965,11 @@ export const purchasingTools = [
       let hits = items.filter(i => input.include_off || i.is_active)
       if (input.search) {
         const s = input.search.trim().toLowerCase()
-        hits = hits.filter(i => (i.code || '').toLowerCase() === s || has(i.name + ' ' + (i.code || ''), input.search))
+        // Our code or a supplier's product code, exactly: those first.
+        const exact = i => (i.code || '').toLowerCase() === s || i.quotes.some(q => (q.supplier_code || '').toLowerCase() === s)
+        const words = i => [i.name, i.code, ...i.quotes.flatMap(q => [q.supplier_code, q.product_name])].filter(Boolean).join(' ')
+        hits = hits.filter(i => exact(i) || has(words(i), input.search))
+          .sort((a, b) => Number(exact(b)) - Number(exact(a)))
       }
       if (input.category) hits = hits.filter(i => has(i.category_name, input.category))
       if (input.supplier) hits = hits.filter(i => i.quotes.some(q => has(q.supplier_name, input.supplier)))
@@ -993,6 +1031,10 @@ export const purchasingTools = [
           ...(v.account_ref ? { account: v.account_ref } : {}),
           delivery_days: v.delivery_days == null ? 'as the supplier' : daysText(v.delivery_days),
           ...(v.cutoff_time ? { order_cutoff: hhmm(v.cutoff_time) } : {}),
+          ...(v.lead_days != null ? { days_notice: v.lead_days } : {}),
+          ...(slotText(v) ? { delivery_slot: slotText(v) } : {}),
+          ...(v.delivery_phone ? { delivery_phone: v.delivery_phone } : {}),
+          ...(v.driver_instructions ? { driver_instructions: v.driver_instructions } : {}),
         })),
         products: d.quotes.slice(0, 150).map(q => ({
           item: q.item_name,
@@ -1081,10 +1123,12 @@ export const purchasingTools = [
       'to send or sent), supplier or delivery dates; supplier_ref finds one by the supplier\'s own order reference ' +
       '(or part of it); late lists only the ones running late (still to send after the supplier\'s order deadline ' +
       'for their day, or sent but not booked in after their delivery day). Give po (e.g. PO-00012) for one in full ' +
-      'with its lines.',
+      'with its lines and quick_order: the supplier\'s product codes with quantities ("MEA161:20,POR106:7") to put ' +
+      'into their website or app. product_code finds the orders with that supplier\'s product code on a line.',
     input: z.object({
       po:       z.string().max(60).optional(),
       supplier_ref: z.string().trim().min(2).max(100).optional(),
+      product_code: z.string().trim().min(1).max(100).optional().describe('A supplier\'s product code, e.g. MEA161'),
       late:     z.boolean().optional(),
       venue_id: Id.optional(),
       status:   z.enum(['open', 'to_send', 'sent', 'received', 'cancelled']).optional(),
@@ -1105,6 +1149,7 @@ export const purchasingTools = [
       if (input.from) q.set('from', input.from)
       if (input.to) q.set('to', input.to)
       if (input.supplier_ref) q.set('q', input.supplier_ref)
+      else if (input.product_code) q.set('q', input.product_code)
       if (input.supplier) {
         const sups = await withTenant(ctx.tenantId, tx => tx`SELECT id, name FROM suppliers WHERE tenant_id = ${ctx.tenantId} ORDER BY name`)
         q.set('supplier_id', pickSupplier(sups, input.supplier).id)
@@ -1387,7 +1432,8 @@ export const purchasingTools = [
     title: 'Change a supplier',
     description:
       'Changes a supplier\'s details or ordering settings, or switches it off (active: false). null clears a field. ' +
-      'venue sets one venue\'s own account number, delivery days or cutoff; use_supplier_settings: true removes them.',
+      'venue sets one venue\'s own account number, delivery days, cutoff, days\' notice, delivery phone, driver ' +
+      'instructions or delivery slot (the venue\'s other settings stay); use_supplier_settings: true removes them all.',
     input: z.object({
       supplier: z.string().min(1).max(200),
       name:     z.string().trim().min(1).max(200).optional(),
@@ -1398,6 +1444,12 @@ export const purchasingTools = [
         account_ref:           z.string().max(100).nullable().optional(),
         delivery_days:         DayNames.nullable().optional().describe('null = the supplier\'s usual days'),
         order_cutoff:          TimeStr.nullable().optional(),
+        days_notice:           z.number().int().min(0).max(30).nullable().optional().describe('Days\' notice this venue ' +
+          'needs (null = the supplier\'s lead days)'),
+        delivery_phone:        z.string().max(60).nullable().optional().describe('The number the driver rings at this venue'),
+        driver_instructions:   z.string().max(1000).nullable().optional().describe('How to deliver here; starts the note on each order'),
+        delivery_slot_from:    TimeStr.nullable().optional(),
+        delivery_slot_to:      TimeStr.nullable().optional(),
         use_supplier_settings: z.boolean().optional(),
       }).optional(),
     }),
@@ -2367,6 +2419,15 @@ async function newSupplierPlan(ctx, input) {
   return { body, cur, warnings }
 }
 
+/** One venue's supplier settings as the venues PUT takes them (times as HH:MM). */
+function venueSettings(x) {
+  return {
+    venue_id: x.venue_id, account_ref: x.account_ref ?? null, delivery_days: x.delivery_days ?? null,
+    cutoff_time: hhmm(x.cutoff_time), lead_days: x.lead_days ?? null, delivery_phone: x.delivery_phone ?? null,
+    driver_instructions: x.driver_instructions ?? null, slot_from: hhmm(x.slot_from), slot_to: hhmm(x.slot_to),
+  }
+}
+
 async function supplierChangePlan(ctx, input) {
   const [sups, cur] = await Promise.all([loadSuppliers(ctx), tenantCurrency(ctx)])
   const sup = pickSupplier(sups, input.supplier)
@@ -2390,23 +2451,39 @@ async function supplierChangePlan(ctx, input) {
     const [venue] = (await tenantVenues(ctx)).filter(x => x.id === v.venue_id)
     if (!venue) throw new ToolError('Venue not found. Use list_venues.', 404)
     const detail = await callApi(ctx, 'GET', '/api/suppliers/' + sup.id)
-    const cur0 = detail.venues.find(x => x.venue_id === venue.id) || { venue_id: venue.id, account_ref: null, delivery_days: null, cutoff_time: null }
-    const others = detail.venues.filter(x => x.venue_id !== venue.id)
-      .map(x => ({ venue_id: x.venue_id, account_ref: x.account_ref, delivery_days: x.delivery_days, cutoff_time: hhmm(x.cutoff_time) }))
+    // The route replaces every venue's settings, so each one goes back whole.
+    const cur0 = detail.venues.find(x => x.venue_id === venue.id) || { venue_id: venue.id }
+    const others = detail.venues.filter(x => x.venue_id !== venue.id).map(venueSettings)
     if (v.use_supplier_settings) {
       venues = others
       lines.push(venue.name + ': use the supplier\'s own settings')
     } else {
+      const was = venueSettings(cur0)
+      const pick = (given, key) => (given !== undefined ? given : was[key])
       const next = {
         venue_id: venue.id,
-        account_ref: v.account_ref !== undefined ? v.account_ref : cur0.account_ref,
-        delivery_days: v.delivery_days !== undefined ? parseDays(v.delivery_days) : cur0.delivery_days,
-        cutoff_time: v.order_cutoff !== undefined ? v.order_cutoff : hhmm(cur0.cutoff_time),
+        account_ref: pick(v.account_ref, 'account_ref'),
+        delivery_days: v.delivery_days !== undefined ? (v.delivery_days == null ? null : parseDays(v.delivery_days)) : was.delivery_days,
+        cutoff_time: pick(v.order_cutoff, 'cutoff_time'),
+        lead_days: pick(v.days_notice, 'lead_days'),
+        delivery_phone: pick(v.delivery_phone, 'delivery_phone'),
+        driver_instructions: pick(v.driver_instructions, 'driver_instructions'),
+        slot_from: pick(v.delivery_slot_from, 'slot_from'),
+        slot_to: pick(v.delivery_slot_to, 'slot_to'),
+      }
+      if (next.slot_from && next.slot_to && next.slot_from >= next.slot_to) {
+        throw new ToolError('The delivery slot must end after it starts.', 422)
       }
       venues = [...others, next]
-      lines.push(venue.name + ': account ' + show(next.account_ref) + ', delivery days ' +
-        (next.delivery_days == null ? 'as the supplier' : daysText(next.delivery_days)) +
-        ', cutoff ' + (next.cutoff_time ? hhmm(next.cutoff_time) : 'as the supplier'))
+      lines.push(venue.name + ': ' + [
+        'account ' + show(next.account_ref),
+        'delivery days ' + (next.delivery_days == null ? 'as the supplier' : daysText(next.delivery_days)),
+        'cutoff ' + (next.cutoff_time ? hhmm(next.cutoff_time) : 'as the supplier'),
+        'notice ' + (next.lead_days == null ? 'as the supplier' : next.lead_days + ' day' + (next.lead_days === 1 ? '' : 's')),
+        ...(slotText(next) ? ['delivery ' + slotText(next)] : []),
+        ...(next.delivery_phone ? ['phone ' + next.delivery_phone] : []),
+        ...(next.driver_instructions ? ['driver instructions "' + next.driver_instructions + '"'] : []),
+      ].join(', '))
     }
   }
   if (!lines.length) throw new ToolError('Nothing to change: ' + sup.name + ' already has those details.', 422)
@@ -2560,7 +2637,7 @@ async function splitPlan(ctx, input) {
     const poLines = d.lines.map(l => ({ ...l, name: l.item_name }))
     const moves = []
     for (const m of input.lines) {
-      const line = pickByName(poLines, m.item, x => x.name, 'line on ' + label)
+      const line = pickPoLine(poLines, m.item, 'line on ' + label)
       if (m.quantity > line.qty + 1e-9) throw new ToolError('Only ' + fmtNum(line.qty) + ' of ' + line.item_name + ' are on ' + label + '.', 422)
       moves.push({ line, qty: m.quantity })
     }
@@ -2665,6 +2742,14 @@ function placeChecks(plan, input) {
   return groups
 }
 
+/** A line on a purchase order named by the supplier's product code, else by its item name. */
+function pickPoLine(poLines, text, what) {
+  const code = String(text ?? '').trim().toLowerCase()
+  const byCode = poLines.filter(l => (l.supplier_code || '').toLowerCase() === code)
+  if (code && byCode.length === 1) return byCode[0]
+  return pickByName(poLines, text, x => x.name, what)
+}
+
 async function sendCheck(ctx, input) {
   const d = await findPo(ctx, input.po)
   if (input.how === 'email') {
@@ -2740,7 +2825,7 @@ async function poChangePlan(ctx, input) {
     // add of one of them tops its line up (the route does the same).
     const onOrder = new Map(poLines.filter(l => l.quote_id && !l.added_on_receipt).map(l => [l.quote_id, { qty: l.qty }]))
     for (const l of input.lines || []) {
-      const line = pickByName(poLines, l.item, x => x.name, 'line on ' + poNumberLabel(d.number))
+      const line = pickPoLine(poLines, l.item, 'line on ' + poNumberLabel(d.number))
       if (Math.abs(l.quantity - line.qty) < 1e-9) continue
       // The API rounds up to the supplier's minimum and steps (the line
       // carries the price's own today).
@@ -2757,8 +2842,10 @@ async function poChangePlan(ctx, input) {
       const hits = await callApi(ctx, 'GET', '/api/purchasing/venues/' + venue.id + '/catalog?supplier_id=' + d.supplier_id +
         '&search=' + encodeURIComponent(a.item))
       if (!hits.length) throw new ToolError(d.supplier_name + ' has no price for "' + a.item + '".', 404)
-      const it = pickByName(hits, a.item, h => h.name, 'product from ' + d.supplier_name)
-      const q = pickQuote(it.name, it.quotes.filter(x => x.supplier_id === d.supplier_id), null, a.pack)
+      const coded = hits.filter(h => h.matched_quote_id)
+      const it = coded.length === 1 ? coded[0] : pickByName(hits, a.item, h => h.name, 'product from ' + d.supplier_name)
+      const named = !a.pack && it.matched_quote_id ? it.quotes.find(x => x.id === it.matched_quote_id) : null
+      const q = named || pickQuote(it.name, it.quotes.filter(x => x.supplier_id === d.supplier_id), null, a.pack)
       adds.push({ quote_id: q.id, qty: a.quantity })
       const had = onOrder.get(q.id)
       if (had) {
@@ -2788,7 +2875,7 @@ async function receivePlan(ctx, input) {
   const poLines = d.lines.map(l => ({ ...l, name: l.item_name }))
   const given = new Map()
   for (const l of input.lines || []) {
-    const line = pickByName(poLines, l.item, x => x.name, 'line on ' + poNumberLabel(d.number))
+    const line = pickPoLine(poLines, l.item, 'line on ' + poNumberLabel(d.number))
     given.set(line.id, l)
   }
   const lines = poLines.map(line => {

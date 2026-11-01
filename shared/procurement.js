@@ -347,6 +347,49 @@ export function checkoutText(po, venue) {
 }
 
 /**
+ * A supplier's quick order, for typing or pasting into their website or
+ * app: each product code with the quantity in their packs, "MEA161:20"
+ * entries joined by `sep` (a comma, or "\n" for one a line). The same code
+ * twice is one entry with the sum. Lines without a supplier code can't be
+ * entered by code: they come back in noCode to type in by hand.
+ * lines: [{ code, name, qty }] (qty in packs; 0 or less left out).
+ * Returns { text, coded: [{ code, name, qty }], noCode: [{ name, qty }] }.
+ */
+export function quickOrder(lines, { sep = ',' } = {}) {
+  const byCode = new Map()
+  const noCode = []
+  for (const l of lines || []) {
+    const qty = num(l.qty)
+    if (!(qty > 0)) continue
+    const code = String(l.code ?? '').trim()
+    if (!code) { noCode.push({ name: l.name, qty }); continue }
+    const key = code.toLowerCase()
+    const had = byCode.get(key)
+    if (had) had.qty = round4(had.qty + qty)
+    else byCode.set(key, { code, name: l.name, qty })
+  }
+  const coded = [...byCode.values()]
+  return { text: coded.map(l => `${l.code}:${fmtNum(l.qty)}`).join(sep), coded, noCode }
+}
+
+/** One CSV cell: quoted when needed; a leading = + - @ made harmless for spreadsheets. */
+function csvCell(v) {
+  let t = String(v ?? '')
+  if (/^[=+\-@\t\r]/.test(t)) t = "'" + t
+  return /[",\r\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t
+}
+
+/**
+ * The quick order as a CSV of code, name, qty (a heading row, then one row
+ * per code; lines without a code left out, as in quickOrder()).
+ */
+export function quickOrderCsv(lines) {
+  const { coded } = quickOrder(lines)
+  return [['code', 'name', 'qty'], ...coded.map(l => [l.code, l.name, fmtNum(l.qty)])]
+    .map(r => r.map(csvCell).join(',')).join('\r\n') + '\r\n'
+}
+
+/**
  * The first delivery date an order placed now can make.
  * now = { date: 'YYYY-MM-DD', time: 'HH:MM' } at the venue.
  * Past the cutoff counts as ordering tomorrow; then lead_days; then the next

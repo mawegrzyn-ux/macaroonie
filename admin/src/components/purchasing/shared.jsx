@@ -154,6 +154,20 @@ export function StorageBadge({ storage }) {
   return null
 }
 
+/**
+ * A supplier's product code (MEA161), set apart so it can be read off the
+ * screen into their website or app. Nothing when there is none.
+ */
+export function CodeTag({ code, className }) {
+  if (!code) return null
+  return (
+    <span data-testid="supplier-code"
+      className={cn('inline-block font-mono text-[11px] leading-4 px-1 rounded bg-muted text-foreground/80 align-middle', className)}>
+      {code}
+    </span>
+  )
+}
+
 const PO_COLOURS = {
   to_send: 'bg-amber-100 text-amber-900',
   sent: 'bg-blue-100 text-blue-900',

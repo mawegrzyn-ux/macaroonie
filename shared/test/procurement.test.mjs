@@ -6,12 +6,13 @@
 // never disagree. Step 2 (migration 233): a venue's own days' notice and
 // delivery details (supplierForVenue), the slot in words (slotText), Copy
 // for checkout (checkoutText), and when an order to send is late
-// (deadlinePassed).
+// (deadlinePassed). Step 3: the supplier's quick order (quickOrder,
+// quickOrderCsv).
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   qtyProblem, fitQty, splitProblem, convertQty, nextDeliveryDate, orderDeadline, deadlineText, deliveryDayProblem,
-  dayText, nowAt, addDays, supplierForVenue, slotText, checkoutText, deadlinePassed,
+  dayText, nowAt, addDays, supplierForVenue, slotText, checkoutText, deadlinePassed, quickOrder, quickOrderCsv,
 } from '../procurement.js'
 
 test('qtyProblem keeps its words', () => {
@@ -189,4 +190,40 @@ test('deadlinePassed: from the cutoff minute on the deadline day; the whole day 
     const now = { date: '2026-11-02', time }
     assert.equal(deliveryDayProblem(s, '2026-11-03', now)?.code === 'late', deadlinePassed(s, '2026-11-03', now), time)
   }
+})
+
+test('quickOrder: CODE:QTY per code, the same code once, lines without a code apart', () => {
+  const q = quickOrder([
+    { code: 'MEA161', name: 'Chicken thigh', qty: 20 },
+    { code: ' POR106 ', name: 'Pork belly', qty: 7 },
+    { code: 'mea161', name: 'Chicken thigh (2nd line)', qty: 2.5 },
+    { code: '', name: 'Napkins', qty: 3 },
+    { code: null, name: 'Gloves', qty: 1 },
+    { code: 'ZERO1', name: 'Taken off', qty: 0 },
+    { code: 'NEG1', name: 'Odd', qty: -2 },
+    { code: 'NAN1', name: 'Odd too', qty: 'x' },
+  ])
+  assert.equal(q.text, 'MEA161:22.5,POR106:7', 'merged without regard to case, first spelling kept, trimmed')
+  assert.deepEqual(q.coded.map(l => [l.code, l.name, l.qty]), [['MEA161', 'Chicken thigh', 22.5], ['POR106', 'Pork belly', 7]])
+  assert.deepEqual(q.noCode, [{ name: 'Napkins', qty: 3 }, { name: 'Gloves', qty: 1 }])
+  assert.equal(quickOrder([{ code: 'A1', qty: 1 }, { code: 'B2', qty: 2 }], { sep: '\n' }).text, 'A1:1\nB2:2')
+  assert.equal(quickOrder([]).text, '')
+  assert.equal(quickOrder(null).text, '')
+  // Several small additions stay exact.
+  assert.equal(quickOrder([{ code: 'R', qty: 0.1 }, { code: 'R', qty: 0.2 }]).text, 'R:0.3')
+})
+
+test('quickOrderCsv: a heading, one row per code, safe for spreadsheets', () => {
+  const csv = quickOrderCsv([
+    { code: 'MEA161', name: 'Chicken thigh, boneless', qty: 20 },
+    { code: 'POR106', name: 'The "best" belly', qty: 7 },
+    { code: '=HYPERLINK(1)', name: '@SUM(A1)', qty: 1 },
+    { code: '', name: 'Napkins', qty: 3 },
+    { code: 'mea161', name: 'again', qty: 1 },
+  ])
+  assert.equal(csv, 'code,name,qty\r\n' +
+    'MEA161,"Chicken thigh, boneless",21\r\n' +
+    'POR106,"The ""best"" belly",7\r\n' +
+    "'=HYPERLINK(1),'@SUM(A1),1\r\n")
+  assert.equal(quickOrderCsv([]), 'code,name,qty\r\n', 'just the heading when no line has a code')
 })
