@@ -25,7 +25,7 @@ import { isId } from './ids.js'
 import { permissionProblem, managerProblem, MANAGER_ALWAYS } from './permissions.js'
 import { checkTotals, isActiveLine, lineGross } from './pricing.js'
 import { CHECK_NO_MAX, ORDER_NO_MAX, numberText } from './numbers.js'
-import { chargeProblem, onCheck, switchCharges, CHECK_CHARGES_MAX } from './charges.js'
+import { chargeProblem, chargeMismatch, onCheck, switchCharges, CHECK_CHARGES_MAX } from './charges.js'
 import { discountList, presetMismatch } from './discounts.js'
 import { allergyProblem, cleanAllergy, mergeAllergy } from './allergy.js'
 
@@ -134,7 +134,7 @@ function ratesProblem(lines) {
   return null
 }
 
-// A check's charges as an event carries them (check.opened, check.order_type_set).
+// A check's charges as an event carries them (check.opened, check.order_type_set, check.stream_set).
 function chargesProblem(list) {
   if (list == null) return null
   if (!Array.isArray(list) || list.length > CHECK_CHARGES_MAX) return 'charges'
@@ -185,7 +185,7 @@ export function eventProblem(e) {
       return isUuid(p.server_id) ? null : bad('server_id')
     case 'check.stream_set': {
       if (!isUuid(p.revenue_stream_id)) return bad('revenue_stream_id')
-      const r = ratesProblem(p.lines)
+      const r = ratesProblem(p.lines) || chargesProblem(p.charges)
       return r ? bad(r) : null
     }
     case 'check.order_type_set': {
@@ -410,8 +410,9 @@ const OPEN_ONLY = new Set([
  * Apply one check event.
  *   checks  { [id]: check } with every check in checksTouched(event) that exists
  *   ctx     { staffById, settings } (shared/pos/permissions.js shapes; settings
- *           = the venue's till settings: its approvals switches and its list
- *           of discounts, settings.discounts, shared/pos/discounts.js)
+ *           = the venue's till settings: its approvals switches, its list
+ *           of discounts, settings.discounts, shared/pos/discounts.js, and
+ *           of charges, settings.charges, shared/pos/charges.js)
  * Returns { ok: true, checks: { [id]: check } } with only the checks it
  * changed (new objects; the input is never changed), or { ok: false, error, code }.
  */
@@ -457,6 +458,14 @@ export function applyEvent(checks, e, ctx = {}) {
       l.tax_rate_id = r.tax_rate_id ?? null
     }
   }
+  // The charges a new order type or stream brings (shared/pos/charges.js):
+  // one taken off stays off, also after a round trip; ones added on the till stay.
+  const switchTo = list => {
+    const next = switchCharges(c.charges || [], list || [], c.charges_off)
+    c.charges = next.charges
+    if (Object.keys(next.off).length) c.charges_off = next.off
+    else delete c.charges_off
+  }
 
   switch (e.type) {
     case 'check.covers_set':
@@ -481,6 +490,10 @@ export function applyEvent(checks, e, ctx = {}) {
       c.revenue_stream_id = p.revenue_stream_id
       for (const l of c.lines) if (l.status !== 'voided') l.revenue_stream_id = p.revenue_stream_id
       rerate(p.lines)
+      // The charges of the new stream and the check's order type (the
+      // location's matrix, shared/pos/charges.js), as for an order type change.
+      if (p.charges !== undefined) switchTo(p.charges)
+      c.billed = false
       break
 
     case 'check.order_type_set':
@@ -489,13 +502,8 @@ export function applyEvent(checks, e, ctx = {}) {
       if (p.tent !== undefined) c.tent = p.tent || null
       rerate(p.lines)
       // The new type's charges; one taken off stays off (also after a round
-      // trip through another type), typed-in ones stay.
-      if (p.charges !== undefined) {
-        const next = switchCharges(c.charges || [], p.charges || [], c.charges_off)
-        c.charges = next.charges
-        if (Object.keys(next.off).length) c.charges_off = next.off
-        else delete c.charges_off
-      }
+      // trip through another type), ones added on the till stay.
+      if (p.charges !== undefined) switchTo(p.charges)
       c.billed = false
       break
 
@@ -704,13 +712,24 @@ export function applyEvent(checks, e, ctx = {}) {
       break
 
     case 'charge.added': {
-      // A charge typed on the till: always one staff may take off again.
       const list = c.charges || []
       if (list.some(x => x.id === p.charge.id)) return fail('This charge is on the check already', 'duplicate')
       if (list.length >= CHECK_CHARGES_MAX) return fail('This check has as many charges as it can take', 'charges')
-      c.charges = [...list, onCheck({ ...p.charge, optional: true, min_covers: 0 }, {
-        added: true, added_by: e.staff_id, added_at: e.client_at ?? null,
-      })]
+      const by = { added: true, added_by: e.staff_id, added_at: e.client_at ?? null }
+      if (p.charge.list) {
+        // From the company's list (the Charges window, a till layout button):
+        // as it is on the list the venue's settings carry, or refused.
+        const why = chargeMismatch(p.charge, ctx.settings?.charges)
+        if (why) return fail(why, 'charge')
+        c.charges = [...list, onCheck(p.charge, by)]
+      } else {
+        // Typed in on the till: always one staff may take off again, on the
+        // whole check, without VAT.
+        c.charges = [...list, onCheck({
+          id: p.charge.id, name: p.charge.name, kind: p.charge.kind, value: p.charge.value,
+          optional: true, min_covers: 0, vat_rate: 0, tax_rate_id: null,
+        }, by)]
+      }
       c.billed = false
       break
     }

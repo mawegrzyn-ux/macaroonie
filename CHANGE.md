@@ -5,6 +5,17 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-11-01 — Till charges: one list with a matrix per location, charges on dishes (cup deposit), charge buttons; guests and courses per revenue stream]
+
+Migration: `231_till_charges_covers_courses.sql` (`pos_charges`, the company's list of charges, and `pos_charge_rules`, which charges a check of each revenue stream and order type gets at a location; the charges on order types move into the list and the matrix, and `order_types.charges` goes; `pos_revenue_streams.covers` and `courses`, from the location's Ask for covers setting, which goes; a Charges link after Discounts in every group's main menu).
+
+- **Store tech → Charges**: the company's charges in one list (drag to sort): a percent or an amount, optional or not, from N guests, with or without VAT. Each one goes on **the whole check** or only on **some dishes** (dishes and menu sections you pick), and an amount on some dishes is **once** or **for each dish**: a 25p cup deposit for each hot drink, a packaging fee once when there is any takeaway food. A charge on some dishes sits on the check counting nothing and appears when one of its dishes is ordered (a drink inside a meal deal counts too), then grows with each one ("Cup deposit x 3").
+- **Which checks get them, per location**: below the list, a table of the location's revenue streams by the order types each offers; tap a charge on or off in a cell, then Save. A check gets its cell's charges when it opens and when its order type or revenue stream changes (one taken off stays off, also after changing back). Order types no longer have charges of their own: what they had moved into the list and the table.
+- **On the till**: More → Charges adds one from the list (or types one in, as before), and a till layout can have a button for one charge (Buttons zone → Add a charge, pick which). Tapping it again says it is on the order already, or puts it back if someone took it off. The cloud and the venue hub check a charge added from the list is on the list with the same terms.
+- **Guests (covers) and courses per revenue stream**: Store tech → Revenue streams says whether its tables ask how many guests (Ask, with Skip; Must have, no Skip, and Send and Pay ask again until it's given; Don't ask, and no seat numbers) and whether it uses courses (off: no course chips, dishes go on no course, nothing to hold at Send). A till can have its own choice for both (Store tech → Tills). The location's Ask for covers setting in Receipts and payments is gone: a location that asked now has Must have on its streams, one that didn't has Don't ask.
+
+---
+
 ## [2026-11-01 — Till layouts: a Menus zone]
 
 No migration (till layouts are stored as they are).

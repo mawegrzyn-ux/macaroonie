@@ -80,8 +80,10 @@ const BAR = 'chip shrink-0 h-16 min-w-[64px] rounded-xl px-5 text-base'
  */
 export function SeatCourseBar({ config, seat, setSeat, course, setCourse, covers, fill = false, font = null, parts = 'both' }) {
   const bar = fill ? 'chip shrink-0 h-full max-h-20 min-h-[48px] min-w-[64px] rounded-xl px-5' : BAR
-  const seats = parts !== 'courses'
-  const courses = parts !== 'seats' && (config.courses || []).length > 0
+  // parts: 'both' | 'seats' | 'courses' (a till layout's zone), or 'none' when
+  // the check's revenue stream uses neither (seatCourseParts() in lib/checkOps.js).
+  const seats = parts === 'both' || parts === 'seats'
+  const courses = (parts === 'both' || parts === 'courses') && (config.courses || []).length > 0
   return (
     <div className={cx('flex items-center gap-2 scroll-x', fill ? 'h-full p-2' : 'border-t border-line bg-white p-2 shrink-0')}
       style={font ? { fontSize: font + 'px' } : undefined} data-testid="seat-course-bar" data-parts={parts}>
@@ -99,13 +101,14 @@ export function SeatCourseBar({ config, seat, setSeat, course, setCourse, covers
           <button key={c.id} className={cx(bar, course === c.id && 'chip-on')} onClick={() => setCourse(course === c.id ? null : c.id)} data-testid="course-chip">{c.short_name || c.name}</button>
         ))}
       </>}
-      {!seats && !courses && <span className="text-sm text-muted pl-1" data-testid="no-courses">No courses set up at this location.</span>}
+      {!seats && !courses && <span className="text-sm text-muted pl-1" data-testid="no-courses">{parts === 'none' ? 'This revenue stream uses no seats or courses.' : 'No courses set up at this location.'}</span>}
     </div>
   )
 }
 
 /** menus: the menus to show now (useShownMenus().shown), their sections one after another. */
-export default function MenuPanel({ config, menus, onPick, onHold, seat, setSeat, course, setCourse, covers, onOpenItem }) {
+/** parts: what the seat and course bar shows (seatCourseParts()); 'none' leaves the bar out. */
+export default function MenuPanel({ config, menus, onPick, onHold, seat, setSeat, course, setCourse, covers, onOpenItem, parts = 'both' }) {
   const soldOut = useMemo(() => soldOutMap(config), [config])
   // Combos' dishes, for their "from" price (shared/combos.js).
   const comboRefs = useMemo(() => ({ itemsById: config.items || {}, sectionItems: config.section_items || {} }), [config])
@@ -169,7 +172,7 @@ export default function MenuPanel({ config, menus, onPick, onHold, seat, setSeat
       </div>
 
       {/* As tall as the check's Pay row beside it (p-2 + h-16), so the two line up. */}
-      <SeatCourseBar config={config} seat={seat} setSeat={setSeat} course={course} setCourse={setCourse} covers={covers} />
+      {parts !== 'none' && <SeatCourseBar config={config} parts={parts} seat={seat} setSeat={setSeat} course={course} setCourse={setCourse} covers={covers} />}
     </div>
   )
 }

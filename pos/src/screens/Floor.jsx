@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Plus, Users, Hourglass, ReceiptText } from 'lucide-react'
 import { useTill, useChecks, toast, serverName } from '../lib/store.js'
-import { openCheck, defaultStreamId, typeOf, streamTypes, defaultTypeId, promptsFor, orderPromptOf } from '../lib/checkOps.js'
+import { openCheck, defaultStreamId, typeOf, streamTypes, defaultTypeId, promptsFor, orderPromptOf, coversOf } from '../lib/checkOps.js'
 import { checkTotals } from '@shared/pos/pricing.js'
 import { checkLabel, heldCourses } from '@shared/pos/checks.js'
 import { Modal, Keypad, cx, money, elapsed, useTick } from '../components/ui.jsx'
@@ -39,12 +39,19 @@ export default function Floor({ onOpen }) {
     setAsk(null)
     onOpen(r.checkId)
   }
+  // A new check on a table: the guests asked first as its revenue stream
+  // says (Store tech > Revenue streams, or the till's own choice): never,
+  // with a Skip, or without one.
+  const newOnTable = table => {
+    const rule = coversOf(config, defaultStreamId(config, { areaId: table.floor_area_id }))
+    if (rule === 'off') return startTable(table, null)
+    setAsk({ table, skip: rule === 'ask' })
+  }
   const tapTable = table => {
     const list = byTable[table.id] || []
     if (list.length === 1) return onOpen(list[0].id)
     if (list.length > 1) return setChoose({ table, checks: list })
-    if (config.settings.require_covers) return setAsk({ table })
-    startTable(table, null)
+    newOnTable(table)
   }
 
   const area = areas.find(a => a.id === areaId)
@@ -83,13 +90,14 @@ export default function Floor({ onOpen }) {
       </aside>
 
       {ask && (
-        <CoversModal title={'Table ' + ask.table.label} max={ask.table.max_covers} onClose={() => setAsk(null)} onDone={n => startTable(ask.table, n)} />
+        <CoversModal title={'Table ' + ask.table.label} max={ask.table.max_covers} onClose={() => setAsk(null)} onDone={n => startTable(ask.table, n)}
+          onSkip={ask.skip ? () => startTable(ask.table, null) : null} />
       )}
       {choose && (
         <Modal title={'Table ' + choose.table.label} onClose={() => setChoose(null)}>
           <div className="space-y-2">
             {choose.checks.map(c => <CheckRow key={c.id} check={c} config={config} onClick={() => { setChoose(null); onOpen(c.id) }} />)}
-            <button className="btn w-full" onClick={() => { const t = choose.table; setChoose(null); config.settings.require_covers ? setAsk({ table: t }) : startTable(t, null) }}>
+            <button className="btn w-full" onClick={() => { const t = choose.table; setChoose(null); newOnTable(t) }}>
               <Plus size={18} /> Another check on this table
             </button>
           </div>
@@ -207,17 +215,25 @@ export function CheckRow({ check, config, onClick, active = false }) {
   )
 }
 
-export function CoversModal({ title, max, onClose, onDone, initial = '' }) {
+/**
+ * How many guests: quick numbers or the keypad. onSkip: a Skip button (the
+ * stream's covers are 'ask'; with 'must' there is none). doneLabel: the big
+ * button's words.
+ */
+export function CoversModal({ title, max, onClose, onDone, onSkip = null, initial = '', doneLabel = 'Open check' }) {
   const [v, setV] = useState(String(initial || ''))
   const quick = [1, 2, 3, 4, 5, 6, 8].filter(n => !max || n <= Math.max(max, 6))
   return (
     <Modal title={title + ': how many guests?'} onClose={onClose}>
-      <div className="grid grid-cols-4 gap-2 mb-4">
+      <div className="grid grid-cols-4 gap-2 mb-4" data-testid="covers-quick">
         {quick.map(n => <button key={n} className="btn h-16 text-2xl font-bold" onClick={() => onDone(n)}>{n}</button>)}
       </div>
       <div className="text-center text-3xl font-bold h-10 tabular-nums">{v || ' '}</div>
       <Keypad value={v} onChange={setV} max={3} />
-      <button className="btn btn-primary w-full mt-3 h-14" disabled={!Number(v)} onClick={() => onDone(Number(v))}>Open check</button>
+      <div className="flex gap-2 mt-3">
+        {onSkip && <button className="btn h-14 flex-1" onClick={onSkip} data-testid="covers-skip">Skip</button>}
+        <button className="btn btn-primary h-14 flex-[2]" disabled={!Number(v)} onClick={() => onDone(Number(v))} data-testid="covers-done">{doneLabel}</button>
+      </div>
     </Modal>
   )
 }

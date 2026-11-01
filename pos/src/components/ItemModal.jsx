@@ -244,7 +244,8 @@ function ComboSteps({ item, config, picks, onChange, ctx, stepRefs }) {
 
 /**
  * onAdd({ selection, qty, seat, course, note, allergies, unit_price }) adds the dish.
- * defaults: { seat, course } from the check screen.
+ * defaults: { seat, course, covers, parts } from the check screen (parts:
+ * what of seats and courses the check's revenue stream uses, seatCourseParts()).
  * initial: { selection, qty } to start from (e.g. "Make it a combo").
  */
 export default function ItemModal({ item, config, defaults = {}, initial = null, title = null, onClose, onAdd }) {
@@ -262,7 +263,9 @@ export default function ItemModal({ item, config, defaults = {}, initial = null,
   const unit = priceText != null ? poundsToPence(priceText) : priced.ok ? priced.unit_price : null
   const total = priced.ok ? lineGross({ ...priced, unit_price: unit, qty }) : null
   const allergens = (config.dietary_tags || []).filter(t => t.kind === 'allergen')
-  const courses = config.courses || []
+  const parts = defaults.parts || 'both'
+  const showSeats = parts === 'both' || parts === 'seats'
+  const courses = parts === 'both' || parts === 'courses' ? config.courses || [] : []
   const autoCourse = courses.find(c => c.id === courseFor(it, null))
   const isCombo = it.kind === 'combo'
   const steps = isCombo ? resolveSteps(it, sel.combo || {}, ctx) : null
@@ -304,7 +307,7 @@ export default function ItemModal({ item, config, defaults = {}, initial = null,
           onChange={choices => setSel(s => ({ ...s, choices }))} />
 
         <div className="grid sm:grid-cols-2 gap-5">
-          <div>
+          {showSeats && <div>
             <div className="label mb-2">Seat</div>
             <div className="flex flex-wrap gap-2">
               <button className={cx('chip', seat == null && 'chip-on')} onClick={() => setSeat(null)}>Shared</button>
@@ -312,7 +315,7 @@ export default function ItemModal({ item, config, defaults = {}, initial = null,
                 <button key={i} className={cx('chip w-12', seat === i + 1 && 'chip-on')} onClick={() => setSeat(i + 1)}>{i + 1}</button>
               ))}
             </div>
-          </div>
+          </div>}
           {courses.length > 0 && (
             <div>
               <div className="label mb-2">Course</div>

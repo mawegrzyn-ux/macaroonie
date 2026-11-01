@@ -3389,10 +3389,11 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['pos_days', 'Trading days: business_date (from day_starts_at), z_number, figures jsonb at Z, declared_cash, recon_filled_at / recon_error. One open per venue.'],
                 ['pos_venue_state', 'last_seq, next_z_number, device_numbers jsonb { device_id: { date, check, order } } (each till\'s or kiosk\'s highest numbers per trading day, migration 217; next_check_no / next_order_no dropped).'],
                 ['pos_print_jobs', 'Print queue (ops jsonb from tickets.js), status queued | printing | printed | failed, for the hub.'],
-                ['pos_devices', 'Tills, kitchen screens, kiosks and venue hubs: kind terminal | kds | kiosk | hub, short_code, secret_hash, pairing_code_hash + pairing_expires_at (only the move hand-over code of POST /pos-api/move), settings jsonb (mode, revenue_stream_id, receipt_printer_id, floor_area_id, order_numbers { from, to } for tills and kiosks (migration 217), receipt_mode venue | ask | always | never (224) and order_prompt venue | one | two (226) for tills; a hub\'s auto_update), pending_changes + pending_at (changes the device says it hasn\'t sent, X-Pos-Pending), revoked_at; a hub\'s info + info_at (what it says about itself) and update_requested_at (migration 195).'],
-                ['pos_settings', 'Per venue: pin_salt, day_starts_at, receipt texts, tenders jsonb, tips, require_covers, auto_logout_secs, recon_map, recon_auto_fill, approvals jsonb and receipt_mode ask | always | never (224), order_prompt one | two (226: how the till asks a new order\'s type, name and tent number). (Migration 170 dropped the VAT defaults and counter_revenue_centre_id.)'],
-                ['pos_revenue_streams', 'Migration 170 (was pos_revenue_centres): name, menu_ids, colour, sort_order, is_active, default_order_type_id (its single service charge went to the order types\' charges, migration 225). Which order types it offers and what each asks for: pos_stream_order_types (stream_id, order_type_id, enabled, ask_name / ask_tent off | ask | required; no row = off). See Tax, Order Types & Streams.'],
-                ['order_types.charges', 'Migration 225: jsonb array, the charges a till check of the type gets (shared/pos/charges.js): { id, name, kind percent | amount, value (percent to 50, or pence to 100000), optional, min_covers 0-100, tax_rate_id | null }, at most 6, in order. See Charges and discounts.'],
+                ['pos_devices', 'Tills, kitchen screens, kiosks and venue hubs: kind terminal | kds | kiosk | hub, short_code, secret_hash, pairing_code_hash + pairing_expires_at (only the move hand-over code of POST /pos-api/move), settings jsonb (mode, revenue_stream_id, receipt_printer_id, floor_area_id, order_numbers { from, to } for tills and kiosks (migration 217), receipt_mode venue | ask | always | never (224), order_prompt venue | one | two (226), covers stream | off | ask | must and courses stream | on | off (231) for tills; a hub\'s auto_update), pending_changes + pending_at (changes the device says it hasn\'t sent, X-Pos-Pending), revoked_at; a hub\'s info + info_at (what it says about itself) and update_requested_at (migration 195).'],
+                ['pos_settings', 'Per venue: pin_salt, day_starts_at, receipt texts, tenders jsonb, tips, auto_logout_secs, recon_map, recon_auto_fill, approvals jsonb and receipt_mode ask | always | never (224), order_prompt one | two (226: how the till asks a new order\'s type, name and tent number). (Migration 170 dropped the VAT defaults and counter_revenue_centre_id; 231 dropped require_covers, moved to the streams.)'],
+                ['pos_revenue_streams', 'Migration 170 (was pos_revenue_centres): name, menu_ids, colour, sort_order, is_active, default_order_type_id, covers off | ask | must and courses boolean (migration 231: what its tables ask and whether it uses courses; require_covers on became must, off became off). Which order types it offers and what each asks for: pos_stream_order_types (stream_id, order_type_id, enabled, ask_name / ask_tent off | ask | required; no row = off). See Tax, Order Types & Streams.'],
+                ['pos_charges', 'Migration 231, tenant-wide, forced RLS: the company\'s till charges (shared/pos/charges.js): name, kind percent | amount, value numeric(10,2) (percent 0.01-50 or whole pence 1-100000, CHECK), optional, min_covers 0-100, tax_rate_id (SET NULL), basis check | dishes, per check | dish, item_ids / section_ids uuid[] (no foreign keys: menu rows are re-inserted on every save; at most 100 / 30; basis dishes needs one), sort_order. Replaced order_types.charges (migration 225), which the migration moved here: each different charge once per group.'],
+                ['pos_charge_rules', 'Migration 231, forced RLS: the matrix at each location: (charge_id, revenue_stream_id, order_type_id) primary key, tenant_id, venue_id; cascades from all three. The migration put each moved charge on every stream that offered its order type. A new location copies its template\'s (storeSetup.js).'],
                 ['pos_discounts', 'Migration 225, tenant-wide, forced RLS: the discounts the till offers by name: name, kind percent | amount, value numeric(10,2) (percent 0.01-100, or whole pence 1-100000, CHECK), scope any | check | line, needs_manager, sort_order. Reaches every rule runner as settings.discounts.'],
                 ['pos_roles / pos_courses', 'Tenant-wide. Role permissions jsonb (shared/pos/permissions.js); courses with hold_by_default.'],
                 ['pos_printers', 'Printers (host, port, columns, backup); connection hub | device + device_id; status / status_at from the hub (migration 191); local_id: a USB printer on the venue hub\'s computer (migration 195). pos_print_routes was dropped: kitchen tickets come from the kitchen flow.'],
@@ -3558,35 +3559,71 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>table_id</Mono> or mode table) <Mono>checkPrompts()</Mono> never asks for a tent number;{' '}
               <Mono>missingDetails()</Mono> and the order type window use it.
             </P>
-            <H3>Charges and discounts (migration 225)</H3>
+            <H3>Charges and discounts (migrations 225, 231)</H3>
             <P>
               <strong>Charges</strong> (<Mono>shared/pos/charges.js</Mono>, one implementation for the till, the cloud&apos;s
-              sequencer, the venue hub, the API and the admin) belong to the order type: <Mono>order_types.charges</Mono>,
-              saved through <Mono>PATCH /api/order-types/:id</Mono> (<Mono>charges</Mono> = the whole list; left out =
-              unchanged; <Mono>cleanCharges()</Mono> in <Mono>routes/taxSetup.js</Mono> gives a new charge an id, checks the
-              raw values with <Mono>chargeProblem()</Mono> before <Mono>cleanTypeCharge()</Mono> (an amount is whole pence),
-              refuses the same id twice and any tax rate that isn&apos;t the tenant&apos;s, 422). They reach tills with the
-              order types in the config; <Mono>chargesFor(config, typeId)</Mono> (<Mono>pos/src/lib/checkOps.js</Mono>, over{' '}
-              <Mono>chargesForType()</Mono>) adds each tax rate&apos;s % at the venue (<Mono>vat_rate</Mono>). The till puts
-              them in <Mono>check.opened</Mono> (<Mono>charges</Mono>) and in <Mono>check.order_type_set</Mono> /{' '}
-              <Mono>check.stream_set</Mono>&apos;s type change; <Mono>switchCharges(current, next, off)</Mono> keeps a charge
-              taken off off (also through a round trip: <Mono>check.charges_off</Mono> remembers, by id, ones taken off that
-              left with the old type) and keeps charges typed on the till. Events: <Mono>charge.added</Mono> (typed on the
-              till: always optional, from 0 covers, no VAT; refused twice or over 12), <Mono>charge.removed</Mono>{' '}
-              <Mono>&#123; charge_id, reason &#125;</Mono> (an optional one needs the venue&apos;s <Mono>remove_charge</Mono>{' '}
-              switch&apos;s manager, one that isn&apos;t optional <Mono>MANAGER_ALWAYS</Mono>) and <Mono>charge.restored</Mono>;{' '}
-              <Mono>service_charge.set</Mono> is gone. Kiosks can&apos;t send charges.
+              sequencer, the venue hub, the API and the admin) are one company list, <Mono>pos_charges</Mono>, and a
+              matrix per location, <Mono>pos_charge_rules</Mono> (charge x revenue stream x order type). Routes in{' '}
+              <Mono>routes/posSetup.js</Mono>: <Mono>GET/POST /api/pos/charges</Mono>, <Mono>PATCH/DELETE
+              /api/pos/charges/:id</Mono>, <Mono>PUT /api/pos/charges/order</Mono>, <Mono>GET /api/pos/charges/catalog</Mono>{' '}
+              (the dishes and sections to pick, the group&apos;s own), <Mono>GET/PUT
+              /api/pos/venues/:venueId/charge-rules</Mono> (the whole matrix of the venue; a rule twice is saved once;
+              another tenant&apos;s charge, stream or type, or a stream of another venue, 422). <Mono>cleanCharge()</Mono>{' '}
+              cleans a body (<Mono>normaliseCharge()</Mono>: a percent is always once; a whole-check charge keeps no dishes;
+              the same dish twice once) and checks the tax rate, dishes and sections are the tenant&apos;s (<Mono>menu_items</Mono> /{' '}
+              <Mono>menu_sections</Mono>, 422; a dish deleted from its menu later just stops counting). At most 40 charges.
+            </P>
+            <P>
+              <Mono>loadCharges()</Mono> (<Mono>services/posSvc.js</Mono>) puts the list in <Mono>settings.charges</Mono> of
+              the till config and of <Mono>printConfig()</Mono> (the sequencer; the hub reads its context), each with{' '}
+              <Mono>where: [&#123; stream, type &#125;]</Mono> at that venue. <Mono>chargesWhere(list, &#123; streamId, typeId
+              &#125;, venueId, rates)</Mono> gives the charges a check of a stream and type gets (with each tax rate&apos;s %
+              at the venue as <Mono>vat_rate</Mono>, via <Mono>chargeFromList()</Mono>); the till&apos;s{' '}
+              <Mono>chargesFor(config, &#123; streamId, typeId &#125;)</Mono> (<Mono>pos/src/lib/checkOps.js</Mono>) wraps it.
+              The till puts them in <Mono>check.opened</Mono>, <Mono>check.order_type_set</Mono> and{' '}
+              <Mono>check.stream_set</Mono> (both take optional <Mono>charges</Mono>: the StreamModal sends them with the
+              stream when the type stays, else with the type its new stream starts with);{' '}
+              <Mono>switchCharges(current, next, off)</Mono> keeps a charge taken off off (also through a round trip:{' '}
+              <Mono>check.charges_off</Mono> remembers, by id, ones taken off that left) and keeps charges added on the till.
+            </P>
+            <P>
+              Events: <Mono>charge.added</Mono> either from the list (<Mono>list: true</Mono>, as{' '}
+              <Mono>listCharge()</Mono> makes it; the rules check it against <Mono>ctx.settings.charges</Mono> with{' '}
+              <Mono>chargeMismatch()</Mono>: a charge not on the list, or with another kind, value, VAT rate, basis, per or
+              dishes, is refused with code <Mono>charge</Mono>) or typed (forced to the whole check, optional, from 0 covers,
+              no VAT); refused twice or over 12. <Mono>charge.removed</Mono> <Mono>&#123; charge_id, reason &#125;</Mono> (an
+              optional one needs the venue&apos;s <Mono>remove_charge</Mono> switch&apos;s manager, one that isn&apos;t optional{' '}
+              <Mono>MANAGER_ALWAYS</Mono>) and <Mono>charge.restored</Mono>. Kiosks can&apos;t send charges. The till&apos;s{' '}
+              <Mono>addListCharge(check, id)</Mono> (layout button action <Mono>charge</Mono> with <Mono>charge_id</Mono>)
+              puts one back when taken off (<Mono>restored</Mono>), does nothing when on (<Mono>already</Mono>), else adds it
+              from the list.
             </P>
             <P>
               <Mono>checkTotals()</Mono> gives <Mono>charges</Mono> (each with <Mono>amount</Mono>, <Mono>would_be</Mono>,{' '}
-              <Mono>removed</Mono>, <Mono>waiting</Mono> for a <Mono>min_covers</Mono> not reached) and{' '}
-              <Mono>service_charge</Mono>, the sum that counts (still <Mono>pos_checks.service_charge</Mono>). A percent is
-              of the net after every discount and offer; an amount counts only while the check has lines; each charge&apos;s
-              VAT is added to the VAT table at its own rate. <Mono>billOps()</Mono> prints each charge by{' '}
-              <Mono>chargeLabel()</Mono>; <Mono>dayFigures()</Mono> lists <Mono>charges</Mono> by name (<Mono>count</Mono>,{' '}
-              <Mono>amount</Mono>, <Mono>removed</Mono>, <Mono>removed_value</Mono>), printed on the Z and shown in Till
-              reports. Admin: <Mono>ChargesEditor</Mono> in <Mono>components/pos/OrderTypesSection.jsx</Mono>; till:{' '}
-              <Mono>ChargesModal</Mono> in <Mono>CheckActions.jsx</Mono> (More → Charges).
+              <Mono>removed</Mono>, <Mono>waiting</Mono> for a <Mono>min_covers</Mono> not reached, and <Mono>count</Mono>{' '}
+              for a dish charge) and <Mono>service_charge</Mono>, the sum that counts (still{' '}
+              <Mono>pos_checks.service_charge</Mono>). <Mono>chargeBase(charge, lines)</Mono> is the one rule for what a
+              charge counts: on the whole check, every live line; on dishes (<Mono>onDishes()</Mono>), the lines whose item
+              or section it names, and a combo line counts its parts that are (amounts only: a part&apos;s share of a
+              deal&apos;s price isn&apos;t known). A percent is of that net after every discount and offer; an amount is
+              once while something counts, or per counted dish (<Mono>perDish()</Mono>: by quantity). Each charge&apos;s VAT
+              is added to the VAT table at its own rate. <Mono>billOps()</Mono> prints each by <Mono>chargeLabel()</Mono>{' '}
+              (<Mono>Cup deposit x 3</Mono>); <Mono>dayFigures()</Mono> lists <Mono>charges</Mono> by name. Admin:{' '}
+              <Mono>components/pos/ChargesSection.jsx</Mono> (Store tech → Charges, <Mono>/pos/charges</Mono>: the list,{' '}
+              <Mono>ChargeModal</Mono>, <Mono>ChargeMatrix</Mono>); till: <Mono>ChargesModal</Mono> in{' '}
+              <Mono>CheckActions.jsx</Mono> (More → Charges: Add from the list, Type a charge in).
+            </P>
+            <P>
+              <strong>Covers and courses</strong> (migration 231): <Mono>pos_revenue_streams.covers</Mono> off | ask | must
+              and <Mono>courses</Mono>, and a till&apos;s own <Mono>settings.covers</Mono> / <Mono>settings.courses</Mono>{' '}
+              (<Mono>stream</Mono> = follow it). <Mono>coversOf(config, streamId)</Mono> and{' '}
+              <Mono>coursesOn(config, streamId)</Mono> in <Mono>checkOps.js</Mono> decide (the till&apos;s own first);{' '}
+              <Mono>seatCourseParts()</Mono> gives the seat and course bar&apos;s parts (also for a till layout&apos;s Seat
+              and course zone: <Mono>none</Mono> when neither); <Mono>coversMissing(check, config)</Mono> makes Send and Pay
+              ask a table&apos;s check for its guests under <Mono>must</Mono>. Floor: off opens the table at once, ask shows
+              Skip, must doesn&apos;t. Courses off: <Mono>addItem()</Mono> / <Mono>addOpenItem()</Mono> give no{' '}
+              <Mono>course_id</Mono> and no course chips show. The till app reads the stream from its config&apos;s{' '}
+              <Mono>revenue_streams</Mono> (<Mono>loadStreams()</Mono> selects both).
             </P>
             <P>
               <strong>Discounts</strong> (<Mono>shared/pos/discounts.js</Mono>): <Mono>pos_discounts</Mono>, company-wide,
@@ -7674,8 +7711,9 @@ selection.combo = { [stepId]: [{ option_id, item_id, choices }] }   // item_id n
                 ['GET /api/tax-rates', '{ rates (with values), venues, order_types, streams }: what a tax setting may name. Open to readers (menus pages, Tax box).'],
                 ['POST / PATCH / DELETE /api/tax-rates[/:id], PUT /api/tax-rates/order, PUT /api/tax-rates/:id/values', 'Menus manage. PATCH takes name, rate, is_default (moves the default), is_active. DELETE archives; refused for the default and for a rate a draft menu uses (names the menus). values: { venueId: % | null }.'],
                 ['GET /api/tax-rates/check?venue_id&stream_id&menu_id', 'Every draft dish\'s rate per active order type in that context (the Check card).'],
-                ['GET / POST / PATCH / DELETE /api/order-types[/:id], PUT /api/order-types/order', 'Changes need pos_setup or web_ordering_setup manage. DELETE archives, keeps at least one active, clears stream defaults pointing at it. POST / PATCH take charges (the whole list, migration 225; left out of a PATCH = unchanged): each { id?, name, kind, value, optional, min_covers, tax_rate_id }, checked by chargeProblem(), 422 for the same id twice or another tenant\'s tax rate.'],
-                ['POST /api/pos/venues/:id/revenue-streams, PATCH / DELETE /api/pos/revenue-streams/:id, PUT /api/pos/venues/:id/revenue-streams/order', 'Body: name, menu_ids, colour, is_active, default_order_type_id, order_types [{ order_type_id, enabled, ask_name, ask_tent }]. A new stream offers every active type. The default must be an enabled type (422). DELETE archives a stream with sales. Charges are on the order types (migration 225).'],
+                ['GET / POST / PATCH / DELETE /api/order-types[/:id], PUT /api/order-types/order', 'Changes need pos_setup or web_ordering_setup manage. DELETE archives, keeps at least one active, clears stream defaults pointing at it; its charge rules stay (an archived type is offered nowhere, so they put nothing on checks; a location\'s Charges matrix shows a rule left on one as order type removed, to take off). Order types carry no charges since migration 231 (Store tech → Charges); a charges key in the body is ignored.'],
+                ['POST /api/pos/venues/:id/revenue-streams, PATCH / DELETE /api/pos/revenue-streams/:id, PUT /api/pos/venues/:id/revenue-streams/order', 'Body: name, menu_ids, colour, is_active, default_order_type_id, order_types [{ order_type_id, enabled, ask_name, ask_tent }], covers off | ask | must, courses (migration 231). A new stream offers every active type. The default must be an enabled type (422). DELETE archives a stream with sales.'],
+                ['GET / POST /api/pos/charges, PATCH / DELETE /api/pos/charges/:id, PUT /api/pos/charges/order, GET /api/pos/charges/catalog, GET / PUT /api/pos/venues/:venueId/charge-rules', 'Migration 231: the company\'s till charges and each venue\'s matrix. Charge body: name, kind percent | amount, value (percent to 50, two decimals; amount in whole pence to 100000), optional, min_covers, tax_rate_id, basis check | dishes, per check | dish, item_ids, section_ids. Rules body: { rules: [{ charge_id, revenue_stream_id, order_type_id }] }, the whole matrix. Store tech view to read, manage to change; at most 40 charges. Changes tell the tills (config).'],
                 ['GET / POST /api/pos/discounts, PATCH / DELETE /api/pos/discounts/:id, PUT /api/pos/discounts/order', 'Migration 225: the company\'s till discounts. Body: name, kind percent | amount, value (percent to 100, two decimals; amount in whole pence to 100000), scope any | check | line, needs_manager. Store tech view to read, manage to change; at most 50. Changes tell the tills (config).'],
               ]}
             />

@@ -1,6 +1,8 @@
-// Charges per order type and discounts from the Store tech list (migration
-// 225; shared/pos/charges.js, discounts.js) in the shared check rules: the
-// till, the cloud's sequencer and the venue hub all work them out alike.
+// Charges from the company's list, on where the location's matrix of revenue
+// streams by order types puts them (migrations 225 and 231), and discounts
+// from the Store tech list (shared/pos/charges.js, discounts.js) in the
+// shared check rules: the till, the cloud's sequencer and the venue hub all
+// work them out alike.
 // Run: node --test shared/pos/test/
 
 import test from 'node:test'
@@ -12,7 +14,8 @@ import { dayFigures } from '../reports.js'
 import { billOps } from '../printing.js'
 import { toText } from '../tickets.js'
 import {
-  chargeProblem, chargesForType, switchCharges, chargeAmount, chargeLabel, chargeSummary, cleanTypeCharge, typeCharges,
+  chargeProblem, chargesWhere, chargeFromList, switchCharges, chargeAmount, chargeBase, chargeLabel, chargeSummary,
+  chargeValueText, normaliseCharge, chargeList, chargeMismatch, copyOfCharge,
 } from '../charges.js'
 import { normaliseDiscount, discountList, presetMismatch } from '../discounts.js'
 
@@ -32,8 +35,17 @@ const VAT20 = { id: uuid(), name: 'Standard', rate: 20, values: { [OTHER_VENUE]:
 const SERVICE = { id: uuid(), name: 'Service charge', kind: 'percent', value: 12.5, optional: true, min_covers: 0, tax_rate_id: null }
 const PARTY = { id: uuid(), name: 'Large party', kind: 'percent', value: 2.5, optional: false, min_covers: 6, tax_rate_id: null }
 const BAG = { id: uuid(), name: 'Packaging', kind: 'amount', value: 50, optional: false, min_covers: 0, tax_rate_id: VAT20.id }
-const EAT_IN = { id: uuid(), name: 'Eat in', charges: [SERVICE, PARTY] }
-const TAKE_OUT = { id: uuid(), name: 'Take out', charges: [BAG] }
+const EAT_IN = { id: uuid(), name: 'Eat in' }
+const TAKE_OUT = { id: uuid(), name: 'Take out' }
+// The location's matrix: Eat in at the restaurant has the service and party
+// charges, Take out the bag; the bar stream has none.
+const STREAM = uuid(), BAR = uuid()
+const LIST = [
+  { ...SERVICE, where: [{ stream: STREAM, type: EAT_IN.id }] },
+  { ...PARTY, where: [{ stream: STREAM, type: EAT_IN.id }] },
+  { ...BAG, where: [{ stream: STREAM, type: TAKE_OUT.id }] },
+]
+const chargesFor = (type, stream = STREAM, venue = VENUE) => chargesWhere(LIST, { streamId: stream, typeId: type.id }, venue, [VAT20])
 
 let clock = Date.parse('2026-10-31T18:00:00Z')
 function ev(type, payload, { check_id = null, staff_id = SERVER, approved_by = null } = {}) {
@@ -45,7 +57,7 @@ const line = (name, price, extra = {}) => ({ id: ulid(), item_id: uuid(), sectio
 function setup({ type = EAT_IN, covers = 2, settings = null, lines = [line('Burger', 1000), line('Cola', 300, { qty: 2 })] } = {}) {
   const id = ulid()
   const events = [
-    ev('check.opened', { mode: 'table', covers, order_type_id: type.id, charges: chargesForType(type, VENUE, [VAT20]) }, { check_id: id }),
+    ev('check.opened', { mode: 'table', covers, revenue_stream_id: STREAM, order_type_id: type.id, charges: chargesFor(type) }, { check_id: id }),
     ...lines.map(l => ev('line.added', { line: l }, { check_id: id })),
   ]
   const r = replay({}, events, { staffById, settings })
@@ -55,7 +67,7 @@ function setup({ type = EAT_IN, covers = 2, settings = null, lines = [line('Burg
 const apply = (checks, e, settings = null) => applyEvent(checks, e, { staffById, settings })
 const ok = r => { assert.ok(r.ok, r.error); return r }
 
-test('an order type\'s charges: shape, cleaning and the tax rate\'s % at the venue', () => {
+test('the list\'s charges: shape, cleaning, the matrix and the tax rate\'s % at the venue', () => {
   assert.equal(chargeProblem(SERVICE), null)
   assert.equal(chargeProblem({ ...SERVICE, id: 'nope' }), 'charge.id')
   assert.equal(chargeProblem({ ...SERVICE, name: '  ' }), 'charge.name')
@@ -67,23 +79,28 @@ test('an order type\'s charges: shape, cleaning and the tax rate\'s % at the ven
   assert.equal(chargeProblem({ ...SERVICE, min_covers: 101 }), 'charge.min_covers')
   assert.equal(chargeProblem({ ...SERVICE, optional: 'yes' }), 'charge.optional')
   assert.equal(chargeProblem({ ...SERVICE, tax_rate_id: 'x' }), 'charge.tax_rate_id')
-  assert.deepEqual(cleanTypeCharge({ ...SERVICE, name: ' Service ', value: 12.499, min_covers: 3.6, junk: 1 }),
-    { id: SERVICE.id, name: 'Service', kind: 'percent', value: 12.5, optional: true, min_covers: 4, tax_rate_id: null })
+  assert.deepEqual(normaliseCharge({ ...SERVICE, name: ' Service ', value: 12.499, min_covers: 3.6, junk: 1 }),
+    { id: SERVICE.id, name: 'Service', kind: 'percent', value: 12.5, optional: true, min_covers: 4, tax_rate_id: null, basis: 'check', per: 'check', item_ids: [], section_ids: [] })
   // A broken stored charge is left out, not passed on.
-  assert.equal(typeCharges({ charges: [SERVICE, { id: 'x' }] }).length, 1)
+  assert.equal(chargeList([SERVICE, { id: 'x' }]).length, 1)
+  // Where the matrix puts them: this stream and type only.
+  assert.deepEqual(chargesFor(EAT_IN).map(x => x.name), ['Service charge', 'Large party'])
+  assert.deepEqual(chargesFor(TAKE_OUT).map(x => x.name), ['Packaging'])
+  assert.deepEqual(chargesFor(EAT_IN, BAR), [])
+  assert.deepEqual(chargesWhere(LIST, { streamId: STREAM, typeId: null }), [])
   // The tax rate's % where the till is; none = no VAT.
-  assert.equal(chargesForType(TAKE_OUT, VENUE, [VAT20])[0].vat_rate, 20)
-  assert.equal(chargesForType(TAKE_OUT, OTHER_VENUE, [VAT20])[0].vat_rate, 5)
-  assert.equal(chargesForType(EAT_IN, VENUE, [VAT20])[0].vat_rate, 0)
+  assert.equal(chargesFor(TAKE_OUT)[0].vat_rate, 20)
+  assert.equal(chargesFor(TAKE_OUT, STREAM, OTHER_VENUE)[0].vat_rate, 5)
+  assert.equal(chargesFor(EAT_IN)[0].vat_rate, 0)
   // A rate the till doesn't know any more: no VAT rather than a guess.
-  assert.deepEqual(chargesForType(TAKE_OUT, VENUE, []).map(x => [x.tax_rate_id, x.vat_rate]), [[null, 0]])
+  assert.deepEqual(chargesWhere(LIST, { streamId: STREAM, typeId: TAKE_OUT.id }, VENUE, []).map(x => [x.tax_rate_id, x.vat_rate]), [[VAT20.id, 0]])
   assert.equal(chargeLabel(SERVICE), 'Service charge 12.5%')
   assert.equal(chargeLabel(BAG), 'Packaging')
   assert.equal(chargeSummary(PARTY), 'Large party 2.5%, from 6 guests')
   assert.equal(chargeSummary(SERVICE), 'Service charge 12.5%, optional')
-  assert.equal(chargeAmount(BAG, 0, false), 0)
-  assert.equal(chargeAmount(BAG, 0, true), 50)
-  assert.equal(chargeAmount(SERVICE, -100), 0)
+  assert.equal(chargeAmount(BAG, { net: 0, count: 0 }), 0)
+  assert.equal(chargeAmount(BAG, { net: 0, count: 3 }), 50)
+  assert.equal(chargeAmount(SERVICE, { net: -100, count: 1 }), 0)
 })
 
 test('totals: a percent of the check after discounts, an amount, a party charge from N guests', () => {
@@ -167,30 +184,30 @@ test('changing the order type: the new type\'s charges, one taken off stays off,
   const typed = { id: ulid(), name: 'Corkage', kind: 'amount', value: 500 }
   r = ok(apply(r.checks, ev('charge.added', { charge: typed }, { check_id: id })))
   // To take out: the bag, plus corkage; the service charge taken off is remembered.
-  const toOut = ok(apply(r.checks, ev('check.order_type_set', { order_type_id: TAKE_OUT.id, charges: chargesForType(TAKE_OUT, VENUE, [VAT20]) }, { check_id: id })))
+  const toOut = ok(apply(r.checks, ev('check.order_type_set', { order_type_id: TAKE_OUT.id, charges: chargesFor(TAKE_OUT) }, { check_id: id })))
   assert.deepEqual(toOut.checks[id].charges.map(c => c.name), ['Packaging', 'Corkage'])
   assert.equal(toOut.checks[id].charges_off[SERVICE.id].reason, 'Guest asked')
   // And back to eat in: the service charge is still off, with its reason; the
   // party charge is on (it was never taken off); typed ones stay.
-  const back = ok(apply(toOut.checks, ev('check.order_type_set', { order_type_id: EAT_IN.id, charges: chargesForType(EAT_IN, VENUE, [VAT20]) }, { check_id: id })))
+  const back = ok(apply(toOut.checks, ev('check.order_type_set', { order_type_id: EAT_IN.id, charges: chargesFor(EAT_IN) }, { check_id: id })))
   const charges = back.checks[id].charges
   assert.deepEqual(charges.map(c => [c.name, !!c.removed]), [['Service charge', true], ['Large party', false], ['Corkage', false]])
   assert.equal(charges[0].reason, 'Guest asked')
   assert.equal(back.checks[id].charges_off, undefined, 'back on the check: nothing left to remember')
   // Put back, then the same round trip: it stays on.
   const restored = ok(apply(back.checks, ev('charge.restored', { charge_id: SERVICE.id }, { check_id: id })))
-  const out2 = ok(apply(restored.checks, ev('check.order_type_set', { order_type_id: TAKE_OUT.id, charges: chargesForType(TAKE_OUT, VENUE, [VAT20]) }, { check_id: id })))
+  const out2 = ok(apply(restored.checks, ev('check.order_type_set', { order_type_id: TAKE_OUT.id, charges: chargesFor(TAKE_OUT) }, { check_id: id })))
   assert.equal(out2.checks[id].charges_off, undefined)
-  const back2 = ok(apply(out2.checks, ev('check.order_type_set', { order_type_id: EAT_IN.id, charges: chargesForType(EAT_IN, VENUE, [VAT20]) }, { check_id: id })))
+  const back2 = ok(apply(out2.checks, ev('check.order_type_set', { order_type_id: EAT_IN.id, charges: chargesFor(EAT_IN) }, { check_id: id })))
   assert.deepEqual(back2.checks[id].charges.map(c => [c.name, !!c.removed]), [['Service charge', false], ['Large party', false], ['Corkage', false]])
   // A manager took the party charge off at 8 covers: it stays off through a round trip too.
   const party = ok(apply(back2.checks, ev('charge.removed', { charge_id: PARTY.id, reason: 'Agreed' }, { check_id: id, approved_by: SUPER })))
-  const out3 = ok(apply(party.checks, ev('check.order_type_set', { order_type_id: TAKE_OUT.id, charges: chargesForType(TAKE_OUT, VENUE, [VAT20]) }, { check_id: id })))
-  const back3 = ok(apply(out3.checks, ev('check.order_type_set', { order_type_id: EAT_IN.id, charges: chargesForType(EAT_IN, VENUE, [VAT20]) }, { check_id: id })))
+  const out3 = ok(apply(party.checks, ev('check.order_type_set', { order_type_id: TAKE_OUT.id, charges: chargesFor(TAKE_OUT) }, { check_id: id })))
+  const back3 = ok(apply(out3.checks, ev('check.order_type_set', { order_type_id: EAT_IN.id, charges: chargesFor(EAT_IN) }, { check_id: id })))
   const p3 = back3.checks[id].charges.find(c => c.id === PARTY.id)
   assert.deepEqual([p3.removed, p3.reason, p3.approved_by], [true, 'Agreed', SUPER])
   // A change to a type that has the charge too keeps it off.
-  const kept = switchCharges(r.checks[id].charges, chargesForType(EAT_IN, VENUE, [VAT20])).charges
+  const kept = switchCharges(r.checks[id].charges, chargesFor(EAT_IN)).charges
   assert.deepEqual(kept.map(c => [c.name, !!c.removed]), [['Service charge', true], ['Large party', false], ['Corkage', false]])
   // An event without charges leaves them as they are.
   const same = ok(apply(r.checks, ev('check.order_type_set', { order_type_id: TAKE_OUT.id }, { check_id: id })))
@@ -205,7 +222,7 @@ test('kiosks: no charges on their orders', () => {
   const id = ulid()
   // Only the kiosk itself sends its events (its device id is its staff id).
   const opened = e => applyEvent({}, { ...e, device_id: KIOSK }, { staffById: people })
-  assert.equal(opened(ev('check.opened', { mode: 'counter', charges: chargesForType(TAKE_OUT, VENUE, [VAT20]) }, { check_id: id, staff_id: KIOSK })).code, 'kiosk')
+  assert.equal(opened(ev('check.opened', { mode: 'counter', charges: chargesFor(TAKE_OUT) }, { check_id: id, staff_id: KIOSK })).code, 'kiosk')
   assert.ok(opened(ev('check.opened', { mode: 'counter', charges: [] }, { check_id: id, staff_id: KIOSK })).ok)
 })
 
@@ -231,6 +248,106 @@ test('the day\'s figures and the bill: each charge by name, what was taken off',
   assert.match(text, /Service charge 12\.5%\s+£2\.00/)
   assert.match(text, /Large party 2\.5%\s+£0\.40/)
   assert.doesNotMatch(toText(billOps(checks[b.id], { settings: {}, venue: { name: 'Ware' }, layouts: {} })), /Service charge/)
+})
+
+test('charges on named dishes: a cup deposit for each, once for any, a percent of those dishes', () => {
+  const DRINKS = uuid(), LATTE = uuid(), SODA = uuid(), MEAL = uuid()
+  const CUP = { id: uuid(), name: 'Cup deposit', kind: 'amount', value: 25, optional: true, min_covers: 0, tax_rate_id: null,
+    basis: 'dishes', per: 'dish', item_ids: [SODA], section_ids: [DRINKS] }
+  const CORK = { id: uuid(), name: 'Corkage', kind: 'amount', value: 500, optional: false, min_covers: 0, tax_rate_id: VAT20.id,
+    basis: 'dishes', per: 'check', item_ids: [], section_ids: [DRINKS] }
+  const WINE = { id: uuid(), name: 'Wine service', kind: 'percent', value: 10, optional: true, min_covers: 0, tax_rate_id: null,
+    basis: 'dishes', section_ids: [DRINKS] }
+  assert.equal(chargeProblem(CUP), null)
+  assert.equal(chargeProblem({ ...CUP, item_ids: [], section_ids: [] }), 'charge.dishes')
+  assert.equal(chargeProblem({ ...CUP, item_ids: ['x'] }), 'charge.item_ids')
+  assert.equal(chargeProblem({ ...CUP, per: 'item' }), 'charge.per')
+  assert.equal(chargeProblem({ ...CUP, basis: 'lines' }), 'charge.basis')
+  // Stored lists keep their dishes only on dishes; on the whole check they drop.
+  assert.deepEqual(normaliseCharge({ ...CUP, item_ids: [SODA, SODA, 'x'] }).item_ids, [SODA])
+  assert.deepEqual(normaliseCharge({ ...CUP, basis: 'check' }).section_ids, [])
+  assert.equal(chargeValueText(CUP), '£0.25 a dish')
+  assert.equal(chargeSummary(CUP, { sections: { [DRINKS]: 'Hot drinks' }, items: { [SODA]: 'Soda' } }), 'Cup deposit £0.25 a dish, on Hot drinks, Soda, optional')
+  // Two lattes (a section dish), a soda (a named dish), a burger, and a meal
+  // deal with a soda in it (a part): four cups.
+  const meal = line('Burger meal', 900, { item_id: MEAL, combo: [{ step_id: 's1', name: 'Burger', item_id: uuid(), section_id: null }, { step_id: 's2', name: 'Soda', item_id: SODA, section_id: null }] })
+  const lines = [
+    line('Latte', 300, { qty: 2, section_id: DRINKS, item_id: LATTE }),
+    line('Soda', 200, { item_id: SODA }),
+    line('Burger', 1000),
+    meal,
+  ]
+  const id = ulid()
+  const r = replay({}, [
+    ev('check.opened', { mode: 'tab', charges: [CUP, CORK, WINE].map(x => chargeFromList(x, VENUE, [VAT20])) }, { check_id: id }),
+    ...lines.map(l => ev('line.added', { line: l }, { check_id: id })),
+  ], { staffById })
+  assert.equal(r.refused.length, 0, JSON.stringify(r.refused))
+  const t = checkTotals(r.checks[id])
+  const by = name => t.charges.find(x => x.name === name)
+  assert.deepEqual([by('Cup deposit').count, by('Cup deposit').amount], [4, 100])
+  assert.equal(chargeLabel(by('Cup deposit')), 'Cup deposit x 4')
+  // Corkage once (the lattes are drinks), at 20% VAT.
+  assert.deepEqual([by('Corkage').count, by('Corkage').amount], [2, 500])
+  assert.equal(chargeLabel(by('Corkage')), 'Corkage')
+  // 10% of the drinks' own lines: the lattes (a meal deal's part doesn't count for a percent).
+  assert.equal(by('Wine service').amount, 60)
+  assert.equal(t.service_charge, 100 + 500 + 60)
+  assert.equal(t.vat.find(v => v.rate === 20).gross, 600 + 200 + 1000 + 900 + 500)
+  // No named dish on the check: nothing to pay, nothing on the bill.
+  const plain = replay({}, [
+    ev('check.opened', { mode: 'tab', charges: [CUP, CORK].map(x => chargeFromList(x, VENUE, [VAT20])) }, { check_id: id }),
+    ev('line.added', { line: line('Burger', 1000) }, { check_id: id }),
+  ], { staffById })
+  const pt = checkTotals(plain.checks[id])
+  assert.deepEqual(pt.charges.map(x => x.amount), [0, 0])
+  assert.doesNotMatch(toText(billOps(plain.checks[id], { settings: {}, venue: { name: 'Ware' }, layouts: {} })), /Cup deposit|Corkage/)
+  // chargeBase on its own: a voided line isn't there to count (checkTotals passes active lines).
+  assert.deepEqual(chargeBase(CUP, [{ line: { qty: 3, item_id: SODA }, net: 600 }, { line: { qty: 1, item_id: LATTE }, net: 300 }]), { net: 600, count: 3 })
+})
+
+test('a charge from the list added on the till: as the list has it, checked against the list', () => {
+  const CUP = { id: uuid(), name: 'Cup deposit', kind: 'amount', value: 25, optional: false, min_covers: 0, tax_rate_id: VAT20.id,
+    basis: 'dishes', per: 'dish', item_ids: [], section_ids: [uuid()], where: [] }
+  const settings = { charges: [...LIST, CUP] }
+  const { id, checks } = setup({ type: TAKE_OUT })
+  const add = (charge, staff = SERVER) => apply(checks, ev('charge.added', { charge }, { check_id: id, staff_id: staff }), settings)
+  const fromList = { ...chargeFromList(normaliseCharge(CUP), VENUE, [VAT20]), list: true }
+  const r = ok(add(fromList))
+  const x = r.checks[id].charges.find(c => c.id === CUP.id)
+  // It keeps the list's own settings: not optional, VAT, on its dishes.
+  assert.deepEqual([x.added, x.list, x.optional, x.vat_rate, x.basis, x.per], [true, true, false, 20, 'dishes', 'dish'])
+  // Not on the list, or not as the list has it: refused.
+  assert.equal(apply(checks, ev('charge.added', { charge: fromList }, { check_id: id }), { charges: LIST }).code, 'charge')
+  assert.equal(add({ ...fromList, value: 10 }).code, 'charge')
+  assert.equal(add({ ...fromList, optional: true }).code, 'charge')
+  assert.equal(chargeMismatch(fromList, settings.charges), null)
+  // A typed charge can't pass for the list's: typed ones are always optional, without VAT.
+  const typed = ok(add({ id: ulid(), name: 'Corkage', kind: 'amount', value: 500, vat_rate: 20, optional: false }))
+  const corkage = typed.checks[id].charges.find(c => c.name === 'Corkage')
+  assert.deepEqual([corkage.optional, corkage.vat_rate, corkage.list], [true, 0, undefined])
+  // Taking it off needs a manager (not optional); an order type change keeps
+  // it, and a type that brings the same charge doesn't put it on twice.
+  assert.equal(apply(r.checks, ev('charge.removed', { charge_id: CUP.id, reason: 'Own cup' }, { check_id: id }), settings).code, 'manager')
+  const both = switchCharges(r.checks[id].charges, [chargeFromList(normaliseCharge(CUP), VENUE, [VAT20])])
+  assert.deepEqual(both.charges.filter(c => c.id === CUP.id).map(c => c.added), [true])
+  // A split takes a copy of it.
+  assert.deepEqual(Object.keys(copyOfCharge(x)).sort(), ['basis', 'id', 'item_ids', 'kind', 'list', 'min_covers', 'name', 'optional', 'per', 'section_ids', 'tax_rate_id', 'value', 'vat_rate'])
+})
+
+test('changing the revenue stream: the charges of the new stream and the order type', () => {
+  const { id, checks } = setup({ type: EAT_IN })
+  const r = ok(apply(checks, ev('charge.removed', { charge_id: SERVICE.id, reason: 'Guest asked' }, { check_id: id })))
+  // To the bar: Eat in there has no charges.
+  const bar = ok(apply(r.checks, ev('check.stream_set', { revenue_stream_id: BAR, charges: chargesFor(EAT_IN, BAR) }, { check_id: id })))
+  assert.deepEqual(bar.checks[id].charges, [])
+  assert.equal(bar.checks[id].charges_off[SERVICE.id].reason, 'Guest asked')
+  // Back: the service charge is still off.
+  const back = ok(apply(bar.checks, ev('check.stream_set', { revenue_stream_id: STREAM, charges: chargesFor(EAT_IN) }, { check_id: id })))
+  assert.deepEqual(back.checks[id].charges.map(c => [c.name, !!c.removed]), [['Service charge', true], ['Large party', false]])
+  // A stream change without charges leaves them as they are; bad ones are refused.
+  assert.equal(ok(apply(r.checks, ev('check.stream_set', { revenue_stream_id: BAR }, { check_id: id }))).checks[id].charges.length, 2)
+  assert.equal(apply(r.checks, ev('check.stream_set', { revenue_stream_id: BAR, charges: [BAG, BAG] }, { check_id: id })).code, 'invalid')
 })
 
 test('discounts from the list: as set up, a manager only when they say so', () => {

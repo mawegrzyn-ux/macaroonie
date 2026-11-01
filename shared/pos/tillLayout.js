@@ -14,8 +14,8 @@
 //               order; with a Menu times button to follow the menu times again
 //   items       the dishes of the section picked (with a search box on top if set)
 //   buttons     buttons set in the designer: a dish, or a function (a tender,
-//               the last receipt, a discount from the list, Send ...); a button
-//               can take several cells of its zone
+//               the last receipt, a discount or a charge from the list, Send
+//               ...); a button can take several cells of its zone
 //   modifiers   a dish's choices while it is being added: the ones that must be
 //               picked, the optional ones, or both; drawn over its own rectangle
 //               (over other zones) or over the whole screen
@@ -166,6 +166,7 @@ export const BUTTON_ACTIONS = [
   { key: 'move', label: 'Split / move items', check: true, group: 'Order' },
   { key: 'merge', label: 'Merge checks', check: true, group: 'Order' },
   { key: 'charges', label: 'Charges', check: true, group: 'Order' },
+  { key: 'charge', label: 'A charge', check: true, group: 'Order' },
   { key: 'offers', label: 'Offers', check: true, group: 'Order' },
   { key: 'loyalty', label: 'Loyalty', check: true, group: 'Order' },
   { key: 'open_item', label: 'Item not on menu', check: true, group: 'Order' },
@@ -226,6 +227,10 @@ function normaliseButton(b, grid, i) {
   if (action === 'tender') {
     if (!TENDER_KEYS.includes(b.tender)) return null
     out.tender = b.tender
+  }
+  if (action === 'charge') {
+    if (!UUID.test(String(b.charge_id || ''))) return null
+    out.charge_id = String(b.charge_id).toLowerCase()
   }
   return out
 }
@@ -519,10 +524,11 @@ class Grid {
 }
 
 /** A button's words: its own label, else from what it does. */
-export function buttonLabel(b, { items = {}, presets = [], tenders = [] } = {}) {
+export function buttonLabel(b, { items = {}, presets = [], tenders = [], charges = [] } = {}) {
   if (b?.label) return b.label
   if (b?.action === 'item') return items[b.item_id]?.name || 'Dish no longer on the menu'
   if (b?.action === 'discount_preset') return presets.find(p => p.id === b.preset_id)?.name || 'Discount no longer on the list'
+  if (b?.action === 'charge') return charges.find(x => x.id === b.charge_id)?.name || 'Charge no longer on the list'
   if (b?.action === 'tender') {
     const t = tenders.find(x => x.key === b.tender)
     return 'Pay by ' + (t?.label || b.tender)
@@ -532,11 +538,11 @@ export function buttonLabel(b, { items = {}, presets = [], tenders = [] } = {}) 
 
 /**
  * Drops what a layout names that isn't the company's: sections, menus,
- * dishes and discounts (sets of ids). Buttons pointing at another tenant's
- * dish or discount go; a categories list keeps only the company's sections,
- * a menus list only its menus.
+ * dishes, discounts and charges (sets of ids). Buttons pointing at another
+ * tenant's dish, discount or charge go; a categories list keeps only the
+ * company's sections, a menus list only its menus.
  */
-export function ownLayout(layout, { sectionIds, itemIds, presetIds, menuIds }) {
+export function ownLayout(layout, { sectionIds, itemIds, presetIds, menuIds, chargeIds }) {
   const has = (set, id) => (set instanceof Set ? set.has(id) : (set || []).includes(id))
   return {
     ...layout,
@@ -546,7 +552,8 @@ export function ownLayout(layout, { sectionIds, itemIds, presetIds, menuIds }) {
       if (z.type === 'buttons') {
         return {
           ...z,
-          buttons: z.buttons.filter(b => (b.action !== 'item' || has(itemIds, b.item_id)) && (b.action !== 'discount_preset' || has(presetIds, b.preset_id))),
+          buttons: z.buttons.filter(b => (b.action !== 'item' || has(itemIds, b.item_id)) && (b.action !== 'discount_preset' || has(presetIds, b.preset_id))
+            && (b.action !== 'charge' || has(chargeIds, b.charge_id))),
         }
       }
       return z
@@ -554,21 +561,23 @@ export function ownLayout(layout, { sectionIds, itemIds, presetIds, menuIds }) {
   }
 }
 
-/** Every dish, section, menu and discount id a layout names (for ownLayout()). */
+/** Every dish, section, menu, discount and charge id a layout names (for ownLayout()). */
 export function layoutIds(layout) {
   const items = new Set()
   const sections = new Set()
   const presets = new Set()
   const menus = new Set()
+  const charges = new Set()
   for (const z of layout?.zones || []) {
     for (const s of z.sections || []) sections.add(s)
     for (const m of z.menu_ids || []) menus.add(m)
     for (const b of z.buttons || []) {
       if (b.item_id) items.add(b.item_id)
       if (b.preset_id) presets.add(b.preset_id)
+      if (b.charge_id) charges.add(b.charge_id)
     }
   }
-  return { items: [...items], sections: [...sections], presets: [...presets], menus: [...menus] }
+  return { items: [...items], sections: [...sections], presets: [...presets], menus: [...menus], charges: [...charges] }
 }
 
 /**

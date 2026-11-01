@@ -263,6 +263,8 @@ function TillModal({ venueId, setup, device, onClose }) {
     receipt_mode: s.receipt_mode || 'venue',
     order_prompt: s.order_prompt || 'venue',
     till_layout: s.till_layout || 'venue',
+    covers: s.covers || 'stream',
+    courses: s.courses || 'stream',
   })
   const set = patch => setForm(f => ({ ...f, ...patch }))
   const body = () => ({
@@ -276,6 +278,8 @@ function TillModal({ venueId, setup, device, onClose }) {
       receipt_mode: form.receipt_mode,
       order_prompt: form.order_prompt,
       till_layout: form.till_layout,
+      covers: form.covers,
+      courses: form.courses,
       ...(device && orderRangeReady(form.order_numbers) ? { order_numbers: form.order_numbers } : {}),
     },
   })
@@ -347,6 +351,19 @@ function TillModal({ venueId, setup, device, onClose }) {
             {(setup.till_layouts || []).map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
           </select>
         </Field>
+        <Field label="Guests (covers)" hint={'As the stream: ' + coversWord(streamFor(setup, form.revenue_stream_id)?.covers) + ' (Revenue streams). Off also leaves out seat numbers.'}>
+          <select className={inputCls} value={form.covers} onChange={e => set({ covers: e.target.value })} data-testid="till-covers">
+            <option value="stream">As the revenue stream</option>
+            {COVERS_RULES.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+          </select>
+        </Field>
+        <Field label="Courses" hint={'As the stream: ' + (streamFor(setup, form.revenue_stream_id)?.courses === false ? 'no courses' : 'courses') + ' (Revenue streams).'}>
+          <select className={inputCls} value={form.courses} onChange={e => set({ courses: e.target.value })} data-testid="till-courses">
+            <option value="stream">As the revenue stream</option>
+            <option value="on">Use courses</option>
+            <option value="off">No courses</option>
+          </select>
+        </Field>
         <CardMachinePick venueId={venueId} value={form.card_reader} onChange={v => set({ card_reader: v })} />
         <OrderNumbersField setup={setup} device={device} value={form.order_numbers} onChange={v => set({ order_numbers: v })} />
       </>}
@@ -360,6 +377,19 @@ function TillModal({ venueId, setup, device, onClose }) {
  * standard screen when none (or one deleted since) is set.
  */
 export const layoutName = (setup, id) => (setup.till_layouts || []).find(l => l.id === id)?.name || 'The standard screen'
+
+/**
+ * Whether the till asks how many guests a table's check has (migration 231):
+ * a revenue stream's covers, or a till's own.
+ */
+export const COVERS_RULES = [
+  { value: 'off', label: 'Don\'t ask' },
+  { value: 'ask', label: 'Ask, can be skipped' },
+  { value: 'must', label: 'Must have' },
+]
+export const coversWord = v => (COVERS_RULES.find(m => m.value === (v || 'ask')) || COVERS_RULES[1]).label.toLowerCase()
+/** The stream a till is in: its own, else the first active one (as the till does). */
+const streamFor = (setup, id) => setup.revenue_streams.find(r => r.id === id) || setup.revenue_streams.find(r => r.is_active) || null
 
 /** What happens to the receipt when a check is paid (pos_settings.receipt_mode, migration 224). */
 export const RECEIPT_MODES = [

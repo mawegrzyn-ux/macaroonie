@@ -238,18 +238,29 @@ test('button words and the company\'s own ids', () => {
   assert.equal(buttonLabel({ action: 'tender', tender: 'voucher' }, opts), 'Pay by Voucher')
   assert.equal(buttonLabel({ action: 'exact_cash' }, opts), 'Exact cash')
   assert.equal(buttonLabel({ action: 'exact_cash', label: 'Cash' }, opts), 'Cash')
+  // A charge from the list: its name, or that it has gone from the list.
+  const withCharges = { ...opts, charges: [{ id: A, name: 'Cup deposit' }] }
+  assert.equal(buttonLabel({ action: 'charge', charge_id: A }, withCharges), 'Cup deposit')
+  assert.equal(buttonLabel({ action: 'charge', charge_id: C }, withCharges), 'Charge no longer on the list')
 
   const layout = normaliseTillLayout({
     zones: [
       { type: 'check', x: 0, y: 0, w: 4, h: 8 },
       { type: 'categories', x: 4, y: 0, w: 8, h: 1, sections: [A, C] },
-      { type: 'buttons', x: 4, y: 1, w: 8, h: 2, buttons: [{ action: 'item', item_id: A }, { action: 'item', item_id: C }, { action: 'discount_preset', preset_id: B }, { action: 'discount_preset', preset_id: C }, { action: 'send' }] },
+      { type: 'buttons', x: 4, y: 1, w: 8, h: 2, buttons: [
+        { action: 'item', item_id: A }, { action: 'item', item_id: C }, { action: 'discount_preset', preset_id: B }, { action: 'discount_preset', preset_id: C },
+        { action: 'charge', charge_id: B.toUpperCase() }, { action: 'charge', charge_id: C }, { action: 'charge' }, { action: 'charge', charge_id: 'nope' }, { action: 'send' },
+      ] },
     ],
   })
-  assert.deepEqual(layoutIds(layout), { items: [A, C], sections: [A, C], presets: [B, C], menus: [] })
-  const own = ownLayout(layout, { sectionIds: new Set([A]), itemIds: [A], presetIds: new Set([B]) })
+  // A charge button needs the id of a charge (kept in lower case); one without goes.
+  assert.deepEqual(layout.zones[2].buttons.filter(b => b.action === 'charge').map(b => b.charge_id), [B, C])
+  assert.deepEqual(layoutIds(layout), { items: [A, C], sections: [A, C], presets: [B, C], menus: [], charges: [B, C] })
+  const own = ownLayout(layout, { sectionIds: new Set([A]), itemIds: [A], presetIds: new Set([B]), chargeIds: new Set([B]) })
   assert.deepEqual(own.zones[1].sections, [A])
-  assert.deepEqual(own.zones[2].buttons.map(b => b.item_id || b.preset_id || b.action), [A, B, 'send'])
+  assert.deepEqual(own.zones[2].buttons.map(b => b.item_id || b.preset_id || b.charge_id || b.action), [A, B, B, 'send'])
+  // Without a list of the company's charges, no charge button is kept.
+  assert.ok(!ownLayout(layout, { sectionIds: [A], itemIds: [A], presetIds: [B] }).zones[2].buttons.some(b => b.action === 'charge'))
 })
 
 test('where the words sit on a zone\'s buttons: defaults per zone, kept, refused, the styles', () => {

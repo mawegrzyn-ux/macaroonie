@@ -20,7 +20,7 @@ import LayoutScreen from '../components/LayoutScreen.jsx'
 import { cx } from '../components/ui.jsx'
 import {
   openCheck, addChosen, needsChoices, defaultStreamId, streamOf, streamTypes, defaultTypeId, promptsFor, typeOf,
-  orderPromptOf, newOrderAsks,
+  orderPromptOf, newOrderAsks, seatCourseParts,
 } from '../lib/checkOps.js'
 import MenuPanel from '../components/MenuPanel.jsx'
 import ItemModal from '../components/ItemModal.jsx'
@@ -168,13 +168,14 @@ export default function Counter() {
           {panel('w-[300px] xl:w-[340px] shrink-0 border-r border-line')}
           <div className="flex-1 min-w-0">
             <MenuPanel config={config} menus={shownMenus.shown} seat={seat} setSeat={setSeat} course={course} setCourse={setCourse}
+              parts={seatCourseParts(config, streamId)}
               onPick={pick}
               onHold={it => setSoldOutItem(it)}
               onOpenItem={() => toast('Start the order with a dish first, then add an item not on the menu from More', 'info')} />
           </div>
         </>
       )}
-      {item && <ItemModal item={item.item} config={config} defaults={{ seat, course }} initial={item.initial || null} onClose={() => setItem(null)} onAdd={o => start(item.item, o)} />}
+      {item && <ItemModal item={item.item} config={config} defaults={{ seat, course, parts: seatCourseParts(config, streamId) }} initial={item.initial || null} onClose={() => setItem(null)} onAdd={o => start(item.item, o)} />}
       {noSale && <NoSale onClose={() => setNoSale(false)} />}
       {menusOpen && <MenusModal shown={shownMenus} onClose={() => setMenusOpen(false)} />}
       {soldOutItem && <SoldOutModal item={soldOutItem} config={config} onClose={() => setSoldOutItem(null)} onAdd={pick} />}

@@ -35,6 +35,10 @@
 //   GET    /roles  POST /roles  PATCH/DELETE /roles/:id       POS roles (tenant-wide)
 //   GET    /discounts  POST /discounts  PATCH/DELETE /discounts/:id  PUT /discounts/order
 //                                                 the company's discounts the till offers (migration 225)
+//   GET    /charges  POST /charges  PATCH/DELETE /charges/:id  PUT /charges/order  GET /charges/catalog
+//                                                 the company's charges (migration 231, shared/pos/charges.js)
+//   GET    /venues/:venueId/charge-rules          + PUT: the location's matrix, which charges a check
+//                                                 of each revenue stream and order type gets
 //   GET    /courses  POST /courses  PATCH/DELETE /courses/:id  PUT /courses/order
 //   Reports (pos_reports):
 //   GET    /venues/:venueId/days                  trading days (Z reports), newest first
@@ -69,7 +73,7 @@ import { requireAuth, requirePermission, permissionLevel } from '../middleware/a
 import { httpError } from '../middleware/error.js'
 import { broadcast } from '../config/ws.js'
 import {
-  ensureSettings, settingsView, ownVenue, loadDiscounts,
+  ensureSettings, settingsView, ownVenue, loadDiscounts, loadCharges,
   dayReport, fillReconFromDay, DEFAULT_COURSES,
 } from '../services/posSvc.js'
 import { reconFields } from '../services/reconFill.js'
@@ -95,6 +99,9 @@ import { hashPin, PIN_PATTERN, weakPin, pinOverlaps } from '../../../shared/pos/
 import { TENDER_KEYS } from '../../../shared/pos/checks.js'
 import { ensureTaxDefaults, loadOrderTypes, loadStreams } from '../services/taxSvc.js'
 import { DISCOUNT_SCOPES, DISCOUNTS_MAX, DISCOUNT_AMOUNT_MAX } from '../../../shared/pos/discounts.js'
+import {
+  CHARGES_MAX, CHARGE_PERCENT_MAX, CHARGE_AMOUNT_MAX, MIN_COVERS_MAX, CHARGE_ITEMS_MAX, CHARGE_SECTIONS_MAX,
+} from '../../../shared/pos/charges.js'
 import { tillsMayNeedConfig } from '../services/posNotify.js'
 import { channelMenuTimes } from '../services/menuTimesSvc.js'
 
@@ -135,7 +142,6 @@ const SettingsBody = z.object({
   receipt_address:           z.array(z.string().max(80)).max(6).optional(),
   tenders:                   z.array(z.object({ key: z.enum(TENDER_KEYS), label: z.string().min(1).max(30), enabled: z.boolean() })).optional(),
   tips_enabled:              z.boolean().optional(),
-  require_covers:            z.boolean().optional(),
   auto_logout_secs:          z.number().int().min(0).max(3600).optional(),
   recon_map:                 z.object({
     income:  z.record(UUID, z.array(z.string().max(40)).max(20)).default({}),
@@ -196,6 +202,30 @@ const DiscountBody = z.object({
 })
 const discountValue = d => (d.kind === 'percent' ? Math.round(d.value * 100) / 100 : d.value)
 
+// A charge on the company's list (shared/pos/charges.js, migration 231).
+const ChargeBody = z.object({
+  name:        z.string().trim().min(1).max(60),
+  kind:        z.enum(['percent', 'amount']),
+  value:       z.number().positive(),
+  optional:    z.boolean().default(false),
+  min_covers:  z.number().int().min(0).max(MIN_COVERS_MAX).default(0),
+  tax_rate_id: UUID.nullable().optional(),
+  // On the whole check, or only on the dishes and sections named; an amount
+  // once, or for each dish it counts.
+  basis:       z.enum(['check', 'dishes']).default('check'),
+  per:         z.enum(['check', 'dish']).default('check'),
+  item_ids:    z.array(UUID).max(CHARGE_ITEMS_MAX).default([]),
+  section_ids: z.array(UUID).max(CHARGE_SECTIONS_MAX).default([]),
+}).superRefine((c, ctx) => {
+  if (c.kind === 'percent' && c.value > CHARGE_PERCENT_MAX) ctx.addIssue({ code: 'custom', path: ['value'], message: 'A percent is at most ' + CHARGE_PERCENT_MAX })
+  if (c.kind === 'amount' && (!Number.isInteger(c.value) || c.value > CHARGE_AMOUNT_MAX)) {
+    ctx.addIssue({ code: 'custom', path: ['value'], message: 'An amount is whole pence, at most £1,000' })
+  }
+})
+const ChargeRulesBody = z.object({
+  rules: z.array(z.object({ charge_id: UUID, revenue_stream_id: UUID, order_type_id: UUID })).max(4000),
+})
+
 const StreamBody = z.object({
   name:                      z.string().trim().min(1).max(60),
   menu_ids:                  z.array(UUID).max(20).default([]),
@@ -203,6 +233,10 @@ const StreamBody = z.object({
   is_active:                 z.boolean().default(true),
   default_order_type_id:     UUID.nullable().optional(),
   order_types:               z.array(StreamOrderType).max(50).optional(),
+  // Migration 231: asking how many guests when a table opens (off, ask = can
+  // be skipped, must), and whether the stream's checks use courses.
+  covers:                    z.enum(['off', 'ask', 'must']).default('ask'),
+  courses:                   z.boolean().default(true),
 })
 
 const PrinterBody = z.object({
@@ -256,6 +290,10 @@ const DeviceSettings = z.object({
   // A till's own screen layout (migration 228): 'venue' (or absent) = the
   // venue's, 'standard' = the standard screen, or a pos_till_layouts id.
   till_layout:        z.union([z.enum(['venue', 'standard']), UUID]).optional(),
+  // A till's own covers and courses (migration 231): 'stream' (or absent) =
+  // the check's revenue stream's setting.
+  covers:             z.enum(['stream', 'off', 'ask', 'must']).optional(),
+  courses:            z.enum(['stream', 'on', 'off']).optional(),
   // A till's or kiosk's own counter order numbers (migration 217,
   // shared/pos/numbers.js): no two at a location may overlap.
   order_numbers:      z.object({
@@ -810,6 +848,8 @@ export default async function posSetupRoutes(app) {
         ...kdsFlows,
         kiosk_designs: kioskDesigns.map(d => ({ id: d.id, name: d.name, settings: normaliseDesign(d.settings), updated_at: d.updated_at, shared: d.shared })),
         till_layouts: tillLayouts,
+        // The company's charges with where each is on at this venue (migration 231).
+        charges: await loadCharges(tx, tenantId, venueId),
         recon_fields: await reconFields(tx, tenantId, venueId),
         gloriafood,
         till_url: deviceOrigin('terminal'),
@@ -928,8 +968,8 @@ export default async function posSetupRoutes(app) {
       await checkMenus(tx, req.tenantId, venueId, body.menu_ids)
       const [{ n }] = await tx`SELECT COALESCE(MAX(sort_order), -1)::int + 1 AS n FROM pos_revenue_streams WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}`
       const [rs] = await tx`
-        INSERT INTO pos_revenue_streams (tenant_id, venue_id, name, menu_ids, colour, sort_order, is_active)
-        VALUES (${req.tenantId}, ${venueId}, ${body.name}, ${body.menu_ids}, ${body.colour ?? null}, ${n}, ${body.is_active})
+        INSERT INTO pos_revenue_streams (tenant_id, venue_id, name, menu_ids, colour, sort_order, is_active, covers, courses)
+        VALUES (${req.tenantId}, ${venueId}, ${body.name}, ${body.menu_ids}, ${body.colour ?? null}, ${n}, ${body.is_active}, ${body.covers}, ${body.courses})
         RETURNING id`
       await writeStreamTypes(tx, req.tenantId, rs.id, body, true)
       return streamOut(tx, req.tenantId, venueId, rs.id)
@@ -947,7 +987,8 @@ export default async function posSetupRoutes(app) {
       await tx`
         UPDATE pos_revenue_streams
            SET name = ${body.name}, menu_ids = ${body.menu_ids},
-               colour = ${body.colour ?? null}, is_active = ${body.is_active}
+               colour = ${body.colour ?? null}, is_active = ${body.is_active},
+               covers = ${body.covers}, courses = ${body.courses}
          WHERE id = ${id} AND tenant_id = ${req.tenantId}`
       await writeStreamTypes(tx, req.tenantId, id, body, false)
       return { ...(await streamOut(tx, req.tenantId, rs.venue_id, id)), venue_id: rs.venue_id }
@@ -2080,6 +2121,159 @@ export default async function posSetupRoutes(app) {
     })
     tillsMayNeedConfig(req.tenantId, req.log)
     return { ok: true }
+  })
+
+  // ── Charges (migration 231, shared/pos/charges.js) ──────────────
+  // The company's list (a service charge, a packaging fee, a cup deposit...)
+  // and, per location, the matrix of revenue streams by order types saying
+  // which charges a check gets. Changes reach every till (inside the venue
+  // settings in their config), the sequencer and the venue hub.
+  async function cleanCharge(tx, tenantId, body) {
+    if (body.tax_rate_id) {
+      const [r] = await tx`SELECT id FROM tax_rates WHERE id = ${body.tax_rate_id} AND tenant_id = ${tenantId}`
+      if (!r) throw httpError(422, 'The charge\'s tax rate wasn\'t found')
+    }
+    const dishes = body.basis === 'dishes'
+    const itemIds = dishes ? [...new Set(body.item_ids)] : []
+    const sectionIds = dishes ? [...new Set(body.section_ids)] : []
+    if (dishes && !itemIds.length && !sectionIds.length) throw httpError(422, 'Pick the dishes or sections it is on')
+    if (itemIds.length) {
+      const rows = await tx`SELECT id FROM menu_items WHERE tenant_id = ${tenantId} AND id = ANY(${itemIds}::uuid[])`
+      if (rows.length !== itemIds.length) throw httpError(422, 'A dish it names wasn\'t found')
+    }
+    if (sectionIds.length) {
+      const rows = await tx`SELECT id FROM menu_sections WHERE tenant_id = ${tenantId} AND id = ANY(${sectionIds}::uuid[])`
+      if (rows.length !== sectionIds.length) throw httpError(422, 'A menu section it names wasn\'t found')
+    }
+    return {
+      name: body.name, kind: body.kind, value: body.kind === 'percent' ? Math.round(body.value * 100) / 100 : body.value,
+      optional: body.optional, min_covers: body.min_covers, tax_rate_id: body.tax_rate_id || null,
+      basis: body.basis, per: body.kind === 'amount' ? body.per : 'check', item_ids: itemIds, section_ids: sectionIds,
+    }
+  }
+
+  app.get('/charges', { preHandler: canSetupView }, async req => {
+    return withTenant(req.tenantId, tx => loadCharges(tx, req.tenantId))
+  })
+
+  // The menus' dishes and sections, for picking what a charge is on.
+  app.get('/charges/catalog', { preHandler: canSetupView }, async req => withTenant(req.tenantId, async tx => {
+    const [menus, sections, items] = await Promise.all([
+      tx`SELECT id, name FROM menus WHERE tenant_id = ${req.tenantId} ORDER BY name`,
+      tx`SELECT id, menu_id, title FROM menu_sections WHERE tenant_id = ${req.tenantId} ORDER BY menu_id, sort_order`,
+      tx`SELECT id, section_id, name FROM menu_items WHERE tenant_id = ${req.tenantId} ORDER BY section_id, sort_order`,
+    ])
+    const bySection = {}
+    for (const i of items) (bySection[i.section_id] ||= []).push({ id: i.id, name: i.name })
+    const byMenu = {}
+    for (const sct of sections) (byMenu[sct.menu_id] ||= []).push({ id: sct.id, title: sct.title, items: bySection[sct.id] || [] })
+    return { menus: menus.map(m => ({ id: m.id, name: m.name, sections: byMenu[m.id] || [] })) }
+  }))
+
+  app.post('/charges', { preHandler: canSetup }, async (req, reply) => {
+    const body = ChargeBody.parse(req.body)
+    const row = await withTenant(req.tenantId, async tx => {
+      const [{ n, count }] = await tx`SELECT COALESCE(MAX(sort_order), -1)::int + 1 AS n, count(*)::int AS count FROM pos_charges WHERE tenant_id = ${req.tenantId}`
+      if (count >= CHARGES_MAX) throw httpError(422, 'The list has as many charges as it can take (' + CHARGES_MAX + ')')
+      const c = await cleanCharge(tx, req.tenantId, body)
+      const [r] = await tx`
+        INSERT INTO pos_charges (tenant_id, name, kind, value, optional, min_covers, tax_rate_id, basis, per, item_ids, section_ids, sort_order)
+        VALUES (${req.tenantId}, ${c.name}, ${c.kind}, ${c.value}, ${c.optional}, ${c.min_covers}, ${c.tax_rate_id},
+                ${c.basis}, ${c.per}, ${c.item_ids}::uuid[], ${c.section_ids}::uuid[], ${n})
+        RETURNING id`
+      return (await loadCharges(tx, req.tenantId)).find(x => x.id === r.id)
+    })
+    tillsMayNeedConfig(req.tenantId, req.log)
+    return reply.code(201).send(row)
+  })
+
+  app.patch('/charges/:id', { preHandler: canSetup }, async req => {
+    const id = UUID.parse(req.params.id)
+    const body = ChargeBody.parse(req.body)
+    const row = await withTenant(req.tenantId, async tx => {
+      await ownRow(tx, 'pos_charges', req.tenantId, id, 'Charge')
+      const c = await cleanCharge(tx, req.tenantId, body)
+      await tx`
+        UPDATE pos_charges
+           SET name = ${c.name}, kind = ${c.kind}, value = ${c.value}, optional = ${c.optional}, min_covers = ${c.min_covers},
+               tax_rate_id = ${c.tax_rate_id}, basis = ${c.basis}, per = ${c.per},
+               item_ids = ${c.item_ids}::uuid[], section_ids = ${c.section_ids}::uuid[], updated_at = now()
+         WHERE id = ${id} AND tenant_id = ${req.tenantId}`
+      return (await loadCharges(tx, req.tenantId)).find(x => x.id === id)
+    })
+    tillsMayNeedConfig(req.tenantId, req.log)
+    return row
+  })
+
+  app.put('/charges/order', { preHandler: canSetup }, async req => {
+    const { ids } = OrderBody.parse(req.body)
+    await withTenant(req.tenantId, async tx => {
+      for (const [i, id] of ids.entries()) {
+        await tx`UPDATE pos_charges SET sort_order = ${i} WHERE id = ${id} AND tenant_id = ${req.tenantId}`
+      }
+    })
+    tillsMayNeedConfig(req.tenantId, req.log)
+    return { ok: true }
+  })
+
+  // Checks that had it keep it as it was (a charge is copied onto a check);
+  // every location's matrix loses it.
+  app.delete('/charges/:id', { preHandler: canSetup }, async req => {
+    const id = UUID.parse(req.params.id)
+    await withTenant(req.tenantId, async tx => {
+      await ownRow(tx, 'pos_charges', req.tenantId, id, 'Charge')
+      await tx`DELETE FROM pos_charges WHERE id = ${id} AND tenant_id = ${req.tenantId}`
+    })
+    tillsMayNeedConfig(req.tenantId, req.log)
+    return { ok: true }
+  })
+
+  // The location's matrix: [{ charge_id, revenue_stream_id, order_type_id }].
+  app.get('/venues/:venueId/charge-rules', { preHandler: canSetupView }, async req => {
+    const venueId = UUID.parse(req.params.venueId)
+    return withTenant(req.tenantId, async tx => {
+      await ownVenue(tx, req.tenantId, venueId)
+      return tx`SELECT charge_id, revenue_stream_id, order_type_id FROM pos_charge_rules
+                 WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}
+                 ORDER BY revenue_stream_id, order_type_id, charge_id`
+    })
+  })
+
+  // The whole matrix in one save: the charges, streams and order types must
+  // be the company's, the streams this location's.
+  app.put('/venues/:venueId/charge-rules', { preHandler: canSetup }, async req => {
+    const venueId = UUID.parse(req.params.venueId)
+    const { rules } = ChargeRulesBody.parse(req.body)
+    const seen = new Set()
+    const list = rules.filter(r => {
+      const k = r.charge_id + '|' + r.revenue_stream_id + '|' + r.order_type_id
+      if (seen.has(k)) return false
+      seen.add(k)
+      return true
+    })
+    const out = await withTenant(req.tenantId, async tx => {
+      await ownVenue(tx, req.tenantId, venueId)
+      const ids = key => [...new Set(list.map(r => r[key]))]
+      const [charges, streams, types] = await Promise.all([
+        tx`SELECT id FROM pos_charges WHERE tenant_id = ${req.tenantId} AND id = ANY(${ids('charge_id')}::uuid[])`,
+        tx`SELECT id FROM pos_revenue_streams WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId} AND id = ANY(${ids('revenue_stream_id')}::uuid[])`,
+        tx`SELECT id FROM order_types WHERE tenant_id = ${req.tenantId} AND id = ANY(${ids('order_type_id')}::uuid[])`,
+      ])
+      if (charges.length !== ids('charge_id').length) throw httpError(422, 'A charge wasn\'t found')
+      if (streams.length !== ids('revenue_stream_id').length) throw httpError(422, 'A revenue stream isn\'t this location\'s')
+      if (types.length !== ids('order_type_id').length) throw httpError(422, 'An order type wasn\'t found')
+      await tx`DELETE FROM pos_charge_rules WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}`
+      for (const r of list) {
+        await tx`
+          INSERT INTO pos_charge_rules (tenant_id, venue_id, charge_id, revenue_stream_id, order_type_id)
+          VALUES (${req.tenantId}, ${venueId}, ${r.charge_id}, ${r.revenue_stream_id}, ${r.order_type_id})`
+      }
+      return tx`SELECT charge_id, revenue_stream_id, order_type_id FROM pos_charge_rules
+                 WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}
+                 ORDER BY revenue_stream_id, order_type_id, charge_id`
+    })
+    configChanged(venueId)
+    return out
   })
 
   // ── Courses ─────────────────────────────────────────────────────

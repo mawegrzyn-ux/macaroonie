@@ -14,7 +14,10 @@ import { choiceZones } from '@shared/pos/tillLayout.js'
 import { discountList, fitsScope } from '@shared/pos/discounts.js'
 import { tillLayoutOf, lastReceiptCheck } from '../lib/tillLayout.js'
 import LayoutScreen from '../components/LayoutScreen.jsx'
-import { addItem, addChosen, needsChoices, streamOf, typeOf, missingDetails, refreshPromotions, sendCheck, comboStartFrom, copyOfLine } from '../lib/checkOps.js'
+import {
+  addItem, addChosen, needsChoices, streamOf, typeOf, missingDetails, refreshPromotions, sendCheck, comboStartFrom, copyOfLine,
+  coversMissing, seatCourseParts, addListCharge,
+} from '../lib/checkOps.js'
 import { cx, money, elapsed, useApproval, fillStyle } from '../components/ui.jsx'
 import { useTillNav } from '../components/TillMenu.jsx'
 import CheckPanel from '../components/CheckPanel.jsx'
@@ -87,12 +90,23 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
   const type = typeOf(config, check.order_type_id)
   const t = checkTotals(check)
   const missing = missingDetails(check, config)
-  // Required name / tent number: asked before the order goes to the kitchen or is paid.
+  // What the seat and course bar shows: the check's revenue stream may use
+  // no seats (covers off) or no courses (lib/checkOps.js).
+  const barParts = seatCourseParts(config, check.revenue_stream_id)
+  // Required name / tent number, and the number of guests at a table whose
+  // stream must have them: asked before the order goes to the kitchen or is paid.
   const needDetails = () => {
-    if (!missing.length) return false
-    toast('Enter ' + missing.map(m => (m === 'name' ? 'a customer name' : 'a tent number')).join(' and ') + ' first', 'bad')
-    setModal({ kind: 'type', start: 'details' })
-    return true
+    if (missing.length) {
+      toast('Enter ' + missing.map(m => (m === 'name' ? 'a customer name' : 'a tent number')).join(' and ') + ' first', 'bad')
+      setModal({ kind: 'type', start: 'details' })
+      return true
+    }
+    if (coversMissing(check, config)) {
+      toast('How many guests? This table needs them first', 'bad')
+      setModal({ kind: 'covers' })
+      return true
+    }
+    return false
   }
   const unsent = check.lines.filter(l => l.status === 'new').length
   const held = heldCourses(check)
@@ -283,6 +297,13 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
       case 'move': return setModal({ kind: 'move' })
       case 'merge': return setModal({ kind: 'merge' })
       case 'charges': return setModal({ kind: 'sc' })
+      case 'charge': {
+        // One charge from the company's list (Store tech > Charges): on, or
+        // back on when it was taken off.
+        const r = addListCharge(check, b.charge_id)
+        if (!r.ok) return toast(r.error, 'bad')
+        return toast(r.name + (r.already ? ' is on this order already' : r.restored ? ' is back on' : ' added'), r.already ? 'info' : 'ok')
+      }
       case 'offers': return (config.promotions || []).length ? setModal({ kind: 'offers' }) : toast('No offers are on', 'bad')
       case 'loyalty': return config.loyalty ? setModal({ kind: 'loyalty' }) : toast('Loyalty isn\'t switched on', 'bad')
       case 'open_item': return setModal({ kind: 'open_item' })
@@ -310,13 +331,13 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
         <>
           <div className="w-[42%] max-w-[480px] min-w-[320px] shrink-0">{panel}</div>
           <div className="flex-1 min-w-0">
-            <MenuPanel config={config} menus={shownMenus.shown} onPick={pick} onHold={item => setModal({ kind: 'sold_out', item })} seat={seat} setSeat={setSeat} course={course} setCourse={setCourse}
+            <MenuPanel config={config} menus={shownMenus.shown} onPick={pick} onHold={item => setModal({ kind: 'sold_out', item })} seat={seat} setSeat={setSeat} course={course} setCourse={setCourse} parts={barParts}
               covers={check.covers} onOpenItem={() => setModal({ kind: 'open_item' })} />
           </div>
         </>
       )}
 
-      {modal?.kind === 'item' && <ItemModal item={modal.item} config={config} defaults={{ seat: modal.seat ?? seat, course: modal.course ?? course, covers: check.covers }}
+      {modal?.kind === 'item' && <ItemModal item={modal.item} config={config} defaults={{ seat: modal.seat ?? seat, course: modal.course ?? course, covers: check.covers, parts: barParts }}
         initial={modal.initial || null} title={modal.title || null} onClose={close} onAdd={o => added(modal.item, o, modal.replace || null)} />}
       {modal?.kind === 'line' && (
         <LineModal check={check} line={check.lines.find(l => l.id === modal.line.id) || modal.line} config={config} onClose={close} initialMode={modal.initialMode || null}

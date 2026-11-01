@@ -5,7 +5,7 @@ import { ulid } from '@shared/pos/ids.js'
 import { priceItem, posTax, isActiveLine, lineGross, picksWithin } from '@shared/pos/pricing.js'
 import { combosWithItem, stepWithItem, comboOf } from '@shared/combos.js'
 import { configItem, dealItem, comboCtx, autoCombosFor, checkOffers } from '@shared/pos/offers.js'
-import { chargesForType } from '@shared/pos/charges.js'
+import { chargesWhere, chargeList, chargeFromList } from '@shared/pos/charges.js'
 import { dispatch, dispatchMany, getState, currentChecks, soldOutMap } from './store.js'
 
 // Offers, item choices and combo lookups live in shared/pos/offers.js (the
@@ -56,6 +56,39 @@ export function promptsFor(config, streamId, typeId) {
   return { ask_name: hit?.ask_name || 'off', ask_tent: hit?.ask_tent || 'off' }
 }
 
+/**
+ * Whether the till asks how many guests a check has (Store tech > Revenue
+ * streams, or the till's own choice in Store tech > Tills; migration 231):
+ * 'off' (never, and no seat numbers), 'ask' (when a table opens, and it can
+ * be skipped) or 'must' (when a table opens, no skipping; a table's check
+ * still without them asks again before Send and Pay).
+ */
+export function coversOf(config, streamId) {
+  const own = config?.device?.settings?.covers
+  if (own === 'off' || own === 'ask' || own === 'must') return own
+  const v = streamOf(config, streamId)?.covers
+  return v === 'off' || v === 'must' ? v : 'ask'
+}
+
+/** Whether the till uses courses for a stream's checks (the till's own choice first; migration 231). */
+export function coursesOn(config, streamId) {
+  const own = config?.device?.settings?.courses
+  if (own === 'on') return true
+  if (own === 'off') return false
+  return streamOf(config, streamId)?.courses !== false
+}
+
+/**
+ * What the seat and course bar shows for a check of this stream: 'both',
+ * 'seats', 'courses' or 'none' (want: what a till layout's zone asks for,
+ * shared/pos/tillLayout.js SEAT_PARTS).
+ */
+export function seatCourseParts(config, streamId, want = 'both') {
+  const seats = want !== 'courses' && coversOf(config, streamId) !== 'off'
+  const courses = want !== 'seats' && coursesOn(config, streamId) && (config?.courses || []).length > 0
+  return seats && courses ? 'both' : seats ? 'seats' : courses ? 'courses' : 'none'
+}
+
 /** Is the check at a table (table service)? Nobody there takes a tent number. */
 export const atTable = check => !!check?.table_id || check?.mode === 'table'
 
@@ -66,6 +99,11 @@ export const atTable = check => !!check?.table_id || check?.mode === 'table'
 export function checkPrompts(config, check, typeId = check?.order_type_id) {
   const p = promptsFor(config, check?.revenue_stream_id, typeId)
   return atTable(check) ? { ...p, ask_tent: 'off' } : p
+}
+
+/** A table's check whose stream must have covers (coversOf 'must') and hasn't them yet: asked before Send and Pay. */
+export function coversMissing(check, config) {
+  return atTable(check) && coversOf(config, check?.revenue_stream_id) === 'must' && !(Number(check?.covers) > 0)
 }
 
 /** Required details a check is still missing: ['name', 'tent']. */
@@ -92,12 +130,51 @@ export function rerateLines(check, config, changes) {
 }
 
 /**
- * The charges a check of this order type gets (Store tech > Order types;
- * shared/pos/charges.js), with each tax rate's % at this venue. A charge for
- * parties of N goes on now and counts once the check has N guests.
+ * The charges a check of this revenue stream and order type gets at this
+ * location (Store tech > Charges: the company's list and the location's
+ * matrix of streams by order types, migration 231; shared/pos/charges.js),
+ * with each tax rate's % at this venue. A charge for parties of N goes on
+ * now and counts once the check has N guests.
  */
-export function chargesFor(config, typeId) {
-  return chargesForType(typeOf(config, typeId), config?.venue?.id, config?.tax_rates || [])
+export function chargesFor(config, { streamId = null, typeId = null } = {}) {
+  return chargesWhere(config?.settings?.charges, { streamId, typeId }, config?.venue?.id, config?.tax_rates || [])
+}
+
+/** The company's charges, as the till can add them from its list (the Charges window, a till layout button). */
+export function listCharges(config) {
+  return chargeList(config?.settings?.charges)
+}
+
+/** One list charge as charge.added carries it (the sequencer checks it against the list). */
+export function listCharge(config, x) {
+  return { ...chargeFromList(x, config?.venue?.id, config?.tax_rates || []), list: true }
+}
+
+/** Names for chargeOnText(): { items: { id: name }, sections: { id: title } } from the till's menus. */
+export function chargeNames(config) {
+  const items = {}
+  for (const [id, it] of Object.entries(config?.items || {})) items[id] = it.name
+  const sections = {}
+  for (const m of config?.menus || []) for (const sec of m.sections || []) sections[sec.id] = sec.title
+  return { items, sections }
+}
+
+/**
+ * A charge from the company's list on a check (a till layout button, the
+ * Charges window): put back when it was taken off ({ restored: true }),
+ * nothing when it is on already ({ ok: true, already: true }), else added
+ * from the list. Every answer carries the charge's name.
+ */
+export function addListCharge(check, chargeId) {
+  const { config } = getState()
+  const own = (check.charges || []).find(x => x.id === chargeId)
+  if (own) {
+    if (own.removed) return { ...dispatch('charge.restored', { charge_id: chargeId }, { check_id: check.id }), name: own.name, restored: true }
+    return { ok: true, already: true, name: own.name }
+  }
+  const x = listCharges(config).find(y => y.id === chargeId)
+  if (!x) return { ok: false, error: 'This charge isn\'t on the till\'s list any more' }
+  return { ...dispatch('charge.added', { charge: listCharge(config, x) }, { check_id: check.id }), name: x.name }
 }
 
 /** Open a check. Returns { ok, checkId } or { ok: false, error }. */
@@ -108,7 +185,7 @@ export function openCheck({ mode, table_id = null, tab_name = null, covers = nul
   const checkId = ulid()
   const r = dispatch('check.opened', {
     mode, table_id, tab_name, covers, revenue_stream_id: streamId, order_type_id: typeId, tent: tent || null,
-    charges: chargesFor(config, typeId),
+    charges: chargesFor(config, { streamId, typeId }),
   }, { check_id: checkId })
   return r.ok ? { ok: true, checkId } : r
 }
@@ -201,7 +278,7 @@ export function addItem(check, item, selection = {}, opts = {}) {
     qty: Math.max(1, opts.qty || 1),
     unit_price: override ? opts.unit_price : priced.unit_price,
     modifiers: priced.modifiers, combo: priced.combo,
-    seat: opts.seat ?? null, course_id: courseFor(it, opts.course),
+    seat: opts.seat ?? null, course_id: coursesOn(config, check.revenue_stream_id) ? courseFor(it, opts.course) : null,
     note: opts.note || null, allergies: opts.allergies || [],
     vat_rate: tax.vat_rate, tax_rate_id: tax.tax_rate_id,
     revenue_stream_id: check.revenue_stream_id,
@@ -242,7 +319,7 @@ export function addOpenItem(check, { name, unit_price, qty = 1, course = null, a
   const tax = posTax(null, check, config)
   const line = {
     id: ulid(), item_id: null, section_id: null, name: name.trim().slice(0, 200), qty, unit_price,
-    modifiers: [], combo: null, seat: null, course_id: course && course !== 'none' ? course : null,
+    modifiers: [], combo: null, seat: null, course_id: course && course !== 'none' && coursesOn(config, check.revenue_stream_id) ? course : null,
     note: null, allergies: [],
     vat_rate: tax.vat_rate, tax_rate_id: tax.tax_rate_id,
     revenue_stream_id: check.revenue_stream_id, open_item: true, price_override: true,
