@@ -5018,7 +5018,7 @@ export default function Help() {
                 ['See and fill in an order', 'Purchasing', 'The venue\'s draft for a list: quantities, pars, last ordered, other suppliers. Quantities are packs (cases, bags), as on the Purchasing page. Nothing is sent until you place it.'],
                 ['Send an order for approval', 'Purchasing', 'For people without Purchasing approval: the card lists the lines and the day wanted from each supplier, and you can add a note for the manager.'],
                 ['See the orders waiting for approval', 'Any purchasing access', 'Who asked and when, the days wanted, each line with what was asked for, and drafts that were sent back with the reason.'],
-                ['Place an order', 'Purchasing approval', 'Your draft, or an order waiting for approval. The card lists each supplier with its delivery date (the day asked for, if any), how the order gets to them and the lines, and warns about rounded-up quantities, a missed cutoff or a small order.'],
+                ['Place an order', 'Purchasing approval', 'Your draft, or an order waiting for approval. The card lists each supplier with its delivery date (the day asked for, if any), how the order gets to them and the lines, and warns about rounded-up quantities or a small order. A day the supplier can\'t make (not one of their delivery days, or too late for their cutoff) is refused unless you say it was agreed with them; a line whose price was switched off has to be changed or taken off first.'],
                 ['Change, split or send back an order waiting for approval', 'Purchasing approval', 'Change quantities, move part of it to a second order for another day, or send it back with the reason.'],
                 ['Send, change, split or cancel a purchase order', 'Purchasing (send, date); Purchasing approval (quantities, split, cancel)', 'Email it, or mark it sent by printout, PDF, Excel or phone. Quantities can change while it is waiting to be sent; the date and notes until it is received. A split moves part of it to a second order for another day.'],
                 ['Book a delivery in', 'Purchasing', 'Say what was short or missing and the probe temperatures; everything else counts as arrived. This also saves the delivery check in Food safety.'],
@@ -5403,12 +5403,22 @@ export default function Help() {
             </P>
             <InfoBox type="tip">
               <strong>Import</strong> loads a whole price list from a CSV or Excel file (download the template
-              for the headings, including Product name): new items, suppliers and categories are added, existing prices updated.
-              Check file shows what would change first; rows with a problem are listed and skipped.
+              for the headings, including Product name, Minimum order and Order in steps of): new items, suppliers and
+              categories are added, existing prices updated. Minimum order and Order in steps of are in packs; left
+              blank they stay as they are. Check file shows what would change first; rows with a problem are listed and
+              skipped.
             </InfoBox>
             <P>
-              Deleting an item that has been ordered switches it off instead, so past orders keep it.
+              Deleting an item that has been ordered, or is on an order being filled in, switches it off instead, so
+              those orders keep it. A supplier price or a supplier that an open order uses (a draft with a quantity,
+              or one waiting for approval) can't be deleted: switch it off instead, and the order shows the line as
+              needing another price (see Placing an order).
               <strong> Categories</strong> group items on lists and orders; drag them into the order you want.
+            </P>
+            <P>
+              Changing a supplier price's pack size (by hand or by import) keeps the amount on open orders: 3 bags of
+              5 kg become 2 bags once the bag is 10 kg (never less than was asked for), fitted to the new minimum and
+              steps.
             </P>
 
             <H3>3. Order lists (Purchasing → Order lists)</H3>
@@ -5422,16 +5432,31 @@ export default function Help() {
             <H3>4. Placing an order (Purchasing → Order)</H3>
             <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
               <li>Pick the venue at the top, then tap a list (or <strong>Something else</strong> to search the whole inventory).</li>
-              <li>Use <strong>−</strong> / <strong>+</strong> or type a quantity. The pack you are ordering (Case, Box, Bag and its size) sits next to the quantity. <strong>Par</strong> sets the usual quantity; <strong>Fill to par</strong> does it for every empty line.</li>
+              <li>Use <strong>−</strong> / <strong>+</strong> or type a quantity. The pack you are ordering (Case, Box, Bag and its size) sits next to the quantity. Where the supplier has a minimum, the first <strong>+</strong> goes straight to it and <strong>−</strong> below it goes back to 0. <strong>Par</strong> sets the usual quantity; <strong>Fill to par</strong> does it for every empty line.</li>
               <li><strong>Show</strong> picks what else each line shows: the supplier, the price per pack, the last order (how many and when) and a <strong>Last quantity</strong> column at the end. All are off until you switch them on, and the choice is remembered on that device. Price only appears for people allowed to see prices.</li>
-              <li>To order an item from another supplier this time, tap its pack (it has a small arrow when there is another supplier). <strong>Add item</strong> adds anything from the inventory.</li>
-              <li>Group by <strong>Supplier</strong> to see each supplier's next delivery date and cutoff.</li>
-              <li>Tap <strong>Review &amp; place</strong>: one order per supplier, each with its delivery date and an optional note. To deliver on another day, tap one of <strong>Their delivery days</strong> (the supplier's next four) or tap the date to pick any day from the calendar. Once today's cutoff has passed, the first date offered is already the next delivery after it. Then <strong>Place</strong>.</li>
+              <li>To order an item from another supplier or another pack this time, tap its pack (it has a small arrow when there is another). The amount stays the same: each choice says what the quantity becomes, e.g. 3 × Bag 5 kg (15 kg) becomes 2 × Sack 10 kg (20 kg). <strong>Add item</strong> adds anything from the inventory.</li>
+              <li>Group by <strong>Supplier</strong> to see each supplier's next delivery date and when to order by for it.</li>
+              <li>Tap <strong>Review &amp; place</strong>: one order per supplier, each with its delivery date and an optional note. To deliver on another day, tap one of <strong>Their delivery days</strong> (the supplier's next four) or tap the date to pick any day from the calendar. Under the date it says when to order by for that day (e.g. order by 18:00 today). Then <strong>Place</strong>.</li>
             </ol>
             <P>
               Quantities save as you type, so a half-filled order is waiting as a <strong>Draft</strong> on the
               list's tile. Quantities below a supplier's minimum or step are rounded up when the order is placed.
               Staff see prices only if their role can view purchasing setup.
+            </P>
+            <DataTable
+              head={['The date picked', 'What happens']}
+              rows={[
+                ['A delivery day, in time', 'Says when to order by for it. Place as normal.'],
+                ['A day they don\'t deliver, or too late for it', 'Says why (e.g. "Too late for Tue 3 Nov: Fresh Direct\'s cutoff for it was 18:00 today"). Pick another day, or switch on Agreed with the supplier if you have arranged it with them, then place.'],
+                ['A day in the past', 'Can\'t be placed: pick another day.'],
+              ]}
+            />
+            <P>
+              Each line keeps the supplier price it was filled in on, even if another price becomes the usual one
+              later. If that price, its supplier or the item is switched off while the order waits, the line turns
+              red and says so, and the order can't be placed or sent for approval until it has{' '}
+              <strong>Pick another price</strong> (the amount is kept, as above) or <strong>Take it off</strong>.
+              It is never moved to another price or supplier by itself.
             </P>
 
             <H3>5. Deliveries (Purchasing → Deliveries)</H3>
@@ -5446,13 +5471,20 @@ export default function Help() {
             />
             <P>
               While an order waits under <strong>To send</strong>, someone with Purchasing approval can still
-              change it. <strong>Change quantities</strong> changes how many of each (0 takes a line off).{' '}
+              change it. <strong>Change quantities</strong> changes how many of each (0 takes a line off); a quantity
+              below the supplier's minimum or between their steps is rounded up, and the line says what it will
+              order.{' '}
               <strong>Add items</strong> lists everything that supplier sells you: search by name, tap the
               products to add (something already on the order can't be picked again: change its quantity
               instead), tap Done, set how many, then <strong>Save</strong>. Added products go on at today's price
               for the venue, rounded up to the supplier's minimum and steps. If you see prices, the total shows
               what the order comes to and what it was before. Once an order has been sent it can't change:
               cancel it and order again.
+            </P>
+            <P>
+              The delivery date can be moved until the delivery is booked in. A day the supplier doesn't deliver, or
+              one too late for their cutoff, asks first: tap <strong>Agreed with</strong> the supplier to move it
+              anyway, or keep the old date. A day in the past can't be picked.
             </P>
             <P>
               When a delivery arrives, open it and tap <strong>Book in delivery</strong>: for each line, how
@@ -5468,8 +5500,10 @@ export default function Help() {
               A role's <strong>Purchasing approval</strong> permission (Access → Roles) decides who can place
               orders. People who can order (Purchasing: Manage) but not approve fill in an order the same way,
               then tap <strong>Send for approval</strong> instead of Place order: they pick the day they'd like
-              from each supplier and can leave a note for the manager. Nothing reaches the suppliers yet. To make
-              someone request only, set their role's Purchasing approval to None.
+              from each supplier and can leave a note for the manager. A day the supplier can't make is only a note
+              here (the manager agrees it with them or picks another day when placing it); a day in the past can't
+              be asked for. Nothing reaches the suppliers yet. To make someone request only, set their role's
+              Purchasing approval to None.
             </P>
             <DataTable
               head={['Who', 'What they can do with an order waiting for approval']}
@@ -5492,6 +5526,9 @@ export default function Help() {
               delivery day: tap <strong>Move</strong> (or All) on the lines that should come later, then pick the
               day from the supplier's delivery days or the calendar. It must be a different day from the first
               order's, and something has to stay on the first one (to move everything, change its delivery day).
+              The new day is checked like placing (Agreed with the supplier for a day they can't make), and both
+              parts of each line must still meet the supplier's minimum and steps: with a minimum of 20, a line of 30
+              can only move all of it or none, and the line says why.
             </P>
             <DataTable
               head={['Split', 'What happens']}

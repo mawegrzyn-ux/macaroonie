@@ -3155,6 +3155,54 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               (<Mono>loadItemQuotes()</Mono>). A draft line can pin another quote (<Mono>quote_id</Mono>);
               <Mono> resolveQuotes()</Mono> does the rest.
             </P>
+            <H3>Lines stay on their price (migration 232)</H3>
+            <P>
+              A line with a quantity on a draft or requested order is always pinned to a quote:{' '}
+              <Mono>PUT /orders/:id/lines</Mono> stores the <Mono>quote_id</Mono> given, else the one the line
+              already has, else the venue's usual one at that moment (migration 232 pinned lines saved before
+              this the same way: the venue's preferred quote, the company's, then the cheapest per base unit).
+              A later change of preferred quote never moves it. When the pinned quote, its supplier or the item
+              is switched off, <Mono>loadOrder()</Mono> gives the line{' '}
+              <Mono>{"gone: { why: 'price_off' | 'supplier_off', quote } | { why: 'item_off' }"}</Mono> (the old
+              quote from <Mono>loadQuotesById()</Mono>, any state) and <Mono>quote: null</Mono>;{' '}
+              <Mono>orderLines()</Mono> (submit, request, split) refuses with 422 code{' '}
+              <Mono>order_lines</Mono> and <Mono>gone_items</Mono> / <Mono>off_items</Mono> /{' '}
+              <Mono>missing_items</Mono>. The order is never placed on another price by itself. Deleting a
+              quote, or a supplier with quotes, that an open order has a quantity on is a 409 code{' '}
+              <Mono>on_open_order</Mono> naming the venues (<Mono>openOrderVenues()</Mono>); an item on any
+              order (a PO line, or an open line with a quantity) is switched off instead (<Mono>{'{ archived: true }'}</Mono>).
+            </P>
+            <P>
+              Changing a quote's pack size (<Mono>PATCH /inventory/quotes/:id</Mono>, or the import matching a
+              quote by supplier code) runs <Mono>keepOpenAmounts()</Mono>: open lines on it, and requests'{' '}
+              <Mono>requested_lines</Mono>, are converted with <Mono>convertQty()</Mono> (the same amount or
+              more in whole new packs, then <Mono>fitQty()</Mono> to the new minimum and steps); the import
+              reports <Mono>order_lines_converted</Mono>. The order form does the same when a line is switched to
+              another supplier or pack (<Mono>setQuote()</Mono>), and the switch window says what the quantity
+              becomes. The import takes <Mono>Minimum order</Mono> and <Mono>Order in steps of</Mono> columns
+              (aliases min qty, minimum, step, steps, order multiple; in packs, above 0; blank keeps the stored
+              value). The quantity stepper (<Mono>QtyStepper</Mono> with <Mono>min</Mono>) goes from 0 straight
+              to the minimum and below it back to 0.
+            </P>
+            <H3>Delivery days</H3>
+            <P>
+              One rule, <Mono>deliveryDayProblem(settings, date, now, name)</Mono> in{' '}
+              <Mono>shared/procurement.js</Mono>, used by the screens and the API: <Mono>past</Mono> (before the
+              venue's today), <Mono>not_delivery_day</Mono> (the supplier lists delivery days and this isn't
+              one) or <Mono>late</Mono> (the order deadline has passed: <Mono>orderDeadline()</Mono> = the date
+              minus <Mono>lead_days</Mono>, at the cutoff, or the end of that day without one; at the cutoff
+              minute it has passed). <Mono>deadlineText()</Mono> words it ("order by 18:00 today"); a shared test
+              checks that <Mono>nextDeliveryDate()</Mono> is always the first day from today with no problem.
+              The API's <Mono>checkDeliveryDay()</Mono> (<Mono>routes/purchasing.js</Mono>) runs on submit
+              (each supplier's day, a request's wanted day included), <Mono>PATCH /pos/:id</Mono> (a new date),
+              and both splits: a past day is always refused; the other two pass when the body says{' '}
+              <Mono>agreed: true</Mono> (per supplier in <Mono>suppliers</Mono>, at the top level on PO routes),
+              else 422 code <Mono>delivery_day</Mono> with <Mono>problem</Mono>, <Mono>supplier_id</Mono>,{' '}
+              <Mono>delivery_date</Mono>. <Mono>/request</Mono> only refuses past days (the approver decides).
+              Orders and PO detail carry <Mono>timezone</Mono> (and POs <Mono>cutoff_time</Mono> /{' '}
+              <Mono>lead_days</Mono>) so the admin's <Mono>DayCheck</Mono> can show the same result before
+              anything is sent; Pepper's place, split and change tools take <Mono>agreed_with_supplier</Mono>.
+            </P>
             <H3>Placing an order</H3>
             <P>
               <Mono>POST /orders</Mono> reuses an open draft for the same venue and list. Lines save through{' '}
@@ -3202,7 +3250,10 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>{'{ lines: [{ item_id, qty }], suppliers: { [supplier_id]: { delivery_date, notes? } } }'}</Mono>,
               a day for every supplier of a moved line, not past and not the first order's day (its{' '}
               <Mono>supplier_options</Mono> date, else <Mono>next_delivery</Mono>). Refuses moving more than a
-              line holds or the whole order. The moved quantities become a new <Mono>requested</Mono> order
+              line holds or the whole order, and (<Mono>splitProblem()</Mono>, 422 code{' '}
+              <Mono>split_qty</Mono>) a move that would leave either part of a line below the quote's minimum
+              or between its steps. The new days go through <Mono>checkDeliveryDay()</Mono>. The moved
+              quantities become a new <Mono>requested</Mono> order
               (same list, notes, <Mono>requested_by</Mono> / <Mono>_at</Mono>, <Mono>split_from</Mono>); both
               orders' <Mono>requested_lines</Mono> are split the same way. <Mono>POST /pos/:id/split</Mono>{' '}
               (<Mono>to_send</Mono> or <Mono>sent</Mono>; approval): <Mono>{'{ lines: [{ id, qty }], delivery_date }'}</Mono>{' '}
@@ -3230,7 +3281,10 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <P>
               <Mono>PUT /pos/:id/lines</Mono> (approval; <Mono>to_send</Mono> only, else 409):{' '}
               <Mono>{'{ lines: [{ id, qty }], add: [{ quote_id, qty }] }'}</Mono>. <Mono>lines</Mono> sets
-              quantities (0 deletes the line). <Mono>add</Mono> takes only active prices of active suppliers
+              quantities (0 deletes the line; a changed one is stored as <Mono>fitQty()</Mono> against the
+              quote's minimum and steps today, which <Mono>loadPoLines()</Mono> returns as{' '}
+              <Mono>min_qty</Mono> / <Mono>order_multiple</Mono> only while the quote is still for the line's
+              pack, else null; an unchanged quantity is left alone). <Mono>add</Mono> takes only active prices of active suppliers
               (<Mono>loadItemQuotes()</Mono>) from the PO's own supplier (422 otherwise, also for another
               tenant's or a switched-off price) and refuses an item switched off in the inventory (422). A new
               line copies the item and the quote like <Mono>createPurchaseOrder()</Mono> does (name, category,
@@ -6212,14 +6266,14 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['add_supplier / update_supplier', 'setup manage', 'POST, PATCH /suppliers, PUT /suppliers/:id/venues', 'Days as names; a venue setting is merged into the full PUT list (the route replaces all)'],
                 ['create_order_list / update_order_list / set_pars', 'setup manage', 'POST, PATCH /lists, PUT /lists/:id/venues|items|pars', 'Items by name or code, every unknown name in one error; pars in packs (company-choice quote) or g/kg/ml/cl/l/each, stored in base units'],
                 ['import_price_list', 'setup manage', 'POST /inventory/import (dry_run on the card)', 'rows (up to 100 per call, read by the model from a PDF, photo or email; a longer list is one call and one card per 100) become a CSV with the template headings; attached_file is a text/CSV ai_attachments row of this conversation and this user (chat only). All rows bad = refused'],
-                ['update_order', 'purchasing or approve manage', 'PUT /orders/:id/lines', 'planOrder(): the venue\'s draft, or order_id (orderVenue(), openOrder()); lines (on the order by code/name, else GET /venues/:id/catalog), supplier/pack switch (quote_id sent only then), fill_to_par (packsToPar), clear_all; only changed lines are sent. assertCanEdit(): a request waiting for approval only for an approver'],
+                ['update_order', 'purchasing or approve manage', 'PUT /orders/:id/lines', 'planOrder(): the venue\'s draft, or order_id (orderVenue(), openOrder()); lines (on the order by code/name, else GET /venues/:id/catalog), supplier/pack switch (a quantity left out converts with convertQty() and the card shows the amount before and after), fill_to_par (packsToPar), clear_all; only changed lines are sent, each with the quote_id the card shows (the API pins it). Lines whose price, supplier or item was switched off are listed under Can\'t be ordered yet. assertCanEdit(): a request waiting for approval only for an approver'],
                 ['request_order', 'purchasing manage', 'PUT /orders/:id/lines, POST /orders/:id/request', 'Card per supplier: the day wanted (deliveries[].date, else "next delivery day when placed": only given days are stored), lines, note for the manager'],
                 ['order_requests', 'any view', 'GET /orders?status=requested|draft, /orders/:id', 'Waiting orders (up to 15 in full: lines with asked_for), sent-back drafts with the reason, you_can_approve. Also a day_briefing part (orders_to_approve)'],
                 ['send_back_order', 'approve manage', 'POST /orders/:id/return', 'order_id + reason'],
-                ['split_order', 'approve manage', 'POST /pos/:id/split | /orders/:id/split', 'po or order_id; lines (item, packs) to move; delivery_date (deliveries[] per supplier for a request); splitPlan() refuses the same day, a past day, more than a line holds and the whole order; the card warns when the supplier already has the PO'],
-                ['place_order', 'approve manage (requirePlace(): else "use request_order")', 'PUT /orders/:id/lines, POST /orders/:id/submit', 'The draft, or order_id for a request. Card per supplier: delivery date (deliveries[].date, else the day the request asked for, "(as asked)", else next delivery), how it is sent, lines at fitQty(); warns on rounding, minimum order, a missed cutoff, a date off the delivery days, no email address. Only overrides and notes are sent, so the route still picks the date at run time. The card pins planned_delivery { supplierId: date } for suppliers without a date given; run() refuses (409) when a supplier\'s first delivery day has moved since (a cutoff passed), so the order is never placed for a day the card didn\'t show'],
+                ['split_order', 'approve manage', 'POST /pos/:id/split | /orders/:id/split', 'po or order_id; lines (item, packs) to move; delivery_date (deliveries[] per supplier for a request); splitPlan() refuses the same day, more than a line holds, the whole order and a split splitProblem() refuses; dayCheck() refuses a past day, and a day the supplier can\'t make unless agreed_with_supplier (top level, or per supplier in deliveries); the card warns when the supplier already has the PO'],
+                ['place_order', 'approve manage (requirePlace(): else "use request_order")', 'PUT /orders/:id/lines, POST /orders/:id/submit', 'The draft, or order_id for a request. Card per supplier: delivery date (deliveries[].date, else the day the request asked for, "(as asked)", else next delivery), how it is sent, lines at fitQty(); warns on rounding, minimum order, a missed cutoff, no email address; dayCheck() (deliveryDayProblem()) refuses a past day, and a day off the delivery days or past its order deadline unless deliveries[].agreed_with_supplier (then a card warning and agreed: true on submit); lines whose price was switched off refuse (lineWarnings()). Only overrides and notes are sent, so the route still picks the date at run time. The card pins planned_delivery { supplierId: date } for suppliers without a date given; run() refuses (409) when a supplier\'s first delivery day has moved since (a cutoff passed), so the order is never placed for a day the card didn\'t show'],
                 ['send_purchase_order', 'purchasing or approve manage', 'POST /pos/:id/send | /mark-sent', 'email needs an address (resend allowed, warned); other ways need To send'],
-                ['change_purchase_order', 'purchasing or approve manage; lines and add: approve', 'PATCH /pos/:id, PUT /pos/:id/lines', 'Lines and add only while To send; add only from the PO\'s supplier (GET /venues/:id/catalog?supplier_id=); a product already on the order tops its line up, and the card says so; an empty order is refused'],
+                ['change_purchase_order', 'purchasing or approve manage; lines and add: approve', 'PATCH /pos/:id, PUT /pos/:id/lines', 'Lines and add only while To send; add only from the PO\'s supplier (GET /venues/:id/catalog?supplier_id=); a product already on the order tops its line up, and the card says so; changed quantities show fitQty() (the API rounds them the same way); a new delivery_date goes through dayCheck() (agreed_with_supplier); an empty order is refused'],
                 ['cancel_purchase_order', 'approve manage', 'POST /pos/:id/cancel', 'Warns to tell the supplier when already sent'],
                 ['receive_delivery', 'purchasing or approve manage', 'POST /pos/:id/receive', 'Lines not named arrived as ordered (or keep what an earlier booking-in recorded); chilled/frozen temperature asked for when such goods arrived; writes fs_delivery_checks'],
               ]}

@@ -59,7 +59,8 @@ import {
   UNITS, PO_STATUSES, RECEIVE_STATUSES, DAY_LABELS, DELIVERY_TEMP_MAX,
   packBaseQty, packLabel, fmtNum, formatBase, perUnitLabel, unitPrice, quotePrice, chooseQuote,
   fitQty, qtyProblem, packsToPar, lineAmounts, orderTotals, supplierForVenue, nextDeliveryDate,
-  minutesToCutoff, deliveryTempOk, receiveStatusFor, poNumberLabel, weekdayOf,
+  minutesToCutoff, deliveryTempOk, receiveStatusFor, poNumberLabel, convertQty, splitProblem,
+  deliveryDayProblem, deadlineText,
 } from '../../../../shared/procurement.js'
 import { DateStr, TimeStr, localParts, longDate, pickByName } from './util.js'
 
@@ -538,11 +539,31 @@ async function supplierInfo(ctx, venue, ids) {
   }))
 }
 
-function cutoffText(s) {
-  if (!s.cutoff_time) return null
-  return s.minutes_to_cutoff > 0
-    ? 'order by ' + hhmm(s.cutoff_time) + ' today'
-    : 'today\'s ' + hhmm(s.cutoff_time) + ' cutoff has passed'
+/**
+ * Why a line with a quantity can't be ordered as it is (loadOrder()'s
+ * `gone`): its price or supplier was switched off, or the item was.
+ */
+function goneText(i) {
+  if (i.gone.why === 'item_off') return 'switched off in the inventory: set quantity 0 to take it off the order'
+  const q = i.gone.quote
+  return (i.gone.why === 'supplier_off' ? q.supplier_name + ' was switched off' : q.supplier_name + '\'s price for ' + q.pack_label + ' was switched off') +
+    ': give another supplier (or pack) for it, or quantity 0'
+}
+
+/**
+ * A delivery day a supplier can't make (deliveryDayProblem()): a past day
+ * is refused; a day they don't deliver, or past its order deadline, needs
+ * agreed_with_supplier (then a warning for the card). Returns the warning
+ * or null.
+ */
+function dayCheck(s, date, now, agreed, name = s.name) {
+  const p = deliveryDayProblem(s, date, now, name)
+  if (!p) return null
+  if (p.code === 'past') throw new ToolError(p.message + '.', 422)
+  if (!agreed) {
+    throw new ToolError(p.message + '. Pick another day, or set agreed_with_supplier if ' + name + ' agreed to it.', 422)
+  }
+  return 'Agreed with ' + name + ': ' + p.message + '.'
 }
 
 /** The venue of an order named by order_id, else input.venue_id. */
@@ -599,8 +620,9 @@ function orderView(order, venue, sup, onlyQty) {
       ...(i.category_name ? { category: i.category_name } : {}),
       ...(i.on_list ? {} : { not_on_list: true }),
       ...(i.is_active === false ? { switched_off: true } : {}),
-      supplier: i.quote ? i.quote.supplier_name : 'no supplier price',
-      ...(i.quote ? { pack: i.quote.pack_label } : {}),
+      supplier: i.quote ? i.quote.supplier_name : i.gone?.quote ? i.gone.quote.supplier_name + ' (no longer offered)' : 'no supplier price',
+      ...(i.quote ? { pack: i.quote.pack_label } : i.gone?.quote ? { pack: i.gone.quote.pack_label } : {}),
+      ...(i.gone ? { problem: goneText(i) } : {}),
       quantity: i.qty,
       ...(i.requested_qty != null && order.status === 'requested' && i.requested_qty !== i.qty ? { asked_for: i.requested_qty } : {}),
       ...(i.par_packs != null ? { par: i.par_packs } : {}),
@@ -614,7 +636,7 @@ function orderView(order, venue, sup, onlyQty) {
     suppliers: Object.values(sup).map(s => ({
       supplier: s.name,
       next_delivery: longDate(s.next_delivery),
-      ...(s.cutoff_time ? { cutoff: cutoffText(s) } : {}),
+      for_it: deadlineText(s, s.next_delivery, localParts(new Date(), venue.timezone)),
       orders_go_by: sendText(s),
       ...(order.show_prices && s.min_order ? { minimum_order: money(s.min_order, cur) } : {}),
     })),
@@ -630,7 +652,8 @@ const OrderTarget = {
 
 const OrderLine = z.object({
   item:     z.string().min(1).max(200),
-  quantity: Qty.describe('Packs (cases, bags ...) of the supplier\'s pack; 0 takes it off'),
+  quantity: Qty.optional().describe('Packs (cases, bags ...) of the supplier\'s pack; 0 takes it off. Leave it out ' +
+    'when changing supplier or pack to keep the same amount in the new packs (3 x 5 kg becomes 2 x 10 kg)'),
   supplier: z.string().max(200).optional().describe('Order it from this supplier instead'),
   pack:     z.string().max(100).optional().describe('Which pack, when the supplier has several'),
 })
@@ -660,27 +683,43 @@ async function planOrder(ctx, input) {
       eff.set(it.item_id, e)
       order.items.push(it)
     }
+    // The pack the quantity is in now: the line's price, or the one that
+    // was switched off.
+    const from = e.quote || e.item.gone?.quote || null
     if (l.supplier || l.pack) {
       const q = pickQuote(e.item.name, e.item.quotes || [], l.supplier, l.pack)
-      if (q.id !== e.quote?.id) { e.quote = q; e.switched = true }
+      if (q.id !== e.quote?.id) { e.quote = q; e.switched = true; e.from = from }
     }
-    e.qty = l.quantity
+    if (l.quantity !== undefined) e.qty = l.quantity
+    else if (e.switched) e.qty = from ? convertQty(e.qty, from, e.quote) : e.qty
+    else throw new ToolError('Give a quantity for ' + e.item.name + '.', 422)
   }
   const all = [...eff.values()]
+  // A line with a quantity is saved on the price the card shows (the API
+  // pins it), so nothing moves between the card and Confirm.
   const changes = all.filter(e => e.qty !== e.was || e.switched || (e.added && e.qty > 0))
-    .map(e => ({ item_id: e.item.item_id, qty: e.qty, ...(e.switched ? { quote_id: e.quote.id } : {}) }))
+    .map(e => ({ item_id: e.item.item_id, qty: e.qty, ...(e.quote && (e.switched || e.qty > 0) ? { quote_id: e.quote.id } : {}) }))
   const lines = all.filter(e => e.qty > 0)
-  const noSupplier = lines.filter(e => !e.quote).map(e => e.item.name)
+  const gone = lines.filter(e => !e.quote && e.item.gone?.quote).map(e => e.item.name)
+  const off = lines.filter(e => e.item.gone?.why === 'item_off').map(e => e.item.name)
+  const noSupplier = lines.filter(e => !e.quote && !e.item.gone?.quote).map(e => e.item.name)
   const sup = await supplierInfo(ctx, venue, [...new Set(lines.filter(e => e.quote).map(e => e.quote.supplier_id))])
-  return { venue, order, all, changes, lines, noSupplier, sup }
+  return { venue, order, all, changes, lines, gone, off, noSupplier, sup }
 }
+
+/** "15 kg" for a quantity of packs of a quote. */
+const amountOf = (qty, quote, baseUnit) => formatBase(qty * Number(quote?.pack_base_qty || 0), baseUnit)
 
 function changeLine(e, prices, cur) {
   const what = e.quote ? ' (' + e.quote.supplier_name + ', ' + e.quote.pack_label + ')' : ''
   if (e.added || e.was === 0) return e.item.name + ': ' + fmtNum(e.qty) + what + (e.item.on_list ? '' : ', not on the list')
   if (e.qty === 0) return e.item.name + ': ' + fmtNum(e.was) + ' to 0 (off the order)'
   const price = prices && e.quote ? ' ' + money(lineAmounts({ price: e.quote.price, qty: e.qty }).net, cur) : ''
-  return e.item.name + ': ' + (e.qty !== e.was ? fmtNum(e.was) + ' to ' : '') + fmtNum(e.qty) + what + (e.switched ? ', new supplier' : '') + price
+  // Another supplier or pack: the amount before and after, in the item's unit.
+  const amounts = e.switched && e.from && e.quote && Math.abs(Number(e.from.pack_base_qty) - Number(e.quote.pack_base_qty)) > 1e-9
+    ? ' (' + amountOf(e.was, e.from, e.item.base_unit) + ' before, ' + amountOf(e.qty, e.quote, e.item.base_unit) + ' now)'
+    : ''
+  return e.item.name + ': ' + (e.qty !== e.was ? fmtNum(e.was) + ' to ' : '') + fmtNum(e.qty) + what + (e.switched ? ', new supplier' : '') + amounts + price
 }
 
 /**
@@ -690,6 +729,7 @@ function changeLine(e, prices, cur) {
  */
 function orderGroups(plan, deliveries = []) {
   const { lines, sup, order, venue } = plan
+  const now = localParts(new Date(), venue.timezone)
   const asked = order.status === 'requested' ? order.supplier_options || {} : {}
   const ids = [...new Set(lines.filter(e => e.quote).map(e => e.quote.supplier_id))]
   const given = new Map()
@@ -703,12 +743,16 @@ function orderGroups(plan, deliveries = []) {
     const wanted = asked[id]?.delivery_date || null
     const date = d?.date || wanted || s.next_delivery
     if (date < order.today) throw new ToolError('The delivery date for ' + s.name + ' (' + longDate(date) + ') is in the past.', 422)
+    // A day the supplier doesn't deliver, or past its order deadline (a
+    // request's day may have gone past it since): placing it needs
+    // agreed_with_supplier (dayCheck()).
+    const problem = deliveryDayProblem(s, date, now, s.name)
     const gl = lines.filter(e => e.quote?.supplier_id === id).map(e => ({ ...e, fitted: fitQty(e.qty, e.quote) }))
     const totals = order.show_prices
       ? orderTotals(gl.map(e => ({ price: e.quote.price, qty: e.fitted, vat_rate: e.quote.vat_rate })))
       : null
     return {
-      id, s, date, override: !!(d?.date || wanted), given: !!d?.date, wanted,
+      id, s, date, override: !!(d?.date || wanted), given: !!d?.date, wanted, problem, agreed: !!d?.agreed_with_supplier, now,
       notes: d?.notes ?? asked[id]?.notes ?? null, lines: gl, totals, cur: venue.currency,
     }
   })
@@ -1521,7 +1565,7 @@ export const purchasingTools = [
           ...p.all.filter(e => changed.has(e.item.item_id)).map(e => changeLine(e, prices, p.venue.currency)),
           plural(p.lines.length, 'line') + ' with a quantity' + (prices ? ', ' + money(subtotal, p.venue.currency) + ' ex VAT' : ''),
         ],
-        ...(p.noSupplier.length ? { warningTitle: 'No supplier price', warnings: [p.noSupplier.join(', ') + ' can\'t be ordered until they have a supplier price.'] } : {}),
+        ...(lineWarnings(p).length ? { warningTitle: 'Can\'t be ordered yet', warnings: lineWarnings(p) } : {}),
         confirmLabel: p.order.status === 'requested' ? 'Save changes' : 'Save draft',
       }
     },
@@ -1556,6 +1600,8 @@ export const purchasingTools = [
         supplier: z.string().min(1).max(200),
         date:     DateStr.optional().describe('Delivery date for this supplier\'s order'),
         notes:    z.string().max(2000).optional().describe('Note printed on this supplier\'s order'),
+        agreed_with_supplier: z.boolean().optional().describe('The supplier agreed to this day although they don\'t ' +
+          'deliver on it or its order cutoff has passed. Only when the person says so.'),
       })).max(30).optional(),
       planned_delivery: z.record(z.string().uuid(), DateStr).optional().describe('Filled in by the confirm card: leave it out'),
     }),
@@ -1583,9 +1629,8 @@ export const purchasingTools = [
         if (prices && g.s.min_order && g.totals.subtotal < g.s.min_order) {
           warnings.push(g.s.name + '\'s minimum order is ' + money(g.s.min_order, cur) + '; this is ' + money(g.totals.subtotal, cur) + '.')
         }
-        if (g.override && g.s.delivery_days?.length && !g.s.delivery_days.includes(weekdayOf(g.date))) {
-          warnings.push(g.s.name + ' doesn\'t usually deliver on ' + DAY_LABELS[weekdayOf(g.date)] + 's (' + daysText(g.s.delivery_days) + ').')
-        }
+        const agreedNote = dayCheck(g.s, g.date, g.now, g.agreed)
+        if (agreedNote) warnings.push(agreedNote)
         if (!g.override && g.s.cutoff_time && g.s.minutes_to_cutoff != null && g.s.minutes_to_cutoff <= 0) {
           warnings.push('Today\'s ' + hhmm(g.s.cutoff_time) + ' cutoff for ' + g.s.name + ' has passed, so its first delivery is ' + longDate(g.date) + '.')
         }
@@ -1603,6 +1648,7 @@ export const purchasingTools = [
       await requirePlace(ctx)
       const p = await planOrder(ctx, input)
       const groups = placeChecks(p, input)
+      for (const g of groups) dayCheck(g.s, g.date, g.now, g.agreed)
       for (const g of groups) {
         const was = input.planned_delivery?.[g.id]
         if (!g.override && was && was !== g.date) {
@@ -1614,7 +1660,10 @@ export const purchasingTools = [
         if (p.changes.length) await callApi(ctx, 'PUT', '/api/purchasing/orders/' + p.order.id + '/lines', { body: { lines: p.changes } })
         const suppliers = {}
         for (const g of groups) {
-          if (g.override || g.notes) suppliers[g.id] = { ...(g.override ? { delivery_date: g.date } : {}), ...(g.notes ? { notes: g.notes } : {}) }
+          const agreed = !!(g.problem && g.agreed)
+          if (g.override || g.notes || agreed) {
+            suppliers[g.id] = { ...(g.override ? { delivery_date: g.date } : {}), ...(g.notes ? { notes: g.notes } : {}), ...(agreed ? { agreed } : {}) }
+          }
         }
         const res = await callApi(ctx, 'POST', '/api/purchasing/orders/' + p.order.id + '/submit', { body: { suppliers } })
         const byId = new Map(res.results.map(r => [r.id, r]))
@@ -1662,14 +1711,16 @@ export const purchasingTools = [
       const cur = p.venue.currency
       const prices = p.order.show_prices
       const lines = [p.venue.name + ', ' + (p.order.list_name || 'items on no list') + ' (nothing goes to suppliers until it is approved)']
+      const warnings = []
       for (const g of groups) {
         lines.push(g.s.name + ': ' + (g.given ? 'wanted ' + longDate(g.date) : 'next delivery day when placed (' + longDate(g.date) + ' today)') +
           (prices ? ', ' + money(g.totals.subtotal, cur) + ' ex VAT' : ''))
         for (const e of g.lines) lines.push('  ' + fmtNum(e.qty) + ' x ' + e.item.name + ' (' + e.quote.pack_label + ')')
         if (g.notes) lines.push('  Note: ' + g.notes)
+        if (g.problem) warnings.push(g.problem.message + ': the manager agrees it with ' + g.s.name + ' or picks another day when placing it.')
       }
       if (input.note) lines.push('For the manager: ' + input.note)
-      return { title: 'Send this order for approval?', lines, confirmLabel: 'Send for approval' }
+      return { title: 'Send this order for approval?', lines, ...(warnings.length ? { warningTitle: 'Check', warnings } : {}), confirmLabel: 'Send for approval' }
     },
     async run(ctx, input) {
       await requireOrder(ctx)
@@ -1782,7 +1833,13 @@ export const purchasingTools = [
       order_id:      Id.optional().describe('An order waiting for approval'),
       lines:         z.array(z.object({ item: z.string().min(1).max(200), quantity: z.number().positive().max(100000) })).min(1).max(300),
       delivery_date: DateStr.optional().describe('Day for the second order'),
-      deliveries:    z.array(z.object({ supplier: z.string().min(1).max(200), date: DateStr })).max(30).optional(),
+      deliveries:    z.array(z.object({
+        supplier: z.string().min(1).max(200),
+        date:     DateStr,
+        agreed_with_supplier: z.boolean().optional(),
+      })).max(30).optional(),
+      agreed_with_supplier: z.boolean().optional().describe('The supplier agreed to the second order\'s day although they ' +
+        'don\'t deliver on it or its order cutoff has passed. Only when the person says so.'),
     }),
     confirm: true,
     async describe(ctx, input) {
@@ -1796,7 +1853,7 @@ export const purchasingTools = [
       return audited(ctx, 'split_order', input, async () => {
         if (p.kind === 'po') {
           const res = await callApi(ctx, 'POST', '/api/purchasing/pos/' + p.d.id + '/split', {
-            body: { lines: p.moves.map(m => ({ id: m.line.id, qty: m.qty })), delivery_date: p.date },
+            body: { lines: p.moves.map(m => ({ id: m.line.id, qty: m.qty })), delivery_date: p.date, ...(p.agreed ? { agreed: true } : {}) },
           })
           return {
             po: poNumberLabel(res.po.number),
@@ -1812,7 +1869,7 @@ export const purchasingTools = [
         const res = await callApi(ctx, 'POST', '/api/purchasing/orders/' + p.order.id + '/split', {
           body: {
             lines: p.moves.map(m => ({ item_id: m.item.item_id, qty: m.qty })),
-            suppliers: Object.fromEntries(Object.entries(p.dates).map(([sid, d]) => [sid, { delivery_date: d }])),
+            suppliers: Object.fromEntries(Object.entries(p.dates).map(([sid, d]) => [sid, { delivery_date: d, ...(p.agreed[sid] ? { agreed: true } : {}) }])),
           },
         })
         return { order_id: p.order.id, new_order_id: res.new_order_id, message: 'Split. Both orders wait for approval; place each with place_order.' }
@@ -1871,6 +1928,8 @@ export const purchasingTools = [
     input: z.object({
       po:            z.string().min(1).max(60),
       delivery_date: DateStr.optional(),
+      agreed_with_supplier: z.boolean().optional().describe('The supplier agreed to the new delivery day although they ' +
+        'don\'t deliver on it or its order cutoff has passed. Only when the person says so.'),
       notes:         z.string().max(2000).nullable().optional(),
       lines:         z.array(z.object({ item: z.string().min(1).max(200), quantity: Qty })).max(300).optional(),
       add:           z.array(z.object({
@@ -2408,21 +2467,25 @@ async function splitPlan(ctx, input) {
     if (d.lines.every(l => moves.filter(m => m.line.id === l.id).reduce((n, m) => n + m.qty, 0) >= l.qty - 1e-9)) {
       throw new ToolError('That moves the whole order: change its delivery day with change_purchase_order instead.', 422)
     }
+    for (const m of moves) {
+      const p = splitProblem(m.line.qty, m.qty, m.line)
+      if (p) throw new ToolError(m.line.item_name + ': ' + p + '. Move all of it, none of it, or another amount.', 422)
+    }
     const date = input.delivery_date
     if (!date) throw new ToolError('Which day should the second order come? Give delivery_date.', 422)
     if (date === d.delivery_date) throw new ToolError(label + ' already comes on ' + longDate(date) + ': pick another day.', 422)
-    if (date < venueToday(venue)) throw new ToolError('That day has passed.', 422)
+    const agreedNote = dayCheck(d, date, localParts(new Date(), venue.timezone), input.agreed_with_supplier, d.supplier_name)
     const lines = [poTitle(d) + ', delivery ' + longDate(d.delivery_date)]
     for (const m of moves) lines.push(m.line.item_name + ': ' + fmtNum(m.qty) + ' of ' + fmtNum(m.line.qty) + ' move to ' + longDate(date))
-    const warnings = []
+    const warnings = agreedNote ? [agreedNote] : []
     if (d.status === 'sent') {
       warnings.push(d.supplier_name + ' already has ' + label + '. ' + (d.send_method === 'email' && d.supplier_email
         ? 'Both are emailed to ' + d.supplier_email + ' straight away, ' + label + ' marked as amended.'
         : 'Both go back to To send: send them again.'))
     }
     return {
-      kind: 'po', d, moves, date,
-      card: { title: 'Split ' + label + '?', lines, ...(warnings.length ? { warningTitle: 'Already with the supplier', warnings } : {}) },
+      kind: 'po', d, moves, date, agreed: !!agreedNote,
+      card: { title: 'Split ' + label + '?', lines, ...(warnings.length ? { warningTitle: 'Check', warnings } : {}) },
     }
   }
   const order = await requestOrder(ctx, input.order_id)
@@ -2437,34 +2500,52 @@ async function splitPlan(ctx, input) {
   if (items.every(i => moves.filter(m => m.item.item_id === i.item_id).reduce((n, m) => n + m.qty, 0) >= i.qty - 1e-9)) {
     throw new ToolError('That moves the whole order: give the delivery days when you place it instead.', 422)
   }
+  for (const m of moves) {
+    const p = m.item.quote && splitProblem(m.item.qty, m.qty, m.item.quote)
+    if (p) throw new ToolError(m.item.name + ': ' + p + '. Move all of it, none of it, or another amount.', 422)
+  }
+  const now = localParts(new Date(), venue.timezone)
   const ids = [...new Set(moves.map(m => m.item.quote?.supplier_id).filter(Boolean))]
   const sup = await supplierInfo(ctx, venue, ids)
   const given = new Map()
   for (const d of input.deliveries || []) {
     const s = pickByName(ids.map(id => ({ id, name: sup[id]?.name || '' })), d.supplier, x => x.name, 'supplier of the moved lines')
-    given.set(s.id, d.date)
+    given.set(s.id, d)
   }
-  const dates = {}
+  const dates = {}, agreed = {}, warnings = []
   const lines = [order.venue_name + ', ' + (order.list_name || 'items on no list') + ', asked for by ' + (order.requested_by || 'someone')]
   for (const id of ids) {
     const s = sup[id]
-    const date = given.get(id) || input.delivery_date
+    const g = given.get(id)
+    const date = g?.date || input.delivery_date
     if (!date) throw new ToolError('Which day should the second order from ' + s.name + ' come? Give delivery_date.', 422)
     const first = order.supplier_options?.[id]?.delivery_date || s.next_delivery
     if (date === first) throw new ToolError('This order from ' + s.name + ' is already for ' + longDate(date) + ': pick another day.', 422)
-    if (date < venueToday(venue)) throw new ToolError('That day has passed.', 422)
+    const note = dayCheck(s, date, now, g?.agreed_with_supplier ?? input.agreed_with_supplier)
+    if (note) { warnings.push(note); agreed[id] = true }
     dates[id] = date
     lines.push(s.name + ': this order ' + longDate(first) + ', second order ' + longDate(date))
     for (const m of moves.filter(x => x.item.quote?.supplier_id === id)) lines.push('  ' + m.item.name + ': ' + fmtNum(m.qty) + ' of ' + fmtNum(m.item.qty) + ' move')
   }
   lines.push('Both wait for approval.')
-  return { kind: 'order', order, moves, dates, card: { title: 'Split this order for another day?', lines } }
+  return {
+    kind: 'order', order, moves, dates, agreed,
+    card: { title: 'Split this order for another day?', lines, ...(warnings.length ? { warningTitle: 'Check', warnings } : {}) },
+  }
+}
+
+/** Lines with a quantity that can't be ordered as they are, in words. */
+function lineWarnings(plan) {
+  return [
+    plan.gone.length && 'The price picked for ' + plan.gone.join(', ') + ' is no longer offered: give another supplier (or pack), or quantity 0.',
+    plan.off.length && plan.off.join(', ') + ' switched off in the inventory: set quantity 0 to take ' + (plan.off.length === 1 ? 'it' : 'them') + ' off.',
+    plan.noSupplier.length && plan.noSupplier.join(', ') + ' can\'t be ordered until they have a supplier price.',
+  ].filter(Boolean)
 }
 
 function placeChecks(plan, input) {
-  if (plan.noSupplier.length) {
-    throw new ToolError('No active supplier price for: ' + plan.noSupplier.join(', ') + '. Take them off (quantity 0) or add a price first.', 422)
-  }
+  const problems = lineWarnings(plan)
+  if (problems.length) throw new ToolError(problems.join(' '), 422)
   if (!plan.lines.length) throw new ToolError('Nothing to order yet: no line has a quantity.', 422)
   return orderGroups(plan, input.deliveries || [])
 }
@@ -2492,7 +2573,8 @@ async function poChangePlan(ctx, input) {
   if (!['to_send', 'sent'].includes(d.status)) throw new ToolError(poNumberLabel(d.number) + ' is ' + PO_STATUSES[d.status].toLowerCase() + ', so it can\'t be changed.', 409)
   const venue = await venueOf(ctx, d.venue_id)
   if (input.delivery_date !== undefined && input.delivery_date !== d.delivery_date) {
-    if (input.delivery_date < venueToday(venue)) throw new ToolError('That delivery date has passed.', 422)
+    const note = dayCheck(d, input.delivery_date, localParts(new Date(), venue.timezone), input.agreed_with_supplier, d.supplier_name)
+    if (note) { warnings.push(note); body.agreed = true }
     body.delivery_date = input.delivery_date
     lines.push('Delivery: ' + longDate(d.delivery_date) + ' to ' + longDate(input.delivery_date))
   }
@@ -2511,11 +2593,15 @@ async function poChangePlan(ctx, input) {
     for (const l of input.lines || []) {
       const line = pickByName(poLines, l.item, x => x.name, 'line on ' + poNumberLabel(d.number))
       if (Math.abs(l.quantity - line.qty) < 1e-9) continue
+      // The API rounds up to the supplier's minimum and steps (the line
+      // carries the price's own today).
+      const to = fitQty(l.quantity, line)
       lineChanges.push({ id: line.id, qty: l.quantity })
-      lines.push(line.item_name + ': ' + fmtNum(line.qty) + ' to ' + (l.quantity > 0 ? fmtNum(l.quantity) : '0 (off the order)'))
+      lines.push(line.item_name + ': ' + fmtNum(line.qty) + ' to ' + (l.quantity > 0 ? fmtNum(to) : '0 (off the order)'))
+      if (l.quantity > 0 && to !== l.quantity) warnings.push(line.item_name + ': ' + fmtNum(l.quantity) + ' becomes ' + fmtNum(to) + ' (' + qtyProblem(l.quantity, line) + ').')
       const entry = onOrder.get(line.quote_id)
       if (l.quantity <= 0) onOrder.delete(line.quote_id)
-      else if (entry) entry.qty = l.quantity
+      else if (entry) entry.qty = to
     }
     let newLines = 0
     for (const a of input.add || []) {

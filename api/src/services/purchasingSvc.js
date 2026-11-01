@@ -9,7 +9,7 @@
 import * as XLSX from 'xlsx'
 import {
   chooseQuote, quotePrice, packLabel, packParts, orderTotals, lineAmounts, fitQty, packBaseQty,
-  supplierForVenue, nextDeliveryDate, minutesToCutoff, poNumberLabel, fmtNum, round2,
+  supplierForVenue, nextDeliveryDate, minutesToCutoff, poNumberLabel, fmtNum, round2, convertQty,
 } from '../../../shared/procurement.js'
 import { localParts } from './orderSvc.js'
 import { PdfDoc, A4, fitText, wrapText } from './pdfDoc.js'
@@ -57,6 +57,76 @@ export async function loadItemQuotes(tx, tenantId, itemIds) {
     map.get(r.item_id).push(r)
   }
   return map
+}
+
+/**
+ * Quotes by id whatever their state (a line's pinned price that has since
+ * been switched off), with is_active, the supplier's name and whether the
+ * supplier is still active: Map id -> quote.
+ */
+export async function loadQuotesById(tx, tenantId, ids) {
+  if (!ids.length) return new Map()
+  const rows = await tx`
+    SELECT q.*, q.pack_base_qty::float8 AS pack_base_qty, q.price::float8 AS price, q.vat_rate::float8 AS vat_rate,
+           q.pack_count::float8 AS pack_count, q.pack_qty::float8 AS pack_qty,
+           q.min_qty::float8 AS min_qty, q.order_multiple::float8 AS order_multiple,
+           s.name AS supplier_name, s.is_active AS supplier_active
+      FROM inv_quotes q
+      JOIN suppliers s ON s.id = q.supplier_id AND s.tenant_id = ${tenantId}
+     WHERE q.tenant_id = ${tenantId} AND q.id = ANY(${ids}::uuid[])
+  `
+  return new Map(rows.map(r => [r.id, r]))
+}
+
+/**
+ * The venues with an open order (a draft, or waiting for approval) that has
+ * a quantity on one of these supplier prices: such a price is switched off
+ * rather than deleted, so the order says so instead of quietly moving to
+ * another price.
+ */
+export async function openOrderVenues(tx, tenantId, quoteIds) {
+  if (!quoteIds.length) return []
+  const rows = await tx`
+    SELECT DISTINCT v.name FROM supply_order_lines sl
+      JOIN supply_orders o ON o.id = sl.order_id AND o.tenant_id = ${tenantId} AND o.status IN ('draft', 'requested')
+      JOIN venues v ON v.id = o.venue_id AND v.tenant_id = ${tenantId}
+     WHERE sl.tenant_id = ${tenantId} AND sl.quote_id = ANY(${quoteIds}::uuid[]) AND sl.qty > 0
+     ORDER BY v.name
+  `
+  return rows.map(r => r.name)
+}
+
+/**
+ * A supplier price's pack changed (before -> after, each with pack_base_qty
+ * and the new one's min_qty / order_multiple): open orders with a quantity
+ * on it keep the amount in the new packs (convertQty(): 3 x 5 kg becomes
+ * 2 x 10 kg, not 3 x 10 kg), and so does what a request asked for.
+ * Returns how many lines changed.
+ */
+export async function keepOpenAmounts(tx, tenantId, quoteId, before, after) {
+  if (Math.abs(num(before.pack_base_qty) - num(after.pack_base_qty)) < 1e-9) return 0
+  const lines = await tx`
+    SELECT sl.order_id, sl.item_id, sl.qty::float8 AS qty FROM supply_order_lines sl
+      JOIN supply_orders o ON o.id = sl.order_id AND o.tenant_id = ${tenantId} AND o.status IN ('draft', 'requested')
+     WHERE sl.tenant_id = ${tenantId} AND sl.quote_id = ${quoteId} AND sl.qty > 0
+  `
+  for (const l of lines) {
+    await tx`
+      UPDATE supply_order_lines SET qty = ${convertQty(l.qty, before, after)}
+       WHERE order_id = ${l.order_id} AND item_id = ${l.item_id} AND tenant_id = ${tenantId}
+    `
+  }
+  const asked = await tx`
+    SELECT id, requested_lines FROM supply_orders
+     WHERE tenant_id = ${tenantId} AND status = 'requested' AND requested_lines IS NOT NULL
+       AND EXISTS (SELECT 1 FROM jsonb_each(requested_lines) e WHERE e.value->>'quote_id' = ${quoteId}::text)
+  `
+  for (const o of asked) {
+    const next = Object.fromEntries(Object.entries(o.requested_lines).map(([k, v]) => [k,
+      v?.quote_id === quoteId ? { ...v, qty: convertQty(v.qty, before, after) } : v]))
+    await tx`UPDATE supply_orders SET requested_lines = ${tx.json(next)} WHERE id = ${o.id} AND tenant_id = ${tenantId}`
+  }
+  return lines.length
 }
 
 /** Preferred quotes: Map item_id -> { default, venues: { venueId: quoteId } }. */
@@ -229,8 +299,12 @@ export async function loadPoLines(tx, tenantId, poId) {
   return tx`
     SELECT l.*, l.pack_base_qty::float8 AS pack_base_qty, l.price::float8 AS price, l.vat_rate::float8 AS vat_rate,
            l.qty::float8 AS qty, l.received_qty::float8 AS received_qty,
-           l.invoice_price::float8 AS invoice_price, l.invoice_vat_rate::float8 AS invoice_vat_rate
+           l.invoice_price::float8 AS invoice_price, l.invoice_vat_rate::float8 AS invoice_vat_rate,
+           -- The supplier's minimum and steps today, while the price is still for the same pack.
+           CASE WHEN abs(q.pack_base_qty - l.pack_base_qty) < 0.000001 THEN q.min_qty::float8 END AS min_qty,
+           CASE WHEN abs(q.pack_base_qty - l.pack_base_qty) < 0.000001 THEN q.order_multiple::float8 END AS order_multiple
       FROM purchase_order_lines l
+      LEFT JOIN inv_quotes q ON q.id = l.quote_id AND q.tenant_id = ${tenantId}
      WHERE l.po_id = ${poId} AND l.tenant_id = ${tenantId}
      ORDER BY l.sort_order, l.item_name
   `

@@ -13,6 +13,7 @@ import { withTenant } from '../config/db.js'
 import { requireAuth, requirePermission } from '../middleware/auth.js'
 import { httpError }  from '../middleware/error.js'
 import { UNITS, packBaseQty } from '../../../shared/procurement.js'
+import { openOrderVenues, keepOpenAmounts } from '../services/purchasingSvc.js'
 
 const uuid = z.string().uuid()
 const text = (max = 200) => z.string().trim().max(max)
@@ -187,6 +188,9 @@ const HEADERS = {
   packunit: 'pack_unit',
   price: 'price', packprice: 'price',
   vat: 'vat_rate', vatrate: 'vat_rate',
+  minimumorder: 'min_qty', minorder: 'min_qty', minqty: 'min_qty', minimum: 'min_qty', minimumqty: 'min_qty',
+  orderinstepsof: 'order_multiple', steps: 'order_multiple', step: 'order_multiple', ordermultiple: 'order_multiple',
+  multiple: 'order_multiple', orderstep: 'order_multiple',
 }
 
 const UNIT_ALIASES = {
@@ -229,7 +233,8 @@ async function runImport(tx, tenantId, rows, by) {
   const sups = await tx`SELECT id, name FROM suppliers WHERE tenant_id = ${tenantId}`
   const quotes = await tx`
     SELECT id, item_id, supplier_id, supplier_code, product_name, lower(pack_name) AS pack_name,
-           pack_base_qty::float8 AS pack_base_qty, price::float8 AS price
+           pack_base_qty::float8 AS pack_base_qty, price::float8 AS price,
+           min_qty::float8 AS min_qty, order_multiple::float8 AS order_multiple
       FROM inv_quotes WHERE tenant_id = ${tenantId}
   `
   const itemByName = new Map(items.map(i => [i.name.toLowerCase(), i]))
@@ -260,10 +265,14 @@ async function runImport(tx, tenantId, rows, by) {
       if (packQty == null || Number.isNaN(packQty) || packQty <= 0) { err('Pack size missing or not a number'); continue }
       if (Number.isNaN(packCount) || (packCount != null && packCount <= 0)) { err('Pack count not a number'); continue }
       if (Number.isNaN(vat) || (vat != null && (vat < 0 || vat > 100))) { err('VAT % not a number from 0 to 100'); continue }
+      // Minimum order and steps, in packs; left blank they stay as they are.
+      const minQty = toNum(r.min_qty), mult = toNum(r.order_multiple)
+      if (Number.isNaN(minQty) || (minQty != null && (minQty <= 0 || minQty > 100000))) { err('Minimum order not a number of packs above 0'); continue }
+      if (Number.isNaN(mult) || (mult != null && (mult <= 0 || mult > 100000))) { err('Order in steps of not a number of packs above 0'); continue }
       const fields = { pack_count: packCount ?? 1, pack_qty: packQty, pack_unit: packUnit }
       const pbq = packBaseQty(fields, itemBase)
       if (!pbq) { err(`A ${packUnit} pack doesn't fit ${r.item} (counted in ${itemBase})`); continue }
-      quote = { ...fields, price, vat, pbq }
+      quote = { ...fields, price, vat, pbq, minQty, mult }
     }
 
     if (item) {
@@ -290,7 +299,7 @@ async function runImport(tx, tenantId, rows, by) {
     }
 
     if (!quote) continue
-    const { price, vat, pbq, pack_qty: packQty, pack_count: packCount } = quote
+    const { price, vat, pbq, pack_qty: packQty, pack_count: packCount, minQty, mult } = quote
     let sup = supByName.get(r.supplier.toLowerCase())
     if (!sup) {
       ;[sup] = await tx`INSERT INTO suppliers (tenant_id, name) VALUES (${tenantId}, ${r.supplier.slice(0, 200)}) RETURNING id, name`
@@ -308,10 +317,18 @@ async function runImport(tx, tenantId, rows, by) {
       await tx`
         UPDATE inv_quotes SET pack_name = ${packName}, pack_count = ${packCount}, pack_qty = ${packQty},
                pack_unit = ${packUnit}, pack_base_qty = ${pbq}, price = ${price},
-               vat_rate = ${vat ?? 0}, product_name = COALESCE(${productName}, product_name), updated_at = now()
+               vat_rate = ${vat ?? 0}, product_name = COALESCE(${productName}, product_name),
+               min_qty = COALESCE(${minQty}, min_qty), order_multiple = COALESCE(${mult}, order_multiple), updated_at = now()
          WHERE id = ${match.id} AND tenant_id = ${tenantId}
       `
       out.quotes_updated++
+      // A new pack size: open orders keep the amount they asked for.
+      out.order_lines_converted = (out.order_lines_converted || 0) + await keepOpenAmounts(tx, tenantId, match.id,
+        { pack_base_qty: match.pack_base_qty },
+        { pack_base_qty: pbq, min_qty: minQty ?? match.min_qty, order_multiple: mult ?? match.order_multiple })
+      match.pack_base_qty = pbq
+      if (minQty != null) match.min_qty = minQty
+      if (mult != null) match.order_multiple = mult
       if (productName) match.product_name = productName
       if (Math.abs(match.price - price) > 1e-9) {
         await recordPrice(tx, tenantId, match.id, null, price, by, 'import')
@@ -321,13 +338,13 @@ async function runImport(tx, tenantId, rows, by) {
     } else {
       const [q] = await tx`
         INSERT INTO inv_quotes (tenant_id, item_id, supplier_id, supplier_code, product_name, pack_name, pack_count, pack_qty,
-                                pack_unit, pack_base_qty, price, vat_rate)
+                                pack_unit, pack_base_qty, price, vat_rate, min_qty, order_multiple)
         VALUES (${tenantId}, ${item.id}, ${sup.id}, ${code}, ${productName}, ${packName}, ${packCount}, ${packQty},
-                ${packUnit}, ${pbq}, ${price}, ${vat ?? 0})
+                ${packUnit}, ${pbq}, ${price}, ${vat ?? 0}, ${minQty}, ${mult})
         RETURNING id
       `
       await recordPrice(tx, tenantId, q.id, null, price, by, 'import')
-      quotes.push({ id: q.id, item_id: item.id, supplier_id: sup.id, supplier_code: code, product_name: productName, pack_name: packName.toLowerCase(), pack_base_qty: pbq, price })
+      quotes.push({ id: q.id, item_id: item.id, supplier_id: sup.id, supplier_code: code, product_name: productName, pack_name: packName.toLowerCase(), pack_base_qty: pbq, price, min_qty: minQty, order_multiple: mult })
       out.quotes_created++
     }
   }
@@ -335,10 +352,10 @@ async function runImport(tx, tenantId, rows, by) {
 }
 
 export const IMPORT_TEMPLATE = [
-  'Item,Category,Base unit,Storage,Item code,Supplier,Supplier code,Product name,Pack,Pack count,Pack size,Pack unit,Price,VAT %',
-  'Tomatoes,Vegetables,g,chilled,,Fresh Direct,FD-1001,Vine tomatoes class 1,Box,1,6,kg,12.50,0',
-  'Rapeseed oil,"Oils, Sauces & Condiments",ml,ambient,,Brakes,BR-220,Pure rapeseed oil,Case,2,5,l,18.40,0',
-  'Takeaway boxes,Packaging,each,ambient,,Brakes,BR-901,,Case,1,250,each,21.00,20',
+  'Item,Category,Base unit,Storage,Item code,Supplier,Supplier code,Product name,Pack,Pack count,Pack size,Pack unit,Price,VAT %,Minimum order,Order in steps of',
+  'Tomatoes,Vegetables,g,chilled,,Fresh Direct,FD-1001,Vine tomatoes class 1,Box,1,6,kg,12.50,0,,',
+  'Rapeseed oil,"Oils, Sauces & Condiments",ml,ambient,,Brakes,BR-220,Pure rapeseed oil,Case,2,5,l,18.40,0,2,',
+  'Takeaway boxes,Packaging,each,ambient,,Brakes,BR-901,,Case,1,250,each,21.00,20,,2',
 ].join('\n')
 
 // ── Plugin ──────────────────────────────────────────────────────
@@ -439,7 +456,16 @@ export default async function inventoryRoutes(app) {
   // order history keeps its link.
   app.delete('/items/:id', { preHandler: canManage }, async req => withTenant(req.tenantId, async tx => {
     const item = await ownItem(tx, req.tenantId, req.params.id)
-    const [used] = await tx`SELECT 1 FROM purchase_order_lines WHERE item_id = ${item.id} AND tenant_id = ${req.tenantId} LIMIT 1`
+    // Kept (switched off) when an order has it: a purchase order, or an
+    // open order with a quantity (which then says it's switched off).
+    const [used] = await tx`
+      SELECT 1 FROM purchase_order_lines WHERE item_id = ${item.id} AND tenant_id = ${req.tenantId}
+      UNION ALL
+      SELECT 1 FROM supply_order_lines sl
+        JOIN supply_orders o ON o.id = sl.order_id AND o.tenant_id = ${req.tenantId} AND o.status IN ('draft', 'requested')
+       WHERE sl.item_id = ${item.id} AND sl.tenant_id = ${req.tenantId} AND sl.qty > 0
+      LIMIT 1
+    `
     if (used) {
       await tx`UPDATE inv_items SET is_active = false, updated_at = now() WHERE id = ${item.id} AND tenant_id = ${req.tenantId}`
       return { archived: true }
@@ -502,13 +528,23 @@ export default async function inventoryRoutes(app) {
         UPDATE inv_quotes SET ${tx({ ...v, ...(b.supplier_id ? { supplier_id: b.supplier_id } : {}) })}, updated_at = now()
          WHERE id = ${q.id} AND tenant_id = ${req.tenantId}
       `
+      // A new pack size: open orders on this price keep the amount they asked for.
+      await keepOpenAmounts(tx, req.tenantId, q.id, { pack_base_qty: Number(q.pack_base_qty) }, v)
       if (Math.abs(v.price - q.price) > 1e-9) await recordPrice(tx, req.tenantId, q.id, null, v.price, req.user?.email ?? null)
       return (await loadItems(tx, req.tenantId, [q.item_id]))[0]
     })
   })
 
+  // A price an open order has a quantity on is switched off instead (the
+  // order then says so and asks for another price, rather than quietly
+  // moving to one).
   app.delete('/quotes/:id', { preHandler: canManage }, async req => withTenant(req.tenantId, async tx => {
     const q = await ownQuote(tx, req.tenantId, req.params.id)
+    const venues = await openOrderVenues(tx, req.tenantId, [q.id])
+    if (venues.length) {
+      throw httpError(409, `This price is on an open order at ${venues.join(', ')}. Switch it off instead: the order then asks for another price.`,
+        { code: 'on_open_order' })
+    }
     await tx`DELETE FROM inv_quotes WHERE id = ${q.id} AND tenant_id = ${req.tenantId}`
     return (await loadItems(tx, req.tenantId, [q.item_id]))[0]
   }))

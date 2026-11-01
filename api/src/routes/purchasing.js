@@ -30,10 +30,10 @@ import { requireAuth, requirePermission, requireAnyPermission, permissionLevel, 
 import { httpError }  from '../middleware/error.js'
 import {
   fitQty, packsToPar, packLabel, quotePrice, orderTotals, receiveStatusFor, deliveryTempOk, poNumberLabel, fmtNum,
-  DELIVERY_TEMP_MAX, RECEIVE_STATUSES, deliveryDateChoices, packBaseQty, UNITS,
+  DELIVERY_TEMP_MAX, RECEIVE_STATUSES, deliveryDateChoices, packBaseQty, UNITS, splitProblem, deliveryDayProblem,
 } from '../../../shared/procurement.js'
 import {
-  resolveQuotes, loadItemQuotes, quoteView, loadVenue, venueNow, loadSuppliersForVenue, createPurchaseOrder,
+  resolveQuotes, loadItemQuotes, loadQuotesById, quoteView, loadVenue, venueNow, loadSuppliersForVenue, createPurchaseOrder,
   loadPo, loadPoLines, poFile, emailPo, nextPoNumber,
   invoiceView,
 } from '../services/purchasingSvc.js'
@@ -142,6 +142,25 @@ async function ownPo(tx, tenantId, id, { lock = false } = {}) {
   return po
 }
 
+/**
+ * Refuses a delivery day the supplier can't make (deliveryDayProblem(), the
+ * rule the screens show): a past day always; a day they don't deliver, or
+ * whose order deadline has passed, unless the person says it was agreed
+ * with the supplier (`agreed`). s: loadSuppliersForVenue()'s supplier.
+ */
+function checkDeliveryDay(s, date, now, agreed) {
+  const p = deliveryDayProblem(s, date, now, s.name)
+  if (!p || (p.code !== 'past' && agreed)) return
+  throw httpError(422, p.code === 'past' ? p.message : `${p.message}. Pick another day, or say it was agreed with ${s.name}.`,
+    { code: 'delivery_day', problem: p.code, supplier_id: s.id, delivery_date: date })
+}
+
+/** Moving part of a line to another order must leave both parts orderable (splitProblem()). */
+function checkSplitQty(name, total, moved, quote) {
+  const p = splitProblem(total, moved, quote)
+  if (p) throw httpError(422, `${name}: ${p}. Move all of it, none of it, or another amount.`, { code: 'split_qty' })
+}
+
 function hideMoney(row, prices) {
   if (prices) return row
   const out = { ...row }
@@ -199,6 +218,7 @@ async function loadOrder(tx, tenantId, order, who) {
      WHERE order_id = ${order.id} AND tenant_id = ${tenantId}
   `
   const lineBy = new Map(lines.map(l => [l.item_id, l]))
+  const now = venueNow(venue)
   const listedIds = new Set(listed.map(i => i.item_id))
   const extraIds = lines.map(l => l.item_id).filter(id => !listedIds.has(id))
   const extra = extraIds.length ? await tx`
@@ -213,6 +233,10 @@ async function loadOrder(tx, tenantId, order, who) {
   ]
   const ids = rows.map(r => r.item_id)
   const { picks, quotes } = await resolveQuotes(tx, tenantId, venue.id, ids)
+  // Prices lines are pinned to that are no longer offered (switched off,
+  // or their supplier is): such a line says so instead of moving.
+  const goneIds = lines.filter(l => l.qty > 0 && l.quote_id && !(quotes.get(l.item_id) || []).some(q => q.id === l.quote_id)).map(l => l.quote_id)
+  const goneBy = await loadQuotesById(tx, tenantId, [...new Set(goneIds)])
   const last = ids.length ? await tx`
     SELECT DISTINCT ON (l.item_id) l.item_id, l.qty::float8 AS qty, l.pack_label, po.delivery_date::text AS delivery_date
       FROM purchase_order_lines l
@@ -231,7 +255,14 @@ async function loadOrder(tx, tenantId, order, who) {
     const line = lineBy.get(r.item_id)
     const all = quotes.get(r.item_id) || []
     const pick = picks.get(r.item_id)
-    const chosen = (line?.quote_id && all.find(q => q.id === line.quote_id)) || pick?.quote || null
+    const qty = line?.qty ?? 0
+    // A line with a quantity stays on the price it was filled in on.
+    const pinned = line?.quote_id ? all.find(q => q.id === line.quote_id) || null : null
+    const goneQuote = qty > 0 && line?.quote_id && !pinned ? goneBy.get(line.quote_id) || null : null
+    const chosen = goneQuote ? null : pinned || pick?.quote || null
+    const gone = goneQuote
+      ? { why: goneQuote.supplier_active === false ? 'supplier_off' : 'price_off', quote: quoteView(goneQuote, venue.id, prices) }
+      : qty > 0 && r.is_active === false ? { why: 'item_off' } : null
     const par = r.pars?.[venue.id] ?? null
     return {
       item_id: r.item_id, name: r.name, code: r.code, base_unit: r.base_unit, storage: r.storage,
@@ -242,7 +273,8 @@ async function loadOrder(tx, tenantId, order, who) {
       quote: quoteView(chosen, venue.id, prices),
       default_quote_id: pick?.quote?.id ?? null,
       quotes: all.map(q => quoteView(q, venue.id, prices)),
-      qty: line?.qty ?? 0,
+      qty,
+      ...(gone ? { gone } : {}),
       ...(asked ? { requested_qty: Number(asked[r.item_id]?.qty ?? 0) } : {}),
       last: lastBy.get(r.item_id) || null,
     }
@@ -255,7 +287,7 @@ async function loadOrder(tx, tenantId, order, who) {
     supplier_options: order.supplier_options || {},
     returned_by: order.returned_by, returned_at: order.returned_at, return_note: order.return_note,
     split_from: order.split_from,
-    show_prices: prices, today: venueNow(venue).date,
+    show_prices: prices, today: now.date, timezone: venue.timezone || 'Europe/London',
     ...orderActions(order, who),
     suppliers: Object.fromEntries(Object.entries(suppliers).map(([id, s]) => [id, supplierView(s, prices)])),
     items,
@@ -264,13 +296,14 @@ async function loadOrder(tx, tenantId, order, who) {
 
 /**
  * An order's lines with a quantity, each with the quote it will be ordered
- * on (the one picked on the line, else the venue's usual one), grouped by
- * supplier: { lines, groups: Map supplier_id -> lines }. Refuses an empty
- * order and lines no supplier sells.
+ * on (the one the line is pinned to, else the venue's usual one), grouped
+ * by supplier: { lines, groups: Map supplier_id -> lines }. Refuses an
+ * empty order, lines no supplier sells, lines whose pinned price is no
+ * longer offered (never quietly another price) and items switched off.
  */
 async function orderLines(tx, tenantId, order, venue) {
   const rows = await tx`
-    SELECT sl.item_id, sl.quote_id, sl.qty::float8 AS qty, i.name, i.base_unit, i.storage, c.name AS category_name
+    SELECT sl.item_id, sl.quote_id, sl.qty::float8 AS qty, i.name, i.base_unit, i.storage, i.is_active, c.name AS category_name
       FROM supply_order_lines sl
       JOIN inv_items i ON i.id = sl.item_id AND i.tenant_id = ${tenantId}
       LEFT JOIN inv_categories c ON c.id = i.category_id AND c.tenant_id = ${tenantId}
@@ -282,10 +315,13 @@ async function orderLines(tx, tenantId, order, venue) {
   const { picks, quotes } = await resolveQuotes(tx, tenantId, venue.id, rows.map(l => l.item_id))
   const lines = []
   const groups = new Map()
-  const missing = []
+  const missing = [], gone = [], off = []
   for (const l of rows) {
-    const q = (l.quote_id && (quotes.get(l.item_id) || []).find(x => x.id === l.quote_id)) || picks.get(l.item_id)?.quote
-    if (!q) { missing.push(l.name); continue }
+    if (!l.is_active) { off.push(l.name); continue }
+    const q = l.quote_id
+      ? (quotes.get(l.item_id) || []).find(x => x.id === l.quote_id)
+      : picks.get(l.item_id)?.quote
+    if (!q) { (l.quote_id ? gone : missing).push(l.name); continue }
     const line = {
       item_id: l.item_id, name: l.name, qty: l.qty, quote: q,
       item: { id: l.item_id, name: l.name, category_name: l.category_name, storage: l.storage, base_unit: l.base_unit },
@@ -294,7 +330,14 @@ async function orderLines(tx, tenantId, order, venue) {
     if (!groups.has(q.supplier_id)) groups.set(q.supplier_id, [])
     groups.get(q.supplier_id).push(line)
   }
-  if (missing.length) throw httpError(422, `No active supplier for: ${missing.join(', ')}`)
+  const problems = [
+    gone.length && `The price picked for ${gone.join(', ')} is no longer offered: pick another (tap the pack) or take ${gone.length === 1 ? 'it' : 'them'} off`,
+    off.length && `${off.join(', ')} ${off.length === 1 ? 'is' : 'are'} switched off in the inventory: take ${off.length === 1 ? 'it' : 'them'} off the order`,
+    missing.length && `No active supplier for: ${missing.join(', ')}`,
+  ].filter(Boolean)
+  if (problems.length) {
+    throw httpError(422, problems.join('. '), { code: 'order_lines', gone_items: gone, off_items: off, missing_items: missing })
+  }
   return { lines, groups }
 }
 
@@ -374,7 +417,10 @@ async function poDetail(tx, tenantId, id, prices) {
     ...hideMoney(po, prices),
     show_prices: prices,
     today: venueNow(venue).date,
+    timezone: venue.timezone || 'Europe/London',
     delivery_days: s?.delivery_days ?? [],
+    cutoff_time: s?.cutoff_time ?? null,
+    lead_days: s?.lead_days ?? 1,
     next_delivery: s?.next_delivery ?? null,
     delivery_choices: s ? deliveryDateChoices(s, 8) : [],
     split_from_po: splits.find(x => x.id === po.split_from) || null,
@@ -470,8 +516,10 @@ const LinesBody = z.object({
   lines: z.array(z.object({ item_id: uuid, quote_id: uuid.nullable().optional(), qty: qtyNum })).max(2000),
 })
 
+// agreed: the person says the supplier agreed to a day they don't deliver,
+// or one past its order deadline (checkDeliveryDay()).
 const SubmitBody = z.object({
-  suppliers: z.record(uuid, z.object({ delivery_date: date.optional(), notes: optText(2000) })).optional(),
+  suppliers: z.record(uuid, z.object({ delivery_date: date.optional(), notes: optText(2000), agreed: z.boolean().optional() })).optional(),
 })
 
 const RequestBody = z.object({
@@ -481,13 +529,14 @@ const RequestBody = z.object({
 
 const SplitOrderBody = z.object({
   lines:     z.array(z.object({ item_id: uuid, qty: qtyNum.positive() })).min(1).max(2000),
-  suppliers: z.record(uuid, z.object({ delivery_date: date, notes: optText(2000) })),
+  suppliers: z.record(uuid, z.object({ delivery_date: date, notes: optText(2000), agreed: z.boolean().optional() })),
 })
 
 const SplitPoBody = z.object({
   lines:         z.array(z.object({ id: uuid, qty: qtyNum.positive() })).min(1).max(2000),
   delivery_date: date,
   notes:         optText(2000),
+  agreed:        z.boolean().optional(),
 })
 
 const invoiceIdx = z.number().int().min(0).max(1000)
@@ -818,8 +867,11 @@ export default async function purchasingRoutes(app) {
   })
 
   // Saves the given lines (autosave sends only what changed). qty 0 keeps
-  // the line so a picked supplier is remembered. A request waiting for
-  // approval is changed only by an approver.
+  // the line so a picked supplier is remembered. A line with a quantity is
+  // pinned to a price: the one given, else the one it already has, else the
+  // venue's usual one now, so a later change of usual supplier or a price
+  // switched off never moves it by itself (loadOrder() shows it instead).
+  // A request waiting for approval is changed only by an approver.
   app.put('/orders/:id/lines', { preHandler: canOrderOrApprove }, async req => {
     const { lines } = LinesBody.parse(req.body || {})
     const who = await accessOf(req)
@@ -836,13 +888,23 @@ export default async function purchasingRoutes(app) {
           if (l.quote_id && qItem.get(l.quote_id) !== l.item_id) throw httpError(404, 'Quote not found for this item')
         }
       }
+      const stored = new Map((await tx`
+        SELECT item_id, quote_id FROM supply_order_lines
+         WHERE order_id = ${o.id} AND tenant_id = ${req.tenantId} AND item_id = ANY(${itemIds}::uuid[])
+      `).map(r => [r.item_id, r.quote_id]))
+      const unpinned = lines.filter(l => l.qty > 0 && !(l.quote_id !== undefined ? l.quote_id : stored.get(l.item_id)))
+      const { picks } = unpinned.length
+        ? await resolveQuotes(tx, req.tenantId, o.venue_id, [...new Set(unpinned.map(l => l.item_id))])
+        : { picks: new Map() }
       for (const l of lines) {
+        let quoteId = l.quote_id
+        if (unpinned.includes(l)) quoteId = picks.get(l.item_id)?.quote?.id ?? quoteId
         await tx`
           INSERT INTO supply_order_lines (order_id, item_id, tenant_id, quote_id, qty)
-          VALUES (${o.id}, ${l.item_id}, ${req.tenantId}, ${l.quote_id ?? null}, ${l.qty})
+          VALUES (${o.id}, ${l.item_id}, ${req.tenantId}, ${quoteId ?? null}, ${l.qty})
           ON CONFLICT (order_id, item_id) DO UPDATE
             SET qty = EXCLUDED.qty,
-                quote_id = CASE WHEN ${l.quote_id === undefined} THEN supply_order_lines.quote_id ELSE EXCLUDED.quote_id END
+                quote_id = CASE WHEN ${quoteId === undefined} THEN supply_order_lines.quote_id ELSE EXCLUDED.quote_id END
         `
       }
       const [u] = await tx`UPDATE supply_orders SET updated_at = now() WHERE id = ${o.id} AND tenant_id = ${req.tenantId} RETURNING updated_at`
@@ -961,15 +1023,19 @@ export default async function purchasingRoutes(app) {
       if (lines.every(l => (moves.get(l.item_id) || 0) >= l.qty - 1e-9)) {
         throw httpError(422, 'That moves the whole order: change its delivery days instead')
       }
+      for (const [itemId, qty] of moves) {
+        const l = lineBy.get(itemId)
+        checkSplitQty(l.name, l.qty, qty, l.quote)
+      }
       const movedSuppliers = [...new Set(lines.filter(l => moves.has(l.item_id)).map(l => l.quote.supplier_id))]
       const suppliers = await loadSuppliersForVenue(tx, req.tenantId, venue, movedSuppliers)
-      const today = venueNow(venue).date
+      const now = venueNow(venue)
       const options = {}
       for (const sid of movedSuppliers) {
         const s = suppliers[sid]
         const date = b.suppliers?.[sid]?.delivery_date
         if (!date) throw httpError(422, `Pick a delivery day for the second order from ${s.name}`)
-        if (date < today) throw httpError(422, `The delivery day for ${s.name} is in the past`)
+        checkDeliveryDay(s, date, now, b.suppliers[sid].agreed)
         const first = o.supplier_options?.[sid]?.delivery_date || s.next_delivery
         if (date === first) throw httpError(422, `The second order from ${s.name} must be for another day than this one`)
         options[sid] = { delivery_date: date, notes: b.suppliers[sid].notes ?? o.supplier_options?.[sid]?.notes ?? null }
@@ -1025,14 +1091,16 @@ export default async function purchasingRoutes(app) {
       const venue = await loadVenue(tx, req.tenantId, o.venue_id)
       const { groups } = await orderLines(tx, req.tenantId, o, venue)
       const suppliers = await loadSuppliersForVenue(tx, req.tenantId, venue, [...groups.keys()])
-      const today = venueNow(venue).date
+      const now = venueNow(venue)
       const asked = o.status === 'requested' ? o.supplier_options || {} : {}
       const pos = []
       for (const [sid, group] of groups) {
         const s = suppliers[sid]
         const opt = { ...(asked[sid] || {}), ...Object.fromEntries(Object.entries(b.suppliers?.[sid] || {}).filter(([, v]) => v !== undefined)) }
         const deliveryDate = opt.delivery_date || s.next_delivery
-        if (deliveryDate < today) throw httpError(422, `The delivery date for ${s.name} is in the past`)
+        // The day asked for may have gone past its cutoff since: the approver
+        // agrees it with the supplier or picks another.
+        checkDeliveryDay(s, deliveryDate, now, b.suppliers?.[sid]?.agreed)
         const po = await createPurchaseOrder(tx, req.tenantId, {
           venue, supplier: s, deliveryDate, notes: opt.notes ?? null,
           lines: group.map(l => ({ item: l.item, quote: l.quote, qty: fitQty(l.qty, l.quote) })),
@@ -1070,12 +1138,22 @@ export default async function purchasingRoutes(app) {
     return withTenant(req.tenantId, tx => poDetail(tx, req.tenantId, req.params.id, prices))
   })
 
+  // A new delivery day is checked like placing (checkDeliveryDay(): agreed
+  // for a day the supplier doesn't deliver or one past its cutoff).
   app.patch('/pos/:id', { preHandler: canOrderOrApprove }, async req => {
-    const b = z.object({ delivery_date: date.optional(), notes: optText(2000) }).parse(req.body || {})
+    const { agreed, ...b } = z.object({ delivery_date: date.optional(), notes: optText(2000), agreed: z.boolean().optional() }).parse(req.body || {})
     const prices = await showPrices(req)
     return withTenant(req.tenantId, async tx => {
       const po = await ownPo(tx, req.tenantId, req.params.id, { lock: true })
       if (!['to_send', 'sent'].includes(po.status)) throw httpError(409, 'This order can no longer be changed')
+      if (b.delivery_date) {
+        const [{ day }] = await tx`SELECT delivery_date::text AS day FROM purchase_orders WHERE id = ${po.id} AND tenant_id = ${req.tenantId}`
+        if (b.delivery_date !== day) {
+          const venue = await loadVenue(tx, req.tenantId, po.venue_id)
+          const s = (await loadSuppliersForVenue(tx, req.tenantId, venue, [po.supplier_id]))[po.supplier_id]
+          checkDeliveryDay(s, b.delivery_date, venueNow(venue), agreed)
+        } else delete b.delivery_date
+      }
       const fields = Object.fromEntries(Object.entries(b).filter(([, v]) => v !== undefined))
       if (Object.keys(fields).length) {
         await tx`UPDATE purchase_orders SET ${tx(fields)}, updated_at = now() WHERE id = ${po.id} AND tenant_id = ${req.tenantId}`
@@ -1085,10 +1163,11 @@ export default async function purchasingRoutes(app) {
   })
 
   // Change quantities (0 removes the line) or add products from the same
-  // supplier (add: its active prices, quantities rounded up to the minimum
-  // and steps, at today's price for the venue), while the order hasn't gone
-  // to the supplier. A product already on the order tops its line up rather
-  // than making a second line. Needs approval.
+  // supplier (add: its active prices at today's price for the venue), while
+  // the order hasn't gone to the supplier. Quantities are rounded up to the
+  // supplier's minimum and steps (a changed line: the price's own today,
+  // while it is for the same pack). A product already on the order tops its
+  // line up rather than making a second line. Needs approval.
   app.put('/pos/:id/lines', { preHandler: canApprove }, async req => {
     const b = PoLinesBody.parse(req.body || {})
     const prices = await showPrices(req)
@@ -1096,11 +1175,14 @@ export default async function purchasingRoutes(app) {
       const po = await ownPo(tx, req.tenantId, req.params.id, { lock: true })
       if (po.status !== 'to_send') throw httpError(409, 'Only an order not yet sent can be changed. Cancel it and order again.')
       const venue = await loadVenue(tx, req.tenantId, po.venue_id)
+      const current = new Map((await loadPoLines(tx, req.tenantId, po.id)).map(l => [l.id, l]))
       for (const l of b.lines || []) {
-        const [row] = await tx`SELECT id FROM purchase_order_lines WHERE id = ${l.id} AND po_id = ${po.id} AND tenant_id = ${req.tenantId}`
+        const row = current.get(l.id)
         if (!row) throw httpError(404, 'Line not found')
         if (l.qty <= 0) await tx`DELETE FROM purchase_order_lines WHERE id = ${l.id} AND tenant_id = ${req.tenantId}`
-        else await tx`UPDATE purchase_order_lines SET qty = ${l.qty} WHERE id = ${l.id} AND tenant_id = ${req.tenantId}`
+        else if (Math.abs(l.qty - row.qty) > 1e-9) {
+          await tx`UPDATE purchase_order_lines SET qty = ${fitQty(l.qty, row)} WHERE id = ${l.id} AND tenant_id = ${req.tenantId}`
+        }
       }
       if (b.add?.length) {
         const ids = [...new Set(b.add.map(a => a.quote_id))]
@@ -1209,9 +1291,10 @@ export default async function purchasingRoutes(app) {
       const po = await ownPo(tx, req.tenantId, req.params.id, { lock: true })
       if (!['to_send', 'sent'].includes(po.status)) throw httpError(409, 'Only an order that hasn\'t arrived can be split')
       const venue = await loadVenue(tx, req.tenantId, po.venue_id)
-      if (b.delivery_date < venueNow(venue).date) throw httpError(422, 'The delivery day is in the past')
       const [{ day }] = await tx`SELECT delivery_date::text AS day FROM purchase_orders WHERE id = ${po.id} AND tenant_id = ${req.tenantId}`
       if (b.delivery_date === day) throw httpError(422, 'The second order must be for another day than this one')
+      const sup = (await loadSuppliersForVenue(tx, req.tenantId, venue, [po.supplier_id]))[po.supplier_id]
+      checkDeliveryDay(sup, b.delivery_date, venueNow(venue), b.agreed)
       const lines = await loadPoLines(tx, req.tenantId, po.id)
       const lineBy = new Map(lines.map(l => [l.id, l]))
       const moves = new Map()
@@ -1224,6 +1307,10 @@ export default async function purchasingRoutes(app) {
       }
       if (lines.every(l => (moves.get(l.id) || 0) >= l.qty - 1e-9)) {
         throw httpError(422, 'That moves the whole order: change its delivery day instead')
+      }
+      for (const [id, qty] of moves) {
+        const l = lineBy.get(id)
+        checkSplitQty(l.item_name, l.qty, qty, l)
       }
       const number = await nextPoNumber(tx, req.tenantId)
       const [n] = await tx`

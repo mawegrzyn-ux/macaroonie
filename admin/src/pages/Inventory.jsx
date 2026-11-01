@@ -238,6 +238,7 @@ function ItemDrawer({ itemId, canEdit, onCreated, onClose }) {
                 ))}
               </div>
             )}
+            {delQuote.error && <div className="px-4 pb-3"><ErrorNote error={delQuote.error} /></div>}
             {item.quotes.length > 1 && (
               <p className="px-4 py-2 border-t text-xs text-muted-foreground">
                 The star is the company choice. Without one, each venue orders the cheapest per {item.base_unit === 'g' ? 'kg' : item.base_unit === 'ml' ? 'litre' : 'item'}.
@@ -262,7 +263,7 @@ function ItemDrawer({ itemId, canEdit, onCreated, onClose }) {
           {canEdit && (
             <div className="flex items-center justify-between gap-2 pt-2">
               {deleted?.archived
-                ? <p className="text-sm text-amber-800">This item has been ordered before, so it was switched off instead of deleted.</p>
+                ? <p className="text-sm text-amber-800">This item is on orders, so it was switched off instead of deleted.</p>
                 : <span className="text-xs text-muted-foreground">Deleting an item that has been ordered switches it off instead.</span>}
               <ConfirmDelete label="Delete item" onConfirm={() => del.mutate()} disabled={del.isPending} />
             </div>
@@ -584,6 +585,7 @@ function ImportModal({ onClose }) {
       <p className="text-sm text-muted-foreground">
         A CSV or Excel file with one row per supplier price. Items are matched by item code, else by name; suppliers by
         name (new ones are added). A row for a price you already have updates it and keeps the old price in its history.
+        Minimum order and Order in steps of are in packs; left blank they stay as they are.
       </p>
       <button type="button" className={btn.outline} onClick={() => api.download('/inventory/import-template', 'inventory-import.csv')}>
         <Download className="w-4 h-4" />Download the template
@@ -599,6 +601,9 @@ function ImportModal({ onClose }) {
           <p className="font-medium">{done ? 'Imported' : 'This file would:'}</p>
           <p>Add {result.items_created} item{result.items_created === 1 ? '' : 's'} (and match {result.items_matched})</p>
           <p>Add {result.quotes_created} price{result.quotes_created === 1 ? '' : 's'}, update {result.quotes_updated} ({result.prices_changed} price change{result.prices_changed === 1 ? '' : 's'})</p>
+          {result.order_lines_converted > 0 && (
+            <p>Change the pack on {result.order_lines_converted} open order line{result.order_lines_converted === 1 ? '' : 's'}, keeping the amount ordered</p>
+          )}
           {result.suppliers_created > 0 && <p>Add {result.suppliers_created} supplier{result.suppliers_created === 1 ? '' : 's'}</p>}
           {result.categories_created > 0 && <p>Add {result.categories_created} categor{result.categories_created === 1 ? 'y' : 'ies'}</p>}
         </div>
