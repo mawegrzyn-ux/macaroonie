@@ -17,13 +17,19 @@
 //   modifiers   the dish being added's choices (LayoutChoices.jsx), over other zones
 //               or the whole screen while it is being added
 //   seats       the seat and course bar
+//   popup       buttons that show only when a button opens them (open_popup),
+//               over the cells they were placed on, the rest of the screen
+//               covered behind them until they close: their X (window
+//               controls), a Close button among them (close_popup), a tap
+//               outside (close_outside) or any of their buttons (close_on_tap)
 //
-// Which category is open, and each zone's page, stay while the till runs, so
-// opening an order (the counter's first dish) doesn't lose the place.
+// Which category is open, each zone's page and the pop-up open stay while the
+// till runs, so opening an order (the counter's first dish) doesn't lose the
+// place: a pop-up stays open until it is closed.
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Search, X } from 'lucide-react'
-import { choiceZones, overlaps, buttonLabel, actionOf, buttonTextStyle, menuZoneMenus } from '@shared/pos/tillLayout.js'
+import { choiceZones, overlaps, buttonLabel, actionOf, buttonTextStyle, menuZoneMenus, FLOATING_ZONES } from '@shared/pos/tillLayout.js'
 import { switchMenus } from '@shared/menuTimes.js'
 import { discountList } from '@shared/pos/discounts.js'
 import { cx, inkOn } from './ui.jsx'
@@ -184,11 +190,16 @@ function ItemsZone({ zone, layoutId, config, menus, section, sectionIndex, hasCa
   )
 }
 
-function ButtonsZone({ zone, layoutId, config, check, soldOut, onDish, onHold, onButton, canBack }) {
+/**
+ * A Buttons zone, or an open pop-up's buttons (zone.type popup). popups: the
+ * layout's pop-ups, for an Open a pop-up button's words (the pop-up's name).
+ */
+function ButtonsZone({ zone, layoutId, config, check, soldOut, onDish, onHold, onButton, canBack, popups = [] }) {
   const presets = discountList(config.settings)
   const tenders = config.settings?.tenders || []
   const charges = listCharges(config)
   const place = buttonTextStyle(zone)
+  const inPopup = zone.type === 'popup'
   const cells = zone.buttons.map(b => {
     const item = b.action === 'item' ? config.items?.[b.item_id] : null
     const action = actionOf(b.action)
@@ -199,13 +210,41 @@ function ButtonsZone({ zone, layoutId, config, check, soldOut, onDish, onHold, o
     const sold = item && soldOut.has(item.id)
     return {
       key: b.id, w: b.w, h: b.h,
-      node: <LayoutButton b={b} disabled={disabled} place={place} label={buttonLabel(b, { items: config.items || {}, presets, tenders, charges })}
+      node: <LayoutButton b={b} disabled={disabled} place={place} label={buttonLabel(b, { items: config.items || {}, presets, tenders, charges, popups })}
         sub={sold ? 'Sold out' : null}
         onTap={() => (item ? (sold ? onHold(item) : onDish(item)) : onButton(b))}
         onHold={item ? () => onHold(item) : null} />,
     }
   })
-  return <ZoneGrid zone={zone} cells={cells} memoKey={'buttons:' + layoutId + ':' + zone.id} moreTitle="Buttons" empty="No buttons in this zone yet." testid="zone-buttons" />
+  return <ZoneGrid zone={zone} cells={cells} memoKey={'buttons:' + layoutId + ':' + zone.id} moreTitle={inPopup ? zone.title : 'Buttons'}
+    empty={inPopup ? 'No buttons in this pop-up yet.' : 'No buttons in this zone yet.'} testid={inPopup ? 'popup-buttons' : 'zone-buttons'} />
+}
+
+/**
+ * An open pop-up: its buttons over the cells it was placed on, the rest of
+ * the screen covered behind it (a tap there closes it when it is set to).
+ * frame: its border and shadow; controls: a bar with its name and an X.
+ */
+function Popup({ zone, onClose, children }) {
+  return (
+    <>
+      <div className="absolute inset-0 z-[24]" data-testid="popup-cover" data-closes={zone.close_outside ? '1' : '0'}
+        onClick={() => { if (zone.close_outside) onClose() }} />
+      <div style={area(zone)} role="dialog" aria-label={zone.title}
+        className={cx('relative z-[25] bg-white min-w-0 min-h-0 flex flex-col overflow-hidden', zone.frame && 'rounded-xl shadow-2xl ring-2 ring-brand')}
+        data-testid="popup" data-popup-id={zone.id} data-frame={zone.frame ? '1' : '0'} data-controls={zone.controls ? '1' : '0'}>
+        {zone.controls && (
+          <div className="shrink-0 flex items-center gap-2 pl-3 border-b border-line bg-page" data-testid="popup-bar">
+            <span className="flex-1 min-w-0 truncate font-bold" data-testid="popup-title">{zone.title}</span>
+            <button onClick={onClose} className="w-12 h-12 shrink-0 flex items-center justify-center touch-manipulation" aria-label={'Close ' + zone.title} data-testid="popup-close">
+              <X size={22} />
+            </button>
+          </div>
+        )}
+        <div className="flex-1 min-h-0 p-2">{children}</div>
+      </div>
+    </>
+  )
 }
 
 /**
@@ -247,8 +286,32 @@ export default function LayoutScreen({
   const shownKey = menus.map(m => m.id).join(',')
 
   const zones = choiceZones(layout)
-  const solid = layout.zones.filter(z => z.type !== 'modifiers')
+  const solid = layout.zones.filter(z => !FLOATING_ZONES.includes(z.type))
   const mods = layout.zones.filter(z => z.type === 'modifiers')
+  const popups = layout.zones.filter(z => z.type === 'popup')
+  // The pop-up open (kept while the till runs, like the category).
+  const [openPick, setOpenPick] = useRemembered(layoutId + ':popup', null)
+  const popup = popups.find(p => p.id === openPick) || null
+  const closePopup = () => setOpenPick(null)
+  // A pop-up taken out of the layout while open is forgotten, so it doesn't
+  // open by itself should it come back.
+  const popupKey = popups.map(p => p.id).join(',')
+  useEffect(() => { if (openPick && !popup) setOpenPick(null) }, [openPick, popupKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  // A button: pop-ups open and close here, the rest go to the host. from: the
+  // pop-up the button is in, which closes after it when it is set to.
+  const press = (b, from = null) => {
+    if (b.action === 'open_popup') {
+      if (popups.some(p => p.id === b.popup_id)) setOpenPick(b.popup_id)
+      return null
+    }
+    if (b.action === 'close_popup') return closePopup()
+    if (from?.close_on_tap) closePopup()
+    return onButton(b)
+  }
+  const dishFrom = from => item => {
+    if (from?.close_on_tap) closePopup()
+    return onDish(item)
+  }
 
   const zoneBody = z => {
     if (z.type === 'check') return checkZone
@@ -263,7 +326,7 @@ export default function LayoutScreen({
         hasCategories={!!cats} soldOut={soldOut} comboRefs={comboRefs} onDish={onDish} onHold={onHold} />
     }
     if (z.type === 'buttons') {
-      return <ButtonsZone zone={z} layoutId={layoutId} config={config} check={check} soldOut={soldOut} onDish={onDish} onHold={onHold} onButton={onButton} canBack={canBack} />
+      return <ButtonsZone zone={z} layoutId={layoutId} config={config} check={check} soldOut={soldOut} onDish={onDish} onHold={onHold} onButton={b => press(b)} canBack={canBack} popups={popups} />
     }
     if (z.type === 'seats') {
       // What the zone shows, as far as the check's revenue stream uses seats and courses.
@@ -282,6 +345,13 @@ export default function LayoutScreen({
           {zoneBody(z)}
         </div>
       ))}
+      {/* An open pop-up, over everything but a dish's choices (it comes back after them). */}
+      {popup && !choosing && (
+        <Popup key={popup.id} zone={popup} onClose={closePopup}>
+          <ButtonsZone zone={popup} layoutId={layoutId} config={config} check={check} soldOut={soldOut}
+            onDish={dishFrom(popup)} onHold={onHold} onButton={b => press(b, popup)} canBack={canBack} popups={popups} />
+        </Popup>
+      )}
       {choosing
         ? <Choosing key={choosing.key} layout={layout} config={config} choosing={choosing} zones={zones} mods={mods}
             onChosen={onChosen} onCancel={onCancelChoosing} onMore={onMoreChoices} />
