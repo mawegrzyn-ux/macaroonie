@@ -36,7 +36,7 @@ import { orderInfo } from '@shared/orderInfo.js'
 import { ticketColours, sectionColour } from '@shared/pos/kitchenColours.js'
 import {
   useKitchen, useOrders, useCfg, bootKitchen, nowIso, myStations, currentStation, setPrefs, bump, recall, itemDone, itemChecked,
-  remake, priority, collected, unlockAudio, chime, loadConfig, toast, activeFlow, switchFlow, disconnect, moveScreen, inBench,
+  remake, priority, collected, unlockAudio, chime, loadConfig, toast, activeFlow, switchFlow, disconnect, moveScreen, inBench, isViewOnly,
 } from './store.js'
 import { whenSafeToReload, idleFor } from '../lib/appUpdate.js'
 import { belongsHere } from '../lib/appHost.js'
@@ -107,7 +107,9 @@ const TYPE_COLOURS = ['bg-[#9be7a1] text-black', 'bg-[#25a7a7] text-white', 'bg-
 const REMAKE_REASONS = ['Dropped', 'Wrong dish', 'Undercooked', 'Cold', 'Sent back', 'Other']
 
 // bench: the kitchen test bench's link when this screen runs inside it
-// (Bench.jsx): its orders come from the bench's pretend kitchen.
+// (Bench.jsx): its orders come from the bench's pretend kitchen. The live
+// kitchen view (Live.jsx) gives the same kind of link with the venue's real
+// orders and viewOnly set.
 export default function KitchenApp({ device, bench = null }) {
   useEffect(() => { bootKitchen(device, bench) }, [device, bench])
   useWakeLock(!bench)
@@ -854,7 +856,9 @@ const whenText = at => {
 function FlowPanel({ config, names, onClose }) {
   const flows = config.flows || []
   const active = activeFlow(config)
-  const canSwitch = config.device?.settings?.can_switch_flow !== false
+  // The live view (Live.jsx) only shows which flow is in use.
+  const viewOnly = isViewOnly()
+  const canSwitch = !viewOnly && config.device?.settings?.can_switch_flow !== false
   const [confirm, setConfirm] = useState(null)
   const [busy, setBusy] = useState(false)
   const go = async f => {
@@ -899,7 +903,9 @@ function FlowPanel({ config, names, onClose }) {
       {config.flow_switched_at && (
         <div className="text-sm text-white/50 px-1">Last switched {whenText(config.flow_switched_at)}{config.flow_switched_by ? ' by ' + config.flow_switched_by : ''}.</div>
       )}
-      {!canSwitch && <div className="text-sm text-amber-300 px-1">This screen can't switch flows. It can be allowed in Macaroonie: Store tech, Kitchen screens.</div>}
+      {viewOnly
+        ? <div className="text-sm text-white/60 px-1" data-testid="kds-flow-view-only">This is the live view: switch flows on a kitchen screen or in Macaroonie: Store tech, Kitchen screens.</div>
+        : !canSwitch && <div className="text-sm text-amber-300 px-1">This screen can't switch flows. It can be allowed in Macaroonie: Store tech, Kitchen screens.</div>}
     </Panel>
   )
 }

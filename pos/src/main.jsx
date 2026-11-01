@@ -4,9 +4,9 @@ import App from './App.jsx'
 import { startAppUpdates } from './lib/appUpdate.js'
 import './index.css'
 
-// Kiosk design previews (inside the admin, and shared ones) and the kitchen test bench keep
+// Kiosk design previews (inside the admin, and shared ones), the kitchen test bench and the live kitchen view keep
 // whatever copy they opened with.
 const QUERY = new URLSearchParams(location.search)
-if (!QUERY.get('kiosk_preview') && !QUERY.get('kiosk_share') && !QUERY.get('kitchen_test')) startAppUpdates()
+if (!QUERY.get('kiosk_preview') && !QUERY.get('kiosk_share') && !QUERY.get('kitchen_test') && !QUERY.get('kitchen_live')) startAppUpdates()
 
 ReactDOM.createRoot(document.getElementById('root')).render(<App />)

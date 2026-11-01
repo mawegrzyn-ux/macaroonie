@@ -15,6 +15,9 @@
 // (bench.transport, bench.subscribe in place of the socket). Nothing is kept
 // on the device: no IndexedDB, and its choices (station, filter) only last
 // for the browser tab, so a test never touches a real kitchen screen's data.
+// The live kitchen view (Live.jsx) runs screens the same way with the venue's
+// real orders, view only (link.viewOnly): taps that would change an order or
+// the kitchen flow are refused here, before anything is shown or sent.
 
 import { useSyncExternalStore } from 'react'
 import { applyKitchenEvent, stationSettings, nodeState, STALE_HOURS, BUMP_KINDS } from '@shared/pos/kitchen.js'
@@ -31,6 +34,7 @@ const OUTBOX_KEY = 'kds_outbox'
 const PREFS_KEY = 'maca_kds_prefs'
 
 let bench = null
+let viewOnly = false
 let prefsKey = PREFS_KEY
 // The device's own storage, left alone in bench mode.
 const keep = {
@@ -82,6 +86,8 @@ export function setPrefs(patch) {
 }
 
 export function toast(text, kind = 'info', ms = 3500) {
+  // The same words already showing: once is enough.
+  if (state.toasts.some(t => t.text === text)) return
   const id = ulid()
   setState({ toasts: [...state.toasts, { id, text, kind }].slice(-3) })
   setTimeout(() => setState({ toasts: state.toasts.filter(t => t.id !== id) }), ms)
@@ -148,7 +154,8 @@ export function useOrders() {
 export async function bootKitchen(device, benchLink = null) {
   if (benchLink) {
     bench = benchLink
-    prefsKey = 'maca_kds_bench_' + device.id
+    viewOnly = !!benchLink.viewOnly
+    prefsKey = (benchLink.prefsPrefix || 'maca_kds_bench_') + device.id
     api = benchLink.transport
   } else {
     api = createTransport(device, {
@@ -219,6 +226,7 @@ function flowNotice(before, after) {
  * Returns { ok } or { ok: false, error }.
  */
 export async function switchFlow(flowId) {
+  if (viewOnly) return { ok: false, error: VIEW_ONLY }
   ownSwitch = { flowId, until: Date.now() + 20000 }
   try {
     const res = await api.put('/pos-api/kitchen/flow', { flow_id: flowId })
@@ -255,8 +263,11 @@ async function forget(message) {
 
 // ── Disconnect, move (lib/appHost.js) ────────────────────────────
 
-/** On the kitchen test bench (no pairing to disconnect or move). */
+/** On the kitchen test bench or the live view (no pairing to disconnect or move). */
 export const inBench = () => !!bench
+/** In the live kitchen view: the screen shows the real orders and changes nothing. */
+export const isViewOnly = () => viewOnly
+export const VIEW_ONLY = 'This is the live view: nothing changes from here. Tap on the kitchen screen itself.'
 
 async function clearDevice() {
   stopSync()
@@ -301,6 +312,10 @@ export async function moveScreen() {
  * { ok: false, error }.
  */
 export function kitchen(type, payload) {
+  if (viewOnly) {
+    toast(VIEW_ONLY, 'info', 4000)
+    return { ok: false, error: VIEW_ONLY, code: 'view_only' }
+  }
   const e = {
     id: ulid(), venue_id: state.device?.venue_id, device_id: state.device?.id, staff_id: null,
     type, payload, client_at: nowIso(),
@@ -519,7 +534,10 @@ export function unlockAudio() {
 }
 
 export function chime() {
-  if (state.config?.device?.settings?.sound === false || !audio) return
+  if (state.config?.device?.settings?.sound === false) return
+  // In the live view the page plays it (a tap there unlocks sound for every screen).
+  if (bench?.chime) { bench.chime(); return }
+  if (!audio) return
   try {
     const t = audio.currentTime
     for (const [i, f] of [880, 1320].entries()) {

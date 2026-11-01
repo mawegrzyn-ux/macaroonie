@@ -16,10 +16,12 @@
 //     tick dishes off, bumping on the last tick only when set to
 //   - online orders: into the kitchen when accepted, ready when finished;
 //     GloriaFood orders too when the venue is linked (migration 178)
+//   - the live view (every screen with the real orders, any one full screen,
+//     pos/src/kitchen/Live.jsx) and the test bench (pretend orders, Bench.jsx)
 
 import { useEffect, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Loader2, Pencil, ChefHat, Trash2, Search, X, MonitorPlay } from 'lucide-react'
+import { Plus, Loader2, Pencil, ChefHat, Trash2, Search, X, MonitorPlay, Radio } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import {
@@ -682,7 +684,11 @@ function OnlineCard({ venueId, setup }) {
 // app's /?kitchen_test=, pos/src/kitchen/Bench.jsx), with test orders that
 // never reach the real screens. View is enough, so the button isn't a
 // <button>: Store tech is a disabled fieldset for View users.
-function TestCard({ venueId }) {
+/**
+ * A button that opens one of the kitchen pages on the kitchen screens' address
+ * (the live view, the test bench) in a new window, with a link made for it.
+ */
+function KitchenPageButton({ venueId, path, label, icon: Icon, testid }) {
   const api = useApi()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
@@ -695,28 +701,46 @@ function TestCard({ venueId }) {
     // address follows once the link is made.
     const win = window.open('', '_blank')
     try {
-      const res = await api.post(`/pos/venues/${venueId}/kitchen-test`, {})
+      const res = await api.post(`/pos/venues/${venueId}/${path}`, {})
       if (win && !win.closed) { win.location.href = res.url; setLink(null) } else setLink(res.url)
     } catch (e) {
       if (win && !win.closed) win.close()
-      setError(e.message || 'The test page couldn\'t be opened')
+      setError(e.message || 'The page couldn\'t be opened')
     } finally {
       setBusy(false)
     }
   }
   return (
-    <Section title="Test the kitchen"
-      hint="Every kitchen screen of this venue side by side, scaled down. Send test orders, bump them on the screens, switch the kitchen flow and watch where each dish goes. Test orders stay on that page: the real kitchen screens, the till and the reports never see them.">
+    <>
       <div className="flex flex-wrap items-center gap-3">
-        <div role="button" tabIndex={0} aria-disabled={busy || undefined} data-testid="kitchen-test-open"
+        <div role="button" tabIndex={0} aria-disabled={busy || undefined} data-testid={testid}
           onClick={open} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open() } }}
           className="inline-flex items-center gap-2 h-11 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-semibold cursor-pointer select-none touch-manipulation">
-          {busy ? <Loader2 size={16} className="animate-spin" /> : <MonitorPlay size={16} />} Open the kitchen test
+          {busy ? <Loader2 size={16} className="animate-spin" /> : <Icon size={16} />} {label}
         </div>
         {link && <a href={link} target="_blank" rel="noreferrer" className="text-sm font-medium underline">Your browser blocked the new window: open it here</a>}
       </div>
-      <p className="text-xs text-muted-foreground">Opens in a new window. Changes made here afterwards show there after Reload setup.</p>
       <ErrorNote error={error} />
+    </>
+  )
+}
+
+function LiveCard({ venueId }) {
+  return (
+    <Section title="Live view"
+      hint="Every kitchen screen of this venue side by side, showing the real orders as they are now. Tap Full screen on any of them to show it on its own, for example on an office monitor or a TV. Nothing changes from there: bumping and ticking off stay on the kitchen screens.">
+      <KitchenPageButton venueId={venueId} path="kitchen-live" label="Open the live view" icon={Radio} testid="kitchen-live-open" />
+      <p className="text-xs text-muted-foreground">Opens in a new window. The link works for 12 hours; it follows changes made here by itself.</p>
+    </Section>
+  )
+}
+
+function TestCard({ venueId }) {
+  return (
+    <Section title="Test the kitchen"
+      hint="Every kitchen screen of this venue side by side, scaled down. Send test orders, bump them on the screens, switch the kitchen flow and watch where each dish goes. Test orders stay on that page: the real kitchen screens, the till and the reports never see them.">
+      <KitchenPageButton venueId={venueId} path="kitchen-test" label="Open the kitchen test" icon={MonitorPlay} testid="kitchen-test-open" />
+      <p className="text-xs text-muted-foreground">Opens in a new window. Changes made here afterwards show there after Reload setup.</p>
     </Section>
   )
 }
@@ -726,6 +750,7 @@ export default function KitchenSection({ venueId, setup, canManage = true }) {
   const [editing, setEditing] = useState(null)
   return (
     <>
+      <LiveCard venueId={venueId} />
       <TestCard venueId={venueId} />
       <KitchenFlow venueId={venueId} setup={setup} canManage={canManage} onStation={setEditing} />
       <StationsCard venueId={venueId} setup={setup} onEdit={setEditing} />
