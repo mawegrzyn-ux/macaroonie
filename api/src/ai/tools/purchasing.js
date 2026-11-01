@@ -31,6 +31,10 @@
 //
 //   update_order            quantities on the draft (not sent), or on  purchasing, manage (a request
 //                           a request waiting for approval             waiting: purchasing_approve)
+//   import_supplier_basket  an order set to a supplier's basket (their
+//                           website's basket or quick order) by codes  as update_order
+//   set_out_of_stock        a supplier price out of stock until a date,
+//                           or back in stock (migration 234)           any purchasing module, manage
 //   request_order           send the draft for approval (migration 180) purchasing, manage
 //   place_order             one purchase order per supplier, emailed
 //                           to suppliers that take email               purchasing_approve, manage
@@ -66,7 +70,7 @@ import {
   packBaseQty, packLabel, fmtNum, formatBase, perUnitLabel, unitPrice, quotePrice, chooseQuote,
   fitQty, qtyProblem, packsToPar, lineAmounts, orderTotals, supplierForVenue, nextDeliveryDate,
   minutesToCutoff, deliveryTempOk, receiveStatusFor, poNumberLabel, convertQty, splitProblem,
-  deliveryDayProblem, deadlineText, slotText, deadlinePassed, quickOrder,
+  deliveryDayProblem, deadlineText, slotText, deadlinePassed, quickOrder, outOfStock,
 } from '../../../../shared/procurement.js'
 import { DateStr, TimeStr, localParts, longDate, pickByName, zonedInstant } from './util.js'
 
@@ -159,6 +163,24 @@ async function requireOrderOrApprove(ctx) {
   if (order !== 'manage' && approve !== 'manage') {
     throw new ToolError('You don\'t have permission to send or receive supplier orders. Ask an owner or admin.', 403)
   }
+}
+
+/** Saying a supplier price is out of stock: anyone who orders, approves or keeps the catalogue. */
+async function requireMarkStock(ctx) {
+  const levels = await Promise.all(['purchasing', 'purchasing_approve', 'purchasing_setup'].map(m => staffPermissionLevel(ctx, m)))
+  if (!levels.includes('manage')) {
+    throw new ToolError('You don\'t have permission to mark supplier prices out of stock. Ask an owner or admin.', 403)
+  }
+}
+
+/**
+ * "until Tue 10 Nov (the first day it can be delivered again): depot fire"
+ * for a price that can't come on `date` (outOfStock()), else null.
+ */
+function stockText(q, date) {
+  const o = outOfStock(q, date)
+  if (!o) return null
+  return 'until ' + longDate(o.until) + ' (the first day it can be delivered again)' + (o.note ? ': ' + o.note : '')
 }
 
 /** Placing needs approval; without it the order goes for approval. */
@@ -267,6 +289,7 @@ function pickQuote(itemName, quotes, supplierText, which) {
 
 function itemView(it, { venue, venueName, cur }) {
   const pref = it.preferred || { default: null, venues: {} }
+  const today = localParts(new Date(), venue?.timezone || 'Europe/London').date
   const live = it.quotes.filter(q => q.supplier_active !== false)
   const ordered = venue ? chooseQuote(live, venue.id, pref) : null
   return {
@@ -293,6 +316,7 @@ function itemView(it, { venue, venueName, cur }) {
         ...(q.min_qty ? { minimum_packs: fmtNum(q.min_qty) } : {}),
         ...(q.order_multiple ? { in_steps_of: fmtNum(q.order_multiple) } : {}),
         ...(q.is_active ? {} : { active: false }),
+        ...(stockText(q, today) ? { out_of_stock: stockText(q, today) } : {}),
         ...(vp.length ? { venue_prices: vp.map(([vid, p]) => (venueName.get(vid) || 'a venue') + ': ' + money(p, cur)) } : {}),
         ...(pref.default === q.id ? { company_choice: true } : {}),
         ...(chosenAt.length ? { chosen_at: chosenAt } : {}),
@@ -464,6 +488,30 @@ const csvCell = v => {
 }
 const toCsv = rows => [IMPORT_HEADINGS.join(','), ...rows.map(r => IMPORT_KEYS.map(k => csvCell(r[k])).join(','))].join('\n')
 
+/**
+ * A CSV or text file attached in this chat by this person, base64, with its
+ * name: { file, source }. verb says what is done with it (imported, read),
+ * rows what to send instead (the products, the prices) and from what to
+ * read them out of a PDF or picture.
+ */
+async function chatTextFile(ctx, name, { verb, rows, readOut }) {
+  if (ctx.channel !== 'staff_chat' || !ctx.conversationId) {
+    throw new ToolError('Attached files can only be ' + verb + ' in the chat. Send the ' + rows + ' as rows instead.', 422)
+  }
+  const files = await withTenant(ctx.tenantId, tx => tx`
+    SELECT id, filename, kind, data FROM ai_attachments
+     WHERE tenant_id = ${ctx.tenantId} AND conversation_id = ${ctx.conversationId}
+       AND user_sub = ${ctx.principal?.sub ?? ''}
+     ORDER BY created_at
+  `)
+  const f = pickByName(files, name, x => x.filename, 'attached file', 'No files are attached in this chat.')
+  if (f.kind !== 'text') {
+    throw new ToolError(f.filename + ' is ' + (f.kind === 'pdf' ? 'a PDF' : 'an image') +
+      ', which can\'t be ' + verb + ' as it is. Read the ' + readOut + ' from it and pass them as rows.', 422)
+  }
+  return { file: Buffer.from(f.data).toString('base64'), source: f.filename }
+}
+
 /** The file to import, base64: rows from the conversation, or a CSV / text file attached in this chat. */
 async function importFile(ctx, input) {
   if (!!input.attached_file === !!input.rows?.length) {
@@ -472,21 +520,7 @@ async function importFile(ctx, input) {
   if (input.rows?.length) {
     return { file: Buffer.from(toCsv(input.rows), 'utf8').toString('base64'), source: 'the conversation' }
   }
-  if (ctx.channel !== 'staff_chat' || !ctx.conversationId) {
-    throw new ToolError('Attached files can only be imported in the chat. Send the products as rows instead.', 422)
-  }
-  const files = await withTenant(ctx.tenantId, tx => tx`
-    SELECT id, filename, kind, data FROM ai_attachments
-     WHERE tenant_id = ${ctx.tenantId} AND conversation_id = ${ctx.conversationId}
-       AND user_sub = ${ctx.principal?.sub ?? ''}
-     ORDER BY created_at
-  `)
-  const f = pickByName(files, input.attached_file, x => x.filename, 'attached file', 'No files are attached in this chat.')
-  if (f.kind !== 'text') {
-    throw new ToolError(f.filename + ' is ' + (f.kind === 'pdf' ? 'a PDF' : 'an image') +
-      ', which can\'t be imported as it is. Read the products from it and pass them as rows.', 422)
-  }
-  return { file: Buffer.from(f.data).toString('base64'), source: f.filename }
+  return chatTextFile(ctx, input.attached_file, { verb: 'imported', rows: 'products', readOut: 'products' })
 }
 
 /** A price update's body: rows from the conversation, or a CSV / text file attached in this chat. */
@@ -495,21 +529,8 @@ async function priceUpdateBody(ctx, input, supplierId) {
     throw new ToolError('Give either attached_file (a CSV attached in this chat) or rows of code and price.', 422)
   }
   if (input.rows?.length) return { body: { supplier_id: supplierId, rows: input.rows }, source: 'the conversation' }
-  if (ctx.channel !== 'staff_chat' || !ctx.conversationId) {
-    throw new ToolError('Attached files can only be read in the chat. Send the prices as rows instead.', 422)
-  }
-  const files = await withTenant(ctx.tenantId, tx => tx`
-    SELECT id, filename, kind, data FROM ai_attachments
-     WHERE tenant_id = ${ctx.tenantId} AND conversation_id = ${ctx.conversationId}
-       AND user_sub = ${ctx.principal?.sub ?? ''}
-     ORDER BY created_at
-  `)
-  const f = pickByName(files, input.attached_file, x => x.filename, 'attached file', 'No files are attached in this chat.')
-  if (f.kind !== 'text') {
-    throw new ToolError(f.filename + ' is ' + (f.kind === 'pdf' ? 'a PDF' : 'an image') +
-      ', which can\'t be read as it is. Read the codes and prices from it and pass them as rows.', 422)
-  }
-  return { body: { supplier_id: supplierId, file: Buffer.from(f.data).toString('base64') }, source: f.filename }
+  const { file, source } = await chatTextFile(ctx, input.attached_file, { verb: 'read', rows: 'prices', readOut: 'codes and prices' })
+  return { body: { supplier_id: supplierId, file }, source }
 }
 
 /** The card's lines for a price update's dry run. */
@@ -571,6 +592,97 @@ async function openOrder(ctx, venue, input, { create }) {
   if (!order) return null
   order.items = order.items.map(i => ({ ...i, id: i.item_id }))
   return order
+}
+
+/**
+ * import_supplier_basket's order, supplier and request body. The basket is
+ * rows from the conversation or a CSV / text file attached in this chat,
+ * sent as text (code:qty lines and CSVs with headings read the same way).
+ */
+async function basketTarget(ctx, input) {
+  await requireOrderOrApprove(ctx)
+  if (!!input.attached_file === !!input.rows?.length) {
+    throw new ToolError('Give either rows (codes and quantities) or attached_file (a CSV attached in this chat).', 422)
+  }
+  const venue = await orderVenue(ctx, input)
+  const order = await openOrder(ctx, venue, input, { create: true })
+  assertCanEdit(order)
+  const sups = await callApi(ctx, 'GET', '/api/purchasing/venues/' + venue.id + '/suppliers')
+  const sup = pickByName(sups, input.supplier, x => x.name, 'supplier with prices', 'No supplier has prices to order from yet.')
+  let basket, source = 'the conversation'
+  if (input.rows?.length) {
+    basket = { rows: input.rows.map(r => ({ code: r.code, qty: r.quantity })) }
+  } else {
+    const f = await chatTextFile(ctx, input.attached_file, { verb: 'read', rows: 'codes and quantities', readOut: 'codes and quantities' })
+    basket = { file: f.file }
+    source = f.source
+  }
+  return { venue, order, sup, source, body: { supplier_id: sup.id, remove_missing: !input.keep_missing, ...basket } }
+}
+
+/** The card's lines for a basket's changes (the first 25). */
+/**
+ * The supplier price set_out_of_stock is about: found the way staff who
+ * order see the catalogue (any venue's: every item with an active price),
+ * by name, our code or the supplier's code, then the supplier or pack when
+ * the item has several prices. The card pins the price (quote_id).
+ */
+async function stockPlan(ctx, input) {
+  await requireMarkStock(ctx)
+  if (!!input.until === !!input.back_in_stock) {
+    throw new ToolError('Give until (the first day it can be delivered again), or back_in_stock: true.', 422)
+  }
+  const venues = await tenantVenues(ctx)
+  if (!venues.length) throw new ToolError('There are no venues yet.', 404)
+  const venue = venues[0]
+  const today = venueToday(venue)
+  if (input.until && input.until <= today) {
+    throw new ToolError('Give the first day it can be delivered again: a day after today (' + longDate(today) + ').', 422)
+  }
+  const raw = input.item.trim()
+  const hits = await callApi(ctx, 'GET', '/api/purchasing/venues/' + venue.id + '/catalog?search=' + encodeURIComponent(raw))
+  if (!hits.length) throw new ToolError('No product called "' + raw + '" with an active supplier price.', 404)
+  // A supplier's code typed in whole names that product.
+  const coded = hits.filter(x => x.matched_quote_id)
+  const item = coded.length === 1 ? coded[0] : pickByName(hits, raw, x => x.name, 'product')
+  let quote
+  if (input.quote_id) {
+    quote = item.quotes.find(q => q.id === input.quote_id)
+    if (!quote) throw new ToolError('That price for ' + item.name + ' is no longer offered.', 409)
+  } else if (item.matched_quote_id && !input.supplier && !input.pack) {
+    quote = item.quotes.find(q => q.id === item.matched_quote_id)
+  } else {
+    quote = pickQuote(item.name, item.quotes, input.supplier, input.pack)
+  }
+  const until = quote.out_of_stock_until && quote.out_of_stock_until > today ? quote.out_of_stock_until : null
+  if (input.back_in_stock && !until) {
+    throw new ToolError(item.name + ' from ' + quote.supplier_name + ' isn\'t marked out of stock.', 409)
+  }
+  const name = item.name + ' from ' + quote.supplier_name + ' (' + quoteLabel(quote) + (quote.supplier_code ? ' [' + quote.supplier_code + ']' : '') + ')'
+  return { venue, today, item, quote, until, name }
+}
+
+function basketLines(r) {
+  const out = [
+    ...r.added.map(a => 'Add ' + a.code + ' ' + a.item_name + ': ' + fmtNum(a.qty) + ' x ' + a.pack),
+    ...r.changed.map(c => c.code + ' ' + c.item_name + ': ' + fmtNum(c.from_qty) + ' to ' + fmtNum(c.qty) + ' x ' + c.pack +
+      (c.from ? ' (was ' + c.from.supplier_name + (c.from.code ? ' ' + c.from.code : '') + ', ' + c.from.pack + ')' : '')),
+    ...r.removed.map(x => 'Take off ' + x.item_name + (x.code ? ' (' + x.code + ')' : '') + ': was ' + fmtNum(x.qty)),
+  ]
+  return out.length > 25 ? [...out.slice(0, 25), 'and ' + plural(out.length - 25, 'more change')] : out
+}
+
+/** What the card warns about: quantities rounded up and codes left out. */
+function basketWarnings(r) {
+  return [
+    ...[...r.added, ...r.changed].filter(x => x.qty_problem).slice(0, 10).map(x =>
+      x.item_name + ' (' + x.code + '): ' + fmtNum(x.basket_qty) + ' in the basket, ' + x.qty_problem.toLowerCase() + ' here, so ' + fmtNum(x.qty) + '.'),
+    ...(r.unknown.length ? ['Not found at ' + r.supplier.name + ': ' + r.unknown.slice(0, 15).map(u => u.code).join(', ') +
+      (r.unknown.length > 15 ? ' and ' + (r.unknown.length - 15) + ' more' : '') + '. Left out: add them with add_supplier_price first.'] : []),
+    ...(r.switched_off.length ? ['Switched off here, left out: ' + r.switched_off.slice(0, 10).map(u => u.code + ' ' + u.item_name).join(', ') + '.'] : []),
+    ...(r.ambiguous.length ? ['On more than one product, left out: ' + r.ambiguous.slice(0, 10).map(u => u.code + ' (' + u.items.join(', ') + ')').join('; ') + '.'] : []),
+    ...r.errors.slice(0, 10).map(e => 'Row ' + (e.row ?? (e.rows || []).join(', ')) + (e.code ? ' (' + e.code + ')' : '') + ': ' + e.error + '. Left out.'),
+  ]
 }
 
 /** A line's item: on the order (by code or name), else from the catalogue. */
@@ -693,6 +805,8 @@ function requestView(order) {
 function orderView(order, venue, sup, onlyQty) {
   const cur = venue.currency
   const items = order.items.filter(i => !onlyQty || i.qty > 0)
+  // Out of stock is judged against the supplier's next delivery.
+  const dayFor = q => sup[q.supplier_id]?.next_delivery || order.today
   return {
     order_id: order.id,
     venue: order.venue_name,
@@ -718,6 +832,8 @@ function orderView(order, venue, sup, onlyQty) {
       ...(i.quote ? { pack: i.quote.pack_label } : i.gone?.quote ? { pack: i.gone.quote.pack_label } : {}),
       ...(i.quote?.supplier_code ? { supplier_code: i.quote.supplier_code } : {}),
       ...(i.gone ? { problem: goneText(i) } : {}),
+      ...(i.quote && !i.gone && stockText(i.quote, dayFor(i.quote))
+        ? { out_of_stock: i.quote.supplier_name + ' said it\'s out of stock ' + stockText(i.quote, dayFor(i.quote)) } : {}),
       quantity: i.qty,
       ...(i.requested_qty != null && order.status === 'requested' && i.requested_qty !== i.qty ? { asked_for: i.requested_qty } : {}),
       ...(i.par_packs != null ? { par: i.par_packs } : {}),
@@ -725,7 +841,8 @@ function orderView(order, venue, sup, onlyQty) {
       ...(order.show_prices && i.quote ? { price: money(i.quote.price, cur) + ' ex VAT' } : {}),
       ...(i.quotes.length > 1 ? {
         other_choices: i.quotes.filter(q => q.id !== i.quote?.id)
-          .map(q => q.supplier_name + ', ' + q.pack_label + (order.show_prices ? ' ' + money(q.price, cur) : '')),
+          .map(q => q.supplier_name + ', ' + q.pack_label + (order.show_prices ? ' ' + money(q.price, cur) : '') +
+            (stockText(q, dayFor(q)) ? ' (out of stock ' + stockText(q, dayFor(q)) + ')' : '')),
       } : {}),
     })),
     suppliers: Object.values(sup).map(s => {
@@ -879,6 +996,17 @@ function orderGroups(plan, deliveries = []) {
       notes, open, existing, lines: gl, totals, cur: venue.currency,
     }
   })
+}
+
+/**
+ * The lines of one supplier's delivery the supplier said are out of stock
+ * on its day (outOfStock()): warnings for the card, never a refusal (the
+ * person may order anyway, or pick another day or price).
+ */
+function stockWarnings(g) {
+  return g.lines.filter(e => outOfStock(e.quote, g.date)).map(e => g.s.name + ' said ' + e.item.name + ' is out of stock ' +
+    stockText(e.quote, g.date) + ', so it may not come on ' + longDate(g.date) + '. Deliver later, order it from another ' +
+    'supplier, or order anyway.')
 }
 
 const sentHow = s => s.send_method === 'email'
@@ -1907,6 +2035,118 @@ export const purchasingTools = [
   },
 
   {
+    name: 'import_supplier_basket',
+    title: 'Bring a supplier\'s basket into an order',
+    description:
+      'Changes an order to match a supplier\'s basket (what is in their website\'s basket, or their quick order): ' +
+      'rows of the supplier\'s product code and quantity in their packs (up to 300, read from a message, PDF, photo ' +
+      'or email), or attached_file: a CSV or text file attached in this chat (Code and Qty columns, or code:qty ' +
+      'lines). Each code is matched to that supplier\'s price here. Lines are added or set to the basket\'s ' +
+      'quantities (moved onto this supplier\'s price when they were on another), and that supplier\'s lines the ' +
+      'basket doesn\'t have are taken off unless keep_missing. Codes not found here are listed and left out (add ' +
+      'them with add_supplier_price first). Nothing goes to the supplier.',
+    input: z.object({
+      ...OrderTarget,
+      supplier:      z.string().min(1).max(200),
+      rows:          z.array(z.object({ code: z.string().min(1).max(100), quantity: Qty })).max(300).optional(),
+      attached_file: z.string().max(200).optional().describe('File name of a CSV or text file attached in this chat'),
+      keep_missing:  z.boolean().optional().describe('Keep this supplier\'s lines that aren\'t in the basket'),
+    }),
+    confirm: true,
+    async describe(ctx, input) {
+      const t = await basketTarget(ctx, input)
+      const r = await callApi(ctx, 'POST', '/api/purchasing/orders/' + t.order.id + '/reconcile', { body: { ...t.body, dry_run: true } })
+      const n = r.added.length + r.changed.length + r.removed.length
+      if (!n) {
+        const why = [
+          r.unchanged && plural(r.unchanged, 'line is', 'lines are') + ' the same already',
+          r.unknown.length && plural(r.unknown.length, 'code') + ' not found at ' + r.supplier.name,
+          r.errors.length && plural(r.errors.length, 'row') + ' unreadable',
+        ].filter(Boolean).join(', ')
+        throw new ToolError('Nothing on the order would change' + (why ? ': ' + why : '') + '.', 422)
+      }
+      return {
+        title: 'Bring ' + r.supplier.name + '\'s basket into the order?',
+        lines: [
+          t.venue.name + ', ' + (t.order.list_name || 'items on no list') + ', from ' + t.source + ' (' + plural(r.rows, 'row') + ')',
+          ...basketLines(r),
+          ...(r.unchanged ? [plural(r.unchanged, 'line') + ' already as in the basket'] : []),
+          'Nothing goes to ' + r.supplier.name + ' until the order is placed.',
+        ],
+        ...(basketWarnings(r).length ? { warningTitle: 'Check', warnings: basketWarnings(r) } : {}),
+        pin: { order_id: t.order.id, supplier: t.sup.id },
+        confirmLabel: 'Change the order',
+      }
+    },
+    async run(ctx, input) {
+      const t = await basketTarget(ctx, input)
+      return audited(ctx, 'import_supplier_basket', { supplier: t.sup.name, source: t.source, rows: input.rows?.length ?? null, keep_missing: !!input.keep_missing }, async () => {
+        const r = await callApi(ctx, 'POST', '/api/purchasing/orders/' + t.order.id + '/reconcile', { body: t.body })
+        return {
+          order_id: t.order.id, venue: t.venue.name, supplier: r.supplier.name, source: t.source,
+          added: r.added.length, changed: r.changed.length, taken_off: r.removed.length, unchanged: r.unchanged,
+          ...(r.unknown.length ? { not_found: r.unknown.map(u => u.code) } : {}),
+          ...(r.errors.length ? { left_out: r.errors.slice(0, 20) } : {}),
+          message: 'The order now matches the basket. Nothing has gone to the supplier yet.',
+        }
+      })
+    },
+  },
+
+  {
+    name: 'set_out_of_stock',
+    title: 'Mark a supplier price out of stock',
+    description:
+      'Records what a supplier said about one of their prices: out of stock until a date (until: the first day it ' +
+      'can be delivered again), or back_in_stock: true. Orders and purchase orders for a day before the date say so ' +
+      'at every venue, and Pepper\'s order cards warn; nothing moves to another supplier by itself. Name the item (or ' +
+      'the supplier\'s product code), and the supplier or pack when the item has several prices. For anyone who ' +
+      'orders, approves orders or keeps the catalogue.',
+    input: z.object({
+      item:          z.string().min(1).max(200).describe('The inventory item, our code, or the supplier\'s product code'),
+      supplier:      z.string().max(200).optional().describe('Whose price, when the item has prices from several suppliers'),
+      pack:          z.string().max(200).optional().describe('Which of the supplier\'s prices (product name, code or pack), when they have several'),
+      until:         DateStr.optional().describe('The first day it can be delivered again'),
+      back_in_stock: z.boolean().optional().describe('It is in stock again: clears the date'),
+      note:          z.string().max(500).optional().describe('What the supplier said'),
+      quote_id:      Id.optional().describe('Filled in by the confirm card: leave it out'),
+    }),
+    confirm: true,
+    async describe(ctx, input) {
+      const p = await stockPlan(ctx, input)
+      const lines = [p.name]
+      if (input.back_in_stock) {
+        lines.push('Was out of stock until ' + longDate(p.until) + (p.quote.out_of_stock_note ? ': ' + p.quote.out_of_stock_note : ''))
+        lines.push('Orders show it as in stock again at every venue.')
+        return { title: 'Mark it back in stock?', lines, pin: { quote_id: p.quote.id }, confirmLabel: 'Back in stock' }
+      }
+      lines.push('Out of stock until ' + longDate(input.until) + ' (the first day it can be delivered again)')
+      if (input.note) lines.push('What they said: ' + input.note)
+      lines.push('Orders and purchase orders for a day before it say so at every venue. Nothing moves to another supplier by itself.')
+      const warnings = p.until ? ['It was already marked out of stock until ' + longDate(p.until) + ': this replaces it.'] : []
+      return {
+        title: 'Mark it out of stock?', lines, ...(warnings.length ? { warningTitle: 'Check', warnings } : {}),
+        pin: { quote_id: p.quote.id }, confirmLabel: 'Mark out of stock',
+      }
+    },
+    async run(ctx, input) {
+      const p = await stockPlan(ctx, input)
+      return audited(ctx, 'set_out_of_stock', input, async () => {
+        const r = await callApi(ctx, 'PUT', '/api/purchasing/quotes/' + p.quote.id + '/stock', {
+          body: input.back_in_stock ? { until: null } : { until: input.until, note: input.note ?? null },
+        })
+        return {
+          item: p.item.name, supplier: p.quote.supplier_name, pack: quoteLabel(p.quote),
+          ...(r.out_of_stock_until ? { out_of_stock_until: longDate(r.out_of_stock_until) } : { back_in_stock: true }),
+          message: r.out_of_stock_until
+            ? 'Marked out of stock until ' + longDate(r.out_of_stock_until) + '. Orders for a day before it say so.'
+            : 'Marked back in stock.',
+        }
+      })
+    },
+  },
+
+  {
     name: 'place_order',
     title: 'Place an order',
     description:
@@ -1966,6 +2206,7 @@ export const purchasingTools = [
           warnings.push('Today\'s ' + hhmm(g.s.cutoff_time) + ' cutoff for ' + g.s.name + ' has passed, so its first delivery is ' + longDate(g.date) + '.')
         }
         if (g.s.send_method === 'email' && !g.s.email) warnings.push(g.s.name + ' has no order email address: its order waits in To send.')
+        warnings.push(...stockWarnings(g))
       }
       return {
         title: 'Place this order?',
@@ -2052,6 +2293,7 @@ export const purchasingTools = [
         for (const e of g.lines) lines.push('  ' + fmtNum(e.qty) + ' x ' + e.item.name + ' (' + e.quote.pack_label + ')')
         if (g.notes) lines.push('  Note: ' + g.notes)
         if (g.problem) warnings.push(g.problem.message + ': the manager agrees it with ' + g.s.name + ' or picks another day when placing it.')
+        warnings.push(...stockWarnings(g))
       }
       if (input.note) lines.push('For the manager: ' + input.note)
       return { title: 'Send this order for approval?', lines, ...(warnings.length ? { warningTitle: 'Check', warnings } : {}), confirmLabel: 'Send for approval' }

@@ -32,7 +32,7 @@ import { Modal, Field, inputCls, ErrorNote, Segmented } from '@/components/staff
 import { FileDropArea } from '@/components/FileDropArea'
 import { useAiStatus } from '@/components/ai/ChatView'
 import { prepareFile, sizeText } from '@/components/ai/attachments'
-import { NumInput, StorageBadge, btn, money, fmtDate, fileToBase64, useCategories, IS_TOUCH } from '@/components/purchasing/shared'
+import { NumInput, StorageBadge, btn, money, fmtDate, fileToBase64, useCategories, IS_TOUCH, CodeTag } from '@/components/purchasing/shared'
 import { UNITS, unitsForBase, packBaseQty, fmtNum, formatBase } from '@shared/procurement.js'
 import { ASSISTANT_NAME } from '@shared/assistant.js'
 
@@ -363,7 +363,13 @@ export function ExtrasSection({ po, extras, setExtras, prices, canSetup, lineInv
 }
 
 /** Pick the inventory item an invoice line is: one of this supplier's prices, packed as invoiced, or a new item. */
-function ItemPickModal({ po, canSetup, prices, initialName, onPick, onClose }) {
+/**
+ * Which inventory item something is: an item with one of the supplier's
+ * prices (onPick(item, quote)), the item for a new pack or price
+ * (onPick(item, null)), or a new item with Purchasing setup. Also used for a
+ * basket code not found here (basket.jsx: title, newLabel).
+ */
+export function ItemPickModal({ po, canSetup, prices, initialName, onPick, onClose, title = 'Which inventory item is it?', newLabel = null }) {
   const api = useApi()
   const qc = useQueryClient()
   // The invoice's first real word ("Lemons unwaxed 5kg" -> "Lemons"): an inventory name is usually shorter.
@@ -380,7 +386,7 @@ function ItemPickModal({ po, canSetup, prices, initialName, onPick, onClose }) {
       onMade={item => { qc.invalidateQueries({ queryKey: ['purchasing-catalog-all'] }); onPick(item, null) }} />
   }
   return (
-    <Modal title="Which inventory item is it?" onClose={onClose}
+    <Modal title={title} onClose={onClose}
       footer={canSetup ? <button type="button" className={btn.outline} onClick={() => setMaking(true)}><Plus className="w-4 h-4" />New inventory item</button> : null}>
       <div className="relative">
         <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -397,12 +403,13 @@ function ItemPickModal({ po, canSetup, prices, initialName, onPick, onClose }) {
                 {mine.map(q => (
                   <button key={q.id} type="button" onClick={() => onPick(i, q)}
                     className="text-left rounded-lg border px-3 py-1.5 min-h-[44px] text-xs hover:bg-muted touch-manipulation">
+                    {q.supplier_code && <CodeTag code={q.supplier_code} className="mr-1.5" />}
                     {[q.product_name, q.pack_label].filter(Boolean).join(' · ')}{prices && q.price != null ? ` · ${money(q.price)}` : ''}
                   </button>
                 ))}
                 <button type="button" onClick={() => onPick(i, null)}
                   className="rounded-lg border border-dashed px-3 py-1.5 min-h-[44px] text-xs hover:bg-muted touch-manipulation">
-                  {mine.length ? 'Another pack' : 'Packed as invoiced'}
+                  {newLabel || (mine.length ? 'Another pack' : 'Packed as invoiced')}
                 </button>
               </div>
             </div>

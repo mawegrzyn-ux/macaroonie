@@ -5,6 +5,17 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-11-01 — Purchasing: a supplier's basket into an order, out of stock until a date]
+
+Migration 234 (`inv_quotes.out_of_stock_until`, `_note`, `_by`, `_at`).
+
+- **Import a supplier's basket.** Ordered on a supplier's own website? Import basket on the order form sets the order to match their basket, by their product codes: paste it (MEA161:20,POR106:7, one a line, or the basket's rows with their headings) or choose a CSV, Excel or text file. Check shows what would be added, changed and taken off, and the codes it couldn't use; Apply changes the order. Quantities below a minimum go up to what can be ordered. Codes not found can be added to the supplier's prices from the window (Purchasing setup). Nothing is sent to the supplier.
+- **Out of stock until a date.** When a supplier says a product is out of stock, record it on that price with the first day it can be delivered again (and what they said): tap the line's pack on the order form, or the price on the Inventory page. Orders for a delivery before that day say so on the line, in Place order (with the first day everything is back), when splitting and on the purchase order. Nothing moves to another supplier by itself: pick another price, another day, or order anyway. From the day it is back nothing more is needed; Back in stock clears it sooner. Anyone who orders, approves or keeps the catalogue can mark it.
+- **Pepper** brings a supplier's basket into an order (from a message, a PDF, a photo or an attached CSV), marks a price out of stock or back in stock, and warns about out of stock lines when placing an order.
+- The supplier switch says Keeps 3 × Case when nothing changes about the amount.
+
+---
+
 ## [2026-11-01 — Purchasing: tidying the catalogue]
 
 No migration.

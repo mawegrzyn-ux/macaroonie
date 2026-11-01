@@ -5019,9 +5019,11 @@ export default function Help() {
                 ['Check the catalogue', 'Purchasing setup', 'Codes on two products, two items in use with one name, items nobody sells and prices without a code ("is the catalogue tidy?").'],
                 ['Switch several items off or on', 'Purchasing setup', 'Up to 50 at a time, by name or code. The card says which are on open orders, and switching on is refused for a code another item already uses.'],
                 ['See and fill in an order', 'Purchasing', 'The venue\'s draft for a list: quantities, pars, last ordered, other suppliers, and each supplier\'s quick order codes. Quantities are packs (cases, bags), as on the Purchasing page. An item can be named by a supplier\'s product code: "order 20 MEA161" orders it from that supplier. Nothing is sent until you place it.'],
+                ['Bring a supplier\'s basket into an order', 'Purchasing (an order waiting for approval: Purchasing approval)', 'After ordering on a supplier\'s website: attach their basket as a CSV or text file, or paste the codes and quantities ("Brakes basket: MEA161 20, POR106 7"). The card lists every line added, changed and taken off, and the codes not found here, before the order changes. Nothing goes to the supplier.'],
+                ['Mark a supplier price out of stock', 'Purchasing, Purchasing approval or Purchasing setup', '"Brakes is out of MEA161 until Friday": the first day it can be delivered again, with what they said. Orders for a day before it say so, and placing an order warns about it. "MEA161 is back in stock" clears it. Nothing moves to another supplier by itself.'],
                 ['Send an order for approval', 'Purchasing', 'For people without Purchasing approval: the card lists the lines and the day wanted from each supplier, and you can add a note for the manager.'],
                 ['See the orders waiting for approval', 'Any purchasing access', 'Who asked and when, the days wanted, each line with what was asked for, and drafts that were sent back with the reason.'],
-                ['Place an order', 'Purchasing approval', 'Your draft, or an order waiting for approval. The card lists each supplier with its delivery date (the day asked for, if any), how the order gets to them and the lines, and warns about rounded-up quantities or a small order. A day the supplier can\'t make (not one of their delivery days, or too late for their cutoff) is refused unless you say it was agreed with them; a line whose price was switched off has to be changed or taken off first. The note to each supplier starts as the venue\'s driver instructions. When the venue already has an order from a supplier for that day, Pepper asks whether to add to it or place a separate one.'],
+                ['Place an order', 'Purchasing approval', 'Your draft, or an order waiting for approval. The card lists each supplier with its delivery date (the day asked for, if any), how the order gets to them and the lines, and warns about rounded-up quantities or a small order. A day the supplier can\'t make (not one of their delivery days, or too late for their cutoff) is refused unless you say it was agreed with them; a line whose price was switched off has to be changed or taken off first. The note to each supplier starts as the venue\'s driver instructions. When the venue already has an order from a supplier for that day, Pepper asks whether to add to it or place a separate one. Lines a supplier said are out of stock for that day are flagged on the card.'],
                 ['Change, split or send back an order waiting for approval', 'Purchasing approval', 'Change quantities, move part of it to a second order for another day, or send it back with the reason.'],
                 ['Send, change, split or cancel a purchase order', 'Purchasing (send, date, reference); Purchasing approval (quantities, split, cancel)', 'Email it, or mark it sent by printout, PDF, Excel, phone or their website, with the supplier\'s order reference (needed for suppliers set to need it) and, if it went earlier, when. Quantities can change while it is waiting to be sent (lines and products to add can be named by their product code); the date and notes until it is received; the supplier\'s reference any time. A split moves part of it to a second order for another day. Asking for a purchase order gives its quick order codes ("MEA161:20,POR106:7") for the supplier\'s website, and an order can be found by a product code on it.'],
                 ['Find orders running late', 'Any purchasing access', 'Orders still to send after their cutoff and deliveries never booked in after their day ("which orders are late?"). Also in the day briefing. A purchase order can be found by the supplier\'s reference.'],
@@ -5694,12 +5696,65 @@ export default function Help() {
                 ['Update prices', 'One supplier\'s new prices matched by their product code. Pick the supplier, then download their prices now as a CSV to edit, paste lines (code, price), or choose a CSV or Excel file with a Code and a Price column. Check lists what would change, with changes of 20% or more marked, and the codes it couldn\'t use (not found, switched off, on two products, unreadable). Update saves the changes into each price\'s History. Prices without a code and venues\' own prices stay as they are; a collection price column is left out (a supplier price here is the delivered price).'],
               ]}
             />
+            <H3>12. Bringing a supplier's basket into an order</H3>
+            <P>
+              Ordered on a supplier's own website or app? <strong>Import basket</strong> on the order form sets the
+              order to match what is in their basket, by their product codes, so the order here (and the delivery
+              check, the costs and the history) says what was really ordered. Nothing is sent to the supplier.
+            </P>
+            <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
+              <li>Pick the <strong>supplier</strong> (the one with lines on the order is picked for you). A supplier with no product codes here can't be picked.</li>
+              <li>Choose their basket as a <strong>CSV, Excel or text file</strong>, or <strong>paste</strong> it: <em>MEA161:20, POR106:7</em> on one line or one a line (<em>MEA161 20</em>, <em>MEA161 x 20</em> and <em>20 x MEA161</em> work too), or the basket's rows copied with their headings (a Code and a Qty column). Quantities are their packs.</li>
+              <li><strong>Take off their lines that aren't in the basket</strong> is on at first: off, only what is in the basket changes.</li>
+              <li><strong>Check</strong> lists what would change: <strong>Add</strong>, <strong>Change</strong> (from and to, and "was" when the line was on another supplier's or another pack's price) and <strong>Take off</strong>, then what is left out. <strong>Apply</strong> changes the order; <strong>Change the basket</strong> goes back.</li>
+            </ol>
+            <DataTable
+              head={['In the basket', 'What happens']}
+              rows={[
+                ['A code of one of their products here', 'The line is set to the basket\'s quantity, on that price (moved from another supplier or pack when it was on one).'],
+                ['A code twice', 'The quantities are added up.'],
+                ['A quantity below the minimum, or not in its steps', 'It goes up to what can be ordered, as placing does, and the line says so.'],
+                ['A code not found here', 'Left out. Someone with Purchasing setup can tap Add it: pick the inventory item, then give one of the supplier\'s prices for it the code, or make a new price with it. Then it checks again.'],
+                ['A code on a price or item that is switched off, or on two products', 'Left out, and listed.'],
+                ['Two codes of one item', 'The second is left out: an order has one line for each item.'],
+                ['A line that can\'t be read', 'Left out with its line number. Two numbers either side of an x (12 x 20) could be either way round: write code:quantity.'],
+              ]}
+            />
+            <P>
+              Anyone who can fill the order in can import into it (a draft; an order waiting for approval needs
+              Purchasing approval). Up to 2,000 lines at a time.
+            </P>
+
+            <H3>13. Out of stock until a date</H3>
+            <P>
+              When a supplier says a product is out of stock, record it on that price: tap the line's pack on the
+              order form (or the price on the item's Inventory page), then <strong>Out of stock?</strong>, and pick{' '}
+              <strong>the first day it can be delivered again</strong> (Tomorrow, In a week, In 2 weeks, In 4
+              weeks, or any day), with what they said if you like. From that day it counts as back in stock by
+              itself; <strong>Back in stock</strong> clears it sooner and <strong>Change</strong> moves the day.
+              It is for every venue, and shows who marked it and when.
+            </P>
+            <DataTable
+              head={['Where', 'What it says']}
+              rows={[
+                ['Order form lines', 'Out of stock at Brakes until Fri 6 Nov, for an order whose next delivery is before then, with Pick another price.'],
+                ['Place order', 'Each supplier\'s lines out of stock for the date picked, with the first day they are all back: deliver then or later, order them from another supplier, or order anyway.'],
+                ['Splitting an order, the purchase order page', 'The lines out of stock for that order\'s (or the new) delivery day.'],
+                ['Inventory and Add an item', 'Which price is out of stock now.'],
+              ]}
+            />
+            <P>
+              Nothing moves to another supplier by itself and nothing is stopped: staff pick another price (the
+              amount is kept), another day, or order anyway. Anyone who orders, approves or keeps the catalogue can
+              mark it, even on an order they can't change; people with View only see it.
+            </P>
             <InfoBox type="info">
               All of this can also be done by chat with Pepper (Ask Pepper): ordering, booking deliveries
               in, changing prices and importing a supplier's price list from a PDF or photo. Pepper understands
               suppliers' codes too ("order 20 MEA161", "add 2 POR106 to PO-00012"), gives the quick order codes
-              for an order, checks the catalogue, switches several items off or on, and updates a supplier's prices
-              by their codes. See Pepper → Purchasing by chat.
+              for an order, checks the catalogue, switches several items off or on, updates a supplier's prices
+              by their codes, brings a supplier's basket into an order and marks a price out of stock. See
+              Pepper → Purchasing by chat.
             </InfoBox>
           </section>
 

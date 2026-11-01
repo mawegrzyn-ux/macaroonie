@@ -233,6 +233,11 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx', loy
   // A second product from the supplier, added to a purchase order below.
   const oil = supplier ? await step('second inventory item', () => post('/api/inventory/items', { name: mark + ' Oil', base_unit: 'ml', storage: 'ambient' })) : null
   const oilQuote = oil ? (await step('second quote', () => post(`/api/inventory/items/${oil.id}/quotes`, { supplier_id: supplier.id, pack_name: 'Tin', pack_qty: 5, pack_unit: 'l', price: 9 })))?.quotes?.[0] : null
+  // Out of stock until a month from now (migration 234), so the sweep sends it again as the other group.
+  if (oilQuote) {
+    const back = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10)
+    await step('out of stock', () => put(`/api/purchasing/quotes/${oilQuote.id}/stock`, { until: back, note: mark + ' depot short' }))
+  }
   const list = await step('order list', () => post('/api/purchasing/lists', { name: mark + ' Dry goods', venue_ids: [V], item_ids: item ? [item.id] : [] }))
   if (list && item) await step('list pars', () => put(`/api/purchasing/lists/${list.id}/pars`, { pars: [{ item_id: item.id, venue_id: V, par_base: 5000 }] }))
   if (list) {

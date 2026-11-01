@@ -43,6 +43,7 @@ export async function loadItemQuotes(tx, tenantId, itemIds) {
     SELECT q.*, q.pack_base_qty::float8 AS pack_base_qty, q.price::float8 AS price, q.vat_rate::float8 AS vat_rate,
            q.pack_count::float8 AS pack_count, q.pack_qty::float8 AS pack_qty,
            q.min_qty::float8 AS min_qty, q.order_multiple::float8 AS order_multiple,
+           q.out_of_stock_until::text AS out_of_stock_until,
            s.name AS supplier_name,
            COALESCE((SELECT jsonb_object_agg(vp.venue_id::text, vp.price::float8)
                        FROM inv_quote_venue_prices vp
@@ -71,6 +72,7 @@ export async function loadQuotesById(tx, tenantId, ids) {
     SELECT q.*, q.pack_base_qty::float8 AS pack_base_qty, q.price::float8 AS price, q.vat_rate::float8 AS vat_rate,
            q.pack_count::float8 AS pack_count, q.pack_qty::float8 AS pack_qty,
            q.min_qty::float8 AS min_qty, q.order_multiple::float8 AS order_multiple,
+           q.out_of_stock_until::text AS out_of_stock_until,
            s.name AS supplier_name, s.is_active AS supplier_active
       FROM inv_quotes q
       JOIN suppliers s ON s.id = q.supplier_id AND s.tenant_id = ${tenantId}
@@ -287,6 +289,11 @@ export function quoteView(q, venueId, withPrice) {
     min_qty: q.min_qty,
     order_multiple: q.order_multiple,
     vat_rate: num(q.vat_rate),
+    // Out of stock until a date (migration 234): the first day it can be delivered again.
+    out_of_stock_until: q.out_of_stock_until ? String(q.out_of_stock_until).slice(0, 10) : null,
+    out_of_stock_note: q.out_of_stock_until ? q.out_of_stock_note ?? null : null,
+    out_of_stock_by: q.out_of_stock_until ? q.out_of_stock_by ?? null : null,
+    out_of_stock_at: q.out_of_stock_until ? q.out_of_stock_at ?? null : null,
     ...(withPrice ? { price: quotePrice(q, venueId) } : {}),
   }
 }
@@ -417,7 +424,9 @@ export async function loadPoLines(tx, tenantId, poId) {
            l.invoice_price::float8 AS invoice_price, l.invoice_vat_rate::float8 AS invoice_vat_rate,
            -- The supplier's minimum and steps today, while the price is still for the same pack.
            CASE WHEN abs(q.pack_base_qty - l.pack_base_qty) < 0.000001 THEN q.min_qty::float8 END AS min_qty,
-           CASE WHEN abs(q.pack_base_qty - l.pack_base_qty) < 0.000001 THEN q.order_multiple::float8 END AS order_multiple
+           CASE WHEN abs(q.pack_base_qty - l.pack_base_qty) < 0.000001 THEN q.order_multiple::float8 END AS order_multiple,
+           -- Out of stock at the supplier until a date (migration 234), as marked now.
+           q.out_of_stock_until::text AS out_of_stock_until, q.out_of_stock_note
       FROM purchase_order_lines l
       LEFT JOIN inv_quotes q ON q.id = l.quote_id AND q.tenant_id = ${tenantId}
      WHERE l.po_id = ${poId} AND l.tenant_id = ${tenantId}

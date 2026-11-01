@@ -389,6 +389,223 @@ export function quickOrderCsv(lines) {
     .map(r => r.map(csvCell).join(',')).join('\r\n') + '\r\n'
 }
 
+// ── A supplier's basket, back into an order (1 Nov 2026) ───────
+//
+// What someone ordered on a supplier's website, pasted or as a file, read
+// as rows of a product code and a quantity in packs, then compared with an
+// order's lines for that supplier. basketFromText() reads the quick
+// order's own form (MEA161:20,POR106:7), one a line ("MEA161, 20",
+// "MEA161 20", "MEA161 x 20", "20 x MEA161") or a pasted table with
+// headings; basketFromSheet() a spreadsheet's rows (a heading row naming the
+// code and quantity columns, else a code then a quantity).
+
+const BASKET_HEADINGS = {
+  code: ['code', 'suppliercode', 'productcode', 'itemcode', 'sku', 'ref', 'reference', 'productref', 'stockcode',
+    'articlecode', 'articlenumber', 'artno', 'partnumber', 'productid', 'prodcode', 'catalogueno', 'catno', 'codes'],
+  qty: ['qty', 'quantity', 'amount', 'orderqty', 'orderquantity', 'quantityordered', 'qtyordered', 'cases', 'packs',
+    'units', 'noofunits', 'count', 'number', 'quantities'],
+  name: ['name', 'description', 'product', 'productname', 'productdescription', 'item', 'itemname', 'itemdescription',
+    'desc', 'title'],
+}
+const basketHeading = h => {
+  const k = String(h ?? '').toLowerCase().replace(/[^a-z]/g, '')
+  for (const [col, names] of Object.entries(BASKET_HEADINGS)) if (names.includes(k)) return col
+  return null
+}
+const cleanCode = c => String(c ?? '').trim().replace(/^["']+|["']+$/g, '').trim()
+const basketQty = v => {
+  const t = String(v ?? '').trim()
+  return /^\d+(?:\.\d+)?$/.test(t) ? round4(Number(t)) : null
+}
+export const BASKET_MAX_ROWS = 2000
+
+/** One line of a CSV (quotes allowed) split on its delimiter. */
+function splitCsvLine(line, delim) {
+  const out = []
+  let cur = '', quoted = false
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i]
+    if (quoted) {
+      if (ch === '"' && line[i + 1] === '"') { cur += '"'; i++ }
+      else if (ch === '"') quoted = false
+      else cur += ch
+    } else if (ch === '"' && !cur.trim()) quoted = true
+    else if (ch === delim) { out.push(cur); cur = '' }
+    else cur += ch
+  }
+  out.push(cur)
+  return out.map(c => c.trim())
+}
+
+/**
+ * A spreadsheet's rows (arrays of cells) as basket rows: { rows: [{ row,
+ * code, qty, name? } | { row, code?, error }] } with the file's row numbers,
+ * or { error } when it has headings but no code or quantity column.
+ */
+export function basketFromSheet(sheet) {
+  const cells = (sheet || []).map(r => (Array.isArray(r) ? r : [r]).map(c => String(c ?? '').trim()))
+  const first = cells.findIndex(r => r.some(Boolean))
+  if (first < 0) return { rows: [] }
+  const keys = cells[first].map(basketHeading)
+  let codeCol = keys.indexOf('code'), qtyCol = keys.indexOf('qty'), nameCol = keys.indexOf('name'), start = first + 1
+  if (codeCol < 0 || qtyCol < 0) {
+    // Headings that name neither column mean a file in another layout.
+    if (keys.some(Boolean) || basketQty(cells[first][1]) == null) {
+      return { error: 'No code and quantity columns found. Use the headings Code and Qty, or a code then a quantity on each row.' }
+    }
+    codeCol = 0; qtyCol = 1; nameCol = -1; start = first
+  }
+  const rows = []
+  for (let i = start; i < cells.length; i++) {
+    const r = cells[i]
+    if (!r.some(Boolean)) continue
+    const code = cleanCode(r[codeCol])
+    const qty = basketQty(r[qtyCol])
+    const name = nameCol >= 0 ? (r[nameCol] || null) : null
+    const text = r.filter(Boolean).join(', ').slice(0, 80)
+    if (!code) rows.push({ row: i + 1, text, error: 'No code' })
+    else if (qty == null) rows.push({ row: i + 1, code, text, error: 'Quantity missing or not a number' })
+    else rows.push({ row: i + 1, code, qty, ...(name ? { name } : {}) })
+  }
+  return { rows }
+}
+
+/** Pasted text as basket rows (see above); row = the line number. */
+export function basketFromText(text) {
+  const lines = String(text ?? '').split(/\r?\n/)
+  const firstIdx = lines.findIndex(l => l.trim())
+  if (firstIdx < 0) return { rows: [] }
+  const head = lines[firstIdx]
+  const delim = head.includes('\t') ? '\t' : head.includes(';') && !head.includes(',') ? ';' : ','
+  const cells = splitCsvLine(head, delim)
+  const heads = cells.map(basketHeading)
+  // A CSV with headings (a first line of words), or three columns or more
+  // without them: a sheet, with the code then the quantity first when it
+  // has no headings for them (anything else is said once).
+  const words = cells.length >= 2 && cells.every(c => c && basketQty(c) == null)
+  if ((heads.includes('code') && heads.includes('qty')) || (!head.includes(':') && (words || cells.length >= 3))) {
+    return basketFromSheet(lines.map(l => splitCsvLine(l, delim)))
+  }
+  const rows = []
+  lines.forEach((line, i) => {
+    const t = line.trim()
+    if (!t) return
+    // The quick order's form: pairs of code:qty separated by commas.
+    const pieces = t.includes(':') ? t.split(/[,;]/) : [t]
+    for (const piece of pieces) {
+      const s = piece.trim()
+      if (!s) continue
+      const r = basketPiece(s)
+      rows.push({ row: i + 1, ...r, ...(r.error ? { text: s.slice(0, 80) } : {}) })
+    }
+  })
+  return { rows }
+}
+
+// One "code and quantity" written by hand: MEA161:20, MEA161 20, MEA161 x 20,
+// MEA161, 20 (a code then its quantity), or 20 x MEA161. Two numbers either
+// side of an x could be either way round, so they are refused.
+const QTY_FIRST = /^(\d+(?:\.\d+)?)\s*[x\u00d7*]\s*(\S.*)$/i
+function basketPiece(s) {
+  if (/^\d+(?:\.\d+)?\s*[x\u00d7*]\s*\d+(?:\.\d+)?$/i.test(s)) {
+    return { error: 'Is that a code then a quantity, or a quantity then a code? Write it as code:quantity' }
+  }
+  let m = s.match(/^(\S(?:.*?\S)?)\s*(?:[:=,;\t]|\s[x\u00d7*]\s*|\s)\s*(\d+(?:\.\d+)?)$/i)
+  // "4 x XYZ 9" is 4 of XYZ 9, not 9 of "4 x XYZ".
+  if (m && !/^\d+(?:\.\d+)?\s*[x\u00d7*]\s/i.test(m[1])) return { code: cleanCode(m[1]), qty: round4(Number(m[2])) }
+  m = s.match(QTY_FIRST)
+  if (m) return { code: cleanCode(m[2]), qty: round4(Number(m[1])) }
+  return { code: cleanCode(s.split(/[\s,;:]/)[0]), error: "Couldn't read a code and a quantity" }
+}
+
+/**
+ * Basket rows merged by code (any case; the first spelling kept, the
+ * quantities added up): { lines: [{ code, qty, rows, name }], errors }.
+ */
+export function mergeBasket(rows) {
+  const by = new Map()
+  const errors = []
+  for (const r of rows || []) {
+    if (r.error) { errors.push(r); continue }
+    const key = r.code.toLowerCase()
+    const had = by.get(key)
+    if (had) { had.qty = round4(had.qty + r.qty); had.rows.push(r.row) }
+    else by.set(key, { code: r.code, qty: r.qty, rows: [r.row], name: r.name || null })
+  }
+  return { lines: [...by.values()], errors }
+}
+
+/**
+ * What a supplier's basket changes on an order.
+ *   basket: mergeBasket()'s lines;
+ *   quotes: the supplier's prices with a code [{ id, item_id, item_name, supplier_code, live, product_name,
+ *           pack_name, pack_count, pack_qty, pack_unit, min_qty, order_multiple }] (live = the price and its
+ *           item switched on);
+ *   lines:  the order's lines with a quantity [{ item_id, item_name, qty, quote }] (quote: the price the line
+ *           is on, with supplier_id, supplier_name, supplier_code and its pack, or null);
+ *   removeMissing: lines of this supplier the basket doesn't have are taken off.
+ * Returns { added, changed, removed, unchanged, unknown, switched_off, ambiguous, errors }. qty is what will
+ * be ordered: the basket's quantity up to the price's minimum and steps (basket_qty and qty_problem when that
+ * changed it). A changed line on another price (another supplier, or another pack) says where it was (from).
+ * An order has one line per item, so a second code in the basket for the same item is an error.
+ */
+export function basketDiff({ basket, quotes, lines, supplierId, removeMissing = true }) {
+  const byCode = new Map()
+  for (const q of quotes || []) {
+    const k = String(q.supplier_code ?? '').trim().toLowerCase()
+    if (!k) continue
+    if (!byCode.has(k)) byCode.set(k, [])
+    byCode.get(k).push(q)
+  }
+  const lineBy = new Map((lines || []).filter(l => num(l.qty) > 0).map(l => [l.item_id, l]))
+  const out = { added: [], changed: [], removed: [], unchanged: 0, unknown: [], switched_off: [], ambiguous: [], errors: [] }
+  const seen = new Map()   // item_id -> the basket code that has it
+  const label = q => [q.product_name, packLabel(q)].filter(Boolean).join(' \u00b7 ')
+  for (const b of basket || []) {
+    const all = byCode.get(b.code.toLowerCase()) || []
+    const live = all.filter(q => q.live)
+    const at = { rows: b.rows, code: b.code }
+    if (!all.length) { out.unknown.push({ ...at, qty: b.qty, ...(b.name ? { name: b.name } : {}) }); continue }
+    if (!live.length) { out.switched_off.push({ ...at, item_name: all[0].item_name }); continue }
+    if (live.length > 1) { out.ambiguous.push({ ...at, items: [...new Set(live.map(q => q.item_name))] }); continue }
+    const q = live[0]
+    if (seen.has(q.item_id)) {
+      out.errors.push({ ...at, error: `${seen.get(q.item_id)} is ${q.item_name} too: an order has one line for each item` })
+      continue
+    }
+    seen.set(q.item_id, q.supplier_code)
+    const line = lineBy.get(q.item_id)
+    // What will be ordered: the basket's quantity, up to the minimum and
+    // steps here (as placing the order does), saying so when it changes.
+    const problem = b.qty > 0 ? qtyProblem(b.qty, q) : null
+    const entry = { ...at, code: q.supplier_code, item_id: q.item_id, item_name: q.item_name, quote_id: q.id, pack: label(q),
+      qty: b.qty > 0 ? fitQty(b.qty, q) : 0, ...(problem ? { basket_qty: b.qty, qty_problem: problem } : {}) }
+    if (!line) {
+      if (b.qty > 0) out.added.push(entry)
+      else out.unchanged++
+      continue
+    }
+    if (!(b.qty > 0)) { out.removed.push({ ...entry, qty: num(line.qty) }); continue }
+    if (line.quote?.id === q.id) {
+      if (Math.abs(num(line.qty) - entry.qty) < 1e-9) out.unchanged++
+      else out.changed.push({ ...entry, from_qty: num(line.qty) })
+    } else {
+      out.changed.push({
+        ...entry, from_qty: num(line.qty),
+        from: line.quote ? { supplier_name: line.quote.supplier_name, code: line.quote.supplier_code || null, pack: label(line.quote) } : null,
+      })
+    }
+  }
+  if (removeMissing) {
+    for (const l of lineBy.values()) {
+      if (seen.has(l.item_id) || !l.quote || l.quote.supplier_id !== supplierId) continue
+      out.removed.push({ item_id: l.item_id, item_name: l.item_name, quote_id: l.quote.id, code: l.quote.supplier_code || null,
+        pack: label(l.quote), qty: num(l.qty) })
+    }
+  }
+  return out
+}
+
 /**
  * The first delivery date an order placed now can make.
  * now = { date: 'YYYY-MM-DD', time: 'HH:MM' } at the venue.
@@ -510,6 +727,32 @@ export function deliveryDayProblem(settings = {}, date, now, name = 'The supplie
     }
   }
   return null
+}
+
+// ── Out of stock (migration 234) ─────────────────────────────────
+
+/**
+ * Whether a supplier price can't be delivered on `date` (YYYY-MM-DD)
+ * because the supplier said it's out of stock: null when it can (nothing
+ * set, no date to judge, or the date is on or after out_of_stock_until,
+ * the first day it can be delivered again), else { until, note }. A date
+ * that has passed simply means it is back: nothing has to clear it.
+ */
+export function outOfStock(quote, date) {
+  const until = quote?.out_of_stock_until ? String(quote.out_of_stock_until).slice(0, 10) : null
+  if (!until || !date || String(date).slice(0, 10) >= until) return null
+  return { until, note: quote.out_of_stock_note || null }
+}
+
+/**
+ * "Out of stock at Brakes until Mon 10 Nov" for a price that can't be
+ * delivered on `date` (outOfStock()), else null. The supplier's name is
+ * left out when not given.
+ */
+export function outOfStockText(quote, date, supplierName) {
+  const o = outOfStock(quote, date)
+  if (!o) return null
+  return `Out of stock${supplierName ? ` at ${supplierName}` : ''} until ${dayText(o.until)}`
 }
 
 /** The date and time now in a time zone: { date: 'YYYY-MM-DD', time: 'HH:MM' }. */

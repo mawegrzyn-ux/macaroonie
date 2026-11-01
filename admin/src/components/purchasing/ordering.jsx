@@ -7,7 +7,9 @@
 //                  order lists, drafts) and Deliveries tab (purchase orders
 //                  to send, due, received).
 //   OrderForm      fill in a list: quantities (saved as they're typed),
-//                  par fill, supplier switch, extra items; Place order
+//                  par fill, supplier switch, extra items, a supplier's
+//                  basket brought in (basket.jsx), prices out of stock
+//                  for the next delivery (stock.jsx); Place order
 //                  splits it into one purchase order per supplier. Without
 //                  Purchasing approval it is sent for approval instead; an
 //                  approver changes the request, places it, splits it into a
@@ -18,6 +20,7 @@
 //                  sent / change quantities and add the supplier's other
 //                  products while it waits in To send (AddPoItemsModal) /
 //                  split for another day / cancel / book the delivery in.
+//                  Lines the supplier said are out of stock on its day say so.
 //   ReceiveForm    what arrived, the checks and temperatures; writes the
 //                  venue's H&S delivery check. Pepper can read the invoice
 //                  first (components/purchasing/invoice.jsx, migration 197):
@@ -33,7 +36,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft, Loader2, Plus, Search, Printer, FileText, FileSpreadsheet, Mail, Check, AlertTriangle, Truck,
   ClipboardList, ChevronRight, ChevronDown, X, PackageCheck, Send, Repeat, Thermometer, Snowflake, Eye,
-  Hourglass, Scissors, Undo2, Copy, Clock, Phone, Pencil,
+  Hourglass, Scissors, Undo2, Copy, Clock, Phone, Pencil, ShoppingBasket,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -47,12 +50,14 @@ import {
   fitQty, qtyProblem, packsToPar, orderTotals, lineAmounts, fmtNum, poNumberLabel, receiveStatusFor,
   deliveryTempOk, RECEIVE_STATUSES, DELIVERY_TEMP_MAX, deliveryDateChoices, addDays,
   convertQty, splitProblem, deliveryDayProblem, deadlineText, nowAt, formatBase, slotText, checkoutText,
-  deadlinePassed, quickOrder, quickOrderCsv,
+  deadlinePassed, quickOrder, quickOrderCsv, outOfStock,
 } from '@shared/procurement.js'
 import { ASSISTANT_NAME } from '@shared/assistant.js'
 import {
   InvoiceReader, readingToForm, extraOf, extraProblem, InvoiceLineNote, ExtrasSection, PriceListModal, InvoiceList,
 } from '@/components/purchasing/invoice'
+import { BasketModal } from '@/components/purchasing/basket'
+import { StockBadge, StockNote, StockControl } from '@/components/purchasing/stock'
 
 const SENT_VIA = [
   { key: 'print', label: 'Printed and handed over' },
@@ -281,10 +286,14 @@ function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo, onOpenOrd
   const [result, setResult] = useState(null)
   const [showing, setShowing] = useState(false)
   const [quick, setQuick] = useState(false)
+  const [basket, setBasket] = useState(false)
   const [show, setShow] = useShowPrefs()
   const save = useAutosave(orderId)
   const prices = !!order?.show_prices
   const editable = !!order?.can_edit
+  // Recording what a supplier said (out of stock until a date): anyone who
+  // orders, approves or keeps the catalogue, even on an order they can't change.
+  const canMark = !!meta?.can_mark_stock
   const view = {
     supplier: !!show.supplier && groupBy !== 'supplier',
     price: prices && !!show.price,
@@ -388,6 +397,9 @@ function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo, onOpenOrd
 
   const q = search.trim().toLowerCase()
   const now = nowAt(order.timezone)
+  // A price out of stock is judged against the supplier's next delivery.
+  const stockDayOf = quote => (quote ? order.suppliers[quote.supplier_id]?.next_delivery || order.today : null)
+  const stockChanged = () => qc.invalidateQueries({ queryKey: ['supply-order', orderId] })
   const visible = order.items.filter(it => (!onlyQty || qtyOf(it) > 0) && (!q || matchesSearch(it, q)))
   const groups = groupRows(visible, groupBy, order, quoteOf, now)
   const lineCount = bySupplier.reduce((n, g) => n + g.lines.length, 0)
@@ -441,6 +453,11 @@ function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo, onOpenOrd
               <Copy className="w-4 h-4" />Codes
             </button>
           )}
+          {editable && (
+            <button type="button" className={btn.outline} onClick={async () => { await save.flush(); setBasket(true) }} data-testid="order-basket">
+              <ShoppingBasket className="w-4 h-4" />Import basket
+            </button>
+          )}
         </div>
         <ErrorNote error={save.error} />
       </div>
@@ -479,6 +496,7 @@ function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo, onOpenOrd
               {g.items.map(it => (
                 <OrderRow key={it.item_id} it={it} quote={quoteOf(it)} gone={goneOf(it)} qty={qtyOf(it)} view={view}
                   hasPars={hasPars} hasExtras={hasExtras} readOnly={!editable} asked={requested ? it.requested_qty : undefined}
+                  stockDay={stockDayOf(quoteOf(it))} canMark={canMark}
                   onQty={v => setQty(it, v)} onSwitch={() => setSwitching(it)}
                   onRemove={editable && !it.on_list ? () => removeExtra.mutate(it.item_id) : null} />
               ))}
@@ -526,11 +544,18 @@ function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo, onOpenOrd
             lines: g.lines.map(l => ({ code: l.q.supplier_code, name: l.q.product_name || l.it.name, qty: l.qty })),
           }))} />
       )}
-      {switching && (
-        <SwitchSupplierModal it={switching} current={quoteOf(switching)} gone={goneOf(switching)} qty={qtyOf(switching)}
-          prices={prices} order={order} now={now}
-          onPick={qid => { setQuote(switching, qid); setSwitching(null) }} onClose={() => setSwitching(null)} />
-      )}
+      {basket && <BasketModal order={order} meta={meta} onClose={() => setBasket(false)} onApplied={reload} />}
+      {switching && (() => {
+        // The item as the order has it now (a stock change reloads the order).
+        const it = order.items.find(x => x.item_id === switching.item_id) || switching
+        const gone = goneOf(it)
+        return (
+          <SwitchSupplierModal it={it} current={quoteOf(it)} gone={gone} qty={qtyOf(it)}
+            prices={prices} order={order} now={now} canMark={canMark} onStockChanged={stockChanged}
+            canPick={editable && gone?.why !== 'item_off' && (gone ? it.quotes.length > 0 : it.quotes.length > 1)}
+            onPick={qid => { setQuote(it, qid); setSwitching(null) }} onClose={() => setSwitching(null)} />
+        )
+      })()}
       {adding && (
         <AddItemModal order={order} prices={prices} onClose={() => setAdding(false)}
           onAdd={async (item, quote) => {
@@ -649,12 +674,16 @@ function goneWords(gone) {
     : `${q.supplier_name}'s price for ${q.pack_label} has been switched off. Pick another price, or take it off.`
 }
 
-function OrderRow({ it, quote, gone, qty, view, hasPars, hasExtras, readOnly, asked, onQty, onSwitch, onRemove }) {
+function OrderRow({ it, quote, gone, qty, view, hasPars, hasExtras, readOnly, asked, stockDay, canMark, onQty, onSwitch, onRemove }) {
   const problem = quote && !gone ? qtyProblem(qty, quote) : null
   // A switched-off price still shows its pack (struck through) as the
   // button that picks another.
   const shownQuote = quote || gone?.quote || null
   const canSwitch = !readOnly && gone?.why !== 'item_off' && (gone ? it.quotes.length > 0 : it.quotes.length > 1)
+  // The pack also opens the prices to say one is out of stock.
+  const canOpen = canSwitch || (canMark && !!quote && !gone)
+  // Out of stock at the supplier for its next delivery (migration 234).
+  const stock = quote && !gone ? outOfStock(quote, stockDay) : null
   const par = quote && it.par_base != null ? packsToPar(it.par_base, quote) : null
   const details = quote ? [
     view.supplier && quote.supplier_name,
@@ -694,6 +723,14 @@ function OrderRow({ it, quote, gone, qty, view, hasPars, hasExtras, readOnly, as
           {(quote?.supplier_code || quote?.product_name) && (
             <p className="text-xs flex flex-wrap items-center gap-x-1.5 gap-y-0.5"><CodeTag code={quote.supplier_code} />{quote.product_name}</p>
           )}
+          {stock && (
+            <div className="space-y-1" data-testid="order-line-stock">
+              <StockBadge quote={quote} date={stockDay} supplierName={quote.supplier_name} />
+              {canSwitch && (
+                <div><button type="button" className={btn.outline} onClick={onSwitch} data-testid="order-line-stock-switch">Pick another price</button></div>
+              )}
+            </div>
+          )}
           {details && <p className="text-xs text-muted-foreground">{details}</p>}
           {view.last && last && (
             <p className="text-xs text-muted-foreground">
@@ -707,7 +744,8 @@ function OrderRow({ it, quote, gone, qty, view, hasPars, hasExtras, readOnly, as
       </div>
       <div className="flex flex-wrap items-center justify-end gap-2 ml-auto">
         {hasPars && <div className="hidden sm:flex w-16 justify-end">{parBtn}</div>}
-        <PackLabel quote={shownQuote} gone={!!gone && gone.why !== 'item_off'} canSwitch={canSwitch} onSwitch={onSwitch} />
+        <PackLabel quote={shownQuote} gone={!!gone && gone.why !== 'item_off'} canSwitch={canOpen} onSwitch={onSwitch}
+          label={canSwitch ? 'order from another supplier' : 'the supplier\'s price and stock'} />
         <QtyStepper value={qty} onChange={onQty} step={quote?.order_multiple || 1} min={quote?.min_qty || 0}
           disabled={!quote || readOnly || !!gone} label={it.name} />
         {view.lastQty && <LastQty last={last} otherPack={lastOtherPack} />}
@@ -718,8 +756,9 @@ function OrderRow({ it, quote, gone, qty, view, hasPars, hasExtras, readOnly, as
 }
 
 // The pack being ordered, big, next to the quantity. With more than one
-// supplier it is the button that switches supplier.
-function PackLabel({ quote, gone, canSwitch, onSwitch }) {
+// supplier it is the button that switches supplier (and it opens the
+// prices to mark one out of stock).
+function PackLabel({ quote, gone, canSwitch, onSwitch, label = 'order from another supplier' }) {
   const width = 'w-[84px] sm:w-28 shrink-0'
   if (!quote) return <span className={width} aria-hidden="true" />
   const name = quote.pack_name || quote.pack_label
@@ -733,7 +772,7 @@ function PackLabel({ quote, gone, canSwitch, onSwitch }) {
   )
   if (!canSwitch) return <div className={cn(width, 'text-right px-1 sm:px-2')}>{inner}</div>
   return (
-    <button type="button" onClick={onSwitch} aria-label={`${name} ${quote.pack_size || ''}: order from another supplier`}
+    <button type="button" onClick={onSwitch} aria-label={`${name} ${quote.pack_size || ''}: ${label}`}
       className={cn(width, 'min-h-[48px] text-right rounded-lg px-1 sm:px-2 hover:bg-muted touch-manipulation')}>
       {inner}
     </button>
@@ -755,12 +794,15 @@ function LastQty({ last, otherPack }) {
 /**
  * Picking the price a line is ordered on. With a quantity, each choice
  * says what it comes to in its packs (the amount is kept: convertQty()).
+ * Each price also says whether the supplier said it's out of stock, and
+ * people who may record that can (StockControl), even when they can't
+ * change the order (canPick off).
  */
-function SwitchSupplierModal({ it, current, gone, qty, prices, order, now, onPick, onClose }) {
+function SwitchSupplierModal({ it, current, gone, qty, prices, order, now, canPick, canMark, onStockChanged, onPick, onClose }) {
   const from = current || gone?.quote || null
   const amount = (n, q) => formatBase(n * Number(q.pack_base_qty || 0), it.base_unit)
   return (
-    <Modal title={`Order ${it.name} from`} onClose={onClose}>
+    <Modal title={canPick ? `Order ${it.name} from` : `${it.name}: supplier prices`} onClose={onClose}>
       {gone?.quote && (
         <p className="text-sm rounded-lg bg-red-50 border border-red-200 px-3 py-2">
           Was {gone.quote.supplier_name}, {gone.quote.pack_label}: no longer offered.
@@ -771,9 +813,8 @@ function SwitchSupplierModal({ it, current, gone, qty, prices, order, now, onPic
           const s = order.suppliers[q.supplier_id]
           const to = from && qty > 0 ? convertQty(qty, from, q) : null
           const otherPack = from && Math.abs(Number(from.pack_base_qty) - Number(q.pack_base_qty)) > 1e-9
-          return (
-            <button key={q.id} type="button" onClick={() => onPick(q.id)} data-testid="switch-quote"
-              className={cn('w-full text-left rounded-xl border p-3 touch-manipulation min-h-[56px]', q.id === current?.id ? 'border-primary bg-primary/5' : 'hover:bg-muted/40')}>
+          const body = (
+            <>
               <span className="flex items-center gap-2">
                 <span className="flex-1 font-medium text-sm">{q.supplier_name}</span>
                 {q.id === it.default_quote_id && <span className="text-[11px] px-1.5 py-0.5 rounded bg-muted">Usual</span>}
@@ -783,12 +824,30 @@ function SwitchSupplierModal({ it, current, gone, qty, prices, order, now, onPic
               <span className="block text-sm"><CodeTag code={q.supplier_code} className="mr-1.5" />{q.pack_label}{prices && q.price != null ? ` · ${money(q.price)}` : ''}</span>
               {to != null && q.id !== current?.id && (
                 <span className="block text-xs text-blue-900" data-testid="switch-qty">
-                  {fmtNum(qty)} × {from.pack_label} {otherPack ? `(${amount(qty, from)}) ` : ''}becomes {fmtNum(to)} × {q.pack_label}
-                  {otherPack ? ` (${amount(to, q)})` : ''}
+                  {!otherPack && Math.abs(to - qty) < 1e-9
+                    ? `Keeps ${fmtNum(qty)} × ${q.pack_label}`
+                    : <>
+                        {fmtNum(qty)} × {from.pack_label} {otherPack ? `(${amount(qty, from)}) ` : ''}becomes {fmtNum(to)} × {q.pack_label}
+                        {otherPack ? ` (${amount(to, q)})` : ''}
+                      </>}
                 </span>
               )}
               {s && <span className="block text-xs text-muted-foreground">{deliveryHint(s, now)}</span>}
-            </button>
+            </>
+          )
+          return (
+            <div key={q.id} data-testid="switch-price"
+              className={cn('rounded-xl border overflow-hidden', q.id === current?.id && 'border-primary bg-primary/5')}>
+              {canPick ? (
+                <button type="button" onClick={() => onPick(q.id)} data-testid="switch-quote"
+                  className={cn('w-full text-left p-3 touch-manipulation min-h-[56px]', q.id !== current?.id && 'hover:bg-muted/40')}>
+                  {body}
+                </button>
+              ) : <div className="p-3">{body}</div>}
+              {(canMark || q.out_of_stock_until > order.today) && (
+                <StockControl quote={q} today={order.today} canMark={canMark} onChanged={onStockChanged} className="px-3 pb-3" />
+              )}
+            </div>
           )
         })}
       </div>
@@ -828,6 +887,7 @@ function AddItemModal({ order, prices, onClose, onAdd }) {
                   {`${q.supplier_name} · ${q.pack_label}${prices && q.price != null ? ` · ${money(q.price)}` : ''}`}
                 </span>
               )}
+              {q && <StockBadge quote={q} date={order.suppliers[q.supplier_id]?.next_delivery || order.today} className="mt-1" />}
             </button>
           )
         })}
@@ -1056,6 +1116,8 @@ function ReviewModal({ order, groups, prices, mode = 'place', onClose, onPlaced,
             </div>
             <DayCheck supplier={s} date={opts[s.id].delivery_date} now={now} asking={request}
               agreed={agreed[s.id]} onAgree={v => setAgreed(a => ({ ...a, [s.id]: v }))} />
+            <StockNote date={opts[s.id].delivery_date} supplierName={s.name} testId="review-stock"
+              lines={g.lines.map(l => ({ key: l.it.item_id, name: l.it.name, quote: l.q }))} />
             <DeliveryDetails supplier={s} />
             {openFor(s.id) && (
               <OpenPoChoice po={openFor(s.id)} supplier={s} asking={request} value={existing[s.id]}
@@ -1146,6 +1208,7 @@ function SplitRequestModal({ order, groups, onClose, onSplit }) {
                 <span className="flex-1 min-w-[140px] text-sm">
                   {l.it.name} <CodeTag code={l.q.supplier_code} /> <span className="text-muted-foreground">({fmtNum(l.raw)} {(l.q.pack_name || 'pack').toLowerCase()})</span>
                   {splitIssue(l) && <span className="block text-xs text-red-700" data-testid="split-qty-problem">{splitIssue(l)}</span>}
+                  {outOfStock(l.q, first) && <span className="block mt-0.5"><StockBadge quote={l.q} date={first} /></span>}
                 </span>
                 <span className="text-xs text-muted-foreground">Move</span>
                 <QtyStepper value={moved(l)} step={l.q.order_multiple || 1} max={l.raw} label={l.it.name}
@@ -1163,6 +1226,10 @@ function SplitRequestModal({ order, groups, onClose, onSplit }) {
                 {days[s.id] === first
                   ? <p className="text-xs text-amber-800">Pick another day than this order's.</p>
                   : <DayCheck supplier={s} date={days[s.id]} now={now} agreed={agreed[s.id]} onAgree={v => setAgreed(a => ({ ...a, [s.id]: v }))} />}
+                {days[s.id] !== first && (
+                  <StockNote date={days[s.id]} supplierName={s.name} hint={false} testId="split-stock"
+                    lines={g.lines.filter(l => moved(l) > 0).map(l => ({ key: l.it.item_id, name: l.it.name, quote: l.q }))} />
+                )}
               </div>
             )}
           </div>
@@ -1597,6 +1664,9 @@ function PoDetail({ poId, meta, phone, onBack, onOpenPo }) {
                 <p className="text-sm font-medium">{l.item_name} <StorageBadge storage={l.storage} />{l.added_on_receipt && <NotOrderedBadge />}</p>
                 {l.product_name && <p className="text-xs">{l.product_name}</p>}
                 <p className="text-xs text-muted-foreground flex flex-wrap items-center gap-x-1.5"><CodeTag code={l.supplier_code} />{l.pack_label}</p>
+                {open && !l.added_on_receipt && outOfStock(l, po.delivery_date) && (
+                  <p className="mt-0.5" data-testid="po-line-stock"><StockBadge quote={l} date={po.delivery_date} /></p>
+                )}
                 {l.invoice_name && (l.invoice_name !== l.product_name || (prices && l.invoice_price != null && Math.abs(l.invoice_price - l.price) >= 0.005)) && (
                   <p className="text-xs text-blue-900">
                     Invoiced as {l.invoice_name}{prices && l.invoice_price != null ? ` at ${money(l.invoice_price)}` : ''}
@@ -1770,6 +1840,7 @@ function AddPoItemsModal({ po, added, onToggle, onClose }) {
                   <CodeTag code={quote.supplier_code} className="mr-1.5" />
                   {[quote.pack_label, prices && quote.price != null && money(quote.price)].filter(Boolean).join(' · ')}
                 </span>
+                <StockBadge quote={quote} date={po.delivery_date} className="mt-1" />
               </span>
               {already
                 ? <span className="text-xs text-muted-foreground shrink-0">On the order</span>
@@ -1838,6 +1909,7 @@ function SplitPoModal({ po, onClose, onSplit }) {
             <span className="flex-1 min-w-[140px] text-sm">
               {l.item_name} <CodeTag code={l.supplier_code} /> <span className="text-muted-foreground">({fmtNum(l.qty)} × {l.pack_label})</span>
               {splitIssue(l) && <span className="block text-xs text-red-700" data-testid="split-qty-problem">{splitIssue(l)}</span>}
+              {outOfStock(l, po.delivery_date) && <span className="block mt-0.5"><StockBadge quote={l} date={po.delivery_date} /></span>}
             </span>
             <span className="text-xs text-muted-foreground">Move</span>
             <QtyStepper value={moved(l)} label={l.item_name} step={l.order_multiple || 1} max={l.qty}
@@ -1855,6 +1927,10 @@ function SplitPoModal({ po, onClose, onSplit }) {
         {sameDay
           ? <p className="text-xs text-amber-800">Pick another day than this order's.</p>
           : <DayCheck supplier={settings} date={day} now={now} agreed={agreed} onAgree={setAgreed} />}
+        {!sameDay && (
+          <StockNote date={day} supplierName={po.supplier_name} hint={false} testId="split-stock"
+            lines={po.lines.filter(l => moved(l) > 0).map(l => ({ key: l.id, name: l.item_name, quote: l }))} />
+        )}
       </div>
       {everything && <p className="text-sm text-amber-800">That moves the whole order: change its delivery day instead.</p>}
       <p className="text-sm text-muted-foreground">{how}</p>
