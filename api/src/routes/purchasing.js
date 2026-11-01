@@ -35,7 +35,7 @@ import {
 import {
   resolveQuotes, loadItemQuotes, loadQuotesById, quoteView, loadVenue, venueNow, loadSuppliersForVenue, createPurchaseOrder,
   loadPo, loadPoLines, poFile, emailPo, nextPoNumber,
-  invoiceView,
+  invoiceView, codeTaken, codeTakenError,
 } from '../services/purchasingSvc.js'
 
 const uuid = z.string().uuid()
@@ -1778,7 +1778,7 @@ export default async function purchasingRoutes(app) {
         }
         // add
         if (!l.item_id) throw httpError(422, `${l.item_name} isn't linked to an inventory item`)
-        const [item] = await tx`SELECT id, name, base_unit FROM inv_items WHERE id = ${l.item_id} AND tenant_id = ${req.tenantId}`
+        const [item] = await tx`SELECT id, name, base_unit, is_active FROM inv_items WHERE id = ${l.item_id} AND tenant_id = ${req.tenantId}`
         if (!item) throw httpError(404, 'Item not found')
         let spec = ch.pack || l.pack_spec
         if (!spec && l.quote_id) {
@@ -1800,6 +1800,11 @@ export default async function purchasingRoutes(app) {
              AND ${code ? tx`lower(supplier_code) = lower(${code})` : tx`supplier_code IS NULL AND lower(COALESCE(product_name, '')) = lower(${productName || ''}) AND abs(pack_base_qty - ${pbq}) < 0.0001`}
         `
         if (dupe) throw httpError(409, `${item.name} already has this price from the supplier: update it instead`)
+        // The code mustn't be another live price's at the supplier.
+        if (code && item.is_active) {
+          const taken = await codeTaken(tx, req.tenantId, po.supplier_id, code)
+          if (taken) throw codeTakenError(taken)
+        }
         const [q] = await tx`
           INSERT INTO inv_quotes ${tx({
             tenant_id: req.tenantId, item_id: item.id, supplier_id: po.supplier_id, supplier_code: code, product_name: productName,

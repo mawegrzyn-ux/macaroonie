@@ -3403,6 +3403,77 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>ref_required</Mono>. Tests: <Mono>api/test/purchasing-codes.test.mjs</Mono>,{' '}
               <Mono>shared/test/procurement.test.mjs</Mono>.
             </P>
+            <H3>Catalogue tidy-up (1 Nov 2026, no migration)</H3>
+            <P>
+              <strong>One code, one product.</strong> Among a supplier's live prices (the quote and its item both{' '}
+              <Mono>is_active</Mono>) a <Mono>supplier_code</Mono> (trimmed, any case) is on one quote only.
+              In <Mono>services/purchasingSvc.js</Mono>: <Mono>lockSupplierCodes(tx, supplierId)</Mono> (an advisory
+              lock on <Mono>'inv-code:' + supplierId</Mono>, so two saves of one code can't both pass),{' '}
+              <Mono>codeTaken(tx, tenantId, supplierId, code, {'{ except }'})</Mono> (the live quote holding it, with its
+              item and supplier names, or null) and <Mono>codeTakenError()</Mono> (409, code <Mono>duplicate_code</Mono>,{' '}
+              <Mono>quote_id</Mono>, <Mono>item_id</Mono>); <Mono>itemCodeConflicts(tx, tenantId, itemIds)</Mono> (the
+              codes of switched-off items' live quotes that another live price of the supplier has) and{' '}
+              <Mono>itemCodesError()</Mono> (409 <Mono>duplicate_code</Mono> with <Mono>conflicts</Mono>). Checked by{' '}
+              <Mono>POST /inventory/items/:id/quotes</Mono>, <Mono>PATCH /inventory/quotes/:id</Mono> (only when the
+              code or supplier changes, or the quote is switched on: a shared code left from before can still have its
+              price edited), <Mono>PATCH /inventory/items/:id</Mono> switching an item on, the bulk switch, the import
+              (before any write of the row; a refused row adds nothing) and an invoice's price list
+              (<Mono>POST /purchasing/pos/:id/price-list</Mono>, a new product with a code). Switched-off prices and
+              items may keep a code that is live elsewhere. Codes shared before this stay until someone changes them;
+              the catalogue check lists them.
+            </P>
+            <P>
+              <strong>Routes</strong> (<Mono>routes/inventory.js</Mono>). <Mono>GET /inventory/check</Mono>{' '}
+              (Purchasing setup view, <Mono>catalogueCheck()</Mono>): <Mono>duplicate_codes</Mono> (per supplier and
+              code, the quotes with item name and <Mono>pack_label</Mono>), <Mono>duplicate_names</Mono> (items in use
+              whose trimmed lower-case names match, each with its category and number of active prices),{' '}
+              <Mono>no_price</Mono> (items in use with no active quote of a supplier switched on, up to 500) and{' '}
+              <Mono>no_code</Mono> (per supplier switched on, live quotes without a code: count and up to 8 item names).{' '}
+              <Mono>POST /inventory/items/bulk</Mono> (manage) takes <Mono>ids</Mono> (up to 1000) and{' '}
+              <Mono>is_active</Mono> / <Mono>category_id</Mono> / <Mono>storage</Mono>, now with{' '}
+              <Mono>dry_run</Mono>: <Mono>{'{ updated, unchanged, on_open_orders, code_conflicts }'}</Mono>.{' '}
+              <Mono>on_open_orders</Mono> (switching off; <Mono>openOrderItems()</Mono>: drafts and requests with a
+              quantity, per item the venues) and <Mono>code_conflicts</Mono> (switching on) are said, not refused, in a
+              dry run; a real switch on with conflicts is 409. Lines of an item switched off show as{' '}
+              <Mono>gone: item_off</Mono> on their order (step 1).
+            </P>
+            <P>
+              <Mono>POST /inventory/price-update</Mono> (manage; <Mono>{'{ supplier_id, file | text | rows, dry_run }'}</Mono>,
+              exactly one of file (base64 CSV or Excel), text (lines <Mono>code, price</Mono>, also <Mono>:</Mono>,{' '}
+              <Mono>;</Mono>, a tab or a space, an optional £, a first line of headings left out) or rows (Pepper), up to
+              5000): <Mono>runPriceUpdate()</Mono> matches each code to the supplier's quotes (any case); one live
+              quote = a change (<Mono>pct</Mono> to one decimal, <Mono>big</Mono> at 20% or more or from £0) or{' '}
+              <Mono>unchanged</Mono>; none = <Mono>unknown</Mono>; only switched-off ones ={' '}
+              <Mono>switched_off</Mono>; more than one live = <Mono>ambiguous</Mono>; a bad price, an unreadable line or
+              a code twice = <Mono>errors</Mono>. Applying writes <Mono>inv_quotes.price</Mono> and an{' '}
+              <Mono>inv_price_history</Mono> row with source <Mono>import</Mono>; packs, codes and venue prices are not
+              touched. A file's headings are matched by <Mono>PRICE_HEADERS</Mono> (Code, Supplier code, SKU, Ref ...;
+              Price, Price delivery, Cost ...); a Price collection column is left out (<Mono>collection_ignored</Mono>);
+              a file without headings is read as code then price. <Mono>GET /inventory/price-update/template?supplier_id=</Mono>{' '}
+              (view) is the supplier's coded live prices now as <Mono>Code,Price,Item,Product,Pack</Mono> (cells
+              through <Mono>csvCell()</Mono> from <Mono>shared/procurement.js</Mono>).
+            </P>
+            <P>
+              <strong>Reading files.</strong> <Mono>readSheet()</Mono> (the import and the price update) reads a CSV
+              that is valid UTF-8 as text (<Mono>TextDecoder</Mono> with <Mono>fatal</Mono>), else (Excel, or a CSV
+              saved as Windows-1252) as bytes, with <Mono>raw: true</Mono> both ways. Before, a CSV without a byte
+              order mark was read as Windows-1252 (£ came out as Â£, Crème as CrÃ¨me) and codes like{' '}
+              <Mono>12-04</Mono> were turned into dates.
+            </P>
+            <P>
+              <strong>Admin.</strong> <Mono>components/purchasing/catalogue.jsx</Mono>: <Mono>CatalogueCheckModal</Mono>{' '}
+              (each item opens its panel; fetched fresh each time it opens: <Mono>staleTime: 0, gcTime: 0</Mono>),{' '}
+              <Mono>SwitchItemsModal</Mono> (the dry run, also fresh each time, then the switch) and{' '}
+              <Mono>PriceUpdateModal</Mono> (supplier, the CSV of their prices now, a file or pasted lines, Check, then
+              Update; the result scrolled into view in the window's own scroll area). <Mono>pages/Inventory.jsx</Mono>:
+              header buttons Check (<Mono>inv-check</Mono>, view), Update prices and Select (manage; icons only below{' '}
+              <Mono>sm</Mono>), selecting turns rows into tick boxes with a bar (<Mono>inv-select-bar</Mono>: n chosen,
+              Choose all shown, Switch off, Switch on, Done), and <Mono>ItemForm</Mono> warns of another item with the
+              same name (<Mono>inv-twin-name</Mono>, Open it). Pepper: <Mono>check_catalogue</Mono>,{' '}
+              <Mono>switch_items</Mono>, <Mono>update_prices_by_code</Mono>, and the price and item change tools refuse
+              a code another live product of the supplier has (<Mono>liveCodeOwner()</Mono>, <Mono>codeClash()</Mono>).
+              Tests: <Mono>api/test/purchasing-catalogue.test.mjs</Mono>.
+            </P>
             <H3>Changing an order not yet sent</H3>
             <P>
               <Mono>PUT /pos/:id/lines</Mono> (approval; <Mono>to_send</Mono> only, else 409):{' '}
@@ -3505,7 +3576,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <DataTable
               head={['Page', 'File']}
               rows={[
-                ['/inventory', 'pages/Inventory.jsx: list, item drawer (item form, supplier prices with star, venue prices, which price each venue orders, history), import, categories.'],
+                ['/inventory', 'pages/Inventory.jsx: list, item drawer (item form with the same-name warning, supplier prices with star, venue prices, which price each venue orders, history), import, categories; the catalogue check, Update prices and Select (switch several off or on) from components/purchasing/catalogue.jsx.'],
                 ['/suppliers', 'pages/Suppliers.jsx: cards, drawer with Supplier, Ordering, Per venue, Products.'],
                 ['/purchasing/lists', 'pages/OrderLists.jsx: lists (drag), venues, items grouped by category (drag within a category), pars per venue in packs.'],
                 ['/purchasing, /mobile/purchasing', 'pages/Purchasing.jsx, pages/mobile/MobilePurchasing.jsx around PurchasingApp in components/purchasing/ordering.jsx (Order and Deliveries tabs, OrderForm, PoDetail, ReceiveForm; approval: RequestCard, RequestPanel, ReviewModal mode request / place, SplitRequestModal, SendBackModal, SplitPoModal, DeliveryDayPicker). View in the URL: ?order=, ?po=, ?tab=deliveries.'],
@@ -6392,6 +6463,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['add_supplier / update_supplier', 'setup manage', 'POST, PATCH /suppliers, PUT /suppliers/:id/venues', 'Days as names; needs_their_reference = ref_required (marking sent needs their reference); a venue setting (account, days, cutoff, days_notice, delivery phone, driver instructions, delivery slot from / to; a slot ending before it starts is refused) is merged into the full PUT list with every other venue sent back whole by venueSettings() (the route replaces all)'],
                 ['create_order_list / update_order_list / set_pars', 'setup manage', 'POST, PATCH /lists, PUT /lists/:id/venues|items|pars', 'Items by name or code, every unknown name in one error; pars in packs (company-choice quote) or g/kg/ml/cl/l/each, stored in base units'],
                 ['import_price_list', 'setup manage', 'POST /inventory/import (dry_run on the card)', 'rows (up to 100 per call, read by the model from a PDF, photo or email; a longer list is one call and one card per 100) become a CSV with the template headings; attached_file is a text/CSV ai_attachments row of this conversation and this user (chat only). All rows bad = refused'],
+                ['update_prices_by_code', 'setup manage', 'POST /inventory/price-update (dry_run on the card)', 'supplier + rows { code, price } (up to 200, said or read from a PDF, photo or email) or attached_file (a CSV or text file attached in this chat, sent as the file); the card lists each change (code, item, old to new price, % with 20% or more marked) and the codes not found, switched off, on two products and rows left out (priceUpdateCard()); no change = refused. Pins the supplier id'],
+                ['check_catalogue', 'setup view', 'GET /inventory/check', 'Codes on two products, items in use with one name, items nobody sells, prices without a code per supplier; long lists capped with showing / of'],
+                ['switch_items', 'setup manage', 'POST /inventory/items/bulk (dry_run in describe)', 'items (names, codes or ids, up to 50) + on; the card says what changes, items on open orders (switching off) and codes another item uses (switching on: refused). Pins the item ids'],
                 ['update_order', 'purchasing or approve manage', 'PUT /orders/:id/lines', 'planOrder(): the venue\'s draft, or order_id (orderVenue(), openOrder()); lines (on the order by our code, a supplier\'s code (which switches the line to that quote) or name, else GET /venues/:id/catalog, whose matched_quote_id names the quote), supplier/pack switch (a quantity left out converts with convertQty() and the card shows the amount before and after), fill_to_par (packsToPar), clear_all; only changed lines are sent, each with the quote_id the card shows (the API pins it). Lines whose price, supplier or item was switched off are listed under Can\'t be ordered yet. assertCanEdit(): a request waiting for approval only for an approver'],
                 ['request_order', 'purchasing manage', 'PUT /orders/:id/lines, POST /orders/:id/request', 'Card per supplier: the day wanted (deliveries[].date, else "next delivery day when placed": only given days are stored), lines, note for the manager'],
                 ['order_requests', 'any view', 'GET /orders?status=requested|draft, /orders/:id', 'Waiting orders (up to 15 in full: lines with asked_for), sent-back drafts with the reason, you_can_approve. Also a day_briefing part (orders_to_approve)'],

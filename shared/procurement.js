@@ -373,7 +373,7 @@ export function quickOrder(lines, { sep = ',' } = {}) {
 }
 
 /** One CSV cell: quoted when needed; a leading = + - @ made harmless for spreadsheets. */
-function csvCell(v) {
+export function csvCell(v) {
   let t = String(v ?? '')
   if (/^[=+\-@\t\r]/.test(t)) t = "'" + t
   return /[",\r\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t

@@ -22,6 +22,12 @@
 //   create_order_list / update_order_list / set_pars                   purchasing_setup, manage
 //   import_price_list       CSV attached in the chat, or rows read
 //                           from a PDF / photo; dry run on the card    purchasing_setup, manage
+//   check_catalogue         one code on two products, items with one
+//                           name, items nobody sells, prices without
+//                           a code                                     purchasing_setup, view
+//   switch_items            several items off or on (dry run first)    purchasing_setup, manage
+//   update_prices_by_code   one supplier's new prices by product code,
+//                           from rows or a CSV attached in the chat    purchasing_setup, manage
 //
 //   update_order            quantities on the draft (not sent), or on  purchasing, manage (a request
 //                           a request waiting for approval             waiting: purchasing_approve)
@@ -213,6 +219,26 @@ function pickItem(items, text, what = 'inventory item') {
 
 const pickSupplier = (suppliers, text) =>
   pickByName(suppliers, text, s => s.name, 'supplier', 'No suppliers yet. Add one with add_supplier.')
+
+/**
+ * The live price (switched on, its item switched on) of this supplier with
+ * the code, other than exceptQuoteId: a product code names one product, so
+ * the API refuses a second one (409 duplicate_code); the card says so first.
+ */
+function liveCodeOwner(items, supplierId, code, exceptQuoteId = null) {
+  const c = String(code ?? '').trim().toLowerCase()
+  if (!c) return null
+  for (const it of items) {
+    if (!it.is_active) continue
+    const q = it.quotes.find(x => x.is_active && x.supplier_id === supplierId && x.id !== exceptQuoteId &&
+      String(x.supplier_code ?? '').trim().toLowerCase() === c)
+    if (q) return { item: it, quote: q }
+  }
+  return null
+}
+
+const codeClash = (o, code) => new ToolError(o.quote.supplier_name + ' already has code ' + code + ' on ' + o.item.name +
+  '. A product code names one product: change one of the codes, or switch that price off first.', 409)
 
 /**
  * One of an item's prices: by supplier name, then `which` (supplier code or
@@ -461,6 +487,51 @@ async function importFile(ctx, input) {
       ', which can\'t be imported as it is. Read the products from it and pass them as rows.', 422)
   }
   return { file: Buffer.from(f.data).toString('base64'), source: f.filename }
+}
+
+/** A price update's body: rows from the conversation, or a CSV / text file attached in this chat. */
+async function priceUpdateBody(ctx, input, supplierId) {
+  if (!!input.attached_file === !!input.rows?.length) {
+    throw new ToolError('Give either attached_file (a CSV attached in this chat) or rows of code and price.', 422)
+  }
+  if (input.rows?.length) return { body: { supplier_id: supplierId, rows: input.rows }, source: 'the conversation' }
+  if (ctx.channel !== 'staff_chat' || !ctx.conversationId) {
+    throw new ToolError('Attached files can only be read in the chat. Send the prices as rows instead.', 422)
+  }
+  const files = await withTenant(ctx.tenantId, tx => tx`
+    SELECT id, filename, kind, data FROM ai_attachments
+     WHERE tenant_id = ${ctx.tenantId} AND conversation_id = ${ctx.conversationId}
+       AND user_sub = ${ctx.principal?.sub ?? ''}
+     ORDER BY created_at
+  `)
+  const f = pickByName(files, input.attached_file, x => x.filename, 'attached file', 'No files are attached in this chat.')
+  if (f.kind !== 'text') {
+    throw new ToolError(f.filename + ' is ' + (f.kind === 'pdf' ? 'a PDF' : 'an image') +
+      ', which can\'t be read as it is. Read the codes and prices from it and pass them as rows.', 422)
+  }
+  return { body: { supplier_id: supplierId, file: Buffer.from(f.data).toString('base64') }, source: f.filename }
+}
+
+/** The card's lines for a price update's dry run. */
+function priceUpdateCard(r, source, cur) {
+  const lines = [
+    r.supplier.name + ', from ' + source + ': ' + plural(r.rows, 'row'),
+    ...r.changes.slice(0, 25).map(c => c.code + ' ' + c.item_name + ': ' + money(c.old_price, cur) + ' to ' + money(c.new_price, cur) +
+      (c.pct == null ? '' : ' (' + (c.pct > 0 ? '+' : '') + Math.round(c.pct) + '%)')),
+    ...(r.changes.length > 25 ? ['and ' + plural(r.changes.length - 25, 'more change')] : []),
+    ...(r.unchanged ? [plural(r.unchanged, 'price') + ' unchanged'] : []),
+  ]
+  const warnings = [
+    ...r.changes.filter(c => c.big).slice(0, 10).map(c => c.item_name + ' (' + c.code + ') changes by ' +
+      (c.pct == null ? 'more than it can be compared (it was ' + money(c.old_price, cur) + ')' : Math.abs(Math.round(c.pct)) + '%') + '.'),
+    ...(r.unknown.length ? ['Not found at ' + r.supplier.name + ': ' + r.unknown.slice(0, 15).map(u => u.code).join(', ') +
+      (r.unknown.length > 15 ? ' and ' + (r.unknown.length - 15) + ' more' : '') + '. Left out.'] : []),
+    ...(r.switched_off.length ? ['Switched off, left as they are: ' + r.switched_off.map(u => u.code + ' ' + u.item_name).slice(0, 10).join(', ') + '.'] : []),
+    ...(r.ambiguous.length ? ['On more than one product, left out: ' + r.ambiguous.map(u => u.code + ' (' + u.items.join(', ') + ')').slice(0, 10).join('; ') + '.'] : []),
+    ...(r.errors.length ? r.errors.slice(0, 10).map(e => 'Row ' + e.row + (e.code ? ' (' + e.code + ')' : '') + ': ' + e.error + '. Left out.') : []),
+    ...(r.collection_ignored ? ['The collection prices were left out: a supplier price here is the delivered price per pack.'] : []),
+  ]
+  return { lines, warnings }
 }
 
 // ── Orders ─────────────────────────────────────────────────
@@ -1648,6 +1719,143 @@ export const purchasingTools = [
     },
   },
 
+  {
+    name: 'check_catalogue',
+    title: 'Check the catalogue',
+    description:
+      'What to tidy up in the purchasing catalogue: a supplier\'s product code on two products (orders by code can\'t ' +
+      'tell them apart), two items switched on with one name, items no supplier sells (no live price), and prices ' +
+      'without a product code (by supplier). Needs Purchasing setup.',
+    input: z.object({}),
+    readOnly: true,
+    async run(ctx) {
+      await requireStaffPermission(ctx, 'purchasing_setup', 'view')
+      const r = await callApi(ctx, 'GET', '/api/inventory/check')
+      const cap = (list, n) => (list.length > n ? { showing: n, of: list.length } : {})
+      return {
+        one_code_on_two_products: r.duplicate_codes.slice(0, 20).map(g => ({
+          supplier: g.supplier_name, code: g.code,
+          products: g.quotes.map(q => q.item_name + ' (' + q.pack_label + ')'),
+        })),
+        ...(r.duplicate_codes.length > 20 ? { codes_note: cap(r.duplicate_codes, 20) } : {}),
+        items_with_one_name: r.duplicate_names.slice(0, 20).map(g => ({
+          name: g.name, items: g.items.map(i => (i.category_name ? i.category_name + ', ' : '') + plural(i.prices, 'price')),
+        })),
+        items_nobody_sells: r.no_price.slice(0, 40).map(i => i.name),
+        ...(r.no_price.length > 40 ? { nobody_sells_note: cap(r.no_price, 40) } : {}),
+        prices_without_a_code: r.no_code.map(x => ({ supplier: x.supplier_name, count: x.count, for_example: x.items })),
+        all_clear: !r.duplicate_codes.length && !r.duplicate_names.length && !r.no_price.length,
+      }
+    },
+  },
+
+  {
+    name: 'switch_items',
+    title: 'Switch inventory items off or on',
+    description:
+      'Switches several inventory items off (they aren\'t offered on orders or order lists; prices and history are ' +
+      'kept) or back on, by name or our code (up to 50). The card says which are on open orders (those lines then ' +
+      'ask to be taken off) and, switching on, refuses codes another live product of the supplier has. One item: ' +
+      'update_inventory_item.',
+    input: z.object({
+      items: z.array(z.string().min(1).max(200)).min(1).max(50).describe('Names, codes or item_ids'),
+      on:    z.boolean().describe('true = switch on, false = switch off'),
+    }),
+    confirm: true,
+    async describe(ctx, input) {
+      await requireSetup(ctx)
+      const items = await loadItems(ctx)
+      const { picked } = pickItems(items, input.items)
+      const r = await callApi(ctx, 'POST', '/api/inventory/items/bulk', { body: { ids: picked.map(i => i.id), is_active: input.on, dry_run: true } })
+      if (input.on && r.code_conflicts?.length) {
+        throw new ToolError(r.code_conflicts.map(c => c.item_name + '\'s code ' + c.code + ' at ' + c.supplier_name + ' is ' +
+          c.other_item_name + '\'s').join('; ') + '. A product code names one product: change one of the codes, or switch that ' +
+          'price off first.', 409)
+      }
+      const changing = picked.filter(i => i.is_active !== input.on)
+      if (!changing.length) throw new ToolError((picked.length === 1 ? picked[0].name + ' is' : 'They are all') + ' switched ' + (input.on ? 'on' : 'off') + ' already.', 422)
+      const warnings = (r.on_open_orders || []).map(o => o.item_name + ' is on an open order at ' + o.venues.join(', ') +
+        ': that line will ask to be taken off before the order can be placed.')
+      return {
+        title: (input.on ? 'Switch ' : 'Switch off ') + plural(changing.length, 'item') + (input.on ? ' on?' : '?'),
+        lines: [
+          ...changing.map(i => i.name),
+          ...(picked.length > changing.length ? [plural(picked.length - changing.length, 'item is', 'items are') + ' ' + (input.on ? 'on' : 'off') + ' already'] : []),
+        ],
+        ...(warnings.length ? { warningTitle: 'On open orders', warnings } : {}),
+        pin: { items: picked.map(i => i.id) },
+        confirmLabel: input.on ? 'Switch on' : 'Switch off',
+      }
+    },
+    async run(ctx, input) {
+      await requireSetup(ctx)
+      const items = await loadItems(ctx)
+      const { picked } = pickItems(items, input.items)
+      return audited(ctx, 'switch_items', input, async () => {
+        const r = await callApi(ctx, 'POST', '/api/inventory/items/bulk', { body: { ids: picked.map(i => i.id), is_active: input.on } })
+        return {
+          items: picked.filter(i => i.is_active !== input.on).map(i => i.name), switched: r.updated, on: input.on,
+          message: 'Switched ' + plural(r.updated, 'item') + ' ' + (input.on ? 'on' : 'off') + '.',
+        }
+      })
+    },
+  },
+
+  {
+    name: 'update_prices_by_code',
+    title: 'Update a supplier\'s prices by product code',
+    description:
+      'Updates one supplier\'s prices from their new price list, matched to their prices here by product code: rows ' +
+      'of code and price per pack ex VAT (up to 200, read from a PDF, photo or email), or attached_file: a CSV or ' +
+      'text file attached in this chat with Code and Price columns. Only prices change (packs, codes and venues\' ' +
+      'own prices stay); prices without a code can\'t be matched. The card shows every change first, with changes ' +
+      'of 20% or more marked, codes not found and rows left out.',
+    input: z.object({
+      supplier:      z.string().min(1).max(200),
+      rows:          z.array(z.object({ code: z.string().min(1).max(100), price: z.number().min(0).max(10000000) })).max(200).optional(),
+      attached_file: z.string().max(200).optional().describe('File name of a CSV attached in this chat'),
+    }),
+    confirm: true,
+    async describe(ctx, input) {
+      await requireSetup(ctx)
+      const [sups, cur] = await Promise.all([loadSuppliers(ctx), tenantCurrency(ctx)])
+      const sup = pickSupplier(sups, input.supplier)
+      const { body, source } = await priceUpdateBody(ctx, input, sup.id)
+      const r = await callApi(ctx, 'POST', '/api/inventory/price-update', { body: { ...body, dry_run: true } })
+      if (!r.changes.length) {
+        const why = [
+          r.unchanged && plural(r.unchanged, 'price is', 'prices are') + ' the same already',
+          r.unknown.length && plural(r.unknown.length, 'code') + ' not found at ' + sup.name,
+          r.errors.length && plural(r.errors.length, 'row') + ' unreadable',
+        ].filter(Boolean).join(', ')
+        throw new ToolError('No price would change' + (why ? ': ' + why : '') + '.', 422)
+      }
+      const { lines, warnings } = priceUpdateCard(r, source, cur)
+      return {
+        title: 'Update ' + plural(r.changes.length, 'price') + ' from ' + sup.name + '?',
+        lines,
+        ...(warnings.length ? { warningTitle: 'Check', warnings } : {}),
+        pin: { supplier: sup.id },
+        confirmLabel: 'Update prices',
+      }
+    },
+    async run(ctx, input) {
+      await requireSetup(ctx)
+      const sups = await loadSuppliers(ctx)
+      const sup = pickSupplier(sups, input.supplier)
+      const { body, source } = await priceUpdateBody(ctx, input, sup.id)
+      return audited(ctx, 'update_prices_by_code', { supplier: sup.name, source, rows: input.rows?.length ?? null }, async () => {
+        const r = await callApi(ctx, 'POST', '/api/inventory/price-update', { body })
+        return {
+          supplier: sup.name, source, updated: r.changes.length, unchanged: r.unchanged,
+          ...(r.unknown.length ? { not_found: r.unknown.map(u => u.code) } : {}),
+          ...(r.errors.length ? { left_out: r.errors.slice(0, 20) } : {}),
+          message: 'Updated ' + plural(r.changes.length, 'price') + ' from ' + sup.name + '.',
+        }
+      })
+    },
+  },
+
   // ── Ordering ──
   {
     name: 'update_order',
@@ -2302,6 +2510,13 @@ async function itemChangePlan(ctx, input) {
   if (input.active !== undefined && input.active !== item.is_active) {
     body.is_active = input.active
     lines.push(input.active ? 'Switch back on' : 'Switch off')
+    // Switching on: its prices' codes mustn't be other live prices'.
+    if (input.active) {
+      for (const q of item.quotes.filter(x => x.is_active && x.supplier_code)) {
+        const owner = liveCodeOwner(items.filter(i => i.id !== item.id), q.supplier_id, q.supplier_code)
+        if (owner) throw codeClash(owner, q.supplier_code)
+      }
+    }
   }
   if (!lines.length) throw new ToolError('Nothing to change: ' + item.name + ' already has those details.', 422)
   return { item, body, lines, newCategory }
@@ -2320,6 +2535,8 @@ async function newPricePlan(ctx, input) {
     throw new ToolError(item.name + ' already has this price from ' + sup.name + ' (' + quoteName(same) + ' at ' +
       money(same.price, venues[0]?.currency) + '). Change it with update_supplier_price.', 409)
   }
+  const owner = item.is_active && liveCodeOwner(items, sup.id, input.supplier_code)
+  if (owner) throw codeClash(owner, input.supplier_code)
   const venuePrices = (input.venue_prices || []).map(v => {
     const venue = venues.find(x => x.id === v.venue_id)
     if (!venue) throw new ToolError('Venue not found. Use list_venues.', 404)
@@ -2388,6 +2605,13 @@ async function priceChangePlan(ctx, input) {
     return { id: venue.id, price: v.price }
   })
   if (!lines.length || (!Object.keys(body).length && !venuePrices.length)) throw new ToolError('Nothing to change on that price.', 422)
+  // A new code, or switching it on: the code mustn't be another live price's.
+  const code = body.supplier_code !== undefined ? body.supplier_code : quote.supplier_code
+  const on = body.is_active !== undefined ? body.is_active : quote.is_active
+  if (item.is_active && on && code && (body.supplier_code !== undefined || body.is_active === true)) {
+    const owner = liveCodeOwner(items, quote.supplier_id, code, quote.id)
+    if (owner) throw codeClash(owner, code)
+  }
   return { item, quote, body, lines, venuePrices, warnings }
 }
 

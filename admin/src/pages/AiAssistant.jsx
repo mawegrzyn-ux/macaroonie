@@ -501,7 +501,8 @@ const TOOL_LABELS = {
   add_supplier_price: 'Added a supplier price', update_supplier_price: 'Changed a supplier price',
   set_preferred_supplier: 'Chose a supplier', add_supplier: 'Added a supplier', update_supplier: 'Changed a supplier',
   create_order_list: 'Made an order list', update_order_list: 'Changed an order list', set_pars: 'Set pars',
-  import_price_list: 'Imported a price list', update_order: 'Changed an order', place_order: 'Placed an order',
+  import_price_list: 'Imported a price list', switch_items: 'Switched inventory items off or on',
+  update_prices_by_code: 'Updated prices by product code', update_order: 'Changed an order', place_order: 'Placed an order',
   request_order: 'Sent an order for approval', send_back_order: 'Sent an order back', split_order: 'Split an order',
   send_purchase_order: 'Sent a purchase order', change_purchase_order: 'Changed a purchase order',
   cancel_purchase_order: 'Cancelled a purchase order', receive_delivery: 'Booked in a delivery',
@@ -547,6 +548,8 @@ function changeDetail(r) {
     case 'set_preferred_supplier': return [x.item, x.supplier].filter(Boolean).join(' from ')
     case 'set_pars':              return [x.list, x.venue].filter(Boolean).join(', ')
     case 'import_price_list':     return x.rows != null ? x.rows + ' rows' : null
+    case 'switch_items':          return x.items?.length ? x.items.join(', ') : null
+    case 'update_prices_by_code': return x.supplier ? x.supplier + (x.updated != null ? ' (' + x.updated + ' prices)' : '') : null
     case 'update_order':          return [x.venue, x.list].filter(Boolean).join(', ')
     case 'place_order':           return (x.purchase_orders || []).map(p => p.po + ' ' + p.supplier).join(', ') || null
     case 'request_order':         return x.venue || null

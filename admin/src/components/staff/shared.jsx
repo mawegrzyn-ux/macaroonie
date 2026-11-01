@@ -124,7 +124,8 @@ export function PageHeader({ icon: Icon, title, children }) {
   return (
     <div className="flex flex-wrap items-center gap-3 px-4 py-3 max-lg:notouch:pl-14 border-b shrink-0 min-h-[56px] bg-background">
       {Icon && <Icon className="w-4 h-4 text-muted-foreground shrink-0" />}
-      <h1 className="font-semibold text-sm flex-1 min-w-0 truncate">{title}</h1>
+      {/* A minimum width so a row of buttons wraps before the title shrinks to a letter or two. */}
+      <h1 className="font-semibold text-sm flex-1 min-w-[6rem] truncate">{title}</h1>
       {children}
     </div>
   )
