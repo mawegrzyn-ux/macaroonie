@@ -13,6 +13,11 @@
 // Each zone with buttons sets where the words sit on them (across, and up
 // and down); the preview places them with buttonTextStyle(), as the till does.
 //
+// The Menus zone switches the menu the till shows (as More > Menus does):
+// all of the till's menus or the ones picked, in their order, with a Menu
+// times button and each menu's times on the tills (setup menus' till_times,
+// Menus > Menu times; a menu off on the tills never shows there).
+//
 // Dish choices zones are drawn as outlines over the zones under them (they
 // only fill while a dish is being added: Show a dish being added fills them),
 // so the zones under them stay in sight and can be tapped. The page keeps
@@ -41,7 +46,9 @@ import {
   ZONE_TYPES, zoneLabel, GRID_ZONES, OVERFLOWS, CHOICE_KINDS, COVERS, BUTTON_ACTIONS, actionOf, CHECK_BUTTONS,
   normaliseTillLayout, layoutProblems, layoutWarnings, packCells, buttonLabel, choiceZones, overlaps, buttonTextStyle,
   ALIGNS, VALIGNS, SEAT_PARTS, LAYOUT_COLS, LAYOUT_ROWS, ZONE_GRID, FONT, MAX_ZONES, MAX_BUTTONS, LABEL_MAX,
+  MENU_TAPS, MAX_MENUS,
 } from '@shared/pos/tillLayout.js'
+import { timesLabel } from '@shared/menuTimes.js'
 
 // Screens to preview on: the till's top bar takes 64 px, the layout the rest.
 const SCREENS = [
@@ -51,7 +58,7 @@ const SCREENS = [
   { key: '800x1280', w: 800, h: 1280, label: 'Upright tablet, 800 x 1280' },
 ]
 const TOP_BAR = 64
-const TINTS = { check: '#e0e7ff', categories: '#dcfce7', items: '#fef3c7', buttons: '#fce7f3', modifiers: '#e0f2fe', seats: '#ede9fe' }
+const TINTS = { check: '#e0e7ff', categories: '#dcfce7', menus: '#ffedd5', items: '#fef3c7', buttons: '#fce7f3', modifiers: '#e0f2fe', seats: '#ede9fe' }
 const NEEDS_TARGET = { item: 'item_id', discount_preset: 'preset_id', tender: 'tender' }
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v))
 
@@ -59,7 +66,7 @@ function freshId(taken, base) {
   if (!taken.has(base)) return base
   for (let n = 2; ; n++) if (!taken.has(base + n)) return base + n
 }
-const ZONE_BASE = { check: 'order', categories: 'cats', items: 'dishes', buttons: 'buttons', modifiers: 'choices', seats: 'seats' }
+const ZONE_BASE = { check: 'order', categories: 'cats', menus: 'menus', items: 'dishes', buttons: 'buttons', modifiers: 'choices', seats: 'seats' }
 
 /** Where a new zone goes: a free rectangle as near the wanted size as there is. */
 function placeZone(layout, type) {
@@ -72,6 +79,7 @@ function placeZone(layout, type) {
   const want = {
     check: { w: Math.round(cols / 3), h: rows },
     categories: { w: Math.round(cols / 2), h: 1 },
+    menus: { w: Math.round(cols / 2), h: 1 },
     items: { w: Math.round(cols / 2), h: Math.max(2, rows - 2) },
     buttons: { w: Math.round(cols / 2), h: 2 },
     modifiers: { w: Math.round(cols / 2), h: Math.round(rows / 2) },
@@ -510,8 +518,24 @@ function CheckPreview({ scale, zone }) {
   )
 }
 
+/** A menu's times on the tills, in words: setup menus' till_times (false = off there). */
+function tillTimesText(m) {
+  if (m?.till_times === false) return 'Off on the tills'
+  return timesLabel(m?.till_times ?? null)
+}
+
 /** The cells a zone holds, from the venue's menus and the zone's buttons. */
 function previewCells(zone, { setup, names, discounts, tenders, layout }) {
+  if (zone.type === 'menus') {
+    // The menus the tills have (a menu off on the tills never shows there).
+    const menus = (setup?.menus || []).filter(m => m.till_times !== false)
+    const picked = zone.menu_ids ? zone.menu_ids.map(id => menus.find(m => m.id === id)).filter(Boolean) : []
+    const list = picked.length ? picked : menus
+    return [
+      ...(zone.times_button ? [{ key: 'times', label: 'Menu times', sub: zone.show_times ? 'Following' : null, colour: '#2f5bd3' }] : []),
+      ...list.map(m => ({ key: m.id, label: m.name, sub: zone.show_times ? tillTimesText(m) : null })),
+    ]
+  }
   if (zone.type === 'categories') {
     const ids = zone.sections || (setup?.sections || []).map(s => s.id)
     return ids.map(sid => names.sections.get(sid)).filter(Boolean).map(s => ({ key: s.id, label: s.title }))
@@ -600,6 +624,7 @@ const ALIGN_ICONS = { left: AlignLeft, center: AlignCenter, right: AlignRight }
 const VALIGN_ICONS = { top: AlignVerticalJustifyStart, middle: AlignVerticalJustifyCenter, bottom: AlignVerticalJustifyEnd }
 // What Top means for the second line of a zone's buttons.
 const PLACE_HINTS = {
+  menus: 'At the top, a menu\'s times (when they show) stay at the bottom of the button.',
   items: 'At the top, the price stays at the bottom of the button; in the middle or at the bottom it goes under the dish\'s name.',
   modifiers: 'At the top, a price stays at the bottom of the button; in the middle or at the bottom it goes under the choice. The group headings stay on the left.',
   buttons: 'At the top, a dish button\'s Sold out line stays at the bottom of the button.',
@@ -673,6 +698,7 @@ function ZonePanel({ zone, ctx, canManage, onBack, onChange, onRemove, selB = nu
             </>
           )}
           {zone.type === 'categories' && <CategoriesPicker zone={zone} ctx={ctx} onChange={onChange} />}
+          {zone.type === 'menus' && <MenusZoneOptions zone={zone} ctx={ctx} onChange={onChange} />}
           {zone.type === 'items' && (
             <div className="space-y-1">
               <Toggle label="Search box on top" checked={zone.search} onChange={v => onChange({ search: v })} />
@@ -850,6 +876,76 @@ function CategoriesPicker({ zone, ctx, onChange }) {
           )}
         </>
       )}
+    </div>
+  )
+}
+
+/**
+ * The Menus zone: which menus it offers (all of the till's, or picked and
+ * sorted), what a tap does, the Menu times button and the times on each.
+ */
+function MenusZoneOptions({ zone, ctx, onChange }) {
+  const menus = ctx.setup?.menus || []
+  const byId = new Map(menus.map(m => [m.id, m]))
+  const picked = zone.menu_ids
+  const rest = menus.filter(m => !(picked || []).includes(m.id))
+  const off = menus.filter(m => m.till_times === false)
+  return (
+    <div className="space-y-4" data-testid="tl-menus-options">
+      <div className="space-y-3" data-testid="tl-menus">
+        <Field group label="Which menus">
+          <Segmented value={picked ? 'pick' : 'all'} options={[{ value: 'all', label: 'All of the till\'s menus' }, { value: 'pick', label: 'Pick them' }]}
+            onChange={v => onChange({ menu_ids: v === 'pick' ? menus.filter(m => m.till_times !== false).map(m => m.id).slice(0, MAX_MENUS) : null })} />
+        </Field>
+        {!picked && <p className="text-xs text-muted-foreground">Every menu the till's revenue stream offers, in menu order.</p>}
+        {picked && (
+          <>
+            <p className="text-xs text-muted-foreground">In this order on the till. Drag to change it. A menu the till's revenue stream doesn't offer doesn't show there; with none of these on a till, it shows all of its menus.</p>
+            <SortableRows items={picked.map(id => ({ id }))} onReorder={ids => onChange({ menu_ids: ids })}
+              renderItem={r => {
+                const m = byId.get(r.id)
+                return (
+                  <div className="flex items-center gap-2 min-h-[44px]" data-testid="tl-menu" data-id={r.id}>
+                    <span className="flex-1 min-w-0 text-sm">
+                      <span className="block truncate">{m?.name || 'A menu this venue doesn\'t have'}</span>
+                      {m && <span className={cn('block text-xs', m.till_times === false ? 'text-amber-700' : 'text-muted-foreground')} data-testid="tl-menu-times">{tillTimesText(m)}</span>}
+                    </span>
+                    <button type="button" onClick={() => onChange({ menu_ids: picked.filter(x => x !== r.id) })} aria-label={'Take out ' + (m?.name || 'menu')}
+                      className="w-11 h-11 rounded-lg border bg-background hover:bg-muted flex items-center justify-center touch-manipulation"><X className="w-4 h-4" /></button>
+                  </div>
+                )
+              }} />
+            {rest.length > 0 && picked.length < MAX_MENUS && (
+              <label className="flex items-center gap-2">
+                <Plus className="w-4 h-4 text-muted-foreground shrink-0" />
+                <select className={cn(inputCls, 'flex-1')} value="" onChange={e => e.target.value && onChange({ menu_ids: [...picked, e.target.value] })} aria-label="Add a menu" data-testid="tl-add-menu">
+                  <option value="">Add a menu…</option>
+                  {rest.map(m => <option key={m.id} value={m.id}>{m.name}{m.till_times === false ? ' (off on the tills)' : ''}</option>)}
+                </select>
+              </label>
+            )}
+          </>
+        )}
+        {off.length > 0 && (
+          <p className="text-xs rounded-lg border border-amber-200 bg-amber-50 text-amber-900 px-3 py-2" data-testid="tl-menus-off">
+            {off.map(m => m.name).join(', ')} {off.length === 1 ? 'is' : 'are'} off on the tills (Menus → Menu times), so {off.length === 1 ? 'it doesn\'t' : 'they don\'t'} show here.
+          </p>
+        )}
+      </div>
+      <Field group label="Tapping a menu">
+        <Segmented value={zone.tap} options={MENU_TAPS.map(t => ({ value: t.key, label: t.label }))} onChange={v => onChange({ tap: v })} />
+      </Field>
+      <p className="text-xs text-muted-foreground -mt-2" data-testid="tl-menus-tap-hint">
+        {zone.tap === 'several'
+          ? 'A tap puts the menu on the till or takes it off: several can show at once (their categories one after another). One always stays.'
+          : 'A tap shows just that menu, as picking it in More → Menus does.'}
+        {' '}The pick holds until the menus on now change (lunch ends), then the till follows the menu times again.
+      </p>
+      <div className="space-y-1">
+        <Toggle label="Menu times button first" checked={zone.times_button} onChange={v => onChange({ times_button: v })} />
+        <p className="text-xs text-muted-foreground">Goes back to the menus on now (Menus → Menu times). Lit while the till follows them.</p>
+        <Toggle label="Each menu's times under its name" checked={zone.show_times} onChange={v => onChange({ show_times: v })} />
+      </div>
     </div>
   )
 }

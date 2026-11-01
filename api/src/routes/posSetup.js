@@ -96,6 +96,7 @@ import { TENDER_KEYS } from '../../../shared/pos/checks.js'
 import { ensureTaxDefaults, loadOrderTypes, loadStreams } from '../services/taxSvc.js'
 import { DISCOUNT_SCOPES, DISCOUNTS_MAX, DISCOUNT_AMOUNT_MAX } from '../../../shared/pos/discounts.js'
 import { tillsMayNeedConfig } from '../services/posNotify.js'
+import { channelMenuTimes } from '../services/menuTimesSvc.js'
 
 const UUID = z.string().uuid()
 const TIME = z.string().regex(/^([01][0-9]|2[0-3]):[0-5][0-9]$/)
@@ -779,6 +780,9 @@ export default async function posSetupRoutes(app) {
       // groups with their own kiosk look (migration 206), for the kiosk
       // design editor's groups shown their own way.
       const menuIds = menus.map(m => m.id)
+      // Each menu's times on the tills (Menus > Menu times, migration 230),
+      // for the till layout designer's Menus zone: false = off on the tills.
+      const tillTimes = await channelMenuTimes(tx, tenantId, venueId, 'till')
       const [sections, items, optionGroups, tillLayouts] = await Promise.all([
         tx`SELECT id, menu_id, title FROM menu_sections
             WHERE tenant_id = ${tenantId} AND menu_id = ANY(${menuIds}::uuid[]) ORDER BY sort_order, title`,
@@ -799,7 +803,8 @@ export default async function posSetupRoutes(app) {
         floor_areas: areas.map(a => ({ ...a, decor: a.decor || [] })),
         tables, staff,
         roles: roles.map(r => ({ ...r, permissions: normalisePermissions(r.permissions || {}) })),
-        courses, menus, sections, items,
+        courses, sections, items,
+        menus: menus.map(m => ({ ...m, till_times: tillTimes[m.id] ?? null })),
         option_groups: optionGroups,
         kds_stations: kdsStations.map(s => ({ ...s, settings: stationSettings(s) })),
         ...kdsFlows,

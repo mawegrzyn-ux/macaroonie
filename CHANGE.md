@@ -5,6 +5,19 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-11-01 — Till layouts: a Menus zone]
+
+No migration (till layouts are stored as they are).
+
+- **Menus zone** (Store tech → Till layouts, Add a zone → Menus; one per layout): the till's menus as buttons, so staff switch menu with one tap instead of More → Menus. It has the usual controls of a zone with buttons (buttons across and down, text size, bold, where the words go, what happens when more than fits), plus:
+  - **Which menus**: all of the till's menus, or pick them in your order (drag to sort). A till only shows the ones its revenue stream offers; with none of the picked ones on a till, it shows all of its menus. Menus off on the tills (Menus → Menu times) never show, and the designer says so.
+  - **Tapping a menu**: shows just that menu, or adds it or takes it off (several at once; one always stays).
+  - **Menu times button first**: goes back to the menus on now, and is lit while the till follows them.
+  - **Each menu's times under its name** (the till times from Menu times).
+- A menu picked here holds until the menus on now change (lunch ends), like a pick in More → Menus; picking what the menu times show anyway goes back to following them.
+
+---
+
 ## [2026-11-01 — Till layouts: where the words go, more picks more dishes, seat or course only; a clearer Send window]
 
 No migration (till layouts are stored as they are; older layouts read as before).

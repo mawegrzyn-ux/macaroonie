@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import {
   normaliseTillLayout, layoutProblems, layoutWarnings, choiceZones, packCells, buttonLabel,
   ownLayout, layoutIds, templateLayout, LAYOUT_TEMPLATES, overlaps, actionOf, CHECK_BUTTONS,
-  buttonTextStyle, ALIGN_KEYS, VALIGN_KEYS,
+  buttonTextStyle, ALIGN_KEYS, VALIGN_KEYS, menuZoneMenus, MAX_MENUS, GRID_ZONES,
 } from '../tillLayout.js'
 
 const A = '11111111-1111-4111-8111-111111111111'
@@ -246,7 +246,7 @@ test('button words and the company\'s own ids', () => {
       { type: 'buttons', x: 4, y: 1, w: 8, h: 2, buttons: [{ action: 'item', item_id: A }, { action: 'item', item_id: C }, { action: 'discount_preset', preset_id: B }, { action: 'discount_preset', preset_id: C }, { action: 'send' }] },
     ],
   })
-  assert.deepEqual(layoutIds(layout), { items: [A, C], sections: [A, C], presets: [B, C] })
+  assert.deepEqual(layoutIds(layout), { items: [A, C], sections: [A, C], presets: [B, C], menus: [] })
   const own = ownLayout(layout, { sectionIds: new Set([A]), itemIds: [A], presetIds: new Set([B]) })
   assert.deepEqual(own.zones[1].sections, [A])
   assert.deepEqual(own.zones[2].buttons.map(b => b.item_id || b.preset_id || b.action), [A, B, 'send'])
@@ -336,4 +336,55 @@ test('Dish choices zone: more picks, more dishes never goes with adding on the l
   assert.deepEqual([zone({ auto_add: true, split_picks: true }).split_picks, zone({ auto_add: true, split_picks: true }).auto_add], [true, false], 'both asked: more dishes wins')
   assert.equal(zone({ split_picks: 'yes' }).split_picks, false, 'not a boolean: off')
   assert.equal('split_picks' in normaliseTillLayout({ zones: [{ id: 'd', type: 'items', x: 0, y: 0, w: 4, h: 4, split_picks: true }] }).zones[0], false)
+})
+
+test('Menus zone: a grid zone of the till\'s menus, picked and sorted, with its own options', () => {
+  const l = normaliseTillLayout({
+    zones: [
+      { id: 'c', type: 'check', x: 0, y: 0, w: 4, h: 8 },
+      { id: 'm', type: 'menus', x: 4, y: 0, w: 8, h: 1 },
+    ],
+  })
+  const z = l.zones[1]
+  assert.ok(GRID_ZONES.includes('menus'))
+  assert.deepEqual(
+    { cols: z.cols, rows: z.rows, overflow: z.overflow, align: z.align, valign: z.valign, font: z.font, bold: z.bold },
+    { cols: 4, rows: 1, overflow: 'scroll', align: 'center', valign: 'middle', font: 16, bold: true },
+    'the standard grid controls with a strip of buttons to start')
+  assert.deepEqual({ menu_ids: z.menu_ids, tap: z.tap, times_button: z.times_button, show_times: z.show_times },
+    { menu_ids: null, tap: 'one', times_button: true, show_times: false }, 'all of the till\'s menus, one at a time, a Menu times button')
+  assert.deepEqual(buttonTextStyle(z), { alignItems: 'center', justifyContent: 'center', textAlign: 'center' })
+
+  const many = Array.from({ length: MAX_MENUS + 5 }, (_, i) => '44444444-4444-4444-8444-' + String(i).padStart(12, '0'))
+  const k = normaliseTillLayout({
+    zones: [
+      { id: 'c', type: 'check', x: 0, y: 0, w: 4, h: 8 },
+      { id: 'm', type: 'menus', x: 4, y: 0, w: 8, h: 2, cols: 2, rows: 2, overflow: 'pages', align: 'left', valign: 'top', font: 20, bold: false,
+        menu_ids: [B.toUpperCase(), A, B, 'not-a-uuid'], tap: 'several', times_button: false, show_times: true },
+      { id: 'n', type: 'menus', x: 4, y: 2, w: 8, h: 1, menu_ids: many, tap: 'all-of-them' },
+    ],
+  })
+  const [, m, n] = k.zones
+  assert.deepEqual(m.menu_ids, [B, A], 'lower case, once each, in the order given')
+  assert.deepEqual([m.tap, m.times_button, m.show_times, m.cols, m.rows, m.overflow, m.align, m.valign, m.font, m.bold],
+    ['several', false, true, 2, 2, 'pages', 'left', 'top', 20, false])
+  assert.equal(n.menu_ids.length, MAX_MENUS)
+  assert.equal(n.tap, 'one', 'an unknown tap is one')
+  assert.ok(layoutProblems(k).some(p => p.code === 'too_many' && p.zones.includes('n')), 'one Menus zone only')
+  assert.ok(layoutProblems(k).some(p => p.code === 'overlap') === false)
+
+  // The company's own menus only, and the ids a layout names.
+  assert.deepEqual(layoutIds(k).menus.slice(0, 2), [B, A])
+  const own = ownLayout({ ...k, zones: k.zones.slice(0, 2) }, { sectionIds: [], itemIds: [], presetIds: [], menuIds: new Set([A]) })
+  assert.deepEqual(own.zones[1].menu_ids, [A], 'another group\'s menu is dropped')
+  const all = ownLayout(l, { sectionIds: [], itemIds: [], presetIds: [], menuIds: [] })
+  assert.equal(all.zones[1].menu_ids, null, 'all of the till\'s menus stays all')
+
+  // What a till offers: the picked ones it has, in the zone's order; else all of its menus.
+  const menus = [{ id: A, name: 'Lunch' }, { id: B, name: 'Dinner' }, { id: C, name: 'Drinks' }]
+  assert.deepEqual(menuZoneMenus({ menu_ids: null }, menus).map(x => x.name), ['Lunch', 'Dinner', 'Drinks'])
+  assert.deepEqual(menuZoneMenus({ menu_ids: [C, A] }, menus).map(x => x.name), ['Drinks', 'Lunch'])
+  assert.deepEqual(menuZoneMenus({ menu_ids: [C, 'gone'] }, menus).map(x => x.name), ['Drinks'])
+  assert.deepEqual(menuZoneMenus({ menu_ids: ['gone'] }, menus).map(x => x.name), ['Lunch', 'Dinner', 'Drinks'], 'none of them on this till: all of its menus')
+  assert.deepEqual(menuZoneMenus({ menu_ids: [A] }, []), [])
 })
