@@ -59,6 +59,7 @@
 //   PUT    /venues/:venueId/kds-flows/order       the flows' order (the kitchen screen's flow list)
 //   PUT    /venues/:venueId/kds-flows/active      put a flow in use (also from a kitchen screen: PUT /pos-api/kitchen/flow)
 //   POST   /venues/:venueId/kitchen-test          a signed link to the kitchen test bench (every screen on one page)
+//   POST   /venues/:venueId/kitchen-live          a signed link to the live kitchen view (every screen with the real orders, 12 hours)
 //   GET    /venues/:venueId/kitchen-report?from=&to=   speed of service per station, by hour, remakes
 //   GET    /venues/:venueId/kitchen-report.csv?from=&to=  every bump and remake, for spreadsheets / BI
 //   (kitchen screens themselves are devices of kind 'kds', added by POST /venues/:venueId/link)
@@ -91,6 +92,7 @@ import { hubRelease } from '../services/hubRelease.js'
 import { forgetDevice } from './posApi.js'
 import {
   ensureFlows, loadFlows, activeFlowOf, switchFlow, flowPlace, pinActiveFlows, gloriaFoodTypes, GF_TYPES, kitchenTestToken,
+  kitchenLiveToken, readKitchenLiveToken,
 } from '../services/kitchenSvc.js'
 import { checkDesign, ownDesign, previewToken, menuChanges, unpricedDishes } from '../services/kioskSvc.js'
 import { normaliseDesign } from '../../../shared/kiosk.js'
@@ -1443,6 +1445,17 @@ export default async function posSetupRoutes(app) {
     await withTenant(req.tenantId, tx => ownVenue(tx, req.tenantId, venueId))
     const token = await kitchenTestToken({ tenantId: req.tenantId, venueId })
     return { token, url: deviceOrigin('kds') + '/?kitchen_test=' + encodeURIComponent(token) }
+  })
+
+  // A link to the live kitchen view: every kitchen screen of the venue on one
+  // page with the real orders as they are now, any one full screen. View is
+  // enough: the page only reads (pos/src/kitchen/Live.jsx).
+  app.post('/venues/:venueId/kitchen-live', { preHandler: canSetupView }, async req => {
+    const venueId = UUID.parse(req.params.venueId)
+    await withTenant(req.tenantId, tx => ownVenue(tx, req.tenantId, venueId))
+    const token = await kitchenLiveToken({ tenantId: req.tenantId, venueId })
+    const { expiresAt } = await readKitchenLiveToken(token)
+    return { token, url: deviceOrigin('kds') + '/?kitchen_live=' + encodeURIComponent(token), expires_at: expiresAt }
   })
 
   // ── Kitchen screens: stations and routing ───────────────────────

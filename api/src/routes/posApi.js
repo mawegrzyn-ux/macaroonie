@@ -23,6 +23,9 @@
 //   GET  /kiosk-share?token=    a kiosk design's shared preview (its lasting link, migration 187): the
 //                               config plus { share: design, venue, company names }; counts the view
 //   GET  /kitchen-test?token=   the kitchen test bench's data (signed link, services/kitchenSvc.js kitchenTestData())
+//   GET  /kitchen-live?token=   the live kitchen view's setup: the kitchen screen's config and the venue's
+//                               kitchen screens (signed link, kitchenLiveData()); /kitchen-live/sync?token=&since=
+//                               its kitchen orders, as GET /kitchen/sync (read only: the page sends nothing)
 //   GET  /me                    this till and its venue
 //   GET  /config?version=       everything the till needs offline (unchanged: true when version matches);
 //                               a kitchen screen (kind 'kds') gets the kitchen's config instead, a
@@ -99,7 +102,7 @@ import { settleChangedChecks } from '../services/loyaltySvc.js'
 import { hubFor, hubContext, hubSync, hubTime, HUB_DEVICE_KINDS } from '../services/hubFirstSvc.js'
 import { loyaltyDeviceRoutes } from './loyaltyPos.js'
 import { setSoldOut, soldOutItemIds, announceSoldOut } from '../services/soldOut.js'
-import { kdsConfig, kitchenSync, onlineMoves, switchFlow, readKitchenTestToken, kitchenTestData } from '../services/kitchenSvc.js'
+import { kdsConfig, kitchenSync, onlineMoves, switchFlow, readKitchenTestToken, kitchenTestData, readKitchenLiveToken, kitchenLiveData } from '../services/kitchenSvc.js'
 import { changeStatus } from '../services/orderSvc.js'
 import {
   startSale, refreshPayment, devicePayment, devicePayments, cancelSale, answerSignature, simulateSale, startRefund, paymentView, cardMachineOf,
@@ -510,6 +513,30 @@ export default async function posApiRoutes(app) {
     if (!p) throw httpError(401, 'This test link has run out: open Test the kitchen again from Store tech')
     const data = await withTenant(p.tenantId, tx => kitchenTestData(tx, p.tenantId, p.venueId))
     return { ...data, expires_at: p.expiresAt }
+  })
+
+  // The live kitchen view (Store tech > Kitchen screens > Live view): the
+  // link the admin made is the key (12 hours). Its setup, then its kitchen
+  // orders as a kitchen screen gets them; it never sends a kitchen event.
+  const liveLink = async req => {
+    const p = await readKitchenLiveToken(req.query.token)
+    if (!p) throw httpError(401, 'This live view has run out: open it again from Store tech, Kitchen screens', { code: 'link' })
+    return p
+  }
+  app.get('/kitchen-live', { config: { rateLimit: { max: 60, timeWindow: '1 minute' } } }, async req => {
+    const p = await liveLink(req)
+    const data = await withTenant(p.tenantId, tx => kitchenLiveData(tx, p.tenantId, p.venueId))
+    return { ...data, expires_at: p.expiresAt, server_time: new Date().toISOString() }
+  })
+  app.get('/kitchen-live/sync', { config: { rateLimit: { max: 300, timeWindow: '1 minute' } } }, async req => {
+    const p = await liveLink(req)
+    const since = Math.max(0, Number(req.query.since) || 0)
+    const out = await withTenant(p.tenantId, async tx => {
+      const [v] = await tx`SELECT id FROM venues WHERE id = ${p.venueId} AND tenant_id = ${p.tenantId}`
+      if (!v) throw httpError(404, 'Venue not found')
+      return kitchenSync(tx, p.tenantId, p.venueId, since)
+    })
+    return { ...out, source: 'cloud' }
   })
 
   app.register(async scoped => {

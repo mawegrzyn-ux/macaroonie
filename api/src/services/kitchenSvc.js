@@ -38,6 +38,10 @@
 //   kitchenTestToken() / readKitchenTestToken() / kitchenTestData()
 //                           the kitchen test bench's signed link and what it
 //                           works from (pos/src/kitchen/Bench.jsx)
+//   kitchenLiveToken() / readKitchenLiveToken() / kitchenLiveData()
+//                           the live kitchen view's signed link and what it
+//                           works from (pos/src/kitchen/Live.jsx): the venue's
+//                           real kitchen screens, with kitchenSync() for orders
 //
 // Every query filters tenant_id itself.
 
@@ -373,6 +377,51 @@ export async function kitchenTestData(tx, tenantId, venueId) {
     menus: menus.map(m => ({ id: m.id, name: m.name, sections: m.sections.map(s => ({ id: s.id, title: s.title, item_ids: s.item_ids })) })),
     items: Object.fromEntries(Object.values(items).map(it => [it.id, dish(it)])),
     section_items,
+  }
+}
+
+// ── The live kitchen view ────────────────────────────────────────
+//
+// Store tech > Kitchen screens > Live view opens a page on the kitchen
+// screens' address (pos/src/kitchen/Live.jsx) with every kitchen screen of a
+// venue side by side, each showing the venue's real kitchen orders as they
+// are now (kitchenSync(), followed through the socket: config/ws.js joins the
+// link to the venue's till room). The signed link is the key (no pairing).
+// It only reads: nothing on that page sends a kitchen tap.
+
+const LIVE_HOURS = 12
+
+export function kitchenLiveToken({ tenantId, venueId }) {
+  return makeLink('kitchen_live', { t: tenantId, v: venueId }, LIVE_HOURS)
+}
+
+export async function readKitchenLiveToken(token) {
+  const p = await readLink('kitchen_live', token)
+  return p ? { tenantId: p.t, venueId: p.v, expiresAt: p.expires_at } : null
+}
+
+/**
+ * What the live view works from: the kitchen screen's config (stations,
+ * flows, order types, courses, ticket colours) and the venue's kitchen
+ * screens as set up in Store tech, each with its own settings (stations,
+ * view, columns, text size, ticket title) and whether a device is linked.
+ */
+export async function kitchenLiveData(tx, tenantId, venueId) {
+  const config = await kdsConfig(tx, tenantId, venueId)
+  if (!config.venue?.id) throw httpError(404, 'Venue not found')
+  const screens = await tx`
+    SELECT id, name, short_code, settings, secret_hash IS NOT NULL AS linked, last_seen_at
+      FROM pos_devices
+     WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND kind = 'kds' AND revoked_at IS NULL
+     ORDER BY created_at`
+  // Printers plugged into screens print from the screens themselves, never from here.
+  const { printers: _printers, ...shown } = config
+  return {
+    venue: config.venue,
+    config: shown,
+    screens: screens.map(s => ({
+      id: s.id, name: s.name, short_code: s.short_code, settings: s.settings || {}, linked: s.linked, last_seen_at: s.last_seen_at,
+    })),
   }
 }
 

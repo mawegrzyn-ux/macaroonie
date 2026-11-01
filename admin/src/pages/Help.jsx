@@ -6439,6 +6439,21 @@ export default function Help() {
               <li><strong>Dish names by section</strong>: pick a section from your menus (<em>Colour a section's dishes</em>) and a colour: those dishes' names show in it, so drinks or sides stand out on a busy ticket. A meal deal's parts take their own section's colour. Sections go by name, so one colour covers <em>Sides</em> in every menu. Remove one with its X.</li>
             </ul>
 
+            <H3>Watching the kitchen live</H3>
+            <P>
+              See every kitchen screen of the venue on one page with the real orders as they are now: on a
+              manager&apos;s laptop, the office computer or a TV on the wall. In Store tech → Kitchen screens,{' '}
+              <strong>Live view</strong> → <strong>Open the live view</strong> opens it in a new window.
+            </P>
+            <ul className="list-disc ml-5 space-y-2 text-sm text-muted-foreground mb-4">
+              <li>Each screen shows what that kitchen screen shows: its own stations, view, columns and text size, the same tickets, timers and colours. New orders, bumps, recalls and remakes show within a second or two.</li>
+              <li><strong>Full screen</strong> on a screen fills the display with it; <strong>Leave full screen</strong> (or Escape) goes back to every screen. The page&apos;s address remembers which screen, so a bookmark opens a wall TV straight on that screen.</li>
+              <li>It only watches. Tapping a ticket, BUMP or a flow switch changes nothing and says so: bump on the kitchen screen itself.</li>
+              <li><strong>Screens</strong>: <strong>As set up</strong> shows your kitchen screens; <strong>One per station</strong> shows one screen for each station. <strong>Size</strong> (tablet, TV, upright) and <strong>Across</strong> (screens per row) change the view. <strong>Sound</strong> beeps here when new dishes arrive.</li>
+              <li>Each screen says whether its device is on (it asked in the last few minutes), when it was last seen, or that no device is linked. A screen set up in Store tech with no device still shows its tickets here.</li>
+              <li>Changes made in Store tech (a screen renamed, its stations, the kitchen flow switched) reach the page by themselves. The link works for 12 hours; open it again from Store tech after that. View on Store tech is enough.</li>
+            </ul>
+
             <H3>Testing the kitchen</H3>
             <P>
               Try a kitchen flow before service without touching the real screens. In Store tech → Kitchen

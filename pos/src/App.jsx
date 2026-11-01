@@ -2,7 +2,8 @@
 // check, counter service, closed checks, reports and till settings. A device
 // paired as a kitchen screen opens the kitchen screen instead, one paired as
 // a self-order kiosk the kiosk (and ?kiosk_preview= the kiosk design preview,
-// ?kiosk_share= a design's shared preview, ?kitchen_test= the kitchen test bench).
+// ?kiosk_share= a design's shared preview, ?kitchen_test= the kitchen test bench,
+// ?kitchen_live= the live kitchen view).
 
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { Lock, RefreshCw, WifiOff } from 'lucide-react'
@@ -44,6 +45,10 @@ const SHARE_FRAME = QUERY.get('frame') === '1'
 const SharePage = lazy(() => import('./kiosk/SharePage.jsx'))
 const KITCHEN_TEST = QUERY.get('kitchen_test')
 const BENCH_SCREEN = QUERY.get('screen')
+// The live kitchen view (Store tech > Kitchen screens > Live view): every real
+// kitchen screen with the venue's orders; &screen= one of its frames.
+const KITCHEN_LIVE = QUERY.get('kitchen_live')
+const Live = lazy(() => import('./kitchen/Live.jsx'))
 
 export default function App() {
   if (PREVIEW) return <Suspense fallback={<div className="h-full bg-black" />}><KioskApp previewToken={PREVIEW} replay={REPLAY} /></Suspense>
@@ -58,6 +63,13 @@ export default function App() {
     return (
       <Suspense fallback={<div className="h-full bg-black" />}>
         {BENCH_SCREEN ? <BenchScreen screenId={BENCH_SCREEN} /> : <Bench token={KITCHEN_TEST} />}
+      </Suspense>
+    )
+  }
+  if (KITCHEN_LIVE) {
+    return (
+      <Suspense fallback={<div className="h-full bg-black" />}>
+        {BENCH_SCREEN ? <BenchScreen screenId={BENCH_SCREEN} host="kdsLive" /> : <Live token={KITCHEN_LIVE} />}
       </Suspense>
     )
   }

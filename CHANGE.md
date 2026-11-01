@@ -5,6 +5,17 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-11-01 — Kitchen screens: the live view]
+
+No migration.
+
+- **Watch every kitchen screen at once.** Store tech → Kitchen screens → Live view opens every kitchen screen of the venue on one page, showing the real orders as they are now: each screen with its own stations, view, columns and text size. New orders, bumps and recalls show within a second or two. Use it on a laptop, the office computer or a TV on the wall.
+- **Full screen.** Any screen can fill the display; the page's address remembers which, so a bookmark opens a TV straight on it.
+- **Watching only.** Taps on the live view change nothing and say so; bumping stays on the kitchen screens.
+- Each screen says whether its device is on, when it was last seen, or that none is linked. One per station, sizes (tablet, TV, upright), screens across and a beep for new dishes are on the page. Changes made in Store tech reach it by themselves. The link works for 12 hours.
+
+---
+
 ## [2026-11-01 — Purchasing: a supplier's basket into an order, out of stock until a date]
 
 Migration 234 (`inv_quotes.out_of_stock_until`, `_note`, `_by`, `_at`).

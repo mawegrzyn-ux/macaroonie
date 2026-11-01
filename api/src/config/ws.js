@@ -21,6 +21,7 @@ import { env } from './env.js'
 import { isMember } from '../services/membershipSvc.js'
 import { verifyDevice } from '../routes/posApi.js'
 import { verifyScreen } from '../services/screenAuth.js'
+import { readLink } from '../services/previewLinks.js'
 
 const CLAIM_NS = 'https://macaroonie.com/claims/'
 
@@ -95,6 +96,24 @@ export function attachWss(httpServer, jwtVerify) {
       if (!screen) { ws.close(4003, 'Forbidden'); return }
       joinRooms(ws, ['screen:' + screen.id, 'screens:' + screen.venue_id, 'screens-t:' + screen.tenant_id, 'menus:' + screen.tenant_id])
       ws.send(JSON.stringify({ type: 'connected', screenId: screen.id }))
+      return
+    }
+
+    // The live kitchen view (Store tech > Kitchen screens > Live view,
+    // pos/src/kitchen/Live.jsx): /ws?kitchen_live=<its signed link>. Joins the
+    // venue's till room to hear that kitchen orders changed (pos.seq) and that
+    // the setup changed (pos.config); the room carries signals only, and the
+    // page sends nothing but pings.
+    const live = url.searchParams.get('kitchen_live')
+    if (live) {
+      const p = await readLink('kitchen_live', live).catch(() => null)
+      const [venue] = p ? await systemSql`SELECT id FROM venues WHERE id = ${p.v} AND tenant_id = ${p.t} LIMIT 1`.catch(() => []) : []
+      if (!venue) { ws.close(4003, 'Forbidden'); return }
+      joinRoom(ws, 'pos:' + venue.id)
+      ws.on('message', raw => {
+        if (raw.length <= 32 && String(raw) === '{"type":"ping"}' && ws.readyState === ws.OPEN) ws.send('{"type":"pong"}')
+      })
+      ws.send(JSON.stringify({ type: 'connected', venueId: venue.id, heartbeat: true }))
       return
     }
 

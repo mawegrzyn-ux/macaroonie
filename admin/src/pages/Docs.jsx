@@ -4882,6 +4882,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['GET /api/pos/venues/:id/kitchen-report[.csv]?from=&to=', 'Per station: tickets, items, average, median, p90, max, on time (within target_mins), late; by hour; remakes. CSV: every bump and remake (pos_reports view).'],
                 ['POST /api/pos/venues/:id/kitchen-test', 'A signed link to the kitchen test bench (pos_setup view): { token, url } (8 hours). See The kitchen test bench below.'],
                 ['GET /pos-api/kitchen-test?token=', 'The bench\'s data (kitchenTestData()): stations, courses, order types, flows with their links, kitchen screens, tables, revenue streams, the live menus\' dishes (no prices) and expires_at. 401 for a bad, run out or other-kind link; 404 when the link\'s venue isn\'t its tenant\'s. Reads only.'],
+                ['POST /api/pos/venues/:id/kitchen-live', 'A signed link to the live kitchen view (pos_setup view): { token, url, expires_at } (12 hours, kind kitchen_live). See The live kitchen view below.'],
+                ['GET /pos-api/kitchen-live?token=', 'The live view\'s setup (kitchenLiveData()): the kitchen screen config without printers, the venue\'s kitchen screens not removed ({ id, name, short_code, settings, linked, last_seen_at }), expires_at and server_time. 401 (code link) for a bad, run out or other-kind link; 404 when the link\'s venue isn\'t its tenant\'s. Reads only.'],
+                ['GET /pos-api/kitchen-live/sync?token=&since=', 'The venue\'s kitchen orders as GET /pos-api/kitchen/sync gives a kitchen screen (kitchenSync(): reset from 0 or a sequence the server doesn\'t know, then what changed), plus source: cloud. Same 401 / 404. The page never sends a kitchen event.'],
                 ['GET /screen-api/orders', 'boardFor(): { preparing, ready } for every counter and online order, and boards: { [board station name, lower case]: { preparing, ready } } per order ready board, for the Order status block (opts.board picks one by name; screens with one get needs_orders in their config, poll every 15 s and refetch on kitchen.board).'],
               ]}
             />
@@ -5067,6 +5070,56 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               touches a real kitchen screen&apos;s data on the same browser. Online / Offline per screen makes its
               transport throw an offline error and fires <Mono>offline</Mono> / <Mono>online</Mono> in its
               frame, so taps wait in the screen&apos;s outbox as they would on Wi-Fi.
+            </P>
+            <H3>The live kitchen view</H3>
+            <P>
+              Store tech → Kitchen screens → Live view (<Mono>LiveCard</Mono> in <Mono>KitchenSection.jsx</Mono>,
+              sharing <Mono>KitchenPageButton</Mono> with the test bench) calls{' '}
+              <Mono>POST /api/pos/venues/:venueId/kitchen-live</Mono> (pos_setup view) for a signed link of kind{' '}
+              <Mono>kitchen_live</Mono> (<Mono>kitchenLiveToken()</Mono> / <Mono>readKitchenLiveToken()</Mono> in{' '}
+              <Mono>services/kitchenSvc.js</Mono>, 12 hours) and opens{' '}
+              <Mono>kitchen.&lt;domain&gt;/?kitchen_live=&lt;token&gt;</Mono>. The page (
+              <Mono>pos/src/kitchen/Live.jsx</Mono>, lazy in <Mono>pos/src/App.jsx</Mono>; no service worker
+              update reloads, <Mono>main.jsx</Mono>; kept out of <Mono>navigateFallback</Mono>) loads{' '}
+              <Mono>GET /pos-api/kitchen-live</Mono>: <Mono>kitchenLiveData()</Mono>, the kitchen screen config
+              (stations, flows, courses, order types, colours, no printers) and the venue&apos;s kitchen screens
+              from <Mono>pos_devices</Mono> (kind kds, not removed) with their settings, whether a device is linked
+              and when it was last seen. It reloads that on a <Mono>pos.config</Mono> or <Mono>pos.revoked</Mono>{' '}
+              push (800 ms debounce) and every <Mono>pull.content</Mono> seconds.
+            </P>
+            <P>
+              Orders are followed once for the whole page (<Mono>useKitchenFeed()</Mono>): the socket{' '}
+              <Mono>/ws?kitchen_live=&lt;token&gt;</Mono> (a branch in <Mono>config/ws.js</Mono>: the link read
+              with <Mono>readLink(&apos;kitchen_live&apos;)</Mono>, its venue checked against its tenant in system
+              mode, closed 4003 otherwise; it joins only the venue&apos;s till room <Mono>pos:&lt;venue&gt;</Mono> and
+              answers pings) says <Mono>pos.seq</Mono> with kind kitchen, and the page asks{' '}
+              <Mono>GET /pos-api/kitchen-live/sync</Mono> (one request in flight, asked again if a push came
+              meanwhile), also every 20 s with the socket open and every 3 s without it. It keeps the orders, the
+              sequence each order last changed at, the sequence of the last reset and the server clock offset,
+              and drops finished orders after <Mono>STALE_HOURS</Mono> as the screens do.
+            </P>
+            <P>
+              Each screen is the real kitchen app in a frame (<Mono>?kitchen_live=&amp;screen=&lt;id&gt;</Mono>,{' '}
+              <Mono>BenchScreen.jsx</Mono> with <Mono>host=&quot;kdsLive&quot;</Mono>), getting{' '}
+              <Mono>window.parent.kdsLive.connect(screenId)</Mono>: <Mono>GET /pos-api/config</Mono> answered with
+              the config and that screen as its device (version <Mono>live.&lt;config version&gt;.&lt;stamp of the
+              device&gt;</Mono>, so a setting change reaches it), <Mono>GET /pos-api/kitchen/sync</Mono> from the
+              page&apos;s orders (a reset for 0, a sequence ahead of the page&apos;s or behind its last reset), and
+              every change refused. The link carries <Mono>viewOnly</Mono>: <Mono>bootKitchen()</Mono> keeps it in
+              the store, <Mono>kitchen()</Mono> refuses every kitchen event before it touches the screen (a toast,
+              once while showing), <Mono>switchFlow()</Mono> too, and the flow panel shows no Switch (
+              <Mono>kds-flow-view-only</Mono>). Choices go to <Mono>sessionStorage</Mono> under{' '}
+              <Mono>maca_kds_live_&lt;id&gt;</Mono>; the page&apos;s own (mode, size, across, sound) to{' '}
+              <Mono>maca_kds_live</Mono>. Sound plays from the page (<Mono>link.chime</Mono>): a frame can&apos;t
+              play sound until it is tapped, and the Sound button or the first tap on the page unlocks it.
+            </P>
+            <P>
+              Full screen: the Fullscreen API on the screen&apos;s card (webkit-prefixed on an iPad), else the
+              card fixed over the window (<Mono>data-full</Mono> screen | window); while full the frame fills the
+              card at its real size, so the kitchen app lays itself out for it; leaving scales it back without
+              reloading the frame. <Mono>&amp;full=&lt;screen id&gt;</Mono> in the address (kept with{' '}
+              <Mono>history.replaceState</Mono>) opens with that screen filling the window; Escape leaves the
+              window mode. Tests: <Mono>api/test/kitchen-live.test.mjs</Mono>.
             </P>
           </section>
 
