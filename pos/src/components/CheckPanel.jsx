@@ -8,10 +8,11 @@
 //
 // The order's allergy flag (shared/pos/allergy.js) shows as a red bar under
 // the header (tap it to change it: onAllergy), and each dish that clashes with
-// it says how (pos/src/lib/allergyFit.js).
+// it says how (pos/src/lib/allergyFit.js). A dish an order flow put on says
+// so (Added by <flow>), with a lock when staff can't take it off alone.
 
 import { useEffect, useRef, useState } from 'react'
-import { Send, Hourglass, Flame, Ban, Gift, Percent, ChefHat, AlertTriangle, Layers, GripVertical, Trash2 } from 'lucide-react'
+import { Send, Hourglass, Flame, Ban, Gift, Percent, ChefHat, AlertTriangle, Layers, GripVertical, Trash2, Workflow, Lock } from 'lucide-react'
 import { checkTotals, lineGross, modifierText, groupModifiers, isActiveLine } from '@shared/pos/pricing.js'
 import { countParts } from '@shared/combos.js'
 import { chargeLabel } from '@shared/pos/charges.js'
@@ -19,12 +20,13 @@ import { allergyText, allergyOn } from '@shared/pos/allergy.js'
 import { cx, money } from './ui.jsx'
 import { groupByCourse, groupBySeat, canRegroup } from '../lib/checkOps.js'
 import { lineClash, clashWords } from '../lib/allergyFit.js'
+import { flowNameOf } from '../lib/orderFlows.js'
 
 const ACTION_W = 104   // the button a swipe shows
 const SWIPE_START = 12 // px sideways before a press counts as a swipe
 const EDGE = 64        // px from the list's top or bottom that scrolls it while dragging
 
-function LineBody({ line, discountOf, comboOf, clashOf }) {
+function LineBody({ line, discountOf, comboOf, clashOf, flowOf }) {
   const voided = line.status === 'voided'
   const gross = lineGross(line)
   const off = discountOf(line.id)
@@ -59,6 +61,12 @@ function LineBody({ line, discountOf, comboOf, clashOf }) {
           {line.status === 'sent' && line.held && <span className="text-held flex items-center gap-1"><Hourglass size={12} />Waiting</span>}
           {voided && <span className="text-bad flex items-center gap-1"><Ban size={12} />Voided: {line.voided?.reason}</span>}
           {line.price_override && <span className="text-muted">Price changed</span>}
+          {line.flow && !voided && (
+            <span className="text-brand flex items-center gap-1 min-w-0" data-testid="line-flow" data-removable={line.flow.removable === false ? 'no' : 'yes'}>
+              {line.flow.removable === false ? <Lock size={12} className="shrink-0" /> : <Workflow size={12} className="shrink-0" />}
+              <span className="truncate">Added by {flowOf?.(line) || 'an order flow'}</span>
+            </span>
+          )}
         </div>
       </div>
       <div className="text-right shrink-0 tabular-nums">
@@ -69,7 +77,7 @@ function LineBody({ line, discountOf, comboOf, clashOf }) {
   )
 }
 
-function LineRow({ line, discountOf, comboOf, clashOf, swipe, dragOn, grip, dragging, onTap, onAction }) {
+function LineRow({ line, discountOf, comboOf, clashOf, flowOf, swipe, dragOn, grip, dragging, onTap, onAction }) {
   const voided = line.status === 'voided'
   const shift = swipe.shiftOf(line.id)
   const sent = line.status !== 'new'
@@ -95,7 +103,7 @@ function LineRow({ line, discountOf, comboOf, clashOf, swipe, dragOn, grip, drag
           onClick={() => { if (swipe.swallow(line.id)) return; onTap(line) }}
           style={{ touchAction: 'pan-y' }}
           className={cx('flex-1 min-w-0 text-left py-2.5 pr-3 flex gap-3 items-start touch-manipulation active:bg-page select-none', !dragOn && 'pl-3')}>
-          <LineBody line={line} discountOf={discountOf} comboOf={comboOf} clashOf={clashOf} />
+          <LineBody line={line} discountOf={discountOf} comboOf={comboOf} clashOf={clashOf} flowOf={flowOf} />
         </button>
       </div>
     </div>
@@ -244,6 +252,7 @@ export default function CheckPanel({ check, config, onLine, onAction, onRegroup,
   const clashes = {}
   if (allergyOn(check.allergy)) for (const l of check.lines) clashes[l.id] = clashWords(lineClash(config, l, check.allergy), check.allergy)
   const clashOf = line => clashes[line.id] || []
+  const flowOf = line => flowNameOf(config, line.flow)
   const swipe = useSwipe({ onAction: line => onAction?.(line) })
   const { drag, start } = useDrag({ listRef, by, onDrop: (line, to) => onRegroup?.(line, to) })
   const hasSeats = check.lines.some(l => l.seat)
@@ -291,7 +300,7 @@ export default function CheckPanel({ check, config, onLine, onAction, onRegroup,
                 </div>
               )}
               {g.lines.map(l => (
-                <LineRow key={l.id} line={l} discountOf={id => offById[id] || 0} comboOf={id => comboById[id] || null} clashOf={clashOf}
+                <LineRow key={l.id} line={l} discountOf={id => offById[id] || 0} comboOf={id => comboById[id] || null} clashOf={clashOf} flowOf={flowOf}
                   swipe={swipe} dragOn={dragOn} dragging={drag?.line.id === l.id}
                   grip={canDrag && canRegroup(l, by) ? (e, line) => { swipe.close(); start(e, line, key) } : null}
                   onTap={onLine} onAction={line => { swipe.close(); onAction?.(line) }} />

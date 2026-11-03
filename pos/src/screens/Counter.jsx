@@ -30,6 +30,7 @@ import { CheckRow } from './Floor.jsx'
 import { SoldOutModal, NoSale, menusHint } from '../components/CheckActions.jsx'
 import MenusModal from '../components/MenusModal.jsx'
 import { useShownMenus } from '../lib/tillMenus.js'
+import { queueFlowPrompts, addedOf, shownItemIds } from '../lib/orderFlows.js'
 
 export default function Counter() {
   const { config } = useTill()
@@ -72,9 +73,11 @@ export default function Counter() {
       tent: p.ask_tent !== 'off' ? (a?.tent || null) : null,
     })
     if (!o.ok) return toast(o.error, 'bad')
-    // One line, or one for each dish (more picks, more dishes).
+    // One line, or one for each dish (more picks, more dishes). The prompts
+    // order flows ask when a dish is added show on the order screen.
     const r = addChosen(o.checkId, it, opts)
     if (!r.ok) toast(r.error, 'bad')
+    else queueFlowPrompts(o.checkId, 'dish_added', { added: addedOf(it, r), shownIds: shownItemIds(shownMenus.shown) })
     setAnswers(null)
     setItem(null)
     setChoosing(null)

@@ -4,12 +4,15 @@
 // tech > Till layouts) draws its zones instead (components/LayoutScreen.jsx):
 // the check in the Order zone, the designer's buttons doing what they say
 // (runButton), a dish's choices in the Dish choices zones when there are any.
+// Order flows (Store tech > Order flows, lib/orderFlows.js): a prompt when a
+// dish is added or before Pay opens (FlowPrompt, on top of everything), and
+// the dishes and charges add flows put on, kept in line as the check changes.
 
 import { useEffect, useMemo, useState } from 'react'
 import { ArrowLeft, Send, Printer, CreditCard, MoreHorizontal, Flame, Users, Eye, Flag, Star, Ban } from 'lucide-react'
 import { checkLabel, heldCourses } from '@shared/pos/checks.js'
 import { checkTotals } from '@shared/pos/pricing.js'
-import { useTill, useChecks, dispatch, toast, setPresence, othersOn, serverName, printBill, signOut } from '../lib/store.js'
+import { useTill, useChecks, dispatch, toast, setPresence, othersOn, serverName, printBill, signOut, currentChecks } from '../lib/store.js'
 import { choiceZones } from '@shared/pos/tillLayout.js'
 import { discountList, fitsScope } from '@shared/pos/discounts.js'
 import { tillLayoutOf, lastReceiptCheck } from '../lib/tillLayout.js'
@@ -28,7 +31,11 @@ import PayModal from '../components/PayModal.jsx'
 import LoyaltyModal from '../components/LoyaltyModal.jsx'
 import AllergyModal from '../components/AllergyModal.jsx'
 import MenusModal from '../components/MenusModal.jsx'
+import FlowPrompt from '../components/FlowPrompt.jsx'
 import { useShownMenus } from '../lib/tillMenus.js'
+import {
+  useFlowPrompts, queueFlowPrompts, answerFlowPrompt, dropFlowPrompts, syncFlows, addedOf, offApproval, shownItemIds,
+} from '../lib/orderFlows.js'
 import {
   ActionsMenu, SendModal, needsSendChoice, FireModal, DiscountModal, ChargesModal, OffersModal, MoveModal,
   MergeModal, TableModal, NameModal, ServerModal, StreamModal, OrderTypeModal, GuestsModal, OpenItemModal, NoSale, SoldOutModal,
@@ -54,6 +61,11 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
   const colourOf = key => orderZone?.colours?.[key] || null
   // The menus on now (the menu times, or what staff picked in More > Menus).
   const shownMenus = useShownMenus(config, check ? streamOf(config, check.revenue_stream_id)?.menu_ids : null)
+  // Order flows: the prompts waiting for this check (the first one shows) and
+  // the dishes on the menus shown now (a prompt offers only those).
+  const prompts = useFlowPrompts(checkId)
+  const shownIds = useMemo(() => shownItemIds(shownMenus.shown), [shownMenus.shown])
+  useEffect(() => () => dropFlowPrompts(checkId), [checkId])
 
   useEffect(() => {
     setPresence(checkId)
@@ -70,6 +82,20 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
   useEffect(() => {
     if (check && check.status === 'open' && check.lines.length) refreshPromotions(check.id)
   }, [lineSig]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The dishes and charges add flows put on by themselves, kept in line with
+  // the check as it changes (its dishes, order type, channel, charges, what
+  // staff took off) and when the flows do (the config's version).
+  const flowSig = check ? [
+    check.status, check.order_type_id || '', check.revenue_stream_id || '',
+    check.lines.map(l => l.id + ':' + l.qty + ':' + l.status + ':' + (l.flow?.key || '')).join(','),
+    (check.charges || []).map(x => x.id + ':' + (x.removed ? 1 : 0)).join(','),
+    Object.keys(check.flows_off || {}).join(','),
+    config?.version || '',
+  ].join('|') : ''
+  useEffect(() => {
+    if (check?.status === 'open') syncFlows(check.id)
+  }, [flowSig]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // A new check whose order type needs a name or tent number asks for it first.
   useEffect(() => {
@@ -120,8 +146,11 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
       return setModal({ kind: 'item', item })
     }
     const r = addItem(check, item, {}, { seat, course })
-    if (!r.ok) toast(r.error, 'bad')
+    if (!r.ok) return toast(r.error, 'bad')
+    askAfter(item, r)
   }
+  // A dish added: the prompts flows ask then (never for a dish a prompt added).
+  const askAfter = (item, r) => queueFlowPrompts(check.id, 'dish_added', { added: addedOf(item, r), shownIds })
   const added = (item, o, replace = null) => {
     // One line, or one for each dish (more picks, more dishes).
     const r = addChosen(check.id, item, o)
@@ -136,12 +165,37 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
       if (!d.ok) toast(d.error, 'bad')
     }
     close()
+    if (!replace) askAfter(item, r)
+  }
+  // A prompt's dish: on the order with the seat and course picked; a dish with
+  // choices opens its choices window first (the prompt steps aside meanwhile).
+  // Resolves to whether it went on.
+  const flowDish = it => new Promise(resolve => {
+    if (needsChoices(config, it)) return setModal({ kind: 'item', item: it, flowDone: resolve })
+    const now = currentChecks()[check.id]
+    const r = now ? addItem(now, it, {}, { seat, course }) : { ok: false, error: 'This check is no longer open' }
+    if (!r.ok) toast(r.error, 'bad')
+    resolve(r.ok)
+  })
+  const flowChosen = (m, o) => {
+    const r = addChosen(check.id, m.item, o)
+    if (!r.ok) return toast(r.error, 'bad')
+    close()
+    m.flowDone(true)
+  }
+  // A prompt answered: recorded on the check; Pay opens when it was the last
+  // prompt asked at checkout.
+  const answered = (p, a) => {
+    const then = answerFlowPrompt(p, a)
+    if (then?.kind === 'pay') pay({ ...then.opts, flowsAsked: true })
   }
   // A swipe's button: an item not sent yet comes off (Undo puts it back);
   // one the kitchen has opens the void window (a reason is needed).
   const swipeAction = async line => {
     if (line.status !== 'new') return setModal({ kind: 'line', line, initialMode: 'void' })
-    const approver = await approve(null, null, 'Taking items off needs a manager here.', ['delete_unsent'])
+    // A dish a flow put on as one staff can't take off: a manager every time.
+    const [label, actions] = offApproval(line, 'Taking items off needs a manager here.', ['delete_unsent'])
+    const approver = await approve(null, null, label, actions)
     if (approver === false) return
     const r = dispatch('line.deleted', { line_id: line.id }, { check_id: check.id, approved_by: approver })
     if (!r.ok) return toast(r.error, 'bad')
@@ -175,9 +229,12 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
     toast('Bill printed', 'ok')
   }
   // opts: { autoExact: 'cash' | 'card' } pays the amount left in one tap;
-  // { tender } opens Pay with that tender picked (a layout's buttons).
+  // { tender } opens Pay with that tender picked (a layout's buttons). The
+  // prompts due at checkout come first (each once per order); Pay opens when
+  // they are answered (flowsAsked).
   const pay = (opts = {}) => {
     if (needDetails()) return
+    if (!opts.flowsAsked && queueFlowPrompts(check.id, 'checkout', { then: { kind: 'pay', opts }, shownIds })) return
     refreshPromotions(check.id)
     setModal({ kind: 'pay', ...opts })
   }
@@ -338,7 +395,8 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
       )}
 
       {modal?.kind === 'item' && <ItemModal item={modal.item} config={config} defaults={{ seat: modal.seat ?? seat, course: modal.course ?? course, covers: check.covers, parts: barParts }}
-        initial={modal.initial || null} title={modal.title || null} onClose={close} onAdd={o => added(modal.item, o, modal.replace || null)} />}
+        initial={modal.initial || null} title={modal.title || null} onClose={() => { modal.flowDone?.(false); close() }}
+        onAdd={o => (modal.flowDone ? flowChosen(modal, o) : added(modal.item, o, modal.replace || null))} />}
       {modal?.kind === 'line' && (
         <LineModal check={check} line={check.lines.find(l => l.id === modal.line.id) || modal.line} config={config} onClose={close} initialMode={modal.initialMode || null}
           onDiscount={ids => setModal({ kind: 'discount', lineIds: ids })} onMove={ids => setModal({ kind: 'move', lineIds: ids })}
@@ -371,6 +429,13 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
       {modal?.kind === 'sold_out' && <SoldOutModal item={modal.item} config={config} onClose={close} onAdd={pick} />}
       {modal?.kind === 'pay' && <PayModal check={check} counter={counter || check.mode === 'counter'} autoExact={modal.autoExact || null} initialTender={modal.tender || null}
         onClose={close} onClosed={() => { close(); onBack() }} />}
+      {/* An order flow's prompt, on top of everything; it steps aside while a
+          dish it offers has its choices window open. */}
+      {prompts[0] && (
+        <FlowPrompt key={prompts[0].id} prompt={prompts[0]} config={config} shownIds={shownIds}
+          paused={modal?.kind === 'item' && !!modal.flowDone}
+          onDish={flowDish} onDone={a => answered(prompts[0], a)} />
+      )}
     </div>
   )
 }

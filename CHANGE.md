@@ -5,6 +5,20 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-11-03 — Order flows: prompts and things added by themselves on the till]
+
+Migration 235 (table `pos_order_flows`, and an Order flows link after Charges in every Store tech menu).
+
+- **Order flows** (Store tech → Order flows) are rules that act on till orders by themselves, shared by every venue. Each runs at every location or the ones you pick, on every till there or the tills you pick.
+- **Suggest dishes**: a prompt on the till offering a dish or a choice of dishes (Add a drink? with Coke, Water, Shake), with No thanks. You choose when it asks: **when a dish is added** (straight after it) or **at checkout** (before payment starts). Staff pick one of them, or any of them (each tap adds one more). It asks once on an order, or every time one of its dishes goes on.
+- **Add by itself**: dishes and charges that go on the order as soon as it matches (a bag and a bag charge on Take out orders), and come off by themselves when it stops matching (a dish only until it goes to the kitchen). For each, choose whether staff can take it off or a manager has to.
+- **Conditions** for both: the channel (revenue streams by name, so every location's Counter stream), the order type, dishes or whole menu sections on the order (or the dish just added), and dishes that stop it. A prompt can skip orders that already have one of the dishes it offers.
+- **A visual designer**: Where, When, If and Then boxes that say what the flow does in words, a panel for each, a preview of the prompt or the order, and what still needs setting up before it can be switched on. A new flow or a copy starts switched off; drag the list into the order flows act in.
+- On the till: the prompt shows only dishes the till can sell now, a dish with choices opens its choices window first, and what a flow added says "Added by" and the flow's name (with a lock when a manager has to take it off). Something staff took off stays off on that order.
+- Only tills run flows for now; kiosks and online ordering come next.
+
+---
+
 ## [2026-11-01 — Till layouts: pop-ups opened by a button]
 
 No migration.

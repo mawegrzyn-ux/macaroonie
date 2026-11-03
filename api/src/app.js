@@ -80,6 +80,7 @@ import cardSetupRoutes       from './routes/cardSetup.js'
 import kioskAnalyticsRoutes from './routes/kioskAnalytics.js'
 import printDesignRoutes     from './routes/printDesigns.js'
 import tillLayoutRoutes      from './routes/tillLayouts.js'
+import orderFlowRoutes       from './routes/orderFlows.js'
 import taxSetupRoutes        from './routes/taxSetup.js'
 import posApiRoutes          from './routes/posApi.js'
 import androidAppRoutes      from './routes/androidApp.js'
@@ -301,6 +302,7 @@ export async function buildApp() {
   await app.register(posSetupRoutes, { prefix: '/api/pos' })
   await app.register(printDesignRoutes, { prefix: '/api/pos' })
   await app.register(tillLayoutRoutes, { prefix: '/api/pos' })
+  await app.register(orderFlowRoutes, { prefix: '/api/pos' })
   await app.register(cardSetupRoutes, { prefix: '/api/pos' })
   await app.register(kioskAnalyticsRoutes, { prefix: '/api/pos/kiosk-analytics' })
   await app.register(taxSetupRoutes, { prefix: '/api' })

@@ -105,7 +105,7 @@ export function DishPickerModal({ catalog, title, allowSections, itemIds, sectio
                 <div className="px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground bg-muted/40">{m.name}</div>
                 {sections.map(s => {
                   const expanded = needle || open[s.id]
-                  const whole = allowSections && sectionSet.has(s.id)
+                  const whole = !!allowSections && sectionSet.has(s.id)
                   const picked = s.items.filter(i => itemSet.has(i.id)).length
                   return (
                     <div key={s.id} className="border-t first:border-t-0">

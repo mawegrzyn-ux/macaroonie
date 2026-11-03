@@ -18,6 +18,7 @@ import crypto from 'node:crypto'
 import { withTenant } from '../config/db.js'
 import { httpError } from '../middleware/error.js'
 import { loadMenuVersions } from './menuReleases.js'
+import { loadOrderFlows } from './orderFlowSvc.js'
 import { channelMenuTimes } from './menuTimesSvc.js'
 import { venuePromotions, publicPromotion } from './promoSvc.js'
 import { fillReconDay, reconFields } from './reconFill.js'
@@ -343,8 +344,12 @@ export async function tillConfig(tx, tenantId, venueId) {
   const config = {
     venue: { id: venue.id, name: venue.name, timezone: tz },
     // The company's discounts and charges ride with the venue's settings (the
-    // check rules read them there); the charges with this venue's matrix.
-    settings: { ...settingsView(settings), discounts: await loadDiscounts(tx, tenantId), charges: await loadCharges(tx, tenantId, venueId) },
+    // check rules read them there); the charges with this venue's matrix, and
+    // the order flows that run here (migration 235, shared/pos/orderFlows.js).
+    settings: {
+      ...settingsView(settings), discounts: await loadDiscounts(tx, tenantId), charges: await loadCharges(tx, tenantId, venueId),
+      flows: await loadOrderFlows(tx, tenantId, venueId),
+    },
     // How often this till asks for changes (migration 216).
     pull: pullTimes(settings),
     pin_salt: settings.pin_salt,
@@ -463,6 +468,7 @@ export async function printConfig(tx, tenantId, venueId) {
   const settings = {
     ...settingsView(await ensureSettings(tx, tenantId, venueId)),
     discounts: await loadDiscounts(tx, tenantId), charges: await loadCharges(tx, tenantId, venueId),
+    flows: await loadOrderFlows(tx, tenantId, venueId),
   }
   const [printers, tables, staff, courses, devices, orderTypes] = await Promise.all([
     tx`SELECT id, name, kind, connection, device_id, columns FROM pos_printers WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND is_active`,

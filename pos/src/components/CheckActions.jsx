@@ -29,6 +29,7 @@ import {
   listCharges, listCharge, chargeNames, coversOf, coursesOn,
 } from '../lib/checkOps.js'
 import { CoversModal, CheckRow } from '../screens/Floor.jsx'
+import { flowNameOf } from '../lib/orderFlows.js'
 
 /** The Charges button's line: what is on, e.g. "Service charge 12.5%" or "2 on, 1 off". */
 // "Service charge 12.5%", "2 on, 1 off", "1 waiting" (a charge for parties
@@ -346,9 +347,10 @@ export function DiscountModal({ check, config, lineIds = null, onClose }) {
 /**
  * The check's charges (shared/pos/charges.js): the ones the location gives
  * its revenue stream and order type (Store tech > Charges), ones added here
- * from the company's list, and any typed in here. Optional ones anyone takes
+ * from the company's list, ones order flows put on (Store tech > Order
+ * flows: they say which), and any typed in here. Optional ones anyone takes
  * off (unless the venue's switch says a manager); ones that aren't optional
- * need a manager every time.
+ * need a manager every time. One a flow put on, taken off, stays off.
  */
 export function ChargesModal({ check, config, onClose }) {
   const approve = useApproval()
@@ -391,13 +393,19 @@ export function ChargesModal({ check, config, onClose }) {
     x.min_covers ? 'from ' + x.min_covers + ' guests' : null,
   ].filter(Boolean).join(' · ')
   const reasonOf = x => check.charges.find(y => y.id === x.id)?.reason || ''
+  // The order flow that put a charge on, by name (lib/orderFlows.js), or null.
+  const flowOf = x => {
+    const raw = check.charges.find(y => y.id === x.id)
+    return raw?.flow ? flowNameOf(config, raw.flow) : null
+  }
   return (
     <Modal title="Charges" onClose={onClose} wide>
       <div className="grid md:grid-cols-2 gap-5">
         <div className="space-y-2" data-testid="charges-list">
           {!t.charges.length && <div className="text-sm text-muted">No charges on this check. The location's charges for its revenue stream and order type go on by themselves (Store tech, Charges); add one here from the list, or type one in.</div>}
           {t.charges.map(x => (
-            <div key={x.id} className={cx('rounded-xl border p-3 space-y-2', x.removed ? 'border-line bg-panel' : 'border-ok bg-ok-soft')} data-testid="charge-row" data-name={x.name}>
+            <div key={x.id} className={cx('rounded-xl border p-3 space-y-2', x.removed ? 'border-line bg-panel' : 'border-ok bg-ok-soft')} data-testid="charge-row" data-name={x.name}
+              data-flow={flowOf(x) ? 'yes' : undefined}>
               <div className="flex items-center gap-2">
                 <div className="flex-1 min-w-0">
                   <div className={cx('font-semibold', x.removed && 'line-through text-muted')}>{chargeLabel(x)}</div>
@@ -407,7 +415,7 @@ export function ChargesModal({ check, config, onClose }) {
                         : x.basis === 'dishes' && !x.count ? 'None of its dishes on the check yet'
                           : money(x.amount)}
                     {x.basis === 'dishes' ? ' · on ' + chargeOnText(check.charges.find(y => y.id === x.id) || x, names) : ''}
-                    {!x.optional && !x.removed ? ' · not optional' : ''}{x.added ? ' · added on the till' : ''}
+                    {!x.optional && !x.removed ? ' · not optional' : ''}{flowOf(x) ? ' · added by ' + flowOf(x) : x.added ? ' · added on the till' : ''}
                   </div>
                 </div>
                 {x.removed

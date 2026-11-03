@@ -28,6 +28,8 @@
 //   vat_rate     the tax rate's % at the venue when it went on the check
 //   list         added on the till from the list (the sequencer checks it is on the list)
 //   added        added on the till (from the list or typed in), not the matrix's
+//   flow         { id, key }: an order flow put it on (shared/pos/orderFlows.js);
+//                it takes it off again when the order stops matching
 //   removed      taken off (reason, removed_by, approved_by, removed_at)
 // check.charges_off remembers charges taken off that left the check when its
 // order type or stream changed, so they stay off if it changes back
@@ -92,6 +94,9 @@ export function chargeProblem(x) {
   if (x.section_ids != null && !idList(x.section_ids, CHARGE_SECTIONS_MAX)) return 'charge.section_ids'
   if (x.basis === 'dishes' && !(x.item_ids?.length || x.section_ids?.length)) return 'charge.dishes'
   if (x.list != null && typeof x.list !== 'boolean') return 'charge.list'
+  // Put on by an order flow (shared/pos/orderFlows.js): { id, key }.
+  if (x.flow != null && !(typeof x.flow === 'object' && isUuid(x.flow.id) && typeof x.flow.key === 'string'
+    && x.flow.key.length <= 160 && x.flow.key.startsWith(x.flow.id + ':'))) return 'charge.flow'
   return null
 }
 
@@ -221,11 +226,17 @@ const offPart = x => ({ reason: x.reason ?? null, removed_by: x.removed_by ?? nu
  * check with its old type. Returns { charges, off }.
  */
 export function switchCharges(current = [], next = [], off = {}) {
+  const nextIds = new Set((next || []).map(x => x.id))
   const had = new Map((current || []).filter(x => !x.added).map(x => [x.id, x]))
-  const kept = (current || []).filter(x => x.added)
+  // A charge an order flow put on gives way to the same charge from the
+  // location's matrix (the flow then has nothing to put on); taken off, it
+  // comes in taken off.
+  const yielded = (current || []).filter(x => x.added && x.flow && nextIds.has(x.id))
+  const kept = (current || []).filter(x => x.added && !(x.flow && nextIds.has(x.id)))
   const keptIds = new Set(kept.map(x => x.id))
   const memory = { ...(off || {}) }
   for (const x of had.values()) if (x.removed) memory[x.id] = offPart(x)
+  for (const x of yielded) if (x.removed) memory[x.id] = offPart(x)
   const charges = next.filter(x => !keptIds.has(x.id)).map(x => {
     const old = had.get(x.id)
     const fresh = onCheck(x)

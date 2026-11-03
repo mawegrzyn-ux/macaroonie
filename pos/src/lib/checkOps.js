@@ -255,7 +255,8 @@ export function courseFor(item, picked) {
 const asData = v => JSON.stringify(v ?? null, (k, x) => (x && typeof x === 'object' && !Array.isArray(x)
   ? Object.keys(x).sort().reduce((o, key) => { if (x[key] != null) o[key] = x[key]; return o }, {})
   : x))
-const sameLine = (a, b) => a.item_id === b.item_id && a.status === 'new'
+// A dish an order flow put on is its own line (lib/orderFlows.js): never joined.
+const sameLine = (a, b) => a.item_id === b.item_id && a.status === 'new' && !a.flow && !b.flow
   && asData(a.modifiers || []) === asData(b.modifiers || [])
   && asData(a.combo || null) === asData(b.combo || null)
   && (a.seat ?? null) === (b.seat ?? null) && (a.course_id ?? null) === (b.course_id ?? null)
@@ -263,7 +264,8 @@ const sameLine = (a, b) => a.item_id === b.item_id && a.status === 'new'
   && a.unit_price === b.unit_price && !a.price_override && !b.price_override
 
 /**
- * Add a dish to a check. opts: { qty, seat, course, note, allergies, unit_price (price override), approved_by }.
+ * Add a dish to a check. opts: { qty, seat, course, note, allergies, unit_price (price override), approved_by,
+ * flow ({ id, key, removable }: an order flow puts it on, lib/orderFlows.js) }.
  * An identical dish not sent yet gets its quantity raised instead of a new line.
  */
 export function addItem(check, item, selection = {}, opts = {}) {
@@ -283,6 +285,7 @@ export function addItem(check, item, selection = {}, opts = {}) {
     vat_rate: tax.vat_rate, tax_rate_id: tax.tax_rate_id,
     revenue_stream_id: check.revenue_stream_id,
     price_override: override || undefined,
+    ...(opts.flow ? { flow: opts.flow } : {}),
   }
   const twin = !override && check.lines.find(l => sameLine(l, line))
   if (twin) {
