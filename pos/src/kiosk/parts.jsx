@@ -412,10 +412,13 @@ export function Stepper({ value, onChange, min = 1, max = 99, labels = {} }) {
 
 // A tap on the dim background closes it: on click, not pointerdown, so the
 // tap can't fall through to whatever is under the sheet once it has gone.
-export function Sheet({ children, onClose, wide = false }) {
+// bare: no padding (the content brings its own, e.g. a band of colour edge
+// to edge); background: the sheet's own (an order flow prompt's look).
+export function Sheet({ children, onClose, wide = false, bare = false, background = null }) {
+  const style = { ...(wide ? { maxWidth: 1000 } : {}), ...(background ? { background } : {}) }
   return (
     <div className="k-overlay k-fade" onClick={e => { if (e.target === e.currentTarget && onClose) onClose() }}>
-      <div className="k-sheet" style={wide ? { maxWidth: 1000 } : null}>{children}</div>
+      <div className={cx('k-sheet', bare && 'k-sheet-bare')} style={Object.keys(style).length ? style : null}>{children}</div>
     </div>
   )
 }

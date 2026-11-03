@@ -4172,6 +4172,54 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               charges. Tests: <Mono>shared/test/guestFlows.test.mjs</Mono>,{' '}
               <Mono>api/test/order-flows-guests.test.mjs</Mono>.
             </P>
+            <P>
+              <strong>How a prompt looks</strong> (no migration: it is part of the flow&apos;s jsonb). A prompt&apos;s{' '}
+              <Mono>ask.look</Mono> is <Mono>&#123; till, kiosk, online &#125;</Mono>, each null (the channel&apos;s
+              standard look, <Mono>promptLookDefault(app)</Mono>: tills left, cards, no pictures; kiosks centred, cards,
+              pictures; online left, rows, pictures) or <Mono>&#123; header: &#123; style plain | band | picture, align
+              left | center, image_url &#125;, background: &#123; image_url, shade 0-90 &#125;, dishes cards | rows,
+              pictures, colours: &#123; window, header, title, text, cards, button &#125; &#125;</Mono>. A colour is null
+              (the channel&apos;s own), a theme role (<Mono>PROMPT_ROLES</Mono>: primary, accent, background, surface,
+              text, muted) or a <Mono>#rrggbb</Mono> code. <Mono>normalisePromptLook()</Mono> (inside{' '}
+              <Mono>normaliseOrderFlow()</Mono>) stores a part only when it differs from the default and drops the whole
+              look when every part is null; <Mono>promptPicture()</Mono> takes only <Mono>/path</Mono> or{' '}
+              <Mono>http(s)://</Mono> addresses with no spaces, quotes, brackets or backslashes (they go into CSS{' '}
+              <Mono>url()</Mono>). Drawing: <Mono>promptStyle(f, app, theme)</Mono> turns roles into codes from the
+              channel&apos;s theme (a band without its own colour takes primary) and works out words on a colour with{' '}
+              <Mono>promptInk()</Mono> (the theme&apos;s text or background colour, whichever has the better contrast,
+              else black or white under 4.5:1); <Mono>promptBackground(st, standard)</Mono> is the one CSS background
+              (the colour, or the picture under a veil of the prompt&apos;s colour at <Mono>shade</Mono>%). The
+              channel&apos;s theme: tills get <Mono>config.theme_colors</Mono> from <Mono>brandColours(tx, tenantId,
+              venueId)</Mono> (<Mono>services/themeColours.js</Mono>: the location&apos;s own Brand &amp; theme while{' '}
+              <Mono>use_brand_override</Mono> is on, else the group&apos;s, over <Mono>BRAND_DEFAULTS</Mono>, the same
+              rule <Mono>/api/me</Mono>&apos;s <Mono>site_theme</Mono> uses); kiosks use their design&apos;s{' '}
+              <Mono>brand.colors</Mono> (a see-through surface counts as the page colour); the ordering page reads the
+              site&apos;s CSS variables (<Mono>--c-*</Mono>, so a location&apos;s own brand applies by itself).{' '}
+              <Mono>withLookFor(list, app)</Mono> (<Mono>services/orderFlowSvc.js</Mono>) cuts each look down to the
+              channel&apos;s own part in the till config, the kiosk config and <Mono>publicFlows()</Mono>, so a kiosk only
+              saves the pictures its own prompts show (<Mono>configImages()</Mono> finds them by their{' '}
+              <Mono>image_url</Mono> keys). The dishes a till&apos;s ask flows offer carry their photo in the till config
+              (<Mono>tillMenuData(..., &#123; pictureIds &#125;)</Mono>; other till dishes don&apos;t). Drawn by{' '}
+              <Mono>pos/src/components/FlowPrompt.jsx</Mono> (a bare <Mono>Modal</Mono> with <Mono>panelStyle</Mono>;{' '}
+              <Mono>flow-prompt</Mono> <Mono>data-look</Mono> <Mono>data-header</Mono> <Mono>data-dishes</Mono>{' '}
+              <Mono>data-pictures</Mono>, <Mono>flow-prompt-band</Mono>, <Mono>flow-prompt-picture</Mono>,{' '}
+              <Mono>flow-prompt-photo</Mono>), <Mono>pos/src/kiosk/FlowPrompt.jsx</Mono> (a bare <Mono>Sheet</Mono> with
+              its <Mono>background</Mono>; <Mono>k-flow-band</Mono>, <Mono>k-flow-picture</Mono>,{' '}
+              <Mono>k-flow-row</Mono>, <Mono>k-flow-row-img</Mono>, <Mono>k-flow-words</Mono> in kiosk.css) and{' '}
+              <Mono>openFlowPrompt()</Mono> in <Mono>ordering.eta</Mono> (<Mono>.mo-flow-sheet</Mono>,{' '}
+              <Mono>data-flow-band</Mono>, <Mono>data-flow-picture</Mono>, <Mono>.mo-flow-card</Mono>,{' '}
+              <Mono>siteTheme()</Mono>). Admin: <Mono>components/pos/PromptLook.jsx</Mono> (<Mono>LookPanel</Mono>: the
+              channel switch <Mono>look-panel-app</Mono>, <Mono>look-state</Mono>, colour rows{' '}
+              <Mono>look-colour-&lt;key&gt;</Mono> with a swatch per role, a picker and a code, <Mono>look-shade</Mono>,{' '}
+              <Mono>look-standard</Mono>, <Mono>look-copy-&lt;app&gt;</Mono>; <Mono>PromptPreview</Mono> with{' '}
+              <Mono>preview-app</Mono> and, for kiosks, <Mono>look-kiosk-design</Mono>; <Mono>lookLines()</Mono> for the
+              designer&apos;s Look box <Mono>box-look</Mono>). The catalogue route (<Mono>GET
+              /api/pos/order-flows/catalog</Mono>) sends <Mono>themes &#123; brand, kiosk &#125;</Mono> (each kiosk design&apos;s
+              colours with <Mono>used_by</Mono>, most used first; a kiosk with no design counts for the first one, as{' '}
+              <Mono>loadDesign()</Mono> does) and each dish&apos;s <Mono>image_url</Mono>. A brand change reaches tills with
+              their next config download (nothing tells them); a kiosk design change is pushed. Tests:{' '}
+              <Mono>shared/pos/test/promptLook.test.mjs</Mono>, <Mono>api/test/prompt-look.test.mjs</Mono>.
+            </P>
             <H3>The order prompt (migration 226)</H3>
             <P>
               <Mono>pos/src/components/OrderPrompt.jsx</Mono> is the one place the till asks for a check&apos;s order type,

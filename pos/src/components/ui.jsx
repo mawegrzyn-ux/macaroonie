@@ -19,7 +19,10 @@ export function inkOn(hex) {
 /** A button filled with a colour set in a till layout (null: the button's own look). */
 export const fillStyle = hex => (hex ? { background: hex, borderColor: hex, color: inkOn(hex) } : undefined)
 
-export function Modal({ title, onClose, children, footer, wide = false, full = false }) {
+// bare: the body without its padding (the content brings its own, e.g. a
+// band of colour edge to edge); panelStyle: the window's own background
+// (an order flow prompt's look).
+export function Modal({ title, onClose, children, footer, wide = false, full = false, bare = false, panelStyle = null }) {
   useEffect(() => {
     const onKey = e => { if (e.key === 'Escape' && onClose) onClose() }
     window.addEventListener('keydown', onKey)
@@ -27,8 +30,8 @@ export function Modal({ title, onClose, children, footer, wide = false, full = f
   }, [onClose])
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-3" onPointerDown={e => { if (e.target === e.currentTarget && onClose) onClose() }}>
-      <div className={cx('bg-white rounded-2xl shadow-xl flex flex-col max-h-[92vh] w-full',
-        full ? 'max-w-[1200px] h-[92vh]' : wide ? 'max-w-3xl' : 'max-w-md')}>
+      <div className={cx('bg-white rounded-2xl shadow-xl flex flex-col max-h-[92vh] w-full', bare && 'overflow-hidden',
+        full ? 'max-w-[1200px] h-[92vh]' : wide ? 'max-w-3xl' : 'max-w-md')} style={panelStyle || undefined}>
         {title !== undefined && (
           <div className="flex items-center gap-3 px-5 h-16 border-b border-line shrink-0">
             <div className="text-lg font-bold flex-1 min-w-0 truncate">{title}</div>
@@ -37,7 +40,7 @@ export function Modal({ title, onClose, children, footer, wide = false, full = f
             )}
           </div>
         )}
-        <div className="flex-1 overflow-y-auto p-5">{children}</div>
+        <div className={cx('flex-1 overflow-y-auto', !bare && 'p-5')}>{children}</div>
         {footer && <div className="shrink-0 border-t border-line p-4 flex gap-3 justify-end flex-wrap">{footer}</div>}
       </div>
     </div>

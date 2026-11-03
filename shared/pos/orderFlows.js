@@ -40,7 +40,9 @@
 //     ask: { title, message, item_ids (the dishes offered, in order),
 //            pick: 'one' | 'several',
 //            every_time,          dish_added: ask again for each dish added
-//            skip_if_has }        not when the order has one of the dishes offered
+//            skip_if_has,         not when the order has one of the dishes offered
+//            look }               how the prompt looks on each channel (only
+//                                 while one has its own: normalisePromptLook())
 //     adds: [{ kind: 'dish', item_id, qty, removable }
 //          | { kind: 'charge', charge_id, removable }] }
 // Channels are revenue streams, by name: each location has its own streams,
@@ -126,6 +128,7 @@ function normaliseMatch(m) {
 
 function normaliseAsk(a) {
   const x = a && typeof a === 'object' ? a : {}
+  const look = normalisePromptLook(x.look)
   return {
     title: text(x.title, ASK_TITLE_MAX),
     message: text(x.message, ASK_MESSAGE_MAX),
@@ -133,7 +136,200 @@ function normaliseAsk(a) {
     pick: x.pick === 'several' ? 'several' : 'one',
     every_time: !!x.every_time,
     skip_if_has: x.skip_if_has !== false,
+    ...(look ? { look } : {}),
   }
+}
+
+// ── How a prompt looks, per channel ────────────────────────────
+//
+// A prompt can look different on tills, kiosks and online ordering
+// (ask.look[app]; null = the channel's standard look, promptLookDefault():
+// how prompts looked before looks could be set). A look has:
+//   header      { style: plain | band (the title on a band of colour) |
+//                 picture (a picture across the top, the title under it),
+//                 align: left | center, image_url (the header picture) }
+//   background  { image_url (a picture behind the prompt), shade (how much
+//                 of the prompt's colour lies over the picture, 0-90%) }
+//   dishes      cards (a grid, the picture on top) | rows (a list, a small
+//               picture beside the name)
+//   pictures    the dishes' pictures on or off
+//   colours     { window, header (the band), title, text (the line under the
+//                 title, the words around the dishes), cards (the dishes),
+//                 button (No thanks / Done) }, each null (the channel's
+//                 standard colour), a theme colour (PROMPT_ROLES: it follows
+//                 the channel's theme) or a colour code.
+// A channel's theme: on tills and online ordering, the group's brand (the
+// website theme; at a location with its own Brand & theme, that one); on a
+// kiosk, the kiosk's design. Words on a colour are worked out from the
+// theme: whichever of its text and page colours reads better
+// (promptStyle()). Pictures are addresses on our own site or https.
+
+export const PROMPT_ROLES = ['primary', 'accent', 'background', 'surface', 'text', 'muted']
+/** The theme colours in words (the designer's swatches). */
+export const PROMPT_ROLE_NAMES = {
+  primary: 'Main colour', accent: 'Accent', background: 'Page', surface: 'Cards', text: 'Text', muted: 'Quiet text',
+}
+export const PROMPT_COLOUR_KEYS = ['window', 'header', 'title', 'text', 'cards', 'button']
+export const PROMPT_HEADERS = ['plain', 'band', 'picture']
+export const PROMPT_ALIGNS = ['left', 'center']
+export const PROMPT_DISHES = ['cards', 'rows']
+export const PROMPT_SHADE_MAX = 90
+export const PROMPT_PICTURE_MAX = 600   // characters in a picture's address
+
+const noColours = () => Object.fromEntries(PROMPT_COLOUR_KEYS.map(k => [k, null]))
+const lookOf = (align, dishes, pictures) => ({
+  header: { style: 'plain', align, image_url: null },
+  background: { image_url: null, shade: 40 },
+  dishes,
+  pictures,
+  colours: noColours(),
+})
+/** Each channel's standard look: a fresh copy each time. */
+export function promptLookDefault(app) {
+  if (app === 'kiosk') return lookOf('center', 'cards', true)
+  if (app === 'online') return lookOf('left', 'rows', true)
+  return lookOf('left', 'cards', false)
+}
+
+const isHexColour = v => typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v)
+/** A look's colour: null, a theme colour or a colour code (lower case). */
+export function promptColour(v) {
+  if (PROMPT_ROLES.includes(v)) return v
+  return isHexColour(v) ? v.toLowerCase() : null
+}
+/** A picture's address, or null: our own site (/...) or http(s), nothing that could break out of CSS url(). */
+export function promptPicture(v) {
+  if (typeof v !== 'string') return null
+  const u = v.trim()
+  if (!u || u.length > PROMPT_PICTURE_MAX) return null
+  return /^(https?:\/\/|\/(?!\/))[^\s"'()<>\\]+$/i.test(u) ? u : null
+}
+
+/** One channel's look as stored, or null when it is the channel's standard look. */
+export function normalisePromptPart(p, app) {
+  if (!p || typeof p !== 'object') return null
+  const d = promptLookDefault(app)
+  const h = p.header && typeof p.header === 'object' ? p.header : {}
+  const b = p.background && typeof p.background === 'object' ? p.background : {}
+  const c = p.colours && typeof p.colours === 'object' ? p.colours : {}
+  const part = {
+    header: {
+      style: PROMPT_HEADERS.includes(h.style) ? h.style : d.header.style,
+      align: PROMPT_ALIGNS.includes(h.align) ? h.align : d.header.align,
+      image_url: promptPicture(h.image_url),
+    },
+    background: { image_url: promptPicture(b.image_url), shade: clampInt(b.shade, 0, PROMPT_SHADE_MAX, d.background.shade) },
+    dishes: PROMPT_DISHES.includes(p.dishes) ? p.dishes : d.dishes,
+    pictures: typeof p.pictures === 'boolean' ? p.pictures : d.pictures,
+    colours: Object.fromEntries(PROMPT_COLOUR_KEYS.map(k => [k, promptColour(c[k])])),
+  }
+  return JSON.stringify(part) === JSON.stringify(d) ? null : part
+}
+
+/** A prompt's looks ({ till, kiosk, online }), or null when every channel has its standard look. */
+export function normalisePromptLook(look) {
+  if (!look || typeof look !== 'object') return null
+  const out = {}
+  let any = false
+  for (const app of FLOW_APPS) {
+    out[app] = normalisePromptPart(look[app], app)
+    if (out[app]) any = true
+  }
+  return any ? out : null
+}
+
+/** A prompt's look on a channel: its own, else the channel's standard look. */
+export function promptLook(f, app) {
+  return f?.ask?.look?.[app] || promptLookDefault(app)
+}
+
+/** Whether a prompt has its own look on a channel. */
+export const hasOwnLook = (f, app) => !!f?.ask?.look?.[app]
+
+// Contrast as WCAG works it out (1 to 21).
+function luminance(hex) {
+  const n = parseInt(hex.slice(1), 16)
+  const ch = v => { const s = v / 255; return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4 }
+  return 0.2126 * ch((n >> 16) & 255) + 0.7152 * ch((n >> 8) & 255) + 0.0722 * ch(n & 255)
+}
+export function colourContrast(a, b) {
+  const x = luminance(a), y = luminance(b)
+  return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05)
+}
+
+/**
+ * Words on a colour: the theme's text or page colour, whichever reads
+ * better; black or white when neither reads well (under 4.5:1).
+ */
+export function promptInk(bg, theme = {}) {
+  if (!isHexColour(bg)) return null
+  let best = null
+  for (const c of [theme.text, theme.background]) {
+    if (isHexColour(c) && (!best || colourContrast(c, bg) > colourContrast(best, bg))) best = c
+  }
+  if (best && colourContrast(best, bg) >= 4.5) return best.toLowerCase()
+  return colourContrast('#000000', bg) >= colourContrast('#ffffff', bg) ? '#000000' : '#ffffff'
+}
+
+/**
+ * A prompt's look on a channel as colours to draw with. theme: the
+ * channel's theme colours ({ primary, accent, background, surface, text,
+ * muted } as codes). Each colour comes back as a code, or null where the
+ * channel draws its standard colour; a band with no colour of its own takes
+ * the theme's main colour. Words on a set colour are worked out with
+ * promptInk() unless the look sets them.
+ */
+export function promptStyle(f, app, theme = {}) {
+  const look = promptLook(f, app)
+  const t = theme || {}
+  const solid = v => (isHexColour(v) ? v.toLowerCase() : null)
+  const colour = v => (v == null ? null : isHexColour(v) ? v.toLowerCase() : solid(t[v]) || (v === 'surface' ? solid(t.background) : null))
+  const c = look.colours
+  const band = look.header.style === 'band'
+  const window = colour(c.window)
+  const header = band ? colour(c.header) || solid(t.primary) || '#1f2937' : null
+  const cards = colour(c.cards)
+  const button = colour(c.button)
+  return {
+    app,
+    own: hasOwnLook(f, app),
+    header: { ...look.header, picture: look.header.style === 'picture' ? look.header.image_url : null },
+    background: { ...look.background },
+    dishes: look.dishes,
+    pictures: look.pictures,
+    window,
+    band: header,
+    title: colour(c.title) || (band ? promptInk(header, t) : window ? promptInk(window, t) : null),
+    // The line under the title sits in the band with the title.
+    message: band ? colour(c.title) || promptInk(header, t) : colour(c.text) || (window ? promptInk(window, t) : null),
+    text: colour(c.text) || (window ? promptInk(window, t) : null),
+    cards,
+    cards_ink: cards ? promptInk(cards, t) : null,
+    button,
+    button_ink: button ? promptInk(button, t) : null,
+  }
+}
+
+/**
+ * The prompt's background as one CSS background value, or null for the
+ * channel's standard one: its colour, or its picture (centred, covering)
+ * under a veil of the prompt's colour, shade % strong. standard: the
+ * channel's own prompt colour as a code (what lies under the veil while the
+ * look sets no colour). The picture's address can't break out of url()
+ * (promptPicture()).
+ */
+export function promptBackground(st, standard = '#ffffff') {
+  const base = st?.window || (isHexColour(standard) ? standard.toLowerCase() : '#ffffff')
+  if (!st?.background?.image_url) return st?.window ? base : null
+  const n = parseInt(base.slice(1), 16)
+  const veil = 'rgba(' + ((n >> 16) & 255) + ', ' + ((n >> 8) & 255) + ', ' + (n & 255) + ', ' + (st.background.shade / 100) + ')'
+  return 'linear-gradient(' + veil + ', ' + veil + '), url("' + st.background.image_url + '") center / cover no-repeat ' + base
+}
+
+/** A colour in words (the designer): a theme colour's name, a code, or Standard. */
+export function promptColourText(v) {
+  if (v == null) return 'Standard'
+  return PROMPT_ROLE_NAMES[v] || v
 }
 
 function normaliseAdd(a) {

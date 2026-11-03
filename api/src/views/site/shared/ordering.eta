@@ -216,13 +216,31 @@ const cfgJson = JSON.stringify(cfg).split('<').join('\\u003c')
 .mo-sheet h3 { font-family: var(--f-heading, inherit); font-size: 1.35rem; margin: 0 0 6px; }
 .mo-sheet .mo-group { margin-top: 18px; }
 /* Order flows (migration 236): a prompt offering dishes, and what flows put on. */
+/* A prompt's look (ask.look.online, promptStyle()): the sheet has no padding
+   so a band or a picture can run to its edges; the body carries the padding. */
+.mo-sheet.mo-flow-sheet { padding: 0; }
+.mo-flow-body { padding: 20px 16px 16px; }
+.mo-flow-head.is-centre { text-align: center; }
+.mo-flow-band { padding: 18px 16px 16px; }
+.mo-flow-band h3 { margin: 0 0 4px; }
+.mo-flow-picture { display: block; width: 100%; aspect-ratio: 3 / 1; object-fit: cover; }
 .mo-flow-dishes { display: grid; gap: 8px; margin-top: 14px; }
+.mo-flow-dishes.mo-flow-cards { grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr)); gap: 10px; }
 .mo-flow-dish { display: flex; align-items: center; gap: 12px; min-height: 64px; width: 100%; padding: 8px 12px; border: 1px solid var(--c-border, #e5e7eb); border-radius: var(--r-md, 8px); background: transparent; color: inherit; text-align: left; touch-action: manipulation; }
 .mo-flow-dish.is-on { border-color: var(--c-primary, #630812); box-shadow: inset 0 0 0 1px var(--c-primary, #630812); }
 .mo-flow-dish img { width: 48px; height: 48px; object-fit: cover; border-radius: 8px; flex: none; }
-.mo-flow-dish .mo-flow-count { min-width: 28px; height: 28px; border-radius: 999px; background: var(--c-primary, #630812); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-size: .9rem; }
+.mo-flow-dish .mo-flow-count { min-width: 28px; height: 28px; border-radius: 999px; background: var(--c-primary, #630812); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-size: .9rem; flex: none; }
+.mo-flow-dish .mo-flow-price { opacity: .8; }
+.mo-flow-dish.mo-flow-card { flex-direction: column; align-items: stretch; gap: 0; padding: 0; overflow: hidden; min-height: 96px; }
+.mo-flow-dish.mo-flow-card.is-on { box-shadow: 0 0 0 2px var(--c-primary, #630812); }
+.mo-flow-dish.mo-flow-card img, .mo-flow-card .mo-flow-ph { display: block; width: 100%; height: auto; aspect-ratio: 4 / 3; max-height: 220px; border-radius: 0; object-fit: cover; }
+.mo-flow-card .mo-flow-ph { display: flex; align-items: center; justify-content: center; font-family: var(--f-heading, inherit); font-size: 2rem; font-weight: 700; background: var(--c-surface, #f3f4f6); color: var(--c-muted, #6b7280); }
+.mo-flow-card-body { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 0; padding: 10px 12px 12px; }
+.mo-flow-card-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: auto; }
+.mo-flow-card .mo-flow-plus { min-width: 28px; height: 28px; border-radius: 999px; border: 1px solid currentColor; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; flex: none; }
 .mo-flow-actions { display: flex; gap: 8px; margin-top: 16px; }
 .mo-flow-actions .mo-btn { flex: 1; }
+.mo-flow-hint { margin: 10px 0 0; font-size: .85rem; text-align: center; }
 .mo-flow-x { min-width: 48px; min-height: 48px; border: 0; background: transparent; color: inherit; font-size: 1.1rem; touch-action: manipulation; }
 :is(.mo, .mo-sheet-back) .mo-row.mo-flow-charge { align-items: center; padding: 0; }
 :is(.mo, .mo-sheet-back) .mo-row.mo-flow-charge > span:first-child { flex: 1; min-width: 0; }
@@ -295,7 +313,7 @@ import { resolveSteps, stepRule, countParts, askedChoices, withDealPicks } from 
 import { venueNow, noticeText, promoSummary, promoTerms, covers, coversIds, isLiveAt } from '/order-api/promotions.js'
 import { allergenKey, noticeOf } from '/order-api/menuTags.js'
 import { pointsFor, pointsText } from '/order-api/loyalty.js'
-import { askFlowsFor, askChoices, addedDishes, basketOrder, askedAfter } from '/order-api/pos/orderFlows.js'
+import { askFlowsFor, askChoices, addedDishes, basketOrder, askedAfter, promptStyle, promptBackground } from '/order-api/pos/orderFlows.js'
 
 const CFG = JSON.parse(document.getElementById('mo-config').textContent)
 const OPT = CFG.opts || {}
@@ -584,11 +602,37 @@ async function startOrdering() {
     }
     next()
   }
+  // The site's theme colours (head.eta's --c-*) as colour codes, for a
+  // prompt's look: a theme colour in a look follows the site's theme.
+  function siteTheme() {
+    const css = getComputedStyle(document.documentElement)
+    const read = name => {
+      let v = css.getPropertyValue(name).trim().toLowerCase()
+      if (/^#[0-9a-f]{3}$/.test(v)) v = '#' + v.slice(1).split('').map(c => c + c).join('')
+      return /^#[0-9a-f]{6}$/.test(v) ? v : null
+    }
+    return {
+      primary: read('--c-primary'), accent: read('--c-accent'), background: read('--c-bg'),
+      surface: read('--c-surface'), text: read('--c-text'), muted: read('--c-muted'),
+    }
+  }
+  // An inline style from { property: value }, leaving out unset values.
+  const styleAttr = o => {
+    const css = Object.entries(o).filter(([, v]) => v != null && v !== '').map(([k, v]) => k + ':' + v).join(';')
+    return css ? ' style="' + esc(css) + '"' : ''
+  }
   // One prompt: its question, the dishes it offers (a dish with options to
-  // pick opens its own window), No thanks. Answered once on the order.
+  // pick opens its own window), No thanks. Answered once on the order. How it
+  // looks is the flow's look on online ordering (ask.look.online,
+  // promptStyle()): the header (plain, a band of colour, a picture), the
+  // background (a colour, a picture under a veil), the dishes as rows or as
+  // cards with big pictures, and colours from the site's theme or set codes.
   function openFlowPrompt(f, done) {
     const offered = askChoices(f, itemsById, { soldOut: soldOutMap() })
     const added = {}
+    const theme = siteTheme()
+    const st = promptStyle(f, 'online', theme)
+    const background = promptBackground(st, theme.background || '#ffffff')
     const back = document.createElement('div')
     back.className = 'mo-sheet-back'
     back.setAttribute('data-flow-prompt', f.id)
@@ -614,20 +658,60 @@ async function startOrdering() {
       saveBasket()
       added[it.id] = (added[it.id] || 0) + 1
     }
+    const band = st.header.style === 'band'
+    const picture = st.header.style === 'picture' && st.header.picture
+    const cards = st.dishes === 'cards'
+    const several = f.ask.pick === 'several' && offered.length > 1
+    // Words on the prompt's own colour (a dark window) read on it; else the site's.
+    const quiet = st.text ? { color: st.text, opacity: '.85' } : {}
     const render = () => {
       const count = Object.values(added).reduce((n, x) => n + x, 0)
-      back.innerHTML = '<div class="mo-sheet" role="dialog" aria-modal="true" aria-label="' + esc(f.ask.title) + '">' +
-        '<h3>' + esc(f.ask.title) + '</h3>' +
-        (f.ask.message ? '<p class="mo-muted" style="margin:0;">' + esc(f.ask.message) + '</p>' : '') +
-        '<div class="mo-flow-dishes">' + offered.map(it =>
-          '<button type="button" class="mo-flow-dish' + (added[it.id] ? ' is-on' : '') + '" data-flow-dish="' + esc(it.id) + '">' +
-            (it.image_url ? '<img src="' + esc(it.image_url) + '" alt="">' : '') +
-            '<span style="flex:1;min-width:0;"><strong>' + esc(it.name) + '</strong>' +
-            (it.from_pence != null ? '<br><span class="mo-muted">' + (it.from_varies ? 'from ' : '') + money(it.from_pence) + '</span>' : '') + '</span>' +
-            (added[it.id] ? '<span class="mo-flow-count" aria-label="' + added[it.id] + ' added">' + added[it.id] + '</span>' : '<span aria-hidden="true">+</span>') +
-          '</button>').join('') + '</div>' +
-        '<div class="mo-flow-actions">' +
-          '<button type="button" class="mo-btn mo-btn-ghost" data-flow-no>' + (count ? 'Done' : 'No thanks') + '</button>' +
+      const head = '<div class="mo-flow-head' + (st.header.align === 'center' ? ' is-centre' : '') + '">' +
+        '<h3' + styleAttr({ color: st.title }) + '>' + esc(f.ask.title) + '</h3>' +
+        (f.ask.message
+          ? '<p' + (st.message ? '' : ' class="mo-muted"') + styleAttr({ margin: '0', color: st.message, opacity: band && st.message ? '.9' : null }) + '>' + esc(f.ask.message) + '</p>'
+          : '') +
+        '</div>'
+      const priceOf = it => (it.from_pence != null ? (it.from_varies ? 'from ' : '') + money(it.from_pence) : '')
+      // Prices in the site's quiet colour, or the dish's own words a little lighter on a set colour.
+      const priceClass = st.cards || st.text ? 'mo-flow-price' : 'mo-muted'
+      const countOf = it => (added[it.id]
+        ? '<span class="mo-flow-count" aria-label="' + added[it.id] + ' added">' + added[it.id] + '</span>'
+        : '<span class="mo-flow-plus" aria-hidden="true">+</span>')
+      const dishStyle = styleAttr({ background: st.cards, color: st.cards ? st.cards_ink : st.text })
+      const dish = it => {
+        const on = added[it.id] ? ' is-on' : ''
+        const price = priceOf(it)
+        if (cards) {
+          const pic = st.pictures
+            ? (it.image_url ? '<img src="' + esc(it.image_url) + '" alt="">' : '<span class="mo-flow-ph" aria-hidden="true">' + esc((it.name || '?').trim().charAt(0).toUpperCase()) + '</span>')
+            : ''
+          return '<button type="button" class="mo-flow-dish mo-flow-card' + on + '" data-flow-dish="' + esc(it.id) + '"' + dishStyle + '>' + pic +
+            '<span class="mo-flow-card-body"><strong>' + esc(it.name) + '</strong>' +
+              '<span class="mo-flow-card-foot"><span class="' + priceClass + '">' + price + '</span>' + countOf(it) + '</span></span>' +
+            '</button>'
+        }
+        return '<button type="button" class="mo-flow-dish' + on + '" data-flow-dish="' + esc(it.id) + '"' + dishStyle + '>' +
+          (st.pictures && it.image_url ? '<img src="' + esc(it.image_url) + '" alt="">' : '') +
+          '<span style="flex:1;min-width:0;"><strong>' + esc(it.name) + '</strong>' +
+          (price ? '<br><span class="' + priceClass + '">' + price + '</span>' : '') + '</span>' +
+          countOf(it) +
+          '</button>'
+      }
+      // No thanks / Done: the look's colour, else plain (with the window's words on a coloured window).
+      const button = st.button
+        ? '<button type="button" class="mo-btn" data-flow-no' + styleAttr({ background: st.button, color: st.button_ink, 'border-color': st.button }) + '>'
+        : '<button type="button" class="mo-btn mo-btn-ghost" data-flow-no' + styleAttr(st.text ? { color: st.text, 'border-color': 'currentColor' } : {}) + '>'
+      back.innerHTML = '<div class="mo-sheet mo-flow-sheet" role="dialog" aria-modal="true" aria-label="' + esc(f.ask.title) + '"' +
+          ' data-look="' + (st.own ? 'own' : 'standard') + '" data-header="' + st.header.style + '" data-dishes="' + st.dishes + '" data-pictures="' + (st.pictures ? '1' : '0') + '"' +
+          styleAttr({ background, color: st.text }) + '>' +
+        (band ? '<div class="mo-flow-band" data-flow-band' + styleAttr({ background: st.band }) + '>' + head + '</div>' : '') +
+        (picture ? '<img class="mo-flow-picture" data-flow-picture src="' + esc(picture) + '" alt="">' : '') +
+        '<div class="mo-flow-body">' +
+          (band ? '' : head) +
+          '<div class="mo-flow-dishes' + (cards ? ' mo-flow-cards' : '') + '">' + offered.map(dish).join('') + '</div>' +
+          '<div class="mo-flow-actions">' + button + (count ? 'Done' : 'No thanks') + '</button></div>' +
+          (several ? '<p class="mo-flow-hint' + (st.text ? '' : ' mo-muted') + '"' + styleAttr(quiet) + '>Tap a dish for each one wanted.</p>' : '') +
         '</div></div>'
     }
     render()
