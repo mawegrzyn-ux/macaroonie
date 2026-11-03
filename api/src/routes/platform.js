@@ -28,6 +28,7 @@ import { ensureStandardAllergens } from '../services/menuSeeds.js'
 import { ensureTaxDefaults } from '../services/taxSvc.js'
 import { seedPosDefaults } from '../services/posSvc.js'
 import { seedInventoryCategories } from '../services/purchasingSvc.js'
+import { BRAND_DEFAULTS, themeColours } from '../services/themeColours.js'
 
 const TenantBody = z.object({
   name:              z.string().min(1).max(200),
@@ -214,26 +215,12 @@ export default async function platformRoutes(app) {
     // every tenant gets a sensible accent even before touching the
     // Website builder. `/api/me` is fetched on every admin page load, so
     // this piggybacks on an existing round-trip rather than adding one.
-    let siteTheme = {
-      primary: '#630812', accent: '#f4a7b9', background: '#ffffff',
-      surface: '#f9f6f1', text: '#1a1a1a', muted: '#666666', border: '#e5e7eb',
-    }
+    let siteTheme = { ...BRAND_DEFAULTS }
     if (req.tenantId) {
       const [ts] = await withTenant(req.tenantId, tx => tx`
         SELECT theme, primary_colour, secondary_colour FROM tenant_site WHERE tenant_id = ${req.tenantId}
       `)
-      if (ts) {
-        const colors = ts.theme?.colors || {}
-        siteTheme = {
-          primary:    colors.primary    || ts.primary_colour   || siteTheme.primary,
-          accent:     colors.accent     || ts.secondary_colour || siteTheme.accent,
-          background: colors.background || siteTheme.background,
-          surface:    colors.surface    || siteTheme.surface,
-          text:       colors.text       || siteTheme.text,
-          muted:      colors.muted      || siteTheme.muted,
-          border:     colors.border     || siteTheme.border,
-        }
-      }
+      if (ts) siteTheme = themeColours(ts.theme, ts.primary_colour, ts.secondary_colour)
     }
 
     return {

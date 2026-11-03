@@ -18,7 +18,8 @@ import crypto from 'node:crypto'
 import { withTenant } from '../config/db.js'
 import { httpError } from '../middleware/error.js'
 import { loadMenuVersions } from './menuReleases.js'
-import { loadOrderFlows } from './orderFlowSvc.js'
+import { loadOrderFlows, withLookFor } from './orderFlowSvc.js'
+import { brandColours } from './themeColours.js'
 import { channelMenuTimes } from './menuTimesSvc.js'
 import { venuePromotions, publicPromotion } from './promoSvc.js'
 import { fillReconDay, reconFields } from './reconFill.js'
@@ -240,11 +241,13 @@ export async function tillMenus(tx, tenantId, venueId, streams, version = 'live'
  * known in items all the same, never on the menu (what the kiosk's order
  * flows put on by themselves, migration 236: a paper bag kept off the
  * website), each with hidden_menu_ids (the menus they are in there).
+ * pictureIds (a Set, tills): dishes that carry their photo all the same
+ * (the dishes the till's order flow prompts offer, which can show them).
  * Tax settings travel with each dish (dish, section, menu), trimmed to this
  * venue; the till works the rate out per check (shared/tax.js), since the
  * order type and revenue stream decide it.
  */
-export async function tillMenuData(tx, tenantId, venueId, streams, { guest = false, allStreams = streams, version = 'live', channel = null, keepIds = null } = {}) {
+export async function tillMenuData(tx, tenantId, venueId, streams, { guest = false, allStreams = streams, version = 'live', channel = null, keepIds = null, pictureIds = null } = {}) {
   const menus = []
   const items = {}
   const hiddenMenus = {}
@@ -275,7 +278,8 @@ export async function tillMenuData(tx, tenantId, venueId, streams, { guest = fal
         dietary: it.dietary || [], allergen_levels: it.allergen_levels || {},
         description: it.description || null,
         variant_rules: rules,
-        ...(guest ? { image_url: it.image_url || null, calories: it.calories ?? null, is_featured: !!it.is_featured } : {}),
+        ...(guest ? { image_url: it.image_url || null, calories: it.calories ?? null, is_featured: !!it.is_featured }
+          : pictureIds?.has(it.id) ? { image_url: it.image_url || null } : {}),
       })
       if (guest && visibility !== 'show') {
         // Hidden on the website: off the kiosk's menu, but the dishes in
@@ -352,7 +356,11 @@ export async function tillConfig(tx, tenantId, venueId) {
         WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND revoked_at IS NULL`,
   ])
   const staff = await loadTillStaff(tx, tenantId, venueId, { signIn: true })
-  const { menus, items, section_items: sectionItems, dietary } = await tillMenuData(tx, tenantId, venueId, streams, { channel: 'till' })
+  // The order flows that run here; the dishes the tills' prompts offer
+  // carry their photos (a prompt's look can show them).
+  const flows = await loadOrderFlows(tx, tenantId, venueId)
+  const pictureIds = new Set(flows.filter(f => f.kind === 'ask' && f.apps.includes('till')).flatMap(f => f.ask.item_ids))
+  const { menus, items, section_items: sectionItems, dietary } = await tillMenuData(tx, tenantId, venueId, streams, { channel: 'till', pictureIds })
 
   const tz = venue.timezone || 'Europe/London'
   const promotions = (await venuePromotions(tx, { id: venueId, tenant_id: tenantId }, venueNow(tz).date, 'pos'))
@@ -365,8 +373,11 @@ export async function tillConfig(tx, tenantId, venueId) {
     // the order flows that run here (migration 235, shared/pos/orderFlows.js).
     settings: {
       ...settingsView(settings), discounts: await loadDiscounts(tx, tenantId), charges: await loadCharges(tx, tenantId, venueId),
-      flows: await loadOrderFlows(tx, tenantId, venueId),
+      flows: withLookFor(flows, 'till'),
     },
+    // The brand's colours here (services/themeColours.js): the theme an order
+    // flow prompt's look takes its colours from on the till.
+    theme_colors: await brandColours(tx, tenantId, venueId),
     // How often this till asks for changes (migration 216).
     pull: pullTimes(settings),
     pin_salt: settings.pin_salt,

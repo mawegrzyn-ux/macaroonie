@@ -6298,6 +6298,38 @@ export default function Help() {
               <li>The order&apos;s page, the order window on Online orders, the printed ticket and the emails show the charges, and the dishes a flow put on. The minimum order counts only the guest&apos;s own dishes.</li>
               <li>A dish a flow puts on can be in a menu section hidden on the website (Where it shows: Hide on website), like a paper bag guests can&apos;t order by itself. Kiosks get it too.</li>
             </ul>
+
+            <H3>How a prompt looks</H3>
+            <P>
+              A Suggest dishes flow has a fifth box in the designer, <strong>Look</strong>: how its prompt looks
+              on each place it runs. Switch between <strong>Tills</strong>, <strong>Kiosks</strong> and{' '}
+              <strong>Online ordering</strong> at the top of the panel; each has its own look. A prompt starts
+              with the standard look everywhere (how prompts have always looked there), and gets its own as soon
+              as you change something. The box says in words what each place shows.
+            </P>
+            <DataTable
+              head={['Setting', 'What it does']}
+              rows={[
+                ['Header', 'Plain (the question at the top of the prompt), Band of colour (the question on a band across the top: the main colour unless you pick another), or Picture (a picture across the top, three times as wide as it is tall, with the question under it). The question and the line under it can sit on the left or in the middle.'],
+                ['Background', 'The prompt\'s colour, and a picture behind it if you like. A picture lies under a veil of the background colour so the words stay readable: the slider says how strong the veil is (0 shows the picture as it is).'],
+                ['Dishes', 'Cards (side by side, the picture on top, big) or Rows (one under the other, a small picture beside the name), with the dishes\' pictures on or off. The pictures are the dishes\' photos on the Menus page; a dish without one shows a plain box on a card.'],
+                ['Colours', 'The question, the words, the dishes and the No thanks / Done button, each Standard (the place\'s own colour), one of the theme\'s colours, or a colour of your own (the colour picker, or a code like #1d4ed8).'],
+              ]}
+            />
+            <P>
+              A theme colour follows its theme when the theme changes. On tills and online ordering the theme is
+              your brand (<strong>Brand &amp; theme</strong>; a location with its own Brand &amp; theme uses its
+              own). On kiosks it is each kiosk&apos;s design, so one prompt can be blue on one kiosk and purple on
+              another; the preview asks which kiosk design to show when you have more than one. Words on a colour
+              you pick (on a band, the dishes, the button) are picked to read well.
+            </P>
+            <P>
+              <strong>Standard look</strong> puts the place back to its standard look. <strong>Same look on</strong>{' '}
+              copies this place&apos;s look to another place the flow runs on. The preview shows the prompt in the
+              look of the place picked above it, close to how it will look there (each has its own fonts and sizes).
+              Save keeps it, as with the rest of the flow. Kiosks keep the pictures their prompts show, so they
+              work without the internet.
+            </P>
             <InfoBox type="info">
               Add by itself only adds dishes without choices to make (nobody picks them for you): for a dish with
               choices, use a prompt. A charge that counts from a number of guests never goes on a kiosk or online

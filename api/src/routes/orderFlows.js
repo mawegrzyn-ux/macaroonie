@@ -9,9 +9,13 @@
 //
 //   GET    /order-flows            the company's flows, in their order, with their words
 //   GET    /order-flows/catalog    what a flow can name: dishes by menu and section
-//                                  (needs_choices: one with options to pick), channels
+//                                  (needs_choices: one with options to pick; image_url
+//                                  for the prompt's look in the designer), channels
 //                                  (revenue streams by name), order types, charges,
-//                                  locations, tills, kiosks
+//                                  locations, tills, kiosks, and the themes a prompt's
+//                                  look picks colours from (themes.brand: tills and
+//                                  online ordering; themes.kiosk: each kiosk design,
+//                                  most used first)
 //   POST   /order-flows            { name, kind, copy_from? } a new flow, switched off
 //   GET    /order-flows/:id        one flow, its problems and warnings
 //   PUT    /order-flows/:id        the whole flow (422 code 'flow' with the problems
@@ -32,6 +36,8 @@ import { requireAuth, requirePermission } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
 import { tillsMayNeedConfig } from '../services/posNotify.js'
 import { loadCharges } from '../services/posSvc.js'
+import { brandColours } from '../services/themeColours.js'
+import { normaliseDesign } from '../../../shared/kiosk.js'
 import { flowOfRow, ownOrderFlow, flowNames } from '../services/orderFlowSvc.js'
 import {
   FLOWS_MAX, FLOW_NAME_MAX, newOrderFlow, normaliseOrderFlow, flowProblems, flowWarnings,
@@ -60,6 +66,28 @@ async function dishesWithChoices(tx, tenantId) {
             OR EXISTS (SELECT 1 FROM menu_item_variant_groups g WHERE g.item_id = i.id AND g.tenant_id = i.tenant_id)
             OR EXISTS (SELECT 1 FROM menu_item_variants v WHERE v.item_id = i.id AND v.tenant_id = i.tenant_id))`
   return new Set(rows.map(r => r.id))
+}
+
+/**
+ * Each kiosk design's colours as a prompt's theme (the designer's swatches
+ * and preview) with how many kiosks use it, most used first; the standard
+ * design when there are none. A kiosk with no design of its own (or one
+ * since deleted) uses the first design (kioskSvc.js loadDesign()).
+ */
+function kioskThemes(designs, kiosks) {
+  const used = {}
+  for (const k of kiosks) {
+    const id = designs.some(d => d.id === k.design_id) ? k.design_id : designs[0]?.id
+    if (id) used[id] = (used[id] || 0) + 1
+  }
+  const list = (designs.length ? designs : [null]).map(d => {
+    const c = normaliseDesign(d?.settings).brand.colors
+    return {
+      id: d?.id || null, name: d?.name || 'Standard kiosk design', used_by: d ? used[d.id] || 0 : kiosks.length,
+      colours: { primary: c.primary, accent: c.accent, background: c.background, surface: c.surface, text: c.text, muted: c.muted },
+    }
+  })
+  return list.sort((a, b) => b.used_by - a.used_by)
 }
 
 async function ownFlowRow(tx, tenantId, id) {
@@ -112,23 +140,25 @@ export default async function orderFlowRoutes(app) {
 
   // Everything a flow can name, for the designer's pickers.
   app.get('/order-flows/catalog', { preHandler: canView }, async req => withTenant(req.tenantId, async tx => {
-    const [menus, sections, items, streams, types, charges, venues, devices, choices] = await Promise.all([
+    const [menus, sections, items, streams, types, charges, venues, devices, choices, designs, brand] = await Promise.all([
       tx`SELECT id, name FROM menus WHERE tenant_id = ${req.tenantId} ORDER BY name`,
       tx`SELECT id, menu_id, title FROM menu_sections WHERE tenant_id = ${req.tenantId} ORDER BY menu_id, sort_order`,
-      tx`SELECT id, section_id, name, price_pence, kind FROM menu_items WHERE tenant_id = ${req.tenantId} ORDER BY section_id, sort_order`,
+      tx`SELECT id, section_id, name, price_pence, kind, image_url FROM menu_items WHERE tenant_id = ${req.tenantId} ORDER BY section_id, sort_order`,
       tx`SELECT s.name, s.venue_id, v.name AS venue_name FROM pos_revenue_streams s
            JOIN venues v ON v.id = s.venue_id AND v.tenant_id = s.tenant_id
           WHERE s.tenant_id = ${req.tenantId} AND s.is_active ORDER BY v.name, s.sort_order, s.name`,
       tx`SELECT id, name, is_active FROM order_types WHERE tenant_id = ${req.tenantId} ORDER BY is_active DESC, sort_order, name`,
       loadCharges(tx, req.tenantId),
       tx`SELECT id, name FROM venues WHERE tenant_id = ${req.tenantId} ORDER BY name`,
-      tx`SELECT id, name, venue_id, short_code, kind FROM pos_devices
+      tx`SELECT id, name, venue_id, short_code, kind, settings->>'design_id' AS design_id FROM pos_devices
           WHERE tenant_id = ${req.tenantId} AND kind IN ('terminal', 'kiosk') AND revoked_at IS NULL ORDER BY name`,
       dishesWithChoices(tx, req.tenantId),
+      tx`SELECT id, name, settings FROM kiosk_designs WHERE tenant_id = ${req.tenantId} ORDER BY created_at`,
+      brandColours(tx, req.tenantId),
     ])
     const bySection = {}
     for (const i of items) {
-      (bySection[i.section_id] ||= []).push({ id: i.id, name: i.name, price_pence: i.price_pence, kind: i.kind, needs_choices: choices.has(i.id) })
+      (bySection[i.section_id] ||= []).push({ id: i.id, name: i.name, price_pence: i.price_pence, kind: i.kind, image_url: i.image_url || null, needs_choices: choices.has(i.id) })
     }
     const byMenu = {}
     for (const sct of sections) (byMenu[sct.menu_id] ||= []).push({ id: sct.id, title: sct.title, items: bySection[sct.id] || [] })
@@ -146,8 +176,9 @@ export default async function orderFlowRoutes(app) {
       order_types: types,
       charges: charges.map(c => ({ id: c.id, name: c.name, kind: c.kind, value: c.value, optional: c.optional, min_covers: c.min_covers || 0 })),
       venues,
-      tills: devices.filter(d => d.kind === 'terminal').map(({ kind, ...d }) => d),
-      kiosks: devices.filter(d => d.kind === 'kiosk').map(({ kind, ...d }) => d),
+      tills: devices.filter(d => d.kind === 'terminal').map(({ kind, design_id, ...d }) => d),
+      kiosks: devices.filter(d => d.kind === 'kiosk').map(({ kind, design_id, ...d }) => d),
+      themes: { brand, kiosk: kioskThemes(designs, devices.filter(d => d.kind === 'kiosk')) },
     }
   }))
 

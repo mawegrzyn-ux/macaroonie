@@ -64,6 +64,17 @@ export async function onlineFlows(tx, venue, settings) {
   }
 }
 
+/**
+ * Flows as one channel draws them: each prompt's look (ask.look) cut down
+ * to that channel's own, so a kiosk keeps (and saves for offline use) only
+ * the pictures its prompts show.
+ */
+export function withLookFor(list, app) {
+  return (list || []).map(f => (f.ask?.look
+    ? { ...f, ask: { ...f.ask, look: f.ask.look[app] ? { [app]: f.ask.look[app] } : undefined } }
+    : f))
+}
+
 /** The dishes a list of flows can put on by themselves: [id]. */
 export const flowDishIds = f => [...new Set((f?.list || []).flatMap(x => x.adds.filter(a => a.kind === 'dish').map(a => a.item_id)))]
 
@@ -75,7 +86,7 @@ export function publicFlows(f) {
   if (!f) return null
   return {
     ...f,
-    list: f.list.map(x => ({ ...x, name: '', venue_ids: null, till_ids: null, kiosk_ids: null, sort_order: undefined })),
+    list: withLookFor(f.list, 'online').map(x => ({ ...x, name: '', venue_ids: null, till_ids: null, kiosk_ids: null, sort_order: undefined })),
   }
 }
 

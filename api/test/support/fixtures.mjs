@@ -489,7 +489,14 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx', loy
         ...askFlow, name: mark + ' Add a drink', on: true, trigger: 'dish_added',
         venue_ids: [V], till_ids: tillDevice?.device ? [tillDevice.device.id] : null,
         match: { ...askFlow.match, stream_names: [mark + ' Bar'], type_ids: orderType ? [orderType.id] : [], item_ids: [dish.id], section_ids: [menuSection.id] },
-        ask: { ...askFlow.ask, title: mark + ' Add a drink?', item_ids: [dish.id] },
+        ask: {
+          ...askFlow.ask, title: mark + ' Add a drink?', item_ids: [dish.id],
+          // Its own look on tills and online ordering (the sweep replays it as the other group).
+          look: {
+            till: { header: { style: 'band', align: 'center' }, colours: { header: 'primary', cards: '#fef3c7' } },
+            online: { dishes: 'cards', header: { style: 'picture', image_url: '/uploads/' + slug + '-drinks.jpg' } },
+          },
+        },
       }))
     }
     const addFlow = await step('order flow add', () => post('/api/pos/order-flows', { name: mark + ' Drive thru extras', kind: 'add' }))

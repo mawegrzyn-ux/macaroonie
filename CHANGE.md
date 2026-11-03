@@ -5,6 +5,20 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-11-03 — How an order flow's prompt looks, on each channel]
+
+No migration (the look is kept with the flow).
+
+- **Look** (a fifth box in the order flow designer, for Suggest dishes flows): how the prompt looks on each place it runs. Switch between Tills, Kiosks and Online ordering at the top; each has its own look, and starts as the standard one.
+- **Header**: plain, a band of colour with the question on it, or a picture across the top. The question and the line under it sit on the left or in the middle.
+- **Background**: a colour, and a picture behind the prompt with a veil of the colour over it (a slider says how strong).
+- **Dishes**: cards side by side with big pictures, or rows with small pictures; pictures on or off. Online ordering can now show the dishes as big picture cards. The pictures are the dishes' photos on the Menus page.
+- **Colours** for the background, the band, the question, the words, the dishes and the No thanks / Done button: the place's standard colour, a theme colour, or a colour of your own. A theme colour follows the theme: your brand on tills and online ordering (a location with its own Brand & theme uses its own), each kiosk's design on kiosks. Words on a colour are picked to read well.
+- **Standard look** puts a place back; **Same look on** copies a look to another place. The preview shows the prompt as each place draws it, with a choice of kiosk design when you have several.
+- Tills now get the photos of the dishes their prompts offer, and kiosks keep the pictures their prompts show so they work offline.
+
+---
+
 ## [2026-11-03 — Order flows on self-order kiosks and online ordering]
 
 Migration 236 (a flow's tills are now `till_ids`, beside `kiosk_ids`; online orders keep their charges, the prompts asked and what the guest took off; order lines keep the flow that put them on).

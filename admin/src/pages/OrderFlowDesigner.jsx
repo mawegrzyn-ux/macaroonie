@@ -5,7 +5,9 @@
 // order matches, Then what it does. Tap a box to change it in the panel
 // beside (below on a narrow screen); the boxes' words come from the same
 // rules the list and the API use. A flow runs on tills, kiosks and online
-// ordering, any of them (migration 236). The preview shows the prompt (a
+// ordering, any of them (migration 236). A prompt has a Look box too: how
+// it looks on each channel it runs on (components/pos/PromptLook.jsx). The
+// preview shows the prompt in the look of the channel picked above it (a
 // flow that suggests dishes) or the lines it puts on an order (one that
 // adds by itself). Explicit Save; a flow switched on must be able to run
 // (its problems listed), a flow switched off can be saved half done.
@@ -15,7 +17,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft, ArrowDown, Loader2, Save, Workflow, MapPin, Clock, Filter, Sparkles, X, Plus, Minus,
-  AlertTriangle, Info, Lock, Unlock, ListChecks, ReceiptText,
+  AlertTriangle, Info, Lock, Unlock, ListChecks, ReceiptText, Palette,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -24,6 +26,7 @@ import { ReadOnlyNotice, ReadOnlyFieldset } from '@/components/ReadOnlyNotice'
 import { PageHeader, Section, Field, Btn, Toggle, Segmented, ErrorNote, SortableRows, inputCls, money } from '@/components/pos/shared'
 import { FLOW_KIND_OPTIONS, OnSwitch, KindIcon } from '@/components/pos/OrderFlowsSection'
 import { DishPicker, DishPickerModal } from '@/components/menus/DishPicker'
+import { LookPanel, PromptPreview, lookLines, lookApps } from '@/components/pos/PromptLook'
 import {
   normaliseOrderFlow, newOrderFlow, flowProblems, flowWarnings, flowWhenText, flowIfLines, flowThenLines, flowWhereText,
   channelKey, FLOW_NAME_MAX, ASK_TITLE_MAX, ASK_MESSAGE_MAX, ASK_CHOICES_MAX, FLOW_ADDS_MAX, FLOW_ADD_QTY_MAX,
@@ -66,16 +69,16 @@ function asDraft(f) {
 
 /** What every id is called, from the catalogue (GET /pos/order-flows/catalog). */
 function namesOf(catalog) {
-  const items = {}, sections = {}, prices = {}
+  const items = {}, sections = {}, prices = {}, images = {}
   for (const m of catalog?.menus || []) {
     for (const s of m.sections) {
       sections[s.id] = s.title
-      for (const i of s.items) { items[i.id] = i.name; prices[i.id] = i.price_pence }
+      for (const i of s.items) { items[i.id] = i.name; prices[i.id] = i.price_pence; if (i.image_url) images[i.id] = i.image_url }
     }
   }
   const by = (list, key = 'name') => Object.fromEntries((list || []).map(x => [x.id, x[key]]))
   return {
-    items, sections, prices,
+    items, sections, prices, images,
     types: by(catalog?.order_types), charges: by(catalog?.charges), venues: by(catalog?.venues),
     tills: by(catalog?.tills), kiosks: by(catalog?.kiosks),
   }
@@ -102,6 +105,7 @@ const TONES = {
   when: { box: 'border-amber-300 bg-amber-50', head: 'text-amber-800', ring: 'ring-amber-400' },
   if: { box: 'border-sky-300 bg-sky-50', head: 'text-sky-800', ring: 'ring-sky-400' },
   then: { box: 'border-emerald-300 bg-emerald-50', head: 'text-emerald-800', ring: 'ring-emerald-500' },
+  look: { box: 'border-rose-300 bg-rose-50', head: 'text-rose-800', ring: 'ring-rose-400' },
 }
 
 function FlowBox({ part, title, icon: Icon, lines, active, onClick, empty }) {
@@ -445,39 +449,8 @@ function DevicePicks({ f, set, venues, list, field, word, words, allLabel, someL
 
 // ── Preview ──────────────────────────────────────────────────
 
-function Preview({ f, names }) {
-  if (f.kind === 'ask') {
-    const dishes = f.ask.item_ids
-    return (
-      <Section title="The prompt" hint={f.apps.includes('kiosk') || f.apps.includes('online')
-        ? 'How it looks on the till. Kiosks and online ordering show the same question and dishes in their own look.'
-        : 'How it looks on the till.'}>
-        <div className="rounded-2xl bg-slate-900 p-4" data-testid="preview-prompt">
-          <div className="rounded-2xl bg-white p-4 space-y-3 shadow-xl">
-            <p className="text-lg font-semibold leading-tight" data-testid="preview-title">{f.ask.title || 'Your question'}</p>
-            {f.ask.message && <p className="text-sm text-muted-foreground" data-testid="preview-message">{f.ask.message}</p>}
-            <div className="grid grid-cols-2 gap-2">
-              {dishes.map(id => (
-                <div key={id} className="rounded-xl border-2 border-slate-200 bg-slate-50 min-h-[64px] p-2 flex flex-col justify-between" data-testid="preview-dish">
-                  <span className="text-sm font-medium leading-tight">{names.items[id] || 'A dish no longer on the menu'}</span>
-                  {names.prices[id] != null && <span className="text-xs text-muted-foreground tabular-nums">{money(names.prices[id])}</span>}
-                </div>
-              ))}
-              {!dishes.length && <p className="col-span-2 text-sm text-muted-foreground">The dishes it offers show here.</p>}
-            </div>
-            <div className="flex gap-2">
-              <span className="flex-1 h-12 rounded-xl border flex items-center justify-center text-sm font-medium">No thanks</span>
-            </div>
-          </div>
-        </div>
-        <p className="text-xs text-muted-foreground" data-testid="preview-hint">
-          {f.ask.pick === 'several' && dishes.length > 1
-            ? 'Each tap adds one of that dish (the count shows on it); No thanks becomes Done once one is added.'
-            : 'Tapping a dish adds it and closes the prompt.'}
-        </p>
-      </Section>
-    )
-  }
+function Preview({ f, names, look }) {
+  if (f.kind === 'ask') return <PromptPreview f={f} names={names} {...look} />
   return (
     <Section title="On the order" hint={f.apps.includes('kiosk') || f.apps.includes('online')
       ? 'What staff see on the order. Guests see them on their order too, with Remove on the ones they may take off.'
@@ -515,6 +488,9 @@ export default function OrderFlowDesigner() {
   const [draft, setDraft] = useState(null)
   const [part, setPart] = useState('when')
   const [leaving, setLeaving] = useState(false)
+  // The channel whose look is edited and previewed, and the kiosk design the kiosk look is shown in.
+  const [lookApp, setLookApp] = useState('till')
+  const [kioskId, setKioskId] = useState(null)
   // What the other kind had, so switching kind and back loses nothing.
   const stash = useRef({})
 
@@ -543,6 +519,7 @@ export default function OrderFlowDesigner() {
   const f = draft
   const set = patch => setDraft(d => asDraft({ ...d, ...patch }))
   const setKind = kind => {
+    if (kind !== 'ask' && part === 'look') setPart('then')
     stash.current[f.kind] = f.kind === 'ask' ? { ask: f.ask, trigger: f.trigger } : { adds: f.adds }
     const back = stash.current[kind]
     const fresh = newOrderFlow(f.id, kind)
@@ -563,6 +540,11 @@ export default function OrderFlowDesigner() {
   const ifLines = flowIfLines(clean, names)
   const thenLines = flowThenLines(clean, names)
   const panelProps = { f, set, setKind, catalog, names, readOnly: !canManage }
+  const apps = lookApps(f)
+  const look = {
+    app: apps.includes(lookApp) ? lookApp : apps[0], setApp: setLookApp,
+    themes: catalog?.themes, kioskId, setKioskId,
+  }
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -611,6 +593,11 @@ export default function OrderFlowDesigner() {
               <FlowBox part="if" title="If" icon={Filter} lines={ifLines} empty="Every order" active={part === 'if'} onClick={() => setPart('if')} />
               <Arrow />
               <FlowBox part="then" title="Then" icon={Sparkles} lines={thenLines} active={part === 'then'} onClick={() => setPart('then')} />
+              {f.kind === 'ask' && (
+                <div className="mt-3">
+                  <FlowBox part="look" title="Look" icon={Palette} lines={lookLines(clean)} active={part === 'look'} onClick={() => setPart('look')} />
+                </div>
+              )}
               <p className="text-xs text-muted-foreground mt-3">Tap a box to change it.</p>
             </div>
 
@@ -642,7 +629,9 @@ export default function OrderFlowDesigner() {
               {part === 'if' && <IfPanel {...panelProps} />}
               {part === 'then' && <ThenPanel {...panelProps} />}
             </ReadOnlyFieldset>
-            <Preview f={f} names={names} />
+            {/* The look panel has its own read-only part: its channel switch stays usable for viewers. */}
+            {part === 'look' && f.kind === 'ask' && <LookPanel f={f} set={set} readOnly={!canManage} {...look} />}
+            <Preview f={f} names={names} look={look} />
           </div>
         </div>
       </div>

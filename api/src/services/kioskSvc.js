@@ -24,7 +24,7 @@
 
 import { httpError } from '../middleware/error.js'
 import { ensureSettings, settingsView, ownVenue, tillMenuData, tillMenus, sha256, liveFields, loadCharges } from './posSvc.js'
-import { loadOrderFlows, flowDishIds } from './orderFlowSvc.js'
+import { loadOrderFlows, flowDishIds, withLookFor } from './orderFlowSvc.js'
 import { contentKey } from '../../../shared/menuDiff.js'
 import { variantRules, itemChoices, isPriced } from '../../../shared/orderPricing.js'
 import { venuePromotions, publicPromotion } from './promoSvc.js'
@@ -130,7 +130,7 @@ export async function kioskConfig(tx, tenantId, venueId, device, { designOverrid
     // every kiosk.
     settings: {
       ...settingsView(settings),
-      flows,
+      flows: withLookFor(flows, 'kiosk'),
       charges: await loadCharges(tx, tenantId, venueId),
     },
     // How often this kiosk asks for changes (migration 216).
