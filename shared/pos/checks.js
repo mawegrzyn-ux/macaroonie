@@ -28,7 +28,7 @@ import { CHECK_NO_MAX, ORDER_NO_MAX, numberText } from './numbers.js'
 import { chargeProblem, chargeMismatch, chargeList, onCheck, switchCharges, CHECK_CHARGES_MAX } from './charges.js'
 import { discountList, presetMismatch } from './discounts.js'
 import { allergyProblem, cleanAllergy, mergeAllergy } from './allergy.js'
-import { flowChargeAdd } from './orderFlows.js'
+import { flowChargeAdd, cleanFlowsOff, isFlowKey, FLOWS_OFF_MAX } from './orderFlows.js'
 
 export const CHECK_EVENTS = [
   'check.opened', 'check.covers_set', 'check.table_moved', 'check.server_changed',
@@ -68,7 +68,10 @@ export const CHECK_MODES = ['table', 'tab', 'counter']
 // A kiosk may also put the guest's loyalty card on its order and spend a
 // reward the server reserved (shared/loyalty.js), nothing else of discounts.
 export const KIOSK_EVENTS = ['check.opened', 'line.added', 'promotions.set', 'lines.sent', 'payment.added', 'check.closed',
-  'check.member_set', 'discount.applied']
+  'check.member_set', 'discount.applied',
+  // Order flows (shared/pos/orderFlows.js): the prompts the guest answered,
+  // and the charges the kiosk's flows put on.
+  'check.flow_asked', 'charge.added']
 
 function kioskProblem(checks, e) {
   if (!KIOSK_EVENTS.includes(e.type)) return 'A kiosk can\'t do this'
@@ -88,6 +91,8 @@ function kioskProblem(checks, e) {
   if (e.type === 'check.closed' && p.cancel_reason != null) return 'A kiosk can\'t cancel orders'
   if (e.type === 'line.added' && (!p.line?.item_id || p.line.price_override || p.line.open_item)) return 'A kiosk only adds dishes from the menu'
   if (e.type === 'discount.applied' && !p.discount?.loyalty_redemption_id) return 'A kiosk only takes off loyalty rewards'
+  // From the list, put on by an order flow (judged against the flows below).
+  if (e.type === 'charge.added' && !(p.charge?.list && p.charge?.flow)) return 'A kiosk only adds the charges its order flows put on'
   if (e.type === 'payment.added') {
     const x = p.payment || {}
     if (!['card_external', 'card_integrated'].includes(x.tender) || (x.tip || 0) > 0 || x.tendered != null) return 'A kiosk only takes card payments'
@@ -185,6 +190,13 @@ export function eventProblem(e) {
       if (p.number != null && !(Number.isInteger(p.number) && p.number >= 1 && p.number <= CHECK_NO_MAX)) return bad('number')
       if (p.order_no != null && !(Number.isInteger(p.order_no) && p.order_no >= 1 && p.order_no <= ORDER_NO_MAX)) return bad('order_no')
       if (!optText(p.number_code, 12)) return bad('number_code')
+      // What a guest took off that order flows would put on (a kiosk's order).
+      if (p.flows_off != null) {
+        const o = p.flows_off
+        if (typeof o !== 'object' || Array.isArray(o)) return bad('flows_off')
+        const keys = Object.keys(o)
+        if (keys.length > FLOWS_OFF_MAX || keys.some(k => !isFlowKey(k) || o[k] !== true)) return bad('flows_off')
+      }
       {
         const why = chargesProblem(p.charges)
         return why ? bad(why) : null
@@ -408,6 +420,8 @@ function newCheck(e) {
     loyalty: null,
     // The order type's charges (shared/pos/charges.js), as the till worked them out.
     charges: (p.charges || []).map(x => onCheck(x)),
+    // Order flows' things the guest took off before ordering (a kiosk).
+    ...(p.flows_off && Object.keys(p.flows_off).length ? { flows_off: cleanFlowsOff(p.flows_off) } : {}),
     payments: [],
     refunds: [],
     bills: 0,

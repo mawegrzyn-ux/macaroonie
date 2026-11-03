@@ -79,14 +79,14 @@ before(async () => {
 after(closeApp)
 
 const flowBody = (f, changes = {}) => ({
-  name: f.name, on: f.on, kind: f.kind, trigger: f.trigger, venue_ids: f.venue_ids, device_ids: f.device_ids, apps: f.apps,
+  name: f.name, on: f.on, kind: f.kind, trigger: f.trigger, venue_ids: f.venue_ids, till_ids: f.till_ids, apps: f.apps,
   match: f.match, ask: f.ask, adds: f.adds, ...changes,
 })
 
 test('a flow is made switched off, saved with only the company\'s own ids, and switched on once it can run', async () => {
   const made = await ok(owner.post('/api/pos/order-flows', { name: ' Zqc Add a drink ', kind: 'ask' }))
   assert.equal(made.name, 'Zqc Add a drink')
-  assert.deepEqual([made.kind, made.trigger, made.on, made.venue_ids, made.device_ids], ['ask', 'dish_added', false, null, null])
+  assert.deepEqual([made.kind, made.trigger, made.on, made.venue_ids, made.till_ids], ['ask', 'dish_added', false, null, null])
   assert.equal(made.ask.title, '')
   assert.deepEqual(made.problems.map(p => p.code), ['ask_title', 'ask_choices'])
   // Switched on while it can't run: refused with its problems.
@@ -101,7 +101,7 @@ test('a flow is made switched off, saved with only the company\'s own ids, and s
   // Another group's dishes, sections, order types, charges and tills are dropped.
   const saved = await ok(owner.put('/api/pos/order-flows/' + made.id, flowBody(half, {
     on: true, trigger: 'dish_added',
-    device_ids: [till.device_id, theirs.till],
+    till_ids: [till.device_id, theirs.till],
     match: {
       stream_names: ['  zqc   bar  ', 'Zqc Bar', 'Delivery'], type_ids: [eatIn.id, theirs.type],
       item_ids: [dish.id, theirs.item, dish.id], section_ids: [section.id, theirs.section],
@@ -110,7 +110,7 @@ test('a flow is made switched off, saved with only the company\'s own ids, and s
     ask: { title: 'Add a drink?', message: 'Our lemonade is made here', item_ids: [dish2.id, theirs.item], pick: 'several', every_time: true, skip_if_has: false },
   })))
   assert.equal(saved.on, true)
-  assert.deepEqual(saved.device_ids, [till.device_id])
+  assert.deepEqual(saved.till_ids, [till.device_id])
   assert.deepEqual(saved.match, {
     stream_names: ['zqc bar', 'Delivery'], type_ids: [eatIn.id], item_ids: [dish.id], section_ids: [section.id],
     not_item_ids: [], not_section_ids: [],
@@ -129,7 +129,7 @@ test('a flow is made switched off, saved with only the company\'s own ids, and s
   // Another group's location: refused outright (every route refuses another tenant's venue ids).
   assert.equal((await owner.put('/api/pos/order-flows/' + made.id, flowBody(saved, { venue_ids: [theirs.venue] }))).status, 404)
   // A till at a location it doesn't run at: a warning.
-  const placed = await ok(owner.put('/api/pos/order-flows/' + made.id, flowBody(saved, { venue_ids: [V], device_ids: [till.device_id, till2.device_id] })))
+  const placed = await ok(owner.put('/api/pos/order-flows/' + made.id, flowBody(saved, { venue_ids: [V], till_ids: [till.device_id, till2.device_id] })))
   assert.ok(placed.warnings.some(w => w.code === 'tills_elsewhere'), JSON.stringify(placed.warnings))
   assert.equal(placed.where, 'Zqx Ware · Zqc Front till and Zqc Hertford till')
   // Switched off and on.
@@ -201,7 +201,7 @@ test('the catalogue: dishes by menu and section, channels by name across locatio
   assert.equal((await viewer.get('/api/pos/order-flows/catalog')).status, 403)
   // The channel now there: the earlier flow's warning about it goes.
   const f = (await ok(owner.get('/api/pos/order-flows'))).flows.find(x => x.name === 'Zqc Add a drink')
-  const saved = await ok(owner.put('/api/pos/order-flows/' + f.id, flowBody(f, { venue_ids: null, device_ids: null, match: { ...f.match, stream_names: ['ZQC DELIVERY'] } })))
+  const saved = await ok(owner.put('/api/pos/order-flows/' + f.id, flowBody(f, { venue_ids: null, till_ids: null, match: { ...f.match, stream_names: ['ZQC DELIVERY'] } })))
   assert.ok(!saved.warnings.some(w => w.code === 'no_channel'), JSON.stringify(saved.warnings))
   const there = await ok(owner.put('/api/pos/order-flows/' + f.id, flowBody(saved, { venue_ids: [V2] })))
   assert.ok(!there.warnings.some(w => w.code === 'no_channel'))

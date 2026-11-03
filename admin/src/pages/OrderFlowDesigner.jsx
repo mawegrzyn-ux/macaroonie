@@ -4,7 +4,8 @@
 // drawn as boxes in the order it works: Where it runs, When it acts, If the
 // order matches, Then what it does. Tap a box to change it in the panel
 // beside (below on a narrow screen); the boxes' words come from the same
-// rules the list and the API use. The preview shows the till's prompt (a
+// rules the list and the API use. A flow runs on tills, kiosks and online
+// ordering, any of them (migration 236). The preview shows the prompt (a
 // flow that suggests dishes) or the lines it puts on an order (one that
 // adds by itself). Explicit Save; a flow switched on must be able to run
 // (its problems listed), a flow switched off can be saved half done.
@@ -26,6 +27,7 @@ import { DishPicker, DishPickerModal } from '@/components/menus/DishPicker'
 import {
   normaliseOrderFlow, newOrderFlow, flowProblems, flowWarnings, flowWhenText, flowIfLines, flowThenLines, flowWhereText,
   channelKey, FLOW_NAME_MAX, ASK_TITLE_MAX, ASK_MESSAGE_MAX, ASK_CHOICES_MAX, FLOW_ADDS_MAX, FLOW_ADD_QTY_MAX,
+  FLOW_APPS, APP_NAMES,
 } from '@shared/pos/orderFlows.js'
 import { chargeValueText } from '@shared/pos/charges.js'
 
@@ -74,15 +76,25 @@ function namesOf(catalog) {
   const by = (list, key = 'name') => Object.fromEntries((list || []).map(x => [x.id, x[key]]))
   return {
     items, sections, prices,
-    types: by(catalog?.order_types), charges: by(catalog?.charges), venues: by(catalog?.venues), devices: by(catalog?.tills),
+    types: by(catalog?.order_types), charges: by(catalog?.charges), venues: by(catalog?.venues),
+    tills: by(catalog?.tills), kiosks: by(catalog?.kiosks),
   }
 }
 
-/** What flowWarnings() needs to know about the company: channels by name, where each till is. */
+/**
+ * What flowWarnings() needs to know about the company: channels by name,
+ * where each till and kiosk is, the dishes with choices to make, the charges.
+ */
 function placesOf(catalog) {
   const channels = {}
   for (const c of catalog?.channels || []) channels[channelKey(c.name)] = c.venues.map(v => v.id)
-  return { channels, tills: Object.fromEntries((catalog?.tills || []).map(t => [t.id, t.venue_id])) }
+  const at = list => Object.fromEntries((list || []).map(t => [t.id, t.venue_id]))
+  const choices = new Set()
+  for (const m of catalog?.menus || []) for (const sct of m.sections) for (const i of sct.items) if (i.needs_choices) choices.add(i.id)
+  return {
+    channels, tills: at(catalog?.tills), kiosks: at(catalog?.kiosks), choices,
+    charges: Object.fromEntries((catalog?.charges || []).map(c => [c.id, c])),
+  }
 }
 
 const TONES = {
@@ -360,10 +372,8 @@ function ThenPanel(props) {
 
 function WherePanel({ f, set, catalog }) {
   const venues = catalog?.venues || []
-  const tillsShown = (catalog?.tills || []).filter(t => f.venue_ids == null || f.venue_ids.includes(t.venue_id) || f.device_ids?.includes(t.id))
-  const byVenue = venues.map(v => ({ ...v, tills: tillsShown.filter(t => t.venue_id === v.id) })).filter(v => v.tills.length)
   return (
-    <Section title="Where" hint="The locations and tills it runs at. Kiosks and online ordering come later.">
+    <Section title="Where" hint="The locations it runs at, and on which tills, kiosks and online ordering.">
       <Field group label="Locations">
         <Segmented value={f.venue_ids == null ? 'all' : 'some'} onChange={v => set({ venue_ids: v === 'all' ? null : (f.venue_ids || []) })}
           options={[{ value: 'all', label: 'Every location' }, { value: 'some', label: 'These locations' }]} className="flex-wrap" />
@@ -373,28 +383,63 @@ function WherePanel({ f, set, catalog }) {
           {venues.map(v => <Chip key={v.id} on={f.venue_ids.includes(v.id)} onClick={() => set({ venue_ids: toggle(f.venue_ids, v.id) })} testid="where-venue">{v.name}</Chip>)}
         </div>
       )}
-      <Field group label="Tills">
-        <Segmented value={f.device_ids == null ? 'all' : 'some'} onChange={v => set({ device_ids: v === 'all' ? null : (f.device_ids || []) })}
-          options={[{ value: 'all', label: 'Every till there' }, { value: 'some', label: 'These tills' }]} className="flex-wrap" />
+      <Field group label="Runs on">
+        <div className="flex flex-wrap gap-2" data-testid="where-apps">
+          {FLOW_APPS.map(a => (
+            <Chip key={a} on={f.apps.includes(a)} testid={'where-app-' + a}
+              onClick={() => set({ apps: FLOW_APPS.filter(x => (x === a ? !f.apps.includes(a) : f.apps.includes(x))) })}>
+              {APP_NAMES[a]}
+            </Chip>
+          ))}
+        </div>
       </Field>
-      {f.device_ids != null && (
-        <div className="space-y-3" data-testid="where-tills">
+      {f.apps.includes('till') && (
+        <DevicePicks f={f} set={set} venues={venues} list={catalog?.tills || []} field="till_ids"
+          word="till" words="tills" allLabel="Every till there" someLabel="These tills" testid="where-till" />
+      )}
+      {f.apps.includes('kiosk') && (
+        <DevicePicks f={f} set={set} venues={venues} list={catalog?.kiosks || []} field="kiosk_ids"
+          word="kiosk" words="kiosks" allLabel="Every kiosk there" someLabel="These kiosks" testid="where-kiosk" />
+      )}
+      {f.apps.includes('online') && (
+        <p className="text-xs text-muted-foreground" data-testid="where-online-note">
+          Online ordering: the order is checked again when it is placed, so a dish or charge it adds can&apos;t be left out by the guest unless it may be taken off.
+        </p>
+      )}
+    </Section>
+  )
+}
+
+/** Every till (or kiosk) at the locations, or the ones picked, by location. */
+function DevicePicks({ f, set, venues, list, field, word, words, allLabel, someLabel, testid }) {
+  const picked = f[field]
+  const shown = list.filter(t => f.venue_ids == null || f.venue_ids.includes(t.venue_id) || picked?.includes(t.id))
+  const byVenue = venues.map(v => ({ ...v, devices: shown.filter(t => t.venue_id === v.id) })).filter(v => v.devices.length)
+  return (
+    <>
+      <Field group label={words[0].toUpperCase() + words.slice(1)}>
+        <Segmented value={picked == null ? 'all' : 'some'} onChange={v => set({ [field]: v === 'all' ? null : (picked || []) })}
+          options={[{ value: 'all', label: allLabel }, { value: 'some', label: someLabel }]} className="flex-wrap" />
+      </Field>
+      {picked != null && (
+        <div className="space-y-3" data-testid={testid + 's'}>
           {byVenue.map(v => (
             <div key={v.id}>
               <p className="text-xs font-semibold text-muted-foreground mb-1">{v.name}</p>
               <div className="flex flex-wrap gap-2">
-                {v.tills.map(t => (
-                  <Chip key={t.id} on={f.device_ids.includes(t.id)} onClick={() => set({ device_ids: toggle(f.device_ids, t.id) })} testid="where-till">
+                {v.devices.map(t => (
+                  <Chip key={t.id} on={picked.includes(t.id)} onClick={() => set({ [field]: toggle(picked, t.id) })} testid={testid}>
                     {t.name}{t.short_code ? ' (' + t.short_code + ')' : ''}
                   </Chip>
                 ))}
               </div>
             </div>
           ))}
-          {!byVenue.length && <p className="text-xs text-muted-foreground">No tills linked {f.venue_ids == null ? 'yet' : 'at these locations'}.</p>}
+          {!byVenue.length && <p className="text-xs text-muted-foreground">No {words} linked {f.venue_ids == null ? 'yet' : 'at these locations'}.</p>}
+          {byVenue.length > 0 && !picked.length && <p className="text-xs text-amber-700">Pick at least one {word}.</p>}
         </div>
       )}
-    </Section>
+    </>
   )
 }
 
@@ -404,7 +449,9 @@ function Preview({ f, names }) {
   if (f.kind === 'ask') {
     const dishes = f.ask.item_ids
     return (
-      <Section title="On the till" hint="How the prompt looks.">
+      <Section title="The prompt" hint={f.apps.includes('kiosk') || f.apps.includes('online')
+        ? 'How it looks on the till. Kiosks and online ordering show the same question and dishes in their own look.'
+        : 'How it looks on the till.'}>
         <div className="rounded-2xl bg-slate-900 p-4" data-testid="preview-prompt">
           <div className="rounded-2xl bg-white p-4 space-y-3 shadow-xl">
             <p className="text-lg font-semibold leading-tight" data-testid="preview-title">{f.ask.title || 'Your question'}</p>
@@ -432,7 +479,9 @@ function Preview({ f, names }) {
     )
   }
   return (
-    <Section title="On the order" hint="What staff see on the order.">
+    <Section title="On the order" hint={f.apps.includes('kiosk') || f.apps.includes('online')
+      ? 'What staff see on the order. Guests see them on their order too, with Remove on the ones they may take off.'
+      : 'What staff see on the order.'}>
       <div className="rounded-xl border bg-background divide-y" data-testid="preview-order">
         <div className="px-3 py-2 text-sm text-muted-foreground">The dishes staff put on…</div>
         {f.adds.map(a => (
@@ -508,7 +557,7 @@ export default function OrderFlowDesigner() {
   const clean = cleanFlow(f)
   const dirty = JSON.stringify(clean) !== JSON.stringify(cleanFlow(saved))
   const problems = flowProblems(clean)
-  const warnings = flowWarnings(clean, places)
+  const warnings = flowWarnings(clean, { ...places, names })
   const blocked = f.on && problems.length > 0
   const back = () => (dirty ? setLeaving(true) : navigate('/pos/flows'))
   const ifLines = flowIfLines(clean, names)

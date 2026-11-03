@@ -215,6 +215,17 @@ const cfgJson = JSON.stringify(cfg).split('<').join('\\u003c')
 .mo-fly { position: fixed; z-index: 2147483000; margin: 0; pointer-events: none; object-fit: cover; transform-origin: 50% 50%; will-change: transform, opacity; box-shadow: 0 10px 28px rgba(0,0,0,.25); }
 .mo-sheet h3 { font-family: var(--f-heading, inherit); font-size: 1.35rem; margin: 0 0 6px; }
 .mo-sheet .mo-group { margin-top: 18px; }
+/* Order flows (migration 236): a prompt offering dishes, and what flows put on. */
+.mo-flow-dishes { display: grid; gap: 8px; margin-top: 14px; }
+.mo-flow-dish { display: flex; align-items: center; gap: 12px; min-height: 64px; width: 100%; padding: 8px 12px; border: 1px solid var(--c-border, #e5e7eb); border-radius: var(--r-md, 8px); background: transparent; color: inherit; text-align: left; touch-action: manipulation; }
+.mo-flow-dish.is-on { border-color: var(--c-primary, #630812); box-shadow: inset 0 0 0 1px var(--c-primary, #630812); }
+.mo-flow-dish img { width: 48px; height: 48px; object-fit: cover; border-radius: 8px; flex: none; }
+.mo-flow-dish .mo-flow-count { min-width: 28px; height: 28px; border-radius: 999px; background: var(--c-primary, #630812); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-size: .9rem; }
+.mo-flow-actions { display: flex; gap: 8px; margin-top: 16px; }
+.mo-flow-actions .mo-btn { flex: 1; }
+.mo-flow-x { min-width: 48px; min-height: 48px; border: 0; background: transparent; color: inherit; font-size: 1.1rem; touch-action: manipulation; }
+:is(.mo, .mo-sheet-back) .mo-row.mo-flow-charge { align-items: center; padding: 0; }
+:is(.mo, .mo-sheet-back) .mo-row.mo-flow-charge > span:first-child { flex: 1; min-width: 0; }
 .mo-sheet .mo-choice .mo-qty button[disabled] { opacity: .35; }
 .mo-sheet .mo-part { margin: 10px 0 4px 12px; padding-left: 12px; border-left: 3px solid var(--c-border, #e5e7eb); }
 .mo-sheet .mo-part .mo-group { margin-top: 8px; }
@@ -284,6 +295,7 @@ import { resolveSteps, stepRule, countParts, askedChoices, withDealPicks } from 
 import { venueNow, noticeText, promoSummary, promoTerms, covers, coversIds, isLiveAt } from '/order-api/promotions.js'
 import { allergenKey, noticeOf } from '/order-api/menuTags.js'
 import { pointsFor, pointsText } from '/order-api/loyalty.js'
+import { askFlowsFor, askChoices, addedDishes, basketOrder, askedAfter } from '/order-api/pos/orderFlows.js'
 
 const CFG = JSON.parse(document.getElementById('mo-config').textContent)
 const OPT = CFG.opts || {}
@@ -395,6 +407,12 @@ async function startOrdering() {
   // automatic ones the basket spots among separate dishes.
   const comboCtx = { itemsById: data.combo_parts || {}, sectionItems: data.section_items || {} }
   const autoCombos = Object.values(itemsById).filter(i => i.kind === 'combo' && i.combo && i.combo.mode === 'auto')
+  // Order flows (migration 236, shared/pos/orderFlows.js): prompts after a
+  // dish is added and at checkout, and dishes and charges put on by
+  // themselves, worked out from the basket (the server works them out again
+  // when the order is placed). Only removable ones can be taken off.
+  const FLOWS = data.flows || null
+  const FKEY = 'maca_flows_' + venue.id
 
   const KEY = 'maca_basket_' + venue.id
   // Start on the first menu that is on now (menu schedules, migration 130).
@@ -421,7 +439,15 @@ async function startOrdering() {
     codeOpen: false,
     codeBusy: false,
     codeError: null,
+    // Order flows: what the guest took off ({ key: true }) and the prompts asked.
+    flowsOff: {},
+    flowsAsked: {},
   }
+  try {
+    const saved = JSON.parse(localStorage.getItem(FKEY) || '{}')
+    if (saved.off && typeof saved.off === 'object') state.flowsOff = saved.off
+    if (saved.asked && typeof saved.asked === 'object') state.flowsAsked = saved.asked
+  } catch {}
   const PROMO_KEY = 'maca_promos_' + venue.id
   try {
     const saved = JSON.parse(localStorage.getItem(PROMO_KEY) || '{}')
@@ -518,7 +544,124 @@ async function startOrdering() {
     return { at: venueNow(venue.timezone), venueId: venue.id, chosen: state.chosen, unlocked: state.unlocked.map(p => p.id) }
   }
   function quote() {
-    return priceBasket(itemsById, state.basket, { tipPercent: state.tip, promos: promosInPlay(), promoCtx: promoCtx(), combos: { ctx: comboCtx, auto: autoCombos }, rewards: LOY ? pickedRewards() : null })
+    return priceBasket(itemsById, state.basket, {
+      tipPercent: state.tip, promos: promosInPlay(), promoCtx: promoCtx(), combos: { ctx: comboCtx, auto: autoCombos }, rewards: LOY ? pickedRewards() : null,
+      flows: FLOWS ? { ...FLOWS, off: state.flowsOff } : null,
+    })
+  }
+
+  // ── Order flows ──
+  function saveFlows() {
+    try {
+      if (!state.basket.length) { state.flowsOff = {}; state.flowsAsked = {} }
+      localStorage.setItem(FKEY, JSON.stringify({ off: state.flowsOff, asked: state.flowsAsked }))
+    } catch {}
+  }
+  const soldOutMap = () => Object.fromEntries(Object.values(itemsById).filter(i => i.sold_out).map(i => [i.id, true]))
+  // A basket line as the dishes it adds (a meal deal's picks too), for dish_added.
+  function addedOf(line) {
+    const sectionOf = id => ((comboCtx.itemsById || {})[id] || itemsById[id] || {}).section_id || null
+    const parts = Object.values(line.combo || {}).flat().filter(p => p && p.item_id).map(p => ({ item_id: p.item_id, section_id: sectionOf(p.item_id) }))
+    return addedDishes({ item_id: line.item_id, section_id: sectionOf(line.item_id), combo: parts })
+  }
+  // The prompts due now: after a dish is added (line: the basket line added) or at checkout.
+  function promptsDue(trigger, line = null) {
+    if (!FLOWS || !FLOWS.list.length) return []
+    const q = quote()
+    const order = basketOrder({
+      lines: q.lines, revenue_stream_id: FLOWS.revenue_stream_id, order_type_id: FLOWS.order_type_id,
+      flows_off: state.flowsOff, flows_asked: state.flowsAsked,
+    })
+    return askFlowsFor(FLOWS.list, order, { trigger, here: FLOWS.here, added: line ? addedOf(line) : null })
+      .filter(f => askChoices(f, itemsById, { soldOut: soldOutMap() }).length)
+  }
+  // Show prompts one after another, then do what comes next (then).
+  function runPrompts(list, then = null) {
+    const next = () => {
+      const f = list.shift()
+      if (!f) { if (then) then(); return }
+      openFlowPrompt(f, next)
+    }
+    next()
+  }
+  // One prompt: its question, the dishes it offers (a dish with options to
+  // pick opens its own window), No thanks. Answered once on the order.
+  function openFlowPrompt(f, done) {
+    const offered = askChoices(f, itemsById, { soldOut: soldOutMap() })
+    const added = {}
+    const back = document.createElement('div')
+    back.className = 'mo-sheet-back'
+    back.setAttribute('data-flow-prompt', f.id)
+    document.body.appendChild(back)
+    document.body.style.overflow = 'hidden'
+    const finish = (answer, after) => {
+      state.flowsAsked = askedAfter(state.flowsAsked, f.id, answer, Object.keys(added))
+      saveFlows()
+      back.remove()
+      document.body.style.overflow = ''
+      draw()
+      if (after) after(done)
+      else done()
+    }
+    // A dish to pick options for, a meal deal or one with a minimum quantity opens its own window.
+    const plain = it => !(it.choices || []).length && it.kind !== 'combo' && !((Number(it.min_qty) || 0) > 1)
+    const addOne = it => {
+      const line = { item_id: it.id, qty: 1, choices: {}, note: null }
+      // The same dish again in this prompt: one more on its line.
+      const at = state.basket.findIndex(l => l.item_id === it.id && l.fromPrompt === f.id)
+      if (at >= 0) state.basket[at].qty = Math.min(99, state.basket[at].qty + 1)
+      else state.basket.push({ ...line, fromPrompt: f.id })
+      saveBasket()
+      added[it.id] = (added[it.id] || 0) + 1
+    }
+    const render = () => {
+      const count = Object.values(added).reduce((n, x) => n + x, 0)
+      back.innerHTML = '<div class="mo-sheet" role="dialog" aria-modal="true" aria-label="' + esc(f.ask.title) + '">' +
+        '<h3>' + esc(f.ask.title) + '</h3>' +
+        (f.ask.message ? '<p class="mo-muted" style="margin:0;">' + esc(f.ask.message) + '</p>' : '') +
+        '<div class="mo-flow-dishes">' + offered.map(it =>
+          '<button type="button" class="mo-flow-dish' + (added[it.id] ? ' is-on' : '') + '" data-flow-dish="' + esc(it.id) + '">' +
+            (it.image_url ? '<img src="' + esc(it.image_url) + '" alt="">' : '') +
+            '<span style="flex:1;min-width:0;"><strong>' + esc(it.name) + '</strong>' +
+            (it.from_pence != null ? '<br><span class="mo-muted">' + (it.from_varies ? 'from ' : '') + money(it.from_pence) + '</span>' : '') + '</span>' +
+            (added[it.id] ? '<span class="mo-flow-count" aria-label="' + added[it.id] + ' added">' + added[it.id] + '</span>' : '<span aria-hidden="true">+</span>') +
+          '</button>').join('') + '</div>' +
+        '<div class="mo-flow-actions">' +
+          '<button type="button" class="mo-btn mo-btn-ghost" data-flow-no>' + (count ? 'Done' : 'No thanks') + '</button>' +
+        '</div></div>'
+    }
+    render()
+    back.addEventListener('click', e => {
+      if (e.target === back) return finish(Object.keys(added).length ? 'added' : 'declined')
+      const t = e.target.closest('button')
+      if (!t) return
+      if ('flowNo' in t.dataset) finish(Object.keys(added).length ? 'added' : 'declined')
+      else if (t.dataset.flowDish) {
+        const it = itemsById[t.dataset.flowDish]
+        if (!it) return
+        if (!plain(it)) {
+          // Options to pick: the dish's own window, then the next prompt.
+          added[it.id] = 1
+          finish('added', cont => openItem(it, { fromPrompt: true, onClose: cont }))
+          return
+        }
+        addOne(it)
+        if (f.ask.pick === 'one') finish('added')
+        else { render(); draw() }
+      }
+    })
+  }
+  // A thing an order flow put on, taken off by the guest (only a removable one), or back on.
+  function flowOff(key, on) {
+    if (on) delete state.flowsOff[key]
+    else state.flowsOff[key] = true
+    saveFlows()
+    draw()
+  }
+  function flowName(w) {
+    if (w.kind === 'charge') return (FLOWS.charges[w.charge_id] || {}).name || 'A charge'
+    const it = (FLOWS.items || {})[w.item_id] || itemsById[w.item_id]
+    return it ? it.name : 'A dish'
   }
   const BADGE_KINDS = new Set(['item', 'bogo', 'free_item', 'bundle'])
   // Take the guest to a dish a promotion needs: the dish itself when there
@@ -787,6 +930,15 @@ async function startOrdering() {
     if (!state.basket.length) return '<p class="mo-muted">Your basket is empty.</p>'
     let h = ''
     q.lines.forEach((l, idx) => {
+      if (l.flow) {
+        // Put on by an order flow: no steps; one that may be taken off has its x.
+        h += '<div class="mo-line" data-flow-line="' + esc(l.flow.key) + '"><div style="flex:1;min-width:0;"><div><strong>' + (l.qty > 1 ? l.qty + ' &times; ' : '') + esc(l.name) + '</strong></div>' +
+          '<div class="mo-line-opts">' + (l.flow.removable ? 'Added for your order' : 'Added for your order: can\'t be taken off') + '</div></div>' +
+          '<div style="white-space:nowrap;display:flex;align-items:flex-start;gap:4px;">' + money(l.line_total_pence) +
+          (l.flow.removable ? '<button type="button" class="mo-flow-x" data-flow-off="' + esc(l.flow.key) + '" aria-label="Take off ' + esc(l.name) + '">&times;</button>' : '') +
+          '</div></div>'
+        return
+      }
       h += '<div class="mo-line"><div style="flex:1;min-width:0;"><div><strong>' + esc(l.name) + '</strong></div>' +
         (l.options.length ? '<div class="mo-line-opts">' + esc(l.options.map(o => o.label).join(', ')) + '</div>' : '') +
         partsHtml(l.parts) +
@@ -797,15 +949,32 @@ async function startOrdering() {
     if (q.errors.length) h += '<div class="mo-error">' + esc(q.errors[0].error) + '</div>'
     h += '<div class="mo-row' + (q.discount_pence ? '' : ' mo-total') + '" style="margin-top:8px;"><span>Subtotal</span><span>' + money(q.subtotal_pence) + '</span></div>'
     h += promoRowsHtml(q)
-    if (q.discount_pence && !compact) h += '<div class="mo-row mo-total"><span>Total</span><span>' + money(q.subtotal_pence - q.discount_pence) + '</span></div>'
+    h += flowChargesHtml(q)
+    if ((q.discount_pence || q.charges_pence) && !compact) h += '<div class="mo-row mo-total"><span>Total</span><span>' + money(q.subtotal_pence - q.discount_pence + (q.charges_pence || 0)) + '</span></div>'
     // At checkout the VAT line goes under the Total instead.
     if (!compact && OPT.showVat && q.vat_pence) h += '<div class="mo-row mo-muted" style="font-size:.9rem;"><span>Includes VAT</span><span>' + money(q.vat_pence) + '</span></div>'
     h += promoExtrasHtml(q)
-    if (ord.min_order_pence && q.subtotal_pence < ord.min_order_pence) {
+    if (ord.min_order_pence && q.own_subtotal_pence < ord.min_order_pence) {
       h += '<p class="mo-muted" style="font-size:.9rem;">Minimum order ' + money(ord.min_order_pence) + '</p>'
     }
     if (!compact) {
       h += '<button class="mo-btn mo-btn-block" data-checkout style="margin-top:12px;"' + (canCheckout(q) ? '' : ' disabled') + '>Checkout</button>'
+    }
+    return h
+  }
+  // Order flows' charges (one that may be taken off has its x), and what
+  // the guest took off, with Add it back.
+  function flowChargesHtml(q) {
+    let h = ''
+    for (const x of q.charges || []) {
+      h += '<div class="mo-row mo-flow-charge" data-flow-charge="' + esc(x.flow.key) + '"><span>' + esc(x.label || x.name) + '</span>' +
+        '<span>' + money(x.amount_pence) + '</span>' +
+        (x.removable ? '<button type="button" class="mo-flow-x" data-flow-off="' + esc(x.flow.key) + '" aria-label="Take off ' + esc(x.name) + '">&times;</button>' : '') +
+        '</div>'
+    }
+    for (const w of q.flows_off || []) {
+      h += '<div class="mo-hint-row" data-flow-left-off="' + esc(w.key) + '"><p class="mo-muted mo-hint">' + esc(flowName(w)) + ' was taken off.</p>' +
+        '<button type="button" class="mo-btn mo-btn-ghost mo-hint-btn" data-flow-on="' + esc(w.key) + '">Add it back</button></div>'
     }
     return h
   }
@@ -863,7 +1032,7 @@ async function startOrdering() {
     return h
   }
   function canCheckout(q) {
-    return !ord.is_paused && q.lines.length && !q.errors.length && q.subtotal_pence >= (ord.min_order_pence || 0)
+    return !ord.is_paused && q.lines.length && !q.errors.length && q.own_subtotal_pence >= (ord.min_order_pence || 0)
   }
 
   // ── Dish sheet ──
@@ -871,7 +1040,9 @@ async function startOrdering() {
   // -/+ counters; an optional group with on_request waits behind a button.
   // A combo (shared/combos.js) goes one step at a time, then a last page
   // with the note, quantity and Add.
-  function openItem(item) {
+  // fromPrompt: opened from an order flow's prompt (adding it asks nothing
+  // more); onClose: what comes next once the window closes (the next prompt).
+  function openItem(item, { fromPrompt = false, onClose = null } = {}) {
     const choices = item.choices
     const isCombo = item.kind === 'combo' && item.combo
     // Start at what's still needed to reach the dish's minimum.
@@ -885,7 +1056,11 @@ async function startOrdering() {
     const back = document.createElement('div')
     back.className = 'mo-sheet-back'
     document.body.appendChild(back)
-    const close = () => { back.remove(); document.body.style.overflow = '' }
+    let next = onClose
+    const close = () => {
+      back.remove(); document.body.style.overflow = ''
+      if (next) { const n = next; next = null; n() }
+    }
     document.body.style.overflow = 'hidden'
     back.addEventListener('click', e => { if (e.target === back) close() })
 
@@ -1141,9 +1316,15 @@ async function startOrdering() {
         saveBasket()
         // Where the dish's picture is now, for its flight into the basket.
         const from = item.image_url ? pictureSpot(back, t) : null
+        // Order flows: what comes next, or the prompts this dish sets off
+        // (none for a dish picked from a prompt), after its flight.
+        const after = next
+        next = null
         close()
         draw()
         if (from) flyToBasket(item.image_url, from)
+        const due = after || fromPrompt ? [] : promptsDue('dish_added', line)
+        if (after || due.length) setTimeout(() => (after ? after() : runPrompts(due)), from && !lessMotion.matches ? 450 : 0)
       }
     })
   }
@@ -1460,10 +1641,13 @@ async function startOrdering() {
           data_consent: !!f.data_consent, marketing_opt_in: !!f.marketing_opt_in, tip_percent: state.tip, payment_method: state.method,
           promo_codes: state.unlocked.map(p => p.code), promo_ids: state.chosen,
           loyalty: LOY && loy.session ? { session: loy.session, rewards: pickedRewards().map(r => (r.member_reward_id ? { member_reward_id: r.member_reward_id } : { reward_id: r.reward_id })) } : null,
+          flows_off: Object.keys(state.flowsOff),
+          flows_asked: Object.entries(state.flowsAsked).map(([flow_id, a]) => ({ flow_id, answer: a.answer, item_ids: a.item_ids || [], n: a.n })),
         },
       })
       state.basket = []
       saveBasket()
+      saveFlows()
       state.chosen = []
       state.unlocked = []
       savePromos()
@@ -1599,7 +1783,7 @@ async function startOrdering() {
       if (ord.is_paused) h += '<div class="mo-banner">' + esc(ord.pause_message || 'We are not taking online orders right now. Please check back soon.') + '</div>'
       const count = state.basket.reduce((s, l) => s + l.qty, 0)
       h += '<div class="mo-layout"><div>' + menuHtml() + '</div><div class="mo-basket-col' + (promoList.length ? ' has-promos' : '') + '">' + promoBoxHtml('side', q, promoList) + '<div class="mo-basket' + (OPT.basketText ? ' mo-fg' : '') + '"><h2 class="mo-basket-title" style="margin-top:0;' + (OPT.basketText ? 'color:inherit;' : '') + '">Your basket</h2>' + basketHtml(false) + '</div></div></div>'
-      if (count) h += '<div class="mo-bar"><button class="mo-btn" data-open-basket><span>View basket (' + count + ')</span><span>' + money(q.subtotal_pence - q.discount_pence) + '</span></button></div>'
+      if (count) h += '<div class="mo-bar"><button class="mo-btn" data-open-basket><span>View basket (' + count + ')</span><span>' + money(q.subtotal_pence - q.discount_pence + (q.charges_pence || 0)) + '</span></button></div>'
     } else if (state.step === 'checkout') {
       h += checkoutHtml()
     } else {
@@ -1629,6 +1813,7 @@ async function startOrdering() {
       if (!t) return
       if ('close' in t.dataset) close()
       else if (changeQty(t)) { render(); draw(); if (!state.basket.length) close() }
+      else if (t.dataset.flowOff || t.dataset.flowOn) { flowOff(t.dataset.flowOff || t.dataset.flowOn, !!t.dataset.flowOn); render() }
       else if ('checkout' in t.dataset) { close(); goCheckout() }
       else if (t.dataset.promoDish) { close(); showPromoDish(t.dataset.promoDish, t.dataset.part) }
       else promoClick(t, () => { render(); draw() })
@@ -1647,10 +1832,14 @@ async function startOrdering() {
       else state.basket.splice(+t.dataset.dec, 1)
     } else return false
     saveBasket()
+    if (!state.basket.length) saveFlows()
     return true
   }
 
   function goCheckout() {
+    // Order flows' checkout prompts come first, each asked once.
+    const due = promptsDue('checkout')
+    if (due.length) return runPrompts(due, () => { if (canCheckout(quote())) goCheckout() })
     state.step = 'checkout'
     state.error = null
     toAppTop(false)
@@ -1675,6 +1864,8 @@ async function startOrdering() {
     }
     else if ('closeSearch' in t.dataset) closeSearch()
     else if (changeQty(t)) draw()
+    else if (t.dataset.flowOff) flowOff(t.dataset.flowOff, false)
+    else if (t.dataset.flowOn) flowOff(t.dataset.flowOn, true)
     else if ('checkout' in t.dataset) goCheckout()
     else if ('openBasket' in t.dataset) openBasketSheet()
     else if ('back' in t.dataset) { state.step = 'menu'; state.error = null; draw() }
@@ -1951,6 +2142,7 @@ async function startStatus() {
     }
     h += '<div class="mo-row"><span>Subtotal</span><span>' + money(o.subtotal_pence) + '</span></div>'
     for (const p of o.promotions || []) h += '<div class="mo-row mo-disc"><span>' + esc(p.name) + (p.code ? ' (' + esc(p.code) + ')' : '') + '</span><span>&minus;' + money(p.discount_pence) + '</span></div>'
+    for (const x of o.charges || []) h += '<div class="mo-row" data-order-charge><span>' + esc(x.label || x.name) + '</span><span>' + money(x.amount_pence) + '</span></div>'
     if (o.tip_pence) h += '<div class="mo-row"><span>Tip</span><span>' + money(o.tip_pence) + '</span></div>'
     h += '<div class="mo-row mo-total"><span>Total</span><span>' + money(o.total_pence) + '</span></div>'
     if (o.vat_pence) h += '<div class="mo-row mo-muted" style="font-size:.9rem;"><span>Includes VAT</span><span>' + money(o.vat_pence) + '</span></div>'

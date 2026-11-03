@@ -25,6 +25,8 @@ import { venuePromotions, findByCode, lockUses } from './promoSvc.js'
 import { menuTags } from '../../../shared/menuTags.js'
 import { taxFor } from '../../../shared/tax.js'
 import { loadTaxRates, saleContext } from './taxSvc.js'
+import { onlineFlows } from './orderFlowSvc.js'
+import { cleanFlowsOff, cleanFlowsAsked } from '../../../shared/pos/orderFlows.js'
 
 // An unpaid online order holds its slot this long, then expires.
 export const PENDING_TTL_MINS = 30
@@ -196,6 +198,7 @@ export async function loadOrderingMenu(tx, venue, settings, { fulfilment = 'coll
   // alone online (switched off for ordering, or in a section hidden on the
   // website), so every dish of these menus is a possible combo part.
   const partsById = {}
+  const partMenus = {}   // the menus each of those is in (order flows' dishes, migration 236)
   const sectionItems = {}
   const comboPartIds = new Set()
   let dietaryTags = []
@@ -258,6 +261,7 @@ export async function loadOrderingMenu(tx, venue, settings, { fulfilment = 'coll
       for (const it of s.items || []) {
         if (it.kind === 'combo') continue
         if (!partsById[it.id]) partsById[it.id] = shapeItem(it, s, full, rules, shownCodes)
+        if (!(partMenus[it.id] ||= []).includes(id)) partMenus[it.id].push(id)
         sectionItems[s.id] = [...new Set([...(sectionItems[s.id] || []), it.id])]
       }
     }
@@ -297,9 +301,26 @@ export async function loadOrderingMenu(tx, venue, settings, { fulfilment = 'coll
     itemsById,
     itemMenus,
     partsById,
+    partMenus,
     sectionItems,
     comboPartIds,
     dietary_tags: (dietaryTags || []).map(t => ({ code: t.code, label: t.label, glyph: t.glyph, colour: t.colour, kind: t.kind, in_key: t.in_key })),
+  }
+}
+
+/**
+ * What priceBasket() needs for order flows (services/orderFlowSvc.js
+ * onlineFlows(), migration 236), or null: their dishes from every dish of the
+ * chosen menus (one in a section hidden on the website too, like a paper
+ * bag), each only while one of its menus is on at `at` (venue-local { date,
+ * dow, minutes }: the collection time; none = any time), and what the guest
+ * took off (off: { [key]: true }).
+ */
+export function basketFlows(flows, menu, settings, { off = {}, at = null } = {}) {
+  if (!flows) return null
+  return {
+    ...flows, off: off || {}, items: menu.partsById,
+    itemOk: at ? id => !itemOffAt([id], menu.partMenus || {}, settings, at) : null,
   }
 }
 
@@ -496,8 +517,15 @@ function shapeItems(items) {
     qty: i.qty, unit_price_pence: i.unit_price_pence, line_total_pence: i.line_total_pence,
     discount_pence: i.discount_pence || 0,
     vat_rate: Number(i.vat_rate), vat_pence: i.vat_pence, note: i.note,
+    // Put on by an order flow (migration 236): { removable } (by itself).
+    ...(i.flow ? { flow: { removable: !!i.flow.removable } } : {}),
   }))
 }
+
+// The charges an order flow put on an online order (migration 236), as the guest and staff see them.
+const shapeCharges = rows => (Array.isArray(rows) ? rows : []).map(x => ({
+  name: x.name, label: x.label || x.name, amount_pence: int(x.amount_pence) || 0, vat_rate: Number(x.vat_rate) || 0, vat_pence: int(x.vat_pence) || 0,
+}))
 
 const shapePromos = rows => (rows || []).map(p => ({ name: p.name, code: p.code, discount_pence: p.discount_pence, combo: !!p.combo_item_id }))
 
@@ -515,6 +543,7 @@ export function publicOrder(order, items, venue, promotions = []) {
     currency: order.currency,
     subtotal_pence: order.subtotal_pence, discount_pence: order.discount_pence || 0, tip_pence: order.tip_pence,
     promotions: shapePromos(promotions),
+    charges: shapeCharges(order.charges), charges_pence: int(order.charges_pence) || 0,
     total_pence: order.total_pence, vat_pence: order.vat_pence,
     payment_method: order.payment_method,
     payment_status: order.payment_status,
@@ -533,6 +562,7 @@ export function adminOrder(order, items = [], extra = {}, promotions = []) {
     discount_pence: int(order.discount_pence) || 0,
     items: shapeItems(items),
     promotions: shapePromos(promotions),
+    charges: shapeCharges(order.charges), charges_pence: int(order.charges_pence) || 0,
     ...extra,
   }
 }
@@ -727,16 +757,21 @@ export async function createOrder({ venue, body, gatewayCtx = {} }) {
         reserved.push(await loyalty.reserveReward(tx, { member, programme, want: p.want, where: { channel: 'online', venue_id: venue.id } }))
       }
     }
+    // Order flows (migration 236): what they put on by themselves, worked
+    // out again here from the guest's own dishes, at the collection time; the
+    // guest's word counts only for what may be taken off.
+    const flows = await onlineFlows(tx, venue, settings)
     const priced = priceBasket(itemsById, body.lines, {
       tipPercent, promos, promoCtx, combos: basketCombos(orderingMenu),
       rewards: reserved.map(r => ({ ...r.reward, id: r.redemption.id })),
+      flows: basketFlows(flows, orderingMenu, settings, { off: cleanFlowsOff(body.flows_off), at: localParts(promisedAt, tz) }),
     })
     const rewardErr = priced.errors.find(e => e.code === 'reward')
     if (rewardErr) throw CreateError(422, rewardErr.error, { code: 'reward_invalid' })
     if (priced.errors.length) throw CreateError(422, priced.errors[0].error, { code: 'basket_invalid', errors: priced.errors })
     if (!priced.lines.length) throw CreateError(422, 'Your basket is empty')
-    // The minimum order is on the dishes' full price, before promotions.
-    if (priced.subtotal_pence < settings.min_order_pence) {
+    // The minimum order is on the guest's own dishes' full price, before promotions.
+    if (priced.own_subtotal_pence < settings.min_order_pence) {
       throw CreateError(422, 'The minimum order is £' + (settings.min_order_pence / 100).toFixed(2), { code: 'min_order' })
     }
     const usedUp = await lockUses(tx, venue.tenant_id, priced.promotions.map(p => p.id))
@@ -778,7 +813,8 @@ export async function createOrder({ venue, body, gatewayCtx = {} }) {
                           data_consent_at, consent,
                           currency, subtotal_pence, discount_pence, tip_pence, total_pence, vat_pence,
                           platform_fee_percent, platform_fee_pence,
-                          payment_method, payment_status, order_type_id, revenue_stream_id)
+                          payment_method, payment_status, order_type_id, revenue_stream_id,
+                          charges, charges_pence, flows)
       VALUES (${venue.tenant_id}, ${venue.id}, 'web', 'collection', ${serviceDate}, ${Number(next)},
               'pending_payment', ${isAsap}, ${requestedFor}, ${promisedAt}, ${customerId},
               ${body.customer.name}, ${body.customer.email || null}, ${body.customer.phone || null},
@@ -786,15 +822,21 @@ export async function createOrder({ venue, body, gatewayCtx = {} }) {
               ${consentAt}, ${tx.json(consent)},
               ${venue.currency || 'GBP'}, ${priced.subtotal_pence}, ${priced.discount_pence}, ${priced.tip_pence}, ${priced.total_pence}, ${priced.vat_pence},
               ${feePercent}, ${feePence},
-              ${gateway.key}, 'unpaid', ${settings.order_type_ids?.collection || null}, ${settings.revenue_stream_id || null})
+              ${gateway.key}, 'unpaid', ${settings.order_type_ids?.collection || null}, ${settings.revenue_stream_id || null},
+              ${tx.json(priced.charges || [])}, ${priced.charges_pence || 0},
+              ${flows ? tx.json({
+                asked: cleanFlowsAsked(body.flows_asked, new Set(flows.list.map(f => f.id))),
+                off: Object.fromEntries((priced.flows_off || []).map(w => [w.key, true])),
+              }) : null})
       RETURNING ${ORDER_COLS}
     `
     for (const [i, l] of priced.lines.entries()) {
       await tx`
         INSERT INTO order_items (order_id, tenant_id, menu_item_id, name, options, parts, qty,
-                                 unit_price_pence, line_total_pence, discount_pence, vat_rate, vat_pence, note, sort_order)
+                                 unit_price_pence, line_total_pence, discount_pence, vat_rate, vat_pence, note, sort_order, flow)
         VALUES (${order.id}, ${venue.tenant_id}, ${l.item_id}, ${l.name}, ${tx.json(l.options)}, ${l.parts ? tx.json(l.parts) : null}, ${l.qty},
-                ${l.unit_pence}, ${l.line_total_pence}, ${l.discount_pence || 0}, ${l.vat_rate}, ${l.vat_pence}, ${l.note}, ${i})
+                ${l.unit_pence}, ${l.line_total_pence}, ${l.discount_pence || 0}, ${l.vat_rate}, ${l.vat_pence}, ${l.note}, ${i},
+                ${l.flow ? tx.json(l.flow) : null})
       `
     }
     for (const p of priced.promotions) {

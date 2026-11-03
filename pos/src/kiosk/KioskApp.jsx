@@ -21,6 +21,7 @@ import Menu from './Menu.jsx'
 import Builder from './Builder.jsx'
 import Allergens from './Allergens.jsx'
 import { Basket, Details, Pay, Card, Placing, Done, Failed } from './Checkout.jsx'
+import FlowPrompt from './FlowPrompt.jsx'
 import { cx, Sheet } from './parts.jsx'
 import { useKioskViewport, useKioskBox, screenZoom } from './viewport.js'
 import { useJourneyState, startJourneys, listenForReplay, useReplayBox } from './journey.js'
@@ -316,6 +317,8 @@ export default function KioskApp({ device = null, previewToken = null, shareToke
         <div className="absolute inset-x-0 top-0 z-[65]"><MoveNotice kind="kiosk" onMove={moveKiosk} className="pl-[80px]" /></div>
       )}
       {previewBand && <div className="k-preview-band" data-testid="k-preview-band">{texts.ui('preview')}</div>}
+      {/* An order flow's prompt (FlowPrompt.jsx): over the menu, a dish's page or the order. */}
+      {s.prompt && s.screen !== 'start' && <FlowPrompt />}
       {s.toast && <div key={s.toast.id} className="k-toast" data-testid="k-toast">{s.toast.text}</div>}
       <Idle s={s} texts={texts} />
       {staff && <StaffPanel s={s} box={box} onClose={() => setStaff(false)} />}

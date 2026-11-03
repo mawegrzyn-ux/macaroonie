@@ -7,6 +7,7 @@
 //
 //   GET  /pricing.js                                shared/orderPricing.js for the ordering page
 //   GET  /promotions.js, /menuSchedule.js, /loyalty.js  the shared files pricing.js imports
+//   GET  /pos/orderFlows.js, /pos/charges.js, /pos/ids.js, /tax.js   order flows and their charges (migration 236)
 //   POST /venues/:venueId/promo-code                check a promo code (migration 131)
 //   GET  /venues/:venueId                           menu, settings, dates, payment methods
 //   GET  /venues/:venueId/slots?date=YYYY-MM-DD     collection times for a day
@@ -27,9 +28,11 @@ import { sql, withTenant, systemSql } from '../config/db.js'
 import { httpError } from '../middleware/error.js'
 import { getGateway, checkoutGateways, paymentContext } from '../services/paymentGateways/index.js'
 import {
-  loadSettings, loadOrderingMenu, loadPrivacy, publicItem, computeSlots, orderingDates, itemOffAt, basketCombos,
+  loadSettings, loadOrderingMenu, loadPrivacy, publicItem, computeSlots, orderingDates, itemOffAt, basketCombos, basketFlows,
   createOrder, startPayment, applyPaymentResult, loadPublicOrderByToken, publicOrder, localParts,
 } from '../services/orderSvc.js'
+import { onlineFlows, publicFlows, flowDishIds } from '../services/orderFlowSvc.js'
+import { cleanFlowsOff } from '../../../shared/pos/orderFlows.js'
 import { priceBasket } from '../../../shared/orderPricing.js'
 import { venuePromotions, publicPromotion, findByCode } from '../services/promoSvc.js'
 import { loadAllergenNotice } from './menus.js'
@@ -41,7 +44,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // ./menuSchedule.js: all three are served side by side under /order-api,
 // with ./menuTags.js (the allergen notice's key, migration 147) and
 // ./loyalty.js (loyalty rewards in the basket, migration 211).
-const SHARED_JS = Object.fromEntries(['orderPricing', 'promotions', 'menuSchedule', 'menuTags', 'combos', 'loyalty'].map(n =>
+// Order flows (migration 236): ./pos/orderFlows.js, and ./pos/charges.js
+// with what it imports (./pos/ids.js, ./tax.js), at the same paths.
+const SHARED_JS = Object.fromEntries(['orderPricing', 'promotions', 'menuSchedule', 'menuTags', 'combos', 'loyalty',
+  'pos/orderFlows', 'pos/charges', 'pos/ids', 'tax'].map(n =>
   [n, readFileSync(path.join(__dirname, '../../../shared/' + n + '.js'), 'utf8')]))
 
 const uuid = z.string().uuid()
@@ -72,10 +78,23 @@ const PromoFields = {
   }).nullable().optional(),
 }
 
+// Order flows (migration 236): what the guest took off of what they put on
+// by themselves (keys; only removable ones stay off), and the prompts asked.
+const FlowFields = {
+  flows_off:   z.array(z.string().max(120)).max(60).default([]),
+  flows_asked: z.array(z.object({
+    flow_id:  uuid,
+    answer:   z.enum(['added', 'declined']),
+    item_ids: z.array(uuid).max(24).default([]),
+    n:        z.number().int().min(1).max(99).optional(),
+  })).max(60).default([]),
+}
+
 const QuoteBody = z.object({
   lines:       z.array(LineBody).max(100),
   tip_percent: z.number().int().min(0).max(50).default(0),
   ...PromoFields,
+  ...FlowFields,
 })
 
 const OrderBody = z.object({
@@ -95,6 +114,7 @@ const OrderBody = z.object({
   tip_percent:      z.number().int().min(0).max(50).default(0),
   payment_method:   z.string().min(1).max(40),
   ...PromoFields,
+  ...FlowFields,
 })
 
 async function resolveVenue(venueId) {
@@ -144,17 +164,22 @@ export default async function orderApiRoutes(app) {
   app.get('/menuTags.js', serveJs('menuTags'))
   app.get('/combos.js', serveJs('combos'))
   app.get('/loyalty.js', serveJs('loyalty'))
+  app.get('/pos/orderFlows.js', serveJs('pos/orderFlows'))
+  app.get('/pos/charges.js', serveJs('pos/charges'))
+  app.get('/pos/ids.js', serveJs('pos/ids'))
+  app.get('/tax.js', serveJs('tax'))
 
   app.get('/venues/:venueId', async (req) => {
     const { venue, settings } = await requireOrderingVenue(req.params.venueId)
     const today = localParts(new Date(), venue.timezone).date
-    const [menu, privacy, promos, allergenNotice, loyalty, site] = await withTenant(venue.tenant_id, async tx => [
+    const [menu, privacy, promos, allergenNotice, loyalty, site, flows] = await withTenant(venue.tenant_id, async tx => [
       await loadOrderingMenu(tx, venue, settings, { dates: orderingDates(venue, settings), now: new Date() }),
       await loadPrivacy(tx, venue.tenant_id),
       await venuePromotions(tx, venue, today),
       await loadAllergenNotice(tx, venue.tenant_id),
       await deviceLoyalty(tx, venue.tenant_id, venue.id, 'online'),
       await tenantSite(tx, venue.tenant_id),
+      await onlineFlows(tx, venue, settings),
     ])
     const gateways = checkoutGateways(settings, { venue, ...(await paymentContext(venue)) })
     return {
@@ -188,6 +213,14 @@ export default async function orderApiRoutes(app) {
       has_promo_codes: promos.some(p => p.apply_mode === 'code'),
       // Loyalty (migration 211): earning and spending on online orders here;
       // the guest signs in through /loyalty-api/t/<slug> (the web app's sign-in).
+      // Order flows on online ordering (migration 236): prompts, and dishes
+      // and charges put on by themselves (shared/pos/orderFlows.js), with
+      // the dishes they put on (one in a section hidden on the website too).
+      // The server works them out again when the order is placed.
+      flows: flows ? {
+        ...publicFlows(flows),
+        items: Object.fromEntries(flowDishIds(flows).filter(id => menu.partsById[id]).map(id => [id, publicItem(menu.partsById[id])])),
+      } : null,
       loyalty: loyalty && site?.slug ? {
         slug: site.slug, name: loyalty.name, points: loyalty.points, points_label: loyalty.points_label,
         per_pound: loyalty.per_pound, min_spend_pence: loyalty.min_spend_pence, earn: loyalty.earn, redeem: loyalty.redeem,
@@ -229,9 +262,10 @@ export default async function orderApiRoutes(app) {
     const { venue, settings } = await requireOrderingVenue(req.params.venueId)
     const body = QuoteBody.parse(req.body)
     const at = localParts(new Date(), venue.timezone)
-    const [menu, promos] = await withTenant(venue.tenant_id, async tx => [
+    const [menu, promos, flows] = await withTenant(venue.tenant_id, async tx => [
       await loadOrderingMenu(tx, venue, settings),
       await venuePromotions(tx, venue, at.date),
+      await onlineFlows(tx, venue, settings),
     ])
     const tip = settings.tips_enabled && settings.tip_percents.includes(body.tip_percent) ? body.tip_percent : 0
     const unlocked = body.promo_codes.map(c => findByCode(promos, c)?.id).filter(Boolean)
@@ -251,6 +285,7 @@ export default async function orderApiRoutes(app) {
     }
     const q = priceBasket(menu.itemsById, body.lines, {
       tipPercent: tip, promos, promoCtx: { at, venueId: venue.id, unlocked, chosen: body.promo_ids }, combos: basketCombos(menu), rewards,
+      flows: basketFlows(flows, menu, settings, { off: cleanFlowsOff(body.flows_off) }),
     })
     return { ...q, min_order_pence: settings.min_order_pence, loyalty_error: loyaltyError }
   })

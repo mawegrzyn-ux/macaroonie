@@ -9,10 +9,12 @@ import { lineGross, groupModifiers } from '@shared/pos/pricing.js'
 import { countParts } from '@shared/combos.js'
 import { configItem, comboCtx } from '@shared/pos/offers.js'
 import { TK, pickImages, bundleParts, doneInfo, doneLook, isEmail } from '@shared/kiosk.js'
+import { chargeLabel, chargeList } from '@shared/pos/charges.js'
 import { qrSvg } from '@shared/qr.js'
 import {
   useKiosk, textsFor, go, openBuilder, setQty, addToBasket, setDetails, placeOrder, methods, restart, soldOut, printResultReceipt,
   receiptLink, emailReceipt, getState as getFresh, cardStart, cardCheck, cardCancel, cardTest, setCardWaiting, itemOffNow,
+  beforePaying, setFlowOff,
 } from './store.js'
 import { ulid } from '@shared/pos/ids.js'
 import { cx, Photo, PickPhoto, BundlePhoto, Keyboard, NumberPad, EmailKeyboard, Sheet, BackButton, usePortrait } from './parts.jsx'
@@ -37,11 +39,15 @@ export function toPayment(s) {
   return placeOrder('counter')
 }
 
-export function afterBasket(s) {
-  const p = promptsFor(s)
-  if (p.ask_name !== 'off') return go('details', { detailStep: 'name' })
-  if (p.ask_tent !== 'off') return go('details', { detailStep: 'tent' })
-  return toPayment(s)
+export function afterBasket() {
+  // Order flows' checkout prompts first (store.js beforePaying()), each asked once.
+  beforePaying(() => {
+    const s = getFresh()
+    const p = promptsFor(s)
+    if (p.ask_name !== 'off') return go('details', { detailStep: 'name' })
+    if (p.ask_tent !== 'off') return go('details', { detailStep: 'tent' })
+    return toPayment(s)
+  })
 }
 
 // ── Lines in the guest's language ───────────────────────────────
@@ -79,9 +85,18 @@ export function Basket() {
   const texts = textsFor(s)
   const { ui, money } = texts
   const ctx = useMemo(() => comboCtx(config), [config])
-  const { totals, check, error } = useBasketTotals(s)
+  const { totals, check, error, flows } = useBasketTotals(s)
   const sold = soldOut(config)
   const inBasket = new Set(s.basket.map(e => e.item_id))
+  // Order flows (store.js flowsNow()): the dishes they put on (after the
+  // guest's in check.lines), their charges, and what the guest took off.
+  const flowLines = (flows?.entries || []).map((e, j) => ({ e, line: check?.lines?.[s.basket.length + j] }))
+  const chargeRows = (totals?.charges || []).filter(x => x.amount > 0).map(x => ({ x, flow: (flows?.charges || []).find(c => c.id === x.id) }))
+  const leftOff = flows?.leftOff || []
+  const leftOffName = w => {
+    if (w.kind === 'dish') { const it = configItem(config, w.item_id); return it ? texts.itemName(it) : '' }
+    return chargeList(config.settings?.charges).find(c => c.id === w.charge_id)?.name || ''
+  }
   const upsell = config.design.checkout.upsell
     ? config.design.checkout.upsell_item_ids.map(id => configItem(config, id)).filter(it => it && !sold.has(it.id) && !inBasket.has(it.id) && !itemOffNow(config, it.id, s.menuIds))
     : []
@@ -114,9 +129,11 @@ export function Basket() {
   )
   const totalsBlock = totals && (
     <div className="k-card p-[var(--k-pad)] flex flex-col gap-[.4em]" data-testid="k-totals">
+      {(offers.length > 0 || chargeRows.length > 0) && (
+        <div className="flex justify-between"><span>{ui('subtotal')}</span><span>{money(totals.subtotal)}</span></div>
+      )}
       {offers.length > 0 && (
         <>
-          <div className="flex justify-between"><span>{ui('subtotal')}</span><span>{money(totals.subtotal)}</span></div>
           {offers.map(d => (
             <div key={d.id} className="flex justify-between text-[var(--k-primary)] font-semibold" data-testid="k-offer">
               <span>{offerName(d)}</span><span>-{money(d.amount)}</span>
@@ -125,6 +142,18 @@ export function Basket() {
           <div className="flex justify-between text-[var(--k-primary)] font-bold"><span>{ui('you_save')}</span><span>{money(totals.discount)}</span></div>
         </>
       )}
+      {/* Charges an order flow put on: one the guest may take off has Remove. */}
+      {chargeRows.map(({ x, flow }) => (
+        <div key={x.id} className="flex justify-between items-center gap-[.5em]" data-testid="k-flow-charge" data-key={flow?.flow?.key || ''}>
+          <span className="flex-1 min-w-0">{chargeLabel(x)}</span>
+          <span>{money(x.amount)}</span>
+          {x.optional && flow && (
+            <button className="k-btn k-btn-icon k-btn-ghost" onClick={() => setFlowOff(flow.flow.key, true)} aria-label={ui('remove') + ': ' + x.name} data-testid="k-flow-charge-off">
+              <Trash2 />
+            </button>
+          )}
+        </div>
+      ))}
       <div className="flex justify-between k-head text-[1.6em]"><span>{ui('total')}</span><span data-testid="k-total">{money(totals.total)}</span></div>
     </div>
   )
@@ -173,6 +202,36 @@ export function Basket() {
             </div>
           )
         })}
+        {/* What order flows put on: no quantity to change; one that may be taken off has Remove. */}
+        {flowLines.map(({ e, line }) => {
+          const it = configItem(config, e.item_id)
+          if (!it) return null
+          return (
+            <div key={e.key} className="k-card p-[.7em] flex gap-[.8em] items-start" data-testid="k-flow-line" data-key={e.flow.key} data-removable={e.flow.removable ? '1' : '0'}>
+              <span className="k-thumb w-[4.6em] h-[4.6em] shrink-0 rounded-[calc(var(--k-radius)/1.5)] overflow-hidden">
+                <Photo src={it.image_url} label={texts.itemName(it)} className="w-full h-full object-cover" phClassName="k-item-ph h-full aspect-auto text-[1.2em]" />
+              </span>
+              <div className="flex-1 min-w-0 flex flex-col gap-[.3em]">
+                <div className="flex items-start gap-[.6em]">
+                  <span className="k-head text-[1.15em] flex-1">{(e.qty > 1 ? e.qty + ' x ' : '') + texts.itemName(it)}</span>
+                  <span className="k-price">{line ? money(lineGross(line)) : ''}</span>
+                </div>
+                <span className="k-muted text-[.85em]">{ui('flow_added')}</span>
+                {e.flow.removable && (
+                  <div className="flex">
+                    <button className="k-btn k-btn-ghost" onClick={() => setFlowOff(e.flow.key, true)} data-testid="k-flow-off"><Trash2 /> {ui('remove')}</button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )
+        })}
+        {leftOff.map(w => (
+          <div key={w.key} className="k-card p-[.7em] flex items-center gap-[.6em] flex-wrap" data-testid="k-flow-left-off" data-key={w.key}>
+            <span className="flex-1 min-w-0 k-muted">{ui('flow_off', { name: leftOffName(w) })}</span>
+            <button className="k-btn" onClick={() => setFlowOff(w.key, false)} data-testid="k-flow-on"><Plus /> {ui('flow_add_back')}</button>
+          </div>
+        ))}
         {error && <div className="k-card p-[.8em] flex gap-[.6em] items-center"><AlertTriangle /> {error}</div>}
         {portrait && upsellBlock && <div className="mt-[var(--k-gap)]">{upsellBlock}</div>}
         {portrait && config.loyalty && s.basket.length > 0 && <div className="mt-[var(--k-gap)]"><LoyaltyBlock /></div>}
@@ -191,7 +250,7 @@ export function Basket() {
         <RestartButton s={s} texts={texts} />
         {!config.design.layout.header && <LanguageButton config={config} texts={texts} onBar />}
         <div className="flex-1" />
-        <button className="k-btn k-btn-accent k-btn-big" disabled={!s.basket.length || !!error} onClick={() => afterBasket(s)} data-testid="k-checkout"
+        <button className="k-btn k-btn-accent k-btn-big" disabled={!s.basket.length || !!error} onClick={() => afterBasket()} data-testid="k-checkout"
           data-fly-target="basket">
           {ui('checkout')}{totals ? ' · ' + money(totals.total) : ''}
         </button>
@@ -630,7 +689,7 @@ export function Failed() {
       {s.error && <div className="k-muted max-w-[700px]">{s.error}</div>}
       <div className="flex gap-[var(--k-gap)] flex-wrap justify-center">
         <button className="k-btn k-btn-big" onClick={() => go('basket')}><ShoppingBag /> {ui('your_order')}</button>
-        <button className="k-btn k-btn-primary k-btn-big" onClick={() => afterBasket(s)} data-testid="k-failed-retry">{ui('try_again')}</button>
+        <button className="k-btn k-btn-primary k-btn-big" onClick={() => afterBasket()} data-testid="k-failed-retry">{ui('try_again')}</button>
       </div>
     </div>
   )

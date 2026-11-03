@@ -228,6 +228,9 @@
 @keyframes k-blink { 50% { opacity: 0; } }
 .k-caret { display: inline-block; width: .08em; height: 1em; margin-left: .06em; background: currentColor; vertical-align: -.12em; animation: k-blink 1s steps(1) infinite; }
 .k-plus { width: 2.3em; height: 2.3em; border-radius: 999px; background: var(--k-accent); color: var(--k-accent-text); display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+/* Order flows (FlowPrompt.jsx): a dish picked in a prompt, and how many. */
+.k-item.k-on { box-shadow: 0 0 0 4px var(--k-primary), 0 2px 10px rgba(0,0,0,.07); }
+.k-flow-count { background: var(--k-primary); color: var(--k-primary-text); font-family: var(--k-font-head); font-weight: 800; font-size: 1.1em; }
 
 .k-flag { width: 2.8em; height: 1.9em; border-radius: .3em; overflow: hidden; display: block; box-shadow: 0 0 0 2px var(--k-line); }
 .k-lang-on .k-flag { box-shadow: 0 0 0 4px var(--k-primary); }

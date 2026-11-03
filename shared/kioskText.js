@@ -171,6 +171,11 @@ export const UI_TEXT = {
     receipt_waiting: 'We\'ll email your receipt to {email} once you\'ve paid at the counter',
     receipt_failed: 'We couldn\'t send your receipt. Check the address and try again.',
     preview: 'Preview: orders aren\'t sent',
+    // Order flows (migration 236): what a flow put on, taken off, put back, picked in a prompt.
+    flow_added: 'Added for your order',
+    flow_off: '{name} was taken off.',
+    flow_add_back: 'Add it back',
+    flow_picked: '{n} added',
   },
   es: {
     order_here: 'Pide aquí',
@@ -336,6 +341,10 @@ export const UI_TEXT = {
     receipt_waiting: 'Te enviaremos el recibo a {email} cuando hayas pagado en el mostrador',
     receipt_failed: 'No hemos podido enviar tu recibo. Revisa la dirección e inténtalo de nuevo.',
     preview: 'Vista previa: los pedidos no se envían',
+    flow_added: 'Añadido a tu pedido',
+    flow_off: 'Se ha quitado: {name}.',
+    flow_add_back: 'Volver a añadir',
+    flow_picked: '{n} añadidos',
   },
   ca: {
     order_here: 'Demana aquí',
@@ -501,6 +510,10 @@ export const UI_TEXT = {
     receipt_waiting: 'T\'enviarem el rebut a {email} quan hagis pagat al taulell',
     receipt_failed: 'No hem pogut enviar el rebut. Revisa l\'adreça i torna-ho a provar.',
     preview: 'Previsualització: les comandes no s\'envien',
+    flow_added: 'Afegit a la comanda',
+    flow_off: 'S\'ha tret: {name}.',
+    flow_add_back: 'Torna-ho a afegir',
+    flow_picked: '{n} afegits',
   },
   fr: {
     order_here: 'Commandez ici',
@@ -666,6 +679,10 @@ export const UI_TEXT = {
     receipt_waiting: 'Nous enverrons votre reçu à {email} une fois que vous aurez payé au comptoir',
     receipt_failed: 'Nous n\'avons pas pu envoyer votre reçu. Vérifiez l\'adresse et réessayez.',
     preview: 'Aperçu : les commandes ne sont pas envoyées',
+    flow_added: 'Ajouté à votre commande',
+    flow_off: 'Retiré : {name}.',
+    flow_add_back: 'Le remettre',
+    flow_picked: '{n} ajoutés',
   },
   de: {
     order_here: 'Hier bestellen',
@@ -831,6 +848,10 @@ export const UI_TEXT = {
     receipt_waiting: 'Wir senden Ihren Beleg an {email}, sobald Sie an der Theke bezahlt haben',
     receipt_failed: 'Ihr Beleg konnte nicht gesendet werden. Prüfen Sie die Adresse und versuchen Sie es noch einmal.',
     preview: 'Vorschau: Bestellungen werden nicht gesendet',
+    flow_added: 'Zu Ihrer Bestellung hinzugefügt',
+    flow_off: 'Entfernt: {name}.',
+    flow_add_back: 'Wieder hinzufügen',
+    flow_picked: '{n} hinzugefügt',
   },
   it: {
     order_here: 'Ordina qui',
@@ -996,6 +1017,10 @@ export const UI_TEXT = {
     receipt_waiting: 'Ti invieremo la ricevuta a {email} dopo che avrai pagato alla cassa',
     receipt_failed: 'Non siamo riusciti a inviare la ricevuta. Controlla l\'indirizzo e riprova.',
     preview: 'Anteprima: gli ordini non vengono inviati',
+    flow_added: 'Aggiunto al tuo ordine',
+    flow_off: 'Tolto: {name}.',
+    flow_add_back: 'Rimettilo',
+    flow_picked: '{n} aggiunti',
   },
   pt: {
     order_here: 'Peça aqui',
@@ -1161,6 +1186,10 @@ export const UI_TEXT = {
     receipt_waiting: 'Enviamos o recibo para {email} depois de pagar ao balcão',
     receipt_failed: 'Não foi possível enviar o recibo. Verifique o endereço e tente de novo.',
     preview: 'Pré-visualização: os pedidos não são enviados',
+    flow_added: 'Adicionado ao seu pedido',
+    flow_off: 'Retirado: {name}.',
+    flow_add_back: 'Voltar a adicionar',
+    flow_picked: '{n} adicionados',
   },
   nl: {
     order_here: 'Bestel hier',
@@ -1326,6 +1355,10 @@ export const UI_TEXT = {
     receipt_waiting: 'We mailen je bon naar {email} zodra je aan de balie hebt betaald',
     receipt_failed: 'We konden je bon niet versturen. Controleer het adres en probeer het opnieuw.',
     preview: 'Voorbeeld: bestellingen worden niet verstuurd',
+    flow_added: 'Toegevoegd aan je bestelling',
+    flow_off: 'Weggehaald: {name}.',
+    flow_add_back: 'Weer toevoegen',
+    flow_picked: '{n} toegevoegd',
   },
   pl: {
     order_here: 'Zamów tutaj',
@@ -1491,6 +1524,10 @@ export const UI_TEXT = {
     receipt_waiting: 'Wyślemy paragon na {email}, gdy zapłacisz przy ladzie',
     receipt_failed: 'Nie udało się wysłać paragonu. Sprawdź adres i spróbuj ponownie.',
     preview: 'Podgląd: zamówienia nie są wysyłane',
+    flow_added: 'Dodane do zamówienia',
+    flow_off: 'Usunięto: {name}.',
+    flow_add_back: 'Dodaj z powrotem',
+    flow_picked: 'Dodano: {n}',
   },
 }
 

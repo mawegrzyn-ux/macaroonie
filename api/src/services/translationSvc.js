@@ -21,9 +21,10 @@ import { addUsage } from '../ai/context.js'
 import { chatUnitsLeft, personUnitsLeft } from '../ai/settings.js'
 import { translationSources as buildSources, KIOSK_LANGUAGES, KEY_PATTERN } from '../../../shared/kiosk.js'
 import { noticeOf, menuTags } from '../../../shared/menuTags.js'
+import { flowOfRow } from './orderFlowSvc.js'
 
 export async function translationSources(tx, tenantId) {
-  const [menus, sections, items, variants, groups, options, types, tags, noticeRows, designs] = await Promise.all([
+  const [menus, sections, items, variants, groups, options, types, tags, noticeRows, designs, flows] = await Promise.all([
     tx`SELECT id, name FROM menus WHERE tenant_id = ${tenantId} ORDER BY sort_order, name`,
     tx`SELECT id, menu_id, title, subtitle, visibility FROM menu_sections WHERE tenant_id = ${tenantId} ORDER BY sort_order, title`,
     tx`SELECT id, section_id, name, description, kind, combo FROM menu_items WHERE tenant_id = ${tenantId} ORDER BY sort_order, name`,
@@ -35,6 +36,8 @@ export async function translationSources(tx, tenantId) {
     tx`SELECT code, label, kind, standard_key, show_on_menu FROM menu_dietary_tags WHERE tenant_id = ${tenantId} ORDER BY kind = 'allergen', sort_order, label`,
     tx`SELECT title, body, removable_note FROM menu_allergen_notice WHERE tenant_id = ${tenantId}`,
     tx`SELECT id, name, settings FROM kiosk_designs WHERE tenant_id = ${tenantId} ORDER BY created_at`,
+    // Order flow prompts kiosks show (migration 236): their question and line.
+    tx`SELECT id, name, is_active, sort_order, flow FROM pos_order_flows WHERE tenant_id = ${tenantId} ORDER BY sort_order, lower(name), created_at`,
   ])
   const variantsOf = new Map()
   for (const v of variants) (variantsOf.get(v.item_id) || variantsOf.set(v.item_id, []).get(v.item_id)).push(v)
@@ -49,6 +52,7 @@ export async function translationSources(tx, tenantId) {
     tags: menuTags(tags),
     notice: noticeOf(noticeRows[0]),
     designs,
+    flows: flows.map(flowOfRow).filter(Boolean),
   })
 }
 

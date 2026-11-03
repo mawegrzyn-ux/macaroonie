@@ -4003,11 +4003,11 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>pos_settings.service_charge_label</Mono>, and added the Discounts menu link after Order types. Tests:{' '}
               <Mono>shared/pos/test/charges.test.mjs</Mono>, <Mono>api/test/till-charges.test.mjs</Mono>.
             </P>
-            <H3>Order flows (migration 235)</H3>
+            <H3>Order flows (migrations 235, 236)</H3>
             <P>
               <Mono>shared/pos/orderFlows.js</Mono> is the one set of rules for the till, the cloud&apos;s sequencer, the
               venue hub, the designer and the API. A flow (<Mono>normaliseOrderFlow()</Mono> is its one shape) is{' '}
-              <Mono>&#123; id, name, on, kind, trigger, venue_ids, device_ids, apps, match, ask, adds &#125;</Mono>: kind{' '}
+              <Mono>&#123; id, name, on, kind, trigger, apps, venue_ids, till_ids, kiosk_ids, match, ask, adds &#125;</Mono>: kind{' '}
               <Mono>ask</Mono> (a prompt, trigger <Mono>dish_added</Mono> or <Mono>checkout</Mono>; <Mono>ask</Mono> holds{' '}
               <Mono>title</Mono>, <Mono>message</Mono>, the offered <Mono>item_ids</Mono> in order, <Mono>pick</Mono> one |
               several, <Mono>every_time</Mono>, <Mono>skip_if_has</Mono>) or <Mono>add</Mono> (trigger <Mono>match</Mono>;{' '}
@@ -4017,18 +4017,23 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               location&apos;s stream with that name), <Mono>type_ids</Mono>, <Mono>item_ids</Mono> / <Mono>section_ids</Mono>{' '}
               and <Mono>not_item_ids</Mono> / <Mono>not_section_ids</Mono>: each kind given must hold, any of its entries
               will do (<Mono>flowMatches()</Mono>; for <Mono>dish_added</Mono> the dishes are the dish just added, via{' '}
-              <Mono>addedDishes()</Mono>, a combo&apos;s parts too). <Mono>venue_ids</Mono> / <Mono>device_ids</Mono> null =
-              every location / every till there; <Mono>apps</Mono> is <Mono>[&apos;till&apos;]</Mono> (kiosks and online
-              ordering to come). Dishes a flow put on never count towards any flow&apos;s dish conditions
+              <Mono>addedDishes()</Mono>, a combo&apos;s parts too). <Mono>apps</Mono> is any of <Mono>till</Mono>,{' '}
+              <Mono>kiosk</Mono>, <Mono>online</Mono> (<Mono>FLOW_APPS</Mono>, in that order; a name that isn&apos;t one is
+              dropped); <Mono>venue_ids</Mono> / <Mono>till_ids</Mono> / <Mono>kiosk_ids</Mono> null = every location /
+              every till / every kiosk there (<Mono>flowRunsHere()</Mono>). Migration 236 renamed{' '}
+              <Mono>flow.device_ids</Mono> to <Mono>till_ids</Mono>; a flow stored with no <Mono>apps</Mono> runs on tills,
+              as before. Dishes a flow put on never count towards any flow&apos;s dish conditions
               (<Mono>orderDishes()</Mono> leaves out lines with a <Mono>flow</Mono> mark), so no flow feeds another or
               itself.
             </P>
             <P>
-              <Mono>flowProblems()</Mono> stops a flow being switched on (codes <Mono>name</Mono>, <Mono>venues</Mono>,{' '}
-              <Mono>devices</Mono>, <Mono>ask_title</Mono>, <Mono>ask_choices</Mono>, <Mono>adds</Mono>);{' '}
-              <Mono>flowWarnings(f, &#123; channels, tills &#125;)</Mono> only notes (<Mono>every_order</Mono>,{' '}
-              <Mono>every_checkout</Mono>, <Mono>every_dish</Mono>, <Mono>no_channel</Mono>, <Mono>tills_elsewhere</Mono>,{' '}
-              <Mono>offers_itself</Mono>, <Mono>off</Mono>). <Mono>flowWhenText()</Mono>, <Mono>flowIfLines()</Mono>,{' '}
+              <Mono>flowProblems()</Mono> stops a flow being switched on (codes <Mono>name</Mono>, <Mono>apps</Mono>,{' '}
+              <Mono>tills</Mono>, <Mono>kiosks</Mono>, <Mono>venues</Mono>, <Mono>ask_title</Mono>, <Mono>ask_choices</Mono>,{' '}
+              <Mono>adds</Mono>); <Mono>flowWarnings(f, &#123; channels, tills, kiosks, choices, charges, names &#125;)</Mono>{' '}
+              only notes (<Mono>every_order</Mono>, <Mono>every_checkout</Mono>, <Mono>every_dish</Mono>,{' '}
+              <Mono>no_channel</Mono>, <Mono>tills_elsewhere</Mono>, <Mono>kiosks_elsewhere</Mono>,{' '}
+              <Mono>dish_choices</Mono> (a dish it adds needs a choice: left off), <Mono>charge_covers</Mono> (a charge from
+              N guests never goes on a kiosk or online order), <Mono>offers_itself</Mono>, <Mono>off</Mono>). <Mono>flowWhenText()</Mono>, <Mono>flowIfLines()</Mono>,{' '}
               <Mono>flowThenLines()</Mono>, <Mono>flowWhereText()</Mono> and <Mono>flowSummary()</Mono> put a flow in words
               (the list and the designer&apos;s boxes). <Mono>newOrderFlow()</Mono> starts a prompt with no question.
             </P>
@@ -4062,17 +4067,19 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>GET /api/pos/order-flows</Mono> (in order, each with <Mono>problems</Mono>, <Mono>warnings</Mono>,{' '}
               <Mono>summary</Mono>, <Mono>where</Mono>), <Mono>GET /order-flows/catalog</Mono> (dishes by menu and section,
               channels with their locations, order types, charges, locations, tills), <Mono>POST /order-flows</Mono>{' '}
-              (<Mono>&#123; name, kind, copy_from? &#125;</Mono>, switched off, at most 60), <Mono>GET/PUT
+              (<Mono>&#123; name, kind, copy_from? &#125;</Mono>, switched off, at most 60; the catalogue also lists kiosks, and
+              each dish&apos;s <Mono>needs_choices</Mono> and each charge&apos;s <Mono>min_covers</Mono>), <Mono>GET/PUT
               /order-flows/:id</Mono> (the whole flow; switched on with problems: 422 code <Mono>flow</Mono> with{' '}
               <Mono>problems</Mono>), <Mono>PATCH /order-flows/:id</Mono> <Mono>&#123; on &#125;</Mono>, <Mono>PUT
               /order-flows/order</Mono>, <Mono>DELETE /order-flows/:id</Mono> (checks keep what it put on). Table{' '}
               <Mono>pos_order_flows</Mono> (name, <Mono>is_active</Mono>, <Mono>sort_order</Mono> as columns, the rest in{' '}
               <Mono>flow</Mono> jsonb; forced RLS). <Mono>ownOrderFlow()</Mono> (<Mono>services/orderFlowSvc.js</Mono>)
-              keeps only the company&apos;s own dishes, sections, order types, charges, locations and tills
-              (<Mono>flowIds()</Mono>, <Mono>ownFlow()</Mono>). <Mono>loadOrderFlows(tx, tenantId, venueId)</Mono> puts the
-              venue&apos;s flows (switched on, in order) in <Mono>settings.flows</Mono> of <Mono>tillConfig()</Mono> and{' '}
-              <Mono>printConfig()</Mono> (the sequencer, and so the hub, which judge flow charges with them); a change
-              tells the company&apos;s tills to download their config. Migration 235 put an Order flows link after Charges
+              keeps only the company&apos;s own dishes, sections, order types, charges, locations, tills and kiosks
+              (<Mono>flowIds()</Mono>, <Mono>ownFlow()</Mono>). <Mono>loadOrderFlows(tx, tenantId, venueId, &#123; app
+              &#125;)</Mono> gives the venue&apos;s flows (switched on, in order; with <Mono>app</Mono> only those running
+              there): every app&apos;s in <Mono>settings.flows</Mono> of <Mono>printConfig()</Mono> (the sequencer, and so
+              the hub, which judge flow charges with them), the tills&apos; in <Mono>tillConfig()</Mono>, the kiosks&apos;
+              in <Mono>kioskConfig()</Mono>; a change tells the company&apos;s tills and kiosks to download their config. Migration 235 put an Order flows link after Charges
               in every Store tech menu.
             </P>
             <P>
@@ -4094,6 +4101,76 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               (<Mono>/pos/flows/:id</Mono>: the Where, When, If and Then boxes, their panels, the preview; the draft keeps
               the words as typed, <Mono>cleanFlow()</Mono> is what is checked and compared). Tests:{' '}
               <Mono>shared/pos/test/orderFlows.test.mjs</Mono>, <Mono>api/test/order-flows.test.mjs</Mono>.
+            </P>
+            <P>
+              <strong>Guests: kiosks and online ordering</strong> (migration 236). A guest&apos;s basket holds only what
+              the guest put in; what add flows put on is worked out from it whenever it changes, never stored in it.{' '}
+              <Mono>basketOrder()</Mono> makes the order flows see (lines, stream, order type, <Mono>flows_off</Mono>,{' '}
+              <Mono>flows_asked</Mono>) and <Mono>guestFlowAdds(list, order, here, off, &#123; all &#125;)</Mono> says
+              what goes on: nothing until the guest has a dish of their own, and only removable things can be taken off
+              (<Mono>off</Mono> is keys from <Mono>addKey()</Mono>; <Mono>leftOff</Mono> lists them for Add it back).
+              Prompts are answered once per order (<Mono>askedAfter()</Mono>); <Mono>cleanFlowsOff()</Mono> /{' '}
+              <Mono>cleanFlowsAsked()</Mono> tidy what a guest&apos;s order carries. A dish with options or a meal deal,
+              one sold out or not on a menu on now is left off, and a charge counting from N guests never goes on (a guest
+              order has no guest count).
+            </P>
+            <P>
+              <strong>Kiosk</strong> (<Mono>shared/kiosk.js</Mono>): <Mono>kioskPlace()</Mono>,{' '}
+              <Mono>kioskFlows(config, basket, &#123; device, order_type_id, off, asked, soldOut, isOn &#125;)</Mono>{' '}
+              (<Mono>entries</Mono>: the flow dishes as basket entries with their <Mono>flow</Mono> mark;{' '}
+              <Mono>charges</Mono>: as <Mono>charge.added</Mono> carries them, from the list, <Mono>optional</Mono> =
+              removable, <Mono>flow &#123; id, key &#125;</Mono>; <Mono>leftOff</Mono>; <Mono>order</Mono>),{' '}
+              <Mono>promptChoices()</Mono> (what a prompt can offer: known, sellable, not sold out, on now) and{' '}
+              <Mono>kioskPrompts()</Mono> (due on <Mono>dish_added</Mono> with the entry added, or at{' '}
+              <Mono>checkout</Mono>). <Mono>kioskOrder()</Mono> sends the flow dishes as lines with their marks, the
+              charges as <Mono>charge.added</Mono>, each prompt answered as <Mono>check.flow_asked</Mono> and{' '}
+              <Mono>flows_off</Mono> on <Mono>check.opened</Mono>, checked with the venue&apos;s settings (its flows and
+              charges list). <Mono>KIOSK_EVENTS</Mono> gained <Mono>check.flow_asked</Mono> and <Mono>charge.added</Mono>{' '}
+              (only from the list with a flow mark, then judged by <Mono>flowChargeAdd()</Mono> as on a till). The
+              kiosk&apos;s config carries its flows and the charges list in <Mono>settings</Mono>, and the dishes they put
+              on from a section hidden on the website stay known in <Mono>items</Mono> (<Mono>tillMenuData()</Mono>{' '}
+              <Mono>keepIds</Mono>, with <Mono>hidden_menu_ids</Mono>, read by <Mono>itemOffNow()</Mono>), never on its
+              menu. The app (<Mono>pos/src/kiosk/store.js</Mono>): <Mono>flowsNow()</Mono>, <Mono>orderEntries()</Mono>,{' '}
+              <Mono>orderCharges()</Mono>, <Mono>setFlowOff()</Mono>, the prompt queue (<Mono>state.prompt</Mono>,{' '}
+              <Mono>promptNow()</Mono>, <Mono>promptPick()</Mono>, <Mono>promptDone()</Mono>, <Mono>beforePaying()</Mono>;
+              a dish with choices opens its page with <Mono>fromPrompt</Mono>), <Mono>FlowPrompt.jsx</Mono>{' '}
+              (<Mono>k-flow-prompt</Mono>, <Mono>k-flow-dish</Mono>, <Mono>k-flow-count</Mono>, <Mono>k-flow-done</Mono>),
+              the basket&apos;s <Mono>k-flow-line</Mono> / <Mono>k-flow-off</Mono>, <Mono>k-flow-charge</Mono> /{' '}
+              <Mono>k-flow-charge-off</Mono> and <Mono>k-flow-left-off</Mono> / <Mono>k-flow-on</Mono> in{' '}
+              <Mono>Checkout.jsx</Mono>; journeys record <Mono>flowsOff</Mono> and <Mono>prompt</Mono>. Prompt words are
+              translated as <Mono>TK.flow(id, &apos;title&apos; | &apos;message&apos;)</Mono> (Menus → Translations, Order
+              flows). A kiosk order opened on a till keeps the kiosk&apos;s flows (<Mono>orderOrigin()</Mono> in the
+              till&apos;s <Mono>syncFlows()</Mono>).
+            </P>
+            <P>
+              <strong>Online ordering</strong>: <Mono>onlineFlows(tx, venue, settings)</Mono>{' '}
+              (<Mono>services/orderFlowSvc.js</Mono>) gives the flows running online at the venue, <Mono>here</Mono> (its
+              channel: the revenue stream Ordering setup picks), the order type (collection) and their charges as the
+              list has them (with VAT); <Mono>basketFlows()</Mono> (<Mono>services/orderSvc.js</Mono>) adds the dishes
+              they can put on (<Mono>partsById</Mono>: a section hidden on the website too) and{' '}
+              <Mono>itemOk</Mono> at the collection time (<Mono>partMenus</Mono>). <Mono>priceBasket(..., &#123; flows
+              &#125;)</Mono> (<Mono>shared/orderPricing.js</Mono>) prices the flow dishes as lines with their{' '}
+              <Mono>flow</Mono> mark after the guest&apos;s, the charges after every discount (never in the subtotal), and
+              returns <Mono>own_subtotal_pence</Mono> (the guest&apos;s dishes: what the minimum order counts),{' '}
+              <Mono>charges</Mono>, <Mono>charges_pence</Mono> and <Mono>flows_off</Mono> (left off); total = subtotal −
+              discount + charges + tip. A line can&apos;t bring a flow mark of its own. <Mono>GET /order-api/venues/:id</Mono>{' '}
+              sends <Mono>flows</Mono> (<Mono>publicFlows()</Mono>: no names or places, with <Mono>items</Mono> = the
+              dishes they put on), and serves <Mono>/pos/orderFlows.js</Mono>, <Mono>/pos/charges.js</Mono>,{' '}
+              <Mono>/pos/ids.js</Mono> and <Mono>/tax.js</Mono> for the page. The quote and the order take{' '}
+              <Mono>flows_off</Mono> (keys) and <Mono>flows_asked</Mono>; <Mono>createOrder()</Mono> works the flows out
+              again and stores <Mono>orders.charges</Mono>, <Mono>charges_pence</Mono> and <Mono>flows</Mono>{' '}
+              <Mono>&#123; asked, off &#125;</Mono> (only this order&apos;s flows, only removable keys) and{' '}
+              <Mono>order_items.flow</Mono>; <Mono>publicOrder()</Mono> / <Mono>adminOrder()</Mono> show the charges and
+              each flow dish&apos;s <Mono>&#123; removable &#125;</Mono>, as do the board&apos;s order window, the printed
+              ticket and the order emails. The page (<Mono>views/site/shared/ordering.eta</Mono>): flow lines in the
+              basket (<Mono>data-flow-line</Mono>; a removable one has a 48 px cross, <Mono>.mo-flow-x</Mono> with{' '}
+              <Mono>data-flow-off</Mono>), the charges (<Mono>.mo-flow-charge</Mono>, <Mono>data-flow-charge</Mono>, the
+              same cross), what was taken off with Add it back (<Mono>data-flow-left-off</Mono>,{' '}
+              <Mono>data-flow-on</Mono>), the prompts after a dish and before paying (<Mono>data-flow-prompt</Mono>,{' '}
+              <Mono>data-flow-dish</Mono>, <Mono>data-flow-no</Mono>; what was taken off and asked kept per venue in
+              localStorage <Mono>maca_flows_&lt;venue&gt;</Mono>, cleared with the basket), the status page&apos;s
+              charges. Tests: <Mono>shared/test/guestFlows.test.mjs</Mono>,{' '}
+              <Mono>api/test/order-flows-guests.test.mjs</Mono>.
             </P>
             <H3>The order prompt (migration 226)</H3>
             <P>

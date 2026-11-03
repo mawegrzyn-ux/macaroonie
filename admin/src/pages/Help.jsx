@@ -5785,7 +5785,7 @@ export default function Help() {
               <li><strong>Order types</strong> (shared by every venue): Eat in, Take out, Delivery, Collection and any you add. They decide how a check is served, can change a dish's tax and show on tickets and kitchen screens.</li>
               <li><strong>Discounts</strong> (shared by every venue): the discounts the till offers by name, e.g. Staff meal 50% or NHS 10%, and whether each needs a manager every time (see Charges and discounts below).</li>
               <li><strong>Charges</strong>: the list of charges a till check can have (shared by every venue: a service charge, a packaging fee, a cup deposit on hot drinks), and for this venue which checks get which by themselves, by revenue stream and order type (see Charges and discounts below).</li>
-              <li><strong>Order flows</strong> (shared by every venue): prompts that suggest dishes (Add a drink? when a burger goes on, Any dessert? at checkout), and dishes or charges that go on orders by themselves (a bag on take out orders), each at the locations and tills you pick (see Order flows below).</li>
+              <li><strong>Order flows</strong> (shared by every venue): prompts that suggest dishes (Add a drink? when a burger goes on, Any dessert? at checkout), and dishes or charges that go on orders by themselves (a bag on take out orders), each on tills, self-order kiosks or online ordering, at the locations you pick (see Order flows below).</li>
               <li><strong>Revenue streams</strong>: groups of tills for reporting sales by place or device, e.g. Restaurant, Bar, Kiosk. Each picks the order types its tills offer (and for each, whether to ask for a customer name and a tent number: No, Ask or Must), which type new checks start as, its menus, whether its tables ask for <strong>guests (covers)</strong> and whether it uses <strong>courses</strong> (see Guests and courses below). A stream doesn't decide tax. Drag them into order. See Tax, Order Types &amp; Streams.</li>
               <li><strong>Courses</strong> (shared by every venue): Starters, Mains, Desserts, in the order they go to the kitchen. A course <strong>held by default</strong> waits to be fired when it goes with an earlier course.</li>
               <li><strong>Till roles</strong> (shared by every venue): what Server, Supervisor and Manager may do: void sent items, refund, comp, discounts up to a %, open the drawer, reopen checks, take over other people's checks, change prices, move items between checks, see reports, close the day, approve for others.</li>
@@ -6253,18 +6253,18 @@ export default function Help() {
 
             <H3>Order flows</H3>
             <P>
-              Store tech → <strong>Order flows</strong> holds rules that act on till orders by themselves, shared by
-              every venue (each runs where you say). <strong>New flow</strong>: pick what it does, give it a name
+              Store tech → <strong>Order flows</strong> holds rules that act on orders by themselves, on tills,
+              self-order kiosks and online ordering, shared by every venue (each runs where you say). <strong>New flow</strong>: pick what it does, give it a name
               (for you: Add a drink, Delivery bag) and <strong>Create and open</strong>. It opens in the designer.
               A new flow, or a copy, starts switched off: switch it on in the list or the designer once nothing is
               left to set up. Drag the list into order: when two prompts are due together, the first one shows
               first.
             </P>
             <DataTable
-              head={['What it does', 'On the till']}
+              head={['What it does', 'On an order']}
               rows={[
-                ['Suggest dishes', 'A prompt over the order: your question (Add a drink?), a line under it if you like, the dishes it offers with their prices, and No thanks. It asks When a dish is added (straight after it goes on) or At checkout (when Pay, Exact cash or card, or a Pay by button is tapped: payment carries on once it is answered). It asks once on an order; a When a dish is added prompt can ask every time one of its dishes goes on (Ask every time a dish sets it off).'],
-                ['Add by itself', 'Dishes and charges that go on the order as soon as it matches what is under If, and come off by themselves when it stops matching (a dish only until it is sent to the kitchen). Each one either staff can take off, or a manager has to.'],
+                ['Suggest dishes', 'A prompt over the order: your question (Add a drink?), a line under it if you like, the dishes it offers with their prices, and No thanks. It asks When a dish is added (straight after it goes on) or At checkout (on a till when Pay, Exact cash or card, or a Pay by button is tapped; on a kiosk or online before the guest pays: paying carries on once it is answered). It asks once on an order; a When a dish is added prompt can ask every time one of its dishes goes on (Ask every time a dish sets it off).'],
+                ['Add by itself', 'Dishes and charges that go on the order as soon as it matches what is under If, and come off by themselves when it stops matching (on a till, a dish only until it is sent to the kitchen). Each one either can be taken off (by staff on a till, by the guest on a kiosk or online), or can\'t (a manager on a till; never by a guest).'],
               ]}
             />
             <P>
@@ -6274,7 +6274,7 @@ export default function Help() {
               <strong>Discard</strong> puts back what was saved.
             </P>
             <ul className="list-disc ml-5 space-y-2 text-sm text-muted-foreground mb-4">
-              <li><strong>Where</strong>: <strong>Every location</strong> or the ones you pick, and <strong>Every till there</strong> or the tills you pick. Only tills run flows for now: kiosks and online ordering come later.</li>
+              <li><strong>Where</strong>: <strong>Every location</strong> or the ones you pick, and what it <strong>Runs on</strong>: <strong>Tills</strong>, <strong>Kiosks</strong>, <strong>Online ordering</strong>, any of them. For tills and kiosks, <strong>Every till there</strong> (every kiosk) or the ones you pick. A flow made before kiosks and online ordering could run flows runs on tills, as it did.</li>
               <li><strong>When</strong>: what it does (Suggest dishes or Add by itself) and, for a prompt, when it asks.</li>
               <li><strong>If</strong>: what the order needs. <strong>The channel is</strong> (revenue streams by name: Counter means every location&apos;s stream called Counter), <strong>The order type is</strong>, <strong>The dish added is</strong> or <strong>The order has</strong> (dishes, or whole menu sections: a section covers dishes added to it later), and <strong>Not when the order has</strong>. A prompt can also skip orders that have one of the dishes it offers (someone with a drink already isn&apos;t asked about drinks). Each kind you pick must hold, and any one of its choices will do. Nothing picked: every order (the designer says so).</li>
               <li><strong>Then</strong>, for a prompt: the question, the line under it, the dishes it offers (drag them into order) and whether staff pick <strong>One of them</strong> (a tap adds it and closes the prompt) or <strong>Any of them</strong> (each tap adds one more of that dish, the count shows on it, and No thanks becomes Done). For Add by itself: the dishes (and how many) and charges from the Charges list, each with <strong>Staff can take it off</strong> on or off.</li>
@@ -6285,10 +6285,25 @@ export default function Help() {
               <li>What a flow puts on shows <strong>Added by</strong> and the flow&apos;s name on the order (on a charge: in More → Charges). A lock means a manager has to take it off: deleting, voiding or lowering the quantity of that dish asks for a manager&apos;s PIN, and so does taking that charge off. Something staff took off stays off on that order; a charge can be put back in More → Charges.</li>
               <li>When the order stops matching (another order type, the dish that set it off taken off), what the flow put on comes off by itself and the till says so. A dish already sent to the kitchen stays.</li>
             </ul>
+            <P>On a self-order kiosk:</P>
+            <ul className="list-disc ml-5 space-y-2 text-sm text-muted-foreground mb-4">
+              <li>A prompt shows over the kiosk after a dish goes in (or before paying), in the kiosk&apos;s language: the question and the line under it can be translated in Menus → Translations, under Order flows. The guest taps a dish (one with choices opens its page, then the next prompt), or No thanks.</li>
+              <li>What a flow puts on shows in the order under <strong>Added for your order</strong>, with <strong>Remove</strong> on the ones the guest may take off, and <strong>Add it back</strong> for the ones taken off. Its charges show above the total, with a bin on the ones the guest may take off. Nothing goes on until the guest has a dish of their own in the order.</li>
+              <li>The kiosk sends the order with all of it, and the prompts answered, to the till; a till that opens a kiosk order keeps the kiosk&apos;s flows on it.</li>
+            </ul>
+            <P>On online ordering:</P>
+            <ul className="list-disc ml-5 space-y-2 text-sm text-muted-foreground mb-4">
+              <li>The channel online orders count under is the revenue stream picked in Ordering setup, and the order type is the one picked there for collection: <strong>If</strong> can name either.</li>
+              <li>Prompts, and what flows put on, show in the basket as on a kiosk: <strong>Added for your order</strong> under the dish, a cross on the ones the guest may take off, <strong>Add it back</strong> for the ones taken off, the charges above the total. The order itself is worked out again when it is placed, so what goes on is what the flow says, whatever the page sent; the guest can only take off what may be taken off.</li>
+              <li>The order&apos;s page, the order window on Online orders, the printed ticket and the emails show the charges, and the dishes a flow put on. The minimum order counts only the guest&apos;s own dishes.</li>
+              <li>A dish a flow puts on can be in a menu section hidden on the website (Where it shows: Hide on website), like a paper bag guests can&apos;t order by itself. Kiosks get it too.</li>
+            </ul>
             <InfoBox type="info">
-              Add by itself only adds dishes without choices to make (the till can&apos;t pick them for you): for a
-              dish with choices, use a prompt. An order already open when you change a flow follows the new version
-              as soon as it is on a till&apos;s screen.
+              Add by itself only adds dishes without choices to make (nobody picks them for you): for a dish with
+              choices, use a prompt. A charge that counts from a number of guests never goes on a kiosk or online
+              order (they have no guest count): the designer says so. An order already open when you change a flow
+              follows the new version as soon as it is on a till&apos;s screen; kiosks and online ordering follow it
+              on their next order or quote.
             </InfoBox>
 
             <H3>Manager approvals</H3>

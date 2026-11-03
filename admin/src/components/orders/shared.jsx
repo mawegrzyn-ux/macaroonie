@@ -211,6 +211,7 @@ export function printTicket(order, venue) {
     ${order.notes ? `<div>Note: ${esc(order.notes)}</div>` : ''}
     <div style="margin-top:6px;">${lines}</div>
     ${(order.promotions || []).map(p => `<div class="l"><div>${esc(p.name)}${p.code ? ' (' + esc(p.code) + ')' : ''}</div><div>-${money(p.discount_pence, order.currency)}</div></div>`).join('')}
+    ${(order.charges || []).map(x => `<div class="l"><div>${esc(x.label || x.name)}</div><div>${money(x.amount_pence, order.currency)}</div></div>`).join('')}
     ${order.tip_pence > 0 ? `<div class="l"><div>Tip</div><div>${money(order.tip_pence, order.currency)}</div></div>` : ''}
     <div class="t"><span>Total</span><span>${money(order.total_pence, order.currency)}</span></div>
     <div>${isGloriaFood(order) ? esc(order.payment_label) : (PAYMENT[order.payment_status] || '')}</div>
@@ -428,7 +429,8 @@ export function OrderDetailModal({ order: summary, venue, venueId, onClose }) {
   const refundable = o.paid_pence - o.refunded_pence
   const open = ['placed', 'accepted', 'preparing', 'ready'].includes(o.status)
   const vatByRate = {}
-  for (const i of o.items || []) if (Number(i.vat_rate) > 0) vatByRate[i.vat_rate] = (vatByRate[i.vat_rate] || 0) + i.vat_pence
+  // Dishes, and the charges an order flow put on (migration 236).
+  for (const i of [...(o.items || []), ...(o.charges || [])]) if (Number(i.vat_rate) > 0) vatByRate[i.vat_rate] = (vatByRate[i.vat_rate] || 0) + i.vat_pence
 
   const pushTime = mins => {
     const base = Math.max(Date.now(), new Date(o.promised_at).getTime())
@@ -497,6 +499,7 @@ export function OrderDetailModal({ order: summary, venue, venueId, onClose }) {
               <div key={i.id} className="flex justify-between gap-3 py-2 border-b last:border-0 text-sm">
                 <div className="min-w-0">
                   <div><strong>{i.qty} x</strong> {i.name}</div>
+                  {i.flow && <div className="text-xs text-muted-foreground" data-testid="order-line-flow">Added by an order flow</div>}
                   {i.options?.length > 0 && <div className="text-xs text-muted-foreground">{i.options.map(x => x.label).join(', ')}</div>}
                   {countParts(i.parts).map(({ part: p, count }, pi) => (
                     <div key={pi} className="text-xs text-muted-foreground pl-3">› {count > 1 ? count + ' x ' : ''}{p.name}{p.options?.length ? ' (' + p.options.map(x => x.label).join(', ') + ')' : ''}</div>
@@ -511,6 +514,9 @@ export function OrderDetailModal({ order: summary, venue, venueId, onClose }) {
               <div key={n}className="flex justify-between text-sm text-emerald-700">
                 <span>{p.name}{p.code ? ` (${p.code})` : ''}</span><span>-{money(p.discount_pence, o.currency)}</span>
               </div>
+            ))}
+            {(o.charges || []).map((x, n) => (
+              <div key={'c' + n} className="flex justify-between text-sm" data-testid="order-charge"><span>{x.label || x.name}</span><span>{money(x.amount_pence, o.currency)}</span></div>
             ))}
             {o.tip_pence > 0 && <div className="flex justify-between text-sm"><span>Tip</span><span>{money(o.tip_pence, o.currency)}</span></div>}
             <div className="flex justify-between font-bold"><span>Total</span><span>{money(o.total_pence, o.currency)}</span></div>
