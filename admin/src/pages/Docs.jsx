@@ -4003,6 +4003,98 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>pos_settings.service_charge_label</Mono>, and added the Discounts menu link after Order types. Tests:{' '}
               <Mono>shared/pos/test/charges.test.mjs</Mono>, <Mono>api/test/till-charges.test.mjs</Mono>.
             </P>
+            <H3>Order flows (migration 235)</H3>
+            <P>
+              <Mono>shared/pos/orderFlows.js</Mono> is the one set of rules for the till, the cloud&apos;s sequencer, the
+              venue hub, the designer and the API. A flow (<Mono>normaliseOrderFlow()</Mono> is its one shape) is{' '}
+              <Mono>&#123; id, name, on, kind, trigger, venue_ids, device_ids, apps, match, ask, adds &#125;</Mono>: kind{' '}
+              <Mono>ask</Mono> (a prompt, trigger <Mono>dish_added</Mono> or <Mono>checkout</Mono>; <Mono>ask</Mono> holds{' '}
+              <Mono>title</Mono>, <Mono>message</Mono>, the offered <Mono>item_ids</Mono> in order, <Mono>pick</Mono> one |
+              several, <Mono>every_time</Mono>, <Mono>skip_if_has</Mono>) or <Mono>add</Mono> (trigger <Mono>match</Mono>;{' '}
+              <Mono>adds</Mono> up to 8 of <Mono>&#123; kind: &apos;dish&apos;, item_id, qty, removable &#125;</Mono> |{' '}
+              <Mono>&#123; kind: &apos;charge&apos;, charge_id, removable &#125;</Mono>). <Mono>match</Mono> has{' '}
+              <Mono>stream_names</Mono> (channels are revenue streams by name, <Mono>channelKey()</Mono>: every
+              location&apos;s stream with that name), <Mono>type_ids</Mono>, <Mono>item_ids</Mono> / <Mono>section_ids</Mono>{' '}
+              and <Mono>not_item_ids</Mono> / <Mono>not_section_ids</Mono>: each kind given must hold, any of its entries
+              will do (<Mono>flowMatches()</Mono>; for <Mono>dish_added</Mono> the dishes are the dish just added, via{' '}
+              <Mono>addedDishes()</Mono>, a combo&apos;s parts too). <Mono>venue_ids</Mono> / <Mono>device_ids</Mono> null =
+              every location / every till there; <Mono>apps</Mono> is <Mono>[&apos;till&apos;]</Mono> (kiosks and online
+              ordering to come). Dishes a flow put on never count towards any flow&apos;s dish conditions
+              (<Mono>orderDishes()</Mono> leaves out lines with a <Mono>flow</Mono> mark), so no flow feeds another or
+              itself.
+            </P>
+            <P>
+              <Mono>flowProblems()</Mono> stops a flow being switched on (codes <Mono>name</Mono>, <Mono>venues</Mono>,{' '}
+              <Mono>devices</Mono>, <Mono>ask_title</Mono>, <Mono>ask_choices</Mono>, <Mono>adds</Mono>);{' '}
+              <Mono>flowWarnings(f, &#123; channels, tills &#125;)</Mono> only notes (<Mono>every_order</Mono>,{' '}
+              <Mono>every_checkout</Mono>, <Mono>every_dish</Mono>, <Mono>no_channel</Mono>, <Mono>tills_elsewhere</Mono>,{' '}
+              <Mono>offers_itself</Mono>, <Mono>off</Mono>). <Mono>flowWhenText()</Mono>, <Mono>flowIfLines()</Mono>,{' '}
+              <Mono>flowThenLines()</Mono>, <Mono>flowWhereText()</Mono> and <Mono>flowSummary()</Mono> put a flow in words
+              (the list and the designer&apos;s boxes). <Mono>newOrderFlow()</Mono> starts a prompt with no question.
+            </P>
+            <P>
+              <strong>On a check</strong> (<Mono>shared/pos/checks.js</Mono>): a dish an add flow put on is a line with{' '}
+              <Mono>flow &#123; id, key, removable &#125;</Mono> (<Mono>key</Mono> = <Mono>addKey()</Mono>,{' '}
+              <Mono>flowId:dish:itemId</Mono>; never joined with another line); a charge carries{' '}
+              <Mono>flow &#123; id, key &#125;</Mono> with <Mono>optional</Mono> = removable, and goes on from the list only
+              when <Mono>flowChargeAdd()</Mono> finds that flow switched on adding that charge as removable or not as it
+              says (else the list&apos;s own optional applies). <Mono>line.deleted</Mono> and <Mono>charge.removed</Mono>{' '}
+              take <Mono>by_flow: true</Mono> when the flow takes its own dish or charge off (no reason, no manager; only
+              a flow-marked unsent line or a flow-marked charge). Staff taking one off (delete, void, a charge removed)
+              records its key in <Mono>check.flows_off</Mono>, so the flow doesn&apos;t put it back; a charge put back
+              (<Mono>charge.restored</Mono>) clears it. A fixed dish (<Mono>removable: false</Mono>) needs{' '}
+              <Mono>MANAGER_ALWAYS</Mono> to delete, void or lower (a Cancel order or Make it a combo swap excepted). The
+              new event <Mono>check.flow_asked</Mono> <Mono>&#123; flow_id, answer: added | declined, item_ids &#125;</Mono>{' '}
+              records a prompt in <Mono>check.flows_asked[flowId]</Mono> (<Mono>n</Mono>, answer, dishes, when, who).
+            </P>
+            <P>
+              <strong>Which act now</strong>: <Mono>askFlowsFor(list, order, &#123; trigger, here, added &#125;)</Mono> gives
+              the prompts due (switched on, running <Mono>here</Mono> = <Mono>&#123; venueId, deviceId, app, streams
+              &#125;</Mono>, matching, not asked yet unless <Mono>every_time</Mono> on <Mono>dish_added</Mono>, not
+              skipped by <Mono>skip_if_has</Mono>); <Mono>askChoices()</Mono> the offered dishes the till can sell (known,
+              not sold out, on a menu shown). <Mono>flowAddsFor(list, order, here)</Mono> what add flows want on, and{' '}
+              <Mono>flowSyncPlan(order, wanted)</Mono> the changes: <Mono>addDishes</Mono>, <Mono>removeLines</Mono> (unsent
+              flow lines no longer wanted, and a second unsent line with a key already on: two tills adding at once),{' '}
+              <Mono>addCharges</Mono>, <Mono>dropCharges</Mono>; nothing in <Mono>flows_off</Mono> goes back on.
+            </P>
+            <P>
+              <strong>API</strong> (<Mono>routes/orderFlows.js</Mono>, Store tech view to read, manage to change):{' '}
+              <Mono>GET /api/pos/order-flows</Mono> (in order, each with <Mono>problems</Mono>, <Mono>warnings</Mono>,{' '}
+              <Mono>summary</Mono>, <Mono>where</Mono>), <Mono>GET /order-flows/catalog</Mono> (dishes by menu and section,
+              channels with their locations, order types, charges, locations, tills), <Mono>POST /order-flows</Mono>{' '}
+              (<Mono>&#123; name, kind, copy_from? &#125;</Mono>, switched off, at most 60), <Mono>GET/PUT
+              /order-flows/:id</Mono> (the whole flow; switched on with problems: 422 code <Mono>flow</Mono> with{' '}
+              <Mono>problems</Mono>), <Mono>PATCH /order-flows/:id</Mono> <Mono>&#123; on &#125;</Mono>, <Mono>PUT
+              /order-flows/order</Mono>, <Mono>DELETE /order-flows/:id</Mono> (checks keep what it put on). Table{' '}
+              <Mono>pos_order_flows</Mono> (name, <Mono>is_active</Mono>, <Mono>sort_order</Mono> as columns, the rest in{' '}
+              <Mono>flow</Mono> jsonb; forced RLS). <Mono>ownOrderFlow()</Mono> (<Mono>services/orderFlowSvc.js</Mono>)
+              keeps only the company&apos;s own dishes, sections, order types, charges, locations and tills
+              (<Mono>flowIds()</Mono>, <Mono>ownFlow()</Mono>). <Mono>loadOrderFlows(tx, tenantId, venueId)</Mono> puts the
+              venue&apos;s flows (switched on, in order) in <Mono>settings.flows</Mono> of <Mono>tillConfig()</Mono> and{' '}
+              <Mono>printConfig()</Mono> (the sequencer, and so the hub, which judge flow charges with them); a change
+              tells the company&apos;s tills to download their config. Migration 235 put an Order flows link after Charges
+              in every Store tech menu.
+            </P>
+            <P>
+              <strong>Till</strong> (<Mono>pos/src/lib/orderFlows.js</Mono>): <Mono>flowPlace()</Mono>,{' '}
+              <Mono>queueFlowPrompts(checkId, trigger, &#123; added, then, shownIds &#125;)</Mono> (a module queue read with{' '}
+              <Mono>useFlowPrompts()</Mono>; prompts with nothing to offer are left out; the last carries{' '}
+              <Mono>then</Mono>, e.g. <Mono>&#123; kind: &apos;pay&apos;, opts &#125;</Mono>), <Mono>answerFlowPrompt()</Mono>{' '}
+              (sends <Mono>check.flow_asked</Mono>, returns the <Mono>then</Mono>), <Mono>syncFlows(checkId)</Mono> (runs the
+              plan, toasts each change, never retries a dish that can&apos;t go on: one with choices, one unknown),{' '}
+              <Mono>offApproval()</Mono> (adds <Mono>MANAGER_ALWAYS</Mono> for a fixed flow dish), <Mono>flowNameOf()</Mono>.{' '}
+              <Mono>screens/Check.jsx</Mono> queues <Mono>dish_added</Mono> prompts after each dish (from the menu, a layout
+              or the choices window; not for dishes added from a prompt), gates <Mono>pay()</Mono> on the checkout ones
+              (Pay opens after the last answer, with <Mono>flowsAsked</Mono>), and runs <Mono>syncFlows()</Mono> whenever
+              the check&apos;s lines, charges, type, stream, <Mono>flows_off</Mono> or the config version change;{' '}
+              <Mono>screens/Counter.jsx</Mono> queues them for the first dish. <Mono>components/FlowPrompt.jsx</Mono> draws
+              the prompt (<Mono>paused</Mono> while a dish&apos;s choices window is open, keeping its counts). Admin:{' '}
+              <Mono>components/pos/OrderFlowsSection.jsx</Mono> (Store tech → Order flows, <Mono>/pos/flows</Mono>: the
+              list, drag order, on / off, copy, delete, New flow) and <Mono>pages/OrderFlowDesigner.jsx</Mono>{' '}
+              (<Mono>/pos/flows/:id</Mono>: the Where, When, If and Then boxes, their panels, the preview; the draft keeps
+              the words as typed, <Mono>cleanFlow()</Mono> is what is checked and compared). Tests:{' '}
+              <Mono>shared/pos/test/orderFlows.test.mjs</Mono>, <Mono>api/test/order-flows.test.mjs</Mono>.
+            </P>
             <H3>The order prompt (migration 226)</H3>
             <P>
               <Mono>pos/src/components/OrderPrompt.jsx</Mono> is the one place the till asks for a check&apos;s order type,

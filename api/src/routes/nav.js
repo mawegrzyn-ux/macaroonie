@@ -55,6 +55,7 @@ export const ROUTE_CATALOG = [
   { route: '/pos/types', label: 'Order types', icon: 'ListOrdered', module: 'pos_setup' },
   { route: '/pos/discounts', label: 'Discounts', icon: 'BadgePercent', module: 'pos_setup' },
   { route: '/pos/charges', label: 'Charges', icon: 'HandCoins', module: 'pos_setup' },
+  { route: '/pos/flows', label: 'Order flows', icon: 'Workflow', module: 'pos_setup' },
   { route: '/pos/streams', label: 'Revenue streams', icon: 'Waypoints', module: 'pos_setup' },
   { route: '/pos/courses', label: 'Courses', icon: 'UtensilsCrossed', module: 'pos_setup' },
   { route: '/pos/staff', label: 'Staff and PINs', icon: 'KeyRound', module: 'pos_setup' },

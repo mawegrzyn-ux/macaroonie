@@ -25,14 +25,17 @@ import { isId } from './ids.js'
 import { permissionProblem, managerProblem, MANAGER_ALWAYS } from './permissions.js'
 import { checkTotals, isActiveLine, lineGross } from './pricing.js'
 import { CHECK_NO_MAX, ORDER_NO_MAX, numberText } from './numbers.js'
-import { chargeProblem, chargeMismatch, onCheck, switchCharges, CHECK_CHARGES_MAX } from './charges.js'
+import { chargeProblem, chargeMismatch, chargeList, onCheck, switchCharges, CHECK_CHARGES_MAX } from './charges.js'
 import { discountList, presetMismatch } from './discounts.js'
 import { allergyProblem, cleanAllergy, mergeAllergy } from './allergy.js'
+import { flowChargeAdd } from './orderFlows.js'
 
 export const CHECK_EVENTS = [
   'check.opened', 'check.covers_set', 'check.table_moved', 'check.server_changed',
   'check.stream_set', 'check.order_type_set', 'check.tent_set',
   'check.renamed', 'check.note_set', 'check.allergy_set', 'check.member_set',
+  // An order flow's prompt asked (shared/pos/orderFlows.js): not asked again.
+  'check.flow_asked',
   'line.added', 'line.changed', 'line.deleted', 'lines.sent', 'course.fired', 'line.voided',
   'discount.applied', 'discount.removed', 'promotions.set',
   'charge.added', 'charge.removed', 'charge.restored',
@@ -119,7 +122,17 @@ function lineProblem(l) {
   if (typeof l.vat_rate !== 'number' || l.vat_rate < 0 || l.vat_rate > 100) return 'line.vat_rate'
   if (l.revenue_stream_id != null && !isUuid(l.revenue_stream_id)) return 'line.revenue_stream_id'
   if (l.tax_rate_id != null && !isUuid(l.tax_rate_id)) return 'line.tax_rate_id'
+  // Put on by an order flow (shared/pos/orderFlows.js).
+  if (l.flow != null && !flowMarkProblem(l.flow, true)) return 'line.flow'
   return null
+}
+
+// What an order flow's dish or charge carries: { id, key, removable? }.
+function flowMarkProblem(x, withRemovable) {
+  if (!x || typeof x !== 'object' || Array.isArray(x)) return false
+  if (!isUuid(x.id) || !isText(x.key, 160) || !x.key.startsWith(x.id + ':')) return false
+  if (withRemovable && typeof x.removable !== 'boolean') return false
+  return true
 }
 
 // New rates for lines when the order type or stream changes: { [lineId]: { vat_rate, tax_rate_id } }.
@@ -215,6 +228,12 @@ export function eventProblem(e) {
       if (!optText(m.no, 20) || !optText(m.name, 120)) return bad('member')
       return null
     }
+    case 'check.flow_asked':
+      // An order flow's prompt, and what came of it (shared/pos/orderFlows.js).
+      if (!isUuid(p.flow_id)) return bad('flow_id')
+      if (!['added', 'declined'].includes(p.answer)) return bad('answer')
+      if (p.item_ids != null && !(Array.isArray(p.item_ids) && p.item_ids.length <= 24 && p.item_ids.every(isUuid))) return bad('item_ids')
+      return null
     case 'line.added': {
       const why = lineProblem(p.line)
       return why ? bad(why) : null
@@ -231,6 +250,8 @@ export function eventProblem(e) {
     case 'line.deleted':
       if (!isId(p.line_id)) return bad('line_id')
       if (p.cancel != null && typeof p.cancel !== 'boolean') return bad('cancel')
+      // Taken off by its order flow (the order stopped matching).
+      if (p.by_flow != null && typeof p.by_flow !== 'boolean') return bad('by_flow')
       // Made into a combo (the till's Make it a combo): the line that replaced it.
       return p.replaced_by == null || (isId(p.replaced_by) && p.replaced_by !== p.line_id) ? null : bad('replaced_by')
     case 'lines.sent':
@@ -282,6 +303,9 @@ export function eventProblem(e) {
     }
     case 'charge.removed':
       if (!isRef(p.charge_id)) return bad('charge_id')
+      // Taken off by its order flow: off the check altogether, no reason.
+      if (p.by_flow != null && typeof p.by_flow !== 'boolean') return bad('by_flow')
+      if (p.by_flow) return null
       return isText(p.reason, 200) && p.reason.trim() ? null : bad('reason')
     case 'charge.restored':
       return isRef(p.charge_id) ? null : bad('charge_id')
@@ -399,7 +423,7 @@ function newCheck(e) {
 
 const OPEN_ONLY = new Set([
   'check.covers_set', 'check.table_moved', 'check.server_changed', 'check.stream_set',
-  'check.order_type_set', 'check.tent_set', 'check.renamed', 'check.allergy_set',
+  'check.order_type_set', 'check.tent_set', 'check.renamed', 'check.allergy_set', 'check.flow_asked',
   'line.added', 'line.changed', 'line.deleted', 'lines.sent', 'course.fired', 'line.voided',
   'discount.applied', 'discount.removed', 'promotions.set',
   'charge.added', 'charge.removed', 'charge.restored',
@@ -535,6 +559,18 @@ export function applyEvent(checks, e, ctx = {}) {
       break
     }
 
+    case 'check.flow_asked': {
+      // An order flow's prompt was shown (shared/pos/orderFlows.js): it isn't
+      // asked again on this order (unless the flow asks every time), and
+      // what came of it is kept for reports.
+      const prev = (c.flows_asked || {})[p.flow_id]
+      c.flows_asked = {
+        ...(c.flows_asked || {}),
+        [p.flow_id]: { n: (prev?.n || 0) + 1, answer: p.answer, item_ids: p.item_ids || [], at: e.client_at ?? null, by: e.staff_id },
+      }
+      break
+    }
+
     case 'line.added': {
       if (findLine(p.line.id)) return fail('This item is already on the check', 'duplicate')
       if (p.line.price_override) { const no = need('price_override'); if (no) return no }
@@ -548,6 +584,8 @@ export function applyEvent(checks, e, ctx = {}) {
         vat_rate: p.line.vat_rate, tax_rate_id: p.line.tax_rate_id ?? null,
         revenue_stream_id: p.line.revenue_stream_id ?? c.revenue_stream_id,
         price_override: !!p.line.price_override, open_item: !!p.line.open_item,
+        // Put on by an order flow: which, and whether staff may take it off.
+        ...(p.line.flow ? { flow: { id: p.line.flow.id, key: p.line.flow.key, removable: p.line.flow.removable } } : {}),
         status: 'new', held: false, send_id: null, sent_at: null,
         added_by: e.staff_id, added_at: e.client_at ?? null, voided: null,
       })
@@ -568,7 +606,11 @@ export function applyEvent(checks, e, ctx = {}) {
         const no = need('price_override'); if (no) return no
         l.price_override = true
       }
-      if (p.qty != null && p.qty < l.qty) { const no = needManager('delete_unsent'); if (no) return no }
+      if (p.qty != null && p.qty < l.qty) {
+        const no = needManager('delete_unsent'); if (no) return no
+        // Fewer of a dish an order flow put on that staff may not take off: a manager every time.
+        if (l.flow && l.flow.removable === false) { const m = needManager(MANAGER_ALWAYS); if (m) return m }
+      }
       if (p.qty != null) l.qty = p.qty
       if (p.unit_price != null) l.unit_price = p.unit_price
       if (p.modifiers != null) l.modifiers = p.modifiers
@@ -587,7 +629,18 @@ export function applyEvent(checks, e, ctx = {}) {
       if (l.status !== 'new') return fail('This item was sent to the kitchen: void it instead', 'sent')
       // Swapped for the combo that replaced it: nothing is taken off the order.
       const swapped = p.replaced_by && c.lines.some(x => x.id === p.replaced_by && x.status === 'new')
-      if (!swapped) { const no = needManager('delete_unsent'); if (no) return no }
+      if (p.by_flow) {
+        // Its order flow took it off (the order stopped matching): only a
+        // dish a flow put on, and with no manager (shared/pos/orderFlows.js).
+        if (!l.flow) return fail('Only a dish an order flow put on comes off by itself', 'flow')
+      } else {
+        if (!swapped) { const no = needManager('delete_unsent'); if (no) return no }
+        // One a flow put on that staff may not take off: a manager every time
+        // (taking off the whole order with Cancel order, or a combo swap, aside).
+        if (l.flow && l.flow.removable === false && !p.cancel && !swapped) { const no = needManager(MANAGER_ALWAYS); if (no) return no }
+        // Taken off by staff: its flow doesn't put it back on this order.
+        if (l.flow) c.flows_off = { ...(c.flows_off || {}), [l.flow.key]: true }
+      }
       // Taken off by Cancel order: what the order was worth when cancelled.
       if (p.cancel) c.cancelling = (c.cancelling || 0) + lineGross(l)
       c.lines = c.lines.filter(x => x.id !== p.line_id)
@@ -633,6 +686,8 @@ export function applyEvent(checks, e, ctx = {}) {
       if (l.status === 'voided') return fail('This item was already voided', 'voided')
       if (l.status === 'new') return fail('This item hasn\'t been sent: delete it instead', 'not_sent')
       const no = need('void') || needManager('void_sent'); if (no) return no
+      // A dish an order flow put on that staff may not take off: a manager every time.
+      if (l.flow && l.flow.removable === false && !p.cancel) { const m = needManager(MANAGER_ALWAYS); if (m) return m }
       const voided = { at: e.client_at ?? null, day_id: e.assigned?.day_id ?? null, by: e.staff_id, approved_by: e.approved_by || null, reason: p.reason.trim(), waste: p.waste !== false }
       if (p.qty != null && p.qty < l.qty) {
         if (findLine(p.new_line_id)) return fail('This item is already on the check', 'duplicate')
@@ -644,6 +699,8 @@ export function applyEvent(checks, e, ctx = {}) {
         if (p.cancel) c.cancelling = (c.cancelling || 0) + lineGross(l)
         l.status = 'voided'
         l.voided = voided
+        // Its order flow doesn't put it on this order again.
+        if (l.flow) c.flows_off = { ...(c.flows_off || {}), [l.flow.key]: true }
       }
       c.billed = false
       break
@@ -718,10 +775,15 @@ export function applyEvent(checks, e, ctx = {}) {
       const by = { added: true, added_by: e.staff_id, added_at: e.client_at ?? null }
       if (p.charge.list) {
         // From the company's list (the Charges window, a till layout button):
-        // as it is on the list the venue's settings carry, or refused.
-        const why = chargeMismatch(p.charge, ctx.settings?.charges)
+        // as it is on the list the venue's settings carry, or refused. One an
+        // order flow put on (shared/pos/orderFlows.js) is optional as the
+        // flow says when the venue's flows say so, else as the list has it.
+        const fromFlow = p.charge.flow ? flowChargeAdd(ctx.settings?.flows, p.charge) : null
+        const listed = fromFlow ? chargeList(ctx.settings?.charges).find(y => y.id === p.charge.id) : null
+        const why = chargeMismatch(listed ? { ...p.charge, optional: listed.optional } : p.charge, ctx.settings?.charges)
         if (why) return fail(why, 'charge')
-        c.charges = [...list, onCheck(p.charge, by)]
+        const mark = p.charge.flow ? { flow: { id: p.charge.flow.id, key: p.charge.flow.key } } : {}
+        c.charges = [...list, onCheck(p.charge, { ...by, ...mark })]
       } else {
         // Typed in on the till: always one staff may take off again, on the
         // whole check, without VAT.
@@ -737,6 +799,14 @@ export function applyEvent(checks, e, ctx = {}) {
     case 'charge.removed': {
       const x = (c.charges || []).find(y => y.id === p.charge_id)
       if (!x) return fail('Charge not found', 'missing')
+      if (p.by_flow) {
+        // Its order flow took it off (the order stopped matching): off the
+        // check altogether, only a charge a flow put on, no manager.
+        if (!x.flow) return fail('Only a charge an order flow put on comes off by itself', 'flow')
+        c.charges = c.charges.filter(y => y.id !== x.id)
+        c.billed = false
+        break
+      }
       if (x.removed) return fail('This charge is off the check already', 'duplicate')
       // Optional ones by anyone (unless the venue's switch says a manager);
       // ones that aren't optional by a manager every time.
@@ -746,6 +816,8 @@ export function applyEvent(checks, e, ctx = {}) {
         ...y, removed: true, reason: p.reason.trim(), removed_by: e.staff_id,
         approved_by: e.approved_by || null, removed_at: e.client_at ?? null,
       })
+      // Taken off by staff: its order flow doesn't put it back on this order.
+      if (x.flow) c.flows_off = { ...(c.flows_off || {}), [x.flow.key]: true }
       c.billed = false
       break
     }
@@ -757,6 +829,12 @@ export function applyEvent(checks, e, ctx = {}) {
       c.charges = c.charges.map(y => y.id !== x.id ? y : {
         ...y, removed: false, reason: null, removed_by: null, approved_by: null, removed_at: null,
       })
+      // Put back: its order flow looks after it again (and takes it off when
+      // the order stops matching).
+      if (x.flow && c.flows_off?.[x.flow.key]) {
+        const { [x.flow.key]: _, ...rest } = c.flows_off
+        c.flows_off = rest
+      }
       c.billed = false
       break
     }

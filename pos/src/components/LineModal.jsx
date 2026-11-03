@@ -11,6 +11,7 @@ import { lineGross, modifierText, groupModifiers, checkTotals } from '@shared/po
 import { Modal, ReasonPicker, cx, money, useApproval } from './ui.jsx'
 import { dispatch, toast } from '../lib/store.js'
 import { combosForLine } from '../lib/checkOps.js'
+import { offApproval, flowNameOf } from '../lib/orderFlows.js'
 
 const VOID_REASONS = ['Wrong item', 'Guest changed mind', 'Quality', 'Took too long', 'Dropped / spilt']
 const COMP_REASONS = ['Quality', 'Took too long', 'Birthday', 'Regular', 'Staff', 'Manager decision']
@@ -36,8 +37,9 @@ export default function LineModal({ check, line, config, onClose, onDiscount, on
     if (!r.ok) toast(r.error, 'bad')
   }
   // Fewer of an item not sent yet: the venue may want a manager for it.
+  // A dish an order flow put on as one staff can't take off: a manager every time.
   const fewer = async () => {
-    const approver = await approve(null, null, 'Taking items off needs a manager here.', ['delete_unsent'])
+    const approver = await approve(null, null, ...offApproval(line, 'Taking items off needs a manager here.', ['delete_unsent']))
     if (approver === false) return
     change({ qty: line.qty - 1 }, approver)
   }
@@ -47,7 +49,7 @@ export default function LineModal({ check, line, config, onClose, onDiscount, on
 
   const doVoid = async () => {
     const qty = Math.min(voidQty, line.qty)
-    const approver = await approve('void', null, 'Voiding an item the kitchen already has needs a manager.', ['void_sent'])
+    const approver = await approve('void', null, ...offApproval(line, 'Voiding an item the kitchen already has needs a manager.', ['void_sent']))
     if (approver === false) return
     const payload = { line_id: line.id, reason: reason.trim(), waste }
     if (qty < line.qty) { payload.qty = qty; payload.new_line_id = ulid() }
@@ -66,7 +68,7 @@ export default function LineModal({ check, line, config, onClose, onDiscount, on
   }
 
   const doDelete = async () => {
-    const approver = await approve(null, null, 'Taking items off needs a manager here.', ['delete_unsent'])
+    const approver = await approve(null, null, ...offApproval(line, 'Taking items off needs a manager here.', ['delete_unsent']))
     if (approver === false) return
     const r = dispatch('line.deleted', { line_id: line.id }, { check_id: check.id, approved_by: approver })
     if (!r.ok) return toast(r.error, 'bad')
@@ -80,6 +82,11 @@ export default function LineModal({ check, line, config, onClose, onDiscount, on
           {groupModifiers(line.modifiers).map(modifierText).join(', ')}
           {(line.combo || []).map(c => c.name).join(', ')}
           {inCombo.length > 0 && <div className="text-brand font-semibold mt-1">Part of {inCombo.map(p => p.name).join(', ')} (applied by itself)</div>}
+          {line.flow && (
+            <div className="text-brand font-semibold mt-1" data-testid="line-flow-note">
+              Added by {flowNameOf(config, line.flow)}{line.flow.removable === false ? ': taking it off needs a manager' : ''}
+            </div>
+          )}
           <div className="text-ink font-semibold mt-1">{money(lineGross(line))}{net !== lineGross(line) && !voided ? ' · after discounts ' + money(net) : ''}</div>
         </div>
 

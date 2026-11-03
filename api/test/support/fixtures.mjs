@@ -477,6 +477,30 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx', loy
       await step('till own layout', () => patch(`/api/pos/devices/${tillDevice.device.id}`, { settings: { mode: 'table', ...(cardMachine ? { card_reader: cardMachine.id } : {}), till_layout: tillLayout.id } }))
     }
   }
+  // Order flows (migration 235): a prompt at Ware's till when the dish is
+  // added on the Bar channel's Drive thru orders, offering the dish; and one
+  // that adds the dish (which staff can't take off) and the cup deposit on
+  // Drive thru orders. Both on, the second first.
+  if (dish && menuSection) {
+    const askFlow = await step('order flow', () => post('/api/pos/order-flows', { name: mark + ' Add a drink', kind: 'ask' }))
+    if (askFlow) {
+      await step('order flow saved', () => put(`/api/pos/order-flows/${askFlow.id}`, {
+        ...askFlow, name: mark + ' Add a drink', on: true, trigger: 'dish_added',
+        venue_ids: [V], device_ids: tillDevice?.device ? [tillDevice.device.id] : null,
+        match: { ...askFlow.match, stream_names: [mark + ' Bar'], type_ids: orderType ? [orderType.id] : [], item_ids: [dish.id], section_ids: [menuSection.id] },
+        ask: { ...askFlow.ask, title: mark + ' Add a drink?', item_ids: [dish.id] },
+      }))
+    }
+    const addFlow = await step('order flow add', () => post('/api/pos/order-flows', { name: mark + ' Drive thru extras', kind: 'add' }))
+    if (addFlow) {
+      await step('order flow add saved', () => put(`/api/pos/order-flows/${addFlow.id}`, {
+        ...addFlow, name: mark + ' Drive thru extras', on: true,
+        match: { ...addFlow.match, type_ids: orderType ? [orderType.id] : [], not_section_ids: [menuSection.id] },
+        adds: [{ kind: 'dish', item_id: dish.id, qty: 1, removable: false }, ...(chargeCup ? [{ kind: 'charge', charge_id: chargeCup.id, removable: true }] : [])],
+      }))
+      if (askFlow) await step('order flows order', () => put('/api/pos/order-flows/order', { ids: [addFlow.id, askFlow.id] }))
+    }
+  }
   const design = await step('screen design', () => post('/api/screens/designs', { name: mark + ' Board' }))
   const playlist = await step('screen playlist', () => post('/api/screens/playlists', { name: mark + ' Day' }))
   if (playlist && design) await step('playlist boards', () => put(`/api/screens/playlists/${playlist.id}`, { name: mark + ' Day', items: [{ design_id: design.id, duration_secs: 10 }] }))

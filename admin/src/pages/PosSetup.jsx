@@ -7,14 +7,15 @@
 // covers and use courses), which charges checks get (the matrix on Charges), printers and what
 // prints where, the venue hub (linking, updates, Hub first), kitchen screens (stations, the kitchen flows, pairing),
 // self-order kiosks, staff PINs, receipts and payments, the Cash Recon link.
-// Company-wide: till layouts (the designer: /pos/layouts/:id), order types, discounts, charges (the list), kiosk designs,
+// Company-wide: till layouts (the designer: /pos/layouts/:id), order types, discounts, charges (the list),
+// order flows (prompts and things added by themselves; the designer: /pos/flows/:id), kiosk designs,
 // print designs (with which prints where per venue), till roles and courses.
 // The floor plan has its own page (/pos/floor). docs/POS.md.
 
 import { useParams, useSearchParams, Navigate } from 'react-router-dom'
 import {
   Loader2, MonitorSmartphone, Waypoints, ListOrdered, Printer, ReceiptText, CreditCard, CookingPot,
-  TabletSmartphone, KeyRound, ShieldCheck, UtensilsCrossed, Receipt, ArrowRightLeft, RefreshCw, Server, BadgePercent, PanelsTopLeft, HandCoins,
+  TabletSmartphone, KeyRound, ShieldCheck, UtensilsCrossed, Receipt, ArrowRightLeft, RefreshCw, Server, BadgePercent, PanelsTopLeft, HandCoins, Workflow,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { usePermission } from '@/hooks/usePermission'
@@ -26,6 +27,7 @@ import RevenueStreamsSection from '@/components/pos/RevenueStreamsSection'
 import OrderTypesSection from '@/components/pos/OrderTypesSection'
 import DiscountsSection from '@/components/pos/DiscountsSection'
 import ChargesSection from '@/components/pos/ChargesSection'
+import OrderFlowsSection from '@/components/pos/OrderFlowsSection'
 import PrintersSection from '@/components/pos/PrintersSection'
 import HubSection from '@/components/pos/HubSection'
 import PrintingSection from '@/components/pos/PrintingSection'
@@ -47,6 +49,7 @@ export const TABS = [
   { key: 'types', label: 'Order types', icon: ListOrdered, render: p => <OrderTypesSection {...p} /> },
   { key: 'discounts', label: 'Discounts', icon: BadgePercent, render: p => <DiscountsSection {...p} /> },
   { key: 'charges', label: 'Charges', icon: HandCoins, render: p => <ChargesSection {...p} /> },
+  { key: 'flows', label: 'Order flows', icon: Workflow, render: p => <OrderFlowsSection {...p} /> },
   { key: 'hub', label: 'Venue hub', icon: Server, render: p => <HubSection {...p} /> },
   { key: 'printers', label: 'Printers', icon: Printer, render: p => <PrintersSection {...p} /> },
   { key: 'printing', label: 'Printing', icon: ReceiptText, render: p => <PrintingSection {...p} /> },

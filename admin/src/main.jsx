@@ -111,6 +111,7 @@ import KioskAnalytics from '@/pages/KioskAnalytics'
 import KioskDesigner from '@/pages/KioskDesigner'
 import PrintDesigner from '@/pages/PrintDesigner'
 import TillLayoutDesigner from '@/pages/TillLayoutDesigner'
+import OrderFlowDesigner from '@/pages/OrderFlowDesigner'
 import Promotions from '@/pages/Promotions'
 import MobileOrders    from '@/pages/mobile/MobileOrders'
 import MobileAllergens from '@/pages/mobile/MobileAllergens'
@@ -241,6 +242,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 <Route path="pos/kiosks/designs/:id" element={<KioskDesigner />} />
                 <Route path="pos/printing/designs/:id" element={<PrintDesigner />} />
                 <Route path="pos/layouts/:id" element={<TillLayoutDesigner />} />
+                <Route path="pos/flows/:id" element={<OrderFlowDesigner />} />
                 <Route path="promotions" element={<Promotions />} />
                 <Route path="venues"    element={<Venues />} />
                 <Route path="new-location"     element={<NewLocation />} />
