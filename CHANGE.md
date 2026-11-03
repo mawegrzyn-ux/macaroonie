@@ -5,6 +5,20 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-11-03 — Order flows on self-order kiosks and online ordering]
+
+Migration 236 (a flow's tills are now `till_ids`, beside `kiosk_ids`; online orders keep their charges, the prompts asked and what the guest took off; order lines keep the flow that put them on).
+
+- **Runs on**: a flow's Where box now says where it runs: **Tills**, **Kiosks**, **Online ordering**, any of them. For kiosks, every kiosk at its locations or the ones you pick. Flows made before run on tills, as they did.
+- **On a self-order kiosk**: prompts show over the kiosk after a dish goes in, or before paying, in the kiosk's language (translate the question and its line in Menus → Translations, under Order flows). The guest taps a dish (one with choices opens its page first) or No thanks.
+- What a flow puts on shows in the guest's order as **Added for your order**, with **Remove** on the ones the guest may take off and **Add it back** for the ones taken off; its charges show above the total. Nothing goes on until the guest has a dish of their own. The kiosk sends it all to the till with the order.
+- **On online ordering**: the same prompts and things put on, in the basket (a cross to take off what may be taken off). The order is worked out again on the server when it is placed, so what goes on is what the flow says. The channel is the revenue stream picked in Ordering setup. The minimum order counts only the guest's own dishes.
+- The order's page, the Online orders window, the printed ticket and the order emails show the charges and the dishes a flow put on.
+- A dish a flow puts on can be in a menu section hidden on the website (a paper bag guests can't order by itself): kiosks and online ordering still know it.
+- A charge that counts from a number of guests never goes on a kiosk or online order (they have no guest count).
+
+---
+
 ## [2026-11-03 — Order flows: prompts and things added by themselves on the till]
 
 Migration 235 (table `pos_order_flows`, and an Order flows link after Charges in every Store tech menu).

@@ -40,9 +40,11 @@ function itemsTable(order, items, promotions = []) {
     </tr>`
   }).join('')
   const vatByRate = {}
-  for (const i of items) {
+  // Charges an order flow put on (migration 236) carry VAT of their own.
+  const charges = Array.isArray(order.charges) ? order.charges : []
+  for (const i of [...items, ...charges]) {
     const r = Number(i.vat_rate)
-    if (r > 0) vatByRate[r] = (vatByRate[r] || 0) + i.vat_pence
+    if (r > 0) vatByRate[r] = (vatByRate[r] || 0) + (Number(i.vat_pence) || 0)
   }
   const vatRows = Object.entries(vatByRate).map(([r, v]) =>
     `<tr><td style="color:#6b7280;font-size:13px;">Includes VAT at ${Number(r)}%</td><td style="color:#6b7280;font-size:13px;text-align:right;">${money(v)}</td></tr>`).join('')
@@ -51,6 +53,7 @@ function itemsTable(order, items, promotions = []) {
     <tr><td colspan="2" style="border-top:1px solid #e5e7eb;padding-top:8px;"></td></tr>
     <tr><td>Subtotal</td><td style="text-align:right;">${money(order.subtotal_pence)}</td></tr>
     ${promotions.map(p => `<tr><td style="color:#047857;">${esc(p.name)}${p.code ? ` (${esc(p.code)})` : ''}</td><td style="color:#047857;text-align:right;">-${money(p.discount_pence)}</td></tr>`).join('')}
+    ${charges.map(x => `<tr><td>${esc(x.label || x.name)}</td><td style="text-align:right;">${money(x.amount_pence)}</td></tr>`).join('')}
     ${order.tip_pence ? `<tr><td>Tip</td><td style="text-align:right;">${money(order.tip_pence)}</td></tr>` : ''}
     <tr><td style="font-weight:700;">Total</td><td style="text-align:right;font-weight:700;">${money(order.total_pence)}</td></tr>
     ${vatRows}

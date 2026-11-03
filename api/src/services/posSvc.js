@@ -236,13 +236,18 @@ export async function tillMenus(tx, tenantId, venueId, streams, version = 'live'
  * ordering reads them), so tills and kiosks show the options the menu does.
  * `guest` (a kiosk, services/kioskSvc.js): sections hidden on the website
  * stay off too, and dishes carry what guests see (photo, calories, featured).
+ * keepIds (a Set, guests only): dishes of those hidden sections that stay
+ * known in items all the same, never on the menu (what the kiosk's order
+ * flows put on by themselves, migration 236: a paper bag kept off the
+ * website), each with hidden_menu_ids (the menus they are in there).
  * Tax settings travel with each dish (dish, section, menu), trimmed to this
  * venue; the till works the rate out per check (shared/tax.js), since the
  * order type and revenue stream decide it.
  */
-export async function tillMenuData(tx, tenantId, venueId, streams, { guest = false, allStreams = streams, version = 'live', channel = null } = {}) {
+export async function tillMenuData(tx, tenantId, venueId, streams, { guest = false, allStreams = streams, version = 'live', channel = null, keepIds = null } = {}) {
   const menus = []
   const items = {}
+  const hiddenMenus = {}
   let dietary = []
   const streamIds = new Set(allStreams.map(r => r.id))
   // Menu times (migration 230, shared/menuTimes.js): with a channel ('till',
@@ -257,8 +262,31 @@ export async function tillMenuData(tx, tenantId, venueId, streams, { guest = fal
     const sections = []
     for (const s of full.sections || []) {
       const visibility = s.visibility || 'show'
-      if (visibility === 'hidden' || (guest && visibility !== 'show')) continue
+      if (visibility === 'hidden') continue
       const sectionTax = taxForVenue(s.tax, venueId, streamIds)
+      const shape = it => ({
+        id: it.id, name: it.name, kitchen_name: it.kitchen_name || null, section_id: s.id,
+        price_pence: it.price_pence ?? null, kind: it.kind || 'dish',
+        course_id: it.pos_course_id || s.pos_course_id || null,
+        colour: it.pos_colour || s.pos_colour || null,
+        tax: [taxForVenue(it.tax, venueId, streamIds), sectionTax, menuTax],
+        variants: it.variants || [], variant_groups: it.variant_groups || [],
+        combo: it.combo || null,
+        dietary: it.dietary || [], allergen_levels: it.allergen_levels || {},
+        description: it.description || null,
+        variant_rules: rules,
+        ...(guest ? { image_url: it.image_url || null, calories: it.calories ?? null, is_featured: !!it.is_featured } : {}),
+      })
+      if (guest && visibility !== 'show') {
+        // Hidden on the website: off the kiosk's menu, but the dishes in
+        // keepIds stay known (never a meal deal).
+        for (const it of s.items || []) {
+          if (!keepIds?.has(it.id) || it.kind === 'combo') continue
+          if (!items[it.id]) items[it.id] = shape(it)
+          if (!(hiddenMenus[it.id] ||= []).includes(full.id)) hiddenMenus[it.id].push(full.id)
+        }
+        continue
+      }
       const ids = []
       const all = []
       for (const it of s.items || []) {
@@ -268,19 +296,7 @@ export async function tillMenuData(tx, tenantId, venueId, streams, { guest = fal
         // in items (and section_items) so a combo can still offer it.
         if (!guest || isPriced(it, itemChoices(it, rules))) ids.push(it.id)
         if (items[it.id]) continue
-        items[it.id] = {
-          id: it.id, name: it.name, kitchen_name: it.kitchen_name || null, section_id: s.id,
-          price_pence: it.price_pence ?? null, kind: it.kind || 'dish',
-          course_id: it.pos_course_id || s.pos_course_id || null,
-          colour: it.pos_colour || s.pos_colour || null,
-          tax: [taxForVenue(it.tax, venueId, streamIds), sectionTax, menuTax],
-          variants: it.variants || [], variant_groups: it.variant_groups || [],
-          combo: it.combo || null,
-          dietary: it.dietary || [], allergen_levels: it.allergen_levels || {},
-          description: it.description || null,
-          variant_rules: rules,
-          ...(guest ? { image_url: it.image_url || null, calories: it.calories ?? null, is_featured: !!it.is_featured } : {}),
-        }
+        items[it.id] = shape(it)
       }
       sections.push({
         id: s.id, title: s.title, colour: s.pos_colour || null, course_id: s.pos_course_id || null, item_ids: ids, all_ids: all,
@@ -298,6 +314,7 @@ export async function tillMenuData(tx, tenantId, venueId, streams, { guest = fal
       delete s.all_ids
     }
   }
+  for (const [id, menuIds] of Object.entries(hiddenMenus)) if (items[id]) items[id].hidden_menu_ids = menuIds
   return { menus, items, section_items: sectionItems, dietary }
 }
 

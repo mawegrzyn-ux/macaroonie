@@ -10,10 +10,12 @@
 //   (check.flow_asked), so it isn't asked again on the order.
 //   Things added by themselves (kind add): whenever an open check changes on
 //   this till's screen, syncFlows() puts on what the flows want and takes off
-//   what they don't any more (a dish only until it is sent).
+//   what they don't any more (a dish only until it is sent). They follow the
+//   order (orderOrigin()): the flows of the till that opened it, or of the
+//   kiosk a kiosk order came from, whichever till shows it.
 
 import { useSyncExternalStore } from 'react'
-import { askFlowsFor, askChoices, flowAddsFor, flowSyncPlan, planEmpty, addedDishes, orderFlowList } from '@shared/pos/orderFlows.js'
+import { askFlowsFor, askChoices, flowAddsFor, flowSyncPlan, planEmpty, addedDishes, orderFlowList, orderOrigin } from '@shared/pos/orderFlows.js'
 import { MANAGER_ALWAYS } from '@shared/pos/permissions.js'
 import { getState, dispatch, currentChecks, toast } from './store.js'
 import { addItem, listCharges, listCharge, tillItem, needsChoices } from './checkOps.js'
@@ -111,7 +113,10 @@ export function syncFlows(checkId) {
   if (!flows?.length) return 0
   const check = currentChecks()[checkId]
   if (!check || check.status !== 'open') return 0
-  const here = flowPlace(config)
+  // Where the order was taken: a check another till opened keeps that
+  // till's flows, a kiosk order the kiosk's.
+  const place = flowPlace(config)
+  const here = { ...place, ...orderOrigin(check, config?.devices, { app: 'till', deviceId: place.deviceId }) }
   const wanted = flowAddsFor(flows, check, here)
   const plan = flowSyncPlan(check, wanted)
   if (planEmpty(plan)) return 0

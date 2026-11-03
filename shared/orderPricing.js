@@ -9,11 +9,15 @@
 //     the basket, so the checkout total never jumps.
 //
 // Plain ESM, no dependencies, no DOM. Promotions (discounts) come from
-// ./promotions.js, served next to this file as /order-api/promotions.js.
+// ./promotions.js, served next to this file as /order-api/promotions.js;
+// order flows from ./pos/orderFlows.js and their charges' amounts from
+// ./pos/charges.js (/order-api/pos/...).
 //
 import { applyPromotions } from './promotions.js'
 import { rewardDiscount } from './loyalty.js'
 import { isCombo, priceCombo, comboFromPrice, findAutoCombos, autoMatchable, menuCtx, dealChoices, withDealPicks } from './combos.js'
+import { basketOrder, guestFlowAdds } from './pos/orderFlows.js'
+import { chargeBase, chargeAmount, chargeLabel } from './pos/charges.js'
 
 // A dish's choices come from its ad-hoc variants (one required choice) and
 // its attached variant groups:
@@ -247,7 +251,21 @@ export function tipFor(subtotalPence, percent) {
 // rewards: loyalty rewards the guest spends (shared/loyalty.js normaliseReward
 // plus their redemption `id`), taken off last, on what combos and promotions
 // left; a reward that can't apply is an error (code 'reward').
-export function priceBasket(itemsById, lines, { tipPercent = 0, promos = null, promoCtx = {}, combos = null, rewards = null } = {}) {
+// flows: order flows (shared/pos/orderFlows.js) { list (the flows that run
+// online here), here: { venueId, app: 'online', streams }, revenue_stream_id,
+// order_type_id (the order's), off: { [key]: true } (what the guest took off;
+// only removable ones stay off), charges: { [id]: charge as chargeFromList()
+// makes it, with vat_rate }, items: { [id]: dish } (where their dishes come
+// from: the menus' dishes, a section hidden on the website too; default
+// itemsById), itemOk(id) (a dish on at the time, else left off) }. Their
+// dishes are lines like any other (flow: { id, key, removable }), at the
+// menu's price, after the guest's; a dish with options is left off. Their
+// charges come after every discount (shared/pos/charges.js: a percent of the
+// dishes they count, or an amount), never in the subtotal, with their VAT:
+// total = subtotal - discount + charges + tip. Never from the guest's lines:
+// a line's own flow mark is ignored. own_subtotal_pence: the guest's own
+// dishes (what the minimum order counts).
+export function priceBasket(itemsById, lines, { tipPercent = 0, promos = null, promoCtx = {}, combos = null, rewards = null, flows = null } = {}) {
   const out = []
   const outPicks = []   // each priced line's picks ({ groupKey: [optionId] }), for automatic combos
   const errors = []
@@ -274,10 +292,40 @@ export function priceBasket(itemsById, lines, { tipPercent = 0, promos = null, p
     })
     outPicks.push(line.choices || {})
   }
+  // Order flows: what they put on by themselves, worked out from the guest's
+  // own dishes (a flow's dishes never count towards a flow).
+  const flowAdds = flows && Array.isArray(flows.list) && flows.list.length
+    ? guestFlowAdds(flows.list, basketOrder({ lines: out, revenue_stream_id: flows.revenue_stream_id || null, order_type_id: flows.order_type_id || null }),
+        flows.here || {}, flows.off || {}, { all: true })
+    : { wanted: [], leftOff: [] }
+  const ownSubtotal = subtotal
+  const flowItems = (flows && flows.items) || itemsById
+  for (const w of flowAdds.wanted) {
+    if (w.kind !== 'dish') continue
+    const item = flowItems[w.item_id]
+    if (!item || item.sold_out || isCombo(item) || (flows.itemOk && !flows.itemOk(item.id))) continue
+    const choices = choicesOf(item)
+    if (choices.length) continue
+    const priced = priceLine(item, { choices: {} }, choices, comboCtx)
+    if (!priced.ok) continue
+    const lineTotal = priced.unit_pence * w.qty
+    const rate = Number(item.vat_rate) || 0
+    const lineVat = vatIncluded(lineTotal, rate)
+    subtotal += lineTotal
+    vat += lineVat
+    out.push({
+      item_id: item.id, section_id: item.section_id ?? null, name: item.name, qty: w.qty, options: [], parts: null,
+      unit_pence: priced.unit_pence, base_pence: priced.base_pence, line_total_pence: lineTotal,
+      vat_rate: rate, vat_pence: lineVat, note: null, flow: { id: w.flow_id, key: w.key, removable: w.removable },
+    })
+    outPicks.push({})
+  }
   // A dish's minimum order quantity (item.min_qty, migration 133) counts
-  // every line of that dish, whatever its options.
+  // every line of that dish, whatever its options (the guest's: an order
+  // flow's dish is put on as the flow says).
   const perDish = new Map()
   out.forEach((l, i) => {
+    if (l.flow) return
     const d = perDish.get(l.item_id) || { qty: 0, index: i }
     d.qty += l.qty
     perDish.set(l.item_id, d)
@@ -292,7 +340,8 @@ export function priceBasket(itemsById, lines, { tipPercent = 0, promos = null, p
   const autoCombos = (combos && combos.auto || []).filter(c => autoMatchable(c) && !c.sold_out)
   if (autoCombos.length && out.length) {
     const found = findAutoCombos(
-      out.map((l, i) => ({ key: i, item_id: l.item_id, section_id: l.section_id, qty: l.parts ? 0 : l.qty, unit_base: l.base_pence, picks: outPicks[i] })),
+      // An order flow's dish never goes into an automatic combo.
+      out.map((l, i) => ({ key: i, item_id: l.item_id, section_id: l.section_id, qty: l.parts || l.flow ? 0 : l.qty, unit_base: l.base_pence, picks: outPicks[i] })),
       autoCombos, comboCtx, c => fromPrice({ ...c, combo: null, kind: 'dish', price_pence: c.price_pence ?? 0 }, choicesOf(c)) ?? 0,
     )
     for (const f of found) {
@@ -332,12 +381,37 @@ export function priceBasket(itemsById, lines, { tipPercent = 0, promos = null, p
     out.forEach(l => { l.discount_pence = 0 })
   }
   const net = subtotal - discount
+  // Order flows' charges, on what is left after every discount. Online
+  // orders have no guest count: a charge from N guests never counts.
+  const charges = []
+  for (const w of flowAdds.wanted) {
+    if (w.kind !== 'charge') continue
+    const x = flows.charges && flows.charges[w.charge_id]
+    if (!x || (Number(x.min_covers) || 0) > 0) continue
+    const rows = out.map(l => ({ line: { item_id: l.item_id, section_id: l.section_id, qty: l.qty, combo: l.parts || [] }, net: l.line_total_pence - (l.discount_pence || 0) }))
+    const base = chargeBase(x, rows)
+    const amount = chargeAmount(x, base)
+    if (!amount) continue
+    const rate = Number(x.vat_rate) || 0
+    const chargeVat = vatIncluded(amount, rate)
+    vat += chargeVat
+    charges.push({
+      id: x.id, name: x.name, label: chargeLabel({ ...x, count: base.count }), kind: x.kind, value: x.value,
+      basis: x.basis === 'dishes' ? 'dishes' : 'check', per: x.per === 'dish' ? 'dish' : 'check', count: base.count,
+      amount_pence: amount, vat_rate: rate, vat_pence: chargeVat, tax_rate_id: x.tax_rate_id || null,
+      removable: !!w.removable, flow: { id: w.flow_id, key: w.key },
+    })
+  }
+  const chargesTotal = charges.reduce((s, x) => s + x.amount_pence, 0)
   const tip = tipFor(net, tipPercent)
   return {
-    lines: out, errors, subtotal_pence: subtotal, discount_pence: discount, vat_pence: vat, tip_pence: tip, total_pence: net + tip,
+    lines: out, errors, subtotal_pence: subtotal, own_subtotal_pence: ownSubtotal, discount_pence: discount, vat_pence: vat, tip_pence: tip,
+    charges, charges_pence: chargesTotal, total_pence: net + chargesTotal + tip,
     combos: comboList, combo_discount_pence: comboTotal,
     promotions: promo ? promo.applied : [], promo_offers: promo ? promo.offers : [], promo_notices: promo ? promo.notices : [],
     rewards: rewardList,
+    // The removable things order flows would put on that the guest took off (Add it back).
+    flows_off: flowAdds.leftOff.map(w => ({ key: w.key, kind: w.kind, item_id: w.item_id || null, charge_id: w.charge_id || null, flow_id: w.flow_id })),
   }
 }
 

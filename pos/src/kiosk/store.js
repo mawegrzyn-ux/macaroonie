@@ -22,7 +22,9 @@ import { ulid } from '@shared/pos/ids.js'
 import {
   kioskOrder, normaliseDesign, uiText, payMethods, TK, emailHint,
   dishLevels, mergeLevels, itemLevels as sharedItemLevels, guestFit, countFits, cleanPrefs,
+  kioskFlows, kioskPrompts, promptChoices,
 } from '@shared/kiosk.js'
+import { askedAfter } from '@shared/pos/orderFlows.js'
 import { soldOutMap, comboCtx, configItem } from '@shared/pos/offers.js'
 import { venueNow } from '@shared/promotions.js'
 import { menusOnNow, nextStart } from '@shared/menuTimes.js'
@@ -74,6 +76,14 @@ let state = {
   // The guest's loyalty card (migration 211): { member (first name only), checkId (the order's id, fixed
   // once a reward is taken out for it), rewards: [{ redemption_id, reward }] }.
   loyalty: null,
+  // Order flows (migration 236): what the guest took off of what flows put
+  // on ({ [key]: true }), the prompts asked ({ [flow id]: { n, answer,
+  // item_ids } }) and the prompt showing: { ids: [flow id] (it and the ones
+  // after it), added: { [item id]: n }, paused (a dish's page is open from
+  // it), building (that dish) }.
+  flowsOff: {},
+  flowsAsked: {},
+  prompt: null,
 }
 const listeners = new Set()
 let api = createTransport(null)
@@ -426,9 +436,11 @@ export function startOrder(orderTypeId) {
   const menuIds = menusOnNowFor(config)
   // No sections down the side: the menu opens on the section tiles page.
   const first = config?.design?.menu?.rail === 'none' ? 'tiles' : hasHome(config) ? 'home' : kioskSections(config, menuIds)[0]?.id || null
+  promptThen = null
   setState({
     screen: 'menu', orderType: orderTypeId, section: first, basket: [], builder: null, menuIds,
     details: { name: '', tent: '' }, method: null, result: null, error: null, doneHold: false,
+    flowsOff: {}, flowsAsked: {}, prompt: null,
   })
 }
 
@@ -440,6 +452,7 @@ export function startOrder(orderTypeId) {
  */
 export function restart(why) {
   attempt = null
+  promptThen = null
   // Rewards taken out for an order that never went: back to the guest.
   if (state.loyalty?.rewards?.length && !state.result?.check && !state.preview) {
     for (const x of state.loyalty.rewards) api.post('/pos-api/loyalty/redemptions/' + x.redemption_id + '/release', {}, { timeoutMs: 15000 }).catch(() => {})
@@ -451,6 +464,7 @@ export function restart(why) {
     menuIds: menusOnNowFor(state.config),
     // The next guest starts on the menu's first page.
     section: null, detailStep: null, added: null, toast: null, doneHold: false,
+    flowsOff: {}, flowsAsked: {}, prompt: null,
     ended: { why: typeof why === 'string' ? why : 'guest', n: (state.ended?.n || 0) + 1 },
   })
 }
@@ -476,16 +490,23 @@ export function replayView(v = {}) {
     result: r ? { order_no: r.order_no ?? null, provisional: r.provisional ?? null, pending: !!r.pending, check: null, totals: { total: r.total ?? 0 } } : null,
     error: v.error ?? null, toast: v.toast ? { id: 'replay:' + v.toast, text: v.toast } : null, added: null,
     link: v.link || 'up', online: v.link !== 'down',
+    flowsOff: Object.fromEntries((Array.isArray(v.flowsOff) ? v.flowsOff : []).map(k => [k, true])),
+    prompt: v.prompt?.ids?.length ? { ids: v.prompt.ids, added: v.prompt.added || {}, paused: !!v.prompt.paused, building: null } : null,
   })
 }
 
 export function openSection(id) { setState({ section: id, screen: 'menu' }) }
 
-export function openBuilder(itemId, entry = null) {
+export function openBuilder(itemId, entry = null, { fromPrompt = false } = {}) {
   // A toast from the last add would sit over the new item.
-  setState({ toast: null, builder: { item_id: itemId, key: entry?.key || null, selection: entry?.selection || { choices: {}, combo: {} }, qty: entry?.qty || 1 } })
+  setState({ toast: null, builder: { item_id: itemId, key: entry?.key || null, selection: entry?.selection || { choices: {}, combo: {} }, qty: entry?.qty || 1, ...(fromPrompt ? { fromPrompt: true } : {}) } })
 }
-export function closeBuilder() { setState({ builder: null }) }
+export function closeBuilder() {
+  const fromPrompt = !!state.builder?.fromPrompt
+  setState({ builder: null })
+  // Opened from an order flow's prompt and left without adding: on to the next prompt.
+  if (fromPrompt) promptDone()
+}
 
 const sameEntry = (a, b) => a.item_id === b.item_id && JSON.stringify(a.selection || {}) === JSON.stringify(b.selection || {})
 
@@ -494,18 +515,30 @@ const sameEntry = (a, b) => a.item_id === b.item_id && JSON.stringify(a.selectio
  * replace the entry being edited. flew: the dish's picture is flying into
  * the order button (fly.js), which then bounces when it lands, not now.
  */
-export function addToBasket({ item_id, selection = {}, qty = 1 }, key = null, { flew = false } = {}) {
+export function addToBasket({ item_id, selection = {}, qty = 1 }, key = null, { flew = false, fromPrompt = false } = {}) {
+  // A dish's page opened from an order flow's prompt: adding it asks nothing more.
+  const viaPrompt = fromPrompt || !!state.builder?.fromPrompt
+  const pageFromPrompt = !!state.builder?.fromPrompt
   let basket = [...state.basket]
+  let entry = { item_id, selection, qty }
   if (key) {
     basket = basket.map(e => (e.key === key ? { ...e, item_id, selection, qty } : e))
   } else {
     const twin = basket.find(e => sameEntry(e, { item_id, selection }))
     if (twin) basket = basket.map(e => (e === twin ? { ...e, qty: Math.min(99, e.qty + qty) } : e))
-    else basket.push({ key: ulid(), item_id, selection, qty })
+    else { entry = { key: ulid(), item_id, selection, qty }; basket.push(entry) }
   }
   // `added` changes on every add: the order button gives a little bounce.
   setState({ basket, builder: null, ...(key || flew ? {} : { added: Date.now() }) })
   if (!key) toast(textsFor().ui('added'), 1600)
+  if (pageFromPrompt) {
+    // The dish picked in a prompt, added from its page: on to the next prompt.
+    const p = state.prompt
+    if (p) promptDone({ ...p.added, [item_id]: (p.added[item_id] || 0) + 1 })
+  } else if (!key && !viaPrompt) {
+    // The prompts this dish sets off (order flows).
+    askPrompts(promptsDue('dish_added', entry))
+  }
 }
 
 export function setQty(key, qty) {
@@ -514,6 +547,119 @@ export function setQty(key, qty) {
 }
 
 export function setDetails(patch) { setState({ details: { ...state.details, ...patch } }) }
+
+// ── Order flows (migration 236, shared/pos/orderFlows.js) ─────────
+// The basket holds what the guest put in. What the kiosk's order flows put
+// on by themselves (dishes, charges) is worked out from it (flowsNow()),
+// shown on the order page and sent with the order: it comes off again by
+// itself when the order stops matching. The guest may take off one that is
+// removable (setFlowOff()). Prompts offer dishes after the guest adds one and
+// before paying, one after another, each answered once on the order.
+
+let flowsMemo = null
+/** kioskFlows() for the order now, or null when no order flow runs on this kiosk. */
+export function flowsNow(s = state) {
+  const c = s.config
+  if (!c?.settings?.flows?.length) return null
+  const m = flowsMemo
+  if (m && m.c === c && m.basket === s.basket && m.type === s.orderType && m.off === s.flowsOff && m.asked === s.flowsAsked && m.menus === s.menuIds && m.device === s.device) return m.value
+  const value = kioskFlows(c, s.basket, {
+    device: s.device, order_type_id: s.orderType, off: s.flowsOff, asked: s.flowsAsked,
+    soldOut: soldOutMap(c), isOn: id => !itemOffNow(c, id, s.menuIds),
+  })
+  flowsMemo = { c, basket: s.basket, type: s.orderType, off: s.flowsOff, asked: s.flowsAsked, menus: s.menuIds, device: s.device, value }
+  return value
+}
+
+/** The order's entries as it is sent: the guest's basket, then what order flows put on. */
+export function orderEntries(s = state) {
+  const f = flowsNow(s)
+  return f && f.entries.length ? [...s.basket, ...f.entries] : s.basket
+}
+
+/** The charges order flows put on the order. */
+export const orderCharges = (s = state) => flowsNow(s)?.charges || []
+
+/** Take off something an order flow put on (a removable one), or put it back (off false). */
+export function setFlowOff(key, off) {
+  const flowsOff = { ...state.flowsOff }
+  if (off) flowsOff[key] = true
+  else delete flowsOff[key]
+  setState({ flowsOff })
+}
+
+// The dishes a prompt may offer: on the menus on now (a dish on no menu isn't held back).
+let shownMemo = null
+function shownNow(s) {
+  const c = s.config
+  if (shownMemo && shownMemo.c === c && shownMemo.menus === s.menuIds) return shownMemo.value
+  const value = new Set(Object.keys(c?.items || {}).filter(id => !itemOffNow(c, id, s.menuIds)))
+  shownMemo = { c, menus: s.menuIds, value }
+  return value
+}
+
+/** The prompts due now (trigger 'dish_added' with the entry just added, or 'checkout'): flow ids. */
+function promptsDue(trigger, entry = null, s = state) {
+  const f = flowsNow(s)
+  if (!f || s.replay) return []
+  return kioskPrompts(s.config, f, { trigger, entry, soldOut: soldOutMap(s.config), shownIds: shownNow(s) }).map(x => x.id)
+}
+
+// What comes once every prompt showing is answered (beforePaying()).
+let promptThen = null
+
+// Show prompts one after another. false when there is none.
+function askPrompts(ids, then = null) {
+  if (!ids.length) return false
+  promptThen = then
+  setState({ prompt: { ids, added: {}, paused: false, building: null } })
+  return true
+}
+
+/** Before paying: the checkout prompts due, then next() (again, until none is due). */
+export function beforePaying(next) {
+  if (!askPrompts(promptsDue('checkout'), () => beforePaying(next))) next()
+}
+
+/** The prompt showing: { flow, dishes, added }, or null. */
+export function promptNow(s = state) {
+  const p = s.prompt
+  if (!p || p.paused || !p.ids.length) return null
+  const flow = (s.config?.settings?.flows || []).find(x => x.id === p.ids[0])
+  if (!flow) return null
+  return { flow, dishes: promptChoices(s.config, flow, { soldOut: soldOutMap(s.config), shownIds: shownNow(s) }), added: p.added }
+}
+
+/** A dish picked in the prompt showing. One with choices opens its page, then the next prompt. */
+export function promptPick(itemId) {
+  const now = promptNow()
+  const it = configItem(state.config, itemId)
+  if (!now || !it) return
+  if (it.kind === 'combo' || (it.pos_choices || []).length) {
+    setState({ prompt: { ...state.prompt, paused: true, building: it.id } })
+    openBuilder(it.id, null, { fromPrompt: true })
+    return
+  }
+  addToBasket({ item_id: it.id, selection: {}, qty: 1 }, null, { fromPrompt: true })
+  const added = { ...state.prompt.added, [it.id]: (state.prompt.added[it.id] || 0) + 1 }
+  if (now.flow.ask.pick === 'one') promptDone(added)
+  else setState({ prompt: { ...state.prompt, added } })
+}
+
+/** No thanks / Done on the prompt showing: its answer kept, on to the next one. */
+export function promptDone(added = state.prompt?.added || {}) {
+  const p = state.prompt
+  if (!p) return
+  const ids = Object.keys(added).filter(id => added[id] > 0)
+  const flowsAsked = askedAfter(state.flowsAsked, p.ids[0], ids.length ? 'added' : 'declined', ids)
+  const rest = p.ids.slice(1)
+  setState({ flowsAsked, prompt: rest.length ? { ids: rest, added: {}, paused: false, building: null } : null })
+  if (!rest.length) {
+    const then = promptThen
+    promptThen = null
+    if (then) then()
+  }
+}
 
 // ── Allergens ───────────────────────────────────────────────────
 // The guest's allergens and diets (the allergens screen) stay for the order
@@ -552,7 +698,11 @@ export function itemOffNow(config, id, menuIds = state.menuIds) {
       onSome = true
     }
   }
-  return onSome
+  // A dish an order flow puts on from a section hidden on the website
+  // (services/posSvc.js tillMenuData() keepIds): on while one of its menus is.
+  const hiddenIn = config?.items?.[id]?.hidden_menu_ids || []
+  if (hiddenIn.some(m => menuIds.includes(m))) return false
+  return onSome || hiddenIn.length > 0
 }
 
 /** { total, fits } for the guest's picks (sold out dishes left out). */
@@ -680,13 +830,15 @@ export async function placeOrder(method, payment = null) {
   const { config, device, basket, details, orderType } = state
   const design = config.design
   const loyalty = loyaltyForOrder(state)
-  const key = method === 'counter' ? JSON.stringify([basket, details, orderType, loyalty?.rewards?.map(x => x.redemption_id) || null]) : null
+  const key = method === 'counter' ? JSON.stringify([basket, details, orderType, loyalty?.rewards?.map(x => x.redemption_id) || null, state.flowsOff, state.flowsAsked]) : null
   const again = key && attempt?.key === key ? attempt : null
   // The kiosk numbers its own orders (lib/numbers.js): the guest's number is
   // known at once, even when the order has to wait to reach the till.
   const nums = again ? again.nums : state.preview ? { number: 7, order_no: 7 } : takeNumbers(device, config, { counter: true, day: tradingDay })
-  const r = again ? again.r : kioskOrder(config, basket, {
+  // With what its order flows put on, the prompts answered and what the guest took off.
+  const r = again ? again.r : kioskOrder(config, orderEntries(state), {
     device, checkId: state.loyalty?.checkId || ulid(), newId: () => ulid(), order_type_id: orderType, loyalty,
+    charges: orderCharges(state), asked: state.flowsAsked, flows_off: state.flowsOff,
     name: details.name, tent: details.tent, number: nums.number, order_no: nums.order_no,
     payment: method === 'card' ? payment || { ref: null } : null,
     send: method === 'counter' && design.checkout.send_counter,

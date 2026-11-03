@@ -1,25 +1,37 @@
 // shared/pos/orderFlows.js
 //
-// Order flows (migration 235, Store tech > Order flows): rules that act on
-// an order by themselves. ONE implementation for the till, the cloud's
-// sequencer, the venue hub, the admin's designer and the API.
+// Order flows (migrations 235, 236; Store tech > Order flows): rules that act
+// on an order by themselves. ONE implementation for the till, the kiosk, the
+// online ordering page, the cloud's sequencer, the venue hub, the admin's
+// designer and the API. No imports: the online ordering page loads this file
+// as it is (/order-api/pos/orderFlows.js).
 //
 // Two kinds:
 //   ask   a prompt offering a dish or a choice of dishes ("Add a drink?"),
 //         shown when a dish is added (trigger dish_added) or at checkout
-//         (trigger checkout: before payment starts). No thanks is always
-//         there; once per order (or, when a dish is added, every time).
+//         (trigger checkout: before payment starts; on a kiosk or online,
+//         when the guest taps Checkout). No thanks is always there; once
+//         per order (or, when a dish is added, every time).
 //   add   dishes and charges put on the order by themselves while it
 //         matches (trigger match): taken off again when it stops matching
-//         (a dish only while it hasn't gone to the kitchen). Each can be
-//         one staff may take off (removable), or not (a manager every time).
+//         (on a till, a dish only while it hasn't gone to the kitchen). Each
+//         can be one that may be taken off (removable: by staff on a till, by
+//         the guest on a kiosk or online), or not (on a till, a manager every
+//         time; a guest can't).
+//
+// Where a flow runs (apps): tills, kiosks, online ordering, any of them, at
+// every location or the ones it names, on every till / kiosk there or the
+// ones it names. A prompt shows on the device the person ordering is using.
+// What goes on by itself follows the order: the flows of where it was taken
+// (orderOrigin()), so a kiosk order paid at a till keeps the kiosk's flows.
 //
 // A flow (normaliseOrderFlow() is the one shape; the API keeps name,
 // is_active and sort_order as columns, the rest in pos_order_flows.flow):
 //   { id, name, on, kind: 'ask' | 'add', trigger: 'dish_added' | 'checkout' | 'match',
-//     venue_ids:  null | [uuid]   every location, or these
-//     device_ids: null | [uuid]   every till at them, or these tills
-//     apps: ['till']              where it runs (kiosks and online ordering to come)
+//     apps: ['till', 'kiosk', 'online']  where it runs (any of them)
+//     venue_ids: null | [uuid]   every location, or these
+//     till_ids:  null | [uuid]   every till at them, or these tills (with 'till')
+//     kiosk_ids: null | [uuid]   every kiosk at them, or these kiosks (with 'kiosk')
 //     match: {                    what the order needs, all optional: each
 //       stream_names, type_ids,   kind given must hold (and), any of its
 //       item_ids, section_ids,    entries will do (or). Dishes: the order has
@@ -33,21 +45,33 @@
 //          | { kind: 'charge', charge_id, removable }] }
 // Channels are revenue streams, by name: each location has its own streams,
 // so "Delivery" means every location's stream called Delivery (any case).
+// Online orders count under the stream Ordering setup picks (if any), kiosk
+// orders under the kiosk's.
 //
 // On a check (shared/pos/checks.js): a dish an add flow put on is a line
 // with flow { id, key, removable }; a charge carries flow { id, key } and
-// optional = removable. check.flows_off remembers, by key, what staff took
-// off, so the flow doesn't put it back; check.flows_asked, by flow id, the
-// prompts asked. Dishes a flow put on never count towards any flow's dish
+// optional = removable. check.flows_off remembers, by key, what was taken
+// off, so the flow doesn't put it back (a kiosk order carries what the guest
+// took off in check.opened); check.flows_asked, by flow id, the prompts
+// asked. Dishes a flow put on never count towards any flow's dish
 // conditions (no flow feeds another, or itself).
+//
+// A guest's basket (kiosk, online ordering) keeps only what the guest put
+// in: what flows add is worked out from it whenever it changes
+// (guestFlowAdds()), shown and sent with the order. Online, the server works
+// it out again from the basket (shared/orderPricing.js priceBasket()), so a
+// guest can't leave out what can't be taken off.
 //
 // Pure: no I/O.
 
-import { isActiveLine } from './pricing.js'
+// shared/pos/pricing.js isActiveLine(), kept here so this file imports nothing.
+const isActiveLine = l => l.status !== 'voided'
 
 export const FLOW_KINDS = ['ask', 'add']
 export const ASK_TRIGGERS = ['dish_added', 'checkout']
-export const FLOW_APPS = ['till']
+export const FLOW_APPS = ['till', 'kiosk', 'online']
+/** What each app is called in words (the designer, the list). */
+export const APP_NAMES = { till: 'Tills', kiosk: 'Kiosks', online: 'Online ordering' }
 export const ASK_PICKS = ['one', 'several']
 export const FLOWS_MAX = 60          // per company
 export const FLOW_NAME_MAX = 80
@@ -59,7 +83,8 @@ export const FLOW_ADD_QTY_MAX = 20
 export const MATCH_ITEMS_MAX = 100
 export const MATCH_SECTIONS_MAX = 40
 export const MATCH_LIST_MAX = 40     // streams, order types
-export const FLOW_PLACES_MAX = 300   // venues, devices
+export const FLOW_PLACES_MAX = 300   // venues, tills, kiosks
+export const FLOWS_OFF_MAX = 60      // keys a guest's order carries as taken off
 
 const isUuid = v => typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)
 const ids = (v, max) => [...new Set(Array.isArray(v) ? v : [])].filter(isUuid).slice(0, max)
@@ -129,7 +154,10 @@ export function normaliseOrderFlow(raw) {
   if (!isUuid(f.id)) return null
   const kind = f.kind === 'add' ? 'add' : 'ask'
   const trigger = kind === 'add' ? 'match' : ASK_TRIGGERS.includes(f.trigger) ? f.trigger : 'dish_added'
-  const apps = [...new Set(Array.isArray(f.apps) ? f.apps : [])].filter(a => FLOW_APPS.includes(a))
+  // A flow saved before kiosks and online ordering had no apps: tills. One
+  // with none picked runs nowhere (flowProblems() asks for one).
+  const picked = new Set(Array.isArray(f.apps) ? f.apps : ['till'])
+  const apps = FLOW_APPS.filter(a => picked.has(a))
   const adds = []
   const seen = new Set()
   for (const a of Array.isArray(f.adds) ? f.adds : []) {
@@ -148,9 +176,11 @@ export function normaliseOrderFlow(raw) {
     ...(Number.isFinite(Number(f.sort_order)) ? { sort_order: Number(f.sort_order) } : {}),
     kind,
     trigger,
+    apps,
     venue_ids: f.venue_ids == null ? null : ids(f.venue_ids, FLOW_PLACES_MAX),
-    device_ids: f.device_ids == null ? null : ids(f.device_ids, FLOW_PLACES_MAX),
-    apps: apps.length ? apps : ['till'],
+    // Tills and kiosks it names mean something only where it runs on them.
+    till_ids: !apps.includes('till') || f.till_ids == null ? null : ids(f.till_ids, FLOW_PLACES_MAX),
+    kiosk_ids: !apps.includes('kiosk') || f.kiosk_ids == null ? null : ids(f.kiosk_ids, FLOW_PLACES_MAX),
     match: normaliseMatch(f.match),
     ask: kind === 'ask' ? normaliseAsk(f.ask) : null,
     adds: kind === 'add' ? adds : [],
@@ -166,7 +196,7 @@ export function orderFlowList(list) {
 export function newOrderFlow(id, kind = 'ask', name = '') {
   return normaliseOrderFlow({
     id, kind, name: name || (kind === 'add' ? 'Add by itself' : 'Suggest a dish'),
-    trigger: 'dish_added', venue_ids: null, device_ids: null, apps: ['till'],
+    trigger: 'dish_added', apps: ['till'], venue_ids: null, till_ids: null, kiosk_ids: null,
     match: EMPTY_MATCH(),
     // No question yet: the designer asks for one (an example question left in
     // would be typed after, or go out to guests unchanged).
@@ -183,7 +213,9 @@ export function flowProblems(f) {
   const out = []
   if (!f) return [{ code: 'flow', message: 'This isn\'t a flow' }]
   if (!f.name) out.push({ code: 'name', message: 'Give the flow a name' })
-  if (f.device_ids && !f.device_ids.length) out.push({ code: 'devices', message: 'Pick at least one till, or let it run on every till' })
+  if (!f.apps.length) out.push({ code: 'apps', message: 'Pick where the flow runs: tills, kiosks or online ordering' })
+  if (f.till_ids && !f.till_ids.length) out.push({ code: 'tills', message: 'Pick at least one till, or let it run on every till' })
+  if (f.kiosk_ids && !f.kiosk_ids.length) out.push({ code: 'kiosks', message: 'Pick at least one kiosk, or let it run on every kiosk' })
   if (f.venue_ids && !f.venue_ids.length) out.push({ code: 'venues', message: 'Pick at least one location, or let it run everywhere' })
   if (f.kind === 'ask') {
     if (!f.ask?.title) out.push({ code: 'ask_title', message: 'The prompt needs a question, e.g. "Add a drink?"' })
@@ -197,17 +229,20 @@ export function flowProblems(f) {
 /**
  * Things worth knowing about a flow that don't stop it: [{ code, message }].
  * With what the company has (`channels`: { [channelKey(name)]: [venue id] },
- * the locations with a channel of that name; `tills`: { [device id]: venue id }),
- * it also says when a channel or a till can never match.
+ * the locations with a channel of that name; `tills` / `kiosks`: { [device
+ * id]: venue id }; `choices`: a Set of the dishes that need a choice made;
+ * `charges`: { [id]: { name, min_covers } }; `names` for the dishes), it
+ * also says when a channel, a till or a kiosk can never match, and when
+ * something it adds can't go on.
  */
-export function flowWarnings(f, { channels = null, tills = null } = {}) {
+export function flowWarnings(f, { channels = null, tills = null, kiosks = null, choices = null, charges = null, names = {} } = {}) {
   const out = []
   if (!f) return out
   const m = f.match
   const anyMatch = m.stream_names.length || m.type_ids.length || m.item_ids.length || m.section_ids.length
     || m.not_item_ids.length || m.not_section_ids.length
   if (f.kind === 'add' && !anyMatch) {
-    out.push({ code: 'every_order', message: 'With nothing under If, this goes on every order at the tills it runs on' })
+    out.push({ code: 'every_order', message: 'With nothing under If, this goes on every order where it runs' })
   }
   if (f.kind === 'ask' && f.trigger === 'checkout' && !anyMatch && !f.ask?.skip_if_has) {
     out.push({ code: 'every_checkout', message: 'With nothing under If, every order is asked at checkout' })
@@ -228,10 +263,35 @@ export function flowWarnings(f, { channels = null, tills = null } = {}) {
       }
     }
   }
-  if (tills && f.device_ids && f.venue_ids) {
-    const away = f.device_ids.filter(id => tills[id] && !f.venue_ids.includes(tills[id]))
+  if (tills && f.till_ids && f.venue_ids) {
+    const away = f.till_ids.filter(id => tills[id] && !f.venue_ids.includes(tills[id]))
     if (away.length) {
       out.push({ code: 'tills_elsewhere', message: (away.length === 1 ? 'A till it names is' : away.length + ' tills it names are') + ' at a location it doesn\'t run at' })
+    }
+  }
+  if (kiosks && f.kiosk_ids && f.venue_ids) {
+    const away = f.kiosk_ids.filter(id => kiosks[id] && !f.venue_ids.includes(kiosks[id]))
+    if (away.length) {
+      out.push({ code: 'kiosks_elsewhere', message: (away.length === 1 ? 'A kiosk it names is' : away.length + ' kiosks it names are') + ' at a location it doesn\'t run at' })
+    }
+  }
+  if (f.kind === 'add' && choices) {
+    for (const a of f.adds) {
+      if (a.kind !== 'dish' || !choices.has(a.item_id)) continue
+      out.push({
+        code: 'dish_choices',
+        message: nameOf(names, 'items', a.item_id, 'A dish it adds') + ' needs a choice made, so it can\'t go on by itself: it is left off',
+      })
+    }
+  }
+  if (f.kind === 'add' && charges && (f.apps.includes('kiosk') || f.apps.includes('online'))) {
+    for (const a of f.adds) {
+      const x = a.kind === 'charge' ? charges[a.charge_id] : null
+      if (!x || !(Number(x.min_covers) > 0)) continue
+      out.push({
+        code: 'charge_covers',
+        message: (x.name || 'A charge it adds') + ' counts from ' + x.min_covers + ' guests: kiosk and online orders have no guest count, so it never goes on there',
+      })
     }
   }
   const offered = new Set(f.ask?.item_ids || [])
@@ -245,15 +305,32 @@ export function flowWarnings(f, { channels = null, tills = null } = {}) {
 // ── Where it runs ──────────────────────────────────────────────
 
 /**
- * Whether a flow runs here: { venueId, deviceId, app: 'till', streams }
- * (streams: { [revenue stream id]: name }, the channels' names here).
+ * Whether a flow runs here: { venueId, deviceId, app: 'till' | 'kiosk' |
+ * 'online', streams } (deviceId: the till or kiosk, none online; streams:
+ * { [revenue stream id]: name }, the channels' names here).
  */
 export function flowRunsHere(f, here = {}) {
   if (!f || !f.on) return false
-  if (!f.apps.includes(here.app || 'till')) return false
+  const app = here.app || 'till'
+  if (!f.apps.includes(app)) return false
   if (f.venue_ids && !f.venue_ids.includes(here.venueId)) return false
-  if (f.device_ids && !f.device_ids.includes(here.deviceId)) return false
+  if (app === 'till' && f.till_ids && !f.till_ids.includes(here.deviceId)) return false
+  if (app === 'kiosk' && f.kiosk_ids && !f.kiosk_ids.includes(here.deviceId)) return false
   return true
+}
+
+/**
+ * Where an order was taken, as the flows that add things by themselves see
+ * it: { app, deviceId }. They follow the order: a kiosk order on a till's
+ * screen keeps the kiosk's flows, a check opened on another till keeps that
+ * till's. devices: [{ id, kind }] (a till config's devices); current: this
+ * device ({ app, deviceId }), for an order that names none.
+ */
+export function orderOrigin(order, devices = [], current = {}) {
+  const id = order?.opened_device_id || null
+  const d = id ? (devices || []).find(x => x.id === id) : null
+  if (!d) return { app: current.app || 'till', deviceId: id || current.deviceId || null }
+  return { app: d.kind === 'kiosk' ? 'kiosk' : 'till', deviceId: d.id }
 }
 
 /** The flows of a list that run here, in their order. */
@@ -415,6 +492,80 @@ export function flowSyncPlan(order, wanted = []) {
 /** Whether a sync plan changes anything. */
 export const planEmpty = p => !p.addDishes.length && !p.removeLines.length && !p.addCharges.length && !p.dropCharges.length
 
+// ── A guest's basket (kiosk, online ordering) ──────────────────
+
+/**
+ * An order as flows see it, from a guest's basket: lines [{ item_id,
+ * section_id, qty, combo | parts: [{ item_id, section_id }], flow? }], the
+ * order's revenue stream and order type, what the guest took off
+ * (flows_off: { [key]: true }) and the prompts asked (flows_asked: { [flow
+ * id]: { n, answer, item_ids } }).
+ */
+export function basketOrder({ lines = [], revenue_stream_id = null, order_type_id = null, flows_off = {}, flows_asked = {} } = {}) {
+  return {
+    status: 'open', revenue_stream_id, order_type_id, flows_off: flows_off || {}, flows_asked: flows_asked || {},
+    lines: (lines || []).map(l => ({
+      item_id: l.item_id || null, section_id: l.section_id || null, qty: l.qty || 1, status: 'new',
+      ...(l.flow ? { flow: l.flow } : {}),
+      combo: (l.combo || l.parts || []).filter(p => p && p.item_id).map(p => ({ item_id: p.item_id, section_id: p.section_id || null })),
+    })),
+  }
+}
+
+/**
+ * What add flows put on a guest's order now: [want] as flowAddsFor() has
+ * them, without the removable ones the guest took off (off: { [key]: true });
+ * a guest can't take off one that isn't removable. Nothing until the guest
+ * has a dish of their own on the order (a bag never sits in an empty
+ * basket). `leftOff` (with { all: true }): the removable ones taken off,
+ * for Add it back.
+ */
+export function guestFlowAdds(list, order, here, off = {}, { all = false } = {}) {
+  const every = orderDishes(order).length ? flowAddsFor(list, { ...order, flows_off: {} }, here) : []
+  const taken = w => !!(w.removable && off?.[w.key])
+  const wanted = every.filter(w => !taken(w))
+  return all ? { wanted, leftOff: every.filter(taken) } : wanted
+}
+
+/**
+ * A guest's prompts asked, with one more answered: { [flow id]: { n, answer,
+ * item_ids } }, as check.flow_asked keeps them on a check.
+ */
+export function askedAfter(asked = {}, flowId, answer, itemIds = []) {
+  const prev = asked?.[flowId]
+  return { ...(asked || {}), [flowId]: { n: (prev?.n || 0) + 1, answer: answer === 'added' ? 'added' : 'declined', item_ids: [...new Set(itemIds || [])].filter(isUuid).slice(0, ASK_CHOICES_MAX) } }
+}
+
+const FLOW_KEY = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}:(dish|charge):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** Whether a string is an add's key (addKey()). */
+export const isFlowKey = k => typeof k === 'string' && FLOW_KEY.test(k)
+
+/** What a guest took off, tidy: { [key]: true } from keys, a list of them or that object. */
+export function cleanFlowsOff(v) {
+  const keys = Array.isArray(v) ? v : v && typeof v === 'object' ? Object.keys(v).filter(k => v[k]) : []
+  return Object.fromEntries([...new Set(keys)].filter(isFlowKey).slice(0, FLOWS_OFF_MAX).map(k => [k, true]))
+}
+
+/**
+ * The prompts a guest's order says were asked, tidy: { [flow id]: { n,
+ * answer, item_ids } } from that object or a list [{ flow_id, answer,
+ * item_ids, n? }]. Only flows in `known` (a Set of ids) when given.
+ */
+export function cleanFlowsAsked(v, known = null) {
+  const list = Array.isArray(v) ? v : v && typeof v === 'object' ? Object.entries(v).map(([flow_id, x]) => ({ ...(x || {}), flow_id })) : []
+  const out = {}
+  for (const x of list.slice(0, FLOWS_MAX)) {
+    if (!x || !isUuid(x.flow_id) || (known && !known.has(x.flow_id))) continue
+    out[x.flow_id] = {
+      n: Math.max(1, Math.min(99, Math.round(Number(x.n) || 1))),
+      answer: x.answer === 'added' ? 'added' : 'declined',
+      item_ids: [...new Set(Array.isArray(x.item_ids) ? x.item_ids : [])].filter(isUuid).slice(0, ASK_CHOICES_MAX),
+    }
+  }
+  return out
+}
+
 /**
  * The flow and add a charge put on by a flow names, when the flows say so:
  * the flow (switched on), and its add of this charge with `removable` equal
@@ -441,14 +592,15 @@ export function flowIds(f) {
     types: [...m.type_ids],
     charges: [...new Set((f?.adds || []).filter(a => a.kind === 'charge').map(a => a.charge_id))],
     venues: [...(f?.venue_ids || [])],
-    devices: [...(f?.device_ids || [])],
+    tills: [...(f?.till_ids || [])],
+    kiosks: [...(f?.kiosk_ids || [])],
   }
 }
 
 /**
  * A flow naming only ids the company has (own: { items, sections, types,
- * charges, venues, devices }, each a Set): the rest are dropped. Channels are
- * names, kept as they are.
+ * charges, venues, tills, kiosks }, each a Set): the rest are dropped.
+ * Channels are names, kept as they are.
  */
 export function ownFlow(f, own = {}) {
   const has = (k, id) => !!own[k]?.has(id)
@@ -457,7 +609,8 @@ export function ownFlow(f, own = {}) {
   return normaliseOrderFlow({
     ...f,
     venue_ids: f.venue_ids == null ? null : keep('venues', f.venue_ids),
-    device_ids: f.device_ids == null ? null : keep('devices', f.device_ids),
+    till_ids: f.till_ids == null ? null : keep('tills', f.till_ids),
+    kiosk_ids: f.kiosk_ids == null ? null : keep('kiosks', f.kiosk_ids),
     match: {
       stream_names: m.stream_names, type_ids: keep('types', m.type_ids),
       item_ids: keep('items', m.item_ids), section_ids: keep('sections', m.section_ids),
@@ -527,15 +680,35 @@ export function flowThenLines(f, names = {}) {
   })
 }
 
-/** Where a flow runs, in words: "Every location · every till". */
+/** The apps a flow runs on, in words: "Tills and kiosks", "Online ordering". */
+export function flowAppsText(f) {
+  const w = (f?.apps || []).map(a => APP_NAMES[a].toLowerCase())
+  const t = orList(w, 'and')
+  return t ? t[0].toUpperCase() + t.slice(1) : 'Nowhere yet'
+}
+
+/**
+ * Where a flow runs, in words: "Every location · every till", "Ware · Front
+ * till · every kiosk · online ordering".
+ */
 export function flowWhereText(f, names = {}) {
   const places = f.venue_ids == null ? 'Every location' : f.venue_ids.length
     ? orList(f.venue_ids.map(id => nameOf(names, 'venues', id, 'a location no longer there')), 'and')
     : 'No location'
-  const tills = f.device_ids == null ? 'every till' : f.device_ids.length
-    ? orList(f.device_ids.map(id => nameOf(names, 'devices', id, 'a till no longer there')), 'and')
-    : 'no till'
-  return places + ' · ' + tills
+  const parts = []
+  if (f.apps.includes('till')) {
+    parts.push(f.till_ids == null ? 'every till' : f.till_ids.length
+      ? orList(f.till_ids.map(id => nameOf(names, 'tills', id, 'a till no longer there')), 'and')
+      : 'no till')
+  }
+  if (f.apps.includes('kiosk')) {
+    parts.push(f.kiosk_ids == null ? 'every kiosk' : f.kiosk_ids.length
+      ? orList(f.kiosk_ids.map(id => nameOf(names, 'kiosks', id, 'a kiosk no longer there')), 'and')
+      : 'no kiosk')
+  }
+  if (f.apps.includes('online')) parts.push('online ordering')
+  if (!parts.length) parts.push('nowhere yet')
+  return [places, ...parts].join(' · ')
 }
 
 /** One line for the list: "When a dish is added: Ask "Add a drink?"". */

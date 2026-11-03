@@ -29,7 +29,7 @@ import { diffView } from '@shared/kioskJourney.js'
 import { basketCheck, KIOSK_LANGUAGES, kioskBox } from '@shared/kiosk.js'
 import { configItem } from '@shared/pos/offers.js'
 import { APP_VERSION } from '../lib/transport.js'
-import { getState, subscribeKiosk, kioskApi, kioskSections, replayView } from './store.js'
+import { getState, subscribeKiosk, kioskApi, kioskSections, replayView, orderEntries, orderCharges } from './store.js'
 
 const QUEUE_KEY = 'kiosk_journeys'        // finished visits waiting to be sent
 const OPEN_KEY = 'kiosk_journey_open'     // the visit being recorded, if the page closes mid-way
@@ -92,13 +92,14 @@ let valueCache = { basket: null, type: null, value: 0 }
 
 function basketValue(s) {
   if (!s.basket.length || !s.config) return 0
-  if (valueCache.basket === s.basket && valueCache.type === s.orderType) return valueCache.value
+  if (valueCache.basket === s.basket && valueCache.type === s.orderType && valueCache.off === s.flowsOff) return valueCache.value
   let value = 0
   try {
-    const r = basketCheck(s.config, s.basket, { device: s.device, order_type_id: s.orderType })
+    // With what order flows put on (store.js orderEntries()).
+    const r = basketCheck(s.config, orderEntries(s), { device: s.device, order_type_id: s.orderType, charges: orderCharges(s) })
     value = r.ok ? r.totals.total : 0
   } catch { value = 0 }
-  valueCache = { basket: s.basket, type: s.orderType, value }
+  valueCache = { basket: s.basket, type: s.orderType, off: s.flowsOff, value }
   return value
 }
 
@@ -122,6 +123,9 @@ export function viewOf(s) {
     toast: s.toast?.text ?? null,
     link: s.link || 'up',
     value: basketValue(s),
+    // Order flows (migration 236): what the guest took off, the prompt showing.
+    flowsOff: Object.keys(s.flowsOff || {}),
+    prompt: s.prompt ? { ids: [...s.prompt.ids], added: { ...s.prompt.added }, paused: !!s.prompt.paused } : null,
   }
   for (const [k, v] of Object.entries(ui)) view['ui:' + k] = v
   return view

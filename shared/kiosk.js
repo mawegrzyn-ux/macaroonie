@@ -22,6 +22,8 @@
 //   kioskBox(), kioskZoom()               the kiosk on a screen of another shape
 //                                         (bars) or size (zoomed to the design's)
 //   doneLook(), doneInfo(), doneGaps()    the order done screen per order type
+//   kioskFlows(), kioskPrompts()          order flows on a kiosk: what they add to the
+//                                         basket by themselves, the prompts due
 // Plain ESM, no dependencies but the other shared modules, no DOM.
 
 import { FONT_OPTIONS, FONT_WEIGHTS, fontStack } from './fonts.js'
@@ -33,6 +35,8 @@ import { configItem, dealItem, comboCtx, checkOffers } from './pos/offers.js'
 import { UI_TEXT, ALLERGEN_NAMES } from './kioskText.js'
 import { contrast } from './themeKit.js'
 import { tillDiscount } from './loyalty.js'
+import { basketOrder, guestFlowAdds, askFlowsFor, askChoices, addedDishes } from './pos/orderFlows.js'
+import { chargeList, chargeFromList } from './pos/charges.js'
 
 export { UI_TEXT, ALLERGEN_NAMES }
 
@@ -1130,6 +1134,7 @@ export const TK = {
   tag:     code => 'tag:' + code,
   notice:  field => 'notice:' + field,                          // title | body | removable_note
   design:  (id, path) => 'design:' + id + ':' + path,
+  flow:    (id, field) => 'flow:' + id + ':' + field,           // an order flow prompt's title | message
   ui:      key => 'ui:' + key,
 }
 
@@ -1142,8 +1147,9 @@ export const KEY_PATTERN = /^[a-z_]+:[A-Za-z0-9:_ .,'&()/-]{1,190}$/
  *   menus     [{ name, sections: [{ id, title, subtitle, items: [...] }] }] (drafts)
  *   groups    the option group library ([{ id, name, scale_low, scale_high, options }])
  *   types     order types; tags (dietary + allergens); notice; designs [{ id, name, settings }]
+ *   flows     order flows (shared/pos/orderFlows.js, normalised): the prompts kiosks show
  */
-export function translationSources({ menus = [], groups = [], types = [], tags = [], notice = null, designs = [] } = {}) {
+export function translationSources({ menus = [], groups = [], types = [], tags = [], notice = null, designs = [], flows = [] } = {}) {
   const out = []
   const seen = new Set()
   const add = (key, group, context, value) => {
@@ -1209,6 +1215,11 @@ export function translationSources({ menus = [], groups = [], types = [], tags =
     add(TK.design(d.id, 'done_message'), g, 'Order done message', s.done.message)
     for (const x of s.done.types) add(TK.design(d.id, 'done_message:' + x.order_type_id), g, 'Order done message for an order type', x.message)
   }
+  for (const f of flows) {
+    if (!f || f.kind !== 'ask' || !(f.apps || []).includes('kiosk')) continue
+    add(TK.flow(f.id, 'title'), 'Order flows', 'Prompt: ' + f.name, f.ask?.title)
+    add(TK.flow(f.id, 'message'), 'Order flows', f.ask?.title || f.name, f.ask?.message)
+  }
   for (const key of Object.keys(UI_TEXT.en)) add(TK.ui(key), 'Kiosk words', 'Built in, in every language; type here to change it', UI_TEXT.en[key])
   return out
 }
@@ -1242,6 +1253,8 @@ export function kioskLine(config, entry, check, id, ctx = null) {
       unit_price: priced.unit_price, modifiers: priced.modifiers, combo: priced.combo,
       seat: null, course_id: it.course_id || null, note: entry.note ? String(entry.note).slice(0, 300) : null, allergies: [],
       vat_rate: tax.vat_rate, tax_rate_id: tax.tax_rate_id, revenue_stream_id: check.revenue_stream_id ?? null,
+      // Put on by an order flow (shared/pos/orderFlows.js): { id, key, removable }.
+      ...(entry.flow ? { flow: { id: entry.flow.id, key: entry.flow.key, removable: !!entry.flow.removable } } : {}),
     },
   }
 }
@@ -1251,7 +1264,10 @@ export function kioskLine(config, entry, check, id, ctx = null) {
  * sequencer uses (so what the guest sees is what the till gets):
  *   check.opened   counter, the kiosk's revenue stream, the order type, the
  *                  guest's name (tab_name) and table number (tent)
- *   line.added     one per basket entry
+ *   line.added     one per basket entry (an order flow's dish carries its flow)
+ *   charge.added   the charges the kiosk's order flows put on (opts.charges,
+ *                  as the list has them with optional and flow)
+ *   check.flow_asked one per order flow prompt answered (opts.asked)
  *   promotions.set when automatic combos or promotions apply
  *   check.member_set + discount.applied per reward, with a loyalty card (opts.loyalty)
  *   then for a card payment: payment.added (the whole total: card_integrated
@@ -1261,7 +1277,8 @@ export function kioskLine(config, entry, check, id, ctx = null) {
  *   the design sends counter orders straight away (send).
  * opts: { device, checkId, newId(), at, order_type_id, name, tent,
  *         number, order_no (the kiosk's own, shared/pos/numbers.js), payment: { id?, card_payment_id?, ref, label } | null, send, receipt,
- *         loyalty: { member, rewards: [{ redemption_id, reward }] } | null }
+ *         loyalty: { member, rewards: [{ redemption_id, reward }] } | null,
+ *         charges, asked: { [flow id]: { answer, item_ids } }, flows_off: { [key]: true } (order flows) }
  * Returns { ok, events, check, totals, skipped } or { ok: false, error, index }.
  */
 export function kioskOrder(config, basket, opts) {
@@ -1269,10 +1286,12 @@ export function kioskOrder(config, basket, opts) {
   const base = { venue_id: device.venue_id ?? null, device_id: device.id, staff_id: device.id, approved_by: null, check_id: checkId, client_at: at }
   const ev = (type, payload) => ({ ...base, id: newId(), type, payload })
   const streamId = config.stream?.id || null
+  const off = opts.flows_off && Object.keys(opts.flows_off).length ? opts.flows_off : null
   const opened = ev('check.opened', {
     mode: 'counter', revenue_stream_id: streamId, order_type_id: opts.order_type_id || null,
     tab_name: text(opts.name, 80), tent: text(opts.tent, 20),
     number: opts.number ?? null, order_no: opts.order_no ?? null, number_code: device.short_code || null,
+    ...(off ? { flows_off: off } : {}),
   })
   const events = [opened]
   const check = { id: checkId, revenue_stream_id: streamId, order_type_id: opts.order_type_id || null }
@@ -1282,7 +1301,13 @@ export function kioskOrder(config, basket, opts) {
     if (!r.ok) return { ok: false, error: r.error, index }
     events.push(ev('line.added', { line: r.line }))
   }
-  const rules = { staffById: { [device.id]: kioskStaff(device) } }
+  // Order flows: their charges, and the prompts the guest answered.
+  for (const x of opts.charges || []) events.push(ev('charge.added', { charge: x }))
+  for (const [flowId, a] of Object.entries(opts.asked || {})) {
+    events.push(ev('check.flow_asked', { flow_id: flowId, answer: a.answer === 'added' ? 'added' : 'declined', item_ids: (a.item_ids || []).slice(0, 24) }))
+  }
+  // The venue's settings: its order flows and charges list judge the flows' charges.
+  const rules = { staffById: { [device.id]: kioskStaff(device) }, settings: config.settings || {} }
   const run = () => {
     const r = replay({}, events, rules)
     return r.refused.length ? { error: r.refused[0].error } : { check: r.checks[checkId] }
@@ -1333,10 +1358,116 @@ export function kioskOrder(config, basket, opts) {
   return { ok: true, events, check: state.check, totals: checkTotals(state.check), skipped }
 }
 
+// ── Order flows on a kiosk (shared/pos/orderFlows.js) ──────────────
+// The basket holds what the guest put in. What the kiosk's order flows add
+// by themselves (dishes, charges) is worked out from it whenever it changes,
+// shown on the order page and sent with the order: it comes off again by
+// itself when the order stops matching. The guest may take off one that is
+// removable (flows_off: { [key]: true }), never one that isn't.
+
+/** Where a kiosk is, as flows see it. */
+export function kioskPlace(config, device) {
+  const st = config?.stream
+  return { venueId: config?.venue?.id || device?.venue_id || null, deviceId: device?.id || null, app: 'kiosk', streams: st ? { [st.id]: st.name } : {} }
+}
+
+// A dish an add flow can put on by itself: one the kiosk sells with no
+// choice to make (a meal deal or a dish with options is left off).
+const plainDish = it => !!it && it.kind !== 'combo' && !(it.pos_choices || []).length
+
+/**
+ * Order flows on a kiosk's basket: { here, order, entries, charges, leftOff }.
+ *   entries  the dishes add flows put on: basket entries { key, item_id,
+ *            selection, qty, flow: { id, key, removable } } (the kiosk knows
+ *            them, sold, no choices, on now: isOn(id), else left off)
+ *   charges  the charges they put on, as charge.added carries them (from
+ *            the list, optional = removable, flow { id, key }); not one
+ *            counting from N guests (a kiosk order has no guest count)
+ *   leftOff  the removable ones the guest took off: [{ key, kind, item_id |
+ *            charge_id }] (Add it back)
+ *   order    the basket as flows see it (with the flows' dishes, the
+ *            prompts asked and what was taken off), for the prompts due
+ * opts: { device, order_type_id, off: { [key]: true }, asked, soldOut (a Map
+ * or Set of ids), isOn(itemId) }.
+ */
+export function kioskFlows(config, basket, { device = null, order_type_id = null, off = {}, asked = {}, soldOut = null, isOn = null } = {}) {
+  const here = kioskPlace(config, device)
+  const flows = config?.settings?.flows || []
+  const stream = config?.stream?.id || null
+  const ctx = comboCtx(config)
+  const stub = { revenue_stream_id: stream, order_type_id }
+  const guestLines = []
+  for (const e of asList(basket)) {
+    if (e.flow) continue
+    const r = kioskLine(config, e, stub, 'x', ctx)
+    if (r.ok) guestLines.push({ item_id: r.line.item_id, section_id: r.line.section_id, qty: r.line.qty, combo: r.line.combo || [] })
+  }
+  const base = basketOrder({ lines: guestLines, revenue_stream_id: stream, order_type_id })
+  const { wanted, leftOff } = flows.length ? guestFlowAdds(flows, base, here, off, { all: true }) : { wanted: [], leftOff: [] }
+  const sold = id => (soldOut ? soldOut.has(id) : false)
+  const entries = []
+  const charges = []
+  const list = chargeList(config?.settings?.charges)
+  for (const w of wanted) {
+    if (w.kind === 'dish') {
+      const it = configItem(config, w.item_id)
+      if (!plainDish(it) || sold(it.id) || (isOn && !isOn(it.id))) continue
+      const entry = { key: 'flow:' + w.key, item_id: it.id, selection: {}, qty: w.qty, flow: { id: w.flow_id, key: w.key, removable: w.removable } }
+      if (!kioskLine(config, entry, stub, 'x', ctx).ok) continue
+      entries.push(entry)
+    } else {
+      // A kiosk order has no guest count: a charge from N guests never counts.
+      const x = list.find(c => c.id === w.charge_id)
+      if (!x || x.min_covers > 0) continue
+      charges.push({ ...chargeFromList(x, here.venueId, config?.tax_rates || []), list: true, optional: w.removable, flow: { id: w.flow_id, key: w.key } })
+    }
+  }
+  const order = basketOrder({
+    lines: [...guestLines, ...entries.map(e => ({ item_id: e.item_id, section_id: configItem(config, e.item_id)?.section_id || null, qty: e.qty, flow: e.flow }))],
+    revenue_stream_id: stream, order_type_id, flows_off: off, flows_asked: asked,
+  })
+  return { here, order, entries, charges, leftOff: leftOff.map(w => ({ key: w.key, kind: w.kind, item_id: w.item_id || null, charge_id: w.charge_id || null, flow_id: w.flow_id })) }
+}
+
+/**
+ * The dishes a kiosk prompt offers, in its order: ones the kiosk knows and
+ * can sell (a dish with no choices must have a price), not sold out
+ * (soldOut: a Map or Set of ids) and on the menus on now (shownIds: a Set,
+ * or null for any).
+ */
+export function promptChoices(config, f, { soldOut = null, shownIds = null } = {}) {
+  const sold = soldOut ? Object.fromEntries([...(soldOut.keys ? soldOut.keys() : soldOut)].map(id => [id, true])) : {}
+  const items = {}
+  for (const id of f?.ask?.item_ids || []) {
+    const it = configItem(config, id)
+    if (it) items[id] = it
+  }
+  const stub = { revenue_stream_id: config?.stream?.id || null, order_type_id: null }
+  const sellable = it => it.kind === 'combo' || (it.pos_choices || []).length > 0 || kioskLine(config, { item_id: it.id, selection: {}, qty: 1 }, stub, 'x').ok
+  return askChoices(f, items, { soldOut: sold, shownIds }).filter(sellable)
+}
+
+/**
+ * The prompts due on a kiosk now (trigger 'dish_added' with the entry just
+ * added, or 'checkout'): kiosk flows that match and weren't asked yet, with
+ * a dish to offer (promptChoices()). flowsNow: kioskFlows()'s result.
+ */
+export function kioskPrompts(config, flowsNow, { trigger, entry = null, soldOut = null, shownIds = null } = {}) {
+  const flows = config?.settings?.flows || []
+  if (!flows.length || !flowsNow) return []
+  let added = null
+  if (entry) {
+    const r = kioskLine(config, entry, { revenue_stream_id: config?.stream?.id || null, order_type_id: flowsNow.order.order_type_id }, 'x')
+    added = addedDishes(r.ok ? r.line : { item_id: entry.item_id })
+  }
+  return askFlowsFor(flows, flowsNow.order, { trigger, here: flowsNow.here, added })
+    .filter(f => promptChoices(config, f, { soldOut, shownIds }).length)
+}
+
 /** The order a basket would make now, for showing its total and offers (no events kept). */
-export function basketCheck(config, basket, { device, order_type_id, loyalty = null }) {
+export function basketCheck(config, basket, { device, order_type_id, loyalty = null, charges = null }) {
   return kioskOrder(config, basket, {
     device: device || { id: '00000000-0000-4000-8000-000000000000' },
-    checkId: ulid(), newId: () => ulid(), order_type_id, loyalty,
+    checkId: ulid(), newId: () => ulid(), order_type_id, loyalty, charges,
   })
 }

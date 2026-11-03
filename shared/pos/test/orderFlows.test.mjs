@@ -15,11 +15,12 @@ import {
   normaliseOrderFlow, orderFlowList, newOrderFlow, flowProblems, flowWarnings, flowRunsHere, flowsHere,
   orderDishes, addedDishes, flowMatches, askFlowsFor, askChoices, addKey, flowAddsFor, flowSyncPlan, planEmpty,
   flowChargeAdd, flowIds, ownFlow, flowSummary, flowIfLines, flowThenLines, flowWhereText, flowWhenText, orList,
+  flowAppsText, orderOrigin, basketOrder, guestFlowAdds, askedAfter, isFlowKey, cleanFlowsOff, cleanFlowsAsked,
 } from '../orderFlows.js'
 
 const uuid = () => globalThis.crypto.randomUUID()
 const VENUE = uuid(), OTHER_VENUE = uuid()
-const TILL = uuid(), BAR_TILL = uuid()
+const TILL = uuid(), BAR_TILL = uuid(), KIOSK = uuid()
 const SERVER = uuid(), SUPER = uuid()
 const staffById = {
   // May void sent items, can't approve.
@@ -116,7 +117,8 @@ test('a flow\'s shape: kinds, triggers, defaults, limits, rows from the API', ()
   assert.equal(f.ask.skip_if_has, true, 'not when the order has one already, unless switched off')
   assert.deepEqual(f.apps, ['till'])
   assert.equal(f.venue_ids, null)
-  assert.equal(f.device_ids, null)
+  assert.equal(f.till_ids, null)
+  assert.equal(f.kiosk_ids, null, 'kiosks it names only with kiosks among its apps')
   assert.deepEqual(f.adds, [])
   assert.equal(f.on, true)
   // An add flow is always "as soon as the order matches", never asks.
@@ -151,7 +153,9 @@ test('what stops a flow being saved, and what is only worth knowing', () => {
   assert.deepEqual(codes({ ...DRINK_ASK, name: '' }), ['name'])
   assert.deepEqual(codes({ ...DRINK_ASK, ask: { ...DRINK_ASK.ask, title: '', item_ids: [] } }), ['ask_title', 'ask_choices'])
   assert.deepEqual(codes({ ...BAG_FLOW, adds: [] }), ['adds'])
-  assert.deepEqual(codes({ ...BAG_FLOW, venue_ids: [], device_ids: [] }), ['devices', 'venues'])
+  assert.deepEqual(codes({ ...BAG_FLOW, venue_ids: [], till_ids: [] }), ['tills', 'venues'])
+  assert.deepEqual(codes({ ...BAG_FLOW, apps: [] }), ['apps'])
+  assert.deepEqual(codes({ ...BAG_FLOW, apps: ['kiosk'], kiosk_ids: [] }), ['kiosks'])
   const warn = f => flowWarnings(f).map(p => p.code)
   assert.deepEqual(warn({ ...BAG_FLOW, match: normaliseOrderFlow({ id: uuid() }).match }), ['every_order'])
   assert.deepEqual(warn({ ...FRIES_ASK, match: normaliseOrderFlow({ id: uuid() }).match }), ['every_checkout'])
@@ -164,9 +168,29 @@ test('where a flow runs: switched on, its locations, its tills, its apps', () =>
   assert.ok(!flowRunsHere({ ...DRINK_ASK, on: false }, here))
   assert.ok(!flowRunsHere({ ...DRINK_ASK, venue_ids: [OTHER_VENUE] }, here))
   assert.ok(flowRunsHere({ ...DRINK_ASK, venue_ids: [OTHER_VENUE, VENUE] }, here))
-  assert.ok(!flowRunsHere({ ...DRINK_ASK, device_ids: [BAR_TILL] }, here))
-  assert.ok(flowRunsHere({ ...DRINK_ASK, device_ids: [BAR_TILL] }, { ...here, deviceId: BAR_TILL }))
-  assert.ok(!flowRunsHere(DRINK_ASK, { ...here, app: 'kiosk' }), 'tills only for now')
+  assert.ok(!flowRunsHere({ ...DRINK_ASK, till_ids: [BAR_TILL] }, here))
+  assert.ok(flowRunsHere({ ...DRINK_ASK, till_ids: [BAR_TILL] }, { ...here, deviceId: BAR_TILL }))
+  assert.ok(!flowRunsHere(DRINK_ASK, { ...here, app: 'kiosk', deviceId: KIOSK }), 'its apps: tills only')
+  assert.ok(!flowRunsHere(DRINK_ASK, { venueId: VENUE, app: 'online' }))
+  const everywhere = normaliseOrderFlow({ ...DRINK_ASK, apps: ['online', 'kiosk', 'till', 'nope'] })
+  assert.deepEqual(everywhere.apps, ['till', 'kiosk', 'online'], 'in a fixed order, unknown ones dropped')
+  assert.ok(flowRunsHere(everywhere, { ...here, app: 'kiosk', deviceId: KIOSK }))
+  assert.ok(flowRunsHere(everywhere, { venueId: VENUE, app: 'online' }))
+  // The kiosks it names, the tills it names: each only for its own app.
+  const oneKiosk = { ...everywhere, kiosk_ids: [KIOSK] }
+  assert.ok(flowRunsHere(oneKiosk, { ...here, app: 'kiosk', deviceId: KIOSK }))
+  assert.ok(!flowRunsHere(oneKiosk, { ...here, app: 'kiosk', deviceId: uuid() }))
+  assert.ok(flowRunsHere(oneKiosk, here), 'every till still')
+  assert.ok(flowRunsHere({ ...everywhere, till_ids: [BAR_TILL] }, { ...here, app: 'kiosk', deviceId: KIOSK }), 'the tills it names say nothing about kiosks')
+  assert.ok(!flowRunsHere({ ...everywhere, venue_ids: [OTHER_VENUE] }, { venueId: VENUE, app: 'online' }))
+  // A flow saved before kiosks: tills; none picked: nowhere.
+  assert.deepEqual(normaliseOrderFlow({ id: uuid(), name: 'Old' }).apps, ['till'])
+  assert.deepEqual(normaliseOrderFlow({ id: uuid(), name: 'None', apps: [] }).apps, [])
+  assert.ok(!flowRunsHere(normaliseOrderFlow({ id: uuid(), name: 'None', apps: [] }), here))
+  // Tills and kiosks it names only stay with their app.
+  const tidy = normaliseOrderFlow({ id: uuid(), name: 'T', apps: ['online'], till_ids: [TILL], kiosk_ids: [KIOSK] })
+  assert.equal(tidy.till_ids, null)
+  assert.equal(tidy.kiosk_ids, null)
   assert.deepEqual(flowsHere([DRINK_ASK, { ...BAG_FLOW, on: false }], here).map(f => f.id), [DRINK_ASK.id])
 })
 
@@ -227,7 +251,7 @@ test('which prompts show: their trigger, once per order unless every time, open 
   const every = [{ ...DRINK_ASK, ask: { ...DRINK_ASK.ask, every_time: true } }]
   assert.equal(askFlowsFor(every, asked[id], { trigger: 'dish_added', here, added }).length, 1)
   // Not at another till, not on a closed order.
-  assert.deepEqual(askFlowsFor([{ ...DRINK_ASK, device_ids: [BAR_TILL] }], check, { trigger: 'dish_added', here, added }), [])
+  assert.deepEqual(askFlowsFor([{ ...DRINK_ASK, till_ids: [BAR_TILL] }], check, { trigger: 'dish_added', here, added }), [])
   assert.deepEqual(askFlowsFor(FLOWS, { ...check, status: 'closed' }, { trigger: 'checkout', here }), [])
 })
 
@@ -359,9 +383,9 @@ test('the designer\'s warnings: a channel no location has, tills elsewhere, a pr
   assert.deepEqual(warn({ ...BAG_FLOW, venue_ids: [OTHER_VENUE] }, { channels, tills }), ['no_channel'])
   assert.deepEqual(warn({ ...BAG_FLOW, match: { ...BAG_FLOW.match, stream_names: ['Delivery'] } }, { channels, tills }), ['no_channel'])
   // A till at another location than the ones it runs at.
-  assert.deepEqual(warn({ ...BAG_FLOW, venue_ids: [VENUE], device_ids: [TILL, BAR_TILL] }, { channels, tills }), ['tills_elsewhere'])
+  assert.deepEqual(warn({ ...BAG_FLOW, venue_ids: [VENUE], till_ids: [TILL, BAR_TILL] }, { channels, tills }), ['tills_elsewhere'])
   // Without the company's places nothing is said about them.
-  assert.deepEqual(warn({ ...BAG_FLOW, venue_ids: [OTHER_VENUE], device_ids: [BAR_TILL] }), [])
+  assert.deepEqual(warn({ ...BAG_FLOW, venue_ids: [OTHER_VENUE], till_ids: [BAR_TILL] }), [])
   // A prompt when any dish is added, every time.
   const every = { ...DRINK_ASK, match: normaliseOrderFlow({ id: uuid() }).match }
   assert.deepEqual(warn(every, { channels, tills }), ['every_dish'])
@@ -443,12 +467,13 @@ test('the company\'s own ids only', () => {
   assert.deepEqual(ids.items, [BAG_ITEM])
   assert.deepEqual(ids.charges, [BAG_CHARGE.id])
   assert.deepEqual(ids.types, [TAKE_OUT])
-  const f = normaliseOrderFlow({ ...DRINK_ASK, venue_ids: [VENUE, OTHER_VENUE], device_ids: [TILL], match: { section_ids: [BURGERS, DRINKS], not_item_ids: [FRIES] } })
+  const f = normaliseOrderFlow({ ...DRINK_ASK, apps: ['till', 'kiosk'], venue_ids: [VENUE, OTHER_VENUE], till_ids: [TILL], kiosk_ids: [KIOSK, uuid()], match: { section_ids: [BURGERS, DRINKS], not_item_ids: [FRIES] } })
   const own = ownFlow(f, {
-    items: new Set([COKE]), sections: new Set([BURGERS]), venues: new Set([VENUE]), devices: new Set(), streams: new Set(), types: new Set(), charges: new Set(),
+    items: new Set([COKE]), sections: new Set([BURGERS]), venues: new Set([VENUE]), tills: new Set(), kiosks: new Set([KIOSK]), streams: new Set(), types: new Set(), charges: new Set(),
   })
   assert.deepEqual(own.venue_ids, [VENUE])
-  assert.deepEqual(own.device_ids, [])
+  assert.deepEqual(own.till_ids, [])
+  assert.deepEqual(own.kiosk_ids, [KIOSK], 'another company\'s kiosk dropped')
   assert.deepEqual(own.match.section_ids, [BURGERS])
   assert.deepEqual(own.match.not_item_ids, [])
   assert.deepEqual(own.ask.item_ids, [COKE])
@@ -463,7 +488,7 @@ test('in words: when, if, then, where and the one-line summary', () => {
     sections: { [BURGERS]: 'Burgers', [SIDES]: 'Sides' },
     types: { [TAKE_OUT]: 'Take out', [EAT_IN]: 'Eat in' },
     charges: { [BAG_CHARGE.id]: 'Bag', [SERVICE.id]: 'Service charge' },
-    venues: { [VENUE]: 'Ware' }, devices: { [TILL]: 'Front till' },
+    venues: { [VENUE]: 'Ware' }, tills: { [TILL]: 'Front till' }, kiosks: { [KIOSK]: 'Kiosk 1' },
   }
   assert.equal(orList(['A']), 'A')
   assert.equal(orList(['A', 'B', 'C']), 'A, B or C')
@@ -477,7 +502,142 @@ test('in words: when, if, then, where and the one-line summary', () => {
   assert.deepEqual(flowThenLines(FRIES_ASK, names), ['Ask "Any fries?"', 'Offer Fries (any of them)'])
   assert.deepEqual(flowThenLines(BAG_FLOW, names), ['Add Paper bag (can\'t be taken off)', 'Add Bag (can\'t be taken off)'])
   assert.equal(flowWhereText(BAG_FLOW, names), 'Every location · every till')
-  assert.equal(flowWhereText({ ...BAG_FLOW, venue_ids: [VENUE], device_ids: [TILL] }, names), 'Ware · Front till')
+  assert.equal(flowWhereText({ ...BAG_FLOW, venue_ids: [VENUE], till_ids: [TILL] }, names), 'Ware · Front till')
+  assert.equal(flowWhereText({ ...BAG_FLOW, apps: ['till', 'kiosk', 'online'], kiosk_ids: [KIOSK] }, names), 'Every location · every till · Kiosk 1 · online ordering')
+  assert.equal(flowWhereText({ ...BAG_FLOW, apps: ['online'] }, names), 'Every location · online ordering')
+  assert.equal(flowWhereText({ ...BAG_FLOW, apps: [] }, names), 'Every location · nowhere yet')
+  assert.equal(flowAppsText({ ...BAG_FLOW, apps: ['till', 'kiosk'] }), 'Tills and kiosks')
+  assert.equal(flowAppsText({ ...BAG_FLOW, apps: ['online'] }), 'Online ordering')
+  assert.equal(flowAppsText({ ...BAG_FLOW, apps: [] }), 'Nowhere yet')
   assert.match(flowSummary(FRIES_ASK, names), /^At checkout, before payment, if the order type is Take out and not when the order has a dish from Sides: Ask "Any fries\?"/)
   assert.deepEqual(flowThenLines({ ...BAG_FLOW, adds: [{ kind: 'dish', item_id: uuid(), qty: 2, removable: true }] }, names), ['Add 2 x a dish no longer on the menu'])
+})
+
+test('the designer\'s warnings for kiosks and online: kiosks elsewhere, dishes with choices, charges from N guests', () => {
+  const kiosks = { [KIOSK]: OTHER_VENUE }
+  const warn = (f, ctx) => flowWarnings(f, ctx).map(w => w.code)
+  const kioskBag = { ...BAG_FLOW, apps: ['kiosk'], venue_ids: [VENUE], kiosk_ids: [KIOSK] }
+  assert.deepEqual(warn(kioskBag, { kiosks }), ['kiosks_elsewhere'])
+  // A dish with options to pick can't go on by itself: said, with its name.
+  const choices = new Set([BAG_ITEM])
+  const w = flowWarnings(BAG_FLOW, { choices, names: { items: { [BAG_ITEM]: 'Paper bag' } } })
+  assert.deepEqual(w.map(x => x.code), ['dish_choices'])
+  assert.match(w[0].message, /^Paper bag needs a choice made/)
+  // A charge counting from 6 guests never goes on online or on a kiosk.
+  const charges = { [BAG_CHARGE.id]: { name: 'Bag', min_covers: 6 } }
+  assert.deepEqual(warn(BAG_FLOW, { charges }), [], 'tills have a guest count')
+  assert.deepEqual(warn({ ...BAG_FLOW, apps: ['till', 'online'] }, { charges }), ['charge_covers'])
+  assert.deepEqual(warn({ ...BAG_FLOW, apps: ['kiosk'] }, { charges: { [BAG_CHARGE.id]: { name: 'Bag', min_covers: 0 } } }), [])
+})
+
+test('where an order was taken: its till, the kiosk it came from, else this till', () => {
+  const devices = [{ id: TILL, kind: 'terminal' }, { id: BAR_TILL, kind: 'terminal' }, { id: KIOSK, kind: 'kiosk' }]
+  const current = { app: 'till', deviceId: TILL }
+  assert.deepEqual(orderOrigin({ opened_device_id: KIOSK }, devices, current), { app: 'kiosk', deviceId: KIOSK })
+  assert.deepEqual(orderOrigin({ opened_device_id: BAR_TILL }, devices, current), { app: 'till', deviceId: BAR_TILL })
+  assert.deepEqual(orderOrigin({}, devices, current), { app: 'till', deviceId: TILL })
+  // A device the till doesn't know (removed since): a till, the one named.
+  const gone = uuid()
+  assert.deepEqual(orderOrigin({ opened_device_id: gone }, devices, current), { app: 'till', deviceId: gone })
+  // A kiosk order on a till keeps the kiosk's flows: the till's own don't strip it.
+  const kioskOnly = { ...BAG_FLOW, apps: ['kiosk'] }
+  const { check } = open({ type: TAKE_OUT })
+  const wanted = flowAddsFor([kioskOnly], { ...check, opened_device_id: KIOSK }, { ...here, ...orderOrigin({ opened_device_id: KIOSK }, devices, current) })
+  assert.deepEqual(wanted.map(x => x.kind), ['dish', 'charge'])
+  assert.deepEqual(flowAddsFor([kioskOnly], check, here), [], 'not on a till\'s own orders')
+  // A check another till opened keeps that till's flows.
+  const barOnly = { ...BAG_FLOW, till_ids: [BAR_TILL] }
+  assert.equal(flowAddsFor([barOnly], check, { ...here, ...orderOrigin({ opened_device_id: BAR_TILL }, devices, current) }).length, 2)
+  assert.equal(flowAddsFor([barOnly], check, here).length, 0)
+})
+
+test('a guest\'s basket: what flows add, what the guest may take off and what they may not', () => {
+  const flows = [{ ...BAG_FLOW, apps: ['kiosk'], adds: [
+    { kind: 'dish', item_id: BAG_ITEM, qty: 1, removable: false },
+    { kind: 'dish', item_id: WATER, qty: 1, removable: true },
+    { kind: 'charge', charge_id: BAG_CHARGE.id, removable: true },
+  ] }]
+  const at = { venueId: VENUE, deviceId: KIOSK, app: 'kiosk', streams: { [RESTAURANT]: 'Restaurant' } }
+  const order = basketOrder({ lines: [{ item_id: BURGER, section_id: BURGERS, qty: 2 }], revenue_stream_id: RESTAURANT, order_type_id: TAKE_OUT })
+  assert.equal(order.lines[0].status, 'new')
+  assert.deepEqual(order.lines[0].combo, [])
+  const all = guestFlowAdds(flows, order, at)
+  assert.deepEqual(all.map(w => w.item_id || w.charge_id), [BAG_ITEM, WATER, BAG_CHARGE.id])
+  // The guest takes off the water and the bag charge, and tries the fixed bag too.
+  const off = { [addKey(flows[0].id, flows[0].adds[0])]: true, [addKey(flows[0].id, flows[0].adds[1])]: true, [addKey(flows[0].id, flows[0].adds[2])]: true }
+  const { wanted, leftOff } = guestFlowAdds(flows, order, at, off, { all: true })
+  assert.deepEqual(wanted.map(w => w.item_id || w.charge_id), [BAG_ITEM], 'the bag can\'t be taken off')
+  assert.deepEqual(leftOff.map(w => w.item_id || w.charge_id), [WATER, BAG_CHARGE.id])
+  // Not take out any more: nothing, and nothing left off either.
+  const eatIn = basketOrder({ lines: order.lines, revenue_stream_id: RESTAURANT, order_type_id: EAT_IN })
+  assert.deepEqual(guestFlowAdds(flows, eatIn, at, off, { all: true }), { wanted: [], leftOff: [] })
+  // A flow's own dish in the basket never sets a flow off.
+  const onlyFlowDish = basketOrder({ lines: [{ item_id: BURGER, section_id: BURGERS, qty: 1, flow: { id: uuid(), key: 'x', removable: true } }], revenue_stream_id: RESTAURANT, order_type_id: TAKE_OUT })
+  const burgerAsk = { ...DRINK_ASK, apps: ['kiosk'], trigger: 'checkout' }
+  assert.deepEqual(askFlowsFor([burgerAsk], onlyFlowDish, { trigger: 'checkout', here: at }), [])
+  // A meal deal's parts count.
+  const meal = basketOrder({ lines: [{ item_id: MEAL, section_id: SIDES, qty: 1, parts: [{ item_id: BURGER, section_id: BURGERS }] }], revenue_stream_id: RESTAURANT, order_type_id: EAT_IN })
+  assert.deepEqual(askFlowsFor([burgerAsk], meal, { trigger: 'checkout', here: at }).map(f => f.id), [burgerAsk.id])
+})
+
+test('what a guest\'s order carries: prompts asked and things taken off, tidy', () => {
+  const key = addKey(BAG_FLOW.id, BAG_FLOW.adds[0])
+  assert.ok(isFlowKey(key))
+  assert.ok(!isFlowKey('x:dish:y'))
+  assert.ok(!isFlowKey(BAG_FLOW.id + ':nope:' + BAG_ITEM))
+  assert.deepEqual(cleanFlowsOff([key, key, 'bad']), { [key]: true })
+  assert.deepEqual(cleanFlowsOff({ [key]: true, other: true, [addKey(BAG_FLOW.id, BAG_FLOW.adds[1])]: false }), { [key]: true })
+  assert.deepEqual(cleanFlowsOff(null), {})
+  let asked = askedAfter({}, DRINK_ASK.id, 'added', [COKE, COKE, 'x'])
+  assert.deepEqual(asked, { [DRINK_ASK.id]: { n: 1, answer: 'added', item_ids: [COKE] } })
+  asked = askedAfter(asked, DRINK_ASK.id, 'whatever', [])
+  assert.deepEqual(asked[DRINK_ASK.id], { n: 2, answer: 'declined', item_ids: [] })
+  const known = new Set([DRINK_ASK.id])
+  assert.deepEqual(cleanFlowsAsked([{ flow_id: DRINK_ASK.id, answer: 'added', item_ids: [WATER] }, { flow_id: uuid(), answer: 'added' }, { flow_id: 'x' }], known),
+    { [DRINK_ASK.id]: { n: 1, answer: 'added', item_ids: [WATER] } }, 'only flows it knows')
+  assert.deepEqual(cleanFlowsAsked({ [DRINK_ASK.id]: { n: 500, answer: 'no' } }), { [DRINK_ASK.id]: { n: 99, answer: 'declined', item_ids: [] } })
+})
+
+test('a kiosk\'s order: flow dishes, the prompts it answered, its flows\' charges and what the guest took off', () => {
+  const kioskStaff = { [KIOSK]: { id: KIOSK, name: 'Kiosk 1', permissions: {}, kiosk: true } }
+  const flows = [{ ...BAG_FLOW, apps: ['kiosk'], adds: [{ kind: 'dish', item_id: BAG_ITEM, qty: 1, removable: false }, { kind: 'charge', charge_id: BAG_CHARGE.id, removable: true }] }, { ...DRINK_ASK, apps: ['kiosk'] }]
+  const s = { charges: [BAG_CHARGE, SERVICE], flows }
+  const id = ulid()
+  const at = { device_id: KIOSK, staff_id: KIOSK, check_id: id }
+  const bagKey = addKey(flows[0].id, flows[0].adds[0])
+  const chargeKey = addKey(flows[0].id, flows[0].adds[1])
+  const base = [
+    ev('check.opened', { mode: 'counter', revenue_stream_id: RESTAURANT, order_type_id: TAKE_OUT, flows_off: { [chargeKey]: true } }, at),
+    ev('line.added', { line: dish(BURGER, BURGERS, 'Burger', 900) }, at),
+    ev('line.added', { line: { ...dish(BAG_ITEM, SIDES, 'Paper bag', 0), flow: { id: flows[0].id, key: bagKey, removable: false } } }, at),
+    ev('check.flow_asked', { flow_id: DRINK_ASK.id, answer: 'declined', item_ids: [] }, at),
+  ]
+  const r = replay({}, base, { staffById: kioskStaff, settings: s })
+  assert.deepEqual(r.refused, [])
+  const c = r.checks[id]
+  assert.deepEqual(c.flows_off, { [chargeKey]: true }, 'what the guest took off stays off on the till too')
+  assert.equal(c.flows_asked[DRINK_ASK.id].answer, 'declined')
+  assert.deepEqual(c.lines[1].flow, { id: flows[0].id, key: bagKey, removable: false })
+  // The charge as its flow puts it on (optional, as the flow says): accepted from a kiosk.
+  const flowCharge = { ...chargeFromList(BAG_CHARGE, VENUE, []), list: true, optional: true, flow: { id: flows[0].id, key: chargeKey } }
+  const withCharge = replay({}, [...base, ev('charge.added', { charge: flowCharge }, at)], { staffById: kioskStaff, settings: s })
+  assert.deepEqual(withCharge.refused, [])
+  assert.equal(withCharge.checks[id].charges[0].optional, true)
+  // A kiosk can't type a charge in, or put one from the list on that no flow says.
+  const typed = replay({}, [...base, ev('charge.added', { charge: { id: uuid(), name: 'Tip jar', kind: 'amount', value: 100 } }, at)], { staffById: kioskStaff, settings: s })
+  assert.match(typed.refused[0]?.error || '', /only adds the charges its order flows put on/)
+  const noFlow = replay({}, [...base, ev('charge.added', { charge: { ...chargeFromList(SERVICE, VENUE, []), list: true } }, at)], { staffById: kioskStaff, settings: s })
+  assert.match(noFlow.refused[0]?.error || '', /only adds the charges its order flows put on/)
+  // A flow's charge with another optional than the flow says is judged as the list has it: refused.
+  const wrong = replay({}, [...base, ev('charge.added', { charge: { ...flowCharge, optional: false, flow: { id: uuid(), key: chargeKey } } }, at)], { staffById: kioskStaff, settings: s })
+  assert.equal(wrong.refused.length, 1)
+  // What the guest took off must be keys of flows' adds, nothing else.
+  const bad = ev('check.opened', { mode: 'counter', revenue_stream_id: RESTAURANT, order_type_id: TAKE_OUT, flows_off: { nope: true } }, { ...at, check_id: ulid() })
+  assert.equal(replay({}, [bad], { staffById: kioskStaff, settings: s }).refused[0]?.error, 'Bad check.opened: flows_off')
+  const notTrue = ev('check.opened', { mode: 'counter', flows_off: { [chargeKey]: 'yes' } }, { ...at, check_id: ulid() })
+  assert.equal(replay({}, [notTrue], { staffById: kioskStaff, settings: s }).refused[0]?.error, 'Bad check.opened: flows_off')
+  // The till's sync on this kiosk order keeps the kiosk's flows (not the till's) and leaves the charge off.
+  const tillHere = { ...here, ...orderOrigin(c, [{ id: KIOSK, kind: 'kiosk' }], { app: 'till', deviceId: TILL }) }
+  const plan = flowSyncPlan(c, flowAddsFor(flows, c, tillHere))
+  assert.ok(planEmpty(plan), JSON.stringify(plan))
 })

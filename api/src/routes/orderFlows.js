@@ -1,15 +1,17 @@
 // src/routes/orderFlows.js
 //
-// Order flows, /api/pos (migration 235; shared/pos/orderFlows.js,
+// Order flows, /api/pos (migrations 235, 236; shared/pos/orderFlows.js,
 // services/orderFlowSvc.js): rules that act on an order by themselves,
 // company wide (a prompt offering a dish, or dishes and charges put on by
-// themselves), each at every location or the ones it names, on every till
-// there or the ones it names. Store tech view to read, manage to change.
+// themselves), each on tills, kiosks and online ordering, at every location
+// or the ones it names, on every till / kiosk there or the ones it names.
+// Store tech view to read, manage to change.
 //
 //   GET    /order-flows            the company's flows, in their order, with their words
-//   GET    /order-flows/catalog    what a flow can name: dishes by menu and section,
-//                                  channels (revenue streams by name), order types,
-//                                  charges, locations, tills
+//   GET    /order-flows/catalog    what a flow can name: dishes by menu and section
+//                                  (needs_choices: one with options to pick), channels
+//                                  (revenue streams by name), order types, charges,
+//                                  locations, tills, kiosks
 //   POST   /order-flows            { name, kind, copy_from? } a new flow, switched off
 //   GET    /order-flows/:id        one flow, its problems and warnings
 //   PUT    /order-flows/:id        the whole flow (422 code 'flow' with the problems
@@ -18,9 +20,10 @@
 //   PUT    /order-flows/order      { ids } the list's order (the order flows act in)
 //   DELETE /order-flows/:id        checks keep what it put on
 //
-// A change tells every till of the company to download its config again;
-// the sequencer and the venue hub read the flows with the rest of the venue's
-// settings (they judge a flow's charges by them).
+// A change tells every till and kiosk of the company to download its config
+// again (online ordering reads the flows with each order); the sequencer and
+// the venue hub read the flows with the rest of the venue's settings (they
+// judge a flow's charges by them).
 
 import { z } from 'zod'
 import { randomUUID } from 'node:crypto'
@@ -43,9 +46,21 @@ const FlowBody = z.object({ name: Name, on: z.boolean().optional() }).passthroug
 
 /** What goes in pos_order_flows.flow: everything but the columns. */
 const stored = f => ({
-  kind: f.kind, trigger: f.trigger, venue_ids: f.venue_ids, device_ids: f.device_ids, apps: f.apps,
+  kind: f.kind, trigger: f.trigger, apps: f.apps,
+  venue_ids: f.venue_ids, till_ids: f.till_ids, kiosk_ids: f.kiosk_ids,
   match: f.match, ask: f.ask, adds: f.adds,
 })
+
+/** The company's dishes that have options to pick (or are meal deals): a Set of ids. */
+async function dishesWithChoices(tx, tenantId) {
+  const rows = await tx`
+    SELECT i.id FROM menu_items i
+     WHERE i.tenant_id = ${tenantId}
+       AND (i.kind = 'combo'
+            OR EXISTS (SELECT 1 FROM menu_item_variant_groups g WHERE g.item_id = i.id AND g.tenant_id = i.tenant_id)
+            OR EXISTS (SELECT 1 FROM menu_item_variants v WHERE v.item_id = i.id AND v.tenant_id = i.tenant_id))`
+  return new Set(rows.map(r => r.id))
+}
 
 async function ownFlowRow(tx, tenantId, id) {
   const [r] = await tx`SELECT * FROM pos_order_flows WHERE id = ${id} AND tenant_id = ${tenantId}`
@@ -53,22 +68,32 @@ async function ownFlowRow(tx, tenantId, id) {
   return r
 }
 
-/** What the company has, for the warnings: channels by name and where each till is. */
+/**
+ * What the company has, for the warnings: channels by name, where each till
+ * and kiosk is, the dishes with options to pick, and the charges (their
+ * guest counts).
+ */
 async function places(tx, tenantId) {
-  const [streams, tills] = await Promise.all([
+  const [streams, devices, choices, charges] = await Promise.all([
     tx`SELECT venue_id, name FROM pos_revenue_streams WHERE tenant_id = ${tenantId} AND is_active`,
-    tx`SELECT id, venue_id FROM pos_devices WHERE tenant_id = ${tenantId} AND kind = 'terminal' AND revoked_at IS NULL`,
+    tx`SELECT id, venue_id, kind FROM pos_devices WHERE tenant_id = ${tenantId} AND kind IN ('terminal', 'kiosk') AND revoked_at IS NULL`,
+    dishesWithChoices(tx, tenantId),
+    tx`SELECT id, name, min_covers FROM pos_charges WHERE tenant_id = ${tenantId}`,
   ])
   const channels = {}
   for (const s of streams) (channels[channelKey(s.name)] ||= []).push(s.venue_id)
-  return { channels, tills: Object.fromEntries(tills.map(t => [t.id, t.venue_id])) }
+  const at = kind => Object.fromEntries(devices.filter(d => d.kind === kind).map(d => [d.id, d.venue_id]))
+  return {
+    channels, tills: at('terminal'), kiosks: at('kiosk'), choices,
+    charges: Object.fromEntries(charges.map(c => [c.id, { name: c.name, min_covers: c.min_covers }])),
+  }
 }
 
 function view(r, names, where) {
   const f = flowOfRow(r)
   return {
     ...f, updated_at: r.updated_at,
-    problems: flowProblems(f), warnings: flowWarnings(f, where),
+    problems: flowProblems(f), warnings: flowWarnings(f, { ...where, names }),
     summary: flowSummary(f, names), where: flowWhereText(f, names),
   }
 }
@@ -87,7 +112,7 @@ export default async function orderFlowRoutes(app) {
 
   // Everything a flow can name, for the designer's pickers.
   app.get('/order-flows/catalog', { preHandler: canView }, async req => withTenant(req.tenantId, async tx => {
-    const [menus, sections, items, streams, types, charges, venues, tills] = await Promise.all([
+    const [menus, sections, items, streams, types, charges, venues, devices, choices] = await Promise.all([
       tx`SELECT id, name FROM menus WHERE tenant_id = ${req.tenantId} ORDER BY name`,
       tx`SELECT id, menu_id, title FROM menu_sections WHERE tenant_id = ${req.tenantId} ORDER BY menu_id, sort_order`,
       tx`SELECT id, section_id, name, price_pence, kind FROM menu_items WHERE tenant_id = ${req.tenantId} ORDER BY section_id, sort_order`,
@@ -97,11 +122,14 @@ export default async function orderFlowRoutes(app) {
       tx`SELECT id, name, is_active FROM order_types WHERE tenant_id = ${req.tenantId} ORDER BY is_active DESC, sort_order, name`,
       loadCharges(tx, req.tenantId),
       tx`SELECT id, name FROM venues WHERE tenant_id = ${req.tenantId} ORDER BY name`,
-      tx`SELECT id, name, venue_id, short_code FROM pos_devices
-          WHERE tenant_id = ${req.tenantId} AND kind = 'terminal' AND revoked_at IS NULL ORDER BY name`,
+      tx`SELECT id, name, venue_id, short_code, kind FROM pos_devices
+          WHERE tenant_id = ${req.tenantId} AND kind IN ('terminal', 'kiosk') AND revoked_at IS NULL ORDER BY name`,
+      dishesWithChoices(tx, req.tenantId),
     ])
     const bySection = {}
-    for (const i of items) (bySection[i.section_id] ||= []).push({ id: i.id, name: i.name, price_pence: i.price_pence, kind: i.kind })
+    for (const i of items) {
+      (bySection[i.section_id] ||= []).push({ id: i.id, name: i.name, price_pence: i.price_pence, kind: i.kind, needs_choices: choices.has(i.id) })
+    }
     const byMenu = {}
     for (const sct of sections) (byMenu[sct.menu_id] ||= []).push({ id: sct.id, title: sct.title, items: bySection[sct.id] || [] })
     // Channels by name: each location has its own streams, a flow names them by name.
@@ -116,9 +144,10 @@ export default async function orderFlowRoutes(app) {
       menus: menus.map(m => ({ id: m.id, name: m.name, sections: byMenu[m.id] || [] })),
       channels: [...channels.values()],
       order_types: types,
-      charges: charges.map(c => ({ id: c.id, name: c.name, kind: c.kind, value: c.value, optional: c.optional })),
+      charges: charges.map(c => ({ id: c.id, name: c.name, kind: c.kind, value: c.value, optional: c.optional, min_covers: c.min_covers || 0 })),
       venues,
-      tills,
+      tills: devices.filter(d => d.kind === 'terminal').map(({ kind, ...d }) => d),
+      kiosks: devices.filter(d => d.kind === 'kiosk').map(({ kind, ...d }) => d),
     }
   }))
 

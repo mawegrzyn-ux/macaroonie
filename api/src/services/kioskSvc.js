@@ -23,7 +23,8 @@
 // Every query filters tenant_id itself.
 
 import { httpError } from '../middleware/error.js'
-import { ensureSettings, settingsView, ownVenue, tillMenuData, tillMenus, sha256, liveFields } from './posSvc.js'
+import { ensureSettings, settingsView, ownVenue, tillMenuData, tillMenus, sha256, liveFields, loadCharges } from './posSvc.js'
+import { loadOrderFlows, flowDishIds } from './orderFlowSvc.js'
 import { contentKey } from '../../../shared/menuDiff.js'
 import { variantRules, itemChoices, isPriced } from '../../../shared/orderPricing.js'
 import { venuePromotions, publicPromotion } from './promoSvc.js'
@@ -106,7 +107,13 @@ export async function kioskConfig(tx, tenantId, venueId, device, { designOverrid
     loadDesign(tx, tenantId, ds.design_id || null),
   ])
   const stream = streams.find(r => r.id === ds.revenue_stream_id) || streams[0] || null
-  const { menus, items, section_items, dietary } = await tillMenuData(tx, tenantId, venueId, stream ? [stream] : [], { guest: true, allStreams: streams, version, channel: 'kiosk' })
+  // The order flows that run on this venue's kiosks (migration 236): the
+  // dishes they put on by themselves stay known from a section hidden on
+  // the website (a paper bag).
+  const flows = await loadOrderFlows(tx, tenantId, venueId, { app: 'kiosk' })
+  const { menus, items, section_items, dietary } = await tillMenuData(tx, tenantId, venueId, stream ? [stream] : [], {
+    guest: true, allStreams: streams, version, channel: 'kiosk', keepIds: new Set(flowDishIds({ list: flows })),
+  })
   const tz = venue.timezone || 'Europe/London'
   const promotions = (await venuePromotions(tx, { id: venueId, tenant_id: tenantId }, venueNow(tz).date, 'pos'))
     .map(p => ({ ...publicPromotion(p, { withCode: false }), max_uses: p.max_uses ?? null }))
@@ -117,7 +124,15 @@ export async function kioskConfig(tx, tenantId, venueId, device, { designOverrid
     preview,
     menu_version: version,
     venue: { id: venue.id, name: venue.name, timezone: tz },
-    settings: settingsView(settings),
+    // With the order flows that run on this venue's kiosks and the company's
+    // charges (they judge the flows' charges; migration 236,
+    // shared/pos/orderFlows.js): the kiosk keeps the flows naming it, or
+    // every kiosk.
+    settings: {
+      ...settingsView(settings),
+      flows,
+      charges: await loadCharges(tx, tenantId, venueId),
+    },
     // How often this kiosk asks for changes (migration 216).
     pull: pullTimes(settings),
     stream: stream ? { id: stream.id, name: stream.name } : null,
