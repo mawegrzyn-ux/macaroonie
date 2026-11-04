@@ -331,9 +331,11 @@ export function kitchen(type, payload) {
 
 export const bump = (orderId, stationId) => kitchen('kitchen.bumped', { order_id: orderId, station_id: stationId })
 export const recall = (orderId, stationId) => kitchen('kitchen.recalled', { order_id: orderId, station_id: stationId })
-export const itemDone = (orderId, stationId, itemId, done) => kitchen('kitchen.item_done', { order_id: orderId, station_id: stationId, item_id: itemId, done })
+// parts: places in the dish's parts (a meal deal's parts tapped one by one); left out, the whole dish.
+const partsOf = parts => (Array.isArray(parts) && parts.length ? { parts } : {})
+export const itemDone = (orderId, stationId, itemId, done, parts) => kitchen('kitchen.item_done', { order_id: orderId, station_id: stationId, item_id: itemId, done, ...partsOf(parts) })
 // The pass and runners tick dishes off (the packing check) instead.
-export const itemChecked = (orderId, stationId, itemId, checked) => kitchen('kitchen.item_checked', { order_id: orderId, station_id: stationId, item_id: itemId, checked })
+export const itemChecked = (orderId, stationId, itemId, checked, parts) => kitchen('kitchen.item_checked', { order_id: orderId, station_id: stationId, item_id: itemId, checked, ...partsOf(parts) })
 export const remake = (orderId, stationId, itemId, reason) => kitchen('kitchen.remake', { order_id: orderId, station_id: stationId, item_id: itemId, reason: reason || null })
 export const priority = (orderId, on) => kitchen('kitchen.priority', { order_id: orderId, on })
 export const collected = orderId => kitchen('kitchen.collected', { order_id: orderId })

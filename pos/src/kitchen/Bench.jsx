@@ -18,7 +18,7 @@ import {
   ChevronRight, RefreshCw, Flame, Search, ListChecks, Activity, AlertTriangle,
 } from 'lucide-react'
 import { createBench, benchScreens } from '@shared/pos/kitchenBench.js'
-import { routeOrder, nodeState, boardNumbers, BUMP_KINDS, flowTimes } from '@shared/pos/kitchen.js'
+import { routeOrder, nodeState, boardNumbers, BUMP_KINDS, flowTimes, isOrderLevel } from '@shared/pos/kitchen.js'
 
 const cx = (...p) => p.filter(Boolean).join(' ')
 
@@ -455,6 +455,13 @@ function OrdersPanel({ bench, data, onChange, say }) {
                       )}
                     </div>
                     {i.parts?.length > 0 && <div className="text-xs text-muted">{i.parts.map(p => p.name).join(', ')}</div>}
+                    {Object.entries(i.part_ticks || {}).map(([sid, ticks]) => (
+                      <div key={sid} className="text-xs text-ok" data-testid="bench-part-ticks">
+                        {(cfg.stations[sid]?.name || 'Gone') + ': '}
+                        {Object.keys(ticks).map(k => i.parts?.[k]?.name).filter(Boolean).join(', ')}
+                        {isOrderLevel(cfg.stations[sid]) ? ' ticked off' : ' done'}, the rest not yet
+                      </div>
+                    ))}
                     <div className="flex flex-wrap items-center gap-1 mt-1">
                       {nodes.length === 0 && <span className="text-xs text-bad">Goes to no station in this flow</span>}
                       {nodes.map((n, idx) => {

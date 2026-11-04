@@ -24,6 +24,7 @@ import path from 'node:path'
 import zlib from 'node:zlib'
 import { createHash } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
+import { importClosure as closureOf } from '../utils/importClosure.js'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..')
 const ENTRIES = ['hub/bin/hub.js', 'hub/bin/launcher.js', 'hub/bin/test-print.js']
@@ -34,25 +35,7 @@ const sha256 = buf => createHash('sha256').update(buf).digest('hex')
 
 /** Every file `entries` load, following relative imports (static and import()). */
 export function importClosure(entries, root = ROOT) {
-  const seen = new Set()
-  const todo = [...entries]
-  while (todo.length) {
-    const rel = todo.pop()
-    if (seen.has(rel)) continue
-    const abs = path.join(root, rel)
-    if (!fs.existsSync(abs)) throw new Error('The hub needs ' + rel + ', which is missing')
-    seen.add(rel)
-    const src = fs.readFileSync(abs, 'utf8')
-    const re = /(?:import|export)\s[^'"]*?from\s*['"](\.{1,2}\/[^'"]+)['"]|import\(\s*['"](\.{1,2}\/[^'"]+)['"]\s*\)|^\s*import\s+['"](\.{1,2}\/[^'"]+)['"]/gm
-    let m
-    while ((m = re.exec(src))) {
-      const spec = m[1] || m[2] || m[3]
-      const next = path.relative(root, path.resolve(path.dirname(abs), spec)).split(path.sep).join('/')
-      if (next.startsWith('..')) throw new Error(rel + ' imports ' + spec + ', outside the repository')
-      todo.push(next)
-    }
-  }
-  return [...seen]
+  return closureOf(entries, root, { who: 'The hub' })
 }
 
 // ── tar (ustar) ──────────────────────────────────────────────────────

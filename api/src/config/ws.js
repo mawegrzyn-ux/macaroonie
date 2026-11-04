@@ -90,8 +90,9 @@ export function attachWss(httpServer, jwtVerify) {
     // Its own room (identify, reload, removed, its settings changed), its
     // venue's screens (sold out), the tenant's screens (boards, playlists)
     // and the tenant's menus (published: menus.live).
+    // (Not the live view's boards below, which name a screen too.)
     const screenId = url.searchParams.get('screen')
-    if (screenId) {
+    if (screenId && !url.searchParams.has('board_live')) {
       const screen = await verifyScreen(screenId, url.searchParams.get('secret')).catch(() => null)
       if (!screen) { ws.close(4003, 'Forbidden'); return }
       joinRooms(ws, ['screen:' + screen.id, 'screens:' + screen.venue_id, 'screens-t:' + screen.tenant_id, 'menus:' + screen.tenant_id])
@@ -110,6 +111,34 @@ export function attachWss(httpServer, jwtVerify) {
       const [venue] = p ? await systemSql`SELECT id FROM venues WHERE id = ${p.v} AND tenant_id = ${p.t} LIMIT 1`.catch(() => []) : []
       if (!venue) { ws.close(4003, 'Forbidden'); return }
       joinRoom(ws, 'pos:' + venue.id)
+      ws.on('message', raw => {
+        if (raw.length <= 32 && String(raw) === '{"type":"ping"}' && ws.readyState === ws.OPEN) ws.send('{"type":"pong"}')
+      })
+      ws.send(JSON.stringify({ type: 'connected', venueId: venue.id, heartbeat: true }))
+      return
+    }
+
+    // The live view's order ready boards (screen/player.js in live mode, one
+    // frame each): /ws?board_live=<the view's signed link>[&screen=<id>]. A
+    // menu screen of the link's venue joins its screen's rooms (board,
+    // playlist and menu changes, identify, reload); a plain board only the
+    // venue's screens room (kitchen.board: the numbers changed). Signals
+    // only: the frame sends nothing but pings, and reads by the same link.
+    const boardLive = url.searchParams.get('board_live')
+    if (boardLive) {
+      const p = await readLink('kitchen_live', boardLive).catch(() => null)
+      const [venue] = p ? await systemSql`SELECT id FROM venues WHERE id = ${p.v} AND tenant_id = ${p.t} LIMIT 1`.catch(() => []) : []
+      if (!venue) { ws.close(4003, 'Forbidden'); return }
+      const screenId = url.searchParams.get('screen')
+      if (screenId) {
+        const [screen] = /^[0-9a-f-]{36}$/i.test(screenId)
+          ? await systemSql`SELECT id FROM screens WHERE id = ${screenId} AND venue_id = ${venue.id} AND tenant_id = ${p.t} LIMIT 1`.catch(() => [])
+          : []
+        if (!screen) { ws.close(4003, 'Forbidden'); return }
+        joinRooms(ws, ['screen:' + screen.id, 'screens:' + venue.id, 'screens-t:' + p.t, 'menus:' + p.t])
+      } else {
+        joinRoom(ws, 'screens:' + venue.id)
+      }
       ws.on('message', raw => {
         if (raw.length <= 32 && String(raw) === '{"type":"ping"}' && ws.readyState === ws.OPEN) ws.send('{"type":"pong"}')
       })

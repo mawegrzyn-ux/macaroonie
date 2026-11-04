@@ -23,7 +23,8 @@ import { loadMenuVersions } from './menuReleases.js'
 import { loadAllergenNotice } from '../routes/menus.js'
 import { soldOutItemIds } from './soldOut.js'
 import { sha256 } from './screenAuth.js'
-import { boardMenuIds } from '../../../shared/screenLayout.js'
+import { importClosure } from '../utils/importClosure.js'
+import { boardMenuIds, BLOCK_DEFAULTS } from '../../../shared/screenLayout.js'
 import { menuTags } from '../../../shared/menuTags.js'
 import { statusOf } from '../../../shared/pos/kitchen.js'
 import { pullTimes } from '../../../shared/pos/pullTimes.js'
@@ -32,10 +33,32 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 export const PLAYER_DIR = path.resolve(__dirname, '..', '..', '..', 'screen')
 export const SHARED_DIR = path.resolve(__dirname, '..', '..', '..', 'shared')
 
-// The shared files the player imports (served as /lib/<name> by
-// routes/screenSite.js). screenLayout.js imports the others by relative
-// path, so they must all be served from the same folder.
-export const PLAYER_LIBS = ['screenLayout.js', 'fonts.js', 'menuTags.js', 'orderPricing.js', 'promotions.js', 'menuSchedule.js', 'combos.js', 'qr.js', 'orderInfo.js', 'loyalty.js']
+// The shared files the player loads (served as /lib/<path> by
+// routes/screenSite.js, kept offline by screen/sw.js): what screen/player.js
+// imports from /lib/ and everything those import by relative path, worked out
+// from the files themselves (utils/importClosure.js). They must all be served
+// from the same folder as in shared/. A list kept by hand once missed two
+// files orderPricing.js had started importing, and every screen stopped
+// starting; the API test browser-modules.test.mjs follows the imports too.
+function playerLibs() {
+  let entries = []
+  try {
+    const src = fs.readFileSync(path.join(PLAYER_DIR, 'player.js'), 'utf8')
+    entries = [...src.matchAll(/from\s*['"]\/lib\/([^'"]+)['"]/g)].map(m => m[1])
+  } catch { entries = [] }
+  if (!entries.length) entries = ['screenLayout.js', 'qr.js']
+  try {
+    return importClosure([...new Set(entries)].map(f => 'shared/' + f), path.dirname(SHARED_DIR), { who: 'The menu screen player' })
+      .filter(f => f.startsWith('shared/'))
+      .map(f => f.slice('shared/'.length))
+      .sort()
+  } catch (err) {
+    // A shared file missing: serve what can be found (the API test fails on it).
+    console.error('[screens] ' + err.message)
+    return entries
+  }
+}
+export const PLAYER_LIBS = playerLibs()
 
 let versionCache = null
 export function playerVersion() {
@@ -208,6 +231,112 @@ function orderStatuses(rows) {
     if (!seen.has(k)) seen.set(k, statusOf(r))
   }
   return [...seen.values()].map(({ id: _id, ...s }) => s).sort((a, b) => a.name.localeCompare(b.name))
+}
+
+// ── Order ready boards in the live kitchen view ─────────────────
+//
+// Store tech > Kitchen screens > Live view (pos/src/kitchen/Live.jsx) shows
+// the venue's order ready boards beside its kitchen screens: the real player
+// (screen/player.js in live mode) in a frame each, its data by the view's
+// signed link (routes/screenApi.js /live/*), never a screen's pairing.
+
+const ONLINE_MS = 150_000   // as the Screens page says Online
+
+const designHasOrders = d => (d?.layout?.blocks || []).some(b => b?.type === 'order_status')
+
+/**
+ * The venue's menu screens that show an Order status block (on their board,
+ * one of their playlist's boards, or their wall's: the same rule as
+ * screenConfig()'s needs_orders), in the Screens page's order, each with its
+ * size, its wall, whether a device is linked and when it was last seen.
+ */
+export async function orderBoardScreens(tx, tenantId, venueId) {
+  const screens = await tx`
+    SELECT s.id, s.name, s.short_code, s.width, s.height, s.rotation, s.wall_id, w.name AS wall_name,
+           CASE WHEN w.id IS NULL THEN s.design_id ELSE w.design_id END AS design_id,
+           CASE WHEN w.id IS NULL THEN s.playlist_id ELSE w.playlist_id END AS playlist_id,
+           s.secret_hash IS NOT NULL AS linked, s.last_seen_at, s.status
+      FROM screens s
+      LEFT JOIN screen_walls w ON w.id = s.wall_id AND w.tenant_id = s.tenant_id
+     WHERE s.tenant_id = ${tenantId} AND s.venue_id = ${venueId}
+     ORDER BY s.sort_order, s.created_at`
+  if (!screens.length) return []
+  const playlistIds = [...new Set(screens.map(s => s.playlist_id).filter(Boolean))]
+  const items = playlistIds.length ? await tx`
+    SELECT playlist_id, design_id FROM screen_playlist_items
+     WHERE tenant_id = ${tenantId} AND playlist_id = ANY(${playlistIds}::uuid[])` : []
+  const designIds = [...new Set([...screens.map(s => s.design_id), ...items.map(i => i.design_id)].filter(Boolean))]
+  const designs = designIds.length ? await tx`
+    SELECT id, layout FROM screen_designs WHERE tenant_id = ${tenantId} AND id = ANY(${designIds}::uuid[])` : []
+  const withOrders = new Set(designs.filter(designHasOrders).map(d => d.id))
+  const shows = s => withOrders.has(s.design_id) || items.some(i => i.playlist_id === s.playlist_id && withOrders.has(i.design_id))
+  return screens.filter(shows).map(s => ({
+    id: s.id, name: s.name, short_code: s.short_code, width: s.width, height: s.height, rotation: s.rotation,
+    wall: s.wall_id ? { id: s.wall_id, name: s.wall_name } : null,
+    linked: s.linked, last_seen_at: s.last_seen_at,
+    online: !!s.last_seen_at && Date.now() - new Date(s.last_seen_at).getTime() < ONLINE_MS,
+    showing: s.status?.showing?.name || null,
+  }))
+}
+
+/** A venue's menu screen for the live view: its config, without the venue hub (the frame reads the cloud). */
+export async function liveScreenConfig(tx, tenantId, venueId, screenId) {
+  const config = await screenConfig(tx, tenantId, screenId)
+  return config && config.venue?.id === venueId ? config : null
+}
+
+// The plain board's look: dark, one Order status block over the whole board.
+const LIVE_BOARD = { width: 1920, height: 1080 }
+function liveBoardLayout(board) {
+  return {
+    background: '#111111', text_color: '#ffffff', accent_color: '#2e8b57', muted_color: '#a1a1aa',
+    blocks: [{
+      id: 'orders', type: 'order_status', x: 40, y: 40, w: LIVE_BOARD.width - 80, h: LIVE_BOARD.height - 80,
+      opts: { ...BLOCK_DEFAULTS.order_status.opts, board, columns: 3, max: 24, title_size: 64, number_size: 84 },
+    }],
+  }
+}
+
+/**
+ * A plain order ready board for the live view (no menu screen needed): one
+ * board station's numbers (stationId, the venue's own active board station;
+ * the block names it, as a board's block does), or, with none, every counter
+ * and online order (the Order status block with no board picked). The same
+ * config shape as screenConfig(), so the player shows it as it would a screen.
+ */
+export async function liveBoardConfig(tx, tenantId, venueId, stationId = null) {
+  const [v] = await tx`
+    SELECT v.id, v.name, v.timezone, ps.pull_screen_secs, ps.pull_board_secs
+      FROM venues v
+      LEFT JOIN pos_settings ps ON ps.venue_id = v.id AND ps.tenant_id = v.tenant_id
+     WHERE v.id = ${venueId} AND v.tenant_id = ${tenantId}`
+  if (!v) return null
+  let station = null
+  if (stationId) {
+    [station] = await tx`
+      SELECT id, name FROM kds_stations
+       WHERE id = ${stationId} AND tenant_id = ${tenantId} AND venue_id = ${venueId} AND kind = 'board' AND is_active`
+    if (!station) return null
+  }
+  const id = 'live-board-' + (station?.id || 'all')
+  const name = station ? station.name : 'Every order'
+  const config = {
+    player_version: playerVersion(),
+    screen: { id: null, name, short_code: null, width: LIVE_BOARD.width, height: LIVE_BOARD.height, rotation: 0, fit: 'contain' },
+    venue: { id: v.id, name: v.name, timezone: v.timezone || 'Europe/London' },
+    wall: null,
+    playlist: null,
+    design_id: id,
+    designs: { [id]: { id, name, width: LIVE_BOARD.width, height: LIVE_BOARD.height, layout: liveBoardLayout(station?.name || '') } },
+    menus: [],
+    tags: [],
+    allergen_notice: null,
+    sold_out: [],
+    needs_orders: true,
+    pull: (({ screen, board }) => ({ screen, board }))(pullTimes(v)),
+  }
+  config.version = sha256(JSON.stringify(config)).slice(0, 16)
+  return config
 }
 
 /** Tell a tenant's screens that boards, playlists or screens changed. */

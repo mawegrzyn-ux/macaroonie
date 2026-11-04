@@ -57,6 +57,8 @@ import { printLayouts } from './printDesignSvc.js'
 import { hasPrinters, printsDue } from '../../../shared/pos/kitchenPrint.js'
 import { normaliseKitchenColours, sectionColoursById } from '../../../shared/pos/kitchenColours.js'
 import { pullTimes } from '../../../shared/pos/pullTimes.js'
+import { orderBoardScreens } from './screenSvc.js'
+import { screensOrigin } from './platformHost.js'
 
 const by = (rows, f = r => r) => Object.fromEntries(rows.map(r => [r.id, f(r)]))
 
@@ -402,9 +404,12 @@ export async function readKitchenLiveToken(token) {
 
 /**
  * What the live view works from: the kitchen screen's config (stations,
- * flows, order types, courses, ticket colours) and the venue's kitchen
+ * flows, order types, courses, ticket colours), the venue's kitchen
  * screens as set up in Store tech, each with its own settings (stations,
- * view, columns, text size, ticket title) and whether a device is linked.
+ * view, columns, text size, ticket title) and whether a device is linked,
+ * and its order ready boards: the menu screens showing an Order status
+ * block (orderBoardScreens()) and the board stations, each shown by the
+ * screen player in live mode (routes/screenApi.js /live/*).
  */
 export async function kitchenLiveData(tx, tenantId, venueId) {
   const config = await kdsConfig(tx, tenantId, venueId)
@@ -414,6 +419,7 @@ export async function kitchenLiveData(tx, tenantId, venueId) {
       FROM pos_devices
      WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND kind = 'kds' AND revoked_at IS NULL
      ORDER BY created_at`
+  const boardStations = (await loadStations(tx, tenantId, venueId)).filter(st => st.kind === 'board')
   // Printers plugged into screens print from the screens themselves, never from here.
   const { printers: _printers, ...shown } = config
   return {
@@ -422,6 +428,12 @@ export async function kitchenLiveData(tx, tenantId, venueId) {
     screens: screens.map(s => ({
       id: s.id, name: s.name, short_code: s.short_code, settings: s.settings || {}, linked: s.linked, last_seen_at: s.last_seen_at,
     })),
+    boards: {
+      screens: await orderBoardScreens(tx, tenantId, venueId),
+      stations: boardStations.map(st => ({ id: st.id, name: st.name })),
+      // The players' address: each board is a frame of screens.<root>/?board_live=.
+      address: screensOrigin(),
+    },
   }
 }
 

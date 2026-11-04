@@ -4103,6 +4103,12 @@ export default function Help() {
               when an offline screen was last seen.
             </P>
             <P>
+              A screen that ever starts with nothing on it (black, no code and no board: a part of the screen
+              program couldn&apos;t be loaded) tries again by itself every minute until it starts. While it is
+              like that it doesn&apos;t answer Reload from this page and shows as offline here; turning the
+              screen off and on, or reloading it on the device, starts it at once.
+            </P>
+            <P>
               <strong>With several locations</strong>: boards and playlists are shared by every location
               (one design for all; each screen shows its own location&apos;s sold out dishes and order
               ready board), while screens and walls belong to a location. The <strong>Location</strong>{' '}
@@ -6507,6 +6513,7 @@ export default function Help() {
               <li><strong>Rush</strong> moves a ticket to the front. <strong>SUM</strong> shows how many of each dish are on order. <strong>Prev</strong> lists the last tickets bumped here: <strong>Bring back</strong> one bumped by mistake. <strong>Remake</strong> puts a dish back on with a reason (for the waste report).</li>
               <li>A dish voided on the till shows crossed out with VOID until the ticket is bumped. Dishes moved to another table or check follow it.</li>
               <li>A <strong>combo</strong> shows as its name with its parts under it ("› Burger", "› 2 x KETCHUP"). Each part goes to the station that makes it, so the grill sees the burger and the fryer the fries, each under the combo's name; a part typed in just for the combo (a sauce pot, a toy) goes where the combo itself goes.</li>
+              <li><strong>A combo's parts one by one</strong>: tap a part (its own row under the combo's name) to mark just that part done here; tap it again to undo it. The combo's row says how many of the parts made here are done (<em>1/3</em>), and marking the last of them done marks the combo done, the same as tapping the combo's name (which marks every part done at once). Two of the same part (<em>2 x Ketchup pot</em>) are one row and go together. The combo still moves on as one dish: when all its parts here are done, or with <strong>BUMP</strong> (which sends the whole ticket on; <strong>Prev</strong> brings it back with its parts as they were).</li>
               <li>The clock button lists orders for later (held courses, and online and GloriaFood orders for a later time). They come on by themselves when it's time.</li>
               <li>The gear button: pick the station, Tickets or On order counts, text size, beep, full screen, and the bump bar keys.</li>
               <li><strong>The flow button</strong> (top right, with the name of the flow in use, when you have more than one flow) lists your kitchen flows with the stations each uses. Tap <strong>Switch</strong> on another, then <strong>Yes, switch</strong>: dishes sent from then on go its way, for the whole kitchen. Dishes already on the screens stay where they are, so finish them as usual. Every kitchen screen shows the new flow straight away with a note saying who switched. Switching needs the internet; a screen not allowed to switch (Store tech) shows the flows without the Switch buttons.</li>
@@ -6532,6 +6539,7 @@ export default function Help() {
               <li><strong>Bump when every dish is ticked</strong>: if you'd rather the last tick sends the order on, open the station in Store tech → Kitchen screens (<strong>Edit station</strong>) and under <strong>Ticking off dishes</strong> pick <em>Bump when every dish is ticked</em> instead of <em>Keep the ticket until READY</em>. The last tick then marks the order ready, as READY would. The station list says which each expo or runner does.</li>
               <li>A tick goes when the dish is made again (<strong>Remake</strong>), or when the station before takes it back (undoes it, or brings its ticket back with <strong>Prev</strong>): it has to be ticked off again when it comes back. READY then <strong>Prev</strong> at the pass brings the ticket back with its ticks.</li>
               <li>Prep stations don't tick: a dish tapped there is done and goes on.</li>
+              <li><strong>A combo's parts</strong>: tap a part to tick just it off (the pass sees every part of a combo); the combo's row says how many are ticked (<em>2/4</em>), and ticking the last part ticks the combo off, the same as tapping the combo's name. Untick a part by tapping it again: the other parts stay ticked. A combo with some parts ticked doesn't count as ticked off yet, so the ticket says CHECKED only once every part is.</li>
             </ul>
 
             <H3>Ticket colours</H3>
@@ -6562,6 +6570,7 @@ export default function Help() {
               <li><strong>Screens</strong>: <strong>As set up</strong> shows your kitchen screens; <strong>One per station</strong> shows one screen for each station. <strong>Size</strong> (tablet, TV, upright) and <strong>Across</strong> (screens per row) change the view. <strong>Sound</strong> beeps here when new dishes arrive.</li>
               <li>Each screen says whether its device is on (it asked in the last few minutes), when it was last seen, or that no device is linked. A screen set up in Store tech with no device still shows its tickets here.</li>
               <li>Changes made in Store tech (a screen renamed, its stations, the kitchen flow switched) reach the page by themselves. The link works for 12 hours; open it again from Store tech after that. View on Store tech is enough.</li>
+              <li><strong>Order ready boards</strong> show below the kitchen screens, as guests see them: the numbers being prepared and ready, changing as the kitchen bumps. With <strong>As set up</strong>, each menu screen at the venue that shows an Order status block (on its board, a board in its playlist or its wall&apos;s) is shown as it is now, with its own design, its name, what it&apos;s showing and whether its device is on. With <strong>One per station</strong>, or when no menu screen shows one, each order ready board of the kitchen flow gets a plain board of its numbers (or one board of every counter and online order, when the flow has no order ready board). A board turned on its side is drawn upright here. <strong>Full screen</strong> works on a board as on a kitchen screen. The boards only watch too: nothing on the real screens changes.</li>
             </ul>
 
             <H3>Testing the kitchen</H3>

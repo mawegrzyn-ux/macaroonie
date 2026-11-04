@@ -29,9 +29,8 @@ import {
 } from 'lucide-react'
 import {
   stationTickets, recentBumps, laterOrders, onOrderCounts, stationStats, ageTone, clockSince, clockSecs,
-  itemState, readyOrders, isOrderLevel, stationSettings,
+  itemState, readyOrders, isOrderLevel, stationSettings, partRows,
 } from '@shared/pos/kitchen.js'
-import { countParts } from '@shared/combos.js'
 import { orderInfo } from '@shared/orderInfo.js'
 import { ticketColours, sectionColour } from '@shared/pos/kitchenColours.js'
 import {
@@ -542,6 +541,16 @@ function ItemRow({ item, order, station, text, names, showNext, look }) {
       : itemDone(order.id, station.id, item.id, st !== 'done')
     if (!r.ok) toast(r.error, 'bad')
   }
+  // A meal deal's part tapped on its own: that part (the same part twice: both) done or
+  // ticked off here, or not any more. The last part ticked is the whole dish (shared rules).
+  const tapPart = row => e => {
+    e.stopPropagation()
+    if (st === 'voided' || st === 'held') return
+    const r = orderLevel
+      ? itemChecked(order.id, station.id, item.id, !row.ticked, row.indexes)
+      : itemDone(order.id, station.id, item.id, !row.ticked, row.indexes)
+    if (!r.ok) toast(r.error, 'bad')
+  }
   const parts = item.parts && item.parts.length ? item.parts : null
   const from = (item.from || []).map(id => names[id]).filter(Boolean)
   const key = rowLook(item)
@@ -559,6 +568,11 @@ function ItemRow({ item, order, station, text, names, showNext, look }) {
         <div className={cx('flex items-start gap-1.5 px-2 py-1 font-bold', text.item, st === 'voided' && 'line-through')}>
           <span className="tabular-nums shrink-0" style={nameColour ? { color: nameColour } : undefined}>{item.qty}</span>
           <span className="flex-1 min-w-0 break-words" style={nameColour ? { color: nameColour } : undefined} data-testid="kds-item-name">{item.name}</span>
+          {!ticked && item.parts_ticked > 0 && (
+            <span className="text-[11px] font-bold bg-black/40 text-white px-1 rounded shrink-0 tabular-nums" data-testid="kds-parts-count">
+              {item.parts_ticked}/{parts.length}
+            </span>
+          )}
           {ticked && <Check size={18} className="shrink-0" data-testid="kds-tick" />}
           {st === 'voided' && <span className="no-underline text-[11px] bg-red-600 text-white px-1 rounded shrink-0">VOID</span>}
           {item.added && st !== 'voided' && <span className="text-[11px] bg-white text-black px-1 rounded shrink-0">ADD</span>}
@@ -580,11 +594,18 @@ function ItemRow({ item, order, station, text, names, showNext, look }) {
           <div className={info('opacity-70')} data-testid="kds-next">Then {item.next.map(id => names[id] || 'another station').join(', ')}</div>
         )}
         <Mods mods={item.mods} text={text} depth={1} />
-        {parts && countParts(parts).map(({ part: p, count }, idx) => {
+        {parts && partRows(parts).map((row, idx) => {
+          const p = row.part
           const partColour = key === 'voided' ? null : look.nameOf(p.section_id)
+          // A part ticked on a dish that isn't yet: the part takes the ticked colours on its own.
+          const own = row.ticked && !ticked && key !== 'voided' ? look.state.ticked : null
           return (
-            <div key={idx}>
-              <div className={cx('pl-5 pr-2 py-0.5 font-semibold', text.mod)} style={partColour ? { color: partColour } : undefined} data-testid="kds-part">› {count > 1 ? count + ' x ' : ''}{p.name}</div>
+            <div key={idx} onClick={tapPart(row)} data-testid="kds-part-row" data-ticked={row.ticked ? 'true' : undefined}
+              data-parts={row.indexes.join(',')} className="touch-manipulation" style={own ? { background: own.bg, color: own.ink } : undefined}>
+              <div className={cx('min-h-[48px] flex items-center gap-1.5 pl-5 pr-2 py-0.5 font-semibold', text.mod)}>
+                <span className="flex-1 min-w-0 break-words" style={partColour ? { color: partColour } : undefined} data-testid="kds-part">› {row.count > 1 ? row.count + ' x ' : ''}{p.name}</span>
+                {row.ticked && <Check size={16} className="shrink-0" data-testid="kds-part-tick" />}
+              </div>
               <Mods mods={p.mods} text={text} depth={2} />
             </div>
           )
@@ -815,6 +836,12 @@ function SettingsPanel({ stations, station, view, full, onFull, onKeys, onClose 
           {st.bump_when_checked
             ? 'Tap a dish to tick it off: ticking off the last one sends the order on, as ' + (station.kind === 'runner' ? 'DONE' : 'READY') + ' does.'
             : 'Tap a dish to tick it off (a packing check): the ticket stays, marked CHECKED once every dish is ticked, until you press ' + (station.kind === 'runner' ? 'DONE' : 'READY') + '.'}
+          {' '}A meal deal's parts can be ticked off one by one: the last part ticks off the meal.
+        </div>
+      )}
+      {!isOrderLevel(station) && (
+        <div className="text-sm text-white/60 px-1" data-testid="kds-part-note">
+          Tap a dish to mark it done. A meal deal's parts made here can be marked one by one: the last part done is the meal done.
         </div>
       )}
       {!inBench() && <DisconnectBox waiting={s.outbox.length} />}

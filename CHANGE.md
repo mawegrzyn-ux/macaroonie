@@ -5,6 +5,16 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-11-04 — Order ready boards in the live kitchen view; a meal deal's parts one by one; menu screens start again]
+
+No migration.
+
+- **Menu screens and order ready boards were black since 3 Nov** (the change for order flows on online ordering): a file the screen program needs wasn't sent to the screens, so the program never started. Fixed: the screens are now sent every file the program needs, worked out from the program itself, and a screen that ever starts with nothing on it tries again by itself every minute. **Screens that went black need one reload (turn the screen off and on, or reload it on the device) after this update**; from then on they recover by themselves.
+- **Order ready boards in the live kitchen view** (Store tech → Kitchen screens → Live view): below the kitchen screens, each order ready board as guests see it, with the numbers being prepared and ready changing as the kitchen bumps. As set up: every menu screen at the venue that shows an Order status block, as it shows now, with its name, what it shows and whether its device is on. One per station (or with no such screen): a plain board of each order ready board station's numbers. Each has its own Full screen. Like the rest of the page, it only watches.
+- **A meal deal's parts one by one on kitchen screens**: tap a part (its own row under the meal's name) to mark just that part done at a prep station, or tick just it off at the pass. The meal's row says how many are done (1/3); the last part done (or ticked off) is the whole meal done (or ticked off), the same as tapping the meal's name. Tap a part again to undo it; the other parts stay. Two of the same part (2 x Ketchup pot) go together. Part rows are 48 px tall.
+
+---
+
 ## [2026-11-03 — How an order flow's prompt looks, on each channel]
 
 No migration (the look is kept with the flow).
