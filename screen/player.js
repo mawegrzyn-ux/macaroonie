@@ -26,6 +26,17 @@
 // a remote) open a small panel: what this screen is, Reload, and Disconnect
 // this screen (asked twice), which tells Macaroonie (POST /screen-api/
 // disconnect) and goes back to showing a pairing code.
+//
+// Live mode: the live kitchen view (Store tech > Kitchen screens > Live view,
+// pos/src/kitchen/Live.jsx) shows the venue's order ready boards in frames of
+// this player: ?board_live=<the view's signed link>&screen=<id> (a menu
+// screen of the venue, as it shows now) or &board=<board station id | all>
+// (a plain board of those numbers). Its data comes by that link
+// (/screen-api/live/*), never a pairing. Read only and nothing kept: no
+// pairing, no localStorage (the device's own pairing and config stay as they
+// are), no heartbeat, no settings panel, no service worker, no full screen or
+// wake lock (the view does those), no venue hub; boards upright, as people
+// see them.
 
 import {
   boardContext, renderBoardHtml, SCREEN_LAYOUT_CSS, boardFontsUrl, boardImageUrls, boardVideoUrls, itemsOnAt, localParts,
@@ -34,7 +45,7 @@ import {
 } from '/lib/screenLayout.js'
 import { qrSvg } from '/lib/qr.js'
 
-const APP_VERSION = '1.4.0'
+const APP_VERSION = '1.5.0'
 const PLAYER_VERSION = document.querySelector('meta[name="player-version"]')?.content || ''
 const KEYS = { device: 'mcrn_screen_device', config: 'mcrn_screen_config', pairing: 'mcrn_screen_pairing', reloaded: 'mcrn_screen_reloaded_at' }
 // How often to ask for changes (pushes do most of it): the location's times
@@ -49,13 +60,23 @@ function tellApp(msg) {
 }
 const PAIR_POLL_MS = 3_000
 
+const LIVE = (() => {
+  const q = new URLSearchParams(location.search)
+  const token = q.get('board_live')
+  if (!token) return null
+  const screen = q.get('screen')
+  return { token, screen: screen || null, board: screen ? null : (q.get('board') || 'all') }
+})()
+const liveQuery = () => '?token=' + encodeURIComponent(LIVE.token) +
+  (LIVE.screen ? '&screen=' + encodeURIComponent(LIVE.screen) : '&board=' + encodeURIComponent(LIVE.board))
+
 const stage = document.getElementById('stage')
 const identifyEl = document.getElementById('identify')
 const settingsEl = document.getElementById('settings')
 const hintEl = document.getElementById('hint')
 
-let device = load(KEYS.device)       // { id, secret }
-let config = load(KEYS.config)
+let device = LIVE ? null : load(KEYS.device)       // { id, secret }
+let config = LIVE ? null : load(KEYS.config)
 let clockOffset = 0                   // server time - this device's time, ms
 let clockRtt = null                   // round trip of the best time sample (null: not set from /time yet)
 let offlineSince = null
@@ -68,6 +89,7 @@ function load(key) {
   try { return JSON.parse(localStorage.getItem(key) || 'null') } catch { return null }
 }
 function save(key, value) {
+  if (LIVE) return   // live mode keeps nothing on the device
   try { value == null ? localStorage.removeItem(key) : localStorage.setItem(key, JSON.stringify(value)) } catch { /* full or private */ }
 }
 
@@ -284,6 +306,18 @@ function startPaired() {
   setTimeout(heartbeat, 5000)
 }
 
+// Live mode (the live kitchen view's frames): the boards and their numbers, nothing else.
+function startLive() {
+  document.body.classList.add('live')
+  syncClock().then(() => { if (config) schedule() })
+  fetchConfig()
+  connect()
+  setPullTimers(true)
+  clearInterval(tickTimer); tickTimer = setInterval(tick, 5000)
+  clearInterval(clockTimer); clockTimer = setInterval(syncClock, 10 * 60_000)
+  clearInterval(videoTimer); videoTimer = setInterval(syncVideos, 1000)
+}
+
 // The two pull times in ms from the config, within their limits.
 function pullEvery() {
   const out = {}
@@ -314,10 +348,12 @@ function stopPaired() {
 
 let fetching = false
 async function fetchConfig() {
-  if (!device || fetching) return
+  if ((!device && !LIVE) || fetching) return
   fetching = true
   try {
-    const r = await api('/screen-api/config' + (config?.version ? '?version=' + encodeURIComponent(config.version) : ''), { auth: screenAuth() })
+    const r = LIVE
+      ? await api('/screen-api/live/config' + liveQuery() + (config?.version ? '&version=' + encodeURIComponent(config.version) : ''))
+      : await api('/screen-api/config' + (config?.version ? '?version=' + encodeURIComponent(config.version) : ''), { auth: screenAuth() })
     setServerTime(r.server_time)
     if (!r.unchanged) {
       config = r
@@ -331,6 +367,14 @@ async function fetchConfig() {
     }
     lastError = null
   } catch (e) {
+    if (LIVE && !e.offline) {
+      // The link ran out (401), or the screen or board went (404): say so, keep nothing.
+      if (e.status === 401 || e.status === 404) {
+        stopPaired(); config = null; clearBoard(); current = null
+        panel('<h1>' + escHtml(e.message) + '</h1>')
+      } else lastError = e.message
+      return
+    }
     if (e.offline) { offlineSince = offlineSince || Date.now(); if (!config) panel('<h1>Can\'t reach Macaroonie</h1><p>This screen will show its boards as soon as it is back online.</p>') }
     else if (e.status === 401) unpair('This screen was removed')
     else if (e.status === 403) panel('<h1>' + escHtml(e.message) + '</h1>')
@@ -353,10 +397,13 @@ function maybeReloadForNewPlayer() {
 
 function connect() {
   clearTimeout(wsTimer)
-  if (!device) return
+  if (!device && !LIVE) return
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
+  const query = LIVE
+    ? 'board_live=' + encodeURIComponent(LIVE.token) + (LIVE.screen ? '&screen=' + encodeURIComponent(LIVE.screen) : '')
+    : 'screen=' + encodeURIComponent(device.id) + '&secret=' + encodeURIComponent(device.secret)
   try {
-    ws = new WebSocket(proto + '//' + location.host + '/ws?screen=' + encodeURIComponent(device.id) + '&secret=' + encodeURIComponent(device.secret))
+    ws = new WebSocket(proto + '//' + location.host + '/ws?' + query)
   } catch { scheduleReconnect(); return }
   // Back after a drop: a change made meanwhile was pushed to nobody, so ask.
   ws.onopen = () => { wsDelay = 2000; if (wsOpenedBefore) fetchConfig(); wsOpenedBefore = true }
@@ -428,9 +475,9 @@ function fontsFor(designs) {
 }
 
 // Every video this screen's boards play: sw.js keeps them on the device
-// (and lets go of videos no board uses any more).
+// (and lets go of videos no board uses any more). Not in live mode.
 function cacheVideos() {
-  if (!('serviceWorker' in navigator)) return
+  if (LIVE || !('serviceWorker' in navigator)) return
   const urls = [...new Set(Object.values(config?.designs || {}).flatMap(d => boardVideoUrls(d.layout)))]
     .map(u => new URL(u, location.href).href)
   navigator.serviceWorker.ready.then(reg => reg.active?.postMessage({ type: 'videos', urls })).catch(() => {})
@@ -473,12 +520,14 @@ async function hubOrders(h) {
 
 // The order numbers (preparing / ready) the kitchen screens keep.
 async function fetchOrders() {
-  if (!device || !config?.needs_orders) return
+  if ((!device && !LIVE) || !config?.needs_orders) return
   try {
-    const h = hubCfg()
+    const h = LIVE ? null : hubCfg()
     let r = h && Date.now() >= hubState.retryAt ? await hubOrders(h) : null
     if (!r) {
-      r = await api('/screen-api/orders', { auth: screenAuth() })
+      r = LIVE
+        ? await api('/screen-api/live/orders?token=' + encodeURIComponent(LIVE.token))
+        : await api('/screen-api/orders', { auth: screenAuth() })
       setServerTime(r.server_time)
     }
     const next = r.orders || { preparing: [], ready: [] }
@@ -757,7 +806,8 @@ function preload(urls, ms) {
 function fit(layer) {
   const W = Number(layer.dataset.w), H = Number(layer.dataset.h)
   const r = wallRegion(W, H, config?.wall)
-  const rot = Number(config?.screen?.rotation) || 0
+  // Live mode shows the board upright, as people see it (the frame has the screen's own shape).
+  const rot = LIVE ? 0 : (Number(config?.screen?.rotation) || 0)
   const turned = rot === 90 || rot === 270
   const vw = window.innerWidth, vh = window.innerHeight
   // In the board's own axes: its width runs along the screen's height when turned.
@@ -907,6 +957,7 @@ document.addEventListener('keydown', e => {
 
 let wakeLock = null
 async function keepAwake() {
+  if (LIVE) return
   try {
     if ('wakeLock' in navigator && document.visibilityState === 'visible' && !wakeLock) {
       wakeLock = await navigator.wakeLock.request('screen')
@@ -915,16 +966,17 @@ async function keepAwake() {
   } catch { /* not allowed here (Fully Kiosk keeps the screen on itself) */ }
 }
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') { keepAwake(); if (device) fetchConfig() }
+  if (document.visibilityState === 'visible') { keepAwake(); if (device || LIVE) fetchConfig() }
 })
 
 const standalone = () => window.matchMedia('(display-mode: fullscreen)').matches || window.matchMedia('(display-mode: standalone)').matches
 function offerFullscreen() {
-  if (standalone() || typeof window.fully !== 'undefined' || document.fullscreenElement || !document.documentElement.requestFullscreen) return
+  if (LIVE || standalone() || typeof window.fully !== 'undefined' || document.fullscreenElement || !document.documentElement.requestFullscreen) return
   hintEl.classList.add('on')
   setTimeout(() => hintEl.classList.remove('on'), 12_000)
 }
 document.addEventListener('click', () => {
+  if (LIVE) return
   countTap()
   hintEl.classList.remove('on')
   if (!document.fullscreenElement && document.documentElement.requestFullscreen && !standalone()) {
@@ -945,7 +997,7 @@ wake()
 window.addEventListener('resize', () => { for (const l of stage.children) fit(l) })
 // Fonts arriving change text widths: measure the scrolling text again.
 document.fonts?.addEventListener?.('loadingdone', () => { if (current?.layer) startMotion() })
-window.addEventListener('online', () => { if (device) { fetchConfig(); if (!ws) connect() } })
+window.addEventListener('online', () => { if (device || LIVE) { fetchConfig(); if (!ws) connect() } })
 
 // ── Start ────────────────────────────────────────────────────────
 
@@ -953,18 +1005,21 @@ const style = document.createElement('style')
 style.textContent = SCREEN_LAYOUT_CSS
 document.head.appendChild(style)
 
-if ('serviceWorker' in navigator) {
+if ('serviceWorker' in navigator && !LIVE) {
   navigator.serviceWorker.register('/sw.js').catch(() => {})
 }
 
 keepAwake()
 offerFullscreen()
-if (device?.id && device?.secret) startPaired()
+if (LIVE) startLive()
+else if (device?.id && device?.secret) startPaired()
 else startPairing()
 
 // For tests and support: what this screen is doing.
 window.__screen = {
   get device() { return device ? { id: device.id } : null },
+  get live() { return LIVE ? { screen: LIVE.screen, board: LIVE.board } : null },
+  get orders() { return orders },
   get config() { return config },
   get showing() { return showing },
   get socket() { return ws ? ws.readyState : -1 },

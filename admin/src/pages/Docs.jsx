@@ -5051,8 +5051,39 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               pass&apos;s own bump keeps its ticks. <Mono>stationTickets()</Mono> gives each item{' '}
               <Mono>ticked</Mono> and each ticket <Mono>ticked</Mono> (a count) and <Mono>all_ticked</Mono>{' '}
               (every dish to bump there, active or upcoming with <Mono>show_upcoming</Mono>, ticked); the screen
-              shows CHECKED and the All ticked off top. Devices still on an older copy of the app send{' '}
+              shows CHECKED and the All ticked off top. (A meal deal&apos;s parts one by one: next paragraph.) Devices still on an older copy of the app send{' '}
               <Mono>kitchen.item_done</Mono> at the pass, which keeps working (done, and the last one bumps).
+            </P>
+            <P>
+              <strong>A meal deal&apos;s parts one by one</strong> (no migration: kitchen order state).{' '}
+              <Mono>kitchen.item_done</Mono> and <Mono>kitchen.item_checked</Mono> take an optional{' '}
+              <Mono>parts</Mono> (1 to 60 places in <Mono>item.parts</Mono>, checked by{' '}
+              <Mono>kitchenEventProblem()</Mono>). The parts a station shows come from{' '}
+              <Mono>stationPartIndexes()</Mono> in <Mono>shared/pos/kitchen.js</Mono>: at a prep station the parts
+              routed to it (<Mono>part.route[station]</Mono>), at the pass and runners every part; naming another
+              part is refused with code <Mono>parts</Mono> (&quot;Fries isn&apos;t made at Grill&quot;), and so is{' '}
+              <Mono>item_done</Mono> with parts at the pass (code <Mono>station</Mono>: it ticks parts off). Parts
+              done or ticked off are kept in <Mono>item.part_ticks[stationId]</Mono>{' '}
+              <Mono>{'{ [index]: when }'}</Mono> until the last of the station&apos;s parts is named: that event
+              counts as the whole dish (done, with the bump the last dish of a ticket makes; or ticked off, with the
+              last-tick bump under <Mono>bump_when_checked</Mono>) and drops the part ticks, so they are always
+              some, never all, of a station&apos;s parts, and the dish still moves on as one. A BUMP (or READY) with
+              parts half ticked keeps them beside the finished dish, so Prev brings the ticket back with them as they
+              were; while the dish is done or ticked off there it counts as every part ticked. Undoing a part of a
+              dish not yet done takes just that part off; undoing a part of a dish done (or ticked off) there
+              undoes the dish and keeps its other parts ticked, at the dish&apos;s time; undoing the whole dish, a
+              remake (<Mono>kitchen.remake</Mono>) and the dish sent back to an earlier station (
+              <Mono>untickAfter()</Mono>) drop them. A part tick isn&apos;t a dish ticked: tickets count only whole
+              dishes, so CHECKED waits for every part. <Mono>stationTickets()</Mono> gives each item&apos;s{' '}
+              <Mono>parts</Mono> with <Mono>index</Mono> and <Mono>ticked</Mono> (all of them once the dish is
+              done or ticked off there) and <Mono>parts_ticked</Mono>; <Mono>partRows()</Mono> groups them as the
+              screen shows them (<Mono>countParts()</Mono>: &quot;2 x Ketchup pot&quot; once, with both places as{' '}
+              <Mono>indexes</Mono>, ticked when all are). Kitchen screen: each part row is its own 48 px target (
+              <Mono>kds-part-row</Mono>, <Mono>data-parts</Mono>, <Mono>data-ticked</Mono>, <Mono>kds-part-tick</Mono>)
+              sending <Mono>itemDone()</Mono> / <Mono>itemChecked()</Mono> in <Mono>pos/src/kitchen/store.js</Mono>{' '}
+              with the row&apos;s indexes; the dish row shows <Mono>kds-parts-count</Mono> (1/3) while some are
+              ticked. The test bench applies the same events. Tests:{' '}
+              <Mono>shared/pos/test/kitchenParts.test.mjs</Mono>, <Mono>api/test/kitchen-parts.test.mjs</Mono>.
             </P>
             <P>
               <strong>Ticket colours</strong> (migration 207): <Mono>pos_settings.kds_colours</Mono> jsonb{' '}
@@ -5140,7 +5171,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['POST /api/pos/venues/:id/kitchen-test', 'A signed link to the kitchen test bench (pos_setup view): { token, url } (8 hours). See The kitchen test bench below.'],
                 ['GET /pos-api/kitchen-test?token=', 'The bench\'s data (kitchenTestData()): stations, courses, order types, flows with their links, kitchen screens, tables, revenue streams, the live menus\' dishes (no prices) and expires_at. 401 for a bad, run out or other-kind link; 404 when the link\'s venue isn\'t its tenant\'s. Reads only.'],
                 ['POST /api/pos/venues/:id/kitchen-live', 'A signed link to the live kitchen view (pos_setup view): { token, url, expires_at } (12 hours, kind kitchen_live). See The live kitchen view below.'],
-                ['GET /pos-api/kitchen-live?token=', 'The live view\'s setup (kitchenLiveData()): the kitchen screen config without printers, the venue\'s kitchen screens not removed ({ id, name, short_code, settings, linked, last_seen_at }), expires_at and server_time. 401 (code link) for a bad, run out or other-kind link; 404 when the link\'s venue isn\'t its tenant\'s. Reads only.'],
+                ['GET /pos-api/kitchen-live?token=', 'The live view\'s setup (kitchenLiveData()): the kitchen screen config without printers, the venue\'s kitchen screens not removed ({ id, name, short_code, settings, linked, last_seen_at }), its order ready boards (boards: { screens: orderBoardScreens(), stations: the board stations { id, name }, address: screensOrigin() }), expires_at and server_time. 401 (code link) for a bad, run out or other-kind link; 404 when the link\'s venue isn\'t its tenant\'s. Reads only.'],
+                ['GET /screen-api/live/config?token=&screen=<id> | &board=<board station id | all>[&version=]', 'A live view board\'s config, by the same signed link (never a screen pairing): liveScreenConfig() (the venue\'s menu screen as screenConfig() gives it, no venue hub; 404 code gone for another venue\'s screen) or liveBoardConfig() (a plain 1920 x 1080 board, one Order status block of that board station\'s numbers or of every order; 404 for a station that isn\'t the venue\'s active board). Exactly one of screen / board (400). { unchanged, version } when the version matches. 401 code link as above. Rate limit 240 a minute.'],
+                ['GET /screen-api/live/orders?token=', 'boardFor() for the link\'s venue, as GET /screen-api/orders gives a screen. Same 401.'],
                 ['GET /pos-api/kitchen-live/sync?token=&since=', 'The venue\'s kitchen orders as GET /pos-api/kitchen/sync gives a kitchen screen (kitchenSync(): reset from 0 or a sequence the server doesn\'t know, then what changed), plus source: cloud. Same 401 / 404. The page never sends a kitchen event.'],
                 ['GET /screen-api/orders', 'boardFor(): { preparing, ready } for every counter and online order, and boards: { [board station name, lower case]: { preparing, ready } } per order ready board, for the Order status block (opts.board picks one by name; screens with one get needs_orders in their config, poll every 15 s and refetch on kitchen.board).'],
               ]}
@@ -5377,6 +5410,30 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               reloading the frame. <Mono>&amp;full=&lt;screen id&gt;</Mono> in the address (kept with{' '}
               <Mono>history.replaceState</Mono>) opens with that screen filling the window; Escape leaves the
               window mode. Tests: <Mono>api/test/kitchen-live.test.mjs</Mono>.
+            </P>
+            <P>
+              <strong>Order ready boards</strong> (4 Nov 2026) show under the kitchen screens (
+              <Mono>BoardsSection</Mono>, <Mono>boardCards()</Mono> in <Mono>Live.jsx</Mono>), each the real screen
+              player in live mode in a frame of <Mono>screens.&lt;root&gt;</Mono> (
+              <Mono>?board_live=&lt;this link&gt;</Mono>; see Menu screens → Player). The setup&apos;s{' '}
+              <Mono>boards</Mono> come from <Mono>kitchenLiveData()</Mono>: <Mono>orderBoardScreens()</Mono> in{' '}
+              <Mono>services/screenSvc.js</Mono> (the venue&apos;s menu screens whose board, playlist board or
+              wall&apos;s shows an <Mono>order_status</Mono> block, in the Screens page&apos;s order, with size, wall,
+              linked, last seen, online and what they show) and the venue&apos;s board stations. As set up: one
+              card per such screen (<Mono>&amp;screen=&lt;id&gt;</Mono>, as it shows now, its own design and
+              Order status options); One per station, or no such screen: a plain board per board station (
+              <Mono>&amp;board=&lt;station id&gt;</Mono>, <Mono>liveBoardConfig()</Mono>: one Order status block
+              naming the station), or one of every counter and online order (<Mono>&amp;board=all</Mono>) when the
+              flow has no board station. A frame takes the screen&apos;s own shape (at most 560 px tall; a screen
+              turned on its side is drawn upright), follows the numbers itself (<Mono>/screen-api/live/orders</Mono> on its
+              pull time and on <Mono>kitchen.board</Mono>; board, playlist and menu changes on its screen&apos;s
+              rooms) and has its own Full screen. The socket&apos;s <Mono>board_live</Mono> branch in{' '}
+              <Mono>config/ws.js</Mono> reads the link (<Mono>readLink(&apos;kitchen_live&apos;)</Mono>), checks its
+              venue against its tenant and a named screen against the venue, then joins that screen&apos;s rooms (
+              <Mono>screen:</Mono>, <Mono>screens:</Mono>, <Mono>screens-t:</Mono>, <Mono>menus:</Mono>) or only{' '}
+              <Mono>screens:&lt;venue&gt;</Mono>; the paired-screen branch skips a <Mono>board_live</Mono>{' '}
+              connection. Tests: <Mono>api/test/kitchen-live.test.mjs</Mono>, the live view test in{' '}
+              <Mono>api/test/system-paths.test.mjs</Mono>.
             </P>
           </section>
 
@@ -8538,6 +8595,35 @@ selection.combo = { [stepId]: [{ option_id, item_id, choices }] }   // item_id n
               the cursor, and reloads itself when a config names a newer player version (at most once
               in 5 minutes). Works installed from Chrome or in Fully Kiosk (detected by{' '}
               <Mono>window.fully</Mono>, reported in the device info).
+            </P>
+            <P>
+              <strong>The shared files it loads</strong> (4 Nov 2026): <Mono>PLAYER_LIBS</Mono> in{' '}
+              <Mono>services/screenSvc.js</Mono> is worked out at start from what <Mono>player.js</Mono> imports
+              from <Mono>/lib/</Mono> and everything those import by relative path (<Mono>importClosure()</Mono>{' '}
+              in <Mono>utils/importClosure.js</Mono>, shared with <Mono>hubRelease()</Mono>), nested paths kept
+              (<Mono>/lib/pos/orderFlows.js</Mono>). It replaced a list kept by hand, which missed the two files{' '}
+              <Mono>orderPricing.js</Mono> started importing in #431 (<Mono>pos/orderFlows.js</Mono>,{' '}
+              <Mono>pos/charges.js</Mono>): they were 404, the player&apos;s module never ran, and every menu screen
+              stayed black. <Mono>sw.js</Mono> gets the same list at serve time (the{' '}
+              <Mono>__PLAYER_LIBS__</Mono> placeholder, so <Mono>SHELL_FILES</Mono> keeps what the player loads).{' '}
+              <Mono>index.html</Mono> carries a watchdog before the module: <Mono>window.__screenRetry(ms)</Mono>{' '}
+              reloads the page unless the player set <Mono>window.__screen</Mono> (60 s; 20 s from the module
+              script&apos;s <Mono>onerror</Mono>). <Mono>api/test/browser-modules.test.mjs</Mono> follows every
+              module tree a browser loads without a bundler (the player, the online ordering page&apos;s{' '}
+              <Mono>/order-api/</Mono> files, the loyalty card&apos;s <Mono>/loyalty-api/</Mono>), checks each is
+              served as JavaScript, and that the service worker&apos;s list equals the player&apos;s tree.
+            </P>
+            <P>
+              <strong>Live mode</strong> (the live kitchen view&apos;s order ready boards):{' '}
+              <Mono>?board_live=&lt;the view&apos;s signed link&gt;&amp;screen=&lt;id&gt;</Mono> or{' '}
+              <Mono>&amp;board=&lt;board station id | all&gt;</Mono>. Data by that link only (
+              <Mono>/screen-api/live/config</Mono>, <Mono>/screen-api/live/orders</Mono>, the socket{' '}
+              <Mono>/ws?board_live=</Mono>), never a pairing; nothing kept (<Mono>save()</Mono> does nothing, the
+              device&apos;s own pairing and config in localStorage are left as they are), no heartbeat, settings
+              panel, service worker, full screen offer, wake lock or venue hub; boards drawn upright (rotation 0).
+              A 401 or 404 shows the reason and stops. <Mono>routes/screenSite.js</Mono> lets such a page be
+              framed by the platform&apos;s hosts (no X-Frame-Options, CSP <Mono>frame-ancestors</Mono> of the root
+              and <Mono>*.&lt;root&gt;</Mono>).
             </P>
             <P>
               Since migration 167 screens keep in step without talking to each other: the clock comes

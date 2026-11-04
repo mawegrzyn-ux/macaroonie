@@ -15,6 +15,15 @@
 // iPad), else the card fills the window; the screen inside then lays itself
 // out at that size, as a kitchen screen of that size would. &full=<screen>
 // in the address opens with that screen filling the window.
+//
+// Below them, the venue's order ready boards: each the real menu screen
+// player (screen/player.js in live mode) in a frame on the screens' address,
+// ?board_live=<this link>&screen=<id> for a menu screen that shows an Order
+// status block, as it shows now, or &board=<board station | all> for a plain
+// board of those numbers. As set up: the menu screens (plain boards when
+// there are none); One per station: a plain board per board station. The
+// frames follow the numbers themselves (/screen-api/live/*, their own
+// socket); full screen works as for the kitchen screens.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Maximize, Minimize2, Volume2, VolumeX, Wifi, WifiOff, RefreshCw, AlertTriangle, Workflow, Clock, MonitorOff } from 'lucide-react'
@@ -22,6 +31,9 @@ import { benchScreens } from '@shared/pos/kitchenBench.js'
 import { BUMP_KINDS, STALE_HOURS } from '@shared/pos/kitchen.js'
 
 const cx = (...p) => p.filter(Boolean).join(' ')
+
+// The tallest a board's frame is drawn in the grid (a portrait board is fitted inside).
+const BOARD_MAX_H = 560
 
 const SIZES = [
   { key: 'tablet', label: 'Tablet', w: 1280, h: 800 },
@@ -108,7 +120,8 @@ export default function Live({ token }) {
   const reloadSetup = useCallback(async () => {
     try {
       const d = await getJson('/pos-api/kitchen-live?token=' + tokenQ)
-      setData(prev => (prev && JSON.stringify(prev.screens) === JSON.stringify(d.screens) && prev.config.version === d.config.version && prev.expires_at === d.expires_at ? prev : d))
+      setData(prev => (prev && JSON.stringify(prev.screens) === JSON.stringify(d.screens) && JSON.stringify(prev.boards) === JSON.stringify(d.boards) &&
+        prev.config.version === d.config.version && prev.expires_at === d.expires_at ? prev : d))
       setError(null)
       return d
     } catch (e) {
@@ -267,6 +280,7 @@ function LivePage({ data, token, reloadSetup, onGone, setupError }) {
   const size = SIZES.find(s => s.key === prefs.size) || SIZES[0]
   const sound = !!prefs.sound
   const screens = useMemo(() => benchScreens({ screens: data.screens, stations: data.config.stations }, mode), [data, mode])
+  const boards = useMemo(() => boardCards(data.boards, mode), [data.boards, mode])
   const [, setVersion] = useState(0)
   const bump = useCallback(() => setVersion(v => v + 1), [])
 
@@ -444,8 +458,8 @@ function LivePage({ data, token, reloadSetup, onGone, setupError }) {
       window.removeEventListener('keydown', onKey)
     }
   }, [])
-  // A screen taken out of the setup while full: back to every screen.
-  useEffect(() => { if (full && !screens.some(s => s.id === full)) exitFull() }, [full, screens]) // eslint-disable-line react-hooks/exhaustive-deps
+  // A screen or board taken out of the setup while full: back to every screen.
+  useEffect(() => { if (full && !screens.some(s => s.id === full) && !boards.some(b => b.id === full)) exitFull() }, [full, screens, boards]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Layout ──────────────────────────────────────────────────────
   const gridRef = useRef(null)
@@ -559,9 +573,105 @@ function LivePage({ data, token, reloadSetup, onGone, setupError }) {
               })}
             </div>
             )}
+          {ready && gridW > 0 && boards.length > 0 && (
+            <BoardsSection boards={boards} data={data} token={token} gridW={gridW} gap={gap} full={full} pseudo={pseudo}
+              cards={cards} onFull={enterFull} onExit={exitFull} />
+          )}
         </div>
       </div>
     </div>
+  )
+}
+
+/**
+ * The order ready boards to show: As set up, the venue's menu screens with an
+ * Order status block (plain boards when there are none); One per station, a
+ * plain board per board station. A plain board with no board station shows
+ * every counter and online order, as an Order status block with no board picked.
+ */
+function boardCards(b, mode) {
+  const list = b || { screens: [], stations: [] }
+  const plain = (list.stations || []).length
+    ? list.stations.map(st => ({ id: 'board-' + st.id, kind: 'board', name: st.name, query: '&board=' + encodeURIComponent(st.id), width: 1920, height: 1080, key: st.name }))
+    : [{ id: 'board-all', kind: 'board', name: 'Every order', query: '&board=all', width: 1920, height: 1080, all: true, key: 'all' }]
+  if (mode === 'setup' && (list.screens || []).length) {
+    return list.screens.map(s => ({
+      id: 'orb-' + s.id, kind: 'screen', name: s.name, short_code: s.short_code, query: '&screen=' + encodeURIComponent(s.id),
+      width: s.width || 1920, height: s.height || 1080, screen: s, key: s.id,
+    }))
+  }
+  return plain
+}
+
+function boardLine(b) {
+  if (b.kind === 'board') return b.all ? 'Every counter and online order' : 'Board station: the numbers sent to it'
+  const s = b.screen
+  return [s.showing ? 'Showing ' + s.showing : null, s.wall ? 'On the wall ' + s.wall.name : null, b.width + ' x ' + b.height].filter(Boolean).join(' · ')
+}
+
+function BoardsSection({ boards, data, token, gridW, gap, full, pseudo, cards, onFull, onExit }) {
+  const cols = gridW < 700 || boards.length <= 1 ? 1 : boards.length <= 4 ? 2 : 3
+  const cellW = Math.max(160, (gridW - gap * (cols - 1)) / cols)
+  const plainOnly = boards.every(b => b.kind === 'board')
+  const noBoards = !(data.boards?.screens || []).length && !(data.boards?.stations || []).length
+  const src = b => (data.boards?.address || '') + '/?board_live=' + encodeURIComponent(token) + b.query
+  return (
+    <section className="mt-6" data-testid="live-boards">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 mb-2">
+        <h2 className="text-lg font-bold">Order ready boards</h2>
+        <span className="text-sm text-muted">
+          {noBoards
+            ? 'No order ready board set up at this venue yet: this is every counter and online order, as a board shows them.'
+            : plainOnly
+              ? 'The numbers each board station gets, on a plain board.'
+              : 'The menu screens showing order numbers, as they show now.'}
+        </span>
+      </div>
+      {/* Each card keeps its own height: a wide board beside an upright one isn't stretched. */}
+      <div className="grid items-start" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gap }}>
+        {boards.map(b => {
+          const big = full === b.id
+          // Drawn in the screen's own shape, as wide as the card or BOARD_MAX_H tall.
+          const h = Math.min(cellW * b.height / b.width, BOARD_MAX_H)
+          const w = h * b.width / b.height
+          return (
+            <div key={b.id} ref={el => { if (el) cards.current.set(b.id, el); else cards.current.delete(b.id) }}
+              className={cx(big ? 'bg-black text-white flex flex-col' : 'card overflow-hidden', big && pseudo && 'fixed inset-0 z-50')}
+              data-testid="live-board" data-board={b.id} data-kind={b.kind} data-full={big ? (pseudo ? 'window' : 'screen') : undefined}>
+              <div className={cx('flex items-center gap-2 px-3', big ? 'py-1 bg-ink' : 'py-1.5 border-b border-line')}>
+                <div className="min-w-0 flex-1">
+                  <div className="font-semibold truncate" data-testid="live-board-name">{b.name}{b.short_code ? ' · ' + b.short_code : ''}</div>
+                  <div className={cx('text-xs truncate', big ? 'text-white/70' : 'text-muted')}>{boardLine(b)}</div>
+                </div>
+                <DeviceState screen={b.screen || { per_station: true }} dark={big} />
+                {big
+                  ? (
+                    <button className="btn bg-white text-ink border-white" onClick={onExit} data-testid="live-exit-full">
+                      <Minimize2 size={18} /> Leave full screen
+                    </button>
+                  )
+                  : (
+                    <button className="chip min-h-[48px] gap-1.5 px-3" onClick={() => onFull(b.id)} data-testid="live-board-full" aria-label={'Show ' + b.name + ' full screen'}>
+                      <Maximize size={16} /> Full screen
+                    </button>
+                  )}
+              </div>
+              <div className={big ? 'flex-1 min-h-0 relative' : 'flex justify-center'} style={{ background: '#000' }}>
+                <iframe
+                  key={b.key}
+                  title={'Order ready board ' + b.name}
+                  src={src(b)}
+                  data-testid="live-board-frame"
+                  style={big
+                    ? { position: 'absolute', inset: 0, width: '100%', height: '100%', border: 0 }
+                    : { width: w, height: h, border: 0, display: 'block' }}
+                />
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </section>
   )
 }
 

@@ -85,10 +85,22 @@
 // stations mark dishes done instead (kitchen.item_done): each one goes on at
 // once, and the last one done counts as the bump.
 //
+// A meal deal's parts can be ticked one by one (kitchen.item_done and
+// kitchen.item_checked with parts: [indexes into item.parts]): the parts a
+// station shows (a prep station: those made there; the pass and runners:
+// all of them) are kept in item.part_ticks[station] = { [index]: when } until
+// the last one is ticked, which counts as the whole dish done (prep) or
+// ticked off (pass, runner) there. So part ticks are always some, never all,
+// of a station's parts, and the dish still moves on as one. Undoing one part
+// of a dish done there undoes the dish and keeps its other parts ticked;
+// undoing the whole dish, a remake, or the dish sent back to an earlier
+// station drops them.
+//
 // Pure: no I/O, no clock. Times come from events (received_at, set by the
 // sequencer, else client_at) or from the `now` the screen passes in.
 
 import { modifierText, groupModifiers } from './pricing.js'
+import { countParts } from '../combos.js'
 import { isId } from './ids.js'
 import { numberText } from './numbers.js'
 import { allergyText } from './allergy.js'
@@ -214,6 +226,9 @@ export const STALE_HOURS = 16
 const isUuid = v => typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)
 const isText = (v, max = 300) => typeof v === 'string' && v.length <= max
 const optText = (v, max) => v == null || isText(v, max)
+// A meal deal's parts tapped together: places in item.parts (60 at most, as parts are).
+const PARTS_MAX = 60
+const partsOk = v => v == null || (Array.isArray(v) && v.length >= 1 && v.length <= PARTS_MAX && v.every(n => Number.isInteger(n) && n >= 0 && n < PARTS_MAX))
 const isTime = v => typeof v === 'string' && v.length <= 40 && !Number.isNaN(Date.parse(v))
 const clone = v => (v == null ? v : JSON.parse(JSON.stringify(v)))
 const ms = v => (v ? Date.parse(v) : NaN)
@@ -290,10 +305,12 @@ export function kitchenEventProblem(e) {
     case 'kitchen.item_done':
       if (!isUuid(p.station_id)) return bad('station_id')
       if (!isText(p.item_id, 64) || !p.item_id) return bad('item_id')
+      if (!partsOk(p.parts)) return bad('parts')
       return typeof p.done === 'boolean' ? null : bad('done')
     case 'kitchen.item_checked':
       if (!isUuid(p.station_id)) return bad('station_id')
       if (!isText(p.item_id, 64) || !p.item_id) return bad('item_id')
+      if (!partsOk(p.parts)) return bad('parts')
       return typeof p.checked === 'boolean' ? null : bad('checked')
     case 'kitchen.bumped':
     case 'kitchen.recalled':
@@ -1435,11 +1452,62 @@ function finish(item, node, at, set, force) {
 
 /** A dish sent back to `node` (undone, recalled) isn't ticked off after it any more. */
 function untickAfter(item, node) {
+  dropPartTicks(item, descendants(item.route, node))
   const after = item.checked ? descendants(item.route, node).filter(n => item.checked[n]) : []
   if (!after.length) return
   const checked = { ...item.checked }
   for (const n of after) delete checked[n]
   item.checked = checked
+}
+
+// ── A meal deal's parts ticked one by one ──────────────────────
+
+/** The places in item.parts a station shows: a prep station, the parts made there; the pass and runners, all of them. */
+export function stationPartIndexes(item, station) {
+  const parts = Array.isArray(item?.parts) ? item.parts : []
+  const all = parts.map((_, i) => i)
+  return isOrderLevel(station) ? all : all.filter(i => parts[i]?.route?.[station?.id])
+}
+
+/** The parts ticked off at a station (not counting the whole dish being done or ticked off there). */
+function partTicksAt(item, stationId) {
+  return Object.keys(item.part_ticks?.[stationId] || {}).map(Number).filter(Number.isInteger)
+}
+
+/** Keep these parts ticked off at a station (none: the station's part ticks go), each with when it was ticked. */
+function setPartTicks(item, stationId, indexes, at) {
+  const was = item.part_ticks?.[stationId] || {}
+  const ticks = { ...(item.part_ticks || {}) }
+  const list = [...new Set(indexes)].sort((a, b) => a - b)
+  if (list.length) ticks[stationId] = Object.fromEntries(list.map(i => [i, was[i] || at]))
+  else delete ticks[stationId]
+  if (Object.keys(ticks).length) item.part_ticks = ticks
+  else delete item.part_ticks
+}
+
+function dropPartTicks(item, stationIds) {
+  if (!item.part_ticks || !stationIds.some(id => item.part_ticks[id])) return
+  const ticks = { ...item.part_ticks }
+  for (const id of stationIds) delete ticks[id]
+  if (Object.keys(ticks).length) item.part_ticks = ticks
+  else delete item.part_ticks
+}
+
+/**
+ * The parts an event names, checked against the parts the station shows.
+ * Returns { parts, here } (parts null: the whole dish), or a refusal.
+ */
+function partsTapped(item, station, p) {
+  if (p.parts == null) return { parts: null, here: stationPartIndexes(item, station) }
+  const here = stationPartIndexes(item, station)
+  if (!here.length) return fail('This dish has no parts to tick off one by one', 'parts')
+  const parts = [...new Set(p.parts)]
+  const away = parts.filter(i => !here.includes(i))
+  if (away.length) {
+    const pt = item.parts?.[away[0]]
+    return fail(pt ? pt.name + ' isn\'t made at ' + station.name : 'That part isn\'t on this dish', 'parts')
+  }
+  return { parts, here }
 }
 
 /**
@@ -1539,11 +1607,28 @@ export function applyKitchenEvent(orders, e, cfg = {}) {
       if (!isFired(item, at)) return fail('This dish hasn\'t been fired yet', 'held')
       if (!item.route?.[station.id]) return fail('This dish doesn\'t come to ' + station.name, 'station')
       const state = nodeState(item, station.id, cfg, at)
+      // A meal deal's parts one by one (the pass and runners tick parts off with kitchen.item_checked).
+      if (p.parts != null && isOrderLevel(station)) return fail('At the pass, tap a part to tick it off', 'station')
+      const tapped = partsTapped(item, station, p)
+      if (tapped.ok === false) return tapped
+      const { parts, here } = tapped
       if (p.done) {
         if (state === 'done') return fail('Already done', 'nothing')
         if (state === 'upcoming' && !(isOrderLevel(station) && st.show_upcoming)) {
           return fail('Still at ' + itemWhere(item, cfg, at).map(id => nameOf(cfg, id)).join(', '), 'upcoming')
         }
+        if (parts) {
+          const ticked = partTicksAt(item, station.id)
+          const fresh = parts.filter(i => !ticked.includes(i))
+          if (!fresh.length) return fail('Already done', 'nothing')
+          const next = [...ticked, ...fresh]
+          // Some parts still to make here: the dish stays (the last part done is the dish done).
+          if (!here.every(i => next.includes(i))) {
+            setPartTicks(item, station.id, next, at)
+            break
+          }
+        }
+        dropPartTicks(item, [station.id])
         const set = []
         finish(item, station.id, at, set, state === 'upcoming')
         // The last dish of a ticket done one by one counts as the bump.
@@ -1561,11 +1646,21 @@ export function applyKitchenEvent(orders, e, cfg = {}) {
           log.push({ kind: 'bump', station, at, seconds: rec.seconds, items: rec.items })
         }
       } else {
-        if (!item.done[station.id]) return fail('Not done yet', 'nothing')
+        if (!item.done[station.id]) {
+          // Parts done here, the dish not yet: those parts aren't done any more.
+          const ticked = partTicksAt(item, station.id)
+          const undone = parts ? parts.filter(i => ticked.includes(i)) : ticked
+          if (!undone.length) return fail('Not done yet', 'nothing')
+          setPartTicks(item, station.id, ticked.filter(i => !undone.includes(i)), at)
+          break
+        }
         const onward = descendants(item.route, station.id).filter(n => item.done[n])
         if (onward.length) return fail('Already moved on to ' + onward.map(id => nameOf(cfg, id)).join(', '), 'moved_on')
+        const doneAt = item.done[station.id]
         delete item.done[station.id]
         untickAfter(item, station.id)
+        // One part undone: the dish isn't done here, its other parts still are (since the dish was).
+        setPartTicks(item, station.id, parts ? here.filter(i => !parts.includes(i)) : [], doneAt)
         // Undoing a dish reopens the ticket: its last bump no longer counts.
         for (const b of o.bumps) {
           if (!b.recalled_at && b.station_id === station.id && b.set.some(([id, n]) => id === item.id && n === station.id)) {
@@ -1588,12 +1683,27 @@ export function applyKitchenEvent(orders, e, cfg = {}) {
       if (!item.route?.[station.id]) return fail('This dish doesn\'t come to ' + station.name, 'station')
       const state = nodeState(item, station.id, cfg, at)
       if (state === 'done') return fail('Already done here: Prev brings the ticket back', 'nothing')
+      const tapped = partsTapped(item, station, p)
+      if (tapped.ok === false) return tapped
+      const { parts, here } = tapped
       const was = !!item.checked?.[station.id]
-      if (p.checked === was) return fail(p.checked ? 'Already ticked off' : 'Not ticked off', 'nothing')
+      const ticked = partTicksAt(item, station.id)
       if (p.checked) {
+        if (was) return fail('Already ticked off', 'nothing')
         if (state === 'upcoming' && !st.show_upcoming) {
           return fail('Still at ' + itemWhere(item, cfg, at).map(id => nameOf(cfg, id)).join(', '), 'upcoming')
         }
+        if (parts) {
+          const fresh = parts.filter(i => !ticked.includes(i))
+          if (!fresh.length) return fail('Already ticked off', 'nothing')
+          const next = [...ticked, ...fresh]
+          // Parts still to tick: the dish isn't ticked off yet (the last part is the dish).
+          if (!here.every(i => next.includes(i))) {
+            setPartTicks(item, station.id, next, at)
+            break
+          }
+        }
+        dropPartTicks(item, [station.id])
         // In front of the pass now: done wherever it was still waiting.
         if (state === 'upcoming') finishBefore(item, station.id, at, [])
         item.checked = { ...(item.checked || {}), [station.id]: at }
@@ -1605,9 +1715,19 @@ export function applyKitchenEvent(orders, e, cfg = {}) {
           if (why) return why
         }
       } else {
+        if (!was) {
+          // Parts ticked off, the dish not yet: those parts aren't any more.
+          const unticked = parts ? parts.filter(i => ticked.includes(i)) : ticked
+          if (!unticked.length) return fail('Not ticked off', 'nothing')
+          setPartTicks(item, station.id, ticked.filter(i => !unticked.includes(i)), at)
+          break
+        }
+        const checkedAt = item.checked[station.id]
         const checked = { ...item.checked }
         delete checked[station.id]
         item.checked = checked
+        // One part unticked: the dish isn't ticked off, its other parts still are.
+        setPartTicks(item, station.id, parts ? here.filter(i => !parts.includes(i)) : [], checkedAt)
       }
       refreshStatus(o, cfg, at, e.id)
       break
@@ -1668,8 +1788,11 @@ export function applyKitchenEvent(orders, e, cfg = {}) {
         item.done = {}
         item.reset = {}
         item.since = at
+        delete item.part_ticks
       } else {
-        for (const n of [station.id, ...descendants(item.route, station.id)]) delete item.done[n]
+        const again = [station.id, ...descendants(item.route, station.id)]
+        for (const n of again) delete item.done[n]
+        dropPartTicks(item, again)
         item.reset = { ...(item.reset || {}), [station.id]: at }
       }
       // A dish made again is ticked off again at the pass.
@@ -1746,7 +1869,10 @@ const minTime = list => {
  *   where  stations an upcoming dish is at now
  *   from   stations it came from (not Orders in)
  *   next   stations it goes on to
- *   parts  meal deal parts made here (prep) / all parts (pass, runner)
+ *   parts  meal deal parts made here (prep) / all parts (pass, runner), each
+ *          with index (its place in the item's parts, what a tap names) and
+ *          ticked (done / ticked off here, or the whole dish is)
+ *   parts_ticked  how many of those parts are ticked
  * elsewhere (pass, runner): [{ station_id, count }] dishes of the order going
  * another way (e.g. to the other expo). ticked (pass, runner): how many of
  * the dishes its bump would finish are ticked off; all_ticked: all of them.
@@ -1766,15 +1892,24 @@ export function stationTickets(orders, station, now, cfg) {
     const view = mine.map(i => {
       const state = nodeState(i, station.id, cfg, now)
       const entry = (i.route[station.id] || []).includes(START)
+      const ticked = !!i.checked?.[station.id]
+      // A meal deal's parts shown here, each with its place in i.parts and
+      // whether it is ticked off here (all of them once the dish is).
+      const whole = state === 'done' || ticked
+      const partTicks = i.part_ticks?.[station.id] || {}
+      const parts = i.parts
+        ? stationPartIndexes(i, station).map(index => ({ ...i.parts[index], index, ticked: whole || !!partTicks[index] }))
+        : null
       return {
         ...i, state,
         entry,
-        ticked: !!i.checked?.[station.id],
+        ticked,
         where: state === 'upcoming' ? itemWhere(i, cfg, now).filter(id => !isSleeper(cfg, id)) : [],
         sleeps: state === 'upcoming' ? itemSleeps(i, cfg, now) : [],
         from: (i.route[station.id] || []).filter(x => x !== START),
         next: routeNext(i.route, station.id),
-        parts: i.parts ? (orderLevel ? i.parts : i.parts.filter(pt => pt.route?.[station.id])) : null,
+        parts,
+        parts_ticked: parts ? parts.filter(pt => pt.ticked).length : 0,
       }
     })
     const active = view.filter(i => i.state === 'active')
@@ -1822,6 +1957,22 @@ export function stationTickets(orders, station, now, cfg) {
     })
   }
   return out.sort((a, b) => (b.order.priority ? 1 : 0) - (a.order.priority ? 1 : 0) || ms(a.since) - ms(b.since))
+}
+
+/**
+ * A ticket dish's parts (stationTickets() items' parts) as the screen shows
+ * them: the same part twice ("2 x Ketchup pot") once, with the places a tap
+ * on it ticks off together. [{ part, count, indexes, ticked }]: ticked when
+ * all of them are.
+ */
+export function partRows(parts) {
+  const list = Array.isArray(parts) ? parts : []
+  return countParts(list).map(r => ({
+    part: r.part,
+    count: r.count,
+    indexes: r.indexes.map(k => list[k].index ?? k),
+    ticked: r.indexes.every(k => !!list[k].ticked),
+  }))
 }
 
 

@@ -67,6 +67,15 @@
 <div id="hint">Tap the screen for full screen</div>
 <div id="settings" role="dialog" aria-label="This screen"><div class="box"></div></div>
 <noscript><div class="panel"><h1>This screen needs JavaScript switched on.</h1></div></noscript>
-<script type="module" src="/player.js"></script>
+<script>
+  // The player sets window.__screen once it runs. If it never starts (a file
+  // it needs couldn't be loaded, a script error), the screen would stay black
+  // until someone reloads it: try again by itself, every minute, until it does.
+  window.__screenRetry = function (ms) {
+    setTimeout(function () { if (!window.__screen) location.reload() }, ms)
+  }
+  window.__screenRetry(60000)
+</script>
+<script type="module" src="/player.js" onerror="window.__screenRetry(20000)"></script>
 </body>
 </html>

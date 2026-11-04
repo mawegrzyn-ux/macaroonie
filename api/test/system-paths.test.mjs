@@ -202,6 +202,30 @@ test('a menu screen pairs by code, is claimed, and loads its config', async () =
   assert.equal(config.status, 200, config.body.slice(0, 200))
 })
 
+test('the live kitchen view opens by its link alone: the kitchen screens, their orders, the order ready boards', async () => {
+  const link = await ok(owner.post(`/api/pos/venues/${V}/kitchen-live`, {}))
+  const t = encodeURIComponent(link.token)
+  const view = await pub('GET', '/pos-api/kitchen-live?token=' + t)
+  assert.equal(view.status, 200, view.body.slice(0, 200))
+  assert.equal(view.json.venue.id, V)
+  assert.ok(view.json.config.stations.length, 'the venue\'s stations')
+  assert.ok(view.json.boards, 'and its boards')
+  const sync = await pub('GET', '/pos-api/kitchen-live/sync?token=' + t + '&since=0')
+  assert.equal(sync.status, 200, sync.body.slice(0, 200))
+  // A board of every order, and one of the venue's menu screens, read by the screen player in live mode.
+  const board = await pub('GET', '/screen-api/live/config?token=' + t + '&board=all')
+  assert.equal(board.status, 200, board.body.slice(0, 200))
+  assert.equal(board.json.venue.id, V)
+  const p = await pub('POST', '/screen-api/pairings', { body: { device: { width: 1920, height: 1080 } } })
+  const scr = await ok(owner.post('/api/screens/screens/claim', { code: p.json.code, name: 'Live board', venue_id: V }))
+  const screen = await pub('GET', '/screen-api/live/config?token=' + t + '&screen=' + scr.id)
+  assert.equal(screen.status, 200, screen.body.slice(0, 200))
+  assert.equal(screen.json.screen.id, scr.id)
+  const orders = await pub('GET', '/screen-api/live/orders?token=' + t)
+  assert.equal(orders.status, 200, orders.body.slice(0, 200))
+  assert.ok(orders.json.orders, 'the boards\' numbers')
+})
+
 test('a kiosk design\'s shared preview opens by its link alone (migration 187)', async () => {
   const design = await ok(owner.post('/api/pos/kiosk-designs', { name: 'Shared look', settings: {} }))
   const share = await ok(owner.put(`/api/pos/kiosk-designs/${design.id}/share`, { venue_id: V }))

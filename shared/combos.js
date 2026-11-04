@@ -537,7 +537,8 @@ export function priceCombo(item, selection = {}, ctx = {}, partPrice = null) {
  * (Ketchup pot, Ketchup pot) as one entry with a count, in the order first
  * picked. Works on a till line's parts (modifiers, upcharge), an online
  * order's (options, upcharge_pence) and a kitchen item's (mods).
- * Returns [{ part, count }].
+ * Returns [{ part, count, indexes }]: indexes are the entry's places in
+ * `parts` (a kitchen screen ticks those parts off together).
  */
 export function countParts(parts) {
   const keyOf = p => JSON.stringify([
@@ -546,11 +547,12 @@ export function countParts(parts) {
     p.upcharge ?? p.upcharge_pence ?? 0,
   ])
   const out = new Map()
-  for (const p of asList(parts)) {
+  asList(parts).forEach((p, i) => {
     const k = keyOf(p)
-    if (out.has(k)) out.get(k).count++
-    else out.set(k, { part: p, count: 1 })
-  }
+    const row = out.get(k)
+    if (row) { row.count++; row.indexes.push(i) }
+    else out.set(k, { part: p, count: 1, indexes: [i] })
+  })
   return [...out.values()]
 }
 

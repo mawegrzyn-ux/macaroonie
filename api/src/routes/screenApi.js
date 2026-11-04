@@ -23,6 +23,15 @@
 //   GET  /time                  (no auth) { now } in ms: screens set their clock
 //                               from a few of these (lowest round trip wins), so
 //                               a wall's screens change boards together
+//   GET  /live/config?token=&screen=<id> | &board=<board station id | all>&version=
+//   GET  /live/orders?token=    the live kitchen view's order ready boards (Store
+//                               tech > Kitchen screens > Live view): the player in
+//                               live mode in a frame, its data by the view's signed
+//                               link (kitchenSvc.js kitchenLiveToken()), never a
+//                               screen's pairing. A venue's menu screen (its config,
+//                               no venue hub) or a plain board (screenSvc.js
+//                               liveBoardConfig()); the orders as boardFor() gives
+//                               every screen.
 //
 // Live changes come over the WebSocket (/ws?screen=<id>&secret=<secret>):
 // screens.changed, screens.sold_out, menus.live (all: fetch the config
@@ -36,10 +45,10 @@ import {
   sha256, newSecret, newScreenCode, normaliseScreenCode, sameHash, verifyScreen, PAIRING_MINUTES,
   forgetScreen,
 } from '../services/screenAuth.js'
-import { screenConfig } from '../services/screenSvc.js'
+import { screenConfig, liveScreenConfig, liveBoardConfig } from '../services/screenSvc.js'
 import { hubFor } from '../services/hubFirstSvc.js'
 import { linkCodeTaken, linkUrl } from '../services/linkCodes.js'
-import { boardFor } from '../services/kitchenSvc.js'
+import { boardFor, readKitchenLiveToken } from '../services/kitchenSvc.js'
 
 const UUID = z.string().uuid()
 
@@ -100,6 +109,38 @@ export default async function screenApiRoutes(app) {
     if (p.screen_id) return { status: 'paired', screen_id: p.screen_id }
     if (new Date(p.expires_at) <= new Date()) return { status: 'expired' }
     return { status: 'waiting', expires_at: p.expires_at }
+  })
+
+  // The live kitchen view's order ready boards: read only, by the view's link.
+  const LiveQuery = z.object({
+    token: z.string().min(10).max(4000),
+    screen: UUID.optional(),
+    board: z.union([UUID, z.literal('all')]).optional(),
+    version: z.string().max(40).optional(),
+  })
+  const liveLink = async token => {
+    const p = token ? await readKitchenLiveToken(token).catch(() => null) : null
+    if (!p) throw httpError(401, 'This live view has run out: open it again from Store tech, Kitchen screens', { code: 'link' })
+    return p
+  }
+  app.get('/live/config', { config: { rateLimit: { max: 240, timeWindow: '1 minute' } } }, async (req, reply) => {
+    const q = LiveQuery.parse(req.query || {})
+    if (!q.screen === !q.board) throw httpError(400, 'Name a screen or a board')
+    const p = await liveLink(q.token)
+    reply.header('Cache-Control', 'no-store')
+    const config = await withTenant(p.tenantId, tx => q.screen
+      ? liveScreenConfig(tx, p.tenantId, p.venueId, q.screen)
+      : liveBoardConfig(tx, p.tenantId, p.venueId, q.board === 'all' ? null : q.board))
+    if (!config) throw httpError(404, q.screen ? 'This screen isn\'t at this venue any more' : 'This board isn\'t in the kitchen any more', { code: 'gone' })
+    const server_time = new Date().toISOString()
+    if (q.version && q.version === config.version) return { unchanged: true, version: config.version, server_time }
+    return { ...config, server_time }
+  })
+  app.get('/live/orders', { config: { rateLimit: { max: 240, timeWindow: '1 minute' } } }, async (req, reply) => {
+    const q = z.object({ token: z.string().min(10).max(4000) }).parse(req.query || {})
+    const p = await liveLink(q.token)
+    reply.header('Cache-Control', 'no-store')
+    return { orders: await boardFor(p.tenantId, p.venueId, { clearMins: 120 }), server_time: new Date().toISOString() }
   })
 
   app.register(async scoped => {

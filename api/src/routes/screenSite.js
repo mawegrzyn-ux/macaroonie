@@ -8,18 +8,23 @@
 //   /screen-api, /ws, /uploads   pass through to their routes
 //   http:// (X-Forwarded-Proto)   redirected to https:// (service workers and
 //                                 the screen wake lock need it)
-//   /lib/<file>.js                the shared files the player imports
-//                                 (screenSvc.js PLAYER_LIBS), from shared/
+//   /lib/<path>.js                the shared files the player imports, from
+//                                 shared/ (screenSvc.js PLAYER_LIBS: worked out
+//                                 from the imports, so pos/charges.js comes along)
 //   /sw.js                        the service worker, with the player version
-//                                 written in so every deploy refreshes its cache
+//                                 written in so every deploy refreshes its cache,
+//                                 and the same list of shared files to keep
 //   a file in screen/             that file (index.html with the player version)
 //   anything else (GET)           index.html
+//   ?board_live=                  the player in live mode (the live kitchen view's
+//                                 order ready boards): may be framed by *.{root}
 
 import fp from 'fastify-plugin'
 import fs from 'node:fs'
 import path from 'node:path'
 import { platformHostKind } from '../services/platformHost.js'
 import { PLAYER_DIR, SHARED_DIR, PLAYER_LIBS, playerVersion } from '../services/screenSvc.js'
+import { env } from '../config/env.js'
 
 const PASS_PREFIXES = ['/screen-api', '/ws', '/uploads/', '/api/']
 
@@ -60,7 +65,9 @@ async function screenSite(app) {
       return reply
     }
     if (urlPath === '/sw.js') {
-      const src = fs.readFileSync(path.join(PLAYER_DIR, 'sw.js'), 'utf8').replace('__PLAYER_VERSION__', playerVersion())
+      const src = fs.readFileSync(path.join(PLAYER_DIR, 'sw.js'), 'utf8')
+        .replace('__PLAYER_VERSION__', playerVersion())
+        .replace('__PLAYER_LIBS__', PLAYER_LIBS.join(','))
       reply.header('Cache-Control', 'no-cache, no-store, must-revalidate')
       reply.type(MIME['.js']).send(src)
       return reply
@@ -72,6 +79,15 @@ async function screenSite(app) {
     if (ext === '.html') {
       // The page knows its own player version, to reload when a config names a newer one.
       reply.header('Cache-Control', 'no-cache')
+      // The live kitchen view (kitchen.<root>, pos/src/kitchen/Live.jsx) shows
+      // order ready boards in frames: the player in live mode may be framed by
+      // the platform's own hosts (helmet's SAMEORIGIN would refuse it).
+      if (/[?&]board_live=/.test(req.url)) {
+        reply.raw.removeHeader('x-frame-options')
+        reply.removeHeader('x-frame-options')
+        const root = env.PUBLIC_ROOT_DOMAIN.toLowerCase()
+        reply.header('Content-Security-Policy', `frame-ancestors 'self' ${env.PUBLIC_SITE_SCHEME}://${root} ${env.PUBLIC_SITE_SCHEME}://*.${root}`)
+      }
       reply.type(MIME['.html']).send(fs.readFileSync(file, 'utf8').replace('__PLAYER_VERSION__', playerVersion()))
       return reply
     }

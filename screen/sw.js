@@ -24,8 +24,9 @@ const VIDEO = 'screen-video-v1'
 const VIDEO_RE = /\.(mp4|webm|m4v)(?:$|[?#])/i
 const SHELL_FILES = [
   '/', '/player.js', '/manifest.webmanifest', '/icon.svg', '/icon-192.png', '/icon-512.png',
-  '/lib/screenLayout.js', '/lib/fonts.js', '/lib/menuTags.js', '/lib/orderPricing.js', '/lib/promotions.js', '/lib/menuSchedule.js',
-  '/lib/combos.js', '/lib/qr.js', '/lib/orderInfo.js', '/lib/loyalty.js',
+  // The shared files the player loads: the API writes in the list it serves
+  // (api/src/services/screenSvc.js PLAYER_LIBS, worked out from the imports).
+  ...'__PLAYER_LIBS__'.split(',').filter(f => f && !f.startsWith('__')).map(f => '/lib/' + f),
 ]
 
 self.addEventListener('install', event => {
@@ -150,6 +151,9 @@ self.addEventListener('fetch', event => {
   if (!same && req.destination === 'image') { event.respondWith(cacheFirst(req)); return }
   if (!same) return
 
+  // The live kitchen view's boards (?board_live=) are framed pages of their own:
+  // left to the network, never kept as the screen's page.
+  if (req.mode === 'navigate' && url.searchParams.has('board_live')) return
   if (req.mode === 'navigate') { event.respondWith(networkFirst(req, '/')); return }
   event.respondWith(networkFirst(req))
 })
