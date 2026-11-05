@@ -9,8 +9,13 @@
 // frames make the same calls they make to /pos-api (config, kitchen sync)
 // through window.kdsLive.connect(screenId), answered from what the page has.
 //
-// It only reads: the screens run view only (store.js), so a tap that would
-// change an order or the kitchen flow says so and changes nothing. Any screen
+// It watches: the screens run view only (store.js asks the link at every
+// tap), so a tap that would change an order says so and changes nothing.
+// With a link made by someone with Store tech manage (can_bump), the Allow
+// bumping switch lets taps through: off at every visit, it asks before it
+// goes on, and while on the screens send their taps to
+// /pos-api/kitchen-live/events (the same kitchen events a kitchen screen
+// sends). The kitchen flow is never switched from here. Any screen
 // can go full screen: the Fullscreen API on its card (webkit-prefixed on an
 // iPad), else the card fills the window; the screen inside then lays itself
 // out at that size, as a kitchen screen of that size would. &full=<screen>
@@ -26,7 +31,7 @@
 // socket); full screen works as for the kitchen screens.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Maximize, Minimize2, Volume2, VolumeX, Wifi, WifiOff, RefreshCw, AlertTriangle, Workflow, Clock, MonitorOff } from 'lucide-react'
+import { Maximize, Minimize2, Volume2, VolumeX, Wifi, WifiOff, RefreshCw, AlertTriangle, Workflow, Clock, MonitorOff, Hand } from 'lucide-react'
 import { benchScreens } from '@shared/pos/kitchenBench.js'
 import { BUMP_KINDS, STALE_HOURS } from '@shared/pos/kitchen.js'
 
@@ -44,6 +49,7 @@ const PREFS_KEY = 'maca_kds_live'
 // A device that asked within this long is on (it asks every 20 s; last seen is written once a minute).
 const ON_MS = 3 * 60_000
 const VIEW_ONLY = 'This is the live view: nothing changes from here. Tap on the kitchen screen itself.'
+const BUMPING_OFF = 'Bumping is off in the live view: switch on Allow bumping at the top of the page first.'
 
 function loadPrefs() {
   try { return JSON.parse(localStorage.getItem(PREFS_KEY)) || {} } catch { return {} }
@@ -93,18 +99,22 @@ function useWakeLock() {
 
 class LinkGone extends Error {}
 
-async function getJson(url) {
+async function getJson(url, init = {}) {
   let res
   try {
-    res = await fetch(url, { cache: 'no-store' })
+    res = await fetch(url, { cache: 'no-store', ...init })
   } catch {
     throw Object.assign(new Error('No connection'), { offline: true })
   }
   const body = await res.json().catch(() => ({}))
   if (res.status === 401) throw new LinkGone(body.error || 'This live view has run out')
-  if (!res.ok) throw Object.assign(new Error(body.error || 'Macaroonie didn\'t answer'), { status: res.status })
+  if (!res.ok) throw Object.assign(new Error(body.error || 'Macaroonie didn\'t answer'), { status: res.status, code: body.code })
   return body
 }
+const postJson = (url, body) => getJson(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+
+/** Every tap of a batch refused with the same words (the screen drops them and says so). */
+const refuseAll = (events, error, code = 'view_only') => ({ results: (events || []).map(e => ({ id: e.id, ok: false, error, code })), kitchen: [] })
 
 export default function Live({ token }) {
   const [data, setData] = useState(null)
@@ -268,7 +278,7 @@ function useKitchenFeed(token, { onChange, onConfig, onGone }) {
     return () => { clearTimeout(t); document.removeEventListener('visibilitychange', onVis) }
   }, [pull])
 
-  return { feed, ready, link }
+  return { feed, ready, link, pull }
 }
 
 function LivePage({ data, token, reloadSetup, onGone, setupError }) {
@@ -297,7 +307,7 @@ function LivePage({ data, token, reloadSetup, onGone, setupError }) {
     clearTimeout(configTimer.current)
     configTimer.current = setTimeout(() => { reloadSetup() }, 800)
   }, [reloadSetup])
-  const { feed, ready, link } = useKitchenFeed(token, {
+  const { feed, ready, link, pull: pullFeed } = useKitchenFeed(token, {
     onChange: () => { broadcast({ type: 'pos.seq', seq: feed.current.seq, kinds: ['kitchen'] }); bump() },
     onConfig,
     onGone,
@@ -309,6 +319,23 @@ function LivePage({ data, token, reloadSetup, onGone, setupError }) {
   screensRef.current = screens
   const soundRef = useRef(sound)
   soundRef.current = sound
+
+  // ── Bumping: off at every visit; turning it on asks first ──────────
+  const canBump = !!data.can_bump
+  const [bumping, setBumpingState] = useState(false)
+  const [askBump, setAskBump] = useState(false)
+  const bumpingRef = useRef(false)
+  const setBumping = useCallback(on => {
+    bumpingRef.current = !!on
+    setBumpingState(!!on)
+    setAskBump(false)
+  }, [])
+  const canBumpRef = useRef(canBump)
+  canBumpRef.current = canBump
+  useEffect(() => { if (!canBump && bumpingRef.current) setBumping(false) }, [canBump, setBumping])
+  const tokenQ = encodeURIComponent(token)
+  const onGoneRef = useRef(onGone)
+  onGoneRef.current = onGone
   // New dishes beep here, once for every screen they reach at the same time:
   // browsers only play sound in a frame after a tap in that frame, and the
   // Sound button is a tap on this page.
@@ -376,13 +403,29 @@ function LivePage({ data, token, reloadSetup, onGone, setupError }) {
             return { seq: f.seq, orders: changed, server_time, source: 'cloud' }
           }
           if (method === 'POST' && url.pathname === '/pos-api/events') {
-            return { results: (body?.events || []).map(e => ({ id: e.id, ok: false, error: VIEW_ONLY, code: 'view_only' })), kitchen: [] }
+            const events = body?.events || []
+            if (!bumpingRef.current) return refuseAll(events, canBumpRef.current ? BUMPING_OFF : VIEW_ONLY)
+            try {
+              const res = await postJson('/pos-api/kitchen-live/events?token=' + tokenQ, { screen_id: screen.id, events })
+              // Every frame hears it at once (the socket says so too).
+              pullFeed()
+              return res
+            } catch (e) {
+              if (e instanceof LinkGone) { onGoneRef.current?.(); return refuseAll(events, e.message, 'link') }
+              // Refused as a whole (the link can only watch, a screen gone): the taps are dropped.
+              if (e.status >= 400 && e.status < 500) return refuseAll(events, e.message, e.code || 'view_only')
+              throw e
+            }
           }
           throw fail(method === 'PUT' ? VIEW_ONLY : 'Not in the live view: ' + method + ' ' + url.pathname, { status: method === 'PUT' ? 403 : 404 })
         }
         return {
           device: { id: screenId, venue_id: dataRef.current.venue.id },
-          viewOnly: true,
+          live: true,
+          // Asked at every tap (store.js): view only until Allow bumping is on.
+          viewOnly: () => !bumpingRef.current,
+          viewOnlyText: () => (canBumpRef.current ? BUMPING_OFF : VIEW_ONLY),
+          switchFlows: false,
           prefsPrefix: 'maca_kds_live_',
           chime: playChime,
           transport: {
@@ -399,7 +442,7 @@ function LivePage({ data, token, reloadSetup, onGone, setupError }) {
       },
     }
     return () => { delete window.kdsLive }
-  }, [feed, playChime])
+  }, [feed, playChime, pullFeed, tokenQ])
 
   // A new setup (or the sound) reaches the frames through their config.
   useEffect(() => { broadcast({ type: 'pos.config' }) }, [data, sound, broadcast])
@@ -484,7 +527,9 @@ function LivePage({ data, token, reloadSetup, onGone, setupError }) {
       <header className="shrink-0 bg-ink text-white px-3 py-2 flex flex-wrap items-center gap-2">
         <div className="flex flex-col leading-tight mr-2 min-w-0">
           <div className="font-bold truncate" data-testid="live-title">Live kitchen · {data.venue.name}</div>
-          <div className="text-xs text-white/70">The real kitchen screens with the orders as they are now. Nothing changes from here.</div>
+          <div className="text-xs text-white/70" data-testid="live-subtitle">
+            {bumping ? 'The real kitchen screens with the orders as they are now. Bumping is on: taps here change them.' : 'The real kitchen screens with the orders as they are now. Nothing changes from here.'}
+          </div>
         </div>
         <div className="flex-1" />
         <span className="text-sm font-semibold tabular-nums" data-testid="live-open">{open === 1 ? '1 order in the kitchen' : open + ' orders in the kitchen'}</span>
@@ -523,9 +568,20 @@ function LivePage({ data, token, reloadSetup, onGone, setupError }) {
         <button className={cx('chip min-h-[48px] gap-2', sound && 'chip-on')} onClick={() => { if (!sound) unlockSound(); setPrefs({ sound: !sound }) }} aria-pressed={sound} data-testid="live-sound">
           {sound ? <Volume2 size={16} /> : <VolumeX size={16} />} Sound
         </button>
+        {canBump
+          ? <BumpSwitch on={bumping} asking={askBump} onTap={() => (bumping ? setBumping(false) : setAskBump(a => !a))} />
+          : <span className="text-sm text-muted" data-testid="live-watch-only">Watch only: bumping from here needs Store tech manage.</span>}
         {!hasScreens && <span className="text-sm text-muted">No kitchen screens set up at this venue yet: each station shows as its own screen.</span>}
         {setupError && <span className="text-sm text-bad">Couldn't check for setup changes: {setupError}</span>}
       </div>
+      {askBump && !bumping && <BumpConfirm onYes={() => setBumping(true)} onNo={() => setAskBump(false)} />}
+      {bumping && (
+        <div className="shrink-0 bg-warn text-white px-3 py-2 flex flex-wrap items-center gap-x-3 gap-y-2" data-testid="live-bump-banner" role="status">
+          <Hand size={18} className="shrink-0" />
+          <div className="flex-1 min-w-[12rem] font-semibold">Bumping is on: taps on these screens bump and tick off dishes for real, as on the kitchen screens.</div>
+          <button className="btn bg-white text-ink border-white min-h-[48px]" onClick={() => setBumping(false)} data-testid="live-bump-off">Turn bumping off</button>
+        </div>
+      )}
 
       <div className="flex-1 min-h-0 overflow-y-auto p-3">
         <div ref={gridRef}>
@@ -546,6 +602,12 @@ function LivePage({ data, token, reloadSetup, onGone, setupError }) {
                         <div className={cx('text-xs truncate', big ? 'text-white/70' : 'text-muted')}>{ids.map(id => stationName[id]).filter(Boolean).join(', ') || 'Every station'}</div>
                       </div>
                       <DeviceState screen={s} dark={big} />
+                      {bumping && (
+                        <button className="min-h-[48px] px-3 rounded-full bg-warn text-white text-xs font-bold flex items-center gap-1.5 whitespace-nowrap touch-manipulation"
+                          onClick={() => setBumping(false)} data-testid="live-bump-badge" aria-label="Bumping is on: turn it off">
+                          <Hand size={14} /><span>Bumping on<span className="hidden sm:inline">: turn off</span></span>
+                        </button>
+                      )}
                       {big
                         ? (
                           <button className="btn bg-white text-ink border-white" onClick={exitFull} data-testid="live-exit-full">
@@ -672,6 +734,40 @@ function BoardsSection({ boards, data, token, gridW, gap, full, pseudo, cards, o
         })}
       </div>
     </section>
+  )
+}
+
+/**
+ * The Allow bumping switch: off at every visit. Turning it on opens the
+ * confirm below the bar (BumpConfirm); turning it off is one tap.
+ */
+function BumpSwitch({ on, asking, onTap }) {
+  return (
+    <button type="button" role="switch" aria-checked={on} onClick={onTap} data-testid="live-bump" data-on={on ? 'true' : 'false'}
+      className={cx('min-h-[48px] px-3 rounded-full border flex items-center gap-2.5 font-semibold touch-manipulation',
+        on ? 'bg-warn border-warn text-white' : asking ? 'bg-warn-soft border-warn text-ink' : 'bg-white border-line text-ink')}>
+      <span aria-hidden className={cx('relative inline-block w-10 h-6 rounded-full transition-colors', on ? 'bg-white/40' : 'bg-line')}>
+        <span className={cx('absolute top-0.5 h-5 w-5 rounded-full shadow transition-all', on ? 'left-[18px] bg-white' : 'left-0.5 bg-white')} />
+      </span>
+      <Hand size={16} /> Allow bumping
+    </button>
+  )
+}
+
+/** Asked before bumping goes on: what changes, and the way back to watching. */
+function BumpConfirm({ onYes, onNo }) {
+  return (
+    <div className="shrink-0 bg-warn-soft border-b border-warn px-3 py-3 flex flex-wrap items-center gap-3" role="alertdialog" aria-labelledby="live-bump-q" data-testid="live-bump-confirm">
+      <AlertTriangle className="text-warn shrink-0" size={22} />
+      <div className="flex-1 min-w-[14rem]">
+        <div className="font-bold" id="live-bump-q">Allow bumping from this page?</div>
+        <div className="text-sm">
+          Taps on these screens will bump, tick off, recall and remake dishes for real, as on the kitchen screens, until you turn it off or close this page. Switching the kitchen flow stays on the kitchen screens.
+        </div>
+      </div>
+      <button className="btn btn-warn min-h-[48px]" onClick={onYes} data-testid="live-bump-yes">Yes, allow bumping</button>
+      <button className="btn min-h-[48px]" onClick={onNo} data-testid="live-bump-no">Keep watching only</button>
+    </div>
   )
 }
 

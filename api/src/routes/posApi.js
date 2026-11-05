@@ -24,8 +24,11 @@
 //                               config plus { share: design, venue, company names }; counts the view
 //   GET  /kitchen-test?token=   the kitchen test bench's data (signed link, services/kitchenSvc.js kitchenTestData())
 //   GET  /kitchen-live?token=   the live kitchen view's setup: the kitchen screen's config and the venue's
-//                               kitchen screens (signed link, kitchenLiveData()); /kitchen-live/sync?token=&since=
-//                               its kitchen orders, as GET /kitchen/sync (read only: the page sends nothing)
+//                               kitchen screens (signed link, kitchenLiveData()), can_bump; /kitchen-live/sync?token=&since=
+//                               its kitchen orders, as GET /kitchen/sync
+//   POST /kitchen-live/events?token=  { screen_id, events }: kitchen taps from the live view while its
+//                               Allow bumping switch is on (a link made with Store tech manage only),
+//                               each sent as the view's own screen ('live:<screen>'), as POST /events
 //   GET  /me                    this till and its venue
 //   GET  /config?version=       everything the till needs offline (unchanged: true when version matches);
 //                               a kitchen screen (kind 'kds') gets the kitchen's config instead, a
@@ -95,6 +98,7 @@ import { LINK_MINUTES, newLinkCode, linkCodeHash, linkCodeTaken, linkUrl } from 
 import { dayFigures } from '../../../shared/pos/reports.js'
 import { permissionProblem } from '../../../shared/pos/permissions.js'
 import { deviceEvent } from '../../../shared/pos/deviceRules.js'
+import { KITCHEN_DEVICE_EVENTS, BUMP_KINDS } from '../../../shared/pos/kitchen.js'
 import { kioskConfig, readPreviewToken, previewDevice } from '../services/kioskSvc.js'
 import { saveVisits, MAX_VISITS } from '../services/kioskJourneySvc.js'
 import { kioskReceipt, sendWaitingReceipts } from '../services/receiptSvc.js'
@@ -517,7 +521,9 @@ export default async function posApiRoutes(app) {
 
   // The live kitchen view (Store tech > Kitchen screens > Live view): the
   // link the admin made is the key (12 hours). Its setup, then its kitchen
-  // orders as a kitchen screen gets them; it never sends a kitchen event.
+  // orders as a kitchen screen gets them. It sends kitchen taps only while its
+  // Allow bumping switch is on, and only with a link made by someone with
+  // Store tech manage (can_bump).
   const liveLink = async req => {
     const p = await readKitchenLiveToken(req.query.token)
     if (!p) throw httpError(401, 'This live view has run out: open it again from Store tech, Kitchen screens', { code: 'link' })
@@ -526,7 +532,48 @@ export default async function posApiRoutes(app) {
   app.get('/kitchen-live', { config: { rateLimit: { max: 60, timeWindow: '1 minute' } } }, async req => {
     const p = await liveLink(req)
     const data = await withTenant(p.tenantId, tx => kitchenLiveData(tx, p.tenantId, p.venueId))
-    return { ...data, expires_at: p.expiresAt, server_time: new Date().toISOString() }
+    return { ...data, can_bump: p.canBump, expires_at: p.expiresAt, server_time: new Date().toISOString() }
+  })
+  // Kitchen taps from the live view (bump, done, tick off, recall, remake,
+  // rush, collected), the same events a kitchen screen sends, decided by the
+  // sequencer the same way. Each goes as the view's own screen ('live:<screen
+  // or station id>', never the real device's id: the real screen then hears
+  // the change like any other screen's), and an online order it finishes says
+  // the live view did it, with the email of the person who made the link.
+  const LiveEvents = z.object({ screen_id: UUID, events: z.array(z.record(z.any())).min(1).max(MAX_BATCH) })
+  app.post('/kitchen-live/events', { bodyLimit: 2 * 1024 * 1024, config: { rateLimit: { max: 240, timeWindow: '1 minute' } } }, async req => {
+    const p = await liveLink(req)
+    if (!p.canBump) {
+      throw httpError(403, 'This live view can only watch: bumping from it needs Store tech manage. Ask someone who has it to open the live view.', { code: 'view_only' })
+    }
+    const { screen_id: screenId, events } = LiveEvents.parse(req.body)
+    // A kitchen screen of the venue as set up in Store tech, or one of its
+    // stations that kitchen screens show (One per station).
+    const screen = await withTenant(p.tenantId, async tx => {
+      const [v] = await tx`SELECT id FROM venues WHERE id = ${p.venueId} AND tenant_id = ${p.tenantId}`
+      if (!v) throw httpError(404, 'Venue not found')
+      const [d] = await tx`
+        SELECT id, name FROM pos_devices
+         WHERE id = ${screenId} AND tenant_id = ${p.tenantId} AND venue_id = ${p.venueId} AND kind = 'kds' AND revoked_at IS NULL`
+      if (d) return d
+      const [st] = await tx`
+        SELECT id, name FROM kds_stations
+         WHERE id = ${screenId} AND tenant_id = ${p.tenantId} AND venue_id = ${p.venueId} AND is_active AND kind = ANY(${BUMP_KINDS}::text[])`
+      return st || null
+    })
+    if (!screen) throw httpError(404, 'This screen is no longer in the live view')
+    const from = {
+      id: 'live:' + screen.id, kind: 'kds', name: screen.name, tenant_id: p.tenantId, venue_id: p.venueId,
+      actor: 'Live kitchen view' + (p.by ? ' (' + p.by + ')' : ''),
+    }
+    const refused = []
+    const items = []
+    for (const raw of events) {
+      if (KITCHEN_DEVICE_EVENTS.includes(raw?.type)) items.push({ raw, device: from })
+      else refused.push({ id: raw?.id ?? null, ok: false, error: 'Only kitchen taps can be sent from the live view', code: 'view_only' })
+    }
+    const out = items.length ? await takeEvents(req, from, items) : { results: [], seq: null, checks: [], kitchen: [] }
+    return { ...out, results: [...refused, ...out.results], source: 'cloud' }
   })
   app.get('/kitchen-live/sync', { config: { rateLimit: { max: 300, timeWindow: '1 minute' } } }, async req => {
     const p = await liveLink(req)
@@ -1100,6 +1147,8 @@ async function takeEvents(req, from, items, { hubId = null, kiosks = null } = {}
 function afterKitchen(req, device, results) {
   const moves = onlineMoves(results)
   if (!moves.length) return
+  // Who moved the order on: the kitchen screen, or the live view (device.actor).
+  const actor = device.actor || 'Kitchen screen ' + device.name
   ;(async () => {
     const [s] = await withTenant(device.tenant_id, tx => tx`
       SELECT kds_online_ready FROM pos_settings WHERE venue_id = ${device.venue_id} AND tenant_id = ${device.tenant_id}`)
@@ -1111,7 +1160,7 @@ function afterKitchen(req, device, results) {
           const from = m.status === 'ready' ? ['accepted', 'preparing'] : ['accepted', 'preparing', 'ready']
           const [g] = await withTenant(device.tenant_id, tx => tx`
             UPDATE gloriafood_orders
-               SET board_status = ${m.status}, board_status_by = ${'Kitchen screen ' + device.name},
+               SET board_status = ${m.status}, board_status_by = ${actor},
                    board_status_at = now(), updated_at = now()
              WHERE id = ${m.order_id} AND tenant_id = ${device.tenant_id} AND venue_id = ${device.venue_id}
                AND status = 'accepted' AND received_via <> 'import' AND board_status = ANY(${from}::text[])
@@ -1125,7 +1174,7 @@ function afterKitchen(req, device, results) {
         const from = o.status
         if (m.status === 'ready' && !['accepted', 'preparing'].includes(from)) continue
         if (m.status === 'completed' && from !== 'ready') continue
-        await changeStatus(device.tenant_id, m.order_id, m.status, { actor: 'Kitchen screen ' + device.name })
+        await changeStatus(device.tenant_id, m.order_id, m.status, { actor })
       } catch (err) {
         req.log.warn({ err, order: m.order_id }, 'kitchen: online order status change failed')
       }

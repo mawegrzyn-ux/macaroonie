@@ -1449,13 +1449,16 @@ export default async function posSetupRoutes(app) {
 
   // A link to the live kitchen view: every kitchen screen of the venue on one
   // page with the real orders as they are now, any one full screen. View is
-  // enough: the page only reads (pos/src/kitchen/Live.jsx).
+  // enough to watch (pos/src/kitchen/Live.jsx). A link made by someone with
+  // Store tech manage can also bump from the page, once its Allow bumping
+  // switch is on (asked first, off at every visit); their email goes with it.
   app.post('/venues/:venueId/kitchen-live', { preHandler: canSetupView }, async req => {
     const venueId = UUID.parse(req.params.venueId)
     await withTenant(req.tenantId, tx => ownVenue(tx, req.tenantId, venueId))
-    const token = await kitchenLiveToken({ tenantId: req.tenantId, venueId })
+    const canBump = (await permissionLevel(req, 'pos_setup')) === 'manage'
+    const token = await kitchenLiveToken({ tenantId: req.tenantId, venueId, canBump, by: by(req) })
     const { expiresAt } = await readKitchenLiveToken(token)
-    return { token, url: deviceOrigin('kds') + '/?kitchen_live=' + encodeURIComponent(token), expires_at: expiresAt }
+    return { token, url: deviceOrigin('kds') + '/?kitchen_live=' + encodeURIComponent(token), expires_at: expiresAt, can_bump: canBump }
   })
 
   // ── Kitchen screens: stations and routing ───────────────────────

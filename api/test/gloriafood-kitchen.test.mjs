@@ -245,3 +245,24 @@ test('another tenant can\'t send its ids or move these orders', async () => {
   await settle()
   assert.equal((await kitchenOrder(row.id)).status, 'active')
 })
+
+test('an order the live kitchen view finishes says the live view did it, with who made its link', async () => {
+  await push([gfOrder(880010)])
+  const row = await until('stored', () => gfRow(880010))
+  await until('in the kitchen', () => kitchenOrder(row.id))
+  const link = await ok(owner.post(`/api/pos/venues/${V}/kitchen-live`, {}))
+  assert.equal(link.can_bump, true)
+  const app = await getApp()
+  const res = await app.inject({
+    method: 'POST', url: '/pos-api/kitchen-live/events?token=' + encodeURIComponent(link.token),
+    headers: { [INTERNAL_CALL_HEADER]: INTERNAL_CALL_SECRET, 'content-type': 'application/json' },
+    payload: JSON.stringify({ screen_id: screen.id, events: [{
+      id: ulid(), type: 'kitchen.bumped', client_at: new Date().toISOString(), payload: { order_id: 'gf-' + row.id, station_id: pass.id },
+    }] }),
+  })
+  assert.equal(res.statusCode, 200, res.body)
+  assert.ok(res.json().results[0].ok, JSON.stringify(res.json().results[0]))
+  const ready = await until('board ready', async () => ((await gfRow(880010)).board_status === 'ready' ? gfRow(880010) : null))
+  const [me] = await sql`SELECT email FROM users WHERE auth0_user_id = ${A.owner} AND tenant_id = ${ids.a}`
+  assert.equal(ready.board_status_by, 'Live kitchen view (' + me.email + ')')
+})
