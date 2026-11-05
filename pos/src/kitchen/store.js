@@ -16,8 +16,11 @@
 // on the device: no IndexedDB, and its choices (station, filter) only last
 // for the browser tab, so a test never touches a real kitchen screen's data.
 // The live kitchen view (Live.jsx) runs screens the same way with the venue's
-// real orders, view only (link.viewOnly): taps that would change an order or
-// the kitchen flow are refused here, before anything is shown or sent.
+// real orders. Its link says tap by tap whether the screen may change them
+// (link.viewOnly, a function there: view only until the page's Allow bumping
+// switch is on): taps that would change an order are refused here, before
+// anything is shown or sent, with the page's words (link.viewOnlyText). The
+// kitchen flow is never switched from the live view (link.switchFlows false).
 
 import { useSyncExternalStore } from 'react'
 import { applyKitchenEvent, stationSettings, nodeState, STALE_HOURS, BUMP_KINDS } from '@shared/pos/kitchen.js'
@@ -34,7 +37,6 @@ const OUTBOX_KEY = 'kds_outbox'
 const PREFS_KEY = 'maca_kds_prefs'
 
 let bench = null
-let viewOnly = false
 let prefsKey = PREFS_KEY
 // The device's own storage, left alone in bench mode.
 const keep = {
@@ -154,7 +156,6 @@ export function useOrders() {
 export async function bootKitchen(device, benchLink = null) {
   if (benchLink) {
     bench = benchLink
-    viewOnly = !!benchLink.viewOnly
     prefsKey = (benchLink.prefsPrefix || 'maca_kds_bench_') + device.id
     api = benchLink.transport
   } else {
@@ -226,7 +227,7 @@ function flowNotice(before, after) {
  * Returns { ok } or { ok: false, error }.
  */
 export async function switchFlow(flowId) {
-  if (viewOnly) return { ok: false, error: VIEW_ONLY }
+  if (!flowSwitchHere()) return { ok: false, error: FLOWS_ELSEWHERE }
   ownSwitch = { flowId, until: Date.now() + 20000 }
   try {
     const res = await api.put('/pos-api/kitchen/flow', { flow_id: flowId })
@@ -265,9 +266,21 @@ async function forget(message) {
 
 /** On the kitchen test bench or the live view (no pairing to disconnect or move). */
 export const inBench = () => !!bench
-/** In the live kitchen view: the screen shows the real orders and changes nothing. */
-export const isViewOnly = () => viewOnly
+/** In the live kitchen view (Live.jsx): the screen shows the venue's real orders. */
+export const inLiveView = () => !!bench?.live
+/**
+ * Whether taps here change nothing now: the live view with its Allow bumping
+ * switch off (or a link that can only watch). Asked at every tap.
+ */
+export const isViewOnly = () => {
+  const v = bench?.viewOnly
+  return typeof v === 'function' ? !!v() : !!v
+}
 export const VIEW_ONLY = 'This is the live view: nothing changes from here. Tap on the kitchen screen itself.'
+const viewOnlyText = () => (typeof bench?.viewOnlyText === 'function' ? bench.viewOnlyText() : bench?.viewOnlyText) || VIEW_ONLY
+/** The kitchen flow is switched here (not from the live view, never while view only). */
+export const flowSwitchHere = () => !isViewOnly() && bench?.switchFlows !== false
+export const FLOWS_ELSEWHERE = 'This is the live view: switch flows on a kitchen screen or in Macaroonie: Store tech, Kitchen screens.'
 
 async function clearDevice() {
   stopSync()
@@ -312,9 +325,10 @@ export async function moveScreen() {
  * { ok: false, error }.
  */
 export function kitchen(type, payload) {
-  if (viewOnly) {
-    toast(VIEW_ONLY, 'info', 4000)
-    return { ok: false, error: VIEW_ONLY, code: 'view_only' }
+  if (isViewOnly()) {
+    const text = viewOnlyText()
+    toast(text, 'info', 4000)
+    return { ok: false, error: text, code: 'view_only' }
   }
   const e = {
     id: ulid(), venue_id: state.device?.venue_id, device_id: state.device?.id, staff_id: null,

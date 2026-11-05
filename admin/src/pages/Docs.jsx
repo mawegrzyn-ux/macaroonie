@@ -5170,11 +5170,12 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['GET /api/pos/venues/:id/kitchen-report[.csv]?from=&to=', 'Per station: tickets, items, average, median, p90, max, on time (within target_mins), late; by hour; remakes. CSV: every bump and remake (pos_reports view).'],
                 ['POST /api/pos/venues/:id/kitchen-test', 'A signed link to the kitchen test bench (pos_setup view): { token, url } (8 hours). See The kitchen test bench below.'],
                 ['GET /pos-api/kitchen-test?token=', 'The bench\'s data (kitchenTestData()): stations, courses, order types, flows with their links, kitchen screens, tables, revenue streams, the live menus\' dishes (no prices) and expires_at. 401 for a bad, run out or other-kind link; 404 when the link\'s venue isn\'t its tenant\'s. Reads only.'],
-                ['POST /api/pos/venues/:id/kitchen-live', 'A signed link to the live kitchen view (pos_setup view): { token, url, expires_at } (12 hours, kind kitchen_live). See The live kitchen view below.'],
-                ['GET /pos-api/kitchen-live?token=', 'The live view\'s setup (kitchenLiveData()): the kitchen screen config without printers, the venue\'s kitchen screens not removed ({ id, name, short_code, settings, linked, last_seen_at }), its order ready boards (boards: { screens: orderBoardScreens(), stations: the board stations { id, name }, address: screensOrigin() }), expires_at and server_time. 401 (code link) for a bad, run out or other-kind link; 404 when the link\'s venue isn\'t its tenant\'s. Reads only.'],
+                ['POST /api/pos/venues/:id/kitchen-live', 'A signed link to the live kitchen view (pos_setup view): { token, url, expires_at, can_bump } (12 hours, kind kitchen_live). The link carries b: 1 and by (the maker\'s email) only when the maker has pos_setup manage (permissionLevel()): only then may the page bump. See The live kitchen view below.'],
+                ['GET /pos-api/kitchen-live?token=', 'The live view\'s setup (kitchenLiveData()): the kitchen screen config without printers, the venue\'s kitchen screens not removed ({ id, name, short_code, settings, linked, last_seen_at }), its order ready boards (boards: { screens: orderBoardScreens(), stations: the board stations { id, name }, address: screensOrigin() }), can_bump (the link\'s b), expires_at and server_time. 401 (code link) for a bad, run out or other-kind link; 404 when the link\'s venue isn\'t its tenant\'s. Reads only.'],
                 ['GET /screen-api/live/config?token=&screen=<id> | &board=<board station id | all>[&version=]', 'A live view board\'s config, by the same signed link (never a screen pairing): liveScreenConfig() (the venue\'s menu screen as screenConfig() gives it, no venue hub; 404 code gone for another venue\'s screen) or liveBoardConfig() (a plain 1920 x 1080 board, one Order status block of that board station\'s numbers or of every order; 404 for a station that isn\'t the venue\'s active board). Exactly one of screen / board (400). { unchanged, version } when the version matches. 401 code link as above. Rate limit 240 a minute.'],
                 ['GET /screen-api/live/orders?token=', 'boardFor() for the link\'s venue, as GET /screen-api/orders gives a screen. Same 401.'],
-                ['GET /pos-api/kitchen-live/sync?token=&since=', 'The venue\'s kitchen orders as GET /pos-api/kitchen/sync gives a kitchen screen (kitchenSync(): reset from 0 or a sequence the server doesn\'t know, then what changed), plus source: cloud. Same 401 / 404. The page never sends a kitchen event.'],
+                ['GET /pos-api/kitchen-live/sync?token=&since=', 'The venue\'s kitchen orders as GET /pos-api/kitchen/sync gives a kitchen screen (kitchenSync(): reset from 0 or a sequence the server doesn\'t know, then what changed), plus source: cloud. Same 401 / 404. Reads only.'],
+                ['POST /pos-api/kitchen-live/events?token=', '{ screen_id, events } the live view\'s taps while its Allow bumping switch is on (5 Nov 2026). 403 code view_only for a link that can only watch (no b); 404 when screen_id is neither a kitchen screen of the link\'s venue (pos_devices kind kds, not removed) nor an active bumping station of it (One per station). Only KITCHEN_DEVICE_EVENTS (item_done, item_checked, bumped, recalled, remake, priority, collected); any other type is refused on its own (code view_only). The rest go through takeEvents() as device live:<screen id> (kind kds, the link\'s tenant and venue) with actor "Live kitchen view (<email>)", so deviceEvent(), the sequencer, the broadcasts and afterKitchen() (online orders\' and GloriaFood\'s board status) run as for a kitchen screen. Same 401. Rate limit 240 a minute; at most MAX_BATCH events.'],
                 ['GET /screen-api/orders', 'boardFor(): { preparing, ready } for every counter and online order, and boards: { [board station name, lower case]: { preparing, ready } } per order ready board, for the Order status block (opts.board picks one by name; screens with one get needs_orders in their config, poll every 15 s and refetch on kitchen.board).'],
               ]}
             />
@@ -5394,11 +5395,14 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>window.parent.kdsLive.connect(screenId)</Mono>: <Mono>GET /pos-api/config</Mono> answered with
               the config and that screen as its device (version <Mono>live.&lt;config version&gt;.&lt;stamp of the
               device&gt;</Mono>, so a setting change reaches it), <Mono>GET /pos-api/kitchen/sync</Mono> from the
-              page&apos;s orders (a reset for 0, a sequence ahead of the page&apos;s or behind its last reset), and
-              every change refused. The link carries <Mono>viewOnly</Mono>: <Mono>bootKitchen()</Mono> keeps it in
-              the store, <Mono>kitchen()</Mono> refuses every kitchen event before it touches the screen (a toast,
-              once while showing), <Mono>switchFlow()</Mono> too, and the flow panel shows no Switch (
-              <Mono>kds-flow-view-only</Mono>). Choices go to <Mono>sessionStorage</Mono> under{' '}
+              page&apos;s orders (a reset for 0, a sequence ahead of the page&apos;s or behind its last reset), and{' '}
+              <Mono>POST /pos-api/events</Mono> as below. The link carries <Mono>viewOnly</Mono>, a function the
+              store asks at every tap (<Mono>isViewOnly()</Mono> in <Mono>pos/src/kitchen/store.js</Mono>): true
+              until the page&apos;s Allow bumping switch is on. Until then <Mono>kitchen()</Mono> refuses every
+              kitchen event before it touches the screen (a toast with the link&apos;s <Mono>viewOnlyText</Mono>, once
+              while showing). <Mono>switchFlows: false</Mono> keeps <Mono>switchFlow()</Mono> refused whatever the
+              switch (<Mono>flowSwitchHere()</Mono>, <Mono>FLOWS_ELSEWHERE</Mono>), and the flow panel shows no
+              Switch (<Mono>kds-flow-view-only</Mono>, from <Mono>inLiveView()</Mono>). Choices go to <Mono>sessionStorage</Mono> under{' '}
               <Mono>maca_kds_live_&lt;id&gt;</Mono>; the page&apos;s own (mode, size, across, sound) to{' '}
               <Mono>maca_kds_live</Mono>. Sound plays from the page (<Mono>link.chime</Mono>): a frame can&apos;t
               play sound until it is tapped, and the Sound button or the first tap on the page unlocks it.
@@ -5410,6 +5414,27 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               reloading the frame. <Mono>&amp;full=&lt;screen id&gt;</Mono> in the address (kept with{' '}
               <Mono>history.replaceState</Mono>) opens with that screen filling the window; Escape leaves the
               window mode. Tests: <Mono>api/test/kitchen-live.test.mjs</Mono>.
+            </P>
+            <P>
+              <strong>Bumping from the live view</strong> (5 Nov 2026): the page shows the Allow bumping switch (
+              <Mono>BumpSwitch</Mono>, <Mono>live-bump</Mono>, role switch) when the setup says{' '}
+              <Mono>can_bump</Mono>, else a Watch only line (<Mono>live-watch-only</Mono>). It starts off at every
+              visit and lives only in memory (<Mono>bumpingRef</Mono>, never stored). Tapping it asks first (
+              <Mono>BumpConfirm</Mono>, <Mono>live-bump-confirm</Mono> with <Mono>live-bump-yes</Mono> /{' '}
+              <Mono>live-bump-no</Mono>; a second tap on the switch closes the question). While it is on, a banner (
+              <Mono>live-bump-banner</Mono>, <Mono>live-bump-off</Mono>) and a badge on every screen card (
+              <Mono>live-bump-badge</Mono>, also in full screen) turn it off. With it on, a frame&apos;s{' '}
+              <Mono>POST /pos-api/events</Mono> goes to <Mono>POST /pos-api/kitchen-live/events</Mono> with the
+              screen&apos;s id (a kitchen screen&apos;s device id, or a station id in One per station) and the page
+              pulls the orders at once (<Mono>pull</Mono> from <Mono>useKitchenFeed()</Mono>); a refusal of the whole
+              batch (403, 404) comes back as every tap refused with its words, and a 401 ends the page. The server
+              takes them as device <Mono>live:&lt;screen id&gt;</Mono>, never the real screen&apos;s id: a kitchen
+              screen ignores <Mono>pos.seq</Mono> from its own device id, so the real screen would miss the change.
+              Who may bump is fixed when the link is made (<Mono>b</Mono> in the signed link, from pos_setup manage):
+              the page has no login to check at tap time. At a hub-first location the taps go to the cloud like the
+              rest of the page, and the hub&apos;s screens get them when the hub follows the cloud. Tests: the
+              bumping tests in <Mono>api/test/kitchen-live.test.mjs</Mono>, the live view bump in{' '}
+              <Mono>api/test/gloriafood-kitchen.test.mjs</Mono>.
             </P>
             <P>
               <strong>Order ready boards</strong> (4 Nov 2026) show under the kitchen screens (

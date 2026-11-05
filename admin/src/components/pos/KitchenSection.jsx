@@ -725,12 +725,17 @@ function KitchenPageButton({ venueId, path, label, icon: Icon, testid }) {
   )
 }
 
-function LiveCard({ venueId }) {
+function LiveCard({ venueId, canManage }) {
   return (
     <Section title="Live view"
-      hint="Every kitchen screen of this venue side by side, showing the real orders as they are now. Tap Full screen on any of them to show it on its own, for example on an office monitor or a TV. Nothing changes from there: bumping and ticking off stay on the kitchen screens.">
+      hint={'Every kitchen screen of this venue side by side, showing the real orders as they are now. Tap Full screen on any of them to show it on its own, for example on an office monitor or a TV. '
+        + (canManage
+          ? 'It only watches until you switch on Allow bumping there: it asks you to confirm first and is off again every time the page opens. While it is on, taps there bump and tick off dishes for real.'
+          : 'It only watches: bumping from there needs Store tech manage.')}>
       <KitchenPageButton venueId={venueId} path="kitchen-live" label="Open the live view" icon={Radio} testid="kitchen-live-open" />
-      <p className="text-xs text-muted-foreground">Opens in a new window. The link works for 12 hours; it follows changes made here by itself.</p>
+      <p className="text-xs text-muted-foreground" data-testid="kitchen-live-note">
+        Opens in a new window. The link works for 12 hours; it follows changes made here by itself.{canManage ? ' Anyone you give the link to can switch bumping on too.' : ''}
+      </p>
     </Section>
   )
 }
@@ -750,7 +755,7 @@ export default function KitchenSection({ venueId, setup, canManage = true }) {
   const [editing, setEditing] = useState(null)
   return (
     <>
-      <LiveCard venueId={venueId} />
+      <LiveCard venueId={venueId} canManage={canManage} />
       <TestCard venueId={venueId} />
       <KitchenFlow venueId={venueId} setup={setup} canManage={canManage} onStation={setEditing} />
       <StationsCard venueId={venueId} setup={setup} onEdit={setEditing} />

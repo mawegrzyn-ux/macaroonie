@@ -389,17 +389,23 @@ export async function kitchenTestData(tx, tenantId, venueId) {
 // venue side by side, each showing the venue's real kitchen orders as they
 // are now (kitchenSync(), followed through the socket: config/ws.js joins the
 // link to the venue's till room). The signed link is the key (no pairing).
-// It only reads: nothing on that page sends a kitchen tap.
+// It watches, unless the person who made the link may change Store tech
+// (canBump, signed into the link with their email as `by`): then the page's
+// Allow bumping switch (off at every visit, confirmed before it goes on)
+// sends kitchen taps to POST /pos-api/kitchen-live/events.
 
 const LIVE_HOURS = 12
 
-export function kitchenLiveToken({ tenantId, venueId }) {
-  return makeLink('kitchen_live', { t: tenantId, v: venueId }, LIVE_HOURS)
+export function kitchenLiveToken({ tenantId, venueId, canBump = false, by = null }) {
+  const data = { t: tenantId, v: venueId }
+  if (canBump) data.b = 1
+  if (canBump && by) data.by = String(by).slice(0, 120)
+  return makeLink('kitchen_live', data, LIVE_HOURS)
 }
 
 export async function readKitchenLiveToken(token) {
   const p = await readLink('kitchen_live', token)
-  return p ? { tenantId: p.t, venueId: p.v, expiresAt: p.expires_at } : null
+  return p ? { tenantId: p.t, venueId: p.v, expiresAt: p.expires_at, canBump: p.b === 1, by: p.by || null } : null
 }
 
 /**

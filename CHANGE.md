@@ -5,6 +5,16 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-11-05 — Bump from the live kitchen view, after a confirm]
+
+No migration.
+
+- **Allow bumping** at the top of the live kitchen view (Store tech → Kitchen screens → Live view): the page still only watches until it is switched on. Tapping it asks first: *Allow bumping from this page?* with **Yes, allow bumping** and **Keep watching only**.
+- While it is on, an orange bar and a *Bumping on* badge on every screen say so. Taps on the screens then bump, tick off (meal deal parts too), recall, remake and rush dishes for real, as on the kitchen screens, and the real screens show it within a second or two. **Turn bumping off** (or any screen's badge) turns it off.
+- It is off again every time the page opens. The kitchen flow is never switched from the live view.
+- Only someone with Manage on Store tech gets a link that can bump; a link made with View shows *Watch only*. Anyone given a manager's link can switch bumping on, so share it with care. The Live view card in Store tech says which.
+- Online orders and GloriaFood orders bumped from there show "Live kitchen view" and the person who made the link as who moved them.
+
 ## [2026-11-04 — Order ready boards in the live kitchen view; a meal deal's parts one by one; menu screens start again]
 
 No migration.

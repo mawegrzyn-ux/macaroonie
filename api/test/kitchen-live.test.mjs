@@ -6,6 +6,8 @@
 // Its order ready boards: the venue's menu screens that show an Order status
 // block and its board stations, each read by the screen player in live mode
 // (/screen-api/live/*, its own socket) by the same link, framed by the live view.
+// Bumping from it: only with a link made by someone with Store tech manage,
+// only kitchen taps, each decided by the sequencer as the view's own screen.
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import http from 'node:http'
@@ -221,6 +223,159 @@ test('its socket joins the venue\'s till room only', async () => {
     await new Promise(r => wss.close(() => r()))
     await new Promise(r => server.close(() => r()))
   }
+})
+
+
+// ── Bumping from the live view ───────────────────────────────────
+
+async function livePost(token, body) {
+  const app = await getApp()
+  const res = await app.inject({
+    method: 'POST', url: '/pos-api/kitchen-live/events?token=' + encodeURIComponent(token),
+    headers: { [INTERNAL_CALL_HEADER]: INTERNAL_CALL_SECRET, 'content-type': 'application/json' },
+    payload: JSON.stringify(body),
+  })
+  let json = null
+  try { json = res.json() } catch { json = null }
+  return { status: res.statusCode, json }
+}
+const tap = (type, payload, extra = {}) => ({ id: ulid(), type, payload, client_at: new Date().toISOString(), ...extra })
+
+// A new online order in the kitchen, and the bumping station its dish is at.
+async function newOrder(n) {
+  const r = await sequencer(ids.a, V).submit(orderIn(n))
+  assert.ok(r.ok, r.error)
+  const o = Object.values(r.kitchen)[0]
+  const setup = await ok(owner.get(`/api/pos/venues/${V}/setup`))
+  const kinds = Object.fromEntries(setup.kds_stations.map(s => [s.id, s.kind]))
+  const at = Object.keys(o.items[0].route).find(id => kinds[id] === 'prep')
+  assert.ok(at, 'the dish goes to a prep station')
+  return { order: o, at }
+}
+const kitchenRow = async id => (await sql`SELECT state FROM kds_orders WHERE id = ${id} AND tenant_id = ${ids.a}`)[0]?.state
+
+const WATCH = 'a-kitchen-watcher'
+let watcher = null
+async function watcherOf() {
+  if (watcher) return watcher
+  // Store tech view, not manage: may open the live view, may not bump from it.
+  const role = await ok(owner.post('/api/access/roles', { key: 'kitchen_watch', label: 'Kitchen watcher', permissions: { pos_setup: 'view' } }), 'role')
+  await sql`INSERT INTO users (tenant_id, email, role, auth0_user_id, custom_role_id)
+            VALUES (${ids.a}, ${WATCH + '@test.local'}, 'operator', ${WATCH}, ${role.id})`
+  watcher = as(WATCH, ids.a)
+  return watcher
+}
+
+test('a link made with Store tech manage may bump; one made with Store tech view only watches', async () => {
+  const link = await ok(owner.post(`/api/pos/venues/${V}/kitchen-live`, {}))
+  assert.equal(link.can_bump, true, 'the owner may')
+  assert.equal((await live(link.token)).json.can_bump, true, 'the page is told')
+
+  const w = await watcherOf()
+  const wl = await ok(w.post(`/api/pos/venues/${V}/kitchen-live`, {}), 'Store tech view opens the live view')
+  assert.equal(wl.can_bump, false)
+  assert.equal((await live(wl.token)).json.can_bump, false)
+  const { order, at } = await newOrder(720)
+  const refused = await livePost(wl.token, { screen_id: grill.id, events: [tap('kitchen.bumped', { order_id: order.id, station_id: at })] })
+  assert.equal(refused.status, 403)
+  assert.equal(refused.json.code, 'view_only')
+  assert.match(refused.json.error, /Store tech manage/)
+  assert.deepEqual((await kitchenRow(order.id)).items[0].done || {}, {}, 'nothing changed')
+
+  // The right to bump is signed into the link: it can't be added by editing it.
+  const [body, sig] = wl.token.split('.')
+  const raised = Buffer.from(JSON.stringify({ ...JSON.parse(Buffer.from(body, 'base64url')), b: 1 })).toString('base64url') + '.' + sig
+  assert.equal((await livePost(raised, { screen_id: grill.id, events: [tap('kitchen.bumped', { order_id: order.id, station_id: at })] })).status, 401)
+  // An old-style link (made before bumping) only watches too.
+  const old = await makeLink('kitchen_live', { t: ids.a, v: V }, 1)
+  assert.equal((await live(old)).json.can_bump, false)
+  assert.equal((await livePost(old, { screen_id: grill.id, events: [tap('kitchen.bumped', { order_id: order.id, station_id: at })] })).status, 403)
+})
+
+test('a bump from the live view goes through the sequencer as the view\'s own screen', async () => {
+  const link = await ok(owner.post(`/api/pos/venues/${V}/kitchen-live`, {}))
+  const { order, at } = await newOrder(721)
+  const before = (await liveSync(link.token, 0)).json.seq
+  // What the screen says about its venue and device is ignored.
+  const e = tap('kitchen.bumped', { order_id: order.id, station_id: at }, { venue_id: other.ids.venue, device_id: grill.id, staff_id: null })
+  const res = await livePost(link.token, { screen_id: grill.id, events: [e] })
+  assert.equal(res.status, 200, JSON.stringify(res.json))
+  assert.equal(res.json.results[0].ok, true, res.json.results[0].error)
+  assert.equal(res.json.source, 'cloud')
+  assert.ok(res.json.kitchen.some(o => o.id === order.id), 'the changed order comes back, as to a kitchen screen')
+  const [row] = await sql`SELECT venue_id, device_id, type FROM pos_events WHERE id = ${e.id}`
+  assert.equal(row.venue_id, V)
+  assert.equal(row.device_id, 'live:' + grill.id, 'as the live view\'s own screen, never the real device')
+  assert.ok((await kitchenRow(order.id)).items[0].done?.[at], 'bumped at its station')
+  // Every screen hears it: the live view's sync and a paired kitchen screen's.
+  const next = await liveSync(link.token, before)
+  assert.ok(next.json.orders.some(o => o.id === order.id && o.items[0].done?.[at]))
+  const app = await getApp()
+  const asScreen = await app.inject({
+    method: 'GET', url: '/pos-api/kitchen/sync?since=' + before,
+    headers: { authorization: `Device ${grill.device_id}.${grill.secret}`, [INTERNAL_CALL_HEADER]: INTERNAL_CALL_SECRET },
+  })
+  assert.ok(asScreen.json().orders.some(o => o.id === order.id && o.items[0].done?.[at]), 'the real kitchen screen gets it')
+
+  // Sent again (a reply that was lost): taken once.
+  const again = await livePost(link.token, { screen_id: grill.id, events: [e] })
+  assert.equal(again.json.results[0].ok, true)
+  assert.equal(again.json.results[0].duplicate, true)
+  assert.equal((await sql`SELECT count(*)::int AS n FROM pos_events WHERE id = ${e.id}`)[0].n, 1)
+  // The kitchen's own rules still decide: bringing it back is fine, a second bump of nothing isn't.
+  const back = await livePost(link.token, { screen_id: grill.id, events: [tap('kitchen.recalled', { order_id: order.id, station_id: at })] })
+  assert.equal(back.json.results[0].ok, true, back.json.results[0].error)
+  assert.equal((await kitchenRow(order.id)).items[0].done?.[at] ?? null, null, 'back at its station')
+})
+
+test('only kitchen taps, from a screen of the venue, with a link that hasn\'t run out', async () => {
+  const link = await ok(owner.post(`/api/pos/venues/${V}/kitchen-live`, {}))
+  const { order, at } = await newOrder(722)
+  // One per station: a station that kitchen screens show is a screen of the live view too.
+  const byStation = await livePost(link.token, { screen_id: at, events: [tap('kitchen.priority', { order_id: order.id, on: true })] })
+  assert.equal(byStation.json.results[0].ok, true, byStation.json.results[0].error)
+  assert.equal((await sql`SELECT device_id FROM pos_events WHERE id = ${byStation.json.results[0].id}`)[0].device_id, 'live:' + at)
+  assert.equal((await kitchenRow(order.id)).priority, true, 'rushed')
+
+  // Not kitchen taps: refused one by one, the rest of the batch still goes.
+  const mixed = await livePost(link.token, {
+    screen_id: grill.id,
+    events: [
+      tap('check.opened', { mode: 'counter' }, { check_id: ulid(), staff_id: null }),
+      tap('kitchen.order_in', orderIn(723).payload),
+      tap('kitchen.priority', { order_id: order.id, on: false }),
+    ],
+  })
+  assert.equal(mixed.status, 200)
+  const byId = Object.fromEntries(mixed.json.results.map(r => [r.id, r]))
+  const [checkTap, serverTap, rushOff] = mixed.json.results.length === 3 ? [mixed.json.results[0], mixed.json.results[1], mixed.json.results[2]] : []
+  assert.equal(checkTap?.ok, false)
+  assert.equal(checkTap?.code, 'view_only')
+  assert.equal(serverTap?.ok, false, 'an order can\'t be made from here')
+  assert.equal(rushOff?.ok, true, 'the kitchen tap in the same batch goes')
+  assert.ok(Object.keys(byId).length === 3)
+  assert.equal((await sql`SELECT count(*)::int AS n FROM pos_events WHERE type = 'kitchen.order_in' AND payload->'order'->>'number' = '723'`)[0].n, 0)
+  assert.equal((await kitchenRow(order.id)).priority, false)
+
+  // Screens that aren't the venue's: another tenant's, a removed one, nonsense.
+  const theirs = await linkDevice(as(B.owner, ids.b), other.ids.venue, { kind: 'kds', name: 'Their screen' })
+  const one = [tap('kitchen.priority', { order_id: order.id, on: true })]
+  assert.equal((await livePost(link.token, { screen_id: theirs.id, events: one })).status, 404, 'another tenant\'s screen')
+  const gone = await linkDevice(owner, V, { kind: 'kds', name: 'Gone screen' })
+  await ok(owner.delete('/api/pos/devices/' + gone.id))
+  assert.equal((await livePost(link.token, { screen_id: gone.id, events: one })).status, 404, 'a screen removed in Store tech')
+  assert.equal((await livePost(link.token, { screen_id: 'nonsense', events: one })).status, 400)
+  assert.equal((await livePost(link.token, { screen_id: grill.id, events: [] })).status, 400, 'nothing to send')
+  assert.equal((await kitchenRow(order.id)).priority, false, 'none of those changed it')
+
+  // A link that ran out, or a test bench link.
+  const expired = await makeLink('kitchen_live', { t: ids.a, v: V, b: 1 }, -1)
+  assert.equal((await livePost(expired, { screen_id: grill.id, events: one })).status, 401)
+  const bench = await ok(owner.post(`/api/pos/venues/${V}/kitchen-test`, {}))
+  assert.equal((await livePost(bench.token, { screen_id: grill.id, events: one })).status, 401)
+  // A signed link naming another tenant's venue reaches nothing there.
+  const crossed = await makeLink('kitchen_live', { t: ids.a, v: other.ids.venue, b: 1 }, 1)
+  assert.equal((await livePost(crossed, { screen_id: grill.id, events: one })).status, 404)
 })
 
 
