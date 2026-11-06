@@ -32,7 +32,7 @@ import { Modal, Field, inputCls, ErrorNote, Segmented } from '@/components/staff
 import { FileDropArea } from '@/components/FileDropArea'
 import { useAiStatus } from '@/components/ai/ChatView'
 import { prepareFile, sizeText } from '@/components/ai/attachments'
-import { NumInput, StorageBadge, btn, money, fmtDate, fileToBase64, useCategories, IS_TOUCH, CodeTag } from '@/components/purchasing/shared'
+import { NumInput, QtyStepper, StorageBadge, btn, money, fmtDate, fileToBase64, useCategories, IS_TOUCH, CodeTag } from '@/components/purchasing/shared'
 import { UNITS, unitsForBase, packBaseQty, fmtNum, formatBase } from '@shared/procurement.js'
 import { ASSISTANT_NAME } from '@shared/assistant.js'
 
@@ -93,7 +93,10 @@ export function InvoiceReader({ po, onRead, disabled }) {
     try {
       const payload = []
       for (const f of files) payload.push({ name: f.file.name, data: await fileToBase64(f.file) })
-      const res = await api.post('/ai/invoices/read', { po_id: po.id, files: payload })
+      // A delivery without an order has no order yet: say whose it is instead.
+      const res = await api.post('/ai/invoices/read', {
+        ...(po.id ? { po_id: po.id } : { venue_id: po.venue_id, supplier_id: po.supplier_id }), files: payload,
+      })
       if (!res?.invoice?.lines) throw new Error(ASSISTANT_NAME + '\'s answer didn\'t arrive. Try again.')
       onRead(res)
     } catch (e) {
@@ -203,6 +206,27 @@ export function extraOf(l, patch = {}) {
   }
 }
 
+/**
+ * A product added by hand to a delivery without an order (migration 238):
+ * one of the supplier's prices (quote), or the item as it came packed.
+ */
+export function manualExtra(key, item, quote) {
+  return {
+    key, idx: null, manual: true, description: item.name, code: quote?.supplier_code ?? null, pack_text: null,
+    qty: 1, price: quote?.price ?? null, quote_price: quote?.price ?? null, vat_rate: quote?.vat_rate ?? null,
+    mode: 'add', item: { id: item.id, name: item.name, base_unit: item.base_unit, storage: item.storage },
+    quote_id: quote?.id || null, quote_label: quote ? [quote.product_name, quote.pack_label].filter(Boolean).join(' · ') : '',
+    pack: quote ? null : { name: 'pack', count: 1, qty: null, unit: unitsForBase(item.base_unit)[0] },
+    line_id: null,
+  }
+}
+
+/** A hand-added line's price was typed (or changed from the price list's): it is what was paid. */
+export function priceTyped(x) {
+  if (x.price == null) return false
+  return x.quote_price == null || Math.abs(Number(x.price) - Number(x.quote_price)) >= 0.005
+}
+
 /** Why an extra can't be saved yet, or null. */
 export function extraProblem(x) {
   if (!x.mode) return 'Choose what this is'
@@ -278,18 +302,29 @@ const MODES = [
   { value: 'skip', label: 'Leave out' },
 ]
 
-export function ExtrasSection({ po, extras, setExtras, prices, canSetup, lineInv, onCameInstead }) {
+export function ExtrasSection({ po, extras, setExtras, prices, canSetup, lineInv, onCameInstead, onAdd = null }) {
   const [picking, setPicking] = useState(null)   // extra key
   const set = (key, patch) => setExtras(xs => xs.map(x => (x.key === key ? { ...x, ...patch } : x)))
   const ordered = po.lines.filter(l => !l.added_on_receipt)
+  // Without an order (migration 238) these are what arrived: nothing came
+  // instead of an ordered line, and products can be added by hand (onAdd).
+  const noOrder = !!po.no_order
+  const modes = noOrder ? MODES.filter(m => m.value !== 'line') : MODES
   return (
     <section className="rounded-xl border bg-background overflow-hidden" data-testid="inv-extras">
       <div className="section-head px-4 py-2">
-        <h3 className="text-sm font-semibold">On the invoice, not ordered</h3>
+        <h3 className="text-sm font-semibold">{noOrder ? (po.lines.length ? 'Also arrived' : 'What arrived') : 'On the invoice, not ordered'}</h3>
       </div>
+      {noOrder && !extras.length && (
+        <p className="px-4 py-3 text-sm text-muted-foreground" data-testid="no-order-empty">
+          {po.lines.length ? 'Anything else that came: add it here.' : 'Add each product that came, or read the delivery note above.'}
+        </p>
+      )}
       <div className="divide-y">
         {extras.map(x => {
           const problem = extraProblem(x)
+          if (x.manual) return <ManualLine key={x.key} x={x} prices={prices} set={patch => set(x.key, patch)}
+            onRemove={() => setExtras(xs => xs.filter(e => e.key !== x.key))} />
           return (
             <div key={x.key} className="px-4 py-3 space-y-2" data-testid="inv-extra">
               <div className="flex flex-wrap items-start gap-2">
@@ -299,7 +334,7 @@ export function ExtrasSection({ po, extras, setExtras, prices, canSetup, lineInv
                     {[x.code, x.pack_text, `${fmtNum(x.qty)} on the invoice`, prices && x.price != null ? `${money(x.price)} each` : null].filter(Boolean).join(' · ')}
                   </p>
                 </div>
-                <Segmented value={x.mode || ''} onChange={m => set(x.key, { mode: m })} options={MODES} />
+                <Segmented value={x.mode || ''} onChange={m => set(x.key, { mode: m })} options={modes} />
               </div>
 
               {x.mode === 'add' && (
@@ -345,6 +380,13 @@ export function ExtrasSection({ po, extras, setExtras, prices, canSetup, lineInv
           )
         })}
       </div>
+      {onAdd && (
+        <div className="px-4 py-3 border-t">
+          <button type="button" className={btn.outline} onClick={onAdd} data-testid="no-order-add">
+            <Plus className="w-4 h-4" />Add a product
+          </button>
+        </div>
+      )}
       {picking && (
         <ItemPickModal po={po} canSetup={canSetup} prices={prices} initialName={extras.find(x => x.key === picking)?.description || ''}
           onClose={() => setPicking(null)}
@@ -359,6 +401,40 @@ export function ExtrasSection({ po, extras, setExtras, prices, canSetup, lineInv
           }} />
       )}
     </section>
+  )
+}
+
+/** A product added by hand to a delivery without an order: how many came, its pack, the price paid. */
+function ManualLine({ x, prices, set, onRemove }) {
+  const problem = extraProblem(x)
+  return (
+    <div className="px-4 py-3 space-y-2" data-testid="no-order-line" data-item={x.item.id}>
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex-1 min-w-[160px]">
+          <p className="text-sm font-medium">{x.item.name} <StorageBadge storage={x.item.storage} /></p>
+          <p className="text-xs text-muted-foreground flex flex-wrap items-center gap-x-1.5">
+            <CodeTag code={x.code} />{x.quote_id ? x.quote_label : 'As it came packed (not in the price list yet)'}
+          </p>
+        </div>
+        <QtyStepper value={x.qty} onChange={q => set({ qty: q })} label={x.item.name} />
+        <button type="button" onClick={onRemove} aria-label={`Take ${x.item.name} off`} data-testid="no-order-remove"
+          className="w-11 h-11 shrink-0 flex items-center justify-center rounded-lg text-muted-foreground hover:bg-muted touch-manipulation">
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+      {!x.quote_id && <PackFields value={x.pack} baseUnit={x.item.base_unit} onChange={pack => set({ pack })} />}
+      {prices && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm">Price paid per pack</span>
+          <NumInput value={x.price} onChange={p => set({ price: p })} className="h-10 w-24" aria-label={'Price paid for ' + x.item.name} />
+          {x.quote_price != null && priceTyped(x) && (
+            <span className="text-xs text-muted-foreground">price list {money(x.quote_price)}</span>
+          )}
+          {x.price == null && <span className="text-xs text-amber-800">No price: the line counts as £0</span>}
+        </div>
+      )}
+      {problem && <p className="text-xs text-amber-800 flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5" />{problem}</p>}
+    </div>
   )
 }
 
@@ -409,7 +485,7 @@ export function ItemPickModal({ po, canSetup, prices, initialName, onPick, onClo
                 ))}
                 <button type="button" onClick={() => onPick(i, null)}
                   className="rounded-lg border border-dashed px-3 py-1.5 min-h-[44px] text-xs hover:bg-muted touch-manipulation">
-                  {newLabel || (mine.length ? 'Another pack' : 'Packed as invoiced')}
+                  {(typeof newLabel === 'function' ? newLabel(mine) : newLabel) || (mine.length ? 'Another pack' : 'Packed as invoiced')}
                 </button>
               </div>
             </div>

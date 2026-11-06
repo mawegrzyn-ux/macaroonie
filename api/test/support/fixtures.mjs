@@ -274,6 +274,16 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx', loy
         const extra = got?.lines?.find(l => l.added_on_receipt)
         if (extra) await step('price list from invoice', () => post(`/api/purchasing/pos/${po.id}/price-list`, { changes: [{ line_id: extra.id, action: 'add', product_name: mark + ' Rice 5kg' }] }))
       }
+      // A delivery booked in without an order (migration 238), once the
+      // setting allows it.
+      await step('purchasing settings', () => put('/api/purchasing/settings', { receive_without_order: 'anyone' }))
+      if (oilQuote) {
+        await step('delivery without an order', () => post(`/api/purchasing/venues/${V}/deliveries`, {
+          supplier_id: supplier.id, supplier_ref: mark + '-DN1', notes: mark + ' no order',
+          lines: [{ item_id: oil.id, quote_id: oilQuote.id, received_qty: 1 }],
+          check: { packaging_ok: true, damage_ok: true, quality_ok: true, accepted: true },
+        }))
+      }
     }
   }
 

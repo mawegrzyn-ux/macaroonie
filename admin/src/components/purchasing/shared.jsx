@@ -130,12 +130,12 @@ export const daysLabel = days => (days?.length
   : 'Any day')
 
 /** A styled date button with the OS date picker under it (design rule 10). */
-export function DateButton({ value, onChange, min, className, label = 'Date' }) {
+export function DateButton({ value, onChange, min, max, className, label = 'Date' }) {
   return (
     <span className={cn('relative inline-flex items-center gap-2 h-11 px-3 rounded-lg border bg-background text-sm touch-manipulation', className)}>
       <CalendarDays className="w-4 h-4 text-muted-foreground" />
       <span className="tabular-nums">{value ? fmtDate(value) : 'Pick a date'}</span>
-      <input type="date" value={value || ''} min={min} aria-label={label} onClick={openPicker}
+      <input type="date" value={value || ''} min={min} max={max} aria-label={label} onClick={openPicker}
         onChange={e => e.target.value && onChange(e.target.value)}
         className="absolute inset-0 opacity-0 cursor-pointer" />
     </span>

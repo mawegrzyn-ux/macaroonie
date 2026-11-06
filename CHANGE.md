@@ -5,6 +5,17 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-11-06 — Purchasing: book in a delivery without an order]
+
+Migration 238.
+
+- **A new Purchasing setting** (Purchasing page → **Settings**, Purchasing setup Manage): *Book in deliveries without an order*: Off (as before), Anyone who books deliveries in, or Only people with Purchasing approval. It starts Off.
+- **Book in without an order** on the Deliveries tab (desktop and the phone): pick the supplier it came from, then fill in the form as for any delivery: the day it arrived (up to a month back), their delivery note or invoice number, what arrived (add each product from the supplier's packs, or another pack as it came), the price paid per pack for people who see prices, the checks and temperatures.
+- **Pepper can read the delivery note or invoice** before there's an order: the supplier's products it finds are added, and the rest wait for Add it or Leave out.
+- Saving makes a purchase order marked **No order**, already received, with what arrived as its lines and its total at the prices paid. The delivery check is saved for Food safety for the day it arrived. It is never sent to the supplier (no Print, PDF or Excel copy) and doesn't count as the last order on the order form.
+- **Correct the delivery** changes how many came (0 takes a line off), adds products or moves the day. **Update the price list** offers prices paid that differ from the price list.
+- The booking-in form now sits above the app's menu button on narrower screens (it covered the form's close button).
+
 ## [2026-11-06 — Order ready boards: show one column, or only some orders]
 
 Migration 237.

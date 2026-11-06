@@ -5754,6 +5754,45 @@ export default function Help() {
               amount is kept), another day, or order anyway. Anyone who orders, approves or keeps the catalogue can
               mark it, even on an order they can't change; people with View only see it.
             </P>
+
+            <H3>14. Booking in a delivery without an order</H3>
+            <P>
+              Some goods arrive with no purchase order here: extras the driver brought, a standing delivery nobody
+              orders in the app, a cash and carry run. To book them in, someone with Purchasing setup (Manage)
+              switches it on first: on the Purchasing page tap <strong>Settings</strong>, then under Book in
+              deliveries without an order pick who may do it, and Save.
+            </P>
+            <DataTable
+              head={['Setting', 'Who can book one in']}
+              rows={[
+                ['Off', 'Nobody: deliveries are only booked in against a purchase order. This is how it starts.'],
+                ['Anyone who books deliveries in', 'Everyone with Purchasing or Purchasing approval (Manage).'],
+                ['Only people with Purchasing approval', 'Managers only: people who can only send orders for approval can\'t.'],
+              ]}
+            />
+            <P>
+              Then the Deliveries tab has <strong>Book in without an order</strong>. Pick the supplier it came from
+              (suppliers with nothing in the price list are there too), then fill in the form like any delivery:
+            </P>
+            <DataTable
+              head={['On the form', 'What to do']}
+              rows={[
+                ['Arrived on', 'Today, or the day it came (up to a month back).'],
+                ['Their delivery note or invoice number', 'Optional. Filled in from the invoice when Pepper reads one.'],
+                ['Invoice or delivery note', 'Read it with Pepper, as for an order: the supplier\'s products it finds are added; anything else waits for you to Add it (pick the inventory item and its pack) or Leave it out.'],
+                ['What arrived', 'Add a product: search the inventory and tap one of the supplier\'s packs, or Another pack / As it came packed to give the pack yourself. Set how many came with the - and +; the X takes a line off. People who see prices can type the price paid per pack (it starts at the price list\'s).'],
+                ['Checks', 'The same checks and temperatures as any delivery. Saving writes the delivery check for Food safety for the day it arrived.'],
+              ]}
+            />
+            <P>
+              Saving makes a purchase order for it, marked <strong>No order</strong>, already received, with what
+              arrived as its lines and its total at the prices paid. It is never sent to the supplier (there is no
+              Print, PDF or Excel copy), and it doesn't count as the last order on the order form. It is listed
+              under Received &amp; cancelled. <strong>Correct the delivery</strong> changes how many came (0 takes a
+              line off), adds products, or moves the day; with Purchasing setup, <strong>Update the price list</strong>{' '}
+              offers the prices paid that differ from the price list, as for an invoice. Pepper can show these
+              deliveries but can't book one in yet: use the Deliveries tab.
+            </P>
             <InfoBox type="info">
               All of this can also be done by chat with Pepper (Ask Pepper): ordering, booking deliveries
               in, changing prices and importing a supplier's price list from a PDF or photo. Pepper understands

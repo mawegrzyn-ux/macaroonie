@@ -36,7 +36,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft, Loader2, Plus, Search, Printer, FileText, FileSpreadsheet, Mail, Check, AlertTriangle, Truck,
   ClipboardList, ChevronRight, ChevronDown, X, PackageCheck, Send, Repeat, Thermometer, Snowflake, Eye,
-  Hourglass, Scissors, Undo2, Copy, Clock, Phone, Pencil, ShoppingBasket,
+  Hourglass, Scissors, Undo2, Copy, Clock, Phone, Pencil, ShoppingBasket, PackagePlus,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -55,7 +55,9 @@ import {
 import { ASSISTANT_NAME } from '@shared/assistant.js'
 import {
   InvoiceReader, readingToForm, extraOf, extraProblem, InvoiceLineNote, ExtrasSection, PriceListModal, InvoiceList,
+  ItemPickModal, manualExtra, priceTyped,
 } from '@/components/purchasing/invoice'
+import { NoOrderSupplierModal, noOrderPo } from '@/components/purchasing/noOrder'
 import { BasketModal } from '@/components/purchasing/basket'
 import { StockBadge, StockNote, StockControl } from '@/components/purchasing/stock'
 
@@ -68,6 +70,9 @@ const SENT_VIA = [
   { key: 'email', label: 'Emailed it myself' },
   { key: 'other', label: 'Other' },
 ]
+
+// How far back a delivery without an order can be booked in (as the API).
+const NO_ORDER_DAYS = 31
 
 // ── App shell ───────────────────────────────────────────────────
 
@@ -1337,6 +1342,7 @@ function PoCard({ po, prices, onOpen }) {
           {late === 'book_in' && <span className="text-[11px] px-1.5 py-0.5 rounded bg-red-100 text-red-900">Not booked in</span>}
           {po.amended_at && po.status === 'to_send' && <span className="text-[11px] px-1.5 py-0.5 rounded bg-orange-100 text-orange-900">Changed</span>}
           {po.split_from && <span className="text-[11px] px-1.5 py-0.5 rounded bg-muted">Split</span>}
+          {po.no_order && <NoOrderBadge />}
           {po.send_error && po.status === 'to_send' && <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />}
         </span>
         <span className="block text-sm text-muted-foreground">
@@ -1352,7 +1358,11 @@ function PoCard({ po, prices, onOpen }) {
 
 function Deliveries({ venueId, meta, onOpen }) {
   const api = useApi()
+  const qc = useQueryClient()
   const [showDone, setShowDone] = useState(false)
+  // A delivery without an order (migration 238): 'pick' while choosing the
+  // supplier, then the purchase order the form works on until it's saved.
+  const [noOrder, setNoOrder] = useState(null)
   // Find an order by the supplier's reference or our PO number, whatever
   // its state.
   const [search, setSearch] = useState('')
@@ -1381,6 +1391,24 @@ function Deliveries({ venueId, meta, onOpen }) {
   const later = sent.filter(p => p.delivery_date > today)
   return (
     <div className="space-y-4">
+      {meta?.can_receive_without_order && (
+        <button type="button" className={cn(btn.outline, 'w-full sm:w-auto')} onClick={() => setNoOrder('pick')} data-testid="no-order-start">
+          <PackagePlus className="w-4 h-4" />Book in without an order
+        </button>
+      )}
+      {noOrder === 'pick' && (
+        <NoOrderSupplierModal venueId={venueId} onClose={() => setNoOrder(null)}
+          onPick={sup => setNoOrder(noOrderPo({ venueId, supplier: sup, showPrices: meta?.show_prices, today }))} />
+      )}
+      {noOrder && noOrder !== 'pick' && (
+        <ReceiveForm po={noOrder} meta={meta} onClose={() => setNoOrder(null)} onSaved={saved => {
+          qc.setQueryData(['purchase-order', saved.id], saved)
+          qc.invalidateQueries({ queryKey: ['purchase-orders'] })
+          qc.invalidateQueries({ queryKey: ['fs-deliveries'] })
+          setNoOrder(null)
+          onOpen(saved.id)
+        }} />
+      )}
       <div className="flex flex-wrap items-center gap-2">
         {!q && (
           <Segmented value={showDone ? 'done' : 'open'} onChange={v => setShowDone(v === 'done')}
@@ -1528,12 +1556,13 @@ function PoDetail({ poId, meta, phone, onBack, onOpenPo }) {
           <p className="font-semibold truncate">{po.supplier_name} <span className="font-normal text-muted-foreground">{poNumberLabel(po.number)}</span></p>
           <p className="text-xs text-muted-foreground truncate">{po.venue_name}{po.account_ref ? ` · account ${po.account_ref}` : ''}</p>
         </div>
+        {po.no_order && <NoOrderBadge />}
         <PoStatusBadge status={po.status} />
       </div>
 
       <div className="rounded-xl border bg-background p-4 space-y-3">
         <div className="flex flex-wrap items-center gap-3">
-          <span className="text-sm text-muted-foreground">Delivery</span>
+          <span className="text-sm text-muted-foreground">{po.no_order ? 'Arrived' : 'Delivery'}</span>
           {open && canOrder
             ? <DateButton value={po.delivery_date} min={po.today} onChange={changeDate} label="Delivery date" />
             : <span className="font-medium">{fmtDateLong(po.delivery_date)}</span>}
@@ -1554,12 +1583,12 @@ function PoDetail({ poId, meta, phone, onBack, onOpenPo }) {
             </div>
           </div>
         )}
-        <PoDeliveryDetails po={po} />
+        {!po.no_order && <PoDeliveryDetails po={po} />}
         <SupplierRefRow po={po} canEdit={canOrder && po.status !== 'cancelled'} editing={refEdit} onEdit={setRefEdit}
           onSave={() => saveRef.mutate(refEdit.trim())} saving={saveRef.isPending} error={saveRef.error} />
         <p className="text-sm text-muted-foreground">
           {po.requested_by && <>Asked for by {po.requested_by}<br /></>}
-          Placed {new Date(po.created_at).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}{po.created_by ? ` by ${po.created_by}` : ''}
+          {po.no_order ? 'Booked in without an order' : 'Placed'} {new Date(po.created_at).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}{po.created_by ? ` by ${po.created_by}` : ''}
           {po.sent_at && <><br />Sent {new Date(po.sent_at).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })} ({SENT_VIA.find(v => v.key === po.sent_via)?.label.toLowerCase() || po.sent_via}{po.sent_to ? ` to ${po.sent_to}` : ''})</>}
           {po.received_at && <><br />Received {new Date(po.received_at).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}{po.received_by ? ` by ${po.received_by}` : ''}</>}
         </p>
@@ -1629,14 +1658,14 @@ function PoDetail({ poId, meta, phone, onBack, onOpenPo }) {
           )}
         </div>
       )}
-      <div className="flex flex-wrap gap-2">
+      {!po.no_order && <div className="flex flex-wrap gap-2">
         <button type="button" className={btn.outline} disabled={!!busy} onClick={() => file('html')}><Printer className="w-4 h-4" />Print</button>
         <button type="button" className={btn.outline} disabled={!!busy} onClick={() => file('pdf')}><FileText className="w-4 h-4" />PDF</button>
         <button type="button" className={btn.outline} disabled={!!busy} onClick={() => file('xlsx')}><FileSpreadsheet className="w-4 h-4" />Excel</button>
         <button type="button" className={btn.outline} onClick={() => setCheckout(true)} data-testid="po-checkout"><Copy className="w-4 h-4" />Copy for checkout</button>
         <button type="button" className={btn.outline} onClick={() => setQuick(true)} data-testid="po-quick-order"><Copy className="w-4 h-4" />Codes for quick order</button>
         {busy && <Loader2 className="w-4 h-4 animate-spin self-center" />}
-      </div>
+      </div>}
       <ErrorNote error={send.error || cancel.error || patch.error || fileErr || saveQty.error} />
 
       <section className="rounded-xl border bg-background overflow-hidden">
@@ -2287,6 +2316,14 @@ function ReceiveForm({ po, meta, onClose, onSaved }) {
   const prev = po.delivery_check
   const prices = !!po.show_prices
   const canSetup = !!meta?.can_setup
+  // A delivery without an order (migration 238): new (no id yet) or being
+  // corrected. Its lines are what arrived; the day it came can be set.
+  const noOrder = !!po.no_order
+  const isNew = noOrder && !po.id
+  const [day, setDay] = useState(po.delivery_date)
+  const [ref, setRef] = useState(po.supplier_ref || '')
+  const [adding, setAdding] = useState(false)
+  const manualKey = useRef(0)
   const [rows, setRows] = useState(() => Object.fromEntries(po.lines.map(l => [l.id, {
     received_qty: l.received_qty ?? (l.added_on_receipt ? 0 : l.qty), status: l.receive_status || null, note: l.receive_note || '',
   }])))
@@ -2318,8 +2355,15 @@ function ReceiveForm({ po, meta, onClose, onSaved }) {
       return next
     })
     setLineInv(f.lineInv)
-    setExtras(f.extras)
+    // Products added by hand stay; the invoice's lines come in beside them.
+    setExtras(xs => [...xs.filter(x => x.manual), ...f.extras])
     setMissing(f.missing)
+    if (isNew && res.invoice.invoice_number) setRef(r => r || String(res.invoice.invoice_number).slice(0, 100))
+  }
+  // A product added by hand to a delivery without an order.
+  function addManual(item, quote) {
+    setExtras(xs => [...xs, manualExtra('m' + (++manualKey.current), item, quote)])
+    setAdding(false)
   }
   function unlink(lineId) {
     const inv = lineInv[lineId]
@@ -2347,51 +2391,85 @@ function ReceiveForm({ po, meta, onClose, onSaved }) {
   const tempBad = (hasChilled && !deliveryTempOk('chilled', chk.chilled_temp_c)) || (hasFrozen && !deliveryTempOk('frozen', chk.frozen_temp_c))
   const problem = !chk.packaging_ok || !chk.damage_ok || !chk.quality_ok || tempBad || !chk.accepted
   const missingTemp = (hasChilled && chk.chilled_temp_c == null) || (hasFrozen && chk.frozen_temp_c == null)
-  const undecided = extras.filter(x => extraProblem(x)).length
+  // A hand-added line at 0 is simply left out.
+  const undecided = extras.filter(x => !(x.manual && !(x.qty > 0)) && extraProblem(x)).length
+  // Without an order, something has to have arrived.
+  const nothing = noOrder && !po.lines.some(l => Number(rowOf(l).received_qty) > 0) && !added.some(x => x.qty > 0)
+  const addLine = x => ({
+    item_id: x.item.id, quote_id: x.quote_id || null,
+    pack: x.quote_id ? null : { name: x.pack.name || 'pack', count: x.pack.count || 1, qty: x.pack.qty, unit: x.pack.unit },
+    received_qty: x.qty, ...(x.idx != null ? { invoice_idx: x.idx } : {}),
+    // A price typed by hand (or changed from the price list's) is what was paid.
+    ...(prices && (!x.manual || priceTyped(x)) ? { invoice_price: x.price ?? null } : {}),
+    note: noOrder
+      ? (x.manual || !x.description || x.description === x.item.name ? null : `Invoiced as ${x.description}`.slice(0, 500))
+      : `Not ordered: invoiced as ${x.description}`.slice(0, 500),
+  })
+  const check = () => ({
+    packaging_ok: chk.packaging_ok, damage_ok: chk.damage_ok, quality_ok: chk.quality_ok, accepted: chk.accepted,
+    chilled_temp_c: hasChilled ? chk.chilled_temp_c : null, frozen_temp_c: hasFrozen ? chk.frozen_temp_c : null,
+    corrective_action: chk.corrective_action,
+  })
   const save = useMutation({
-    mutationFn: () => api.post(`/purchasing/pos/${po.id}/receive`, {
-      notes,
-      ...(reading ? { invoice_id: reading.invoice.id } : {}),
-      lines: po.lines.map(l => {
-        const inv = lineInv[l.id]
-        const r = rowOf(l)
-        return {
-          id: l.id, received_qty: Number(r.received_qty) || 0,
-          status: r.status || receiveStatusFor(l.qty, r.received_qty),
-          note: r.note,
-          ...(inv ? { invoice_idx: inv.idx, ...(prices ? { invoice_price: inv.price } : {}) } : {}),
-        }
-      }),
-      add: added.map(x => ({
-        item_id: x.item.id, quote_id: x.quote_id || null,
-        pack: x.quote_id ? null : { name: x.pack.name || 'pack', count: x.pack.count || 1, qty: x.pack.qty, unit: x.pack.unit },
-        received_qty: x.qty, invoice_idx: x.idx, ...(prices ? { invoice_price: x.price } : {}),
-        note: `Not ordered: invoiced as ${x.description}`.slice(0, 500),
+    mutationFn: () => (isNew
+      ? api.post(`/purchasing/venues/${po.venue_id}/deliveries`, {
+        supplier_id: po.supplier_id, received_date: day, supplier_ref: ref.trim() || null, notes,
+        ...(reading ? { invoice_id: reading.invoice.id } : {}),
+        lines: added.filter(x => x.qty > 0).map(addLine),
+        check: check(),
+      })
+      : api.post(`/purchasing/pos/${po.id}/receive`, {
+        notes,
+        ...(reading ? { invoice_id: reading.invoice.id } : {}),
+        ...(noOrder && day !== po.delivery_date ? { received_date: day } : {}),
+        lines: po.lines.map(l => {
+          const inv = lineInv[l.id]
+          const r = rowOf(l)
+          return {
+            id: l.id, received_qty: Number(r.received_qty) || 0,
+            status: r.status || (noOrder ? 'ok' : receiveStatusFor(l.qty, r.received_qty)),
+            note: r.note,
+            ...(inv ? { invoice_idx: inv.idx, ...(prices ? { invoice_price: inv.price } : {}) } : {}),
+          }
+        }),
+        add: added.filter(x => x.qty > 0).map(addLine),
+        check: check(),
       })),
-      check: {
-        packaging_ok: chk.packaging_ok, damage_ok: chk.damage_ok, quality_ok: chk.quality_ok, accepted: chk.accepted,
-        chilled_temp_c: hasChilled ? chk.chilled_temp_c : null, frozen_temp_c: hasFrozen ? chk.frozen_temp_c : null,
-        corrective_action: chk.corrective_action,
-      },
-    }),
     onSuccess: onSaved,
   })
   const inv = reading?.invoice
   const charges = reading ? reading.invoice.lines.filter(l => l.is_charge) : []
   return (
-    <div className="fixed inset-0 z-40 bg-page flex flex-col" role="dialog" aria-modal="true" aria-label="Book in delivery">
+    <div className="fixed inset-0 z-50 bg-page flex flex-col" role="dialog" aria-modal="true" aria-label="Book in delivery">
       <div className="flex items-center gap-2 px-4 h-14 border-b bg-background shrink-0">
         <button type="button" onClick={onClose} className="w-11 h-11 -ml-2 flex items-center justify-center rounded-lg hover:bg-muted touch-manipulation" aria-label="Close"><X className="w-4 h-4" /></button>
         <div className="flex-1 min-w-0">
-          <p className="font-semibold truncate">Book in: {po.supplier_name}</p>
-          <p className="text-xs text-muted-foreground">{poNumberLabel(po.number)} · due {fmtDate(po.delivery_date)}</p>
+          <p className="font-semibold truncate">{isNew ? 'Without an order' : 'Book in'}: {po.supplier_name}</p>
+          <p className="text-xs text-muted-foreground">
+            {isNew ? 'No purchase order' : noOrder ? `${poNumberLabel(po.number)} · booked in without an order` : `${poNumberLabel(po.number)} · due ${fmtDate(po.delivery_date)}`}
+          </p>
         </div>
-        <button type="button" className={btn.primary} disabled={save.isPending || missingTemp || undecided > 0 || (problem && !chk.corrective_action.trim())} onClick={() => save.mutate()} data-testid="receive-save">
+        <button type="button" className={btn.primary} disabled={save.isPending || missingTemp || undecided > 0 || nothing || (problem && !chk.corrective_action.trim())} onClick={() => save.mutate()} data-testid="receive-save">
           {save.isPending && <Loader2 className="w-4 h-4 animate-spin" />}Save
         </button>
       </div>
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-3xl mx-auto p-4 space-y-4">
+          {noOrder && (
+            <section className="rounded-xl border bg-background overflow-hidden" data-testid="no-order-delivery">
+              <div className="section-head px-4 py-2"><h3 className="text-sm font-semibold">Delivery</h3></div>
+              <div className="p-4 grid sm:grid-cols-2 gap-3">
+                <Field label="Arrived on" group>
+                  <DateButton value={day} onChange={setDay} min={addDays(po.today, -NO_ORDER_DAYS)} max={po.today} label="The day it arrived" className="w-full" />
+                </Field>
+                {isNew && (
+                  <Field label="Their delivery note or invoice number" hint="Optional: to find it again, or check the invoice">
+                    <input className={inputCls} value={ref} maxLength={100} onChange={e => setRef(e.target.value)} data-testid="no-order-ref" placeholder="e.g. DN-4471" />
+                  </Field>
+                )}
+              </div>
+            </section>
+          )}
           <section className="rounded-xl border bg-background overflow-hidden">
             <div className="section-head px-4 py-2"><h3 className="text-sm font-semibold">Invoice or delivery note</h3></div>
             <div className="p-4 space-y-3">
@@ -2409,18 +2487,18 @@ function ReceiveForm({ po, meta, onClose, onSaved }) {
                   {prices && charges.length > 0 && (
                     <p className="text-xs text-muted-foreground">Charges on the invoice: {charges.map(c => `${c.description}${c.line_total != null ? ' ' + money(c.line_total) : ''}`).join(', ')}</p>
                   )}
-                  <button type="button" className={btn.ghost} onClick={() => { setReading(null); setLineInv({}); setExtras([]); setMissing([]) }}>Read another file</button>
+                  <button type="button" className={btn.ghost} onClick={() => { setReading(null); setLineInv({}); setExtras(xs => xs.filter(x => x.manual)); setMissing([]) }}>Read another file</button>
                 </div>
               )}
             </div>
           </section>
 
-          <section className="rounded-xl border bg-background overflow-hidden">
+          {po.lines.length > 0 && <section className="rounded-xl border bg-background overflow-hidden">
             <div className="section-head px-4 py-2"><h3 className="text-sm font-semibold">What arrived</h3></div>
             <div className="divide-y">
               {po.lines.map(l => {
                 const r = rowOf(l)
-                const auto = receiveStatusFor(l.qty, r.received_qty)
+                const auto = noOrder ? 'ok' : receiveStatusFor(l.qty, r.received_qty)
                 const status = r.status || auto
                 return (
                   <div key={l.id} className="px-4 py-3 space-y-2" data-testid="receive-line">
@@ -2428,7 +2506,8 @@ function ReceiveForm({ po, meta, onClose, onSaved }) {
                       <div className="flex-1 min-w-[160px]">
                         <p className="text-sm font-medium">{l.item_name} <StorageBadge storage={l.storage} />{l.added_on_receipt && <NotOrderedBadge />}</p>
                         {l.product_name && <p className="text-xs">{l.product_name}</p>}
-                        <p className="text-xs text-muted-foreground flex flex-wrap items-center gap-x-1.5"><CodeTag code={l.supplier_code} />{l.pack_label} · ordered {fmtNum(l.qty)}</p>
+                        <p className="text-xs text-muted-foreground flex flex-wrap items-center gap-x-1.5"><CodeTag code={l.supplier_code} />{l.pack_label}{!noOrder && <> · ordered {fmtNum(l.qty)}</>}</p>
+                        {noOrder && !(Number(r.received_qty) > 0) && <p className="text-xs text-red-700">Comes off the delivery when you save</p>}
                       </div>
                       <QtyStepper value={r.received_qty} onChange={v => setRow(l.id, 'received_qty', v)} label={l.item_name} />
                     </div>
@@ -2440,15 +2519,15 @@ function ReceiveForm({ po, meta, onClose, onSaved }) {
                     {reading && missing.includes(l.id) && (
                       <p className="text-xs text-amber-800 flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5" />Not on the invoice: check it arrived</p>
                     )}
-                    <div className="flex flex-wrap gap-1.5">
+                    {!noOrder && <div className="flex flex-wrap gap-1.5">
                       {RECEIVE_STATUSES.map(s => (
                         <button key={s.key} type="button" onClick={() => setRow(l.id, 'status', s.key === auto ? null : s.key)}
                           className={cn('h-9 px-3 rounded-full border text-xs touch-manipulation', status === s.key ? (s.key === 'ok' ? 'bg-green-600 text-white border-green-600' : 'bg-amber-500 text-white border-amber-500') : 'hover:bg-muted')}>
                           {s.label}
                         </button>
                       ))}
-                    </div>
-                    {status !== 'ok' && (
+                    </div>}
+                    {status !== 'ok' && !noOrder && (
                       <input className={inputCls} value={r.note} onChange={e => setRow(l.id, 'note', e.target.value)}
                         placeholder={status === 'substituted' ? 'What came instead?' : 'Note (e.g. credit requested)'} />
                     )}
@@ -2456,11 +2535,16 @@ function ReceiveForm({ po, meta, onClose, onSaved }) {
                 )
               })}
             </div>
-          </section>
+          </section>}
 
-          {extras.length > 0 && (
+          {(extras.length > 0 || noOrder) && (
             <ExtrasSection po={po} extras={extras} setExtras={setExtras} prices={prices} canSetup={canSetup}
-              lineInv={lineInv} onCameInstead={cameInstead} />
+              lineInv={lineInv} onCameInstead={cameInstead} onAdd={noOrder ? () => setAdding(true) : null} />
+          )}
+          {adding && (
+            <ItemPickModal po={po} canSetup={canSetup} prices={prices} initialName="" title={`What came from ${po.supplier_name}?`}
+              newLabel={mine => (mine.length ? 'Another pack' : 'As it came packed')}
+              onClose={() => setAdding(false)} onPick={addManual} />
           )}
 
           <section className="rounded-xl border bg-background overflow-hidden">
@@ -2483,8 +2567,15 @@ function ReceiveForm({ po, meta, onClose, onSaved }) {
                 </Field>
               )}
               <Field label="Notes"><input className={inputCls} value={notes} onChange={e => setNotes(e.target.value)} /></Field>
-              <p className="text-xs text-muted-foreground">Saving records the delivery check under Food safety → Deliveries for {fmtDate(new Date().toISOString())}.</p>
-              {undecided > 0 && <p className="text-sm text-amber-800" data-testid="receive-undecided">{undecided} line{undecided === 1 ? '' : 's'} on the invoice need{undecided === 1 ? 's' : ''} a decision above.</p>}
+              <p className="text-xs text-muted-foreground">Saving records the delivery check under Food safety → Deliveries for {fmtDate(noOrder ? day : new Date().toISOString())}.</p>
+              {nothing && <p className="text-sm text-amber-800" data-testid="receive-nothing">Add what arrived{isNew ? ', or read the delivery note' : ''}.</p>}
+              {undecided > 0 && (
+                <p className="text-sm text-amber-800" data-testid="receive-undecided">
+                  {noOrder
+                    ? `${undecided} line${undecided === 1 ? '' : 's'} above ${undecided === 1 ? 'isn\'t' : 'aren\'t'} finished.`
+                    : `${undecided} line${undecided === 1 ? '' : 's'} on the invoice need${undecided === 1 ? 's' : ''} a decision above.`}
+                </p>
+              )}
               <ErrorNote error={save.error} />
             </div>
           </section>
@@ -2492,6 +2583,11 @@ function ReceiveForm({ po, meta, onClose, onSaved }) {
       </div>
     </div>
   )
+}
+
+/** A delivery booked in without a purchase order (migration 238). */
+function NoOrderBadge() {
+  return <span className="text-[11px] px-1.5 py-0.5 rounded bg-violet-100 text-violet-900 whitespace-nowrap" data-testid="no-order-badge">No order</span>
 }
 
 function NotOrderedBadge() {

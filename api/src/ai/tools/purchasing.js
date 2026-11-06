@@ -1070,6 +1070,8 @@ function poRow(p, cur) {
     ...(p.send_error ? { send_error: p.send_error } : {}),
     ...(p.sent_at ? { sent: (p.sent_via || 'sent') + (p.sent_to ? ' to ' + p.sent_to : '') } : {}),
     ...(p.supplier_ref ? { supplier_ref: p.supplier_ref } : {}),
+    // Booked in without an order (migration 238): never sent, its lines are what arrived.
+    ...(p.no_order ? { no_order: 'booked in without an order' } : {}),
     ...(p.received_at ? { delivery_check: p.delivery_accepted === false ? 'rejected' : 'accepted' } : {}),
   }
 }
@@ -1077,7 +1079,7 @@ function poRow(p, cur) {
 function poDetailView(d, cur) {
   const prices = d.show_prices
   // For the supplier's quick order on their website or app (quickOrder()).
-  const quick = quickOrder(d.lines.filter(l => !l.added_on_receipt)
+  const quick = d.no_order ? { text: '', noCode: [] } : quickOrder(d.lines.filter(l => !l.added_on_receipt)
     .map(l => ({ code: l.supplier_code, name: l.product_name || l.item_name, qty: l.qty })))
   return {
     ...poRow(d, cur),
@@ -1087,7 +1089,7 @@ function poDetailView(d, cur) {
     ...(slotText(d) ? { delivery_time: slotText(d) } : {}),
     ...(d.delivery_phone ? { delivery_phone: d.delivery_phone } : {}),
     ...(d.notes ? { notes: d.notes } : {}),
-    ...(d.created_by ? { ordered_by: d.created_by } : {}),
+    ...(d.created_by ? { [d.no_order ? 'booked_in_by' : 'ordered_by']: d.created_by } : {}),
     lines: d.lines.map(l => ({
       item: l.item_name,
       ...(l.supplier_code ? { supplier_code: l.supplier_code } : {}),
