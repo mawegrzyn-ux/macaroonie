@@ -39,6 +39,7 @@ const common = {
   tables: { [TABLE5]: { label: '5' } },
   staff: { [ANNA]: { name: 'Anna' } },
   order_types: { [EAT]: { name: 'Eat in' }, [OUT]: { name: 'Take out' }, [DEL]: { name: 'Delivery' }, [COL]: { name: 'Collection' } },
+  revenue_streams: { [RC_REST]: { name: 'Restaurant' }, [RC_TAKEAWAY]: { name: 'Takeaway' } },
 }
 
 // A simple kitchen: grill, fryer and bar, with or without a pass.
@@ -585,6 +586,28 @@ test('remake puts a dish back, priority, collected, the all-orders board', () =>
   assert.equal(boardNumbers(t.orders, at()).ready.length, 0)
   assert.equal(t.kitchen(kev('kitchen.collected', { order_id: id })).code, 'not_ready')
   assert.equal(t.bump(id, { id: ORB, kind: 'board' }).code, 'station', 'not a station of this kitchen')
+})
+
+test('order ready boards learn each order\'s revenue stream, from the till and online', () => {
+  const t = till(withExpo)
+  const id = openCounter(t, 61)
+  addAndSend(t, id, [lineOf('Wings', WINGS, FOOD)])
+  assert.equal(t.orders[id].stream, RC_TAKEAWAY)
+  assert.equal(boardNumbers(t.orders, at()).preparing[0].stream, 'Takeaway', 'a board entry names the stream')
+  t.send(ev('check.stream_set', { revenue_stream_id: RC_REST }, { check_id: id }))
+  assert.equal(t.orders[id].stream_name, 'Restaurant', 'moving the check to another stream moves its kitchen order')
+  assert.equal(boardNumbers(t.orders, at()).preparing[0].stream, 'Restaurant')
+
+  const oid = uuid()
+  const order = extra => ({
+    id: onlineOrderId(oid), order_id: oid, number: 'W20', guest: 'Jo', type: COL, type_name: 'Collection',
+    items: [{ id: uuid(), item_id: WINGS, section_id: FOOD, name: 'Wings', qty: 1, options: [] }], ...extra,
+  })
+  assert.match(kitchenEventProblem(kev('kitchen.order_in', { order: order({ stream: 'nope' }) })), /order\.stream/)
+  ok(t.kitchen(kev('kitchen.order_in', { order: order({ stream: RC_TAKEAWAY, stream_name: 'Takeaway' }) })))
+  const web = boardNumbers(t.orders, at()).preparing.find(x => x.number === 'W20')
+  assert.equal(web.stream, 'Takeaway')
+  assert.equal(web.type_name, 'Collection')
 })
 
 test('a board has nothing to bump', () => {

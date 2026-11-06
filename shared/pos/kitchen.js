@@ -118,7 +118,7 @@ export const KITCHEN_EVENTS = [...KITCHEN_DEVICE_EVENTS, ...KITCHEN_SERVER_EVENT
 export const KITCHEN_CHECK_EVENTS = [
   'lines.sent', 'course.fired', 'line.voided', 'lines.moved', 'check.merged',
   'check.table_moved', 'check.renamed', 'check.covers_set', 'check.server_changed', 'check.note_set',
-  'check.order_type_set', 'check.tent_set', 'check.allergy_set',
+  'check.order_type_set', 'check.stream_set', 'check.tent_set', 'check.allergy_set',
 ]
 
 // Order types are the tenant's own (order_types, migration 170): a kitchen
@@ -260,6 +260,8 @@ function onlineOrderProblem(o) {
   if (!optText(o.table, 20)) return 'order.table'
   if (o.type != null && !isUuid(o.type)) return 'order.type'
   if (!optText(o.type_name, 40)) return 'order.type_name'
+  if (o.stream != null && !isUuid(o.stream)) return 'order.stream'
+  if (!optText(o.stream_name, 80)) return 'order.stream_name'
   if (o.promised_at != null && !isTime(o.promised_at)) return 'order.promised_at'
   if (o.fire_at != null && !isTime(o.fire_at)) return 'order.fire_at'
   if (!optText(o.note, 500) || !optText(o.allergy, 500)) return 'order.note'
@@ -978,6 +980,10 @@ function headerFromCheck(check, cfg) {
     server: cfg.staff?.[check.server_id]?.name || null,
     type: check.order_type_id || null,
     type_name: cfg.order_types?.[check.order_type_id]?.name || null,
+    // The check's revenue stream: order ready boards can show one stream's
+    // orders, matched by name (boards are shared by every location).
+    stream: check.revenue_stream_id || null,
+    stream_name: cfg.revenue_streams?.[check.revenue_stream_id]?.name || null,
     tent: check.tent || null,
     note: check.note || null,
     // The order's allergy flag (shared/pos/allergy.js) as one line, like an online order's.
@@ -989,7 +995,7 @@ function newOrder(fields, at) {
   return {
     id: null, source: 'till', check_id: null, order_id: null,
     number: '', counter: false, board: false, table: null, tab: null, guest: null,
-    covers: null, server: null, type: null, type_name: null, tent: null, promised_at: null, note: null, allergy: null,
+    covers: null, server: null, type: null, type_name: null, stream: null, stream_name: null, tent: null, promised_at: null, note: null, allergy: null,
     priority: false, status: 'active',
     created_at: at, ready_at: null, ready_event: null, collected_at: null, cancelled_at: null, merged_into: null,
     items: [], bumps: [], changed_at: null, events: 0, updated_at: at,
@@ -1274,7 +1280,7 @@ export function kitchenForCheckEvent(e, before = {}, after = {}, orders = {}, cf
   }
   const refreshHeader = (o, c) => {
     const h = headerFromCheck(c, cfg)
-    for (const k of ['number', 'counter', 'board', 'table', 'tab', 'covers', 'server', 'type', 'type_name', 'tent', 'note', 'allergy']) o[k] = h[k]
+    for (const k of ['number', 'counter', 'board', 'table', 'tab', 'covers', 'server', 'type', 'type_name', 'stream', 'stream_name', 'tent', 'note', 'allergy']) o[k] = h[k]
   }
 
   switch (e.type) {
@@ -1577,6 +1583,7 @@ export function applyKitchenEvent(orders, e, cfg = {}) {
       id: src.id, source: sourceOfId(src.id), order_id: src.order_id, number: src.number || '',
       counter: false, board: true, guest: src.guest || null, table: src.table || null,
       type: src.type || null, type_name: src.type_name || null,
+      stream: src.stream || null, stream_name: src.stream_name || null,
       promised_at: src.promised_at || null, note: src.note || null, allergy: src.allergy || null,
     }, at)
     o.items = src.items.map(i => itemFromOnline(i, cfg, at, fireAt, src.type))
@@ -2150,7 +2157,7 @@ export function boardNumbers(orders, now, { clearMins = 10, max = 30, boardId = 
     const status = cfg ? orderStatus(o, cfg, now) : null
     return {
       id: o.id, number: o.number, name: o.guest || o.tab || null, tent: o.tent || null, table: o.table || null,
-      type_name: o.type_name || null, source: o.source, at,
+      type_name: o.type_name || null, stream: o.stream_name || null, source: o.source, at,
       ...(status ? { status: { name: status.name, text: status.text, look: status.look, colour: status.colour, anim: status.anim, lamp: status.lamp } } : {}),
     }
   }

@@ -175,12 +175,13 @@ export async function loadKitchenConfig(tx, tenantId, venueId) {
   if (!stations.some(s => KITCHEN_KINDS.includes(s.kind))) return { enabled: false, stations: {}, flow: [], flow_id: null, active_setting }
   const flows = await loadFlows(tx, tenantId, venueId)
   const active = activeFlowOf(flows, active_setting)
-  const [flow, courses, tables, staff, types, printers, layouts] = await Promise.all([
+  const [flow, courses, tables, staff, types, streams, printers, layouts] = await Promise.all([
     loadFlow(tx, tenantId, active, stations, { venueId }),
     tx`SELECT id, name, sort_order FROM pos_courses WHERE tenant_id = ${tenantId}`,
     tx`SELECT id, label FROM tables WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`,
     tx`SELECT id, name FROM cash_staff WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`,
     tx`SELECT id, name FROM order_types WHERE tenant_id = ${tenantId}`,
+    tx`SELECT id, name FROM pos_revenue_streams WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`,
     stations.some(s => s.kind === 'printer')
       ? tx`SELECT id FROM pos_printers WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND is_active`
       : [],
@@ -203,6 +204,8 @@ export async function loadKitchenConfig(tx, tenantId, venueId) {
     tables: by(tables, t => ({ label: t.label })),
     staff: by(staff, s => ({ name: s.name })),
     order_types: by(types, t => ({ name: t.name })),
+    // A kitchen order keeps its stream's name for order ready boards' filters.
+    revenue_streams: by(streams, r => ({ name: r.name })),
   }
 }
 
@@ -545,12 +548,18 @@ async function onlineSnapshot(tx, order) {
   const [type] = order.order_type_id
     ? await tx`SELECT id, name FROM order_types WHERE id = ${order.order_type_id} AND tenant_id = ${order.tenant_id}`
     : []
+  const [stream] = order.revenue_stream_id
+    ? await tx`SELECT id, name FROM pos_revenue_streams
+                WHERE id = ${order.revenue_stream_id} AND tenant_id = ${order.tenant_id} AND venue_id = ${order.venue_id}`
+    : []
   return {
     id: onlineOrderId(order.id), order_id: order.id,
     number: String(order.order_number ?? ''),
     guest: firstName(order.guest_name),
     type: type?.id || null,
     type_name: type ? String(type.name).slice(0, 40) : null,
+    stream: stream?.id || null,
+    stream_name: stream ? String(stream.name).slice(0, 80) : null,
     promised_at: order.promised_at ? new Date(order.promised_at).toISOString() : null,
     fire_at: fireAt,
     note: order.notes ? String(order.notes).slice(0, 500) : null,

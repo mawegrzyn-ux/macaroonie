@@ -101,6 +101,7 @@ export function createBench(data, { now = () => new Date().toISOString(), rng = 
       tables: by(data.tables, t => ({ label: t.label })),
       staff: {},
       order_types: by(data.order_types, t => ({ name: t.name })),
+      revenue_streams: by(data.streams, r => ({ name: r.name })),
     }
     return cfgCache
   }
@@ -226,9 +227,11 @@ export function createBench(data, { now = () => new Date().toISOString(), rng = 
       st.webNumber++
       const orderId = uuid(rng)
       const type = (data.order_types || []).find(t => t.id === typeId)
+      const stream = (data.streams || []).find(r => r.id === streamId)
       const order = {
         id: 'web-' + orderId, order_id: orderId, number: 'W' + st.webNumber, guest: clip(spec.name, 80) || 'Test guest',
-        table: null, type: typeId, type_name: type?.name || null, note: spec.note || null,
+        table: null, type: typeId, type_name: type?.name || null,
+        stream: stream?.id || null, stream_name: stream?.name || null, note: spec.note || null,
         items: lines.map((l, i) => {
           const it = items[l.item_id]
           const parts = partsOf(l)
