@@ -5,6 +5,24 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-11-06 — Kiosk banners: videos, and a shape of your own]
+
+No migration.
+
+- **A home page banner can be a video**: in the kiosk design editor (Menu card, Banners) pick **Video** on a banner, then **Pick a video** from Media. It plays with no sound, to its end, then the next banner shows; the only banner plays on a loop. An optional **still picture** shows while the video starts, and in its place when it can't play.
+- **Picture banners still show for the seconds set** under the banners (3 to 20); the setting now says it is for pictures.
+- **Set your own** banner shape beside Wide, Short, Tall and Picture's own shape: type a width and a height (for example 4 by 1, or a picture's size in pixels such as 1920 by 600). A sketch shows the shape; a shape taller than wide shows square and one thinner than 10 by 1 shows as 10 by 1. Picture's own shape now works for videos too.
+- Banner videos are kept on the kiosk like the start screen's, so they play without the internet once saved. A video banner linked to a dish adds it like a picture banner, and the frame it is showing flies into the order.
+
+## [2026-11-06 — Live kitchen view: a shorter notice, clearer words, a steadier connection]
+
+No migration.
+
+- **The orange bar now shows only as bumping goes on**: it says what bumping does for about 8 seconds, then goes (**OK** hides it sooner). The switch stays orange and every screen keeps its *Bumping on* badge while bumping is on.
+- **A link that can't bump now says why**: *Watch only: this link can't bump. Open Live view again from Store tech (with Manage) to get one that can.* Links opened before 5 November can only watch, even for an owner.
+- **The page keeps its live connection open**: it checks the connection every 25 seconds and opens a new one if it stops answering, instead of staying on *Checking every few seconds*.
+- **The server passes live connections through** for tills, kitchen screens, kiosks, menu screens and the live view (a setting added to the web server by every update). Where it was missing, devices asked every few seconds instead of hearing changes at once.
+
 ## [2026-11-05 — Bump from the live kitchen view, after a confirm]
 
 No migration.

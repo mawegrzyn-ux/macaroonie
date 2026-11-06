@@ -104,7 +104,8 @@ export function attachWss(httpServer, jwtVerify) {
     // pos/src/kitchen/Live.jsx): /ws?kitchen_live=<its signed link>. Joins the
     // venue's till room to hear that kitchen orders changed (pos.seq) and that
     // the setup changed (pos.config); the room carries signals only, and the
-    // page sends nothing but pings.
+    // page sends nothing but pings (every 25 s, answered with a pong: that
+    // keeps the link open through proxies that close quiet connections).
     const live = url.searchParams.get('kitchen_live')
     if (live) {
       const p = await readLink('kitchen_live', live).catch(() => null)
@@ -123,7 +124,8 @@ export function attachWss(httpServer, jwtVerify) {
     // menu screen of the link's venue joins its screen's rooms (board,
     // playlist and menu changes, identify, reload); a plain board only the
     // venue's screens room (kitchen.board: the numbers changed). Signals
-    // only: the frame sends nothing but pings, and reads by the same link.
+    // only: the frame only listens (a ping would be answered), and reads by
+    // the same link.
     const boardLive = url.searchParams.get('board_live')
     if (boardLive) {
       const p = await readLink('kitchen_live', boardLive).catch(() => null)

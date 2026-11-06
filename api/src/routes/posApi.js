@@ -544,7 +544,7 @@ export default async function posApiRoutes(app) {
   app.post('/kitchen-live/events', { bodyLimit: 2 * 1024 * 1024, config: { rateLimit: { max: 240, timeWindow: '1 minute' } } }, async req => {
     const p = await liveLink(req)
     if (!p.canBump) {
-      throw httpError(403, 'This live view can only watch: bumping from it needs Store tech manage. Ask someone who has it to open the live view.', { code: 'view_only' })
+      throw httpError(403, 'This live view link can only watch. Open Live view again from Store tech (with Manage) to get a link that can bump.', { code: 'view_only' })
     }
     const { screen_id: screenId, events } = LiveEvents.parse(req.body)
     // A kitchen screen of the venue as set up in Store tech, or one of its

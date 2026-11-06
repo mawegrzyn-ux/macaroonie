@@ -10,7 +10,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { RotateCcw, Globe, Plus, Home as HomeIcon, ShoppingBag, Accessibility } from 'lucide-react'
 import { checkTotals } from '@shared/pos/pricing.js'
 import { configItem, comboCtx } from '@shared/pos/offers.js'
-import { TK, basketCheck, BANNER_RATIOS } from '@shared/kiosk.js'
+import { TK, basketCheck, bannerRatio } from '@shared/kiosk.js'
 import {
   useKiosk, textsFor, kioskSections, hasHome, openSection, openBuilder, addToBasket, go, restart, setLang, setReach, soldOut, fitOf, countFor, loyaltyForOrder, itemOffNow,
   flowsNow,
@@ -122,34 +122,51 @@ function linkTo(link, config, texts, from = null) {
 const linkOn = (link, config, sections) => !link || link.kind === 'none'
   || (link.kind === 'item' ? !itemOffNow(config, link.id) : link.kind === 'section' ? sections.some(x => x.id === link.id) : true)
 
-function Banners({ banners, secs, shape, config, texts }) {
+/**
+ * The home page's banners, taking turns: a picture for the design's seconds,
+ * a video to its end, muted (on a loop when it is the only banner). A video
+ * that can't play (offline before it was saved) shows its still picture, if
+ * any, for the seconds a picture gets. The shape is the design's
+ * (bannerRatio()): with "Picture's own shape" each banner's own picture or
+ * video, measured as it loads.
+ */
+function Banners({ menu, config, texts }) {
+  const banners = menu.banners
+  const n = banners.length
+  const shape = menu.banner_shape
   const [i, setI] = useState(0)
-  // Banners the shape of their own picture: each one's width to height, once loaded.
+  // Banners the shape of their own picture or video: each one's width to height, once loaded.
   const [ratios, setRatios] = useState({})
+  const [failed, setFailed] = useState({})
+  const b = n ? banners[i % n] : null
+  const video = b?.type === 'video' && !failed[b.id]
   useEffect(() => {
-    if (banners.length < 2) return
-    const id = setInterval(() => setI(n => (n + 1) % banners.length), secs * 1000)
-    return () => clearInterval(id)
-  }, [banners.length, secs])
-  if (!banners.length) return null
-  const b = banners[i % banners.length]
+    if (!b || n < 2 || video) return undefined
+    const t = setTimeout(() => setI(x => (x + 1) % n), menu.banner_secs * 1000)
+    return () => clearTimeout(t)
+  }, [b?.id, n, video, menu.banner_secs])
+  if (!b) return null
   const title = b.title ? texts.t(TK.design(config.design.id, 'banner:' + b.id), b.title) : null
-  const own = shape === 'picture'
-  const ratio = own ? ratios[b.id] || BANNER_RATIOS.wide : BANNER_RATIOS[shape] || BANNER_RATIOS.wide
-  const measure = e => {
-    const img = e.currentTarget
-    if (img.naturalWidth && img.naturalHeight) setRatios(r => ({ ...r, [b.id]: img.naturalWidth / img.naturalHeight }))
-  }
+  const measure = shape === 'picture'
+    ? (w, h) => { if (w && h) setRatios(r => (r[b.id] === w / h ? r : { ...r, [b.id]: w / h })) }
+    : null
   return (
     <div className="flex flex-col gap-[.5em]">
-      <button className="relative block w-full max-h-[36cqh] overflow-hidden rounded-[var(--k-radius)] border-0 p-0 k-fade" key={b.id} style={{ aspectRatio: String(ratio) }}
-        onClick={e => linkTo(b.link, config, texts, e.currentTarget.querySelector('img'))} data-testid="k-banner" data-shape={shape}>
-        <FitPicture src={b.image_url} fit={b.fit} onLoad={own ? measure : undefined} />
+      <button className="relative block w-full max-h-[36cqh] overflow-hidden rounded-[var(--k-radius)] border-0 p-0 k-fade" key={b.id}
+        style={{ aspectRatio: String(bannerRatio(menu, ratios[b.id])) }}
+        onClick={e => linkTo(b.link, config, texts, e.currentTarget.querySelector('img, video'))}
+        data-testid="k-banner" data-shape={shape} data-type={b.type}>
+        {video
+          ? <FitPicture video src={b.video_url} fit={b.fit} poster={b.image_url || undefined} autoPlay muted playsInline loop={n < 2}
+              onEnded={() => setI(x => (x + 1) % n)} onError={() => setFailed(f => ({ ...f, [b.id]: true }))}
+              onLoadedMetadata={measure ? e => measure(e.currentTarget.videoWidth, e.currentTarget.videoHeight) : undefined} />
+          : b.image_url && <FitPicture src={b.image_url} fit={b.fit}
+              onLoad={measure ? e => measure(e.currentTarget.naturalWidth, e.currentTarget.naturalHeight) : undefined} />}
         {title && <span className="absolute left-0 bottom-0 m-[var(--k-gap)] k-head text-[1.5em] px-[.6em] py-[.2em] rounded-[calc(var(--k-radius)/1.5)] bg-[var(--k-accent)] text-[var(--k-accent-text)]">{title}</span>}
       </button>
-      {banners.length > 1 && (
+      {n > 1 && (
         <div className="flex justify-center gap-[.5em]">
-          {banners.map((x, j) => <button key={x.id} onClick={() => setI(j)} aria-label={String(j + 1)} className={cx('w-[1em] h-[1em] rounded-full border-0 p-0', j === i % banners.length ? 'bg-[var(--k-primary)]' : 'bg-[var(--k-line)]')} />)}
+          {banners.map((x, j) => <button key={x.id} onClick={() => setI(j)} aria-label={String(j + 1)} className={cx('w-[1em] h-[1em] rounded-full border-0 p-0', j === i % n ? 'bg-[var(--k-primary)]' : 'bg-[var(--k-line)]')} />)}
         </div>
       )}
     </div>
@@ -162,7 +179,7 @@ function Home({ config, texts, sections }) {
   const featured = m.featured.filter(f => linkOn(f.link, config, sections))
   return (
     <div className="flex flex-col gap-[var(--k-pad)]" data-testid="k-home">
-      <Banners banners={m.banners} secs={m.banner_secs} shape={m.banner_shape} config={config} texts={texts} />
+      <Banners menu={m} config={config} texts={texts} />
       {featured.length > 0 && (
         <div className="grid gap-[var(--k-gap)] grid-cols-2">
           {featured.map(f => {

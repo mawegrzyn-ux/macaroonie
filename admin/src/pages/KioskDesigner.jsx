@@ -31,7 +31,7 @@ import {
   normaliseDesign, designProblems, KIOSK_FONTS, KIOSK_EXTRA_FONTS, SYSTEM_FONT, COLOR_LABELS,
   DESIGN_COLORS, CLEAR_COLORS, CHOICE_ENTRANCES, KIOSK_LANGUAGES, DISPLAY_LABELS, KIOSK_DISPLAYS, uiText, TILE_STYLES, TILE_LABELS,
   groupLook, PART_COLORS, PART_FOLLOWS, partColours,
-  pictureFit, PICTURE_FOCUS, PICTURE_BGS, PICTURE_SIZE_MIN, BANNER_SHAPES,
+  pictureFit, PICTURE_FOCUS, PICTURE_BGS, PICTURE_SIZE_MIN, BANNER_SHAPES, BANNER_SIDE_MAX, BANNER_RATIO_MAX, bannerRatio,
   KIOSK_SCREENS, SCREEN_MIN, SCREEN_MAX, kioskZoom, kioskBox,
   DONE_MAIN, DONE_LINES, DONE_DEFAULT_LINES, doneLook, doneGaps,
 } from '@shared/kiosk.js'
@@ -175,12 +175,48 @@ const FOCUS_LABELS = {
   right: 'right', 'bottom left': 'bottom left', bottom: 'bottom', 'bottom right': 'bottom right',
 }
 const FIT_BG_LABELS = { none: 'None', surface: 'Cards', primary: 'Brand', accent: 'Highlights', text: 'Text' }
-const BANNER_SHAPE_LABELS = { wide: 'Wide', short: 'Short', tall: 'Tall', picture: 'Picture\'s own shape' }
+const BANNER_SHAPE_LABELS = { wide: 'Wide', short: 'Short', tall: 'Tall', picture: 'Picture\'s own shape', own: 'Set your own' }
 const BANNER_SHAPE_HINTS = {
   wide: 'A wide strip, 16 by 7.',
   short: 'A thin strip, 3 by 1: more of the menu shows below it.',
   tall: 'A deeper banner, 16 by 9.',
-  picture: 'Each banner the shape of its own picture, so all of it fits: banners of different shapes change height as they take turns.',
+  picture: 'Each banner the shape of its own picture or video, so all of it fits: banners of different shapes change height as they take turns.',
+  own: 'Your own width to height: any two whole numbers, like 4 by 1 for a thin strip, or a picture\'s size in pixels (1920 by 600). From square to ' + BANNER_RATIO_MAX + ' by 1.',
+}
+
+/** "3 banners (1 video, own shape 4 by 1)" and the like, for the panel's summary. */
+function bannersText(menu) {
+  const n = menu.banners.length
+  const videos = menu.banners.filter(b => b.type === 'video').length
+  const parts = []
+  if (videos) parts.push(videos + (videos === 1 ? ' video' : ' videos'))
+  if (n && menu.banner_shape === 'own') parts.push('own shape ' + menu.banner_ratio.w + ' by ' + menu.banner_ratio.h)
+  else if (n && menu.banner_shape !== 'wide') parts.push(BANNER_SHAPE_LABELS[menu.banner_shape].toLowerCase())
+  return n + (n === 1 ? ' banner' : ' banners') + (parts.length ? ' (' + parts.join(', ') + ')' : '')
+}
+
+/** Set your own: the banner's width and height, with a sketch of the shape it makes. */
+function BannerRatioEdit({ menu, onChange }) {
+  const r = menu.banner_ratio
+  const ratio = bannerRatio(menu)
+  const typed = r.w / r.h
+  return (
+    <div className="mt-2 space-y-2" data-testid="kd-banner-ratio">
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="text-xs font-medium inline-flex items-center gap-2">Width
+          <NumberBox value={r.w} min={1} max={BANNER_SIDE_MAX} onChange={v => onChange({ ...r, w: v ?? r.w })} ariaLabel="Banner width" className="w-24" />
+        </label>
+        <span className="text-xs text-muted-foreground">by</span>
+        <label className="text-xs font-medium inline-flex items-center gap-2">Height
+          <NumberBox value={r.h} min={1} max={BANNER_SIDE_MAX} onChange={v => onChange({ ...r, h: v ?? r.h })} ariaLabel="Banner height" className="w-24" />
+        </label>
+        <span className="rounded-md border-2 border-dashed border-primary/60 bg-primary/5 shrink-0" style={{ width: 120, aspectRatio: String(ratio) }}
+          aria-hidden="true" data-testid="kd-banner-ratio-sketch" />
+      </div>
+      {typed < 1 && <p className="text-[11px] text-amber-800" data-testid="kd-banner-ratio-note">A banner can&apos;t be taller than it is wide: this one shows square.</p>}
+      {typed > BANNER_RATIO_MAX && <p className="text-[11px] text-amber-800" data-testid="kd-banner-ratio-note">A banner is at most {BANNER_RATIO_MAX} times as wide as it is high: this one shows {BANNER_RATIO_MAX} by 1.</p>}
+    </div>
+  )
 }
 
 /** "Whole picture, 80%, top" and the like. */
@@ -568,30 +604,61 @@ function LanguagesPanel({ d, set }) {
 }
 
 function BannerList({ items, onChange, setup, venueName, locked, colors }) {
+  // The banner whose video is being picked from Media.
+  const [picking, setPicking] = useState(null)
   const patch = (id, p) => onChange(items.map(x => (x.id === id ? { ...x, ...p } : x)))
   return (
     <div className="space-y-2">
       {items.length > 0 && (
         <SortableRows items={items} locked={locked} onReorder={ids => onChange(ids.map(id => items.find(x => x.id === id)))}
-          renderItem={b => (
-            <div className="space-y-2 py-1" data-testid="kd-banner">
-              <div className="flex items-center gap-2">
-                <ImagePick value={b.image_url || null} onChange={v => patch(b.id, { image_url: v })} />
-                <span className="flex-1" />
-                {!locked && <IconBtn onClick={() => onChange(items.filter(x => x.id !== b.id))} title="Remove this banner"><X className="w-4 h-4" /></IconBtn>}
+          renderItem={b => {
+            const video = b.type === 'video'
+            return (
+              <div className="space-y-2 py-1" data-testid="kd-banner" data-type={video ? 'video' : 'image'}>
+                <div className="flex items-center gap-2">
+                  <div data-testid="kd-banner-type">
+                    <Segmented value={video ? 'video' : 'image'} onChange={v => patch(b.id, { type: v })} disabled={locked}
+                      options={[{ value: 'image', label: 'Picture' }, { value: 'video', label: 'Video' }]} />
+                  </div>
+                  <span className="flex-1" />
+                  {!locked && <IconBtn onClick={() => onChange(items.filter(x => x.id !== b.id))} title="Remove this banner"><X className="w-4 h-4" /></IconBtn>}
+                </div>
+                {video ? (
+                  <>
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <Thumb url={b.video_url} video />
+                      {!locked && (
+                        <Btn onClick={() => setPicking(b.id)} data-testid="kd-banner-video">
+                          <Video className="w-4 h-4" /> {b.video_url ? 'Change the video' : 'Pick a video'}
+                        </Btn>
+                      )}
+                    </div>
+                    {!b.video_url && <p className="text-[11px] text-amber-800">Not shown or saved until it has a video.</p>}
+                    <ImagePick value={b.image_url || null} onChange={v => patch(b.id, { image_url: v })} label="still picture" testId="kd-banner-still" />
+                    <p className="text-[11px] text-muted-foreground">The still picture is optional: it shows while the video starts, and if the video can&apos;t play. Videos play to their end with no sound.</p>
+                  </>
+                ) : (
+                  <>
+                    <ImagePick value={b.image_url || null} onChange={v => patch(b.id, { image_url: v })} />
+                    {!b.image_url && <p className="text-[11px] text-amber-800">Not shown or saved until it has a picture.</p>}
+                  </>
+                )}
+                <input className={inputCls} maxLength={80} value={b.title || ''} placeholder={video ? 'Words over the video (optional)' : 'Words over the picture (optional)'} aria-label="Banner words"
+                  onChange={e => patch(b.id, { title: e.target.value })} />
+                <LinkSelect value={b.link} onChange={link => patch(b.id, { link })} setup={setup} venueName={venueName} />
+                <PictureFit value={b.fit} onChange={fit => patch(b.id, { fit })} colors={colors} testId="kd-banner-fit" />
               </div>
-              {!b.image_url && <p className="text-[11px] text-amber-800">Not shown or saved until it has a picture.</p>}
-              <input className={inputCls} maxLength={80} value={b.title || ''} placeholder="Words over the picture (optional)" aria-label="Banner words"
-                onChange={e => patch(b.id, { title: e.target.value })} />
-              <LinkSelect value={b.link} onChange={link => patch(b.id, { link })} setup={setup} venueName={venueName} />
-              <PictureFit value={b.fit} onChange={fit => patch(b.id, { fit })} colors={colors} testId="kd-banner-fit" />
-            </div>
-          )} />
+            )
+          }} />
       )}
       {!locked && items.length < 10 && (
-        <Btn onClick={() => onChange([...items, { id: newId('b'), image_url: null, title: '', link: { kind: 'none', id: null } }])}>
+        <Btn onClick={() => onChange([...items, { id: newId('b'), type: 'image', image_url: null, video_url: null, title: '', link: { kind: 'none', id: null } }])}>
           <Plus className="w-4 h-4" /> Add a banner
         </Btn>
+      )}
+      {picking && (
+        <MediaLibraryModal open mode="picker" kind="video" scope="kiosk" onClose={() => setPicking(null)}
+          onPick={url => { patch(picking, { video_url: url }); setPicking(null) }} />
       )}
     </div>
   )
@@ -824,17 +891,25 @@ function MenuPanel({ s, d, set, setup, venueName, canManage }) {
         checked={m.home} onChange={v => set('menu', { home: v })} />
       {m.home && (
         <>
-          <Field group label="Banners" hint="Wide pictures at the top of the home page, taking turns. Up to 10. Fit, under each, says how its picture fills the banner.">
+          <Field group label="Banners" hint="Pictures or videos at the top of the home page, taking turns: a picture for the seconds set below, a video to its end with no sound. Up to 10. Fit, under each, says how it fills the banner.">
             <BannerList items={s.menu.banners || []} onChange={banners => set('menu', { banners })} setup={setup} venueName={venueName} locked={!canManage} colors={d.brand.colors} />
           </Field>
           {m.banners.length > 0 && (
             <Field group label="Banner shape" hint={BANNER_SHAPE_HINTS[m.banner_shape] + ' A banner is never more than a third of the screen high: on a wide screen that is usually what decides.'}>
-              <Segmented value={m.banner_shape} onChange={v => set('menu', { banner_shape: v })}
-                options={BANNER_SHAPES.map(k => ({ value: k, label: BANNER_SHAPE_LABELS[k] }))} />
+              <div className="flex flex-wrap gap-1.5" role="group" aria-label="Banner shape" data-testid="kd-banner-shape">
+                {BANNER_SHAPES.map(k => (
+                  <button key={k} type="button" aria-pressed={m.banner_shape === k} onClick={() => set('menu', { banner_shape: k })} data-shape={k}
+                    className={cn('h-11 px-3 rounded-lg border text-sm font-medium touch-manipulation',
+                      m.banner_shape === k ? 'bg-primary text-primary-foreground border-primary' : 'bg-background hover:bg-muted')}>
+                    {BANNER_SHAPE_LABELS[k]}
+                  </button>
+                ))}
+              </div>
+              {m.banner_shape === 'own' && <BannerRatioEdit menu={m} onChange={banner_ratio => set('menu', { banner_ratio })} />}
             </Field>
           )}
-          <Field label="Each banner shows for (seconds)">
-            <NumberBox value={m.banner_secs} min={3} max={20} onChange={v => set('menu', { banner_secs: v })} ariaLabel="Seconds per banner" />
+          <Field label="Each picture banner shows for (seconds)" hint="A video banner plays to its end (on a loop when it is the only banner).">
+            <NumberBox value={m.banner_secs} min={3} max={20} onChange={v => set('menu', { banner_secs: v })} ariaLabel="Seconds per picture banner" />
           </Field>
           <Field group label="Featured tiles" hint="Pictures with words under the banners, e.g. a deal or a new dish. Up to 12.">
             <FeaturedList items={s.menu.featured || []} onChange={featured => set('menu', { featured })} setup={setup} venueName={venueName} locked={!canManage} colors={d.brand.colors} />
@@ -1692,7 +1767,7 @@ function summaryOf(id, d) {
   if (id === 'screen') return d.screen.short + ' x ' + d.screen.long + (d.screen.shape === 'keep' ? ', keeps its shape' + (d.screen.bars === 'page' ? ' (page colour bars)' : '') : ', fills any screen')
   if (id === 'start') return (d.start.media.length ? d.start.media.length + ' picture' + (d.start.media.length === 1 ? '' : 's') : 'No pictures') + ', ' + (d.start.layout === 'full' ? 'pictures behind' : 'pictures apart')
   if (id === 'languages') return d.languages.enabled.map(c => KIOSK_LANGUAGES.find(l => l.code === c)?.name).join(', ')
-  if (id === 'menu') return TILE_LABELS[d.layout.tiles] + ', ' + (d.menu.rail === 'none' ? 'section tiles, ' : '') + (d.menu.home ? d.menu.banners.length + ' banners' + (d.menu.banners.length && d.menu.banner_shape !== 'wide' ? ' (' + BANNER_SHAPE_LABELS[d.menu.banner_shape].toLowerCase() + ')' : '') + ', ' + d.menu.featured.length + ' tiles' : 'No home page') + (d.menu.hidden_section_ids.length ? ', ' + d.menu.hidden_section_ids.length + ' sections left off' : '')
+  if (id === 'menu') return TILE_LABELS[d.layout.tiles] + ', ' + (d.menu.rail === 'none' ? 'section tiles, ' : '') + (d.menu.home ? bannersText(d.menu) + ', ' + d.menu.featured.length + ' tiles' : 'No home page') + (d.menu.hidden_section_ids.length ? ', ' + d.menu.hidden_section_ids.length + ' sections left off' : '')
   if (id === 'choices') return DISPLAY_LABELS[d.options.display] + ', ' + TILE_LABELS[d.layout.option_tiles].toLowerCase() + (d.layout.option_pictures ? '' : ', words only') + (d.layout.option_align === 'center' ? ', centred' : '') + (d.options.wheel_spin_picks ? ', a spin picks' : '') + (d.options.entrance !== 'none' ? ', ' + CHOICE_ENTRANCES.find(x => x.key === d.options.entrance).label.toLowerCase() : '')
     + (d.options.group_looks.length ? ', ' + d.options.group_looks.length + ' option group' + (d.options.group_looks.length === 1 ? '' : 's') + ' their own way' : '')
   if (id === 'checkout') return [d.checkout.pay_card && 'Card', d.checkout.pay_counter && 'At the counter'].filter(Boolean).join(' and ') || 'No way to pay'

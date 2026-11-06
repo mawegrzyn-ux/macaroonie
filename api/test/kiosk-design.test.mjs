@@ -260,6 +260,46 @@ test('picture fit: banners, featured tiles, start and reach pictures keep how th
   assert.equal(old.menu.banner_shape, 'wide')
 })
 
+test('video banners and the design\'s own banner shape round trip; a copy and the kiosk get them', async () => {
+  const before = (await ok(owner.get('/api/pos/kiosk-designs'))).find(d => d.id === design.id).settings
+  const saved = await ok(owner.put(`/api/pos/kiosk-designs/${design.id}`, { name: design.name, settings: {
+    ...before,
+    menu: { ...before.menu, home: true, banner_shape: 'own', banner_ratio: { w: 1920, h: 600 },
+      banners: [
+        { id: 'v1', type: 'video', video_url: '/uploads/wings.mp4', image_url: '/uploads/wings-still.jpg', title: 'Wings', fit: { mode: 'cover', focus: 'top' } },
+        { id: 'p1', type: 'image', image_url: '/uploads/deal.jpg', video_url: '/uploads/left-over.mp4' },
+        { id: 'v2', type: 'video', image_url: '/uploads/no-video.jpg' },
+      ] },
+  } }))
+  const m = saved.settings.menu
+  assert.deepEqual(m.banners.map(b => [b.id, b.type, b.video_url, b.image_url]), [
+    ['v1', 'video', '/uploads/wings.mp4', '/uploads/wings-still.jpg'],
+    ['p1', 'image', null, '/uploads/deal.jpg'],
+  ], 'a video banner keeps its video and still; a picture keeps no video; a video banner without a video is left out')
+  assert.deepEqual(m.banners[0].fit, { mode: 'cover', focus: 'top', size: 100, bg: 'none' })
+  assert.equal(m.banner_shape, 'own')
+  assert.deepEqual(m.banner_ratio, { w: 1920, h: 600 })
+  const copy = await ok(owner.post('/api/pos/kiosk-designs', { name: 'Video banners', copy_from: design.id }))
+  assert.equal(copy.settings.menu.banners[0].video_url, '/uploads/wings.mp4')
+  assert.deepEqual(copy.settings.menu.banner_ratio, { w: 1920, h: 600 })
+  const link = await ok(owner.post(`/api/pos/kiosk-designs/${design.id}/preview`, { venue_id: mine.ids.venue }))
+  const cfg = (await preview(link.token)).json
+  assert.equal(cfg.design.menu.banners[0].type, 'video', 'the kiosk gets the video banner')
+  assert.equal(cfg.design.menu.banners[0].video_url, '/uploads/wings.mp4')
+  assert.equal(cfg.design.menu.banner_shape, 'own')
+  assert.deepEqual(cfg.design.menu.banner_ratio, { w: 1920, h: 600 })
+  // Nonsense numbers come back as whole numbers in range.
+  const bad = await ok(owner.put(`/api/pos/kiosk-designs/${design.id}`, { name: design.name, settings: { ...saved.settings, menu: { ...saved.settings.menu, banner_ratio: { w: -4, h: 'tall' } } } }))
+  assert.deepEqual(bad.settings.menu.banner_ratio, { w: 1, h: 7 })
+  // A design saved before videos: its banners read as pictures, the shape wide, 16 by 7 ready for Set your own.
+  await sql`UPDATE kiosk_designs SET settings = jsonb_set(settings #- '{menu,banner_ratio}' #- '{menu,banner_shape}', '{menu,banners}', '[{"id":"b9","image_url":"/uploads/old.jpg"}]') WHERE id = ${design.id}`
+  const old = (await ok(owner.get('/api/pos/kiosk-designs'))).find(d => d.id === design.id).settings.menu
+  assert.equal(old.banners[0].type, 'image')
+  assert.equal(old.banners[0].video_url, null)
+  assert.equal(old.banner_shape, 'wide')
+  assert.deepEqual(old.banner_ratio, { w: 16, h: 7 })
+})
+
 test('the screen a design is made for: size, shape and bars round trip, cleaned; a copy and the kiosk get it', async () => {
   const before = (await ok(owner.get('/api/pos/kiosk-designs'))).find(d => d.id === design.id).settings
   assert.deepEqual(before.screen, { short: 1080, long: 1920, shape: 'keep', bars: 'black' }, 'a design saved before has the Full HD kiosk')

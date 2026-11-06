@@ -359,9 +359,35 @@ export const PICTURE_FOCUS = ['top left', 'top', 'top right', 'left', 'center', 
 export const PICTURE_BGS = ['none', 'surface', 'primary', 'accent', 'text']
 export const PICTURE_SIZE_MIN = 30
 // A home page banner's shape (menu.banner_shape): width to height, or
-// 'picture', each banner the shape of its own picture.
-export const BANNER_SHAPES = ['wide', 'short', 'tall', 'picture']
+// 'picture', each banner the shape of its own picture or video, or 'own',
+// the design's own width to height (menu.banner_ratio { w, h }: any two
+// whole numbers, e.g. 4 by 1 or 1920 by 600), kept between
+// BANNER_RATIO_MIN (square) and BANNER_RATIO_MAX. bannerRatio() decides.
+export const BANNER_SHAPES = ['wide', 'short', 'tall', 'picture', 'own']
 export const BANNER_RATIOS = { wide: 16 / 7, short: 3, tall: 16 / 9 }
+export const BANNER_RATIO_MIN = 1
+export const BANNER_RATIO_MAX = 10
+export const BANNER_SIDE_MAX = 10000
+// What a banner shows (its type): a picture, or a video playing to its end
+// with no sound (its image_url, if any, the still shown until it plays and
+// if it can't).
+export const BANNER_TYPES = ['image', 'video']
+
+/**
+ * A home page banner's width to height (menu: the design's menu): its
+ * shape's, the design's own (clamped), or with 'picture' the banner's own
+ * picture's or video's, `measured` once it has loaded (wide until then).
+ */
+export function bannerRatio(menu, measured) {
+  const shape = menu?.banner_shape
+  if (shape === 'own') {
+    const w = Number(menu?.banner_ratio?.w)
+    const h = Number(menu?.banner_ratio?.h)
+    return w > 0 && h > 0 ? Math.max(BANNER_RATIO_MIN, Math.min(BANNER_RATIO_MAX, w / h)) : BANNER_RATIOS.wide
+  }
+  if (shape === 'picture') return measured > 0 ? measured : BANNER_RATIOS.wide
+  return BANNER_RATIOS[shape] || BANNER_RATIOS.wide
+}
 
 export function pictureFit(v) {
   const x = v && typeof v === 'object' ? v : {}
@@ -586,10 +612,19 @@ export function normaliseDesign(raw) {
     languages: { source, enabled: enabled.slice(0, LANG_CODES.length) },
     menu: {
       home: m.home !== false,
-      banners: asList(m.banners).map((x, i) => ({ id: shortId(x?.id, i), image_url: url(x?.image_url), title: text(x?.title, 80), link: link(x?.link), fit: pictureFit(x?.fit) }))
-        .filter(x => x.image_url).slice(0, MAX.banners),
+      // A picture (image_url) or a video (video_url, image_url its still);
+      // one without what it shows is left out.
+      banners: asList(m.banners).map((x, i) => {
+        const type = oneOf(x?.type, BANNER_TYPES, 'image')
+        return {
+          id: shortId(x?.id, i), type, image_url: url(x?.image_url), video_url: type === 'video' ? url(x?.video_url) : null,
+          title: text(x?.title, 80), link: link(x?.link), fit: pictureFit(x?.fit),
+        }
+      }).filter(x => (x.type === 'video' ? x.video_url : x.image_url)).slice(0, MAX.banners),
+      // How long a picture banner shows; a video banner plays to its end.
       banner_secs: num(m.banner_secs, 3, 20, 5),
       banner_shape: oneOf(m.banner_shape, BANNER_SHAPES, 'wide'),
+      banner_ratio: { w: num(m.banner_ratio?.w, 1, BANNER_SIDE_MAX, 16), h: num(m.banner_ratio?.h, 1, BANNER_SIDE_MAX, 7) },
       featured: asList(m.featured).map((x, i) => ({
         id: shortId(x?.id, i), image_url: url(x?.image_url), title: text(x?.title, 60), subtitle: text(x?.subtitle, 80),
         size: oneOf(x?.size, ['normal', 'wide'], 'normal'), link: link(x?.link), fit: pictureFit(x?.fit),
@@ -1027,22 +1062,25 @@ export function configImages(config, origin) {
   return [...out].slice(0, MAX_SAVED_PICTURES)
 }
 
-// Every video a design can hold (8 start screen, 4 reach band).
-export const MAX_SAVED_VIDEOS = 12
+// Every video a design can hold (8 start screen, 4 reach band, 10 banners).
+export const MAX_SAVED_VIDEOS = 22
 
 /**
- * The videos a kiosk design plays (start screen and the reach band), for
- * keeping them on the device (pos/src/kiosk/photos.js, the kiosk-videos
- * cache): absolute URLs on the kiosk's own origin only, each once, in the
- * design's order, at most MAX_SAVED_VIDEOS.
+ * The videos a kiosk design plays (start screen, the reach band and the
+ * home page's banners), for keeping them on the device
+ * (pos/src/kiosk/photos.js, the kiosk-videos cache): absolute URLs on the
+ * kiosk's own origin only, each once, in the design's order, at most
+ * MAX_SAVED_VIDEOS.
  */
 export function configVideos(config, origin) {
   const out = new Set()
   const d = config?.design
-  for (const m of [...(d?.start?.media || []), ...(d?.behaviour?.reach_media || [])]) {
-    if (m?.type !== 'video' || typeof m.url !== 'string' || !m.url) continue
+  const list = [...(d?.start?.media || []), ...(d?.behaviour?.reach_media || [])].filter(m => m?.type === 'video').map(m => m.url)
+  for (const b of d?.menu?.banners || []) if (b?.type === 'video') list.push(b.video_url)
+  for (const u of list) {
+    if (typeof u !== 'string' || !u) continue
     let url
-    try { url = new URL(m.url, origin) } catch { continue }
+    try { url = new URL(u, origin) } catch { continue }
     if (url.origin === origin) out.add(url.href)
   }
   return [...out].slice(0, MAX_SAVED_VIDEOS)
