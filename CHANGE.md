@@ -5,6 +5,16 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-11-06 — Till layouts: a category's dishes zone, and dishes left out]
+
+No migration.
+
+- **A category's dishes**, a new zone in the till layout designer (Store tech → Till layouts → Add a zone): the dishes of one category you pick, always on screen whatever the Categories zone shows. Put a Drinks zone beside the dishes, a Sides zone under them; up to eight in a layout.
+- Its panel lists the category's dishes: tap one to leave it out of that zone (crossed out), tap again to put it back, or **Show them all**. Picking another category starts with every dish shown. Prices on the buttons on or off, and the usual grid, text, words and overflow settings.
+- **Dishes left out** of the Dishes zone too: pick dishes it should never show, its search included. A dish left out stays on the menu everywhere else (other zones, dish buttons, kiosks, online).
+- The zone list names a category zone after its category (Dishes: Drinks); one with no category yet has an amber note. The canvas preview leaves out the dishes left out.
+- A layout can now hold 32 zones (24 before), so every zone type fits at its most.
+
 ## [2026-11-06 — Purchasing: book in a delivery without an order]
 
 Migration 238.

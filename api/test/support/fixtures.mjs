@@ -463,11 +463,13 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx', loy
     await step('print design words', () => put(`/api/pos/print-designs/${printDesign.id}/variations/${V}`, { texts: { tx: { text: mark + ' Ware words' } }, hidden: [] }))
   }
   // A till layout (migration 228) naming a section, a dish, a discount and a charge of the
-  // tenant's, used by Ware's tills and by the till itself.
+  // tenant's, used by Ware's tills and by the till itself; its Dishes zone leaves the dish
+  // out and a category's dishes zone under it shows the section, the dish left out too.
   const tillLayout = await step('till layout', () => post('/api/pos/till-layouts', { name: mark + ' Counter screen', template: 'quick' }))
   if (tillLayout) {
     const zones = tillLayout.layout.zones.map(z => {
       if (z.type === 'categories' && menuSection) return { ...z, sections: [menuSection.id] }
+      if (z.type === 'items' && menuSection) return { ...z, h: z.h - 2, hide_item_ids: dish ? [dish.id] : [] }
       if (z.type === 'buttons') {
         return {
           ...z,
@@ -481,6 +483,10 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx', loy
       }
       return z
     })
+    const dishes = zones.find(z => z.type === 'items')
+    if (menuSection && dishes) {
+      zones.push({ id: 'fx-category', type: 'category', x: dishes.x, y: dishes.y + dishes.h, w: dishes.w, h: 2, section_id: menuSection.id, hide_item_ids: dish ? [dish.id] : [] })
+    }
     await step('till layout zones', () => put(`/api/pos/till-layouts/${tillLayout.id}`, { name: mark + ' Counter screen', layout: { ...tillLayout.layout, zones } }))
     await step('venue till layout', () => patch(`/api/pos/venues/${V}/settings`, { till_layout_id: tillLayout.id }))
     if (tillDevice?.device) {

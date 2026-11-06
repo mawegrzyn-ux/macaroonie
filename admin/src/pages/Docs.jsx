@@ -4370,8 +4370,27 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               false = off on the tills; those never show in the zone or its preview).
             </P>
             <P>
+              A category&apos;s dishes zone (type <Mono>category</Mono>, up to 8 per layout, 6 Nov 2026) is a grid zone
+              (<Mono>GRID_DEFAULTS.category</Mono> 4 x 2, scroll, words top left) with <Mono>section_id</Mono> (a menu
+              section, null until picked: warning <Mono>category_unset</Mono>) and <Mono>price</Mono> (default true); it
+              counts as a way to find dishes for <Mono>no_dishes</Mono>. It and the Dishes zone (<Mono>items</Mono>) carry{' '}
+              <Mono>hide_item_ids</Mono> (dish ids, unique, at most <Mono>MAX_HIDDEN</Mono> 300): dishes left out of that zone
+              only. <Mono>shownDishIds(zone, ids)</Mono> is the one rule (the list without them, in its order), used by the
+              till&apos;s <Mono>CategoryZone</Mono> and the designer&apos;s preview; the till&apos;s <Mono>ItemsZone</Mono>{' '}
+              skips them in its own walk so its search leaves them out too. <Mono>ownLayout()</Mono> keeps a category zone&apos;s{' '}
+              <Mono>section_id</Mono> only when it is the company&apos;s (else null) and <Mono>hide_item_ids</Mono> only the
+              company&apos;s dishes; <Mono>layoutIds()</Mono> lists both so <Mono>ownTillLayout()</Mono> looks them up. On the
+              till <Mono>CategoryZone</Mono> (<Mono>zone-category</Mono>) finds the section on the menus shown now, else on
+              any of the till&apos;s menus (<Mono>tillMenus</Mono>), and shows it empty with a note when neither has it. The
+              designer: <Mono>CategoryZoneOptions</Mono> (<Mono>tl-category-section</Mono>, a select by menu; changing it
+              clears <Mono>hide_item_ids</Mono>; <Mono>tl-category-dish</Mono> chips with <Mono>aria-pressed</Mono>,{' '}
+              <Mono>tl-category-show-all</Mono>), <Mono>LeftOutDishes</Mono> for the Dishes zone (<Mono>tl-left-out</Mono>,{' '}
+              <Mono>tl-left-out-dish</Mono>, <Mono>tl-leave-out</Mono>), <Mono>zoneName()</Mono> giving Dishes: and the
+              section&apos;s title.
+            </P>
+            <P>
               Pop-ups (type <Mono>popup</Mono>, up to 8 per layout, 1 Nov 2026; <Mono>MAX_ZONES</Mono> went to 24 so every
-              zone type at its most fits) are zones with buttons like a Buttons zone (the same <Mono>buttons</Mono>, grid and
+              zone type at its most fits, and to 32 with the category&apos;s dishes zone) are zones with buttons like a Buttons zone (the same <Mono>buttons</Mono>, grid and
               words settings; <Mono>GRID_DEFAULTS.popup</Mono> 3 x 2 in pages), plus <Mono>title</Mono> (default Pop-up),{' '}
               <Mono>frame</Mono> (border and shadow, default true), <Mono>controls</Mono> (a bar with the title and an X,
               default true), <Mono>close_outside</Mono> (default true) and <Mono>close_on_tap</Mono> (default false). They
