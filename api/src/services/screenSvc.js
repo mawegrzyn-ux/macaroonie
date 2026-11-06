@@ -221,6 +221,14 @@ export async function designerData(tx, tenantId, { version = 'live', venueId = n
     order_statuses: orderStatuses(await tx`
       SELECT id, name, kind, settings FROM kds_stations
        WHERE tenant_id = ${tenantId} AND kind = 'setter' AND is_active ORDER BY created_at`),
+    // What an Order status block can show only some of (orderFilter()): the
+    // order types, and the revenue streams by name across the locations.
+    order_types: (await tx`
+      SELECT name FROM order_types WHERE tenant_id = ${tenantId} AND is_active ORDER BY sort_order, name`).map(r => r.name),
+    order_streams: (await tx`
+      SELECT min(trim(name)) AS name FROM pos_revenue_streams
+       WHERE tenant_id = ${tenantId} AND is_active
+       GROUP BY lower(trim(name)) ORDER BY 1`).map(r => r.name),
   }
 }
 

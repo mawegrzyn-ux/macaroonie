@@ -7,7 +7,7 @@ import assert from 'node:assert/strict'
 import {
   normalizeBoard, boardMenuIds, boardContext, renderBoardHtml, renderBlockInner, boardOnAt, itemsOnAt,
   formatPrice, dishPriceText, dishOptionLabels, localParts, clockText, boardFonts, screenFontsUrl, withAlpha,
-  orderChanges, keepOrderChanges, orderBoardData, ORDER_CHANGE_KEEP_MS,
+  orderChanges, keepOrderChanges, orderBoardData, ORDER_CHANGE_KEEP_MS, orderShow, orderFilter,
 } from '../screenLayout.js'
 
 const MENU = {
@@ -281,6 +281,64 @@ test('order status: one board by name, changes animate in and out, layout and co
     width: 1920, height: 1080, now: new Date(at), orders: { ...after, changes: changes.map(c => ({ ...c, at: at + 0.6 })) },
   }))
   assert.match(sameMs, /sl-onum is-ready sl-och-in" data-main="number"><span class="sl-otext"><span class="sl-oval">41/, 'a draw in the same millisecond still animates')
+})
+
+test('order status: one column or both, and only some order types and revenue streams', () => {
+  const at = Date.parse('2026-11-06T12:00:00Z')
+  const n = (id, number, type_name, stream) => ({ id, number, type_name, stream, at: new Date(at - 60_000).toISOString() })
+  const orders = {
+    preparing: [n('a', '41', 'Eat in', 'Restaurant'), n('b', '42', 'Take out', 'Takeaway'), n('c', '43', 'Delivery', null)],
+    ready: [n('d', '40', 'Take out', 'Takeaway'), n('e', '39', 'Eat in', 'Bar')],
+  }
+  const block = opts => ({ id: 'o1', type: 'order_status', x: 0, y: 0, w: 1, h: 1, opts })
+  const layout = opts => normalizeBoard({ width: 1920, height: 1080, blocks: [block(opts)] }, 1920, 1080)
+  const draw = (opts, extra = {}) => renderBlockInner(layout(opts).blocks[0], boardContext(layout(opts), {
+    width: 1920, height: 1080, now: new Date(at), orders: { ...orders, ...extra },
+  }))
+  const numbers = (html, col) => [...(html.split('sl-ocol ' + col)[1] || '').split('sl-ocol')[0].matchAll(/sl-oval">(\d+)/g)].map(m => m[1])
+
+  assert.equal(orderShow({}), 'both')
+  assert.equal(orderShow({ show: 'ready' }), 'ready')
+  assert.equal(orderShow({ show: 'nonsense' }), 'both')
+  const both = draw({})
+  assert.match(both, /data-show="both"/)
+  assert.ok(both.includes('is-prep') && both.includes('is-ready'))
+  assert.doesNotMatch(both, /is-one/)
+  const prepOnly = draw({ show: 'preparing', change_anim: 'float' })
+  assert.match(prepOnly, /sl-orders[^"]*is-one[^"]*sl-och-float"/, 'one column: a float fades instead (is-one)')
+  assert.ok(prepOnly.includes('sl-ocol is-prep') && !prepOnly.includes('sl-ocol is-ready'), 'preparing only')
+  const readyOnly = draw({ show: 'ready' })
+  assert.ok(readyOnly.includes('sl-ocol is-ready') && !readyOnly.includes('sl-ocol is-prep'), 'ready only')
+  assert.deepEqual(numbers(readyOnly, 'is-ready'), ['40', '39'])
+
+  assert.equal(orderFilter({}), null, 'nothing picked: no filter')
+  assert.equal(orderFilter({ filter_types: [' ', null], filter_streams: [] }), null)
+  const types = draw({ filter_types: ['take out', 'Delivery'] })
+  assert.deepEqual(numbers(types, 'is-prep'), ['42', '43'], 'order types by name, any case')
+  assert.deepEqual(numbers(types, 'is-ready'), ['40'])
+  const streams = draw({ filter_streams: [' TAKEAWAY '] })
+  assert.deepEqual(numbers(streams, 'is-prep'), ['42'], 'an order with no stream never matches a stream')
+  const bothFilters = draw({ filter_types: ['Eat in'], filter_streams: ['Bar', 'Takeaway'] })
+  assert.deepEqual([numbers(bothFilters, 'is-prep'), numbers(bothFilters, 'is-ready')], [[], ['39']], 'both picked: both must match')
+  const capped = draw({ filter_types: ['Delivery'], max: 1 })
+  assert.deepEqual(numbers(capped, 'is-prep'), ['43'], 'most shown counts the orders shown, after the filter')
+
+  // A number leaving the board fades out only if the board shows its kind.
+  const changes = [{ key: '', at, prep_in: [], ready_in: [], prep_out: [{ ...n('x', '38', 'Eat in', 'Restaurant'), index: 0 }], ready_out: [] }]
+  const fadeEat = draw({ filter_types: ['Eat in'], change_anim: 'fade' }, { changes })
+  const fadeOut = draw({ filter_types: ['Take out'], change_anim: 'fade' }, { changes })
+  assert.match(fadeEat, /sl-och-out[^>]*><span class="sl-otext"><span class="sl-oval">38/)
+  assert.doesNotMatch(fadeOut, /sl-oval">38/)
+
+  // The designer's example numbers take the order types picked.
+  const sample = renderBlockInner(layout({ filter_types: ['Delivery'], tile_lines: ['type'] }).blocks[0],
+    boardContext(layout({ filter_types: ['Delivery'], tile_lines: ['type'] }), { width: 1920, height: 1080 }))
+  assert.match(sample, /is-sample/)
+  const sampleTypes = [...sample.matchAll(/data-k="type">([^<]+)/g)].map(m => m[1])
+  assert.ok(sampleTypes.length >= 5 && sampleTypes.every(t => t === 'Delivery'), sampleTypes.join())
+  const streamSample = renderBlockInner(layout({ filter_streams: ['Drive thru'] }).blocks[0],
+    boardContext(layout({ filter_streams: ['Drive thru'] }), { width: 1920, height: 1080 }))
+  assert.equal([...streamSample.matchAll(/sl-oval">/g)].length, 5, 'the example numbers still show with a stream picked')
 })
 
 test('order status tiles show the fields picked: a big value and lines under it', () => {

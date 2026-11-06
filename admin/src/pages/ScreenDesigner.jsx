@@ -39,6 +39,7 @@ import {
   BLOCK_TYPES, BLOCK_LABELS, BLOCK_HINTS, BLOCK_DEFAULTS, BOARD_SIZES, SCREEN_FONT_OPTIONS, ANIM_IN, ANIM_LOOP,
   normalizeBoard, boardContext, renderBlockInner, blockStyle, boardStyle, toReactStyle, dishOptionLabels,
   wrapMotion, startBoardMotion, wallRegion, ORDER_CHANGE_ANIMS, TILE_SHAPES, TILE_SHADOWS, TILE_ICON_POSITIONS,
+  ORDER_SHOWS, orderShow,
 } from '@shared/screenLayout.js'
 import { PicturePick } from '@/components/media/PicturePick'
 import { STATUS_LOOKS, STATUS_ANIMS } from '@shared/pos/kitchen.js'
@@ -664,6 +665,77 @@ function Seg({ value, options, onChange }) {
   )
 }
 
+// Order status block: both columns, or only orders being prepared or ready.
+function ShowChoice({ value, onChange }) {
+  return (
+    <div className="flex border rounded-md overflow-hidden" role="group" aria-label="Show">
+      {ORDER_SHOWS.map(s => (
+        <button key={s.key} type="button" onClick={() => onChange(s.key)} aria-pressed={value === s.key} data-k={s.key}
+          className={cn('flex-1 text-xs min-h-[48px] px-1 touch-manipulation', value === s.key ? 'bg-primary text-primary-foreground' : 'hover:bg-accent')}>
+          {s.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+// Order status block: only some order types and revenue streams
+// (orderFilter() in shared/screenLayout.js), stored by name. A name picked
+// before and gone since stays listed so it can be taken off.
+function NameChips({ label, names, picked, onChange, testId }) {
+  const key = n => String(n).trim().toLowerCase()
+  const on = new Set(picked.map(key))
+  const shown = [...names, ...picked.filter(p => !names.some(n => key(n) === key(p)))]
+  const toggle = n => onChange(on.has(key(n)) ? picked.filter(p => key(p) !== key(n)) : [...picked, n])
+  return (
+    <div className="space-y-1">
+      <div className="text-xs font-medium">{label}</div>
+      <div className="flex flex-wrap gap-1.5" role="group" aria-label={label} data-testid={testId}>
+        {shown.map(n => (
+          <button key={key(n)} type="button" onClick={() => toggle(n)} aria-pressed={on.has(key(n))} data-name={n}
+            className={cn('min-h-[48px] px-3 rounded-lg border text-sm touch-manipulation',
+              on.has(key(n)) ? 'bg-primary text-primary-foreground border-primary' : 'bg-background hover:bg-muted',
+              !names.some(x => key(x) === key(n)) && 'line-through')}>
+            {n}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function OrderFilterSection({ o, onOpts, types, streams }) {
+  const pickedTypes = Array.isArray(o.filter_types) ? o.filter_types.filter(Boolean) : []
+  const pickedStreams = Array.isArray(o.filter_streams) ? o.filter_streams.filter(Boolean) : []
+  const list = names => names.length === 1 ? names[0] : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1]
+  const summary = !pickedTypes.length && !pickedStreams.length ? 'Every order.'
+    : 'Only orders' + (pickedTypes.length ? ' of ' + list(pickedTypes) : '') +
+      (pickedStreams.length ? (pickedTypes.length ? ', from ' : ' from ') + list(pickedStreams) : '') + '.'
+  return (
+    <Section title="Only these orders">
+      <p className="text-sm" data-testid="order-filter-summary">{summary}</p>
+      {types.length || pickedTypes.length
+        ? <NameChips label="Order types" names={types} picked={pickedTypes} testId="filter-types" onChange={v => onOpts({ filter_types: v })} />
+        : <p className="text-[11px] text-muted-foreground">No order types yet (Store tech &gt; Order types).</p>}
+      {streams.length || pickedStreams.length
+        ? <NameChips label="Revenue streams" names={streams} picked={pickedStreams} testId="filter-streams" onChange={v => onOpts({ filter_streams: v })} />
+        : <p className="text-[11px] text-muted-foreground">No revenue streams yet (Store tech &gt; Revenue streams).</p>}
+      {(pickedTypes.length > 0 || pickedStreams.length > 0) && (
+        <button type="button" onClick={() => onOpts({ filter_types: [], filter_streams: [] })} data-testid="filter-clear"
+          className="min-h-[48px] px-3 rounded-lg border text-sm bg-background hover:bg-muted touch-manipulation">
+          Show every order
+        </button>
+      )}
+      <p className="text-[11px] text-muted-foreground">
+        None picked shows every one; with both picked, an order must match both.
+        Revenue streams are matched by name at each location, so one board works everywhere.
+        Online orders take the stream set in Ordering setup; GloriaFood orders have none, so they don&rsquo;t show while a stream is picked.
+        The example numbers here take the order types picked.
+      </p>
+    </Section>
+  )
+}
+
 // What each order status tile shows (shared/orderInfo.js): a big value and
 // small lines under it, in the fields' own order.
 function TileSection({ o, onOpts }) {
@@ -1253,31 +1325,48 @@ function BlockPanel({ block, board, data, canManage, onUpdate, onOpts, onDuplica
                 ? <>Orders on their way to the board station named &ldquo;{o.board}&rdquo; in the kitchen flow, ready once every dish has reached it. A screen at a venue without a board of that name shows none.</>
                 : <>Ready once the kitchen has finished the whole order. Add an order ready board to the kitchen flow (Store tech &gt; Kitchen screens) to show only the orders that come to it.</>}
             </p>
-            <Check label="Show orders being prepared" checked={o.show_preparing !== false} onChange={v => onOpts({ show_preparing: v })} />
-            {o.show_preparing !== false && (
+            <div className="space-y-1" data-testid="order-show">
+              <span className="block text-[11px] text-muted-foreground">Show</span>
+              <ShowChoice value={orderShow(o)} onChange={v => onOpts({ show: v })} />
+              <p className="text-[11px] text-muted-foreground">
+                {orderShow(o) === 'both' ? 'Orders being prepared and orders ready to collect, in two columns.'
+                  : orderShow(o) === 'preparing' ? 'Only orders being prepared. An order leaves the board when it is ready.'
+                    : 'Only orders ready to collect. An order comes onto the board when it is ready.'}
+              </p>
+            </div>
+            {orderShow(o) !== 'ready' && (
               <label className="block text-xs font-medium">Preparing title
                 <input value={o.preparing_title ?? 'Preparing'} maxLength={40} onChange={e => onOpts({ preparing_title: e.target.value })}
                   className="mt-1 w-full h-11 text-sm border rounded-md px-2 bg-background" />
               </label>
             )}
-            <label className="block text-xs font-medium">Ready title
-              <input value={o.ready_title ?? 'Ready'} maxLength={40} onChange={e => onOpts({ ready_title: e.target.value })}
-                className="mt-1 w-full h-11 text-sm border rounded-md px-2 bg-background" />
-            </label>
-            <Sel label="Layout" value={o.layout === 'stacked' ? 'stacked' : 'side'} onChange={v => onOpts({ layout: v })}>
-              <option value="side">Side by side</option>
-              <option value="stacked">One above the other</option>
-            </Sel>
-            {o.show_preparing !== false && (
-              <Check label={o.layout === 'stacked' ? 'Ready at the top' : 'Ready on the left'} checked={!!o.ready_first} onChange={v => onOpts({ ready_first: v })} />
+            {orderShow(o) !== 'preparing' && (
+              <label className="block text-xs font-medium">Ready title
+                <input value={o.ready_title ?? 'Ready'} maxLength={40} onChange={e => onOpts({ ready_title: e.target.value })}
+                  className="mt-1 w-full h-11 text-sm border rounded-md px-2 bg-background" />
+              </label>
+            )}
+            {orderShow(o) === 'both' && (
+              <>
+                <Sel label="Layout" value={o.layout === 'stacked' ? 'stacked' : 'side'} onChange={v => onOpts({ layout: v })}>
+                  <option value="side">Side by side</option>
+                  <option value="stacked">One above the other</option>
+                </Sel>
+                <Check label={o.layout === 'stacked' ? 'Ready at the top' : 'Ready on the left'} checked={!!o.ready_first} onChange={v => onOpts({ ready_first: v })} />
+              </>
             )}
             <div className="grid grid-cols-2 gap-2">
               <PxBox label="Numbers per row" suffix="" value={o.columns ?? 1} min={1} max={6} onChange={v => onOpts({ columns: v })} />
               <PxBox label="Most shown" suffix="" value={o.max ?? 12} min={1} max={60} onChange={v => onOpts({ max: v })} />
             </div>
-            <PxBox label="Ready numbers stay for" suffix="min" value={o.clear_mins ?? 10} min={0} max={120} onChange={v => onOpts({ clear_mins: v })} />
-            <p className="text-[11px] text-muted-foreground">Or until the pass marks the order collected. 0: until collected.</p>
+            {orderShow(o) !== 'preparing' && (
+              <>
+                <PxBox label="Ready numbers stay for" suffix="min" value={o.clear_mins ?? 10} min={0} max={120} onChange={v => onOpts({ clear_mins: v })} />
+                <p className="text-[11px] text-muted-foreground">Or until the pass marks the order collected. 0: until collected.</p>
+              </>
+            )}
           </Section>
+          <OrderFilterSection o={o} onOpts={onOpts} types={data?.order_types || []} streams={data?.order_streams || []} />
           <TileSection o={o} onOpts={onOpts} />
           <TileLook o={o} onOpts={onOpts} />
           <StatusSection o={o} onOpts={onOpts} statuses={data?.order_statuses || []} />

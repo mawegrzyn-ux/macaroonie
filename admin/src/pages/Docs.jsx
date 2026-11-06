@@ -5266,7 +5266,12 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <H3>Order status block</H3>
             <P>
               <Mono>orderStatusHtml()</Mono> in <Mono>shared/screenLayout.js</Mono>. Options: <Mono>board</Mono>{' '}
-              (a board station's name; <Mono>orderBoardData()</Mono>), <Mono>tile_main</Mono> number | tent |
+              (a board station's name; <Mono>orderBoardData()</Mono>), <Mono>show</Mono> both | preparing | ready
+              (<Mono>ORDER_SHOWS</Mono>, <Mono>orderShow()</Mono>; one column adds <Mono>is-one</Mono> and{' '}
+              <Mono>data-show</Mono>, and its float animation fades instead; migration 237 turned the old{' '}
+              <Mono>show_preparing</Mono> false into show ready), <Mono>filter_types</Mono> /{' '}
+              <Mono>filter_streams</Mono> (order type and revenue stream names; <Mono>orderFilter()</Mono>, see
+              below), <Mono>tile_main</Mono> number | tent |
               table | name and <Mono>tile_lines</Mono> (any of number, tent, table, name, type, source; what each
               tile shows, migration 189 turned the old <Mono>show_names</Mono> into <Mono>tile_lines</Mono>{' '}
               [&apos;name&apos;]), <Mono>layout</Mono> side | stacked,{' '}
@@ -5288,9 +5293,28 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               12 / Table 4 / the name / the order type / Online or GloriaFood). A name as the big value is drawn
               smaller. The numbers come from <Mono>boardNumbers()</Mono> in <Mono>shared/pos/kitchen.js</Mono>,
               whose entries carry <Mono>number, name</Mono> (online guest, else the till or kiosk name),{' '}
-              <Mono>tent, table, type_name, source</Mono>. <Mono>normaliseOrderInfo()</Mono> tidies a saved
+              <Mono>tent, table, type_name, stream, source</Mono>. <Mono>normaliseOrderInfo()</Mono> tidies a saved
               choice; the designer&apos;s Each tile section (<Mono>TileSection</Mono> in{' '}
               <Mono>ScreenDesigner.jsx</Mono>) keeps lines in field order.
+            </P>
+            <P>
+              Showing only some orders: <Mono>orderFilter(o)</Mono> keeps entries whose <Mono>type_name</Mono> is
+              in <Mono>filter_types</Mono> and whose <Mono>stream</Mono> is in <Mono>filter_streams</Mono>, by name
+              (trimmed, any case; an empty list = every one; both set = both). It runs on the live lists before{' '}
+              <Mono>max</Mono>, and on the numbers fading out of a change; the feed itself is the venue&apos;s whole
+              list (<Mono>boardFeed()</Mono>, 40 a column), so a filtered board shows at most what fits in those 40.
+              The designer&apos;s example numbers aren&apos;t filtered: <Mono>sampleOrders()</Mono> gives them the
+              picked order types in turn. Streams are names because boards are shared by every location and each
+              has its own streams (as shared kitchen flows match them). A kitchen order keeps its stream:{' '}
+              <Mono>stream</Mono> (id) and <Mono>stream_name</Mono> from <Mono>headerFromCheck()</Mono> (the
+              check&apos;s <Mono>revenue_stream_id</Mono>, its name from the kitchen config&apos;s{' '}
+              <Mono>revenue_streams</Mono>, <Mono>loadKitchenConfig()</Mono>; <Mono>check.stream_set</Mono> is a
+              kitchen check event, so the header follows a change) or from <Mono>kitchen.order_in</Mono>{' '}
+              (<Mono>onlineSnapshot()</Mono> sends the online order&apos;s Ordering setup stream; GloriaFood orders
+              have none). <Mono>boardNumbers()</Mono> entries carry it as <Mono>stream</Mono>. The designer lists{' '}
+              <Mono>order_types</Mono> (active names) and <Mono>order_streams</Mono> (one per name across the
+              locations) from <Mono>designerData()</Mono>; <Mono>OrderFilterSection</Mono> /{' '}
+              <Mono>NameChips</Mono> and <Mono>ShowChoice</Mono> in <Mono>ScreenDesigner.jsx</Mono>.
             </P>
             <P>
               How tiles look (<Mono>TileLook</Mono> in <Mono>ScreenDesigner.jsx</Mono>, the Tile look section) is

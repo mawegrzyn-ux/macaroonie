@@ -181,7 +181,10 @@ export const BLOCK_DEFAULTS = {
   order_status: {
     w: 0.6, h: 0.8,
     opts: {
-      board: '', show_preparing: true, preparing_title: 'Preparing', ready_title: 'Ready', title_size: 56, number_size: 72,
+      // show: which columns (ORDER_SHOWS); filter_types / filter_streams: only
+      // orders of these order types and revenue streams, by name (orderFilter()).
+      board: '', show: 'both', filter_types: [], filter_streams: [],
+      preparing_title: 'Preparing', ready_title: 'Ready', title_size: 56, number_size: 72,
       columns: 1, max: 12, clear_mins: 10, layout: 'side', ready_first: false,
       // Each tile (shared/orderInfo.js): the big value and the small lines under it.
       tile_main: 'number', tile_lines: [],
@@ -846,6 +849,42 @@ const SAMPLE_ORDERS = {
   ],
 }
 
+// Order status block: which columns it shows.
+export const ORDER_SHOWS = [
+  { key: 'both', label: 'Both' },
+  { key: 'preparing', label: 'Being prepared' },
+  { key: 'ready', label: 'Ready' },
+]
+/** The block's columns: 'both', 'preparing' or 'ready'. */
+export function orderShow(o) {
+  return ORDER_SHOWS.some(s => s.key === o?.show) ? o.show : 'both'
+}
+
+const nameKey = v => String(v ?? '').trim().toLowerCase()
+const nameSet = list => new Set((Array.isArray(list) ? list : []).map(nameKey).filter(Boolean))
+
+/**
+ * Which orders an Order status block shows: only those of the order types
+ * (filter_types) and revenue streams (filter_streams) it names, matched by
+ * name in any case, so one board works at every location (each has its own
+ * streams). An empty list = every one; both set = both must match. An order
+ * with no stream (GloriaFood) never matches a stream. null = no filter.
+ */
+export function orderFilter(o) {
+  const types = nameSet(o?.filter_types)
+  const streams = nameSet(o?.filter_streams)
+  if (!types.size && !streams.size) return null
+  return x => (!types.size || types.has(nameKey(x?.type_name))) && (!streams.size || streams.has(nameKey(x?.stream)))
+}
+
+/** The designer's example numbers, given the block's order types when it picks some. */
+function sampleOrders(o) {
+  const types = (Array.isArray(o.filter_types) ? o.filter_types : []).map(t => String(t ?? '').trim()).filter(Boolean)
+  if (!types.length) return SAMPLE_ORDERS
+  const relabel = (list, from) => list.map((x, i) => ({ ...x, type_name: types[(i + from) % types.length] }))
+  return { preparing: relabel(SAMPLE_ORDERS.preparing, 0), ready: relabel(SAMPLE_ORDERS.ready, SAMPLE_ORDERS.preparing.length) }
+}
+
 // Order status block: how a number moves when its status changes.
 export const ORDER_CHANGE_ANIMS = [
   { key: 'none', label: 'No animation' },
@@ -1000,17 +1039,25 @@ function statusHtml(s) {
 
 /**
  * The order ready board: order numbers being prepared and ready to collect,
- * side by side or one above the other. Ready numbers drop off after
- * clear_mins (or when collected). change_anim moves a number that changes
- * status (orders.changes from the player; in the designer, Play shows one).
+ * side by side or one above the other, or one column only (show). Only the
+ * order types and revenue streams it names (orderFilter()). Ready numbers
+ * drop off after clear_mins (or when collected). change_anim moves a number
+ * that changes status (orders.changes from the player; in the designer, Play
+ * shows one).
  */
 function orderStatusHtml(o, ctx) {
-  const data = orderBoardData(ctx.orders, o.board) || SAMPLE_ORDERS
+  const live = orderBoardData(ctx.orders, o.board)
+  const sample = live ? null : sampleOrders(o)
+  const data = live || sample
+  // The designer's example numbers already have the picked order types.
+  const keep = live ? orderFilter(o) : null
+  const pass = list => (keep ? list.filter(keep) : list)
+  const show = orderShow(o)
   const max = Math.round(num(o.max, 1, 60, 12))
   const clear = num(o.clear_mins, 0, 120, 10)
   const nowMs = (ctx.now instanceof Date ? ctx.now : new Date(ctx.now || Date.now())).getTime()
-  let ready = (data.ready || []).filter(x => !ctx.orders || !clear || !x.at || nowMs - Date.parse(x.at) < clear * 60000).slice(0, max)
-  let preparing = (data.preparing || []).slice(0, max)
+  let ready = pass(data.ready || []).filter(x => !ctx.orders || !clear || !x.at || nowMs - Date.parse(x.at) < clear * 60000).slice(0, max)
+  let preparing = pass(data.preparing || []).slice(0, max)
   if (!ctx.orders && ctx.statuses?.length) {
     // The designer: the kitchen's statuses on the example numbers, in turn.
     const give = (list, from) => list.map((x, i) => ({ ...x, status: ctx.statuses[(i + from) % ctx.statuses.length] }))
@@ -1031,9 +1078,10 @@ function orderStatusHtml(o, ctx) {
     let changes = (ctx.orders?.changes || []).filter(c => c.key === String(o.board || '').trim().toLowerCase())
     if (!ctx.orders && !ctx.still) {
       // Designer Play: 58 is ready, and a new 62 comes in.
-      changes = [{ at: nowMs, prep_in: ['s62'], ready_in: ['s58'], prep_out: [{ ...SAMPLE_ORDERS.preparing[1], index: 1 }], ready_out: [] }]
-      preparing = [SAMPLE_ORDERS.preparing[0], SAMPLE_ORDERS.preparing[2], { id: 's62', number: '62', tent: '7', type_name: 'Eat in' }]
-      ready = [SAMPLE_ORDERS.preparing[1], ...SAMPLE_ORDERS.ready]
+      const p = sample.preparing
+      changes = [{ at: nowMs, prep_in: ['s62'], ready_in: ['s58'], prep_out: [{ ...p[1], index: 1 }], ready_out: [] }]
+      preparing = [p[0], p[2], { id: 's62', number: '62', tent: '7', type_name: p[0].type_name }]
+      ready = [p[1], ...sample.ready]
     }
     for (const c of changes) {
       // A draw in the same millisecond as the change can read a hair earlier
@@ -1042,8 +1090,8 @@ function orderStatusHtml(o, ctx) {
       if (nowMs - c.at < -1000 || t >= animMs) continue
       for (const id of c.prep_in || []) into.set('prep:' + id, t)
       for (const id of c.ready_in || []) into.set('ready:' + id, t)
-      for (const x of c.prep_out || []) outOf.prep.push({ ...x, t })
-      for (const x of c.ready_out || []) outOf.ready.push({ ...x, t })
+      for (const x of c.prep_out || []) if (!keep || keep(x)) outOf.prep.push({ ...x, t })
+      for (const x of c.ready_out || []) if (!keep || keep(x)) outOf.ready.push({ ...x, t })
     }
   }
   const delay = t => (t ? ' style="animation-delay:-' + Math.round(t) + 'ms"' : '')
@@ -1086,10 +1134,12 @@ function orderStatusHtml(o, ctx) {
     ...tileLook(o),
     '--ofx': stacked ? '0px' : (dir * 140) + '%', '--ofy': stacked ? (dir * 140) + '%' : '0px',
   })
-  const cls = 'sl-orders' + (ctx.orders ? '' : ' is-sample') + (stacked ? ' is-stacked' : '') + (anim !== 'none' ? ' sl-och-' + anim : '')
-  const prep = o.show_preparing !== false ? column(o.preparing_title ?? 'Preparing', preparing, 'is-prep', 'prep') : ''
-  const rdy = column(o.ready_title ?? 'Ready', ready, 'is-ready', 'ready')
-  return '<div class="' + cls + '" style="' + vars + '">' + (readyFirst ? rdy + prep : prep + rdy) + '</div>'
+  // One column: a number can't float over from the other one, so it fades.
+  const cls = 'sl-orders' + (ctx.orders ? '' : ' is-sample') + (stacked ? ' is-stacked' : '') + (show !== 'both' ? ' is-one' : '') +
+    (anim !== 'none' ? ' sl-och-' + anim : '')
+  const prep = show !== 'ready' ? column(o.preparing_title ?? 'Preparing', preparing, 'is-prep', 'prep') : ''
+  const rdy = show !== 'preparing' ? column(o.ready_title ?? 'Ready', ready, 'is-ready', 'ready') : ''
+  return '<div class="' + cls + '" data-show="' + show + '" style="' + vars + '">' + (readyFirst ? rdy + prep : prep + rdy) + '</div>'
 }
 
 /** The board's own style: size, colours, fonts, background. */
@@ -1311,6 +1361,8 @@ export const SCREEN_LAYOUT_CSS = `
 .sl-och-float .sl-ocol.is-prep .sl-och-in { animation-name: sl-och-fade-in; }
 .sl-och-float .sl-ocol.is-prep .sl-och-out { animation-name: sl-och-float-out; position: relative; z-index: 2; }
 .sl-och-float .sl-ocol.is-ready .sl-och-out { animation-name: sl-och-fade-out; }
+.sl-orders.sl-och-float.is-one .sl-ocol .sl-och-in { animation-name: sl-och-fade-in; }
+.sl-orders.sl-och-float.is-one .sl-ocol .sl-och-out { animation-name: sl-och-fade-out; }
 @keyframes sl-och-fade-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes sl-och-fade-out { from { opacity: 1; } to { opacity: 0; } }
 @keyframes sl-och-pop-in { 0% { opacity: 0; transform: scale(0.2); } 65% { opacity: 1; transform: scale(1.15); } 100% { opacity: 1; transform: none; } }

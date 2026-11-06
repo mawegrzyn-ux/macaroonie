@@ -5,6 +5,17 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-11-06 — Order ready boards: show one column, or only some orders]
+
+Migration 237.
+
+- **Show** on the Order status block (Screens → a board → the block): **Both** columns as before, **Being prepared** only, or **Ready** only. One column takes the whole block, and a number that changes fades in or out instead of floating across.
+- **Only these orders**: tap order types and revenue streams to show only their orders, for example a drive thru screen with only Drive thru orders, or a collection screen with only Collection orders. Nothing picked shows every order; both picked means an order must match both. **Show every order** clears the picks.
+- Revenue streams are matched by name at each location, so one board works everywhere when the streams share a name. Online orders count under the stream picked in Ordering setup; GloriaFood orders have no stream, so they don't show while a stream is picked.
+- The designer's example numbers take the order types picked.
+- Boards that had *Show orders being prepared* switched off now show **Ready** only (the same as before).
+- Kitchen orders now remember their revenue stream (and follow the order if it moves to another stream on the till). Orders already in the kitchen when this goes live have none, so a board filtered by stream leaves them out until they clear.
+
 ## [2026-11-06 — Kiosk banners: videos, and a shape of your own]
 
 No migration.
