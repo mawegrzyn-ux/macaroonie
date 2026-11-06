@@ -5,6 +5,15 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-11-06 — Kiosk banners: videos, and a shape of your own]
+
+No migration.
+
+- **A home page banner can be a video**: in the kiosk design editor (Menu card, Banners) pick **Video** on a banner, then **Pick a video** from Media. It plays with no sound, to its end, then the next banner shows; the only banner plays on a loop. An optional **still picture** shows while the video starts, and in its place when it can't play.
+- **Picture banners still show for the seconds set** under the banners (3 to 20); the setting now says it is for pictures.
+- **Set your own** banner shape beside Wide, Short, Tall and Picture's own shape: type a width and a height (for example 4 by 1, or a picture's size in pixels such as 1920 by 600). A sketch shows the shape; a shape taller than wide shows square and one thinner than 10 by 1 shows as 10 by 1. Picture's own shape now works for videos too.
+- Banner videos are kept on the kiosk like the start screen's, so they play without the internet once saved. A video banner linked to a dish adds it like a picture banner, and the frame it is showing flies into the order.
+
 ## [2026-11-06 — Live kitchen view: a shorter notice, clearer words, a steadier connection]
 
 No migration.

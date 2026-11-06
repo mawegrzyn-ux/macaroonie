@@ -25,9 +25,24 @@ function bump(el) {
   el.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.12)', offset: 0.4 }, { transform: 'scale(1)' }], { duration: 450, easing: 'ease' })
 }
 
+// A video (a banner's) flies as the frame it is showing: a copy of the video
+// element would start again from the beginning (and with sound, after a tap).
+// The canvas keeps the video's classes and styles, so it is cropped the same
+// way (object-fit works on a canvas too).
+function videoFrame(v) {
+  const c = document.createElement('canvas')
+  c.width = v.videoWidth || 2
+  c.height = v.videoHeight || 2
+  try { c.getContext('2d').drawImage(v, 0, 0, c.width, c.height) } catch { /* nothing to draw yet */ }
+  c.className = v.className
+  c.style.cssText = v.style.cssText
+  return c
+}
+
 /**
- * Flies a copy of `from` (a dish's picture) into the order button. True when
- * it flew: the caller then leaves the button's bounce to the landing.
+ * Flies a copy of `from` (a dish's picture, or a banner's video) into the
+ * order button. True when it flew: the caller then leaves the button's
+ * bounce to the landing.
  */
 export function flyToBasket(from) {
   if (!from || lessMotion() || typeof from.animate !== 'function') return false
@@ -41,7 +56,7 @@ export function flyToBasket(from) {
   // A picture scrolled out of sight comes in from the edge it went out of.
   const top = Math.max(a.top, -a.height * 0.5)
 
-  const ghost = from.cloneNode(true)
+  const ghost = from.tagName === 'VIDEO' ? videoFrame(from) : from.cloneNode(true)
   for (const n of ghost.querySelectorAll('[data-testid]')) n.removeAttribute('data-testid')
   // A hexagon tile flies as its picture: no name band, marks or badges.
   for (const n of ghost.querySelectorAll('.k-hex-band, .k-hex-top, .k-fit-badge, .k-sold')) n.remove()

@@ -10,7 +10,7 @@ import {
   configImages, MAX_SAVED_PICTURES, configVideos, MAX_SAVED_VIDEOS, guestFit, countFits, cleanPrefs, prefsOn, kioskOrder, basketCheck, kioskStaff, kioskFontsUrl, UI_TEXT, ALLERGEN_NAMES, KIOSK_LANGUAGES, DESIGN_COLORS, CLEAR_COLORS, CHOICE_ENTRANCES,
   groupLook, ENTRANCE_KEYS, bundleParts, bundleLayout, bundleBox, BUNDLE_MAX, PART_COLORS, PART_FOLLOWS, COLOR_LABELS, partColours,
   DONE_MAIN, DONE_LINES, DONE_DEFAULT_LINES, doneLook, doneInfo, doneGaps, isEmail, emailHint,
-  pictureFit, fitLayout, PICTURE_FITS, PICTURE_FOCUS, PICTURE_BGS, BANNER_SHAPES, BANNER_RATIOS, KIOSK_SCREENS, SCREEN_MIN, SCREEN_MAX, SHAPE_SLACK, ZOOM_SLACK, ZOOM_MIN, ZOOM_MAX, kioskBox, kioskZoom, screenSize,
+  pictureFit, fitLayout, PICTURE_FITS, PICTURE_FOCUS, PICTURE_BGS, BANNER_SHAPES, BANNER_RATIOS, BANNER_TYPES, BANNER_RATIO_MIN, BANNER_RATIO_MAX, BANNER_SIDE_MAX, bannerRatio, KIOSK_SCREENS, SCREEN_MIN, SCREEN_MAX, SHAPE_SLACK, ZOOM_SLACK, ZOOM_MIN, ZOOM_MAX, kioskBox, kioskZoom, screenSize,
 } from '../kiosk.js'
 import { contrast } from '../themeKit.js'
 import { VARIATION_TYPES, VARIATION_TYPE_KEYS } from '../procurement.js'
@@ -623,6 +623,85 @@ test('configVideos: the start screen and reach videos on the kiosk\'s own origin
   assert.ok(configVideos(lots, origin).length <= MAX_SAVED_VIDEOS, 'a few at most')
 })
 
+test('banners: a picture or a video (its picture the still); one without what it shows is left out', () => {
+  const d = normaliseDesign({ menu: { banners: [
+    { id: 'b1', image_url: '/p.jpg' },
+    { id: 'b2', type: 'video', video_url: '/v.mp4' },
+    { id: 'b3', type: 'video', video_url: '/w.webm', image_url: '/still.jpg', title: ' Hot wings ', fit: { mode: 'contain' } },
+    { id: 'b4', type: 'video', image_url: '/only-still.jpg' },
+    { id: 'b5', type: 'image', video_url: '/v.mp4' },
+    { id: 'b6', type: 'gif', image_url: '/q.jpg', video_url: '/x.mp4' },
+    { id: 'b7', type: 'video', video_url: 'javascript:alert(1)' },
+  ] } })
+  assert.deepEqual(BANNER_TYPES, ['image', 'video'])
+  assert.deepEqual(d.menu.banners.map(b => [b.id, b.type, b.image_url, b.video_url]), [
+    ['b1', 'image', '/p.jpg', null],
+    ['b2', 'video', null, '/v.mp4'],
+    ['b3', 'video', '/still.jpg', '/w.webm'],
+    ['b6', 'image', '/q.jpg', null],
+  ], 'a video needs its video, a picture its picture; an unknown type is a picture; a picture keeps no video')
+  assert.equal(d.menu.banners[2].title, 'Hot wings')
+  assert.equal(d.menu.banners[2].fit.mode, 'contain', 'a video fits its space like a picture')
+  // Saved designs (banners before videos) read as pictures, unchanged.
+  const old = normaliseDesign({ menu: { banners: [{ id: 'b1', image_url: '/p.jpg', title: 'Deal' }] } })
+  assert.deepEqual(old.menu.banners[0], { id: 'b1', type: 'image', image_url: '/p.jpg', video_url: null, title: 'Deal', link: { kind: 'none', id: null }, fit: pictureFit(null) })
+  assert.equal(normaliseDesign(normaliseDesign({ menu: { banners: [{ id: 'b2', type: 'video', video_url: '/v.mp4' }] } })).menu.banners[0].video_url, '/v.mp4', 'normalising twice keeps it')
+})
+
+test('banner shapes: the design\'s own width to height, clamped from square to 10 by 1', () => {
+  // Not set: 16 by 7, the wide shape, so picking Set your own starts from what showed.
+  assert.deepEqual(normaliseDesign({}).menu.banner_ratio, { w: 16, h: 7 })
+  const own = normaliseDesign({ menu: { banner_shape: 'own', banner_ratio: { w: 1920, h: 600 } } }).menu
+  assert.equal(own.banner_shape, 'own')
+  assert.deepEqual(own.banner_ratio, { w: 1920, h: 600 })
+  assert.equal(bannerRatio(own), 3.2)
+  // Whole numbers between 1 and BANNER_SIDE_MAX; nonsense back to the defaults.
+  assert.deepEqual(normaliseDesign({ menu: { banner_ratio: { w: 4.6, h: 0 } } }).menu.banner_ratio, { w: 5, h: 1 })
+  assert.deepEqual(normaliseDesign({ menu: { banner_ratio: { w: 'wide', h: null } } }).menu.banner_ratio, { w: 16, h: 7 })
+  assert.deepEqual(normaliseDesign({ menu: { banner_ratio: { w: 99999, h: 2 } } }).menu.banner_ratio, { w: BANNER_SIDE_MAX, h: 2 })
+  // Taller than wide shows square; thinner than 10 by 1 shows 10 by 1.
+  assert.equal(BANNER_RATIO_MIN, 1)
+  assert.equal(BANNER_RATIO_MAX, 10)
+  assert.equal(bannerRatio({ banner_shape: 'own', banner_ratio: { w: 3, h: 4 } }), 1)
+  assert.equal(bannerRatio({ banner_shape: 'own', banner_ratio: { w: 30, h: 1 } }), 10)
+  assert.equal(bannerRatio({ banner_shape: 'own', banner_ratio: { w: 4, h: 1 } }), 4)
+  assert.equal(bannerRatio({ banner_shape: 'own', banner_ratio: null }), BANNER_RATIOS.wide)
+  // The other shapes as before; a picture's own shape once it is known.
+  assert.equal(bannerRatio({ banner_shape: 'short', banner_ratio: { w: 4, h: 1 } }), 3, 'the own numbers count only with Set your own')
+  assert.equal(bannerRatio({ banner_shape: 'tall' }), 16 / 9)
+  assert.equal(bannerRatio({ banner_shape: 'picture' }), BANNER_RATIOS.wide)
+  assert.equal(bannerRatio({ banner_shape: 'picture' }, 1.5), 1.5)
+  assert.equal(bannerRatio({}), BANNER_RATIOS.wide)
+  assert.equal(bannerRatio(null), BANNER_RATIOS.wide)
+})
+
+test('configVideos: banner videos too, after the start screen and reach band; their stills are pictures', () => {
+  const origin = 'https://kiosk.example.test'
+  const config = { design: normaliseDesign({
+    start: { media: [{ id: 'm1', type: 'video', url: '/uploads/start.mp4' }] },
+    behaviour: { reach: true, reach_media: [{ id: 'r1', type: 'video', url: '/uploads/reach.webm' }] },
+    menu: { banners: [
+      { id: 'b1', type: 'video', video_url: '/uploads/banner.mp4', image_url: '/uploads/banner-still.jpg' },
+      { id: 'b2', image_url: '/uploads/picture.jpg' },
+      { id: 'b3', type: 'video', video_url: '/uploads/start.mp4' },
+      { id: 'b4', type: 'video', video_url: 'https://cdn.other.test/far.mp4' },
+    ] },
+  }) }
+  assert.deepEqual(configVideos(config, origin), [origin + '/uploads/start.mp4', origin + '/uploads/reach.webm', origin + '/uploads/banner.mp4'],
+    'in the design\'s order, each once, own origin only')
+  const pictures = configImages(config, origin)
+  assert.ok(pictures.includes(origin + '/uploads/banner-still.jpg') && pictures.includes(origin + '/uploads/picture.jpg'), 'stills and picture banners are saved as pictures')
+  assert.ok(!pictures.some(u => u.endsWith('.mp4')), 'no video is saved as a picture')
+  // Every video a design can hold fits: 8 start, 4 reach, 10 banners.
+  const full = { design: normaliseDesign({
+    start: { media: Array.from({ length: 8 }, (_, n) => ({ id: 's' + n, type: 'video', url: '/uploads/s' + n + '.mp4' })) },
+    behaviour: { reach: true, reach_media: Array.from({ length: 4 }, (_, n) => ({ id: 'r' + n, type: 'video', url: '/uploads/r' + n + '.mp4' })) },
+    menu: { banners: Array.from({ length: 10 }, (_, n) => ({ id: 'b' + n, type: 'video', video_url: '/uploads/b' + n + '.mp4' })) },
+  }) }
+  assert.equal(MAX_SAVED_VIDEOS, 22)
+  assert.equal(configVideos(full, origin).length, 22)
+})
+
 test('the number a guest types is a tent unless the design says table', () => {
   assert.equal(normaliseDesign({}).checkout.number_kind, 'tent')
   assert.equal(normaliseDesign({ checkout: { number_kind: 'table' } }).checkout.number_kind, 'table')
@@ -1084,7 +1163,7 @@ test('picture fit: banners, featured tiles, start and reach pictures fill their 
   assert.equal(d.menu.banner_shape, 'wide')
   assert.deepEqual(PICTURE_FITS, ['auto', 'cover', 'contain'])
   assert.equal(PICTURE_FOCUS.length, 9)
-  assert.deepEqual(BANNER_SHAPES, ['wide', 'short', 'tall', 'picture'])
+  assert.deepEqual(BANNER_SHAPES, ['wide', 'short', 'tall', 'picture', 'own'])
   assert.ok(Math.abs(BANNER_RATIOS.wide - 16 / 7) < 1e-9 && BANNER_RATIOS.short === 3 && Math.abs(BANNER_RATIOS.tall - 16 / 9) < 1e-9)
 
   // Set: kept; bad values back to the defaults; sizes clamped to 30-100 and rounded.
