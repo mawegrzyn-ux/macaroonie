@@ -50,6 +50,12 @@ const PREFS_KEY = 'maca_kds_live'
 const ON_MS = 3 * 60_000
 const VIEW_ONLY = 'This is the live view: nothing changes from here. Tap on the kitchen screen itself.'
 const BUMPING_OFF = 'Bumping is off in the live view: switch on Allow bumping at the top of the page first.'
+const WATCH_ONLY = 'Watch only: this link can\'t bump. Open Live view again from Store tech (with Manage) to get one that can.'
+// The socket's heartbeat (see the socket effect in useKitchenFeed).
+const PING_EVERY_MS = 25000
+const PONG_WAIT_MS = 10000
+// How long the orange bar shows after bumping goes on.
+const BUMP_NOTE_MS = 8000
 
 function loadPrefs() {
   try { return JSON.parse(localStorage.getItem(PREFS_KEY)) || {} } catch { return {} }
@@ -236,35 +242,73 @@ function useKitchenFeed(token, { onChange, onConfig, onGone }) {
     return pullNow
   }, [tokenQ])
 
-  // The socket says when kitchen orders or the setup change.
+  // The socket says when kitchen orders or the setup change. A ping every
+  // PING_EVERY_MS (answered by config/ws.js) keeps it open through proxies
+  // that close quiet connections, and no answer within PONG_WAIT_MS means the
+  // link hangs: it is dropped and opened again (as the kiosk's heartbeat).
   const socketOpen = useRef(false)
   useEffect(() => {
     let ws = null
     let retry = 1000
     let timer = null
     let closed = false
+    let beat = null
+    let beatWait = null
+    const heard = () => { clearTimeout(beatWait); beatWait = null }
+    const stopBeat = () => { clearInterval(beat); beat = null; heard() }
+    const dropped = sock => {
+      if (ws !== sock) return
+      ws = null
+      stopBeat()
+      socketOpen.current = false
+      setLink(l => ({ ...l, socket: 'closed' }))
+      if (!closed) timer = setTimeout(connect, retry = Math.min(retry * 2, 30000))
+    }
+    // Only once the server said it answers pings (its 'connected' message).
+    const startBeat = sock => {
+      stopBeat()
+      beat = setInterval(() => {
+        if (ws !== sock || sock.readyState !== 1) return
+        try { sock.send('{"type":"ping"}') } catch { return }
+        if (beatWait) return
+        beatWait = setTimeout(() => {
+          beatWait = null
+          if (ws !== sock) return
+          // Not waiting for it to close: a hanging link may take minutes to say so.
+          sock.onclose = sock.onmessage = sock.onerror = null
+          try { sock.close() } catch { /* ignore */ }
+          dropped(sock)
+        }, PONG_WAIT_MS)
+      }, PING_EVERY_MS)
+    }
     const connect = () => {
       if (closed) return
       const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
-      try { ws = new WebSocket(proto + '//' + location.host + '/ws?kitchen_live=' + tokenQ) } catch { ws = null; timer = setTimeout(connect, retry); return }
+      let sock
+      try { sock = new WebSocket(proto + '//' + location.host + '/ws?kitchen_live=' + tokenQ) } catch { timer = setTimeout(connect, retry); return }
+      ws = sock
       setLink(l => ({ ...l, socket: 'connecting' }))
-      ws.onopen = () => { retry = 1000; socketOpen.current = true; setLink(l => ({ ...l, socket: 'open' })); pull() }
-      ws.onmessage = msg => {
+      sock.onopen = () => { retry = 1000; socketOpen.current = true; setLink(l => ({ ...l, socket: 'open' })); pull() }
+      sock.onmessage = msg => {
+        heard()
         let m
         try { m = JSON.parse(msg.data) } catch { return }
-        if (m.type === 'pos.seq' && (!m.kinds || m.kinds.includes('kitchen'))) pull()
+        if (m.type === 'connected' && m.heartbeat) startBeat(sock)
+        else if (m.type === 'pos.seq' && (!m.kinds || m.kinds.includes('kitchen'))) pull()
         else if (m.type === 'pos.config' || m.type === 'pos.revoked') cb.current.onConfig?.()
       }
-      ws.onclose = () => {
-        ws = null
-        socketOpen.current = false
-        setLink(l => ({ ...l, socket: 'closed' }))
-        if (!closed) timer = setTimeout(connect, retry = Math.min(retry * 2, 30000))
-      }
-      ws.onerror = () => { try { ws?.close() } catch { /* ignore */ } }
+      sock.onclose = () => dropped(sock)
+      sock.onerror = () => { try { sock.close() } catch { /* ignore */ } }
     }
     connect()
-    return () => { closed = true; clearTimeout(timer); try { ws?.close() } catch { /* ignore */ } }
+    return () => {
+      closed = true
+      clearTimeout(timer)
+      stopBeat()
+      const sock = ws
+      ws = null
+      if (sock) { sock.onclose = sock.onmessage = sock.onerror = null; try { sock.close() } catch { /* ignore */ } }
+    }
   }, [tokenQ, pull])
 
   // A check every 20 s with the socket open, every 3 s without it.
@@ -324,12 +368,22 @@ function LivePage({ data, token, reloadSetup, onGone, setupError }) {
   const canBump = !!data.can_bump
   const [bumping, setBumpingState] = useState(false)
   const [askBump, setAskBump] = useState(false)
+  // The orange bar says what bumping does once, as it goes on, for
+  // BUMP_NOTE_MS (or until OK); then the switch and each screen's badge say
+  // it is on.
+  const [bumpNote, setBumpNote] = useState(false)
   const bumpingRef = useRef(false)
   const setBumping = useCallback(on => {
     bumpingRef.current = !!on
     setBumpingState(!!on)
     setAskBump(false)
+    setBumpNote(!!on)
   }, [])
+  useEffect(() => {
+    if (!bumpNote) return undefined
+    const t = setTimeout(() => setBumpNote(false), BUMP_NOTE_MS)
+    return () => clearTimeout(t)
+  }, [bumpNote])
   const canBumpRef = useRef(canBump)
   canBumpRef.current = canBump
   useEffect(() => { if (!canBump && bumpingRef.current) setBumping(false) }, [canBump, setBumping])
@@ -570,15 +624,16 @@ function LivePage({ data, token, reloadSetup, onGone, setupError }) {
         </button>
         {canBump
           ? <BumpSwitch on={bumping} asking={askBump} onTap={() => (bumping ? setBumping(false) : setAskBump(a => !a))} />
-          : <span className="text-sm text-muted" data-testid="live-watch-only">Watch only: bumping from here needs Store tech manage.</span>}
+          : <span className="text-sm text-muted" data-testid="live-watch-only">{WATCH_ONLY}</span>}
         {!hasScreens && <span className="text-sm text-muted">No kitchen screens set up at this venue yet: each station shows as its own screen.</span>}
         {setupError && <span className="text-sm text-bad">Couldn't check for setup changes: {setupError}</span>}
       </div>
       {askBump && !bumping && <BumpConfirm onYes={() => setBumping(true)} onNo={() => setAskBump(false)} />}
-      {bumping && (
+      {bumping && bumpNote && (
         <div className="shrink-0 bg-warn text-white px-3 py-2 flex flex-wrap items-center gap-x-3 gap-y-2" data-testid="live-bump-banner" role="status">
           <Hand size={18} className="shrink-0" />
           <div className="flex-1 min-w-[12rem] font-semibold">Bumping is on: taps on these screens bump and tick off dishes for real, as on the kitchen screens.</div>
+          <button className="btn bg-white/15 text-white border-white/60 min-h-[48px] min-w-[48px]" onClick={() => setBumpNote(false)} data-testid="live-bump-note-ok">OK</button>
           <button className="btn bg-white text-ink border-white min-h-[48px]" onClick={() => setBumping(false)} data-testid="live-bump-off">Turn bumping off</button>
         </div>
       )}

@@ -5383,7 +5383,11 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>/ws?kitchen_live=&lt;token&gt;</Mono> (a branch in <Mono>config/ws.js</Mono>: the link read
               with <Mono>readLink(&apos;kitchen_live&apos;)</Mono>, its venue checked against its tenant in system
               mode, closed 4003 otherwise; it joins only the venue&apos;s till room <Mono>pos:&lt;venue&gt;</Mono> and
-              answers pings) says <Mono>pos.seq</Mono> with kind kitchen, and the page asks{' '}
+              answers pings) says <Mono>pos.seq</Mono> with kind kitchen. The page pings every{' '}
+              <Mono>PING_EVERY_MS</Mono> (25 s, once the server&apos;s <Mono>connected</Mono> message says{' '}
+              <Mono>heartbeat: true</Mono>), which keeps the link open through proxies that close quiet ones; no
+              answer within <Mono>PONG_WAIT_MS</Mono> (10 s) drops it without waiting for it to close and opens
+              another (the kiosk&apos;s heartbeat). The page asks{' '}
               <Mono>GET /pos-api/kitchen-live/sync</Mono> (one request in flight, asked again if a push came
               meanwhile), also every 20 s with the socket open and every 3 s without it. It keeps the orders, the
               sequence each order last changed at, the sequence of the last reset and the server clock offset,
@@ -5421,9 +5425,12 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>can_bump</Mono>, else a Watch only line (<Mono>live-watch-only</Mono>). It starts off at every
               visit and lives only in memory (<Mono>bumpingRef</Mono>, never stored). Tapping it asks first (
               <Mono>BumpConfirm</Mono>, <Mono>live-bump-confirm</Mono> with <Mono>live-bump-yes</Mono> /{' '}
-              <Mono>live-bump-no</Mono>; a second tap on the switch closes the question). While it is on, a banner (
-              <Mono>live-bump-banner</Mono>, <Mono>live-bump-off</Mono>) and a badge on every screen card (
-              <Mono>live-bump-badge</Mono>, also in full screen) turn it off. With it on, a frame&apos;s{' '}
+              <Mono>live-bump-no</Mono>; a second tap on the switch closes the question). As it goes on, a bar (
+              <Mono>live-bump-banner</Mono>, with <Mono>live-bump-note-ok</Mono> and <Mono>live-bump-off</Mono>)
+              says what it does for <Mono>BUMP_NOTE_MS</Mono> (8 s, or until OK; 6 Nov 2026, it stayed before);
+              then the switch and a badge on every screen card (<Mono>live-bump-badge</Mono>, also in full screen)
+              say it is on, and either turns it off. A link without <Mono>b</Mono> (made before 5 Nov 2026, or by
+              someone with pos_setup view) shows <Mono>WATCH_ONLY</Mono>: open Live view again from Store tech. With it on, a frame&apos;s{' '}
               <Mono>POST /pos-api/events</Mono> goes to <Mono>POST /pos-api/kitchen-live/events</Mono> with the
               screen&apos;s id (a kitchen screen&apos;s device id, or a station id in One per station) and the page
               pulls the orders at once (<Mono>pull</Mono> from <Mono>useKitchenFeed()</Mono>); a refusal of the whole

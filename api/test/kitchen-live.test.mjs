@@ -279,7 +279,8 @@ test('a link made with Store tech manage may bump; one made with Store tech view
   const refused = await livePost(wl.token, { screen_id: grill.id, events: [tap('kitchen.bumped', { order_id: order.id, station_id: at })] })
   assert.equal(refused.status, 403)
   assert.equal(refused.json.code, 'view_only')
-  assert.match(refused.json.error, /Store tech manage/)
+  assert.match(refused.json.error, /can only watch/)
+  assert.match(refused.json.error, /Open Live view again from Store tech/)
   assert.deepEqual((await kitchenRow(order.id)).items[0].done || {}, {}, 'nothing changed')
 
   // The right to bump is signed into the link: it can't be added by editing it.

@@ -92,6 +92,10 @@ jobs:
               # Pepper's chat turns get 5 minutes instead of the 60 s for /api/.
               sudo bash $APP/scripts/ensure-nginx-ai-timeout.sh \
                 || echo "WARN: nginx Pepper timeout patch failed (chat turns over 60 s show an error)"
+              # Live connections (WebSockets at /ws) on every block that
+              # proxies to the API: tills, kitchen screens, kiosks, screens.
+              sudo bash $APP/scripts/ensure-nginx-ws.sh \
+                || echo "WARN: nginx /ws patch failed (devices fall back to asking every few seconds)"
               # Custom domains switch on by themselves (systemd timer); see
               # scripts/custom-domains-sync.sh.
               sudo bash $APP/scripts/install-domain-sync.sh \

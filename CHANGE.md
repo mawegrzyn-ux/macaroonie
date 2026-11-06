@@ -5,6 +5,15 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-11-06 — Live kitchen view: a shorter notice, clearer words, a steadier connection]
+
+No migration.
+
+- **The orange bar now shows only as bumping goes on**: it says what bumping does for about 8 seconds, then goes (**OK** hides it sooner). The switch stays orange and every screen keeps its *Bumping on* badge while bumping is on.
+- **A link that can't bump now says why**: *Watch only: this link can't bump. Open Live view again from Store tech (with Manage) to get one that can.* Links opened before 5 November can only watch, even for an owner.
+- **The page keeps its live connection open**: it checks the connection every 25 seconds and opens a new one if it stops answering, instead of staying on *Checking every few seconds*.
+- **The server passes live connections through** for tills, kitchen screens, kiosks, menu screens and the live view (a setting added to the web server by every update). Where it was missing, devices asked every few seconds instead of hearing changes at once.
+
 ## [2026-11-05 — Bump from the live kitchen view, after a confirm]
 
 No migration.
