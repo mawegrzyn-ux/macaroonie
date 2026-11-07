@@ -3143,7 +3143,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['supply_orders / supply_order_lines', 'A venue filling in a list: draft, requested (waiting for approval, migration 180) or submitted. requested_by / requested_at, requested_lines ({ item_id: { qty, quote_id } }: what was asked for), supplier_options ({ supplier_id: { delivery_date, notes } } wanted), returned_by / returned_at / return_note (last sent back), split_from, added_to_po_ids uuid[] (open purchase orders its lines were added to when placed, migration 233). Lines keep qty in packs of quote_id (null = the resolved choice).'],
                 ['purchase_orders', 'One per supplier per submitted order. number (per tenant, PO-00012), status to_send | sent | received | cancelled, delivery_date, totals, sent_at/by/via/to, send_error, received_at/by, is_generated; requested_by (who asked, when it went through approval), amended_at / amended_by (changed after sending: a split), split_from (migration 180); supplier_ref (the supplier\'s own order reference, migration 233, indexed on lower()); sent_via email | print | excel | pdf | phone | website | other.'],
                 ['purchase_order_lines', 'Copies of name, category, storage, product_name, pack label, pack_base_qty, price, VAT at ordering time; qty; received_qty, receive_status, receive_note. Migration 197: invoice_id, invoice_name, invoice_code, invoice_pack, invoice_price (per pack ex VAT), invoice_vat_rate (what the invoice said); added_on_receipt (arrived but not ordered: qty 0, the qty CHECK allows 0 only for these); pack_spec { name, count, qty, unit } (the pack as invoiced, for adding it to the price list).'],
-                ['purchase_invoices', 'An invoice read by Pepper while booking in (migration 197, forced RLS): po_id, files [{ name, url, media_type, bytes }] (storage kind invoices), supplier_name, invoice_number, invoice_date, prices_include_vat, subtotal, vat, delivery_charge, total, lines (jsonb, toInvoice() output), notes, read_by / read_at, applied_by / applied_at (set when a receive uses it).'],
+                ['purchasing_settings', 'One row per tenant (migration 238, forced RLS; no row = defaults): receive_without_order off | anyone | approvers, updated_by / updated_at.'],
+                ['purchase_orders.no_order', 'Migration 238: made when a delivery was booked in without an order. Received from the start, never sent; its lines are what arrived (qty = received_qty), its totals at the prices paid, delivery_date the day it arrived.'],
+                ['purchase_invoices', 'An invoice read by Pepper while booking in (migration 197, forced RLS; po_id NULL with venue_id + supplier_id for a delivery without an order until it is saved, migration 238): po_id, files [{ name, url, media_type, bytes }] (storage kind invoices), supplier_name, invoice_number, invoice_date, prices_include_vat, subtotal, vat, delivery_charge, total, lines (jsonb, toInvoice() output), notes, read_by / read_at, applied_by / applied_at (set when a receive uses it).'],
                 ['fs_delivery_checks.purchase_order_id', 'The H&S delivery check written by receiving (unique per PO).'],
               ]}
             />
@@ -3656,6 +3658,57 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               readingToForm(), ExtrasSection, PriceListModal, InvoiceList) used by ReceiveForm and PoDetail;{' '}
               <Mono>GET /purchasing/venues/:id/catalog?all=1</Mono> also lists items without a supplier price.
               Tests: <Mono>api/test/invoice-reading.test.mjs</Mono>.
+            </P>
+            <H3>Deliveries without an order (migration 238)</H3>
+            <P>
+              <Mono>purchasing_settings</Mono> (one row per tenant, forced RLS; no row = off) holds{' '}
+              <Mono>receive_without_order</Mono> <Mono>off | anyone | approvers</Mono>:{' '}
+              <Mono>GET /api/purchasing/settings</Mono> (any purchasing view), <Mono>PUT</Mono> (Purchasing setup
+              manage, keeps <Mono>updated_by</Mono>). <Mono>mayReceiveWithoutOrder(setting, levels)</Mono> in{' '}
+              <Mono>services/purchasingSvc.js</Mono> is the one rule (anyone = Purchasing or Purchasing approval
+              manage, approvers = Purchasing approval manage); <Mono>GET /meta</Mono> returns{' '}
+              <Mono>receive_without_order</Mono> and <Mono>can_receive_without_order</Mono>.
+            </P>
+            <P>
+              <Mono>POST /api/purchasing/venues/:venueId/deliveries</Mono>{' '}
+              <Mono>{'{ supplier_id, received_date?, supplier_ref?, notes?, invoice_id?, lines: [arrived line], check }'}</Mono>{' '}
+              (lines as the receive body&apos;s <Mono>add[]</Mono>, at least one; the supplier switched on; the day
+              not after today and at most 31 days back, venue time) makes a purchase order with{' '}
+              <Mono>no_order = true</Mono>, number from <Mono>nextPoNumber()</Mono>, delivery date = the day it
+              arrived, never sent, then runs <Mono>receiveInto()</Mono>, the receive route&apos;s body moved into a
+              function. For a <Mono>no_order</Mono> PO it differs: added lines get <Mono>qty = received_qty</Mono>{' '}
+              and <Mono>added_on_receipt = false</Mono>; a correction sets each line&apos;s qty to what arrived and
+              deletes lines at 0 (422 when none would be left); only OK or damaged (422 otherwise); a new{' '}
+              <Mono>received_date</Mono> is checked and moves the PO&apos;s day and the delivery check&apos;s; the PO
+              totals are recomputed as received × (invoice price ?? price), VAT at the invoice&apos;s rate ?? the
+              line&apos;s; the delivery check&apos;s items have no <Mono>ordered</Mono> and its notes say booked in
+              without an order. A price typed by a price viewer is stored as the line&apos;s{' '}
+              <Mono>invoice_price</Mono>, so <Mono>priceListRows()</Mono> offers it. The order documents (
+              <Mono>GET /pos/:id/file</Mono>) answer 409; send, mark sent, change, split and cancel already refuse a
+              received PO. The order form&apos;s last order leaves <Mono>no_order</Mono> POs out.
+            </P>
+            <P>
+              An invoice can be read before there is an order: <Mono>POST /api/ai/invoices/read</Mono> with{' '}
+              <Mono>venue_id</Mono> + <Mono>supplier_id</Mono> instead of <Mono>po_id</Mono> (the same setting
+              checked) sends no order lines and every active quote of the supplier as <Mono>C</Mono> refs, and
+              stores <Mono>purchase_invoices</Mono> with <Mono>po_id</Mono> NULL (now nullable, with{' '}
+              <Mono>venue_id</Mono> / <Mono>supplier_id</Mono> and a check that one or the other is set). The
+              deliveries route takes it only while it has no PO and is the venue&apos;s and supplier&apos;s, then sets
+              its <Mono>po_id</Mono>. <Mono>GET /purchasing/venues/:id/suppliers?all=1</Mono> also lists
+              switched-on suppliers with no live price, with <Mono>prices</Mono> (how many).
+            </P>
+            <P>
+              Admin: <Mono>components/purchasing/noOrder.jsx</Mono> (<Mono>PurchasingSettingsButton</Mono> on the
+              Purchasing page header, <Mono>NoOrderSupplierModal</Mono>, <Mono>noOrderPo()</Mono> = the PO the form
+              works on until saved), the Deliveries tab&apos;s <Mono>no-order-start</Mono> button, ReceiveForm with{' '}
+              <Mono>po.no_order</Mono> (Delivery card with the day and their reference, no status chips, Save held by{' '}
+              <Mono>nothing</Mono>), ExtrasSection&apos;s <Mono>onAdd</Mono> and hand-added lines (
+              <Mono>manualExtra()</Mono>, <Mono>ManualLine</Mono>, <Mono>priceTyped()</Mono> in{' '}
+              <Mono>invoice.jsx</Mono>; ItemPickModal&apos;s <Mono>newLabel</Mono> may be a function of the
+              supplier&apos;s packs), <Mono>NoOrderBadge</Mono> on cards and the PO page (no documents, Arrived, Booked
+              in without an order). Pepper&apos;s <Mono>purchase_orders</Mono> says <Mono>no_order</Mono>; it has no
+              tool to book one in. Tests: <Mono>api/test/purchasing-no-order.test.mjs</Mono>; the fixtures switch it
+              on and book one in for the tenant sweep.
             </P>
             <H3>Permissions and prices</H3>
             <P>
@@ -4317,8 +4370,27 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               false = off on the tills; those never show in the zone or its preview).
             </P>
             <P>
+              A category&apos;s dishes zone (type <Mono>category</Mono>, up to 8 per layout, 6 Nov 2026) is a grid zone
+              (<Mono>GRID_DEFAULTS.category</Mono> 4 x 2, scroll, words top left) with <Mono>section_id</Mono> (a menu
+              section, null until picked: warning <Mono>category_unset</Mono>) and <Mono>price</Mono> (default true); it
+              counts as a way to find dishes for <Mono>no_dishes</Mono>. It and the Dishes zone (<Mono>items</Mono>) carry{' '}
+              <Mono>hide_item_ids</Mono> (dish ids, unique, at most <Mono>MAX_HIDDEN</Mono> 300): dishes left out of that zone
+              only. <Mono>shownDishIds(zone, ids)</Mono> is the one rule (the list without them, in its order), used by the
+              till&apos;s <Mono>CategoryZone</Mono> and the designer&apos;s preview; the till&apos;s <Mono>ItemsZone</Mono>{' '}
+              skips them in its own walk so its search leaves them out too. <Mono>ownLayout()</Mono> keeps a category zone&apos;s{' '}
+              <Mono>section_id</Mono> only when it is the company&apos;s (else null) and <Mono>hide_item_ids</Mono> only the
+              company&apos;s dishes; <Mono>layoutIds()</Mono> lists both so <Mono>ownTillLayout()</Mono> looks them up. On the
+              till <Mono>CategoryZone</Mono> (<Mono>zone-category</Mono>) finds the section on the menus shown now, else on
+              any of the till&apos;s menus (<Mono>tillMenus</Mono>), and shows it empty with a note when neither has it. The
+              designer: <Mono>CategoryZoneOptions</Mono> (<Mono>tl-category-section</Mono>, a select by menu; changing it
+              clears <Mono>hide_item_ids</Mono>; <Mono>tl-category-dish</Mono> chips with <Mono>aria-pressed</Mono>,{' '}
+              <Mono>tl-category-show-all</Mono>), <Mono>LeftOutDishes</Mono> for the Dishes zone (<Mono>tl-left-out</Mono>,{' '}
+              <Mono>tl-left-out-dish</Mono>, <Mono>tl-leave-out</Mono>), <Mono>zoneName()</Mono> giving Dishes: and the
+              section&apos;s title.
+            </P>
+            <P>
               Pop-ups (type <Mono>popup</Mono>, up to 8 per layout, 1 Nov 2026; <Mono>MAX_ZONES</Mono> went to 24 so every
-              zone type at its most fits) are zones with buttons like a Buttons zone (the same <Mono>buttons</Mono>, grid and
+              zone type at its most fits, and to 32 with the category&apos;s dishes zone) are zones with buttons like a Buttons zone (the same <Mono>buttons</Mono>, grid and
               words settings; <Mono>GRID_DEFAULTS.popup</Mono> 3 x 2 in pages), plus <Mono>title</Mono> (default Pop-up),{' '}
               <Mono>frame</Mono> (border and shadow, default true), <Mono>controls</Mono> (a bar with the title and an X,
               default true), <Mono>close_outside</Mono> (default true) and <Mono>close_on_tap</Mono> (default false). They
@@ -7477,7 +7549,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['POST /api/ai/themes', 'The theme maker: { target, prompt, image, palette, current, like, count } -> { kits, notes }. ai_assistant view + Manage on the target\'s page; counts like a chat. See Website CMS -> Theme maker.'],
                 ['POST /api/ai/menus/read', 'Photos or a PDF of a menu (multipart, up to 10 files) -> { menu, notes } to review; nothing saved. Menus manage + ai_assistant view; counts like a chat. See Menus -> Reading a menu from files.'],
                 ['POST /api/ai/menus/import', 'The reviewed menu -> an unpublished menu through createMenuFromSections() (Pepper\'s create_menu plan, up to 600 dishes). Menus manage.'],
-                ['POST /api/ai/invoices/read', 'A supplier invoice while booking a delivery in: { po_id, files } -> { invoice, catalogue }; the files and reading kept in purchase_invoices. Purchasing or Purchasing approval manage + ai_assistant view. See Purchasing -> Invoices on receiving.'],
+                ['POST /api/ai/invoices/read', 'A supplier invoice while booking a delivery in: { po_id, files } -> { invoice, catalogue }; the files and reading kept in purchase_invoices. A delivery without an order sends { venue_id, supplier_id } instead of po_id (migration 238). Purchasing or Purchasing approval manage + ai_assistant view. See Purchasing -> Invoices on receiving.'],
                 ['POST /api/ai/receipts/read', 'A petty cash receipt: { venue_id, file } -> { merchant, description, date, amount, vat_amount, paid_by_card, category_id, notes }; nothing saved. Cash reconciliation manage + ai_assistant view (services/receiptReadAi.js). See Cash Reconciliation.'],
                 ['POST /api/ai/store-openings/wizard, /:id/describe', 'The venue setup wizard: a draft without Pepper; Pepper filling the steps from a description. See New locations.'],
                 ['GET/DELETE /api/ai/conversations[/:id], POST /api/ai/chat', 'The caller\'s own chats (user_sub); the list and a chat carry closed (erased, read only), a chat also running (a turn or card holds it). chat { conversation_id?, message, attachments?, page? } returns the whole conversation as display items plus stop_reason and notice; with Accept: text/event-stream it streams (see Streaming above). conversation_id null = a new chat\'s only message was refused and the chat removed. 409 while another turn or a card holds the chat, or when it is closed.'],

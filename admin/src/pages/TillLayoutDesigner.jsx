@@ -26,6 +26,12 @@
 // loop (the shake). A tall screen (upright tablet) is fitted to the window's
 // height.
 //
+// A category's dishes zone (up to 8) shows the dishes of the one category
+// picked in its panel, always, whatever the Categories zone shows; it and the
+// Dishes zone can leave dishes out (hide_item_ids: tapped off in the
+// category's list, or picked for the Dishes zone). The preview leaves them out
+// too (shownDishIds()).
+//
 // Pop-ups (dashed purple, their name tab at the bottom left) are drawn as
 // outlines too: on the till they show only when a button opens them (Open a
 // pop-up), over their own cells with the rest of the screen covered behind
@@ -52,7 +58,7 @@ import {
   ZONE_TYPES, zoneLabel, GRID_ZONES, OVERFLOWS, CHOICE_KINDS, COVERS, BUTTON_ACTIONS, actionOf, CHECK_BUTTONS,
   normaliseTillLayout, layoutProblems, layoutWarnings, packCells, buttonLabel, choiceZones, overlaps, buttonTextStyle,
   ALIGNS, VALIGNS, SEAT_PARTS, LAYOUT_COLS, LAYOUT_ROWS, ZONE_GRID, FONT, MAX_ZONES, MAX_BUTTONS, LABEL_MAX,
-  MENU_TAPS, MAX_MENUS, popupCloseProblem, FLOATING_ZONES,
+  MENU_TAPS, MAX_MENUS, popupCloseProblem, FLOATING_ZONES, shownDishIds, MAX_HIDDEN,
 } from '@shared/pos/tillLayout.js'
 import { chargeValueText } from '@shared/pos/charges.js'
 import { timesLabel } from '@shared/menuTimes.js'
@@ -65,7 +71,7 @@ const SCREENS = [
   { key: '800x1280', w: 800, h: 1280, label: 'Upright tablet, 800 x 1280' },
 ]
 const TOP_BAR = 64
-const TINTS = { check: '#e0e7ff', categories: '#dcfce7', menus: '#ffedd5', items: '#fef3c7', buttons: '#fce7f3', modifiers: '#e0f2fe', seats: '#ede9fe', popup: '#fae8ff' }
+const TINTS = { check: '#e0e7ff', categories: '#dcfce7', menus: '#ffedd5', items: '#fef3c7', category: '#ecfccb', buttons: '#fce7f3', modifiers: '#e0f2fe', seats: '#ede9fe', popup: '#fae8ff' }
 const NEEDS_TARGET = { item: 'item_id', discount_preset: 'preset_id', tender: 'tender', charge: 'charge_id', open_popup: 'popup_id' }
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v))
 
@@ -73,11 +79,12 @@ function freshId(taken, base) {
   if (!taken.has(base)) return base
   for (let n = 2; ; n++) if (!taken.has(base + n)) return base + n
 }
-const ZONE_BASE = { check: 'order', categories: 'cats', menus: 'menus', items: 'dishes', buttons: 'buttons', modifiers: 'choices', seats: 'seats', popup: 'popup' }
+const ZONE_BASE = { check: 'order', categories: 'cats', menus: 'menus', items: 'dishes', category: 'category', buttons: 'buttons', modifiers: 'choices', seats: 'seats', popup: 'popup' }
 
 /** How a zone is named in lists and notes: Pop-up: Drinks, Dish choices: Must pick, Buttons 2. */
-function zoneName(z, layout) {
+function zoneName(z, layout, names = null) {
   if (z.type === 'popup') return 'Pop-up: ' + z.title
+  if (z.type === 'category' && z.section_id && names?.sections.get(z.section_id)) return 'Dishes: ' + names.sections.get(z.section_id).title
   if (z.type === 'modifiers') return zoneLabel(z.type) + ': ' + (CHOICE_KINDS.find(k => k.key === z.kind)?.label || '')
   const same = (layout?.zones || []).filter(x => x.type === z.type)
   return zoneLabel(z.type) + (same.length > 1 ? ' ' + (same.indexOf(z) + 1) : '')
@@ -98,6 +105,7 @@ function placeZone(layout, type) {
     categories: { w: Math.round(cols / 2), h: 1 },
     menus: { w: Math.round(cols / 2), h: 1 },
     items: { w: Math.round(cols / 2), h: Math.max(2, rows - 2) },
+    category: { w: Math.round(cols / 2), h: 2 },
     buttons: { w: Math.round(cols / 2), h: 2 },
     modifiers: { w: Math.round(cols / 2), h: Math.round(rows / 2) },
     seats: { w: Math.round(cols / 2), h: 1 },
@@ -294,7 +302,7 @@ export default function TillLayoutDesigner() {
                         <button key={z.id} type="button" onClick={() => setSelId(z.id)} data-testid="tl-zone-row" data-zone-id={z.id}
                           className="w-full min-h-[44px] flex items-center gap-2 px-3 rounded-lg border bg-background hover:bg-muted text-left touch-manipulation">
                           <span className="w-3 h-3 rounded-sm shrink-0" style={{ background: TINTS[z.type] }} />
-                          <span className="text-sm font-medium flex-1 min-w-0 truncate">{zoneName(z, layout)}</span>
+                          <span className="text-sm font-medium flex-1 min-w-0 truncate">{zoneName(z, layout, names)}</span>
                           <span className="text-xs text-muted-foreground tabular-nums">{z.w} x {z.h}</span>
                         </button>
                       ))}
@@ -589,11 +597,15 @@ function previewCells(zone, { setup, names, discounts, tenders, charges, layout 
     const ids = zone.sections || (setup?.sections || []).map(s => s.id)
     return ids.map(sid => names.sections.get(sid)).filter(Boolean).map(s => ({ key: s.id, label: s.title }))
   }
-  if (zone.type === 'items') {
+  if (zone.type === 'items' || zone.type === 'category') {
     const cats = layout.zones.find(z => z.type === 'categories')
     const first = cats?.sections?.[0] || (setup?.sections || [])[0]?.id
-    const list = cats ? (setup?.items || []).filter(i => i.section_id === first) : (setup?.items || [])
-    return list.map(i => ({ key: i.id, label: i.name, sub: zone.price ? (i.price_pence != null ? money(i.price_pence) : '£') : null }))
+    const all = setup?.items || []
+    const list = zone.type === 'category' ? all.filter(i => i.section_id === zone.section_id)
+      : cats ? all.filter(i => i.section_id === first) : all
+    const shown = new Set(shownDishIds(zone, list.map(i => i.id)))
+    return list.filter(i => shown.has(i.id))
+      .map(i => ({ key: i.id, label: i.name, sub: zone.price ? (i.price_pence != null ? money(i.price_pence) : '£') : null }))
   }
   if (zone.type === 'buttons' || zone.type === 'popup') {
     const popups = layout.zones.filter(z => z.type === 'popup')
@@ -753,11 +765,15 @@ function ZonePanel({ zone, ctx, canManage, onBack, onChange, onRemove, onPatchZo
           {zone.type === 'categories' && <CategoriesPicker zone={zone} ctx={ctx} onChange={onChange} />}
           {zone.type === 'menus' && <MenusZoneOptions zone={zone} ctx={ctx} onChange={onChange} />}
           {zone.type === 'items' && (
-            <div className="space-y-1">
-              <Toggle label="Search box on top" checked={zone.search} onChange={v => onChange({ search: v })} />
-              <Toggle label="Prices on the buttons" checked={zone.price} onChange={v => onChange({ price: v })} />
-            </div>
+            <>
+              <div className="space-y-1">
+                <Toggle label="Search box on top" checked={zone.search} onChange={v => onChange({ search: v })} />
+                <Toggle label="Prices on the buttons" checked={zone.price} onChange={v => onChange({ price: v })} />
+              </div>
+              <LeftOutDishes zone={zone} ctx={ctx} onChange={onChange} />
+            </>
           )}
+          {zone.type === 'category' && <CategoryZoneOptions zone={zone} ctx={ctx} onChange={onChange} />}
           {zone.type === 'popup' && <PopupOptions zone={zone} layout={layout} openers={openers} canManage={canManage} onChange={onChange} onPatchZone={onPatchZone} onPick={onPick} />}
           {(zone.type === 'buttons' || zone.type === 'popup') && <ButtonsEditor zone={zone} ctx={ctx} canManage={canManage} onChange={onChange} selB={selB} setSelB={setSelB} />}
           {zone.type === 'modifiers' && (
@@ -1005,6 +1021,112 @@ function CategoriesPicker({ zone, ctx, onChange }) {
         </>
       )}
     </div>
+  )
+}
+
+/**
+ * A category's dishes zone: the category (a section of the venue's menus,
+ * picked from the list, grouped by menu), prices on the buttons, and each of
+ * its dishes shown or left out (tap to switch).
+ */
+function CategoryZoneOptions({ zone, ctx, onChange }) {
+  const { setup, names } = ctx
+  const menus = setup?.menus || []
+  const sections = setup?.sections || []
+  const dishes = (setup?.items || []).filter(i => i.section_id === zone.section_id)
+  const hidden = new Set(zone.hide_item_ids)
+  const shown = dishes.filter(i => !hidden.has(i.id)).length
+  const toggle = id => onChange({ hide_item_ids: hidden.has(id) ? zone.hide_item_ids.filter(x => x !== id) : [...zone.hide_item_ids, id] })
+  const known = zone.section_id ? names.sections.get(zone.section_id) : null
+  return (
+    <div className="space-y-3" data-testid="tl-category-options">
+      <Field label="Category">
+        <select className={inputCls} value={zone.section_id || ''} data-testid="tl-category-section"
+          onChange={e => onChange({ section_id: e.target.value || null, hide_item_ids: [] })}>
+          <option value="">Pick a category…</option>
+          {zone.section_id && !known && <option value={zone.section_id}>A category on another venue's menus</option>}
+          {menus.map(m => (
+            <optgroup key={m.id} label={m.name}>
+              {sections.filter(x => x.menu_id === m.id).map(x => <option key={x.id} value={x.id}>{x.title}</option>)}
+            </optgroup>
+          ))}
+        </select>
+      </Field>
+      <p className="text-xs text-muted-foreground -mt-1">
+        Its dishes are always on screen here, whatever the Categories zone shows. A till whose menus don't have this category shows the zone empty.
+      </p>
+      <Toggle label="Prices on the buttons" checked={zone.price} onChange={v => onChange({ price: v })} />
+      {zone.section_id && known && (
+        <Field group label={`Dishes in it (${shown} of ${dishes.length} shown)`}>
+          {dishes.length ? (
+            <div className="flex flex-wrap gap-1.5" data-testid="tl-category-dishes">
+              {dishes.map(i => {
+                const out = hidden.has(i.id)
+                return (
+                  <button key={i.id} type="button" aria-pressed={!out} data-id={i.id} onClick={() => toggle(i.id)} data-testid="tl-category-dish"
+                    className={cn('min-h-[44px] px-3 rounded-lg border text-sm touch-manipulation inline-flex items-center gap-1.5',
+                      out ? 'bg-background text-muted-foreground line-through hover:bg-muted' : 'bg-primary/10 border-primary/40 hover:bg-primary/15')}>
+                    {out ? <EyeOff className="w-3.5 h-3.5 shrink-0" /> : <Eye className="w-3.5 h-3.5 shrink-0" />}{i.name}
+                  </button>
+                )
+              })}
+            </div>
+          ) : <p className="text-sm text-muted-foreground">This category has no dishes yet.</p>}
+          <p className="text-xs text-muted-foreground mt-1">
+            Tap a dish to leave it out of this zone (crossed out), and again to put it back. It stays on the menu everywhere else.
+            {hidden.size > 0 && (
+              <> <button type="button" className="underline min-h-[44px] touch-manipulation" onClick={() => onChange({ hide_item_ids: [] })} data-testid="tl-category-show-all">Show them all</button></>
+            )}
+          </p>
+        </Field>
+      )}
+    </div>
+  )
+}
+
+/**
+ * The Dishes zone's dishes left out: never shown in the zone (its search
+ * included), picked from the venue's dishes by category.
+ */
+function LeftOutDishes({ zone, ctx, onChange }) {
+  const { setup, names } = ctx
+  const menus = setup?.menus || []
+  const sections = setup?.sections || []
+  const items = setup?.items || []
+  const hidden = zone.hide_item_ids
+  const rest = items.filter(i => !hidden.includes(i.id))
+  return (
+    <Field group label="Dishes left out">
+      <div className="space-y-2" data-testid="tl-left-out">
+        {!hidden.length && <p className="text-xs text-muted-foreground">None: every dish of the category picked shows.</p>}
+        {hidden.map(id => (
+          <div key={id} className="flex items-center gap-2 min-h-[44px]" data-testid="tl-left-out-dish" data-id={id}>
+            <EyeOff className="w-4 h-4 text-muted-foreground shrink-0" />
+            <span className="flex-1 min-w-0 text-sm truncate">{names.items[id]?.name || 'A dish not on this venue\'s menus'}</span>
+            <button type="button" onClick={() => onChange({ hide_item_ids: hidden.filter(x => x !== id) })} aria-label={'Put back ' + (names.items[id]?.name || 'the dish')}
+              className="w-11 h-11 rounded-lg border bg-background hover:bg-muted flex items-center justify-center touch-manipulation"><X className="w-4 h-4" /></button>
+          </div>
+        ))}
+        {rest.length > 0 && hidden.length < MAX_HIDDEN && (
+          <label className="flex items-center gap-2">
+            <EyeOff className="w-4 h-4 text-muted-foreground shrink-0" />
+            <select className={cn(inputCls, 'flex-1')} value="" aria-label="Leave out a dish" data-testid="tl-leave-out"
+              onChange={e => e.target.value && onChange({ hide_item_ids: [...hidden, e.target.value] })}>
+              <option value="">Leave out a dish…</option>
+              {menus.map(m => sections.filter(x => x.menu_id === m.id).map(x => {
+                const list = rest.filter(i => i.section_id === x.id)
+                return list.length ? (
+                  <optgroup key={x.id} label={m.name + ' · ' + x.title}>
+                    {list.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
+                  </optgroup>
+                ) : null
+              }))}
+            </select>
+          </label>
+        )}
+        <p className="text-xs text-muted-foreground">A dish left out never shows in this zone, its search included. It stays on the menu everywhere else.</p>
+      </div>
+    </Field>
   )
 }
 

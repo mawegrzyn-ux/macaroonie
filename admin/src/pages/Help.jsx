@@ -5754,6 +5754,45 @@ export default function Help() {
               amount is kept), another day, or order anyway. Anyone who orders, approves or keeps the catalogue can
               mark it, even on an order they can't change; people with View only see it.
             </P>
+
+            <H3>14. Booking in a delivery without an order</H3>
+            <P>
+              Some goods arrive with no purchase order here: extras the driver brought, a standing delivery nobody
+              orders in the app, a cash and carry run. To book them in, someone with Purchasing setup (Manage)
+              switches it on first: on the Purchasing page tap <strong>Settings</strong>, then under Book in
+              deliveries without an order pick who may do it, and Save.
+            </P>
+            <DataTable
+              head={['Setting', 'Who can book one in']}
+              rows={[
+                ['Off', 'Nobody: deliveries are only booked in against a purchase order. This is how it starts.'],
+                ['Anyone who books deliveries in', 'Everyone with Purchasing or Purchasing approval (Manage).'],
+                ['Only people with Purchasing approval', 'Managers only: people who can only send orders for approval can\'t.'],
+              ]}
+            />
+            <P>
+              Then the Deliveries tab has <strong>Book in without an order</strong>. Pick the supplier it came from
+              (suppliers with nothing in the price list are there too), then fill in the form like any delivery:
+            </P>
+            <DataTable
+              head={['On the form', 'What to do']}
+              rows={[
+                ['Arrived on', 'Today, or the day it came (up to a month back).'],
+                ['Their delivery note or invoice number', 'Optional. Filled in from the invoice when Pepper reads one.'],
+                ['Invoice or delivery note', 'Read it with Pepper, as for an order: the supplier\'s products it finds are added; anything else waits for you to Add it (pick the inventory item and its pack) or Leave it out.'],
+                ['What arrived', 'Add a product: search the inventory and tap one of the supplier\'s packs, or Another pack / As it came packed to give the pack yourself. Set how many came with the - and +; the X takes a line off. People who see prices can type the price paid per pack (it starts at the price list\'s).'],
+                ['Checks', 'The same checks and temperatures as any delivery. Saving writes the delivery check for Food safety for the day it arrived.'],
+              ]}
+            />
+            <P>
+              Saving makes a purchase order for it, marked <strong>No order</strong>, already received, with what
+              arrived as its lines and its total at the prices paid. It is never sent to the supplier (there is no
+              Print, PDF or Excel copy), and it doesn't count as the last order on the order form. It is listed
+              under Received &amp; cancelled. <strong>Correct the delivery</strong> changes how many came (0 takes a
+              line off), adds products, or moves the day; with Purchasing setup, <strong>Update the price list</strong>{' '}
+              offers the prices paid that differ from the price list, as for an invoice. Pepper can show these
+              deliveries but can't book one in yet: use the Deliveries tab.
+            </P>
             <InfoBox type="info">
               All of this can also be done by chat with Pepper (Ask Pepper): ordering, booking deliveries
               in, changing prices and importing a supplier's price list from a PDF or photo. Pepper understands
@@ -6083,11 +6122,12 @@ export default function Help() {
               <li><strong>New layout</strong>: give it a name and start from <strong>Like the standard screen</strong>, <strong>Quick service</strong> (categories down the side, a dish&apos;s choices over the dishes, paying buttons along the bottom) or a copy of one you have. It opens in the designer.</li>
               <li>The screen is a grid of cells (<strong>Cells across</strong> and <strong>Cells down</strong> under Layout). Each <strong>zone</strong> takes a block of cells: drag it to move it, drag its corner to resize it, or tap it and use the − and + of <strong>From the left</strong>, <strong>From the top</strong>, <strong>Wide</strong> and <strong>High</strong>. <strong>Add a zone</strong> puts a new one in the space left.</li>
               <li><strong>The till&apos;s top bar on the order screen</strong> (under Layout): switched off, the order screen (a check, and the counter) takes the whole screen and the till menu moves into <strong>More</strong>: the till&apos;s pages (Floor, Counter, Closed, Reports, Till), <strong>Sign out</strong>, and the location, till, who is signed in, the time and the connection. A counter till also has a <strong>Till menu</strong> button on its New order panel. The till&apos;s other pages (Closed, Reports, Till) keep the bar. You can also add <strong>Till menu</strong> and <strong>Sign out</strong> buttons to a Buttons zone.</li>
-              <li>The zones: <strong>Order</strong> (the check with More, Send, Bill and Pay; on a counter till before an order, New order and the orders waiting), <strong>Categories</strong>, <strong>Dishes</strong>, <strong>Buttons</strong> (up to eight zones of your own buttons), <strong>Dish choices</strong>, <strong>Seat and course</strong>, <strong>Menus</strong> and <strong>Pop-up</strong> (see Pop-ups in a till layout below). Only Dish choices and pop-ups can sit over other zones. Zones over each other, or no Order zone, show in red, and Save waits until they are fixed.</li>
+              <li>The zones: <strong>Order</strong> (the check with More, Send, Bill and Pay; on a counter till before an order, New order and the orders waiting), <strong>Categories</strong>, <strong>Dishes</strong>, <strong>A category&apos;s dishes</strong> (up to eight), <strong>Buttons</strong> (up to eight zones of your own buttons), <strong>Dish choices</strong>, <strong>Seat and course</strong>, <strong>Menus</strong> and <strong>Pop-up</strong> (see Pop-ups in a till layout below). Only Dish choices and pop-ups can sit over other zones. Zones over each other, or no Order zone, show in red, and Save waits until they are fixed.</li>
               <li><strong>Order</strong>: <strong>Text size of the order</strong> (its items and totals), and <strong>Its own buttons</strong>: tap Back, Cancel order, More, Send, Bill or Pay to leave it out when a Buttons zone does its job instead (the buttons left share the bar under the order). A button left out with no button doing its job is listed in amber (Cancel order and Print bill are still in More). <strong>Colours</strong>: pick Cancel order, More, Send, Bill or Pay, then a colour (None keeps its usual look); the preview on the canvas follows.</li>
               <li>Each zone with buttons has its own grid: <strong>Buttons across</strong> and <strong>Buttons down</strong> set how big they are (fewer makes them bigger), with the <strong>Text size</strong> and <strong>Bold</strong>. <strong>When more than fits</strong>: <strong>Scroll</strong> (down, or across in a zone one button high), <strong>Pages</strong> (arrows under the zone), <strong>More button</strong> (the rest open from a More button in the last place) or <strong>Hide the rest</strong>.</li>
               <li><strong>Words on the buttons</strong> (each zone with buttons): <strong>Across</strong> (Left, Centre or Right) and <strong>Up and down</strong> (Top, Middle or Bottom) put the words where you want them on that zone&apos;s buttons, and the canvas follows. At the top, a second line (a dish&apos;s price, a choice&apos;s extra price, Sold out) stays at the bottom of the button; in the middle or at the bottom it goes just under the words. A choice&apos;s minus (one less) sits in the corner away from the words. The group headings in a Dish choices zone stay on the left. The Order and Seat and course zones have no such setting: their buttons are as wide as their words.</li>
-              <li><strong>Categories</strong>: <strong>All of the till&apos;s menus</strong>, or <strong>Pick them</strong> to choose which sections show, in your order (drag them; X takes one out). <strong>Dishes</strong> shows the dishes of the category tapped, with a search box and prices if you want them.</li>
+              <li><strong>Categories</strong>: <strong>All of the till&apos;s menus</strong>, or <strong>Pick them</strong> to choose which sections show, in your order (drag them; X takes one out). <strong>Dishes</strong> shows the dishes of the category tapped, with a search box and prices if you want them. <strong>Dishes left out</strong>: pick a dish under <strong>Leave out a dish</strong> and it never shows in the Dishes zone, its search included (X puts it back). It stays on the menu everywhere else: in a category&apos;s dishes zone, on a dish button, on kiosks and online.</li>
+              <li><strong>A category&apos;s dishes</strong> (up to eight in a layout): the dishes of one category you pick, always on screen whatever the Categories zone shows: a Drinks zone beside the dishes, a Sides zone under them. Pick the <strong>Category</strong> (the venue&apos;s menus&apos; categories, by menu); its dishes are listed under it, and tapping one leaves it out of this zone (crossed out; tap again to put it back, or <strong>Show them all</strong>). Picking another category starts with every dish shown. <strong>Prices on the buttons</strong> on or off, and the grid, text, words and When more than fits settings of any zone with buttons. The zone list names it after its category (Dishes: Drinks); while it has no category an amber note says so (tap it to open the zone). A till whose menus don&apos;t have that category shows the zone empty; the category is found on the menus on now first, else on any of the till&apos;s menus.</li>
               <li><strong>Buttons</strong>: <strong>Add a button</strong> and pick what it does: a dish, Exact cash, Exact card, Pay by (a way to pay), Pay, Print bill, Last receipt, a discount from your list, Discount, Send, Fire a course, More, Guests, Order type, Name, Tent number, Allergy, Table, Split / move items, Merge checks, Charges, a charge from your list, Offers, Loyalty, Item not on menu, Cancel order, No sale (open drawer), Menus (which menus show), Back, Till menu, Sign out or Open a pop-up (pick which). Tap a button in the list to change its words, colour and size (it can take several places across or down); drag the list to change their order. The canvas turns to the page the button you are changing is on.</li>
               <li><strong>Dish choices</strong>: shows a dish&apos;s choices on the screen, instead of in a window, while it is being added: <strong>All choices</strong> in one zone, or two zones, one <strong>Must pick</strong> and one <strong>Optional</strong>. Each draws over <strong>Its own space</strong> (the zones under it) or <strong>The whole screen</strong>. The zone with the must-pick choices has the dish&apos;s name and description, the quantity, Cancel, Add and <strong>Note &amp; more</strong> (the choices window, for a note, allergies, seat, course or price). Without a Dish choices zone, choices open in a window as on the standard screen.</li>
               <li>What a Dish choices zone <strong>Shows</strong>: <strong>The dish&apos;s name</strong>, <strong>The dish&apos;s description</strong> (both on the must-pick zone) and <strong>Prices on the choices</strong>, each on or off; the Add button always shows the total, and a choice that has sold out still says so. <strong>Add the dish on its last must-pick tap</strong>: when a must-pick choice takes one pick (a size, a sauce) and nothing else is left to pick, tapping it puts the dish on the order straight away, with no Add tap. Optional choices tapped before it go on with it, so tap the extras first and the must-pick choice last.</li>

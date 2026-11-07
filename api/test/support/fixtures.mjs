@@ -274,6 +274,16 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx', loy
         const extra = got?.lines?.find(l => l.added_on_receipt)
         if (extra) await step('price list from invoice', () => post(`/api/purchasing/pos/${po.id}/price-list`, { changes: [{ line_id: extra.id, action: 'add', product_name: mark + ' Rice 5kg' }] }))
       }
+      // A delivery booked in without an order (migration 238), once the
+      // setting allows it.
+      await step('purchasing settings', () => put('/api/purchasing/settings', { receive_without_order: 'anyone' }))
+      if (oilQuote) {
+        await step('delivery without an order', () => post(`/api/purchasing/venues/${V}/deliveries`, {
+          supplier_id: supplier.id, supplier_ref: mark + '-DN1', notes: mark + ' no order',
+          lines: [{ item_id: oil.id, quote_id: oilQuote.id, received_qty: 1 }],
+          check: { packaging_ok: true, damage_ok: true, quality_ok: true, accepted: true },
+        }))
+      }
     }
   }
 
@@ -453,11 +463,13 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx', loy
     await step('print design words', () => put(`/api/pos/print-designs/${printDesign.id}/variations/${V}`, { texts: { tx: { text: mark + ' Ware words' } }, hidden: [] }))
   }
   // A till layout (migration 228) naming a section, a dish, a discount and a charge of the
-  // tenant's, used by Ware's tills and by the till itself.
+  // tenant's, used by Ware's tills and by the till itself; its Dishes zone leaves the dish
+  // out and a category's dishes zone under it shows the section, the dish left out too.
   const tillLayout = await step('till layout', () => post('/api/pos/till-layouts', { name: mark + ' Counter screen', template: 'quick' }))
   if (tillLayout) {
     const zones = tillLayout.layout.zones.map(z => {
       if (z.type === 'categories' && menuSection) return { ...z, sections: [menuSection.id] }
+      if (z.type === 'items' && menuSection) return { ...z, h: z.h - 2, hide_item_ids: dish ? [dish.id] : [] }
       if (z.type === 'buttons') {
         return {
           ...z,
@@ -471,6 +483,10 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx', loy
       }
       return z
     })
+    const dishes = zones.find(z => z.type === 'items')
+    if (menuSection && dishes) {
+      zones.push({ id: 'fx-category', type: 'category', x: dishes.x, y: dishes.y + dishes.h, w: dishes.w, h: 2, section_id: menuSection.id, hide_item_ids: dish ? [dish.id] : [] })
+    }
     await step('till layout zones', () => put(`/api/pos/till-layouts/${tillLayout.id}`, { name: mark + ' Counter screen', layout: { ...tillLayout.layout, zones } }))
     await step('venue till layout', () => patch(`/api/pos/venues/${V}/settings`, { till_layout_id: tillLayout.id }))
     if (tillDevice?.device) {

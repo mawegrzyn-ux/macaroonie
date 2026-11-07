@@ -320,6 +320,34 @@ export function invoiceView(row, prices) {
   return { ...head, lines }
 }
 
+// ── Settings (migration 238) ─────────────────────────────────────
+
+/** Who may book in a delivery without an order: off | anyone | approvers. */
+export const RECEIVE_WITHOUT_ORDER = ['off', 'anyone', 'approvers']
+
+/** The group's purchasing settings; no row = the defaults. */
+export async function loadPurchasingSettings(tx, tenantId) {
+  const [s] = await tx`SELECT receive_without_order FROM purchasing_settings WHERE tenant_id = ${tenantId}`
+  return { receive_without_order: s?.receive_without_order || 'off' }
+}
+
+/**
+ * Whether someone with these levels ({ purchasing, purchasing_approve })
+ * may book in a delivery without an order under the setting.
+ */
+export function mayReceiveWithoutOrder(setting, lv) {
+  if (setting === 'approvers') return lv.purchasing_approve === 'manage'
+  if (setting === 'anyone') return lv.purchasing === 'manage' || lv.purchasing_approve === 'manage'
+  return false
+}
+
+/** The refusal when the setting doesn't let them. */
+export function withoutOrderRefusal(setting) {
+  return setting === 'approvers'
+    ? httpError(403, 'Only someone with Purchasing approval can book in a delivery without an order')
+    : httpError(403, 'Booking in a delivery without an order is switched off (Purchasing settings)')
+}
+
 // ── Venues and suppliers ─────────────────────────────────────────
 
 export async function loadVenue(tx, tenantId, venueId) {

@@ -20,6 +20,10 @@
 //           lines, lines added for what arrived but wasn't ordered; then
 //           POST /pos/:id/price-list updates the supplier prices from it
 //           (Purchasing setup manage).
+//   no order  a delivery booked in without a purchase order (POST
+//           /venues/:venueId/deliveries, migration 238), when Purchasing
+//           settings (GET / PUT /settings) let the caller: a purchase order
+//           (no_order) is made received at once, its lines what arrived.
 //   basket  a supplier's basket (their website's basket or quick order,
 //           pasted or as a file) compared with an order and applied to it
 //           (POST /orders/:id/reconcile): matched by the supplier's codes.
@@ -46,6 +50,7 @@ import {
   resolveQuotes, loadItemQuotes, loadQuotesById, quoteView, loadVenue, venueNow, loadSuppliersForVenue, createPurchaseOrder,
   loadPo, loadPoLines, poFile, emailPo, nextPoNumber,
   invoiceView, codeTaken, codeTakenError,
+  RECEIVE_WITHOUT_ORDER, loadPurchasingSettings, mayReceiveWithoutOrder, withoutOrderRefusal,
 } from '../services/purchasingSvc.js'
 
 const uuid = z.string().uuid()
@@ -291,7 +296,7 @@ async function loadOrder(tx, tenantId, order, who) {
     SELECT DISTINCT ON (l.item_id) l.item_id, l.qty::float8 AS qty, l.pack_label, po.delivery_date::text AS delivery_date
       FROM purchase_order_lines l
       JOIN purchase_orders po ON po.id = l.po_id AND po.tenant_id = ${tenantId}
-     WHERE l.tenant_id = ${tenantId} AND po.venue_id = ${venue.id} AND po.status <> 'cancelled'
+     WHERE l.tenant_id = ${tenantId} AND po.venue_id = ${venue.id} AND po.status <> 'cancelled' AND NOT po.no_order
        AND l.item_id = ANY(${ids}::uuid[]) AND l.qty > 0
      ORDER BY l.item_id, po.created_at DESC
   ` : []
@@ -431,7 +436,7 @@ async function poList(tx, tenantId, f) {
            po.status, po.delivery_date::text AS delivery_date, po.created_at, po.created_by,
            po.subtotal::float8 AS subtotal, po.vat::float8 AS vat, po.delivery_charge::float8 AS delivery_charge,
            po.total::float8 AS total, po.sent_at, po.sent_via, po.sent_to, po.send_error, po.received_at, po.received_by,
-           po.supply_order_id, po.requested_by, po.amended_at, po.split_from, po.supplier_ref, s.ref_required,
+           po.supply_order_id, po.requested_by, po.amended_at, po.split_from, po.supplier_ref, s.ref_required, po.no_order,
            -- The supplier's ordering settings at this venue: when an order for its day had to go.
            COALESCE(sv.cutoff_time, s.cutoff_time)::text AS cutoff_time, COALESCE(sv.lead_days, s.lead_days) AS lead_days,
            COALESCE(sv.delivery_days, s.delivery_days) AS delivery_days,
@@ -716,6 +721,27 @@ const PoLinesBody = z.object({
   add:   z.array(z.object({ quote_id: uuid, qty: qtyNum.positive() })).max(500).optional(),
 })
 
+const ArrivedLine = z.object({
+  item_id:       uuid,
+  quote_id:      uuid.nullable().optional(),
+  pack:          PackSpec.nullable().optional(),
+  received_qty:  qtyNum.positive(),
+  status:        z.enum(RECEIVE_STATUSES.map(s => s.key)).optional(),
+  note:          optText(500),
+  invoice_idx:   invoiceIdx.nullable().optional(),
+  invoice_price: invoicePrice.optional(),
+})
+
+const ReceiveCheck = z.object({
+  packaging_ok:      z.boolean(),
+  damage_ok:         z.boolean(),
+  quality_ok:        z.boolean(),
+  chilled_temp_c:    z.number().min(-40).max(40).nullable().optional(),
+  frozen_temp_c:     z.number().min(-40).max(40).nullable().optional(),
+  accepted:          z.boolean(),
+  corrective_action: optText(2000),
+})
+
 const ReceiveBody = z.object({
   received_date: date.optional(),
   notes:         optText(2000),
@@ -730,26 +756,238 @@ const ReceiveBody = z.object({
   })).max(2000),
   // Arrived but not ordered: an inventory item with one of this supplier's
   // prices (quote_id), or with its pack as invoiced (no price list entry yet).
-  add: z.array(z.object({
-    item_id:       uuid,
-    quote_id:      uuid.nullable().optional(),
-    pack:          PackSpec.nullable().optional(),
-    received_qty:  qtyNum.positive(),
-    status:        z.enum(RECEIVE_STATUSES.map(s => s.key)).optional(),
-    note:          optText(500),
-    invoice_idx:   invoiceIdx.nullable().optional(),
-    invoice_price: invoicePrice.optional(),
-  })).max(200).optional(),
-  check: z.object({
-    packaging_ok:      z.boolean(),
-    damage_ok:         z.boolean(),
-    quality_ok:        z.boolean(),
-    chilled_temp_c:    z.number().min(-40).max(40).nullable().optional(),
-    frozen_temp_c:     z.number().min(-40).max(40).nullable().optional(),
-    accepted:          z.boolean(),
-    corrective_action: optText(2000),
-  }),
+  add: z.array(ArrivedLine).max(200).optional(),
+  check: ReceiveCheck,
 })
+
+// A delivery booked in without an order (migration 238): what arrived, as
+// ReceiveBody's add lines, plus the supplier, the day it came and their
+// delivery note or invoice number. An invoice read for it first comes as
+// invoice_id (read with venue_id + supplier_id, no order yet).
+const NoOrderBody = z.object({
+  supplier_id:   uuid,
+  received_date: date.optional(),
+  supplier_ref:  optText(100),
+  notes:         optText(2000),
+  invoice_id:    uuid.nullable().optional(),
+  lines:         z.array(ArrivedLine).min(1, 'Add what arrived').max(200),
+  check:         ReceiveCheck,
+})
+
+// How far back a delivery without an order can be booked in.
+const NO_ORDER_DAYS = 31
+
+const SettingsBody = z.object({
+  receive_without_order: z.enum(RECEIVE_WITHOUT_ORDER),
+})
+
+/**
+ * Book a delivery in against a purchase order, shared by POST
+ * /pos/:id/receive and a delivery without an order: received quantities and
+ * statuses, lines for what arrived but wasn't ordered (b.add), what the
+ * invoice said, and the H&S delivery check. On a purchase order made for a
+ * delivery without an order (po.no_order, migration 238) every line is what
+ * arrived: its ordered quantity follows the received one, a line booked in
+ * with 0 comes off, a line is only OK or damaged, the day can move, and the
+ * order's totals are what arrived at the invoice's prices where read.
+ */
+async function receiveInto(tx, req, po, b, prices) {
+  if (!['to_send', 'sent', 'received'].includes(po.status)) throw httpError(409, 'A cancelled order cannot be received')
+  const noOrder = !!po.no_order
+  if (noOrder && [...b.lines, ...(b.add || [])].some(l => l.status && !['ok', 'damaged'].includes(l.status))) {
+    throw httpError(422, 'Nothing was ordered, so a line is OK or damaged')
+  }
+  const venue = await loadVenue(tx, req.tenantId, po.venue_id)
+  // The day it was for (the day it arrived, without an order), as text.
+  const [{ day: poDay }] = await tx`SELECT delivery_date::text AS day FROM purchase_orders WHERE id = ${po.id} AND tenant_id = ${req.tenantId}`
+  if (noOrder && b.received_date && b.received_date !== poDay) noOrderDayCheck(b.received_date, venueNow(venue).date)
+  const [supplier] = await tx`SELECT name FROM suppliers WHERE id = ${po.supplier_id} AND tenant_id = ${req.tenantId}`
+  let invoice = null
+  if (b.invoice_id) {
+    ;[invoice] = await tx`SELECT id, lines FROM purchase_invoices WHERE id = ${b.invoice_id} AND po_id = ${po.id} AND tenant_id = ${req.tenantId}`
+    if (!invoice) throw httpError(404, 'Invoice not found for this order')
+  }
+  const invLine = idx => {
+    if (idx == null) return null
+    if (!invoice) throw httpError(422, 'Read the invoice first')
+    const l = (invoice.lines || [])[idx]
+    if (!l) throw httpError(422, 'That invoice line doesn\'t exist')
+    return l
+  }
+  // What the invoice said for a line: { invoice_* } columns to write, or {} to leave them.
+  const invoiceFields = (given, fallbackPrice) => {
+    if (!given || given.invoice_idx === undefined) {
+      return prices && given?.invoice_price !== undefined ? { invoice_price: given.invoice_price } : {}
+    }
+    if (given.invoice_idx === null) {
+      return { invoice_id: null, invoice_name: null, invoice_code: null, invoice_pack: null, invoice_price: null, invoice_vat_rate: null }
+    }
+    const il = invLine(given.invoice_idx)
+    const read = il.price_pack ?? fallbackPrice ?? null
+    return {
+      invoice_id: invoice.id, invoice_name: il.description, invoice_code: il.code ?? null, invoice_pack: il.pack_text ?? null,
+      invoice_price: prices && given.invoice_price !== undefined ? given.invoice_price : read,
+      invoice_vat_rate: il.vat_rate ?? null,
+      // The pack as invoiced, for adding it to the price list later.
+      ...(il.pack ? { pack_spec: tx.json({ name: 'pack', ...il.pack }) } : {}),
+    }
+  }
+
+  const lines = await loadPoLines(tx, req.tenantId, po.id)
+  const given = new Map(b.lines.map(l => [l.id, l]))
+  for (const id of given.keys()) if (!lines.some(l => l.id === id)) throw httpError(404, 'Line not found')
+
+  // Lines for what arrived but wasn't ordered.
+  const added = []
+  if (b.add?.length) {
+    const itemIds = [...new Set(b.add.map(a => a.item_id))]
+    const items = await tx`
+      SELECT i.id, i.name, i.storage, i.base_unit, c.name AS category_name
+        FROM inv_items i LEFT JOIN inv_categories c ON c.id = i.category_id AND c.tenant_id = ${req.tenantId}
+       WHERE i.id = ANY(${itemIds}::uuid[]) AND i.tenant_id = ${req.tenantId}
+    `
+    const itemBy = new Map(items.map(i => [i.id, i]))
+    const quoteIds = [...new Set(b.add.map(a => a.quote_id).filter(Boolean))]
+    const { quotes } = await resolveQuotes(tx, req.tenantId, venue.id, itemIds)
+    const allQuotes = [...quotes.values()].flat()
+    const [{ n }] = await tx`SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM purchase_order_lines WHERE po_id = ${po.id} AND tenant_id = ${req.tenantId}`
+    let sort = Number(n)
+    for (const a of b.add) {
+      const item = itemBy.get(a.item_id)
+      if (!item) throw httpError(404, 'Item not found')
+      const il = a.invoice_idx != null ? invLine(a.invoice_idx) : null
+      let row
+      if (a.quote_id) {
+        const q = allQuotes.find(x => x.id === a.quote_id)
+        if (!q || !quoteIds.includes(q.id) || q.item_id !== item.id) throw httpError(404, 'Supplier price not found for ' + item.name)
+        if (q.supplier_id !== po.supplier_id) throw httpError(422, 'That product is not from this supplier')
+        row = {
+          quote_id: q.id, supplier_code: q.supplier_code ?? null, product_name: q.product_name ?? null,
+          pack_label: packLabel(q), pack_base_qty: q.pack_base_qty, price: quotePrice(q, venue.id), vat_rate: q.vat_rate,
+          pack_spec: null,
+        }
+      } else {
+        const spec = a.pack || (il?.pack ? { name: 'pack', ...il.pack } : null)
+        if (!spec) throw httpError(422, 'Say how ' + item.name + ' came packed')
+        const p = { pack_name: spec.name || 'pack', pack_count: spec.count ?? 1, pack_qty: spec.qty, pack_unit: spec.unit }
+        const pbq = packBaseQty(p, item.base_unit)
+        if (!pbq) throw httpError(422, `A ${spec.unit} pack doesn't fit ${item.name}, which is counted in ${item.base_unit === 'each' ? 'each' : item.base_unit}`)
+        row = {
+          quote_id: null, supplier_code: il?.code ?? null, product_name: il?.description ?? null,
+          pack_label: packLabel(p), pack_base_qty: pbq, price: il?.price_pack ?? 0, vat_rate: il?.vat_rate ?? 0,
+          pack_spec: tx.json({ name: p.pack_name, count: p.pack_count, qty: p.pack_qty, unit: p.pack_unit }),
+        }
+      }
+      const [ins] = await tx`
+        INSERT INTO purchase_order_lines ${tx({
+          tenant_id: req.tenantId, po_id: po.id, item_id: item.id, item_name: item.name,
+          category_name: item.category_name ?? null, storage: item.storage, base_unit: item.base_unit,
+          ...invoiceFields(a, row.price), ...row,
+          // Without an order, what arrived is what the delivery is.
+          qty: noOrder ? a.received_qty : 0, added_on_receipt: !noOrder, sort_order: sort++,
+        })}
+        RETURNING id
+      `
+      added.push({ id: ins.id, given: a })
+    }
+  }
+
+  const c = b.check
+  const all = await loadPoLines(tx, req.tenantId, po.id)
+  const addedBy = new Map(added.map(x => [x.id, x.given]))
+  const received = all.map(l => {
+    const g = given.get(l.id) || addedBy.get(l.id)
+    const qty = g ? g.received_qty : (l.added_on_receipt ? Number(l.received_qty ?? 0) : Number(l.qty))
+    const status = g?.status || (noOrder ? (g ? 'ok' : l.receive_status || 'ok') : receiveStatusFor(l.qty, qty))
+    return { ...l, received_qty: qty, receive_status: status, receive_note: g?.note ?? (g ? null : l.receive_note ?? null), g }
+  })
+  // An added line with nothing received is taken off again, and so is any
+  // line of a delivery without an order.
+  const dropped = received.filter(l => (l.added_on_receipt || noOrder) && !(l.received_qty > 0))
+  const kept = received.filter(l => !dropped.includes(l))
+  if (noOrder && !kept.length) throw httpError(422, 'Nothing left on the delivery: at least one line has to have arrived')
+  for (const l of dropped) await tx`DELETE FROM purchase_order_lines WHERE id = ${l.id} AND tenant_id = ${req.tenantId}`
+  const arrived = kept.filter(l => l.received_qty > 0)
+  const hasChilled = arrived.some(l => l.storage === 'chilled')
+  const hasFrozen = arrived.some(l => l.storage === 'frozen')
+  if (hasChilled && c.chilled_temp_c == null) throw httpError(422, 'Enter the temperature of the chilled goods')
+  if (hasFrozen && c.frozen_temp_c == null) throw httpError(422, 'Enter the temperature of the frozen goods')
+  const chilled = hasChilled ? c.chilled_temp_c : null
+  const frozen = hasFrozen ? c.frozen_temp_c : null
+  const tempOk = deliveryTempOk('chilled', chilled) && deliveryTempOk('frozen', frozen)
+
+  for (const l of kept) {
+    const inv = addedBy.has(l.id) ? {} : invoiceFields(given.get(l.id), Number(l.price))
+    await tx`
+      UPDATE purchase_order_lines SET ${tx({
+        received_qty: l.received_qty, receive_status: l.receive_status, receive_note: l.receive_note, ...inv,
+        ...(noOrder ? { qty: l.received_qty } : {}),
+      })}
+       WHERE id = ${l.id} AND tenant_id = ${req.tenantId}
+    `
+  }
+  // Without an order its totals are what arrived, at the invoice's prices where read.
+  const own = noOrder ? orderTotals((await loadPoLines(tx, req.tenantId, po.id)).map(l => ({
+    qty: Number(l.received_qty), price: Number(l.invoice_price ?? l.price), vat_rate: Number(l.invoice_vat_rate ?? l.vat_rate),
+  }))) : null
+  await tx`
+    UPDATE purchase_orders
+       SET status = 'received', received_at = COALESCE(received_at, now()), received_by = ${by(req)},
+           receive_notes = ${b.notes ?? null}, updated_at = now()
+           ${own ? tx`, subtotal = ${own.subtotal}, vat = ${own.vat}, total = ${own.total},
+                      delivery_date = ${b.received_date || poDay}` : tx``}
+     WHERE id = ${po.id} AND tenant_id = ${req.tenantId}
+  `
+  if (invoice) {
+    await tx`
+      UPDATE purchase_invoices SET applied_at = now(), applied_by = ${by(req)}
+       WHERE id = ${invoice.id} AND tenant_id = ${req.tenantId}
+    `
+  }
+
+  const ordered = kept.filter(l => !l.added_on_receipt)
+  const items = arrived.map(l => ({
+    name: l.item_name, qty: l.received_qty, unit: l.pack_label, category: l.category_name ?? null,
+    ...(noOrder ? {} : { ordered: Number(l.qty) }), status: l.receive_status, ...(l.added_on_receipt ? { added: true } : {}),
+    ...(l.storage === 'chilled' ? { temp_c: chilled } : l.storage === 'frozen' ? { temp_c: frozen } : {}),
+  }))
+  const problems = ordered.filter(l => l.receive_status !== 'ok')
+  const extra = kept.filter(l => l.added_on_receipt)
+  const summary = [
+    noOrder
+      ? `${poNumberLabel(po.number)}: booked in without an order, ${kept.length} line${kept.length === 1 ? '' : 's'}`
+      : `${poNumberLabel(po.number)}: ${ordered.filter(l => l.received_qty > 0).length} of ${ordered.length} line${ordered.length === 1 ? '' : 's'} delivered`,
+    ...problems.map(l => `${l.item_name}: ${RECEIVE_STATUSES.find(s => s.key === l.receive_status)?.label ?? l.receive_status}${l.receive_note ? ` (${l.receive_note})` : ''}`),
+    ...extra.map(l => `Not ordered, arrived: ${fmtNum(l.received_qty)} × ${l.item_name}${l.receive_note ? ` (${l.receive_note})` : ''}`),
+    b.notes || null,
+  ].filter(Boolean).join('\n')
+  const check = {
+    delivery_date: b.received_date || (noOrder ? poDay : venueNow(venue).date),
+    vendor_name: supplier.name,
+    packaging_ok: c.packaging_ok, damage_ok: c.damage_ok, quality_ok: c.quality_ok, temp_ok: tempOk,
+    product_temp_c: chilled ?? frozen ?? null,
+    items: tx.json(items),
+    accepted: c.accepted,
+    corrective_action: c.corrective_action ?? null,
+    notes: summary.slice(0, 2000),
+    recorded_by: by(req),
+  }
+  const [existing] = await tx`SELECT id FROM fs_delivery_checks WHERE purchase_order_id = ${po.id} AND tenant_id = ${req.tenantId}`
+  if (existing) {
+    await tx`UPDATE fs_delivery_checks SET ${tx(check)}, recorded_at = now() WHERE id = ${existing.id} AND tenant_id = ${req.tenantId}`
+  } else {
+    await tx`INSERT INTO fs_delivery_checks ${tx({ ...check, tenant_id: req.tenantId, venue_id: po.venue_id, purchase_order_id: po.id })}`
+  }
+}
+
+/** A delivery without an order arrived on a day up to NO_ORDER_DAYS back, not after today. */
+function noOrderDayCheck(day, today) {
+  if (addDays(day, 0) !== day) throw httpError(400, 'That date doesn\'t exist')
+  if (day > today) throw httpError(422, 'It can\'t have arrived after today', { code: 'received_date' })
+  if (day < addDays(today, -NO_ORDER_DAYS)) {
+    throw httpError(422, `Pick the day it arrived, in the last ${NO_ORDER_DAYS} days`, { code: 'received_date' })
+  }
+}
 
 // ── Plugin ──────────────────────────────────────────────────────
 
@@ -963,15 +1201,19 @@ export default async function purchasingRoutes(app) {
 
   // Suppliers someone can order from (switched on, with a live price), for
   // picking whose basket is brought in: codes = their live prices with a
-  // product code. Suppliers aren't secret: their names are on every order.
+  // product code. ?all=1 adds switched-on suppliers with no live price (a
+  // delivery without an order can come from one). Suppliers aren't secret:
+  // their names are on every order.
   app.get('/venues/:venueId/suppliers', { preHandler: canRead }, async req => withTenant(req.tenantId, async tx => {
     await loadVenue(tx, req.tenantId, req.params.venueId)
+    const all = req.query.all === '1'
     return tx`
       SELECT s.id, s.name,
-             count(q.id) FILTER (WHERE btrim(COALESCE(q.supplier_code, '')) <> '')::int AS codes
+             count(q.id) FILTER (WHERE btrim(COALESCE(q.supplier_code, '')) <> '')::int AS codes,
+             count(q.id)::int AS prices
         FROM suppliers s
-        JOIN inv_quotes q ON q.supplier_id = s.id AND q.tenant_id = ${req.tenantId} AND q.is_active
-        JOIN inv_items i ON i.id = q.item_id AND i.tenant_id = ${req.tenantId} AND i.is_active
+        ${all ? tx`LEFT JOIN` : tx`JOIN`} (inv_quotes q JOIN inv_items i ON i.id = q.item_id AND i.tenant_id = ${req.tenantId} AND i.is_active)
+          ON q.supplier_id = s.id AND q.tenant_id = ${req.tenantId} AND q.is_active
        WHERE s.tenant_id = ${req.tenantId} AND s.is_active
        GROUP BY s.id, s.name
        ORDER BY lower(s.name)
@@ -1581,7 +1823,9 @@ export default async function purchasingRoutes(app) {
   // the supplier's quick order: code, name, qty (no prices).
   app.get('/pos/:id/file', { preHandler: canRead }, async (req, reply) => {
     const format = ['pdf', 'xlsx', 'html', 'csv'].includes(req.query.format) ? req.query.format : 'pdf'
-    await withTenant(req.tenantId, tx => ownPo(tx, req.tenantId, req.params.id))
+    const po = await withTenant(req.tenantId, tx => ownPo(tx, req.tenantId, req.params.id))
+    // A delivery booked in without an order has no order to give the supplier.
+    if (po.no_order) throw httpError(409, 'This delivery was booked in without an order: there is no order to print or send')
     const f = await poFile(req.tenantId, req.params.id, format)
     reply.header('Content-Type', f.contentType)
     reply.header('Content-Disposition', `${format === 'html' ? 'inline' : 'attachment'}; filename="${f.filename}"`)
@@ -1696,169 +1940,51 @@ export default async function purchasingRoutes(app) {
     const prices = await showPrices(req)
     return withTenant(req.tenantId, async tx => {
       const po = await ownPo(tx, req.tenantId, req.params.id, { lock: true })
-      if (!['to_send', 'sent', 'received'].includes(po.status)) throw httpError(409, 'A cancelled order cannot be received')
-      const venue = await loadVenue(tx, req.tenantId, po.venue_id)
-      const [supplier] = await tx`SELECT name FROM suppliers WHERE id = ${po.supplier_id} AND tenant_id = ${req.tenantId}`
-      let invoice = null
+      await receiveInto(tx, req, po, b, prices)
+      return poDetail(tx, req.tenantId, po.id, prices)
+    })
+  })
+
+  // Book in a delivery that has no purchase order (migration 238), when
+  // Purchasing settings allow the caller: a purchase order is made for it
+  // (no_order, never sent), received at once with what arrived as its
+  // lines. An invoice read for it before saving (purchase_invoices with this
+  // venue and supplier, no order yet) is joined to it.
+  app.post('/venues/:venueId/deliveries', { preHandler: canOrderOrApprove }, async req => {
+    const b = NoOrderBody.parse(req.body)
+    const prices = await showPrices(req)
+    const lv = await permissionLevels(req, ['purchasing', 'purchasing_approve'])
+    return withTenant(req.tenantId, async tx => {
+      const { receive_without_order: setting } = await loadPurchasingSettings(tx, req.tenantId)
+      if (!mayReceiveWithoutOrder(setting, lv)) throw withoutOrderRefusal(setting)
+      const venue = await loadVenue(tx, req.tenantId, req.params.venueId)
+      const [supplier] = await tx`SELECT id, name, is_active FROM suppliers WHERE id = ${b.supplier_id} AND tenant_id = ${req.tenantId}`
+      if (!supplier) throw httpError(404, 'Supplier not found')
+      if (!supplier.is_active) throw httpError(422, `${supplier.name} is switched off in Suppliers`)
+      const day = b.received_date || venueNow(venue).date
+      noOrderDayCheck(day, venueNow(venue).date)
       if (b.invoice_id) {
-        ;[invoice] = await tx`SELECT id, lines FROM purchase_invoices WHERE id = ${b.invoice_id} AND po_id = ${po.id} AND tenant_id = ${req.tenantId}`
-        if (!invoice) throw httpError(404, 'Invoice not found for this order')
-      }
-      const invLine = idx => {
-        if (idx == null) return null
-        if (!invoice) throw httpError(422, 'Read the invoice first')
-        const l = (invoice.lines || [])[idx]
-        if (!l) throw httpError(422, 'That invoice line doesn\'t exist')
-        return l
-      }
-      // What the invoice said for a line: { invoice_* } columns to write, or {} to leave them.
-      const invoiceFields = (given, fallbackPrice) => {
-        if (!given || given.invoice_idx === undefined) {
-          return prices && given?.invoice_price !== undefined ? { invoice_price: given.invoice_price } : {}
-        }
-        if (given.invoice_idx === null) {
-          return { invoice_id: null, invoice_name: null, invoice_code: null, invoice_pack: null, invoice_price: null, invoice_vat_rate: null }
-        }
-        const il = invLine(given.invoice_idx)
-        const read = il.price_pack ?? fallbackPrice ?? null
-        return {
-          invoice_id: invoice.id, invoice_name: il.description, invoice_code: il.code ?? null, invoice_pack: il.pack_text ?? null,
-          invoice_price: prices && given.invoice_price !== undefined ? given.invoice_price : read,
-          invoice_vat_rate: il.vat_rate ?? null,
-          // The pack as invoiced, for adding it to the price list later.
-          ...(il.pack ? { pack_spec: tx.json({ name: 'pack', ...il.pack }) } : {}),
-        }
-      }
-
-      const lines = await loadPoLines(tx, req.tenantId, po.id)
-      const given = new Map(b.lines.map(l => [l.id, l]))
-      for (const id of given.keys()) if (!lines.some(l => l.id === id)) throw httpError(404, 'Line not found')
-
-      // Lines for what arrived but wasn't ordered.
-      const added = []
-      if (b.add?.length) {
-        const itemIds = [...new Set(b.add.map(a => a.item_id))]
-        const items = await tx`
-          SELECT i.id, i.name, i.storage, i.base_unit, c.name AS category_name
-            FROM inv_items i LEFT JOIN inv_categories c ON c.id = i.category_id AND c.tenant_id = ${req.tenantId}
-           WHERE i.id = ANY(${itemIds}::uuid[]) AND i.tenant_id = ${req.tenantId}
+        const [inv] = await tx`
+          SELECT id FROM purchase_invoices
+           WHERE id = ${b.invoice_id} AND tenant_id = ${req.tenantId} AND po_id IS NULL
+             AND venue_id = ${venue.id} AND supplier_id = ${supplier.id}
         `
-        const itemBy = new Map(items.map(i => [i.id, i]))
-        const quoteIds = [...new Set(b.add.map(a => a.quote_id).filter(Boolean))]
-        const { quotes } = await resolveQuotes(tx, req.tenantId, venue.id, itemIds)
-        const allQuotes = [...quotes.values()].flat()
-        const [{ n }] = await tx`SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM purchase_order_lines WHERE po_id = ${po.id} AND tenant_id = ${req.tenantId}`
-        let sort = Number(n)
-        for (const a of b.add) {
-          const item = itemBy.get(a.item_id)
-          if (!item) throw httpError(404, 'Item not found')
-          const il = a.invoice_idx != null ? invLine(a.invoice_idx) : null
-          let row
-          if (a.quote_id) {
-            const q = allQuotes.find(x => x.id === a.quote_id)
-            if (!q || !quoteIds.includes(q.id) || q.item_id !== item.id) throw httpError(404, 'Supplier price not found for ' + item.name)
-            if (q.supplier_id !== po.supplier_id) throw httpError(422, 'That product is not from this supplier')
-            row = {
-              quote_id: q.id, supplier_code: q.supplier_code ?? null, product_name: q.product_name ?? null,
-              pack_label: packLabel(q), pack_base_qty: q.pack_base_qty, price: quotePrice(q, venue.id), vat_rate: q.vat_rate,
-              pack_spec: null,
-            }
-          } else {
-            const spec = a.pack || (il?.pack ? { name: 'pack', ...il.pack } : null)
-            if (!spec) throw httpError(422, 'Say how ' + item.name + ' came packed')
-            const p = { pack_name: spec.name || 'pack', pack_count: spec.count ?? 1, pack_qty: spec.qty, pack_unit: spec.unit }
-            const pbq = packBaseQty(p, item.base_unit)
-            if (!pbq) throw httpError(422, `A ${spec.unit} pack doesn't fit ${item.name}, which is counted in ${item.base_unit === 'each' ? 'each' : item.base_unit}`)
-            row = {
-              quote_id: null, supplier_code: il?.code ?? null, product_name: il?.description ?? null,
-              pack_label: packLabel(p), pack_base_qty: pbq, price: il?.price_pack ?? 0, vat_rate: il?.vat_rate ?? 0,
-              pack_spec: tx.json({ name: p.pack_name, count: p.pack_count, qty: p.pack_qty, unit: p.pack_unit }),
-            }
-          }
-          const [ins] = await tx`
-            INSERT INTO purchase_order_lines ${tx({
-              tenant_id: req.tenantId, po_id: po.id, item_id: item.id, item_name: item.name,
-              category_name: item.category_name ?? null, storage: item.storage, base_unit: item.base_unit,
-              ...invoiceFields(a, row.price), ...row, qty: 0, added_on_receipt: true, sort_order: sort++,
-            })}
-            RETURNING id
-          `
-          added.push({ id: ins.id, given: a })
-        }
+        if (!inv) throw httpError(404, 'Invoice not found for this delivery: read it again')
       }
-
-      const c = b.check
-      const all = await loadPoLines(tx, req.tenantId, po.id)
-      const addedBy = new Map(added.map(x => [x.id, x.given]))
-      const received = all.map(l => {
-        const g = given.get(l.id) || addedBy.get(l.id)
-        const qty = g ? g.received_qty : (l.added_on_receipt ? Number(l.received_qty ?? 0) : Number(l.qty))
-        return { ...l, received_qty: qty, receive_status: g?.status || receiveStatusFor(l.qty, qty), receive_note: g?.note ?? null, g }
-      })
-      // An added line with nothing received is taken off again.
-      const dropped = received.filter(l => l.added_on_receipt && !(l.received_qty > 0))
-      for (const l of dropped) await tx`DELETE FROM purchase_order_lines WHERE id = ${l.id} AND tenant_id = ${req.tenantId}`
-      const kept = received.filter(l => !dropped.includes(l))
-      const arrived = kept.filter(l => l.received_qty > 0)
-      const hasChilled = arrived.some(l => l.storage === 'chilled')
-      const hasFrozen = arrived.some(l => l.storage === 'frozen')
-      if (hasChilled && c.chilled_temp_c == null) throw httpError(422, 'Enter the temperature of the chilled goods')
-      if (hasFrozen && c.frozen_temp_c == null) throw httpError(422, 'Enter the temperature of the frozen goods')
-      const chilled = hasChilled ? c.chilled_temp_c : null
-      const frozen = hasFrozen ? c.frozen_temp_c : null
-      const tempOk = deliveryTempOk('chilled', chilled) && deliveryTempOk('frozen', frozen)
-
-      for (const l of kept) {
-        const inv = addedBy.has(l.id) ? {} : invoiceFields(given.get(l.id), Number(l.price))
-        await tx`
-          UPDATE purchase_order_lines SET ${tx({ received_qty: l.received_qty, receive_status: l.receive_status, receive_note: l.receive_note, ...inv })}
-           WHERE id = ${l.id} AND tenant_id = ${req.tenantId}
-        `
-      }
-      await tx`
-        UPDATE purchase_orders
-           SET status = 'received', received_at = COALESCE(received_at, now()), received_by = ${by(req)},
-               receive_notes = ${b.notes ?? null}, updated_at = now()
-         WHERE id = ${po.id} AND tenant_id = ${req.tenantId}
+      const number = await nextPoNumber(tx, req.tenantId)
+      const [po] = await tx`
+        INSERT INTO purchase_orders ${tx({
+          tenant_id: req.tenantId, number, venue_id: venue.id, supplier_id: supplier.id, status: 'sent', no_order: true,
+          delivery_date: day, created_by: by(req), supplier_ref: b.supplier_ref ?? null,
+        })}
+        RETURNING *
       `
-      if (invoice) {
-        await tx`
-          UPDATE purchase_invoices SET applied_at = now(), applied_by = ${by(req)}
-           WHERE id = ${invoice.id} AND tenant_id = ${req.tenantId}
-        `
+      if (b.invoice_id) {
+        await tx`UPDATE purchase_invoices SET po_id = ${po.id} WHERE id = ${b.invoice_id} AND tenant_id = ${req.tenantId}`
       }
-
-      const ordered = kept.filter(l => !l.added_on_receipt)
-      const items = arrived.map(l => ({
-        name: l.item_name, qty: l.received_qty, unit: l.pack_label, category: l.category_name ?? null,
-        ordered: Number(l.qty), status: l.receive_status, ...(l.added_on_receipt ? { added: true } : {}),
-        ...(l.storage === 'chilled' ? { temp_c: chilled } : l.storage === 'frozen' ? { temp_c: frozen } : {}),
-      }))
-      const problems = ordered.filter(l => l.receive_status !== 'ok')
-      const extra = kept.filter(l => l.added_on_receipt)
-      const summary = [
-        `${poNumberLabel(po.number)}: ${ordered.filter(l => l.received_qty > 0).length} of ${ordered.length} line${ordered.length === 1 ? '' : 's'} delivered`,
-        ...problems.map(l => `${l.item_name}: ${RECEIVE_STATUSES.find(s => s.key === l.receive_status)?.label ?? l.receive_status}${l.receive_note ? ` (${l.receive_note})` : ''}`),
-        ...extra.map(l => `Not ordered, arrived: ${fmtNum(l.received_qty)} × ${l.item_name}${l.receive_note ? ` (${l.receive_note})` : ''}`),
-        b.notes || null,
-      ].filter(Boolean).join('\n')
-      const check = {
-        delivery_date: b.received_date || venueNow(venue).date,
-        vendor_name: supplier.name,
-        packaging_ok: c.packaging_ok, damage_ok: c.damage_ok, quality_ok: c.quality_ok, temp_ok: tempOk,
-        product_temp_c: chilled ?? frozen ?? null,
-        items: tx.json(items),
-        accepted: c.accepted,
-        corrective_action: c.corrective_action ?? null,
-        notes: summary.slice(0, 2000),
-        recorded_by: by(req),
-      }
-      const [existing] = await tx`SELECT id FROM fs_delivery_checks WHERE purchase_order_id = ${po.id} AND tenant_id = ${req.tenantId}`
-      if (existing) {
-        await tx`UPDATE fs_delivery_checks SET ${tx(check)}, recorded_at = now() WHERE id = ${existing.id} AND tenant_id = ${req.tenantId}`
-      } else {
-        await tx`INSERT INTO fs_delivery_checks ${tx({ ...check, tenant_id: req.tenantId, venue_id: po.venue_id, purchase_order_id: po.id })}`
-      }
+      await receiveInto(tx, req, po, {
+        received_date: day, notes: b.notes, invoice_id: b.invoice_id, lines: [], add: b.lines, check: b.check,
+      }, prices)
       return poDetail(tx, req.tenantId, po.id, prices)
     })
   })
@@ -1987,10 +2113,32 @@ export default async function purchasingRoutes(app) {
     })
   })
 
-  // Limits shown next to the temperature boxes.
+  // ── Settings (migration 238) ──
+  // The group's purchasing settings: who may book in a delivery without an
+  // order. Read by anyone in purchasing, changed with Purchasing setup.
+  app.get('/settings', { preHandler: canRead }, async req =>
+    withTenant(req.tenantId, tx => loadPurchasingSettings(tx, req.tenantId)))
+
+  app.put('/settings', { preHandler: canSetup }, async req => {
+    const b = SettingsBody.parse(req.body)
+    return withTenant(req.tenantId, async tx => {
+      await tx`
+        INSERT INTO purchasing_settings (tenant_id, receive_without_order, updated_by, updated_at)
+        VALUES (${req.tenantId}, ${b.receive_without_order}, ${by(req)}, now())
+        ON CONFLICT (tenant_id) DO UPDATE
+          SET receive_without_order = EXCLUDED.receive_without_order, updated_by = EXCLUDED.updated_by, updated_at = now()
+      `
+      return loadPurchasingSettings(tx, req.tenantId)
+    })
+  })
+
+  // Limits shown next to the temperature boxes, and what the caller may do.
   app.get('/meta', { preHandler: canRead }, async req => {
     const lv = await permissionLevels(req, ['purchasing', 'purchasing_setup', 'purchasing_approve'])
+    const settings = await withTenant(req.tenantId, tx => loadPurchasingSettings(tx, req.tenantId))
     return {
+      receive_without_order: settings.receive_without_order,
+      can_receive_without_order: mayReceiveWithoutOrder(settings.receive_without_order, lv),
       show_prices: lv.purchasing_setup !== 'none',
       can_order: lv.purchasing === 'manage',
       can_approve: lv.purchasing_approve === 'manage',

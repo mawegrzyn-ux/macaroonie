@@ -13,6 +13,9 @@
 //               Menus does): all of the till's menus, or the ones picked, in that
 //               order; with a Menu times button to follow the menu times again
 //   items       the dishes of the section picked (with a search box on top if set)
+//   category    the dishes of one section picked in the designer (section_id),
+//               always there whatever the Categories zone shows: a Drinks zone,
+//               a Sides zone (up to 8 on a layout)
 //   buttons     buttons set in the designer: a dish, or a function (a tender,
 //               the last receipt, a discount or a charge from the list, Send
 //               ...); a button can take several cells of its zone
@@ -51,6 +54,10 @@
 // till shows the same way More > Menus does (switchMenus() in
 // shared/menuTimes.js): the pick holds until the menus on now change.
 //
+// The Dishes zone and a category's dishes zone can leave dishes out
+// (hide_item_ids): they never show in that zone, its search included, but
+// stay on the menu everywhere else (shownDishIds()).
+//
 // A Pop-up zone (popup) holds buttons as a Buttons zone does, but shows only
 // when a button opens it (action open_popup, its popup_id), over the cells it
 // is placed on (it may sit over other zones), the rest of the screen waiting
@@ -66,10 +73,11 @@ export const LAYOUT_COLS = { min: 4, max: 24, default: 12 }
 export const LAYOUT_ROWS = { min: 3, max: 16, default: 8 }
 export const ZONE_GRID = { min: 1, max: 12 }
 export const FONT = { min: 12, max: 36, default: 16 }
-export const MAX_ZONES = 24
+export const MAX_ZONES = 32
 export const MAX_BUTTONS = 80
 export const MAX_SECTIONS = 100
 export const MAX_MENUS = 30
+export const MAX_HIDDEN = 300
 export const LABEL_MAX = 40
 
 export const ZONE_TYPES = [
@@ -77,6 +85,7 @@ export const ZONE_TYPES = [
   { key: 'categories', label: 'Categories', hint: 'The menu sections as buttons. Pick which ones show, in your order.', max: 1 },
   { key: 'menus', label: 'Menus', hint: 'The till\'s menus as buttons: tap one to show it. Pick which ones show, in your order.', max: 1 },
   { key: 'items', label: 'Dishes', hint: 'The dishes of the category picked, with a search box if you want one.', max: 1 },
+  { key: 'category', label: 'A category\'s dishes', hint: 'The dishes of one category you pick, always on screen (a Drinks zone, a Sides zone). Leave out any you don\'t want in it.', max: 8 },
   { key: 'buttons', label: 'Buttons', hint: 'Your own buttons: a dish, or a function such as Exact cash or Last receipt.', max: 8 },
   { key: 'modifiers', label: 'Dish choices', hint: 'A dish\'s choices while it is being added: the must-pick ones, the optional ones, or both.', max: 2 },
   { key: 'seats', label: 'Seat and course', hint: 'The seat and course the next dish goes to (or just one of them).', max: 1 },
@@ -85,7 +94,7 @@ export const ZONE_TYPES = [
 export const ZONE_KEYS = ZONE_TYPES.map(t => t.key)
 export const zoneLabel = type => ZONE_TYPES.find(t => t.key === type)?.label || type
 // Zones with a grid of buttons.
-export const GRID_ZONES = ['categories', 'menus', 'items', 'buttons', 'modifiers', 'popup']
+export const GRID_ZONES = ['categories', 'menus', 'items', 'category', 'buttons', 'modifiers', 'popup']
 // Zones that may sit over other zones (they show only some of the time).
 export const FLOATING_ZONES = ['modifiers', 'popup']
 
@@ -216,6 +225,7 @@ const GRID_DEFAULTS = {
   categories: { cols: 6, rows: 1, overflow: 'scroll', align: 'center', valign: 'middle' },
   menus: { cols: 4, rows: 1, overflow: 'scroll', align: 'center', valign: 'middle' },
   items: { cols: 4, rows: 4, overflow: 'scroll', align: 'left', valign: 'top' },
+  category: { cols: 4, rows: 2, overflow: 'scroll', align: 'left', valign: 'top' },
   buttons: { cols: 4, rows: 2, overflow: 'pages', align: 'center', valign: 'middle' },
   modifiers: { cols: 4, rows: 4, overflow: 'scroll', align: 'left', valign: 'top' },
   popup: { cols: 3, rows: 2, overflow: 'pages', align: 'center', valign: 'middle' },
@@ -289,6 +299,14 @@ function normaliseZone(z, layout, i) {
   if (z.type === 'items') {
     zone.search = bool(z.search, true)
     zone.price = bool(z.price, true)
+  }
+  if (z.type === 'category') {
+    zone.section_id = UUID.test(String(z.section_id || '')) ? String(z.section_id).toLowerCase() : null
+    zone.price = bool(z.price, true)
+  }
+  if (z.type === 'items' || z.type === 'category') {
+    const ids = Array.isArray(z.hide_item_ids) ? z.hide_item_ids.filter(i => UUID.test(String(i))).map(i => String(i).toLowerCase()) : []
+    zone.hide_item_ids = [...new Set(ids)].slice(0, MAX_HIDDEN)
   }
   if (z.type === 'buttons' || z.type === 'popup') {
     // A repeated id gets a fresh one rather than dropping the button. Close
@@ -448,9 +466,10 @@ export function layoutWarnings(layout) {
   const dishButtons = withButtons.some(z => z.buttons.some(b => b.action === 'item'))
   if (has('categories') && !has('items')) out.push({ code: 'categories_alone', message: 'Categories pick what the Dishes zone shows: add a Dishes zone.', zones: [] })
   if (has('items') && !has('categories')) out.push({ code: 'items_alone', message: 'No Categories zone: the Dishes zone shows every dish, in menu order.', zones: [] })
-  if (!has('items') && !dishButtons) out.push({ code: 'no_dishes', message: 'No Dishes zone and no dish buttons: dishes can only be found by name in the search.', zones: [] })
+  if (!has('items') && !has('category') && !dishButtons) out.push({ code: 'no_dishes', message: 'No Dishes zone and no dish buttons: dishes can only be found by name in the search.', zones: [] })
   if (!has('modifiers')) out.push({ code: 'choices_window', message: 'No Dish choices zone: a dish\'s choices open in a window, as on the standard screen.', zones: [] })
   for (const z of zones) {
+    if (z.type === 'category' && !z.section_id) out.push({ code: 'category_unset', message: 'A category\'s dishes zone has no category picked yet.', zones: [z.id] })
     if (z.type === 'buttons' && !z.buttons.length) out.push({ code: 'empty_buttons', message: 'A Buttons zone has no buttons yet.', zones: [z.id] })
     if (z.type === 'popup' && !z.buttons.length) out.push({ code: 'empty_popup', message: 'A pop-up has no buttons yet (' + z.title + ').', zones: [z.id] })
     if (z.type === 'popup' && !withButtons.some(o => o.id !== z.id && o.buttons.some(b => b.action === 'open_popup' && b.popup_id === z.id))) {
@@ -603,7 +622,8 @@ export function buttonLabel(b, { items = {}, presets = [], tenders = [], charges
  * dishes, discounts and charges (sets of ids). Buttons (in Buttons zones and
  * pop-ups) pointing at another tenant's dish, discount or charge go; a
  * categories list keeps only the company's sections, a menus list only its
- * menus.
+ * menus, a category's dishes zone only its own section, and the dishes left
+ * out of a zone only the company's dishes.
  */
 export function ownLayout(layout, { sectionIds, itemIds, presetIds, menuIds, chargeIds }) {
   const has = (set, id) => (set instanceof Set ? set.has(id) : (set || []).includes(id))
@@ -611,6 +631,13 @@ export function ownLayout(layout, { sectionIds, itemIds, presetIds, menuIds, cha
     ...layout,
     zones: layout.zones.map(z => {
       if (z.type === 'categories' && z.sections) return { ...z, sections: z.sections.filter(id => has(sectionIds, id)) }
+      if (z.type === 'items' || z.type === 'category') {
+        return {
+          ...z,
+          hide_item_ids: z.hide_item_ids.filter(id => has(itemIds, id)),
+          ...(z.type === 'category' ? { section_id: z.section_id && has(sectionIds, z.section_id) ? z.section_id : null } : {}),
+        }
+      }
       if (z.type === 'menus' && z.menu_ids) return { ...z, menu_ids: z.menu_ids.filter(id => has(menuIds, id)) }
       if (z.type === 'buttons' || z.type === 'popup') {
         return {
@@ -633,6 +660,8 @@ export function layoutIds(layout) {
   const charges = new Set()
   for (const z of layout?.zones || []) {
     for (const s of z.sections || []) sections.add(s)
+    if (z.section_id) sections.add(z.section_id)
+    for (const i of z.hide_item_ids || []) items.add(i)
     for (const m of z.menu_ids || []) menus.add(m)
     for (const b of z.buttons || []) {
       if (b.item_id) items.add(b.item_id)
@@ -641,6 +670,15 @@ export function layoutIds(layout) {
     }
   }
   return { items: [...items], sections: [...sections], presets: [...presets], menus: [...menus], charges: [...charges] }
+}
+
+/**
+ * The dishes a Dishes zone or a category's dishes zone shows from a list of
+ * dish ids: the list without the ones the zone leaves out, in its order.
+ */
+export function shownDishIds(zone, ids) {
+  const hidden = new Set(zone?.hide_item_ids || [])
+  return (ids || []).filter(id => !hidden.has(id))
 }
 
 /**

@@ -5,6 +5,10 @@
 //
 //   POST /invoices/read  { po_id, files: [{ name?, data (base64) }] }
 //        A supplier invoice or delivery note while a delivery is booked in.
+//        A delivery without an order (migration 238) has no order yet:
+//        { venue_id, supplier_id } instead of po_id, when Purchasing
+//        settings let the caller book one in; the reading is joined to the
+//        order made when the delivery is saved.
 //        The files are kept (storage kind 'invoices') with what was read in
 //        purchase_invoices; the receive route applies it (invoice_id) once
 //        the person has checked it. Returns { invoice, lines, catalogue }:
@@ -22,13 +26,15 @@
 
 import { z } from 'zod'
 import { withTenant } from '../config/db.js'
-import { requireAuth, requirePermission, requireAnyPermission, permissionLevel } from '../middleware/auth.js'
+import { requireAuth, requirePermission, requireAnyPermission, permissionLevel, permissionLevels } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
 import { chatConfigured } from '../ai/apiKey.js'
 import { getAiSettings } from '../ai/settings.js'
 import { detectFile } from '../ai/attachments.js'
 import { getStorage } from '../services/storageSvc.js'
-import { loadPo, loadPoLines, invoiceView } from '../services/purchasingSvc.js'
+import {
+  loadPo, loadPoLines, invoiceView, loadVenue, loadPurchasingSettings, mayReceiveWithoutOrder, withoutOrderRefusal,
+} from '../services/purchasingSvc.js'
 import { readInvoice, MAX_CATALOGUE } from '../services/invoiceReadAi.js'
 import { readReceipt } from '../services/receiptReadAi.js'
 import { packLabel, quotePrice } from '../../../shared/procurement.js'
@@ -46,9 +52,12 @@ const FileIn = z.object({
 })
 
 const InvoiceBody = z.object({
-  po_id: z.string().uuid(),
+  po_id: z.string().uuid().optional(),
+  // A delivery without an order: whose it is.
+  venue_id: z.string().uuid().optional(),
+  supplier_id: z.string().uuid().optional(),
   files: z.array(FileIn).min(1, 'Add a photo or a PDF of the invoice').max(MAX_INVOICE_FILES, 'Up to ' + MAX_INVOICE_FILES + ' files at a time'),
-})
+}).refine(b => b.po_id || (b.venue_id && b.supplier_id), 'Say which order, or which venue and supplier, the invoice is for')
 
 const ReceiptBody = z.object({
   venue_id: z.string().uuid(),
@@ -94,10 +103,24 @@ export default async function documentReadRoutes(app) {
     const files = checkFiles(body.files)
     const prices = (await permissionLevel(req, 'purchasing_setup')) !== 'none'
 
+    const lv = body.po_id ? null : await permissionLevels(req, ['purchasing', 'purchasing_approve'])
     const { po, lines, catalogue, currency } = await withTenant(req.tenantId, async tx => {
-      const po = await loadPo(tx, req.tenantId, body.po_id)
-      if (po.status === 'cancelled') throw httpError(409, 'A cancelled order cannot be received')
-      const lines = await loadPoLines(tx, req.tenantId, po.id)
+      let po, lines
+      if (body.po_id) {
+        po = await loadPo(tx, req.tenantId, body.po_id)
+        if (po.status === 'cancelled') throw httpError(409, 'A cancelled order cannot be received')
+        lines = await loadPoLines(tx, req.tenantId, po.id)
+      } else {
+        // No order yet: the supplier's products are all there is to match.
+        const { receive_without_order: setting } = await loadPurchasingSettings(tx, req.tenantId)
+        if (!mayReceiveWithoutOrder(setting, lv)) throw withoutOrderRefusal(setting)
+        const venue = await loadVenue(tx, req.tenantId, body.venue_id)
+        const [s] = await tx`SELECT id, name, is_active FROM suppliers WHERE id = ${body.supplier_id} AND tenant_id = ${req.tenantId}`
+        if (!s) throw httpError(404, 'Supplier not found')
+        if (!s.is_active) throw httpError(422, `${s.name} is switched off in Suppliers`)
+        po = { id: null, venue_id: venue.id, supplier_id: s.id, supplier_name: s.name, status: 'sent' }
+        lines = []
+      }
       const onOrder = new Set(lines.map(l => l.quote_id).filter(Boolean))
       const quotes = await tx`
         SELECT q.id, q.item_id, q.supplier_code, q.product_name, q.pack_name, q.pack_unit,
@@ -133,7 +156,7 @@ export default async function documentReadRoutes(app) {
     const row = await withTenant(req.tenantId, async tx => {
       const [r] = await tx`
         INSERT INTO purchase_invoices ${tx({
-          tenant_id: req.tenantId, po_id: po.id, files: tx.json(stored),
+          tenant_id: req.tenantId, po_id: po.id, venue_id: po.venue_id, supplier_id: po.supplier_id, files: tx.json(stored),
           supplier_name: h.supplier_name, invoice_number: h.invoice_number, invoice_date: h.invoice_date,
           prices_include_vat: h.prices_include_vat, subtotal: h.subtotal, vat: h.vat,
           delivery_charge: h.delivery_charge, total: h.total, lines: tx.json(read.lines), notes: h.notes,

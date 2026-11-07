@@ -5,6 +5,27 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-11-06 — Till layouts: a category's dishes zone, and dishes left out]
+
+No migration.
+
+- **A category's dishes**, a new zone in the till layout designer (Store tech → Till layouts → Add a zone): the dishes of one category you pick, always on screen whatever the Categories zone shows. Put a Drinks zone beside the dishes, a Sides zone under them; up to eight in a layout.
+- Its panel lists the category's dishes: tap one to leave it out of that zone (crossed out), tap again to put it back, or **Show them all**. Picking another category starts with every dish shown. Prices on the buttons on or off, and the usual grid, text, words and overflow settings.
+- **Dishes left out** of the Dishes zone too: pick dishes it should never show, its search included. A dish left out stays on the menu everywhere else (other zones, dish buttons, kiosks, online).
+- The zone list names a category zone after its category (Dishes: Drinks); one with no category yet has an amber note. The canvas preview leaves out the dishes left out.
+- A layout can now hold 32 zones (24 before), so every zone type fits at its most.
+
+## [2026-11-06 — Purchasing: book in a delivery without an order]
+
+Migration 238.
+
+- **A new Purchasing setting** (Purchasing page → **Settings**, Purchasing setup Manage): *Book in deliveries without an order*: Off (as before), Anyone who books deliveries in, or Only people with Purchasing approval. It starts Off.
+- **Book in without an order** on the Deliveries tab (desktop and the phone): pick the supplier it came from, then fill in the form as for any delivery: the day it arrived (up to a month back), their delivery note or invoice number, what arrived (add each product from the supplier's packs, or another pack as it came), the price paid per pack for people who see prices, the checks and temperatures.
+- **Pepper can read the delivery note or invoice** before there's an order: the supplier's products it finds are added, and the rest wait for Add it or Leave out.
+- Saving makes a purchase order marked **No order**, already received, with what arrived as its lines and its total at the prices paid. The delivery check is saved for Food safety for the day it arrived. It is never sent to the supplier (no Print, PDF or Excel copy) and doesn't count as the last order on the order form.
+- **Correct the delivery** changes how many came (0 takes a line off), adds products or moves the day. **Update the price list** offers prices paid that differ from the price list.
+- The booking-in form now sits above the app's menu button on narrower screens (it covered the form's close button).
+
 ## [2026-11-06 — Order ready boards: show one column, or only some orders]
 
 Migration 237.

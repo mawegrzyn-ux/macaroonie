@@ -13,6 +13,10 @@
 //               goes back to following the menu times
 //   items       the dishes of the section picked, or every dish when the layout has no
 //               categories; a search box on top if the zone has one
+//   category    the dishes of the one section the designer picked (from the menus on
+//               now, else any of the till's menus), whatever the categories show
+// The dishes and category zones leave out the dishes the designer took out of
+// them (hide_item_ids, shownDishIds()), in the search too.
 //   buttons     the designer's buttons: a dish, or a function (onButton)
 //   modifiers   the dish being added's choices (LayoutChoices.jsx), over other zones
 //               or the whole screen while it is being added
@@ -29,7 +33,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { Search, X } from 'lucide-react'
-import { choiceZones, overlaps, buttonLabel, actionOf, buttonTextStyle, menuZoneMenus, FLOATING_ZONES } from '@shared/pos/tillLayout.js'
+import { choiceZones, overlaps, buttonLabel, actionOf, buttonTextStyle, menuZoneMenus, shownDishIds, FLOATING_ZONES } from '@shared/pos/tillLayout.js'
 import { switchMenus } from '@shared/menuTimes.js'
 import { discountList } from '@shared/pos/discounts.js'
 import { cx, inkOn } from './ui.jsx'
@@ -144,9 +148,11 @@ function ItemsZone({ zone, layoutId, config, menus, section, sectionIndex, hasCa
   const items = useMemo(() => {
     const seen = new Set()
     const out = []
+    // Dishes the designer left out of this zone never show in it.
+    const hidden = new Set(zone.hide_item_ids || [])
     const add = id => {
       const it = config.items?.[id]
-      if (!it || seen.has(id)) return
+      if (!it || seen.has(id) || hidden.has(id)) return
       seen.add(id)
       out.push(it)
     }
@@ -165,7 +171,7 @@ function ItemsZone({ zone, layoutId, config, menus, section, sectionIndex, hasCa
     }
     ;(section?.item_ids || []).forEach(add)
     return out
-  }, [q, menus, section, config, hasCategories])
+  }, [q, menus, section, config, hasCategories, zone.hide_item_ids])
   const colour = section && !q ? section.colour || SECTION_COLOURS[sectionIndex % SECTION_COLOURS.length] : '#64708a'
   const place = buttonTextStyle(zone)
   return (
@@ -187,6 +193,36 @@ function ItemsZone({ zone, layoutId, config, menus, section, sectionIndex, hasCa
           }))} />
       </div>
     </div>
+  )
+}
+
+/**
+ * A category's dishes zone: the dishes of the section the designer picked,
+ * found on the menus on now, else on any of the till's menus, less the ones
+ * left out of it.
+ */
+function CategoryZone({ zone, layoutId, config, menus, tillMenus, soldOut, comboRefs, onDish, onHold }) {
+  const found = useMemo(() => {
+    for (const list of [menus, tillMenus]) {
+      for (const m of list || []) {
+        const i = m.sections.findIndex(s => s.id === zone.section_id)
+        if (i >= 0) return { s: m.sections[i], i }
+      }
+    }
+    return null
+  }, [menus, tillMenus, zone.section_id])
+  const items = shownDishIds(zone, found?.s.item_ids).map(id => config.items?.[id]).filter(Boolean)
+  const colour = found ? found.s.colour || SECTION_COLOURS[found.i % SECTION_COLOURS.length] : '#64708a'
+  const place = buttonTextStyle(zone)
+  return (
+    <ZoneGrid zone={zone} memoKey={'category:' + layoutId + ':' + zone.id} resetKey={zone.section_id || ''} moreTitle={found?.s.title || 'Dishes'}
+      empty={!zone.section_id ? 'No category picked for this zone.' : !found ? 'This category isn\'t on this till\'s menus.' : 'No dishes to show here.'}
+      testid="zone-category"
+      cells={items.map(it => ({
+        key: it.id,
+        node: <DishButton fill place={place} item={it} colour={it.colour || colour} priceText={dishPriceText(config, it.id, comboRefs)}
+          showPrice={zone.price} soldOut={soldOut.has(it.id)} onPick={onDish} onHold={onHold} />,
+      }))} />
   )
 }
 
@@ -324,6 +360,10 @@ export default function LayoutScreen({
     if (z.type === 'items') {
       return <ItemsZone zone={z} layoutId={layoutId} config={config} menus={menus} section={open?.s || null} sectionIndex={open?.i || 0}
         hasCategories={!!cats} soldOut={soldOut} comboRefs={comboRefs} onDish={onDish} onHold={onHold} />
+    }
+    if (z.type === 'category') {
+      return <CategoryZone zone={z} layoutId={layoutId} config={config} menus={menus} tillMenus={tillMenus} soldOut={soldOut}
+        comboRefs={comboRefs} onDish={onDish} onHold={onHold} />
     }
     if (z.type === 'buttons') {
       return <ButtonsZone zone={z} layoutId={layoutId} config={config} check={check} soldOut={soldOut} onDish={onDish} onHold={onHold} onButton={b => press(b)} canBack={canBack} popups={popups} />

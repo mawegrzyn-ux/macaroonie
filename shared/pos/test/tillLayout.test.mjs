@@ -6,7 +6,7 @@ import {
   normaliseTillLayout, layoutProblems, layoutWarnings, choiceZones, packCells, buttonLabel,
   ownLayout, layoutIds, templateLayout, LAYOUT_TEMPLATES, overlaps, actionOf, CHECK_BUTTONS,
   buttonTextStyle, ALIGN_KEYS, VALIGN_KEYS, menuZoneMenus, MAX_MENUS, GRID_ZONES,
-  FLOATING_ZONES, popupCloseProblem, LABEL_MAX, ZONE_TYPES, MAX_ZONES,
+  FLOATING_ZONES, popupCloseProblem, LABEL_MAX, ZONE_TYPES, MAX_ZONES, shownDishIds, MAX_HIDDEN,
 } from '../tillLayout.js'
 
 const A = '11111111-1111-4111-8111-111111111111'
@@ -505,4 +505,58 @@ test('Pop-up zones: buttons that show when a button opens them, how they look an
   assert.ok(layoutProblems(many).some(p => p.code === 'too_many' && p.zones.length === 1 && p.zones[0] === 'p8'))
   const every = ZONE_TYPES.reduce((n, t) => n + t.max, 0)
   assert.ok(every <= MAX_ZONES, 'every zone type at its most fits (' + every + ' of ' + MAX_ZONES + ')')
+})
+
+test('A category\'s dishes zone and dishes left out of a zone', () => {
+  const D = '44444444-4444-4444-8444-444444444444'
+  const l = normaliseTillLayout({
+    cols: 12, rows: 8,
+    zones: [
+      { id: 'o', type: 'check', x: 0, y: 0, w: 4, h: 8 },
+      { id: 'd', type: 'items', x: 4, y: 2, w: 8, h: 4, hide_item_ids: [B, 'nope', B.toUpperCase()] },
+      { id: 'k1', type: 'category', x: 4, y: 0, w: 8, h: 2, section_id: A.toUpperCase(), hide_item_ids: [C], price: false },
+      { id: 'k2', type: 'category', x: 4, y: 6, w: 8, h: 2, section_id: 'not-a-uuid' },
+    ],
+  })
+  const [, d, k1, k2] = l.zones
+  assert.deepEqual(d.hide_item_ids, [B], 'ids tidied, repeats once')
+  assert.equal(d.search, true)
+  assert.equal(k1.section_id, A)
+  assert.deepEqual(k1.hide_item_ids, [C])
+  assert.equal(k1.price, false)
+  assert.deepEqual([k1.cols, k1.rows, k1.overflow, k1.align, k1.valign], [4, 2, 'scroll', 'left', 'top'], 'a grid zone with its defaults')
+  assert.ok(GRID_ZONES.includes('category'))
+  assert.equal(k2.section_id, null)
+  assert.deepEqual(k2.hide_item_ids, [])
+  assert.equal(k2.price, true)
+  // An older Dishes zone gets an empty list.
+  assert.deepEqual(normaliseTillLayout({ zones: [{ id: 'd', type: 'items', x: 0, y: 0, w: 2, h: 2 }] }).zones[0].hide_item_ids, [])
+  // Up to MAX_HIDDEN, and the zone type allows 8 on a layout.
+  const many = Array.from({ length: MAX_HIDDEN + 5 }, (_, i) => '55555555-5555-4555-8555-' + String(i).padStart(12, '0'))
+  assert.equal(normaliseTillLayout({ zones: [{ id: 'd', type: 'items', x: 0, y: 0, w: 2, h: 2, hide_item_ids: many }] }).zones[0].hide_item_ids.length, MAX_HIDDEN)
+  assert.equal(ZONE_TYPES.find(t => t.key === 'category').max, 8)
+
+  // What shows: the list less the ones left out, in its order.
+  assert.deepEqual(shownDishIds(k1, [A, C, D]), [A, D])
+  assert.deepEqual(shownDishIds(null, [A, C]), [A, C])
+  assert.deepEqual(shownDishIds(k1, null), [])
+
+  // Warnings: a zone with no category picked; dishes are on screen through it.
+  const codes = layoutWarnings(l).map(w => w.code)
+  assert.ok(codes.includes('category_unset'))
+  assert.deepEqual(layoutWarnings(l).find(w => w.code === 'category_unset').zones, ['k2'])
+  const onlyCategory = normaliseTillLayout({ zones: [{ id: 'o', type: 'check', x: 0, y: 0, w: 4, h: 8 }, { id: 'k', type: 'category', x: 4, y: 0, w: 4, h: 4, section_id: A }] })
+  assert.ok(!layoutWarnings(onlyCategory).some(w => w.code === 'no_dishes'), 'a category zone is a way to dishes')
+  assert.deepEqual(layoutProblems(l), [])
+
+  // The ids it names, and only the company's kept.
+  const ids = layoutIds(l)
+  assert.ok(ids.sections.includes(A) && ids.items.includes(B) && ids.items.includes(C))
+  const own = ownLayout(l, { sectionIds: new Set([]), itemIds: new Set([C]), presetIds: [], menuIds: [], chargeIds: [] })
+  assert.deepEqual(own.zones[1].hide_item_ids, [], 'another company\'s dish dropped')
+  assert.equal(own.zones[2].section_id, null, 'another company\'s section dropped')
+  assert.deepEqual(own.zones[2].hide_item_ids, [C])
+  const mine = ownLayout(l, { sectionIds: new Set([A]), itemIds: new Set([B, C]), presetIds: [], menuIds: [], chargeIds: [] })
+  assert.equal(mine.zones[2].section_id, A)
+  assert.deepEqual(mine.zones[1].hide_item_ids, [B])
 })
