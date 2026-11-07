@@ -15,6 +15,9 @@
 //   diffMenus(live, draft) the changes, as short lines a person can read:
 //                         [{ kind, text }], kind one of menu | section |
 //                         added | removed | price | options | dish | notes.
+//   withDraftTags(live, draft) live content with only the dishes' allergens
+//                         and dietary tags from the draft (allergen-only
+//                         publishing from the allergen matrix).
 
 import { cleanTax } from './tax.js'
 
@@ -120,6 +123,37 @@ function canon(v, key) {
 /** A stable string of release content: equal strings = nothing to publish. */
 export function contentKey(content) {
   return JSON.stringify(canon(releaseContent(content)))
+}
+
+/**
+ * `live` (release content) with each dish's allergens and dietary tags
+ * (dietary codes + allergen_levels) taken from the same dish in `draft`,
+ * matched by dish id. Nothing else changes: a dish only in the draft
+ * stays out, a dish only in `live` keeps its tags, and every other field
+ * (names, prices, options, sections, order) stays as it is live. Used to
+ * publish allergen changes without the draft's other changes.
+ * Returns { content, dishes: [{ id, name }] }: the dishes whose tags changed.
+ */
+export function withDraftTags(live, draft) {
+  const fromDraft = new Map()
+  for (const s of draft?.sections || []) for (const i of s.items || []) fromDraft.set(i.id, i)
+  const dishes = []
+  const content = {
+    ...live,
+    sections: (live?.sections || []).map(s => ({
+      ...s,
+      items: (s.items || []).map(i => {
+        const d = fromDraft.get(i.id)
+        if (!d) return i
+        const dietary = [...(d.dietary || [])]
+        const levels = { ...(d.allergen_levels || {}) }
+        if (same(i.dietary || [], dietary, 'dietary') && same(i.allergen_levels || {}, levels, 'allergen_levels')) return i
+        dishes.push({ id: i.id, name: i.name })
+        return { ...i, dietary, allergen_levels: levels }
+      }),
+    })),
+  }
+  return { content, dishes }
 }
 
 const money = p => (p == null ? 'no price' : '£' + (Number(p) / 100).toFixed(2))

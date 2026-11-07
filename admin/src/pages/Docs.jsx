@@ -7967,6 +7967,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['releaseContent() / contentKey()', 'What a release keeps (sections, dishes, prices, option prices with variant_groups resolved, dietary codes, allergen_levels, till fields, footer notes, menu settings incl. is_published and venue_id) and a stable string to compare two versions. Left out (tenant-wide, always current): the tag list, the allergen notice, print designs and print_design_id, timestamps. An attached group goes in by its display name (shownGroup(): display_name as name, migration 198), so a new display name is a change to publish; diffMenus() lists a group renamed that way as the dish\'s options changing. contentKey ignores one-off option ids (re-made on every save), nested sort_order numbers (the array order says it), key order, null vs missing and numeric strings.'],
                 ['diffMenus(live, draft)', 'The change list the editor and the AI publish card show: [{ kind, text }], kind menu | section | added | removed | price | options | dish | notes.'],
                 ['loadMenuVersion() / loadMenuVersions()', 'The one way to read what guests see: loadMenuFull()-shaped, version live (default), draft, or a releaseId; with the tenant\'s current tags, notice and print design attached. loadMenuVersions() filters on the version\'s own venue_id and is_published (publishedOnly).'],
+                ['publishAllergens() / allergenStatus()', 'Allergens and dietary tags only (the Allergen matrix): a release now from the live content with the draft\'s dish tags (withDraftTags()), for every menu; scheduled releases get a copy with the new tags and are cancelled. See Menus, Allergen matrix.'],
                 ['publishMenu()', 'Snapshot the draft. at empty or within 30 seconds = now; at most 400 days ahead. 422 when the hash equals the live one. Immediate publishes set announced_at and the route calls announceMenus().'],
                 ['announceDueReleases()', 'Run every minute by the hold sweep (jobs/queues.js): marks releases that went live since the last run as announced and calls announceMenus(): tillsMayNeedConfig() plus a menus.live broadcast on the menus:<tenantId> room for screens.'],
                 ['Routes', 'GET /api/menus?status=1 (publish per menu: live_at, scheduled_at, scheduled_count, changed); GET /:id?version=live; GET /:id/publish (live, scheduled, in_sync, changes, history); POST /:id/publish { at?, note? } (manage); DELETE /:id/releases/:releaseId (cancel a future one, manage); POST /:id/releases/:releaseId/restore (copy a release into the draft with restorableBody() + writeMenu(), manage); POST /:id/preview-link { release_id? }; GET /:id/allergens?version=live.'],
@@ -8278,6 +8279,36 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               goes through the whole-tree <Mono>PATCH /:id</Mono>, so it can&apos;t disturb sections,
               prices or designs; but a menu editor draft loaded before the save will write its own
               (older) tags back on its next save.
+            </P>
+            <P>
+              <strong>Publishing allergens only</strong> (7 Nov 2026, no migration). The PUT takes{' '}
+              <Mono>publish: true</Mono>: after saving it runs <Mono>publishAllergens(tx, tenantId, {'{ by }'})</Mono>{' '}
+              (<Mono>services/menuReleases.js</Mono>) in the same transaction and returns the matrix
+              with <Mono>published</Mono>. For every menu with a live version it makes a release going
+              live now from the <em>live</em> content with each dish&apos;s <Mono>dietary</Mono> and{' '}
+              <Mono>allergen_levels</Mono> taken from the draft by dish id (<Mono>withDraftTags(live, draft)</Mono>{' '}
+              in <Mono>shared/menuDiff.js</Mono>): dishes only in the draft stay out, dishes only live
+              keep their tags, every other field stays as it is live, so the rest of the draft stays
+              unpublished (<Mono>GET /:id/publish</Mono> still lists it). Note{' '}
+              <Mono>Allergens and dietary tags only</Mono>, <Mono>announced_at</Mono> now, and the route
+              calls <Mono>announceMenus()</Mono> for the menus whose live version changed. Each scheduled
+              release (not cancelled, later than now) whose tags differ from the draft gets a copy with
+              the draft&apos;s tags at the same <Mono>goes_live_at</Mono> (its note plus{' '}
+              <Mono>(allergens updated)</Mono>, its publisher kept), and the original is cancelled, so it
+              can&apos;t bring the old tags back. Menus never published are skipped and listed in{' '}
+              <Mono>unpublished</Mono> when their draft has tags. Every menu row is locked{' '}
+              <Mono>FOR UPDATE</Mono> in id order first (the PUT takes the same locks before saving), and{' '}
+              <Mono>publishMenu()</Mono> now locks its menu row, so a full publish can&apos;t slip
+              between reading the live release and adding the allergen one. Also{' '}
+              <Mono>GET /api/menus/allergens/unpublished</Mono> (<Mono>allergenStatus()</Mono>:{' '}
+              <Mono>{'{ menus: [{ menu_id, name, dishes: [names], scheduled }], unpublished }'}</Mono>) and{' '}
+              <Mono>POST /api/menus/allergens/publish</Mono> (menus manage; returns{' '}
+              <Mono>{'{ menus, unpublished, live_menu_ids }'}</Mono>). Admin: the{' '}
+              <Mono>allergen-publish-on</Mono> tick in <Mono>AllergenMatrixEditor</Mono> (localStorage{' '}
+              <Mono>maca_allergen_publish</Mono>), the waiting note <Mono>allergen-unpublished</Mono> with{' '}
+              <Mono>allergen-publish-now</Mono> (query <Mono>[&apos;allergen-unpublished&apos;]</Mono>), the
+              result <Mono>PublishedNote</Mono> (<Mono>allergen-published</Mono>). Tests:{' '}
+              <Mono>shared/test/menuDiff.test.mjs</Mono>, <Mono>api/test/allergen-publish.test.mjs</Mono>.
             </P>
             <P>
               Every dish row in <Mono>AllergenLookup</Mono> is a button that expands to the description

@@ -26,6 +26,7 @@ import { randomUUID } from 'node:crypto'
 import { notifyTillsOnWrite } from '../services/posNotify.js'
 import {
   loadMenuVersion, publishMenu, cancelRelease, publishStatus, menuStatuses, announceMenus,
+  publishAllergens, allergenStatus,
 } from '../services/menuReleases.js'
 import {
   BLOCK_TYPES, MAX_PAGES, MAX_BLOCKS, MENU_LAYOUT_CSS,
@@ -462,6 +463,9 @@ const AllergenMatrixBody = z.object({
     // tag id -> level; a tag left out = the dish doesn't have it.
     levels:  z.record(z.string().uuid(), AllergenLevel),
   })).max(2000),
+  // true = after saving, publish allergens and dietary tags of every menu
+  // (publishAllergens()): nothing else the drafts change goes live.
+  publish: z.boolean().optional(),
 })
 
 // Allergen matrix: a menu's sections and dishes (names only) with each
@@ -1516,7 +1520,9 @@ export default async function menusRoutes(app) {
   //
   // Read by the Allergen matrix page and the dashboard Allergen lookup.
   // Saving writes only menu_item_dietary for the dishes sent, so it never
-  // touches the rest of the menu tree (no whole-tree PATCH).
+  // touches the rest of the menu tree (no whole-tree PATCH). With
+  // publish: true it then publishes every menu's allergens and dietary tags
+  // (publishAllergens() in services/menuReleases.js), and nothing else.
 
   // The draft (Allergen matrix page); ?version=live = what guests are served (Allergen lookup).
   app.get('/:id/allergens', async (req) => {
@@ -1527,10 +1533,26 @@ export default async function menusRoutes(app) {
     return data
   })
 
+  // Menus whose allergens or dietary tags aren't all live yet (the matrix's notice).
+  app.get('/allergens/unpublished', async (req) => {
+    return withTenant(req.tenantId, tx => allergenStatus(tx, req.tenantId))
+  })
+
+  // Publish allergens and dietary tags of every menu, nothing else.
+  app.post('/allergens/publish', { preHandler: PERM.manage }, async (req) => {
+    const result = await withTenant(req.tenantId, tx =>
+      publishAllergens(tx, req.tenantId, { by: req.user?.email ?? null }))
+    if (result.live_menu_ids.length) announceMenus(req.tenantId, result.live_menu_ids, req.log)
+    return result
+  })
+
   app.put('/:id/allergens', { preHandler: requirePermission('menus', 'manage') }, async (req) => {
     if (!z.string().uuid().safeParse(req.params.id).success) throw httpError(404, 'Menu not found')
     const body = AllergenMatrixBody.parse(req.body)
-    return withTenant(req.tenantId, async tx => {
+    const result = await withTenant(req.tenantId, async tx => {
+      // Publishing locks every menu (publishAllergens()); take the locks
+      // before the save touches this menu's row, in the same order.
+      if (body.publish) await tx`SELECT id FROM menus WHERE tenant_id = ${req.tenantId} ORDER BY id FOR UPDATE`
       const [menu] = await tx`
         SELECT id FROM menus WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
       `
@@ -1562,8 +1584,13 @@ export default async function menusRoutes(app) {
         }
         await tx`UPDATE menus SET updated_at = now() WHERE id = ${menu.id}`
       }
-      return loadAllergenMatrix(tx, menu.id, req.tenantId)
+      const matrix = await loadAllergenMatrix(tx, menu.id, req.tenantId)
+      if (!body.publish) return matrix
+      const published = await publishAllergens(tx, req.tenantId, { by: req.user?.email ?? null })
+      return { ...matrix, published }
     })
+    if (result.published?.live_menu_ids.length) announceMenus(req.tenantId, result.published.live_menu_ids, req.log)
+    return result
   })
 
   // ════════════════════════════════════════════════════════════

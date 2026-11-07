@@ -5,6 +5,15 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-11-07 — Allergen matrix: publish allergen changes on their own]
+
+No migration.
+
+- **Publish allergen changes to all menus**, a tick beside Save on Menus → Allergen matrix (remembered on that device). With it on, Save says **Save and publish** and, after saving, puts the allergens and dietary tags of every menu live: the menu on screen and any other with allergen changes saved earlier.
+- Nothing else goes live: new prices, renamed or new dishes and other changes waiting on those menus stay unpublished until the menu is published from the Menus page. A green note says which menus were published and how many dishes changed.
+- An amber note lists menus whose allergen changes are saved but not live yet, with a **Publish allergen changes** button that publishes only those.
+- A menu never published is left alone (its allergens go live when the whole menu is first published). A publish scheduled for later gets the new allergens too, at the same time with the rest unchanged, so it can't bring the old allergens back.
+
 ## [2026-11-06 — Till layouts: a category's dishes zone, and dishes left out]
 
 No migration.

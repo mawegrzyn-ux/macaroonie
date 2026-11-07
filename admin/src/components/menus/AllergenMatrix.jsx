@@ -4,7 +4,10 @@
 //   AllergenMatrixEditor  the Menus > Allergen matrix page: tap an allergen
 //                         cell to cycle No / Contains / May contain / Can
 //                         be removed, a dietary cell to toggle it; explicit
-//                         Save (PUT, only the dishes changed)
+//                         Save (PUT, only the dishes changed). Publish
+//                         allergen changes to all menus (remembered per
+//                         device) makes Save publish every menu's allergens
+//                         and dietary tags too, nothing else (PUT publish).
 //   AllergenLookup        read-only lookup for the H&S Dashboard widget, the
 //                         Overview tile and /mobile/allergens: search a
 //                         dish, or filter by "has" / "free from" a tag
@@ -13,7 +16,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Search, X, Loader2, Check, EyeOff, AlertTriangle, SlidersHorizontal } from 'lucide-react'
+import { Search, X, Loader2, Check, EyeOff, AlertTriangle, SlidersHorizontal, Send } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { LEVEL_LABELS } from '@shared/menuTags.js'
@@ -149,8 +152,19 @@ export function AllergenMatrixEditor({ canEdit }) {
   // item id -> { tag id: level }, only for dishes the operator has touched.
   const [draft, setDraft] = useState({})
   const [saveError, setSaveError] = useState('')
+  // Save also publishes every menu's allergens and dietary tags (nothing else).
+  const [publishOn, setPublishOn] = useState(() => readStore(PUBLISH_KEY) === '1')
+  const [published, setPublished] = useState(null)
 
   useEffect(() => { setDraft({}); setSaveError('') }, [menuId])
+
+  // Menus whose allergens or dietary tags aren't live yet.
+  const { data: pending } = useQuery({
+    queryKey: ['allergen-unpublished'],
+    queryFn:  () => api.get('/menus/allergens/unpublished'),
+    enabled:  canEdit,
+    staleTime: 0,
+  })
 
   const savedTags = useMemo(() => {
     const out = {}
@@ -161,18 +175,44 @@ export function AllergenMatrixEditor({ canEdit }) {
   const changedIds = Object.keys(draft).filter(id => savedTags[id] && !sameLevels(draft[id], savedTags[id]))
   const dirty = changedIds.length > 0
 
+  function afterPublish(result) {
+    setPublished(result)
+    // Live versions changed: publish states, the lookups' live matrices, the menus list.
+    qc.invalidateQueries({ queryKey: ['menu-publish'] })
+    qc.invalidateQueries({ queryKey: ['allergen-matrix'] })
+    qc.invalidateQueries({ queryKey: ['menus'] })
+  }
+
   const save = useMutation({
     mutationFn: () => api.put(`/menus/${menuId}/allergens`, {
       items: changedIds.map(id => ({ item_id: id, levels: draft[id] })),
+      ...(publishOn ? { publish: true } : {}),
     }),
-    onSuccess: (fresh) => {
+    onSuccess: ({ published: result, ...fresh }) => {
       qc.setQueryData(['allergen-matrix', menuId], fresh)
       qc.invalidateQueries({ queryKey: ['menu', menuId] })
+      qc.invalidateQueries({ queryKey: ['allergen-unpublished'] })
+      if (result) afterPublish(result)
       setDraft({})
       setSaveError('')
     },
     onError: (e) => setSaveError(e?.message || 'Save failed'),
   })
+
+  const publishNow = useMutation({
+    mutationFn: () => api.post('/menus/allergens/publish', {}),
+    onSuccess: (result) => {
+      qc.invalidateQueries({ queryKey: ['allergen-unpublished'] })
+      afterPublish(result)
+      setSaveError('')
+    },
+    onError: (e) => setSaveError(e?.message || 'Publishing failed'),
+  })
+
+  function changePublishOn(on) {
+    setPublishOn(on)
+    writeStore(PUBLISH_KEY, on ? '1' : '')
+  }
 
   function tagsOf(itemId) {
     return draft[itemId] || savedTags[itemId] || {}
@@ -183,6 +223,7 @@ export function AllergenMatrixEditor({ canEdit }) {
     const level = nextLevel(tag, next[tag.id])
     if (level) next[tag.id] = level; else delete next[tag.id]
     setDraft(d => ({ ...d, [itemId]: next }))
+    setPublished(null)
   }
 
   const q = norm(search.trim())
@@ -200,22 +241,55 @@ export function AllergenMatrixEditor({ canEdit }) {
           className="min-w-[12rem] max-w-full" />
         <SearchBox value={search} onChange={setSearch} className="flex-1 min-w-[12rem]" />
         {canEdit && (
-          <div className="flex items-center gap-2 ml-auto">
+          <div className="flex flex-wrap items-center gap-2 ml-auto">
+            <label data-testid="allergen-publish-on"
+              className="inline-flex items-center gap-2 px-2 min-h-[44px] rounded-md text-sm cursor-pointer select-none touch-manipulation hover:bg-accent">
+              <input type="checkbox" checked={publishOn} onChange={e => changePublishOn(e.target.checked)}
+                className="w-5 h-5 accent-[hsl(var(--primary))]" />
+              Publish allergen changes to all menus
+            </label>
             {dirty && (
               <button type="button" onClick={() => { setDraft({}); setSaveError('') }} disabled={save.isPending}
                 className="px-3 min-h-[44px] rounded-md border text-sm hover:bg-accent touch-manipulation">
                 Discard
               </button>
             )}
-            <button type="button" onClick={() => save.mutate()} disabled={!dirty || save.isPending}
+            <button type="button" data-testid="allergen-save" onClick={() => save.mutate()} disabled={!dirty || save.isPending || publishNow.isPending}
               className="inline-flex items-center gap-1.5 px-4 min-h-[44px] rounded-md bg-primary text-primary-foreground text-sm font-medium disabled:opacity-50 touch-manipulation">
-              {save.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-              {dirty ? `Save ${changedIds.length} ${changedIds.length === 1 ? 'dish' : 'dishes'}` : 'Saved'}
+              {save.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : publishOn && dirty ? <Send className="w-4 h-4" /> : <Check className="w-4 h-4" />}
+              {dirty
+                ? `${publishOn ? 'Save and publish' : 'Save'} ${changedIds.length} ${changedIds.length === 1 ? 'dish' : 'dishes'}`
+                : 'Saved'}
             </button>
           </div>
         )}
       </div>
       {dirty && <p className="text-xs text-muted-foreground -mt-1 pb-2">Save or discard your changes to switch menu.</p>}
+      {canEdit && publishOn && (
+        <p className="text-xs text-muted-foreground -mt-1 pb-2" data-testid="allergen-publish-hint">
+          Saving also puts every menu&apos;s allergens and dietary tags live. Other changes waiting on the menus (prices, names, new dishes) stay unpublished.
+        </p>
+      )}
+      {canEdit && published && (
+        <PublishedNote result={published} onClose={() => setPublished(null)} />
+      )}
+      {canEdit && !published && pending?.menus?.length > 0 && (
+        <div data-testid="allergen-unpublished"
+          className="flex flex-wrap items-center gap-x-3 gap-y-2 mb-2 rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 text-sm">
+          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+          <span className="flex-1 min-w-[12rem]">
+            Allergen changes not live yet: {pending.menus.map(planText).join(', ')}.
+            {dirty && publishOn && ' Saving publishes these too.'}
+          </span>
+          {!dirty && (
+            <button type="button" data-testid="allergen-publish-now" onClick={() => publishNow.mutate()} disabled={publishNow.isPending}
+              className="inline-flex items-center gap-1.5 px-3 min-h-[44px] rounded-md border bg-background text-sm font-medium hover:bg-accent disabled:opacity-50 touch-manipulation">
+              {publishNow.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+              Publish allergen changes
+            </button>
+          )}
+        </div>
+      )}
       {allergenCount > 0 && (
         <div className="pb-2"><LevelKey /></div>
       )}
@@ -278,6 +352,49 @@ export function AllergenMatrixEditor({ canEdit }) {
           </table>
         </div>
       )}
+    </div>
+  )
+}
+
+const PUBLISH_KEY = 'maca_allergen_publish'
+
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`
+
+// "Lunch (3 dishes, 1 scheduled publish)"
+function planText(m) {
+  const parts = []
+  if (m.dishes.length) parts.push(plural(m.dishes.length, 'dish', 'dishes'))
+  if (m.scheduled) parts.push(plural(m.scheduled, 'scheduled publish', 'scheduled publishes'))
+  return `${m.name} (${parts.join(', ')})`
+}
+
+/** What an allergen-only publish did: menus published, menus not published yet. */
+function PublishedNote({ result, onClose }) {
+  const menus = result.menus || []
+  const unpublished = result.unpublished || []
+  return (
+    <div data-testid="allergen-published"
+      className="flex items-start gap-3 mb-2 rounded-md border border-emerald-300 bg-emerald-50 dark:bg-emerald-950/30 px-3 py-2 text-sm">
+      <Check className="w-4 h-4 text-emerald-700 shrink-0 mt-0.5" />
+      <div className="flex-1 min-w-0 space-y-1">
+        {menus.length ? (
+          <p>
+            Allergens and dietary tags published on {menus.map(planText).join(', ')}.
+            {' '}Other changes waiting on these menus stay unpublished; publish them from the Menus page when ready.
+          </p>
+        ) : (
+          <p>Nothing to publish: every menu&apos;s allergens and dietary tags were already live.</p>
+        )}
+        {unpublished.length > 0 && (
+          <p className="text-muted-foreground" data-testid="allergen-not-live">
+            {unpublished.map(m => m.name).join(', ')} {unpublished.length === 1 ? "isn't" : "aren't"} published yet, so nothing of {unpublished.length === 1 ? 'it' : 'them'} is live: the allergens go live when the menu is published.
+          </p>
+        )}
+      </div>
+      <button type="button" onClick={onClose} aria-label="Close"
+        className="-my-1 -mr-2 w-11 h-11 flex items-center justify-center rounded-md text-muted-foreground hover:bg-emerald-100 touch-manipulation shrink-0">
+        <X className="w-4 h-4" />
+      </button>
     </div>
   )
 }
