@@ -773,7 +773,7 @@ export async function loadLocationBundle(tenantBundle, venueSlug) {
  * Loads approved reviews for each block's venue_id (or all tenant reviews),
  * respecting max_count and min_rating filters set in the block data.
  * Returns { [blockId]: reviewItem[] } */
-async function loadReviewsForBlocks(tenantId, ...blockArrays) {
+export async function loadReviewsForBlocks(tenantId, ...blockArrays) {
   const reviewBlocks = []
   function walk(blocks) {
     if (!Array.isArray(blocks)) return

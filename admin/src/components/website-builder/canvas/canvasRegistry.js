@@ -38,10 +38,12 @@ export const CANVAS_BY_TYPE = {
   faq:            FaqCanvas,
   columns:        ColumnsCanvas,
   tabs:           TabsCanvas,
-  // Live-data blocks — each has its own faithful preview
-  // (canvas/dataBlocks.jsx). Read from the actual venue config /
-  // website tables / chosen menu and render the same shape the SSR
-  // partial does.
+  // Live-data blocks (canvas/dataBlocks.jsx). Most read the venue
+  // config / website tables / chosen menu and render the same shape the SSR
+  // partial does. Those whose look comes from data drawn in the guest's
+  // browser (online ordering, the loyalty card, the AI chat, Guestplan,
+  // reviews from the reviews list) show the site's own render in a frame
+  // (LiveBlockFrame, GET /_preview/block).
   gallery:        GalleryCanvas,
   opening_hours:  OpeningHoursCanvas,
   find_us:        FindUsCanvas,

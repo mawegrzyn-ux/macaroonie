@@ -2778,7 +2778,7 @@ export default function Help() {
                 ['Online ordering',  'Links to takeaway/pre-order services (e.g. GloriaFood).'],
                 ['Delivery',         'Links to Deliveroo, Just Eat, Uber Eats, Gogetters, Foodhub.'],
                 ['Reservations widget', 'Embed the live reservations widget inline. Per-block: header, button, fonts (3 tracks), day colours. Every block also has an Anchor ID in its settings for in-page links.'],
-                ['Guestplan widget', 'If you take bookings with Guestplan: paste your access key in the block. Guestplan shows its own floating booking button and form on the page (on a computer it may open the form by itself). The heading is optional and shows where the block sits.'],
+                ['Guestplan widget', 'If you take bookings with Guestplan: paste your access key in the block. Guestplan shows its own floating booking button and form on the page (on a computer it may open the form by itself). The heading is optional and shows where the block sits. In the page builder the widget runs in a frame on the block.'],
                 ['Pages',            'Standalone pages or modal overlays. Link picker lists them plus block anchors.'],
                 ['SEO',              'Meta title, description and social-preview image (Open Graph).'],
                 ['Analytics',        'Google Analytics 4 and Meta (Facebook) Pixel IDs.'],
@@ -2817,6 +2817,34 @@ export default function Help() {
               switch off <strong>Show dish photos</strong> and <strong>Show section pictures</strong> (either
               one on its own works too). It only changes that block: the same menu elsewhere on the site,
               online ordering, the kiosks and the printed menu keep their pictures.
+            </P>
+
+            <H3>Live blocks in the page builder</H3>
+            <P>
+              Some blocks show things that change by themselves: the <strong>Online ordering</strong> block
+              (your live menu, prices and sold out), the <strong>Loyalty card</strong>, the{' '}
+              <strong>AI chat</strong>, the <strong>Guestplan widget</strong> and a{' '}
+              <strong>Reviews band</strong> set to show reviews from your reviews list. In the page builder
+              these aren&apos;t drawn as a copy: your site draws them, in a frame on the page, exactly as guests
+              see them (with your draft site, as staging shows it). A setting you change in the block&apos;s
+              panel shows in the frame a moment later, before you save.
+            </P>
+            <P>
+              Tap the block once to select it, as with any block. Then you can use it in the frame: open a
+              dish, switch tabs, scroll. What you do there is real: an order placed there is a real order,
+              signing in or joining on the loyalty card emails a real code, and a chat answers from your live
+              data and counts towards Pepper&apos;s allowance. <strong>Reload</strong> under the selected block
+              loads it again (for example after changing the menu in another tab). In the Mobile preview the
+              frame is phone-wide, so these blocks show your site&apos;s own phone layout. Links in the frame
+              open in a new tab.
+            </P>
+            <P>
+              The Loyalty card has <strong>Signed out</strong> and <strong>Signed in (sample)</strong> above
+              it: Signed in shows the card of a sample member, Sam Sample, with your programme&apos;s stamp
+              cards and rewards, and nothing done on it is saved. Guestplan&apos;s button sits in the corner of
+              its frame, as it sits in the corner of your pages. When the chat on your website is switched off,
+              the AI chat block says it is hidden instead. A block can only be shown this way once the website
+              has its address (Website, Domain).
             </P>
 
             <H3>Photos from your computer</H3>
@@ -4791,8 +4819,9 @@ export default function Help() {
               the card too), the words above the sign-in, which parts show (How it works, Stamp cards,
               Rewards, Wallet buttons, History tab, Settings tab), the width (Narrow, Boxed, Wide), the
               button and box colours, and the card&apos;s colours (blank: the ones set in Programme). In
-              the builder, tap <strong>Signed out</strong> or <strong>Signed in</strong> above the
-              block to see a sample of each. Signing in on one block (or at checkout) signs the guest in
+              the builder the block is your site&apos;s own card in a frame (see Live blocks in the page
+              builder): tap <strong>Signed out</strong> or <strong>Signed in (sample)</strong> above it to see
+              it as guests first see it, or as a sample member. Signing in on one block (or at checkout) signs the guest in
               on every block on that browser.
             </P>
 

@@ -10,12 +10,15 @@
 //
 // The previous shared DataPlaceholderCanvas has been replaced. Each
 // block now has its own canvas component registered in canvasRegistry.
+// Blocks whose look comes from data drawn in the guest's browser (online
+// ordering, the loyalty card, the AI chat, Guestplan, reviews from the
+// reviews list) are rendered by the site itself in a frame: LiveBlockFrame.
 
-import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { qrSvg } from '@shared/qr.js'
+import { useState, useEffect, useRef } from 'react'
+import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { useApi } from '@/lib/api'
-import { ImageIcon, Clock, MapPin, Phone, BookOpen, AlertTriangle, Loader2, Calendar, ShoppingBag, BadgePercent, Star } from 'lucide-react'
+import { usePermission } from '@/hooks/usePermission'
+import { ImageIcon, Clock, MapPin, Phone, BookOpen, AlertTriangle, Loader2, Calendar, ShoppingBag, BadgePercent, Star, RefreshCw, MessageCircle } from 'lucide-react'
 import { promoSummary, promoTerms, promoLink, promoRunning } from '@shared/promotions.js'
 import { isRemovable, menuTags, allergenKey } from '@shared/menuTags.js'
 import { comboMenuPrice } from '@shared/orderPricing.js'
@@ -44,6 +47,104 @@ function EmptyPanel({ Icon, title, hint, where }) {
         {hint}
         {where && <em> · {where}</em>}
       </p>
+    </div>
+  )
+}
+
+// ── Live previews from the site itself ───────────────────────────────
+// Blocks whose look comes from live data drawn in the guest's browser (the
+// ordering app, the loyalty card, the AI chat, Guestplan's widget, reviews
+// from the reviews list) aren't copied here: the site renders the block in
+// a frame (GET /_preview/block, api/src/services/blockPreview.js), from the
+// draft site and the block as it is in the builder now. The address comes
+// from POST /website/block-preview, asked again (after a short pause) when
+// the block's settings change. The frame grows with the block (the page
+// sends its height) up to maxHeight, then scrolls inside. A cover lets the
+// first tap select the block; once selected, taps reach the block itself.
+
+function useDebounced(value, ms) {
+  const [v, setV] = useState(value)
+  useEffect(() => {
+    const t = setTimeout(() => setV(value), ms)
+    return () => clearTimeout(t)
+  }, [value, ms])
+  return v
+}
+
+export function LiveBlockFrame({ type, blockId, data, config, selected, sample = false, minHeight = 160, maxHeight = 1400, note, title }) {
+  const api = useApi()
+  const venueId = config?.venue_id || null
+  const json = useDebounced(JSON.stringify(data || {}), 450)
+  const { data: res, error, isLoading } = useQuery({
+    queryKey: ['block-preview', type, blockId || null, venueId, !!sample, json],
+    queryFn: () => api.post('/website/block-preview', {
+      block: { id: blockId || undefined, type, data: JSON.parse(json) },
+      venue_id: venueId, sample: !!sample,
+    }),
+    placeholderData: keepPreviousData,
+    // The link lasts two hours: ask for a fresh one well before.
+    staleTime: 80 * 60_000,
+    refetchInterval: 80 * 60_000,
+    retry: false,
+  })
+  const frame = useRef(null)
+  const [height, setHeight] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [reload, setReload] = useState(0)
+  const url = res?.url || null
+
+  useEffect(() => { setLoading(true) }, [url, reload])
+  useEffect(() => {
+    const onMessage = e => {
+      if (e.source !== frame.current?.contentWindow) return
+      if (e.data?.type === 'mcrn:block-preview' && Number.isFinite(e.data.height)) setHeight(e.data.height)
+    }
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
+  }, [])
+
+  if (!url) {
+    return (
+      <section className="block" style={{ padding: '32px 0' }}>
+        <EmptyPanel Icon={isLoading ? Loader2 : AlertTriangle} title={title}
+          hint={isLoading ? 'Loading the live preview…' : (error?.message || 'This block can\'t be previewed here.')} />
+      </section>
+    )
+  }
+  const h = Math.min(maxHeight, Math.max(minHeight, height ?? minHeight))
+  return (
+    <div style={{ position: 'relative' }} data-testid="live-block" data-block-type={type}>
+      <iframe
+        key={reload}
+        ref={frame}
+        src={url}
+        title={(title || 'Block') + ' preview'}
+        onLoad={() => setLoading(false)}
+        data-testid="live-block-frame"
+        style={{ display: 'block', width: '100%', height: h, border: 0, background: 'transparent' }}
+      />
+      {loading && (
+        <div style={{ position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)', display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(17,17,17,.75)', color: '#fff', fontSize: 12, padding: '6px 12px', borderRadius: 999, pointerEvents: 'none' }}>
+          <Loader2 size={14} className="animate-spin" /> Loading the live preview…
+        </div>
+      )}
+      {!selected && (
+        // Taps on the block select it, as on every other block.
+        <div data-testid="live-block-cover" title="Tap to select. Then you can use the block here."
+          style={{ position: 'absolute', inset: 0, cursor: 'pointer', touchAction: 'manipulation' }} />
+      )}
+      {selected && (
+        <div onClick={e => e.stopPropagation()}
+          style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '8px 12px', background: '#fffbeb', borderTop: '1px solid #fcd34d', color: '#92400e', fontFamily: 'system-ui, sans-serif', fontSize: 13 }}>
+          <span style={{ flex: '1 1 220px', minWidth: 0 }} data-testid="live-block-note">
+            <strong>Live from your site.</strong> {note || 'You can use it here, as guests would.'}
+          </span>
+          <button type="button" onClick={() => setReload(r => r + 1)} data-testid="live-block-reload"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minHeight: 48, padding: '0 14px', borderRadius: 8, border: '1px solid #fcd34d', background: '#fff', color: '#92400e', fontWeight: 600, touchAction: 'manipulation' }}>
+            <RefreshCw size={14} /> Reload
+          </button>
+        </div>
+      )}
     </div>
   )
 }
@@ -605,74 +706,37 @@ export function ReservationsWidgetCanvas({ data, onChange, config }) {
 }
 
 // ── Guestplan booking widget (third-party embed) ──────────
-//
-// Guestplan's loader script self-mounts into the page (no iframe URL,
-// no container it renders into) and its colours are governed by their
-// own dashboard, not anything we can pass through the embed snippet —
-// so unlike our own reservations_widget, there is nothing faithful to
-// preview here. We deliberately do NOT load the real third-party script
-// inside the admin editor canvas (it would inject into the whole admin
-// app, not just this block, and pulls in code we don't control). This
-// is a static placeholder; the real widget only ever runs on the
-// published site.
-
-export function GuestplanWidgetCanvas({ data, onChange }) {
-  const hasKey = !!String(data.access_key || '').trim()
+// Guestplan's loader script mounts its own floating button and form, with
+// colours set on Guestplan's side. It runs in the live preview frame, on
+// the restaurant's own site address, never inside the admin itself (it
+// would reach the whole admin page). The frame is tall enough for its form
+// to open.
+export function GuestplanWidgetCanvas({ data, config, selected, parentBlockId }) {
+  if (!String(data.access_key || '').trim()) {
+    return (
+      <section className="block" style={{ padding: '48px 0' }}>
+        <div style={innerContainerStyle(data.container, data.boxed_step)}>
+          <EmptyPanel Icon={Calendar} title="Guestplan booking widget"
+            hint="No access key set." where="Add your Guestplan access key on this block" />
+        </div>
+      </section>
+    )
+  }
   return (
-    <section className="block" style={{ padding: '48px 0' }}>
-      <div style={innerContainerStyle(data.container, data.boxed_step)}>
-        <BlockHeading data={data} onChange={onChange} />
-        {hasKey ? (
-          <EmptyPanel Icon={Calendar} title="Guestplan booking widget"
-            hint="Not previewable here. On the live page Guestplan shows its own floating booking button and form (on a desktop it may open the form by itself)."
-            where="Renders on the published site" />
-        ) : (
-          <EmptyPanel Icon={Calendar} title="Guestplan booking widget"
-            hint="No access key set."
-            where="Add your Guestplan access key on this block" />
-        )}
-      </div>
-    </section>
+    <LiveBlockFrame type="guestplan_widget" title="Guestplan booking widget" blockId={parentBlockId}
+      data={data} config={config} selected={selected} minHeight={620} maxHeight={900}
+      note="Guestplan's own button sits in the corner of this frame, as in the corner of your site's pages; its form opens from it." />
   )
 }
 
 // ── Online ordering (migration 126) ─────────────────────
-// The live block is the full ordering app (views/site/shared/ordering.eta),
-// which needs the public ordering API, so the canvas shows a placeholder.
-// One line listing the non-default options, so the placeholder shows what
-// the live block will do.
-function orderingOptionsSummary(d) {
-  const on = []
-  if (d.basket_mode === 'modal') on.push('basket as pop-up')
-  else if (d.basket_sticky === false) on.push('basket not sticky')
-  if (d.sticky_nav === false) on.push('category bar not sticky')
-  if (d.show_search) on.push(d.search_style === 'icon' ? 'search icon' : d.search_style === 'icon_phone' ? 'search (icon on phones)' : 'search')
-  if (d.highlight_favourites) on.push('house favourites highlighted')
-  if (d.item_notes === false) on.push('no dish notes')
-  if (d.show_vat === false) on.push('VAT hidden')
-  if (d.show_promo_box === false) on.push('no promo box')
-  if (d.basket_bg) on.push('basket colour')
-  return on.length ? ' · ' + on.join(', ') : ''
-}
-
-export function OnlineOrderingCanvas({ data, onChange }) {
-  const api = useApi()
-  const { data: venues = [] } = useQuery({
-    queryKey: ['venues'],
-    queryFn: () => api.get('/venues'),
-    staleTime: 60_000,
-    enabled: !!data.venue_id,
-  })
-  const venue = data.venue_id ? venues.find(v => v.id === data.venue_id) : null
+// The ordering app itself (views/site/shared/ordering.eta) with the live
+// menu, prices and sold out, rendered by the site in a frame.
+export function OnlineOrderingCanvas({ data, config, selected, parentBlockId }) {
   return (
-    <section className="block" style={{ padding: '32px 0' }}>
-      <div style={{ maxWidth: 1180, margin: '0 auto', padding: '0 16px' }}>
-        {(data.heading || '').trim() && <BlockHeading data={data} onChange={onChange} />}
-        <EmptyPanel Icon={ShoppingBag} title="Online ordering"
-          hint={'Menu, basket and checkout' + (venue ? ' for ' + venue.name : ', venue chosen automatically') + orderingOptionsSummary(data)}
-          where="Try it on the live site at /order" />
-      </div>
-    </section>
+    <LiveBlockFrame type="online_ordering" title="Online ordering" blockId={parentBlockId}
+      data={data} config={config} selected={selected} minHeight={360} maxHeight={1400}
+      note="Your live menu, prices and sold out. An order placed here is a real order." />
   )
 }
 
@@ -808,25 +872,14 @@ export function LoyaltyCtaCanvas({ data, onChange }) {
 }
 
 // ── Loyalty card ─────────────────────────────────────────
-// Mirrors blocks/loyalty_card.eta: the guest's card, drawn on the site by
-// /loyalty-api/app.js (api/src/assets/loyaltyApp.js). Here a sample shows
-// how it looks signed out and signed in (tap to switch).
-
-const SAMPLE_QR = qrSvg('MCRN-SAMPLE-CARD', { margin: 2, title: 'Sample card' })
-
-function hexLight(hex) {
-  if (!/^#[0-9a-fA-F]{6}$/.test(hex || '')) return false
-  const n = parseInt(hex.slice(1), 16)
-  return (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255 > 0.6
-}
-
-export function LoyaltyCardCanvas({ data }) {
-  const api = useApi()
+// blocks/loyalty_card.eta, rendered by the site in a frame: the real card
+// app (/loyalty-api/app.js) with the programme as it is now. Signed in
+// shows the card as a sample member (opts.sample in the app: made from the
+// programme, nothing asked of or saved to the API).
+export function LoyaltyCardCanvas({ data, config, selected, parentBlockId }) {
   const { data: res, isLoading } = useLoyaltyTeaser()
-  const { data: site } = useQuery({ queryKey: ['tenant-site'], queryFn: () => api.get('/website/tenant-site'), staleTime: 60_000 })
   const [view, setView] = useState('out')
-  const t = res?.teaser || null
-  if (!t) {
+  if (!res?.teaser) {
     return (
       <section className="block" style={{ padding: '32px 0' }} data-testid="loyalty-card-canvas">
         <EmptyPanel Icon={isLoading ? Loader2 : Star} title="Loyalty card"
@@ -834,94 +887,22 @@ export function LoyaltyCardCanvas({ data }) {
       </section>
     )
   }
-  const colours = site?.theme?.colors || {}
-  const hexOf = v => (/^#[0-9a-fA-F]{6}$/.test(v || '') ? v : colours[v === 'background' ? 'background' : v] || (v === 'primary' ? '#630812' : null))
-  const accent = data.accent || 'primary'
-  const onAccent = hexLight(hexOf(accent)) ? '#111111' : '#ffffff'
-  const card = t.card || { background: '#1f2937', text: '#ffffff', accent: '#ffffff' }
-  const cardBg = data.card_bg ? promoColour(data.card_bg, card.background) : card.background
-  const cardText = data.card_text ? promoColour(data.card_text, card.text) : data.card_bg ? (hexLight(hexOf(data.card_bg)) ? '#111111' : '#ffffff') : card.text
-  const cardAccent = data.card_text || data.card_bg ? cardText : card.accent
-  const panel = promoColour(data.panel || 'surface', 'var(--c-surface)')
-  const btn = { display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 48, borderRadius: 10, background: promoColour(accent, 'var(--c-primary)'), color: onAccent, fontWeight: 600, fontSize: 15, marginTop: 14 }
-  const box = { background: panel, border: '1px solid var(--c-border)', borderRadius: 14, padding: 16, margin: '14px 0' }
-  const max = data.container === 'wide' ? 1100 : data.container === 'boxed' ? 780 : 520
-  const heading = (data.heading || '').trim()
-  const intro = (data.intro || '').trim()
-  const how = data.show_how !== false ? teaserText(t) : ''
-  const tabs = [['card', 'My card'], ...(data.show_history !== false ? [['h', 'History']] : []), ...(data.show_settings !== false ? [['s', 'Settings']] : [])]
   return (
-    <section className="block" style={{ padding: '40px 0' }} data-testid="loyalty-card-canvas">
-      <div style={{ ...innerContainerStyle('boxed', data.boxed_step), maxWidth: max, fontFamily: 'var(--f-body)', color: 'var(--c-text)' }}>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginBottom: 6 }}>
-          {[['out', 'Signed out'], ['in', 'Signed in']].map(([k, l]) => (
-            <button key={k} type="button" onClick={() => setView(k)} aria-pressed={view === k} data-testid={'loyalty-card-view-' + k}
-              style={{ fontSize: 11, padding: '4px 10px', borderRadius: 999, border: '1px solid var(--c-border)', background: view === k ? 'var(--c-text)' : 'transparent', color: view === k ? 'var(--c-bg)' : 'inherit' }}>
-              {l}
-            </button>
-          ))}
-        </div>
-        {(view === 'out' || heading) && (
-          <h2 style={{ fontFamily: 'var(--f-heading)', fontSize: 'clamp(1.6rem, 4vw, 2.2rem)', margin: '12px 0 6px', color: 'inherit' }}>{heading || t.name}</h2>
-        )}
-        {view === 'out' ? (
-          <>
-            {intro ? <p style={{ color: 'var(--c-muted)', fontSize: 14 }}>{intro}</p> : how ? <p style={{ color: 'var(--c-muted)', fontSize: 14 }}>{how}</p> : null}
-            <div style={box}>
-              <div style={{ fontWeight: 700, fontSize: 17, marginBottom: 10 }}>Join or sign in</div>
-              <div style={{ color: 'var(--c-muted)', fontSize: 14 }}>We&apos;ll email you a 6-digit code. No password needed.</div>
-              <div style={{ fontWeight: 600, fontSize: 14, margin: '12px 0 6px' }}>Email</div>
-              <div style={{ minHeight: 48, border: '1px solid var(--c-border)', borderRadius: 10, background: '#fff' }} />
-              <div style={btn}>Send me a code</div>
-            </div>
-          </>
-        ) : (
-          <>
-            {tabs.length > 1 && (
-              <div style={{ display: 'flex', gap: 6, marginTop: 14 }}>
-                {tabs.map(([k, l]) => (
-                  <div key={k} style={{ ...btn, marginTop: 0, flex: 1, ...(k === 'card' ? {} : { background: 'transparent', color: 'inherit', border: '1px solid var(--c-border)' }) }}>{l}</div>
-                ))}
-              </div>
-            )}
-            <div style={{ background: cardBg, color: cardText, borderRadius: 18, padding: 18, margin: '14px 0', boxShadow: '0 6px 22px rgba(0,0,0,.12)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-                <div><div style={{ fontSize: 11, letterSpacing: '.08em', textTransform: 'uppercase', color: cardAccent, fontWeight: 700 }}>Member</div><div style={{ fontSize: 18, fontWeight: 700 }}>Sam Sample</div></div>
-                {t.points && <div style={{ textAlign: 'right' }}><div style={{ fontSize: 11, letterSpacing: '.08em', textTransform: 'uppercase', color: cardAccent, fontWeight: 700 }}>{t.points.label}</div><div style={{ fontSize: 34, fontWeight: 800, lineHeight: 1.05 }}>120</div></div>}
-              </div>
-              <div style={{ background: '#fff', borderRadius: 12, padding: 10, margin: '16px auto 6px', width: 'min(240px, 70%)' }} dangerouslySetInnerHTML={{ __html: SAMPLE_QR }} />
-              <div style={{ textAlign: 'center', letterSpacing: 2, fontSize: 15, opacity: 0.9 }}>123 456 789</div>
-            </div>
-            {data.show_stamps !== false && t.stamp_cards.length > 0 && (
-              <div style={box}>
-                <div style={{ fontWeight: 700, fontSize: 17, marginBottom: 10 }}>Stamp cards</div>
-                {t.stamp_cards.slice(0, 2).map(c => (
-                  <div key={c.id} style={{ marginBottom: 8 }}>
-                    <strong>{c.name}</strong>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
-                      {Array.from({ length: Math.min(c.stamps_needed, 12) }, (_, i) => (
-                        <span key={i} style={{ width: 30, height: 30, borderRadius: '50%', border: '2px solid ' + promoColour(accent, 'var(--c-primary)'), background: i < 3 ? promoColour(accent, 'var(--c-primary)') : 'transparent' }} />
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-            {data.show_rewards !== false && t.rewards.length > 0 && (
-              <div style={box}>
-                <div style={{ fontWeight: 700, fontSize: 17, marginBottom: 10 }}>Rewards</div>
-                {t.rewards.slice(0, 3).map(r => (
-                  <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '8px 0', borderTop: '1px solid var(--c-border)' }}>
-                    <span><strong>{r.name}</strong><br /><span style={{ color: 'var(--c-muted)', fontSize: 14 }}>{r.summary}</span></span>
-                    <span style={{ fontSize: 12, fontWeight: 700 }}>{r.points_cost} {t.points ? t.points.label : 'points'}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </>
-        )}
+    <div data-testid="loyalty-card-canvas">
+      <div onClick={e => e.stopPropagation()} style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, padding: '8px 12px 0' }}>
+        {[['out', 'Signed out'], ['in', 'Signed in (sample)']].map(([k, l]) => (
+          <button key={k} type="button" onClick={() => setView(k)} aria-pressed={view === k} data-testid={'loyalty-card-view-' + k}
+            style={{ minHeight: 48, fontSize: 13, padding: '0 14px', borderRadius: 999, border: '1px solid var(--c-border)', background: view === k ? 'var(--c-text)' : 'var(--c-bg)', color: view === k ? 'var(--c-bg)' : 'var(--c-text)', touchAction: 'manipulation' }}>
+            {l}
+          </button>
+        ))}
       </div>
-    </section>
+      <LiveBlockFrame type="loyalty_card" title="Loyalty card" blockId={parentBlockId}
+        data={data} config={config} selected={selected} sample={view === 'in'} minHeight={240} maxHeight={1600}
+        note={view === 'in'
+          ? 'A sample member (Sam Sample) with your programme\'s stamp cards and rewards. Nothing here is saved.'
+          : 'Signing in or joining here is real: it emails a code and makes a member.'} />
+    </div>
   )
 }
 
@@ -1173,54 +1154,30 @@ export function MenuInlineCanvas({ data, onChange }) {
 }
 
 // ── AI chat (migration 148) ──────────────────────────────────
-// A still picture of the website chat (blocks/ai_chat.eta): the builder
-// never talks to the AI. Says when the chat is switched off, since the
-// block is then hidden on the live site.
-export function AiChatCanvas({ data, onChange }) {
+// blocks/ai_chat.eta, rendered by the site in a frame: the real chat. Says
+// when the chat is switched off, since the block is then hidden on the live
+// site (and shows nothing in the frame either).
+export function AiChatCanvas({ data, config, selected, parentBlockId }) {
   const api = useApi()
-  const { data: ai } = useQuery({ queryKey: ['ai-settings'], queryFn: () => api.get('/ai/settings'), staleTime: 30_000, retry: false })
-  const set = (k) => (v) => onChange({ ...data, [k]: v })
-  const accent = promoColour(data.accent || 'primary', 'var(--c-primary)')
+  // Only people who can see Pepper's settings learn whether the chat is
+  // switched off; for others the frame shows what the site shows.
+  const pepper = usePermission('ai_assistant')
+  const { data: ai } = useQuery({ queryKey: ['ai-settings'], queryFn: () => api.get('/ai/settings'), staleTime: 30_000, retry: false, enabled: pepper.canView })
   const off = ai && (!ai.settings?.guest_chat_enabled || !ai.chat_configured)
   const launcher = data.mode === 'launcher'
-  const panel = (
-    <div style={{ border: '1px solid var(--c-border, #e5e7eb)', borderRadius: 'var(--r-lg, 12px)', overflow: 'hidden', background: 'var(--c-bg, #fff)', maxWidth: launcher ? 380 : 'none', marginLeft: launcher ? 'auto' : 0 }}>
-      {launcher && <div style={{ background: accent, color: '#fff', padding: '12px 14px', fontWeight: 600 }}>{(data.heading || '').trim() || (data.button_text || '').trim() || 'Chat with us'}</div>}
-      <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 10, fontSize: '.95rem' }}>
-        <div style={{ alignSelf: 'flex-end', background: accent, color: '#fff', borderRadius: '14px 14px 4px 14px', padding: '8px 12px' }}>Table for 2 on Friday at 7?</div>
-        <div>Friday at 19:00 is free. Check the details below and press Confirm.</div>
-        <div style={{ border: '1px solid var(--c-border, #e5e7eb)', borderRadius: 10, overflow: 'hidden' }}>
-          <div style={{ padding: '8px 12px', fontWeight: 600, background: 'var(--c-surface, #f9fafb)' }}>Book this table?</div>
-          <div style={{ padding: '8px 12px', fontSize: '.9rem' }}>Friday at 19:00 · 2 people</div>
-          <div style={{ padding: '0 12px 12px' }}>
-            <span style={{ display: 'block', textAlign: 'center', background: accent, color: '#fff', borderRadius: 8, padding: '12px 0', fontWeight: 600 }}>Confirm booking</span>
-          </div>
-        </div>
-      </div>
-      <div style={{ borderTop: '1px solid var(--c-border, #e5e7eb)', padding: 10, color: 'var(--c-muted, #6b7280)', fontSize: '.9rem' }}>Type a message</div>
-    </div>
-  )
+  if (off) {
+    return (
+      <section className="block" style={{ padding: '32px 0' }}>
+        <EmptyPanel Icon={MessageCircle} title="AI chat"
+          hint={'Hidden on the live site: ' + (ai.chat_configured ? 'Chat on your website is switched off.' : 'the AI chat isn\'t set up on the server yet.')}
+          where={ai.chat_configured ? 'Pepper page, Settings' : undefined} />
+      </section>
+    )
+  }
   return (
-    <section className="block" style={{ padding: '40px 0' }}>
-      <div style={innerContainerStyle(data.container, data.boxed_step)}>
-        {off && (
-          <p style={{ fontSize: 13, background: '#fffbeb', border: '1px solid #fcd34d', color: '#92400e', borderRadius: 8, padding: '6px 10px', margin: '0 0 12px' }}>
-            Hidden on the live site: {ai.chat_configured ? 'Chat on your website is switched off (Pepper page, Settings).' : 'the AI chat isn\'t set up on the server yet.'}
-          </p>
-        )}
-        {launcher ? (
-          <>
-            <p style={{ fontSize: 13, color: 'var(--c-muted)', margin: '0 0 12px' }}>Shows as a round "{(data.button_text || '').trim() || 'Chat with us'}" button in the bottom corner of the screen; this is the chat it opens.</p>
-            {panel}
-          </>
-        ) : (
-          <>
-            <InlineText as="h2" value={data.heading ?? ''} onChange={set('heading')} placeholder="Chat with us" style={{ margin: '0 0 6px' }} />
-            <InlineText as="p" value={data.intro ?? ''} onChange={set('intro')} placeholder="Intro" style={{ margin: '0 0 16px', color: 'var(--c-muted)' }} />
-            {panel}
-          </>
-        )}
-      </div>
-    </section>
+    <LiveBlockFrame type="ai_chat" title="AI chat" blockId={parentBlockId}
+      data={data} config={config} selected={selected} minHeight={launcher ? 640 : 420} maxHeight={1000}
+      note={(launcher ? 'The round button sits in the corner of the screen, as in the corner of this frame. ' : '')
+        + 'A chat here is real: it answers from your live data, can book tables and counts towards Pepper\'s allowance.'} />
   )
 }

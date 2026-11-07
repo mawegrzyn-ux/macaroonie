@@ -28,6 +28,7 @@ import { SYSTEM_PAGES } from '../../../shared/sitePages.js'
 import { publishQueue } from '../jobs/queues.js'
 import { hashPassword, loadStagingAccess, previewKey, stagingOrigin, MIN_PASSWORD } from '../services/stagingAccess.js'
 import { ICON_MIME, mayBeIcon, isIcon } from '../utils/icon.js'
+import { PREVIEW_BLOCK_TYPES, PREVIEW_MAX_BLOCK, blockPreviewToken } from '../services/blockPreview.js'
 
 // Website permission: view reads, manage changes. GET /tenant-site stays open
 // (Ordering setup, Emails and Promotions read the site's settings), and image
@@ -859,6 +860,45 @@ export default async function websiteRoutes(app) {
     if (!url) throw httpError(422, 'Set a subdomain in Domain to get a staging address.')
     if (!access) return { url, protected: false }
     return { url: url + '?staging_key=' + previewKey(req.tenantId, access.password_hash), protected: true }
+  })
+
+  // ── POST /website/block-preview ─────────────────────────
+  // A live-data block (services/blockPreview.js) as the builder has it now,
+  // rendered by the site itself in a frame: answers the address to load,
+  // on the restaurant's own site address in production (the block's
+  // scripts call its public APIs; a third-party script stays away from the
+  // admin), the same address through the dev server elsewhere. venue_id is
+  // the page's location (refuseOtherTenantsVenues checks it and any venue
+  // in the block's data).
+  const BlockPreviewBody = z.object({
+    block: z.object({
+      id:   z.string().max(80).optional(),
+      type: z.enum(PREVIEW_BLOCK_TYPES),
+      data: z.record(z.any()).default({}),
+    }),
+    venue_id: z.string().uuid().nullable().optional(),
+    sample:   z.boolean().optional(),
+  })
+
+  app.post('/block-preview', { preHandler: PERM.view }, async (req) => {
+    const body = BlockPreviewBody.parse(req.body || {})
+    const block = { id: body.block.id || 'preview', type: body.block.type, data: body.block.data }
+    if (JSON.stringify(block).length > PREVIEW_MAX_BLOCK) {
+      throw httpError(422, 'This block holds too much to preview here. Publish to staging to see it.')
+    }
+    const [ts] = await withTenant(req.tenantId, tx => tx`
+      SELECT subdomain_slug FROM tenant_site WHERE tenant_id = ${req.tenantId}
+    `)
+    if (!ts?.subdomain_slug) throw httpError(422, 'Set the website\'s address in Domain to preview this block.')
+    const token = await blockPreviewToken({
+      tenantId: req.tenantId, slug: ts.subdomain_slug,
+      venueId: body.venue_id || null, block, sample: !!body.sample,
+    })
+    const path = '/_preview/block?t=' + token
+    const origin = env.NODE_ENV === 'production'
+      ? `${env.PUBLIC_SITE_SCHEME}://${ts.subdomain_slug}.${env.PUBLIC_ROOT_DOMAIN}`
+      : ''
+    return { url: origin + path }
   })
 
   // ── POST /website/tenant-site/override-staging ──────────

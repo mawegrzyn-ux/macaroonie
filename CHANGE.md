@@ -5,6 +5,21 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-11-07 — Page builder: live blocks drawn by the site itself]
+
+No migration.
+
+- In the page builder, the **Online ordering** block (live menu, prices, sold out), the **Loyalty card**, the **AI chat**, the **Guestplan widget** and a **Reviews band** showing reviews from the reviews list are now rendered by the site itself, in a frame on the block, exactly as guests see them (the draft site, as staging shows it). They used to be a placeholder, a sample or a still picture.
+- A setting changed in the block's panel shows in the frame a moment later, before saving.
+- The first tap selects the block as before; once selected, the block can be used in the frame (what is done there is real: orders, loyalty sign-ins, chats). **Reload** under the selected block loads it again.
+- In the Mobile preview the frame is phone-wide, so these blocks show the site's own phone layout.
+- Loyalty card: **Signed out** shows the real card as guests first see it; **Signed in (sample)** shows a sample member (Sam Sample) with the programme's stamp cards and rewards, nothing saved.
+- Guestplan's script runs only in the frame, on the restaurant's own site address, never inside the admin.
+- When the website chat is off the AI chat block says it is hidden (only asked for people who can see Pepper's settings: viewers no longer get a refused request there).
+- New: `POST /api/website/block-preview`, `GET /_preview/block` (no analytics, cookie or emergency banner; framed only by the admin), `services/blockPreview.js`, `views/site/block_preview.eta`, `LiveBlockFrame`, the loyalty app's `opts.sample`.
+
+---
+
 ## [2026-11-07 — Allergen matrix: publish allergen changes on their own]
 
 No migration.

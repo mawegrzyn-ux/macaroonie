@@ -250,7 +250,7 @@ const _ldBreadcrumb = (_isLoc && it.venue) ? {
   <% if (pageDesc) { %>
     <meta name="description" content="<%= pageDesc %>" />
   <% } %>
-  <% if (it.isStaging) { %>
+  <% if (it.isStaging || it.blockPreview) { %>
     <meta name="robots" content="noindex, nofollow" />
   <% } %>
   <link rel="canonical" href="<%= canonicalUrl %>" />
@@ -421,7 +421,9 @@ const _ldBreadcrumb = (_isLoc && it.venue) ? {
     }
   </style>
 
-  <% if (it.config.ga4_measurement_id) { %>
+  <% /* The page builder's block previews (it.blockPreview) aren't visits: no
+        analytics, cookie banner or emergency banner there. */ %>
+  <% if (it.config.ga4_measurement_id && !it.blockPreview) { %>
     <script async src="https://www.googletagmanager.com/gtag/js?id=<%= it.config.ga4_measurement_id %>"></script>
     <script>
       window.dataLayer = window.dataLayer || [];
@@ -431,7 +433,7 @@ const _ldBreadcrumb = (_isLoc && it.venue) ? {
     </script>
   <% } %>
 
-  <% if (it.config.fb_pixel_id) { %>
+  <% if (it.config.fb_pixel_id && !it.blockPreview) { %>
     <script>
       !function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?
         n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;
@@ -452,7 +454,7 @@ const _ldBreadcrumb = (_isLoc && it.venue) ? {
  * vanilla JS at the bottom hides it once the visitor accepts or declines
  * (cookie name mc_cookies, 1=accept, 0=decline). */
 const _cookies = it.tenant_site || {}
-const _showCookies = !!_cookies.cookies_banner_enabled
+const _showCookies = !!_cookies.cookies_banner_enabled && !it.blockPreview
 const bannerText = _cookies.cookies_banner_text
   || 'We use cookies to make this site work and to understand how visitors use it.'
 const acceptText  = _cookies.cookies_banner_accept_text  || 'Accept'
@@ -534,7 +536,7 @@ const cookiesPolicyHref = (cookiesPage && cookiesPage.kind === 'modal') ? '#moda
 <% /* Emergency banner — set at the franchise / tenant level, applies to
       all venue sites.  brand.banner_enabled must be true. */ %>
 <% const _banner = it.brand || {} %>
-<% if (_banner.banner_enabled && _banner.banner_text) { %>
+<% if (_banner.banner_enabled && _banner.banner_text && !it.blockPreview) { %>
   <%
     const bgMap  = { info: '#eef6ff', warn: '#fff7ed', alert: '#fef2f2' }
     const txtMap = { info: '#1e40af', warn: '#9a3412', alert: '#991b1b' }

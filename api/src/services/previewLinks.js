@@ -6,9 +6,11 @@
 // names its kind, its tenant and venue, and runs out after a few hours.
 //
 //   makeLink(kind, data, hours)   'payload.signature' (base64url)
-//   readLink(kind, token)         the data for a valid, unexpired link of
+//   readLink(kind, token, { max }) the data for a valid, unexpired link of
 //                                 that kind, else null (a kiosk link never
-//                                 opens the kitchen bench, and back)
+//                                 opens the kitchen bench, and back); max =
+//                                 the longest payload taken (600 unless a
+//                                 kind carries more, like a block preview)
 //
 // The signing key is made once and kept sealed in platform_secrets.
 
@@ -42,9 +44,9 @@ export async function makeLink(kind, data, hours) {
 }
 
 /** The data of a valid, unexpired link of this kind (with `expires_at`), else null. */
-export async function readLink(kind, token) {
-  const m = /^([A-Za-z0-9_-]{20,600})\.([A-Za-z0-9_-]{40,60})$/.exec(String(token || ''))
-  if (!m) return null
+export async function readLink(kind, token, { max = 600 } = {}) {
+  const m = /^([A-Za-z0-9_-]{20,})\.([A-Za-z0-9_-]{40,60})$/.exec(String(token || ''))
+  if (!m || m[1].length > max) return null
   const want = sign(await secret(), m[1])
   if (want.length !== m[2].length || !crypto.timingSafeEqual(Buffer.from(want), Buffer.from(m[2]))) return null
   let p

@@ -10,6 +10,7 @@ import { useEffect } from 'react'
 import { InlineText }     from './InlineText'
 import { InlineRichText } from './InlineRichText'
 import { innerContainerStyle } from '../boxedLayout'
+import { LiveBlockFrame } from './dataBlocks'
 
 const FONT_WEIGHTS = {
   'Inter': '300;400;500;600;700;800', 'Fraunces': '300;400;500;600;700;800',
@@ -506,7 +507,16 @@ export function OrderOptionsCanvas({ data }) {
 
 // ── Reviews band ──────────────────────────────────────────────
 
-export function ReviewsBandCanvas({ data }) {
+export function ReviewsBandCanvas({ data, config, selected, parentBlockId }) {
+  // Reviews from the reviews list (source 'db'): the site renders the block
+  // in a frame with the reviews it would show now.
+  if (data.source === 'db') {
+    return (
+      <LiveBlockFrame type="reviews_band" title="Reviews" blockId={parentBlockId}
+        data={data} config={config} selected={selected} minHeight={200} maxHeight={1400}
+        note="The approved reviews this block shows on your site now." />
+    )
+  }
   const items = data.items || []
   const bgPalette = {
     primary: { bg: 'var(--c-primary)', fg: '#f5efe6', star: '#f5b8c0', divider: 'rgba(245,239,230,0.25)' },

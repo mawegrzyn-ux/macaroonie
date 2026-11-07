@@ -98,6 +98,13 @@ export default defineConfig({
       // and /widget-api/* so the canvas iframe just works in dev.
       '/reservations': 'http://localhost:3000',
       '/widget-api':   'http://localhost:3000',
+      // The page builder's live block previews (GET /_preview/block) and
+      // the public APIs and files the blocks in them call.
+      '/_preview':     'http://localhost:3000',
+      '/order-api':    'http://localhost:3000',
+      '/loyalty-api':  'http://localhost:3000',
+      '/ai-api':       'http://localhost:3000',
+      '/uploads':      'http://localhost:3000',
     },
   },
 })

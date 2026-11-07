@@ -91,6 +91,29 @@ function injectCss() {
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
 const money = p => '£' + ((Number(p) || 0) / 100).toFixed(2).replace(/\.00$/, '')
 const memberNo = n => String(n || '').replace(/^(\d{3})(\d{3})(\d{3})$/, '$1 $2 $3')
+const SAMPLE_NOTE = 'This is a sample card: nothing here is saved.'
+
+/** A member to show the card signed in without anyone signing in. */
+export function sampleMember(info) {
+  const points = info.points ? 120 : 0
+  const day = n => new Date(Date.now() - n * 86400_000).toISOString()
+  return {
+    name: 'Sam Sample', phone: '', marketing_opt_in: false,
+    points, card_code: 'MCRN-SAMPLE-CARD', member_no: '123456789',
+    stamps: (info.stamp_cards || []).slice(0, 3).map((c, i) => ({
+      card_id: c.id, name: c.name, description: c.description,
+      count: Math.max(0, Math.min(c.stamps_needed - 1, 3 - i)), needed: c.stamps_needed,
+    })),
+    rewards: (info.rewards || []).slice(0, 4).map(r => ({
+      ...r, member_reward_id: null, can_afford: r.points_cost <= points, expires_at: null, min_spend_pence: null,
+    })),
+    history: [
+      ...(info.points ? [{ kind: 'earn', points: 70, stamps: 0, created_at: day(2) }] : []),
+      ...((info.stamp_cards || []).length ? [{ kind: 'stamps', points: 0, stamps: 1, created_at: day(2) }] : []),
+      ...(info.points?.welcome ? [{ kind: 'welcome', points: info.points.welcome, stamps: 0, created_at: day(9) }] : []),
+    ],
+  }
+}
 
 /**
  * Draw the loyalty card into `root`.
@@ -102,6 +125,9 @@ const memberNo = n => String(n || '').replace(/^(\d{3})(\d{3})(\d{3})$/, '$1 $2 
  *   opts.intro      words above the sign-in; blank = how points and stamps are earned
  *   opts.parts      { how, stamps, rewards, history, settings, wallet } (each on unless false)
  *   opts.autofocus  focus the email box straight away (the web app; not a block)
+ *   opts.sample     signed in as a sample member made from the programme
+ *                   (the page builder's preview): only the programme is read,
+ *                   nothing is asked of or saved to the API
  */
 export function mountLoyalty(root, opts = {}) {
   injectCss()
@@ -112,6 +138,7 @@ export function mountLoyalty(root, opts = {}) {
   const KEY = 'mcrn_loyalty_' + slug
   const parts = { how: true, stamps: true, rewards: true, history: true, settings: true, wallet: true, ...(opts.parts || {}) }
   const tag = opts.titleTag === 'h2' ? 'h2' : 'h1'
+  const sample = !!opts.sample
   let info = null
   let me = null
   let tab = 'card'
@@ -122,14 +149,21 @@ export function mountLoyalty(root, opts = {}) {
   let acted = false
   root.addEventListener('click', () => { acted = true })
   root.addEventListener('submit', () => { acted = true })
+  if (sample) {
+    const stop = e => { e.preventDefault(); e.stopImmediatePropagation(); render(SAMPLE_NOTE) }
+    root.addEventListener('click', e => { if (e.target.closest('[data-act]')) stop(e) }, true)
+    root.addEventListener('submit', stop, true)
+  }
 
-  const session = () => { try { return localStorage.getItem(KEY) } catch { return null } }
+  const session = () => { if (sample) return null; try { return localStorage.getItem(KEY) } catch { return null } }
   function setSession(s) {
+    if (sample) return
     try { s ? localStorage.setItem(KEY, s) : localStorage.removeItem(KEY) } catch {}
     window.dispatchEvent(new CustomEvent(EVT, { detail: { slug, from: id } }))
   }
 
   async function call(path, { method = 'GET', body, auth = true } = {}) {
+    if (sample && path) throw new Error(SAMPLE_NOTE)
     const headers = { accept: 'application/json' }
     if (body !== undefined) headers['content-type'] = 'application/json'
     const s = session()
@@ -345,7 +379,8 @@ export function mountLoyalty(root, opts = {}) {
   async function start() {
     root.innerHTML = '<p class="mloy-p mloy-muted">Loading…</p>'
     try { info = await call('', { auth: false }) } catch (e) { root.innerHTML = '<div class="mloy-box"><p class="mloy-p">' + esc(e.message) + '</p></div>'; return }
-    if (session()) { try { me = await call('/me') } catch { me = null } }
+    if (sample) me = sampleMember(info)
+    else if (session()) { try { me = await call('/me') } catch { me = null } }
     render()
   }
   start()

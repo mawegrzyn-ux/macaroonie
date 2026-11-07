@@ -6870,8 +6870,11 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               show_wallet / show_history / show_settings (on unless false), container narrow | boxed | wide,
               boxed_step, accent (buttons) and panel (boxes) as theme roles or codes, card_bg / card_text (blank:
               the programme&apos;s card colours, <Mono>loyaltyTeaser().card</Mono> from <Mono>cardColours()</Mono>).
-              Canvas <Mono>LoyaltyCardCanvas</Mono> in <Mono>canvas/dataBlocks.jsx</Mono> (a signed out / signed in
-              sample, its own QR code), editor <Mono>editors/LoyaltyCardEditor.jsx</Mono>.
+              Canvas <Mono>LoyaltyCardCanvas</Mono> in <Mono>canvas/dataBlocks.jsx</Mono>: the partial itself in a
+              live preview frame (Website CMS, Live blocks in the builder), Signed out or Signed in (sample:
+              <Mono>opts.sample</Mono> in <Mono>mountLoyalty()</Mono>, <Mono>sampleMember(info)</Mono> from the
+              programme, only the programme read, actions and forms answered with a note, no session kept), editor{' '}
+              <Mono>editors/LoyaltyCardEditor.jsx</Mono>.
             </P>
             <H3>Checkout: member or guest</H3>
             <P>
@@ -7580,7 +7583,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>components/platform/AiLimitsPanel.jsx</Mono> with <Mono>AiKeyCard.jsx</Mono>. Website block{' '}
               <Mono>ai_chat</Mono>: <Mono>views/site/blocks/ai_chat.eta</Mono> (vanilla JS, hides
               itself unless /ai-api status is enabled, <Mono>maca_ai_chat_[tenantId]</Mono>), editor{' '}
-              <Mono>AiChatEditor.jsx</Mono>, canvas <Mono>AiChatCanvas</Mono> (a still mock).
+              <Mono>AiChatEditor.jsx</Mono>, canvas <Mono>AiChatCanvas</Mono> (the partial in a live preview
+              frame; a hidden note instead when the chat is off, read only by people who can see Pepper&apos;s
+              settings).
             </P>
             <H3>Setup</H3>
             <P>
@@ -9189,6 +9194,30 @@ GET /robots.txt`}</Code>
               Switching driver mid-flight <strong>orphans existing upload URLs</strong>.
               Migrate files between backends first if needed.
             </InfoBox>
+
+            <H3>Live blocks in the builder</H3>
+            <P>
+              Blocks whose look comes from live data drawn in the guest&apos;s browser are rendered by the site
+              itself in the page builder, not copied in React: <Mono>online_ordering</Mono>,{' '}
+              <Mono>loyalty_card</Mono>, <Mono>ai_chat</Mono>, <Mono>guestplan_widget</Mono> and{' '}
+              <Mono>reviews_band</Mono> with <Mono>source: 'db'</Mono> (<Mono>PREVIEW_BLOCK_TYPES</Mono> in{' '}
+              <Mono>api/src/services/blockPreview.js</Mono>). The other data blocks keep their React canvases
+              (inline heading editing).
+            </P>
+            <DataTable
+              head={['Piece', 'What it does']}
+              rows={[
+                ['POST /api/website/block-preview', '{ block: { id, type, data }, venue_id?, sample? } -> { url } (website view). A signed link (previewLinks.js kind block_preview, 2 hours, payload up to 7000 characters: readLink(kind, token, { max })) carrying the tenant, the site slug, the page\'s venue and the block as the builder has it (saved or not); block JSON up to 4000 characters (422). venue_id and any venue in the block\'s data are checked by refuseOtherTenantsVenues. 422 without a subdomain. In production the url is on https://{slug}.{root}, elsewhere relative (the admin dev server proxies /_preview, /order-api, /loyalty-api, /ai-api, /uploads).'],
+                ['GET /_preview/block?t=', 'routes/siteRenderer.js: readBlockPreview(); the draft bundle (loadTenantBundle({ slug, isStaging: true }), loadLocationBundle() for the venue), ordering_venues, site_promotions, site_loyalty, loadReviewsForBlocks() for the block (now exported); renders views/site/block_preview.eta. Cache-Control no-store, X-Robots-Tag noindex, CSP frame-ancestors \'self\' + officeOrigin(), helmet\'s X-Frame-Options removed. In production only on the site\'s own host (not staging, not another tenant\'s), and the link\'s tenant must own the slug.'],
+                ['views/site/block_preview.eta', 'shared/head (it.blockPreview: no analytics, cookie banner or emergency banner, noindex), the block through blocks/renderer, <base target="_blank">, and a script posting { type: \'mcrn:block-preview\', height } (the main element\'s height, ResizeObserver + looks for 10 s) to the parent.'],
+                ['LiveBlockFrame (canvas/dataBlocks.jsx)', 'Asks for the link 450 ms after the block\'s data settles (query key has the data\'s JSON, keepPreviousData, refreshed every 80 minutes), frames it, sets the height from the frame\'s messages (checked against its contentWindow) between minHeight and maxHeight (then it scrolls inside), a cover until the block is selected (the first tap selects it), and once selected a note and a 48 px Reload. Used by OnlineOrderingCanvas, LoyaltyCardCanvas, AiChatCanvas, GuestplanWidgetCanvas and ReviewsBandCanvas (db source).'],
+              ]}
+            />
+            <P>
+              What the frame does is real (orders, loyalty sign-ins, chats), apart from the loyalty card&apos;s
+              sample. Guestplan&apos;s third-party script only ever runs in the frame, on the restaurant&apos;s own
+              address: never inside the admin. Tests: <Mono>api/test/block-preview.test.mjs</Mono>.
+            </P>
 
             <H3>Block colours: theme roles or a custom code</H3>
             <P>

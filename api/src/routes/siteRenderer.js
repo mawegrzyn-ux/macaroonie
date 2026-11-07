@@ -21,7 +21,9 @@
 //   GET /widget/:venueId           — venue-direct widget (deep-link)
 //   GET /widget/tenant/:tenantId   — tenant widget (location picker step 0)
 
-import { loadTenantBundle, loadLocationBundle, soleVenueOf } from '../services/siteDataSvc.js'
+import { loadTenantBundle, loadLocationBundle, soleVenueOf, loadReviewsForBlocks } from '../services/siteDataSvc.js'
+import { readBlockPreview } from '../services/blockPreview.js'
+import { officeOrigin } from '../services/platformHost.js'
 import { sql, withTenant, systemSql, tenantSql } from '../config/db.js'
 import { listPromotions } from '../services/promoSvc.js'
 import { promoSummary, promoTerms, promoLink, promoRunning, venueNow } from '../../../shared/promotions.js'
@@ -339,6 +341,48 @@ export default async function siteRendererRoutes(app) {
       isStaging: !!req.siteHost?.isStaging,
     }
   }
+
+  // ── GET /_preview/block ──────────────────────────────────
+  // One block for the page builder's live preview (services/blockPreview.js):
+  // the draft site, as staging shows it, with the block as the builder has
+  // it (saved or not). Only the admin may frame it; never cached or
+  // indexed. In production only on the site's own address, which is where
+  // the builder's link points.
+  app.get('/_preview/block', async (req, reply) => {
+    reply.header('Cache-Control', 'no-store')
+    reply.header('X-Robots-Tag', 'noindex, nofollow')
+    reply.header('Content-Security-Policy', `frame-ancestors 'self' ${officeOrigin()}`)
+    // Helmet's X-Frame-Options: SAMEORIGIN would stop the admin framing it;
+    // frame-ancestors above says who may.
+    reply.removeHeader('X-Frame-Options')
+    reply.raw.removeHeader('X-Frame-Options')
+    const gone = () => {
+      reply.code(404)
+      return reply.view('site/not-found.eta', {
+        message: 'This preview has run out. The page builder makes a new one by itself.',
+        rootDomain: env.PUBLIC_ROOT_DOMAIN,
+      })
+    }
+    const p = await readBlockPreview(req.query?.t)
+    if (!p) return gone()
+    if (env.NODE_ENV === 'production' && (req.siteHost?.slug !== p.s || req.siteHost?.isStaging)) return gone()
+    const tenantBundle = await loadTenantBundle({ slug: p.s, isStaging: true })
+    if (!tenantBundle || tenantBundle.tenant_id !== p.t) return gone()
+    const venue = p.v ? (tenantBundle.venues || []).find(v => v.id === p.v) : null
+    const bundle = (venue && await loadLocationBundle(tenantBundle, venue.slug)) || tenantBundle
+    bundle.ordering_venues = await orderingVenues(bundle)
+    bundle.site_promotions = await sitePromotions(bundle)
+    bundle.site_loyalty = await withTenant(p.t, tx => loyaltyTeaser(tx, p.t))
+    const block = { id: String(p.b.id || 'preview'), type: p.b.type, data: p.b.data || {} }
+    bundle.reviews_by_block = { ...(bundle.reviews_by_block || {}), ...(await loadReviewsForBlocks(p.t, [block])) }
+    return reply.view('site/block_preview.eta', {
+      ...baseCtx(req, bundle),
+      isStaging: true,
+      block,
+      blockPreview: { type: block.type, sample: !!p.o?.sample },
+      siteBlocks: SITE_BLOCKS,
+    })
+  })
 
   // ── Home (tenant) ──────────────────────────────────────
   app.get('/', async (req, reply) => {

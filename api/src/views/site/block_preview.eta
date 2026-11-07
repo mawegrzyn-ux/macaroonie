@@ -1,0 +1,43 @@
+<%
+/* ── One block for the page builder's live preview ─────────────────────
+ *
+ * Rendered by GET /_preview/block (routes/siteRenderer.js) inside a frame
+ * in the admin's page builder (canvas/LiveBlockFrame.jsx), so live-data
+ * blocks look exactly as on the site: the same head (theme, fonts), the
+ * same block partial, the same scripts. The head leaves analytics and the
+ * site's banners out (it.blockPreview).
+ *
+ * The height of the block is sent to the builder (postMessage
+ * 'mcrn:block-preview') so the frame can grow with it; fixed elements
+ * (Guestplan's button, the chat's launcher) don't count, the builder gives
+ * those frames a height of their own. Links open in a new tab: the site's
+ * other pages can't be shown inside the admin.
+ */
+%>
+<%~ include('./shared/head', it) %>
+<base target="_blank" />
+<style>
+  main.mcrn-block-preview { display: flow-root; }
+</style>
+<main class="mcrn-block-preview" data-block-type="<%= it.block.type %>">
+<%~ include('./blocks/renderer', { ...it, block: it.block }) %>
+</main>
+<script>
+(function () {
+  var main = document.querySelector('main.mcrn-block-preview')
+  var last = -1
+  function send() {
+    var h = Math.ceil(main.getBoundingClientRect().height)
+    if (h === last) return
+    last = h
+    try { window.parent.postMessage({ type: 'mcrn:block-preview', height: h }, '*') } catch (e) {}
+  }
+  if (window.ResizeObserver) new ResizeObserver(send).observe(main)
+  window.addEventListener('load', send)
+  /* Pictures and fonts can settle late; a few more looks, then the observer. */
+  var n = 0, timer = setInterval(function () { send(); if (++n > 20) clearInterval(timer) }, 500)
+  send()
+})()
+</script>
+</body>
+</html>

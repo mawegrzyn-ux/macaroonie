@@ -15,8 +15,8 @@
  *
  * Data: mode ('inline' | 'launcher'), heading, intro, button_text,
  *       accent (theme role), container, boxed_step.
- * The admin canvas preview (canvas/dataBlocks.jsx AiChatCanvas) shows a
- * static mock of this; it never calls the chat.
+ * The page builder shows this partial itself, in a frame (GET
+ * /_preview/block, services/blockPreview.js).
  */
 const d = it.block.data || {}
 const _ts = it.tenant_site || {}

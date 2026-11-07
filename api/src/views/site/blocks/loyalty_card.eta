@@ -17,7 +17,7 @@
  *       container ('narrow' | 'boxed' | 'wide'), boxed_step, accent (the
  *       buttons: theme role or #rrggbb), card_bg / card_text (blank = the
  *       programme's card colours), panel (the boxes' background role).
- * The admin canvas (canvas/dataBlocks.jsx LoyaltyCardCanvas) mirrors this.
+ * The page builder shows this partial itself, in a frame (/_preview/block).
  */
 const d = it.block.data || {}
 const _l = it.site_loyalty || null
@@ -71,6 +71,9 @@ const _opts = {
     how: d.show_how !== false, stamps: d.show_stamps !== false, rewards: d.show_rewards !== false,
     history: d.show_history !== false, settings: d.show_settings !== false, wallet: d.show_wallet !== false,
   },
+  /* The page builder's preview of the card signed in (it.blockPreview.sample):
+     a sample member, nothing asked of or saved to the API. */
+  sample: !!(it.blockPreview && it.blockPreview.sample),
 }
 const _json = JSON.stringify(_opts).replace(/</g, '\\u003c')
 %>
