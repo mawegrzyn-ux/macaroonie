@@ -3796,6 +3796,29 @@ export default function Help() {
               changed). <strong>Discard</strong> puts everything back. You can&apos;t switch menu while
               there are unsaved changes.
             </P>
+            <H3>Publishing allergen changes on their own</H3>
+            <P>
+              Saving here changes the menu&apos;s draft, like the menu editor: guests, the website, tills,
+              kiosks and menu screens keep showing the published menu until it is published again. To
+              put allergens live straight away without publishing anything else, tick{' '}
+              <strong>Publish allergen changes to all menus</strong> beside Save (the tick is
+              remembered on that device). Save then says <strong>Save and publish</strong>, and after
+              saving it publishes the allergens and dietary tags of every menu: the one you are on and
+              any other menu with allergen changes saved earlier. Nothing else goes live: new prices,
+              renamed dishes, new dishes and other changes waiting on those menus stay unpublished
+              until you publish the menu from the Menus page. A green note says which menus were
+              published and how many dishes changed.
+            </P>
+            <P>
+              When allergen changes are saved but not live on some menus, an amber note above the table
+              lists them, with a <strong>Publish allergen changes</strong> button that publishes them
+              without anything else. A menu that has never been published has nothing live, so its
+              allergens go live when the whole menu is first published (the note names it). If a menu
+              has a publish scheduled for later, it gets the new allergens too, at the same time and
+              with the rest of it unchanged, so the old allergens never come back when it goes live
+              (its publishing history shows the earlier scheduled publish as cancelled and a copy marked
+              &ldquo;allergens updated&rdquo;).
+            </P>
             <P>
               The columns are your tags from Menus &rarr; Allergens &amp; dietary. A setting here is
               the same one the dish panel in the menu editor shows, and the same badge the dish shows

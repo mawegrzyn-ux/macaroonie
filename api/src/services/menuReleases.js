@@ -13,6 +13,8 @@
 //       several menus at once, in menu order, filtered on the version's own
 //       venue and "shown to guests" settings.
 //   publishMenu / cancelRelease / releaseHistory / publishStatus / menuStatuses
+//   publishAllergens / allergenStatus   allergens and dietary tags only, for
+//                              every menu (the allergen matrix's Save option)
 //   announceDueReleases(log)   minute sweep: tells tills (and screens) about
 //                              releases that went live since the last run
 //   backfillFirstReleases(log) at start-up: a first release for menus that
@@ -29,7 +31,7 @@ import { httpError } from '../middleware/error.js'
 import { broadcast } from '../config/ws.js'
 import { tillsMayNeedConfig } from './posNotify.js'
 import { loadMenuFull, loadAllergenNotice } from '../routes/menus.js'
-import { releaseContent, contentKey, diffMenus, withShownGroupNames } from '../../../shared/menuDiff.js'
+import { releaseContent, contentKey, diffMenus, withShownGroupNames, withDraftTags } from '../../../shared/menuDiff.js'
 
 export const VERSIONS = ['live', 'draft']
 const MAX_AHEAD_DAYS = 400
@@ -185,6 +187,9 @@ function releaseView(r, now = new Date()) {
  * Returns { release, immediate }. The caller tells tills when immediate.
  */
 export async function publishMenu(tx, tenantId, menuId, { at = null, note = null, by = null } = {}) {
+  // One publish of a menu at a time (an allergen-only publish works out
+  // its release from the live one, so it must not interleave with this).
+  await tx`SELECT id FROM menus WHERE id = ${menuId} AND tenant_id = ${tenantId} FOR UPDATE`
   const draft = await loadMenuFull(tx, menuId, tenantId)
   if (!draft) throw httpError(404, 'Menu not found')
   const content = releaseContent(draft)
@@ -208,6 +213,110 @@ export async function publishMenu(tx, tenantId, menuId, { at = null, note = null
   await tx`UPDATE menus SET needs_first_release = false WHERE id = ${menuId} AND tenant_id = ${tenantId}`
   remember(release.id, content)
   return { release: releaseView(release), immediate }
+}
+
+// ── Allergens only (the allergen matrix) ────────────────────────
+
+const ALLERGEN_NOTE = 'Allergens and dietary tags only'
+
+/**
+ * Per menu, what an allergen-only publish would do now: the live release
+ * with the draft's dish tags (withDraftTags()), and each scheduled release
+ * the same way. Menus with no live version are listed in `unpublished`
+ * when their draft has any tags (nothing of theirs can go live yet).
+ */
+async function allergenPlan(tx, tenantId, menus, now) {
+  const plans = []
+  const unpublished = []
+  for (const m of menus) {
+    const draft = await loadMenuFull(tx, m.id, tenantId)
+    if (!draft) continue
+    const [live] = await liveRows(tx, tenantId, [m.id], now)
+    if (!live) {
+      if ((draft.sections || []).some(s => (s.items || []).some(i => i.dietary?.length))) {
+        unpublished.push({ menu_id: m.id, name: m.name })
+      }
+      continue
+    }
+    const liveContent = (await contentsFor(tx, tenantId, [live])).get(live.id)
+    if (!liveContent) continue
+    const { content, dishes } = withDraftTags(liveContent, draft)
+    const scheduledRows = await tx`
+      SELECT id, goes_live_at, note, published_by FROM menu_releases
+       WHERE tenant_id = ${tenantId} AND menu_id = ${m.id} AND cancelled_at IS NULL AND goes_live_at > ${now}
+       ORDER BY goes_live_at`
+    const contents = await contentsFor(tx, tenantId, scheduledRows)
+    const scheduled = []
+    for (const r of scheduledRows) {
+      const snap = contents.get(r.id)
+      if (!snap) continue
+      const patched = withDraftTags(snap, draft)
+      if (patched.dishes.length) scheduled.push({ row: r, content: patched.content, dishes: patched.dishes })
+    }
+    if (dishes.length || scheduled.length) plans.push({ menu: m, content, dishes, scheduled })
+  }
+  return { plans, unpublished }
+}
+
+const planView = p => ({
+  menu_id: p.menu.id,
+  name: p.menu.name,
+  dishes: p.dishes.map(d => d.name),
+  scheduled: p.scheduled.length,
+})
+
+/** Menus whose allergens or dietary tags differ between the draft and what is live or scheduled. */
+export async function allergenStatus(tx, tenantId) {
+  const menus = await tx`SELECT id, name FROM menus WHERE tenant_id = ${tenantId} ORDER BY sort_order, name`
+  const { plans, unpublished } = await allergenPlan(tx, tenantId, menus, new Date())
+  return { menus: plans.map(planView), unpublished }
+}
+
+/**
+ * Publish only allergens and dietary tags, for every menu (or menuIds):
+ * a release going live now = the live release with each dish's tags taken
+ * from the draft. Everything else the draft changes stays unpublished.
+ * A scheduled release that would bring old tags back gets a copy with the
+ * new tags at the same time, and is cancelled. Returns
+ * { menus: [{ menu_id, name, dishes, scheduled }], unpublished, live_menu_ids }
+ * (live_menu_ids: menus whose live version changed, for announceMenus()).
+ */
+export async function publishAllergens(tx, tenantId, { by = null, menuIds = null } = {}) {
+  // Every menu's row locked, in id order (no deadlocks with another
+  // allergen publish): no other publish of these menus can slip between
+  // reading the live release and adding the new one.
+  const menus = await tx`
+    SELECT id, name, sort_order FROM menus WHERE tenant_id = ${tenantId}
+      ${menuIds ? tx`AND id = ANY(${menuIds}::uuid[])` : tx``}
+     ORDER BY id FOR UPDATE`
+  menus.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || String(a.name).localeCompare(String(b.name)))
+  const now = new Date()
+  const { plans, unpublished } = await allergenPlan(tx, tenantId, menus, now)
+  const liveMenuIds = []
+  for (const p of plans) {
+    if (p.dishes.length) {
+      const [release] = await tx`
+        INSERT INTO menu_releases (tenant_id, menu_id, snapshot, content_hash, goes_live_at, note, published_by, announced_at)
+        VALUES (${tenantId}, ${p.menu.id}, ${tx.json(p.content)}, ${contentHash(p.content)}, ${now},
+                ${ALLERGEN_NOTE}, ${by}, ${now})
+        RETURNING id`
+      remember(release.id, p.content)
+      liveMenuIds.push(p.menu.id)
+    }
+    for (const s of p.scheduled) {
+      const note = (s.row.note ? `${s.row.note} (allergens updated)` : 'Allergens updated').slice(0, 200)
+      const [copy] = await tx`
+        INSERT INTO menu_releases (tenant_id, menu_id, snapshot, content_hash, goes_live_at, note, published_by)
+        VALUES (${tenantId}, ${p.menu.id}, ${tx.json(s.content)}, ${contentHash(s.content)}, ${s.row.goes_live_at},
+                ${note}, ${s.row.published_by ?? by})
+        RETURNING id`
+      remember(copy.id, s.content)
+      await tx`
+        UPDATE menu_releases SET cancelled_at = now(), cancelled_by = ${by}
+         WHERE id = ${s.row.id} AND tenant_id = ${tenantId}`
+    }
+  }
+  return { menus: plans.map(planView), unpublished, live_menu_ids: liveMenuIds }
 }
 
 /** Withdraw a scheduled release before it goes live. */
