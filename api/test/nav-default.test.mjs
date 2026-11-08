@@ -8,6 +8,7 @@ import { getApp, as, ok, closeApp } from './support/app.mjs'
 import { resetAndSeed, A } from './support/seed.mjs'
 import { DEFAULT_NAV_TREE } from '../src/config/defaultNav.js'
 import { ROUTE_CATALOG } from '../src/routes/nav.js'
+import { NAV_KEYWORDS, EXTRA_SEARCH_ROUTES, searchWords } from '../../shared/navSearch.js'
 
 after(closeApp)
 
@@ -81,6 +82,19 @@ test('every catalogue page is in the default menu once, and nothing else', () =>
   assert.equal(new Set(inTree).size, inTree.length, 'a page is in the menu twice')
   assert.deepEqual([...inTree].sort(), ROUTE_CATALOG.map(r => r.route).sort())
   for (const section of DEFAULT_NAV_TREE) assert.ok(!section.route && section.children.length, section.label + ' is a section with links')
+})
+
+// The menu search (8 Nov 2026): every page can be found by words beyond its
+// label, and a renamed or removed route can't leave stale keywords behind.
+test('every catalogue page has menu-search keywords, and none point at a page that is gone', () => {
+  const catalog = new Set(ROUTE_CATALOG.map(r => r.route))
+  for (const r of catalog) {
+    assert.ok(searchWords(NAV_KEYWORDS[r] || '').length, r + ' needs search keywords in shared/navSearch.js')
+  }
+  for (const key of Object.keys(NAV_KEYWORDS)) {
+    assert.ok(catalog.has(key) || EXTRA_SEARCH_ROUTES.includes(key),
+      key + ' is not a page — remove or rename its NAV_KEYWORDS entry')
+  }
 })
 
 test('a new tenant gets the default menu', async () => {
