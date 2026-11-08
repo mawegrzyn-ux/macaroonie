@@ -5,6 +5,18 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-11-08 — Search the menu from the sidebar]
+
+**Added**
+- A search box at the top of the sidebar menu: type a page's name or what you want to do ("change staff pay", "fridge temperatures", "allergy") and the menu narrows to the links that fit, best match first, each showing which section it sits in. Filler words are ignored, so whole questions work.
+- Enter opens the best match; the × (or Escape) brings the full menu back. Only pages your role can open are offered. When nothing matches, Ask Pepper is one tap away.
+- The collapsed sidebar and the tablet rail each get a search button that opens the menu with the box ready to type into. In Launcher mode the sidebar search still reaches every page.
+- Pages renamed in the Navigation designer are still found by their everyday words — every page carries search vocabulary (shared/navSearch.js), checked by the test suite so new pages can't ship without it.
+
+No database change.
+
+---
+
 ## [2026-11-08 — Reviews recorded from Google, TripAdvisor, Deliveroo and Just Eat, with a To check inbox]
 
 Migration 239.

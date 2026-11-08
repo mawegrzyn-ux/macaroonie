@@ -1,15 +1,16 @@
 // src/components/layout/AppShell.jsx
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import PageErrorBoundary from '@/components/PageErrorBoundary'
 import { useAuth0 } from '@auth0/auth0-react'
 import { useQuery } from '@tanstack/react-query'
 import * as LucideIcons from 'lucide-react'
 import {
-  LogOut, Menu, X,
+  LogOut, Menu, X, Search,
   Eye, EyeOff, RefreshCw, Maximize2, Minimize2, Columns, LayoutList, Layers,
   Shield, ChevronDown, Hand, KanbanSquare, LayoutGrid, Sparkles,
 } from 'lucide-react'
+import { NavSearchInput, NavSearchResults, useNavSearchResults } from '@/components/layout/NavSearch'
 
 // nav_items.icon is a plain lucide-react component name (string), set by
 // the nav designer's icon picker — resolve it dynamically instead of
@@ -216,6 +217,42 @@ export default function AppShell() {
     setAiOpen(true)
   }
 
+  // The menu search (8 Nov 2026): type what you're after and the menu
+  // narrows to the links that fit (rules in shared/navSearch.js). It
+  // searches the role-pruned nav_tree — in launcher mode too, where it's
+  // the quick way to any page — plus the platform pages for platform
+  // admins. The collapsed sidebar and the touch rail each have a search
+  // button that opens the sidebar with the box focused.
+  const [navQuery, setNavQuery] = useState('')
+  const searchInputRef = useRef(null)
+  const focusSearchOnOpen = useRef(false)
+  const searchTree = useMemo(() => {
+    const tree = me?.nav_tree ?? []
+    if (!isPlatformAdmin) return tree
+    return [...tree, {
+      kind: 'section', id: '_platform', label: 'Platform',
+      children: [
+        { kind: 'link', id: '_platform_home', label: 'Platform', route: '/platform', icon: 'Shield', children: [] },
+        { kind: 'link', id: '_platform_backlog', label: 'Backlog', route: '/backlog', icon: 'KanbanSquare', children: [] },
+      ],
+    }]
+  }, [me?.nav_tree, isPlatformAdmin])
+  const navResults = useNavSearchResults(searchTree, navQuery)
+  function afterNavPick() {
+    setNavQuery('')
+    if (IS_TOUCH) setOpen(false)
+  }
+  function openSearch() {
+    focusSearchOnOpen.current = true
+    setOpen(true)
+  }
+  useEffect(() => {
+    if (open && focusSearchOnOpen.current) {
+      focusSearchOnOpen.current = false
+      searchInputRef.current?.focus()
+    }
+  }, [open])
+
   function switchTenant(tenantId) {
     if (!tenantId) return
     setSelectedTenant(tenantId)
@@ -301,6 +338,19 @@ export default function AppShell() {
             </button>
           </div>
         )}
+        {!open && searchTree.length > 0 && (
+          <div className="shrink-0 border-b flex justify-center py-1.5">
+            <button
+              onClick={openSearch}
+              title="Search the menu"
+              aria-label="Search the menu"
+              data-testid="nav-search-open"
+              className="p-2 rounded hover:bg-accent text-muted-foreground touch-manipulation"
+            >
+              <Search className="w-4 h-4" />
+            </button>
+          </div>
+        )}
         {switcherOpen && (
           <TenantSwitcherModal
             tenants={availableTenants}
@@ -311,7 +361,27 @@ export default function AppShell() {
             subtitle="Pick which restaurant to work in."
           />
         )}
+        {open && searchTree.length > 0 && (
+          <div className="shrink-0 px-2 pt-2">
+            <NavSearchInput
+              value={navQuery}
+              onChange={setNavQuery}
+              results={navResults}
+              onPick={afterNavPick}
+              inputRef={searchInputRef}
+            />
+          </div>
+        )}
         <nav className="flex-1 overflow-y-auto p-2 space-y-3">
+          {navResults ? (
+            <NavSearchResults
+              results={navResults}
+              query={navQuery}
+              onPick={afterNavPick}
+              canAskAi={canAskAi}
+              onAskAi={() => { afterNavPick(); openAi() }}
+            />
+          ) : (<>
           {isLauncherMode ? (
             // Launcher mode: the sidebar tree is switched off tenant-wide
             // (Settings → Navigation) in favour of the quick-access tile
@@ -353,6 +423,7 @@ export default function AppShell() {
               </div>
             </>
           )}
+          </>)}
         </nav>
         {isOnTimeline && (
           <div className={cn('shrink-0 border-t', open ? 'p-2' : 'p-1')}>
@@ -591,6 +662,16 @@ export default function AppShell() {
               <Menu className="w-5 h-5" />
             </button>
           </div>
+          {searchTree.length > 0 && (
+            <button
+              type="button"
+              className="mt-2 w-11 h-11 flex items-center justify-center rounded-md text-muted-foreground hover:bg-accent touch-manipulation"
+              onClick={openSearch}
+              aria-label="Search the menu"
+            >
+              <Search className="w-5 h-5" />
+            </button>
+          )}
           {canAskAi && (
             <button
               type="button"

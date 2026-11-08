@@ -2557,6 +2557,22 @@ export default function Help() {
               <strong> Navigation</strong> page (sidebar nav, under Account) — and can optionally
               replace the sidebar entirely with a tile-based quick-access screen instead.
             </P>
+            <H3>Searching the menu</H3>
+            <P>
+              The box at the top of the sidebar searches the menu. Type a page&apos;s name or what
+              you want to do — <strong>&ldquo;change staff pay&rdquo;</strong>,{' '}
+              <strong>&ldquo;fridge temperatures&rdquo;</strong>, <strong>&ldquo;allergy&rdquo;</strong> —
+              and the menu narrows to the links that fit, best match first, each saying which section
+              it sits in. Filler words (how, do, I, change…) are ignored, so a whole question works.
+              Press <strong>Enter</strong> to open the best match, tap a result to open it, or tap
+              the &times; (or press Escape) to bring the full menu back. It only ever offers pages
+              your role can open. When the sidebar is collapsed, the magnifying glass opens it with
+              the box ready to type into; when nothing matches, Ask Pepper is offered instead. A page
+              renamed in the Navigation designer is still found by its old words — the search knows
+              every page&apos;s everyday vocabulary as well as its label. In Launcher mode the
+              sidebar search still works, so any page is a few letters away even when the tiles
+              don&apos;t show it.
+            </P>
             <H3>The standard menu</H3>
             <P>
               Every group starts with the same menu, grouped by job: <strong>Home</strong> (Overview,

@@ -2857,6 +2857,37 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['PATCH', '/style', 'Body { nav_style } — sidebar ↔ launcher.'],
               ]}
             />
+            <H3>The menu search</H3>
+            <P>
+              The sidebar&apos;s search box (8 Nov 2026) narrows the menu to the links that fit what
+              was typed. The rules are one shared file, <Mono>shared/navSearch.js</Mono>:{' '}
+              <Mono>searchTerms()</Mono> splits the query into words and drops filler
+              (<Mono>STOP_WORDS</Mono> — articles, question words and doing-words like
+              <Mono> change</Mono>/<Mono>edit</Mono>; when every word is filler the words themselves
+              are used, so &ldquo;whats new&rdquo; still finds What&apos;s new), and{' '}
+              <Mono>searchNavTree(nodes, query)</Mono> walks a tree in <Mono>/api/me</Mono>&apos;s{' '}
+              <Mono>nav_tree</Mono> shape and keeps a link when <em>every</em> term prefix-matches a
+              word in its label, its route&apos;s own words, its page&apos;s{' '}
+              <Mono>NAV_KEYWORDS</Mono> entry, or an ancestor&apos;s label — ranked by where the
+              terms hit (own label, then keywords/route, then ancestors). <Mono>NAV_KEYWORDS</Mono>{' '}
+              maps every <Mono>ROUTE_CATALOG</Mono> route to its everyday vocabulary
+              (&ldquo;wages&rdquo; for the Rota, &ldquo;allergy&rdquo; for the allergen pages), so a
+              link renamed in the designer is still found; <Mono>EXTRA_SEARCH_ROUTES</Mono> covers
+              the platform-admin pages that live outside the catalogue.
+            </P>
+            <P>
+              The UI is <Mono>admin/src/components/layout/NavSearch.jsx</Mono> (input + results
+              list), wired in <Mono>AppShell.jsx</Mono>: it searches the role-pruned{' '}
+              <Mono>nav_tree</Mono> (so results never offer a page the person can&apos;t open, and it
+              works in launcher mode too), appends a Platform section for platform admins, opens the
+              best match on Enter, clears on Escape or the &times;, and offers Ask Pepper when
+              nothing matches and the chat is on. The collapsed icon rail and the touch burger rail
+              each have a search button that opens the sidebar with the box focused. Tests:{' '}
+              <Mono>shared/test/navSearch.test.mjs</Mono> (terms, matching, ranking), plus a drift
+              check in <Mono>api/test/nav-default.test.mjs</Mono> — every catalogue route must have
+              keywords and no keyword entry may point at a route that is gone, so a new page
+              can&apos;t ship without search words.
+            </P>
             <H3>The outline editor, not drag-and-drop reparenting</H3>
             <P>
               Free-form drag-and-drop tree reparenting (dropping a node onto an arbitrary other
