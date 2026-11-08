@@ -4,6 +4,7 @@
 // Mounted at /api/reviews in app.js.
 
 import { z }          from 'zod'
+import { createHash } from 'node:crypto'
 import { withTenant } from '../config/db.js'
 import { requireAuth, requirePermission } from '../middleware/auth.js'
 import { httpError }  from '../middleware/error.js'
@@ -40,6 +41,30 @@ const ReviewPatch = z.object({
   reply_text:         z.string().nullable().optional(),
   is_approved:        z.boolean().optional(),
   is_featured:        z.boolean().optional(),
+  // Not a column: true marks the review as looked at (sets checked_at/_by),
+  // without approving it — "keep it off the website" in the To check inbox.
+  checked:            z.boolean().optional(),
+})
+
+// Reviews read off a review site's page (migration 239). No scraping here:
+// the caller (Claude in Chrome through the staff connector, or anything that
+// can see the page) sends what the page shows.
+const RECORD_PLATFORMS = ['google', 'tripadvisor', 'justeat', 'deliveroo', 'glovo']
+
+const RecordedReview = z.object({
+  author:    z.string().max(200).nullable().optional(),
+  rating:    z.number().int().min(1).max(5).nullable().optional(),
+  text:      z.string().max(8000).nullable().optional(),
+  date:      z.string().max(40).nullable().optional(),  // YYYY-MM-DD, or a full ISO date-time
+  date_text: z.string().max(80).nullable().optional(),  // as written on the page ("2 weeks ago")
+  reply:     z.string().max(8000).nullable().optional(),
+})
+
+const RecordBody = z.object({
+  venue_id: z.string().uuid(),
+  platform: z.enum(RECORD_PLATFORMS),
+  page_url: z.string().url().max(500).nullable().optional(),
+  reviews:  z.array(RecordedReview).min(1).max(40),
 })
 
 const ScrapeBody = z.object({
@@ -55,6 +80,27 @@ function parseIntParam(v, def = undefined) {
   return isNaN(n) ? def : n
 }
 
+const squash = s => String(s ?? '').trim().replace(/\s+/g, ' ')
+
+// The dedupe fingerprint for a recorded review, stored as external_id so the
+// existing (tenant_id, platform, external_id) unique index does the work.
+// Author + text only (normalised): the dates these pages show are often
+// relative ("2 weeks ago"), so a date worked out on two different days must
+// not make the same review two rows.
+function recordKey(venueId, platform, r) {
+  const author = squash(r.author).toLowerCase()
+  const text   = squash(r.text).toLowerCase().slice(0, 500)
+  const hash   = createHash('md5').update([venueId, platform, author, text].join('|')).digest('hex')
+  return 'rec:' + hash
+}
+
+function recordDate(raw) {
+  const s = squash(raw)
+  if (!s) return null
+  const d = new Date(/^\d{4}-\d{2}-\d{2}$/.test(s) ? s + 'T12:00:00Z' : s)
+  return isNaN(d.getTime()) ? null : d.toISOString()
+}
+
 // ── Plugin ───────────────────────────────────────────────────
 
 export default async function reviewsRoutes(app) {
@@ -64,7 +110,7 @@ export default async function reviewsRoutes(app) {
   // Params: venue_id, platform, is_approved, is_featured, min_rating, limit, offset
   app.get('/', { preHandler: PERM.view }, async (req) => {
     const {
-      venue_id, platform, is_approved, is_featured, min_rating,
+      venue_id, platform, is_approved, is_featured, min_rating, to_check,
       limit = '50', offset = '0', sort = 'newest',
     } = req.query
 
@@ -74,6 +120,7 @@ export default async function reviewsRoutes(app) {
       const aFilter  = is_approved !== undefined ? tx`AND r.is_approved = ${is_approved === 'true'}` : tx``
       const fFilter  = is_featured !== undefined ? tx`AND r.is_featured = ${is_featured === 'true'}` : tx``
       const rFilter  = min_rating  ? tx`AND r.rating >= ${parseIntParam(min_rating, 1)}`            : tx``
+      const cFilter  = to_check === 'true' || to_check === '1' ? tx`AND r.checked_at IS NULL`       : tx``
 
       const orderBy = sort === 'highest' ? tx`r.rating DESC, r.review_date DESC`
                     : sort === 'lowest'  ? tx`r.rating ASC, r.review_date DESC`
@@ -85,7 +132,7 @@ export default async function reviewsRoutes(app) {
           FROM reviews r
           LEFT JOIN venues v ON v.id = r.venue_id
          WHERE r.tenant_id = ${req.tenantId}
-           ${vFilter} ${pFilter} ${aFilter} ${fFilter} ${rFilter}
+           ${vFilter} ${pFilter} ${aFilter} ${fFilter} ${rFilter} ${cFilter}
          ORDER BY ${orderBy}
          LIMIT  ${parseIntParam(limit, 50)}
          OFFSET ${parseIntParam(offset, 0)}
@@ -103,6 +150,7 @@ export default async function reviewsRoutes(app) {
           COUNT(*)                                   AS total,
           COUNT(*) FILTER (WHERE r.is_approved)      AS approved,
           COUNT(*) FILTER (WHERE NOT r.is_approved)  AS pending,
+          COUNT(*) FILTER (WHERE r.checked_at IS NULL) AS to_check,
           COUNT(*) FILTER (WHERE r.is_featured)      AS featured,
           ROUND(AVG(r.rating)::numeric, 1)           AS avg_rating,
           COUNT(*) FILTER (WHERE r.platform = 'google')      AS google,
@@ -114,6 +162,30 @@ export default async function reviewsRoutes(app) {
         WHERE r.tenant_id = ${req.tenantId} ${vFilter}
       `
     }).then(rows => rows[0])
+  })
+
+  // ── GET /reviews/latest ───────────────────────────────────
+  // The newest review held per site (and venue), with what's waiting in the
+  // To check inbox — so a client recording reviews from the sites' pages
+  // knows which ones Macaroonie already has.
+  app.get('/latest', { preHandler: PERM.view }, async (req) => {
+    const { venue_id, platform } = req.query
+    return withTenant(req.tenantId, tx => {
+      const vFilter = venue_id  ? tx`AND r.venue_id = ${venue_id}` : tx``
+      const pFilter = platform  ? tx`AND r.platform = ${platform}` : tx``
+      return tx`
+        SELECT r.venue_id, v.name AS venue_name, r.platform,
+               COUNT(*)::int                                          AS total,
+               COUNT(*) FILTER (WHERE r.checked_at IS NULL)::int      AS to_check,
+               MAX(r.review_date)                                     AS newest_review,
+               MAX(r.created_at) FILTER (WHERE r.source = 'recorded') AS last_recorded_at
+          FROM reviews r
+          LEFT JOIN venues v ON v.id = r.venue_id
+         WHERE r.tenant_id = ${req.tenantId} ${vFilter} ${pFilter}
+         GROUP BY r.venue_id, v.name, r.platform
+         ORDER BY v.name NULLS LAST, r.platform
+      `
+    })
   })
 
   // ── GET /reviews/scrape-jobs ──────────────────────────────
@@ -147,32 +219,109 @@ export default async function reviewsRoutes(app) {
   })
 
   // ── POST /reviews ─────────────────────────────────────────
-  // Manual review entry.
+  // Manual review entry. Typed by the person, so it is born checked
+  // (it never needs the To check inbox).
   app.post('/', { preHandler: PERM.manage }, async (req) => {
     const body = ReviewBody.parse(req.body)
     const rows = await withTenant(req.tenantId, tx => tx`
       INSERT INTO reviews
         (tenant_id, venue_id, platform, reviewer_name, reviewer_photo_url,
-         rating, review_text, review_date, reply_text, is_approved, is_featured, source)
+         rating, review_text, review_date, reply_text, is_approved, is_featured, source,
+         checked_at, checked_by)
       VALUES
         (${req.tenantId}, ${body.venue_id ?? null}, ${body.platform},
          ${body.reviewer_name ?? null}, ${body.reviewer_photo_url ?? null},
          ${body.rating}, ${body.review_text ?? null}, ${body.review_date ?? null},
-         ${body.reply_text ?? null}, ${body.is_approved}, ${body.is_featured}, 'manual')
+         ${body.reply_text ?? null}, ${body.is_approved}, ${body.is_featured}, 'manual',
+         now(), ${req.user?.email ?? null})
       RETURNING *
     `)
     return rows[0]
   })
 
-  // ── PATCH /reviews/:id ────────────────────────────────────
-  app.patch('/:id', { preHandler: PERM.manage }, async (req) => {
-    const body   = ReviewPatch.parse(req.body)
-    const fields = Object.keys(body)
-    if (!fields.length) throw httpError(400, 'No fields to update')
+  // ── POST /reviews/record ──────────────────────────────────
+  // Reviews read off a review site's page (Google, TripAdvisor, Just Eat,
+  // Deliveroo) by a client that can see the page — Claude in Chrome through
+  // the staff connector, or the Pepper chat. No scraping: the caller sends
+  // what the page shows; the server dedupes by fingerprint (external_id) and
+  // stores new ones unapproved and unchecked, for the To check inbox.
+  // Sending the same reviews again is safe (counted as already); a review
+  // someone chose to keep off the website stays checked and never resurfaces.
+  app.post('/record', { preHandler: PERM.manage }, async (req) => {
+    const body = RecordBody.parse(req.body)
 
+    return withTenant(req.tenantId, async tx => {
+      const venues = await tx`
+        SELECT id, name FROM venues
+         WHERE id = ${body.venue_id} AND tenant_id = ${req.tenantId}`
+      if (!venues.length) throw httpError(404, 'Venue not found')
+
+      let added = 0, already = 0, unusable = 0
+      for (const r of body.reviews) {
+        const author = squash(r.author) || null
+        const text   = String(r.text ?? '').trim() || null
+        if (!author && !text) { unusable++; continue }
+
+        const key  = recordKey(body.venue_id, body.platform, r)
+        const raw  = {
+          recorded_by: req.user?.email ?? null,
+          page_url:    body.page_url ?? null,
+          date_text:   squash(r.date_text) || null,
+        }
+        const rows = await tx`
+          INSERT INTO reviews
+            (tenant_id, venue_id, platform, external_id, reviewer_name, rating,
+             review_text, review_date, reply_text, is_approved, is_featured, source, raw_data)
+          VALUES
+            (${req.tenantId}, ${body.venue_id}, ${body.platform}, ${key}, ${author},
+             ${r.rating ?? null}, ${text}, ${recordDate(r.date)},
+             ${String(r.reply ?? '').trim() || null}, false, false, 'recorded', ${tx.json(raw)})
+          ON CONFLICT (tenant_id, platform, external_id) WHERE external_id IS NOT NULL
+          DO UPDATE SET
+            reply_text  = COALESCE(EXCLUDED.reply_text, reviews.reply_text),
+            review_date = COALESCE(reviews.review_date, EXCLUDED.review_date),
+            rating      = COALESCE(reviews.rating, EXCLUDED.rating),
+            updated_at  = now()
+          RETURNING (xmax = 0) AS inserted
+        `
+        if (rows[0]?.inserted) added++
+        else already++
+      }
+
+      const [st] = await tx`
+        SELECT COUNT(*) FILTER (WHERE checked_at IS NULL)::int AS to_check,
+               MAX(review_date)                                AS newest_review
+          FROM reviews
+         WHERE tenant_id = ${req.tenantId}
+           AND venue_id = ${body.venue_id} AND platform = ${body.platform}`
+
+      return {
+        venue_name: venues[0].name, platform: body.platform,
+        added, already, unusable,
+        to_check: st.to_check, newest_review: st.newest_review,
+      }
+    })
+  })
+
+  // ── PATCH /reviews/:id ────────────────────────────────────
+  // Approving (either way) or `checked: true` counts as a person having
+  // looked at the review: the first such decision stamps checked_at/_by,
+  // which takes it out of the To check inbox for good.
+  app.patch('/:id', { preHandler: PERM.manage }, async (req) => {
+    const { checked, ...cols } = ReviewPatch.parse(req.body)
+    const decided = checked === true || cols.is_approved !== undefined
+    if (!Object.keys(cols).length && !decided) throw httpError(400, 'No fields to update')
+
+    // The dynamic-columns helper can't sit inside a fragment, so updated_at
+    // rides in it and the checked stamp is its own fragment after it.
+    const all    = { ...cols, updated_at: new Date() }
+    const fields = Object.keys(all)
+    const stamp  = decided
+      ? tx => tx`, checked_at = COALESCE(checked_at, now()), checked_by = COALESCE(checked_by, ${req.user?.email ?? null})`
+      : tx => tx``
     const rows = await withTenant(req.tenantId, tx => tx`
       UPDATE reviews
-         SET ${tx(body, ...fields)}, updated_at = now()
+         SET ${tx(all, ...fields)} ${stamp(tx)}
        WHERE id = ${req.params.id}
          AND tenant_id = ${req.tenantId}
        RETURNING *
@@ -202,7 +351,10 @@ export default async function reviewsRoutes(app) {
 
     const rows = await withTenant(req.tenantId, tx => tx`
       UPDATE reviews
-         SET is_approved = ${is_approved}, updated_at = now()
+         SET is_approved = ${is_approved},
+             checked_at  = COALESCE(checked_at, now()),
+             checked_by  = COALESCE(checked_by, ${req.user?.email ?? null}),
+             updated_at  = now()
        WHERE id = ANY(${ids}::uuid[])
          AND tenant_id = ${req.tenantId}
        RETURNING id

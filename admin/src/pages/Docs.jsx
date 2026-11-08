@@ -1183,25 +1183,38 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
 
             <H3>Reviews — <span className="font-mono font-normal text-sm">/api/reviews</span></H3>
             <P>
-              Tenant-scoped via RLS. Three ingestion paths: Apify Google scraper, manual entry, CSV
-              import. Requires <Mono>APIFY_API_TOKEN</Mono> env var for scraping. Google Place ID
-              stored on the venue row (<Mono>google_place_id</Mono>). Migration 056.
+              Tenant-scoped via RLS (website module: view reads, manage changes). Four ingestion paths:
+              recorded off a review site&apos;s page (migration 239, below), Apify Google scraper,
+              manual entry, CSV import. Requires <Mono>APIFY_API_TOKEN</Mono> env var for scraping.
+              Google Place ID stored on the venue row (<Mono>google_place_id</Mono>). Migration 056.
             </P>
             <DataTable
-              head={['Method', 'Path', 'Min role', 'Description']}
+              head={['Method', 'Path', 'Access', 'Description']}
               rows={[
-                ['GET', '/', 'operator', 'List reviews. Filter by venue_id, platform, is_approved, is_featured, source, rating.'],
-                ['GET', '/stats', 'operator', 'Aggregate stats — total/approved/featured counts + average rating, broken down by venue.'],
-                ['GET', '/scrape-jobs', 'admin', 'Recent Apify scrape jobs and their status.'],
-                ['GET', '/:id', 'operator', 'Single review detail.'],
-                ['POST', '/', 'operator', 'Create a manual review.'],
-                ['PATCH', '/:id', 'operator', 'Update review fields (approve, feature, edit text, add reply).'],
-                ['DELETE', '/:id', 'admin', 'Delete a review permanently.'],
-                ['POST', '/bulk-approve', 'admin', 'Approve multiple reviews by ID array.'],
-                ['POST', '/scrape', 'admin', 'Enqueue an Apify Google scrape job for a venue. Requires google_place_id on the venue.'],
-                ['POST', '/import-csv', 'admin', 'Import reviews from a CSV upload (reviewer_name, rating, review_text, review_date columns).'],
+                ['GET', '/', 'view', 'List reviews. Filter by venue_id, platform, is_approved, is_featured, min_rating, to_check=1 (checked_at IS NULL — the inbox).'],
+                ['GET', '/stats', 'view', 'Aggregate stats — total/approved/pending/to_check/featured counts + average rating, per-platform counts.'],
+                ['GET', '/latest', 'view', 'Per venue and platform: reviews held, the newest review_date, to_check, and when reviews were last recorded (MAX created_at of source recorded). What a recording client reads to know where to stop.'],
+                ['GET', '/scrape-jobs', 'view', 'Recent Apify scrape jobs and their status.'],
+                ['GET', '/:id', 'view', 'Single review detail.'],
+                ['POST', '/', 'manage', 'Create a manual review. Born checked (checked_at/checked_by set): the person typed it, it never needs the inbox.'],
+                ['POST', '/record', 'manage', 'Reviews read off a review site\'s page (google | tripadvisor | justeat | deliveroo | glovo — never manual) by a client that can see it: Claude in Chrome through the staff connector, or Pepper. Body: venue_id, platform, page_url?, reviews[] (max 40: author?, rating?, text?, date? (YYYY-MM-DD or ISO), date_text? (as written, e.g. "2 weeks ago"), reply?). Dedupe: external_id = "rec:" + md5(venue|platform|author|text, normalised — never the date, which relative wording makes unstable), upserted ON CONFLICT on the existing (tenant_id, platform, external_id) index: a repeat counts as already (a later reply/date/rating fills in blanks, nothing else changes, checked_at untouched so a dismissed review never resurfaces). A review with neither author nor text is counted unusable and skipped. New rows: source recorded, unapproved, unchecked, raw_data { recorded_by, page_url, date_text }. Returns { venue_name, platform, added, already, unusable, to_check, newest_review }.'],
+                ['PATCH', '/:id', 'manage', 'Update review fields (approve, feature, edit text, add reply). Setting is_approved (either way), or checked: true alone ("keep off the website"), stamps checked_at/checked_by on the first decision — out of the To check inbox for good.'],
+                ['DELETE', '/:id', 'manage', 'Delete a review permanently. Deleting a recorded one also deletes its fingerprint, so it can be recorded again — keep it off with checked instead.'],
+                ['POST', '/bulk-approve', 'manage', 'Approve multiple reviews by ID array (stamps checked too).'],
+                ['POST', '/scrape', 'manage', 'Enqueue an Apify Google scrape job for a venue. Requires google_place_id on the venue.'],
+                ['POST', '/import-csv', 'manage', 'Import reviews from a CSV upload (reviewer_name, rating, review_text, review_date columns).'],
               ]}
             />
+            <P>
+              <strong>The To check inbox</strong> (migration 239): <Mono>reviews.checked_at</Mono> /{' '}
+              <Mono>checked_by</Mono> say a person has looked at a review and decided. Recorded, scraped
+              and CSV rows start unchecked; manual rows checked. The Reviews page&apos;s To check filter
+              and stats card read them; <Mono>rv-show</Mono> / <Mono>rv-keep-off</Mono> are the per-row
+              decisions. Pepper / staff MCP tools in <Mono>ai/tools/site.js</Mono>:{' '}
+              <Mono>latest_reviews</Mono> (read) and <Mono>record_reviews</Mono> (change, a confirm card
+              in chat and direct through the connector — the Claude in Chrome path). Tests:{' '}
+              <Mono>api/test/review-recording.test.mjs</Mono>.
+            </P>
 
             <H3>Dev tools — <span className="font-mono font-normal text-sm">/api/backlog | /api/issues | /api/feature-requests | /api/changelog</span></H3>
             <P>

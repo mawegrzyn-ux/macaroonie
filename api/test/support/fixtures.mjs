@@ -306,6 +306,11 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx', loy
     }))
   }
   await step('review', () => post('/api/reviews', { venue_id: V, platform: 'google', reviewer_name: mark + ' Gus', rating: 4, review_text: mark + ' good' }))
+  // Reviews recorded off a review site's page (migration 239).
+  await step('reviews recorded', () => post('/api/reviews/record', {
+    venue_id: V, platform: 'tripadvisor', page_url: 'https://tripadvisor.example/' + slug,
+    reviews: [{ author: mark + ' Tess', rating: 5, text: mark + ' lovely pad thai', date: '2026-10-30', date_text: 'a week ago' }],
+  }))
   await step('promotion', () => post('/api/promotions', { name: mark + ' 10% off', kind: 'basket', discount_type: 'percent', discount_value: 10, apply_mode: 'auto' }))
   await step('issue', () => post('/api/issues', { title: mark + ' Printer jam', description: mark + ' jammed', category: 'incident', impact: 'low', urgency: 'low' }))
   await step('feature request', () => post('/api/feature-requests', { title: mark + ' Dark mode', description: mark + ' please' }))
