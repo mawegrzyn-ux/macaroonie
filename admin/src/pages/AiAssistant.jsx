@@ -523,7 +523,7 @@ const TOOL_LABELS = {
   update_customer: 'Changed a customer', unsubscribe_customer: 'Unsubscribed a customer', anonymise_customer: 'Anonymised a customer',
   close_dates: 'Closed for dates', remove_closure: 'Removed a closure', update_booking_rules: 'Changed booking rules',
   publish_website: 'Published the website', set_website_banner: 'Changed the website banner', switch_promotion: 'Turned a promotion on or off',
-  moderate_review: 'Changed a review', reload_screen: 'Reloaded a menu screen', report_issue: 'Logged an issue', request_feature: 'Requested a feature',
+  moderate_review: 'Changed a review', record_reviews: 'Recorded reviews', reload_screen: 'Reloaded a menu screen', report_issue: 'Logged an issue', request_feature: 'Requested a feature',
   create_location: 'Created a new location',
 }
 
@@ -562,6 +562,7 @@ function changeDetail(r) {
     case 'change_purchase_order':
     case 'cancel_purchase_order':
     case 'receive_delivery':      return x.po
+    case 'record_reviews':        return [x.site, x.venue, x.recorded_new != null ? x.recorded_new + ' new' : null].filter(Boolean).join(', ')
     case 'create_menu':
     case 'update_menu':
     case 'duplicate_menu':        return x.name

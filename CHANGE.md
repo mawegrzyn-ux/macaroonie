@@ -5,6 +5,14 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-11-08 — Reviews recorded from Google, TripAdvisor, Deliveroo and Just Eat, with a To check inbox]
+
+Migration 239.
+
+- **Record reviews with Claude in Chrome** — connect Claude to Macaroonie (Pepper → Connect), open the venue's reviews page on Google, TripAdvisor, Deliveroo, Just Eat (or Glovo) in Chrome, and ask it to record the latest reviews. It reads what the page shows — no scraping — and records each review (who, stars, text, date, the reply) through the new `record_reviews` staff tool; `latest_reviews` tells it which reviews Macaroonie already holds. Reviews already recorded are skipped, so asking again is always safe. Works in the Pepper chat too (a Confirm card).
+- **The To check inbox** on the Reviews page: reviews that arrive by themselves (recorded, scraped, CSV) wait in a **To check** list until someone decides per review — **Show on the website** or **Keep off the website**. Either way it's remembered, so a dismissed review never comes back into the inbox. A Recorded badge says where one came from, with a link to the page it was read from.
+- API: `POST /api/reviews/record` (deduped by a fingerprint of venue, site, author and text), `GET /api/reviews/latest` (newest held per site), `to_check` on the list, stats and PATCH (`checked: true` = keep off).
+
 ## [2026-11-07 — Allergen matrix: publish allergen changes on their own]
 
 No migration.

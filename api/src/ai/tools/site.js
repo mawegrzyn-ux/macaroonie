@@ -10,6 +10,8 @@
 //   list_promotions      promotions with what they give, when, uses          promotions, view
 //   switch_promotion     turn a promotion on or off                          promotions, manage
 //   list_reviews         recent reviews, rating, approved / featured         website, view
+//   latest_reviews       newest review held per site + the To check inbox    website, view
+//   record_reviews       record reviews read off a review site's page        website, manage
 //   moderate_review      approve, hide, feature, unfeature, reply            website, manage
 //   screens_status       menu screens: online, what they show, last seen     screens, view
 //   reload_screen        make a screen load again                            screens, manage
@@ -56,6 +58,10 @@ const MODERATE = {
   approve: { is_approved: true }, hide: { is_approved: false },
   feature: { is_featured: true, is_approved: true }, unfeature: { is_featured: false },
 }
+
+const REVIEW_SITES = ['google', 'tripadvisor', 'justeat', 'deliveroo', 'glovo']
+const SITE_NAMES = { google: 'Google', tripadvisor: 'TripAdvisor', justeat: 'Just Eat', deliveroo: 'Deliveroo', glovo: 'Glovo' }
+const squashText = s => String(s ?? '').trim().replace(/\s+/g, ' ')
 
 export const siteTools = [
   {
@@ -233,6 +239,7 @@ export const siteTools = [
       return {
         average: stats.avg_rating ? stats.avg_rating + ' stars from ' + stats.total : 'no reviews yet',
         pending_approval: Number(stats.pending || 0),
+        waiting_to_check: Number(stats.to_check || 0),
         reviews: rows.map(r => ({
           review_id: r.id,
           who: r.reviewer_name || 'Anonymous', rating: r.rating + ' stars', platform: r.platform,
@@ -243,6 +250,106 @@ export const siteTools = [
           ...(r.reply_text ? { reply: r.reply_text } : {}),
         })),
       }
+    },
+  },
+
+  {
+    name: 'latest_reviews',
+    section: 'website',
+    title: 'Latest reviews held per site',
+    description:
+      'Per review site (Google, TripAdvisor, Just Eat, Deliveroo) and venue: how many reviews Macaroonie holds, the date of ' +
+      'the newest one, how many are waiting in the To check inbox, and when reviews were last recorded from that site\'s page. ' +
+      'Use it before record_reviews to see which reviews are already recorded, or to say when each site was last checked.',
+    input: z.object({
+      venue: VenueText,
+      site: z.enum(REVIEW_SITES).optional().describe('One review site; leave out for all of them'),
+    }),
+    readOnly: true,
+    async run(ctx, input) {
+      await requireStaffPermission(ctx, 'website', 'view')
+      const venue = input.venue ? await venueFor(ctx, input.venue) : null
+      const q = []
+      if (venue) q.push('venue_id=' + venue.id)
+      if (input.site) q.push('platform=' + input.site)
+      const rows = await callApi(ctx, 'GET', '/api/reviews/latest' + (q.length ? '?' + q.join('&') : ''))
+      if (!rows.length) {
+        return { reviews_held: 'none' + (input.site ? ' from ' + SITE_NAMES[input.site] : '') + (venue ? ' for ' + venue.name : '') + ' yet',
+          note: 'Reviews read off a site\'s page are recorded with record_reviews.' }
+      }
+      const tz = await tzOf(ctx)
+      return {
+        held: rows.map(r => ({
+          ...(r.venue_name ? { venue: r.venue_name } : {}),
+          site: SITE_NAMES[r.platform] || r.platform,
+          reviews_held: r.total,
+          newest_review: r.newest_review ? String(r.newest_review).slice(0, 10) : 'no date',
+          waiting_to_check: r.to_check,
+          last_recorded: r.last_recorded_at ? when(r.last_recorded_at, tz) : 'never',
+        })),
+      }
+    },
+  },
+
+  {
+    name: 'record_reviews',
+    section: 'website',
+    title: 'Record reviews from a review site',
+    description:
+      'Records reviews read off a venue\'s own page on Google, TripAdvisor, Just Eat, Deliveroo or Glovo into Macaroonie — ' +
+      'for a browser client that can see the page (Claude in Chrome through the staff connector). Send each review exactly as ' +
+      'the page shows it, never invented or paraphrased: who, stars out of 5, the text, the date (work a relative one like ' +
+      '"2 weeks ago" out to a day and put the page\'s own wording in date_text) and the business\'s reply if shown. Reviews ' +
+      'already recorded are skipped, so re-sending what\'s on screen is safe. New ones land in the To check inbox on the ' +
+      'Reviews page, off the website until staff approve them. Up to 40 per call; send more in batches.',
+    input: z.object({
+      venue: z.string().trim().min(1).max(120).describe('The venue the page\'s reviews are about'),
+      site: z.enum(REVIEW_SITES),
+      page_url: z.string().url().max(500).optional().describe('The page the reviews were read from'),
+      reviews: z.array(z.object({
+        author: z.string().max(200).optional(),
+        rating: z.number().int().min(1).max(5).optional().describe('Stars out of 5'),
+        text: z.string().max(8000).optional(),
+        date: z.string().max(40).optional().describe('YYYY-MM-DD'),
+        date_text: z.string().max(80).optional().describe('The date as the page shows it, e.g. "2 weeks ago"'),
+        reply: z.string().max(8000).optional().describe('The business\'s reply, if the page shows one'),
+      })).min(1).max(40),
+    }),
+    confirm: true,
+    async describe(ctx, input) {
+      await requireStaffPermission(ctx, 'website', 'manage')
+      const venue = await venueFor(ctx, input.venue)
+      const names = input.reviews.slice(0, 3)
+        .map(r => (squashText(r.author) || 'Anonymous') + (r.rating ? ' (' + r.rating + ' stars)' : ''))
+      return {
+        title: 'Record ' + plural(input.reviews.length, 'review') + '?',
+        lines: [
+          SITE_NAMES[input.site] + ' reviews for ' + venue.name + '.',
+          names.join('; ') + (input.reviews.length > 3 ? ' and ' + (input.reviews.length - 3) + ' more.' : '.'),
+          'Ones already recorded are skipped; new ones wait in the To check inbox, off the website.',
+        ],
+        confirmLabel: 'Record',
+        pin: { venue: venue.id },
+      }
+    },
+    async run(ctx, input) {
+      await requireStaffPermission(ctx, 'website', 'manage')
+      const venue = await venueFor(ctx, input.venue)
+      return audited(ctx, 'record_reviews', { venue: venue.name, site: input.site, page_url: input.page_url ?? null, count: input.reviews.length }, async () => {
+        const out = await callApi(ctx, 'POST', '/api/reviews/record', { body: {
+          venue_id: venue.id, platform: input.site,
+          page_url: input.page_url ?? null, reviews: input.reviews,
+        } })
+        return {
+          venue: venue.name, site: SITE_NAMES[input.site],
+          recorded_new: out.added, already_recorded: out.already,
+          ...(out.unusable ? { skipped_no_author_or_text: out.unusable } : {}),
+          waiting_to_check: out.to_check,
+          message: out.added
+            ? plural(out.added, 'new review') + ' recorded, waiting to be checked on the Reviews page.'
+            : 'Nothing new: every review sent was already recorded.',
+        }
+      })
     },
   },
 

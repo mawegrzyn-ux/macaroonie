@@ -732,6 +732,7 @@ const TOOL_LABELS = {
   find_customers: 'Searched customers', customer_details: 'Opened the customer',
   opening_times: 'Looked at the opening times', list_tables: 'Looked at the tables', booking_rules: 'Looked at the booking rules',
   website_status: 'Looked at the website', list_promotions: 'Looked at the promotions', list_reviews: 'Looked at the reviews',
+  latest_reviews: 'Checked the reviews held',
   screens_status: 'Looked at the menu screens', email_log: 'Looked at the booking emails', list_issues: 'Looked at the issue log',
   plan_new_location: 'Scoped the new location', answer_location_questions: 'Passed on the answers',
   change_location_plan: 'Changed the new location\'s plan', location_openings: 'Looked at the new locations',

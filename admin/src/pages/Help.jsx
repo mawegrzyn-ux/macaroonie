@@ -5218,7 +5218,7 @@ export default function Help() {
                 ['Website status and publishing', 'Website view, manage to publish', 'Whether it is live, when it was last published and what is waiting to go live. Publishing puts every saved change live now.'],
                 ['Emergency banner', 'Website manage', 'On every page straight away (no publish needed), with how urgent it is and an optional link; or off.'],
                 ['Promotions', 'Promotions view, manage to switch', 'What each gives, when, uses and discount given; turn one on or off.'],
-                ['Reviews', 'Website view, manage to change', 'Recent reviews with the average; approve one for the website, hide it, feature it, or save a reply.'],
+                ['Reviews', 'Website view, manage to change', 'Recent reviews with the average; the newest held per review site; approve one for the website, hide it, feature it, or save a reply. With Claude in Chrome connected, record the reviews a venue\'s Google, TripAdvisor, Deliveroo or Just Eat page shows into the To check inbox.'],
                 ['Menu screens', 'Menu screens view, manage to reload', 'Which screens are online and what they show; reload one that looks stuck.'],
                 ['Booking emails', 'Emails view', 'Recent confirmations, reminders, changes and cancellations: sent, failed (and why) or waiting.'],
                 ['Report an issue or ask for a feature', 'Issue log, Feature requests', 'Logs it for the platform team: an issue with its impact and urgency, or a feature request others can vote for. Pepper can also list your logged issues.'],
@@ -7754,17 +7754,28 @@ export default function Help() {
             <DataTable
               head={['Method', 'How']}
               rows={[
+                ['Recorded by Claude in Chrome', 'Connect Claude to Macaroonie (Pepper page, Connect tab), open your venue\'s reviews page on Google, TripAdvisor, Deliveroo or Just Eat in Chrome, and ask Claude to record the latest reviews into Macaroonie. It reads what the page shows and records it — no scraping, and reviews already recorded are skipped, so asking again is always safe. New ones land in the To check inbox below.'],
                 ['Google scrape', 'Enter a Google Place ID on the Venue settings page, then click Scrape Google Reviews on the Reviews page. The job runs in the background via Apify — results appear within a minute or two. Requires an APIFY_API_TOKEN to be configured on the server.'],
                 ['Manual entry', 'Click Add review, fill in the reviewer name, rating, text, and date. Useful for reviews collected by phone or in person.'],
                 ['CSV import', 'Upload a CSV with columns: reviewer_name, rating, review_text, review_date. Platform admin can provide a template.'],
               ]}
             />
+            <H3>The To check inbox</H3>
+            <P>
+              Reviews that arrive by themselves (recorded, scraped or imported) wait in the
+              <strong> To check</strong> list until someone looks at each one and decides:
+              <strong> Show on the website</strong> puts it on your site&apos;s reviews, and
+              <strong> Keep off the website</strong> leaves it stored but never shown. Either way the
+              review is kept — that record is what stops the same review coming back into the inbox
+              the next time the page is read. A recorded review carries a <strong>Recorded</strong> badge
+              and, opened out, a link to the page it was read from so you can see it in place.
+            </P>
             <H3>Moderation</H3>
             <P>
-              New reviews (scraped or imported) start as <strong>unapproved</strong>. Approved reviews can
+              Reviews not yet approved stay off the website. Approved reviews can
               be shown in the Reviews Band block on your public site. Featured reviews are highlighted at
-              the top of the block. Use <strong>Bulk approve</strong> to approve multiple at once after
-              a scrape.
+              the top of the block. Use <strong>Put all shown on the website</strong> to approve a whole
+              list at once after a scrape or a recording session.
             </P>
             <InfoBox type="tip">
               The Reviews Band block on your site automatically pulls from your approved (and optionally

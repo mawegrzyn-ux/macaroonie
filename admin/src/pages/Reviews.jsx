@@ -298,8 +298,11 @@ function ReviewRow({ review, onPatch, onDelete, canManage }) {
   const [expanded, setExpanded] = useState(false)
   const [confirm, setConfirm]   = useState(false)
 
+  const toCheck = !review.checked_at
+
   return (
-    <div className={cn('border rounded-lg p-3 space-y-2', review.is_approved ? '' : 'border-amber-200 bg-amber-50/40')}>
+    <div className={cn('border rounded-lg p-3 space-y-2',
+      toCheck ? 'border-sky-300 bg-sky-50/40' : review.is_approved ? '' : 'border-amber-200 bg-amber-50/40')}>
       <div className="flex items-start gap-3">
         {review.reviewer_photo_url && (
           <img src={review.reviewer_photo_url} alt="" className="w-8 h-8 rounded-full object-cover flex-shrink-0" />
@@ -308,14 +311,24 @@ function ReviewRow({ review, onPatch, onDelete, canManage }) {
           <div className="flex items-center gap-2 flex-wrap">
             <span className="font-medium text-sm">{review.reviewer_name || 'Anonymous'}</span>
             <PlatformBadge platform={review.platform} />
+            {review.source === 'recorded' && (
+              <span className="text-[10px] bg-indigo-100 text-indigo-700 rounded px-1.5 py-0.5 font-medium"
+                title={review.raw_data?.recorded_by ? 'Recorded by ' + review.raw_data.recorded_by : 'Recorded from the review site'}>
+                Recorded
+              </span>
+            )}
             {review.is_featured && <span className="text-[10px] bg-amber-100 text-amber-700 rounded px-1.5 py-0.5 font-medium">Featured</span>}
-            {!review.is_approved && <span className="text-[10px] bg-rose-100 text-rose-700 rounded px-1.5 py-0.5 font-medium">Pending</span>}
+            {toCheck
+              ? <span className="text-[10px] bg-sky-100 text-sky-700 rounded px-1.5 py-0.5 font-medium">New — to check</span>
+              : !review.is_approved && <span className="text-[10px] bg-rose-100 text-rose-700 rounded px-1.5 py-0.5 font-medium">Not on the website</span>}
           </div>
           <div className="flex items-center gap-2 mt-1">
             <Stars n={review.rating} />
-            {review.review_date && (
+            {review.review_date ? (
               <span className="text-xs text-muted-foreground">{new Date(review.review_date).toLocaleDateString()}</span>
-            )}
+            ) : review.raw_data?.date_text ? (
+              <span className="text-xs text-muted-foreground">{review.raw_data.date_text}</span>
+            ) : null}
           </div>
         </div>
         <button onClick={() => setExpanded(v => !v)} className="text-muted-foreground p-1 touch-manipulation">
@@ -327,6 +340,19 @@ function ReviewRow({ review, onPatch, onDelete, canManage }) {
         <p className="text-sm text-muted-foreground line-clamp-2">{review.review_text}</p>
       )}
 
+      {toCheck && canManage && (
+        <div className="flex items-center gap-2 flex-wrap pt-1">
+          <button onClick={() => onPatch({ is_approved: true })} data-testid="rv-show"
+            className="h-12 px-4 rounded bg-emerald-600 text-white text-sm font-medium touch-manipulation">
+            Show on the website
+          </button>
+          <button onClick={() => onPatch({ checked: true })} data-testid="rv-keep-off"
+            className="h-12 px-4 rounded border text-sm font-medium touch-manipulation">
+            Keep off the website
+          </button>
+        </div>
+      )}
+
       {expanded && (
         <div className="pt-2 space-y-3 border-t">
           {review.review_text && <p className="text-sm">{review.review_text}</p>}
@@ -335,6 +361,12 @@ function ReviewRow({ review, onPatch, onDelete, canManage }) {
               <p className="text-xs font-medium text-muted-foreground mb-1">Business reply</p>
               <p className="text-sm">{review.reply_text}</p>
             </div>
+          )}
+          {review.raw_data?.page_url && (
+            <a href={review.raw_data.page_url} target="_blank" rel="noreferrer"
+              className="inline-flex items-center gap-1 text-xs text-muted-foreground underline touch-manipulation">
+              <Globe className="w-3 h-3" /> The page it was recorded from
+            </a>
           )}
           {canManage && <div className="flex items-center gap-2 flex-wrap">
             <button
@@ -384,6 +416,7 @@ export default function Reviews() {
   const [platform,     setPlatform]     = useState('')
   const [approvedOnly, setApprovedOnly] = useState(false)
   const [showPending,  setShowPending]  = useState(false)
+  const [showToCheck,  setShowToCheck]  = useState(false)
   const [showAdd,      setShowAdd]      = useState(false)
   const [showScrape,   setShowScrape]   = useState(false)
 
@@ -397,10 +430,11 @@ export default function Reviews() {
   if (platform)   reviewsParams.set('platform', platform)
   if (approvedOnly) reviewsParams.set('is_approved', 'true')
   if (showPending)  reviewsParams.set('is_approved', 'false')
+  if (showToCheck)  reviewsParams.set('to_check', '1')
   reviewsParams.set('limit', '100')
 
   const { data: reviews = [], isLoading, refetch } = useQuery({
-    queryKey: ['reviews', venueId, platform, approvedOnly, showPending],
+    queryKey: ['reviews', venueId, platform, approvedOnly, showPending, showToCheck],
     queryFn:  () => api.get('/reviews?' + reviewsParams.toString()),
     staleTime: 30_000,
   })
@@ -424,12 +458,12 @@ export default function Reviews() {
 
   const patchMutation = useMutation({
     mutationFn: ({ id, ...patch }) => api.patch(`/reviews/${id}`, patch),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['reviews'] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['reviews'] }); qc.invalidateQueries({ queryKey: ['reviews-stats'] }) },
   })
 
   const deleteMutation = useMutation({
     mutationFn: (id) => api.delete(`/reviews/${id}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['reviews'] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['reviews'] }); qc.invalidateQueries({ queryKey: ['reviews-stats'] }) },
   })
 
   const bulkApproveMutation = useMutation({
@@ -474,10 +508,11 @@ export default function Reviews() {
 
         {/* Stats */}
         {stats && (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
             <StatCard label="Total" value={stats.total} />
-            <StatCard label="Approved" value={stats.approved} color="text-emerald-600" />
-            <StatCard label="Pending" value={stats.pending} color="text-amber-600" />
+            <StatCard label="To check" value={stats.to_check} color="text-sky-600" />
+            <StatCard label="On the website" value={stats.approved} color="text-emerald-600" />
+            <StatCard label="Not shown" value={stats.pending} color="text-amber-600" />
             <StatCard label="Avg. rating" value={stats.avg_rating ? `${stats.avg_rating} ★` : '—'} color="text-amber-500" />
           </div>
         )}
@@ -512,23 +547,27 @@ export default function Reviews() {
             value={platform} onChange={e => setPlatform(e.target.value)}>
             {PLATFORMS.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
           </select>
-          <button onClick={() => { setApprovedOnly(false); setShowPending(false) }}
-            className={cn('px-2 py-1.5 text-sm rounded border touch-manipulation', !approvedOnly && !showPending ? 'bg-primary text-primary-foreground' : '')}>
+          <button onClick={() => { setApprovedOnly(false); setShowPending(false); setShowToCheck(false) }}
+            className={cn('px-2 py-1.5 text-sm rounded border touch-manipulation', !approvedOnly && !showPending && !showToCheck ? 'bg-primary text-primary-foreground' : '')}>
             All
           </button>
-          <button onClick={() => { setApprovedOnly(true); setShowPending(false) }}
-            className={cn('px-2 py-1.5 text-sm rounded border touch-manipulation', approvedOnly ? 'bg-emerald-600 text-white' : '')}>
-            Approved
+          <button onClick={() => { setShowToCheck(true); setApprovedOnly(false); setShowPending(false) }} data-testid="rv-filter-check"
+            className={cn('px-2 py-1.5 text-sm rounded border touch-manipulation', showToCheck ? 'bg-sky-600 text-white' : '')}>
+            To check {stats?.to_check ? `(${stats.to_check})` : ''}
           </button>
-          <button onClick={() => { setShowPending(true); setApprovedOnly(false) }}
+          <button onClick={() => { setApprovedOnly(true); setShowPending(false); setShowToCheck(false) }}
+            className={cn('px-2 py-1.5 text-sm rounded border touch-manipulation', approvedOnly ? 'bg-emerald-600 text-white' : '')}>
+            On the website
+          </button>
+          <button onClick={() => { setShowPending(true); setApprovedOnly(false); setShowToCheck(false) }}
             className={cn('px-2 py-1.5 text-sm rounded border touch-manipulation', showPending ? 'bg-amber-500 text-white' : '')}>
-            Pending {stats?.pending ? `(${stats.pending})` : ''}
+            Not shown {stats?.pending ? `(${stats.pending})` : ''}
           </button>
           {canManage && pendingIds.length > 0 && (
             <button
               onClick={() => bulkApproveMutation.mutate({ ids: pendingIds, is_approved: true })}
               className="ml-auto text-xs px-2 py-1 rounded border border-emerald-300 text-emerald-700 touch-manipulation">
-              Approve all pending
+              Put all shown on the website
             </button>
           )}
         </div>
