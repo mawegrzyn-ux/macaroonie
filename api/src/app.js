@@ -72,6 +72,7 @@ import storeOpeningRoutes    from './routes/storeOpenings.js'
 import themeRoutes           from './routes/themes.js'
 import menuImportRoutes      from './routes/menuImport.js'
 import documentReadRoutes    from './routes/documentRead.js'
+import navAiRoutes           from './routes/navAi.js'
 import opsRoutes             from './routes/ops.js'
 import localInfoRoutes       from './routes/localInfo.js'
 import aiApiRoutes           from './routes/aiApi.js'
@@ -297,6 +298,7 @@ export async function buildApp() {
   await app.register(themeRoutes,        { prefix: '/api/ai/themes' })
   await app.register(menuImportRoutes,   { prefix: '/api/ai/menus' })
   await app.register(documentReadRoutes, { prefix: '/api/ai' })
+  await app.register(navAiRoutes, { prefix: '/api/ai' })
   await app.register(opsRoutes,          { prefix: '/api/ops' })
   await app.register(localInfoRoutes,    { prefix: '/api/local-info' })
   await app.register(aiApiRoutes, { prefix: '/ai-api' })

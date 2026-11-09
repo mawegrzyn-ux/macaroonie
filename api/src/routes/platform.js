@@ -22,6 +22,7 @@ import {
 } from '../services/auth0MgmtSvc.js'
 import { MODULES, MODULE_KEYS, resolvePermission, seedBuiltinRoles } from '../config/modules.js'
 import { listMemberships } from '../services/membershipSvc.js'
+import { navItemVisible, buildNavTree, pruneNavTree } from '../services/navTree.js'
 import { seedDefaultNav } from '../config/defaultNav.js'
 import { seedDefaultDashboardTiles } from '../config/defaultDashboardTiles.js'
 import { ensureStandardAllergens } from '../services/menuSeeds.js'
@@ -58,39 +59,8 @@ const TenantPatch = z.object({
   ordering_fee_percent: z.number().min(0).max(20).optional(),
 })
 
-// ── Nav tree → effective view for one user ──────────────────
-// A link item is visible when its module (if any) isn't 'none' for this
-// user AND their effective role isn't in hidden_role_ids. A section is
-// pure grouping — always "passes" its own check — but is pruned if it
-// ends up with no visible children. Platform admins bypass both checks
-// (same as they bypass module permissions generally). A hidden link's
-// children are unreachable and dropped too, not hoisted up.
-function navItemVisible(item, permissions, effectiveRoleId, isPlatformAdmin) {
-  if (isPlatformAdmin) return true
-  if (item.module && (permissions[item.module] ?? 'manage') === 'none') return false
-  if (effectiveRoleId && item.hidden_role_ids?.includes(effectiveRoleId)) return false
-  return true
-}
-
-function buildNavTree(items, parentId = null) {
-  return items
-    .filter(i => i.parent_id === parentId)
-    .sort((a, b) => a.sort_order - b.sort_order)
-    .map(i => ({ ...i, children: buildNavTree(items, i.id) }))
-}
-
-function pruneNavTree(nodes, permissions, effectiveRoleId, isPlatformAdmin) {
-  const out = []
-  for (const n of nodes) {
-    const children = pruneNavTree(n.children, permissions, effectiveRoleId, isPlatformAdmin)
-    if (n.kind === 'section') {
-      if (children.length) out.push({ ...n, children })
-      continue
-    }
-    if (navItemVisible(n, permissions, effectiveRoleId, isPlatformAdmin)) out.push({ ...n, children })
-  }
-  return out
-}
+// The nav tree helpers (navItemVisible, buildNavTree, pruneNavTree) live in
+// services/navTree.js, shared with Pepper's menu search.
 
 export default async function platformRoutes(app) {
 

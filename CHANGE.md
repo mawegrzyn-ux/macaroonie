@@ -5,6 +5,15 @@ Migrations are listed where a database change is required.
 
 ---
 
+
+## [2026-11-09 — Pepper in the menu search]
+
+No migration.
+
+### Added
+- The menu search box has a Pepper button (sparkles). Typing still narrows the menu straight away; press **Enter** or tap the button and Pepper reads what you typed in your own words and picks the pages that fit best, each with a line saying why, with a short note underneath. Enter again opens the first pick; typing again goes back to the plain search. Pepper only picks from the pages your role can open (`POST /api/ai/nav-search`, the everyday model, counted against the Pepper allowance).
+- Without Pepper, Enter opens the best match as before.
+
 ## [2026-11-09 — Local info: weather, traffic and events around each venue]
 
 Migration 240.
