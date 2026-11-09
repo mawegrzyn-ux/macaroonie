@@ -77,6 +77,12 @@ const schema = z.object({
   GOOGLE_WALLET_API_URL: z.string().url().default('https://walletobjects.googleapis.com'),
   GOOGLE_OAUTH_TOKEN_URL: z.string().url().default('https://oauth2.googleapis.com/token'),
 
+  // Open-Meteo for local info weather captures (migration 240,
+  // services/localInfoSvc.js): keyless. Only changed to test against
+  // stand-in servers.
+  OPEN_METEO_URL:         z.string().url().default('https://api.open-meteo.com'),
+  OPEN_METEO_GEOCODE_URL: z.string().url().default('https://geocoding-api.open-meteo.com'),
+
   // Card machines on the till and kiosks (migration 193,
   // services/cardMachines/). The URLs are only changed to test against
   // stand-in servers; keys are per tenant, saved in Store tech. Dojo gives

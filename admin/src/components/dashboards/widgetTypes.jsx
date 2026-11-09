@@ -19,9 +19,10 @@
 // template, onChecklistState }.
 
 import {
-  ListChecks, Thermometer, Truck, Flame, ChefHat, ClipboardCheck, Grid3x3,
+  ListChecks, Thermometer, Truck, Flame, ChefHat, ClipboardCheck, Grid3x3, CloudSun,
 } from 'lucide-react'
 import { ChecklistRunPanel } from '@/components/checklists/shared'
+import { LocalInfoWidget } from '@/components/localInfo/shared'
 import {
   TempChecksTable, DeliveryChecksPanel, HoldChecksTable, CookingChecksPanel,
 } from '@/components/foodSafety/shared'
@@ -35,6 +36,7 @@ export const WIDGET_GROUPS = [
   { key: 'menus', label: 'Menus' },
   { key: 'cash',  label: 'Cash' },
   { key: 'rota',  label: 'Rota' },
+  { key: 'local', label: 'Local info' },
 ]
 
 const HS_TYPES = [
@@ -50,11 +52,25 @@ const MENU_TYPES = [
   { key: 'allergen_lookup', label: 'Allergen lookup', icon: Grid3x3, defaultTitle: 'Allergen lookup', module: 'menus', nav: null, group: 'menus' },
 ]
 
+// The week from the dashboard's selected day (Look back: the week up to it),
+// ahead for planning, back for a retrospective.
+const LOCAL_TYPES = [
+  { key: 'local_info', label: 'Local info', icon: CloudSun, defaultTitle: 'Local info', module: 'local_info', nav: 'day', group: 'local',
+    options: [
+      { key: 'look_back', label: 'Look back', hint: 'The week up to the selected day, instead of the week ahead' },
+      { key: 'hide_weather', label: 'Hide the weather' },
+      { key: 'hide_traffic', label: 'Hide traffic' },
+      { key: 'hide_events', label: 'Hide events' },
+      { key: 'hide_incidents', label: 'Hide incidents' },
+    ] },
+]
+
 const ROTA_MODULE = { rota_grid: 'rota', rota_today: 'rota', rota_week_pay: 'rota_pay', rota_tips: 'rota_tips' }
 
 export const WIDGET_TYPES = [
   ...HS_TYPES,
   ...MENU_TYPES,
+  ...LOCAL_TYPES,
   ...CASH_WIDGET_TYPES.map(t => ({
     ...t, group: 'cash', nav: t.nav ?? 'week',
     module: t.key === 'cash_tips_payout' ? 'rota_tips' : 'cash_recon',
@@ -90,6 +106,7 @@ function renderHsWidget({ widget, venueId, ctx, template, onChecklistState }) {
     case 'cooking_checks':  return <CookingChecksPanel venueId={venueId} date={date} />
     case 'action_log':      return <HSActionLogPanel venueId={venueId} />
     case 'allergen_lookup': return <AllergenLookup storeKey={`maca_allergen_lookup_${widget.id}`} />
+    case 'local_info':      return <LocalInfoWidget widget={widget} venueId={venueId} ctx={ctx} />
     default:                return null
   }
 }
@@ -106,7 +123,7 @@ export function renderWidget(props) {
 export const MODULE_LABEL = {
   checklists: 'Checklists', food_safety: 'Food safety', hs_action_log: 'the H&S Action Log',
   menus: 'Menus', cash_recon: 'Cash reconciliation', rota: 'the Rota',
-  rota_pay: 'Rota pay', rota_tips: 'Rota tips',
+  rota_pay: 'Rota pay', rota_tips: 'Rota tips', local_info: 'Local info',
 }
 
 /** Shown in place of a widget's body when the viewer lacks its module. */

@@ -311,6 +311,10 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx', loy
     venue_id: V, platform: 'tripadvisor', page_url: 'https://tripadvisor.example/' + slug,
     reviews: [{ author: mark + ' Tess', rating: 5, text: mark + ' lovely pad thai', date: '2026-10-30', date_text: 'a week ago' }],
   }))
+  // Local info (migration 240): a capture (disabled, so no sweep ever calls
+  // Open-Meteo from another test file) and a typed-in event.
+  await step('local info source', () => post(`/api/local-info/venues/${V}/sources`, { kind: 'weather', place: mark + ' Ware', enabled: false }))
+  await step('local info event', () => post('/api/local-info/items', { venue_id: V, title: mark + ' street fair', starts_on: '2027-01-15', severity: 'notice' }))
   await step('promotion', () => post('/api/promotions', { name: mark + ' 10% off', kind: 'basket', discount_type: 'percent', discount_value: 10, apply_mode: 'auto' }))
   await step('issue', () => post('/api/issues', { title: mark + ' Printer jam', description: mark + ' jammed', category: 'incident', impact: 'low', urgency: 'low' }))
   await step('feature request', () => post('/api/feature-requests', { title: mark + ' Dark mode', description: mark + ' please' }))

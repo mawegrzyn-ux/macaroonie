@@ -46,6 +46,7 @@ import { siteTools } from './site.js'
 import { generalTools } from './general.js'
 import { briefingTools } from './briefing.js'
 import { locationTools } from './locations.js'
+import { localInfoTools } from './localInfo.js'
 
 // The areas Pepper covers, in the order its prompt lists them.
 export const SECTIONS = {
@@ -61,6 +62,7 @@ export const SECTIONS = {
   menus:      'Menus, dishes, prices and allergens',
   purchasing: 'Purchasing: inventory, suppliers and supplier orders',
   website:    'Website, promotions, reviews, menu screens and booking emails',
+  local_info: 'Local info: weather, traffic, events and incidents around the venues',
   locations:  'Opening a new location: scoping, questions, a brief, creating it',
   support:    'Reporting problems and asking for features',
 }
@@ -81,6 +83,7 @@ export const SECTION_MODULES = {
   menus:      ['menus'],
   purchasing: ['purchasing', 'purchasing_setup', 'purchasing_approve'],
   website:    ['website', 'promotions', 'screens', 'email_templates'],
+  local_info: ['local_info'],
   locations:  ['venues'],
   support:    ['issue_log', 'feature_requests'],
 }
@@ -109,6 +112,7 @@ const staffTools = [
   ...withSection(purchasingTools, 'purchasing'),
   ...withSection(menuTools, 'menus'),
   ...rotaTools, ...cashTools, ...orderTools, ...venueTools, ...siteTools, ...locationTools,
+  ...localInfoTools,
 ]
 const BY_AUDIENCE = { guest: guestTools, staff: staffTools }
 

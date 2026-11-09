@@ -79,6 +79,7 @@ export const WIDGET_MODULE = {
   cooking_checks:         'food_safety',
   action_log:             'hs_action_log',
   allergen_lookup:        'menus',
+  local_info:             'local_info',
   cash_wages_paid:        'cash_recon',
   cash_petty_cash:        'cash_recon',
   cash_recon_grid:        'cash_recon',

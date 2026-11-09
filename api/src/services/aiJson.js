@@ -109,6 +109,52 @@ export async function askForJson({ tenantId, person, system, schema, content, ma
   return out
 }
 
+/**
+ * One web search answered as JSON (local info captures, localInfoSvc.js):
+ * the model searches the web (optionally one site) and answers with a JSON
+ * object matching the schema. Structured outputs don't ride along with the
+ * web search tool, so the schema goes in the system prompt and the answer is
+ * read out of the text (jsonIn). A turn the API pauses (stop_reason
+ * pause_turn) is carried on with the content so far, a few times at most.
+ * `person` is null for scheduled runs: they count the tenant's monthly
+ * allowance, never anyone's daily share.
+ */
+export async function searchForJson({ tenantId, person = null, system, schema, prompt, site, maxUses = 5, maxTokens = 8000, effort = 'medium', what = 'search' }) {
+  if ((await chatUnitsLeft(tenantId)) <= 0) throw httpError(429, 'This month\'s AI allowance is used up.')
+  const mine = person?.sub ? await personUnitsLeft(tenantId, person.sub) : null
+  if (mine !== null && mine <= 0) throw httpError(429, 'You\'ve used your share of the AI allowance for today. It starts again tomorrow.')
+
+  const tools = [{
+    type: 'web_search_20250305', name: 'web_search', max_uses: maxUses,
+    ...(site ? { allowed_domains: [site] } : {}),
+  }]
+  const sys = [{
+    type: 'text',
+    text: system + '\n\nAnswer with one JSON object only, no other text, matching this JSON schema:\n' + JSON.stringify(schema),
+    cache_control: { type: 'ephemeral' },
+  }]
+  let messages = [{ role: 'user', content: prompt }]
+  let res
+  for (let round = 0; round < 5; round++) {
+    res = await callClaude({
+      model: env.AI_MODEL, max_tokens: maxTokens, system: sys, tools,
+      output_config: { effort }, messages,
+    })
+    const u = res.usage || {}
+    await addUsage(tenantId, 'staff_chat', {
+      input: u.input_tokens || 0, output: u.output_tokens || 0, cacheRead: u.cache_read_input_tokens || 0,
+      cacheWrite: u.cache_creation_input_tokens || 0, model: res.model, person,
+    })
+    if (res.stop_reason !== 'pause_turn') break
+    messages = [...messages, { role: 'assistant', content: res.content }]
+  }
+  if (res.stop_reason === 'refusal') throw httpError(422, ASSISTANT_NAME + ' can\'t run this ' + what + '.')
+  if (res.stop_reason === 'max_tokens') throw httpError(422, 'The ' + what + ' found too much to answer in one go.')
+  const out = jsonIn((res.content || []).filter(b => b.type === 'text').map(b => b.text).join(''))
+  if (!out) throw httpError(502, ASSISTANT_NAME + '\'s answer couldn\'t be read. Try again.')
+  return out
+}
+
 /** Image / PDF blocks for the model from checked files [{ media_type, data }]. */
 export function fileBlocks(files) {
   return files.map(f => f.media_type === 'application/pdf'

@@ -8,6 +8,7 @@ import { helpSlug } from '@shared/help.js'
 const SECTIONS = [
   { id: 'getting-started',     label: 'Getting Started' },
   { id: 'today',               label: 'Today: What Needs Doing' },
+  { id: 'local-info',          label: 'Local Info' },
   { id: 'overview',            label: 'The Overview Page' },
   { id: 'venues',              label: 'Managing Venues' },
   { id: 'new-location',        label: 'Setting Up a New Venue' },
@@ -267,6 +268,61 @@ export default function Help() {
               day. It's the same chat as the Pepper panel, so it carries on where you left off; tap
               <strong> New chat</strong> to start again. Your messages tell Pepper which venue and day
               you're looking at.
+            </P>
+          </section>
+
+          {/* ── LOCAL INFO ────────────────────────────────── */}
+          <section id="local-info" data-help="">
+            <H2>Local Info</H2>
+            <P>
+              <strong>Local info</strong> (main menu, under Today) collects what's happening around your
+              venues — the weather, roadworks and traffic, local events, and incidents — so a manager
+              planning the week ahead (or looking back over last week) can see it in one place. Some of it
+              is captured automatically on a schedule; anything else your team types in by hand.
+            </P>
+            <H3>The calendar and the list</H3>
+            <P>
+              The page shows a month calendar with a coloured chip per item (red = warning, amber = worth
+              knowing, grey = info); on a phone the chips become dots. Tap a day to see everything on it —
+              weather first, then incidents, traffic and events, loudest first. Switch to <strong>List</strong> for
+              the same items day by day. Pick a venue at the top right, or <strong>Every venue</strong> to see
+              the whole group; an item saved for every venue shows everywhere. Use the arrows to move
+              between months and <strong>This month</strong> to come back.
+            </P>
+            <H3>Captures</H3>
+            <P>
+              <strong>Captures</strong> sets up the automatic part, per venue. A <strong>Weather</strong> capture
+              needs only a place ("Ware, Hertfordshire") and fills the next seven days from the Open-Meteo
+              forecast — no account or key needed. <strong>Traffic</strong>, <strong>Events</strong> and{' '}
+              <strong>Incidents</strong> captures use Pepper's web search: give them a place, optionally one
+              website to search (like your local paper) and words to look for, and they store what they find
+              with a link to the source. Each capture runs once a day (in the early morning), every few hours,
+              or once a week — your choice — and <strong>Run now</strong> runs it in the background straight
+              away. If a run fails (a place the map doesn't know, or the search couldn't run), the reason shows
+              on the capture's row and it tries again at its next scheduled time.
+            </P>
+            <H3>Your own events</H3>
+            <P>
+              <strong>Add an event</strong> records anything you know is coming: a street market, a festival,
+              a planned road closure, an inspection. Give it a day (or a first and last day), an optional time,
+              place, link and severity, and choose one venue or every venue. Typed-in events can be edited and
+              deleted; captured items can't be edited — <strong>hide</strong> one instead and it stays hidden even
+              when the capture runs again. <strong>Show hidden</strong> brings hidden items back into view so you
+              can unhide them.
+            </P>
+            <H3>On dashboards</H3>
+            <P>
+              The <strong>Local info</strong> widget (Add widget, under Local info) shows the week ahead from the
+              dashboard's selected day. Its options can flip it to <strong>Look back</strong> (the week up to the
+              selected day — handy on a retrospective dashboard next to the cash and rota widgets) and hide any
+              of the four kinds. You can also ask Pepper things like "what's on around Ware this weekend?" —
+              it reads the same items — or tell it to run a capture.
+            </P>
+            <H3>Who can do what</H3>
+            <P>
+              Local info is its own module in Access. <strong>View</strong> sees the calendar, list and widget;
+              <strong> Manage</strong> adds events, hides items and sets up captures. Captured searches count
+              towards the group's monthly Pepper allowance; the weather doesn't.
             </P>
           </section>
 

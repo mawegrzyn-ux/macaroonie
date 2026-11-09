@@ -22,6 +22,7 @@
 // Lowercase words; keep them nouns and doing-words, not sentences.
 export const NAV_KEYWORDS = {
   '/today':                 'today ops tasks due now to do day plan checks morning front door',
+  '/local-info':            'local info information weather forecast traffic roadworks road closures events incidents news area calendar what is on happening nearby',
   '/':                      'overview home start tiles stats summary dashboard',
   '/dashboards':            'dashboards custom blank widgets build your own',
   '/timeline':              'timeline gantt day view tables drag reservations bookings seat move',

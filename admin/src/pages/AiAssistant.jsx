@@ -525,6 +525,7 @@ const TOOL_LABELS = {
   publish_website: 'Published the website', set_website_banner: 'Changed the website banner', switch_promotion: 'Turned a promotion on or off',
   moderate_review: 'Changed a review', record_reviews: 'Recorded reviews', reload_screen: 'Reloaded a menu screen', report_issue: 'Logged an issue', request_feature: 'Requested a feature',
   create_location: 'Created a new location',
+  add_local_event: 'Added a local event', run_local_capture: 'Ran a local info capture',
 }
 
 /** What an H&S, purchasing or menu change was about, from its stored result. */
@@ -563,6 +564,8 @@ function changeDetail(r) {
     case 'cancel_purchase_order':
     case 'receive_delivery':      return x.po
     case 'record_reviews':        return [x.site, x.venue, x.recorded_new != null ? x.recorded_new + ' new' : null].filter(Boolean).join(', ')
+    case 'add_local_event':       return [x.added, x.at].filter(Boolean).join(', ')
+    case 'run_local_capture':     return (x.started || []).join(', ') || null
     case 'create_menu':
     case 'update_menu':
     case 'duplicate_menu':        return x.name

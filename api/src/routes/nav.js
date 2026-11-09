@@ -29,6 +29,7 @@ import { seedDefaultNav } from '../config/defaultNav.js'
 export const ROUTE_CATALOG = [
   // Today: for everyone signed in (its tasks follow each person's own access), migration 227.
   { route: '/today', label: 'Today', icon: 'Sun' },
+  { route: '/local-info', label: 'Local info', icon: 'CloudSun' },
   { route: '/', label: 'Overview', icon: 'LayoutDashboard', module: 'dashboard' },
   { route: '/dashboards', label: 'Dashboards', icon: 'LayoutTemplate', module: 'custom_dashboard' },
   { route: '/timeline', label: 'Timeline', icon: 'CalendarDays', module: 'bookings' },

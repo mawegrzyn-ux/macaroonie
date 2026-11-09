@@ -12,6 +12,7 @@ export const DEFAULT_NAV_TREE = [
   {
     label: 'Home', children: [
       { label: 'Today', icon: 'Sun', route: '/today' },
+      { label: 'Local info', icon: 'CloudSun', route: '/local-info', module: 'local_info' },
       { label: 'Overview', icon: 'LayoutDashboard', route: '/', module: 'dashboard' },
       { label: 'Dashboards', icon: 'LayoutTemplate', route: '/dashboards', module: 'custom_dashboard' },
       { label: 'Pepper', icon: 'Sparkles', route: '/ai', module: 'ai_assistant' },

@@ -93,6 +93,12 @@ const PARTS = [
     const s = await tool('sold_out').run(ctx, { venue: v.id })
     return s
   }],
+  ['local_info', async (ctx, v, date) => {
+    const r = await tool('local_info').run(ctx, { venue: v.id, from: date, to: date })
+    return Array.isArray(r.items)
+      ? { today: r.items.map(i => ({ kind: i.kind, title: i.title, ...(i.details ? { details: i.details } : {}), ...(i.severity ? { severity: i.severity } : {}) })) }
+      : { today: 'nothing held' }
+  }],
   ['failed_emails', async ctx => {
     const e = await tool('email_log').run(ctx, { only_failed: true, limit: 5 })
     return { failed_recently: e.failed_recently, latest: e.emails }
@@ -110,8 +116,8 @@ export const briefingTools = [
     title: 'Day briefing',
     description:
       'A venue\'s day in one go (default today): bookings and big parties, who is working, health & safety due and out-of-range ' +
-      'readings, supplier deliveries due, supplier orders waiting for approval, yesterday\'s cash-up, open online orders, sold out dishes, failed booking emails and ' +
-      'offline menu screens. Parts the person can\'t see are left out and listed. Use it for "what\'s on today?", "brief me" or ' +
+      'readings, supplier deliveries due, supplier orders waiting for approval, yesterday\'s cash-up, open online orders, sold out dishes, the day\'s local info ' +
+      '(weather, traffic, events), failed booking emails and offline menu screens. Parts the person can\'t see are left out and listed. Use it for "what\'s on today?", "brief me" or ' +
       'the start of a shift, then summarise: the things to act on first, then the rest in a few lines.',
     input: z.object({
       venue: z.string().trim().max(100).optional().describe('Venue name; can be left out when there is one venue'),
