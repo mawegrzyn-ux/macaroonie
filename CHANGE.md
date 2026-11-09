@@ -5,6 +5,22 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-11-09 — Local info: weather, traffic and events around each venue]
+
+Migration 240.
+
+**Added**
+- **Local info** (`/local-info`, Home menu): a month calendar — or a list — of what's happening around each venue: weather, traffic, local events and incidents, as severity-coloured chips (dots on a phone), with a day's details on tap, a venue filter with Every venue, and Show hidden.
+- **Captures** fill it by themselves, per venue: weather needs no key (Open-Meteo — seven days ahead, the venue's town found once); events, traffic, incidents or anything else run a Pepper web search, optionally pinned to one site (a local paper, a council page) with your own query — once a day, every few hours or once a week, with Run now on the row. A capture that fails shows its error on the row and tries again at its next time.
+- **Your own events**: add, edit and delete typed events (a day or a range, time, place, link, severity), for one venue or the whole group. Captured items can't be edited — hide the ones you don't want instead; a repeat capture never brings a hidden one back.
+- **Dashboard widget** Local info on any dashboard: the next 7 days per venue, with options to look back at the last 7 days instead and to hide kinds.
+- **Pepper**: ask what's on around a venue, add an event, or run a capture now. Search captures count the group's monthly Pepper allowance; weather costs nothing.
+
+**Notes**
+- Open-Meteo's free service is for non-commercial use: before real franchisees rely on the weather, buy their API plan (point `OPEN_METEO_URL` / `OPEN_METEO_GEOCODE_URL` at the customer endpoints) or swap the provider.
+
+---
+
 ## [2026-11-08 — Search the menu from the sidebar]
 
 **Added**

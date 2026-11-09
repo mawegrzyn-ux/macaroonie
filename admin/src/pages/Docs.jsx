@@ -39,6 +39,7 @@ const SECTIONS = [
   { id: 'loyalty', label: 'Loyalty' },
   { id: 'ai-assistant', label: 'Pepper (AI assistant) & MCP' },
   { id: 'ops-today', label: 'Today (the ops front door)' },
+  { id: 'local-info', label: 'Local info' },
   { id: 'store-openings', label: 'New locations (store openings)' },
   { id: 'menus',        label: 'Menus' },
   { id: 'combos',       label: 'Combos' },
@@ -7729,6 +7730,74 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               itself (F1 in the conversation, F6, F7), the shared-device person switch (U2) and the per-group chat-first
               switch (G1). Adding a source: a function in <Mono>SOURCES</Mono> with its module in <Mono>AREAS</Mono>,
               reading through the routes with <Mono>callApi()</Mono>, and a row in this table.
+            </InfoBox>
+          </section>
+
+          <section id="local-info" data-doc="">
+            <H2>Local info</H2>
+            <P>
+              Migration 240. Weather, traffic, events and incidents around the venues, captured on a schedule or
+              typed in, shown on a month calendar or list at <Mono>/local-info</Mono> (main menu under Today), on a
+              dashboard widget, and read by Pepper. Two tables, both with forced RLS: <Mono>local_info_sources</Mono>
+              (a capture: venue, kind, place, site, query, frequency daily | hours | weekly with{' '}
+              <Mono>every_hours</Mono>, <Mono>next_run_at</Mono>, <Mono>running_until</Mono> claim,{' '}
+              <Mono>last_run_at</Mono> / <Mono>last_error</Mono>, the geocode cache <Mono>lat</Mono> /{' '}
+              <Mono>lon</Mono> / <Mono>geocoded_place</Mono>) and <Mono>local_info_items</Mono> (venue_id NULL = every
+              venue; kind, title, details, <Mono>starts_on</Mono> / <Mono>ends_on</Mono> dates, time_text, place, url,
+              severity info | notice | warning, <Mono>source_id</Mono> + <Mono>external_key</Mono> for captured rows
+              with a partial-unique index, <Mono>hidden</Mono>). One rules file, <Mono>shared/localInfo.js</Mono>:
+              kinds, severities, frequencies, <Mono>nextRunAt()</Mono> (05:30 venue time for daily / weekly),{' '}
+              <Mono>itemKey()</Mono>, the WMO weather maps (<Mono>weatherText()</Mono> / <Mono>weatherSummary()</Mono> /{' '}
+              <Mono>weatherSeverity()</Mono>), <Mono>itemOnDay()</Mono>, <Mono>sortDayItems()</Mono>,{' '}
+              <Mono>monthGrid()</Mono>.
+            </P>
+            <H3>Captures</H3>
+            <P>
+              <Mono>services/localInfoSvc.js</Mono>. Its own worker (<Mono>startLocalInfoWorker()</Mono> in{' '}
+              <Mono>jobs/queues.js</Mono>, BullMQ queue <Mono>local-info</Mono>, every five minutes) calls{' '}
+              <Mono>sweepLocalInfo()</Mono>:
+              due, enabled sources are claimed across API processes (<Mono>claimDue()</Mono>,{' '}
+              <Mono>running_until</Mono> + FOR UPDATE SKIP LOCKED) and run with <Mono>runClaimed()</Mono>, which
+              always advances <Mono>next_run_at</Mono> and keeps a failure in <Mono>last_error</Mono> (so one bad
+              place or search never wedges the schedule). <Mono>POST /sources/:id/run</Mono> claims one
+              (<Mono>claimSource()</Mono>, 409 while a run holds it) and runs it unawaited. Weather:
+              Open-Meteo, keyless — the place is geocoded once and cached on the source (re-asked when the place
+              changes), then one forecast call for seven days, upserted one item per day. Searches (traffic,
+              events, incidents): <Mono>searchForJson()</Mono> in <Mono>services/aiJson.js</Mono> runs Claude with
+              the <Mono>web_search</Mono> server tool (pinned to the capture's site via{' '}
+              <Mono>allowed_domains</Mono> when one is set), a JSON schema in the system text, and a{' '}
+              <Mono>pause_turn</Mono> loop; findings are kept only with a title and a date between two weeks back
+              and ninety days ahead, severity cleaned, non-http links dropped. Dedupe:{' '}
+              <Mono>upsertItem()</Mono> ON CONFLICT (source_id, external_key) freshens details, place, url, days,
+              time and severity but never <Mono>hidden</Mono> or the title — what an operator hid stays hidden
+              through every later run. Deleting a capture deletes its items (FK cascade). Captured items can't be
+              edited or deleted through the items routes (422: hide it, or change the capture).
+            </P>
+            <H3>Routes, page, widget, Pepper</H3>
+            <P>
+              <Mono>routes/localInfo.js</Mono> (<Mono>/api/local-info</Mono>, module <Mono>local_info</Mono>: view
+              reads, manage changes): venue sources CRUD (site cleaned to a bare host, a changed capture runs again
+              soon), <Mono>/items</Mono> (span filter over starts/ends, venue + group-wide rows, kinds,{' '}
+              <Mono>include_hidden</Mono>, a range capped near a year), items POST / PATCH / DELETE (typed-in only;
+              date columns read back through <Mono>dayOf()</Mono> — the date-column trap). Admin:{' '}
+              <Mono>pages/LocalInfo.jsx</Mono> (calendar from <Mono>monthGrid()</Mono>, day modal, list, Add an
+              event, Captures window with Run now polling every 4 s) and{' '}
+              <Mono>components/localInfo/shared.jsx</Mono> (<Mono>useLocalInfoItems()</Mono>,{' '}
+              <Mono>ItemRow</Mono>, <Mono>DayGroups</Mono>, <Mono>LocalInfoWidget</Mono>). The widget type{' '}
+              <Mono>local_info</Mono> (group Local info, nav day) shows the week from the dashboard's selected day,
+              with options look_back and hide per kind. Pepper: <Mono>ai/tools/localInfo.js</Mono> —{' '}
+              <Mono>local_info</Mono> (read, two weeks ahead by default), <Mono>add_local_event</Mono> (confirm
+              card) and <Mono>run_local_capture</Mono>; all on the staff connector too.
+            </P>
+            <InfoBox title="Limits">
+              Scheduled search runs count the group's monthly Pepper allowance with no person (<Mono>addUsage()</Mono>{' '}
+              person null); a Run now from the page counts the same way. The web search is tested only against a
+              stand-in Claude (the exact server-tool block shapes): first live use, run a capture and check the
+              findings and <Mono>last_error</Mono>. Open-Meteo's free API is for non-commercial use — before real
+              franchisees rely on the weather, either buy an Open-Meteo API plan (set the two URL env vars to the
+              customer endpoints) or swap the provider in <Mono>captureWeather()</Mono>. Searches store what the
+              model read on a page: dates can be wrong or stale, which is why every captured item keeps its source
+              link and can be hidden. No push or alerting; the calendar is pull-only.
             </InfoBox>
           </section>
 

@@ -108,6 +108,13 @@ export const MODULES = [
     default: { owner: 'manage', admin: 'manage', operator: 'view', viewer: 'none' },
   },
   {
+    key:    'local_info',
+    label:  'Local info',
+    group:  'local_info',
+    description: 'What’s happening around each venue: weather, traffic, events and incidents, captured on a schedule, plus events typed in.',
+    default: { owner: 'manage', admin: 'manage', operator: 'manage', viewer: 'view' },
+  },
+  {
     key:    'email_templates',
     label:  'Booking emails',
     group:  'email_templates',
@@ -405,6 +412,12 @@ export const MODULE_GROUPS = [
     label:  'Menu screens',
     description: 'Digital menu boards in the restaurant, showing live menu prices and sold out dishes.',
     moduleKeys: ['screens'],
+  },
+  {
+    key:    'local_info',
+    label:  'Local info',
+    description: 'Weather, traffic, events and incidents around each venue, captured on a schedule.',
+    moduleKeys: ['local_info'],
   },
   {
     key:    'cash_recon',

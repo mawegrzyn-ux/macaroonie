@@ -101,6 +101,7 @@ import RotaSetup       from '@/pages/RotaSetup'
 import RotaDashboard   from '@/pages/RotaDashboard'
 import Dashboards      from '@/pages/Dashboards'
 import OpsToday        from '@/pages/OpsToday'
+import LocalInfo       from '@/pages/LocalInfo'
 import HSActionLog     from '@/pages/HSActionLog'
 import Orders          from '@/pages/Orders'
 import OrderingSettings from '@/pages/OrderingSettings'
@@ -228,6 +229,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 <Route index          element={<Dashboard />} />
                 <Route path="dashboards" element={<Dashboards />} />
                 <Route path="today"      element={<OpsToday />} />
+                <Route path="local-info" element={<LocalInfo />} />
                 <Route path="timeline" element={<Timeline />} />
                 <Route path="bookings"   element={<Bookings />} />
                 <Route path="customers" element={<Customers />} />

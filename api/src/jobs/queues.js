@@ -10,6 +10,7 @@ export const reviewScrapeQueue  = new Queue('review-scrape',    { connection })
 export const publishQueue       = new Queue('website-publish',  { connection })
 export const gloriafoodQueue    = new Queue('gloriafood-poll',  { connection })
 export const aiCleanupQueue     = new Queue('ai-cleanup',       { connection })
+export const localInfoQueue     = new Queue('local-info',       { connection })
 
 // ── Notification worker ───────────────────────────────────────
 // Routes booking emails through the new pluggable email system
@@ -116,6 +117,33 @@ export function startGloriaFoodPollWorker(log) {
   return worker
 }
 
+// ── Local info worker ─────────────────────────────────────────
+// Every few minutes (migration 240, services/localInfoSvc.js): run the
+// local-information captures that are due — weather from Open-Meteo, the
+// web-search kinds through Pepper's model. The repeat job runs across all
+// API processes; each source is claimed with running_until (SKIP LOCKED),
+// so two processes never run one source at once.
+
+export function startLocalInfoWorker(log) {
+  const worker = new Worker('local-info', async () => {
+    const { sweepLocalInfo } = await import('../services/localInfoSvc.js')
+    const ran = await sweepLocalInfo(log)
+    if (ran) log.info({ ran }, 'Local info captures run')
+  }, { connection })
+
+  worker.on('failed', (job, err) => {
+    log.error({ jobId: job?.id, err }, 'Local info job failed')
+  })
+
+  localInfoQueue.add('sweep', {}, {
+    repeat: { every: 300_000 },
+    removeOnComplete: true,
+    removeOnFail: 20,
+  }).catch(err => log.warn({ err: err?.message }, 'Local info sweep not scheduled (Redis?)'))
+
+  return worker
+}
+
 // ── AI clean-up worker ────────────────────────────────────────
 // Every hour (migration 174, ai/erase.js cleanUpAi()): delete Pepper and
 // website chats idle longer than the tenant's chat_retention_days, clear
@@ -137,6 +165,9 @@ export function startAiCleanupWorker(log) {
     const { cleanUpReceipts } = await import('../services/receiptSvc.js')
     const rc = await cleanUpReceipts(log)
     if (rc.removed) log.info(rc, 'Kiosk receipt clean-up')
+    // Local info items (migration 240) after 400 days.
+    const { cleanUpLocalInfo } = await import('../services/localInfoSvc.js')
+    await cleanUpLocalInfo()
   }, { connection })
 
   worker.on('failed', (job, err) => {
