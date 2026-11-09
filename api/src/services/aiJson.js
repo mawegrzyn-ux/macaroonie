@@ -7,17 +7,22 @@
 // the usage after, and turns the API's failures into replies the admin can
 // show.
 //
-//   askForJson({ tenantId, person, system, schema, content, maxTokens, effort, what })
+//   askForJson({ tenantId, person, system, schema, content, maxTokens, effort, what, model })
 //     content: the user message's blocks (images, documents, text)
 //     what:    what is being read, for the messages ("invoice", "receipt")
+//     model:   'main' (AI_MODEL, the default) or 'fast' (AI_MODEL_FAST, for
+//              quick everyday answers such as the menu search)
 //     Returns the parsed answer (an object), or throws an httpError.
+//
+//   pepperOn(tenantId)  throws unless the AI key is set and Pepper is on for
+//                       the group (every route that asks Pepper checks it)
 
 import Anthropic from '@anthropic-ai/sdk'
 import { env } from '../config/env.js'
 import { httpError } from '../middleware/error.js'
-import { activeKey } from '../ai/apiKey.js'
+import { activeKey, chatConfigured } from '../ai/apiKey.js'
 import { addUsage } from '../ai/context.js'
-import { chatUnitsLeft, personUnitsLeft } from '../ai/settings.js'
+import { chatUnitsLeft, personUnitsLeft, getAiSettings } from '../ai/settings.js'
 import { ASSISTANT_NAME } from '../../../shared/assistant.js'
 
 // Helpers for the answer shapes: every property required, nothing nullable
@@ -71,13 +76,18 @@ export function readAmount(v, { negative = false, max = 10_000_000 } = {}) {
   return n <= max ? sign * n : undefined
 }
 
-export async function askForJson({ tenantId, person, system, schema, content, maxTokens = 16000, effort = 'medium', what = 'file' }) {
+export async function pepperOn(tenantId) {
+  if (!(await chatConfigured())) throw httpError(503, ASSISTANT_NAME + ' isn\'t set up on this server: a platform admin adds the AI key on the Platform page.')
+  if (!(await getAiSettings(tenantId)).staff_enabled) throw httpError(403, ASSISTANT_NAME + ' is switched off for your group (' + ASSISTANT_NAME + ' > Settings).')
+}
+
+export async function askForJson({ tenantId, person, system, schema, content, maxTokens = 16000, effort = 'medium', what = 'file', model = 'main' }) {
   if ((await chatUnitsLeft(tenantId)) <= 0) throw httpError(429, 'This month\'s AI allowance is used up.')
   const mine = person?.sub ? await personUnitsLeft(tenantId, person.sub) : null
   if (mine !== null && mine <= 0) throw httpError(429, 'You\'ve used your share of the AI allowance for today. It starts again tomorrow.')
 
   const params = {
-    model: env.AI_MODEL,
+    model: model === 'fast' ? (env.AI_MODEL_FAST || env.AI_MODEL) : env.AI_MODEL,
     max_tokens: maxTokens,
     system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
     output_config: { effort, format: { type: 'json_schema', schema } },

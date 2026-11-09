@@ -2620,14 +2620,32 @@ export default function Help() {
               <strong>&ldquo;fridge temperatures&rdquo;</strong>, <strong>&ldquo;allergy&rdquo;</strong> —
               and the menu narrows to the links that fit, best match first, each saying which section
               it sits in. Filler words (how, do, I, change…) are ignored, so a whole question works.
-              Press <strong>Enter</strong> to open the best match, tap a result to open it, or tap
-              the &times; (or press Escape) to bring the full menu back. It only ever offers pages
-              your role can open. When the sidebar is collapsed, the magnifying glass opens it with
-              the box ready to type into; when nothing matches, Ask Pepper is offered instead. A page
+              Tap a result to open it, or tap the &times; (or press Escape) to bring the full menu
+              back. It only ever offers pages your role can open. When the sidebar is collapsed, the
+              magnifying glass opens it with the box ready to type into. A page
               renamed in the Navigation designer is still found by its old words — the search knows
               every page&apos;s everyday vocabulary as well as its label. In Launcher mode the
               sidebar search still works, so any page is a few letters away even when the tiles
               don&apos;t show it.
+            </P>
+            <H3>Asking Pepper to search the menu</H3>
+            <P>
+              When you&apos;re not sure what a page is called, ask Pepper. Type what you&apos;re after
+              in your own words — <strong>&ldquo;a guest wants their money back&rdquo;</strong>,{' '}
+              <strong>&ldquo;where do I see what the fryer cooked&rdquo;</strong> — then press{' '}
+              <strong>Enter</strong> or tap the <strong>Pepper button</strong> (the sparkles) at the
+              right of the search box. Pepper reads your words and picks the pages that fit best,
+              each with a line saying why, and writes a short note under them saying which to open
+              first. Tap a pick to open it, or press Enter again to open the first one. Typing again
+              goes back to the plain search; <strong>Show the menu&apos;s own matches</strong> does
+              the same without changing your words. If nothing in your menu does what you asked,
+              Pepper says so and offers the chat instead.
+            </P>
+            <P>
+              Pepper only picks from the pages your role can open, so it never sends you somewhere
+              you can&apos;t go. It needs Pepper switched on for your group and Pepper in your role;
+              without it, Enter opens the best match as before. Each search counts towards the
+              group&apos;s monthly Pepper allowance and your daily share (it&apos;s a small one).
             </P>
             <H3>The standard menu</H3>
             <P>
@@ -5300,7 +5318,9 @@ export default function Help() {
             <P>
               Ask <em>"Where do I change the opening times?"</em> or <em>"Take me to the rota"</em>{' '}
               and Pepper replies with a link to the page; tap it to go there. It only offers pages
-              you can open.
+              you can open. Quicker still: type it into the search box at the top of the menu and
+              press Enter, and Pepper picks the pages for you there (see Asking Pepper to search
+              the menu).
             </P>
             <H3>Attaching photos, screenshots and files</H3>
             <P>

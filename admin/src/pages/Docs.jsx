@@ -2880,14 +2880,51 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               The UI is <Mono>admin/src/components/layout/NavSearch.jsx</Mono> (input + results
               list), wired in <Mono>AppShell.jsx</Mono>: it searches the role-pruned{' '}
               <Mono>nav_tree</Mono> (so results never offer a page the person can&apos;t open, and it
-              works in launcher mode too), appends a Platform section for platform admins, opens the
-              best match on Enter, clears on Escape or the &times;, and offers Ask Pepper when
-              nothing matches and the chat is on. The collapsed icon rail and the touch burger rail
+              works in launcher mode too), appends a Platform section for platform admins, clears on
+              Escape or the &times;, and (without Pepper) opens the best match on Enter. The collapsed icon rail and the touch burger rail
               each have a search button that opens the sidebar with the box focused. Tests:{' '}
               <Mono>shared/test/navSearch.test.mjs</Mono> (terms, matching, ranking), plus a drift
               check in <Mono>api/test/nav-default.test.mjs</Mono> — every catalogue route must have
               keywords and no keyword entry may point at a route that is gone, so a new page
               can&apos;t ship without search words.
+            </P>
+            <H3>Pepper in the menu search</H3>
+            <P>
+              With Pepper (9 Nov 2026), typing still filters locally with no AI; <strong>Enter</strong>{' '}
+              or the Pepper button inside the box calls <Mono>POST /api/ai/nav-search</Mono>{' '}
+              <Mono>{'{ query }'}</Mono> (<Mono>routes/navAi.js</Mono>, under <Mono>/api/ai</Mono> for the
+              proxy timeout; <Mono>requireAuth</Mono> + <Mono>ai_assistant</Mono> view,{' '}
+              <Mono>pepperOn()</Mono>, 20 a minute). The server builds the caller&apos;s own menu with{' '}
+              <Mono>navTreeFor(req)</Mono> (<Mono>services/navTree.js</Mono>: <Mono>nav_items</Mono>{' '}
+              pruned exactly as <Mono>/api/me</Mono> prunes them, now sharing{' '}
+              <Mono>navItemVisible()</Mono> / <Mono>buildNavTree()</Mono> / <Mono>pruneNavTree()</Mono>{' '}
+              with it), flattens it with <Mono>navLinksOf()</Mono>, adds Platform and Backlog for
+              platform admins, and offers each link once as a ref (<Mono>L1</Mono>,{' '}
+              <Mono>L2</Mono>, …) with its label, where it sits and its <Mono>NAV_KEYWORDS</Mono>.{' '}
+              <Mono>askForJson()</Mono> runs with <Mono>model: &apos;fast&apos;</Mono>{' '}
+              (<Mono>AI_MODEL_FAST</Mono>), effort low and <Mono>NAV_SEARCH_SCHEMA</Mono>{' '}
+              (<Mono>{'{ picks: [{ ref, why }], note }'}</Mono>); <Mono>picksFrom()</Mono> maps refs
+              back onto the links, dropping unknown refs and repeats, at most{' '}
+              <Mono>MAX_PICKS</Mono> (5), reasons cut to 140 and the note to 400 characters. Reply:{' '}
+              <Mono>{'{ picks: [{ label, route, icon, path, why }], note }'}</Mono>. The model never
+              sees or returns a route, so it can&apos;t send anyone to a page outside their menu. Usage
+              is counted like every Pepper call (<Mono>addUsage()</Mono> with the person, against the
+              monthly allowance and the daily share).
+            </P>
+            <P>
+              Admin: <Mono>usePepperNavSearch()</Mono> in <Mono>NavSearch.jsx</Mono> keeps one answer
+              for the query it was asked about (<Mono>forQuery(q)</Mono>; a slower answer to an
+              earlier query is ignored), <Mono>NavSearchInput</Mono> gets the Pepper button
+              (<Mono>nav-search-pepper</Mono>, a spinner while asking) and the Enter rule (Pepper&apos;s
+              answer on screen: open its first pick; otherwise ask), and{' '}
+              <Mono>PepperNavResults</Mono> draws the picks (<Mono>nav-pepper-pick</Mono>,{' '}
+              <Mono>nav-pepper-why</Mono>), the note (<Mono>nav-pepper-note</Mono>), Ask in the chat
+              when nothing fits, Show the menu&apos;s own matches, and the loading and error states.
+              The local results show a hint line (<Mono>nav-search-hint</Mono>); the no-match state&apos;s
+              button now asks Pepper to find it. Tests: <Mono>api/test/nav-search-ai.test.mjs</Mono>{' '}
+              (the exact links <Mono>/api/me</Mono> gives the person, picks back as links, the
+              everyday model, usage, a role&apos;s pages never leaking, platform pages, refusals,
+              tenants apart).
             </P>
             <H3>The outline editor, not drag-and-drop reparenting</H3>
             <P>

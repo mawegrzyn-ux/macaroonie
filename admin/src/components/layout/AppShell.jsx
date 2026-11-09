@@ -10,7 +10,7 @@ import {
   Eye, EyeOff, RefreshCw, Maximize2, Minimize2, Columns, LayoutList, Layers,
   Shield, ChevronDown, Hand, KanbanSquare, LayoutGrid, Sparkles,
 } from 'lucide-react'
-import { NavSearchInput, NavSearchResults, useNavSearchResults } from '@/components/layout/NavSearch'
+import { NavSearchInput, NavSearchResults, PepperNavResults, useNavSearchResults, usePepperNavSearch } from '@/components/layout/NavSearch'
 
 // nav_items.icon is a plain lucide-react component name (string), set by
 // the nav designer's icon picker — resolve it dynamically instead of
@@ -238,8 +238,14 @@ export default function AppShell() {
     }]
   }, [me?.nav_tree, isPlatformAdmin])
   const navResults = useNavSearchResults(searchTree, navQuery)
+  // Enter or the Pepper button in the box: Pepper's picks for what was typed
+  // (NavSearch.jsx). Its answer shows only while the box still holds the
+  // words it answered.
+  const pepperSearch = usePepperNavSearch()
+  const pepperAnswer = canAskAi ? pepperSearch.forQuery(navQuery) : null
   function afterNavPick() {
     setNavQuery('')
+    pepperSearch.reset()
     if (IS_TOUCH) setOpen(false)
   }
   function openSearch() {
@@ -369,17 +375,28 @@ export default function AppShell() {
               results={navResults}
               onPick={afterNavPick}
               inputRef={searchInputRef}
+              canAskAi={canAskAi}
+              pepper={pepperAnswer}
+              onAskPepper={() => pepperSearch.ask(navQuery)}
             />
           </div>
         )}
         <nav className="flex-1 overflow-y-auto p-2 space-y-3">
-          {navResults ? (
+          {pepperAnswer && navResults ? (
+            <PepperNavResults
+              pepper={pepperAnswer}
+              onPick={afterNavPick}
+              onAskAgain={() => pepperSearch.ask(navQuery)}
+              onOpenChat={() => { afterNavPick(); openAi() }}
+              onShowAll={() => pepperSearch.reset()}
+            />
+          ) : navResults ? (
             <NavSearchResults
               results={navResults}
               query={navQuery}
               onPick={afterNavPick}
               canAskAi={canAskAi}
-              onAskAi={() => { afterNavPick(); openAi() }}
+              onAskAi={() => pepperSearch.ask(navQuery)}
             />
           ) : (<>
           {isLauncherMode ? (

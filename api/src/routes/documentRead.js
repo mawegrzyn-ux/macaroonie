@@ -28,8 +28,7 @@ import { z } from 'zod'
 import { withTenant } from '../config/db.js'
 import { requireAuth, requirePermission, requireAnyPermission, permissionLevel, permissionLevels } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
-import { chatConfigured } from '../ai/apiKey.js'
-import { getAiSettings } from '../ai/settings.js'
+import { pepperOn } from '../services/aiJson.js'
 import { detectFile } from '../ai/attachments.js'
 import { getStorage } from '../services/storageSvc.js'
 import {
@@ -83,10 +82,6 @@ function checkFiles(list) {
   return out
 }
 
-async function pepperOn(tenantId) {
-  if (!(await chatConfigured())) throw httpError(503, ASSISTANT_NAME + ' isn\'t set up on this server: a platform admin adds the AI key on the Platform page.')
-  if (!(await getAiSettings(tenantId)).staff_enabled) throw httpError(403, ASSISTANT_NAME + ' is switched off for your group (' + ASSISTANT_NAME + ' > Settings).')
-}
 
 const EXT = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif', 'application/pdf': 'pdf' }
 
