@@ -286,10 +286,11 @@ function TokensCard() {
 
 // ── Settings ────────────────────────────────────────────
 
-function Switch({ checked, onChange, label }) {
+function Switch({ checked, onChange, label, disabled = false, testId }) {
   return (
-    <button type="button" role="switch" aria-checked={!!checked} aria-label={label} onClick={() => onChange(!checked)}
-      className="w-14 h-12 shrink-0 flex items-center justify-center touch-manipulation">
+    <button type="button" role="switch" aria-checked={!!checked} aria-label={label} disabled={disabled} data-testid={testId}
+      onClick={() => onChange(!checked)}
+      className="w-14 h-12 shrink-0 flex items-center justify-center touch-manipulation disabled:opacity-40">
       <span className={cn('relative w-11 h-6 rounded-full transition-colors', checked ? 'bg-primary' : 'bg-muted-foreground/30')}>
         <span className={cn('absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all', checked ? 'left-[22px]' : 'left-0.5')} />
       </span>
@@ -297,8 +298,15 @@ function Switch({ checked, onChange, label }) {
   )
 }
 
+// [key, label, hint, the switch it needs on (it does nothing without it)]
 const SWITCHES = [
   ['staff_enabled', ASSISTANT_NAME + ' (staff assistant)', 'Ask ' + ASSISTANT_NAME + ' in this app and on the phone, and the staff connector for AI apps.'],
+  ['web_search', 'Web search in ' + ASSISTANT_NAME + '\'s chat',
+    ASSISTANT_NAME + ' can look things up on the web for staff (a supplier\'s site, official guidance, a food recall, a local event) ' +
+    'and lists the pages it used under its answer. Each search uses 2,500 units of the allowance (about a penny), at most 5 for one ' +
+    'message, and the pages it reads count like the rest of the chat. What it searches for leaves the app, so it is told never to ' +
+    'search for a guest\'s or a staff member\'s details. Off, it answers from this app and what it knows.',
+    'staff_enabled'],
   ['guest_mcp_enabled', 'Guests book through their AI apps', 'Your restaurants can be found and booked through Macaroonie\'s public connector.'],
   ['guest_chat_enabled', 'Chat on your website', 'The AI chat block on your website answers guests and takes bookings. Add the block in the website builder.'],
 ]
@@ -311,7 +319,10 @@ function SettingsTab({ info }) {
   const dirty = draft && SWITCHES.some(([k]) => draft[k] !== info.settings[k])
   const save = useMutation({
     mutationFn: () => api.patch('/ai/settings', Object.fromEntries(SWITCHES.map(([k]) => [k, draft[k]]))),
-    onSuccess: () => {
+    onSuccess: res => {
+      // Show what was saved at once: the refetch below takes a moment, and
+      // the switches would flick back to their old places until it lands.
+      if (res?.settings) qc.setQueryData(['ai-settings'], old => (old ? { ...old, settings: res.settings } : old))
       setDraft(null)
       qc.invalidateQueries({ queryKey: ['ai-settings'] })
       qc.invalidateQueries({ queryKey: ['ai-status'] })
@@ -322,6 +333,8 @@ function SettingsTab({ info }) {
   const limit = info.settings.monthly_token_limit
   const pct = limit ? Math.min(100, Math.round((u.chat_units / limit) * 100)) : 100
   const mcpCalls = (u.channels.staff_mcp?.requests || 0) + (u.channels.guest_mcp?.requests || 0)
+  // Web searches: shown once the group has web search on, or has made any.
+  const showSearches = !!info.settings.web_search || (u.web_searches || 0) > 0
 
   return (
     <>
@@ -332,13 +345,14 @@ function SettingsTab({ info }) {
       )}
       <Card title="What's switched on">
         <div className="divide-y -my-1">
-          {SWITCHES.map(([k, label, hint]) => (
+          {SWITCHES.map(([k, label, hint, needs]) => (
             <div key={k} className="flex items-center gap-3 py-1">
-              <div className="flex-1">
+              <div className={cn('flex-1', needs && !current[needs] && 'opacity-60')}>
                 <div className="text-sm font-medium">{label}</div>
                 <div className="text-xs text-muted-foreground">{hint}</div>
               </div>
-              <Switch checked={current[k]} label={label} onChange={v => setDraft({ ...current, [k]: v })} />
+              <Switch checked={current[k] && (!needs || current[needs])} label={label} testId={'ai-switch-' + k}
+                disabled={!!needs && !current[needs]} onChange={v => setDraft({ ...current, [k]: v })} />
             </div>
           ))}
         </div>
@@ -363,14 +377,15 @@ function SettingsTab({ info }) {
           <p className="text-xs text-muted-foreground mt-1">
             The staff assistant and the website chat share this allowance. When it runs out they pause until next month;
             the connectors keep working. It counts what each reply costs: what the assistant writes counts five times,
-            the earlier part of a chat it reads again a tenth or less.
+            the earlier part of a chat it reads again a tenth or less, and a web search 2,500 units.
           </p>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm">
+        <div className={cn('grid grid-cols-2 gap-2 text-sm', showSearches ? 'sm:grid-cols-5' : 'sm:grid-cols-4')}>
           <Stat label="Staff chat replies" value={u.channels.staff_chat?.requests || 0} />
           <Stat label="Website chat replies" value={u.channels.guest_chat?.requests || 0} />
           <Stat label="Staff app calls" value={u.channels.staff_mcp?.requests || 0} />
           <Stat label="Guest app calls" value={u.channels.guest_mcp?.requests || 0} />
+          {showSearches && <Stat label="Web searches" value={u.web_searches || 0} testId="ai-web-searches" />}
         </div>
         {mcpCalls === 0 && <p className="text-xs text-muted-foreground">No calls from AI apps yet this month.</p>}
       </Card>
@@ -427,7 +442,8 @@ function FairUseCard({ settings, canManage }) {
   const dirty = !!draft && (draft.person_daily_pct !== settings.person_daily_pct || draft.chat_retention_days !== settings.chat_retention_days)
   const save = useMutation({
     mutationFn: () => api.patch('/ai/settings', { person_daily_pct: draft.person_daily_pct, chat_retention_days: draft.chat_retention_days }),
-    onSuccess: () => {
+    onSuccess: res => {
+      if (res?.settings) qc.setQueryData(['ai-settings'], old => (old ? { ...old, settings: res.settings } : old))
       setDraft(null)
       qc.invalidateQueries({ queryKey: ['ai-settings'] })
       qc.invalidateQueries({ queryKey: ['ai-status'] })
@@ -477,9 +493,9 @@ function FairUseCard({ settings, canManage }) {
   )
 }
 
-function Stat({ label, value }) {
+function Stat({ label, value, testId }) {
   return (
-    <div className="rounded-md border px-3 py-2">
+    <div className="rounded-md border px-3 py-2" data-testid={testId}>
       <div className="text-lg font-semibold">{Number(value).toLocaleString()}</div>
       <div className="text-xs text-muted-foreground">{label}</div>
     </div>

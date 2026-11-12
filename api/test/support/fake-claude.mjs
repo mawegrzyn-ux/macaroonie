@@ -7,6 +7,9 @@
 //   claude.script.push(req => ({ stop_reason: 'end_turn', content: [{ type: 'text', text: 'Hi' }] }))
 //   claude.script.push(() => ({ status: 529, type: 'overloaded_error' }))   // an error reply
 //   claude.requests  // [{ headers, body }]
+//
+// A text block's `citations` go out as citations_delta events, and
+// usage.server_tool_use (web searches made) with the usage, as the API does.
 import http from 'node:http'
 
 function pieces(text, size) {
@@ -17,11 +20,15 @@ function pieces(text, size) {
 
 export function streamEvents(msg) {
   const u = msg.usage || {}
-  const usage = { input_tokens: u.input_tokens || 0, cache_read_input_tokens: u.cache_read_input_tokens || 0, cache_creation_input_tokens: u.cache_creation_input_tokens || 0 }
+  const usage = {
+    input_tokens: u.input_tokens || 0, cache_read_input_tokens: u.cache_read_input_tokens || 0, cache_creation_input_tokens: u.cache_creation_input_tokens || 0,
+    ...(u.server_tool_use ? { server_tool_use: u.server_tool_use } : {}),
+  }
   const ev = [{ type: 'message_start', message: { ...msg, content: [], stop_reason: null, stop_sequence: null, usage: { ...usage, output_tokens: 1 } } }]
   ;(msg.content || []).forEach((b, index) => {
     if (b.type === 'text') {
-      ev.push({ type: 'content_block_start', index, content_block: { type: 'text', text: '' } })
+      ev.push({ type: 'content_block_start', index, content_block: { type: 'text', text: '', ...(b.citations ? { citations: [] } : {}) } })
+      for (const c of b.citations || []) ev.push({ type: 'content_block_delta', index, delta: { type: 'citations_delta', citation: c } })
       for (const t of pieces(b.text, 7)) ev.push({ type: 'content_block_delta', index, delta: { type: 'text_delta', text: t } })
     } else if (b.type === 'tool_use' || b.type === 'server_tool_use') {
       ev.push({ type: 'content_block_start', index, content_block: { ...b, input: {} } })

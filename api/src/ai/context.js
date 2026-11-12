@@ -157,7 +157,8 @@ export function usageDay(d = new Date()) {
 // 1.25 and a cache read 0.05, while the everyday model (AI_MODEL_FAST) costs
 // a fraction of that. So a long chat re-reading its cached history counts for
 // what it costs, not its raw size, and a chat routed to the cheaper model
-// uses less of the allowance. The monthly allowance
+// uses less of the allowance. A web search counts SEARCH_UNITS on top of the
+// tokens its results add. The monthly allowance
 // (ai_settings.monthly_token_limit) and each person's daily share are in units.
 const UNIT_PRICE = 4   // $ per million units
 // $ per million tokens: input, output, cache read, cache write (5-minute).
@@ -178,24 +179,34 @@ const LONG_PROMPT_RATE = { 'claude-haiku-5-5': 5 }
 // writes 1.25, cache reads 0.1.
 const OTHER = [UNIT_PRICE, UNIT_PRICE * 5, UNIT_PRICE * 0.1, UNIT_PRICE * 1.25]
 
-export function usageUnits({ input = 0, output = 0, cacheRead = 0, cacheWrite = 0 }, model = null) {
+// A web search (Anthropic's web search tool, in Pepper's chat and the local
+// info captures) costs $10 per 1,000 whichever model asked: 2,500 units each.
+const SEARCH_PRICE = 10_000   // millionths of a dollar per search
+export const SEARCH_UNITS = SEARCH_PRICE / UNIT_PRICE
+
+export function usageUnits({ input = 0, output = 0, cacheRead = 0, cacheWrite = 0, searches = 0 }, model = null) {
   const [pIn, pOut, pRead, pWrite] = PRICES[model] ?? OTHER
   const rate = (input + cacheRead + cacheWrite > LONG_PROMPT && LONG_PROMPT_RATE[model]) || 1
-  const dollars = (input * pIn + output * pOut + cacheRead * pRead + cacheWrite * pWrite) * rate
-  return Math.round(dollars / UNIT_PRICE)
+  // In millionths of a dollar: tokens x $ per million tokens.
+  const cost = (input * pIn + output * pOut + cacheRead * pRead + cacheWrite * pWrite) * rate + searches * SEARCH_PRICE
+  return Math.round(cost / UNIT_PRICE)
 }
 
+/** The web searches a model response made (usage.server_tool_use). */
+export const searchesIn = usage => Math.max(0, Number(usage?.server_tool_use?.web_search_requests) || 0)
+
 /** Add to this month's usage for a tenant + channel, and to the person's day
- *  (staff only: `person` = { sub, email }). `model` is the one that answered. */
-export async function addUsage(tenantId, channel, { requests = 1, input = 0, output = 0, cacheRead = 0, cacheWrite = 0, model = null, person = null } = {}) {
+ *  (staff only: `person` = { sub, email }). `model` is the one that answered,
+ *  `searches` the web searches the response made. */
+export async function addUsage(tenantId, channel, { requests = 1, input = 0, output = 0, cacheRead = 0, cacheWrite = 0, searches = 0, model = null, person = null } = {}) {
   if (!tenantId) return
   const month = usageMonth()
-  const units = usageUnits({ input, output, cacheRead, cacheWrite }, model)
+  const units = usageUnits({ input, output, cacheRead, cacheWrite, searches }, model)
   try {
     await withTenant(tenantId, async tx => {
       await tx`
-        INSERT INTO ai_usage (tenant_id, month, channel, requests, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, units)
-        VALUES (${tenantId}, ${month}, ${channel}, ${requests}, ${input}, ${output}, ${cacheRead}, ${cacheWrite}, ${units})
+        INSERT INTO ai_usage (tenant_id, month, channel, requests, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, units, web_searches)
+        VALUES (${tenantId}, ${month}, ${channel}, ${requests}, ${input}, ${output}, ${cacheRead}, ${cacheWrite}, ${units}, ${searches})
         ON CONFLICT (tenant_id, month, channel) DO UPDATE SET
           requests           = ai_usage.requests           + EXCLUDED.requests,
           input_tokens       = ai_usage.input_tokens       + EXCLUDED.input_tokens,
@@ -203,6 +214,7 @@ export async function addUsage(tenantId, channel, { requests = 1, input = 0, out
           cache_read_tokens  = ai_usage.cache_read_tokens  + EXCLUDED.cache_read_tokens,
           cache_write_tokens = ai_usage.cache_write_tokens + EXCLUDED.cache_write_tokens,
           units              = ai_usage.units              + EXCLUDED.units,
+          web_searches       = ai_usage.web_searches       + EXCLUDED.web_searches,
           updated_at         = now()
       `
       if (!person?.sub) return

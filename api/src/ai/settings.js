@@ -7,6 +7,10 @@
 // the allowance counts both chat channels, in units: tokens weighted by
 // price (usageUnits() in context.js). MCP calls are counted but not limited
 // (the guest's or staff member's own AI app does the talking).
+//
+// web_search (migration 242): Pepper's staff chat may search the web (off
+// until the group switches it on; chat.js adds the tool). Each search counts
+// in the allowance like tokens do (usageUnits()).
 
 import { withTenant } from '../config/db.js'
 import { usageMonth, usageDay } from './context.js'
@@ -17,6 +21,7 @@ export const DEFAULTS = {
   guest_mcp_enabled:   true,
   guest_chat_enabled:  false,
   staff_enabled:       true,
+  web_search:          false,
   monthly_token_limit: 2_000_000,
   person_daily_pct:    25,
   chat_retention_days: 90,
@@ -25,7 +30,8 @@ export const DEFAULTS = {
 export async function getAiSettings(tenantId) {
   if (!tenantId) return { ...DEFAULTS }
   const [row] = await withTenant(tenantId, tx => tx`
-    SELECT guest_mcp_enabled, guest_chat_enabled, staff_enabled, monthly_token_limit, person_daily_pct, chat_retention_days
+    SELECT guest_mcp_enabled, guest_chat_enabled, staff_enabled, web_search, monthly_token_limit, person_daily_pct,
+           chat_retention_days
       FROM ai_settings WHERE tenant_id = ${tenantId}
   `)
   return row ? { ...row, monthly_token_limit: Number(row.monthly_token_limit) } : { ...DEFAULTS }
@@ -35,14 +41,16 @@ export async function getAiSettings(tenantId) {
 export async function saveAiSettings(tenantId, fields) {
   const merged = { ...(await getAiSettings(tenantId)), ...fields }
   await withTenant(tenantId, tx => tx`
-    INSERT INTO ai_settings (tenant_id, guest_mcp_enabled, guest_chat_enabled, staff_enabled, monthly_token_limit,
-                             person_daily_pct, chat_retention_days)
+    INSERT INTO ai_settings (tenant_id, guest_mcp_enabled, guest_chat_enabled, staff_enabled, web_search,
+                             monthly_token_limit, person_daily_pct, chat_retention_days)
     VALUES (${tenantId}, ${merged.guest_mcp_enabled}, ${merged.guest_chat_enabled},
-            ${merged.staff_enabled}, ${merged.monthly_token_limit}, ${merged.person_daily_pct}, ${merged.chat_retention_days})
+            ${merged.staff_enabled}, ${merged.web_search}, ${merged.monthly_token_limit}, ${merged.person_daily_pct},
+            ${merged.chat_retention_days})
     ON CONFLICT (tenant_id) DO UPDATE SET
       guest_mcp_enabled   = EXCLUDED.guest_mcp_enabled,
       guest_chat_enabled  = EXCLUDED.guest_chat_enabled,
       staff_enabled       = EXCLUDED.staff_enabled,
+      web_search          = EXCLUDED.web_search,
       monthly_token_limit = EXCLUDED.monthly_token_limit,
       person_daily_pct    = EXCLUDED.person_daily_pct,
       chat_retention_days = EXCLUDED.chat_retention_days,
@@ -51,15 +59,16 @@ export async function saveAiSettings(tenantId, fields) {
   return getAiSettings(tenantId)
 }
 
-/** This month's usage rows plus the chat units the allowance applies to. */
+/** This month's usage rows plus the chat units the allowance applies to and
+ *  the web searches made (the chats' and the local info captures'). */
 export async function monthUsage(tenantId) {
   const rows = await withTenant(tenantId, tx => tx`
-    SELECT channel, requests, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, units
+    SELECT channel, requests, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, units, web_searches
       FROM ai_usage
      WHERE tenant_id = ${tenantId} AND month = ${usageMonth()}
   `)
   const channels = {}
-  let chatUnits = 0
+  let chatUnits = 0, searches = 0
   for (const r of rows) {
     const c = {
       requests:           Number(r.requests),
@@ -68,11 +77,13 @@ export async function monthUsage(tenantId) {
       cache_read_tokens:  Number(r.cache_read_tokens),
       cache_write_tokens: Number(r.cache_write_tokens),
       units:              Number(r.units),
+      web_searches:       Number(r.web_searches),
     }
     channels[r.channel] = c
+    searches += c.web_searches
     if (r.channel === 'staff_chat' || r.channel === 'guest_chat') chatUnits += c.units
   }
-  return { month: usageMonth(), channels, chat_units: chatUnits }
+  return { month: usageMonth(), channels, chat_units: chatUnits, web_searches: searches }
 }
 
 /** Remaining chat units this month (0 or less = allowance used up). */

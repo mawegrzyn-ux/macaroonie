@@ -16,7 +16,10 @@
 // can go with a message (attach button, camera on touch devices, paste, or
 // drop onto the chat): see ./attachments.jsx. Links Pepper gives to pages of
 // the app ([Rota](/rota), from its open_page tool) open in the app; other
-// links show as plain text.
+// links show as plain text. With web search on for the group (Settings), an
+// answer that used the web lists the pages it cites under it (Sources: the
+// only outside links in the chat, opened in a new tab) and each search shows
+// as a line with what was searched for.
 // With pageAware (the drawer only), each message also says which page the
 // person is on, and the venue and day or week that page shows
 // (usePepperPage(), lib/pepperPage.js), so "who is on here?" needs no venue
@@ -26,7 +29,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, parseISO } from 'date-fns'
-import { Send, Loader2, Check, X, Sparkles, Search, CircleAlert, Paperclip, Camera, Upload, MapPin } from 'lucide-react'
+import { Send, Loader2, Check, X, Sparkles, Search, CircleAlert, Paperclip, Camera, Upload, MapPin, Globe, ExternalLink } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { usePepperPageContext } from '@/lib/pepperPage'
@@ -118,6 +121,7 @@ export default function ChatView({ conversationId, onConversationId, className, 
   const [usePage, setUsePage] = useState(true)
   const pageCtx = usePageContext(pageAware)
   const sentPage = usePage ? pageCtx?.page : undefined
+  const { data: status } = useAiStatus()
 
   const { data: conv, isLoading } = useQuery({
     queryKey: ['ai-conversation', conversationId],
@@ -144,6 +148,8 @@ export default function ChatView({ conversationId, onConversationId, className, 
     if ((res.conversation_id ?? null) !== (conversationId ?? null)) onConversationId?.(res.conversation_id ?? null)
     qc.invalidateQueries({ queryKey: ['ai-conversations'] })
     qc.invalidateQueries({ queryKey: ['ai-status'] })
+    // This month's use on the Settings tab (replies, units, web searches).
+    qc.invalidateQueries({ queryKey: ['ai-settings'] })
   }
 
   function onEvent(ev) {
@@ -158,7 +164,7 @@ export default function ChatView({ conversationId, onConversationId, className, 
         return next
       }
       if (ev.type === 'discard') return list.filter(x => !x.key?.startsWith(ev.key))
-      if (ev.type === 'step') return [...list, { type: 'step', text: ev.text }]
+      if (ev.type === 'step') return [...list, { type: 'step', text: ev.text, web: !!ev.web }]
       if (ev.type === 'card') return [...list, ev.card]
       return list
     })
@@ -288,7 +294,7 @@ export default function ChatView({ conversationId, onConversationId, className, 
           <div className="text-center py-6">
             <Sparkles className="w-8 h-8 mx-auto text-primary mb-2" />
             <p className="font-medium">Ask {ASSISTANT_NAME}</p>
-            <p className="text-sm text-muted-foreground mb-4">Bookings, customers, the rota and staff, cash up and wages, online orders, sold out and the till, H&S checks, menus, purchasing and the website. Attach a photo, screenshot, PDF or CSV to work from. You confirm every change.</p>
+            <p className="text-sm text-muted-foreground mb-4">Bookings, customers, the rota and staff, cash up and wages, online orders, sold out and the till, H&S checks, menus, purchasing and the website. Attach a photo, screenshot, PDF or CSV to work from.{status?.web_search ? ' ' + ASSISTANT_NAME + ' can look things up on the web too, and shows its sources.' : ''} You confirm every change.</p>
             <div className="flex flex-col gap-2 max-w-sm mx-auto">
               {suggestions.map(s => (
                 <button key={s} type="button" onClick={() => submit(s)}
@@ -303,13 +309,13 @@ export default function ChatView({ conversationId, onConversationId, className, 
         {pending && <UserBubble text={pending.text} files={pending.files} local />}
         {live.map((item, i) => <ChatItem key={item.key || item.id || 'l' + i} item={item} decide={decide} busy />)}
         {working && (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite" data-testid="chat-activity">
             <Loader2 className="w-4 h-4 animate-spin" />
             {send.isPending ? (activity || 'Working on it...') : 'Still working on the last message...'}
           </div>
         )}
         {notice && !working && (
-          <p className="text-sm text-muted-foreground italic">{notice}</p>
+          <p className="text-sm text-muted-foreground italic" data-testid="chat-notice">{notice}</p>
         )}
         {error && (
           <div className="flex items-start gap-2 text-sm text-destructive bg-destructive/10 rounded-md px-3 py-2">
@@ -391,20 +397,64 @@ function ChatItem({ item, decide, busy = false }) {
   if (item.type === 'assistant') {
     if (!item.text.trim()) return null
     return (
-      <div className="max-w-[92%] text-sm leading-relaxed">
+      <div className="max-w-[92%] text-sm leading-relaxed" data-testid="chat-answer">
         <RichText text={item.text} />
+        <Sources sources={item.sources} />
       </div>
     )
   }
   if (item.type === 'step') {
+    const Icon = item.web ? Globe : Search
     return (
-      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-        <Search className="w-3 h-3" /> {item.text}
+      <div className="flex items-start gap-1.5 text-xs text-muted-foreground" data-testid={item.web ? 'chat-web-step' : undefined}>
+        <Icon className="w-3 h-3 mt-0.5 shrink-0" /> <span className="min-w-0 break-words">{item.text}</span>
       </div>
     )
   }
   if (item.type === 'action') return <ActionCard card={item} decide={decide} busy={busy} />
   return null
+}
+
+const hostOf = url => {
+  try { return new URL(url).hostname.replace(/^www\./, '') } catch { return '' }
+}
+const SOURCES_SHOWN = 4
+
+/** The web pages an answer cites (Pepper's web search), as links that open
+ *  in a new tab: the only links in the chat that leave the app. */
+function Sources({ sources }) {
+  const [all, setAll] = useState(false)
+  const list = (sources || []).filter(s => /^https?:\/\//i.test(s?.url || ''))
+  if (!list.length) return null
+  const shown = all ? list : list.slice(0, SOURCES_SHOWN)
+  return (
+    <div className="mt-2 rounded-md border bg-background overflow-hidden" data-testid="chat-sources">
+      <div className="px-3 pt-2 pb-1 text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+        <Globe className="w-3.5 h-3.5" /> {list.length === 1 ? 'Source' : 'Sources'}
+      </div>
+      <ul>
+        {shown.map((s, i) => (
+          <li key={s.url}>
+            <a href={s.url} target="_blank" rel="noopener noreferrer nofollow" data-testid="chat-source"
+              className="flex items-center gap-2 min-h-[48px] px-3 py-1 hover:bg-accent touch-manipulation">
+              <span className="w-4 shrink-0 text-xs text-muted-foreground">{i + 1}</span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-primary underline underline-offset-2">{s.title || hostOf(s.url)}</span>
+                <span className="block truncate text-xs text-muted-foreground">{hostOf(s.url)}</span>
+              </span>
+              <ExternalLink className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
+            </a>
+          </li>
+        ))}
+      </ul>
+      {list.length > SOURCES_SHOWN && (
+        <button type="button" onClick={() => setAll(v => !v)} data-testid="chat-sources-more"
+          className="w-full min-h-[48px] px-3 border-t text-xs text-left text-muted-foreground hover:bg-accent touch-manipulation">
+          {all ? 'Show fewer' : 'Show all ' + list.length}
+        </button>
+      )}
+    </div>
+  )
 }
 
 function UserBubble({ text, files, local = false }) {

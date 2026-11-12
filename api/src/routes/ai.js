@@ -16,7 +16,8 @@
 //
 //   GET    /settings                   switches, this month's usage (units) and each
 //                                      person's (a manager sees everyone), MCP addresses
-//   PATCH  /settings                   switches, daily share per person, how long
+//   PATCH  /settings                   switches (incl. web_search: web search in the
+//                                      staff chat), daily share per person, how long
 //                                      chats are kept (ai_assistant manage)
 //   GET    /tokens                     access tokens for the staff MCP
 //   POST   /tokens                     { name } -> the token, shown once
@@ -75,6 +76,7 @@ const SettingsBody = z.object({
   guest_mcp_enabled:   z.boolean().optional(),
   guest_chat_enabled:  z.boolean().optional(),
   staff_enabled:       z.boolean().optional(),
+  web_search:          z.boolean().optional(),
   person_daily_pct:    z.number().int().min(1).max(100).nullable().optional(),
   chat_retention_days: z.union([z.literal(30), z.literal(90), z.literal(180), z.literal(365)]).optional(),
 })
@@ -123,7 +125,7 @@ export default async function aiRoutes(app) {
   // ── Chat ────────────────────────────────────────────────
   app.get('/status', async req => {
     const configured = await chatConfigured()
-    if (!req.tenantId) return { configured, enabled: false, permission: 'none', can_chat: false, units_left: null, share_left: null }
+    if (!req.tenantId) return { configured, enabled: false, permission: 'none', can_chat: false, web_search: false, units_left: null, share_left: null }
     const settings = await getAiSettings(req.tenantId)
     const level = await permissionLevel(req, 'ai_assistant')
     const share = level === 'none' ? null : await personUnitsLeft(req.tenantId, req.user.sub)
@@ -132,6 +134,8 @@ export default async function aiRoutes(app) {
       enabled:      settings.staff_enabled,
       permission:   level,
       can_chat:     configured && settings.staff_enabled && level !== 'none',
+      // Web search is on for the group's staff chats (Settings; migration 242).
+      web_search:   settings.staff_enabled && settings.web_search,
       units_left:   level === 'none' ? null : Math.max(0, await chatUnitsLeft(req.tenantId)),
       share_left:   share === null ? null : Math.max(0, share),
     }
@@ -358,6 +362,9 @@ export default async function aiRoutes(app) {
              COALESCE(s.staff_enabled, true)          AS staff_enabled,
              COALESCE(s.guest_mcp_enabled, true)      AS guest_mcp_enabled,
              COALESCE(s.guest_chat_enabled, false)    AS guest_chat_enabled,
+             COALESCE(s.web_search, false)            AS web_search,
+             COALESCE((SELECT sum(u.web_searches) FROM ai_usage u
+                        WHERE u.tenant_id = t.id AND u.month = ${usageMonth()}), 0) AS web_searches,
              COALESCE((SELECT sum(u.units) FROM ai_usage u
                         WHERE u.tenant_id = t.id AND u.month = ${usageMonth()}
                           AND u.channel IN ('staff_chat', 'guest_chat')), 0) AS chat_units,
@@ -372,7 +379,10 @@ export default async function aiRoutes(app) {
     return {
       month: usageMonth(),
       chat_configured: await chatConfigured(),
-      tenants: rows.map(r => ({ ...r, monthly_token_limit: Number(r.monthly_token_limit), chat_units: Number(r.chat_units), mcp_calls: Number(r.mcp_calls) })),
+      tenants: rows.map(r => ({
+        ...r, monthly_token_limit: Number(r.monthly_token_limit), chat_units: Number(r.chat_units),
+        mcp_calls: Number(r.mcp_calls), web_searches: Number(r.web_searches),
+      })),
     }
   })
 
