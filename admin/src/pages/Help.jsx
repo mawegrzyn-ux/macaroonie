@@ -322,7 +322,8 @@ export default function Help() {
             <P>
               Local info is its own module in Access. <strong>View</strong> sees the calendar, list and widget;
               <strong> Manage</strong> adds events, hides items and sets up captures. Captured searches count
-              towards the group's monthly Pepper allowance; the weather doesn't.
+              towards the group's monthly Pepper allowance (what Pepper reads and writes, plus 2,500 units for
+              each web search it makes, up to five a run); the weather doesn't.
             </P>
           </section>
 
@@ -5104,6 +5105,7 @@ export default function Help() {
                 ['Finding a page', '"Where do I change the opening times?"', 'The pages you can open'],
                 ['How the app works', '"How do I set up tip pots?", "Where do I add a fridge?", "What does variance mean?"', 'Everyone who can use Pepper'],
                 ['Your day in one go', '"Brief me on today", "What\'s on at Ware tomorrow?"', 'Each part follows its own area'],
+                ['Looking things up on the web', '"What does the Food Standards Agency say about cooling rice?", "Is there a recall on this brand of hummus?", "When does the Ware Christmas market start?"', 'Everyone who can use Pepper, once web search is switched on in Settings'],
               ]}
             />
             <H3>Asking about the page you&apos;re on</H3>
@@ -5430,6 +5432,53 @@ export default function Help() {
               if one is refused, take a screenshot of it instead. If a file can't be read, the
               message and the file go back into the message box so you can try again.
             </InfoBox>
+            <H3>Looking things up on the web</H3>
+            <P>
+              Pepper can search the web when an answer needs something from outside the app, or newer
+              than it knows: a supplier&apos;s website, official guidance, a food recall, a local event,
+              how something is done. It is off until someone who can manage Pepper switches on{' '}
+              <strong>Web search in Pepper&apos;s chat</strong> under Pepper → Settings (and presses
+              Save). Once it is on, the empty chat says Pepper can look things up on the web. It works in
+              Ask Pepper, on the Pepper page and in the phone app. Pepper decides when to search: it
+              doesn&apos;t search for things the app itself answers (your bookings, rota, menus), and you
+              can ask it to (<em>"look that up"</em>) or not to (<em>"don&apos;t search, just tell me
+              what you know"</em>).
+            </P>
+            <DataTable
+              head={['You see', 'What it means']}
+              rows={[
+                ['Searching the web... under the answer', 'Pepper is searching now. A search takes a few seconds.'],
+                ['A line with a globe: Searched the web: ...', 'One search, with the words Pepper searched for. There can be several for one question.'],
+                ['Sources under the answer', 'The web pages the answer uses, each with its title and website. Tap one to open it in a new tab. The first four show; Show all lists the rest. These are the only links in the chat that leave the app.'],
+                ['A web search didn\'t run: the limit of 5 searches for one message was reached', 'Pepper makes at most 5 searches for one message and answers from what it found. Ask a follow-up to look further.'],
+                ['A web search didn\'t run: web search is busy (or wasn\'t available)', 'That one search failed; Pepper carries on with the others or answers without it.'],
+                ['Web search wasn\'t available for this one, so I answered without it', 'The search service turned the whole request down, so this answer comes from the app and what Pepper already knows. If it keeps happening, tell whoever looks after your Macaroonie account.'],
+              ]}
+            />
+            <P>
+              What a web page says is information for Pepper to weigh, never an instruction to it: a
+              page can&apos;t make Pepper change anything, and every change still shows a card for you
+              to confirm. For anything that matters (food safety, the law, a price you will act on),
+              open the source and read it yourself: Pepper can misread a page, and a page can be wrong
+              or out of date.
+            </P>
+            <P>
+              Each search uses 2,500 units of the month&apos;s allowance (about a penny), and the pages
+              Pepper reads count like the rest of the chat, so a chat with searches in it uses more than
+              one without. Settings shows the month&apos;s <strong>Web searches</strong> beside the
+              other figures.
+            </P>
+            <InfoBox type="info">
+              The words Pepper searches for leave the app (they go to the search service Pepper&apos;s
+              maker, Anthropic, runs). Pepper is told never to put a guest&apos;s or a staff
+              member&apos;s name, email or phone number into a search, so don&apos;t ask it to look a
+              person up. The chat on your website never searches the web, and an AI app connected
+              through the staff connector uses its own web search, if it has one, not this one.
+            </InfoBox>
+            <P>
+              Switching web search off (or on) takes effect with the next message in every chat. Earlier
+              answers keep their sources.
+            </P>
             <H3>Using your own AI app</H3>
             <P>
               <strong>Claude (claude.ai and the Claude apps), ChatGPT and other apps that sign in:</strong>{' '}
@@ -5478,8 +5527,10 @@ export default function Help() {
             <P>
               People who can manage Pepper (owners and admins, unless your roles say otherwise) see{' '}
               <strong>Settings</strong> and <strong>Activity</strong> on the Pepper page. Settings has
-              three switches (Pepper for staff, guests' AI apps, website chat) with one Save, and this
-              month's usage. The chats share a monthly allowance; when it is used up they pause until
+              four switches (Pepper for staff, web search in Pepper's chat, guests' AI apps, website
+              chat) with one Save, and this month's usage. Web search needs Pepper for staff switched
+              on: with that off, its switch is greyed out. The chats share a monthly allowance; when it
+              is used up they pause until
               the next month, and the AI app connectors keep working. Activity lists every change made
               through Pepper, the website chat and AI apps: what, by whom and where; a booking made
               past the usual limits is marked.
@@ -5489,7 +5540,8 @@ export default function Help() {
               times, and the earlier part of a chat it reads again counts a tenth or less. So a long
               chat costs much less than its size suggests, and an everyday question answered by the
               faster model uses only a small part of what the same question costs on the most
-              capable one. <strong>Who uses it this month</strong>{' '}
+              capable one. A web search counts 2,500 units on top of what Pepper reads from it.{' '}
+              <strong>Who uses it this month</strong>{' '}
               shows each person&apos;s replies, their part of the month&apos;s allowance, and how much
               of today&apos;s share they have used.
             </P>
@@ -5533,6 +5585,14 @@ export default function Help() {
               tests the key in use; <strong>Remove saved key</strong> (asks you to confirm) goes back
               to the key in the server's settings file, if there is one. If a key stops working, staff
               see "The AI assistant's key isn't working" in the chat until a new one is saved.
+            </P>
+            <P>
+              Web search is switched on by each restaurant group (Pepper → Settings). It works unless
+              web search has been switched off for the Anthropic account the key belongs to (an
+              administrator can do that in the Claude Console): while it is off there, Pepper answers
+              without it and says <em>Web search wasn&apos;t available for this one</em>. The AI usage
+              tab says which groups have web search on and how many searches each has made this month;
+              Anthropic charges for each search on top of the usual use.
             </P>
           </section>
 

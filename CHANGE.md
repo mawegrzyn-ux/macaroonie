@@ -6,6 +6,33 @@ Migrations are listed where a database change is required.
 ---
 
 
+## [2026-11-12 — Pepper can look things up on the web]
+
+Migration 242.
+
+**Added**
+- **Web search in Pepper's chat.** Switch on **Web search in Pepper's chat** under Pepper → Settings (off to start; people who can manage Pepper) and Pepper can search the web when an answer needs something from outside the app or newer than it knows: a supplier's website, official guidance, a food recall, a local event. It works in Ask Pepper, on the Pepper page and in the phone app.
+- **You see what it did.** While it searches the chat says *Searching the web...*; each search shows as a line with the words it searched for; and the pages the answer uses are listed under it as **Sources**, each opening in a new tab (the first four, with Show all for the rest).
+- **At most 5 searches for one message.** Past that Pepper answers from what it found, and a line says the limit was reached.
+- **Searches count in the allowance.** Each one uses 2,500 units (about a penny) on top of what Pepper reads from it. Settings shows the month's **Web searches**; the Platform page's AI usage tab shows which groups have web search on and how many searches each made.
+- **A web page can't make Pepper do anything.** What a page says is information for Pepper to weigh; every change still shows a card to confirm. Pepper is told never to search for a guest's or a staff member's details.
+
+**Changed**
+- Local info's search captures now count their web searches in the allowance too (2,500 units each, up to five a run); before, only what Pepper read and wrote counted.
+- A chat keeps working when Pepper's tools change (web search switched on or off, or an update that changes a tool): Pepper sets its earlier working notes aside from that message on. Open chats do this once on their next message after this update.
+- The month's figures on Pepper → Settings are current straight after a chat (they could be up to half a minute old).
+
+**Fixed**
+- The switches on Pepper → Settings no longer flick back to their old places for a moment after Save.
+
+**Notes**
+- The chat on your website never searches the web, and an AI app on the staff connector uses its own web search, not this one.
+- If web search is switched off for the platform's Anthropic account, Pepper answers without it and says so.
+- Not built: sites to allow or block, where the person is, reading one given page, source markers inside the answer.
+- Built and tested against a stand-in for Claude, in Chromium at desktop, tablet and phone widths; not yet run against the live Claude service.
+
+---
+
 ## [2026-11-12 — Designers in the menu, and what each menu entry is for]
 
 Migration 241.

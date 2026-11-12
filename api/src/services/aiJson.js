@@ -21,7 +21,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { env } from '../config/env.js'
 import { httpError } from '../middleware/error.js'
 import { activeKey, chatConfigured } from '../ai/apiKey.js'
-import { addUsage } from '../ai/context.js'
+import { addUsage, searchesIn } from '../ai/context.js'
 import { chatUnitsLeft, personUnitsLeft, getAiSettings } from '../ai/settings.js'
 import { ASSISTANT_NAME } from '../../../shared/assistant.js'
 
@@ -127,7 +127,8 @@ export async function askForJson({ tenantId, person, system, schema, content, ma
  * read out of the text (jsonIn). A turn the API pauses (stop_reason
  * pause_turn) is carried on with the content so far, a few times at most.
  * `person` is null for scheduled runs: they count the tenant's monthly
- * allowance, never anyone's daily share.
+ * allowance, never anyone's daily share. The searches themselves count too
+ * (addUsage's `searches`), as they do in Pepper's chat.
  */
 export async function searchForJson({ tenantId, person = null, system, schema, prompt, site, maxUses = 5, maxTokens = 8000, effort = 'medium', what = 'search' }) {
   if ((await chatUnitsLeft(tenantId)) <= 0) throw httpError(429, 'This month\'s AI allowance is used up.')
@@ -153,7 +154,7 @@ export async function searchForJson({ tenantId, person = null, system, schema, p
     const u = res.usage || {}
     await addUsage(tenantId, 'staff_chat', {
       input: u.input_tokens || 0, output: u.output_tokens || 0, cacheRead: u.cache_read_input_tokens || 0,
-      cacheWrite: u.cache_creation_input_tokens || 0, model: res.model, person,
+      cacheWrite: u.cache_creation_input_tokens || 0, searches: searchesIn(u), model: res.model, person,
     })
     if (res.stop_reason !== 'pause_turn') break
     messages = [...messages, { role: 'assistant', content: res.content }]

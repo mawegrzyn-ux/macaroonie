@@ -52,7 +52,9 @@ function TenantRow({ t }) {
         </div>
         <div className="text-xs text-muted-foreground">
           {pct}% · {t.chat_units.toLocaleString()} chat units · {t.mcp_calls.toLocaleString()} AI app calls
-          {' · '}{[t.staff_enabled && 'staff', t.guest_mcp_enabled && 'guest apps', t.guest_chat_enabled && 'website chat'].filter(Boolean).join(', ') || 'all off'}
+          {' · '}{[t.staff_enabled && 'staff', t.guest_mcp_enabled && 'guest apps', t.guest_chat_enabled && 'website chat',
+            t.staff_enabled && t.web_search && 'web search'].filter(Boolean).join(', ') || 'all off'}
+          {t.web_searches > 0 && <span data-testid="ai-platform-searches"> · {t.web_searches.toLocaleString()} web {t.web_searches === 1 ? 'search' : 'searches'}</span>}
         </div>
       </div>
       <label className="flex items-center gap-2 text-sm">
