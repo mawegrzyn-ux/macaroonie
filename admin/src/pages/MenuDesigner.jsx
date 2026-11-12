@@ -1,6 +1,9 @@
 // src/pages/MenuDesigner.jsx
 //
-// Menu designer (/menus/:id/design). Hand-place a menu's printed layout:
+// Menu print designer for one menu (/menus/print-designs/:id, :id = the
+// menu; /menus/:id/design until migration 241, which also gave the designs a
+// list page with its own main menu entry, MenuPrintDesigns.jsx). Hand-place
+// a menu's printed layout:
 // each page is a snap grid (columns x rows); the header, section titles,
 // whole sections, single dishes, text, images, lines, footer notes, the
 // allergen key and page numbers are blocks dropped on it, dragged to move
@@ -29,7 +32,7 @@
 // PUT /api/menus/:id/designs/:designId after that).
 
 import { useState, useEffect, useMemo, useRef, useLayoutEffect, useCallback } from 'react'
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft, Loader2, Plus, Minus, Printer, Save, Settings as SettingsIcon, GripVertical,
@@ -162,6 +165,12 @@ export default function MenuDesigner() {
   const { id } = useParams()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
+  // Back goes where the designer was opened from: the menu (its Design
+  // print button sends state.from = 'menu'), else the list of designs.
+  // Kept as it was when the page opened, and passed on whenever the
+  // address changes below, so a reload still knows.
+  const navState = useRef(useLocation().state).current
+  const fromMenu = navState?.from === 'menu'
   const api = useApi()
   const qc = useQueryClient()
   // Menus = View: the designs can be looked at; changes can't be saved.
@@ -203,8 +212,8 @@ export default function MenuDesigner() {
     setCurPageId(l?.pages[0]?.id ?? null)
     setSel(null)
     setNeedsFit(new Set())
-    setSearchParams(d ? { design: d.id } : {}, { replace: true })
-  }, [setSearchParams])
+    setSearchParams(d ? { design: d.id } : {}, { replace: true, state: navState })
+  }, [setSearchParams, navState])
 
   // First load: the design in the URL, else the one used for printing,
   // else the first. Later switches go through openDesign() directly, so a
@@ -234,7 +243,7 @@ export default function MenuDesigner() {
     setCurPageId(l.pages[0].id)
     setSel(null)
     setNeedsFit(from ? new Set() : new Set([l.pages[0].blocks[0].id]))
-    setSearchParams({}, { replace: true })
+    setSearchParams({}, { replace: true, state: navState })
   }
 
   // Shared print styles, only while the designer is open.
@@ -297,7 +306,7 @@ export default function MenuDesigner() {
       setSavedJson(JSON.stringify(l))
       setDesignId(row.id)
       setDesignName(row.name)
-      setSearchParams({ design: row.id }, { replace: true })
+      setSearchParams({ design: row.id }, { replace: true, state: navState })
       refreshMenu()
     },
   })
@@ -613,9 +622,9 @@ export default function MenuDesigner() {
     <div className="h-full flex flex-col bg-muted/30">
       {/* Top bar */}
       <div className="shrink-0 h-14 border-b bg-background flex items-center gap-2 px-4 max-lg:notouch:pl-14">
-        <button onClick={() => navigate(`/menus?edit=${id}`)}
-          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground min-h-[44px] px-2 touch-manipulation">
-          <ArrowLeft className="w-4 h-4" /> Menu
+        <button onClick={() => navigate(fromMenu ? `/menus?edit=${id}` : '/menus/print-designs')} data-testid="md-back"
+          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground min-h-[48px] px-2 touch-manipulation">
+          <ArrowLeft className="w-4 h-4" /> {fromMenu ? 'Menu' : 'Designs'}
         </button>
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold truncate">Print design · {menu.name}{layout && designName ? ` · ${designName}` : ''}</p>
@@ -1362,7 +1371,7 @@ function TypeOptions({ block, o, menu, layout, onOpts, openMedia }) {
                           ) : (
                             <>
                               <span className="block text-sm font-medium truncate">{c.title}</span>
-                              {c.body && <span className="block text-[11px] text-muted-foreground line-clamp-2">{c.body}</span>}
+                              {c.body && <span className="text-[11px] text-muted-foreground line-clamp-2">{c.body}</span>}
                             </>
                           )}
                         </span>

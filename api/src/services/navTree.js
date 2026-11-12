@@ -11,11 +11,13 @@
 //   pruneNavTree(nodes, permissions, roleId, isPlatformAdmin)
 //   navTreeFor(req)                            the caller's pruned tree
 //   navLinksOf(tree)                           its links, flat, with where they sit
+//                                              and what each page is for
 
 import { withTenant } from '../config/db.js'
 import { MODULE_KEYS } from '../config/modules.js'
 import { permissionLevels } from '../middleware/auth.js'
 import { effectiveRoleId } from './roles.js'
+import { navDescription, placeText } from '../../../shared/navSearch.js'
 
 // A link item is visible when its module (if any) isn't 'none' for this
 // user AND their effective role isn't in hidden_role_ids. A section is
@@ -73,12 +75,17 @@ export async function navTreeFor(req) {
   return pruneNavTree(buildNavTree(items), permissions, roleId, isPlatformAdmin)
 }
 
-/** The tree's links, flat, in menu order: { label, route, icon, path }. */
+/**
+ * The tree's links, flat, in menu order: { label, route, icon, path,
+ * description } (the entry's own description, else its page's standard one).
+ */
 export function navLinksOf(tree) {
   const out = []
   const walk = (list, path) => {
     for (const n of list || []) {
-      if (n.kind !== 'section' && n.route) out.push({ label: n.label || '', route: n.route, icon: n.icon || null, path: path.join(' · ') })
+      if (n.kind !== 'section' && n.route) {
+        out.push({ label: n.label || '', route: n.route, icon: n.icon || null, path: placeText(path), description: navDescription(n) })
+      }
       if (n.children?.length) walk(n.children, [...path, n.label || ''])
     }
   }

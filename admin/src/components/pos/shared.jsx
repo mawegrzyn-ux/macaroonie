@@ -5,7 +5,9 @@
 // rows, delete confirm) come from the staff pages' shared file.
 
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
+import { ArrowRight } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
@@ -58,6 +60,32 @@ export function Section({ title, hint, children, actions, bodyClass }) {
       </div>
       <div className={cn('p-4 space-y-4', bodyClass)}>{children}</div>
     </section>
+  )
+}
+
+/**
+ * A pointer to another page: a designer that has its own page and menu entry
+ * (migration 241) says so on the page it used to be part of, and the other
+ * way round. A link, not a button, so it works for View users inside a
+ * page's disabled fieldset.
+ */
+export function PageLink({ to, icon: Icon, title, children, label, testId }) {
+  return (
+    <div className="rounded-xl border bg-background px-4 py-3 flex flex-wrap items-center gap-3" data-testid={testId}>
+      {Icon && (
+        <span className="w-11 h-11 rounded-lg bg-muted flex items-center justify-center shrink-0">
+          <Icon className="w-5 h-5 text-muted-foreground" />
+        </span>
+      )}
+      <div className="flex-1 min-w-[180px]">
+        <p className="text-sm font-semibold">{title}</p>
+        {children && <p className="text-xs text-muted-foreground mt-0.5">{children}</p>}
+      </div>
+      <Link to={to}
+        className="inline-flex items-center justify-center gap-2 h-12 px-4 rounded-lg text-sm font-medium border bg-background hover:bg-muted touch-manipulation shrink-0">
+        {label} <ArrowRight className="w-4 h-4" />
+      </Link>
+    </div>
   )
 }
 

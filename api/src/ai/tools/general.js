@@ -5,13 +5,15 @@
 //   open_page   a link to an admin page (from the navigation designer's page
 //               catalogue, routes/nav.js ROUTE_CATALOG), only pages the person
 //               can see. In the chat the link opens the page in the app; over
-//               MCP it is the full office address.
+//               MCP it is the full office address. `about` says what the page
+//               is for (its standard description, shared/navSearch.js).
 //   how_do_i    the Help page's passages that best answer a how-to question,
 //               with a link to each (src/ai/helpIndex.js)
 
 import { z } from 'zod'
 import { ToolError, isStaff, staffPermissionLevel, levelAtLeast } from '../context.js'
 import { ROUTE_CATALOG } from '../../routes/nav.js'
+import { NAV_DESCRIPTIONS } from '../../../../shared/navSearch.js'
 import { officeOrigin } from '../../services/platformHost.js'
 import { searchHelp } from '../helpIndex.js'
 
@@ -31,6 +33,13 @@ const ALSO = {
   '/menus/allergens': ['allergens', 'allergy'],
   '/purchasing': ['ordering stock', 'supplier orders', 'deliveries'],
   '/screens': ['menu boards', 'tv'],
+  '/screens/boards': ['board designer', 'screen designer', 'menu board designer'],
+  '/pos/kiosk-designs': ['kiosk design', 'kiosk designs'],
+  '/pos/kitchen-flow': ['kitchen flow', 'flow designer', 'kds flow'],
+  '/pos/print-designs': ['print designer', 'receipt designer', 'ticket designer', 'print designs'],
+  '/menus/print-designs': ['menu designer', 'printed menu', 'print designer'],
+  '/website/builder': ['website builder', 'website designer', 'page designer'],
+  '/website/reservations-widget': ['booking widget', 'widget designer'],
   '/ai': ['pepper', 'assistant', 'connect'],
 }
 
@@ -48,9 +57,11 @@ export const generalTools = [
     async run(ctx, input) {
       if (!isStaff(ctx)) throw new ToolError('Not available here', 403)
       const t = input.page.toLowerCase().replace(/^the\s+/, '').replace(/\s+page$/, '').trim()
-      const modules = [...new Set(ROUTE_CATALOG.map(p => p.module))]
+      // A page with no module of its own (Today) is open to everyone signed
+      // in: there is no permission to look up for it.
+      const modules = [...new Set(ROUTE_CATALOG.map(p => p.module).filter(Boolean))]
       const levels = new Map(await Promise.all(modules.map(async m => [m, await staffPermissionLevel(ctx, m)])))
-      const pages = ROUTE_CATALOG.filter(p => levelAtLeast(levels.get(p.module), 'view'))
+      const pages = ROUTE_CATALOG.filter(p => !p.module || levelAtLeast(levels.get(p.module), 'view'))
       const words = t.split(/[^a-z0-9&]+/).filter(Boolean)
       const score = p => {
         const names = [p.label.toLowerCase(), p.route.slice(1).replace(/[-/]/g, ' '), ...(ALSO[p.route] || [])]
@@ -67,6 +78,7 @@ export const generalTools = [
       const top = ranked.filter(x => x.s === ranked[0].s).map(x => x.p)
       const view = p => ({
         page: p.label,
+        ...(NAV_DESCRIPTIONS[p.route] ? { about: NAV_DESCRIPTIONS[p.route] } : {}),
         ...(ctx.channel === 'staff_chat'
           ? { link: '[' + p.label + '](' + p.route + ')' }
           : { url: officeOrigin() + p.route }),

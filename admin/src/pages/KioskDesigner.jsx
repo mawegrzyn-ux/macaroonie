@@ -1,7 +1,7 @@
 // src/pages/KioskDesigner.jsx
 //
-// One self-order kiosk design (Store tech > Kiosks > Kiosk designs > Edit;
-// /pos/kiosks/designs/:id; docs/POS.md section 10). Settings on the left in
+// One self-order kiosk design (Store tech > Kiosk designer > Edit;
+// /pos/kiosk-designs/:id, opened from Store tech > Kiosk designer; docs/POS.md section 10). Settings on the left in
 // folding cards; on the right the kiosk app itself in a frame
 // (pos.<domain>/?kiosk_preview=<signed link>, from
 // POST /pos/kiosk-designs/:id/preview). The frame shows the unsaved design as
@@ -1843,7 +1843,7 @@ export default function KioskDesigner() {
     setSavingAs(false)
     setLeaving(false)
     save.reset()
-    navigate('/pos/kiosks/designs/' + out.id)
+    navigate('/pos/kiosk-designs/' + out.id)
   }
 
   useEffect(() => {
@@ -1854,7 +1854,7 @@ export default function KioskDesigner() {
     return () => link.remove()
   }, [])
 
-  const back = () => navigate('/pos/kiosks')
+  const back = () => navigate('/pos/kiosk-designs')
 
   if (isLoading) return <div className="h-full flex items-center justify-center"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
   if (error) return <div className="p-6 max-w-lg"><ErrorNote error={error} /></div>
@@ -1862,7 +1862,7 @@ export default function KioskDesigner() {
     return (
       <div className="p-6 space-y-3">
         <p className="text-sm">This kiosk design doesn't exist any more.</p>
-        <Btn onClick={back}><ArrowLeft className="w-4 h-4" /> Kiosks</Btn>
+        <Btn onClick={back}><ArrowLeft className="w-4 h-4" /> Designs</Btn>
       </div>
     )
   }
@@ -1892,7 +1892,7 @@ export default function KioskDesigner() {
         ) : (
           <button type="button" onClick={() => (dirty ? setLeaving(true) : back())} data-testid="kd-back"
             className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground min-h-[44px] px-2 touch-manipulation">
-            <ArrowLeft className="w-4 h-4" /> Kiosks
+            <ArrowLeft className="w-4 h-4" /> Designs
           </button>
         )}
         <div className="min-w-[150px] flex-1">

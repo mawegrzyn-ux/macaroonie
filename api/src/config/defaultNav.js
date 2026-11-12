@@ -5,8 +5,12 @@
 // restores. Grouped by job, each page once. Migration 196 put every tenant
 // on this tree and migration 202 replaced Till setup and Menu screens with the
 // Store tech section (later migrations add single links, e.g. 219's Venue
-// hub, 221's Today, 228's Till layouts); api/test/nav-default.test.mjs checks 196's tree with those changes
+// hub, 221's Today, 228's Till layouts, 241's designers); api/test/nav-default.test.mjs checks 196's tree with those changes
 // applied matches this one, so change them together.
+//
+// Entries carry no description here: one left empty uses its page's standard
+// description (shared/navSearch.js NAV_DESCRIPTIONS), so a change to the
+// standard words reaches every group that hasn't written its own.
 
 export const DEFAULT_NAV_TREE = [
   {
@@ -78,6 +82,7 @@ export const DEFAULT_NAV_TREE = [
         label: 'Menus', icon: 'ChefHat', route: '/menus', module: 'menus',
         children: [
           { label: 'Menu times', icon: 'Clock', route: '/menus/times', module: 'menus' },
+          { label: 'Menu print designer', icon: 'BookOpenText', route: '/menus/print-designs', module: 'menus' },
           { label: 'Variant groups', icon: 'Layers', route: '/menus/variant-groups', module: 'menus' },
           { label: 'Allergens & dietary', icon: 'Tag', route: '/menus/dietary-tags', module: 'menus' },
           { label: 'Allergen matrix', icon: 'Grid3x3', route: '/menus/allergens', module: 'menus' },
@@ -93,6 +98,8 @@ export const DEFAULT_NAV_TREE = [
     label: 'Brand & web', children: [
       { label: 'Brand & theme', icon: 'Palette', route: '/brand', module: 'website' },
       { label: 'Website', icon: 'Globe', route: '/website', module: 'website' },
+      { label: 'Page builder', icon: 'Blocks', route: '/website/builder', module: 'website' },
+      { label: 'Reservations widget', icon: 'CalendarCheck', route: '/website/reservations-widget', module: 'website' },
       { label: 'Media', icon: 'FolderOpen', route: '/media', module: 'website' },
       { label: 'Reviews', icon: 'MessageSquare', route: '/reviews', module: 'website' },
       {
@@ -124,11 +131,17 @@ export const DEFAULT_NAV_TREE = [
       { label: 'Till layouts', icon: 'PanelsTopLeft', route: '/pos/layouts', module: 'pos_setup' },
       { label: 'Floor plan', icon: 'LayoutPanelTop', route: '/pos/floor', module: 'pos_setup' },
       { label: 'Kiosks', icon: 'TabletSmartphone', route: '/pos/kiosks', module: 'pos_setup' },
+      { label: 'Kiosk designer', icon: 'Paintbrush', route: '/pos/kiosk-designs', module: 'pos_setup' },
       { label: 'Kitchen screens', icon: 'CookingPot', route: '/pos/kitchen', module: 'pos_setup' },
+      { label: 'Kitchen flow designer', icon: 'Route', route: '/pos/kitchen-flow', module: 'pos_setup' },
       { label: 'Menu screens', icon: 'Monitor', route: '/screens', module: 'screens' },
+      { label: 'Screen board designer', icon: 'Presentation', route: '/screens/boards', module: 'screens' },
+      { label: 'Screen playlists', icon: 'ListVideo', route: '/screens/playlists', module: 'screens' },
+      { label: 'Screen walls', icon: 'Grid2x2', route: '/screens/walls', module: 'screens' },
       { label: 'Venue hub', icon: 'Server', route: '/pos/hub', module: 'pos_setup' },
       { label: 'Printers', icon: 'Printer', route: '/pos/printers', module: 'pos_setup' },
       { label: 'Printing', icon: 'ReceiptText', route: '/pos/printing', module: 'pos_setup' },
+      { label: 'Receipt & ticket designer', icon: 'ScrollText', route: '/pos/print-designs', module: 'pos_setup' },
       { label: 'Card machines', icon: 'CreditCard', route: '/pos/cards', module: 'pos_setup' },
       { label: 'Device updates', icon: 'RefreshCw', route: '/pos/updates', module: 'pos_setup' },
       { label: 'Order types', icon: 'ListOrdered', route: '/pos/types', module: 'pos_setup' },

@@ -52,6 +52,7 @@ import { useAiStatus } from '@/components/ai/ChatView'
 import { useTimelineSettings } from '@/contexts/TimelineSettingsContext'
 import { useSettings, applySiteTheme } from '@/contexts/SettingsContext'
 import { ASSISTANT_NAME } from '@shared/assistant.js'
+import { navDescription, exactRoutes } from '@shared/navSearch.js'
 
 // The tenant-customisable nav tree comes from /api/me's nav_tree (see
 // the nav designer, api/src/routes/nav.js) — already filtered server-side
@@ -60,17 +61,23 @@ import { ASSISTANT_NAME } from '@shared/assistant.js'
 // all; it just renders whatever tree it's handed. `toNavItem` adapts one
 // API node (route/icon-as-string) into the shape NavItem expects
 // (to/icon-as-component), recursively.
-function toNavItem(node) {
-  const children = (node.children || []).filter(c => c.kind === 'link').map(toNavItem)
+function toNavItem(node, exact) {
+  const children = (node.children || []).filter(c => c.kind === 'link').map(c => toNavItem(c, exact))
   return {
     label: node.label,
     to: node.route,
     icon: resolveIcon(node.icon),
+    // What the page is for (the entry's own description, else its page's
+    // standard one): the link's tooltip, and what the menu search shows.
+    description: navDescription(node),
     // An item with children needs exact-match active state, or its own
     // NavLink stays "active" while browsing any child's route too (NavLink
     // defaults to prefix matching) — same reasoning the old hardcoded nav
-    // applied to Purchasing/Menus/Emails.
-    end: children.length > 0,
+    // applied to Purchasing/Menus/Emails. The same goes for a link whose
+    // address another link's starts with, wherever that one sits in the
+    // menu (Menu screens at /screens beside the board designer at
+    // /screens/boards): exactRoutes() in shared/navSearch.js.
+    end: children.length > 0 || !!exact?.has(node.route),
     children,
   }
 }
@@ -108,7 +115,7 @@ function NavItem({ item, open }) {
         <NavLink
           to={item.to}
           end={item.end ?? item.to === '/'}
-          title={!open ? item.label : undefined}
+          title={!open ? item.label : (item.description || undefined)}
           className={({ isActive }) => cn(
             'flex items-center gap-3 py-2 rounded-md text-sm font-medium transition-colors flex-1 min-w-0',
             open ? 'px-3' : 'justify-center px-2',
@@ -238,6 +245,7 @@ export default function AppShell() {
     }]
   }, [me?.nav_tree, isPlatformAdmin])
   const navResults = useNavSearchResults(searchTree, navQuery)
+  const navExact = useMemo(() => exactRoutes(me?.nav_tree ?? []), [me?.nav_tree])
   // Enter or the Pepper button in the box: Pepper's picks for what was typed
   // (NavSearch.jsx). Its answer shows only while the box still holds the
   // words it answered.
@@ -385,6 +393,7 @@ export default function AppShell() {
           {pepperAnswer && navResults ? (
             <PepperNavResults
               pepper={pepperAnswer}
+              exact={navExact}
               onPick={afterNavPick}
               onAskAgain={() => pepperSearch.ask(navQuery)}
               onOpenChat={() => { afterNavPick(); openAi() }}
@@ -394,6 +403,7 @@ export default function AppShell() {
             <NavSearchResults
               results={navResults}
               query={navQuery}
+              exact={navExact}
               onPick={afterNavPick}
               canAskAi={canAskAi}
               onAskAi={() => pepperSearch.ask(navQuery)}
@@ -408,12 +418,15 @@ export default function AppShell() {
           ) : (
             (me?.nav_tree ?? []).map(node => {
               if (node.kind === 'section') {
-                const items = (node.children || []).filter(c => c.kind === 'link').map(toNavItem)
+                const items = (node.children || []).filter(c => c.kind === 'link').map(c => toNavItem(c, navExact))
                 if (!items.length) return null
                 return (
                   <div key={node.id}>
                     {open && (
-                      <p className="px-3 mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      <p
+                        className="px-3 mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
+                        title={navDescription(node) || undefined}
+                      >
                         {node.label}
                       </p>
                     )}
@@ -423,7 +436,7 @@ export default function AppShell() {
                   </div>
                 )
               }
-              return <NavItem key={node.id} item={toNavItem(node)} open={open} />
+              return <NavItem key={node.id} item={toNavItem(node, navExact)} open={open} />
             })
           )}
           {isPlatformAdmin && (

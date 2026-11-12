@@ -8,14 +8,21 @@
 // prints where, the venue hub (linking, updates, Hub first), kitchen screens (stations, the kitchen flows, pairing),
 // self-order kiosks, staff PINs, receipts and payments, the Cash Recon link.
 // Company-wide: till layouts (the designer: /pos/layouts/:id), order types, discounts, charges (the list),
-// order flows (prompts and things added by themselves; the designer: /pos/flows/:id), kiosk designs,
-// print designs (with which prints where per venue), till roles and courses.
+// order flows (prompts and things added by themselves; the designer: /pos/flows/:id), till roles and courses.
 // The floor plan has its own page (/pos/floor). docs/POS.md.
+//
+// Designers have their own pages and menu entries (migration 241), no longer
+// a part of another page: the kiosk designer (/pos/kiosk-designs, the designs;
+// each edited at /pos/kiosk-designs/:id), the kitchen flow designer
+// (/pos/kitchen-flow) and the receipt & ticket designer (/pos/print-designs;
+// each design at /pos/print-designs/:id). Kiosks, Kitchen screens and Printing
+// link to them.
 
 import { useParams, useSearchParams, Navigate } from 'react-router-dom'
 import {
   Loader2, MonitorSmartphone, Waypoints, ListOrdered, Printer, ReceiptText, CreditCard, CookingPot,
   TabletSmartphone, KeyRound, ShieldCheck, UtensilsCrossed, Receipt, ArrowRightLeft, RefreshCw, Server, BadgePercent, PanelsTopLeft, HandCoins, Workflow,
+  Paintbrush, Route, ScrollText,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { usePermission } from '@/hooks/usePermission'
@@ -30,10 +37,10 @@ import ChargesSection from '@/components/pos/ChargesSection'
 import OrderFlowsSection from '@/components/pos/OrderFlowsSection'
 import PrintersSection from '@/components/pos/PrintersSection'
 import HubSection from '@/components/pos/HubSection'
-import PrintingSection from '@/components/pos/PrintingSection'
+import PrintingSection, { PrintDesignsSection } from '@/components/pos/PrintingSection'
 import CardMachinesSection from '@/components/pos/CardMachinesSection'
-import KitchenSection from '@/components/pos/KitchenSection'
-import KiosksSection from '@/components/pos/KiosksSection'
+import KitchenSection, { KitchenFlowSection } from '@/components/pos/KitchenSection'
+import KiosksSection, { KioskDesignsSection } from '@/components/pos/KiosksSection'
 import StaffSection from '@/components/pos/StaffSection'
 import RolesSection from '@/components/pos/RolesSection'
 import CoursesSection from '@/components/pos/CoursesSection'
@@ -53,10 +60,13 @@ export const TABS = [
   { key: 'hub', label: 'Venue hub', icon: Server, render: p => <HubSection {...p} /> },
   { key: 'printers', label: 'Printers', icon: Printer, render: p => <PrintersSection {...p} /> },
   { key: 'printing', label: 'Printing', icon: ReceiptText, render: p => <PrintingSection {...p} /> },
+  { key: 'print-designs', label: 'Receipt & ticket designer', icon: ScrollText, render: p => <PrintDesignsSection {...p} /> },
   { key: 'cards', label: 'Card machines', icon: CreditCard, render: p => <CardMachinesSection {...p} /> },
   { key: 'updates', label: 'Device updates', icon: RefreshCw, render: p => <DeviceUpdatesSection {...p} /> },
   { key: 'kitchen', label: 'Kitchen screens', icon: CookingPot, wide: true, render: p => <KitchenSection {...p} /> },
+  { key: 'kitchen-flow', label: 'Kitchen flow designer', icon: Route, wide: true, render: p => <KitchenFlowSection {...p} /> },
   { key: 'kiosks', label: 'Kiosks', icon: TabletSmartphone, render: p => <KiosksSection {...p} /> },
+  { key: 'kiosk-designs', label: 'Kiosk designer', icon: Paintbrush, render: p => <KioskDesignsSection {...p} /> },
   { key: 'staff', label: 'Staff and PINs', icon: KeyRound, render: p => <StaffSection {...p} /> },
   { key: 'roles', label: 'Till roles', icon: ShieldCheck, render: p => <RolesSection {...p} /> },
   { key: 'courses', label: 'Courses', icon: UtensilsCrossed, render: p => <CoursesSection {...p} /> },

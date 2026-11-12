@@ -631,7 +631,7 @@ function MenuEditor({ id, onBack }) {
               <LayoutTemplate className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Design print</span>
             </span>
           ) : (
-            <button onClick={() => navigate(`/menus/${id}/design`)} aria-label="Design print" title="Design the printed menu"
+            <button onClick={() => navigate(`/menus/print-designs/${id}`, { state: { from: 'menu' } })} aria-label="Design print" title="Design the printed menu"
               className={TOP_BTN + ' text-muted-foreground hover:text-foreground'}>
               <LayoutTemplate className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Design print</span>
               {draft.design_count > 0 && <span className="text-[10px] px-1 rounded bg-blue-100 text-blue-700">{draft.design_count}</span>}

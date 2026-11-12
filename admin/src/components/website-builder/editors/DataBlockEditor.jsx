@@ -9,7 +9,7 @@ const SOURCE_HINT = {
   opening_hours:  'Uses the venue Schedule by default. Open Opening hours to advertise different times.',
   find_us:        'Address + map embed live in the Find us section.',
   contact:        'Phone, email, social links live in the Contact section.',
-  reservations_widget: 'Pick which venue\'s widget to embed in the Reservations widget section.',
+  reservations_widget: 'Pick which venue\'s widget to embed. Its look is set on the Reservations widget page.',
   menu_pdfs:      'Lists the PDFs uploaded in Website > PDF menus. Shows nothing while PDF menus are switched off there.',
   allergens:      'Manage allergen info in the Allergens section.',
 }

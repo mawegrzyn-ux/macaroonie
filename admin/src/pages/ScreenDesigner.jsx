@@ -420,7 +420,7 @@ export default function ScreenDesigner() {
   return (
     <div className="h-full flex flex-col bg-muted/30">
       <div className="shrink-0 h-14 border-b bg-background flex items-center gap-2 px-4 max-lg:notouch:pl-14">
-        <button onClick={() => navigate('/screens?tab=boards')}
+        <button onClick={() => navigate('/screens/boards')}
           className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground min-h-[44px] px-2 touch-manipulation">
           <ArrowLeft className="w-4 h-4" /> Boards
         </button>
