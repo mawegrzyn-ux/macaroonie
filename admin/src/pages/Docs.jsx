@@ -4426,8 +4426,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>normaliseTillLayout()</Mono> is the only way a layout is read (unknown zones and buttons dropped, every
               number inside its limits, repeated ids renamed). <Mono>layoutProblems()</Mono> stops a save (no Order zone,
               more zones of a type than its <Mono>max</Mono>, two Dish choices zones that don&apos;t split Must pick and
-              Optional, zones overlapping other than Dish choices and pop-ups (<Mono>FLOATING_ZONES</Mono>), a pop-up nothing
-              closes); <Mono>layoutWarnings()</Mono> only advises.{' '}
+              Optional, zones overlapping other than the ones that float (<Mono>floats(zone)</Mono>: Dish choices, pop-ups
+              and any zone shown as a pop-up), a pop-up nothing closes, an Order zone shown as a pop-up that no button
+              opens); <Mono>layoutWarnings()</Mono> only advises.{' '}
               <Mono>packCells(cells, zone)</Mono> places a zone&apos;s buttons (the first free place row by row; a button
               bigger than the grid is cut down) and returns <Mono>&#123; pages, rest, hidden, rows, cols &#125;</Mono>. The
               till&apos;s <Mono>ZoneGrid.jsx</Mono> and the designer&apos;s <Mono>GridPreview</Mono> both use it, so a button
@@ -4476,7 +4477,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               words settings; <Mono>GRID_DEFAULTS.popup</Mono> 3 x 2 in pages), plus <Mono>title</Mono> (default Pop-up),{' '}
               <Mono>frame</Mono> (border and shadow, default true), <Mono>controls</Mono> (a bar with the title and an X,
               default true), <Mono>close_outside</Mono> (default true) and <Mono>close_on_tap</Mono> (default false). They
-              are in <Mono>FLOATING_ZONES</Mono> with Dish choices: they may sit over any zone and never count as an{' '}
+              float with Dish choices (<Mono>floats(zone)</Mono>, which replaced the <Mono>FLOATING_ZONES</Mono> list on
+              12 Nov 2026, when any zone could be shown as a pop-up): they may sit over any zone and never count as an{' '}
               <Mono>overlap</Mono>, against <Mono>choices_space</Mono> or in the designer&apos;s drag clash. Button actions{' '}
               <Mono>open_popup</Mono> (with <Mono>popup_id</Mono>; no order needed) and <Mono>close_popup</Mono> (kept only
               in pop-ups by <Mono>normaliseZone()</Mono>). <Mono>normaliseTillLayout()</Mono> drops an opener whose pop-up
@@ -4485,7 +4487,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>controls</Mono> or <Mono>close_outside</Mono> is on, <Mono>close_on_tap</Mono> with at least one button,
               or a <Mono>close_popup</Mono> button is there; otherwise <Mono>layoutProblems()</Mono> gives{' '}
               <Mono>popup_stuck</Mono> and the save is refused (422 code <Mono>layout</Mono>). Warnings:{' '}
-              <Mono>empty_popup</Mono>, <Mono>popup_unopened</Mono> (no opener in another zone or pop-up); a pop-up&apos;s
+              <Mono>empty_popup</Mono>, <Mono>popup_unopened</Mono> (no opener that can be tapped: see Phone layouts
+              below); a pop-up&apos;s
               dish buttons count against <Mono>no_dishes</Mono> and its buttons against <Mono>hidden_button</Mono>.{' '}
               <Mono>buttonLabel(b, &#123; popups &#125;)</Mono> names an opener after its pop-up and a close button Close.{' '}
               <Mono>ownLayout()</Mono> and <Mono>layoutIds()</Mono> treat a pop-up&apos;s dishes, discounts and charges as
@@ -4509,8 +4512,10 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             </P>
             <P>
               API (<Mono>routes/tillLayouts.js</Mono>; Store tech view to read, manage to change): <Mono>GET</Mono> and{' '}
-              <Mono>POST /api/pos/till-layouts</Mono> (a new one from <Mono>template</Mono> standard | quick or{' '}
-              <Mono>copy_from</Mono>; 30 per company), <Mono>GET</Mono>, <Mono>PUT</Mono> and{' '}
+              <Mono>POST /api/pos/till-layouts</Mono> (a new one from <Mono>template</Mono> standard | quick | phone |
+              phone_table | phone_categories, the keys of <Mono>LAYOUT_TEMPLATES</Mono>, or{' '}
+              <Mono>copy_from</Mono>; 30 per company; the list rows and the setup&apos;s <Mono>till_layouts</Mono> carry{' '}
+              <Mono>phone</Mono>), <Mono>GET</Mono>, <Mono>PUT</Mono> and{' '}
               <Mono>DELETE /api/pos/till-layouts/:id</Mono>. <Mono>PUT</Mono> stores <Mono>ownTillLayout()</Mono>&apos;s output
               (sections, dishes, discounts and menus that aren&apos;t the company&apos;s dropped) and answers 422 with code{' '}
               <Mono>layout</Mono> and the problems. <Mono>DELETE</Mono> takes the layout off every till that picked it and
@@ -4522,9 +4527,10 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               (<Mono>till_layouts</Mono> by id, <Mono>venueTillLayouts()</Mono>), so a till draws its layout offline too.
             </P>
             <P>
-              Till: <Mono>tillLayoutOf(config)</Mono> (<Mono>pos/src/lib/tillLayout.js</Mono>) picks the till&apos;s own,
+              Till: <Mono>tillLayoutOf(config, &#123; narrow, sideways, counter &#125;)</Mono> (<Mono>pos/src/lib/tillLayout.js</Mono>;
+              the screens call <Mono>useTillLayout(config)</Mono>, which follows the screen&apos;s size) picks the till&apos;s own,
               else the venue&apos;s, else none; a layout missing from the config or without an Order zone means the standard
-              screen. <Mono>screens/Check.jsx</Mono> and <Mono>screens/Counter.jsx</Mono> then draw{' '}
+              screen (on a phone-sized screen see Phone layouts below). <Mono>screens/Check.jsx</Mono> and <Mono>screens/Counter.jsx</Mono> then draw{' '}
               <Mono>components/LayoutScreen.jsx</Mono> instead of the check panel and <Mono>MenuPanel</Mono>, giving it the
               Order zone&apos;s content (the check panel, or the counter&apos;s New order and waiting orders), dishes to their
               usual <Mono>pick()</Mono> and every other button to <Mono>runButton()</Mono>: the same windows and{' '}
@@ -4579,6 +4585,89 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>layoutProblems()</Mono> finds any. The till window on Tills has the till&apos;s own choice
               (<Mono>till-layout</Mono>). Tests: <Mono>shared/pos/test/tillLayout.test.mjs</Mono>,{' '}
               <Mono>api/test/till-layouts.test.mjs</Mono>.
+            </P>
+            <P>
+              Phone layouts (12 Nov 2026, no migration: layouts are jsonb and older ones normalise to their old look).
+              Three additions to the shared rules. (1) Any of <Mono>POPUP_ZONES</Mono> (check, categories, menus, items,
+              category, seats) takes <Mono>show</Mono> (<Mono>SHOWS</Mono>: always | popup). Shown as a pop-up it gets a
+              pop-up&apos;s fields: <Mono>title</Mono> (null = <Mono>popupTitle(zone)</Mono>: Order, Categories, Menus,
+              Dishes, Seat and course), <Mono>cover</Mono> (<Mono>COVERS</Mono>: zone | screen, the whole screen),{' '}
+              <Mono>frame</Mono>, <Mono>controls</Mono>, <Mono>close_outside</Mono> and <Mono>close_on_tap</Mono> (always
+              false on the Order zone; default true for categories and menus). <Mono>isPopup(zone)</Mono> is true for a
+              Pop-up zone and for any zone shown as one; <Mono>floats(zone)</Mono> adds Dish choices. A Pop-up zone takes{' '}
+              <Mono>cover</Mono> too. <Mono>open_popup</Mono> buttons name any such zone (<Mono>popupOpeners(layout,
+              id)</Mono> lists them; <Mono>buttonLabel()</Mono> words one with <Mono>popupTitle()</Mono>), and{' '}
+              <Mono>normaliseTillLayout()</Mono> drops the openers of a zone that went back to Always.{' '}
+              <Mono>popupCloseProblem(zone)</Mono> judges every pop-up (a whole-screen one has no outside, so it needs its
+              window controls, <Mono>close_on_tap</Mono> or a Close button): problem <Mono>popup_stuck</Mono>. An opener
+              only counts when it can be tapped. <Mono>leftOutButtons(zone)</Mono> gives the buttons a zone with overflow{' '}
+              <Mono>hide</Mono> never shows (from the first that doesn&apos;t fit on, as <Mono>packCells()</Mono> places
+              them); <Mono>reachablePopups(layout)</Mono> the pop-ups a person can get to (opened by a button that shows,
+              in a Buttons zone or in a pop-up they can get to; worked out to a fixed point, so two pop-ups that only open
+              each other are never reached); <Mono>popupOpeners()</Mono> marks each opener <Mono>left_out</Mono>,{' '}
+              <Mono>shut</Mono> (its zone is a pop-up nothing gets to) and <Mono>works</Mono>.{' '}
+              <Mono>unopenedWhy(layout, id)</Mono> is null when one works, else <Mono>why</Mono> none | left_out | shut with
+              the zone to change (a button that doesn&apos;t fit first: making room is all it takes). An Order zone shown
+              as a pop-up that no button can open is the problem <Mono>order_unopened</Mono> (the order would be out of
+              reach; worded per reason, <Mono>zones</Mono> = the zone to change then the order, so tapping the problem
+              in the designer opens the zone to change); any other pop-up gets the warning{' '}
+              <Mono>popup_unopened</Mono> the same way. (2) Every one of{' '}
+              <Mono>GRID_ZONES</Mono> takes <Mono>view</Mono> (<Mono>VIEWS</Mono>: grid | list). A list is one column
+              (<Mono>normaliseZone()</Mono> sets <Mono>cols</Mono> 1; <Mono>rows</Mono> = the rows showing), and{' '}
+              <Mono>buttonTextStyle(zone)</Mono> returns a row for it (words left, the second line right);{' '}
+              <Mono>isList(zone)</Mono>. (3) The layout takes <Mono>phone</Mono> (made for a phone), and{' '}
+              <Mono>LAYOUT_TEMPLATES</Mono> gained <Mono>phone</Mono>, <Mono>phone_table</Mono> and{' '}
+              <Mono>phone_categories</Mono> (<Mono>phoneTemplate()</Mono>: 6 x 12 cells, no top bar, the dishes as a list,
+              a 4 x 2 bar of buttons whose order opener is 2 x 2, the order a whole-screen pop-up).
+            </P>
+            <P>
+              On the till, <Mono>useTillLayout(config)</Mono> follows two media queries: narrow
+              (<Mono>max-width: PHONE_MAX_WIDTH</Mono> 639 px) and sideways (wider than that and{' '}
+              <Mono>max-height: SIDEWAYS_MAX_HEIGHT</Mono> 499 px). Narrow, <Mono>tillLayoutOf()</Mono> gives the picked
+              layout only when it is <Mono>phone</Mono>, else <Mono>phoneStandIn(counter)</Mono>: the phone or phone_table
+              template with id <Mono>builtin-phone</Mono> / <Mono>builtin-phone_table</Mono> (never stored, so nothing
+              needs setting up). Sideways, a picked phone layout gives null (the standard screen); anything else is as on
+              a tablet. <Mono>LayoutScreen.jsx</Mono> draws the zones that don&apos;t float in its grid and the open
+              pop-up through <Mono>Popup</Mono> for every kind of zone (<Mono>zoneBody(zone)</Mono> is the one switch):
+              over its cells, or <Mono>absolute inset-0</Mono> when <Mono>cover</Mono> is screen (<Mono>data-cover</Mono>,
+              no frame, <Mono>popup-cover</Mono> <Mono>data-closes=&quot;0&quot;</Mono>). <Mono>used(zone)</Mono> closes
+              a <Mono>close_on_tap</Mono> pop-up after a category, menu, dish, seat or course is picked. The Order pop-up
+              remembers which order it showed (<Mono>:orderFor</Mono>) and closes when that order leaves the screen (paid,
+              cancelled, Back); opened with no order (the counter&apos;s waiting list) it stays for the order picked there.
+              An opener&apos;s note (<Mono>button-note</Mono>) comes from <Mono>noteOf(zone)</Mono>: the order&apos;s{' '}
+              <Mono>checkTotals()</Mono> items and total, else the host&apos;s <Mono>noOrderNote</Mono> (Counter.jsx:
+              N waiting / No order yet); the open category; the seat and course picked. A seats pop-up with nothing to pick
+              (<Mono>seatCourseParts()</Mono> none) greys its opener (<Mono>idle</Mono>). <Mono>useRemembered(key)</Mono>{' '}
+              follows its key, so a layout change while the till runs gives each layout its own open category and pop-up.{' '}
+              <Mono>ZoneGrid.jsx</Mono> keeps a scrolling list&apos;s rows at <Mono>LIST_MIN</Mono> 48 px or more
+              (<Mono>data-view</Mono>); <Mono>DishButton list</Mono>, <Mono>SectionButton</Mono>, <Mono>MenuButton</Mono>,{' '}
+              <Mono>LayoutButton</Mono> and the Dish choices cells draw rows; <Mono>SeatCourseBar wrap</Mono> wraps its
+              chips in a pop-up. The till&apos;s own screens follow <Mono>useNarrow()</Mono>: <Mono>Floor.jsx</Mono> (two
+              tabs, <Mono>floor-tab-tables</Mono> / <Mono>floor-tab-list</Mono>, the tables as tiles instead of the plan),{' '}
+              <Mono>Closed.jsx</Mono> (the list, then <Mono>closed-detail</Mono> with <Mono>closed-back</Mono>), the top
+              bar&apos;s icons only below <Mono>sm</Mono>.
+            </P>
+            <P>
+              In the designer (<Mono>TillLayoutDesigner.jsx</Mono>): Made for (<Mono>tl-made-for</Mono>: Tablet or screen /
+              Phone, which switches the preview screens to <Mono>SCREENS</Mono>&apos; phones through{' '}
+              <Mono>screensFor()</Mono>), On the screen (<Mono>tl-show</Mono>: Always / As a pop-up; a phone layout&apos;s
+              Order zone starts over the whole screen), <Mono>PopupOptions</Mono> for any pop-up (name, Covers{' '}
+              <Mono>tl-popup-cover</Mono>, Looks, Closes with each zone&apos;s own After-use words, Opened by; the Order
+              zone&apos;s missing opener in red; an opener row <Mono>tl-popup-opener</Mono> carries{' '}
+              <Mono>data-left-out</Mono> / <Mono>data-shut</Mono> / <Mono>data-works</Mono> with a red &quot;doesn&apos;t
+              fit&quot; or &quot;can&apos;t be reached&quot; tag, and <Mono>openersNote()</Mono> words the note under the
+              list, <Mono>tl-popup-opener-out</Mono> with <Mono>data-why</Mono> left_out | shut | some: red when nothing
+              opens the pop-up, amber when another button still does), Laid out as (<Mono>tl-view</Mono>: Grid / List,
+              with Rows showing{' '}
+              <Mono>tl-zone-rows</Mono>), <Mono>tl-whole-screen-note</Mono>. Every pop-up is drawn as a dashed outline with
+              a name tab at its bottom left (<Mono>tabOffset()</Mono> stacks tabs that share a corner), and{' '}
+              <Mono>ZoneBodyPreview</Mono> draws what it holds. The pop-up&apos;s name and a button&apos;s words are typed
+              into <Mono>WordsInput</Mono>, which keeps what is typed while focused: the draft is normalised (trimmed) on
+              every change, which used to swallow a space typed at the end of a word. Store tech → Till layouts marks phone
+              layouts (<Mono>layout-kind</Mono>, &quot;(phone)&quot; in the venue&apos;s and a till&apos;s pick) and says
+              what a phone-sized till draws. Tests: the phone tests in <Mono>shared/pos/test/tillLayout.test.mjs</Mono>{' '}
+              and <Mono>api/test/till-layouts.test.mjs</Mono>; the fixtures&apos; layout has a category zone shown as a
+              whole-screen pop-up list, so the tenant sweep replays it.
             </P>
             <H3>Sending to the kitchen</H3>
             <P>

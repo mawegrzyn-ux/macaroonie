@@ -4,9 +4,21 @@
 // location's), else the location's (settings.till_layout_id), else none:
 // the standard screen. A layout the config doesn't carry (deleted since) or
 // one without the Order zone falls back the same way.
+//
+// A phone-sized screen (PHONE_MAX_WIDTH wide or less) draws phone layouts
+// only: the one picked when it is made for a phone (layout.phone), else the
+// phone template for the till's service (counter or tables) stands in, since
+// neither the standard screen nor a tablet layout fits a phone. A phone on
+// its side (wider than that, but SIDEWAYS_MAX_HEIGHT high or less) draws the
+// layout picked unless that one is made for a phone: a phone layout's rows
+// get too small to tap there, so the standard screen shows instead.
 
-import { normaliseTillLayout } from '@shared/pos/tillLayout.js'
+import { useEffect, useMemo, useState } from 'react'
+import { normaliseTillLayout, templateLayout } from '@shared/pos/tillLayout.js'
 import { getState, currentChecks } from './store.js'
+
+export const PHONE_MAX_WIDTH = 639
+export const SIDEWAYS_MAX_HEIGHT = 499
 
 const usable = raw => {
   if (!raw) return null
@@ -14,8 +26,8 @@ const usable = raw => {
   return layout.zones.some(z => z.type === 'check') ? { ...layout, id: raw.id || null, name: raw.name || '' } : null
 }
 
-/** The layout this till draws, or null for the standard screen. */
-export function tillLayoutOf(config) {
+// The layout picked for this till in Store tech, or null (the standard screen).
+function pickedLayout(config) {
   const layouts = config?.till_layouts || {}
   const own = config?.device?.settings?.till_layout
   if (own === 'standard') return null
@@ -25,6 +37,51 @@ export function tillLayoutOf(config) {
   }
   const venue = config?.settings?.till_layout_id
   return venue ? usable(layouts[venue]) : null
+}
+
+/** The phone template standing in on a phone-sized screen: { ...layout, id, name, builtin: true }. */
+export function phoneStandIn(counter) {
+  const key = counter ? 'phone' : 'phone_table'
+  return { ...templateLayout(key), id: 'builtin-' + key, name: 'Phone screen', builtin: true }
+}
+
+/**
+ * The layout this till draws, or null for the standard screen. narrow: the
+ * screen is phone-sized (useNarrow()); sideways: a phone on its side;
+ * counter: the till is in counter mode.
+ */
+export function tillLayoutOf(config, { narrow = false, sideways = false, counter = config?.device?.settings?.mode === 'counter' } = {}) {
+  const picked = pickedLayout(config)
+  if (narrow) return picked?.phone ? picked : phoneStandIn(counter)
+  if (sideways && picked?.phone) return null
+  return picked
+}
+
+/** Whether a media query matches now (follows the screen: a turn of the phone, a resized window). */
+function useMedia(query) {
+  const mq = () => (typeof window !== 'undefined' && window.matchMedia ? window.matchMedia(query) : null)
+  const [on, setOn] = useState(() => !!mq()?.matches)
+  useEffect(() => {
+    const m = mq()
+    if (!m) return undefined
+    const change = () => setOn(m.matches)
+    change()
+    m.addEventListener('change', change)
+    return () => m.removeEventListener('change', change)
+  }, [query]) // eslint-disable-line react-hooks/exhaustive-deps
+  return on
+}
+
+/** Whether the screen is phone-sized now (follows a turn of the phone). */
+export function useNarrow() {
+  return useMedia('(max-width: ' + PHONE_MAX_WIDTH + 'px)')
+}
+
+/** The layout this till draws on this screen (tillLayoutOf() with the screen's size). */
+export function useTillLayout(config) {
+  const narrow = useNarrow()
+  const sideways = useMedia('(min-width: ' + (PHONE_MAX_WIDTH + 1) + 'px) and (max-height: ' + SIDEWAYS_MAX_HEIGHT + 'px)')
+  return useMemo(() => tillLayoutOf(config, { narrow, sideways }), [config, narrow, sideways])
 }
 
 /**

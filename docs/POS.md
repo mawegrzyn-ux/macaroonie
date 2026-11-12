@@ -614,8 +614,45 @@ showing what the menu times show anyway goes back to following them; any other t
 till's pick (`prefs.menu_pick`), which lapses when the menus on now change, as a pick in More →
 Menus does. The designer gets each menu's till times in the setup (`menus[].till_times`, false =
 off on the tills, which never show in the zone).
+
+Also 1 Nov and 6 Nov 2026 (no migration): a `popup` zone (up to 8) holds its own buttons and
+opens over the cells it was placed on when a button with `open_popup` is tapped; a `category`
+zone (up to 8) always shows one category's dishes, and it and the dishes zone can leave dishes
+out (`hide_item_ids`, read through `shownDishIds()`).
+
+12 Nov 2026 (no migration): **phone layouts**. The till on a phone is the same till with a
+layout that fits, not a second app or a second designer:
+
+- Any of the order, categories, menus, dishes, a category's dishes and seats zones shows
+  `always` or as a pop-up (`show: 'popup'`), opened by a button like a Pop-up zone, over its own
+  cells or over the whole screen (`cover: 'screen'`), with a pop-up's frame, title bar and ways
+  of closing. `isPopup()` / `floats()` are the one test for "sits over other zones" (the
+  `FLOATING_ZONES` list is gone). The order as a pop-up is the phone's check: the button that
+  opens it says the order's items and total.
+- Every zone with buttons can be a list (`view: 'list'`): one button a row, the words beside
+  the price, rows at least 48 px high when the list scrolls.
+- A layout says what it was made for (`phone`). `tillLayoutOf(config, { narrow, sideways,
+  counter })` (`pos/src/lib/tillLayout.js`) gives a phone-sized screen (639 px wide or less) a
+  layout only when it was made for a phone; with any other layout, or none, the till draws the
+  built-in phone screen (the `phone` template on a counter till, `phone_table` on a table till,
+  as `builtin-phone` / `builtin-phone_table`), since neither the standard screen nor a tablet
+  layout fits. A phone on its side (under 500 px high) with a phone layout picked shows the
+  standard screen. Three starting points: Phone: counter service, Phone: table service,
+  Phone: categories behind a button (6 x 12 cells, no top bar, the dishes a list, a bar of
+  buttons at the bottom whose Order button opens the order over the whole screen).
+- A button opens a pop-up only when it can be tapped. `popupOpeners()` marks one its zone
+  leaves out (the zone is full and hides the rest: `leftOutButtons()`) and one sitting in a
+  pop-up nothing opens (`reachablePopups()`); an order pop-up with no button that works is a
+  problem (`order_unopened`: the layout isn't saved), any other pop-up a note
+  (`popup_unopened`).
+- The till's own screens fit a phone too (`useNarrow()`): the floor as two tabs (Tables, with a
+  room's tables as tiles instead of the plan, and Tabs and orders), closed checks as a list
+  then one check, the top bar as icons.
+
 Still not built: a layout per order type, revenue stream or time of day; more picks for a meal
-deal's steps or the groups a pick opens.
+deal's steps or the groups a pick opens; phone layouts for the kitchen screen or the kiosk
+(the kiosk zooms to its design instead); a Dish choices zone or a Buttons zone shown as a
+pop-up (a Buttons zone's pop-up is the Pop-up zone).
 
 ### 8.8 The order's allergy flag (31 Oct 2026, no migration)
 

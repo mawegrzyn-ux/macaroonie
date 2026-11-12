@@ -5,11 +5,16 @@
 // tills use (a till can pick its own in its window on Tills), the company's
 // layouts with where each is used, a new one from a starting point or a
 // copy, delete. A layout is edited on its own page (pages/TillLayoutDesigner.jsx).
+//
+// Layouts made for a phone (layout.phone, 12 Nov 2026) are marked Phone: a
+// till on a phone-sized screen draws only those (the one picked for it), and
+// the built-in phone screen otherwise; the starting points include three
+// phone ones.
 
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Copy, Pencil, Plus, PanelsTopLeft, AlertTriangle, Loader2 } from 'lucide-react'
+import { Copy, Pencil, Plus, PanelsTopLeft, AlertTriangle, Loader2, Smartphone } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { LAYOUT_TEMPLATES } from '@shared/pos/tillLayout.js'
 import { Section, Field, Btn, ErrorNote, ConfirmDelete, Modal, inputCls, usePosVenue } from './shared'
@@ -71,9 +76,12 @@ export default function TillLayoutsSection({ venueId, setup, canManage = true })
           <select className={inputCls} value={setup.settings.till_layout_id || ''} disabled={!canManage || setVenue.isPending}
             onChange={e => setVenue.mutate(e.target.value)} data-testid="venue-layout">
             <option value="">The standard screen</option>
-            {layouts.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+            {layouts.map(l => <option key={l.id} value={l.id}>{l.name}{l.phone ? ' (phone)' : ''}</option>)}
           </select>
         </Field>
+        <p className="text-xs text-muted-foreground" data-testid="venue-layout-phone-note">
+          A till on a phone-sized screen draws a layout made for a phone when that is the one picked for it; with any other layout (or none) it shows the built-in phone screen.
+        </p>
         {ownChoice.length > 0 && (
           <p className="text-xs text-muted-foreground" data-testid="venue-layout-own">
             With their own: {ownChoice.map(d => d.name + ' (' + (d.settings.till_layout === 'standard' ? 'the standard screen' : layoutName(setup, d.settings.till_layout)) + ')').join(', ')}.
@@ -92,17 +100,19 @@ export default function TillLayoutsSection({ venueId, setup, canManage = true })
         {!layouts.length && (
           <div className="text-sm text-muted-foreground flex items-start gap-3">
             <PanelsTopLeft className="w-5 h-5 shrink-0 mt-0.5" />
-            <p>No layouts yet: tills show the standard screen. Start one from the standard screen or the quick service layout and change it as you like.</p>
+            <p>No layouts yet: tills show the standard screen (and tills on a phone the built-in phone screen). Start one from the standard screen, the quick service layout or a phone layout and change it as you like.</p>
           </div>
         )}
         {!!layouts.length && (
           <div className="divide-y rounded-xl border" data-testid="layouts">
             {layouts.map(l => (
               <div key={l.id} className="flex flex-wrap items-center gap-3 px-3 py-2" data-testid="layout-row" data-id={l.id}>
-                <span className="w-11 h-11 rounded-lg bg-muted flex items-center justify-center shrink-0"><PanelsTopLeft className="w-4 h-4" /></span>
+                <span className="w-11 h-11 rounded-lg bg-muted flex items-center justify-center shrink-0" data-testid="layout-kind" data-phone={l.phone ? '1' : '0'}>
+                  {l.phone ? <Smartphone className="w-4 h-4" /> : <PanelsTopLeft className="w-4 h-4" />}
+                </span>
                 <div className="flex-1 min-w-[160px]">
                   <p className="text-sm font-medium">{l.name}</p>
-                  <p className="text-xs text-muted-foreground">{l.zones} {l.zones === 1 ? 'zone' : 'zones'} · {usedByText(l.used_by, venues)}</p>
+                  <p className="text-xs text-muted-foreground">{l.phone ? 'Phone · ' : ''}{l.zones} {l.zones === 1 ? 'zone' : 'zones'} · {usedByText(l.used_by, venues)}</p>
                   {l.problems > 0 && <p className="text-xs text-amber-700 flex items-center gap-1"><AlertTriangle className="w-3 h-3" /> Needs fixing before it can be saved again</p>}
                 </div>
                 <Link to={'/pos/layouts/' + l.id} title={(canManage ? 'Edit ' : 'Open ') + l.name} data-testid="layout-edit"
@@ -149,9 +159,14 @@ export default function TillLayoutsSection({ venueId, setup, canManage = true })
               <select className={inputCls} value={starting.from} data-testid="new-layout-from"
                 onChange={e => setStarting(s => ({ ...s, from: e.target.value }))}>
                 {LAYOUT_TEMPLATES.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
-                {layouts.map(l => <option key={l.id} value={'copy:' + l.id}>A copy of {l.name}</option>)}
+                {layouts.map(l => <option key={l.id} value={'copy:' + l.id}>A copy of {l.name}{l.phone ? ' (phone)' : ''}</option>)}
               </select>
             </Field>
+            {LAYOUT_TEMPLATES.find(t => t.key === starting.from)?.phone && (
+              <p className="text-xs text-muted-foreground" data-testid="new-layout-phone-hint">
+                For a phone held upright: the dishes as a list, the order behind a button that shows its items and total, no top bar. Pick it for the tills that run on phones.
+              </p>
+            )}
             <ErrorNote error={create.error} />
           </>
         </Modal>

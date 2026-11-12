@@ -831,8 +831,10 @@ export default async function posSetupRoutes(app) {
             WHERE i.tenant_id = ${tenantId} AND s.menu_id = ANY(${menuIds}::uuid[]) ORDER BY i.sort_order, i.name`,
         tx`SELECT id, name, display_name, kiosk_display, kiosk_tiles, kiosk_pictures, kiosk_entrance
              FROM menu_variant_groups WHERE tenant_id = ${tenantId} ORDER BY sort_order, name`,
-        // Till layouts (migration 228), for the venue's and each till's choice.
-        tx`SELECT id, name FROM pos_till_layouts WHERE tenant_id = ${tenantId} ORDER BY lower(name), created_at`,
+        // Till layouts (migration 228), for the venue's and each till's choice
+        // (phone: made for a phone, shared/pos/tillLayout.js).
+        tx`SELECT id, name, COALESCE(layout->>'phone', 'false') = 'true' AS phone
+             FROM pos_till_layouts WHERE tenant_id = ${tenantId} ORDER BY lower(name), created_at`,
       ])
       return {
         venue: { id: venue.id, name: venue.name },

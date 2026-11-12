@@ -4,14 +4,18 @@
 // columns and rows set the cells' size (sized with container units, so they
 // follow the zone, not the buttons' words); what doesn't fit scrolls (down,
 // or across in a one-row zone), goes on pages with arrows, behind a More
-// button in the last cell, or is left out.
+// button in the last cell, or is left out. A list (view: 'list', one column)
+// that scrolls keeps its rows at least a finger high (LIST_MIN), whatever the
+// zone's rows come to on a small phone.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, MoreHorizontal } from 'lucide-react'
-import { packCells } from '@shared/pos/tillLayout.js'
+import { packCells, isList } from '@shared/pos/tillLayout.js'
 import { Modal, cx } from './ui.jsx'
 
 const GAP = 6
+// The least height of a row in a list that scrolls.
+const LIST_MIN = 48
 // The page each zone is on, kept while the till app runs (a check opening
 // redraws the screen; the dishes zone stays on its page).
 const pageMemo = new Map()
@@ -48,11 +52,12 @@ export default function ZoneGrid({ zone, cells, memoKey, resetKey = '', empty = 
 
   const across = zone.overflow === 'scroll' && zone.rows === 1 && zone.cols > 1
   const down = zone.overflow === 'scroll' && !across
+  const rowHeight = isList(zone) ? `max(${LIST_MIN}px, ${track(zone.rows, 'h')})` : track(zone.rows, 'h')
   const grid = {
     display: 'grid',
     gap: GAP + 'px',
     gridTemplateColumns: across ? `repeat(${packed.cols}, ${track(zone.cols, 'w')})` : `repeat(${zone.cols}, minmax(0, 1fr))`,
-    gridTemplateRows: down ? `repeat(${packed.rows}, ${track(zone.rows, 'h')})` : across ? '100cqh' : `repeat(${zone.rows}, minmax(0, 1fr))`,
+    gridTemplateRows: down ? `repeat(${packed.rows}, ${rowHeight})` : across ? '100cqh' : `repeat(${zone.rows}, minmax(0, 1fr))`,
     ...(down || across ? {} : { height: '100%' }),
   }
   const place = p => ({ gridColumn: `${p.x + 1} / span ${p.w}`, gridRow: `${p.y + 1} / span ${p.h}` })
@@ -60,7 +65,8 @@ export default function ZoneGrid({ zone, cells, memoKey, resetKey = '', empty = 
   const rest = packed.rest.map(i => cells[i])
 
   return (
-    <div className="h-full flex flex-col min-h-0" style={style} data-testid={testid} data-overflow={zone.overflow} data-page={at} data-pages={pages.length}>
+    <div className="h-full flex flex-col min-h-0" style={style} data-testid={testid} data-overflow={zone.overflow} data-view={isList(zone) ? 'list' : 'grid'}
+      data-page={at} data-pages={pages.length}>
       <div className={cx('flex-1 min-h-0 min-w-0', down && 'overflow-y-auto overscroll-contain', across && 'overflow-x-auto overflow-y-hidden overscroll-contain')}
         style={{ containerType: 'size' }}>
         <div style={grid}>

@@ -30,7 +30,7 @@ import { Minus, Plus, AlertTriangle, X, PenLine } from 'lucide-react'
 import { priceItem, lineGross, PREFIXES, groupChoice, splitPicks, splitsPicks } from '@shared/pos/pricing.js'
 import { resolveSteps, stepRule, askedChoices } from '@shared/combos.js'
 import { dealItem } from '@shared/pos/offers.js'
-import { buttonTextStyle } from '@shared/pos/tillLayout.js'
+import { buttonTextStyle, isList } from '@shared/pos/tillLayout.js'
 import { cx, money } from './ui.jsx'
 import ZoneGrid from './ZoneGrid.jsx'
 import { tillItem, comboCtx } from '../lib/checkOps.js'
@@ -205,6 +205,8 @@ export function useChoiceBuilder(item, config, initial = null, { onAutoAdd = nul
 function Cell({ c, zone }) {
   const prices = zone.show_prices !== false
   const place = buttonTextStyle(zone)
+  // A list (view: 'list'): the words on the left, the price on the right.
+  const list = isList(zone)
   if (c.kind === 'head') {
     return (
       <div className="h-full flex items-center gap-2 px-1 min-w-0" data-testid="choice-head" data-need={c.need ? '1' : '0'}>
@@ -231,21 +233,24 @@ function Cell({ c, zone }) {
       </button>
     )
   }
-  // The one-less badge goes in the corner away from the words.
-  const lessLeft = place.textAlign === 'right'
+  // The one-less badge goes in the corner away from the words; in a list, at
+  // the right end of the row, the row's words kept clear of it.
+  const lessLeft = !list && place.textAlign === 'right'
   return (
     <>
       <button onClick={c.onTap} disabled={c.disabled} data-testid="choice-option" data-on={c.on || ''}
-        className={cx('w-full h-full rounded-xl border-2 px-2 py-1 flex flex-col leading-tight touch-manipulation active:scale-[0.98] transition-transform',
+        className={cx('w-full h-full rounded-xl border-2 py-1 flex flex-col leading-tight touch-manipulation active:scale-[0.98] transition-transform',
+          list ? (c.onLess ? 'pl-3 pr-14' : 'px-3') : 'px-2',
           c.on === 'on' ? 'bg-brand text-white border-brand' : c.on === 'no' ? 'bg-bad-soft border-bad text-bad' : 'bg-white border-line',
           c.disabled && 'line-through text-muted')}
         style={place}>
-        <span className="line-clamp-3" data-testid="button-words">{c.label}</span>
-        {c.price && (prices || c.disabled) ? <span className="text-sm opacity-90 font-semibold" data-testid="choice-price">{c.price}</span> : null}
+        <span className={list ? 'line-clamp-2 flex-1 min-w-0' : 'line-clamp-3'} data-testid="button-words">{c.label}</span>
+        {c.price && (prices || c.disabled) ? <span className={cx('text-sm opacity-90 font-semibold', list && 'shrink-0')} data-testid="choice-price">{c.price}</span> : null}
       </button>
       {c.onLess && (
         <button onClick={c.onLess} aria-label={'One less ' + c.label} data-testid="choice-less"
-          className={cx('absolute top-1 w-9 h-9 rounded-full bg-white border-2 border-brand text-brand flex items-center justify-center shadow', lessLeft ? 'left-1' : 'right-1')}>
+          className={cx('absolute w-9 h-9 rounded-full bg-white border-2 border-brand text-brand flex items-center justify-center shadow',
+            list ? 'right-2 top-1/2 -translate-y-1/2' : 'top-1', !list && (lessLeft ? 'left-1' : 'right-1'))}>
           <Minus size={16} />
         </button>
       )}

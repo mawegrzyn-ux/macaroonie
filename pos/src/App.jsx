@@ -14,7 +14,7 @@ import { whenSafeToReload, idleFor } from './lib/appUpdate.js'
 import { ApprovalProvider, Toasts, cx, useTick } from './components/ui.jsx'
 import StatusDot from './components/StatusDot.jsx'
 import { TillNavProvider, TillMenuModal, tillPages } from './components/TillMenu.jsx'
-import { tillLayoutOf } from './lib/tillLayout.js'
+import { useTillLayout } from './lib/tillLayout.js'
 import Pair from './screens/Pair.jsx'
 import Login from './screens/Login.jsx'
 import Floor from './screens/Floor.jsx'
@@ -160,7 +160,7 @@ function Main() {
   // A till layout without the top bar (Store tech > Till layouts): the order
   // screens (a check, the counter) take the whole screen and the till menu is
   // in More; the till's other pages keep the bar.
-  const layout = useMemo(() => tillLayoutOf(config), [config])
+  const layout = useTillLayout(config)
   const hideBar = layout?.top_bar === false && (view.name === 'check' || view.name === 'counter')
   const navValue = useMemo(() => ({ go, view: view.name, counterMode, hideBar, openMenu: () => setMenuOpen(true) }), [view.name, counterMode, hideBar]) // eslint-disable-line react-hooks/exhaustive-deps
   return (
@@ -185,8 +185,9 @@ function Main() {
             <div className="text-white/80 font-semibold tabular-nums px-2 hidden sm:block">
               {new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
             </div>
-            <button className="h-12 px-3 rounded-xl bg-white/10 flex items-center gap-2 font-semibold touch-manipulation" onClick={signOut}>
-              <Lock size={18} /><span className="max-w-[120px] truncate">{staff.name}</span>
+            <button className="h-12 min-w-[48px] px-3 rounded-xl bg-white/10 flex items-center justify-center gap-2 font-semibold touch-manipulation shrink-0" onClick={signOut}
+              aria-label={'Sign out ' + staff.name} data-testid="sign-out">
+              <Lock size={18} /><span className="max-w-[120px] truncate hidden sm:inline">{staff.name}</span>
             </button>
           </header>
         )}

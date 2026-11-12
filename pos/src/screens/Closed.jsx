@@ -1,14 +1,17 @@
 // Closed checks: look one up, print the receipt again, reopen it, or give a
-// refund. Today's are on the till; older ones come from Macaroonie.
+// refund. Today's are on the till; older ones come from Macaroonie. On a
+// phone-sized screen the list takes the screen, then the check picked (with a
+// way back to the list).
 
 import { useEffect, useMemo, useState } from 'react'
-import { Printer, RotateCcw, Undo2, Search, RefreshCw, Loader2 } from 'lucide-react'
+import { Printer, RotateCcw, Undo2, Search, RefreshCw, Loader2, ArrowLeft } from 'lucide-react'
 import { ulid } from '@shared/pos/ids.js'
 import { checkTotals, modifierText, groupModifiers } from '@shared/pos/pricing.js'
 import { checkLabel, TENDERS } from '@shared/pos/checks.js'
 import { numberText } from '@shared/pos/numbers.js'
 import { useTill, useChecks, dispatch, toast, printBill, server, loadCheck, cardRefund, serverName } from '../lib/store.js'
 import { Modal, Keypad, ReasonPicker, cx, money, poundsToPence, useApproval } from '../components/ui.jsx'
+import { useNarrow } from '../lib/tillLayout.js'
 
 export default function Closed() {
   const { config, online } = useTill()
@@ -44,10 +47,13 @@ export default function Closed() {
     setSelected(row.id)
   }
   const check = selected ? checks[selected] : null
+  // A phone: the list, or the check picked.
+  const narrow = useNarrow()
 
   return (
-    <div className="h-full flex">
-      <div className="w-[380px] shrink-0 border-r border-line bg-white flex flex-col">
+    <div className="h-full flex" data-testid="closed" data-narrow={narrow ? '1' : '0'}>
+      {(!narrow || !check) && (
+      <div className={cx('shrink-0 bg-white flex flex-col', narrow ? 'w-full' : 'w-[380px] border-r border-line')} data-testid="closed-list">
         <div className="p-3 flex gap-2 border-b border-line">
           <div className="relative flex-1">
             <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
@@ -72,9 +78,13 @@ export default function Closed() {
           {!list.length && <div className="p-6 text-muted text-center">No closed checks.</div>}
         </div>
       </div>
-      <div className="flex-1 min-w-0 overflow-y-auto p-5">
+      )}
+      {(!narrow || check) && (
+      <div className={cx('flex-1 min-w-0 overflow-y-auto', narrow ? 'p-3' : 'p-5')} data-testid="closed-detail">
+        {narrow && <button className="btn mb-3" onClick={() => setSelected(null)} data-testid="closed-back"><ArrowLeft size={18} /> Closed checks</button>}
         {check ? <ClosedDetail check={check} config={config} /> : <div className="text-muted">Pick a check.</div>}
       </div>
+      )}
     </div>
   )
 }
@@ -120,7 +130,7 @@ function ClosedDetail({ check, config }) {
   return (
     <div className="max-w-2xl space-y-4">
       <div className="flex items-center gap-3 flex-wrap">
-        <div className="text-2xl font-bold flex-1">Check {checkLabel(check)} · {table ? 'Table ' + table.label : check.tab_name || 'Tab'}</div>
+        <div className="text-2xl font-bold w-full sm:w-auto sm:flex-1">Check {checkLabel(check)} · {table ? 'Table ' + table.label : check.tab_name || 'Tab'}</div>
         <button className="btn" onClick={() => printBill(check)}><Printer size={18} /> Receipt</button>
         {check.status === 'closed' && <>
           <button className="btn" onClick={() => { setMode('reopen'); setReason('') }}><RotateCcw size={18} /> Reopen</button>

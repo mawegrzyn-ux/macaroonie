@@ -6,6 +6,27 @@ Migrations are listed where a database change is required.
 ---
 
 
+## [2026-11-12 — The till on a phone: phone layouts]
+
+No migration.
+
+**Added**
+- **Phone layouts** in Store tech → Till layouts. A layout says what it is made for (tablet or phone), and there are three phone starting points: counter service, table service, and categories behind a button. The designer previews a phone layout on phone screens.
+- **Any zone can be a pop-up.** The Order, Categories, Menus, Dishes, a category's dishes and Seat and course zones can show all the time or as a pop-up opened by a button, over their own place or over the whole screen, with or without a border and a title bar, closing on its X, on a tap outside or after a button in it is used. On a phone the order is a pop-up: the button that opens it says the order's items and total.
+- **Lists.** Categories, dishes, a category's dishes, menus, buttons, pop-ups and a dish's choices can be laid out as a list (one button a row, the price beside the name) instead of a grid.
+- **A till on a phone-sized screen** draws the phone layout picked for it; with a tablet layout or none it shows a built-in phone screen (counter or table service, whichever the till is). Turn the phone on its side and it shows the standard screen. The till's own pages fit a phone too: the floor as two tabs (Tables, with a room's tables as tiles instead of the plan, and Tabs and orders), closed checks as a list then one check, the top bar as icons.
+- **Buttons that can't be tapped are caught.** A button that opens a pop-up but doesn't fit its zone (the zone is full and hides the rest), or sits in a pop-up nothing opens, is marked in red in the designer. An order nothing can open stops Save and says which zone to change; any other pop-up gets a note.
+
+**Fixed**
+- The designer's words boxes (a pop-up's name, a button's words) no longer drop a space typed at the end.
+- When a till's layout changes while its screen is up (a layout saved in Store tech, a phone turned on its side), the open category and pop-up now follow the new layout instead of keeping the old one's.
+
+**Notes**
+- Tablets are unchanged: a tablet layout or the standard screen draws as before.
+- Tried in Chromium's phone emulation with a mouse, not yet on a real phone or in the Android app.
+
+---
+
 ## [2026-11-09 — Pepper in the menu search]
 
 No migration.

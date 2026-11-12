@@ -68,6 +68,37 @@
 // (close_popup, offered only in pop-ups). popupCloseProblem() refuses a
 // pop-up nothing closes. A button that opens another pop-up shows that one
 // in its place; a pop-up never opens itself.
+//
+// Phone layouts (12 Nov 2026). The other zones can show as a pop-up too
+// (show: 'popup' on the Order, Categories, Menus, Dishes, a category's
+// dishes and Seat and course zones; POPUP_ZONES): hidden until an Open a
+// pop-up button names them, with a Pop-up zone's own options (title, frame,
+// controls, close_outside, close_on_tap = after a category, menu, dish or
+// seat is tapped; never for the Order zone). Every pop-up, the Pop-up zone
+// included, draws over its own cells or over the whole screen (cover:
+// 'zone' | 'screen', a full takeover: a tap outside can't close that one).
+// isPopup() says a zone is a pop-up and floats() that it shows only some of
+// the time (a pop-up or a Dish choices zone): floating zones may sit over
+// other zones and are never in the till's grid of zones. An Order zone that
+// is a pop-up needs a button that opens it (problem order_unopened): the
+// till shows the order's items and total on that button (and the category
+// open, or the seat and course picked, on the button that opens those).
+// A button opens a pop-up only when it can be tapped: popupOpeners() marks
+// one its zone leaves out (overflow 'hide' and it doesn't fit:
+// leftOutButtons()) left_out, and one in a pop-up nothing gets to
+// (reachablePopups()) shut; a pop-up with no button that works counts as
+// unopened.
+// While a pop-up is open the rest of the screen waits behind it.
+//
+// A zone with buttons can be a list (view: 'list'): one column (cols is
+// kept at 1), each button a row with its words on the left and its second
+// line (a price, the order's total) on the right (buttonTextStyle()); a
+// scrolling list keeps its rows finger-sized on a short screen (the till).
+//
+// A layout made for a phone says so (phone: true): the designer previews it
+// on a phone, and a till on a phone-sized screen draws only phone layouts
+// (pos/src/lib/tillLayout.js: any other layout, or none, gives way to the
+// phone template there). LAYOUT_TEMPLATES has three phone starting points.
 
 export const LAYOUT_COLS = { min: 4, max: 24, default: 12 }
 export const LAYOUT_ROWS = { min: 3, max: 16, default: 8 }
@@ -95,8 +126,38 @@ export const ZONE_KEYS = ZONE_TYPES.map(t => t.key)
 export const zoneLabel = type => ZONE_TYPES.find(t => t.key === type)?.label || type
 // Zones with a grid of buttons.
 export const GRID_ZONES = ['categories', 'menus', 'items', 'category', 'buttons', 'modifiers', 'popup']
-// Zones that may sit over other zones (they show only some of the time).
-export const FLOATING_ZONES = ['modifiers', 'popup']
+
+// Zones that can show as a pop-up instead of always (show: 'popup'). Buttons
+// have the Pop-up zone for that; Dish choices float by themselves.
+export const POPUP_ZONES = ['check', 'categories', 'menus', 'items', 'category', 'seats']
+export const SHOWS = [
+  { key: 'always', label: 'Always' },
+  { key: 'popup', label: 'As a pop-up' },
+]
+export const SHOW_KEYS = SHOWS.map(s => s.key)
+/** A zone that shows only when a button opens it: a Pop-up zone, or any zone shown as a pop-up. */
+export const isPopup = z => !!z && (z.type === 'popup' || z.show === 'popup')
+/**
+ * A zone that shows only some of the time (a pop-up, or a Dish choices
+ * zone): it may sit over other zones and is never in the till's grid of
+ * zones. The one rule for the overlap problem, the till and the designer.
+ */
+export const floats = z => !!z && (z.type === 'modifiers' || isPopup(z))
+// What a pop-up is called when it has no name of its own.
+const POPUP_NAMES = { check: 'Order', categories: 'Categories', menus: 'Menus', items: 'Dishes', category: 'Dishes', seats: 'Seat and course' }
+/** A pop-up's name: its own, else what it shows (Order, Categories, Dishes ...). */
+export const popupTitle = z => z?.title || POPUP_NAMES[z?.type] || 'Pop-up'
+// Closing after it is used, when a zone first becomes a pop-up: a category
+// or a menu is one pick; dishes and seats are tapped several times.
+const CLOSE_ON_TAP = { categories: true, menus: true }
+
+// How a zone with buttons draws them: a grid, or a list (one column of rows).
+export const VIEWS = [
+  { key: 'grid', label: 'Grid' },
+  { key: 'list', label: 'List' },
+]
+export const VIEW_KEYS = VIEWS.map(v => v.key)
+export const isList = z => z?.view === 'list'
 
 // More than fits: carry on in a scroll (down, or across in a one-row zone),
 // in pages with arrows, behind a More button in the last cell, or not at all.
@@ -108,7 +169,7 @@ export const OVERFLOWS = [
 ]
 export const OVERFLOW_KEYS = OVERFLOWS.map(o => o.key)
 
-// Which choices a modifiers zone shows, and where it draws.
+// Which choices a modifiers zone shows, and where it (or a pop-up) draws.
 export const CHOICE_KINDS = [
   { key: 'all', label: 'All choices' },
   { key: 'required', label: 'Must pick' },
@@ -231,6 +292,9 @@ const GRID_DEFAULTS = {
   popup: { cols: 3, rows: 2, overflow: 'pages', align: 'center', valign: 'middle' },
 }
 
+/** A zone type's own button grid when nothing is set (the designer goes back to it from a list). */
+export const gridDefaults = type => ({ ...(GRID_DEFAULTS[type] || GRID_DEFAULTS.buttons) })
+
 function normaliseButton(b, grid, i) {
   if (!b || typeof b !== 'object') return null
   const action = pick(b.action, ACTION_KEYS, null)
@@ -284,6 +348,17 @@ function normaliseZone(z, layout, i) {
     zone.overflow = pick(z.overflow, OVERFLOW_KEYS, d.overflow)
     zone.align = pick(z.align, ALIGN_KEYS, d.align)
     zone.valign = pick(z.valign, VALIGN_KEYS, d.valign)
+    // A list is one column of rows.
+    zone.view = pick(z.view, VIEW_KEYS, 'grid')
+    if (zone.view === 'list') zone.cols = 1
+  }
+  if (POPUP_ZONES.includes(z.type)) {
+    zone.show = pick(z.show, SHOW_KEYS, 'always')
+    if (zone.show === 'popup') {
+      // Its own name (none: what it shows, popupTitle()).
+      zone.title = text(z.title, LABEL_MAX) || null
+      popupFields(zone, z)
+    }
   }
   if (z.type === 'categories') {
     const ids = Array.isArray(z.sections) ? z.sections.filter(s => UUID.test(String(s))).map(s => String(s).toLowerCase()) : null
@@ -324,12 +399,7 @@ function normaliseZone(z, layout, i) {
   }
   if (z.type === 'popup') {
     zone.title = text(z.title, LABEL_MAX) || 'Pop-up'
-    // Its border and shadow; its window controls (its name and an X).
-    zone.frame = bool(z.frame, true)
-    zone.controls = bool(z.controls, true)
-    // How else it closes: a tap outside it, or any of its buttons used.
-    zone.close_outside = bool(z.close_outside, true)
-    zone.close_on_tap = bool(z.close_on_tap, false)
+    popupFields(zone, z)
   }
   if (z.type === 'modifiers') {
     zone.kind = pick(z.kind, CHOICE_KIND_KEYS, 'all')
@@ -355,6 +425,19 @@ function normaliseZone(z, layout, i) {
   return zone
 }
 
+// What every pop-up has (a Pop-up zone, or a zone shown as one).
+function popupFields(zone, z) {
+  // Over its own cells, or over the whole screen (a takeover).
+  zone.cover = pick(z.cover, COVER_KEYS, 'zone')
+  // Its border and shadow; its window controls (its name and an X).
+  zone.frame = bool(z.frame, true)
+  zone.controls = bool(z.controls, true)
+  // How else it closes: a tap outside it, or after it is used (any of its
+  // buttons; a category, menu, dish or seat tapped; never the Order zone).
+  zone.close_outside = bool(z.close_outside, true)
+  zone.close_on_tap = zone.type === 'check' ? false : bool(z.close_on_tap, CLOSE_ON_TAP[zone.type] || false)
+}
+
 /** A layout as stored: known zones only, every number inside its limits. */
 export function normaliseTillLayout(raw) {
   const r = raw && typeof raw === 'object' ? raw : {}
@@ -363,6 +446,8 @@ export function normaliseTillLayout(raw) {
     rows: int(r.rows, LAYOUT_ROWS.min, LAYOUT_ROWS.max, LAYOUT_ROWS.default),
     // The till's top bar on the order screen (false: the till menu is in More).
     top_bar: bool(r.top_bar, true),
+    // Made for a phone: previewed on one, and what a phone-sized till draws.
+    phone: bool(r.phone, false),
     zones: [],
   }
   const seen = new Set()
@@ -376,7 +461,7 @@ export function normaliseTillLayout(raw) {
   }
   // A button that opens a pop-up the layout doesn't have (any more) goes, and
   // a pop-up never opens itself.
-  const popups = new Set(layout.zones.filter(z => z.type === 'popup').map(z => z.id))
+  const popups = new Set(layout.zones.filter(isPopup).map(z => z.id))
   for (const z of layout.zones) {
     if (z.buttons) z.buttons = z.buttons.filter(b => b.action !== 'open_popup' || (popups.has(b.popup_id) && b.popup_id !== z.id))
   }
@@ -384,17 +469,99 @@ export function normaliseTillLayout(raw) {
 }
 
 /**
+ * The buttons of a Buttons zone or a Pop-up zone that never show: with When
+ * more than fits = Hide the rest (overflow 'hide'), the ones from the first
+ * that doesn't fit on (packCells()). Scroll, pages and More keep every
+ * button in reach.
+ */
+export function leftOutButtons(zone) {
+  const buttons = zone?.buttons || []
+  if (zone?.overflow !== 'hide' || !buttons.length) return []
+  const { hidden } = packCells(buttons.map(x => ({ w: x.w, h: x.h })), zone)
+  return hidden ? buttons.slice(-hidden) : []
+}
+
+/**
+ * The pop-ups a person can get to, as a Set of zone ids: opened by a button
+ * that shows (not left out of its zone) in a Buttons zone, which is always
+ * there, or in a pop-up they can get to. A pop-up whose only buttons sit in
+ * pop-ups nothing opens (or in each other) is never reached.
+ */
+export function reachablePopups(layout) {
+  const zones = layout?.zones || []
+  const open = new Set()
+  for (let grew = true; grew;) {
+    grew = false
+    for (const z of zones) {
+      if (!z.buttons?.length || (isPopup(z) && !open.has(z.id))) continue
+      const hidden = new Set(leftOutButtons(z).map(x => x.id))
+      for (const b of z.buttons) {
+        if (b.action !== 'open_popup' || !b.popup_id || hidden.has(b.id) || open.has(b.popup_id)) continue
+        open.add(b.popup_id)
+        grew = true
+      }
+    }
+  }
+  return open
+}
+
+/**
+ * The buttons that open a pop-up: [{ zone, button, left_out, shut, works }],
+ * the Open a pop-up buttons naming it in Buttons zones and in other pop-ups.
+ * left_out: the button doesn't fit in its zone and that zone leaves out what
+ * doesn't fit (leftOutButtons()). shut: its zone is a pop-up nothing gets to
+ * (reachablePopups()). Either way it can't be tapped on the till; works says
+ * it can.
+ */
+export function popupOpeners(layout, popupId) {
+  const out = []
+  const reach = reachablePopups(layout)
+  for (const z of layout?.zones || []) {
+    if (z.id === popupId || !z.buttons?.length) continue
+    const hidden = new Set(leftOutButtons(z).map(x => x.id))
+    const shut = isPopup(z) && !reach.has(z.id)
+    for (const x of z.buttons) {
+      if (x.action !== 'open_popup' || x.popup_id !== popupId) continue
+      const leftOut = hidden.has(x.id)
+      out.push({ zone: z, button: x, left_out: leftOut, shut, works: !leftOut && !shut })
+    }
+  }
+  return out
+}
+
+/**
+ * Why no button opens a pop-up, or null when one does: { why: 'none' |
+ * 'left_out' | 'shut', zone } with the zone to look at for the last two (the
+ * one holding a button that doesn't fit, where making room fixes it, before
+ * a pop-up nothing opens).
+ */
+export function unopenedWhy(layout, popupId) {
+  const openers = popupOpeners(layout, popupId)
+  if (!openers.length) return { why: 'none', zone: null }
+  if (openers.some(o => o.works)) return null
+  const out = openers.find(o => o.left_out && !o.shut)
+  return out ? { why: 'left_out', zone: out.zone } : { why: 'shut', zone: openers[0].zone }
+}
+
+/**
  * Why nothing could close a pop-up once it is open, or null: it closes with
- * its window controls (the X), a tap outside it, any of its buttons when
- * close_on_tap is on (and it has a button), or a Close the pop-up button.
+ * its window controls (the X), a tap outside it (not when it takes the whole
+ * screen: nothing is outside), after it is used when close_on_tap is on (a
+ * Pop-up zone needs a button for that; the Order zone never closes that
+ * way), or a Close the pop-up button (Pop-up zones).
  */
 export function popupCloseProblem(zone) {
-  if (!zone || zone.type !== 'popup') return null
-  if (zone.controls || zone.close_outside) return null
-  const buttons = zone.buttons || []
-  if (zone.close_on_tap && buttons.length) return null
-  if (buttons.some(b => b.action === 'close_popup')) return null
-  return 'Nothing closes a pop-up once it is open (' + (zone.title || 'Pop-up') + '): keep its window controls, let a tap outside close it, close it after a button is used, or add a Close the pop-up button.'
+  if (!isPopup(zone)) return null
+  if (zone.controls) return null
+  if (zone.close_outside && zone.cover !== 'screen') return null
+  if (zone.type === 'popup') {
+    const buttons = zone.buttons || []
+    if (zone.close_on_tap && buttons.length) return null
+    if (buttons.some(b => b.action === 'close_popup')) return null
+  } else if (zone.close_on_tap) return null
+  return 'Nothing closes a pop-up once it is open (' + popupTitle(zone) + '): keep its window controls'
+    + (zone.cover === 'screen' ? '' : ', let a tap outside close it')
+    + (zone.type === 'check' ? '.' : zone.type === 'popup' ? ', close it after a button is used, or add a Close the pop-up button.' : ', or close it after it is used.')
 }
 
 function freshId(seen, prefix) {
@@ -407,9 +574,12 @@ function freshId(seen, prefix) {
  * the zone says (align, valign); a second line (a price, Sold out) sits at
  * the bottom when the words are at the top, else right under the first.
  * The till's buttons and the designer's preview both take it, so the words
- * land in the same place in both.
+ * land in the same place in both. In a list (view: 'list') the button is a
+ * row instead: its words on the left, its second line on the right.
  */
 export function buttonTextStyle(zone) {
+  // A list: a row, the words on the left and the second line on the right.
+  if (isList(zone)) return { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', textAlign: 'left', columnGap: '0.6em' }
   const d = GRID_DEFAULTS[zone?.type] || { align: 'center', valign: 'middle' }
   const align = pick(zone?.align, ALIGN_KEYS, d.align)
   const valign = pick(zone?.valign, VALIGN_KEYS, d.valign)
@@ -442,7 +612,7 @@ export function layoutProblems(layout) {
   if (mods.length > 1 && (kinds.includes('all') || new Set(kinds).size < kinds.length)) {
     out.push({ code: 'choice_kinds', message: 'Two Dish choices zones split the choices: one Must pick and one Optional.', zones: mods.map(z => z.id) })
   }
-  const solid = zones.filter(z => !FLOATING_ZONES.includes(z.type))
+  const solid = zones.filter(z => !floats(z))
   for (let i = 0; i < solid.length; i++) {
     for (let j = i + 1; j < solid.length; j++) {
       if (overlaps(solid[i], solid[j])) {
@@ -450,9 +620,22 @@ export function layoutProblems(layout) {
       }
     }
   }
-  for (const p of of('popup')) {
+  for (const p of zones.filter(isPopup)) {
     const why = popupCloseProblem(p)
     if (why) out.push({ code: 'popup_stuck', message: why, zones: [p.id] })
+  }
+  // The order has to be reachable: as a pop-up it needs a button that opens
+  // it, and one that can be tapped (a button its zone leaves out, or one in
+  // a pop-up nothing opens, opens nothing).
+  for (const c of of('check').slice(0, 1)) {
+    if (!isPopup(c)) continue
+    const u = unopenedWhy(layout, c.id)
+    if (!u) continue
+    out.push(u.why === 'none'
+      ? { code: 'order_unopened', message: 'The Order zone is a pop-up and nothing opens it: add an Open a pop-up button for it (it shows the order\'s items and total).', zones: [c.id] }
+      : u.why === 'left_out'
+        ? { code: 'order_unopened', message: 'The button that opens the order doesn\'t fit in its zone and is left out, so nothing opens the order: make room for it there (fewer or smaller buttons, more buttons across or down, or another When more than fits).', zones: [u.zone.id, c.id] }
+        : { code: 'order_unopened', message: 'The button that opens the order is in a pop-up nothing opens (' + popupTitle(u.zone) + '), so nothing opens the order: add a button that opens that pop-up, or one for the order in a Buttons zone.', zones: [u.zone.id, c.id] })
   }
   return out
 }
@@ -472,8 +655,17 @@ export function layoutWarnings(layout) {
     if (z.type === 'category' && !z.section_id) out.push({ code: 'category_unset', message: 'A category\'s dishes zone has no category picked yet.', zones: [z.id] })
     if (z.type === 'buttons' && !z.buttons.length) out.push({ code: 'empty_buttons', message: 'A Buttons zone has no buttons yet.', zones: [z.id] })
     if (z.type === 'popup' && !z.buttons.length) out.push({ code: 'empty_popup', message: 'A pop-up has no buttons yet (' + z.title + ').', zones: [z.id] })
-    if (z.type === 'popup' && !withButtons.some(o => o.id !== z.id && o.buttons.some(b => b.action === 'open_popup' && b.popup_id === z.id))) {
-      out.push({ code: 'popup_unopened', message: 'No button opens a pop-up (' + z.title + '): add an Open a pop-up button for it.', zones: [z.id] })
+    // (An Order zone nothing opens stops the save: layoutProblems().) A
+    // button that can't be tapped opens nothing either.
+    if (isPopup(z) && z.type !== 'check') {
+      const u = unopenedWhy(layout, z.id)
+      if (u) {
+        out.push(u.why === 'none'
+          ? { code: 'popup_unopened', message: 'No button opens a pop-up (' + popupTitle(z) + '): add an Open a pop-up button for it.', zones: [z.id] }
+          : u.why === 'left_out'
+            ? { code: 'popup_unopened', message: 'The button that opens a pop-up (' + popupTitle(z) + ') doesn\'t fit in its zone and is left out: make room for it there.', zones: [u.zone.id, z.id] }
+            : { code: 'popup_unopened', message: 'The button that opens a pop-up (' + popupTitle(z) + ') is in a pop-up nothing opens (' + popupTitle(u.zone) + ').', zones: [u.zone.id, z.id] })
+      }
     }
   }
   // The Order zone's own buttons left out with nothing else doing their job
@@ -496,7 +688,7 @@ export function layoutWarnings(layout) {
   }
   const covered = zones.filter(z => z.type === 'modifiers' && z.cover === 'zone')
   for (const m of covered) {
-    if (!zones.some(z => !FLOATING_ZONES.includes(z.type) && overlaps(z, m))) {
+    if (!zones.some(z => !floats(z) && overlaps(z, m))) {
       out.push({ code: 'choices_space', message: 'A Dish choices zone has its own space: it stays empty until a dish with choices is tapped.', zones: [m.id] })
     }
   }
@@ -606,7 +798,10 @@ class Grid {
 export function buttonLabel(b, { items = {}, presets = [], tenders = [], charges = [], popups = [] } = {}) {
   if (b?.label) return b.label
   if (b?.action === 'item') return items[b.item_id]?.name || 'Dish no longer on the menu'
-  if (b?.action === 'open_popup') return popups.find(p => p.id === b.popup_id)?.title || 'Pop-up no longer in the layout'
+  if (b?.action === 'open_popup') {
+    const p = popups.find(x => x.id === b.popup_id)
+    return p ? popupTitle(p) : 'Pop-up no longer in the layout'
+  }
   if (b?.action === 'close_popup') return 'Close'
   if (b?.action === 'discount_preset') return presets.find(p => p.id === b.preset_id)?.name || 'Discount no longer on the list'
   if (b?.action === 'charge') return charges.find(x => x.id === b.charge_id)?.name || 'Charge no longer on the list'
@@ -697,12 +892,70 @@ export function menuZoneMenus(zone, menus) {
 // layout (the order on the left, categories across the top, dishes, seats);
 // quick: counter service with categories down the side, the must-pick
 // choices over the dishes, the optional ones in a strip and paying buttons.
+// The phone ones (phone: true) are upright, with no top bar: the categories
+// across the top, the dishes as a list and the order behind a button that
+// shows its items and total, taking the whole screen when open (phone); the
+// same with the seat and course behind a button (phone_table); or the
+// dishes with the categories as a list behind a button, which closes when
+// one is picked (phone_categories).
 export const LAYOUT_TEMPLATES = [
   { key: 'standard', label: 'Like the standard screen' },
   { key: 'quick', label: 'Quick service' },
+  { key: 'phone', label: 'Phone: counter service', phone: true },
+  { key: 'phone_table', label: 'Phone: table service', phone: true },
+  { key: 'phone_categories', label: 'Phone: categories behind a button', phone: true },
 ]
+export const TEMPLATE_KEYS = LAYOUT_TEMPLATES.map(t => t.key)
+
+// The colours of the phone templates' buttons: the order in the till's dark
+// ink, Send and Pay as on the order itself.
+const ORDER_INK = '#1f2a44'
+const SEND_BLUE = '#2f5bd3'
+const PAY_GREEN = '#15803d'
+
+function phoneTemplate(key) {
+  // The order: the whole screen while it is open, closed with its X.
+  const order = { id: 'order', type: 'check', x: 0, y: 0, w: 6, h: 10, show: 'popup', cover: 'screen', controls: true }
+  // The bar at the bottom, four buttons across and two down: the button that
+  // opens the order (it says the order's items and total) takes the left half.
+  const open = { id: 'order', action: 'open_popup', popup_id: 'order', colour: ORDER_INK, w: 2, h: 2 }
+  const pay = { id: 'pay', action: 'pay', colour: PAY_GREEN, w: 2 }
+  const menu = { id: 'menu', action: 'till_menu', label: 'Menu' }
+  const bar = buttons => ({ id: 'bar', type: 'buttons', x: 0, y: 10, w: 6, h: 2, cols: 4, rows: 2, overflow: 'hide', font: 16, buttons })
+  const dishes = { id: 'dishes', type: 'items', x: 0, y: 1, w: 6, h: 9, view: 'list', rows: 9, overflow: 'scroll', font: 16, search: true }
+  const strip = { id: 'cats', type: 'categories', x: 0, y: 0, w: 6, h: 1, cols: 3, rows: 1, overflow: 'scroll', font: 15 }
+  if (key === 'phone_table') {
+    return {
+      cols: 6, rows: 12, top_bar: false, phone: true,
+      zones: [
+        strip, dishes,
+        bar([open, { id: 'send', action: 'send', colour: SEND_BLUE, w: 2 }, { id: 'seat', action: 'open_popup', popup_id: 'seats', label: 'Seat & course' }, menu]),
+        // Over the lower part of the dishes: closed with its X or a tap outside.
+        { id: 'seats', type: 'seats', x: 0, y: 5, w: 6, h: 5, show: 'popup', cover: 'zone', controls: true, close_outside: true },
+        order,
+      ],
+    }
+  }
+  if (key === 'phone_categories') {
+    return {
+      cols: 6, rows: 12, top_bar: false, phone: true,
+      zones: [
+        { ...dishes, y: 0, h: 10, rows: 10 },
+        bar([open, { id: 'cats', action: 'open_popup', popup_id: 'cats', w: 2 }, { id: 'more', action: 'more' }, menu]),
+        // The categories as a list over the dishes: one tap picks a category and closes it.
+        { id: 'cats', type: 'categories', x: 0, y: 0, w: 6, h: 10, view: 'list', rows: 9, overflow: 'scroll', font: 17, show: 'popup', cover: 'zone', frame: false, controls: true, close_on_tap: true },
+        order,
+      ],
+    }
+  }
+  return {
+    cols: 6, rows: 12, top_bar: false, phone: true,
+    zones: [strip, dishes, bar([open, pay, { id: 'more', action: 'more' }, menu]), order],
+  }
+}
 
 export function templateLayout(key = 'standard') {
+  if (String(key).startsWith('phone')) return normaliseTillLayout(phoneTemplate(key))
   if (key === 'quick') {
     return normaliseTillLayout({
       cols: 12, rows: 8,
