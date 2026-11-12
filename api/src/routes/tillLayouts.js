@@ -7,7 +7,7 @@
 // (PATCH /api/pos/devices/:id settings.till_layout). Store tech view to
 // read, manage to change.
 //
-//   GET    /till-layouts             the company's layouts, where each is used, the templates
+//   GET    /till-layouts             the company's layouts (phone: made for a phone), where each is used, the templates
 //   POST   /till-layouts             { name, template? | copy_from? }
 //   GET    /till-layouts/:id         a layout, its problems and warnings, where it is used
 //   PUT    /till-layouts/:id         { name, layout } (422 code 'layout' with the problems)
@@ -61,7 +61,8 @@ export default async function tillLayoutRoutes(app) {
       return {
         layouts: rows.map(l => {
           const v = view(l, uses)
-          return { id: v.id, name: v.name, updated_at: v.updated_at, zones: v.layout.zones.length, problems: v.problems.length, used_by: v.used_by }
+          // phone: made for a phone (a phone-sized till draws only those).
+          return { id: v.id, name: v.name, updated_at: v.updated_at, phone: v.layout.phone, zones: v.layout.zones.length, problems: v.problems.length, used_by: v.used_by }
         }),
         templates: LAYOUT_TEMPLATES,
       }

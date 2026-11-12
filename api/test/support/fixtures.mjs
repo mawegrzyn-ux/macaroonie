@@ -474,6 +474,7 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx', loy
   // A till layout (migration 228) naming a section, a dish, a discount and a charge of the
   // tenant's, used by Ware's tills and by the till itself; its Dishes zone leaves the dish
   // out and a category's dishes zone under it shows the section, the dish left out too.
+  // That zone is shown as a pop-up list (12 Nov 2026), opened by a button of the Buttons zone.
   const tillLayout = await step('till layout', () => post('/api/pos/till-layouts', { name: mark + ' Counter screen', template: 'quick' }))
   if (tillLayout) {
     const zones = tillLayout.layout.zones.map(z => {
@@ -487,6 +488,7 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx', loy
             ...(dish ? [{ id: 'fx-dish', action: 'item', item_id: dish.id, label: mark + ' Pad Thai' }] : []),
             ...(tillDiscount ? [{ id: 'fx-disc', action: 'discount_preset', preset_id: tillDiscount.id }] : []),
             ...(chargeCup ? [{ id: 'fx-charge', action: 'charge', charge_id: chargeCup.id }] : []),
+            ...(menuSection ? [{ id: 'fx-open', action: 'open_popup', popup_id: 'fx-category' }] : []),
           ],
         }
       }
@@ -494,7 +496,10 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx', loy
     })
     const dishes = zones.find(z => z.type === 'items')
     if (menuSection && dishes) {
-      zones.push({ id: 'fx-category', type: 'category', x: dishes.x, y: dishes.y + dishes.h, w: dishes.w, h: 2, section_id: menuSection.id, hide_item_ids: dish ? [dish.id] : [] })
+      zones.push({
+        id: 'fx-category', type: 'category', x: dishes.x, y: dishes.y + dishes.h, w: dishes.w, h: 2, section_id: menuSection.id, hide_item_ids: dish ? [dish.id] : [],
+        show: 'popup', title: mark + ' Specials', cover: 'screen', view: 'list', rows: 4, close_on_tap: true,
+      })
     }
     await step('till layout zones', () => put(`/api/pos/till-layouts/${tillLayout.id}`, { name: mark + ' Counter screen', layout: { ...tillLayout.layout, zones } }))
     await step('venue till layout', () => patch(`/api/pos/venues/${V}/settings`, { till_layout_id: tillLayout.id }))

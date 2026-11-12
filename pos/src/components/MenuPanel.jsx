@@ -41,7 +41,9 @@ export function useHold(onTap, onHold) {
 // fill: it takes its cell (till layouts) instead of its own height; font and
 // price follow the zone (the price line can be switched off), and so does
 // where the words sit (place: the zone's buttonTextStyle()).
-export function DishButton({ item, colour, priceText, soldOut, onPick, onHold, fill = false, showPrice = true, place = null }) {
+// list: a row in a till layout zone shown as a list (the name on the left,
+// the price on the right; place puts them in a row).
+export function DishButton({ item, colour, priceText, soldOut, onPick, onHold, fill = false, showPrice = true, place = null, list = false }) {
   const hold = useHold(() => (soldOut && onHold ? onHold(item) : onPick(item)), onHold ? () => onHold(item) : null)
   return (
     <button {...hold} data-testid="dish" data-item={item.id}
@@ -51,9 +53,10 @@ export function DishButton({ item, colour, priceText, soldOut, onPick, onHold, f
         soldOut ? 'bg-page border-line text-muted' : 'bg-white border-line')}
       style={place || undefined}>
       <span className="absolute left-0 top-0 bottom-0 w-1.5" style={{ background: colour, opacity: soldOut ? 0.35 : 1 }} />
-      <span className={cx('leading-tight line-clamp-3 pl-1', !fill && 'font-semibold text-[15px]', soldOut && 'line-through')} data-testid="button-words">{item.name}</span>
+      <span className={cx('leading-tight pl-1', list ? 'line-clamp-2 flex-1 min-w-0' : 'line-clamp-3', !fill && 'font-semibold text-[15px]', soldOut && 'line-through')}
+        data-testid="button-words">{item.name}</span>
       {(showPrice || soldOut) && (
-        <span className={cx('text-muted pl-1 mt-1 tabular-nums', fill ? 'text-[0.8em] font-medium' : 'text-sm')}>
+        <span className={cx('text-muted pl-1 tabular-nums', list ? 'shrink-0' : 'mt-1', fill ? 'text-[0.8em] font-medium' : 'text-sm')} data-testid="dish-price">
           {soldOut ? <span className="font-bold text-bad uppercase text-xs tracking-wide">Sold out</span> : priceText}
         </span>
       )}
@@ -76,32 +79,54 @@ const BAR = 'chip shrink-0 h-16 min-w-[64px] rounded-xl px-5 text-base'
 /**
  * The seat and course the next dish goes to. fill: the bar takes its zone's
  * height (till layouts), with the zone's text size. parts: both, seats or
- * courses (a layout's Seat and course zone can show just one of them).
+ * courses (a layout's Seat and course zone can show just one of them). wrap:
+ * the zone is a pop-up (a phone): the seats, then the courses, each under its
+ * own heading on as many lines as they need, instead of one bar that scrolls
+ * sideways.
  */
-export function SeatCourseBar({ config, seat, setSeat, course, setCourse, covers, fill = false, font = null, parts = 'both' }) {
-  const bar = fill ? 'chip shrink-0 h-full max-h-20 min-h-[48px] min-w-[64px] rounded-xl px-5' : BAR
+export function SeatCourseBar({ config, seat, setSeat, course, setCourse, covers, fill = false, font = null, parts = 'both', wrap = false }) {
+  const bar = wrap ? 'chip h-14 min-w-[64px] rounded-xl px-5' : fill ? 'chip shrink-0 h-full max-h-20 min-h-[48px] min-w-[64px] rounded-xl px-5' : BAR
   // parts: 'both' | 'seats' | 'courses' (a till layout's zone), or 'none' when
   // the check's revenue stream uses neither (seatCourseParts() in lib/checkOps.js).
   const seats = parts === 'both' || parts === 'seats'
   const courses = (parts === 'both' || parts === 'courses') && (config.courses || []).length > 0
+  const seatChips = seats && <>
+    <button className={cx(bar, seat == null && 'chip-on')} onClick={() => setSeat(null)} data-testid="seat-shared">Shared</button>
+    {Array.from({ length: Math.max(2, Math.min(12, covers || 4)) }).map((_, i) => (
+      <button key={i} className={cx(bar, 'w-16 px-0', seat === i + 1 && 'chip-on')} onClick={() => setSeat(seat === i + 1 ? null : i + 1)} data-testid="seat-chip">{i + 1}</button>
+    ))}
+  </>
+  const courseChips = courses && <>
+    <button className={cx(bar, course == null && 'chip-on')} onClick={() => setCourse(null)} data-testid="course-usual">Usual</button>
+    {config.courses.map(c => (
+      <button key={c.id} className={cx(bar, course === c.id && 'chip-on')} onClick={() => setCourse(course === c.id ? null : c.id)} data-testid="course-chip">{c.short_name || c.name}</button>
+    ))}
+  </>
+  const none = !seats && !courses && (
+    <span className="text-sm text-muted pl-1" data-testid="no-courses">{parts === 'none' ? 'This revenue stream uses no seats or courses.' : 'No courses set up at this location.'}</span>
+  )
+  if (wrap) {
+    return (
+      <div className="h-full overflow-y-auto overscroll-contain p-3 space-y-4" style={font ? { fontSize: font + 'px' } : undefined}
+        data-testid="seat-course-bar" data-parts={parts} data-wrap="1">
+        {seats && <div><div className="label mb-2">Seat</div><div className="flex flex-wrap gap-2">{seatChips}</div></div>}
+        {courses && <div><div className="label mb-2">Course</div><div className="flex flex-wrap gap-2">{courseChips}</div></div>}
+        {none}
+      </div>
+    )
+  }
   return (
     <div className={cx('flex items-center gap-2 scroll-x', fill ? 'h-full p-2' : 'border-t border-line bg-white p-2 shrink-0')}
       style={font ? { fontSize: font + 'px' } : undefined} data-testid="seat-course-bar" data-parts={parts}>
       {seats && <>
         <span className="label shrink-0 pl-1">Seat</span>
-        <button className={cx(bar, seat == null && 'chip-on')} onClick={() => setSeat(null)} data-testid="seat-shared">Shared</button>
-        {Array.from({ length: Math.max(2, Math.min(12, covers || 4)) }).map((_, i) => (
-          <button key={i} className={cx(bar, 'w-16 px-0', seat === i + 1 && 'chip-on')} onClick={() => setSeat(seat === i + 1 ? null : i + 1)} data-testid="seat-chip">{i + 1}</button>
-        ))}
+        {seatChips}
       </>}
       {courses && <>
         <span className={cx('label shrink-0', seats ? 'ml-3' : 'pl-1')}>Course</span>
-        <button className={cx(bar, course == null && 'chip-on')} onClick={() => setCourse(null)} data-testid="course-usual">Usual</button>
-        {config.courses.map(c => (
-          <button key={c.id} className={cx(bar, course === c.id && 'chip-on')} onClick={() => setCourse(course === c.id ? null : c.id)} data-testid="course-chip">{c.short_name || c.name}</button>
-        ))}
+        {courseChips}
       </>}
-      {!seats && !courses && <span className="text-sm text-muted pl-1" data-testid="no-courses">{parts === 'none' ? 'This revenue stream uses no seats or courses.' : 'No courses set up at this location.'}</span>}
+      {none}
     </div>
   )
 }

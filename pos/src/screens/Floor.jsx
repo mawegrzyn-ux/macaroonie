@@ -1,11 +1,17 @@
 // The floor: rooms (floor areas) with their tables where Store tech placed
 // them, coloured by what is happening there; open tabs and counter orders on
 // the right. Tap a free table to open a check, a busy one to go to it.
+//
+// On a phone-sized screen (useNarrow()) the two halves are two tabs, Tables
+// and Tabs and orders, each the full width, and a room shows its tables as
+// tiles in the order of their names instead of the plan (a plan scaled to a
+// phone's width leaves tables too small to tap).
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Plus, Users, Hourglass, ReceiptText } from 'lucide-react'
 import { useTill, useChecks, toast, serverName } from '../lib/store.js'
 import { openCheck, defaultStreamId, typeOf, streamTypes, defaultTypeId, promptsFor, orderPromptOf, coversOf } from '../lib/checkOps.js'
+import { useNarrow } from '../lib/tillLayout.js'
 import { checkTotals } from '@shared/pos/pricing.js'
 import { checkLabel, heldCourses } from '@shared/pos/checks.js'
 import { Modal, Keypad, cx, money, elapsed, useTick } from '../components/ui.jsx'
@@ -25,6 +31,9 @@ export default function Floor({ onOpen }) {
   const [ask, setAsk] = useState(null)       // { table } covers / new check
   const [choose, setChoose] = useState(null) // { table, checks }
   const [newTab, setNewTab] = useState(false)
+  // A phone: one half at a time.
+  const narrow = useNarrow()
+  const [pane, setPane] = useState('tables')
 
   const open = useMemo(() => Object.values(checks).filter(c => c.status === 'open'), [checks])
   const byTable = useMemo(() => {
@@ -58,36 +67,56 @@ export default function Floor({ onOpen }) {
   const tabs = open.filter(c => !c.table_id).sort((a, b) => (a.opened_at || '').localeCompare(b.opened_at || ''))
   const mine = open.filter(c => c.server_id === staff.id).length
 
-  return (
-    <div className="h-full flex">
-      <div className="flex-1 min-w-0 flex flex-col">
-        <div className="flex items-center gap-2 p-3 scroll-x">
-          {areas.map(a => (
-            <button key={a.id} className={cx('chip shrink-0', areaId === a.id && 'chip-on')} onClick={() => setAreaId(a.id)}>{a.name}</button>
-          ))}
-          {(unplaced.length > 0 || !areas.length) && (
-            <button className={cx('chip shrink-0', areaId === LIST && 'chip-on')} onClick={() => setAreaId(LIST)}>{areas.length ? 'Other tables' : 'Tables'}</button>
-          )}
-          <div className="ml-auto text-sm text-muted shrink-0 pr-1">{open.length} open · {mine} yours</div>
-        </div>
-        <div className="flex-1 min-h-0 px-3 pb-3">
-          {area
-            ? <Plan area={area} tables={(config.tables || []).filter(t => t.floor_area_id === area.id)} byTable={byTable} onTap={tapTable} />
-            : <TableGrid tables={areas.length ? unplaced : config.tables || []} byTable={byTable} onTap={tapTable} />}
-        </div>
+  const byLabel = (a, b) => String(a.label).localeCompare(String(b.label), undefined, { numeric: true })
+  const tablesPane = (
+    <div className="flex-1 min-w-0 min-h-0 flex flex-col" data-testid="floor-tables">
+      <div className="flex items-center gap-2 p-3 scroll-x">
+        {areas.map(a => (
+          <button key={a.id} className={cx('chip shrink-0', areaId === a.id && 'chip-on')} onClick={() => setAreaId(a.id)}>{a.name}</button>
+        ))}
+        {(unplaced.length > 0 || !areas.length) && (
+          <button className={cx('chip shrink-0', areaId === LIST && 'chip-on')} onClick={() => setAreaId(LIST)}>{areas.length ? 'Other tables' : 'Tables'}</button>
+        )}
+        {!narrow && <div className="ml-auto text-sm text-muted shrink-0 pr-1">{open.length} open · {mine} yours</div>}
       </div>
-      <aside className="w-[300px] xl:w-[340px] shrink-0 border-l border-line bg-white flex flex-col">
-        <div className="p-3 border-b border-line flex gap-2">
-          <button className="btn btn-primary flex-1" onClick={() => setNewTab(true)}><Plus size={18} /> New tab</button>
-        </div>
-        <div className="flex-1 overflow-y-auto p-3 space-y-2">
-          <div className="label px-1">Tabs and orders</div>
-          {!tabs.length && <div className="text-sm text-muted px-1">No open tabs.</div>}
-          {tabs.map(c => <CheckRow key={c.id} check={c} config={config} onClick={() => onOpen(c.id)} />)}
-          {open.some(c => c.table_id) && <div className="label px-1 pt-3">Tables</div>}
-          {open.filter(c => c.table_id).map(c => <CheckRow key={c.id} check={c} config={config} onClick={() => onOpen(c.id)} />)}
-        </div>
-      </aside>
+      <div className="flex-1 min-h-0 px-3 pb-3">
+        {area && !narrow
+          ? <Plan area={area} tables={(config.tables || []).filter(t => t.floor_area_id === area.id)} byTable={byTable} onTap={tapTable} />
+          : <TableGrid tables={area ? (config.tables || []).filter(t => t.floor_area_id === area.id).sort(byLabel) : areas.length ? unplaced : config.tables || []}
+            byTable={byTable} onTap={tapTable} empty={area ? 'No tables in this room yet.' : null} />}
+      </div>
+    </div>
+  )
+  const listPane = (
+    <aside className={cx('bg-white flex flex-col min-h-0', narrow ? 'flex-1 min-w-0' : 'w-[300px] xl:w-[340px] shrink-0 border-l border-line')} data-testid="floor-list">
+      <div className="p-3 border-b border-line flex gap-2">
+        <button className="btn btn-primary flex-1" onClick={() => setNewTab(true)} data-testid="new-tab"><Plus size={18} /> New tab</button>
+      </div>
+      <div className="flex-1 overflow-y-auto p-3 space-y-2">
+        <div className="label px-1">Tabs and orders</div>
+        {!tabs.length && <div className="text-sm text-muted px-1">No open tabs.</div>}
+        {tabs.map(c => <CheckRow key={c.id} check={c} config={config} onClick={() => onOpen(c.id)} />)}
+        {open.some(c => c.table_id) && <div className="label px-1 pt-3">Tables</div>}
+        {open.filter(c => c.table_id).map(c => <CheckRow key={c.id} check={c} config={config} onClick={() => onOpen(c.id)} />)}
+      </div>
+    </aside>
+  )
+
+  return (
+    <div className={cx('h-full flex', narrow && 'flex-col')} data-testid="floor" data-narrow={narrow ? '1' : '0'}>
+      {narrow ? (
+        <>
+          <div className="shrink-0 flex gap-2 p-2 bg-white border-b border-line" role="tablist">
+            {[{ key: 'tables', label: 'Tables' }, { key: 'list', label: 'Tabs and orders' + (open.length ? ' (' + open.length + ')' : '') }].map(t => (
+              <button key={t.key} role="tab" aria-selected={pane === t.key} onClick={() => setPane(t.key)} data-testid={'floor-tab-' + t.key}
+                className={cx('flex-1 h-12 rounded-xl font-semibold touch-manipulation', pane === t.key ? 'bg-brand text-white' : 'bg-page')}>{t.label}</button>
+            ))}
+          </div>
+          {pane === 'tables' ? tablesPane : listPane}
+        </>
+      ) : (
+        <>{tablesPane}{listPane}</>
+      )}
 
       {ask && (
         <CoversModal title={'Table ' + ask.table.label} max={ask.table.max_covers} onClose={() => setAsk(null)} onDone={n => startTable(ask.table, n)}
@@ -176,9 +205,9 @@ function Plan({ area, tables, byTable, onTap }) {
   )
 }
 
-function TableGrid({ tables, byTable, onTap }) {
+function TableGrid({ tables, byTable, onTap, empty = null }) {
   if (!tables.length) {
-    return <div className="card p-6 text-muted">No tables yet. Add tables in Macaroonie (Tables) and place them on the floor plan (Store tech, Floor plan).</div>
+    return <div className="card p-6 text-muted">{empty || 'No tables yet. Add tables in Macaroonie (Tables) and place them on the floor plan (Store tech, Floor plan).'}</div>
   }
   return (
     <div className="h-full overflow-y-auto">

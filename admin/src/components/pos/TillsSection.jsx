@@ -344,11 +344,11 @@ function TillModal({ venueId, setup, device, onClose }) {
             {ORDER_PROMPTS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
           </select>
         </Field>
-        <Field label="Screen layout" hint={'Venue setting: ' + layoutName(setup, setup.settings.till_layout_id) + ' (Store tech → Till layouts).'}>
+        <Field label="Screen layout" hint={'Venue setting: ' + layoutName(setup, setup.settings.till_layout_id) + ' (Store tech → Till layouts). On a phone-sized screen a till draws only a layout made for a phone; with any other it shows the built-in phone screen.'}>
           <select className={inputCls} value={form.till_layout} onChange={e => set({ till_layout: e.target.value })} data-testid="till-layout">
             <option value="venue">As the venue</option>
             <option value="standard">The standard screen</option>
-            {(setup.till_layouts || []).map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+            {(setup.till_layouts || []).map(l => <option key={l.id} value={l.id}>{l.name}{l.phone ? ' (phone)' : ''}</option>)}
           </select>
         </Field>
         <Field label="Guests (covers)" hint={'As the stream: ' + coversWord(streamFor(setup, form.revenue_stream_id)?.covers) + ' (Revenue streams). Off also leaves out seat numbers.'}>

@@ -98,7 +98,8 @@ test('layouts: made from a template or a copy, saved, problems refused, listed w
 
   const list = await ok(owner.get('/api/pos/till-layouts'))
   assert.deepEqual(list.layouts.map(l => l.name), ['Zql Bar', 'Zql Copy', 'Zql Quick'])
-  assert.deepEqual(list.templates.map(t => t.key), ['standard', 'quick'])
+  assert.deepEqual(list.templates.map(t => t.key), ['standard', 'quick', 'phone', 'phone_table', 'phone_categories'])
+  assert.deepEqual(list.templates.filter(t => t.phone).map(t => t.key), ['phone', 'phone_table', 'phone_categories'], 'the phone starting points are marked')
   // Store tech's setup lists them for the venue and till choices.
   const setup = await ok(owner.get(`/api/pos/venues/${V}/setup`))
   assert.deepEqual(setup.till_layouts.map(l => l.name), ['Zql Bar', 'Zql Copy', 'Zql Quick'])
@@ -365,6 +366,144 @@ test('Pop-up zones: saved with the buttons that open them, another group\'s dish
   assert.equal(listed.problems, 0)
 
   await ok(owner.patch(`/api/pos/venues/${V}/settings`, { till_layout_id: null }))
+  await ok(owner.delete('/api/pos/till-layouts/' + l.id))
+})
+
+test('Phone layouts: the phone templates, zones shown as pop-ups and as lists, an order no button can open refused, in the lists and the till\'s config', async () => {
+  // Each phone starting point: made for a phone, no top bar, the dishes as a
+  // list, the order a pop-up over the whole screen with a button that opens it.
+  for (const key of ['phone', 'phone_table', 'phone_categories']) {
+    const made = await ok(owner.post('/api/pos/till-layouts', { name: 'Zql ' + key, template: key }))
+    assert.deepEqual([made.layout.phone, made.layout.top_bar, made.layout.cols, made.layout.rows], [true, false, 6, 12], key)
+    assert.deepEqual(made.problems, [], key)
+    const order = made.layout.zones.find(z => z.type === 'check')
+    assert.deepEqual([order.show, order.cover, order.controls, order.close_on_tap], ['popup', 'screen', true, false], key + ': the order')
+    const bar = made.layout.zones.find(z => z.type === 'buttons')
+    assert.ok(bar.buttons.some(b => b.action === 'open_popup' && b.popup_id === order.id), key + ': a button opens the order')
+    assert.equal(made.layout.zones.find(z => z.type === 'items').view, 'list', key + ': dishes as a list')
+    assert.ok(!made.warnings.some(w => w.code === 'popup_unopened'), key + ': every pop-up has a button')
+    await ok(owner.delete('/api/pos/till-layouts/' + made.id))
+  }
+  assert.equal((await owner.post('/api/pos/till-layouts', { name: 'Zql Watch', template: 'watch' })).status, 400, 'an unknown starting point')
+
+  const l = await ok(owner.post('/api/pos/till-layouts', { name: 'Zql Phone', template: 'phone' }))
+  const base = l.layout
+  const ids = Object.fromEntries(base.zones.map(z => [z.type, z.id]))
+  // The categories as a pop-up list with their own name, opened from the bar;
+  // values that aren't offered go back to the usual ones.
+  const layout = {
+    ...base,
+    zones: base.zones.map(z => (z.type === 'categories'
+      ? { ...z, show: 'popup', title: '  Zql Food  ', cover: 'sideways', frame: false, view: 'list', cols: 5, rows: 6, close_on_tap: undefined, sections: [mine.section, theirs.section] }
+      : z.type === 'items' ? { ...z, show: 'sometimes', view: 'rows', title: 'Zql Nope', cover: 'screen' }
+        // A list that scrolls: every button is in reach.
+        : z.type === 'buttons' ? { ...z, view: 'list', cols: 4, overflow: 'scroll', buttons: [...z.buttons, { id: 'food', action: 'open_popup', popup_id: ids.categories }] }
+          : z)),
+  }
+  const saved = await ok(owner.put('/api/pos/till-layouts/' + l.id, { name: 'Zql Phone', layout }))
+  const zone = type => saved.layout.zones.find(z => z.type === type)
+  const cats = zone('categories')
+  assert.deepEqual([cats.show, cats.title, cats.cover, cats.frame, cats.controls, cats.close_outside, cats.close_on_tap],
+    ['popup', 'Zql Food', 'zone', false, true, true, true], 'a zone shown as a pop-up: its name trimmed, the usual values where none fits')
+  assert.deepEqual([cats.view, cats.cols, cats.rows], ['list', 1, 6], 'a list is one button across')
+  assert.deepEqual(cats.sections, [mine.section], 'another group\'s category dropped')
+  const dishes = zone('items')
+  assert.deepEqual([dishes.show, dishes.view], ['always', 'grid'], 'unknown values: always there, a grid')
+  assert.deepEqual(['title', 'cover', 'frame', 'controls', 'close_outside', 'close_on_tap'].filter(k => k in dishes), [], 'no pop-up settings on a zone that is always there')
+  const bar = zone('buttons')
+  assert.deepEqual([bar.view, bar.cols], ['list', 1])
+  assert.ok(bar.buttons.every(b => b.w === 1), 'a list\'s buttons are one across')
+  assert.deepEqual(bar.buttons.filter(b => b.action === 'open_popup').map(b => b.popup_id), [ids.check, ids.categories])
+  assert.deepEqual(saved.problems, [])
+  assert.ok(!saved.warnings.some(w => w.code === 'popup_unopened'))
+  const [row] = await sql`SELECT layout FROM pos_till_layouts WHERE id = ${l.id}`
+  assert.deepEqual([row.layout.phone, row.layout.zones.find(z => z.type === 'categories').show, row.layout.zones.find(z => z.type === 'categories').view], [true, 'popup', 'list'], 'stored as shown')
+
+  // The order as a pop-up needs a button that opens it: refused without one.
+  const unopened = { ...layout, zones: layout.zones.map(z => (z.type === 'buttons' ? { ...z, buttons: z.buttons.filter(b => b.popup_id !== ids.check) } : z)) }
+  const refused = await owner.put('/api/pos/till-layouts/' + l.id, { name: 'Zql Phone', layout: unopened })
+  assert.equal(refused.status, 422)
+  assert.equal(refused.json.code, 'layout')
+  assert.deepEqual(refused.json.problems.map(x => [x.code, x.zones]), [['order_unopened', [ids.check]]])
+  assert.match(refused.json.error, /The Order zone is a pop-up and nothing opens it/)
+  // Over the whole screen nothing is outside it to tap: without its window controls nothing closes the order.
+  const stuck = { ...layout, zones: layout.zones.map(z => (z.type === 'check' ? { ...z, controls: false, close_outside: true, close_on_tap: true } : z)) }
+  const refused2 = await owner.put('/api/pos/till-layouts/' + l.id, { name: 'Zql Phone', layout: stuck })
+  assert.equal(refused2.status, 422)
+  assert.deepEqual(refused2.json.problems.map(x => [x.code, x.zones]), [['popup_stuck', [ids.check]]])
+  assert.match(refused2.json.error, /Nothing closes a pop-up once it is open \(Order\)/)
+  assert.equal((await ok(owner.get('/api/pos/till-layouts/' + l.id))).layout.zones.find(z => z.type === 'check').controls, true, 'a refused save changes nothing')
+  // Any other pop-up nothing opens is worth knowing, and saves.
+  const lonely = { ...layout, zones: layout.zones.map(z => (z.type === 'buttons' ? { ...z, buttons: z.buttons.filter(b => b.id !== 'food') } : z)) }
+  const warned = await ok(owner.put('/api/pos/till-layouts/' + l.id, { name: 'Zql Phone', layout: lonely }))
+  assert.deepEqual(warned.warnings.filter(w => w.code === 'popup_unopened').map(w => w.zones), [[ids.categories]])
+  assert.match(warned.warnings.find(w => w.code === 'popup_unopened').message, /Zql Food/)
+  // A button its zone leaves out opens nothing. The phone bar is full and
+  // leaves out what doesn't fit, so a fifth button there never shows: the
+  // categories count as a pop-up nothing opens (worth knowing, and it saves).
+  const crowded = {
+    ...base,
+    zones: base.zones.map(z => (z.type === 'categories' ? { ...z, show: 'popup' }
+      : z.type === 'buttons' ? { ...z, buttons: [...z.buttons, { id: 'food', action: 'open_popup', popup_id: ids.categories }] }
+        : z)),
+  }
+  const squeezed = await ok(owner.put('/api/pos/till-layouts/' + l.id, { name: 'Zql Phone', layout: crowded }))
+  assert.deepEqual(squeezed.problems, [])
+  assert.deepEqual(squeezed.warnings.filter(w => w.code === 'popup_unopened').map(w => w.zones), [[ids.buttons, ids.categories]], 'the zone holding the button first: that is where to make room')
+  assert.match(squeezed.warnings.find(w => w.code === 'popup_unopened').message, /The button that opens a pop-up \(Categories\) doesn't fit in its zone and is left out/)
+  // The order's own button left out is refused: nothing would open the order.
+  const shut = {
+    ...base,
+    zones: base.zones.map(z => (z.type === 'buttons'
+      ? { ...z, buttons: [...z.buttons.filter(b => b.popup_id !== ids.check), { id: 'f1', action: 'no_sale', w: 2 }, { id: 'f2', action: 'sign_out', w: 2 }, ...z.buttons.filter(b => b.popup_id === ids.check)] }
+      : z)),
+  }
+  const refused3 = await owner.put('/api/pos/till-layouts/' + l.id, { name: 'Zql Phone', layout: shut })
+  assert.equal(refused3.status, 422)
+  assert.equal(refused3.json.code, 'layout')
+  assert.deepEqual(refused3.json.problems.map(x => [x.code, x.zones]), [['order_unopened', [ids.buttons, ids.check]]])
+  assert.match(refused3.json.error, /The button that opens the order doesn't fit in its zone and is left out, so nothing opens the order/)
+  // In pages instead, every button is in reach: saved.
+  const paged = { ...shut, zones: shut.zones.map(z => (z.type === 'buttons' ? { ...z, overflow: 'pages' } : z)) }
+  assert.deepEqual((await ok(owner.put('/api/pos/till-layouts/' + l.id, { name: 'Zql Phone', layout: paged }))).problems, [])
+  // A button in a pop-up nothing opens can't be tapped either: the order's
+  // only button there is refused, until the bar opens that pop-up.
+  const tools = { id: 'tools', type: 'popup', title: 'Zql Tools', x: 0, y: 6, w: 6, h: 4, buttons: [{ id: 'o2', action: 'open_popup', popup_id: ids.check }] }
+  const inPopup = { ...base, zones: [...base.zones.map(z => (z.type === 'buttons' ? { ...z, buttons: z.buttons.filter(b => b.popup_id !== ids.check) } : z)), tools] }
+  const refused4 = await owner.put('/api/pos/till-layouts/' + l.id, { name: 'Zql Phone', layout: inPopup })
+  assert.equal(refused4.status, 422)
+  assert.deepEqual(refused4.json.problems.map(x => [x.code, x.zones]), [['order_unopened', ['tools', ids.check]]])
+  assert.match(refused4.json.error, /The button that opens the order is in a pop-up nothing opens \(Zql Tools\), so nothing opens the order/)
+  const reached = { ...inPopup, zones: inPopup.zones.map(z => (z.type === 'buttons' ? { ...z, buttons: [...z.buttons, { id: 'tools', action: 'open_popup', popup_id: 'tools' }] } : z)) }
+  const through = await ok(owner.put('/api/pos/till-layouts/' + l.id, { name: 'Zql Phone', layout: reached }))
+  assert.deepEqual(through.problems, [])
+  assert.ok(!through.warnings.some(w => w.code === 'popup_unopened'), 'the bar opens the pop-up, the pop-up opens the order')
+  // Always there again: the button that opened it goes, and so do its pop-up settings.
+  const always = await ok(owner.put('/api/pos/till-layouts/' + l.id, { name: 'Zql Phone', layout: { ...layout, zones: layout.zones.map(z => (z.type === 'categories' ? { ...z, show: 'always' } : z)) } }))
+  assert.deepEqual(always.layout.zones.find(z => z.type === 'buttons').buttons.filter(b => b.action === 'open_popup').map(b => b.popup_id), [ids.check])
+  assert.equal('title' in always.layout.zones.find(z => z.type === 'categories'), false)
+
+  // In the lists: made for a phone or not.
+  await ok(owner.put('/api/pos/till-layouts/' + l.id, { name: 'Zql Phone', layout }))
+  const tablet = await ok(owner.post('/api/pos/till-layouts', { name: 'Zql Tablet' }))
+  const these = rows => rows.filter(x => x.id === l.id || x.id === tablet.id).map(x => [x.name, x.phone])
+  assert.deepEqual(these((await ok(owner.get('/api/pos/till-layouts'))).layouts), [['Zql Phone', true], ['Zql Tablet', false]])
+  const setup = await ok(owner.get(`/api/pos/venues/${V}/setup`))
+  assert.deepEqual(these(setup.till_layouts), [['Zql Phone', true], ['Zql Tablet', false]])
+
+  // The till gets it whole: made for a phone, the order and the categories as pop-ups, the lists.
+  await ok(owner.patch(`/api/pos/venues/${V}/settings`, { till_layout_id: l.id }))
+  const cfg = await config(till)
+  const tl = cfg.till_layouts[l.id]
+  assert.deepEqual([tl.phone, tl.top_bar], [true, false])
+  const tz = type => tl.zones.find(z => z.type === type)
+  assert.deepEqual([tz('check').show, tz('check').cover], ['popup', 'screen'])
+  assert.deepEqual([tz('categories').show, tz('categories').title, tz('categories').view, tz('categories').close_on_tap, tz('categories').sections], ['popup', 'Zql Food', 'list', true, [mine.section]])
+  assert.deepEqual([tz('items').show, tz('buttons').view], ['always', 'list'])
+  assert.deepEqual(tz('buttons').buttons.find(b => b.id === 'food'), { id: 'food', action: 'open_popup', label: null, colour: null, w: 1, h: 1, popup_id: ids.categories })
+
+  await ok(owner.patch(`/api/pos/venues/${V}/settings`, { till_layout_id: null }))
+  await ok(owner.delete('/api/pos/till-layouts/' + tablet.id))
   await ok(owner.delete('/api/pos/till-layouts/' + l.id))
 })
 

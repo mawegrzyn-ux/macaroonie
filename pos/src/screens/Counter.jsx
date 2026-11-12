@@ -9,13 +9,13 @@
 // New order and the orders waiting in the Order zone; a dish's choices go in
 // the Dish choices zones when the layout has them.
 
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { ShoppingBag, Plus, Pencil, X, Menu as MenuIcon, BookOpen } from 'lucide-react'
 import { checkLabel } from '@shared/pos/checks.js'
 import { choiceZones } from '@shared/pos/tillLayout.js'
 import { useTill, useChecks, toast, currentChecks, printBill, signOut } from '../lib/store.js'
 import { useTillNav } from '../components/TillMenu.jsx'
-import { tillLayoutOf, lastReceiptCheck } from '../lib/tillLayout.js'
+import { useTillLayout, lastReceiptCheck } from '../lib/tillLayout.js'
 import LayoutScreen from '../components/LayoutScreen.jsx'
 import { cx } from '../components/ui.jsx'
 import {
@@ -47,7 +47,7 @@ export default function Counter() {
   const [soldOutItem, setSoldOutItem] = useState(null)
   const [noSale, setNoSale] = useState(false)
   const [menusOpen, setMenusOpen] = useState(false)
-  const layout = useMemo(() => tillLayoutOf(config), [config])
+  const layout = useTillLayout(config)
   const zones = layout ? choiceZones(layout) : null
   const nav = useTillNav()
   const streamId = defaultStreamId(config)
@@ -160,7 +160,9 @@ export default function Counter() {
     <div className="h-full flex">
       {layout ? (
         <div className="flex-1 min-w-0">
+          {/* The order as a pop-up (a phone layout): the button that opens it says how many orders wait. */}
           <LayoutScreen layout={layout} config={config} check={null} checkZone={panel('h-full')} menus={shownMenus.shown} tillMenus={shownMenus.menus} shownMenus={shownMenus}
+            noOrderNote={waiting.length ? waiting.length + ' waiting' : 'No order yet'}
             seat={seat} setSeat={setSeat} course={course} setCourse={setCourse} canBack={false}
             onDish={pick} onHold={it => setSoldOutItem(it)} onButton={runButton}
             choosing={choosing} onChosen={o => start(choosing.item, { ...o, seat, course })} onCancelChoosing={() => setChoosing(null)}

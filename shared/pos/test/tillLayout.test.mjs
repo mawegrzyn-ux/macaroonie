@@ -6,7 +6,8 @@ import {
   normaliseTillLayout, layoutProblems, layoutWarnings, choiceZones, packCells, buttonLabel,
   ownLayout, layoutIds, templateLayout, LAYOUT_TEMPLATES, overlaps, actionOf, CHECK_BUTTONS,
   buttonTextStyle, ALIGN_KEYS, VALIGN_KEYS, menuZoneMenus, MAX_MENUS, GRID_ZONES,
-  FLOATING_ZONES, popupCloseProblem, LABEL_MAX, ZONE_TYPES, MAX_ZONES, shownDishIds, MAX_HIDDEN,
+  floats, isPopup, popupCloseProblem, LABEL_MAX, ZONE_TYPES, MAX_ZONES, shownDishIds, MAX_HIDDEN,
+  POPUP_ZONES, popupTitle, popupOpeners, isList, gridDefaults, TEMPLATE_KEYS, ZONE_GRID, leftOutButtons, reachablePopups, unopenedWhy,
 } from '../tillLayout.js'
 
 const A = '11111111-1111-4111-8111-111111111111'
@@ -65,7 +66,7 @@ test('normalise: limits, defaults, unknown zones and buttons dropped', () => {
   assert.equal(mods.cover, 'zone')
 
   const empty = normaliseTillLayout(null)
-  assert.deepEqual(empty, { cols: 12, rows: 8, top_bar: true, zones: [] })
+  assert.deepEqual(empty, { cols: 12, rows: 8, top_bar: true, phone: false, zones: [] })
   assert.equal(normaliseTillLayout({ zones: [{ type: 'categories' }] }).zones[0].sections, null, 'no list: every section')
 })
 
@@ -427,7 +428,8 @@ test('Pop-up zones: buttons that show when a button opens them, how they look an
     ],
   })
   const [, , b, drinks, hot] = l.zones
-  assert.ok(GRID_ZONES.includes('popup') && FLOATING_ZONES.includes('popup') && FLOATING_ZONES.includes('modifiers'))
+  assert.ok(GRID_ZONES.includes('popup') && floats(drinks) && isPopup(drinks) && floats({ type: 'modifiers' }) && !isPopup({ type: 'modifiers' }))
+  assert.ok(!floats(b) && !floats(l.zones[0]) && !floats(null), 'a zone always on screen never floats')
   assert.deepEqual(b.buttons.map(x => x.id), ['open'], 'outside a pop-up: no Close; buttons opening a pop-up the layout lacks go')
   assert.equal(b.buttons[0].popup_id, 'drinks')
   assert.deepEqual(drinks.buttons.map(x => x.id), ['cola', 'more', 'close'], 'a pop-up never opens itself; Close stays in a pop-up')
@@ -559,4 +561,380 @@ test('A category\'s dishes zone and dishes left out of a zone', () => {
   const mine = ownLayout(l, { sectionIds: new Set([A]), itemIds: new Set([B, C]), presetIds: [], menuIds: [], chargeIds: [] })
   assert.equal(mine.zones[2].section_id, A)
   assert.deepEqual(mine.zones[1].hide_item_ids, [B])
+})
+
+test('Zones shown as pop-ups: any of them but Buttons and Dish choices, over their cells or the whole screen', () => {
+  const l = normaliseTillLayout({
+    cols: 6, rows: 12,
+    zones: [
+      { id: 'o', type: 'check', x: 0, y: 0, w: 6, h: 10, show: 'popup', cover: 'screen', title: '  The bill  ', close_on_tap: true },
+      { id: 'k', type: 'categories', x: 0, y: 0, w: 6, h: 10, show: 'popup' },
+      { id: 'd', type: 'items', x: 0, y: 0, w: 6, h: 10, show: 'popup', frame: false, close_outside: false, title: 'x'.repeat(80) },
+      { id: 'm', type: 'menus', x: 0, y: 0, w: 6, h: 3, show: 'popup' },
+      { id: 'c1', type: 'category', x: 0, y: 3, w: 6, h: 3, show: 'popup', section_id: A, cover: 'moon' },
+      { id: 's', type: 'seats', x: 0, y: 6, w: 6, h: 4, show: 'popup', controls: false, close_outside: false },
+      { id: 'c2', type: 'category', x: 0, y: 0, w: 3, h: 3, show: 'sometimes' },
+      {
+        id: 'b', type: 'buttons', x: 0, y: 10, w: 6, h: 2, show: 'popup', cover: 'screen', buttons: [
+          { id: 'order', action: 'open_popup', popup_id: 'o' },
+          { id: 'cats', action: 'open_popup', popup_id: 'k' },
+          { id: 'seat', action: 'open_popup', popup_id: 's', label: 'Seat' },
+          { id: 'never', action: 'open_popup', popup_id: 'c2' },
+          { id: 'self', action: 'open_popup', popup_id: 'b' },
+        ],
+      },
+      { id: 'ch', type: 'modifiers', x: 0, y: 0, w: 6, h: 10, show: 'popup' },
+    ],
+  })
+  const z = id => l.zones.find(x => x.id === id)
+  assert.deepEqual(POPUP_ZONES, ['check', 'categories', 'menus', 'items', 'category', 'seats'])
+  // Which zones are pop-ups, and which float (may sit over others).
+  assert.deepEqual(l.zones.filter(isPopup).map(x => x.id), ['o', 'k', 'd', 'm', 'c1', 's'])
+  assert.deepEqual(l.zones.filter(floats).map(x => x.id), ['o', 'k', 'd', 'm', 'c1', 's', 'ch'])
+  assert.equal(z('c2').show, 'always', 'an unknown value: always on screen')
+  assert.ok(!('cover' in z('c2')) && !('title' in z('c2')), 'no pop-up fields on a zone always on screen')
+  assert.ok(!('show' in z('b')) && !('show' in z('ch')), 'Buttons have the Pop-up zone for that; Dish choices float by themselves')
+  assert.equal(z('ch').cover, 'zone', 'a Dish choices zone keeps its own cover')
+  // The fields a pop-up has, with their defaults.
+  assert.deepEqual(
+    { title: z('o').title, cover: z('o').cover, frame: z('o').frame, controls: z('o').controls, close_outside: z('o').close_outside, close_on_tap: z('o').close_on_tap },
+    { title: 'The bill', cover: 'screen', frame: true, controls: true, close_outside: true, close_on_tap: false }, 'the Order zone never closes after it is used')
+  assert.equal(z('k').close_on_tap, true, 'a category is one pick: the list closes after it')
+  assert.equal(z('m').close_on_tap, true, 'so is a menu')
+  assert.equal(z('d').close_on_tap, false, 'dishes are tapped several times')
+  assert.equal(z('s').close_on_tap, false)
+  assert.equal(z('d').title.length, LABEL_MAX)
+  assert.equal(z('k').title, null, 'no name of its own')
+  assert.equal(z('c1').cover, 'zone', 'an unknown cover: its own cells')
+  assert.deepEqual([z('d').frame, z('d').close_outside, z('s').controls, z('s').close_outside], [false, false, false, false])
+  // A pop-up's name: its own, else what it shows.
+  assert.deepEqual(['o', 'k', 'd', 'm', 'c1', 's'].map(id => popupTitle(z(id))), ['The bill', 'Categories', 'x'.repeat(LABEL_MAX), 'Menus', 'Dishes', 'Seat and course'])
+  assert.equal(popupTitle({ type: 'popup', title: 'Drinks' }), 'Drinks')
+  assert.equal(popupTitle(null), 'Pop-up')
+
+  // Openers: buttons naming any pop-up zone stay; one naming a zone that is
+  // always on screen, or its own zone, goes.
+  assert.deepEqual(z('b').buttons.map(x => x.id), ['order', 'cats', 'seat'])
+  assert.deepEqual(popupOpeners(l, 'o').map(x => [x.zone.id, x.button.id]), [['b', 'order']])
+  assert.deepEqual(popupOpeners(l, 'm'), [])
+  assert.deepEqual(popupOpeners(null, 'o'), [])
+  const words = b => buttonLabel(b, { popups: l.zones.filter(isPopup) })
+  assert.deepEqual(z('b').buttons.map(words), ['The bill', 'Categories', 'Seat'], 'an opener says its pop-up\'s name unless it has its own words')
+  // A pop-up's own opener inside it doesn't count (it never opens itself).
+  const inside = normaliseTillLayout({ zones: [{ id: 'o', type: 'check', x: 0, y: 0, w: 2, h: 2 }, { id: 'p', type: 'popup', x: 0, y: 0, w: 2, h: 2, buttons: [{ id: 'me', action: 'open_popup', popup_id: 'p' }] }] })
+  assert.deepEqual(popupOpeners(inside, 'p'), [])
+
+  // Pop-ups sit over each other and over other zones: no overlap problem.
+  // Nothing opens the dishes, Menus or the category: a warning each, by name.
+  assert.deepEqual(layoutProblems(l).map(p => p.code), ['popup_stuck'], 'the seats pop-up has no way out')
+  assert.deepEqual(layoutProblems(l)[0].zones, ['s'])
+  const w = layoutWarnings(l).filter(x => x.code === 'popup_unopened')
+  assert.deepEqual(w.map(x => x.zones[0]), ['d', 'm', 'c1'])
+  assert.match(w[1].message, /\(Menus\)/)
+  // Two zones always on screen still may not overlap.
+  const both = normaliseTillLayout({ zones: [{ id: 'o', type: 'check', x: 0, y: 0, w: 4, h: 4 }, { id: 'd', type: 'items', x: 2, y: 2, w: 4, h: 4 }, { id: 'k', type: 'categories', x: 0, y: 0, w: 4, h: 4, show: 'popup' }] })
+  assert.deepEqual(layoutProblems(both).map(p => p.code), ['overlap'])
+  assert.deepEqual(layoutProblems(both)[0].zones, ['o', 'd'])
+})
+
+test('What closes a pop-up: its X, a tap outside unless it takes the whole screen, after it is used (never the Order zone)', () => {
+  const pop = (type, extra = {}) => normaliseTillLayout({
+    zones: [{ id: 'p', type, x: 0, y: 0, w: 4, h: 4, show: 'popup', controls: false, close_outside: false, close_on_tap: false, ...extra }],
+  }).zones[0]
+  assert.match(popupCloseProblem(pop('items')), /Nothing closes a pop-up once it is open \(Dishes\)/)
+  assert.equal(popupCloseProblem(pop('items', { controls: true })), null)
+  assert.equal(popupCloseProblem(pop('items', { close_outside: true })), null)
+  assert.equal(popupCloseProblem(pop('items', { close_on_tap: true })), null, 'after a dish is tapped')
+  assert.equal(popupCloseProblem(pop('categories', { close_on_tap: true })), null)
+  assert.equal(popupCloseProblem(pop('seats', { close_on_tap: true })), null)
+  // The whole screen: nothing is outside it.
+  assert.match(popupCloseProblem(pop('items', { cover: 'screen', close_outside: true })), /Nothing closes/)
+  assert.doesNotMatch(popupCloseProblem(pop('items', { cover: 'screen', close_outside: true })), /tap outside/)
+  assert.equal(popupCloseProblem(pop('items', { cover: 'screen', controls: true })), null)
+  assert.equal(popupCloseProblem(pop('menus', { cover: 'screen', close_on_tap: true })), null)
+  // The Order zone: its X, or a tap outside; never "after it is used".
+  assert.match(popupCloseProblem(pop('check', { close_on_tap: true })), /Nothing closes a pop-up once it is open \(Order\): keep its window controls, let a tap outside close it\.$/)
+  assert.equal(popupCloseProblem(pop('check', { close_outside: true })), null)
+  assert.match(popupCloseProblem(pop('check', { cover: 'screen', close_outside: true })), /\(Order\): keep its window controls\.$/)
+  assert.equal(popupCloseProblem(pop('check', { cover: 'screen', controls: true })), null)
+  // A Pop-up zone over the whole screen: its X, its buttons, or a Close button.
+  const zone = extra => normaliseTillLayout({ zones: [{ id: 'p', type: 'popup', x: 0, y: 0, w: 4, h: 4, cover: 'screen', controls: false, ...extra }] }).zones[0]
+  assert.equal(zone({}).cover, 'screen')
+  assert.equal(normaliseTillLayout({ zones: [{ id: 'p', type: 'popup', x: 0, y: 0, w: 4, h: 4 }] }).zones[0].cover, 'zone', 'older pop-ups keep their own cells')
+  assert.match(popupCloseProblem(zone({ close_outside: true })), /Nothing closes/)
+  assert.equal(popupCloseProblem(zone({ buttons: [{ id: 'x', action: 'close_popup' }] })), null)
+  assert.equal(popupCloseProblem(zone({ close_on_tap: true, buttons: [{ id: 'x', action: 'no_sale' }] })), null)
+  // Zones always on screen never have the problem.
+  assert.equal(popupCloseProblem(normaliseTillLayout({ zones: [{ id: 'd', type: 'items', x: 0, y: 0, w: 2, h: 2, controls: false, close_outside: false }] }).zones[0]), null)
+})
+
+test('The Order zone as a pop-up needs a button that opens it', () => {
+  const zones = extra => [
+    { id: 'o', type: 'check', x: 0, y: 0, w: 6, h: 10, show: 'popup', cover: 'screen' },
+    { id: 'd', type: 'items', x: 0, y: 0, w: 6, h: 10 },
+    ...extra,
+  ]
+  const codes = extra => layoutProblems(normaliseTillLayout({ cols: 6, rows: 12, zones: zones(extra) })).map(p => p.code)
+  assert.deepEqual(codes([]), ['order_unopened'])
+  const p = layoutProblems(normaliseTillLayout({ cols: 6, rows: 12, zones: zones([]) }))[0]
+  assert.deepEqual(p.zones, ['o'])
+  assert.match(p.message, /Order zone is a pop-up and nothing opens it/)
+  // A Buttons zone with other buttons doesn't open it.
+  assert.deepEqual(codes([{ id: 'b', type: 'buttons', x: 0, y: 10, w: 6, h: 2, buttons: [{ id: 'pay', action: 'pay' }] }]), ['order_unopened'])
+  assert.deepEqual(codes([{ id: 'b', type: 'buttons', x: 0, y: 10, w: 6, h: 2, buttons: [{ id: 'open', action: 'open_popup', popup_id: 'o' }] }]), [])
+  // From a pop-up counts, as for any pop-up, when that pop-up can be opened itself.
+  assert.deepEqual(codes([
+    { id: 'p', type: 'popup', x: 0, y: 8, w: 6, h: 2, buttons: [{ id: 'open', action: 'open_popup', popup_id: 'o' }] },
+    { id: 'b', type: 'buttons', x: 0, y: 10, w: 6, h: 2, buttons: [{ id: 'tools', action: 'open_popup', popup_id: 'p' }] },
+  ]), [])
+  // The warning is for the other pop-ups: the Order zone has the problem instead.
+  const l = normaliseTillLayout({ cols: 6, rows: 12, zones: zones([]) })
+  assert.ok(!layoutWarnings(l).some(w => w.code === 'popup_unopened'))
+  // No Order zone at all is still its own problem; always on screen needs nothing.
+  assert.deepEqual(layoutProblems(normaliseTillLayout({ zones: [{ id: 'd', type: 'items', x: 0, y: 0, w: 2, h: 2 }] })).map(x => x.code), ['no_check'])
+  assert.deepEqual(layoutProblems(normaliseTillLayout({ zones: [{ id: 'o', type: 'check', x: 0, y: 0, w: 2, h: 2 }] })), [])
+  // Taking the Order pop-up's opener out with its Buttons zone brings the problem back.
+  const ok = normaliseTillLayout({ cols: 6, rows: 12, zones: zones([{ id: 'b', type: 'buttons', x: 0, y: 10, w: 6, h: 2, buttons: [{ id: 'open', action: 'open_popup', popup_id: 'o' }] }]) })
+  const without = normaliseTillLayout({ ...ok, zones: ok.zones.filter(z => z.id !== 'b') })
+  assert.deepEqual(layoutProblems(without).map(x => x.code), ['order_unopened'])
+  // The Order zone back on screen always: its opener goes with the pop-up.
+  const back = normaliseTillLayout({ ...ok, zones: ok.zones.map(z => (z.id === 'o' ? { ...z, show: 'always', x: 0, y: 0, w: 6, h: 2 } : z.id === 'd' ? { ...z, y: 2, h: 8 } : z)) })
+  assert.deepEqual(back.zones.find(z => z.id === 'b').buttons, [])
+  assert.deepEqual(layoutProblems(back), [])
+})
+
+test('A button its zone leaves out opens nothing: the pop-up counts as unopened', () => {
+  // Hide the rest (overflow hide): the buttons from the first that doesn't fit on never show.
+  const bar = (buttons, extra = {}) => ({ id: 'b', type: 'buttons', x: 0, y: 10, w: 6, h: 2, cols: 2, rows: 1, overflow: 'hide', buttons, ...extra })
+  const zoneOf = (buttons, extra) => normaliseTillLayout({ cols: 6, rows: 12, zones: [{ id: 'o', type: 'check', x: 0, y: 0, w: 6, h: 10 }, bar(buttons, extra)] }).zones.find(z => z.id === 'b')
+  const three = [{ id: 'pay', action: 'pay' }, { id: 'send', action: 'send' }, { id: 'more', action: 'more' }]
+  assert.deepEqual(leftOutButtons(zoneOf(three)).map(x => x.id), ['more'])
+  assert.deepEqual(leftOutButtons(zoneOf(three.slice(0, 2))), [])
+  // Everything after the first that doesn't fit goes too, even one that would fit.
+  assert.deepEqual(leftOutButtons(zoneOf([{ id: 'pay', action: 'pay' }, { id: 'wide', action: 'send', w: 2 }, { id: 'more', action: 'more' }])).map(x => x.id), ['wide', 'more'])
+  // Scroll, pages and More keep every button in reach.
+  for (const overflow of ['scroll', 'pages', 'more']) assert.deepEqual(leftOutButtons(zoneOf(three, { overflow })), [], overflow)
+  assert.deepEqual(leftOutButtons(null), [])
+  assert.deepEqual(leftOutButtons({ type: 'items', overflow: 'hide' }), [])
+
+  // The Order as a pop-up: its only opener left out is the same problem as none.
+  const order = { id: 'o', type: 'check', x: 0, y: 0, w: 6, h: 10, show: 'popup', cover: 'screen' }
+  const dishes = { id: 'd', type: 'items', x: 0, y: 0, w: 6, h: 10 }
+  const open = { id: 'open', action: 'open_popup', popup_id: 'o' }
+  const lay = (buttons, extra) => normaliseTillLayout({ cols: 6, rows: 12, zones: [order, dishes, bar(buttons, extra)] })
+  const shown = lay([open, { id: 'pay', action: 'pay' }, { id: 'more', action: 'more' }])
+  assert.deepEqual(popupOpeners(shown, 'o').map(x => [x.button.id, x.left_out]), [['open', false]])
+  assert.deepEqual(layoutProblems(shown), [])
+  const out = lay([{ id: 'pay', action: 'pay' }, { id: 'more', action: 'more' }, open])
+  assert.deepEqual(popupOpeners(out, 'o').map(x => [x.button.id, x.left_out]), [['open', true]])
+  const [p, ...rest] = layoutProblems(out)
+  assert.equal(p.code, 'order_unopened')
+  assert.deepEqual(rest, [])
+  assert.match(p.message, /doesn't fit in its zone and is left out, so nothing opens the order/)
+  // The zone to fix comes first (the designer opens it when the problem is tapped).
+  assert.deepEqual(p.zones, ['b', 'o'])
+  // The same buttons where the rest is kept in reach: no problem.
+  for (const overflow of ['scroll', 'pages', 'more']) assert.deepEqual(layoutProblems(lay([{ id: 'pay', action: 'pay' }, { id: 'more', action: 'more' }, open], { overflow })), [], overflow)
+  // One opener that shows is enough.
+  const two = normaliseTillLayout({ cols: 6, rows: 12, zones: [order, dishes, bar([{ id: 'pay', action: 'pay' }, { id: 'more', action: 'more' }, open]),
+    { id: 'b2', type: 'buttons', x: 0, y: 9, w: 6, h: 1, buttons: [{ id: 'open2', action: 'open_popup', popup_id: 'o' }] }] })
+  assert.deepEqual(popupOpeners(two, 'o').map(x => [x.zone.id, x.left_out]), [['b', true], ['b2', false]])
+  assert.deepEqual(layoutProblems(two).filter(x => x.code === 'order_unopened'), [])
+
+  // Any other pop-up: the note, worded for a button that doesn't fit.
+  const cats = { id: 'c', type: 'categories', x: 0, y: 0, w: 6, h: 5, show: 'popup' }
+  const openCats = { id: 'cats', action: 'open_popup', popup_id: 'c' }
+  const l = normaliseTillLayout({ cols: 6, rows: 12, zones: [{ id: 'o', type: 'check', x: 0, y: 0, w: 6, h: 3 }, { ...dishes, y: 3, h: 7 }, cats, bar([{ id: 'pay', action: 'pay' }, { id: 'more', action: 'more' }, openCats])] })
+  const w = layoutWarnings(l).filter(x => x.code === 'popup_unopened')
+  assert.equal(w.length, 1)
+  assert.match(w[0].message, /The button that opens a pop-up \(Categories\) doesn't fit in its zone and is left out/)
+  assert.deepEqual(w[0].zones, ['b', 'c'])
+  assert.deepEqual(layoutProblems(l), [])
+  const fits = normaliseTillLayout({ ...l, zones: l.zones.map(z => (z.id === 'b' ? { ...z, cols: 3 } : z)) })
+  assert.deepEqual(layoutWarnings(fits).filter(x => x.code === 'popup_unopened'), [])
+  // A Pop-up zone leaves buttons out the same way.
+  const inPop = normaliseTillLayout({ cols: 6, rows: 12, zones: [{ id: 'o', type: 'check', x: 0, y: 0, w: 6, h: 3 }, { ...dishes, y: 3, h: 7 }, cats,
+    { id: 'b', type: 'buttons', x: 0, y: 10, w: 6, h: 2, buttons: [{ id: 'tools', action: 'open_popup', popup_id: 'p' }] },
+    { id: 'p', type: 'popup', title: 'Tools', x: 0, y: 5, w: 6, h: 2, cols: 1, rows: 1, overflow: 'hide', buttons: [{ id: 'pay', action: 'pay' }, openCats] }] })
+  assert.deepEqual(popupOpeners(inPop, 'c').map(x => [x.zone.id, x.left_out]), [['p', true]])
+  assert.match(layoutWarnings(inPop).find(x => x.code === 'popup_unopened').message, /\(Categories\) doesn't fit/)
+  // The phone starting points all fit.
+  for (const key of ['phone', 'phone_table', 'phone_categories']) {
+    const t = templateLayout(key)
+    assert.deepEqual(t.zones.flatMap(z => leftOutButtons(z)), [], key)
+    assert.ok(t.zones.filter(isPopup).every(z => popupOpeners(t, z.id).some(o => o.works)), key)
+    assert.deepEqual([...reachablePopups(t)].sort(), t.zones.filter(isPopup).map(z => z.id).sort(), key)
+  }
+})
+
+test('A button in a pop-up nothing opens opens nothing either: pop-ups are judged by whether a person can get to them', () => {
+  const order = { id: 'o', type: 'check', x: 0, y: 0, w: 6, h: 10, show: 'popup', cover: 'screen' }
+  const dishes = { id: 'd', type: 'items', x: 0, y: 0, w: 6, h: 10 }
+  const tools = buttons => ({ id: 'p', type: 'popup', title: 'Tools', x: 0, y: 6, w: 6, h: 4, buttons })
+  const bar = (buttons, extra = {}) => ({ id: 'b', type: 'buttons', x: 0, y: 10, w: 6, h: 2, buttons, ...extra })
+  const openOrder = { id: 'open', action: 'open_popup', popup_id: 'o' }
+  const openTools = { id: 'tools', action: 'open_popup', popup_id: 'p' }
+  const pay = { id: 'pay', action: 'pay' }
+  const lay = zones => normaliseTillLayout({ cols: 6, rows: 12, zones: [order, dishes, ...zones] })
+
+  // No button at all.
+  assert.deepEqual(unopenedWhy(lay([bar([pay])]), 'o'), { why: 'none', zone: null })
+  // The order's only button sits in a pop-up nothing opens: the order can't be reached.
+  const shut = lay([tools([openOrder]), bar([pay])])
+  assert.deepEqual([...reachablePopups(shut)], [])
+  assert.deepEqual(popupOpeners(shut, 'o').map(x => [x.zone.id, x.left_out, x.shut, x.works]), [['p', false, true, false]])
+  assert.equal(unopenedWhy(shut, 'o').why, 'shut')
+  const [p, ...rest] = layoutProblems(shut)
+  assert.deepEqual([p.code, p.zones], ['order_unopened', ['p', 'o']])
+  assert.match(p.message, /The button that opens the order is in a pop-up nothing opens \(Tools\), so nothing opens the order/)
+  assert.deepEqual(rest, [])
+  // The pop-up itself has the note for a pop-up no button opens.
+  assert.deepEqual(layoutWarnings(shut).filter(w => w.code === 'popup_unopened').map(w => w.zones), [['p']])
+
+  // A button for that pop-up in the bar: both in reach.
+  const chained = lay([tools([openOrder]), bar([openTools])])
+  assert.deepEqual([...reachablePopups(chained)].sort(), ['o', 'p'])
+  assert.deepEqual(popupOpeners(chained, 'o').map(x => [x.shut, x.works]), [[false, true]])
+  assert.equal(unopenedWhy(chained, 'o'), null)
+  assert.deepEqual(layoutProblems(chained), [])
+  assert.ok(!layoutWarnings(chained).some(w => w.code === 'popup_unopened'))
+  // ... unless the bar leaves that button out: the pop-up is shut again, and the order with it.
+  const squeezed = lay([tools([openOrder]), bar([pay, openTools], { cols: 1, rows: 1, overflow: 'hide' })])
+  assert.deepEqual([...reachablePopups(squeezed)], [])
+  assert.deepEqual(layoutProblems(squeezed).map(x => [x.code, x.zones]), [['order_unopened', ['p', 'o']]])
+  assert.deepEqual(layoutWarnings(squeezed).filter(w => w.code === 'popup_unopened').map(w => w.zones), [['b', 'p']])
+  // A button that doesn't fit is the one to fix first: making room is all it takes.
+  const both = lay([tools([openOrder]), bar([pay, { id: 'open2', action: 'open_popup', popup_id: 'o' }], { cols: 1, rows: 1, overflow: 'hide' })])
+  assert.deepEqual(popupOpeners(both, 'o').map(x => [x.zone.id, x.left_out, x.shut]), [['p', false, true], ['b', true, false]])
+  assert.deepEqual([unopenedWhy(both, 'o').why, unopenedWhy(both, 'o').zone.id], ['left_out', 'b'])
+  assert.deepEqual(layoutProblems(both).map(x => x.zones), [['b', 'o']])
+  assert.match(layoutProblems(both)[0].message, /doesn't fit in its zone and is left out/)
+  // A button that doesn't fit in a pop-up nothing opens: the pop-up comes first (room for the button alone opens nothing).
+  const lost = lay([{ ...tools([pay, openOrder]), cols: 1, rows: 1, overflow: 'hide' }, bar([pay])])
+  assert.deepEqual(popupOpeners(lost, 'o').map(x => [x.zone.id, x.left_out, x.shut, x.works]), [['p', true, true, false]])
+  assert.deepEqual([unopenedWhy(lost, 'o').why, unopenedWhy(lost, 'o').zone.id], ['shut', 'p'])
+  assert.match(layoutProblems(lost)[0].message, /is in a pop-up nothing opens \(Tools\), so nothing opens the order/)
+
+  // Two pop-ups that only open each other are never reached, nor is what they open.
+  const cats = { id: 'c', type: 'categories', x: 0, y: 0, w: 6, h: 5, show: 'popup' }
+  const ring = normaliseTillLayout({
+    cols: 6, rows: 12,
+    zones: [{ id: 'o', type: 'check', x: 0, y: 0, w: 6, h: 3 }, { ...dishes, y: 3, h: 7 }, cats,
+      { id: 'p', type: 'popup', title: 'One', x: 0, y: 5, w: 6, h: 2, buttons: [{ id: 'a', action: 'open_popup', popup_id: 'q' }, { id: 'k', action: 'open_popup', popup_id: 'c' }] },
+      { id: 'q', type: 'popup', title: 'Two', x: 0, y: 7, w: 6, h: 2, buttons: [{ id: 'b', action: 'open_popup', popup_id: 'p' }] }],
+  })
+  assert.deepEqual([...reachablePopups(ring)], [])
+  const notes = layoutWarnings(ring).filter(w => w.code === 'popup_unopened')
+  assert.deepEqual(notes.map(w => w.zones), [['p', 'c'], ['q', 'p'], ['p', 'q']])
+  assert.match(notes[0].message, /The button that opens a pop-up \(Categories\) is in a pop-up nothing opens \(One\)/)
+  assert.deepEqual(layoutProblems(ring), [])
+  // One button in a Buttons zone for either of them lets all three be reached.
+  const freed = normaliseTillLayout({ ...ring, zones: [...ring.zones, { id: 'b', type: 'buttons', x: 0, y: 10, w: 6, h: 2, buttons: [{ id: 'x', action: 'open_popup', popup_id: 'q' }] }] })
+  assert.deepEqual([...reachablePopups(freed)].sort(), ['c', 'p', 'q'])
+  assert.ok(!layoutWarnings(freed).some(w => w.code === 'popup_unopened'))
+  assert.deepEqual(reachablePopups(null), new Set())
+})
+
+test('List view: one column of rows, the words on the left and the second line on the right', () => {
+  const l = normaliseTillLayout({
+    zones: [
+      { id: 'o', type: 'check', x: 0, y: 0, w: 4, h: 8, view: 'list' },
+      { id: 'k', type: 'categories', x: 4, y: 0, w: 2, h: 8, view: 'list', cols: 5, rows: 7 },
+      { id: 'd', type: 'items', x: 6, y: 0, w: 6, h: 6, view: 'list', cols: 4, rows: 9, align: 'right', valign: 'bottom' },
+      { id: 'g', type: 'category', x: 6, y: 6, w: 3, h: 1, view: 'rows' },
+      { id: 'b', type: 'buttons', x: 9, y: 6, w: 3, h: 2, view: 'list', cols: 3, rows: 4, buttons: [{ id: 'a', action: 'pay', w: 3, h: 2 }, { id: 'c', action: 'send' }] },
+      { id: 'm', type: 'modifiers', x: 6, y: 0, w: 6, h: 6, view: 'list', cols: 4 },
+      { id: 'p', type: 'popup', x: 0, y: 0, w: 4, h: 4, view: 'list', cols: 3 },
+      { id: 'n', type: 'menus', x: 6, y: 7, w: 3, h: 1, view: 'list' },
+      { id: 's', type: 'seats', x: 0, y: 0, w: 1, h: 1, view: 'list' },
+    ],
+  })
+  const z = id => l.zones.find(x => x.id === id)
+  for (const id of ['k', 'd', 'b', 'm', 'p', 'n']) {
+    assert.equal(z(id).view, 'list', id)
+    assert.equal(z(id).cols, 1, id + ': one column')
+    assert.ok(isList(z(id)))
+  }
+  assert.equal(z('k').rows, 7, 'the rows on screen at once stay as set')
+  assert.equal(z('d').rows, 9)
+  assert.equal(z('g').view, 'grid', 'an unknown view: a grid')
+  assert.equal(z('g').cols, 4)
+  assert.ok(!('view' in z('o')) && !('view' in z('s')), 'only zones with buttons have a view')
+  assert.ok(!isList(z('g')) && !isList(null))
+  // An older zone is a grid.
+  assert.equal(normaliseTillLayout({ zones: [{ id: 'd', type: 'items', x: 0, y: 0, w: 2, h: 2, cols: 5 }] }).zones[0].view, 'grid')
+  assert.equal(normaliseTillLayout({ zones: [{ id: 'd', type: 'items', x: 0, y: 0, w: 2, h: 2, cols: 5 }] }).zones[0].cols, 5)
+  // The row: words left, the second line right, whatever the zone's align says.
+  assert.deepEqual(buttonTextStyle(z('d')), { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', textAlign: 'left', columnGap: '0.6em' })
+  assert.deepEqual(buttonTextStyle(z('b')), buttonTextStyle(z('k')))
+  assert.equal(buttonTextStyle(z('g')).flexDirection, undefined, 'a grid keeps the column')
+  // Packing: one cell a row; a wide button is cut to the column, a tall one keeps its rows.
+  const packed = packCells(z('b').buttons.map(b => ({ w: b.w, h: b.h })), z('b'))
+  assert.deepEqual(packed.pages[0].map(p => [p.x, p.y, p.w, p.h]), [[0, 0, 1, 2], [0, 2, 1, 1]])
+  const many = packCells(Array.from({ length: 12 }, () => ({})), { cols: z('d').cols, rows: z('d').rows, overflow: 'scroll' })
+  assert.equal(many.rows, 12, 'a list scrolls down')
+  assert.deepEqual(many.pages[0].map(p => p.y), Array.from({ length: 12 }, (_, i) => i))
+  // Back to a grid: the type's own columns (the designer).
+  assert.equal(gridDefaults('items').cols, 4)
+  assert.equal(gridDefaults('categories').cols, 6)
+  assert.equal(gridDefaults('nonsense').cols, 4)
+  const d = gridDefaults('items'); d.cols = 99
+  assert.equal(gridDefaults('items').cols, 4, 'a copy each time')
+})
+
+test('Phone layouts: the flag, and the three templates', () => {
+  assert.equal(normaliseTillLayout({}).phone, false, 'older layouts are not phone layouts')
+  assert.equal(normaliseTillLayout({ phone: true }).phone, true)
+  assert.equal(normaliseTillLayout({ phone: 'yes' }).phone, false)
+  assert.deepEqual(TEMPLATE_KEYS, ['standard', 'quick', 'phone', 'phone_table', 'phone_categories'])
+  assert.deepEqual(LAYOUT_TEMPLATES.filter(t => t.phone).map(t => t.key), ['phone', 'phone_table', 'phone_categories'])
+  assert.deepEqual([templateLayout('standard').phone, templateLayout('quick').phone], [false, false])
+  for (const key of ['phone', 'phone_table', 'phone_categories']) {
+    const l = templateLayout(key)
+    const z = id => l.zones.find(x => x.id === id)
+    assert.deepEqual([l.phone, l.top_bar, l.cols, l.rows], [true, false, 6, 12], key + ': upright, no top bar')
+    assert.deepEqual(layoutProblems(l), [], key)
+    assert.deepEqual(layoutWarnings(l).map(w => w.code), ['choices_window'], key + ': choices in the window')
+    assert.deepEqual(normaliseTillLayout(JSON.parse(JSON.stringify(l))), l, key + ': stored as it is')
+    // The order: a pop-up over the whole screen with its X, opened by the big button.
+    const order = z('order')
+    assert.deepEqual([order.type, order.show, order.cover, order.controls], ['check', 'popup', 'screen', true], key)
+    const open = z('bar').buttons.find(b => b.action === 'open_popup' && b.popup_id === 'order')
+    assert.deepEqual([open.w, open.h, open.colour], [2, 2, '#1f2a44'], key + ': the Order button, the left half of the bar')
+    assert.deepEqual([z('bar').cols, z('bar').rows], [4, 2], key)
+    assert.ok(z('bar').buttons.some(b => b.action === 'till_menu'), key + ': no top bar, so a way to the till menu')
+    // The dishes: a list, with the search box.
+    assert.deepEqual([z('dishes').view, z('dishes').cols, z('dishes').search], ['list', 1, true], key)
+    // Every button of the bar fits its two rows.
+    const packed = packCells(z('bar').buttons.map(b => ({ w: b.w, h: b.h })), z('bar'))
+    assert.equal(packed.hidden, 0, key)
+    assert.equal(packed.pages.length, 1, key)
+    // Nothing always on screen overlaps, and together they fill it.
+    const solid = l.zones.filter(x => !floats(x))
+    assert.equal(solid.reduce((n, x) => n + x.w * x.h, 0), l.cols * l.rows, key + ': the zones always on screen fill it')
+  }
+  // Table service: seat and course behind a button, over the lower dishes.
+  const t = templateLayout('phone_table')
+  const seats = t.zones.find(z => z.id === 'seats')
+  assert.deepEqual([seats.type, seats.show, seats.cover, seats.controls, seats.close_outside], ['seats', 'popup', 'zone', true, true])
+  assert.deepEqual(popupOpeners(t, 'seats').map(o => o.button.label), ['Seat & course'])
+  assert.deepEqual(t.zones.find(z => z.id === 'bar').buttons.map(b => b.action), ['open_popup', 'send', 'open_popup', 'till_menu'], 'tables: Send beside the order')
+  // Categories behind a button: a list over the dishes that closes when one is picked.
+  const c = templateLayout('phone_categories')
+  const cats = c.zones.find(z => z.id === 'cats')
+  const dishes = c.zones.find(z => z.id === 'dishes')
+  assert.deepEqual([cats.view, cats.show, cats.cover, cats.frame, cats.controls, cats.close_on_tap], ['list', 'popup', 'zone', false, true, true])
+  assert.deepEqual([dishes.show, dishes.view], ['always', 'list'])
+  assert.deepEqual([cats.x, cats.y, cats.w, cats.h], [dishes.x, dishes.y, dishes.w, dishes.h], 'the categories open over the dishes')
+  assert.deepEqual(popupOpeners(c, 'cats').map(o => [o.zone.id, o.button.id]), [['bar', 'cats']])
+  assert.equal(buttonLabel(popupOpeners(c, 'cats')[0].button, { popups: c.zones.filter(isPopup) }), 'Categories')
+  // The counter one: categories across the top, a strip that scrolls.
+  const p = templateLayout('phone')
+  assert.deepEqual(p.zones.find(z => z.id === 'bar').buttons.map(b => b.action), ['open_popup', 'pay', 'more', 'till_menu'], 'counter: Pay beside the order')
+  assert.deepEqual(c.zones.find(z => z.id === 'bar').buttons.map(b => b.action), ['open_popup', 'open_popup', 'more', 'till_menu'])
+  const strip = p.zones.find(z => z.id === 'cats')
+  assert.deepEqual([strip.view, strip.rows, strip.overflow, strip.h], ['grid', 1, 'scroll', 1])
+  assert.ok(strip.cols >= ZONE_GRID.min && strip.cols <= 4, 'a few categories across a phone')
+  // An unknown key is still the standard screen.
+  assert.deepEqual(templateLayout('nonsense'), templateLayout('standard'))
 })

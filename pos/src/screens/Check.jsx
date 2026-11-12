@@ -15,7 +15,7 @@ import { checkTotals } from '@shared/pos/pricing.js'
 import { useTill, useChecks, dispatch, toast, setPresence, othersOn, serverName, printBill, signOut, currentChecks } from '../lib/store.js'
 import { choiceZones } from '@shared/pos/tillLayout.js'
 import { discountList, fitsScope } from '@shared/pos/discounts.js'
-import { tillLayoutOf, lastReceiptCheck } from '../lib/tillLayout.js'
+import { useTillLayout, lastReceiptCheck } from '../lib/tillLayout.js'
 import LayoutScreen from '../components/LayoutScreen.jsx'
 import {
   addItem, addChosen, needsChoices, streamOf, typeOf, missingDetails, refreshPromotions, sendCheck, comboStartFrom, copyOfLine,
@@ -52,7 +52,7 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
   const [modal, setModal] = useState(null)   // { kind, ... }
   // A till layout's Dish choices zones: the dish being added ({ item, initial, key }).
   const [choosing, setChoosing] = useState(null)
-  const layout = useMemo(() => tillLayoutOf(config), [config])
+  const layout = useTillLayout(config)
   const zones = layout ? choiceZones(layout) : null
   const nav = useTillNav()
   // The layout's Order zone: which of its own buttons it shows, their colours, its text size.
