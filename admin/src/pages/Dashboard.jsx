@@ -63,7 +63,11 @@ const SHORTCUT_OPTIONS = [
   { to: '/promotions',           label: 'Promotions',           icon: LucideIcons.BadgePercent, colour: 'bg-rose-100 text-rose-700' },
   { to: '/pos',                  label: 'Store tech',           icon: LucideIcons.MonitorSmartphone, colour: 'bg-teal-100 text-teal-700' },
   { to: '/pos/reports',          label: 'Till reports',         icon: LucideIcons.BarChart3, colour: 'bg-teal-100 text-teal-700' },
+  { to: '/pos/kiosk-designs',    label: 'Kiosk designer',       icon: LucideIcons.Paintbrush, colour: 'bg-teal-100 text-teal-700' },
+  { to: '/pos/kitchen-flow',     label: 'Kitchen flow designer', icon: LucideIcons.Route,     colour: 'bg-teal-100 text-teal-700' },
+  { to: '/pos/print-designs',    label: 'Receipt & ticket designer', icon: LucideIcons.ScrollText, colour: 'bg-teal-100 text-teal-700' },
   { to: '/screens',              label: 'Menu screens',         icon: LucideIcons.Monitor,   colour: 'bg-zinc-100 text-zinc-700' },
+  { to: '/screens/boards',       label: 'Screen board designer', icon: LucideIcons.Presentation, colour: 'bg-zinc-100 text-zinc-700' },
   { to: '/purchasing',           label: 'Purchasing',           icon: LucideIcons.ShoppingCart, colour: 'bg-violet-100 text-violet-600' },
   { to: '/inventory',            label: 'Inventory',            icon: LucideIcons.Package,      colour: 'bg-purple-100 text-purple-600' },
   { to: '/suppliers',            label: 'Suppliers',            icon: LucideIcons.Truck,        colour: 'bg-fuchsia-100 text-fuchsia-700' },
@@ -84,8 +88,10 @@ const SHORTCUT_OPTIONS = [
   { to: '/rules',                label: 'Rules',                icon: Settings,        colour: 'bg-yellow-100 text-yellow-600' },
   { to: '/brand',                label: 'Brand & theme',        icon: LucideIcons.Palette, colour: 'bg-rose-100 text-rose-600' },
   { to: '/website',              label: 'Website',              icon: Globe,           colour: 'bg-lime-100 text-lime-600' },
-  { to: '/website?section=tenant-widget', label: 'Widget', icon: LayoutTemplate,  colour: 'bg-green-100 text-green-600' },
+  { to: '/website/builder',      label: 'Page builder',         icon: LucideIcons.Blocks, colour: 'bg-lime-100 text-lime-600' },
+  { to: '/website/reservations-widget',  label: 'Reservations widget',  icon: LayoutTemplate,  colour: 'bg-green-100 text-green-600' },
   { to: '/menus',                label: 'Menus',                icon: ChefHat,         colour: 'bg-fuchsia-100 text-fuchsia-600' },
+  { to: '/menus/print-designs',  label: 'Menu print designer',  icon: LucideIcons.BookOpenText, colour: 'bg-fuchsia-100 text-fuchsia-600' },
   { to: '/media',                label: 'Media',                icon: FolderOpen,      colour: 'bg-pink-100 text-pink-600' },
   { to: '/reviews',              label: 'Reviews',              icon: MessageSquare,   colour: 'bg-red-100 text-red-600' },
   { to: '/team',                 label: 'Team',                 icon: Users,           colour: 'bg-slate-100 text-slate-600' },
@@ -101,8 +107,14 @@ const SHORTCUT_OPTIONS = [
 
 const LS_KEY = 'maca_dashboard_shortcuts'
 
+// A shortcut saved under an address that has moved since (migration 241).
+const MOVED_SHORTCUTS = { '/website?section=tenant-widget': '/website/reservations-widget' }
+
 function loadShortcuts() {
-  try { return JSON.parse(localStorage.getItem(LS_KEY) ?? '[]') } catch { return [] }
+  try {
+    const list = JSON.parse(localStorage.getItem(LS_KEY) ?? '[]')
+    return Array.isArray(list) ? [...new Set(list.map(to => MOVED_SHORTCUTS[to] || to))] : []
+  } catch { return [] }
 }
 
 function Shortcuts() {

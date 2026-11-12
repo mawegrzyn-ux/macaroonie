@@ -6,6 +6,32 @@ Migrations are listed where a database change is required.
 ---
 
 
+## [2026-11-12 — Designers in the menu, and what each menu entry is for]
+
+Migration 241.
+
+**Added**
+- **Nine pages that sat inside other pages have their own menu entries**, so the menu search finds them by name: **Kiosk designer**, **Kitchen flow designer**, **Screen board designer**, **Screen playlists**, **Screen walls** and **Receipt & ticket designer** (Store tech, each straight after the page it came out of), **Menu print designer** (Menus, under Menus after Menu times: every menu with its printed designs), **Page builder** and **Reservations widget** (Brand & web, after Website). Existing menus get the links where the page they came out of sits, hidden from the same roles. Permissions are unchanged: each entry opens for whoever could open the page it came out of.
+- **Every menu entry has a short description** of what it is for (260 characters at most). It shows under the entry's name in the menu search, as the link's tooltip in the sidebar, and in the Navigation designer, where you can write your own (Description box with a counter and **Use the standard words**). Sections have one too.
+- **The menu search reads descriptions.** A word in an entry's own name counts most (4), then the page's everyday words (3), then its description (2), then the section it sits in (1), so "ticket" finds the Receipt & ticket designer first, and a word that is only in a description still finds its page ("travel" finds the Kitchen flow designer, where dishes travel through the kitchen). Pepper's menu search and its open_page tool read the descriptions too.
+- **Plurals find singulars.** "designers" lists every designer, "tickets" the Receipt & ticket designer, "pages" the Page builder; a page whose name has the word exactly as typed still comes first ("menus" opens Menus before Menu times).
+
+**Changed**
+- Kiosks, Kitchen screens, Printing and Website keep everything else and each has a card or link that opens its designer; the designers link back. Menu screens' four tabs are four pages with a row of buttons between them. Website holds the site's settings; Page builder holds Home, Pages & modals and each location's page.
+- Old links and bookmarks still open (designs, boards, `?tab=` and `?section=` links, saved Overview shortcuts).
+- Page titles in the top bar take two lines instead of being cut short on a phone.
+
+**Fixed**
+- The Reservations widget page showed an error when loaded or reloaded by its address (it only opened from a link inside the app): its old address began with a path the server hands to the booking widget. It is `/website/reservations-widget` now, and a test stops a page getting such an address again.
+- Pepper's **open_page** had failed for everyone but platform admins since Today went into every role's menu (31 Oct): it works again, and tells Pepper what each page is for.
+- Local info's entry in the page catalogue lacked its permission, so the Navigation designer offered it without one.
+
+**Notes**
+- Still inside other pages: the Website's own sections, Emails' and Loyalty's tabs, the theme maker, the allergen notice builder, dashboards' Edit layout and Cash Recon settings.
+- Tried in Chromium at desktop, tablet and phone widths with a mouse, not on a real tablet or phone; the Pepper side against a stand-in Claude.
+
+---
+
 ## [2026-11-12 — The till on a phone: phone layouts]
 
 No migration.

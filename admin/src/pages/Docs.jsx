@@ -2837,6 +2837,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               rows={[
                 ['nav_items', 'Self-referencing tree (parent_id → nav_items.id, ON DELETE CASCADE). kind is \'section\' (pure grouping label, no route) or \'link\' (route required). module ties an item to the existing tenant_modules/tenant_roles permission system. hidden_role_ids uuid[] is an ADDITIONAL hide on top of module gating. show_in_launcher + launcher_sort_order mark items that also appear as quick-access tiles.'],
                 ['tenants.nav_style', "'sidebar' (default) or 'launcher' — tenant-wide, toggled via PATCH /api/nav/style."],
+                ['nav_items.description', 'Migration 241. The entry\'s own words on what it is for, at most 260 characters (CHECK nav_items_description_len). NULL = the page\'s standard description from shared/navSearch.js. See Descriptions below.'],
               ]}
             />
             <H3>API — /api/nav</H3>
@@ -2847,12 +2848,12 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <DataTable
               head={['Method', 'Path', 'Purpose']}
               rows={[
-                ['GET', '/route-catalog', 'Static list of every real admin-portal route + a suggested icon/label/module — the designer can only ever point a link at a known page, never an arbitrary URL.'],
+                ['GET', '/route-catalog', 'Static list of every real admin-portal route + a suggested icon/label/module — the designer can only ever point a link at a known page, never an arbitrary URL. Each page also carries its standard description (NAV_DESCRIPTIONS), which the designer shows as the Description box\'s placeholder.'],
                 ['GET', '/items', 'Flat list of active nav_items for the tenant.'],
                 ['POST', '/items', 'Create a section or link. New items land at the end of their sibling list.'],
                 ['PATCH', '/items/reorder', 'Body { parent_id, ids } — re-sequences sort_order for one sibling list (move up/down).'],
                 ['PATCH', '/items/:id/reparent', 'Body { parent_id, index } — moves an item to a new parent at a position. Used for both "indent" (new parent = previous sibling) and "outdent" (new parent = grandparent) from the frontend.'],
-                ['PATCH', '/items/:id', 'Generic field update (label, icon, route, module, hidden_role_ids, show_in_launcher, is_active, …).'],
+                ['PATCH', '/items/:id', 'Generic field update (label, icon, route, module, description, hidden_role_ids, show_in_launcher, is_active, …). description (also on POST) is trimmed, an empty one becomes null (= the standard words), and one over 260 characters is a 400.'],
                 ['DELETE', '/items/:id', 'Hard delete — children cascade via the FK.'],
                 ['POST', '/reset', 'Deletes every nav_items row for the tenant and re-seeds via seedDefaultNav().'],
                 ['PATCH', '/style', 'Body { nav_style } — sidebar ↔ launcher.'],
@@ -2869,8 +2870,18 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>searchNavTree(nodes, query)</Mono> walks a tree in <Mono>/api/me</Mono>&apos;s{' '}
               <Mono>nav_tree</Mono> shape and keeps a link when <em>every</em> term prefix-matches a
               word in its label, its route&apos;s own words, its page&apos;s{' '}
-              <Mono>NAV_KEYWORDS</Mono> entry, or an ancestor&apos;s label — ranked by where the
-              terms hit (own label, then keywords/route, then ancestors). <Mono>NAV_KEYWORDS</Mono>{' '}
+              <Mono>NAV_KEYWORDS</Mono> entry, its description (since migration 241), or an
+              ancestor&apos;s label — ranked by where the terms hit (<Mono>SEARCH_WEIGHTS</Mono>: own
+              label 4, keywords/route 3, description 2, ancestors 1; see Descriptions below). A term
+              also hits a word that is the same word in another form (12 Nov 2026):{' '}
+              <Mono>wordForms()</Mono> gives a word and itself without a plural ending
+              (<Mono>designers</Mono> → <Mono>designer</Mono>, <Mono>dishes</Mono> → <Mono>dish</Mono>,{' '}
+              <Mono>allergies</Mono> → <Mono>allergy</Mono>; never under three letters, a word ending
+              in ss keeps its s), and two words match when their forms meet. Such a hit is worth{' '}
+              <Mono>FORM_PENALTY</Mono> (0.5) less than the word as typed, so &ldquo;menus&rdquo; puts
+              Menus before Menu times, and it is never a prefix: &ldquo;times&rdquo; is the same word
+              as &ldquo;time&rdquo;, not the start of &ldquo;timeline&rdquo;.{' '}
+              <Mono>NAV_KEYWORDS</Mono>{' '}
               maps every <Mono>ROUTE_CATALOG</Mono> route to its everyday vocabulary
               (&ldquo;wages&rdquo; for the Rota, &ldquo;allergy&rdquo; for the allergen pages), so a
               link renamed in the designer is still found; <Mono>EXTRA_SEARCH_ROUTES</Mono> covers
@@ -2900,7 +2911,11 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>navItemVisible()</Mono> / <Mono>buildNavTree()</Mono> / <Mono>pruneNavTree()</Mono>{' '}
               with it), flattens it with <Mono>navLinksOf()</Mono>, adds Platform and Backlog for
               platform admins, and offers each link once as a ref (<Mono>L1</Mono>,{' '}
-              <Mono>L2</Mono>, …) with its label, where it sits and its <Mono>NAV_KEYWORDS</Mono>.{' '}
+              <Mono>L2</Mono>, …) with its label, where it sits, what the page is for (its description,
+              since migration 241) and its <Mono>NAV_KEYWORDS</Mono>: one line per link from{' '}
+              <Mono>linkLines()</Mono>, <Mono>{'L1 | label | in: place | about: description | covers: words'}</Mono>,
+              with line breaks flattened and <Mono>|</Mono> turned into <Mono>/</Mono> in every field, so
+              a description a group typed can&apos;t start a new link line or add a field.{' '}
               <Mono>askForJson()</Mono> runs with <Mono>model: &apos;fast&apos;</Mono>{' '}
               (<Mono>AI_MODEL_FAST</Mono>), effort low and <Mono>NAV_SEARCH_SCHEMA</Mono>{' '}
               (<Mono>{'{ picks: [{ ref, why }], note }'}</Mono>); <Mono>picksFrom()</Mono> maps refs
@@ -2925,6 +2940,96 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               (the exact links <Mono>/api/me</Mono> gives the person, picks back as links, the
               everyday model, usage, a role&apos;s pages never leaking, platform pages, refusals,
               tenants apart).
+            </P>
+            <H3>Descriptions</H3>
+            <P>
+              Every menu entry has a very brief description of what it is for (migration 241, 12 Nov
+              2026). The rules are in <Mono>shared/navSearch.js</Mono>:{' '}
+              <Mono>NAV_DESCRIPTIONS</Mono> holds the standard description of every{' '}
+              <Mono>ROUTE_CATALOG</Mono> page (one sentence, in the words people would type),{' '}
+              <Mono>NAV_SECTION_DESCRIPTIONS</Mono> the standard menu&apos;s sections by name, and{' '}
+              <Mono>DESCRIPTION_MAX</Mono> is 260. <Mono>navDescription(node)</Mono> is the one reader:
+              the entry&apos;s own <Mono>nav_items.description</Mono> when a group wrote one, else its
+              page&apos;s standard one, else (a section) the standard one for its name, else nothing.{' '}
+              <Mono>/api/me</Mono>&apos;s <Mono>nav_tree</Mono> carries each node&apos;s stored{' '}
+              <Mono>description</Mono>; the fallback is applied where it is read, so a standard
+              description changed in code reaches every group that hasn&apos;t written its own.
+            </P>
+            <DataTable
+              head={['Where', 'What happens']}
+              rows={[
+                ['Search (matchLink())', 'A term counts once, at the best place it hits: the link\'s own name 4, its page\'s search words or route 3, its description 2, a section above it 1 (SEARCH_WEIGHTS), each 0.5 less when the hit is another form of the word (a plural). Every term must hit somewhere. Results sort by score, then by how many terms are in the link\'s own name (labelHits), then by name. A section\'s description is shown, never searched through its links.'],
+                ['Results (NavSearch.jsx)', 'Name (nav-search-label, wraps), the description under it (nav-search-description, three lines at most, the whole of it in its tooltip), then where the link sits (nav-search-place, from placeText(): a name said once when a section and the link under it share it).'],
+                ['Sidebar (AppShell.jsx)', 'A link\'s or section\'s tooltip is its description (toNavItem()).'],
+                ['Navigation designer', 'Each row shows the description (nav-row-description, data-own when it is the entry\'s own words). The add / edit form has a Description box (nav-description) with the page\'s standard words as its placeholder, a counter to 260 (nav-description-count), a hint (nav-description-hint) and Use the standard words (nav-description-standard). Save waits while it is too long.'],
+                ['Pepper', 'The menu search\'s link lines carry it as about: (linkLines() in routes/navAi.js). open_page returns the page\'s standard description as about (ai/tools/general.js).'],
+              ]}
+            />
+            <P>
+              <Mono>api/test/nav-default.test.mjs</Mono> fails when a catalogue route has no description
+              or one over 260 characters, so a new page can&apos;t ship without one;{' '}
+              <Mono>shared/test/navSearch.test.mjs</Mono> covers the weights, the tie-break, plurals, a
+              group&apos;s own words winning and sections not being searched through.
+            </P>
+            <H3>The designers' own pages</H3>
+            <P>
+              The same migration gave nine pages that used to sit inside other pages their own
+              address, catalogue entry and menu link, so the search can find them by name. No new
+              permission modules: each is gated by the module of the page it came out of.
+            </P>
+            <DataTable
+              head={['Entry', 'Address', 'Module', 'Came out of', 'Code']}
+              rows={[
+                ['Kiosk designer', '/pos/kiosk-designs (a design: /pos/kiosk-designs/:id)', 'pos_setup', 'The designs list at the bottom of Store tech → Kiosks', 'KioskDesignsSection (KiosksSection.jsx), TABS key kiosk-designs; pages/KioskDesigner.jsx'],
+                ['Kitchen flow designer', '/pos/kitchen-flow', 'pos_setup', 'The flow at the top of Store tech → Kitchen screens', 'KitchenFlowSection (KitchenSection.jsx), TABS key kitchen-flow; KitchenFlow.jsx'],
+                ['Receipt & ticket designer', '/pos/print-designs (a design: /pos/print-designs/:id)', 'pos_setup', 'The designs list on Store tech → Printing', 'PrintDesignsSection (PrintingSection.jsx), TABS key print-designs; pages/PrintDesigner.jsx'],
+                ['Screen board designer', '/screens/boards (a board: /screens/boards/:id)', 'screens', 'The Boards tab of Menu screens', 'pages/Screens.jsx page="boards" (SCREEN_PAGES); pages/ScreenDesigner.jsx'],
+                ['Screen playlists', '/screens/playlists', 'screens', 'The Playlists tab of Menu screens', 'pages/Screens.jsx page="playlists"'],
+                ['Screen walls', '/screens/walls', 'screens', 'The Walls tab of Menu screens', 'pages/Screens.jsx page="walls"'],
+                ['Menu print designer', '/menus/print-designs (a menu: /menus/print-designs/:menuId, ?design=<id>)', 'menus', 'The Design print button in the menu editor (still there)', 'pages/MenuPrintDesigns.jsx (the list); pages/MenuDesigner.jsx'],
+                ['Page builder', '/website/builder', 'website', 'The Home and Pages & modals sections of Website', 'pages/Website.jsx with the builder prop (BUILD_TENANT_NAV / BUILD_VENUE_NAV / BUILD_SINGLE_NAV, BUILDER_SECTIONS)'],
+                ['Reservations widget', '/website/reservations-widget', 'website', 'A page that was only linked from Website', 'pages/ReservationsWidget.jsx'],
+              ]}
+            />
+            <P>
+              The Store tech pages are <Mono>TABS</Mono> of <Mono>PosSetup.jsx</Mono>, with{' '}
+              <Mono>PageLink</Mono> cards (<Mono>components/pos/shared.jsx</Mono>) between each designer
+              and the page it came out of (<Mono>kiosk-designer-link</Mono> / <Mono>kiosks-link</Mono>,{' '}
+              <Mono>kitchen-flow-link</Mono> / <Mono>kitchen-screens-link</Mono>,{' '}
+              <Mono>print-designer-link</Mono> / <Mono>printing-link</Mono>). The four screens pages are
+              one component with a <Mono>page</Mono> prop and a row of page buttons
+              (<Mono>screens-pages</Mono>). <Mono>Website.jsx</Mono> is mounted twice (settings and
+              builder); a <Mono>?section=</Mono> that lives on the other page is sent there, and the rail
+              links between Website, Page builder and Reservations widget.
+            </P>
+            <P>
+              <strong>Old addresses</strong> redirect inside the app: <Mono>Moved</Mono> in{' '}
+              <Mono>main.jsx</Mono> for <Mono>/pos/kiosks/designs/:id</Mono>,{' '}
+              <Mono>/pos/printing/designs/:id</Mono> and <Mono>/menus/:id/design</Mono> (keeping the id
+              and the <Mono>?query</Mono>), <Mono>/screens?tab=</Mono> in <Mono>Screens.jsx</Mono>,{' '}
+              <Mono>/website?section=</Mono> in <Mono>Website.jsx</Mono>, <Mono>/reservations-widget</Mono>,
+              and saved Overview shortcuts (<Mono>MOVED_SHORTCUTS</Mono> in <Mono>Dashboard.jsx</Mono>).
+            </P>
+            <P>
+              <strong>Which link is lit.</strong> The sidebar lights a link at any address that starts
+              with its own, so <Mono>/website</Mono> would light beside <Mono>/website/builder</Mono> and{' '}
+              <Mono>/screens</Mono> beside <Mono>/screens/boards</Mono>. <Mono>exactRoutes(tree)</Mono>{' '}
+              (<Mono>shared/navSearch.js</Mono>) returns the links whose address another link&apos;s
+              begins with (followed by a slash), plus the home page; <Mono>AppShell.jsx</Mono> gives
+              those <Mono>end</Mono>. It is worked out from the person&apos;s own menu, so a designer
+              opened from a list page (<Mono>/pos/layouts/:id</Mono>) still lights its link.
+            </P>
+            <P>
+              <strong>Addresses the admin never sees.</strong> On office. and ops. nginx hands some
+              paths to the API before the app loads, matched as plain prefixes (<Mono>/api/</Mono>,{' '}
+              <Mono>/ws</Mono>, <Mono>/webhooks/</Mono>, <Mono>/manage</Mono>, <Mono>/reservations</Mono>,{' '}
+              <Mono>/widget-api</Mono>, <Mono>/order-api</Mono>, <Mono>/uploads/</Mono>,{' '}
+              <Mono>/template-assets/</Mono>). The Reservations widget page&apos;s old address,{' '}
+              <Mono>/reservations-widget</Mono>, starts with one of them, so loading or reloading it
+              showed the API&apos;s 404 (it only worked when reached by a link inside the app); it is{' '}
+              <Mono>/website/reservations-widget</Mono> now. The nav test reads the prefixes from{' '}
+              <Mono>scripts/nginx-office-ops.sh</Mono> and <Mono>admin/vite.config.js</Mono> and fails on
+              a catalogue route under one.
             </P>
             <H3>The outline editor, not drag-and-drop reparenting</H3>
             <P>
@@ -3026,6 +3131,17 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               216 Device updates, and 219 <strong>Venue hub</strong> (<Mono>/pos/hub</Mono>, just before{' '}
               <Mono>/pos/printers</Mono>, 30 Oct 2026: the hub moved off the Printers page onto its own,{' '}
               <Mono>components/pos/HubSection.jsx</Mono>). The nav test applies each of them too.
+            </P>
+            <P>
+              Migration 241 (12 Nov 2026) adds <Mono>nav_items.description</Mono> and the nine designer
+              links (see The designers&apos; own pages above), one after another so each can go after the
+              one before it: every link goes straight after its anchor page&apos;s first place in a
+              group&apos;s menu (same parent, hidden from the same roles, later siblings moved down one),
+              or after a fallback anchor when the group took the first one out (Screen playlists after
+              the board designer, else after Menu screens). A group with neither anchor gets no link,
+              and a group that already has the page keeps its menu as it is, so running it twice adds
+              nothing. The nav test runs it on a rebuilt pre-241 menu and checks the places, the roles
+              and the second run.
             </P>
             <H3>Launcher personalisation (admin/src/pages/Launcher.jsx)</H3>
             <P>
@@ -4845,7 +4961,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             />
             <P>
               Every change broadcasts <Mono>pos.config</Mono> (a company change to every venue). Admin: Store tech →
-              Printing (<Mono>components/pos/PrintingSection.jsx</Mono>) and the designer{' '}
+              Printing (<Mono>components/pos/PrintingSection.jsx</Mono>: what prints where), Store tech → Receipt
+              &amp; ticket designer (<Mono>/pos/print-designs</Mono>, <Mono>PrintDesignsSection</Mono> in the same
+              file, since migration 241: the designs) and the designer{' '}
               <Mono>pages/PrintDesigner.jsx</Mono> (<Mono>/pos/print-designs/:id</Mono>): parts in a sortable list,
               options per part, <em>Only at</em> a venue for its variation, explicit Save, a column-exact preview from{' '}
               <Mono>previewHtml(ops, cols)</Mono> in <Mono>ticketHtml.js</Mono> (wrapping as <Mono>toText()</Mono>,
@@ -5013,7 +5131,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <DataTable
               head={['Page', 'Files']}
               rows={[
-                ['Store tech /pos/:tab', 'pages/PosSetup.jsx (TABS: one page per part, the key is the address; /pos, /pos?tab=<key> and unknown keys redirect, so store opening follow-ups saved with ?tab= links still work; kiosk and print designers at /pos/kiosks/designs/:id and /pos/printing/designs/:id so the menu link stays lit) + components/pos/*Section.jsx; GET /api/pos/venues/:id/setup is the one read (includes device_urls { terminal, kds, kiosk } from deviceOrigin(), till_url = the till\'s, sections and items for routing, recon_fields). deviceUrl(setup, kind) in TillsSection.jsx; ShownCodeField (the device steps with the kind\'s address + the code box), LinkDeviceModal / LinkDeviceButton (New device / Link a device on a row; Bring back for a removed one) and linkShownCode() there too, used by the Tills, Kitchen screens and Kiosks tabs. Reusing a device: ReusePick (Link it as A new … / One already here, under the code in every Add window: Add a till, Add a screen, Add a kiosk, Link a hub), reusable() (the kind\'s devices: not linked, linked, removed), defaultReuse() (the one not linked when there is exactly one), reuseLabel() (Link as … / Bring back …), RemovedDevices (the Removed line with Bring back). With a device picked, the window sends { code, device_id } and hides name and settings. The Screens page\'s AddScreenModal has the same choice over the location\'s screens (not paired first) and claims with screen_id.'],
+                ['Store tech /pos/:tab', 'pages/PosSetup.jsx (TABS: one page per part, the key is the address; /pos, /pos?tab=<key> and unknown keys redirect, so store opening follow-ups saved with ?tab= links still work; kiosk, kitchen flow and print designers are TABS of their own since migration 241 (kiosk-designs, kitchen-flow, print-designs), a design opening at /pos/kiosk-designs/:id or /pos/print-designs/:id so its menu link stays lit) + components/pos/*Section.jsx; GET /api/pos/venues/:id/setup is the one read (includes device_urls { terminal, kds, kiosk } from deviceOrigin(), till_url = the till\'s, sections and items for routing, recon_fields). deviceUrl(setup, kind) in TillsSection.jsx; ShownCodeField (the device steps with the kind\'s address + the code box), LinkDeviceModal / LinkDeviceButton (New device / Link a device on a row; Bring back for a removed one) and linkShownCode() there too, used by the Tills, Kitchen screens and Kiosks tabs. Reusing a device: ReusePick (Link it as A new … / One already here, under the code in every Add window: Add a till, Add a screen, Add a kiosk, Link a hub), reusable() (the kind\'s devices: not linked, linked, removed), defaultReuse() (the one not linked when there is exactly one), reuseLabel() (Link as … / Bring back …), RemovedDevices (the Removed line with Bring back). With a device picked, the window sends { code, device_id } and hides name and settings. The Screens page\'s AddScreenModal has the same choice over the location\'s screens (not paired first) and claims with screen_id.'],
                 ['Floor plan /pos/floor', 'pages/PosFloor.jsx: snap 0.5 unit, pointer drag / resize, explicit Save per area (PUT /api/pos/floor-areas/:id/layout replaces tables on the area + decor).'],
                 ['Till reports /pos/reports', 'pages/PosReports.jsx: days (+ fill-recon, needs cash_recon manage too), checks with events, conflicts, print queue.'],
                 ['Menus, Variant groups, Promotions', 'components/menus/TillFields.jsx (section / dish Till box), components/menus/ComboEditor.jsx (Dish / Combo, steps, comboPayload()); VariantGroupsManager pos_prefixes + child_group_id + allow_repeat / on_request; Promotions Where (channels).'],
@@ -5485,9 +5603,11 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               Offline between the till and the kitchen needs the venue hub: a web app can't accept connections
               or find other devices on the LAN, so two tablets can't talk to each other without a server they
               both reach. With the hub, tills and kitchen screens point at it (<Mono>hub_url</Mono>) and it runs
-              the same sequencer and kitchen rules. Admin: <Mono>components/pos/KitchenSection.jsx</Mono> (Till
-              setup → Kitchen screens: stations, screens, online and GloriaFood orders (<Mono>OnlineCard</Mono>); <Mono>StationModal</Mono>),{' '}
-              <Mono>components/pos/KitchenFlow.jsx</Mono> (the flow designer), Kitchen tab in{' '}
+              the same sequencer and kitchen rules. Admin: <Mono>components/pos/KitchenSection.jsx</Mono> (Store
+              tech → Kitchen screens: stations, screens, online and GloriaFood orders (<Mono>OnlineCard</Mono>); <Mono>StationModal</Mono>),{' '}
+              <Mono>components/pos/KitchenFlow.jsx</Mono> (the flow designer, on its own page since migration
+              241: Store tech → Kitchen flow designer, <Mono>/pos/kitchen-flow</Mono>,{' '}
+              <Mono>KitchenFlowSection</Mono>), Kitchen tab in{' '}
               <Mono>pages/PosReports.jsx</Mono>, Order status block in <Mono>shared/screenLayout.js</Mono> +{' '}
               <Mono>ScreenDesigner.jsx</Mono>.
             </InfoBox>
@@ -6203,9 +6323,11 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <H3>Admin</H3>
             <P>
               Store tech → Kiosks: <Mono>components/pos/KiosksSection.jsx</Mono> (kiosks with their design,
-              stream, card reader, receipt printer and problems; designs with copy / delete;{' '}
-              <Mono>kioskDesign()</Mono>). Design editor: <Mono>pages/KioskDesigner.jsx</Mono>{' '}
-              (<Mono>/pos/kiosks/designs/:id</Mono>): panels over the raw draft (text) and the normalised design
+              stream, card reader, receipt printer and problems; <Mono>kioskDesign()</Mono>). Store tech →
+              Kiosk designer (<Mono>/pos/kiosk-designs</Mono>, <Mono>KioskDesignsSection</Mono> in the same
+              file, since migration 241): the designs with copy / delete. Design editor:{' '}
+              <Mono>pages/KioskDesigner.jsx</Mono>{' '}
+              (<Mono>/pos/kiosk-designs/:id</Mono>): panels over the raw draft (text) and the normalised design
               (everything else), the preview frame at 1080 x 1920 or 1920 x 1080 scaled to fit, the design posted
               to the frame's own origin after <Mono>kiosk.ready</Mono>, Save / Discard / leave confirm, view only.
               Save as (<Mono>SaveAsDialog</Mono>, manage only): <Mono>POST /api/pos/kiosk-designs</Mono> with the
@@ -8879,8 +9001,11 @@ selection.combo = { [stepId]: [{ option_id, item_id, choices }] }   // item_id n
           <section id="screens" data-doc="">
             <H2>Menu Screens</H2>
             <P>
-              Digital menu boards (migration 166, module <Mono>screens</Mono>, page{' '}
-              <Mono>/screens</Mono>). A <strong>board</strong> (<Mono>screen_designs</Mono>) is a canvas
+              Digital menu boards (migration 166, module <Mono>screens</Mono>; four pages since migration
+              241, each with its own menu entry: <Mono>/screens</Mono> Menu screens,{' '}
+              <Mono>/screens/boards</Mono> Screen board designer, <Mono>/screens/playlists</Mono> and{' '}
+              <Mono>/screens/walls</Mono>, all <Mono>pages/Screens.jsx</Mono> with a <Mono>page</Mono>{' '}
+              prop). A <strong>board</strong> (<Mono>screen_designs</Mono>) is a canvas
               of a fixed size in pixels with positioned blocks; a <strong>playlist</strong> rotates boards
               with optional times of day; a <strong>screen</strong> is a paired device showing a board or
               a playlist. The player is a plain-files PWA on <Mono>screens.&lt;root&gt;</Mono>; boards are
@@ -8889,7 +9014,7 @@ selection.combo = { [stepId]: [{ option_id, item_id, choices }] }   // item_id n
               publish changes every screen; sold out comes from <Mono>ordering_item_availability</Mono>.
               Boards and playlists are tenant-wide (every location uses them; each screen shows its own
               venue&apos;s sold out dishes and order ready board); screens and walls have a{' '}
-              <Mono>venue_id</Mono>. The page&apos;s Location picker (Screens and Walls tabs,{' '}
+              <Mono>venue_id</Mono>. The Location picker (on the Menu screens and Screen walls pages,{' '}
               <Mono>useScreensPlace()</Mono>, localStorage <Mono>maca_screens_venue</Mono>, empty = every
               location) only filters what is shown and sets the location a new screen or wall starts at;
               reordering one location&apos;s screens sends the whole order with the others in place

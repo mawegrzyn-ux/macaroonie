@@ -20,16 +20,25 @@ import { requireAuth, requirePermission } from '../middleware/auth.js'
 import { ownRoleIds } from '../services/roles.js'
 import { httpError } from '../middleware/error.js'
 import { seedDefaultNav } from '../config/defaultNav.js'
+import { NAV_DESCRIPTIONS, DESCRIPTION_MAX } from '../../../shared/navSearch.js'
 
 // Every route the admin portal actually has, so the designer can only
 // point nav items at real pages — never an arbitrary URL. `module`, where
 // set, is just a suggestion pre-fill; the admin can still leave it unset
 // or pick a different one (e.g. to gate an item more/less strictly than
 // its page's own default guard).
+//
+// Designers have their own entries (12 Nov 2026, migration 241): the kiosk
+// designer, the kitchen flow designer, the screen board designer (with the
+// playlists and walls), the receipt & ticket designer, the menu print
+// designer, the website's page builder and the reservations widget each
+// have a page of their own, so the menu search finds them by name. Every
+// route here needs search words and a description in shared/navSearch.js
+// (api/test/nav-default.test.mjs checks).
 export const ROUTE_CATALOG = [
   // Today: for everyone signed in (its tasks follow each person's own access), migration 227.
   { route: '/today', label: 'Today', icon: 'Sun' },
-  { route: '/local-info', label: 'Local info', icon: 'CloudSun' },
+  { route: '/local-info', label: 'Local info', icon: 'CloudSun', module: 'local_info' },
   { route: '/', label: 'Overview', icon: 'LayoutDashboard', module: 'dashboard' },
   { route: '/dashboards', label: 'Dashboards', icon: 'LayoutTemplate', module: 'custom_dashboard' },
   { route: '/timeline', label: 'Timeline', icon: 'CalendarDays', module: 'bookings' },
@@ -48,10 +57,13 @@ export const ROUTE_CATALOG = [
   { route: '/pos/layouts', label: 'Till layouts', icon: 'PanelsTopLeft', module: 'pos_setup' },
   { route: '/pos/floor', label: 'Floor plan', icon: 'LayoutPanelTop', module: 'pos_setup' },
   { route: '/pos/kiosks', label: 'Kiosks', icon: 'TabletSmartphone', module: 'pos_setup' },
+  { route: '/pos/kiosk-designs', label: 'Kiosk designer', icon: 'Paintbrush', module: 'pos_setup' },
   { route: '/pos/kitchen', label: 'Kitchen screens', icon: 'CookingPot', module: 'pos_setup' },
+  { route: '/pos/kitchen-flow', label: 'Kitchen flow designer', icon: 'Route', module: 'pos_setup' },
   { route: '/pos/hub', label: 'Venue hub', icon: 'Server', module: 'pos_setup' },
   { route: '/pos/printers', label: 'Printers', icon: 'Printer', module: 'pos_setup' },
   { route: '/pos/printing', label: 'Printing', icon: 'ReceiptText', module: 'pos_setup' },
+  { route: '/pos/print-designs', label: 'Receipt & ticket designer', icon: 'ScrollText', module: 'pos_setup' },
   { route: '/pos/cards', label: 'Card machines', icon: 'CreditCard', module: 'pos_setup' },
   { route: '/pos/types', label: 'Order types', icon: 'ListOrdered', module: 'pos_setup' },
   { route: '/pos/discounts', label: 'Discounts', icon: 'BadgePercent', module: 'pos_setup' },
@@ -79,8 +91,11 @@ export const ROUTE_CATALOG = [
   { route: '/hs-action-log', label: 'Action log', icon: 'ClipboardCheck', module: 'hs_action_log' },
   { route: '/brand', label: 'Brand & theme', icon: 'Palette', module: 'website' },
   { route: '/website', label: 'Website', icon: 'Globe', module: 'website' },
+  { route: '/website/builder', label: 'Page builder', icon: 'Blocks', module: 'website' },
+  { route: '/website/reservations-widget', label: 'Reservations widget', icon: 'CalendarCheck', module: 'website' },
   { route: '/menus', label: 'Menus', icon: 'ChefHat', module: 'menus' },
   { route: '/menus/times', label: 'Menu times', icon: 'Clock', module: 'menus' },
+  { route: '/menus/print-designs', label: 'Menu print designer', icon: 'BookOpenText', module: 'menus' },
   { route: '/menus/variant-groups', label: 'Menu variant groups', icon: 'Layers', module: 'menus' },
   { route: '/menus/dietary-tags', label: 'Menu allergens & dietary tags', icon: 'Tag', module: 'menus' },
   { route: '/menus/allergens', label: 'Allergen matrix', icon: 'Grid3x3', module: 'menus' },
@@ -88,6 +103,9 @@ export const ROUTE_CATALOG = [
   { route: '/menus/deliveroo', label: 'Deliveroo menu', icon: 'Bike', module: 'menus' },
   { route: '/menus/translations', label: 'Menu translations (kiosks)', icon: 'Languages', module: 'menus' },
   { route: '/screens', label: 'Menu screens', icon: 'Monitor', module: 'screens' },
+  { route: '/screens/boards', label: 'Screen board designer', icon: 'Presentation', module: 'screens' },
+  { route: '/screens/playlists', label: 'Screen playlists', icon: 'ListVideo', module: 'screens' },
+  { route: '/screens/walls', label: 'Screen walls', icon: 'Grid2x2', module: 'screens' },
   { route: '/media', label: 'Media', icon: 'FolderOpen', module: 'website' },
   { route: '/reviews', label: 'Reviews', icon: 'MessageSquare', module: 'website' },
   { route: '/venues', label: 'Venues', icon: 'Building2', module: 'venues' },
@@ -112,10 +130,19 @@ export const ROUTE_CATALOG = [
   { route: '/help', label: 'Help', icon: 'HelpCircle', module: 'documentation' },
 ]
 
+// A very brief description of the entry (migration 241): what the page is
+// for, in the group's own words. Empty = none of its own, and the page's
+// standard description is used (navDescription() in shared/navSearch.js).
+const Description = z.string().trim()
+  .max(DESCRIPTION_MAX, 'Keep the description to ' + DESCRIPTION_MAX + ' characters')
+  .nullable().optional()
+  .transform(v => (v === undefined ? undefined : (v || null)))
+
 const NavItemBody = z.object({
   parent_id:          z.string().uuid().nullable().optional(),
   kind:               z.enum(['section', 'link']).default('link'),
   label:              z.string().min(1).max(100),
+  description:        Description,
   icon:               z.string().max(60).nullable().optional(),
   route:              z.string().max(200).nullable().optional(),
   module:             z.string().max(60).nullable().optional(),
@@ -127,6 +154,7 @@ const NavItemBody = z.object({
 const NavItemPatch = z.object({
   parent_id:          z.string().uuid().nullable().optional(),
   label:              z.string().min(1).max(100).optional(),
+  description:        Description,
   icon:               z.string().max(60).nullable().optional(),
   route:              z.string().max(200).nullable().optional(),
   module:             z.string().max(60).nullable().optional(),
@@ -139,7 +167,10 @@ const NavItemPatch = z.object({
 export default async function navRoutes(app) {
   app.addHook('preHandler', requireAuth)
 
-  app.get('/route-catalog', { preHandler: requirePermission('nav_designer', 'view') }, async () => ROUTE_CATALOG)
+  // Each page with its standard description, which an entry uses until the
+  // group writes its own.
+  app.get('/route-catalog', { preHandler: requirePermission('nav_designer', 'view') }, async () =>
+    ROUTE_CATALOG.map(r => ({ ...r, description: NAV_DESCRIPTIONS[r.route] || '' })))
 
   app.get('/items', { preHandler: requirePermission('nav_designer', 'view') }, async (req) => {
     return withTenant(req.tenantId, tx => tx`
@@ -163,8 +194,8 @@ export default async function navRoutes(app) {
          WHERE tenant_id = ${req.tenantId} AND parent_id IS NOT DISTINCT FROM ${body.parent_id ?? null}
       `
       const [row] = await tx`
-        INSERT INTO nav_items (tenant_id, parent_id, kind, label, icon, route, module, hidden_role_ids, show_in_launcher, sort_order)
-        VALUES (${req.tenantId}, ${body.parent_id ?? null}, ${body.kind}, ${body.label}, ${body.icon ?? null},
+        INSERT INTO nav_items (tenant_id, parent_id, kind, label, description, icon, route, module, hidden_role_ids, show_in_launcher, sort_order)
+        VALUES (${req.tenantId}, ${body.parent_id ?? null}, ${body.kind}, ${body.label}, ${body.description ?? null}, ${body.icon ?? null},
                 ${body.kind === 'section' ? null : body.route}, ${body.module ?? null},
                 ${body.hidden_role_ids ?? []}, ${body.show_in_launcher ?? false}, ${max_sort + 1})
         RETURNING *

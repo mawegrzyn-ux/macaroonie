@@ -8,6 +8,11 @@
 // from /api/me, which the server has already pruned to what their role can
 // see — so the results never offer a page they can't open.
 //
+// Descriptions (12 Nov 2026): each result says in a line or two what its
+// page is for (the entry's own description, else its page's standard one),
+// and the search matches those words too, below the link's name and its
+// search words.
+//
 // Pepper (9 Nov 2026): the filtering above happens as the person types, with
 // no AI. Enter, or the Pepper button inside the box, asks Pepper instead
 // (POST /api/ai/nav-search): Pepper reads what they typed in their own words
@@ -139,7 +144,7 @@ export function NavSearchInput({ value, onChange, results, onPick, inputRef, can
 
 // Pepper's picks for the query, each with its reason, and Pepper's note
 // below them. No picks: the note says why, with the chat one tap away.
-export function PepperNavResults({ pepper, onPick, onAskAgain, onOpenChat, onShowAll }) {
+export function PepperNavResults({ pepper, onPick, onAskAgain, onOpenChat, onShowAll, exact }) {
   if (pepper.status === 'loading') {
     return (
       <div className="px-3 py-4 text-sm text-muted-foreground flex items-center gap-2" data-testid="nav-pepper-loading" role="status">
@@ -174,6 +179,7 @@ export function PepperNavResults({ pepper, onPick, onAskAgain, onOpenChat, onSho
           <NavLink
             key={p.route}
             to={p.route}
+            end={p.route === '/' || !!exact?.has(p.route)}
             onClick={onPick}
             data-testid="nav-pepper-pick"
             className={({ isActive }) => cn(
@@ -218,7 +224,10 @@ export function PepperNavResults({ pepper, onPick, onAskAgain, onOpenChat, onSho
   )
 }
 
-export function NavSearchResults({ results, query, onPick, canAskAi, onAskAi }) {
+// `exact`: the links that only count as the page you are on at their exact
+// address (AppShell's exactRoutes()), so /screens isn't marked while you are
+// on /screens/boards.
+export function NavSearchResults({ results, query, onPick, canAskAi, onAskAi, exact }) {
   if (!results.length) {
     return (
       <div className="px-3 py-4 text-sm text-muted-foreground" data-testid="nav-search-empty">
@@ -251,20 +260,34 @@ export function NavSearchResults({ results, query, onPick, canAskAi, onAskAi }) 
           <NavLink
             key={r.key}
             to={r.route}
+            end={r.route === '/' || !!exact?.has(r.route)}
             onClick={onPick}
             data-testid="nav-search-result"
+            data-route={r.route}
             className={({ isActive }) => cn(
-              'flex items-center gap-3 px-3 py-1.5 min-h-[44px] rounded-md text-sm font-medium touch-manipulation',
+              'flex items-start gap-3 px-3 py-2 min-h-[44px] rounded-md text-sm font-medium touch-manipulation',
               isActive
                 ? 'bg-primary text-primary-foreground'
                 : 'text-muted-foreground hover:bg-accent hover:text-foreground',
             )}
           >
-            <Icon className="w-4 h-4 shrink-0" />
+            <Icon className="w-4 h-4 shrink-0 mt-0.5" />
             <span className="min-w-0 flex-1">
-              <span className="block truncate leading-tight">{r.label}</span>
+              {/* The name in full (it wraps): it is what the search weighs most */}
+              <span className="block leading-tight break-words" data-testid="nav-search-label">{r.label}</span>
+              {!!r.description && (
+                // No `block` here: it would undo line-clamp's own display.
+                // Three lines at most; the whole of it is the tooltip.
+                <span
+                  className="text-[11px] font-normal leading-snug opacity-80 mt-0.5 line-clamp-3"
+                  title={r.description}
+                  data-testid="nav-search-description"
+                >
+                  {r.description}
+                </span>
+              )}
               {!!r.path && (
-                <span className="block truncate text-[10px] font-normal opacity-70 leading-tight">{r.path}</span>
+                <span className="block truncate text-[10px] font-normal opacity-60 leading-tight mt-0.5" data-testid="nav-search-place">{r.path}</span>
               )}
             </span>
           </NavLink>

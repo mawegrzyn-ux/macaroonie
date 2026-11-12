@@ -10,7 +10,10 @@
 //     (amber / red), held courses, showing dishes before they arrive, and the
 //     On order counts groups
 //   - the kitchen flows: how dishes move between them, one in use at a time,
-//     switched here or from a kitchen screen (KitchenFlow.jsx)
+//     switched from the designer or from a kitchen screen. The designer has
+//     its own page and menu entry since migration 241 (Store tech > Kitchen
+//     flow designer, /pos/kitchen-flow: KitchenFlowSection at the end of this
+//     file, drawing KitchenFlow.jsx); this page links to it
 //   - ticket colours: each state's background, the timer, dish names by
 //     menu section (KitchenColours.jsx, migration 207); the pass and runners
 //     tick dishes off, bumping on the last tick only when set to
@@ -21,11 +24,11 @@
 
 import { useEffect, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Loader2, Pencil, ChefHat, Trash2, Search, X, MonitorPlay, Radio } from 'lucide-react'
+import { Plus, Loader2, Pencil, ChefHat, Trash2, Search, X, MonitorPlay, Radio, Route, CookingPot } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import {
-  Section, Modal, Field, inputCls, ErrorNote, ConfirmDelete, Segmented, Btn, NumberBox, Toggle, SortableRows, ColourPick,
+  Section, Modal, Field, inputCls, ErrorNote, ConfirmDelete, Segmented, Btn, NumberBox, Toggle, SortableRows, ColourPick, PageLink,
 } from './shared'
 import KitchenFlow from './KitchenFlow'
 import TicketColoursCard from './KitchenColours'
@@ -750,18 +753,46 @@ function TestCard({ venueId }) {
   )
 }
 
+// Store tech > Kitchen screens: stations, screens, colours, online orders,
+// the live view and the test kitchen. The kitchen flow has its own page
+// (Kitchen flow designer, /pos/kitchen-flow: KitchenFlowSection below).
 export default function KitchenSection({ venueId, setup, canManage = true }) {
   // { kind } = a new station of that kind, a station row = edit it
   const [editing, setEditing] = useState(null)
+  const flows = setup.kds_flows || []
+  const active = flows.find(f => f.id === setup.kds_active_flow_id) || flows[0]
   return (
     <>
       <LiveCard venueId={venueId} canManage={canManage} />
       <TestCard venueId={venueId} />
-      <KitchenFlow venueId={venueId} setup={setup} canManage={canManage} onStation={setEditing} />
+      <PageLink to="/pos/kitchen-flow" icon={Route} title="Kitchen flow designer" label="Open the flow designer" testId="kitchen-flow-link">
+        Where each dish goes: from orders in to the stations below, the pass, runners, printers and order ready boards.
+        {active ? ' In use now: ' + active.name + '.' : ''}
+      </PageLink>
       <StationsCard venueId={venueId} setup={setup} onEdit={setEditing} />
       <ScreensCard venueId={venueId} setup={setup} />
       <TicketColoursCard venueId={venueId} setup={setup} />
       <OnlineCard venueId={venueId} setup={setup} />
+      {editing && (
+        <StationModal venueId={venueId} setup={setup} station={editing.id ? editing : null} kind={editing.kind}
+          onClose={() => setEditing(null)} />
+      )}
+    </>
+  )
+}
+
+// Store tech > Kitchen flow designer (/pos/kitchen-flow): the venue's kitchen
+// flows drawn as boxes and links. Its boxes are the venue's stations, so the
+// station window opens here too.
+export function KitchenFlowSection({ venueId, setup, canManage = true }) {
+  const [editing, setEditing] = useState(null)
+  return (
+    <>
+      <KitchenFlow venueId={venueId} setup={setup} canManage={canManage} onStation={setEditing} />
+      <TestCard venueId={venueId} />
+      <PageLink to="/pos/kitchen" icon={CookingPot} title="Kitchen screens" label="Open Kitchen screens" testId="kitchen-screens-link">
+        Stations, the screens themselves, ticket colours, online orders and the live view.
+      </PageLink>
       {editing && (
         <StationModal venueId={venueId} setup={setup} station={editing.id ? editing : null} kind={editing.kind}
           onClose={() => setEditing(null)} />

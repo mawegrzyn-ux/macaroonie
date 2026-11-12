@@ -124,8 +124,9 @@ export function PageHeader({ icon: Icon, title, children }) {
   return (
     <div className="flex flex-wrap items-center gap-3 px-4 py-3 max-lg:notouch:pl-14 border-b shrink-0 min-h-[56px] bg-background">
       {Icon && <Icon className="w-4 h-4 text-muted-foreground shrink-0" />}
-      {/* A minimum width so a row of buttons wraps before the title shrinks to a letter or two. */}
-      <h1 className="font-semibold text-sm flex-1 min-w-[6rem] truncate">{title}</h1>
+      {/* A minimum width so a row of buttons wraps before the title shrinks to a letter or two.
+          A long name beside a venue picker on a phone takes a second line rather than being cut. */}
+      <h1 className="font-semibold text-sm flex-1 min-w-[6rem] leading-tight line-clamp-2 break-words" title={typeof title === 'string' ? title : undefined}>{title}</h1>
       {children}
     </div>
   )

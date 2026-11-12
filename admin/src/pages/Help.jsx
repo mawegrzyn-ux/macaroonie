@@ -2619,7 +2619,13 @@ export default function Help() {
               you want to do — <strong>&ldquo;change staff pay&rdquo;</strong>,{' '}
               <strong>&ldquo;fridge temperatures&rdquo;</strong>, <strong>&ldquo;allergy&rdquo;</strong> —
               and the menu narrows to the links that fit, best match first, each saying which section
-              it sits in. Filler words (how, do, I, change…) are ignored, so a whole question works.
+              it sits in and, under its name, what the page is for. The search looks in those words
+              too, so a page is found by what it does as well as by what it is called. A match in a
+              page&apos;s own name comes first, then its everyday words, then its description.
+              A plural finds the singular and the other way round, so{' '}
+              <strong>&ldquo;designers&rdquo;</strong> lists every designer and{' '}
+              <strong>&ldquo;tickets&rdquo;</strong> finds the Receipt &amp; ticket designer.
+              Filler words (how, do, I, change…) are ignored, so a whole question works.
               Tap a result to open it, or tap the &times; (or press Escape) to bring the full menu
               back. It only ever offers pages your role can open. When the sidebar is collapsed, the
               magnifying glass opens it with the box ready to type into. A page
@@ -2647,19 +2653,70 @@ export default function Help() {
               without it, Enter opens the best match as before. Each search counts towards the
               group&apos;s monthly Pepper allowance and your daily share (it&apos;s a small one).
             </P>
+            <H3>What each menu entry is for</H3>
+            <P>
+              Every entry in the menu has a short description: a sentence or two, 260 characters at
+              most, saying what the page is for. It shows under the entry&apos;s name in the search
+              results, as the tooltip when you hold the pointer over a link or a section heading in
+              the sidebar, and on each row of the Navigation page. Pepper reads it too, when it
+              searches the menu for you or gives you a link to a page.
+            </P>
+            <P>
+              Each page comes with standard words. To write your own (your group&apos;s name for a
+              job, a note on who uses the page), open <strong>Navigation</strong>, tap the pencil on a
+              row and type in <strong>Description</strong>. The counter shows how much room is left,
+              and Save waits while the text is over 260 characters. Leave the box empty, or tap{' '}
+              <strong>Use the standard words</strong>, to go back to the standard description.
+              A section can have a description as well; it shows as the section&apos;s tooltip, and
+              the search doesn&apos;t look in it (it would match every page in the section).
+            </P>
+            <H3>Designers in the menu</H3>
+            <P>
+              The designers have their own entries in the menu, so the search finds each by its name
+              and one tap opens it. They used to sit inside other pages (a list at the bottom of
+              Kiosks, a tab of Menu screens, a card on Kitchen screens, a button in the menu editor,
+              a section of Website).
+            </P>
+            <DataTable
+              head={['Entry', 'Where in the menu', 'What it is']}
+              rows={[
+                ['Kiosk designer', 'Store tech, after Kiosks', 'The kiosk designs: screens, colours, pictures and words. Kiosks keeps the devices and which design each one uses.'],
+                ['Kitchen flow designer', 'Store tech, after Kitchen screens', 'Where dishes go in the kitchen, and the kitchen test. Kitchen screens keeps the stations and the screens.'],
+                ['Screen board designer', 'Store tech, after Menu screens', 'The boards your menu screens show.'],
+                ['Screen playlists', 'Store tech, after the board designer', 'Boards taking turns, by time of day.'],
+                ['Screen walls', 'Store tech, after the playlists', 'Several screens side by side as one picture.'],
+                ['Receipt & ticket designer', 'Store tech, after Printing', 'The designs for printed kitchen tickets, bills and receipts. Printing keeps what prints where.'],
+                ['Menu print designer', 'Menus, under Menus (after Menu times)', 'Every menu with its printed designs. Open Menus in the sidebar to see it, or search for it.'],
+                ['Page builder', 'Brand & web, after Website', 'The website\'s Home page and its other pages, built from blocks. Website keeps the site\'s settings.'],
+                ['Reservations widget', 'Brand & web, after the Page builder', 'How the booking widget looks, and its link and code to share.'],
+              ]}
+            />
+            <P>
+              Nothing was taken away: the page each designer came out of has a card that opens it,
+              and the designer has one that goes back. Old links and bookmarks still open (they go
+              on to the new address). Who can open a designer hasn&apos;t changed: it follows the
+              same permission as the page it came out of (Store tech, Menu screens, Menus, Website).
+              A group whose menu had been changed got each new entry straight after the page it
+              belongs with; if that page had been taken out of your menu, add the entry on the
+              Navigation page with <strong>Add link</strong>.
+            </P>
             <H3>The standard menu</H3>
             <P>
-              Every group starts with the same menu, grouped by job: <strong>Home</strong> (Overview,
-              Dashboards, Pepper), <strong>Service</strong> (Timeline, Bookings, Customers, Online orders),{' '}
-              <strong>Money</strong> (Till reports, Cash recon, Cash dashboard), <strong>Health &amp; safety</strong>,{' '}
+              Every group starts with the same menu, grouped by job: <strong>Home</strong> (Today, Local info,
+              Overview, Dashboards, Pepper), <strong>Service</strong> (Timeline, Bookings, Customers, Loyalty,
+              Online orders), <strong>Money</strong> (Till reports, Kiosk analytics, Cash recon, Cash dashboard),{' '}
+              <strong>Health &amp; safety</strong>,{' '}
               <strong>Stock</strong> (Purchasing, with Order lists, Inventory and Suppliers under it),{' '}
-              <strong>People</strong> (Staff, Rota), <strong>Menus</strong> (Menus and their pages, Promotions),{' '}
-              <strong>Brand &amp; web</strong> (Brand &amp; theme, Website, Media, Reviews,
-              Emails), <strong>Venues</strong> (Venues and New venue, Schedule, Tables, Booking rules,
-              Ordering setup), <strong>Store tech</strong> (Tills, Floor plan, Kiosks, Kitchen screens, Menu
-              screens, Printers, Printing, Card machines, Order types, Revenue streams, Courses, Staff and PINs,
-              Till roles, Receipts and payments, Cash Recon link), <strong>Admin</strong> and <strong>Help</strong>.
-              Each page is in it once.
+              <strong>People</strong> (Staff, Rota, Rota dashboard), <strong>Menus</strong> (Menus with its pages
+              under it, the Menu print designer among them, and Promotions),{' '}
+              <strong>Brand &amp; web</strong> (Brand &amp; theme, Website, Page builder, Reservations widget,
+              Media, Reviews, Emails), <strong>Venues</strong> (Venues and New venue, Schedule, Tables, Booking
+              rules, Ordering setup), <strong>Store tech</strong> (Tills, Till layouts, Floor plan, Kiosks, Kiosk
+              designer, Kitchen screens, Kitchen flow designer, Menu screens, Screen board designer, Screen
+              playlists, Screen walls, Venue hub, Printers, Printing, Receipt &amp; ticket designer, Card machines,
+              Device updates, Order types, Discounts, Charges, Order flows, Revenue streams, Courses, Staff and
+              PINs, Till roles, Receipts and payments, Cash Recon link), <strong>Admin</strong> and{' '}
+              <strong>Help</strong>. Each page is in it once.
               Pages your role can&apos;t open, and modules switched off, don&apos;t show.
             </P>
             <P>
@@ -2681,6 +2738,7 @@ export default function Help() {
             <DataTable
               head={['Control', 'Effect']}
               rows={[
+                ['Description', 'What the entry is for, 260 characters at most. Shown under its name in the menu search and as its tooltip, and searched. Empty uses the page\'s standard words.'],
                 ['Module gate', 'Ties the item to an existing module permission — hidden automatically for any role without access, same as today.'],
                 ['Hide for specific roles', 'An extra hide on top of the module gate — hide an otherwise-permitted item from just one or two roles without touching their permissions.'],
                 ['Show as a quick-access tile', 'Also surfaces this link as a tile in Quick access / Launcher mode (see below).'],
@@ -2827,6 +2885,17 @@ export default function Help() {
               opening hours, booking widget, links to delivery partners, SEO and analytics.
               Your site is hosted at <Mono>{'{slug}.macaroonie.com'}</Mono> and you can later
               point your own domain at it (e.g. <Mono>book.yourrestaurant.co.uk</Mono>).
+            </P>
+            <P>
+              The website has three pages in the menu, under Brand &amp; web. <strong>Website</strong>{' '}
+              holds the site&apos;s settings: the header and footer, the locations index, look and
+              layout, domain, SEO, legal and cookies, analytics, the emergency banner, and each
+              location&apos;s details (opening hours, find us, contact, gallery, PDF menus, allergens,
+              booking, online ordering, delivery). <strong>Page builder</strong> is where the pages are
+              built from blocks: Home, Pages &amp; modals, and each location&apos;s page and its own
+              pages. <strong>Reservations widget</strong> is how the booking widget looks, with its link
+              and code to share. The left rail of Website and Page builder links to the other two, and
+              Publish sits at the top of both.
             </P>
 
             <H3>Getting started</H3>
@@ -3228,8 +3297,8 @@ export default function Help() {
             <H3>Reservations widget</H3>
             <P>
               Guests book directly via an embeddable widget. <strong>Reservations widget</strong>
-              in the sidebar lets you set the tenant-wide defaults that apply to every embed
-              of the widget across all your venues.
+              in the sidebar (Brand &amp; web, after Page builder) lets you set the tenant-wide defaults
+              that apply to every embed of the widget across all your venues.
             </P>
             <P>
               The flow visitors see: covers → date → time → details → confirmation.
@@ -3295,7 +3364,7 @@ export default function Help() {
 
             <H3>Pages & modals</H3>
             <P>
-              For content that doesn't fit elsewhere — <em>Private Dining</em>, <em>Careers</em>,
+              On the <strong>Page builder</strong> page. For content that doesn't fit elsewhere — <em>Private Dining</em>, <em>Careers</em>,
               <em>Events</em>, <em>Terms &amp; Conditions</em>. Each page has:
             </P>
             <ul className="list-disc ml-5 space-y-1.5 text-sm text-muted-foreground mb-4">
@@ -3957,8 +4026,11 @@ export default function Help() {
             </P>
             <H3>Designing the print yourself</H3>
             <P>
-              For full control, open a menu and tap <strong>Design print</strong> (save the menu
-              first). Tap <strong>Start designing</strong>. Each page is a grid, and you place
+              For full control, open <strong>Menus → Menu print designer</strong>: it lists every menu
+              with its designs, says which one prints, and opens the designer on the menu or design you
+              tap (the search box finds a menu or a design by name). Or open a menu and tap{' '}
+              <strong>Design print</strong> (save the menu first). The designer&apos;s back button goes
+              to wherever you came from. Tap <strong>Start designing</strong>. Each page is a grid, and you place
               everything on it yourself: the menu header, section titles, whole sections, single
               dishes, text, images, lines, the footer notes, the allergen key and page numbers.
             </P>
@@ -4173,9 +4245,12 @@ export default function Help() {
           <section id="screens" data-help="">
             <H2>Menu Screens</H2>
             <P>
-              Show your menus on screens in the restaurant (digital menu boards). You design each
-              board on <strong>Screens</strong> (Website in the menu), and every screen shows a board,
-              or a playlist of boards that take turns. Prices come from your <strong>published</strong>{' '}
+              Show your menus on screens in the restaurant (digital menu boards). There are four pages,
+              each with its own entry under Store tech in the menu: <strong>Menu screens</strong> (the
+              screens themselves), <strong>Screen board designer</strong> (the boards they show),{' '}
+              <strong>Screen playlists</strong> (boards that take turns) and <strong>Screen walls</strong>{' '}
+              (several screens showing one picture). A row of buttons at the top of each goes to the other
+              three. Every screen shows a board, or a playlist of boards. Prices come from your <strong>published</strong>{' '}
               menus, so a price change appears on every screen when you publish the menu (now or at the
               time you scheduled). Dishes marked sold out (on the till or the Online orders board) show
               as sold out within seconds.
@@ -4191,7 +4266,7 @@ export default function Help() {
 
             <H3>Adding a screen</H3>
             <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
-              <li>On the screen, open the screens address shown on <strong>Screens → Add a screen</strong> (screens.your-domain) in Chrome.</li>
+              <li>On the screen, open the screens address shown on <strong>Menu screens → Add a screen</strong> (screens.your-domain) in Chrome.</li>
               <li>In Chrome&apos;s menu choose <strong>Install app</strong> (or <strong>Add to Home screen</strong>): it then opens full screen with no address bar. In Fully Kiosk, set the address as the Start URL.</li>
               <li>The screen shows a six-letter code and a QR code (both change every 15 minutes until they&apos;re used).</li>
               <li>In the admin press <strong>Add screen</strong>, type the code, give the screen a name (e.g. Counter left), pick the location and what it shows. Or scan the QR code with your phone: it opens the installer app (see Installer app) to do the same there. The screen shows it within a few seconds.</li>
@@ -4225,14 +4300,14 @@ export default function Help() {
               <strong>With several locations</strong>: boards and playlists are shared by every location
               (one design for all; each screen shows its own location&apos;s sold out dishes and order
               ready board), while screens and walls belong to a location. The <strong>Location</strong>{' '}
-              picker beside the tabs (on Screens and Walls) shows one location&apos;s screens and walls, or
+              picker at the top of the Menu screens and Screen walls pages shows one location&apos;s screens and walls, or
               every location&apos;s; it is remembered on this device, and a new screen or wall starts at the
               location picked.
             </P>
 
             <H3>Designing a board</H3>
             <P>
-              <strong>Boards → New board</strong>: give it a name and the screen&apos;s size (Full HD
+              <strong>Screen board designer → New board</strong>: give it a name and the screen&apos;s size (Full HD
               landscape or portrait, 4K, HD, or your own). The designer opens. Add blocks from the left
               (tap +, or drag onto the board), drag them to move (press anywhere on a block, photos
               included), drag the corner to resize; they snap to a grid (hold Alt to place freely,
@@ -4314,7 +4389,7 @@ export default function Help() {
 
             <H3>Playlists and times of day</H3>
             <P>
-              <strong>Playlists</strong>: a list of boards that take turns, each for the seconds you
+              <strong>Screen playlists</strong>: a playlist is a list of boards that take turns, each for the seconds you
               set (drag to reorder). <strong>Set times and dates</strong> on a board to show it only
               then, for example a breakfast board 07:00 to 11:00 and a lunch board 11:00 to 15:00. A time
               ends just before its end time, so the lunch board takes over at exactly 11:00. Boards with
@@ -4336,8 +4411,8 @@ export default function Help() {
               of them, changing boards, playing videos and scrolling text together.
             </P>
             <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
-              <li>Add each screen as usual (Screens tab).</li>
-              <li><strong>Walls → New wall</strong>: name it and pick how many screens across and down.</li>
+              <li>Add each screen as usual (the Menu screens page).</li>
+              <li><strong>Screen walls → New wall</strong>: name it and pick how many screens across and down.</li>
               <li>Under <strong>Which screen goes where</strong>, pick each screen as you look at the wall (left, right, top left ...).</li>
               <li><strong>Gap between screens</strong>: how much of the picture hides behind the frames where two screens meet, so lines and text stay straight across (0 for frameless screens).</li>
               <li>Press <strong>Make a board this size</strong> (the wall&apos;s size: two Full HD screens side by side make 3840 x 1080, plus the gap), then <strong>Design</strong> it. The designer shows dashed lines where the screens meet, so nothing important sits on a join.</li>
@@ -4386,7 +4461,7 @@ export default function Help() {
               own ordering page, link a button to <strong>/order</strong>.
             </P>
             <P>
-              Your ordering page is in <strong>Website → Pages &amp; modals → Order online</strong>.
+              Your ordering page is in <strong>Page builder → Pages &amp; modals → Order online</strong>.
               Add a hero, opening times or any other blocks around the Online ordering block to make
               it your own. On a phone the category tabs scroll sideways and a basket bar sits at the
               bottom of the screen.
@@ -4861,7 +4936,7 @@ export default function Help() {
 
             <H3>The Loyalty page on your website</H3>
             <P>
-              Website, <strong>Pages &amp; modals</strong> always lists <strong>Loyalty</strong>, your
+              Page builder, <strong>Pages &amp; modals</strong> always lists <strong>Loyalty</strong>, your
               loyalty page at <Mono>/loyalty</Mono> (marked <em>Loyalty</em>), the address on receipts,
               kiosks and wallet cards. Design it like any other page: it holds the{' '}
               <strong>Loyalty card</strong> block, and you can add a heading, text or photos around it.
@@ -5952,7 +6027,7 @@ export default function Help() {
               <li><strong>Staff and PINs</strong>: give each person a till role and a 4 to 6 digit PIN. A PIN can start with 0. It can't be an easy one (1111, 1234), someone else&apos;s at the venue, or start the same way as someone else&apos;s (1234 beside 123456): the till signs in as soon as the digits typed match someone, so it couldn&apos;t tell those two apart. People come from the Staff page.</li>
               <li><strong>Venue hub</strong>: the small computer on the venue&apos;s network that prints the network and USB printers and, with <strong>Hub first</strong> on, keeps the tills, kiosks, kitchen screens and order ready boards trading with the internet down. Link it, see its state and updates, the USB printers plugged into it, and how to install one (see Set up the venue hub on a mini PC and Hub first below).</li>
               <li><strong>Printers</strong>: each printer, on the network, USB on the venue hub, or plugged into a till, kitchen screen or kiosk (see Printers and the venue hub below). Kitchen tickets print where the kitchen flow sends dishes: a <strong>Kitchen printer</strong> box in Kitchen screens.</li>
-              <li><strong>Printing</strong>: how kitchen tickets, receipts and bills look (see Ticket and receipt designs below).</li>
+              <li><strong>Printing</strong>: which design each venue prints for kitchen tickets, receipts and bills. The designs themselves are made on Store tech → <strong>Receipt &amp; ticket designer</strong> (see Ticket and receipt designs below).</li>
               <li><strong>Card machines</strong>: your Dojo, Stripe or SumUp account and the card machines at the venue; each till and kiosk picks its machine (see Card machines below).</li>
               <li><strong>Receipts and payments</strong>: when the trading day starts, the name, address and VAT number on receipts, the ways to pay, tips, when staff are signed out, whether a receipt prints when a check is paid (<strong>Ask each time</strong>, <strong>Always print</strong> or <strong>Don&apos;t print</strong>; a till can have its own in its window), how the till asks for a new order&apos;s order type, name and tent number (<strong>One screen</strong> or <strong>Two steps</strong>; a till can have its own too, see Asking for the order type, name and tent number below), and what <strong>needs a manager every time</strong> (see Manager approvals below). Tax rates are set on Menus → Tax rates.</li>
               <li><strong>Cash Recon link</strong>: which till figures go into which Cash Recon fields when the day is closed (see End of day).</li>
@@ -6088,13 +6163,15 @@ export default function Help() {
 
             <H3>Ticket and receipt designs</H3>
             <P>
-              Store tech → <strong>Printing</strong> decides how printed kitchen tickets, receipts and bills look. Designs
-              belong to the whole company; each venue picks which one it prints and can change a design&apos;s words or
-              leave parts out. Without a design, tickets print the usual way.
+              Two pages decide how printed kitchen tickets, receipts and bills look. Store tech →{' '}
+              <strong>Receipt &amp; ticket designer</strong> holds the designs (new, copy, delete, and the designer
+              itself); Store tech → <strong>Printing</strong> says which design prints where. Each page has a card
+              that opens the other. Designs belong to the whole company; each venue picks which one it prints and can
+              change a design&apos;s words or leave parts out. Without a design, tickets print the usual way.
             </P>
             <ul className="list-disc ml-5 space-y-2 text-sm text-muted-foreground mb-4">
-              <li><strong>What prints where</strong>: for <em>Kitchen tickets</em>, <em>Till receipts and bills</em> and <em>Kiosk receipts</em>, pick a design for the whole company (<strong>Company</strong>) and, if this venue needs another, for the venue picked at the top of Store tech. Kiosk receipts print like till receipts until you pick a kiosk design.</li>
-              <li><strong>New design</strong> starts from the usual layout. A design is a list of parts from top to bottom: drag the grips to change the order, tap a part to change it, <strong>Add a part</strong> for more, and the bin (in the part&apos;s box) to take one out. The dishes, and a receipt&apos;s total, always stay.</li>
+              <li><strong>What prints where</strong> (Store tech → Printing): for <em>Kitchen tickets</em>, <em>Till receipts and bills</em> and <em>Kiosk receipts</em>, pick a design for the whole company (<strong>Company</strong>) and, if this venue needs another, for the venue picked at the top of Store tech. Kiosk receipts print like till receipts until you pick a kiosk design.</li>
+              <li><strong>New design</strong> (Store tech → Receipt &amp; ticket designer) starts from the usual layout. A design is a list of parts from top to bottom: drag the grips to change the order, tap a part to change it, <strong>Add a part</strong> for more, and the bin (in the part&apos;s box) to take one out. The dishes, and a receipt&apos;s total, always stay.</li>
               <li><strong>Kitchen ticket parts</strong>: Station name; <strong>Order title</strong> (what prints big: the table or order number as usual, or the tent number, the table, the order number or the customer&apos;s name; an order without it prints the usual title), its size and white on black; <strong>Details</strong> (order type, tent, table, name, order number, covers, server, check number, time sent; plain or a white-on-black band); <strong>Dishes</strong> (normal or tall, seat numbers on or off); your own <strong>Text</strong>; <strong>Line</strong>; <strong>Space</strong>.</li>
               <li><strong>Receipt parts</strong>: your name, address and VAT number (from Receipts and payments); a <strong>heading</strong> with different words on a receipt and on a bill (e.g. VAT RECEIPT / YOUR BILL); <strong>Order title</strong> (a big order number or tent, handy for counter and kiosk orders); <strong>Details</strong> (table, check, served by, covers, order type and name, tent, date and time); <strong>Dishes</strong> (with options and meal parts priced under each, or one line each); <strong>Totals</strong>; <strong>VAT</strong>; <strong>Payments</strong>; a <strong>footer</strong> with its own words on receipts and bills; Text; Line; Space.</li>
               <li><strong>One venue&apos;s own version</strong>: pick <em>Only at</em> a venue at the top of the design. Untick a part to leave it out there, and change the words of text, heading and footer parts for that venue (<strong>Use the words for all locations</strong> puts them back). Everything else is set for all locations.</li>
@@ -6161,7 +6238,7 @@ export default function Help() {
             <P>
               A device showing a new code (after Disconnect, a reset or a new tablet) doesn&apos;t need a new till
               (kitchen screen, kiosk, hub, menu screen). Wherever you type or scan the code (the Add window in
-              Store tech, Add screen on the Screens page, or the installer), choose{' '}
+              Store tech, Add screen on the Menu screens page, or the installer), choose{' '}
               <strong>One already here</strong> under <strong>Link it as</strong> and pick it: it keeps its name,
               short code and settings (a menu screen keeps its boards and wall place), so reports and kitchen
               flows that name it carry on. When exactly one of that kind isn&apos;t linked, it is already picked
@@ -6680,7 +6757,7 @@ export default function Help() {
             <H3>Setting up (Store tech → Kitchen screens)</H3>
             <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
               <li><strong>Stations</strong>, four kinds (plus the Splitter and Sleeper below and <strong>Kitchen printer</strong>, which prints the dishes that reach it: see Printers and the venue hub): <strong>Prep</strong> (Grill, Fryer, Bar, Prep 1...) makes dishes; <strong>Expo</strong> (the pass) checks whole orders before they go out; <strong>Runner</strong> takes orders out to tables or the counter; <strong>Order ready board</strong> shows order numbers on menu screens (nothing to bump, no kitchen screen). Each station turns a ticket amber after your target minutes and red after more. <strong>Show held courses</strong> shows dishes waiting to be fired, greyed out. <strong>Show orders before their dishes get here</strong> (on for an expo) puts a ticket up as soon as the order is sent, each dish marked where it is now (At Grill). <strong>On order counts</strong>: groups such as Wings, counting how many pieces are on order (the 8pc dish counts 8, the 6 Wings option counts 6).</li>
-              <li><strong>Kitchen flow</strong> (at the top): boxes for <strong>Orders in</strong> (the till and online orders) and every station, joined by links. Drag a box's dot onto another box (or tap the dot, then the box) to send dishes on to it. Tap a link's label to choose which dishes take it: dishes, sections, the till or kiosk they were <strong>sent from</strong> (the bar's till to the bar), revenue streams or order types (your own list: Eat in, Take out...); a link with no filter takes every dish. To list the dishes that <em>don't</em> go that way instead, switch the link from <strong>Only these</strong> to <strong>All except these</strong>: Orders in to the Wok, all except Drinks and Desserts, takes every other dish (any one thing listed leaves a dish out, so a section, a few dishes and an order type can be listed together). Its label reads <em>Except Drinks, Desserts</em> in red. From each box a dish takes the links that name it most closely (the dish, then its section, the till or kiosk it was sent from, its revenue stream, its order type, then All except links, then links for every dish), so Prep 1 to Prep 2 for burgers and Prep 1 to Expo 1 for everything else sends the bun on and the fries straight to the expo; and an All except link beside a link for every dish sends what it leaves out down the link for every dish. Links that tie all apply: Expo 1 to ORB 1 and to a Runner at once, or for eat in only. <strong>Check a dish</strong> shows a dish's way. A new flow arranges itself; drag boxes by their grip, or press <strong>Tidy</strong>. A way round in a circle can't be saved. <strong>Save flow</strong>: dishes sent from then on follow it (dishes already in the kitchen keep their way).</li>
+              <li><strong>Kitchen flow</strong> (on its own page, Store tech → <strong>Kitchen flow designer</strong>; the Kitchen screens page has a card that opens it and says which flow is in use): boxes for <strong>Orders in</strong> (the till and online orders) and every station, joined by links. Drag a box's dot onto another box (or tap the dot, then the box) to send dishes on to it. Tap a link's label to choose which dishes take it: dishes, sections, the till or kiosk they were <strong>sent from</strong> (the bar's till to the bar), revenue streams or order types (your own list: Eat in, Take out...); a link with no filter takes every dish. To list the dishes that <em>don't</em> go that way instead, switch the link from <strong>Only these</strong> to <strong>All except these</strong>: Orders in to the Wok, all except Drinks and Desserts, takes every other dish (any one thing listed leaves a dish out, so a section, a few dishes and an order type can be listed together). Its label reads <em>Except Drinks, Desserts</em> in red. From each box a dish takes the links that name it most closely (the dish, then its section, the till or kiosk it was sent from, its revenue stream, its order type, then All except links, then links for every dish), so Prep 1 to Prep 2 for burgers and Prep 1 to Expo 1 for everything else sends the bun on and the fries straight to the expo; and an All except link beside a link for every dish sends what it leaves out down the link for every dish. Links that tie all apply: Expo 1 to ORB 1 and to a Runner at once, or for eat in only. <strong>Check a dish</strong> shows a dish's way. A new flow arranges itself; drag boxes by their grip, or press <strong>Tidy</strong>. A way round in a circle can't be saved. <strong>Save flow</strong>: dishes sent from then on follow it (dishes already in the kitchen keep their way).</li>
               <li><strong>Taking a station out of a flow</strong> (the grill down tonight, one cook on the fryer): tap the station's box, then <strong>Take out of this flow</strong> and <strong>Yes, take it out</strong>. The box leaves this flow with its links, and no dish goes to that station while this flow is in use; link the stations that take over its dishes, then <strong>Save flow</strong>. It shows under <strong>Not in this flow</strong> above the boxes, where <strong>Put back</strong> brings it back (with no links: draw them again). The station itself, its screens and its settings stay, and your other flows still use it. To remove a station everywhere, delete it under <strong>Edit station</strong> instead.</li>
               <li><strong>Sharing tickets between two stations (Splitter)</strong>: for two cooks on the same job, e.g. two wingmen. <strong>Add to the flow</strong> → <strong>Splitter</strong> (it was called Balance box), name it (Wings) and list its <strong>Pieces</strong>: what a dish counts when the box weighs up who has more to cook (the <em>10 Wings</em> option counts 10, the <em>8pc Boneless</em> dish counts 8; a dish not listed counts its quantity). Link Orders in to the box for the wings (a link naming the Wings section or the dishes), and the box to Wingman 1 and Wingman 2; leave the link for every dish going to the Fryer. Each ticket's wings then go to just one wingman, the one with the fewest pieces still to cook (a piece counts until that station bumps it), taking turns when they're level; the rest of the ticket goes to the fryer. <strong>Big tickets</strong> (in the box's window): <em>Keep each ticket on one station</em> (the usual) sends all of a ticket's wings to one wingman however many there are; <em>Share big tickets</em> with a number, e.g. 30, shares out a ticket with more than 30 pieces: each dish line goes, biggest first, to whichever wingman then has the fewest pieces (counting what this ticket has already given them), so 3 x 20 wings on one ticket can go 20 to one and 40 to the other. One dish line is never split (a line of 3 x 10 Wings stays with one wingman), and a meal deal's parts can go to different wingmen. The choice is made when the order reaches the kitchen (a held course: when it's fired), and then the dish stays with that wingman. A box's links out show <strong>Shared</strong> and have no filters; <strong>Check a dish</strong> shows <em>Wingman 1 or Wingman 2</em>. The box has no kitchen screen and nothing to bump. If one wingman is taken out of the flow in use, the other gets every ticket.</li>
               <li><strong>How a Splitter shares</strong> (in its window): <em>Fewest pieces</em> (the usual) sends each ticket to the station with the fewest pieces still to cook. <em>Smart: by speed</em> also watches how fast each station has been bumping: it works out how long a piece has been taking there (from its last 8 tickets in the last 30 minutes, not counting time a ticket sat waiting behind others) and sends the ticket where it should be done soonest, its pieces still to cook times that time. So if Wingman 2 has been taking twice as long as Wingman 1, Wingman 1 gets about two tickets for every one of Wingman 2's; when Wingman 2 catches up it gets its share back. A station with nothing to go on yet (no bumps lately) counts as fast as the others, and with no bumps anywhere it shares by pieces.</li>
@@ -6770,7 +6847,7 @@ export default function Help() {
             <H3>Testing the kitchen</H3>
             <P>
               Try a kitchen flow before service without touching the real screens. In Store tech → Kitchen
-              screens, <strong>Test the kitchen</strong> → <strong>Open the kitchen test</strong> opens a new window
+              screens (or Kitchen flow designer), <strong>Test the kitchen</strong> → <strong>Open the kitchen test</strong> opens a new window
               with every kitchen screen of the venue side by side, scaled down. They are the real kitchen screen,
               working on pretend orders: nothing you do there reaches the kitchen screens, the tills, the online
               orders board or the reports, and nothing is saved.
@@ -6826,7 +6903,7 @@ export default function Help() {
 
             <H3>Setting up (Store tech → Kiosks)</H3>
             <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
-              <li><strong>Kiosk designs</strong>: <strong>New design</strong> opens the design editor (below). Designs are shared by every venue. A kiosk uses the design picked for it, or the first design. <strong>Copy</strong> makes a copy to try changes on; a design a kiosk uses can't be deleted.</li>
+              <li><strong>Kiosk designs</strong> have their own page, Store tech → <strong>Kiosk designer</strong> (the Kiosks page has a card that opens it): <strong>New design</strong> opens the design editor (below). Designs are shared by every venue. A kiosk uses the design picked for it, or the first design. <strong>Copy</strong> makes a copy to try changes on; a design a kiosk uses can't be deleted.</li>
               <li><strong>Add a kiosk</strong>: its name, its <strong>revenue stream</strong> (the stream's order types are the kiosk's Staying or going? buttons, and the stream decides whether it asks for a name or a tent number), its design, its <strong>card machine</strong> (see Card machines; none = guests pay at the counter) and the receipt printer.</li>
               <li>On the screen, open the kiosk address (kiosk.macaroonie.com, shown on the tab) in Chrome: it shows a code. Type that code in the Add a kiosk window (or scan its QR code with a phone), and set the address as the kiosk browser's start page. For a screen guests can't leave, run Chrome in kiosk mode or use a kiosk browser (such as Fully Kiosk). <strong>New device</strong> on the kiosk's row moves it to another screen; the old one stops.</li>
             </ol>
@@ -6874,8 +6951,8 @@ export default function Help() {
               from stays as it was last saved, so the kiosks using it don&apos;t change. Use it to try another
               version (a summer look, say) without touching the one your kiosks show, then pick the new design
               for a kiosk in Store tech → Kiosks when it is ready. The new design isn&apos;t shared (a share link
-              stays with the design it was made for). <strong>Copy</strong> on the Kiosks page does the same
-              from a saved design.
+              stays with the design it was made for). <strong>Copy</strong> on the Kiosk designer page (the
+              list of designs) does the same from a saved design.
             </P>
             <InfoBox type="tip">
               The preview shows the menu as published, the same as the kiosks. A photo, price or dish you have saved
@@ -6921,7 +6998,7 @@ export default function Help() {
             </ul>
             <P>
               The receipt page (the QR code&apos;s link) shows the order as the kiosk receipt design prints it
-              (Store tech → Printing), with a button to print it or save it as a PDF. It works for a year. An order
+              (picked in Store tech → Printing, made in Store tech → Receipt &amp; ticket designer), with a button to print it or save it as a PDF. It works for a year. An order
               paid at the counter shows as a bill marked &ldquo;Not paid yet&rdquo; until it is paid at the till,
               then as the receipt. Emails are sent through the location&apos;s own email settings (Emails →
               Settings), up to three times an order. The email address isn&apos;t kept: the kiosk shows it back
@@ -7034,7 +7111,7 @@ export default function Help() {
               <li>Each design has one link. Saving the design updates what the link shows; changes you haven't saved aren't in it.</li>
               <li><strong>Menu</strong>: the published menu (what the kiosks show), or the menu with unpublished changes, to show a new menu before it goes live. The changes show on the link as soon as they are saved on the Menus page, unfinished ones too, and the page tells whoever opens it that it includes changes not published yet.</li>
               <li><strong>Works until</strong> gives the link an end date (leave it empty for none). <strong>New link</strong> stops the old one for everyone and makes another; <strong>Stop sharing</strong> stops it.</li>
-              <li>Making, moving and stopping a link needs Manage on Store tech. Shared designs are marked <strong>Preview shared</strong> in Store tech → Kiosks.</li>
+              <li>Making, moving and stopping a link needs Manage on Store tech. Shared designs are marked <strong>Preview shared</strong> in Store tech → Kiosk designer.</li>
             </ul>
 
             <H3>How choices show (Menus)</H3>
@@ -7042,7 +7119,7 @@ export default function Help() {
               <li><strong>Display name</strong> (Menus → Variant groups, open a group): what guests see as the group's heading (kiosks, online ordering, the website, printed menus, menu screens) and the tills, such as Choose your flavours for a group you call Flavour x2 (copy). Empty: the group name. The group name stays for telling groups apart on the Menus pages. A dish's group headings change once its menu is published; translate the display name on Menus → Translations.</li>
               <li><strong>Menus → Variant groups</strong>, open a group, <strong>Self-order kiosk</strong>: how its options show (grid, list, slider, spin wheel, or as the design says) and the words at the two ends of a scale (No spice ... Very spicy).</li>
               <li>A group can have its own look on every kiosk there too: <strong>Picture style</strong> (Cards, Round, Oval, Hexagons, No frame), <strong>Pictures or words</strong> (With pictures, Words only) and <strong>When the options appear</strong> (Just there, Fade in, Slide in from the side, Bubble up, Deal like cards). Each is <strong>As the kiosk design says</strong> until you pick one, so the flavours can come in as a honeycomb that bubbles up while the dips stay small round pictures. It works straight away (no publishing), and a small picture of a pick in the corner of the dish's photo takes the group's picture style too.</li>
-              <li>A kiosk design can change that again for its own kiosks: <strong>Choices → Option groups with their own look</strong> in the kiosk design (Store tech → Kiosks, edit a design). <strong>Add an option group</strong>, then for each: <strong>Shown as</strong>, <strong>Pictures</strong>, <strong>Words</strong> and <strong>Coming in</strong>. Each starts on its default, which says what the guest gets without it: <strong>Group: ...</strong> when the group picked one, else <strong>Design: ...</strong> (the design's settings for every choice). Pick another and the design shows the group that way, whatever the group says; the cross takes the group off the list. So the order is: the design's look for the group, then the group's own, then the design's for every choice, each part on its own. Combo steps aren't option groups: they keep the design's look (and their own Shown as).</li>
+              <li>A kiosk design can change that again for its own kiosks: <strong>Choices → Option groups with their own look</strong> in the kiosk design (Store tech → Kiosk designer, edit a design). <strong>Add an option group</strong>, then for each: <strong>Shown as</strong>, <strong>Pictures</strong>, <strong>Words</strong> and <strong>Coming in</strong>. Each starts on its default, which says what the guest gets without it: <strong>Group: ...</strong> when the group picked one, else <strong>Design: ...</strong> (the design's settings for every choice). Pick another and the design shows the group that way, whatever the group says; the cross takes the group off the list. So the order is: the design's look for the group, then the group's own, then the design's for every choice, each part on its own. Combo steps aren't option groups: they keep the design's look (and their own Shown as).</li>
               <li>Each option can have two <strong>pictures</strong> (tap a square, or drop a picture on it): <strong>Tile</strong>, shown on the choice itself (a cut-out PNG works well), and <strong>On dish</strong>, shown on or in place of the dish's photo when the group has Split photo on (for example the wings made in that flavour). An option with no On dish picture uses its Tile picture there. Each option can also have a <strong>line of words</strong> under its name, and a <strong>level</strong> from 0 to 5 (shown as flames, and as the slider's scale). Drag options by their grip to change their order.</li>
               <li>A combo's steps (<strong>Edit steps</strong>) each have <strong>On a kiosk, the choices show as</strong>. A new choice typed in for a combo can have a picture and words too; a dish shows its own photo and description.</li>
               <li><strong>Picks on the dish's photo</strong> (on each variant group, and on each combo step): <strong>No</strong>, <strong>Split the photo</strong> or <strong>Small in the corner</strong>. The picks' pictures show on the dish's photo as the guest picks, on the dish page and on the order line. Each group decides, so 10 Wings can split its photo between the two flavours picked and show the dip small in the corner. <strong>Split the photo</strong>: one pick's picture takes the photo's place; two or more show side by side with a torn edge between them (three picks show the left third of the first picture, the middle of the second and the right third of the third). <strong>Small in the corner</strong>: each pick's picture small in the photo's bottom corner, on top of the photo (split or not), in the choices' picture style. <strong>Size in the corner</strong> (under it) sets how big: <strong>Automatic</strong> (about a quarter of the photo's width, smaller when several picks share the corner) or <strong>Set a size</strong>, from 10% to 70% of the photo's width with the slider or the - and + buttons; the small sketch shows the photo with the picture at that size. Each group and step has its own size, so the dip can be small while the drink is bigger; when the pictures don't fit side by side they shrink together. It uses each option's <strong>On dish</strong> picture (its Tile picture when it has none); on a combo step, each choice's <strong>On meal</strong> picture (else a typed-in choice's Tile picture, or a dish's own photo). Give every option an On dish picture of the same dish made that way, taken the same way, so the parts line up. A variant group's setting and pictures work straight away; a combo step's need the menu published.</li>
@@ -7197,7 +7274,7 @@ export default function Help() {
             </P>
             <InfoBox type="info">
               The installer only links and sets up devices. Everything else (stations and the kitchen flow, kiosk
-              designs, boards and playlists, printers) is set up in Store tech and on the Screens page.
+              designs, boards and playlists, printers) is set up on their own pages in Store tech.
             </InfoBox>
           </section>
 
@@ -7227,7 +7304,7 @@ export default function Help() {
             <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
               <li>Install the app on the tablet (above).</li>
               <li>Open it and pick what the tablet is: <strong>Till</strong>, <strong>Kitchen screen</strong>, <strong>Self-order kiosk</strong> or <strong>Menu screen</strong>.</li>
-              <li>It shows a six-letter code and a QR code. Link it as any other device: scan the QR code with your phone (the installer app), or type the code in Store tech (<strong>Add a till</strong>, <strong>Add a screen</strong>, <strong>Add a kiosk</strong>) or, for a menu screen, on the Screens page (<strong>Add screen</strong>).</li>
+              <li>It shows a six-letter code and a QR code. Link it as any other device: scan the QR code with your phone (the installer app), or type the code in Store tech (<strong>Add a till</strong>, <strong>Add a screen</strong>, <strong>Add a kiosk</strong>) or, for a menu screen, on the Menu screens page (<strong>Add screen</strong>).</li>
               <li>From then on the tablet opens that app every time it starts.</li>
             </ol>
 
@@ -7274,7 +7351,7 @@ export default function Help() {
             <H3>Menu screens on a TV box or smart TV</H3>
             <P>
               Pick <strong>Menu screen</strong> to show menu boards and order ready boards (the boards and
-              playlists you made on the Screens page). From version 1.2 the app shows on an Android TV&apos;s
+              playlists you made in Store tech). From version 1.2 the app shows on an Android TV&apos;s
               home screen too, so a TV box or a smart TV running Android TV can install it from the download
               like a tablet (sideloading: allow installing from the browser or file manager you use). With a
               remote, the arrows move between the choices on <strong>What is this device?</strong> and OK picks.

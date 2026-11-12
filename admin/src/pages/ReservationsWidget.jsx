@@ -1,19 +1,27 @@
 // pages/ReservationsWidget.jsx
 //
-// Tenant-level Reservations widget defaults + management page. Every
-// reservations_widget block on the public sites (and every external embed
-// code) inherits these unless overridden on the block / embed itself.
+// Tenant-level Reservations widget defaults + management page, at
+// /website/reservations-widget with its own main menu entry (migration 241;
+// it was a section of the Website page before). Every reservations_widget
+// block on the public sites (and every external embed code) inherits these
+// unless overridden on the block / embed itself.
+//
+// The address is under /website on purpose: nginx sends everything that
+// starts with /reservations to the API (the guests' widget), so a page at
+// /reservations-widget would be the API's 404 on a reload.
 //
 // Stored on tenant_site.widget_settings (single JSONB column — same column
 // used by the legacy widget; values are forward-compatible). Read +
 // updated via the existing /website/tenant-site GET / PATCH endpoints.
 
 import { useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useApi } from '@/lib/api'
 import { usePermission } from '@/hooks/usePermission'
 import { ReadOnlyNotice, ReadOnlyFieldset } from '@/components/ReadOnlyNotice'
-import { Save, Loader2, Copy, ExternalLink, X } from 'lucide-react'
+import { PageHeader } from '@/components/staff/shared'
+import { Save, Loader2, Copy, ExternalLink, X, CalendarCheck, Blocks, Globe, ArrowRight } from 'lucide-react'
 import { FontPicker } from '@/components/website-builder/FontPicker'
 import { ThemeColourPicker, resolveRole } from '@/components/website-builder/ThemeColourPicker'
 import { FONT_OPTIONS } from '@shared/fonts.js'
@@ -49,7 +57,9 @@ const DEFAULT_SETTINGS = {
   confirmation_ctas:      [],
 }
 
-export default function ReservationsWidget({ embedded = false }) {
+const HEAD_LINK = 'inline-flex items-center justify-center gap-1.5 min-h-[48px] px-3 rounded-lg text-sm font-medium border bg-background hover:bg-muted touch-manipulation shrink-0'
+
+export default function ReservationsWidget() {
   const api = useApi()
   const qc  = useQueryClient()
 
@@ -113,8 +123,13 @@ export default function ReservationsWidget({ embedded = false }) {
     save.mutate({ widget_settings: cleaned })
   }
 
+  // The page's own bar. The links to the two pages it belongs with sit
+  // under the intro, so the title is never cut short on a phone.
+  const header = <PageHeader icon={CalendarCheck} title="Reservations widget" />
+
   if (isLoading) {
-    return <div className={embedded ? '' : 'h-full overflow-y-auto'}>
+    return <div className="flex flex-col h-full overflow-hidden" data-testid="reservations-widget-page">
+      {header}
       <div className="p-8 flex items-center gap-2 text-muted-foreground">
         <Loader2 className="w-4 h-4 animate-spin" /> Loading…
       </div>
@@ -123,20 +138,29 @@ export default function ReservationsWidget({ embedded = false }) {
 
   // AppShell's <main> is overflow-hidden — the page needs its own scrolling
   // container or content past the fold gets stranded (CLAUDE.md gotcha).
-  // When embedded in the Website builder the parent already scrolls.
   return (
-    <div className={embedded ? '' : 'h-full overflow-y-auto'}>
-    <div className={embedded ? 'space-y-6' : 'p-6 max-w-3xl mx-auto space-y-6'}>
-      <div>
-        {!embedded && <h1 className="text-2xl font-bold">Reservations widget</h1>}
-        <p className={`text-sm text-muted-foreground${embedded ? '' : ' mt-1'}`}>
-          These settings apply to every Reservations widget across all your venues unless
-          overridden on a specific embed (page-builder block or external embed code).
-          Live preview shows below — what you see here is what visitors see.
-        </p>
+    <div className="flex flex-col h-full overflow-hidden" data-testid="reservations-widget-page">
+    {header}
+    <div className="flex-1 overflow-y-auto">
+    <div className="p-4 sm:p-6 max-w-3xl mx-auto space-y-6">
+      <p className="text-sm text-muted-foreground" data-testid="rw-intro">
+        These settings apply to every Reservations widget across all your venues unless
+        overridden on a specific embed (page-builder block or external embed code).
+        Live preview shows below — what you see here is what visitors see. To put the
+        widget on a page, add the Reservations widget block in the Page builder.
+      </p>
+
+      {/* The widget goes onto a page as a block in the page builder */}
+      <div className="flex flex-wrap gap-3" data-testid="rw-links">
+        <Link to="/website/builder" data-testid="rw-page-builder-link" className={HEAD_LINK}>
+          <Blocks className="w-4 h-4" /> Page builder <ArrowRight className="w-3.5 h-3.5" />
+        </Link>
+        <Link to="/website" data-testid="rw-website-link" className={HEAD_LINK}>
+          <Globe className="w-4 h-4" /> Website <ArrowRight className="w-3.5 h-3.5" />
+        </Link>
       </div>
 
-      {!canManage && !embedded && <ReadOnlyNotice what="the widget settings" />}
+      {!canManage && <ReadOnlyNotice what="the widget settings" />}
       <ReadOnlyFieldset disabled={!canManage} className="space-y-6">
         {/* Header */}
         <Card title="Header"
@@ -386,6 +410,7 @@ export default function ReservationsWidget({ embedded = false }) {
           {error && <span className="text-xs text-destructive">{error}</span>}
         </div>
       )}
+    </div>
     </div>
     </div>
   )

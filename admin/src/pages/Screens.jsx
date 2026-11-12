@@ -1,24 +1,30 @@
 // src/pages/Screens.jsx
 //
-// Menu screens (/screens, module `screens`, migrations 166-167). Four tabs:
-//   Screens    the paired screens: add one by the code it shows, what it
-//              shows (a board or a playlist), size, rotation, online state,
-//              identify / reload / remove
-//   Boards     the board designs (opened in the designer, /screens/boards/:id)
-//   Playlists  boards taking turns, each for some seconds at the times of
-//              day it is set for, coming on with a transition
-//   Walls      several screens showing one board (or playlist) between them
-// Boards and playlists are the company's, shared by every location; screens
-// and walls belong to a location, and the Location picker (Screens and Walls
-// tabs, remembered in maca_screens_venue) shows one location's.
+// Menu screens (module `screens`, migrations 166-167). Four pages, each with
+// its own address and main menu entry since migration 241 (they were tabs of
+// one page; /screens?tab=<key> still opens the right one):
+//   /screens            Menu screens: the paired screens: add one by the code
+//                       it shows, what it shows (a board or a playlist), size,
+//                       rotation, online state, identify / reload / remove
+//   /screens/boards     Screen board designer: the board designs (each opened
+//                       in the designer, /screens/boards/:id)
+//   /screens/playlists  Screen playlists: boards taking turns, each for some
+//                       seconds at the times of day it is set for, coming on
+//                       with a transition
+//   /screens/walls      Screen walls: several screens showing one board (or
+//                       playlist) between them
+// A row of links at the top goes between the four. Boards and playlists are
+// the company's, shared by every location; screens and walls belong to a
+// location, and the Location picker (Menu screens and Screen walls,
+// remembered in maca_screens_venue) shows one location's.
 // The player runs on screens.<domain> (screen/ + routes/screenSite.js).
 
 import { useMemo, useState } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  Monitor, Plus, Loader2, Pencil, RefreshCw, ScanEye, Copy, ListVideo, LayoutTemplate, Save, Clock, Grid2x2, Film,
-  Play, Pause, MapPin,
+  Monitor, Plus, Loader2, Pencil, RefreshCw, ScanEye, Copy, ListVideo, Save, Clock, Grid2x2, Film,
+  Play, Pause, MapPin, Presentation,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -35,11 +41,12 @@ import {
 import { PlaylistPreview, WallPreview } from '@/components/screens/previews'
 import { isScheduled } from '@shared/menuSchedule.js'
 
-const TABS = [
-  { key: 'screens', label: 'Screens', icon: Monitor },
-  { key: 'boards', label: 'Boards', icon: LayoutTemplate },
-  { key: 'playlists', label: 'Playlists', icon: ListVideo },
-  { key: 'walls', label: 'Walls', icon: Grid2x2 },
+// The key is the page (main.jsx passes it as `page`) and the old ?tab= value.
+export const SCREEN_PAGES = [
+  { key: 'screens', path: '/screens', label: 'Screens', title: 'Menu screens', icon: Monitor },
+  { key: 'boards', path: '/screens/boards', label: 'Board designer', title: 'Screen board designer', icon: Presentation },
+  { key: 'playlists', path: '/screens/playlists', label: 'Playlists', title: 'Screen playlists', icon: ListVideo },
+  { key: 'walls', path: '/screens/walls', label: 'Walls', title: 'Screen walls', icon: Grid2x2 },
 ]
 
 const inputCls = 'w-full h-11 rounded-lg border bg-background px-3 text-sm touch-manipulation focus:outline-none focus:ring-2 focus:ring-primary/40'
@@ -72,28 +79,32 @@ function useScreensPlace(venues) {
   return [place, setPlace]
 }
 
-export default function Screens() {
-  const [params, setParams] = useSearchParams()
-  const tab = TABS.find(t => t.key === params.get('tab')) || TABS[0]
+export default function Screens({ page = 'screens' }) {
+  const [params] = useSearchParams()
+  const tab = SCREEN_PAGES.find(t => t.key === page) || SCREEN_PAGES[0]
   const { canManage } = usePermission('screens')
   const venues = useVenues()
   const [place, setPlace] = useScreensPlace(venues)
   const byPlace = tab.key === 'screens' || tab.key === 'walls'
 
+  // An old link to a tab (/screens?tab=boards): that page has its own address now.
+  const old = page === 'screens' ? SCREEN_PAGES.find(t => t.key !== 'screens' && t.key === params.get('tab')) : null
+  if (old) return <Navigate to={old.path} replace />
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <PageHeader icon={Monitor} title="Screens" />
+      <PageHeader icon={tab.icon} title={tab.title} />
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-5xl mx-auto p-4 space-y-4">
           <div className="flex flex-wrap items-center gap-3">
-          <nav className="flex flex-wrap gap-1.5 w-full sm:w-auto sm:flex-1 min-w-0" aria-label="Screens sections">
-            {TABS.map(t => (
-              <button key={t.key} type="button" onClick={() => setParams({ tab: t.key }, { replace: true })}
+          <nav className="flex flex-wrap gap-1.5 w-full sm:w-auto sm:flex-1 min-w-0" aria-label="Menu screens pages" data-testid="screens-pages">
+            {SCREEN_PAGES.map(t => (
+              <Link key={t.key} to={t.path} data-testid={'screens-page-' + t.key}
                 aria-current={t.key === tab.key ? 'page' : undefined}
-                className={cn('min-h-[44px] px-3 rounded-lg border text-sm font-medium touch-manipulation inline-flex items-center gap-1.5',
+                className={cn('min-h-[48px] px-3 rounded-lg border text-sm font-medium touch-manipulation inline-flex items-center gap-1.5',
                   t.key === tab.key ? 'bg-primary text-primary-foreground border-primary' : 'bg-background hover:bg-muted')}>
                 <t.icon className="w-4 h-4" /> {t.label}
-              </button>
+              </Link>
             ))}
           </nav>
           {byPlace && venues.length > 1 && (

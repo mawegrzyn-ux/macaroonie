@@ -6,6 +6,12 @@
 // than free-form drag-and-drop reparenting — see nav.js for why.
 //
 // Gated on the nav_designer module (owner-only by default, migration 091).
+//
+// Descriptions (migration 241): every entry has a very brief description
+// (DESCRIPTION_MAX characters at most) that the menu search shows under its
+// name and searches. An entry with none of its own uses its page's standard
+// one (navDescription() in shared/navSearch.js), shown here as the
+// placeholder, so the rows always say what a page is for.
 
 import { useMemo, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -16,6 +22,7 @@ import {
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { navDescription, DESCRIPTION_MAX } from '@shared/navSearch.js'
 
 function resolveIcon(name) {
   return LucideIcons[name] || LucideIcons.Circle
@@ -222,6 +229,8 @@ export default function NavDesigner() {
 function NavRow({ node, depth, siblings, index, parent, onEdit, onAddChild, mutations, canManage }) {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const Icon = resolveIcon(node.icon)
+  // The entry's own description, else its page's (or section's) standard one.
+  const about = navDescription(node)
   const isFirst = index === 0
   const isLast  = index === siblings.length - 1
 
@@ -249,6 +258,8 @@ function NavRow({ node, depth, siblings, index, parent, onEdit, onAddChild, muta
       <div
         className="flex items-center gap-2 py-1.5 pr-2 border-b last:border-b-0 hover:bg-accent/40"
         style={{ paddingLeft: 12 + depth * 24 }}
+        data-testid="nav-row"
+        data-route={node.route || undefined}
       >
         <Icon className="w-4 h-4 text-muted-foreground shrink-0" />
         <div className="min-w-0 flex-1">
@@ -267,6 +278,12 @@ function NavRow({ node, depth, siblings, index, parent, onEdit, onAddChild, muta
             )}
           </div>
           {node.route && <p className="text-[11px] text-muted-foreground truncate font-mono">{node.route}</p>}
+          {!!about && (
+            <p className="text-[11px] text-muted-foreground leading-snug mt-0.5 line-clamp-2" data-testid="nav-row-description"
+              data-own={node.description ? '1' : undefined}>
+              {about}
+            </p>
+          )}
         </div>
         {canManage && (
           <div className="flex items-center gap-0.5 shrink-0">
@@ -290,7 +307,7 @@ function NavRow({ node, depth, siblings, index, parent, onEdit, onAddChild, muta
               className="p-1.5 rounded hover:bg-accent touch-manipulation">
               <Plus className="w-3.5 h-3.5" />
             </button>
-            <button onClick={() => onEdit(node)} title="Edit"
+            <button onClick={() => onEdit(node)} title="Edit" data-testid="nav-row-edit"
               className="p-1.5 rounded hover:bg-accent touch-manipulation">
               <Pencil className="w-3.5 h-3.5" />
             </button>
@@ -345,8 +362,14 @@ function ItemEditor({ mode, node, parentNode, roles, modules, routeCatalog, onCl
   const [moduleKey, setModuleKey]   = useState(node?.module || '')
   const [hiddenRoleIds, setHiddenRoleIds] = useState(node?.hidden_role_ids || [])
   const [showInLauncher, setShowInLauncher] = useState(node?.show_in_launcher || false)
+  // The entry's own description ('' = none: the standard words are used).
+  const [description, setDescription] = useState(node?.description || '')
 
   const Icon = resolveIcon(icon)
+  // What the entry says while it has no words of its own: its page's
+  // standard description, or the standard menu's for a section of that name.
+  const standard = navDescription({ kind, route: kind === 'section' ? null : route, label })
+  const tooLong = description.trim().length > DESCRIPTION_MAX
 
   function pickRoute(r) {
     setRoute(r)
@@ -369,6 +392,7 @@ function ItemEditor({ mode, node, parentNode, roles, modules, routeCatalog, onCl
       icon: icon || null,
       route: kind === 'section' ? null : route,
       module: moduleKey || null,
+      description: description.trim() || null,
       hidden_role_ids: hiddenRoleIds,
       show_in_launcher: kind === 'link' ? showInLauncher : false,
     })
@@ -412,8 +436,46 @@ function ItemEditor({ mode, node, parentNode, roles, modules, routeCatalog, onCl
           )}
           <div>
             <label className="text-sm font-medium block mb-1">Label</label>
-            <input value={label} onChange={e => setLabel(e.target.value)}
+            <input value={label} onChange={e => setLabel(e.target.value)} data-testid="nav-item-label"
               className="w-full border rounded-md px-3 py-2 text-sm min-h-[44px] touch-manipulation focus:outline-none focus:ring-1 focus:ring-primary" />
+          </div>
+          <div>
+            <div className="flex items-baseline justify-between gap-2 mb-1">
+              <label className="text-sm font-medium" htmlFor="nav-description">Description</label>
+              <span
+                className={cn('text-[11px] tabular-nums', tooLong ? 'text-destructive font-medium' : 'text-muted-foreground')}
+                data-testid="nav-description-count"
+              >
+                {description.trim().length}/{DESCRIPTION_MAX}
+              </span>
+            </div>
+            <textarea
+              id="nav-description"
+              value={description}
+              onChange={e => setDescription(e.target.value)}
+              rows={3}
+              placeholder={standard || 'What this is for, in a sentence.'}
+              data-testid="nav-description"
+              className={cn(
+                'w-full border rounded-md px-3 py-2 text-sm touch-manipulation focus:outline-none focus:ring-1 focus:ring-primary',
+                tooLong && 'border-destructive',
+              )}
+            />
+            <p className="text-[11px] text-muted-foreground mt-1" data-testid="nav-description-hint">
+              {tooLong
+                ? `Keep it to ${DESCRIPTION_MAX} characters.`
+                : description.trim()
+                  ? 'Shown under the name in the menu search, which also searches these words.'
+                  : standard
+                    ? 'Empty: the standard words above are used. The menu search shows them under the name and searches them.'
+                    : 'A sentence on what this is for. The menu search shows it under the name and searches it.'}
+            </p>
+            {!!description.trim() && !!standard && (
+              <button type="button" onClick={() => setDescription('')} data-testid="nav-description-standard"
+                className="mt-1 text-xs text-primary underline underline-offset-2 touch-manipulation min-h-[36px]">
+                Use the standard words
+              </button>
+            )}
           </div>
           <div>
             <label className="text-sm font-medium block mb-1">Icon</label>
@@ -474,7 +536,7 @@ function ItemEditor({ mode, node, parentNode, roles, modules, routeCatalog, onCl
           <button onClick={onClose} className="text-sm text-muted-foreground px-4 py-2 touch-manipulation min-h-[40px]">
             Cancel
           </button>
-          <button onClick={submit} disabled={!label.trim() || (kind === 'link' && !route) || saving}
+          <button onClick={submit} disabled={!label.trim() || (kind === 'link' && !route) || tooLong || saving} data-testid="nav-item-save"
             className="bg-primary text-primary-foreground text-sm font-medium rounded-md px-4 py-2 min-h-[40px] inline-flex items-center gap-2 disabled:opacity-50 touch-manipulation">
             {saving && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
             {mode === 'add' ? 'Add item' : 'Save changes'}

@@ -1,17 +1,21 @@
 // src/components/pos/PrintingSection.jsx
 //
-// Store tech → Printing (migration 190): the company's designs for printed
-// kitchen tickets and receipts, and which design prints where, for the whole
-// company and for the venue picked at the top of Store tech. Designs are
-// edited on their own page (pages/PrintDesigner.jsx). shared/pos/ticketLayout.js.
+// Printed kitchen tickets and receipts (migration 190), on two Store tech pages
+// since migration 241:
+//   - Printing (/pos/printing, PrintingSection): which design prints where,
+//     for the whole company and for the venue picked at the top of Store tech
+//   - Receipt & ticket designer (/pos/print-designs, PrintDesignsSection): the
+//     company's designs (new, copy, delete), each edited on its own page
+//     (pages/PrintDesigner.jsx, /pos/print-designs/:id)
+// shared/pos/ticketLayout.js.
 
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Copy, Pencil, Plus, Receipt, ChefHat } from 'lucide-react'
+import { Copy, Pencil, Plus, Receipt, ChefHat, ScrollText, ReceiptText } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { PRINT_USES, kindOfUse } from '@shared/pos/ticketLayout.js'
-import { Section, Field, Btn, ErrorNote, ConfirmDelete, usePosVenue } from './shared'
+import { Section, Field, Btn, ErrorNote, ConfirmDelete, PageLink, usePosVenue } from './shared'
 
 const KIND_NAMES = { kitchen: 'Kitchen ticket', receipt: 'Receipt' }
 const selectCls = 'h-11 w-full rounded-lg border bg-background px-3 text-sm touch-manipulation focus:outline-none focus:ring-2 focus:ring-primary/40'
@@ -24,10 +28,10 @@ export function usePrintDesigns(venueId) {
   })
 }
 
+// Store tech > Printing: what prints where.
 export default function PrintingSection({ venueId, canManage = true }) {
   const api = useApi()
   const qc = useQueryClient()
-  const navigate = useNavigate()
   const { venues } = usePosVenue()
   const venueName = venues.find(v => v.id === venueId)?.name || 'This venue'
   const { data, error } = usePrintDesigns(venueId)
@@ -39,26 +43,11 @@ export default function PrintingSection({ venueId, canManage = true }) {
     onSuccess: () => { setErr(null); refresh() },
     onError: e => setErr(e),
   })
-  const create = useMutation({
-    mutationFn: body => api.post('/pos/print-designs', body),
-    onSuccess: d => { refresh(); navigate('/pos/printing/designs/' + d.id) },
-    onError: e => setErr(e),
-  })
-  const remove = useMutation({
-    mutationFn: id => api.delete('/pos/print-designs/' + id),
-    onSuccess: () => { setErr(null); refresh() },
-    onError: e => setErr(e),
-  })
 
   if (!data) return <ErrorNote error={error} />
   const designs = data.designs || []
   const ofKind = kind => designs.filter(d => d.kind === kind)
   const nameOf = id => designs.find(d => d.id === id)?.name
-  const where = d => {
-    const list = data.used_at?.[d.id] || []
-    if (!list.length) return 'Not used anywhere yet'
-    return list.map(u => (PRINT_USES.find(x => x.key === u.use)?.label || u.use) + ' (' + (u.venue_id ? venues.find(v => v.id === u.venue_id)?.name || 'a venue' : 'company') + ')').join(', ')
-  }
   // What a use prints at the company level, in words.
   const companyText = use => {
     const id = data.uses.company?.[use]
@@ -99,7 +88,49 @@ export default function PrintingSection({ venueId, canManage = true }) {
         </div>
         <ErrorNote error={err} />
       </Section>
+      <PageLink to="/pos/print-designs" icon={ScrollText} title="Receipt & ticket designer" label="Open the designer" testId="print-designer-link">
+        Make and change the designs picked above: what a kitchen ticket or a receipt shows, in which order and in which words.{' '}
+        {designs.length
+          ? designs.length + (designs.length === 1 ? ' design' : ' designs') + ' so far.'
+          : 'No designs yet: tickets print in the built-in layout.'}
+      </PageLink>
+    </div>
+  )
+}
 
+// Store tech > Receipt & ticket designer (/pos/print-designs): the company's
+// designs for kitchen tickets and receipts.
+export function PrintDesignsSection({ venueId, canManage = true }) {
+  const api = useApi()
+  const qc = useQueryClient()
+  const navigate = useNavigate()
+  const { venues } = usePosVenue()
+  const { data, error } = usePrintDesigns(venueId)
+  const [err, setErr] = useState(null)
+  const refresh = () => qc.invalidateQueries({ queryKey: ['print-designs'] })
+
+  const create = useMutation({
+    mutationFn: body => api.post('/pos/print-designs', body),
+    onSuccess: d => { refresh(); navigate('/pos/print-designs/' + d.id) },
+    onError: e => setErr(e),
+  })
+  const remove = useMutation({
+    mutationFn: id => api.delete('/pos/print-designs/' + id),
+    onSuccess: () => { setErr(null); refresh() },
+    onError: e => setErr(e),
+  })
+
+  if (!data) return <ErrorNote error={error} />
+  const designs = data.designs || []
+  const ofKind = kind => designs.filter(d => d.kind === kind)
+  const where = d => {
+    const list = data.used_at?.[d.id] || []
+    if (!list.length) return 'Not used anywhere yet'
+    return list.map(u => (PRINT_USES.find(x => x.key === u.use)?.label || u.use) + ' (' + (u.venue_id ? venues.find(v => v.id === u.venue_id)?.name || 'a venue' : 'company') + ')').join(', ')
+  }
+
+  return (
+    <div className="space-y-4">
       {['kitchen', 'receipt'].map(kind => (
         <Section key={kind} title={kind === 'kitchen' ? 'Kitchen ticket designs' : 'Receipt designs'}
           hint={kind === 'kitchen'
@@ -126,7 +157,7 @@ export default function PrintingSection({ venueId, canManage = true }) {
                   <p className="text-sm font-medium">{d.name}</p>
                   <p className="text-xs text-muted-foreground">{where(d)}</p>
                 </div>
-                <Link to={'/pos/printing/designs/' + d.id} title={(canManage ? 'Edit ' : 'Open ') + d.name}
+                <Link to={'/pos/print-designs/' + d.id} title={(canManage ? 'Edit ' : 'Open ') + d.name}
                   className="inline-flex items-center justify-center gap-2 h-11 px-4 rounded-lg text-sm font-medium border bg-background hover:bg-muted touch-manipulation">
                   <Pencil className="w-4 h-4" /> {canManage ? 'Edit' : 'Open'}
                 </Link>
@@ -146,6 +177,10 @@ export default function PrintingSection({ venueId, canManage = true }) {
           </div>
         </Section>
       ))}
+      <ErrorNote error={err} />
+      <PageLink to="/pos/printing" icon={ReceiptText} title="Printing" label="Open Printing" testId="printing-link">
+        Pick which design each kind of ticket prints with, for the company and for each venue.
+      </PageLink>
     </div>
   )
 }

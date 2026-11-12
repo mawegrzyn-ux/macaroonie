@@ -1,7 +1,7 @@
 // src/main.jsx  (replace existing — adds all pages)
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import { BrowserRouter, Routes, Route, Navigate, useParams } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useParams, useLocation } from 'react-router-dom'
 import { Auth0Provider, useAuth0 } from '@auth0/auth0-react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
@@ -75,6 +75,8 @@ import MenuTimes from '@/pages/MenuTimes'
 import MenuDeliveroo from '@/pages/MenuDeliveroo'
 import MenuTranslations from '@/pages/MenuTranslations'
 import MenuDesigner from '@/pages/MenuDesigner'
+import MenuPrintDesigns from '@/pages/MenuPrintDesigns'
+import ReservationsWidget from '@/pages/ReservationsWidget'
 import Screens from '@/pages/Screens'
 import ScreenDesigner from '@/pages/ScreenDesigner'
 import Team           from '@/pages/Team'
@@ -183,6 +185,14 @@ function LinkRedirect() {
   return <Navigate to={'/install/link/' + encodeURIComponent(code || '')} replace />
 }
 
+// A page that moved (migration 241 gave the designers their own addresses):
+// the old address goes to the new one, keeping its id and its ?query.
+function Moved({ to }) {
+  const params = useParams()
+  const { search } = useLocation()
+  return <Navigate to={to(params) + search} replace />
+}
+
 const Placeholder = ({ title }) => (
   <div className="flex items-center justify-center h-full">
     <p className="text-muted-foreground text-sm">{title} — coming soon</p>
@@ -241,8 +251,10 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 <Route path="pos/floor" element={<PosFloor />} />
                 <Route path="pos/reports" element={<PosReports />} />
                 <Route path="pos/kiosk-analytics" element={<KioskAnalytics />} />
-                <Route path="pos/kiosks/designs/:id" element={<KioskDesigner />} />
-                <Route path="pos/printing/designs/:id" element={<PrintDesigner />} />
+                <Route path="pos/kiosk-designs/:id" element={<KioskDesigner />} />
+                <Route path="pos/print-designs/:id" element={<PrintDesigner />} />
+                <Route path="pos/kiosks/designs/:id" element={<Moved to={p => '/pos/kiosk-designs/' + p.id} />} />
+                <Route path="pos/printing/designs/:id" element={<Moved to={p => '/pos/print-designs/' + p.id} />} />
                 <Route path="pos/layouts/:id" element={<TillLayoutDesigner />} />
                 <Route path="pos/flows/:id" element={<OrderFlowDesigner />} />
                 <Route path="promotions" element={<Promotions />} />
@@ -252,9 +264,15 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 <Route path="tables"   element={<Tables />} />
                 <Route path="schedule" element={<Schedule />} />
                 <Route path="rules"       element={<Rules />} />
-                <Route path="website"     element={<Website />} />
+                {/* One component, two pages: the keys keep one page's open section out of the other */}
+                <Route path="website"     element={<Website key="settings" />} />
+                <Route path="website/builder" element={<Website key="builder" builder />} />
                 <Route path="brand"       element={<Brand />} />
-                <Route path="reservations-widget" element={<Navigate to="/website?section=tenant-widget" replace />} />
+                <Route path="website/reservations-widget" element={<ReservationsWidget />} />
+                {/* The old address. nginx sends everything under /reservations to
+                    the API (the guests' widget), so this only ever worked for
+                    links inside the app; the page lives under /website. */}
+                <Route path="reservations-widget" element={<Navigate to="/website/reservations-widget" replace />} />
                 <Route path="cash-recon" element={<CashRecon />} />
                 <Route path="food-safety" element={<FoodSafety />} />
                 <Route path="checklists" element={<Checklists />} />
@@ -278,8 +296,13 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 <Route path="menus/times"           element={<MenuTimes />} />
                 <Route path="menus/deliveroo"       element={<MenuDeliveroo />} />
                 <Route path="menus/translations"    element={<MenuTranslations />} />
-                <Route path="menus/:id/design"      element={<MenuDesigner />} />
-                <Route path="screens"               element={<Screens />} />
+                <Route path="menus/print-designs"     element={<MenuPrintDesigns />} />
+                <Route path="menus/print-designs/:id" element={<MenuDesigner />} />
+                <Route path="menus/:id/design"      element={<Moved to={p => '/menus/print-designs/' + p.id} />} />
+                <Route path="screens"               element={<Screens page="screens" />} />
+                <Route path="screens/boards"        element={<Screens page="boards" />} />
+                <Route path="screens/playlists"     element={<Screens page="playlists" />} />
+                <Route path="screens/walls"         element={<Screens page="walls" />} />
                 <Route path="screens/boards/:id"    element={<ScreenDesigner />} />
                 <Route path="widget-test" element={<WidgetTest />} />
                 <Route path="test-data"   element={<TestData />} />

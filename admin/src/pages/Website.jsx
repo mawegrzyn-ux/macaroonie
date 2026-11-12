@@ -10,7 +10,7 @@
 // for a subdomain slug then POSTs to create the row.
 
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { useSearchParams, Link } from 'react-router-dom'
+import { useSearchParams, useNavigate, Link, Navigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Globe, Palette, LayoutTemplate, Image as ImageIcon, FileText, BookOpen,
@@ -18,7 +18,7 @@ import {
   Search, BarChart3, Eye, EyeOff, Check, X, Upload, Trash2, GripVertical,
   Plus, ExternalLink, Loader2, HelpCircle, Copy, Shield, Megaphone,
   PanelTop, PanelBottom, Rocket, CalendarClock, RotateCcw, TriangleAlert,
-  Lock, Unlock,
+  Lock, Unlock, Blocks, CalendarCheck, ArrowRight,
 } from 'lucide-react'
 import {
   DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors,
@@ -36,7 +36,6 @@ import { FileDropArea } from '@/components/FileDropArea'
 import { RichTextEditor } from '@/components/RichTextEditor'
 import { PageBuilder } from '@/components/website-builder/PageBuilder'
 import { FontPicker } from '@/components/website-builder/FontPicker'
-import ReservationsWidget from '@/pages/ReservationsWidget'
 import { BrandLayoutSection } from '@/components/website-builder/BrandLayoutSection'
 import { BrandHeaderSection } from '@/components/website-builder/BrandHeaderSection'
 import { BrandFooterSection } from '@/components/website-builder/BrandFooterSection'
@@ -50,18 +49,29 @@ import { ThemeMakerButton, useFontLink } from '@/components/themes/ThemeMaker'
 // Grouped by operator job, not by table. TENANT_NAV = site chrome.
 // VENUE_NAV = /locations/{slug}. One-venue tenants get SINGLE_VENUE_NAV:
 // one list, no Tenant vs Location split, locations index hidden.
+//
+// Since migration 241 this file is two pages, each with its own main menu
+// entry: Website (/website: the settings below) and Page builder
+// (/website/builder: the pages built from blocks, BUILD_* below). A section
+// asked for on the wrong page (?section=) is sent to the right one. The
+// Reservations widget is its own page too (/website/reservations-widget).
 
 const withMode = (items, mode) => items.map(i => ({ ...i, mode }))
 
-const PAGES_TENANT = [
+// The Page builder's sections.
+const BUILD_TENANT = [
   { key: 'tenant-page',   label: 'Home',           icon: LayoutTemplate },
   { key: 'tenant-pages',  label: 'Pages & modals', icon: FileText },
-  { key: 'tenant-header', label: 'Header',         icon: PanelTop },
-  { key: 'tenant-footer', label: 'Footer',         icon: PanelBottom },
 ]
-const PAGES_VENUE = [
+const BUILD_VENUE = [
   { key: 'page',     label: 'Location page',  icon: LayoutTemplate },
   { key: 'pages',    label: 'Pages & modals', icon: FileText },
+]
+const BUILDER_SECTIONS = new Set([...BUILD_TENANT, ...BUILD_VENUE].map(i => i.key))
+
+const CHROME_ITEMS = [
+  { key: 'tenant-header', label: 'Header',         icon: PanelTop },
+  { key: 'tenant-footer', label: 'Footer',         icon: PanelBottom },
 ]
 const RESTAURANT_ITEMS = [
   { key: 'hours',     label: 'Opening hours', icon: Clock },
@@ -76,9 +86,6 @@ const GUEST_ITEMS = [
   { key: 'ordering', label: 'Online ordering', icon: ShoppingBag },
   { key: 'delivery', label: 'Delivery',        icon: Truck },
 ]
-const WIDGET_ITEMS = [
-  { key: 'tenant-widget', label: 'Reservations widget', icon: LayoutTemplate },
-]
 const SITE_ITEMS = [
   { key: 'tenant-brand',     label: 'Look & layout',     icon: Palette },
   { key: 'tenant-domain',    label: 'Domain',            icon: Globe },
@@ -91,32 +98,33 @@ const LOCATIONS_ITEMS = [
   { key: 'tenant-locations', label: 'Locations index', icon: MapPin },
 ]
 
+// Website (the settings).
 const TENANT_NAV = [
-  { label: 'Pages',        items: PAGES_TENANT },
-  { label: 'Locations',    items: LOCATIONS_ITEMS },
-  { label: 'Book & order', items: WIDGET_ITEMS },
-  { label: 'Site',         items: SITE_ITEMS },
+  { label: 'Header & footer', items: CHROME_ITEMS },
+  { label: 'Locations',       items: LOCATIONS_ITEMS },
+  { label: 'Site',            items: SITE_ITEMS },
 ]
 
 const VENUE_NAV = [
-  { label: 'Pages',        items: PAGES_VENUE },
   { label: 'Restaurant',   items: RESTAURANT_ITEMS },
   { label: 'Book & order', items: GUEST_ITEMS },
 ]
 
 const SINGLE_VENUE_NAV = [
-  { label: 'Pages', items: withMode(PAGES_TENANT, 'tenant') },
+  { label: 'Header & footer', items: withMode(CHROME_ITEMS, 'tenant') },
   // No separate "Location page"/"Identity" for single-venue tenants — the
-  // Home page above already gets this venue's data merged in, the
+  // Home page (Page builder) already gets this venue's data merged in, the
   // Restaurant-group blocks below can be dropped straight onto it, and
   // Brand & theme (Site group) is the only identity/theme editor needed.
   { label: 'Restaurant',   items: withMode(RESTAURANT_ITEMS, 'venue') },
-  { label: 'Book & order', items: [
-    ...withMode(WIDGET_ITEMS, 'tenant'),
-    ...withMode(GUEST_ITEMS, 'venue'),
-  ]},
+  { label: 'Book & order', items: withMode(GUEST_ITEMS, 'venue') },
   { label: 'Site',         items: withMode(SITE_ITEMS, 'tenant') },
 ]
+
+// Page builder.
+const BUILD_TENANT_NAV = [{ label: 'Pages', items: BUILD_TENANT }]
+const BUILD_VENUE_NAV  = [{ label: 'Pages', items: BUILD_VENUE }]
+const BUILD_SINGLE_NAV = [{ label: 'Pages', items: withMode(BUILD_TENANT, 'tenant') }]
 
 function flattenNav(groups) {
   return groups.flatMap(g => g.items)
@@ -150,6 +158,20 @@ function NavGroups({ groups, active, onSelect }) {
         </div>
       ))}
     </nav>
+  )
+}
+
+// A link in the rail to one of the website's other pages (Page builder,
+// Website, Reservations widget). A Link, so it works for View users too.
+function RailLink({ to, icon: Icon, children, testId }) {
+  return (
+    <Link to={to} data-testid={testId}
+      className="w-full flex items-center gap-2.5 px-3 min-h-[44px] rounded-md text-sm text-muted-foreground hover:bg-accent hover:text-foreground touch-manipulation">
+      <Icon className="w-4 h-4 shrink-0" />
+      {/* Wraps onto a second line in the narrow rail rather than cut the page's name short */}
+      <span className="flex-1 min-w-0 leading-tight py-1">{children}</span>
+      <ArrowRight className="w-3.5 h-3.5 shrink-0" />
+    </Link>
   )
 }
 
@@ -4146,29 +4168,45 @@ function BrandBannerSection() {
 
 // ── Page shell + section router ─────────────────────────────
 
-export default function Website() {
+// `builder`: the Page builder page (/website/builder) instead of the Website
+// page (/website). main.jsx gives the two different keys, so nothing one
+// page had open carries over to the other.
+export default function Website({ builder = false }) {
   const api = useApi()
   const qc  = useQueryClient()
+  const navigate = useNavigate()
   // Website CMS = View: every section can be opened and read, but its
   // controls are disabled and Publish is hidden.
   const { canManage } = usePermission('website')
   const [searchParams, setSearchParams] = useSearchParams()
   const sectionParam = searchParams.get('section')
+  // A section in the address that lives on another page: the page builder's
+  // are on /website/builder, the rest on /website, the widget on its own page.
+  const elsewhere = !sectionParam ? null
+    : sectionParam === 'tenant-widget' ? '/website/reservations-widget'
+    : BUILDER_SECTIONS.has(sectionParam) !== builder
+      ? `${builder ? '/website' : '/website/builder'}?${searchParams.toString()}`
+      : null
+  const firstTenant = builder ? 'tenant-page' : 'tenant-header'
+  const firstVenue  = builder ? 'page' : 'hours'
   // 'tenant' edits the tenant_site row; 'venue' edits a venue's website_config.
   const [mode, setMode] = useState(() =>
     sectionParam && !String(sectionParam).startsWith('tenant-') ? 'venue' : 'tenant')
-  const [active, setActive] = useState(() => sectionParam || 'tenant-page')
+  const [active, setActive] = useState(() => sectionParam || firstTenant)
   const [publishOpen, setPublishOpen] = useState(false)
-  const [venueId, setVenueId] = useState(null)
+  const [venueId, setVenueId] = useState(() => searchParams.get('venue') || null)
 
   useEffect(() => {
-    if (!sectionParam) return
+    if (!sectionParam || elsewhere) return
     setActive(sectionParam)
     setMode(String(sectionParam).startsWith('tenant-') ? 'tenant' : 'venue')
+    const venue = searchParams.get('venue')
+    if (venue) setVenueId(venue)
     const next = new URLSearchParams(searchParams)
     next.delete('section')
+    next.delete('venue')
     setSearchParams(next, { replace: true })
-  }, [sectionParam, searchParams, setSearchParams])
+  }, [sectionParam, elsewhere, searchParams, setSearchParams])
 
   const { data: venues = [] } = useQuery({
     queryKey: ['venues'],
@@ -4199,9 +4237,10 @@ export default function Website() {
   })
   const tenantName = me?.tenant?.name || ''
 
+  // The first venue, also when the address named one that isn't this group's.
   useEffect(() => {
-    if (venueId) return
-    if (venues.length) setVenueId(venues[0].id)
+    if (!venues.length) return
+    if (!venueId || !venues.some(v => v.id === venueId)) setVenueId(venues[0].id)
   }, [venues, venueId])
 
   const { data: config, isLoading } = useQuery({
@@ -4211,6 +4250,8 @@ export default function Website() {
   })
 
   const hasConfig = !!config?.id
+
+  if (elsewhere) return <Navigate to={elsewhere} replace />
 
   if (!venues.length) {
     return (
@@ -4222,8 +4263,12 @@ export default function Website() {
 
   const currentVenue = venues.find(v => v.id === venueId)
   const soleVenue    = venues.length === 1
-  const navGroups    = soleVenue ? SINGLE_VENUE_NAV : (mode === 'tenant' ? TENANT_NAV : VENUE_NAV)
-  const navItems     = flattenNav(soleVenue ? SINGLE_VENUE_NAV : [...TENANT_NAV, ...VENUE_NAV])
+  const navGroups    = builder
+    ? (soleVenue ? BUILD_SINGLE_NAV : (mode === 'tenant' ? BUILD_TENANT_NAV : BUILD_VENUE_NAV))
+    : (soleVenue ? SINGLE_VENUE_NAV : (mode === 'tenant' ? TENANT_NAV : VENUE_NAV))
+  const navItems     = flattenNav(builder
+    ? (soleVenue ? BUILD_SINGLE_NAV : [...BUILD_TENANT_NAV, ...BUILD_VENUE_NAV])
+    : (soleVenue ? SINGLE_VENUE_NAV : [...TENANT_NAV, ...VENUE_NAV]))
   const sectionLabel = navItems.find(s => s.key === active)?.label
 
   function selectNav(item) {
@@ -4233,7 +4278,16 @@ export default function Website() {
     setActive(item.key)
   }
 
-  function jumpTo(key) {
+  // To a section by its key: here, or on the page that has it (the header
+  // and opening hours from the page builder, the widget's own page).
+  function jumpTo(key, venue = null) {
+    if (key === 'tenant-widget') { navigate('/website/reservations-widget'); return }
+    if (BUILDER_SECTIONS.has(key) !== builder) {
+      const q = new URLSearchParams({ section: key })
+      if (venue) q.set('venue', venue)
+      navigate(`${builder ? '/website' : '/website/builder'}?${q}`)
+      return
+    }
     const item = navItems.find(s => s.key === key)
     if (item) { selectNav(item); return }
     if (String(key).startsWith('tenant-')) { setMode('tenant'); setActive(key); return }
@@ -4244,12 +4298,21 @@ export default function Website() {
   const liveHost = tenantSite?.subdomain_slug ? `${tenantSite.subdomain_slug}.macaroonie.com` : null
 
   return (
-    <div className="flex h-full overflow-hidden">
+    <div className="flex h-full overflow-hidden" data-testid={builder ? 'page-builder' : 'website-settings'}>
       <aside className="w-56 shrink-0 border-r overflow-y-auto py-4 px-2">
         {canManage && tenantSite?.id && <PublishButton tenantSite={tenantSite} onClick={() => setPublishOpen(true)} />}
+        <div className="px-1 mb-3 pb-3 border-b space-y-0.5" data-testid="website-pages">
+          <p className="px-3 mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            {builder ? 'Page builder' : 'Website'}
+          </p>
+          {builder
+            ? <RailLink to="/website" icon={Globe} testId="website-settings-link">Website settings</RailLink>
+            : <RailLink to="/website/builder" icon={Blocks} testId="page-builder-link">Page builder</RailLink>}
+          <RailLink to="/website/reservations-widget" icon={CalendarCheck} testId="reservations-widget-link">Reservations widget</RailLink>
+        </div>
         {!soleVenue && (
           <div className="px-2 mb-3 space-y-1">
-            <button type="button" onClick={() => { setMode('tenant'); setActive('tenant-page') }}
+            <button type="button" onClick={() => { setMode('tenant'); setActive(firstTenant) }}
               className={cn('w-full text-left px-3 py-2 rounded-md text-xs font-semibold uppercase tracking-wide',
                 mode === 'tenant' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent')}>
               Site
@@ -4260,7 +4323,7 @@ export default function Website() {
               </p>
               <select
                 value={venueId ?? ''}
-                onChange={e => { setVenueId(e.target.value); setMode('venue'); setActive('page') }}
+                onChange={e => { setVenueId(e.target.value); setMode('venue'); setActive(firstVenue) }}
                 className="w-full border rounded-md px-2 py-1.5 text-sm bg-background min-h-[36px]">
                 {venues.map(v => {
                   const hasPage = allConfigs.some(c => c.venue_id === v.id && c.config_id)
@@ -4336,10 +4399,10 @@ export default function Website() {
                 qc.invalidateQueries({ queryKey: ['website-configs'] })
                 qc.invalidateQueries({ queryKey: ['website-config', venueId] })
                 // Single-venue tenants have no Location page to land on —
-                // send them to Home instead, where this venue's data
-                // already renders.
-                setMode(soleVenue ? 'tenant' : 'venue')
-                setActive(soleVenue ? 'tenant-page' : 'page')
+                // in the page builder they go to Home instead, where this
+                // venue's data already renders.
+                setMode(builder && soleVenue ? 'tenant' : 'venue')
+                setActive(builder && soleVenue ? 'tenant-page' : firstVenue)
               }} />
           ) : isLoading ? (
             <div className="flex items-center justify-center py-12">
@@ -4348,7 +4411,7 @@ export default function Website() {
           ) : (
             <VenueActiveSection active={active} config={config} venueId={venueId}
               tenantSite={tenantSite} pages={tenantPages} venues={venues}
-              tenantName={tenantName} setMode={setMode} setActive={setActive} />
+              tenantName={tenantName} onJumpTo={jumpTo} />
           )}
           </ReadOnlyFieldset>
         </div>
@@ -4372,7 +4435,7 @@ function TenantActiveSection({ active, tenantSite, pages, venues, allConfigs, te
           pages={pages}
           venues={venues}
           tenantName={tenantName}
-          onJumpTo={onJumpTo}
+          onJumpTo={(key) => onJumpTo(key, venueId)}
         />
       )
     case 'hours':
@@ -4387,17 +4450,13 @@ function TenantActiveSection({ active, tenantSite, pages, venues, allConfigs, te
     case 'tenant-seo':       return <TenantSeoSection       tenantSite={tenantSite} />
     case 'tenant-analytics': return <BrandAnalyticsSection />
     case 'tenant-banner':    return <BrandBannerSection />
-    case 'tenant-widget':    return <ReservationsWidget embedded />
     default: return null
   }
 }
 
-function VenueActiveSection({ active, config, venueId, tenantSite, pages, venues, tenantName, setMode, setActive }) {
+function VenueActiveSection({ active, config, venueId, tenantSite, pages, venues, tenantName, onJumpTo }) {
   const saveEndpoint = `/website/config?venue_id=${venueId}`
   const invalidateKey = ['website-config', venueId]
-  // From the venue page builder, "edit header / footer" jumps back to the
-  // Tenant site mode (where those settings live) — chrome is shared.
-  const jumpToTenant = (key) => { setMode('tenant'); setActive(key) }
   switch (active) {
     case 'page':
       return (
@@ -4410,7 +4469,9 @@ function VenueActiveSection({ active, config, venueId, tenantSite, pages, venues
           pages={pages}
           venues={venues}
           tenantName={tenantName}
-          onJumpTo={(key) => key === 'hours' ? setActive('hours') : jumpToTenant(key)}
+          // "Edit header / footer" and "Edit opening hours" are on the Website
+          // page: the chrome is shared, the hours this location's.
+          onJumpTo={(key) => onJumpTo(key, venueId)}
         />
       )
     case 'gallery':   return <GallerySection   config={config} />
