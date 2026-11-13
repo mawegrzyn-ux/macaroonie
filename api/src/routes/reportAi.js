@@ -4,12 +4,13 @@
 // a photo or PDF of a report the person has now. Under /api/ai so the longer
 // proxy timeout for Pepper applies (scripts/ensure-nginx-ai-timeout.sh).
 //
-//   POST /build  { request, previous?: { spec, requests }, files?: [{ name?, data }] }
+//   POST /build  { request, previous?: { spec, requests, name? }, files?: [{ name?, data }] }
 //                -> { spec, name, about, assumed, couldnt, questions, result, problem }
 //                Pepper works the report out and it is run as the person (the
 //                first 200 rows); nothing is saved. `previous` is a report
 //                built before that the request changes ("only Fridays"),
-//                with the requests that made it.     Reports Use + Pepper
+//                with the requests that made it and its name (kept unless
+//                the change makes it wrong).          Reports Use + Pepper
 //
 // The answer's definition is the person's to keep: Save goes through
 // POST /api/reports, a question's choice through POST /api/reports/preview,
@@ -26,7 +27,7 @@ import { detectFile } from '../ai/attachments.js'
 import { pepperOn } from '../services/aiJson.js'
 import { reportPerson, refuseOtherVenues } from '../reports/access.js'
 import { smartBuild } from '../reports/smart.js'
-import { normaliseReport } from '../../../shared/reports/spec.js'
+import { normaliseReport, LIMITS } from '../../../shared/reports/spec.js'
 import { todayIn } from '../../../shared/reports/period.js'
 
 const MAX_FILES = 10
@@ -40,6 +41,7 @@ const BuildBody = z.object({
   previous: z.object({
     spec: z.record(z.any()),
     requests: z.array(z.string().max(2000)).max(10).default([]),
+    name: z.string().trim().max(LIMITS.name).optional(),
   }).nullable().optional(),
   files: z.array(z.object({
     name: z.string().max(200).optional(),
@@ -84,7 +86,7 @@ export default async function reportAiRoutes(app) {
     if (body.previous) {
       const spec = normaliseReport(body.previous.spec)
       await refuseOtherVenues(p, spec)
-      previous = { spec, requests: body.previous.requests }
+      previous = { spec, requests: body.previous.requests, name: body.previous.name || '' }
     }
 
     // Every venue of the group, the open ones first: a report can be about a

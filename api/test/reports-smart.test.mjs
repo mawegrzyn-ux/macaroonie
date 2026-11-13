@@ -263,12 +263,13 @@ test('a subject listed in a line only is shown in full on the second ask', async
   assert.deepEqual(out.spec.values.map(v => v.agg), ['count'])
 })
 
-test('a change starts from the report as it is, with the requests that made it', async () => {
+test('a change starts from the report as it is, with the requests that made it and its name', async () => {
   claude.script.push(body => {
     const checks = shown(body).get('Checks')
-    return reply({ subject: checks.ref, rows: [row(checks.things.get('Server'))], values: [value('v1', checks.figures.get('Net sales'))], period: { relative: 'today', n: 0, from: '', to: '' } })()
+    return reply({ subject: checks.ref, name: 'Sales by server today', rows: [row(checks.things.get('Server'))], values: [value('v1', checks.figures.get('Net sales'))], period: { relative: 'today', n: 0, from: '', to: '' } })()
   })
   const built = await ok(owner.post(BUILD, { request: 'net sales by server today' }))
+  assert.equal(built.name, 'Sales by server today')
 
   let current
   claude.script.push(body => {
@@ -277,7 +278,7 @@ test('a change starts from the report as it is, with the requests that made it',
     const checks = shown(body).get('Checks')
     return reply({ ...current, values: [...current.values, value('v2', checks.figures.get('Guests'))], compare: 'previous_period' })()
   })
-  const out = await ok(owner.post(BUILD, { request: 'add guests and compare with the day before', previous: { spec: built.spec, requests: ['net sales by server today'] } }))
+  const out = await ok(owner.post(BUILD, { request: 'add guests and compare with the day before', previous: { spec: built.spec, requests: ['net sales by server today'], name: built.name } }))
   const text = userText(lastBody())
   assert.match(text, /Earlier they asked:\n- net sales by server today/)
   assert.match(text, /Change it like this: add guests and compare with the day before$/)
@@ -285,6 +286,8 @@ test('a change starts from the report as it is, with the requests that made it',
   assert.equal(current.subject, checks.ref, 'the report in refs')
   assert.deepEqual(current.values.map(v => [v.name, v.ref]), [['v1', checks.figures.get('Net sales')]])
   assert.deepEqual(current.period, { relative: 'today', n: 0, from: '', to: '' })
+  assert.equal(current.name, 'Sales by server today', 'Pepper sees the name it gave, so it can keep it')
+  assert.equal(out.name, 'Sales by server today', 'and the changed report keeps it')
   assert.deepEqual(out.spec.values.map(v => v.measure), ['net_sales', 'guests'])
   assert.deepEqual(out.spec.compare, { with: 'previous_period' })
   assert.match(out.about, /compared with the period before/)

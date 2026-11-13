@@ -29,7 +29,9 @@
 //
 //   smartBuild(person, { request, previous, files, venues, today })
 //     person    reportPerson(req)
-//     previous  { spec, requests }: a report built before, to change
+//     previous  { spec, requests, name }: a report built before, to change
+//               (its name goes with it, so Pepper keeps it unless the change
+//               makes it wrong)
 //     files     checked files [{ media_type, data }]
 //     venues    the group's venues [{ id, name }]
 //     today     YYYY-MM-DD at the venues
@@ -339,7 +341,7 @@ How to answer:
 
 The request may come with a photo or PDF of a report the person has now: build the same report from what is listed (its figures, its groupings, its period if one shows) and say in couldnt what can't be made.
 
-When you are given the report as it is now, change it as the new request asks and keep the rest as it is.
+When you are given the report as it is now, change it as the new request asks and keep the rest as it is, its name too unless the change makes the name wrong.
 
 Write in plain British English. No emojis, no markdown.`
 
@@ -792,7 +794,7 @@ function wordsOf(def, type, bucket, op, v) {
  * the report as it is now, when it is to be changed. Parts the slice has no
  * ref for are left out (the model is told the report as it can change it).
  */
-export function answerOf(catalogue, slice, spec, venues = []) {
+export function answerOf(catalogue, slice, spec, venues = [], name = '') {
   const k = spec.subject
   const fref = path => slice.fRefOf.get(k + '|' + path) || ''
   // A thing's name is listed as the thing.
@@ -814,7 +816,7 @@ export function answerOf(catalogue, slice, spec, venues = []) {
     values, filters: [], period: { relative: '', n: 0, from: '', to: '' }, venues: [],
     sort: [], limit: { which: 'none', n: 0, by: '', rest: '' }, compare: spec.compare?.with || 'none',
     chart: { kind: spec.view?.kind || 'table', x: '', y: [], line: '', stacked: !!spec.view?.stacked, sideways: !!spec.view?.sideways },
-    name: '', assumed: [], couldnt: [], questions: [],
+    name: clip(name, 60), assumed: [], couldnt: [], questions: [],
   }
   for (const f of spec.filters) {
     if (f.any || f.all || f.has || f.counted) continue
@@ -905,7 +907,7 @@ export async function smartBuild(p, { request, previous = null, files = [], venu
   const prev = previous?.spec ? normaliseReport(previous.spec) : null
   const pinned = prev && catalogue.subjects[prev.subject]?.base ? prev.subject : null
   let slice = buildSlice(catalogue, request + ' ' + list(previous?.requests).join(' '), pinned)
-  let current = prev && pinned ? answerOf(catalogue, slice, prev, venues) : null
+  let current = prev && pinned ? answerOf(catalogue, slice, prev, venues, previous?.name) : null
   let feedback = null
   const base = { request, venues, today, previous, files }
 
@@ -931,7 +933,7 @@ export async function smartBuild(p, { request, previous = null, files = [], venu
     // A subject listed in a line only: ask again with it in full.
     if (!slice.detailed.includes(subjectKey) && call === 1) {
       slice = buildSlice(catalogue, request, subjectKey)
-      current = prev && prev.subject === subjectKey ? answerOf(catalogue, slice, prev, venues) : current && null
+      current = prev && prev.subject === subjectKey ? answerOf(catalogue, slice, prev, venues, previous?.name) : current && null
       feedback = 'Build it from ' + slice.sRefOf.get(subjectKey) + ' (' + catalogue.subjects[subjectKey].label + '), now listed in full.'
       continue
     }
