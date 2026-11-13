@@ -358,3 +358,83 @@ test('refusals: roles, Pepper switched off, a refusal by Claude, another group\'
   assert.ok(/Yyc Ware/.test(venuesLine) && !/Zqx/.test(venuesLine), 'the group\'s own venues only: ' + venuesLine)
   assert.ok(b.couldnt.includes('There\'s no venue called "Zqx Ware"'))
 })
+
+// The list of real requests (scripts/report-requests.js) is run against the
+// live model by hand; here only that it names what the catalogue has, and
+// that its checks pass a right answer and say what a wrong one misses.
+test('the list of real requests names only what the catalogue has, and its checks catch what is wrong', async () => {
+  const { CATALOGUE } = await import('../src/reports/catalogue/index.js')
+  const { REQUESTS, listProblems, checkAnswer, fill, fillsOf } = await import('../scripts/report-requests.js')
+  assert.ok(REQUESTS.length >= 60, 'about 60 requests: ' + REQUESTS.length)
+  assert.deepEqual(listProblems(CATALOGUE), [])
+  assert.match(listProblems(CATALOGUE, [{ request: 'x', expect: { subject: 'till.checks', values: ['no_such'], rows: ['nowhere:fortnight'] } }]).join('\n'),
+    /no figure or field no_such[\s\S]*no field or link nowhere[\s\S]*no bucket fortnight/)
+  assert.match(listProblems(CATALOGUE, [{ request: 'at {venue2}', expect: { subject: 'stock' } }]).join('\n'), /names \{venue2\} without needs[\s\S]*no subject stock/)
+
+  const names = { venue: 'Ware', venue2: 'Hertford', dish: 'Pad Thai' }
+  const venueIds = { Ware: 'id-ware', Hertford: 'id-hertford' }
+  assert.deepEqual(fillsOf('{venue} and {venue2}'), ['venue', 'venue2'])
+  assert.equal(fill('{dish} at {venue2}, {server}', names), 'Pad Thai at Hertford, {server}', 'a name the group hasn\'t got stays as it is')
+
+  const find = text => REQUESTS.find(r => r.request === text)
+  const spec = (s = {}) => ({
+    subject: 'till.checks', kind: 'summary', rows: [{ field: 'date', bucket: 'day' }], columns: [],
+    values: [{ key: 'v1', measure: 'net_sales' }],
+    params: [{ key: 'period', type: 'period', default: { relative: 'last_week' } }, { key: 'venues', type: 'venues', default: 'all' }],
+    filters: [{ field: 'date', op: 'in_period', param: 'period' }, { field: 'venue', op: 'in', param: 'venues' }],
+    ...s,
+  })
+  const check = (text, out) => checkAnswer(find(text).expect, out, { names, venueIds })
+  const byDay = 'Net sales by day last week'
+
+  assert.deepEqual(check(byDay, { spec: spec() }), [])
+  assert.deepEqual(check(byDay, { spec: spec({ rows: [{ field: 'date', bucket: '' }] }) }), [], 'a date with no bucket is by day')
+  const wrong = check(byDay, { spec: spec({ subject: 'bookings.bookings', values: [{ key: 'v1', measure: 'bookings' }], rows: [{ field: 'date', bucket: 'week' }],
+    params: [{ key: 'period', type: 'period', default: { relative: 'this_week' } }] }) })
+  assert.deepEqual(wrong.map(m => m.split(/[ ,]/)[0]), ['About', 'No', 'Not', 'Period'], wrong.join(' | '))
+  assert.match(check(byDay, { spec: null, couldnt: ['No till sales'] }).join(), /No report \(No till sales\)/)
+  assert.match(check(byDay, { spec: spec(), problem: 'It took too long' }).join(), /didn't run: It took too long/)
+  const change = checkAnswer(find(byDay).then.expect, { spec: spec({ rows: [{ field: 'date', bucket: 'day' }, { field: 'venue.name' }] }) }, { names, venueIds })
+  assert.deepEqual(change, [], 'a path matches anything under it (venue matches venue.name)')
+
+  // Alternatives: any one figure or grouping of a list will do.
+  const byHour = 'Sales by hour of the day yesterday'
+  const hourSpec = v => spec({ values: [{ key: 'v1', ...v }], rows: [{ field: 'closed_at', bucket: 'hour' }], params: [{ key: 'period', type: 'period', default: { relative: 'yesterday' } }] })
+  assert.deepEqual(check(byHour, { spec: hourSpec({ measure: 'gross_sales' }) }), [])
+  assert.match(check(byHour, { spec: hourSpec({ measure: 'checks' }) }).join(), /No figure net_sales or total_sales or gross_sales/)
+  assert.deepEqual(check('Tips by server last month', { spec: spec({ subject: 'till.payments', values: [{ key: 'v1', agg: 'sum', field: 'tip' }],
+    rows: [{ field: 'server' }], params: [{ key: 'period', type: 'period', default: { relative: 'last_month' } }] }) }), [], 'a figure worked out from a field matches the field')
+
+  // Venues: exactly these, by the group's own names.
+  const twenty = 'Net sales by dish for last month at {venue}, top 20'
+  const dishes = (venues, limit = { top: 20 }) => spec({ subject: 'till.lines', rows: [{ field: 'name' }], limit,
+    params: [{ key: 'period', type: 'period', default: { relative: 'last_month' } }, { key: 'venues', type: 'venues', default: venues }] })
+  assert.deepEqual(check(twenty, { spec: dishes(['id-ware']) }), [])
+  assert.match(check(twenty, { spec: dishes('all') }).join(), /Venues "all", not Ware/)
+  assert.match(check(twenty, { spec: dishes(['id-ware', 'id-hertford']) }).join(), /not Ware/)
+  assert.match(check(twenty, { spec: dishes(['id-ware'], { top: 10 }) }).join(), /Not the top 20/)
+
+  // A filter's value, also when it is asked each time (the parameter's default).
+  const dish = 'How much {dish} did we sell each week this quarter'
+  const dishSpec = (f, params = []) => spec({ subject: 'till.lines', values: [{ key: 'v1', measure: 'qty_sold' }], rows: [{ field: 'date', bucket: 'week' }],
+    params: [{ key: 'period', type: 'period', default: { relative: 'this_quarter' } }, ...params], filters: [f] })
+  assert.deepEqual(check(dish, { spec: dishSpec({ field: 'name', op: 'is', value: 'Pad Thai' }) }), [])
+  assert.deepEqual(check(dish, { spec: dishSpec({ field: 'name', op: 'is', param: 'p1' }, [{ key: 'p1', type: 'value', default: 'pad thai' }]) }), [])
+  assert.deepEqual(check(dish, { spec: dishSpec({ any: [{ field: 'item.name', op: 'is', value: 'Pad Thai' }] }) }), [], 'inside any / all too')
+  assert.match(check(dish, { spec: dishSpec({ field: 'name', op: 'is', value: 'Green Curry' }) }).join(), /No filter on name or item for "pad thai"/)
+
+  // What it couldn't do: a line, or a question in its place.
+  const atlantis = 'Net sales last week at Atlantis'
+  assert.deepEqual(check(atlantis, { spec: spec(), couldnt: ['There\'s no venue called "Atlantis"'] }), [])
+  assert.deepEqual(check(atlantis, { spec: spec(), questions: [{ question: 'Which venue?', choices: [] }] }), [])
+  assert.match(check(atlantis, { spec: spec(), couldnt: ['Something else'] }).join(), /couldn't do \(Atlantis\)/)
+
+  // No report at all, or one that says what it couldn't do.
+  const fridge = 'Fridge checks missed by day last month'
+  assert.deepEqual(check(fridge, { spec: null }), [])
+  assert.deepEqual(check(fridge, { spec: spec(), couldnt: ['Food safety isn\'t in the reports'] }), [])
+  assert.match(check(fridge, { spec: spec() }).join(), /Expected no report, or one saying/)
+  assert.deepEqual(checkAnswer({ none: true }, { spec: null }), [])
+  assert.match(checkAnswer({ none: true }, { spec: spec() }).join(), /Expected no report, got one about till.checks/)
+  assert.match(checkAnswer({ question: true }, { spec: spec() }).join(), /Expected a question/)
+})
