@@ -18,7 +18,7 @@
 // them out of the global rate limit (the outer request is counted).
 
 import { sql, systemSql, withTenant } from '../config/db.js'
-import { permissionLevel, INTERNAL_CALL_HEADER, INTERNAL_CALL_SECRET } from '../middleware/auth.js'
+import { permissionLevel, permissionLevels, INTERNAL_CALL_HEADER, INTERNAL_CALL_SECRET } from '../middleware/auth.js'
 import { MODULES, PERMISSION_RANK } from '../config/modules.js'
 
 export const CHANNELS = ['guest_mcp', 'guest_chat', 'staff_mcp', 'staff_chat']
@@ -101,13 +101,21 @@ const MODULE_LABEL = Object.fromEntries(MODULES.map(m => [m.key, m.label]))
  *  same rule as requirePermission(). */
 export async function staffPermissionLevel(ctx, moduleKey) {
   if (!isStaff(ctx)) return 'none'
-  const req = {
-    isPlatformAdmin: !!ctx.principal?.isPlatformAdmin,
-    tenantId: ctx.tenantId,
-    user: { sub: ctx.principal?.sub },
-  }
-  return permissionLevel(req, moduleKey)
+  return permissionLevel(staffReq(ctx), moduleKey)
 }
+
+/** staffPermissionLevel() for several modules at once: { [moduleKey]: level }. */
+export async function staffPermissionLevels(ctx, moduleKeys) {
+  if (!isStaff(ctx)) return Object.fromEntries(moduleKeys.map(k => [k, 'none']))
+  return permissionLevels(staffReq(ctx), moduleKeys)
+}
+
+// The person behind a staff context, in the shape the permission checks take.
+const staffReq = ctx => ({
+  isPlatformAdmin: !!ctx.principal?.isPlatformAdmin,
+  tenantId: ctx.tenantId,
+  user: { sub: ctx.principal?.sub },
+})
 
 export const levelAtLeast = (have, level) => (PERMISSION_RANK[have] ?? 0) >= PERMISSION_RANK[level]
 

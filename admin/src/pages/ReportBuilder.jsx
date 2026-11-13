@@ -35,6 +35,7 @@ import {
 import { normaliseReport, reportProblems, rowId, LIMITS } from '@shared/reports/spec.js'
 import { useApi } from '@/lib/api'
 import { usePermission } from '@/hooks/usePermission'
+import { usePepperPage } from '@/lib/pepperPage'
 import { useVenues, Modal, Field, PageHeader, inputCls } from '@/components/staff/shared'
 import ResultCard from '@/components/reports/ResultCard'
 import { DrillTrail, DrillWindow, drillBody, drillChoices, stepOf } from '@/components/reports/drill'
@@ -186,6 +187,9 @@ function Builder({ catalogue, id, from, initial }) {
 
   const subject = catalogue.subjects[spec.subject]
   const tree = useMemo(() => dataTree(catalogue, spec.subject), [catalogue, spec.subject])
+  // Pepper's "ask about this page": what the report is about, and the saved
+  // report when it is one (the draft on screen isn't sent).
+  usePepperPage({ report: { id: id || undefined, subject: spec.subject }, label: String(name || '').trim() || undefined })
   const list = spec.kind === 'list'
   const problems = useMemo(() => reportProblems(spec), [spec])
 

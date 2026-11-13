@@ -60,12 +60,23 @@ const ChatBody = z.object({
   message:         z.string().trim().max(2000).default(''),
   attachments:     z.array(z.string().uuid()).max(MAX_PER_MESSAGE).default([]),
   // The page the message was sent from (the Ask Pepper drawer): see pageNote().
+  // Context only: a page that doesn't fit is dropped, never a reason to refuse
+  // the message (a starter report's address holds a colon).
   page: z.object({
-    path:     z.string().max(200).regex(/^\/[A-Za-z0-9/_-]*$/),
+    path:     z.string().max(200).regex(/^\/[A-Za-z0-9/_:%.-]*$/),
     venue_id: z.string().uuid().optional(),
     date:     YMD.optional(),
     week:     YMD.optional(),
-  }).optional(),
+    // A report page: the report open (a saved report's id or starter:<key>),
+    // what a new one in the builder is about, the period and venues it shows.
+    report: z.object({
+      id:      z.string().max(80).regex(/^(starter:[a-z0-9_]{1,70}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/).optional(),
+      subject: z.string().max(60).regex(/^[a-z_]+(\.[a-z_]+)?$/).optional(),
+      from:    YMD.optional(),
+      to:      YMD.optional(),
+      venue_ids: z.array(z.string().uuid()).max(50).optional(),
+    }).optional().catch(undefined),
+  }).optional().catch(undefined),
 }).refine(b => b.message || b.attachments.length, { message: 'Type a message or attach a file' })
 
 // Largest single upload (the PDF limit); detectFile() then applies the

@@ -23,8 +23,8 @@
 // With pageAware (the drawer only), each message also says which page the
 // person is on, and the venue and day or week that page shows
 // (usePepperPage(), lib/pepperPage.js), so "who is on here?" needs no venue
-// or date. A chip above the message box shows what goes; tapping it stops
-// sending it for this chat.
+// or date; on a report page, which report and period are open. A chip above
+// the message box shows what goes; tapping it stops sending it for this chat.
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -86,13 +86,32 @@ function usePageContext(enabled) {
   const { data: venues = [] } = useQuery({ queryKey: ['venues'], queryFn: () => api.get('/venues'), enabled: on && !!ctx?.venue_id })
   return useMemo(() => {
     if (!on) return null
-    const page = { path: pathname, ...(ctx || {}) }
+    // `label` is the page's own name for what it shows (a report's name), for
+    // the chip only: the server names things itself.
+    const { label: shown, ...sent } = ctx || {}
+    const page = { path: readablePath(pathname), ...sent }
     const label = navLabel(me?.nav_tree, pathname) || pathLabel(pathname)
     const venue = ctx?.venue_id ? venues.find(v => v.id === ctx.venue_id)?.name : null
     const when = ctx?.date ? format(parseISO(ctx.date), 'EEE d MMM')
-      : ctx?.week ? 'week of ' + format(parseISO(ctx.week), 'd MMM') : null
-    return { page, text: [label, venue, when].filter(Boolean).join(' · ') }
+      : ctx?.week ? 'week of ' + format(parseISO(ctx.week), 'd MMM')
+      : periodText(ctx?.report)
+    return { page, text: [label, shown, venue, when].filter(Boolean).join(' · ') }
   }, [on, pathname, ctx, me, venues])
+}
+
+// The address as it reads: a starter report's id holds a colon, which the
+// address bar keeps as %3A (/reports/starter%3Atill_sales_by_day).
+function readablePath(pathname) {
+  try { return decodeURIComponent(pathname) } catch { return pathname }
+}
+
+// A report's period on the chip: "1 Nov to 13 Nov", or one day.
+function periodText(report) {
+  if (!report?.from || !report?.to) return null
+  try {
+    const from = format(parseISO(report.from), 'd MMM')
+    return report.from === report.to ? from : from + ' to ' + format(parseISO(report.to), 'd MMM')
+  } catch { return null }
 }
 
 export function useAiStatus() {

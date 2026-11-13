@@ -2280,6 +2280,25 @@ export default function Help() {
               what the builder could have made; the report runs as you. Each build counts towards the
               group's AI allowance and your daily share of it.
             </P>
+            <H3>Asking Pepper about your figures</H3>
+            <P>
+              In the Ask Pepper panel, on the Pepper page or in your own AI app connected to Macaroonie,
+              ask about the figures in your own words: <em>"What were net sales by server last week?"</em>,{' '}
+              <em>"Which dishes sold most on Fridays at Ware?"</em>, <em>"How many no-shows in
+              October?"</em>. Pepper finds the right kind of report and its figures, runs it as you
+              and reads the answer back, saying which period it covers and anything it assumed or
+              couldn&apos;t do; when a name could mean more than one thing, it asks. It can also find
+              and run your saved reports and the starters (for another period or other venues), and
+              say what a figure counts (net sales leave out voided dishes; takings are what was
+              paid).
+            </P>
+            <P>
+              With Use on Reports, Pepper can save what it found as a report, change your own reports,
+              copy one (a starter or someone else&apos;s, to make it your own) and delete your own; with
+              Manage it can share them. Every change shows a card first and nothing is saved until you
+              press its button. Pepper sees only what your role may see, each question counts towards
+              the group&apos;s AI allowance, and it runs at most 20 reports a minute for one person.
+            </P>
             <H3>Building a report of your own</H3>
             <P>
               With Use or Manage on Reports, tap <strong>New report</strong> on the Reports page and
@@ -5468,6 +5487,7 @@ export default function Help() {
                 ['Cash up and wages', '"How did yesterday\'s cash up come out?", "The card machine was £1,240", "Add £12 for milk", "Mark Jo\'s wages paid", "Fill this week from Loyverse"', 'Cash reconciliation'],
                 ['Online orders and sold out', '"Any orders waiting?", "Accept 12, ready in 20 minutes", "Refund order 7", "Pause online orders", "Pad Thai is sold out"', 'Online orders'],
                 ['Till and kitchen', '"What did the till take yesterday?", "Any checks still open?", "How fast was the kitchen on Saturday?"', 'Till reports'],
+                ['Reports and figures', '"What were net sales by server last week?", "Which dishes sold most on Fridays?", "Run Sales by day for October", "Save that as a report", "Share it with the managers"', 'Reports, and the area a report is about'],
                 ['Menus', '"Which dishes are free from peanuts?", "Pad Thai is £11.75 now", "Publish the menu on Monday at 9am"', 'Menus'],
                 ['Purchasing', '"Order 3 boxes of tomatoes and fill the rest to par", "Which deliveries are due today?"', 'Purchasing, Purchasing setup'],
                 ['Website and marketing', '"Is the website up to date?", "Publish the website", "Put a banner up: closed today", "Switch off the lunch deal", "Any new reviews?", "Which menu screens are offline?"', 'Website, Promotions, Menu screens, Emails'],
@@ -5487,6 +5507,13 @@ export default function Help() {
               {' '}<em>"Who is on this week?"</em> or <em>"What still needs doing here?"</em> without
               naming the venue or date. If you name a different venue or day, Pepper goes by what you
               say.
+            </P>
+            <P>
+              On a report, the label shows the report and the period it shows{' '}
+              (<em>About: Reports · Sales by day · 2 Nov to 8 Nov</em>), and Pepper is told which report
+              is open, the period and the venues you picked, so <em>"Why is Tuesday low?"</em> or{' '}
+              <em>"Show this by hour"</em> is about that report. In the builder Pepper is told what the
+              report is about. Pepper is only told a report&apos;s name when you can open it yourself.
             </P>
             <P>
               Tap the label to stop sending the page for this chat (it then reads{' '}

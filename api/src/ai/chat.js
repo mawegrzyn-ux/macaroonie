@@ -70,12 +70,15 @@ import { createHash } from 'node:crypto'
 import Anthropic from '@anthropic-ai/sdk'
 import { sql, withTenant } from '../config/db.js'
 import { env } from '../config/env.js'
-import { ToolError, makeContext, addUsage, searchesIn } from './context.js'
+import { ToolError, makeContext, addUsage, searchesIn, callApi, staffPermissionLevels } from './context.js'
 import { toolsFor, findTool, jsonSchemaOf, parseInput, errorText, CORE_TOOLS } from './tools/index.js'
 import { chatUnitsLeft, personUnitsLeft, getAiSettings } from './settings.js'
 import { activeKey } from './apiKey.js'
 import { longDate, localParts } from './tools/util.js'
 import { ROUTE_CATALOG } from '../routes/nav.js'
+import { CATALOGUE, CATALOGUE_MODULES } from '../reports/catalogue/index.js'
+import { runsFor } from '../reports/access.js'
+import { rangeText } from '../../../shared/reports/period.js'
 import {
   claimAttachments, releaseAttachments, attachmentBlocks, loadAttachmentData, withFileData, attachmentItems,
 } from './attachments.js'
@@ -300,7 +303,7 @@ const clean = (block, files) => {
  * that isn't theirs is left out), so nothing the browser sends is passed on
  * as given. Null when there is nothing worth saying.
  */
-export async function pageNote(tenantId, page) {
+export async function pageNote(tenantId, page, ctx = null) {
   if (!page?.path) return null
   const path = page.path
   let best = null
@@ -315,12 +318,63 @@ export async function pageNote(tenantId, page) {
     venue = v || null
   }
   const bits = []
-  if (venue) bits.push('venue ' + venue.name + ' (venue_id ' + venue.id + ')')
+  const report = await reportNote(tenantId, page, ctx)
+  if (report) bits.push(report)
+  if (venue) bits.push('venue ' + oneLine(venue.name) + ' (venue_id ' + venue.id + ')')
   if (page.date) bits.push(longDate(page.date) + ' (' + page.date + ')')
   else if (page.week) bits.push('the week starting ' + longDate(page.week) + ' (' + page.week + ')')
   if (!best && !bits.length) return null
   return '[Sent from ' + (best ? 'the ' + best.label + ' page (' + path + ')' : 'the page ' + path) +
     (bits.length ? ', showing ' + bits.join(', ') : '') + '.]'
+}
+
+// Words a group typed (a venue's or a report's name) go into the note as one
+// line with no brackets or quotes of their own, so they can't end the note
+// early or pass for a line the app added.
+const oneLine = text => String(text ?? '').replace(/[\r\n[\]"]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120)
+
+const BUILDING = /^\/reports\/(new|[^/]+\/edit)\/?$/
+
+/**
+ * A report page's part of the note: the report open there, named only when
+ * the person may open it (asked as them through GET /api/reports/:id), or,
+ * in the builder, what a new report is about (a subject the person can
+ * report on); then the period and the venues it shows. Words come from the
+ * report and the group's own venues, never from the browser.
+ */
+async function reportNote(tenantId, page, ctx) {
+  const report = page.report
+  if (!report || !ctx) return null
+  const building = BUILDING.test(page.path)
+  let what = null
+  if (report.id) {
+    try {
+      const { report: r } = await callApi(ctx, 'GET', '/api/reports/' + encodeURIComponent(report.id))
+      if (r?.id && r.name) {
+        what = 'the report "' + oneLine(r.name) + '" (report_id ' + r.id + ')' +
+          (building ? ', open in the builder (what is on screen may not be saved yet)' : '')
+      }
+    } catch { /* not theirs to open, or gone: nothing is said about it */ }
+  }
+  if (!what && building && report.subject) {
+    const s = CATALOGUE.subjects[report.subject]
+    if (s) {
+      const levels = await staffPermissionLevels(ctx, CATALOGUE_MODULES)
+      if (runsFor(s.key, levels).runs) what = 'a new report on ' + s.label + ' (subject ' + s.key + ') in the builder, not saved yet'
+    }
+  }
+  if (!what) return null
+  const bits = [what]
+  if (report.from && report.to && report.from <= report.to) {
+    bits.push('for ' + rangeText(report.from, report.to) + ' (' + report.from + ' to ' + report.to + ')')
+  }
+  if (report.venue_ids?.length) {
+    const rows = await withTenant(tenantId, tx => tx`
+      SELECT name FROM venues WHERE tenant_id = ${tenantId} AND id = ANY(${report.venue_ids}::uuid[]) ORDER BY name
+    `)
+    if (rows.length) bits.push('at ' + rows.map(v => oneLine(v.name)).join(', '))
+  }
+  return bits.join(' ')
 }
 
 /**
@@ -350,8 +404,8 @@ export async function nowNote(tenantId, now = new Date()) {
 }
 
 /** The app's hidden lines before a staff message: now, then the page. */
-export async function contextNote(tenantId, page) {
-  const [now, from] = await Promise.all([nowNote(tenantId), pageNote(tenantId, page)])
+export async function contextNote(tenantId, page, ctx = null) {
+  const [now, from] = await Promise.all([nowNote(tenantId), pageNote(tenantId, page, ctx)])
   return [now, from].filter(Boolean).join('\n')
 }
 
@@ -667,7 +721,7 @@ async function turn(ctx, conv, text, attachments, emit, page) {
   const files = await claimAttachments(conv, ctx.principal?.sub, attachments)
   if (!files.length && !text) throw new ToolError('Type a message or attach a file.', 422)
   const staff = conv.channel === 'staff_chat'
-  const note = staff ? await contextNote(conv.tenant_id, page) : null
+  const note = staff ? await contextNote(conv.tenant_id, page, ctx) : null
   // Web search: the group's switch, staff chats only, and not while Anthropic
   // is turning the tool down. The message says so when that is news to the chat.
   let web = staff && Date.now() >= webRefusedUntil && !!(await getAiSettings(conv.tenant_id)).web_search

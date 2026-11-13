@@ -344,6 +344,67 @@ test('in the chat, build_report\'s card pins the report it showed, and Confirm s
   assert.equal(action.result.link, '[Zqx chat report](/reports/' + saved.id + ')', 'a link inside the app in the chat')
 })
 
+test('the report pages tell Pepper which report is open, named only when the person may open it', async () => {
+  const text = s => [{ type: 'text', text: s }]
+  const pageLine = () => {
+    const msgs = claude.requests[claude.requests.length - 1].body.messages
+    return msgs[msgs.length - 1].content[0].text.split('\n')[1]
+  }
+  const send = async (who, page) => {
+    claude.script.push(() => ({ stop_reason: 'end_turn', content: text('Ok.') }))
+    const res = await who.post('/api/ai/chat', { message: 'Why is Tuesday low?', page })
+    assert.equal(res.status, 200, res.body)
+    return pageLine()
+  }
+
+  // A starter on the viewer: its name and id, the period the result shows, the venues picked.
+  const starter = '/reports/starter:till_sales_by_day'
+  assert.equal(await send(owner, { path: starter, report: { id: 'starter:till_sales_by_day', from: '2026-11-02', to: '2026-11-08', venue_ids: [filled.ids.venue2, filled.ids.venue] } }),
+    '[Sent from the Reports page (' + starter + '), showing the report "Sales by day" (report_id starter:till_sales_by_day) for 2 to 8 Nov 2026 (2026-11-02 to 2026-11-08) at Zqx Hertford, Zqx Ware.]')
+
+  // An own saved report, on the viewer and in the builder; its name as one line, no quotes or brackets of its own.
+  const mine = (await ok(owner.post('/api/reports', { name: 'Zqx "odd" [name]', spec: { subject: 'till.checks', values: [{ measure: 'net_sales' }] } }))).report
+  assert.equal(await send(owner, { path: '/reports/' + mine.id, report: { id: mine.id, from: '2026-11-12', to: '2026-11-12' } }),
+    '[Sent from the Reports page (/reports/' + mine.id + '), showing the report "Zqx odd name" (report_id ' + mine.id + ') for 12 Nov 2026 (2026-11-12 to 2026-11-12).]')
+  assert.equal(await send(owner, { path: '/reports/' + mine.id + '/edit', report: { id: mine.id, subject: 'till.checks' } }),
+    '[Sent from the Reports page (/reports/' + mine.id + '/edit), showing the report "Zqx odd name" (report_id ' + mine.id + '), open in the builder (what is on screen may not be saved yet).]')
+  // A new report in the builder: what it is about.
+  assert.equal(await send(owner, { path: '/reports/new', report: { subject: 'till.checks' } }),
+    '[Sent from the Reports page (/reports/new), showing a new report on Checks (subject till.checks) in the builder, not saved yet.]')
+
+  // Someone who can't open the report (it's private to its owner; an operator views Reports) hears nothing of it.
+  assert.equal(await send(operator, { path: '/reports/' + mine.id, report: { id: mine.id, from: '2026-11-12', to: '2026-11-12' } }),
+    '[Sent from the Reports page (/reports/' + mine.id + ').]')
+  // Nor of another group's report, or a subject that isn't there.
+  const theirs = (await ok(ownerB.post('/api/reports', { name: 'Yyc their report', spec: { subject: 'till.checks', values: [{ measure: 'net_sales' }] } }))).report
+  assert.equal(await send(owner, { path: '/reports/' + theirs.id, report: { id: theirs.id } }), '[Sent from the Reports page (/reports/' + theirs.id + ').]')
+  assert.equal(await send(owner, { path: '/reports/new', report: { subject: 'till.nothing' } }), '[Sent from the Reports page (/reports/new).]')
+  // A subject the role can't report on isn't named either.
+  const role = await operatorRole()
+  try {
+    await ok(owner.patch('/api/access/roles/' + role.id, { permissions: { reports: 'use', pos_reports: 'none' } }))
+    assert.equal(await send(operator, { path: '/reports/new', report: { subject: 'till.checks' } }), '[Sent from the Reports page (/reports/new).]')
+    assert.equal(await send(operator, { path: '/reports/new', report: { subject: 'bookings.bookings' } }),
+      '[Sent from the Reports page (/reports/new), showing a new report on Bookings (subject bookings.bookings) in the builder, not saved yet.]')
+  } finally {
+    await ok(owner.patch('/api/access/roles/' + role.id, { permissions: {} }))
+  }
+
+  // Another group's venue among the picks is refused like any venue id of theirs (nothing reaches Claude);
+  // a report part that doesn't fit is left out and the rest of the page still goes.
+  const [venueB] = await sql`SELECT id FROM venues WHERE tenant_id = ${ids.b} LIMIT 1`
+  const before = claude.requests.length
+  const res = await owner.post('/api/ai/chat', { message: 'Why?', page: { path: starter, report: { id: 'starter:till_sales_by_day', venue_ids: [venueB.id] } } })
+  assert.equal(res.status, 404)
+  assert.equal(claude.requests.length, before)
+  assert.equal(await send(owner, { path: '/reports', venue_id: filled.ids.venue, report: { id: 'drop table reports' } }),
+    '[Sent from the Reports page (/reports), showing venue Zqx Ware (venue_id ' + filled.ids.venue + ').]')
+
+  // Without the person (the old two-argument call) a report is never named.
+  const { pageNote } = await import('../src/ai/chat.js')
+  assert.equal(await pageNote(ids.a, { path: starter, report: { id: 'starter:till_sales_by_day' } }), '[Sent from the Reports page (' + starter + ').]')
+})
+
 test('Pepper runs at most ' + PEPPER_RUNS_PER_MINUTE + ' reports a minute for a person; other runs aren\'t counted, and a browser can\'t claim the mark', async () => {
   await sql`
     INSERT INTO report_runs (tenant_id, starter_key, report_name, subject, kind, user_sub, user_email, params)
