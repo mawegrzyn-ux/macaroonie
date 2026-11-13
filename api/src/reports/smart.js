@@ -142,7 +142,12 @@ function subjectDocs(catalogue) {
     add(s.label, 3); add(s.one, 3)
     add(list(catalogue.areas).find(a => a.key === s.area)?.label, 3)
     add(s.about, 1)
-    for (const m of Object.values(s.measures)) { add(m.label, 2); add(m.about, 1) }
+    // A figure's own about sentence isn't indexed: it says how the figure
+    // counts ("closed checks only", "voided dishes left out"), in words most
+    // till subjects share, so it pushed the subject a request is about out of
+    // the few listed in full ("how many checks" ranked Checks fifth). The
+    // slice still shows it beside the figure.
+    for (const m of Object.values(s.measures)) add(m.label, 2)
     for (const f of Object.values(s.fields)) {
       add(f.title || f.label, 2); add(f.about, 1)
       if (f.labels) add(Object.values(f.labels).join(' '), 1)

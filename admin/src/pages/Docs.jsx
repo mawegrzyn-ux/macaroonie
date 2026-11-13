@@ -7217,7 +7217,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               head={['Channel', 'Entry point', 'Who / scope', 'Model']}
               rows={[
                 ['staff_chat', 'POST /api/ai/chat (Ask Pepper drawer, /ai page, /mobile/assistant)', 'A logged-in staff member, their tenant', 'Ours (Claude, platform pays)'],
-                ['staff_mcp', 'POST /mcp/staff/:tenantSlug (routes/mcp.js)', 'Bearer access token (mcp_..., expires; can be read only) or Auth0 JWT, one tenant. Lists only the tools the person can use: toolAllowed() in tools/index.js (View on one of the area\'s SECTION_MODULES, Manage for a change tool, via permissionLevels() in auth.js), and for a read-only token no change tools (a call to one is refused)', 'The client\'s own AI app'],
+                ['staff_mcp', 'POST /mcp/staff/:tenantSlug (routes/mcp.js)', 'Bearer access token (mcp_..., expires; can be read only) or Auth0 JWT, one tenant. Lists only the tools the person can use: toolAllowed() in tools/index.js (the tool\'s own needs level on one of the area\'s SECTION_MODULES, else View for a reading tool and Manage for a change tool, via permissionLevels() in auth.js), and for a read-only token no change tools (a call to one is refused)', 'The client\'s own AI app'],
                 ['guest_chat', 'POST /ai-api/chat (website ai_chat block, routes/aiApi.js)', 'A guest on one tenant\'s site', 'Ours'],
                 ['guest_mcp', 'POST /mcp (routes/mcp.js)', 'Anyone, every tenant with guest_mcp_enabled', 'The guest\'s own AI app'],
               ]}
@@ -7239,15 +7239,16 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               word; ambiguous asks, at most 20 choices listed) is in <Mono>tools/util.js</Mono>, shared by
               the staff tools. The other areas are in <Mono>tools/rota.js</Mono>,{' '}
               <Mono>cash.js</Mono>, <Mono>orders.js</Mono>, <Mono>venue.js</Mono>,{' '}
-              <Mono>site.js</Mono> and <Mono>general.js</Mono> (below). A tool is{' '}
-              <Mono>{'{ name, section, title, description, input (Zod), run(ctx, input), readOnly, confirm, destructive, describe() }'}</Mono>{' '}
+              <Mono>site.js</Mono> and <Mono>general.js</Mono> (below), <Mono>localInfo.js</Mono>,{' '}
+              <Mono>locations.js</Mono> and <Mono>reports.js</Mono> (in their own sections). A tool is{' '}
+              <Mono>{'{ name, section, title, description, input (Zod), run(ctx, input), readOnly, confirm, destructive, needs, describe() }'}</Mono>{' '}
               (<Mono>tools/index.js</Mono>); the Zod schema goes to the model and MCP clients as JSON
               Schema via zod-to-json-schema.
             </P>
             <P>
               <Mono>section</Mono> is the area (<Mono>SECTIONS</Mono> in <Mono>tools/index.js</Mono>:
               general, bookings, customers, venue, hs, rota, cash, orders, till, menus, purchasing,
-              website, support). The older files don&apos;t set it; <Mono>withSection()</Mono> tags
+              website, local_info, reports, locations, support). The older files don&apos;t set it; <Mono>withSection()</Mono> tags
               their tools by file. The registry throws at start-up on a staff tool without a known
               section, two staff tools with one name, or a missing core tool, so a mistake fails the
               deploy instead of a chat. <Mono>CORE_TOOLS</Mono> (list_venues, find_bookings,
@@ -7560,7 +7561,14 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               off. <Mono>pageNote()</Mono> in <Mono>ai/chat.js</Mono> names the page from{' '}
               <Mono>ROUTE_CATALOG</Mono> (longest matching route) and the venue from the
               tenant&apos;s own venues. Another tenant&apos;s venue id in{' '}
-              <Mono>page</Mono> is refused by <Mono>refuseOtherTenantsVenues</Mono> like any body.
+              <Mono>page</Mono> (<Mono>venue_id</Mono>, or <Mono>report.venue_ids</Mono>) is refused by{' '}
+              <Mono>refuseOtherTenantsVenues</Mono> like any body. Anything else in <Mono>page</Mono>{' '}
+              that doesn&apos;t fit its schema is dropped (<Mono>.catch(undefined)</Mono> on{' '}
+              <Mono>page</Mono> and on <Mono>page.report</Mono>), never a reason to refuse the message:
+              the path rule once refused every message sent from a starter report&apos;s page, whose
+              address holds a colon. The report pages add <Mono>report</Mono> (Reports, below); names
+              a group typed (a report&apos;s, a venue&apos;s) go into the line through{' '}
+              <Mono>oneLine()</Mono>: one line, no brackets or double quotes, 120 characters at most.
             </P>
             <P>
               The date line: every staff chat message, from any screen, starts with{' '}
@@ -8796,8 +8804,11 @@ row.open  = { id: '01J...', venue: '8f0c...' }      // only when every value is 
             <P>
               <Mono>smartBuild()</Mono> in <Mono>api/src/reports/smart.js</Mono>: (1) <Mono>rankSubjects()</Mono>{' '}
               ranks the subjects the person&apos;s role can build on (<Mono>catalogueView(levels)</Mono>,{' '}
-              <Mono>base</Mono>) by BM25 over their words (labels, figures, fields, links; <Mono>stem()</Mono>{' '}
-              and a few <Mono>SYNONYMS</Mono>), and <Mono>buildSlice()</Mono> lists the best few in full (3 to 8,
+              <Mono>base</Mono>) by BM25 over their words (the names of the subject and its figures, fields and
+              links, and what its fields are about; not what its figures are about, words most till subjects
+              share, which pushed the subject a request is about out of the few listed in full;{' '}
+              <Mono>stem()</Mono> and a few <Mono>SYNONYMS</Mono>), and <Mono>buildSlice()</Mono> lists the best
+              few in full (3 to 8,
               about 7,000 tokens) and every other one in a line. A subject is an S ref and each figure, field and
               link of a listed subject an F ref: the model never sees a table or column name and never writes
               one. (2) One structured call through <Mono>askForJson()</Mono> on the main model with adaptive
@@ -8863,6 +8874,106 @@ row.open  = { id: '01J...', venue: '8f0c...' }      // only when every value is 
               fits, refusals; the request list against the catalogue).
             </P>
 
+            <H3>Plans: a report in the catalogue&apos;s own words</H3>
+            <P>
+              <Mono>api/src/reports/plan.js</Mono>. A plan is the smart builder&apos;s answer written with the
+              catalogue&apos;s own paths (<Mono>till.lines</Mono>, <Mono>net_sales</Mono>,{' '}
+              <Mono>check.server.name</Mono>) where the answer has refs:{' '}
+              <Mono>{'{ subject, list?, by, across, figures, filters, period, venues, sort, top, compare, chart, totals, name }'}</Mono>{' '}
+              (<Mono>PLAN</Mono>, a Zod schema that is also the tools&apos; input). A figure is named by its place
+              (v1, v2, in the order of <Mono>figures</Mono>) in calculations, sorting, a top N and a chart;{' '}
+              <Mono>count: true</Mono> is how many rows there are. <Mono>planAnswer()</Mono> makes the answer{' '}
+              <Mono>toSpec()</Mono> takes with <Mono>pathSlice()</Mono> (a slice whose refs are paths), so a plan
+              becomes a definition only through the builder&apos;s edits, then <Mono>runBuilt()</Mono> (in{' '}
+              <Mono>smart.js</Mono>, shared with the smart builder): the checks, names found among the
+              group&apos;s venues and in the report&apos;s own rows, a run as the person, what it shows in words.{' '}
+              <Mono>planProblems()</Mono> says what in a plan names nothing the role can build with, with the
+              near ones (<Mono>unknown</Mono>: subjects, paths, names); nothing runs then.{' '}
+              <Mono>planOf(catalogue, spec, venues, name)</Mono> writes a definition back as a plan, with{' '}
+              <Mono>kept</Mono>: what a plan can&apos;t say (filters made of several parts, drill-down settings,
+              averages of a calculation), kept when a changed plan is applied to that report while it stays about
+              the same rows. Every starter written as a plan comes back unchanged (a test).
+            </P>
+            <P>
+              <Mono>POST /api/reports/plan</Mono> (Reports Use) takes{' '}
+              <Mono>{'{ plan, report?, rows? }'}</Mono> and answers{' '}
+              <Mono>{'{ spec, name, about, assumed, couldnt, questions, result, problem, unknown }'}</Mono>; nothing is
+              saved, no model is called, the report&apos;s venues go through <Mono>refuseOtherVenues()</Mono>, and
+              the run is recorded only when Pepper asked for it (below).
+            </P>
+
+            <H3>Pepper&apos;s report tools</H3>
+            <P>
+              <Mono>api/src/ai/tools/reports.js</Mono>, section <Mono>reports</Mono> (module{' '}
+              <Mono>reports</Mono>): eleven tools in the chat and on the staff connector. Each goes through the
+              report routes as the person with <Mono>callApi()</Mono>, so the role&apos;s subjects, fields and
+              venues, the tenant filters and the venue checks are the routes&apos; own; a plan never carries SQL
+              or a table name.
+            </P>
+            <DataTable
+              head={['Tool', 'Needs', 'What it does']}
+              rows={[
+                ['find_fields', 'View', 'The subjects for a topic (rankSubjects(), five at most; the best two with the figures and fields that match), or one subject in full (figures, fields and a folder per link, two links deep), one line each: path | name | kind | what it can be | about.'],
+                ['explain_figure', 'View', 'What a figure counts (its catalogue about sentence), how it adds up (a total, a count, how many different, an average, the smallest or largest), a rate\'s two parts, a field\'s choices, the subject a link leads to, personal data.'],
+                ['list_reports', 'View', 'The reports the person can open and the starters, with a link each; by words, area, or starred / mine / starters / saved; 30 at most.'],
+                ['get_report', 'View', 'One report: what it shows (describeReport()), its choices and their values, whose it is, who can change it, and its plan (planOf()) with kept_when_changed.'],
+                ['run_report', 'View', 'A saved report or a starter as it is, or for another period and other venues (POST /:id/run), read back as the page\'s table (tableModel()): 40 rows unless asked, 200 at most.'],
+                ['ask_data', 'Use', 'A plan built and run as the person (POST /plan): the rows, what it shows, what was assumed and couldn\'t be done, the questions. Nothing saved.'],
+                ['build_report', 'Use, card', 'Saves a plan as the person\'s report (POST /api/reports). The card shows what it shows and its first rows and pins the definition (spec) it was worked out with: Confirm saves exactly that.'],
+                ['change_report', 'Use, card', 'A saved report\'s plan, name or description (PUT /:id), one the person may change. The card shows it now and after and pins the report and the definition. With nothing to change it is refused, on the card and in run() (the connector calls run() without a card).'],
+                ['copy_report', 'Use, card', 'A copy of a report or a starter as the person\'s own (POST /:id/copy).'],
+                ['delete_report', 'Use, card', 'Deletes a saved report the person may delete (DELETE /:id); the card says who loses it.'],
+                ['share_report', 'Manage, card', 'Only its owner, some roles (by name; the card pins their ids) or everyone, and offered among the starters or not (PATCH /:id/sharing).'],
+              ]}
+            />
+            <P>
+              Pepper&apos;s runs: <Mono>run_report</Mono>, <Mono>ask_data</Mono> and the change cards&apos; plans send{' '}
+              <Mono>x-maca-via: pepper</Mono> (<Mono>PEPPER_HEADER</Mono> in <Mono>reports/access.js</Mono>), believed
+              only beside the internal-call secret (<Mono>viaPepper()</Mono> in <Mono>routes/reports.js</Mono>):
+              every in-process call, and every API test request, carries the secret, so the secret alone
+              doesn&apos;t mean Pepper, and the header alone isn&apos;t believed, so a browser can&apos;t mark its runs
+              as Pepper&apos;s. Such runs are recorded with <Mono>params.via = &apos;pepper&apos;</Mono> and held to{' '}
+              <Mono>PEPPER_RUNS_PER_MINUTE</Mono> (20) per person by <Mono>limitPepperRuns()</Mono> (429), counted
+              from <Mono>report_runs</Mono>, which every API process writes. The catalogue&apos;s figures carry an{' '}
+              <Mono>about</Mono> sentence on what they count (95 of 105), which <Mono>find_fields</Mono> and{' '}
+              <Mono>explain_figure</Mono> read. The staff prompt&apos;s Reports paragraph says to use{' '}
+              <Mono>ask_data</Mono> for figures over a period rather than adding up other tools&apos; answers, to
+              read totals, averages and rates from the rows, and to say the period and what was assumed. The
+              refusals name the Reports levels (<Mono>DENIED.reports</Mono> in <Mono>ai/context.js</Mono>); chat
+              labels are in <Mono>TOOL_LABELS</Mono> (<Mono>chat.js</Mono>), Activity labels and details in{' '}
+              <Mono>AiAssistant.jsx</Mono>.
+            </P>
+
+            <H3>What the report pages tell Pepper</H3>
+            <P>
+              <Mono>pages/ReportView.jsx</Mono> calls{' '}
+              <Mono>{'usePepperPage({ report: { id, from, to, venue_ids }, label })'}</Mono> (the period from the
+              result&apos;s <Mono>meta.period</Mono>, the venues picked when the report asks for venues) and the
+              builder (<Mono>Builder</Mono> in <Mono>ReportBuilder.jsx</Mono>){' '}
+              <Mono>{'usePepperPage({ report: { id?, subject }, label })'}</Mono>. <Mono>label</Mono> is for the
+              drawer&apos;s chip only (About: Reports · Sales by day · 2 Nov to 8 Nov) and is never sent. In{' '}
+              <Mono>pageNote()</Mono>, <Mono>reportNote()</Mono> names a report only when the person can open it:
+              its name and id come from <Mono>GET /api/reports/:id</Mono> called as them, so another
+              person&apos;s private report or another group&apos;s report names nothing; in the builder a subject
+              is named only when <Mono>runsFor(subject, levels).runs</Mono>, with levels from{' '}
+              <Mono>staffPermissionLevels(ctx, CATALOGUE_MODULES)</Mono>. Then the period in words with its dates
+              (<Mono>rangeText()</Mono>) and the venues picked, by name, from the group&apos;s own. A line reads{' '}
+              <Mono>{'[Sent from the Reports page (/reports/starter:till_sales_by_day), showing the report "Sales by day" (report_id starter:till_sales_by_day) for 2 to 8 Nov 2026 (2026-11-02 to 2026-11-08) at Zqx Hertford, Zqx Ware.]'}</Mono>;
+              in the builder it adds that what is on screen may not be saved yet, or names{' '}
+              <Mono>a new report on Checks (subject till.checks)</Mono>. The prompt says &quot;this report&quot;
+              and &quot;why is Tuesday low?&quot; mean the report in the line, run with its period and venues.
+            </P>
+            <P>
+              Tests: <Mono>api/test/reports-plan.test.mjs</Mono> (7: a plan made through the builder and run as
+              the person with no model call; totals, hidden figures, decimals, the table under a chart; what a
+              plan names that isn&apos;t there, with the near ones; names among the group&apos;s venues and the
+              report&apos;s rows; a plan applied to a report keeping what a plan can&apos;t say; every starter as a
+              plan; who may) and <Mono>api/test/reports-pepper.test.mjs</Mono> (12: the connector&apos;s tool list
+              per role; each reading tool; build, change, copy, share and delete on the connector; changes only to
+              one&apos;s own reports; the chat card pinning its definition; the report page line; the run limit and
+              a browser claiming the mark; another group&apos;s reports, venues and roles).
+            </P>
+
             <H3>Admin pages</H3>
             <P>
               <Mono>pages/Reports.jsx</Mono> (<Mono>/reports</Mono>, Home menu after Dashboards: search, area
@@ -8887,8 +8998,7 @@ row.open  = { id: '01J...', venue: '8f0c...' }      // only when every value is 
             </P>
 
             <InfoBox>
-              <strong>Not built yet.</strong> Pepper&apos;s report tools in the chat (<Mono>ask_data</Mono> and
-              the rest) come next; then the other modules with
+              <strong>Not built yet.</strong> The other modules with
               stored results for rota pay and tips, cash variance and H&amp;S status, layouts and PDFs with
               schedules and email, and data links. The plan&apos;s private file store moves to the phase that
               first keeps files. Limits of the builder: no undo; filters made of several parts (<Mono>any</Mono>,{' '}
@@ -8931,7 +9041,14 @@ row.open  = { id: '01J...', venue: '8f0c...' }      // only when every value is 
               model before relying on it); one subject per report, as in the builder; names in the data are
               looked for among the first 500 values of the report&apos;s period; filters made of several parts,
               tags, drill settings and what a row opens aren&apos;t set by Pepper (Open in the builder for those);
-              a file is read for what it asks, not checked against your figures.
+              a file is read for what it asks, not checked against your figures. Limits of Pepper&apos;s report
+              tools: tested only against a stand-in Claude; one subject per report; a plan can&apos;t make filters
+              of several parts, tags, drill-down settings or what a row opens (a report that has them keeps them
+              when its plan is changed); <Mono>run_report</Mono> changes only the period and the venues (other
+              choices go through <Mono>get_report</Mono>&apos;s plan and <Mono>ask_data</Mono>); Pepper reads 200
+              rows of a result at most and runs 20 reports a person a minute; the report pages tell Pepper the
+              report as saved with the period and venues showing, not changes in the builder that aren&apos;t
+              saved or rows opened up.
             </InfoBox>
           </section>
 

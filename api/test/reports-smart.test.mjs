@@ -183,7 +183,9 @@ test('venues and names in the data named loosely become questions, each choice a
       period: { relative: 'this_week', n: 0, from: '', to: '' },
     })()
   })
-  const res2 = await owner.post(BUILD, { request: 'how many zqx a day this week at Ware' })
+  // The request names what it is about (dishes): which subjects are listed
+  // in full depends on the words, and this test is about names in the data.
+  const res2 = await owner.post(BUILD, { request: 'how many zqx dishes a day this week at Ware' })
   assert.equal(res2.status, 200, res2.body)
   const out2 = JSON.parse(res2.body)
   assert.equal(out2.problem, null)
