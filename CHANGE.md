@@ -6,6 +6,22 @@ Migrations are listed where a database change is required.
 ---
 
 
+## [2026-11-13 — Reports: describe a report to Pepper]
+
+No migration.
+
+**Added**
+- **Describe it to Pepper** (Reports → New report): say what the report should show in your own words, tap an example, or add a photo or PDF of a report you use now, and tap **Build it**. Pepper works the report out and runs it on your figures in about a minute.
+- The answer shows the report with your figures, its name, **What this shows** (the report in one sentence, worked out from how it is set up), **What Pepper assumed** and **What Pepper couldn't do**.
+- When a venue or a name in your data could mean more than one thing, Pepper asks; tapping a choice changes the report straight away, and answering a second question keeps the first answer.
+- **Save it** (name and description filled in), **Change it** in words ("only Fridays", "add guests", "as a line chart"), **Open in the builder** to carry on by hand, **Ask in other words** or **Start again**. Nothing is saved until you save it; going back or reloading keeps the answer.
+- For checking Pepper before a release: a list of 63 real report requests with what a right answer must contain, and a script that runs them against the live model.
+
+**Notes**
+- Needs Use or Manage on Reports and access to Pepper. Pepper is shown only the names of the figures and fields your role can see, never your figures, and builds only what the builder could have made; the report runs as you.
+- Each build counts towards your group's monthly AI allowance and your daily share of it.
+- Next: asking Pepper about your figures in the chat. Then a pause for till fixes before the other modules come into the report builder.
+
 ## [2026-11-13 — Test till sales on the Test data page]
 
 Migration 245 (`pos_days.is_generated`, `pos_checks.is_generated`).
