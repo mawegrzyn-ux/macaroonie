@@ -5,10 +5,11 @@
 //   - the pure rules: seeded random numbers, how many orders a day, the
 //     venue's clock, random picks for a dish's choices;
 //   - a day made from the fixture venue's real till config: every order
-//     through the rules, paid up, inside its trading day, numbered by its
-//     till, the meal deal sold with its part's options, a floor area's own
-//     revenue stream on its tables, the day's figures
-//     those of its checks, the same day again from the same seed;
+//     through the rules, paid up, every moment inside its trading day (also
+//     a day that starts in the middle of service), numbered by its till, the
+//     meal deal sold with its part's options, a floor area's own revenue
+//     stream on its tables, the day's figures (those of its checks), the same
+//     day again from the same seed;
 //   - a venue with a kiosk and a counter till and a switch that needs a
 //     manager: kiosk orders (some paid at the counter by staff), order
 //     numbers from each device's range, approvals from a manager;
@@ -63,6 +64,19 @@ function tradingDay(config, date) {
   const [h, m] = String(config.settings?.day_starts_at || '00:00').split(':').map(Number)
   const mins = h * 60 + (m || 0)
   return [zonedMs(date, mins, tz), zonedMs(nextDate(date), mins, tz) - 60_000]
+}
+
+// Every moment a check keeps: opened and closed, each line added, sent and
+// voided, each send, discount, charge taken off, payment and refund.
+function timesOf(x, out = []) {
+  if (Array.isArray(x)) for (const v of x) timesOf(v, out)
+  else if (x && typeof x === 'object') {
+    for (const [k, v] of Object.entries(x)) {
+      if ((k === 'at' || k.endsWith('_at')) && typeof v === 'string') out.push(v)
+      else timesOf(v, out)
+    }
+  }
+  return out
 }
 
 before(async () => {
@@ -157,7 +171,7 @@ test('a day from the venue\'s own till config: through the rules, paid up, numbe
     assert.ok(['closed', 'void'].includes(c.status), c.status)
     assert.equal(c.day_id, dayId)
     assert.equal(checkTotals(c).balance, 0, 'paid up')
-    for (const at of [c.opened_at, c.closed_at, ...(c.payments || []).map(x => x.at), ...(c.refunds || []).map(x => x.at)]) {
+    for (const at of timesOf(c)) {
       const ms = Date.parse(at)
       assert.ok(ms >= start && ms <= end, at + ' is inside the trading day ' + date)
     }
@@ -168,6 +182,17 @@ test('a day from the venue\'s own till config: through the rules, paid up, numbe
     numbers.add(c.number_code + '-' + c.number)
   }
   assert.equal(numbers.size, out.checks.length, 'every check number once')
+
+  // A trading day that starts in the middle of service (12:30): the tables
+  // still eating when it ends have their last moments held at its end, never
+  // after it, where the next day's first orders are.
+  const midday = { ...config, settings: { ...config.settings, day_starts_at: '12:30' } }
+  const late = generateDay({ config: midday, date, dayId, staff, count: 3000, seed: 'midday' })
+  assert.deepEqual(late.refused, [], 'nothing refused by the till\'s rules')
+  const [from, to] = tradingDay(midday, date)
+  const moments = late.checks.flatMap(c => timesOf(c)).map(at => Date.parse(at))
+  assert.ok(moments.some(ms => ms === to), 'some tables still there at the end of the day')
+  for (const ms of moments) assert.ok(ms >= from && ms <= to, new Date(ms).toISOString() + ' is inside the trading day starting at 12:30')
   // The till numbers its checks in the order it opens them, from 1.
   const inOrder = [...out.checks].sort((a, b) => Date.parse(a.opened_at) - Date.parse(b.opened_at))
   assert.deepEqual(inOrder.map(c => c.number), inOrder.map((_, i) => i + 1))
@@ -311,7 +336,9 @@ test('a venue with a kiosk and a counter till, and voids that need a manager', a
   assert.equal(codes.size, out.checks.length)
 
   // Voids by the lead were approved by the manager; the manager's own need nobody.
-  const voids = out.checks.flatMap(c => c.lines.filter(l => l.voided && !l.voided.cancel).map(l => l.voided))
+  // (A void made by Cancel order carries no mark of its own on the line: leave
+  // cancelled orders out to see the voids made by hand.)
+  const voids = out.checks.filter(c => !c.cancelled).flatMap(c => c.lines.filter(l => l.voided).map(l => l.voided))
   for (const v of voids) {
     if (v.by === filled.ids.staff) assert.equal(v.approved_by, filled.ids.staff2, 'the lead\'s void approved by the manager')
     if (v.by === filled.ids.staff2) assert.equal(v.approved_by, null, 'a manager voids without anyone else')
@@ -344,7 +371,7 @@ test('a venue with no till yet: two stand-ins, one at the counter and one at tab
 
   // A little of everything: voids (the lead's approved by the manager, whose
   // roles the test before gave them), cancelled orders, comps, discounts, refunds.
-  const voids = out.checks.flatMap(c => c.lines.filter(l => l.voided && !l.voided.cancel).map(l => l.voided))
+  const voids = out.checks.filter(c => !c.cancelled).flatMap(c => c.lines.filter(l => l.voided).map(l => l.voided))
   assert.ok(voids.some(v => v.by === filled.ids.staff), 'a void by the lead')
   for (const v of voids) if (v.by === filled.ids.staff) assert.equal(v.approved_by, filled.ids.staff2, 'the lead\'s void approved by the manager')
   assert.ok(out.checks.some(c => c.cancelled), 'an order cancelled')
