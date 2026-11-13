@@ -22,6 +22,8 @@
 //     totals:  { grand, subtotals: [row id] },
 //     compare: { with: 'previous_period' | 'last_year' },
 //     drill:   { down: [{ field, bucket? }], rows: [field], open },
+//              open: what a list's row opens in the app ('self', a path of
+//              links to one row, 'none'; left out, the subject's usual)
 //     view:    { kind, x, y: [value key], line, stacked, sideways, table_below },     shared/reports/chart.js draws it
 //   }
 //
@@ -78,6 +80,8 @@ export const LIMITS = {
   name: 120, label: 80, text: 200, path_hops: 4,
   rows: 8, list_columns: 30, columns: 2, values: 20, filters: 30, filter_depth: 3, in_values: 200,
   params: 12, sort: 5, drill_down: 8, drill_rows: 30, top: 500, tags: 12,
+  // How many links a row may go through to the record it opens in the app.
+  open_hops: 2,
 }
 
 const PATH = /^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$/
@@ -351,7 +355,10 @@ export function normaliseReport(raw) {
     const down = uniqueBy(arr(d.down).map(cleanFieldRef).filter(Boolean), rowId).slice(0, LIMITS.drill_down)
       .map(x => ({ field: x.field, ...(x.bucket ? { bucket: x.bucket } : {}) }))
     const drows = [...new Set(arr(d.rows).map(cleanPath).filter(Boolean))].slice(0, LIMITS.drill_rows)
-    const open = d.open === 'self' ? 'self' : cleanPath(d.open)
+    // What a list's row opens in the app: 'self', a path of links to the row
+    // that does, or 'none'. Left out, the subject's usual (docs/REPORTS.md 8).
+    const open = d.open === 'self' || d.open === 'none' ? d.open
+      : (p => (p && p.split('.').length <= LIMITS.open_hops ? p : null))(cleanPath(d.open))
     if (down.length || drows.length || open) drill = { down, rows: drows, ...(open ? { open } : {}) }
   }
 

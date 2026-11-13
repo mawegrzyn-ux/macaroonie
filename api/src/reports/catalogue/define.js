@@ -20,6 +20,14 @@
 //     date:   { sql: '{day}.business_date', label: 'Trading day' },   the built-in `date` field
 //     fields:   { ... },  measures: { ... },  links: { ... },
 //     list:   ['number', 'date', ...],  the columns a list of it starts with
+//     open:   { page: '/pos/reports?check=:id&venue=:venue', module: 'pos_reports',
+//               with: { venue: 'venue_id' } }
+//                                       the page in the app that shows one of its rows
+//                                       (docs/REPORTS.md 8): `:id` is the row's id (or
+//                                       the `id` template), every other `:name` a `with`
+//                                       template; `module` is what the person needs to
+//                                       open that page. Or a link's key ('check'): its
+//                                       rows open the row that link leads to
 //     skip:   ['loyalty_member_id'],    columns left out on purpose: the coverage test
 //                                       lists every other column no field reads as
 //                                       waiting, and fails on an id column among them
@@ -159,6 +167,31 @@ export function subject(def) {
     list: def.list || [],
     sort: def.sort || [],
     skip: def.skip || [],
+    open: null,
+  }
+
+  // The page that shows one of its rows (checked against the links in index.js).
+  if (def.open != null) {
+    if (typeof def.open === 'string') {
+      if (!KEY.test(def.open)) fail('open: "' + def.open + '" isn\'t a link\'s key')
+      s.open = def.open
+    } else {
+      const o = def.open
+      const names = typeof o.page === 'string' ? [...o.page.matchAll(/:([a-z_][a-z0-9_]*)/g)].map(m => m[1]) : []
+      if (typeof o.page !== 'string' || !o.page.startsWith('/') || !names.includes('id')) fail('open needs a page in the app with :id in it')
+      if (!o.module) fail('open needs the module the page asks for')
+      const withs = o.with || {}
+      for (const n of names) if (n !== 'id' && !withs[n]) fail('open\'s page names :' + n + ', which isn\'t one of its values')
+      for (const n of Object.keys(withs)) {
+        if (!KEY.test(n) || n === 'id') fail('open: "' + n + '" can\'t name a value')
+        if (!names.includes(n)) fail('open has a value "' + n + '" its page doesn\'t use')
+      }
+      let id
+      try { id = o.id == null ? null : source(o.id).sql } catch (e) { fail('open id: ' + e.message) }
+      const w = {}
+      try { for (const [n, src] of Object.entries(withs)) w[n] = source(src).sql } catch (e) { fail('open: ' + e.message) }
+      s.open = { page: o.page, module: o.module, id, with: w, label: o.label || 'Open the ' + s.one }
+    }
   }
 
   const put = (bag, kind, k, v) => {

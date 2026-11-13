@@ -6,6 +6,27 @@ Migrations are listed where a database change is required.
 ---
 
 
+## [2026-11-13 — Reports: open the check, order or booking from a row]
+
+No migration.
+
+**Added**
+- **A list's rows open the record itself** on its own page in the app: a check or a trading day in Till reports, an online order on Online orders, a booking on Bookings, a customer on Customers, a menu, a section or a dish in the menu editor. A line under the report's bar says what a tap opens (Tap a row to open the check). A dish sold, a payment, a discount or a void opens its check, a dish of an online order opens the order, a deposit its booking. A check, order or booking opens on its own venue and day.
+- **Back to the report.** The record's page opens with a bar at the top, Back to the report and its name, which takes you back to the report as you left it: the period and other choices, the rows you opened up, and where the page and the table were scrolled to. The browser's Back does the same.
+- The first cell of a row that opens is a real link: Tab and Enter work, and Ctrl or Cmd with a click (or the middle mouse button) opens the record in a new tab and leaves the report where it is. Picking out words in a row doesn't open it.
+- Rows listed behind a summary's row (Show the rows) open their record the same way.
+- **In the builder**, a list has **Tap a row: open it** and a summary **Rows a tapped row lists: open**: the usual record, something the row belongs to (its trading day, the dish, its section, the menu, the customer), or nothing.
+- The pages a row opens can be opened by address too: `/pos/reports?check=...&venue=...`, `/pos/reports?day=...&venue=...`, `/orders?order=...`, `/bookings?booking=...`, `/customers?customer=...`, `/menus?edit=...&section=...` or `&dish=...`. A record that isn't there any more says so.
+
+**Fixed**
+- Typing a check's address that isn't a real check showed "Validation error" on Till reports; it now says the check wasn't found.
+- The close buttons of the menu editor's section panel, the booking panel and an online order's window had no name for screen readers.
+
+**Notes**
+- A row only opens for people whose role can open that page: when rows open the customer, someone without access to Customers sees plain rows. In a list of online sales only your own orders open (GloriaFood orders have no page here), so the rows that open are underlined.
+- The CSV and Excel files and the print page have the figures only. Rows don't open in the builder's preview, or while a new result is coming.
+- Next: a till sales generator on the Test data page, then asking Pepper for a report in your own words.
+
 ## [2026-11-13 — Reports: charts and printing]
 
 Migration 244 (`report_print_links`).

@@ -373,7 +373,7 @@ export default function BookingDrawer({ booking, onClose, onUpdated, panelMode =
               )}
             </>
           )}
-          <button onClick={onClose} className="p-2 rounded-lg hover:bg-accent touch-manipulation">
+          <button onClick={onClose} aria-label="Close" data-testid="drawer-close" className="p-2 rounded-lg hover:bg-accent touch-manipulation">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -432,7 +432,7 @@ export default function BookingDrawer({ booking, onClose, onUpdated, panelMode =
               </div>
             ) : (
               <>
-                <p className="font-semibold text-base leading-tight">{booking.guest_name}</p>
+                <p className="font-semibold text-base leading-tight" data-testid="drawer-guest-name">{booking.guest_name}</p>
                 <p className="text-sm text-muted-foreground mt-0.5">{booking.guest_email}</p>
                 {booking.guest_phone && (
                   <p className="text-sm text-muted-foreground">{booking.guest_phone}</p>

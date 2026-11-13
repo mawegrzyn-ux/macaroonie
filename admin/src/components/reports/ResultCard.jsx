@@ -16,6 +16,10 @@
 //   more       how a list cut short ends its note ("Download the file for all of them.")
 //   onTap      a row, a figure or a mark of the chart was asked to be opened
 //              up (see drill.jsx); left out, or while `stale`, nothing opens
+//   onOpen     (row, href) a list's row was tapped to open the record itself
+//              on its page in the app (see open.js); the same rules
+//   startAt    where the table was scrolled to, put back when it first draws
+//   scrollerRef a ref kept pointing at the table's scrolling box
 //   tableRef   a ref the card keeps up to date with whether the table is
 //              showing under a chart (true / false; null when there is no
 //              chart drawn), so Print can print what is on screen
@@ -28,6 +32,7 @@ import { chartModel } from '@shared/reports/chart.js'
 import ResultTable from '@/components/reports/ResultTable'
 import ReportChart from '@/components/reports/ReportChart'
 import { drillHint } from '@/components/reports/drill'
+import { openHint } from '@/components/reports/open'
 import { cn } from '@/lib/utils'
 
 const hhmm = iso => {
@@ -35,7 +40,7 @@ const hhmm = iso => {
   return d && !Number.isNaN(d.getTime()) ? d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : ''
 }
 
-export default function ResultCard({ result, fetching = false, stale = false, onRefresh, more = '', onTap = null, tableRef = null, hiddenRef = null, className }) {
+export default function ResultCard({ result, fetching = false, stale = false, onRefresh, more = '', onTap = null, onOpen = null, startAt = null, scrollerRef = null, tableRef = null, hiddenRef = null, className }) {
   // What the chart draws, when the report has one (null: a table only).
   const view = result?.spec?.view
   const charted = !!view && view.kind !== 'table' && result.kind !== 'list'
@@ -51,7 +56,9 @@ export default function ResultCard({ result, fetching = false, stale = false, on
   const meta = result.meta || {}
   // A result on its way out stands for other steps than the page is at: its rows wait.
   const tap = onTap && !stale ? onTap : null
+  const open = onOpen && !stale ? onOpen : null
   const hint = onTap ? drillHint(result) : null
+  const openWords = onOpen ? openHint(result) : null
   const shownRows = result.rows?.length ?? 0
   const allRows = meta.row_count ?? shownRows
   const asOf = hhmm(meta.cached_at || meta.generated_at)
@@ -107,7 +114,13 @@ export default function ResultCard({ result, fetching = false, stale = false, on
         </p>
       )}
 
-      {tableOpen && <ResultTable result={result} onTap={tap} />}
+      {tableOpen && openWords && (
+        <p className="px-4 py-2 border-b flex gap-2 text-xs text-muted-foreground" data-testid="report-open-hint">
+          <MousePointerClick className="w-3.5 h-3.5 mt-0.5 shrink-0" />{openWords}
+        </p>
+      )}
+
+      {tableOpen && <ResultTable result={result} onTap={tap} onOpen={open} startAt={startAt} scrollerRef={scrollerRef} />}
     </div>
   )
 }

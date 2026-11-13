@@ -130,19 +130,19 @@ const HEAVY = 'This report would read too much at once. Narrow the period or add
  * the venues' currencies too) and a way to run a statement with the cost
  * check.
  */
-async function prepare(tx, ctx, spec0, params, { listLimit, costFactor = 1 }) {
+async function prepare(tx, ctx, spec0, params, { listLimit, costFactor = 1, open = true }) {
   await takeSlot(tx, ctx.tenantId)
   const scope = await scopeOf(tx, ctx.tenantId, spec0, params)
   const envc = { tenantId: ctx.tenantId, levels: ctx.levels, params, today: scope.today, tz: scope.tz }
   let spec = spec0
-  let plan = compileReport(spec, envc, { listLimit })
+  let plan = compileReport(spec, envc, { listLimit, open })
   let currencyColumn = null
   if (scope.currencies.length > 1 && hasMoney(plan)) {
     const per = perCurrency(spec)
     if (per) {
       spec = per.spec
       currencyColumn = per.column
-      plan = compileReport(spec, envc, { listLimit })
+      plan = compileReport(spec, envc, { listLimit, open })
       plan.notes.push('Your venues use more than one currency, so money is shown for each currency on its own')
     }
   }
@@ -192,6 +192,9 @@ function metaOf(p, shaped, started) {
   const { plan, scope, currencyColumn } = p
   return {
     drill: drillOffers(p.base, p.envc),
+    // A list whose rows open in the app: the page's address (`:id` and the
+    // names each row's `open` fills) and the words for it.
+    open: plan.kind === 'list' && plan.open ? { page: plan.open.page, label: plan.open.label } : null,
     period: plan.period ? { from: plan.period.range.from, to: plan.period.range.to, text: plan.period.text } : null,
     compare: plan.compare ? { with: plan.compare.with, from: plan.compare.from, to: plan.compare.to, text: plan.compare.text } : null,
     currency: currencyColumn ? null : scope.currencies[0] || 'GBP',
@@ -242,6 +245,7 @@ export async function runReport(ctx, rawSpec, given = {}, opts = {}) {
       const p = await prepare(tx, ctx, spec0, params, {
         listLimit: (cap ?? EXPORT_ROWS) + 1,
         costFactor: mode === 'export' ? 10 : 1,
+        open: mode !== 'export',
       })
       const { plan, exec } = p
       let shaped
@@ -300,7 +304,7 @@ export async function streamList(ctx, rawSpec, given = {}, on = {}) {
   const params = resolveParams(spec0, given)
   try {
     return await withReport(ctx.tenantId, { timeoutMs: EXPORT_MS }, async tx => {
-      const p = await prepare(tx, ctx, spec0, params, { listLimit: EXPORT_ROWS + 1, costFactor: 10 })
+      const p = await prepare(tx, ctx, spec0, params, { listLimit: EXPORT_ROWS + 1, costFactor: 10, open: false })
       const { plan } = p
       await p.check(plan.rows)
       const numeric = plan.columns.map(c => c.type === 'number' || c.type === 'money' || c.type === 'percent' || c.type === 'duration')

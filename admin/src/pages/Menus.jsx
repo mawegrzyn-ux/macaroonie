@@ -35,6 +35,7 @@ import {
 import { restrictToVerticalAxis, restrictToParentElement } from '@dnd-kit/modifiers'
 import { CSS } from '@dnd-kit/utilities'
 import { useApi } from '@/lib/api'
+import { useLinked } from '@/lib/linked'
 import { usePermission } from '@/hooks/usePermission'
 import { ReadOnlyNotice, ReadOnlyFieldset } from '@/components/ReadOnlyNotice'
 import { cn } from '@/lib/utils'
@@ -68,12 +69,16 @@ const SEEDS = [
 const MenuReadOnly = createContext(false)
 
 export default function Menus() {
-  // ?edit=<id> opens a menu (the menu designer links back here with it).
+  // ?edit=<id> opens a menu (the menu designer links back here with it);
+  // &section=<id> or &dish=<id> opens that section's or dish's panel too (a
+  // report's row links here: lib/linked.js).
   const [params, setParams] = useSearchParams()
   const editingId = params.get('edit')
+  const linked = useLinked('section', 'dish')
   const setEditingId = (id) => setParams(id ? { edit: id } : {})
   if (editingId) {
-    return <MenuEditor id={editingId} onBack={() => setEditingId(null)} />
+    return <MenuEditor key={editingId} id={editingId} onBack={() => setEditingId(null)}
+      openSection={linked.section} openDish={linked.dish} onLinkDone={linked.clear} />
   }
   return <MenuList onEdit={setEditingId} />
 }
@@ -415,7 +420,7 @@ const TOP_BTN = 'inline-flex items-center justify-center gap-1.5 text-sm px-2.5 
 const SIDE_PANEL = 'border rounded-lg bg-background flex flex-col w-[380px] shrink-0 max-h-[calc(100vh-140px)] sticky top-[76px] '
   + 'max-md:fixed max-md:inset-0 max-md:z-50 max-md:w-auto max-md:max-h-none max-md:rounded-none max-md:border-0'
 
-function MenuEditor({ id, onBack }) {
+function MenuEditor({ id, onBack, openSection = null, openDish = null, onLinkDone }) {
   const api = useApi()
   const navigate = useNavigate()
   const qc  = useQueryClient()
@@ -437,10 +442,14 @@ function MenuEditor({ id, onBack }) {
   const [draft, setDraft] = useState(null)
   const [detailsOpen, setDetailsOpen] = useState(false)
   // One side panel at a time: a dish or a section.
-  const [selectedItemId, setSelectedItemIdRaw] = useState(null)
-  const [selectedSectionId, setSelectedSectionIdRaw] = useState(null)
+  const [selectedItemId, setSelectedItemIdRaw] = useState(openDish || null)
+  const [selectedSectionId, setSelectedSectionIdRaw] = useState(openDish ? null : (openSection || null))
   const setSelectedItemId    = (id) => { setSelectedItemIdRaw(id); if (id) setSelectedSectionIdRaw(null) }
   const setSelectedSectionId = (id) => { setSelectedSectionIdRaw(id); if (id) setSelectedItemIdRaw(null) }
+  // The dish or section a link opened, closed or swapped for another: the link is done.
+  useEffect(() => {
+    if (openDish ? selectedItemId !== openDish : openSection && selectedSectionId !== openSection) onLinkDone?.()
+  }, [selectedItemId, selectedSectionId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (menu) setDraft(ensureIds(structuredClone(menu)))
@@ -561,6 +570,9 @@ function MenuEditor({ id, onBack }) {
   const selectedSectionIndex = selectedSectionId
     ? (draft.sections || []).findIndex(sec => sec.id === selectedSectionId) : -1
   const selectedSection = selectedSectionIndex >= 0 ? draft.sections[selectedSectionIndex] : null
+  // A link to a dish or section this menu no longer has (removed since).
+  const linkGone = openDish ? (selectedItemId === openDish && !selectedItem ? 'dish' : null)
+    : openSection && selectedSectionId === openSection && !selectedSection ? 'section' : null
   function patchSection(sectionIndex, patch) {
     const sections = draft.sections.slice()
     sections[sectionIndex] = { ...sections[sectionIndex], ...patch }
@@ -684,6 +696,13 @@ function MenuEditor({ id, onBack }) {
       )}
 
       {!canManage && <ReadOnlyNotice what="this menu" />}
+      {linkGone && (
+        <div className="flex flex-wrap items-center gap-3 rounded-md border border-amber-300 bg-amber-50 text-amber-900 px-4 py-2 text-sm" data-testid="link-not-found">
+          <span className="flex-1 min-w-[12rem]">That {linkGone} isn't on this menu any more.</span>
+          <button onClick={() => (linkGone === 'dish' ? setSelectedItemId(null) : setSelectedSectionId(null))}
+            className="min-h-[48px] min-w-[48px] px-3 rounded-md border bg-background text-sm touch-manipulation">OK</button>
+        </div>
+      )}
       <MenuReadOnly.Provider value={!canManage}>
       {/* Sections + dish list, with a right-hand drawer for the selected dish or section */}
       <div className="flex gap-4 items-start">
@@ -1148,7 +1167,7 @@ function SectionDrawer({ section, menuTax, courses, onChange, onCopy, onRemove, 
         {!readOnly && <button onClick={() => setConfirmDelete(true)} className="text-destructive hover:bg-destructive/10 p-1.5 rounded" title="Delete section">
           <Trash2 className="w-3.5 h-3.5" />
         </button>}
-        <button onClick={onClose} className="p-1.5 rounded text-muted-foreground hover:text-foreground hover:bg-accent">
+        <button onClick={onClose} aria-label="Close" data-testid="section-panel-close" className="p-1.5 rounded text-muted-foreground hover:text-foreground hover:bg-accent">
           <X className="w-4 h-4" />
         </button>
       </div>
@@ -1841,7 +1860,7 @@ function ItemDrawer({ item, section, menuTax, sections = [], courses, dietaryTag
         <button onClick={onRemove} hidden={readOnly} className="text-destructive hover:bg-destructive/10 p-1.5 rounded" title="Delete dish">
           <Trash2 className="w-3.5 h-3.5" />
         </button>
-        <button onClick={onClose} className="p-1.5 rounded text-muted-foreground hover:text-foreground hover:bg-accent">
+        <button onClick={onClose} aria-label="Close" data-testid="dish-panel-close" className="p-1.5 rounded text-muted-foreground hover:text-foreground hover:bg-accent">
           <X className="w-4 h-4" />
         </button>
       </div>

@@ -73,6 +73,7 @@ export default [
     from: 'bookings',
     name: 'reference',
     venue: 'venue_id',
+    open: { page: '/bookings?booking=:id', module: 'bookings' },
     date: { sql: DAY, bound: '{t}.starts_at', label: 'Day', about: 'The day the booking is for, at the venue.' },
     fields: {
       reference: text('reference'),
@@ -139,6 +140,7 @@ export default [
     from: 'payments',
     name: 'reference',
     venue: { sql: '{booking}.venue_id' },
+    open: 'booking',
     date: { sql: '({t}.created_at AT TIME ZONE {tz})::date', bound: '{t}.created_at', label: 'Day paid' },
     fields: {
       reference: text({ sql: '{booking}.reference' }, { label: 'Booking' }),

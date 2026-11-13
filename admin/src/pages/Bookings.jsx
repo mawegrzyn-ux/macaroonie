@@ -6,6 +6,8 @@
 // Clicking status pill opens an inline dropdown to change it.
 // Clicking a row opens BookingDrawer in panel mode on the right.
 // On viewports < 1024px the panel becomes a sliding overlay so the list stays full-width.
+// ?booking=<id> opens that booking on its venue and day (a report's row links
+// here: lib/linked.js).
 
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -18,6 +20,8 @@ import NewBookingModal from '@/components/bookings/NewBookingModal'
 import { usePermission } from '@/hooks/usePermission'
 import { useTimelineSettings } from '@/contexts/TimelineSettingsContext'
 import { usePepperPage } from '@/lib/pepperPage'
+import { useLinked } from '@/lib/linked'
+import { retryUnlessRefused } from '@/components/reports/shared'
 
 const SELECTABLE_STATUSES = ['unconfirmed', 'confirmed', 'reconfirmed', 'arrived', 'seated', 'checked_out', 'no_show', 'cancelled']
 
@@ -228,6 +232,29 @@ export default function Bookings() {
     if (fresh) setSelected(fresh)
   }, [bookings])
 
+  // A booking a link asks for: its venue and its day (at the venue), with it open.
+  const linked = useLinked('booking')
+  const linkQ = useQuery({
+    queryKey: ['booking', linked.booking], queryFn: () => api.get('/bookings/' + linked.booking),
+    enabled: !!linked.booking, retry: retryUnlessRefused,
+  })
+  const placed = useRef(null)
+  useEffect(() => {
+    const b = linked.booking ? linkQ.data : null
+    if (!b || placed.current === b.id) return
+    placed.current = b.id
+    const day = new Intl.DateTimeFormat('en-CA', {
+      timeZone: b.venue_timezone || 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit',
+    }).format(new Date(b.starts_at))
+    setVenueId(b.venue_id)
+    setDate(day)
+    setSelected(b)
+  }, [linked.booking, linkQ.data]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Closed, or another booking picked: the link has done its job.
+  useEffect(() => {
+    if (linked.booking && placed.current === linked.booking && selected?.id !== linked.booking) linked.clear()
+  }, [selected?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <div className="flex flex-col h-full overflow-hidden bg-background">
       <div className="flex items-center gap-4 px-5 max-lg:notouch:pl-14 h-14 border-b shrink-0 bg-background">
@@ -295,6 +322,13 @@ export default function Bookings() {
           </button>
         </div>
       </div>
+
+      {linked.booking && linkQ.error && (
+        <div className="flex flex-wrap items-center gap-3 px-5 py-2 border-b border-amber-300 bg-amber-50 text-amber-900 text-sm shrink-0" data-testid="link-not-found">
+          <span className="flex-1 min-w-[12rem]">That booking couldn't be opened: {linkQ.error.message}</span>
+          <button onClick={linked.clear} className="min-h-[48px] min-w-[48px] px-3 rounded-md border bg-background text-sm touch-manipulation">OK</button>
+        </div>
+      )}
 
       <div className="flex items-center gap-3 px-5 py-2.5 border-b bg-muted/20 shrink-0">
         <div className="relative">

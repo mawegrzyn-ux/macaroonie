@@ -99,9 +99,25 @@ export function shapeList(plan, rows, total, { cap, sums = true } = {}) {
     return v
   }
   const count = total ? Number(total.n) : cut.length
+  // What a row opens in the app: the values its page's address needs, only
+  // when it has every one (an online sale from GloriaFood has no order here).
+  const names = plan.open?.names || []
+  const openOf = r => {
+    if (!names.length) return null
+    const o = {}
+    for (const n of names) {
+      const v = r['_o_' + n]
+      if (v == null || v === '') return null
+      o[n] = String(v)
+    }
+    return o
+  }
   return {
     columns,
-    rows: cut.map(r => ({ cells: columns.map((c, i) => cell(r['c' + i], c)), kind: 'row', level: 0, k: [], id: r._id })),
+    rows: cut.map(r => {
+      const open = openOf(r)
+      return { cells: columns.map((c, i) => cell(r['c' + i], c)), kind: 'row', level: 0, k: [], id: r._id, ...(open ? { open } : {}) }
+    }),
     totals: total
       ? { count, cells: columns.map((c, i) => (sums && plan.adds[i] && total['s' + i] != null ? round6(Number(total['s' + i])) : null)) }
       : null,

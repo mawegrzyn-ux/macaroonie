@@ -135,6 +135,7 @@ export default [
     from: 'pos_days',
     name: 'date',
     venue: 'venue_id',
+    open: { page: '/pos/reports?day=:id&venue=:venue', module: 'pos_reports', with: { venue: 'venue_id' } },
     date: { sql: '{t}.business_date', label: 'Trading day' },
     fields: {
       z_number: number('z_number', { label: 'Z number', decimals: 0 }),
@@ -175,6 +176,7 @@ export default [
     idType: 'text',
     name: 'number',
     venue: 'venue_id',
+    open: { page: '/pos/reports?check=:id&venue=:venue', module: 'pos_reports', with: { venue: 'venue_id' } },
     date: DAY,
     fields: {
       number: text({ sql: CHECK_NUMBER }, { label: 'Check' }),
@@ -238,6 +240,7 @@ export default [
     idType: 'text',
     name: 'name',
     venue: 'venue_id',
+    open: 'check',
     date: DAY,
     fields: {
       name: text('name', { label: 'Dish', about: 'The name the dish had when it was sold.' }),
@@ -287,6 +290,7 @@ export default [
     idType: 'text',
     name: 'name',
     venue: 'venue_id',
+    open: 'check',
     date: { sql: '{void_day}.business_date', label: 'Trading day' },
     fields: {
       name: text('name', { label: 'Dish' }),
@@ -325,6 +329,7 @@ export default [
     idType: 'text',
     name: 'number',
     venue: 'venue_id',
+    open: { page: '/pos/reports?check=:id&venue=:venue', module: 'pos_reports', with: { venue: 'venue_id' } },
     date: { sql: '{cancel_day}.business_date', label: 'Trading day' },
     fields: {
       number: text({ sql: CHECK_NUMBER }, { label: 'Check' }),
@@ -361,6 +366,7 @@ export default [
     from: 'pos_payments',
     idType: 'text',
     venue: 'venue_id',
+    open: 'check',
     date: DAY,
     fields: {
       kind: choice('kind', { payment: 'Payment', refund: 'Refund' }, { label: 'Payment or refund' }),
@@ -406,6 +412,7 @@ export default [
     idType: 'text',
     name: 'name',
     venue: 'venue_id',
+    open: 'check',
     date: DAY,
     fields: {
       name: text('name', { label: 'Discount' }),
@@ -441,6 +448,7 @@ export default [
     idType: 'text',
     name: 'name',
     venue: 'venue_id',
+    open: 'check',
     date: DAY,
     fields: {
       name: text('name', { label: 'Charge' }),
@@ -480,6 +488,7 @@ export default [
     id: { sql: "({t}.check_id || ':' || {t}.rate::text)" },
     idType: 'text',
     venue: 'venue_id',
+    open: 'check',
     date: DAY,
     fields: {
       rate: percent('rate', { label: 'VAT rate' }),

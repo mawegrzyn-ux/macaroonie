@@ -436,3 +436,30 @@ test('the rows behind a figure are the ones the figure counts', () => {
   const kept = normaliseReport({ subject: 'till.lines', rows: [{ field: 'name' }], filters: [{ counted: ['Net_Sales', 'net_sales', 'no good!', 7] }, { counted: [] }] })
   assert.deepEqual(kept.filters, [{ counted: ['net_sales'] }])
 })
+
+test('what a report\'s rows open in the app: themselves, a link or two away, or nothing', () => {
+  const open = o => normaliseReport({ subject: 'till.lines', kind: 'list', rows: ['name'], drill: { open: o } }).drill
+  assert.deepEqual(open('self'), { down: [], rows: [], open: 'self' })
+  assert.deepEqual(open('none'), { down: [], rows: [], open: 'none' })
+  assert.deepEqual(open('check'), { down: [], rows: [], open: 'check' })
+  assert.deepEqual(open(' Check.Day '), { down: [], rows: [], open: 'check.day' }, 'a path, tidied')
+  for (const bad of ['check.day.venue', 'check..day', '', '   ', 3, null, {}, ['check']]) assert.equal(open(bad), null, JSON.stringify(bad))
+  assert.equal(normaliseReport({ subject: 'till.lines', kind: 'list', rows: ['name'] }).drill, null, 'said nothing: the rows open what they usually do')
+
+  // A summary keeps it for the rows behind its rows, at every level down.
+  const spec = normaliseReport({ ...byDish(), drill: { down: [{ field: 'check.server.name' }], open: 'check' } })
+  assert.equal(spec.drill.open, 'check')
+  assert.deepEqual(reportProblems(spec), [])
+  const listColumns = ['name', 'qty']
+  const rows = drillSpec(spec, { at: [{ field: 'name', value: 'Pad Thai' }], to: 'rows' }, { listColumns })
+  assert.equal(rows.spec.kind, 'list')
+  assert.equal(rows.spec.drill.open, 'check', 'the rows behind a row open what the report says')
+  const down = drillSpec(spec, { at: [{ field: 'name', value: 'Pad Thai' }], to: { field: 'check.server.name' } })
+  assert.equal(down.spec.drill.open, 'check', 'a level down keeps it')
+  const deeper = drillSpec(down.spec, { at: [{ field: 'check.server.name', value: 'Sam' }], to: 'rows' }, { listColumns })
+  assert.equal(deeper.spec.drill.open, 'check')
+  const none = drillSpec(normaliseReport({ ...byDish(), drill: { open: 'none' } }), { at: [], to: 'rows' }, { listColumns })
+  assert.equal(none.spec.drill.open, 'none', 'nothing stays nothing')
+  const plain = drillSpec(normaliseReport(byDish()), { at: [], to: 'rows' }, { listColumns })
+  assert.equal(plain.spec.drill, null, 'a report that says nothing lists rows that open what they usually do')
+})

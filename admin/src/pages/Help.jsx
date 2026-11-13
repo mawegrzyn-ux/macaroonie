@@ -2036,7 +2036,8 @@ export default function Help() {
               figures: till sales, online orders and table bookings to begin with, with the other areas
               to follow. It comes with 28 starter reports, such as Sales by day, Payments by tender, Top
               dishes online and No-shows and cancellations, and you can build your own. A report can be
-              drawn as a chart above its table, opened up row by row, downloaded and printed. A report
+              drawn as a chart above its table, opened up row by row down to the check, order or
+              booking itself, downloaded and printed. A report
               always runs as the person looking at it, so it only ever shows what your role is allowed
               to see.
             </P>
@@ -2152,10 +2153,44 @@ export default function Help() {
               checks that weren't voided, so the list behind a day's sales holds those dishes and adds
               up to the figure, and a note says that only they are listed. Where a report's figures
               count different rows (payments beside refunds, bookings beside no-shows), tap the figure
-              itself to list its rows, or the row's name for everything behind the row. A list has
-              nothing to open, since it is its own rows, and the row for everything else under a top
-              few can't be opened. A share of the total in an opened row is its share of what is on
-              the page now.
+              itself to list its rows, or the row's name for everything behind the row. The row for
+              everything else under a top few can't be opened. A share of the total in an opened row
+              is its share of what is on the page now.
+            </P>
+            <H3>Opening the check, order or booking itself</H3>
+            <P>
+              A row of a list opens the record itself on its own page in the app: a check or a
+              trading day in Till reports, an online order on Online orders, a booking on Bookings,
+              a customer on Customers, a menu, a section or a dish in the menu editor. A line under
+              the bar says what a tap opens (Tap a row to open the check). A dish sold, a payment, a
+              discount or a void opens its check, a dish of an online order opens the order and a
+              deposit its booking. A check, order or booking opens on its own venue and day,
+              whatever that page showed last. In a list of online sales only your own orders open, since GloriaFood
+              orders have no page here, so the rows that open are underlined.
+            </P>
+            <P>
+              The first cell of a row that opens is a link: with a keyboard, Tab to it and press
+              Enter. Ctrl or Cmd with a click, or the middle mouse button, opens the record in a new
+              tab and leaves the report as it is. Picking out words in a row with the mouse doesn't
+              open it, and while the report reads its figures again (the result before shown faded)
+              its rows don't open.
+            </P>
+            <P>
+              The record's page opens with a bar at the top: <strong>Back to the report</strong> and
+              the report's name. It takes you back to the report as you left it: the period, venues
+              and other choices, the rows you opened up, and where the page and the table were
+              scrolled to. The browser's Back does the same. The bar stays while you look around the
+              record's page (close the check, look at another day) and goes once you open another page
+              from the menu. The record's address works on its own too, without the bar. When the
+              record isn't there any more (a booking deleted, a dish taken off its menu) the page says
+              so.
+            </P>
+            <P>
+              The rows listed behind a figure or a row of a summary (<strong>Show the rows</strong>)
+              open their record the same way. A row only opens for people whose role can open that
+              page: when a report's rows open the customer, someone without access to Customers sees
+              them as plain rows. A report of your own sets what its rows open in the builder (see
+              Rows, values and filters). The CSV and Excel files have the figures only.
             </P>
             <H3>Where the figures come from</H3>
             <P>
@@ -2259,6 +2294,8 @@ export default function Help() {
                 ['Chart', 'For a summary or a table across: Table only, or a chart drawn above the table (Bars, Lines, Area, Bars with a line, Parts of a whole, Figures, Heat table). A kind the report doesn\'t fit says why when tapped and changes nothing. Then what the chart draws: the values (one, several, or the line and the bars), which grouping runs along the bottom when there are two, bars stacked or sideways, and whether the table shows under the chart to begin with.'],
                 ['Tap a row: break it down by', 'For a summary: the fields a tapped row can be broken down by, in the order they are offered (a dish, a server, the hour). Up to 8. A day or a time can be grouped by week, month, quarter, year or day of the week (a time also by hour). A field the report is grouped by already stays on the list but isn\'t offered on a tap.'],
                 ['Tap a row: show the rows', 'The columns of the list behind a tapped row. Left alone, the usual columns for that kind of row are used. Choose starts from them, and you can then add, take off and reorder columns (30 at most). Back to the usual columns undoes it.'],
+                ['Tap a row: open it', 'For a list: what a tapped row opens on its own page in the app. The usual one (the check for dishes sold, the booking for deposits), something the row belongs to (its trading day, the dish, its section, the menu, the customer), or Nothing. Only what has a page in the app is offered.'],
+                ['Rows a tapped row lists: open', 'For a summary: the same choice for the rows listed behind a tapped row.'],
               ]}
             />
             <P>
@@ -2319,9 +2356,8 @@ export default function Help() {
               and a guest's customer record needs Customers access as well.
             </P>
             <InfoBox>
-              Still to come: opening the booking, order or check itself from a row, then asking
-              Pepper for a report in your own words, and later reports sent by email as PDFs on a
-              schedule. The builder has no undo (leaving without
+              Still to come: asking Pepper for a report in your own words, and later reports sent by
+              email as PDFs on a schedule. The builder has no undo (leaving without
               saving goes back to the last save), and filters made of several parts, which a few
               starter reports use, can be taken off but not changed on screen. The Till reports page,
               the Online orders report and the Kitchen report stay where they are.

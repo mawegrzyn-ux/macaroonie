@@ -2436,9 +2436,11 @@ export default async function posSetupRoutes(app) {
   })
 
   app.get('/checks/:id', { preHandler: canReports }, async req => {
-    const id = z.string().regex(/^[0-9A-Z]{26}$/).parse(req.params.id)
+    // A check's id is a ULID: anything else (a typed address) is a check that isn't there.
+    const id = String(req.params.id || '')
+    if (!/^[0-9A-Z]{26}$/.test(id)) throw httpError(404, 'Check not found')
     return withTenant(req.tenantId, async tx => {
-      const [c] = await tx`SELECT id, venue_id, state, total, status FROM pos_checks WHERE id = ${id} AND tenant_id = ${req.tenantId}`
+      const [c] = await tx`SELECT id, venue_id, day_id, state, total, status FROM pos_checks WHERE id = ${id} AND tenant_id = ${req.tenantId}`
       if (!c) throw httpError(404, 'Check not found')
       const events = await tx`
         SELECT e.id, e.seq, e.type, e.payload, e.assigned, e.client_at, e.created_at, e.device_id, e.staff_id, e.approved_by,
@@ -2450,15 +2452,21 @@ export default async function posSetupRoutes(app) {
          WHERE e.tenant_id = ${req.tenantId}
            AND (e.check_id = ${id} OR e.payload->>'to_check_id' = ${id} OR e.payload->>'into_check_id' = ${id})
          ORDER BY e.seq`
-      const [streams, types] = await Promise.all([
+      const [streams, types, staff] = await Promise.all([
         tx`SELECT id, name FROM pos_revenue_streams WHERE tenant_id = ${req.tenantId} AND venue_id = ${c.venue_id}`,
         tx`SELECT id, name FROM order_types WHERE tenant_id = ${req.tenantId}`,
+        // Who a check was given to (check.server_changed): the venue's staff and kiosks.
+        tx`SELECT id, name FROM cash_staff WHERE tenant_id = ${req.tenantId} AND venue_id = ${c.venue_id}
+           UNION ALL
+           SELECT id, name FROM pos_devices WHERE tenant_id = ${req.tenantId} AND venue_id = ${c.venue_id} AND kind = 'kiosk'`,
       ])
       const names = rows => Object.fromEntries(rows.map(r => [r.id, r.name]))
       return {
         check: c.state,
+        venue_id: c.venue_id,
+        day_id: c.day_id,
         events: events.map(e => ({ ...e, seq: Number(e.seq) })),
-        names: { revenue_streams: names(streams), order_types: names(types) },
+        names: { revenue_streams: names(streams), order_types: names(types), staff: names(staff) },
       }
     })
   })

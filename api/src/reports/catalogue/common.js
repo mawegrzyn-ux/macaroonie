@@ -38,6 +38,7 @@ export default [
     about: 'Your menus as they are being edited now (the draft), for grouping dishes by menu.',
     from: 'menus',
     name: 'name',
+    open: { page: '/menus?edit=:id', module: 'menus' },
     fields: {
       name: text('name'),
       published: yesno('is_published', { label: 'Shown to guests' }),
@@ -65,6 +66,7 @@ export default [
     about: 'The sections (categories) of your menus, as they are being edited now.',
     from: 'menu_sections',
     name: 'name',
+    open: { page: '/menus?edit=:menu&section=:id', module: 'menus', with: { menu: 'menu_id' } },
     fields: {
       name: text('title'),
       visibility: choice('visibility', { show: 'Shown', website_hidden: 'Hidden on the website', hidden: 'Hidden everywhere' }, { label: 'Where it shows' }),
@@ -90,6 +92,7 @@ export default [
     about: 'The dishes on your menus, as they are being edited now. Sales keep the name a dish had when it was sold; this is the dish as it is today.',
     from: 'menu_items',
     name: 'name',
+    open: { page: '/menus?edit=:menu&dish=:id', module: 'menus', with: { menu: { sql: '{section}.menu_id' } } },
     fields: {
       name: text('name'),
       kind: choice('kind', { dish: 'Dish', combo: 'Meal deal' }, { label: 'Dish or meal deal' }),
@@ -125,6 +128,7 @@ export default [
     about: 'Everyone with a customer record: people who booked a table or ordered online with their details.',
     from: 'customers',
     name: 'name',
+    open: { page: '/customers?customer=:id', module: 'customers' },
     fields: {
       name: text('name', { pii: true }),
       email: text('email', { pii: true }),

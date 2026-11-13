@@ -96,6 +96,7 @@ export default [
     where: LISTED,
     name: 'number',
     venue: 'venue_id',
+    open: { page: '/orders?order=:id', module: 'web_orders' },
     date: { sql: '{t}.service_date', label: 'Day', about: 'The day the order was for, at the venue.' },
     fields: {
       number: text({ sql: '{t}.order_number::text' }, { label: 'Order' }),
@@ -182,6 +183,7 @@ export default [
     where: "{order}.status NOT IN ('pending_payment', 'expired')",
     name: 'name',
     venue: { sql: '{order}.venue_id' },
+    open: 'order',
     date: { sql: '{order}.service_date', label: 'Day' },
     fields: {
       name: text('name', { label: 'Dish' }),
@@ -222,6 +224,7 @@ export default [
     where: "{order}.status NOT IN ('pending_payment', 'expired')",
     name: 'name',
     venue: { sql: '{order}.venue_id' },
+    open: 'order',
     date: { sql: '{order}.service_date', label: 'Day' },
     fields: {
       name: text('name', { label: 'Promotion' }),
@@ -252,6 +255,7 @@ export default [
     from: { sql: ALL_SALES, tables: ['orders', 'order_payments', 'gloriafood_orders', 'gloriafood_venue_links'] },
     name: 'number',
     venue: 'venue_id',
+    open: { page: '/orders?order=:id', module: 'web_orders', id: { sql: "(CASE WHEN {t}.source = 'web' THEN {t}.id END)" }, label: 'Open the order' },
     date: { sql: '{t}.day', label: 'Day' },
     fields: {
       source: choice('source', SOURCES, { label: 'Source' }),
