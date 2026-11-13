@@ -110,6 +110,8 @@ export function drillSpec(spec, drill, { listColumns = [], also = [] } = {}) {
         version: spec.version, kind: 'list', subject: spec.subject, params: spec.params,
         rows: columns.map(field => ({ field })),
         filters: counted ? [...filters, { counted }] : filters,
+        // Each row opens what the report's rows open (the check, the booking).
+        ...(spec.drill?.open ? { drill: { open: spec.drill.open } } : {}),
       }),
     }
   }

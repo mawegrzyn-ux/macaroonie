@@ -15,7 +15,7 @@ import {
   addValue, updateValue, removeValue, moveValue, valueReaders, addFilter, setFilter, removeFilter, setParamDefault,
   setSort, setLimit, limitOf, setTotals, setCompare, compareProblem, setKind, startReport, sortChoices,
   drillRoom, addDrillLevel, removeDrillLevel, moveDrillLevel, updateDrillLevel, setDrillRows, drillLevels,
-  setView, viewOptions,
+  setView, viewOptions, openChoices, setOpen,
 } from '../reports/build.js'
 
 const f = (key, label, type, more = {}) => [key, { key, label, type, ...more }]
@@ -868,4 +868,82 @@ test('a filter on what the figures count is said in words and asks for nothing',
   assert.deepEqual(usedParams(counted), usedParams(base()))
   assert.deepEqual(paramInputs(CAT, counted).map(i => i.key), paramInputs(CAT, base()).map(i => i.key))
   assert.deepEqual(removeFilter(counted, counted.filters.length - 1).filters, base().filters)
+})
+
+test('what a report\'s rows open: the pages a row can reach, the usual first, and a choice someone else made', () => {
+  // The test catalogue with pages: a check, a dish on the menu and a person
+  // open on a page of their own; a dish sold and a payment usually open
+  // their check; a venue has no page.
+  const pages = (more, cat = CAT) => ({ ...cat, subjects: Object.fromEntries(Object.entries(cat.subjects).map(([k, s]) => [k, { ...s, ...(more[k] || {}) }])) })
+  const OPEN = pages({
+    checks: { page: { label: 'Open the check' }, opens: 'self' },
+    dishes: { page: { label: 'Open the dish' }, opens: 'self' },
+    staff: { page: { label: 'Open the person' }, opens: 'self' },
+    lines: { opens: 'check' },
+    payments: { opens: 'check' },
+  })
+  const choices = (cat, key, open) => {
+    const spec = startReport(cat, key)
+    return openChoices(cat, open ? setOpen(spec, open) : spec)
+  }
+
+  // A dish sold: its check (the usual), the dish on the menu and who added it,
+  // one link away each; never through a list of rows; nothing.
+  let c = choices(OPEN, 'lines')
+  assert.equal(c.value, '')
+  assert.deepEqual(c.usual, { value: 'check', label: 'The check' })
+  assert.deepEqual(c.choices, [
+    { value: '', label: 'The check (the usual)' },
+    { value: 'dish', label: 'The dish' },
+    { value: 'added_by', label: 'The person' },
+    { value: 'none', label: 'Nothing' },
+  ], 'the person is one link away (who added it), so the check\'s server, two away, isn\'t offered again')
+
+  // A check: itself (the usual) and its server, two links on through the
+  // server to nobody new; its dishes and payments are lists, never offered.
+  c = choices(OPEN, 'checks')
+  assert.deepEqual(c.choices.map(x => x.value), ['', 'server', 'none'])
+  assert.equal(c.choices[0].label, 'The check (the usual)')
+
+  // Two links away when that is the nearest: a payment's check's server.
+  assert.deepEqual(choices(OPEN, 'payments').choices.map(x => x.value), ['', 'check.server', 'none'])
+
+  // No usual: "Nothing" is the usual and isn't offered twice.
+  const noUsual = pages({ payments: { opens: undefined } }, OPEN)
+  assert.deepEqual(choices(noUsual, 'payments').choices, [
+    { value: '', label: 'Nothing (the usual)' },
+    { value: 'check', label: 'The check' },
+    { value: 'check.server', label: 'The person' },
+  ])
+
+  // Nothing to open: no pages at all, or none this role may open.
+  assert.deepEqual(choices(CAT, 'lines'), { value: '', choices: [], usual: null })
+  assert.deepEqual(choices(OPEN, 'venue'), { value: '', choices: [], usual: null }, 'a venue\'s staff are a list')
+
+  // The usual said out loud reads as the usual, not as a page someone else's role can open.
+  for (const [cat, key, open] of [[OPEN, 'lines', 'check'], [OPEN, 'checks', 'self'], [noUsual, 'payments', 'none']]) {
+    const said = choices(cat, key, open)
+    assert.equal(said.value, '', key + ' with ' + open)
+    assert.deepEqual(said.choices, choices(cat, key).choices, key + ' with ' + open + ': the same choices as saying nothing')
+  }
+
+  // A choice made by a role that may open a page this person can't.
+  c = choices(pages({ checks: { page: undefined } }, OPEN), 'lines', 'check')
+  assert.equal(c.value, 'check')
+  assert.deepEqual(c.choices.at(-1), { value: 'check', label: 'A page your role can\'t open' })
+  assert.ok(!c.usual, 'their usual isn\'t the person\'s')
+
+  // setOpen(): the definition's drill.open, kept beside the drill-down.
+  const s = addDrillLevel(startReport(OPEN, 'lines'), 'check.server.name')
+  const d = setOpen(s, 'dish')
+  assert.deepEqual(d.drill, { down: [{ field: 'check.server.name' }], rows: [], open: 'dish' })
+  assert.equal(openChoices(OPEN, d).value, 'dish')
+  assert.equal(setOpen(d, 'dish'), d, 'the same choice changes nothing')
+  for (const usual of ['', null]) assert.equal(setOpen(s, usual), s, 'the usual on a report that says nothing changes nothing')
+  assert.deepEqual(setOpen(d, 'none').drill.open, 'none')
+  assert.deepEqual(setOpen(d, '').drill, { down: [{ field: 'check.server.name' }], rows: [] }, 'the usual: said nothing')
+  assert.equal(setOpen(setOpen(startReport(OPEN, 'lines'), 'dish'), '').drill, null)
+  assert.equal(setOpen(d, null).drill.open, undefined)
+  assert.equal(setOpen(startReport(OPEN, 'lines'), 'check.server.venue').drill, null, 'three links is too far')
+  assert.deepEqual(reportProblems(d), [])
 })

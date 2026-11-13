@@ -19,9 +19,16 @@
 // print.js): the report with these choices, the rows opened up and the chart,
 // laid out for paper. A new tab can't send the login, so the page is reached
 // by a link that works for a few minutes (POST /reports/:id/print-link).
+//
+// A list's row can open the record itself on its page in the app (the check,
+// the order, the booking: docs/REPORTS.md 8, components/reports/open.js).
+// The visit (the choices, the rows opened up, where the page and the table
+// were scrolled to) is kept on this page's place in the browser's history
+// first, so Back (the browser's, or the bar above the record:
+// components/reports/FromReport.jsx) comes back to the report as it was left.
 
-import { useMemo, useRef, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { ChevronLeft, Download, Lock, Pencil, Copy, Share2, Trash2, MoreHorizontal, Type, Printer } from 'lucide-react'
 import { paramInputs } from '@shared/reports/build.js'
@@ -157,8 +164,11 @@ export default function ReportView() {
   const api = useApi()
   const qc = useQueryClient()
   const navigate = useNavigate()
+  const location = useLocation()
   const { canUse } = usePermission('reports')
   const { data: venues = [] } = useVenues()
+  // Back from a record a row opened: the visit as it was left (openRecord()).
+  const visit = location.state?.visit?.id === id ? location.state.visit : null
 
   const reportQ = useQuery({ queryKey: ['report', id], queryFn: () => api.get('/reports/' + ref), retry: retryUnlessRefused })
   const report = reportQ.data?.report
@@ -171,9 +181,9 @@ export default function ReportView() {
   const inputs = useMemo(() => (spec ? paramInputs(catQ.data || null, spec) : []), [spec, catQ.data])
 
   // Only what the person changed here; anything else is the report's own.
-  const [given, setGiven] = useState({})
+  const [given, setGiven] = useState(() => (visit?.given && typeof visit.given === 'object' ? visit.given : {}))
   // Where the person has drilled to: each step a tap on the result of the ones before.
-  const [steps, setSteps] = useState([])
+  const [steps, setSteps] = useState(() => (Array.isArray(visit?.steps) ? visit.steps : []))
   const [tapped, setTapped] = useState(null)   // a row waiting for what to open it into
   const drill = useMemo(() => drillBody(steps), [steps])
   const fresh = useRef(false)
@@ -201,6 +211,29 @@ export default function ReportView() {
     else if (choices.length) setTapped(target)
   }
   const backTo = n => { setSteps(list => list.slice(0, n)); setTapped(null) }
+
+  // ── A row that opens its record on its own page ──
+  const pageRef = useRef(null)      // the page's scrolling box
+  const tableScroll = useRef(null)  // the table's (ResultTable keeps it)
+  const openRecord = (row, href) => {
+    const path = location.pathname + location.search
+    const here = {
+      id, given, steps,
+      page: pageRef.current?.scrollTop || 0,
+      table: tableScroll.current ? { top: tableScroll.current.scrollTop, left: tableScroll.current.scrollLeft } : null,
+    }
+    // This page's place in the history keeps the visit, so Back returns to it ...
+    navigate(path, { replace: true, state: { ...(location.state || {}), visit: here } })
+    // ... and the record's page knows where it was opened from (and how far back that is).
+    navigate(href, { state: { fromReport: { id, name: report?.name || '', path, idx: window.history.state?.idx, visit: here } } })
+  }
+  // Back from a record: where the page was scrolled to, once the result is in.
+  const restored = useRef(!visit)
+  useLayoutEffect(() => {
+    if (restored.current || !result || runQ.isPlaceholderData) return
+    restored.current = true
+    if (pageRef.current) pageRef.current.scrollTop = visit?.page || 0
+  })
 
   const [file, setFile] = useState({ busy: null, error: null })
   const download = async format => {
@@ -337,7 +370,7 @@ export default function ReportView() {
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      <div ref={pageRef} className="flex-1 overflow-y-auto" data-testid="report-page-scroll">
         <div className="p-4 sm:p-6 space-y-4">
           <Problems error={reportQ.error} />
           <Problems error={file.error} title="The file wasn't made" />
@@ -387,6 +420,7 @@ export default function ReportView() {
 
                   {result && !runQ.error && (
                     <ResultCard result={result} fetching={runQ.isFetching} stale={runQ.isPlaceholderData} onRefresh={refresh} onTap={onTap} tableRef={tableShown} hiddenRef={seriesOff}
+                      onOpen={openRecord} startAt={restored.current ? null : visit?.table || null} scrollerRef={tableScroll}
                       more={canUse ? 'Download the file for all of them.' : 'Pick a shorter period to see fewer.'} />
                   )}
                 </>

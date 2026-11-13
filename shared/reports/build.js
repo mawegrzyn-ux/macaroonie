@@ -12,6 +12,7 @@
 //                 addDrillLevel(), setView() and the rest: each gives back
 //                 a whole definition, checked
 //   viewOptions() what the Chart part offers for a report as it stands
+//   openChoices() what a report's rows can open in the app, and setOpen()
 //   the words     rowName(), valueName(), filterWords(), filterParts(),
 //                 paramWords(): what a shelf or a choice says
 //   paramInputs() what a report asks for when it is opened
@@ -865,6 +866,78 @@ export function setDrillRows(spec, paths) {
   const rows = [...new Set(arr(paths).filter(x => typeof x === 'string' && x))].slice(0, LIMITS.drill_rows)
   if (rows.length === d.rows.length && rows.every((x, i) => x === d.rows[i])) return spec
   return normaliseReport({ ...spec, drill: { ...d, rows } })
+}
+
+// ── What a row opens ─────────────────────────────────────────
+// A list's row can open the record itself on its page in the app
+// (docs/REPORTS.md 8): its own page (a booking), or the page of a row it
+// belongs to (a dish sold opens its check). The catalogue view says which
+// pages the person may open (`page`) and what a row opens by default
+// (`opens`); only those are offered.
+
+const cap = w => (w ? w[0].toUpperCase() + w.slice(1) : w)
+
+/**
+ * The choices for what a report's rows open, for the person building it:
+ * { value, choices: [{ value, label }], usual } where `value` is what the
+ * select shows ('' = the usual), each choice 'self' or a path of links
+ * ('check', 'check.day') or 'none', and `usual` what the usual is ({ value,
+ * label } or null when the rows open nothing by default). A page reached two
+ * ways (lines.day and lines.check.day) is offered once, by the shorter way.
+ * An empty list: nothing of these can be opened by this person.
+ */
+export function openChoices(catalogue, spec) {
+  const subjects = catalogue?.subjects || {}
+  const s = subjects[spec?.subject]
+  if (!s) return { value: '', choices: [], usual: null }
+  const found = []
+  const seen = new Set()
+  const add = (value, to) => {
+    if (seen.has(to.key)) return
+    seen.add(to.key)
+    found.push({ value, label: cap('the ' + to.one) })
+  }
+  if (s.page) add('self', s)
+  // One link before two: the shorter way wins.
+  let level = [{ subj: s, path: '' }]
+  for (let hop = 0; hop < LIMITS.open_hops; hop++) {
+    const next = []
+    for (const { subj, path } of level) {
+      for (const l of Object.values(subj.links || {})) {
+        if (l.many) continue
+        const to = subjects[l.to]
+        if (!to) continue
+        const p = path ? path + '.' + l.key : l.key
+        if (to.page) add(p, to)
+        next.push({ subj: to, path: p })
+      }
+    }
+    level = next
+  }
+  if (!found.length) return { value: '', choices: [], usual: null }
+
+  // The usual: what the subject's rows open when the report says nothing.
+  const usual = s.opens ? found.find(c => c.value === s.opens) || null : null
+  const choices = [
+    { value: '', label: usual ? usual.label + ' (the usual)' : 'Nothing (the usual)' },
+    ...found.filter(c => c !== usual),
+    ...(usual ? [{ value: 'none', label: 'Nothing' }] : []),
+  ]
+  let set = spec.drill?.open || ''
+  // The usual said out loud (its own name, or 'none' where nothing is usual) reads as the usual.
+  if (set && (usual ? set === usual.value : set === 'none')) set = ''
+  // Set by someone whose role can open a page this person can't.
+  if (set && !choices.some(c => c.value === set)) choices.push({ value: set, label: 'A page your role can\'t open' })
+  return { value: set, choices, usual }
+}
+
+/** What the report's rows open: '' or null = the usual, 'none', 'self' or a path of links. */
+export function setOpen(spec, value) {
+  const d = drillOf(spec)
+  const next = value === '' || value == null ? null : String(value)
+  if ((d.open || null) === next) return spec
+  const { open: _, ...rest } = d
+  return normaliseReport({ ...spec, drill: next ? { ...rest, open: next } : rest })
 }
 
 /** The levels a report offers that it isn't grouped by already (the ones a tap can lead to). */

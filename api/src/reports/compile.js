@@ -35,7 +35,7 @@
 // compileReport() returns a plan: the statement(s) with their parameters
 // and what shape.js needs to turn the rows into a result.
 
-import { CATALOGUE, canReportOn, canSee, ACROSS_AGGS } from './catalogue/index.js'
+import { CATALOGUE, canReportOn, canSee, ACROSS_AGGS, openTarget } from './catalogue/index.js'
 import { resolvePath, pathLabel, bucketsFor } from '../../../shared/reports/paths.js'
 import { rowId, rankKey, AGG_LABELS, OPS_BY_TYPE, BUCKET_OPS } from '../../../shared/reports/spec.js'
 import { parseExpr, exprToSql, exprRefs, exprProblem, ExprError } from '../../../shared/reports/expr.js'
@@ -544,7 +544,7 @@ function columnOf(loc, ref, extra = {}) {
  * A list's statement. `what`: 'rows' (the rows, at most `limit`) or
  * 'totals' (how many there are and the sums of its money and count columns).
  */
-function buildList(spec, env, what, limit) {
+function buildList(spec, env, what, limit, withOpen = false) {
   const st = new Statement(env)
   const subject = baseSubject(spec, env)
   const scope = new Scope(st, subject, st.alias())
@@ -600,9 +600,21 @@ function buildList(spec, env, what, limit) {
   }
   order.push(idSql)
   const select = cols.map((c, i) => outSql(c.loc) + ' AS c' + i).concat(idSql + '::text AS _id')
+  // What a row opens in the app, for this person (docs/REPORTS.md 8): the
+  // values its page's address needs, each as text (_o_id, _o_<name>). Only
+  // on the page's rows: a file has no use for them.
+  const target = withOpen ? openTarget(subject.key, spec.drill?.open, env.levels) : null
+  let open = null
+  if (target) {
+    let alias = scope.alias, owner = subject
+    for (const k of target.hops) { const j = scope.follow(alias, owner, k); alias = j.alias; owner = j.subject }
+    const parts = [['id', target.id || owner.id.sql], ...Object.entries(target.with)]
+    for (const [n, tpl] of parts) select.push('(' + scope.render(tpl, alias, owner) + ')::text AS _o_' + n)
+    open = { page: target.page, label: target.label, path: target.path, names: parts.map(p => p[0]) }
+  }
   const text = 'SELECT ' + select.join(', ') + ' ' + scope.fromClause() + ' WHERE ' + where.join(' AND ')
     + ' ORDER BY ' + order.join(', ') + ' LIMIT ' + Math.max(1, Math.round(limit))
-  return { text, params: st.params, columns: cols.map(c => c.col), adds: cols.map(c => c.adds), notes, says }
+  return { text, params: st.params, columns: cols.map(c => c.col), adds: cols.map(c => c.adds), notes, says, open }
 }
 
 // ── Figures ──────────────────────────────────────────────────
@@ -882,14 +894,14 @@ function buildGrouped(spec, env, opts = {}) {
  * (resolved), today, tz, spec }. Throws ReportError with sentences when it
  * can't be run.
  */
-export function compileReport(spec, envIn, { listLimit = SCREEN_ROWS + 1 } = {}) {
+export function compileReport(spec, envIn, { listLimit = SCREEN_ROWS + 1, open = true } = {}) {
   const env = { ...envIn, spec }
   const period = mainPeriod(spec, env)
 
   if (spec.kind === 'list') {
-    const rows = buildList(spec, env, 'rows', listLimit)
+    const rows = buildList(spec, env, 'rows', listLimit, open)
     const totals = buildList(spec, env, 'totals')
-    return { kind: 'list', subject: spec.subject, period, rows, totals, columns: rows.columns, adds: rows.adds, notes: rows.notes, says: rows.says }
+    return { kind: 'list', subject: spec.subject, period, rows, totals, columns: rows.columns, adds: rows.adds, notes: rows.notes, says: rows.says, open: rows.open }
   }
 
   const main = buildGrouped(spec, env)

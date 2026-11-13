@@ -452,12 +452,12 @@ export function OrderDetailModal({ order: summary, venue, venueId, onClose }) {
       <div className="bg-background rounded-xl shadow-2xl w-full max-w-lg max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="px-5 h-14 border-b flex items-center justify-between sticky top-0 bg-background z-10">
           <div className="flex items-center gap-2">
-            <h2 className="font-bold text-lg">#{o.order_number}</h2>
+            <h2 className="font-bold text-lg" data-testid="order-detail-number">#{o.order_number}</h2>
             <span className={cn('text-xs px-2 py-0.5 rounded-full font-medium', STATUS[o.status]?.cls)}>{STATUS[o.status]?.label}</span>
           </div>
           <div className="flex items-center gap-1">
             <button onClick={() => printTicket(o, venue)} className="w-11 h-11 flex items-center justify-center rounded hover:bg-accent touch-manipulation" title="Print ticket"><Printer className="w-5 h-5" /></button>
-            <button onClick={onClose} className="w-11 h-11 flex items-center justify-center rounded hover:bg-accent touch-manipulation"><X className="w-5 h-5" /></button>
+            <button onClick={onClose} aria-label="Close" data-testid="order-detail-close" className="w-11 h-11 flex items-center justify-center rounded hover:bg-accent touch-manipulation"><X className="w-5 h-5" /></button>
           </div>
         </div>
 

@@ -8,6 +8,8 @@
 // Detail panel modes:
 //   view   — contact info + booking history + GDPR actions
 //   edit   — inline edit of name / email / phone / notes
+//
+// ?customer=<id> opens that customer (a report's row links here: lib/linked.js).
 
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query'
@@ -21,6 +23,8 @@ import { useApi } from '@/lib/api'
 import { usePermission } from '@/hooks/usePermission'
 import { ReadOnlyNotice } from '@/components/ReadOnlyNotice'
 import { cn, STATUS_LABELS, STATUS_COLOURS } from '@/lib/utils'
+import { useLinked } from '@/lib/linked'
+import { retryUnlessRefused } from '@/components/reports/shared'
 
 // ── CSV parser ────────────────────────────────────────────────
 // Supports two column orderings (auto-detected from header):
@@ -89,7 +93,12 @@ export default function Customers() {
 
   const [search,     setSearch]     = useState('')
   const [debouncedQ, setDebouncedQ] = useState('')
-  const [selectedId, setSelectedId] = useState(null)
+  // A customer a link asks for opens straight away; closing it ends the link.
+  const linked = useLinked('customer')
+  const [selectedId, setSelectedId] = useState(linked.customer)
+  useEffect(() => {
+    if (linked.customer && selectedId !== linked.customer) linked.clear()
+  }, [selectedId]) // eslint-disable-line react-hooks/exhaustive-deps
   const [panelWidth, setPanelWidth] = useState(460)
   const [showAdd,    setShowAdd]    = useState(false)
   const [showImport, setShowImport] = useState(false)
@@ -174,10 +183,11 @@ export default function Customers() {
     return () => io.disconnect()
   }, [hasNextPage, isFetchingNextPage, fetchNextPage])
 
-  const { data: detail } = useQuery({
+  const { data: detail, error: detailError } = useQuery({
     queryKey: ['customers', selectedId],
     queryFn:  () => api.get(`/customers/${selectedId}`),
     enabled:  !!selectedId,
+    retry:    retryUnlessRefused,
   })
 
   function onCustomerSaved(id) {
@@ -243,6 +253,13 @@ export default function Customers() {
             </button>
           </div>}
         </div>
+
+        {selectedId && detailError && (
+          <div className="flex flex-wrap items-center gap-3 px-4 py-2 border-b border-amber-300 bg-amber-50 text-amber-900 text-sm shrink-0" data-testid="link-not-found">
+            <span className="flex-1 min-w-[12rem]">That customer couldn't be opened: {detailError.message}</span>
+            <button onClick={() => setSelectedId(null)} className="min-h-[48px] min-w-[48px] px-3 rounded-md border bg-background text-sm touch-manipulation">OK</button>
+          </div>
+        )}
 
         {/* Table */}
         <div className="flex-1 overflow-y-auto">
@@ -475,7 +492,7 @@ function CustomerDetail({ customer, api, onUpdated, onAnonymised, onClose }) {
       {/* Header */}
       <div className="flex items-center justify-between px-5 py-3.5 border-b shrink-0 gap-2">
         <div className="min-w-0 flex-1">
-          <p className="font-semibold truncate">{customer.name}</p>
+          <p className="font-semibold truncate" data-testid="customer-name">{customer.name}</p>
           <p className="text-xs text-muted-foreground">
             Customer since {format(parseISO(customer.created_at), 'dd MMM yyyy')}
           </p>

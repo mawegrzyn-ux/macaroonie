@@ -7,8 +7,11 @@
 // every bump and remake from the kitchen screens). Figures come from
 // dayFigures() in shared/pos/reports.js, the same code the till's X / Z
 // report uses.
+//
+// ?check=<id>&venue=<id> opens a check, ?day=<id>&venue=<id> a trading day
+// (a report's row links here: docs/REPORTS.md 8, lib/linked.js).
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { BarChart3, Loader2, ChevronLeft, AlertTriangle, CheckCircle2, Download, CalendarDays } from 'lucide-react'
 import { useApi } from '@/lib/api'
@@ -20,6 +23,7 @@ import { numberText } from '@shared/pos/numbers.js'
 import { chargeLabel } from '@shared/pos/charges.js'
 import { allergyText } from '@shared/pos/allergy.js'
 import { PageHeader, VenueSelect, usePosVenue, ErrorNote, Btn, Segmented, money, inputCls } from '@/components/pos/shared'
+import { useLinked } from '@/lib/linked'
 
 const TABS = [
   { value: 'days', label: 'Days' },
@@ -80,11 +84,11 @@ function DayDetail({ venueId, dayId, onBack, onShowChecks }) {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <Btn onClick={onBack}><ChevronLeft className="w-4 h-4" /> Days</Btn>
+        <Btn onClick={onBack} data-testid="day-back"><ChevronLeft className="w-4 h-4" /> Days</Btn>
         <h2 className="text-base font-semibold flex-1">
           {dayLabel(day.business_date)} · {day.live ? 'open now (X)' : 'Z ' + day.z_number}
         </h2>
-        <Btn onClick={onShowChecks}>Checks</Btn>
+        <Btn onClick={onShowChecks} data-testid="day-checks">Checks</Btn>
       </div>
       {day.live && <p className="text-sm text-muted-foreground">The day is still open: these figures are as of now. They're fixed when the day is closed on a till.</p>}
       <div className="grid md:grid-cols-2 gap-4">
@@ -209,11 +213,11 @@ function DayDetail({ venueId, dayId, onBack, onShowChecks }) {
   )
 }
 
-function DaysTab({ venueId, onShowChecks }) {
+function DaysTab({ venueId, onShowChecks, openDay = null, onLinkDone }) {
   const api = useApi()
-  const [dayId, setDayId] = useState(null)
+  const [dayId, setDayId] = useState(openDay)
   const { data: days = [], isLoading, error } = useQuery({ queryKey: ['pos-days', venueId], queryFn: () => api.get(`/pos/venues/${venueId}/days`) })
-  if (dayId) return <DayDetail venueId={venueId} dayId={dayId} onBack={() => setDayId(null)} onShowChecks={() => onShowChecks(dayId)} />
+  if (dayId) return <DayDetail venueId={venueId} dayId={dayId} onBack={() => { setDayId(null); onLinkDone?.() }} onShowChecks={() => { onLinkDone?.(); onShowChecks(dayId) }} />
   if (isLoading) return <Loader2 className="w-5 h-5 animate-spin text-muted-foreground mx-auto my-10" />
   return (
     <div className="space-y-3">
@@ -284,11 +288,19 @@ function eventText(e, lines, names, lookups = {}) {
   }
 }
 
-function CheckDetail({ checkId, onBack, staffNames }) {
+function CheckDetail({ checkId, onBack, staffNames, onDay = null }) {
   const api = useApi()
   const { data, isLoading, error } = useQuery({ queryKey: ['pos-check', checkId], queryFn: () => api.get(`/pos/checks/${checkId}`) })
+  // Opened by a link: the list behind it is the check's own day.
+  const dayOf = data?.day_id
+  useEffect(() => { if (dayOf && onDay) onDay(dayOf) }, [dayOf]) // eslint-disable-line react-hooks/exhaustive-deps
   if (isLoading) return <Loader2 className="w-5 h-5 animate-spin text-muted-foreground mx-auto my-10" />
-  if (error) return <ErrorNote error={error} />
+  if (error) return (
+    <div className="space-y-3">
+      <Btn onClick={onBack} data-testid="check-back"><ChevronLeft className="w-4 h-4" /> Checks</Btn>
+      <ErrorNote error={error} />
+    </div>
+  )
   const c = data.check
   const t = checkTotals(c)
   const lines = Object.fromEntries(c.lines.map(l => [l.id, l]))
@@ -301,7 +313,7 @@ function CheckDetail({ checkId, onBack, staffNames }) {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <Btn onClick={onBack}><ChevronLeft className="w-4 h-4" /> Checks</Btn>
+        <Btn onClick={onBack} data-testid="check-back"><ChevronLeft className="w-4 h-4" /> Checks</Btn>
         <h2 className="text-base font-semibold flex-1">Check {numberText(c)}{c.order_no != null ? ' · order #' + c.order_no : ''} · {c.status}</h2>
       </div>
       <p className="text-sm text-muted-foreground" data-testid="check-details">
@@ -347,7 +359,7 @@ function CheckDetail({ checkId, onBack, staffNames }) {
               <li key={e.id} className="flex gap-3">
                 <span className="text-xs text-muted-foreground tabular-nums w-12 shrink-0 pt-0.5">{time(e.client_at || e.created_at)}</span>
                 <span className="flex-1">
-                  {eventText(e, lines, staffNames, { ...data.names, charges })}
+                  {eventText(e, lines, { ...(data.names.staff || {}), ...staffNames }, { ...data.names, charges })}
                   <span className="block text-xs text-muted-foreground">{e.staff_name || 'Unknown'}{e.approver_name ? ', approved by ' + e.approver_name : ''}</span>
                 </span>
               </li>
@@ -359,10 +371,10 @@ function CheckDetail({ checkId, onBack, staffNames }) {
   )
 }
 
-function ChecksTab({ venueId, dayId, setDayId }) {
+function ChecksTab({ venueId, dayId, setDayId, openCheck = null, onLinkDone }) {
   const api = useApi()
   const [status, setStatus] = useState('')
-  const [checkId, setCheckId] = useState(null)
+  const [checkId, setCheckId] = useState(openCheck)
   const { data: days = [] } = useQuery({ queryKey: ['pos-days', venueId], queryFn: () => api.get(`/pos/venues/${venueId}/days`) })
   const effectiveDay = dayId || days[0]?.id || ''
   const qs = new URLSearchParams({ ...(effectiveDay ? { day_id: effectiveDay } : {}), ...(status ? { status } : {}) }).toString()
@@ -370,7 +382,10 @@ function ChecksTab({ venueId, dayId, setDayId }) {
     queryKey: ['pos-checks', venueId, effectiveDay, status], queryFn: () => api.get(`/pos/venues/${venueId}/checks?${qs}`),
   })
   const staffNames = Object.fromEntries(checks.map(c => [c.server_id, c.server_name]))
-  if (checkId) return <CheckDetail checkId={checkId} onBack={() => setCheckId(null)} staffNames={staffNames} />
+  if (checkId) {
+    return <CheckDetail checkId={checkId} onBack={() => { setCheckId(null); onLinkDone?.() }} staffNames={staffNames}
+      onDay={checkId === openCheck ? setDayId : null} />
+  }
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap gap-2">
@@ -630,23 +645,42 @@ function KitchenTab({ venueId }) {
 
 export default function PosReports() {
   const { venues, venueId, setVenueId, isLoading } = usePosVenue()
-  const [tab, setTab] = useState('days')
+  // A check or a trading day a link asks for (a report's row): its venue first.
+  const linked = useLinked('check', 'day', 'venue')
+  const [tab, setTab] = useState(linked.check ? 'checks' : 'days')
   const [dayId, setDayId] = useState(null)
+  const linkVenue = linked.venue && venues.some(v => v.id === linked.venue) ? linked.venue : null
+  useEffect(() => { if (linkVenue && linkVenue !== venueId) setVenueId(linkVenue) }, [linkVenue]) // eslint-disable-line react-hooks/exhaustive-deps
+  const here = !!linkVenue && linkVenue === venueId
+  // The tabs wait for the link's venue, so the other venue's list never flashes up.
+  const ready = !!venueId && (!linkVenue || here)
+  const openCheck = here ? linked.check : null
+  const openDay = here && !linked.check ? linked.day : null
+  const pickVenue = id => { linked.clear(); setVenueId(id) }
+  const pickTab = t => { linked.clear(); setTab(t) }
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <PageHeader icon={BarChart3} title="Till reports">
-        <VenueSelect venues={venues} venueId={venueId} onChange={setVenueId} />
+        <VenueSelect venues={venues} venueId={venueId} onChange={pickVenue} />
       </PageHeader>
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-5xl mx-auto p-4 space-y-4">
-          <div className="overflow-x-auto"><Segmented value={tab} options={TABS} onChange={setTab} /></div>
+          <div className="overflow-x-auto"><Segmented value={tab} options={TABS} onChange={pickTab} /></div>
           {isLoading && <Loader2 className="w-5 h-5 animate-spin text-muted-foreground mx-auto my-10" />}
           {!isLoading && !venues.length && <p className="text-sm text-muted-foreground">Add a venue first.</p>}
-          {venueId && tab === 'days' && <DaysTab key={venueId} venueId={venueId} onShowChecks={id => { setDayId(id); setTab('checks') }} />}
-          {venueId && tab === 'checks' && <ChecksTab key={venueId} venueId={venueId} dayId={dayId} setDayId={setDayId} />}
-          {venueId && tab === 'conflicts' && <ConflictsTab venueId={venueId} />}
-          {venueId && tab === 'print' && <PrintTab venueId={venueId} />}
-          {venueId && tab === 'kitchen' && <KitchenTab key={venueId} venueId={venueId} />}
+          {linked.venue && !isLoading && venues.length > 0 && !linkVenue && (
+            <p className="text-sm text-muted-foreground" data-testid="link-not-found">That venue isn't one of yours any more, so its check or day can't be shown.</p>
+          )}
+          {ready && tab === 'days' && (
+            <DaysTab key={venueId + ':' + (openDay || '')} venueId={venueId} openDay={openDay} onLinkDone={linked.clear}
+              onShowChecks={id => { setDayId(id); setTab('checks') }} />
+          )}
+          {ready && tab === 'checks' && (
+            <ChecksTab key={venueId + ':' + (openCheck || '')} venueId={venueId} dayId={dayId} setDayId={setDayId} openCheck={openCheck} onLinkDone={linked.clear} />
+          )}
+          {ready && tab === 'conflicts' && <ConflictsTab venueId={venueId} />}
+          {ready && tab === 'print' && <PrintTab venueId={venueId} />}
+          {ready && tab === 'kitchen' && <KitchenTab key={venueId} venueId={venueId} />}
         </div>
       </div>
     </div>

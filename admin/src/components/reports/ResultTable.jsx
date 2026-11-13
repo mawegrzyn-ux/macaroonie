@@ -13,6 +13,14 @@
 //            The whole row is the target; a tap that lands on one of its
 //            figures means that figure (the rows behind it are the ones it
 //            counts), a tap anywhere else the row as a whole.
+//   onOpen   (row, href) a row of a list was tapped to open the record itself
+//            on its page in the app (docs/REPORTS.md 8; components/reports/
+//            open.js). Only rows the result says open (row.open) can be; the
+//            first cell is the link, so a click with Ctrl or Cmd, or the
+//            middle button, opens it in a new tab as any link does.
+//   startAt  { top, left } where the table was scrolled to when the person
+//            left it (back from a record): put back once, when it first draws
+//   scrollerRef  a ref the table keeps pointing at its scrolling box
 //
 // A list shows its rows and, under them, the sums that add up and how many
 // rows there are. A summary shows subtotals and a total. A matrix shows the
@@ -24,6 +32,7 @@
 import { useLayoutEffect, useRef } from 'react'
 import { rightAligned, tableHeadings, rowText, totalText } from '@shared/reports/table.js'
 import { tapTarget, totalTarget } from '@/components/reports/drill'
+import { recordHref } from '@/components/reports/open'
 import { cn } from '@/lib/utils'
 
 const typeOf = c => c.format || c.type
@@ -36,11 +45,24 @@ const colAt = e => { const td = e.target.closest?.('td'); return td ? td.cellInd
 // that a row that opens looks like it does without a pointer over it.
 const openCls = 'underline decoration-dotted decoration-muted-foreground underline-offset-4 rounded-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60'
 
-export default function ResultTable({ result, className, onTap = null }) {
+// A plain click: a click with a key held, or another button, is the
+// browser's (a new tab or window from the link).
+const plainClick = e => e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey
+
+export default function ResultTable({ result, className, onTap = null, onOpen = null, startAt = null, scrollerRef = null }) {
   const { columns = [], rows = [], totals, kind, meta = {} } = result || {}
   const head = tableHeadings(columns)
   const firstIsRow = columns[0]?.role === 'row'
   const canTap = !!onTap && !!meta.drill && kind !== 'list'
+  // A list's rows that open the record itself (each says so: row.open).
+  const opens = !!onOpen && kind === 'list' && !!meta.open
+  const openLabel = meta.open?.label || 'Open'
+  const openRow = (e, row, href) => {
+    if (!plainClick(e)) return
+    // Words being picked out of the row (to copy them) aren't a tap.
+    if (window.getSelection?.().toString()) return
+    onOpen(row, href)
+  }
   const matrix = kind === 'matrix'
   const groupings = columns.filter(c => c.role === 'row').length
   // The cell that carries a row's button: its own name (the last grouping it
@@ -57,19 +79,33 @@ export default function ResultTable({ result, className, onTap = null }) {
   const textOf = (row, i) => rowText(result, row, i)
 
   // Another table (a row opened up, the way back): it starts at its top left.
-  // The same table worked out again stays where it was scrolled to.
+  // The same table worked out again stays where it was scrolled to. Back
+  // from a record it opened, it starts where it was left (startAt), once.
+  // Run once per shape: React's strict mode runs a layout effect twice on
+  // mount, and a second run must not undo the first (putting the table back
+  // at its top).
   const scroller = useRef(null)
+  const drawn = useRef(null)   // the shape the table last started on
   const shape = columns.map(c => c.key).join('|')
   useLayoutEffect(() => {
-    if (scroller.current) { scroller.current.scrollTop = 0; scroller.current.scrollLeft = 0 }
+    const el = scroller.current
+    if (!el || drawn.current === shape) return
+    const at = drawn.current === null && startAt ? startAt : null
+    drawn.current = shape
+    el.scrollTop = at?.top || 0
+    el.scrollLeft = at?.left || 0
   }, [shape])
+  const setScroller = el => {
+    scroller.current = el
+    if (scrollerRef) scrollerRef.current = el
+  }
 
   const showTotals = !!totals?.cells && rows.length > 0
 
   if (!columns.length) return null
 
   return (
-    <div ref={scroller} className={cn('overflow-auto max-h-[72vh] rounded-b-xl', className)} data-testid="report-table-scroll">
+    <div ref={setScroller} className={cn('overflow-auto max-h-[72vh] rounded-b-xl', className)} data-testid="report-table-scroll">
       <table className="w-full text-sm border-separate border-spacing-0" data-testid="report-table">
         {/* The headings stay put as the rows scroll under them; the first
             column stays put as the others scroll sideways. Opaque fills: a
@@ -97,10 +133,13 @@ export default function ResultTable({ result, className, onTap = null }) {
             const strong = row.kind === 'subtotal'
             const tap = canTap && row.kind !== 'rest'
             const at = tap ? openAt(row) : -1
+            // A list's row that opens its record: the whole row, the first cell its link.
+            const href = opens && row.kind === 'row' ? recordHref(result, row) : null
+            const live = tap || !!href
             return (
-              <tr key={r} data-kind={row.kind} data-drill={tap ? '1' : undefined}
-                onClick={tap ? e => onTap(tapTarget(result, row, colAt(e))) : undefined}
-                className={cn(strong && 'font-semibold', tap && 'group cursor-pointer touch:h-12')}>
+              <tr key={r} data-kind={row.kind} data-drill={tap ? '1' : undefined} data-open={href ? '1' : undefined}
+                onClick={tap ? e => onTap(tapTarget(result, row, colAt(e))) : href ? e => openRow(e, row, href) : undefined}
+                className={cn(strong && 'font-semibold', live && 'group cursor-pointer touch:h-12')}>
                 {columns.map((col, i) => {
                   const text = textOf(row, i)
                   // In a table across, a figure under one of the columns is its own way in.
@@ -108,8 +147,8 @@ export default function ResultTable({ result, className, onTap = null }) {
                   return (
                     <td key={i}
                       className={cn(
-                        'border-b', figure ? 'p-0' : 'px-3 py-2', tap ? 'align-top touch:align-middle' : 'align-top',
-                        strong ? 'bg-muted' : 'bg-background', tap && !strong && 'group-hover:bg-muted',
+                        'border-b', figure ? 'p-0' : 'px-3 py-2', live ? 'align-top touch:align-middle' : 'align-top',
+                        strong ? 'bg-muted' : 'bg-background', live && !strong && 'group-hover:bg-muted',
                         align[i] ? 'text-right tabular-nums whitespace-nowrap' : 'text-left',
                         i === 0 && firstIsRow && 'sticky left-0 z-10',
                         i === 0 && firstWraps ? 'min-w-[7rem] max-w-[45vw] sm:max-w-[16rem] break-words' : !align[i] && 'whitespace-nowrap',
@@ -126,6 +165,14 @@ export default function ResultTable({ result, className, onTap = null }) {
                         <button type="button" data-testid="report-row-open" className={cn(openCls, 'touch-manipulation', align[i] ? 'text-right' : 'text-left')}>
                           {text || '(none)'}
                         </button>
+                      ) : href && i === 0 ? (
+                        // A real link: the row's own click opens it here (with the
+                        // way back); a click with a key held is the browser's.
+                        <a href={href} data-testid="report-record-open" title={openLabel}
+                          onClick={e => { if (plainClick(e)) e.preventDefault(); else e.stopPropagation() }}
+                          className={cn(openCls, 'touch-manipulation', align[i] ? 'text-right' : 'text-left')}>
+                          {text || openLabel}
+                        </a>
                       ) : text}
                     </td>
                   )

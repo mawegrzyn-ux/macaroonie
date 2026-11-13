@@ -5,17 +5,22 @@
 // online sale, GloriaFood included, with its tender:
 // components/orders/TransactionsReport.jsx). The board and its pieces live in
 // components/orders/shared.jsx (also used by the mobile module).
+//
+// ?order=<id> opens that order (a report's row links here: lib/linked.js),
+// on its venue and day.
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { ShoppingBag, ChevronLeft, ChevronRight, Settings2, Ban, Loader2, BadgePercent } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn, openPicker } from '@/lib/utils'
-import { OrderBoard, AvailabilityModal, PauseButton, HoursButton, HoursNotice, useOrders, money, todayIn } from '@/components/orders/shared'
+import { OrderBoard, OrderDetailModal, AvailabilityModal, PauseButton, HoursButton, HoursNotice, useOrders, money, todayIn } from '@/components/orders/shared'
 import { usePermission } from '@/hooks/usePermission'
 import { usePepperPage } from '@/lib/pepperPage'
 import { TransactionsReport } from '@/components/orders/TransactionsReport'
+import { useLinked } from '@/lib/linked'
+import { retryUnlessRefused } from '@/components/reports/shared'
 
 function addDays(date, n) {
   const [y, m, d] = date.split('-').map(Number)
@@ -45,6 +50,24 @@ export default function Orders() {
   const [date, setDate] = useState(today)
   usePepperPage({ venueId, date })
   useEffect(() => { setDate(todayIn(venue?.timezone)) }, [venue?.timezone])
+
+  // An order a link asks for: its venue, then its day on the board, then the order open.
+  const linked = useLinked('order')
+  const linkQ = useQuery({
+    queryKey: ['order', linked.order], queryFn: () => api.get('/orders/' + linked.order),
+    enabled: !!linked.order, retry: retryUnlessRefused,
+  })
+  const linkedOrder = linked.order ? linkQ.data : null
+  const placed = useRef(null)
+  useEffect(() => {
+    const o = linkedOrder
+    if (!o || placed.current === o.id || !venues.some(v => v.id === o.venue_id)) return
+    if (venueId !== o.venue_id) { setVenueId(o.venue_id); return }
+    if (!venue) return
+    placed.current = o.id
+    if (o.service_date) setDate(o.service_date)
+    setTab('board')
+  }) // after the time zone's reset above, so the order's day wins
 
   const board = useOrders(venueId, date)
   const ordering = board.data?.ordering
@@ -94,7 +117,7 @@ export default function Orders() {
               <div className="flex items-center gap-1">
                 <button onClick={() => setDate(d => addDays(d, -1))} className="w-11 h-11 border rounded-md flex items-center justify-center touch-manipulation"><ChevronLeft className="w-4 h-4" /></button>
                 <div className="relative">
-                  <span className="inline-flex items-center justify-center min-h-[44px] w-48 border rounded-md text-sm font-medium">{dayLabel(date, today)}</span>
+                  <span className="inline-flex items-center justify-center min-h-[44px] w-48 border rounded-md text-sm font-medium" data-testid="orders-day" data-date={date}>{dayLabel(date, today)}</span>
                   <input type="date" value={date} onChange={e => e.target.value && setDate(e.target.value)} onClick={openPicker}
                     className="absolute inset-0 opacity-0 cursor-pointer" aria-label="Choose a day" />
                 </div>
@@ -126,6 +149,17 @@ export default function Orders() {
             : <TransactionsReport key={venueId} venueId={venueId} venue={venue} today={today} />}
 
         {soldOut && <AvailabilityModal venueId={venueId} onClose={() => setSoldOut(false)} />}
+
+        {linked.order && linkQ.error && (
+          <div className="mt-4 rounded-md border border-amber-300 bg-amber-50 text-amber-900 p-3 text-sm flex flex-wrap items-center gap-3" data-testid="link-not-found">
+            <span className="flex-1 min-w-[12rem]">That order couldn't be opened: {linkQ.error.message}</span>
+            <button onClick={linked.clear} className="min-h-[48px] min-w-[48px] px-3 rounded-md border bg-background text-sm touch-manipulation">OK</button>
+          </div>
+        )}
+        {linkedOrder && (
+          <OrderDetailModal order={linkedOrder} venue={venues.find(v => v.id === linkedOrder.venue_id)} venueId={linkedOrder.venue_id}
+            onClose={linked.clear} />
+        )}
       </div>
     </div>
   )

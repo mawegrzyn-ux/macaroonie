@@ -8486,7 +8486,8 @@ meta.drill = { down: [{ field, bucket?, label }], rows: true, of: 'Dishes sold',
               list of <Mono>drill.rows</Mono>, else the usual columns. To a level: a summary with that one
               grouping, the same values and comparison, ordered only by the report&apos;s figures (never by
               where its rows were), a total, and a <Mono>drill</Mono> holding the levels not used yet and the
-              same row columns, so each field is offered once on the way down. A list has nothing to open.
+              same row columns, so each field is offered once on the way down. A list isn&apos;t drilled: its
+              rows open the record itself (Opening the record from a row, below).
             </P>
             <P>
               The rows behind a figure are the rows that figure counts. <Mono>countedBy(spec, valueKey)</Mono>{' '}
@@ -8527,7 +8528,7 @@ meta.drill = { down: [{ field, bucket?, label }], rows: true, of: 'Dishes sold',
               way back. <Mono>ResultTable</Mono> takes <Mono>onTap(target)</Mono>: a row is tappable as a
               whole (48 px tall on touch screens) with a real button in its first cell for the keyboard, and
               in a table across each figure is its own button; the &quot;everything else&quot; row, a list
-              and a result being replaced aren&apos;t tappable. <Mono>ReportView.jsx</Mono> keeps the steps
+              (its rows take <Mono>onOpen</Mono> instead) and a result being replaced aren&apos;t tappable. <Mono>ReportView.jsx</Mono> keeps the steps
               in state for the visit (query key <Mono>[&apos;report-run&apos;, id, params, drill]</Mono>) and
               sends them with the run and the downloads.
             </P>
@@ -8689,6 +8690,96 @@ meta.drill = { down: [{ field, bucket?, label }], rows: true, of: 'Dishes sold',
               <Mono>report-problems</Mono>). Tests: <Mono>api/test/reports-print.test.mjs</Mono>, the print
               page in <Mono>system-paths.test.mjs</Mono>, and the fixtures make a link for the tenant sweep
               (<Mono>/api/reports/print/</Mono> is in its <Mono>PUBLIC</Mono> list).
+            </P>
+
+            <H3>Opening the record from a row</H3>
+            <P>
+              13 Nov 2026, no migration (<Mono>docs/REPORTS.md</Mono> 8). A row of a list opens the record
+              itself on its own page in the app. A subject says which page shows one of its rows with{' '}
+              <Mono>open</Mono> in the catalogue, either an object or the key of a link to a subject that has
+              one (a dish sold, a payment, a discount: <Mono>&apos;check&apos;</Mono>). The object needs a page
+              in the app with <Mono>:id</Mono> in it, the module that page asks for, and one value for every
+              other name in the page (<Mono>with</Mono>, a column or <Mono>{'{ sql }'}</Mono>); its{' '}
+              <Mono>id</Mono> may be a template too (an online sale has an order only when it is your own,
+              not a GloriaFood one). <Mono>subject()</Mono> in <Mono>define.js</Mono> refuses anything else
+              when the API starts.
+            </P>
+            <Code>{`open: { page: '/pos/reports?check=:id&venue=:venue', module: 'pos_reports', with: { venue: 'venue_id' } }
+open: { page: '/menus?edit=:menu&dish=:id', module: 'menus', with: { menu: { sql: '{section}.menu_id' } } }
+open: 'check'      // the record this row belongs to opens instead
+
+// a definition may choose (spec.drill.open): '' = the subject's own, 'self', 'none', or a
+// path of at most 2 one-to-one links ('day', 'section.menu'); LIMITS.open_hops
+// with every list result, for the person asking
+meta.open = { page: '/pos/reports?check=:id&venue=:venue', label: 'Open the check' } | null
+row.open  = { id: '01J...', venue: '8f0c...' }      // only when every value is there`}</Code>
+            <P>
+              <Mono>openTarget(subjectKey, want, levels)</Mono> (<Mono>catalogue/index.js</Mono>) follows the
+              choice for the person asking: null for none, for more than <Mono>LIMITS.open_hops</Mono> links,
+              a list of rows (a <Mono>many</Mono> link), a link their role can&apos;t see, or a page whose
+              module they lack. <Mono>buildList()</Mono> in <Mono>compile.js</Mono> then adds the page&apos;s
+              values to the list&apos;s select as text (<Mono>_o_id</Mono>, <Mono>_o_&lt;name&gt;</Mono>,
+              through the links&apos; joins), and <Mono>shapeList()</Mono> gives a row <Mono>open</Mono> only
+              when every value is there. <Mono>run.js</Mono> puts <Mono>meta.open</Mono> on a list result;
+              files never carry it (<Mono>open: false</Mono> for exports, and <Mono>streamList()</Mono>{' '}
+              compiles without it). Rows listed behind a summary&apos;s row open too: a drilled definition
+              keeps the summary&apos;s <Mono>drill.open</Mono>. <Mono>catalogueView()</Mono> gives each
+              subject <Mono>page</Mono> (its words, when the role can open it) and <Mono>opens</Mono>.
+            </P>
+            <P>
+              The rules in <Mono>shared/reports/</Mono>: <Mono>spec.js</Mono> keeps{' '}
+              <Mono>drill.open</Mono> on lists and summaries (a path of more than two links is dropped);{' '}
+              <Mono>openChoices(catalogue, spec)</Mono> in <Mono>build.js</Mono> gives the builder&apos;s
+              choices (<Mono>{'{ value, choices, usual }'}</Mono>: the usual one, each one-to-one link two
+              deep whose subject has a page the role can open, and Nothing) and{' '}
+              <Mono>setOpen(spec, value)</Mono> sets one.
+            </P>
+            <P>
+              The pages a row opens read the record from their address and go to its venue and day
+              themselves: <Mono>/pos/reports?check=:id&amp;venue=:venue</Mono> and{' '}
+              <Mono>?day=:id&amp;venue=:venue</Mono> (Till reports, which also switches venue; an unknown
+              venue says so; <Mono>GET /api/pos/checks/:id</Mono> now returns <Mono>venue_id</Mono>,{' '}
+              <Mono>day_id</Mono> and <Mono>names.staff</Mono>, and an id that isn&apos;t a ULID is a 404),{' '}
+              <Mono>/orders?order=:id</Mono> (the order&apos;s window, on its venue and day),{' '}
+              <Mono>/bookings?booking=:id</Mono> (the booking&apos;s panel, on its venue and day),{' '}
+              <Mono>/customers?customer=:id</Mono> and <Mono>/menus?edit=:menu</Mono> with{' '}
+              <Mono>&amp;section=:id</Mono> or <Mono>&amp;dish=:id</Mono> (the panel open; one that isn&apos;t on
+              the menu any more says so). Each reads its names through <Mono>useLinked()</Mono>{' '}
+              (<Mono>lib/linked.js</Mono>) and calls its <Mono>clear()</Mono> once the record is closed or the
+              page moves on, so a reload doesn&apos;t open it again; <Mono>clear()</Mono> keeps the history
+              entry&apos;s state.
+            </P>
+            <P>
+              Admin: <Mono>components/reports/open.js</Mono> fills the address in (<Mono>recordHref()</Mono>:
+              only an address in the app, never another site) and words the line under the bar
+              (<Mono>openHint()</Mono>: Tap a row to open the check, or Tap an underlined row when only some
+              open). <Mono>ResultTable</Mono> takes <Mono>onOpen(row, href)</Mono>: a row that opens is a
+              whole-row tap target (48 px on touch screens) whose first cell is a real link, so a keyboard
+              reaches it, and Ctrl or Cmd with a click, a middle click or Shift go to the browser (a new tab
+              without the way back); a click that ends a selection of words doesn&apos;t open.{' '}
+              <Mono>ResultCard</Mono> passes <Mono>onOpen</Mono> only while the result is current.{' '}
+              <Mono>openRecord()</Mono> in <Mono>pages/ReportView.jsx</Mono> first writes the visit (choices,
+              drill steps, where the page and the table were scrolled to) into the report&apos;s own history
+              entry, then opens the record with <Mono>state.fromReport</Mono>{' '}
+              <Mono>{'{ id, name, path, idx, visit }'}</Mono>. <Mono>FromReport</Mono>{' '}
+              (<Mono>components/reports/FromReport.jsx</Mono>, drawn by <Mono>AppShell</Mono> above the page)
+              shows Back to the report while that state is there, and goes back through the history to the
+              report&apos;s entry (else opens its path with the visit). The viewer restores the page&apos;s
+              scroll once the result is in and <Mono>ResultTable</Mono> its own (<Mono>startAt</Mono>), once
+              per shape of table, which React&apos;s StrictMode double effects can&apos;t undo. In the builder
+              the Set up part <Mono>OpenPart</Mono> (<Mono>Tap a row: open it</Mono> for a list,{' '}
+              <Mono>Rows a tapped row lists: open</Mono> for a summary) offers{' '}
+              <Mono>openChoices()</Mono>; the preview&apos;s rows don&apos;t open.
+            </P>
+            <P>
+              Test ids: <Mono>report-open-hint</Mono>, <Mono>tr[data-open]</Mono>,{' '}
+              <Mono>report-record-open</Mono>, <Mono>from-report</Mono>, <Mono>from-report-back</Mono>,{' '}
+              <Mono>setup-open</Mono>, <Mono>open-choice</Mono>, <Mono>open-hint</Mono>,{' '}
+              <Mono>link-not-found</Mono>, <Mono>day-back</Mono>, <Mono>day-checks</Mono>,{' '}
+              <Mono>check-back</Mono>, <Mono>dish-panel-close</Mono>, <Mono>section-panel-close</Mono>.
+              Tests: <Mono>shared/test/reportSpec.test.mjs</Mono> and <Mono>reportBuild.test.mjs</Mono> (the
+              rules), <Mono>api/test/reports-open.test.mjs</Mono> (every subject&apos;s page, choices, roles,
+              files, drilled rows, the check route).
             </P>
 
             <H3>Admin pages</H3>

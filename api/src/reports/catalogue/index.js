@@ -19,6 +19,7 @@ import { templateRefs } from './define.js'
 import { MODULE_KEYS } from '../../config/modules.js'
 import { NUMERIC_TYPES } from '../../../../shared/reports/format.js'
 import { bucketsFor } from '../../../../shared/reports/paths.js'
+import { LIMITS } from '../../../../shared/reports/spec.js'
 
 export const AREAS = [
   { key: 'till', label: 'Till sales' },
@@ -104,6 +105,17 @@ function build(lists) {
       for (const ref of templateRefs(s.links[key].sql)) if (ones.has(ref)) walk(ref, [...trail, key])
     }
     for (const k of ones) walk(k, [])
+
+    // The page a row opens: its own, or the one of the row a link leads to.
+    if (typeof s.open === 'string') {
+      const l = s.links[s.open]
+      if (!l || l.many) fail(s, 'open names "' + s.open + '", which isn\'t one of its links to one row')
+      if (typeof subjects[l.to]?.open !== 'object' || !subjects[l.to].open) fail(s, 'open follows ' + s.open + ' to ' + l.to + ', which has no page of its own')
+    } else if (s.open) {
+      if (!MODULE_KEYS.includes(s.open.module)) fail(s, 'open needs an unknown module "' + s.open.module + '"')
+      if (s.open.id) check('open id', s.open.id)
+      for (const [n, sql] of Object.entries(s.open.with)) check('open ' + n, sql)
+    }
 
     for (const path of s.list) {
       const first = path.split('.')[0]
@@ -195,9 +207,15 @@ export function catalogueView(levels) {
       if (l.many && !canReportOn(to, levels)) continue
       links[l.key] = { key: l.key, label: l.label, to: l.to, ...(l.many ? { many: true } : {}), ...(l.about ? { about: l.about } : {}) }
     }
+    // What a row opens (docs/REPORTS.md 8): `page` when this person may open
+    // the page in the app that shows one of these rows, `opens` what a row
+    // usually opens ('self', or the link to the row that does).
+    const page = s.open && typeof s.open === 'object' && can(levels, s.open.module) ? { label: s.open.label } : null
     subjects[s.key] = {
       key: s.key, label: s.label, one: s.one, about: s.about, area: s.area, base,
       ...(s.name ? { name: s.name } : {}),
+      ...(page ? { page } : {}),
+      ...(s.open ? { opens: typeof s.open === 'string' ? s.open : 'self' } : {}),
       dated: !!s.fields.date, venue: !!s.links.venue,
       fields, measures, links,
       list: s.list.filter(p => viewable(s, p, levels)),
@@ -218,6 +236,37 @@ function viewable(s, path, levels) {
   }
   const f = cur.fields[parts[parts.length - 1]]
   return !!f && canSee(f, levels)
+}
+
+/**
+ * What a list's rows open in the app (docs/REPORTS.md 8): `want` is the
+ * definition's drill.open ('self', a path of links to one row, or 'none';
+ * left out, the subject's usual). Null when nothing opens: none asked for,
+ * a path that doesn't lead to a row with a page of its own, a link the
+ * person's role can't follow, or a page they may not open. Otherwise
+ * { path, hops, subject, page, label, id, with }: the links to follow, the
+ * row's subject, its page with `:id` and the `with` names in it, and the
+ * templates that fill them (`id` null: the row's own id).
+ */
+export function openTarget(subjectKey, want, levels) {
+  const subject = CATALOGUE.subjects[subjectKey]
+  if (!subject || want === 'none') return null
+  let path = want
+  if (path == null) {
+    if (!subject.open) return null
+    path = typeof subject.open === 'string' ? subject.open : 'self'
+  }
+  const hops = path === 'self' ? [] : String(path).split('.')
+  if (hops.length > LIMITS.open_hops) return null
+  let cur = subject
+  for (const k of hops) {
+    const l = cur.links[k]
+    if (!l || l.many || l.hidden || !canSee(l, levels)) return null
+    cur = CATALOGUE.subjects[l.to]
+  }
+  const o = cur?.open
+  if (!o || typeof o !== 'object' || !can(levels, o.module)) return null
+  return { path, hops, subject: cur, page: o.page, label: o.label, id: o.id, with: o.with }
 }
 
 /** A subject's usual list columns the person may see (for drill-downs to the rows). */

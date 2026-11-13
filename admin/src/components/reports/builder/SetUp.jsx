@@ -28,7 +28,7 @@ import { GripVertical, X, Plus, Calculator, Undo2 } from 'lucide-react'
 import {
   rowName, valueName, valueKindText, filterParts, sortChoices, limitOf, setLimit, setSort, setTotals, setCompare,
   compareProblem, removeRow, removeColumn, removeValue, removeFilter, roomLeft, BUCKET_LABELS,
-  pathUses, drillRoom, removeDrillLevel, updateDrillLevel, setDrillRows, viewOptions, setView,
+  pathUses, drillRoom, removeDrillLevel, updateDrillLevel, setDrillRows, viewOptions, setView, openChoices, setOpen,
 } from '@shared/reports/build.js'
 import { rowId, COMPARE_WITH, COMPARE_LABELS, LIMITS } from '@shared/reports/spec.js'
 import { resolvePath, pathLabel } from '@shared/reports/paths.js'
@@ -99,6 +99,32 @@ const tick = 'flex items-center gap-3 min-h-[48px] cursor-pointer touch-manipula
 // The chart drawn above the report's table: which kind, and what it draws.
 // viewOptions() (shared/reports/build.js) says what there is to choose for
 // the report as it stands; every choice is a setView().
+// What a row opens in the app (docs/REPORTS.md 8): a list's rows, or the
+// rows a summary's tapped row lists. Only pages the person can open are
+// offered, and each person who opens the report gets only what their own
+// role can open. Nothing to offer: the part isn't shown.
+function OpenPart({ catalogue, spec, onChange }) {
+  const { value, choices, usual } = openChoices(catalogue, spec)
+  if (!choices.length) return null
+  const list = spec.kind === 'list'
+  const what = lowerFirst(catalogue.subjects[spec.subject]?.label || 'rows')
+  return (
+    <section className="rounded-xl border bg-muted/40 p-2 space-y-2" data-testid="setup-open">
+      <Heading>{list ? 'Tap a row: open it' : 'Rows a tapped row lists: open'}</Heading>
+      <select value={value} onChange={e => onChange(setOpen(spec, e.target.value))} aria-label={list ? 'What a tapped row opens' : 'What a listed row opens'}
+        data-testid="open-choice" className={cn(inputCls, 'h-12')}>
+        {choices.map(c => <option key={c.value || 'usual'} value={c.value}>{c.label}</option>)}
+      </select>
+      <p className="text-[11px] text-muted-foreground leading-snug" data-testid="open-hint">
+        {value === 'none' || (!value && !usual)
+          ? (list ? 'Tapping a row does nothing.' : 'The rows a tapped row lists don\'t open anything.')
+          : (list ? 'A tapped row opens on its own page in the app, for people whose role can open that page.'
+            : 'When a tapped row lists the ' + what + ' behind it, each of those opens on its own page in the app, for people whose role can open that page.')}
+      </p>
+    </section>
+  )
+}
+
 function ChartPart({ catalogue, spec, onChange }) {
   const o = viewOptions(catalogue, spec)
   // A kind that doesn't fit the report says why when tapped, and changes nothing.
@@ -515,6 +541,8 @@ export default function SetUp({ catalogue, spec, onChange, onOpen, onAdd, onKind
 
       {!list && <ChartPart catalogue={catalogue} spec={spec} onChange={onChange} />}
 
+      {list && <OpenPart catalogue={catalogue} spec={spec} onChange={onChange} />}
+
       {!list && (
         <div className="space-y-3" data-testid="setup-drill">
           <Shelf shelf="drill" title="Tap a row: break it down by" onAdd={() => onAdd('drill')} full={drillRoom(spec) <= 0}
@@ -559,6 +587,7 @@ export default function SetUp({ catalogue, spec, onChange, onOpen, onAdd, onKind
               </li>
             </Shelf>
           )}
+          <OpenPart catalogue={catalogue} spec={spec} onChange={onChange} />
         </div>
       )}
     </div>
