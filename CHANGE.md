@@ -6,6 +6,33 @@ Migrations are listed where a database change is required.
 ---
 
 
+## [2026-11-13 — Reports: the first part of the report builder]
+
+Migration 243.
+
+**Added**
+- **Reports** in the main menu, under Dashboards, with 28 starter reports over till sales, online orders and table bookings. Till sales: sales by day, by hour and weekday, by dish, by section, by server, by order type and revenue stream; payments by tender; discounts and comps; voids; cancelled orders; charges; tips; average spend per check and per guest; VAT by rate; trading days with cash counted against expected. Online orders: orders and sales by day and channel, top dishes, promotions used, time to accept and to get ready, refunds, GloriaFood beside your own ordering. Bookings: guests by day and time, bookings by source, no-shows and cancellations, how far ahead people book, party sizes, deposits taken and refunded, new and returning guests.
+- **Open a report and change what it covers.** Each opens on its usual period. Pick another (today or yesterday, this or last week, month, quarter or year, the last so many days, the days coming up, or two dates of your own) and, with more than one venue, which venues. What you change lasts for the visit; the report stays as it was.
+- **Tables that match the pages they come from.** Summaries with subtotals and a total, tables across (each hour, each channel) and lists row by row. The headings, the first column and the totals stay in view as you scroll. Every figure is the one its own page shows: the till's X and Z report figures, the Online orders page's Report and Transactions tabs, the Bookings page's counts.
+- **CSV and Excel files** of a report for the period and venues on screen, for people with Use or Manage on Reports. A list comes in full, not just the 5,000 rows a page shows.
+- **Find and star.** Search by name or description, show one area at a time, and star the reports you use most. Stars are your own.
+- **Reports on the Access page**, with View, Use and Manage. To begin with owners and admins have Manage, operators have View and viewers have no access. A report always runs as the person looking at it: a starter on an area your role can't see is listed faded with what it needs, and a column your role can't see is left out with a note saying so.
+
+**Changed**
+- The till now keeps each check's discounts, charges and VAT by rate, and a cancelled order's reason, value and who cancelled it, in a form reports can read. Checks from before this update are filled in by themselves once it is live; nothing changes on the tills.
+
+**Notes**
+- This is the first part of the report builder. Next: building and saving your own reports on screen, charts, tapping a figure to see the rows behind it, and printing. Then asking Pepper for a report in your own words; then the other areas (rota and pay, cash, purchasing, health & safety, loyalty and the rest), page layouts and PDFs, reports sent on a schedule, and data links for other systems.
+- Till reports, the Online orders page's Report tab and the Kitchen report stay where they are.
+- In a till report Today is the calendar day, while till sales sit on the trading day: between midnight and the time your trading day starts, tonight's sales are under Yesterday.
+- A report that would read too much at once, or that takes over 20 seconds (two minutes for a file), is refused with what to do: narrow the period or the venues. Two reports can run at a time for a group; a third waits a few seconds.
+- An Excel file holds up to 200,000 cells and a CSV list up to 250,000 rows; a file that was cut short says so.
+- Until older checks have been filled in after the update, till reports of discounts, charges and VAT can be short for past days. A group with years of checks takes longer.
+- Built and tested in Chromium at desktop, tablet and phone widths against test data; not yet run against months of real sales.
+
+---
+
+
 ## [2026-11-12 — Pepper can look things up on the web]
 
 Migration 242.

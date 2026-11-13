@@ -1,8 +1,9 @@
-// The default main menu (migrations 196 + 202 + 208 + 211 + 216 + 219 + 221 + 225 + 227 + 228 + 230 + 231 + 235 + 240 + 241): the migrations' tree is the
+// The default main menu (migrations 196 + 202 + 208 + 211 + 216 + 219 + 221 + 225 + 227 + 228 + 230 + 231 + 235 + 240 + 241 + 243): the migrations' tree is the
 // same as DEFAULT_NAV_TREE, every page in the route catalogue is in it once,
 // and a new tenant gets it through /api/me. Migration 241 gave the designers
 // their own links and every entry a description: its SQL is run here on
 // menus without the links, and the descriptions are saved, cut and refused.
+// Migration 243 put Reports after Dashboards: its SQL is run here too.
 import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
@@ -31,6 +32,9 @@ const LINKS_241 = [...SQL_241.matchAll(/\(\s*(\d+),\s*'([^']+)',\s*'([^']+)',\s*
   .map(m => ({ ord: Number(m[1]), route: m[2], label: m[3], icon: m[4], module: m[5], anchor: m[6], fallback: m[7] }))
   .sort((a, b) => a.ord - b.ord)
 const BLOCK_241 = SQL_241.match(/DO \$\$[\s\S]*?END \$\$;/)[0]
+// Migration 243: the statement that puts the Reports link into a menu.
+const SQL_243 = fs.readFileSync(new URL('../../migrations/243_reports.sql', import.meta.url), 'utf8')
+const MENU_243 = SQL_243.match(/WITH anchors AS \([\s\S]*?route = '\/reports'\);/)[0]
 // The list (and so the parent) a route's link sits in.
 const siblingsOf = (nodes, r) => {
   for (const n of nodes) {
@@ -49,7 +53,7 @@ async function storedTree(tenantId) {
 
 // Migration 196's tree with 202's change applied: Till setup (and its Floor
 // plan) and Menu screens out, the Store tech section in after Venues.
-test('migrations 196 + 202 + 208 + 211 + 216 + 219 + 221 + 225 + 227 + 228 + 230 + 231 + 235 + 240 + 241 hold the same tree as DEFAULT_NAV_TREE', () => {
+test('migrations 196 + 202 + 208 + 211 + 216 + 219 + 221 + 225 + 227 + 228 + 230 + 231 + 235 + 240 + 241 + 243 hold the same tree as DEFAULT_NAV_TREE', () => {
   const read = f => fs.readFileSync(new URL('../../migrations/' + f, import.meta.url), 'utf8').match(/\$nav\$([\s\S]*?)\$nav\$/)[1]
   const drop = nodes => nodes.filter(n => !['/pos', '/pos/floor', '/screens'].includes(n.route))
     .map(n => (n.children ? { ...n, children: drop(n.children) } : n))
@@ -111,6 +115,9 @@ test('migrations 196 + 202 + 208 + 211 + 216 + 219 + 221 + 225 + 227 + 228 + 230
     const anchor = list.find(n => n.route === l.anchor) || list.find(n => n.route === l.fallback)
     list.splice(list.indexOf(anchor) + 1, 0, { label: l.label, icon: l.icon, route: l.route, module: l.module })
   }
+  // 243: Reports after Dashboards.
+  home.children.splice(home.children.findIndex(n => n.route === '/dashboards') + 1, 0,
+    { label: 'Reports', icon: 'FileBarChart', route: '/reports', module: 'reports' })
   assert.deepEqual(strip(tree), strip(DEFAULT_NAV_TREE))
 })
 
@@ -259,6 +266,59 @@ test('migration 241 puts the designers\' links into existing menus, once', async
   await sql.unsafe(BLOCK_241)
   assert.deepEqual([await count(ids.a), await count(ids.b)], [na, nb])
   assert.deepEqual(strip((await storedTree(ids.a)).tree), strip(DEFAULT_NAV_TREE))
+})
+
+// Migration 243's menu statement on real rows: Reports goes straight after
+// Dashboards (after Overview where Dashboards was taken out), hidden from
+// nobody, once; a menu with neither gets no link. (The test database already
+// had 243 applied, so the link is taken out first.)
+test('migration 243 puts Reports into existing menus, once', async () => {
+  ids = await resetAndSeed()
+  const place = async t => {
+    const { tree, rows } = await storedTree(t)
+    const list = siblingsOf(tree, '/reports')
+    return { list: list ? list.map(n => n.route) : null, row: rows.find(r => r.route === '/reports') }
+  }
+  const seeded = await place(ids.a)
+  assert.equal(seeded.list[seeded.list.indexOf('/dashboards') + 1], '/reports', 'a new group has it after Dashboards')
+  assert.deepEqual([seeded.row.label, seeded.row.icon, seeded.row.module], ['Reports', 'FileBarChart', 'reports'])
+
+  // Tenant A: the menu as it was before 243, Dashboards hidden from one role.
+  const [role] = await sql`SELECT id FROM tenant_roles WHERE tenant_id = ${ids.a} AND key = 'viewer'`
+  await sql`DELETE FROM nav_items WHERE route = '/reports'`
+  await sql`UPDATE nav_items SET hidden_role_ids = ${[role.id]} WHERE tenant_id = ${ids.a} AND route = '/dashboards'`
+  // Tenant B: Dashboards was taken out of its menu.
+  await sql`DELETE FROM nav_items WHERE tenant_id = ${ids.b} AND route = '/dashboards'`
+
+  await sql.unsafe(MENU_243)
+
+  const a = await place(ids.a)
+  assert.deepEqual(strip((await storedTree(ids.a)).tree), strip(DEFAULT_NAV_TREE), 'tenant A is back on the default menu')
+  assert.deepEqual(a.row.hidden_role_ids, [], 'the module decides who sees it, not the roles Dashboards is hidden from')
+  assert.equal(a.row.description, null)
+  const b = await place(ids.b)
+  assert.equal(b.list[b.list.indexOf('/') + 1], '/reports', 'no Dashboards link: straight after Overview')
+  for (const t of [ids.a, ids.b]) {
+    const ties = await sql`SELECT parent_id, sort_order FROM nav_items WHERE tenant_id = ${t} GROUP BY 1, 2 HAVING count(*) > 1`
+    assert.equal(ties.length, 0, 'no two links share a place')
+  }
+
+  // A second run changes nothing; a menu with neither anchor gets no link.
+  const snapshot = async t => sql`SELECT id, parent_id, route, sort_order FROM nav_items WHERE tenant_id = ${t} ORDER BY id`
+  const [sa, sb] = [await snapshot(ids.a), await snapshot(ids.b)]
+  await sql.unsafe(MENU_243)
+  assert.deepEqual([[...await snapshot(ids.a)], [...await snapshot(ids.b)]], [[...sa], [...sb]])
+  await sql`DELETE FROM nav_items WHERE tenant_id = ${ids.b} AND route IN ('/reports', '/')`
+  await sql.unsafe(MENU_243)
+  assert.equal((await place(ids.b)).row, undefined)
+
+  // Found by the menu search by what people call it.
+  const me = await ok(as(A.owner, ids.a).get('/api/me'))
+  assert.equal(searchNavTree(me.nav_tree, 'reports')[0].route, '/reports')
+  assert.ok(searchNavTree(me.nav_tree, 'export to excel').some(r => r.route === '/reports'))
+  // Someone without the Reports module doesn't get the link.
+  const viewer = await ok(as(A.viewer, ids.a).get('/api/me'))
+  assert.ok(!routes(viewer.nav_tree).includes('/reports'))
 })
 
 test('a menu entry\'s own description is saved, shown and searched; over 260 characters is refused', async () => {

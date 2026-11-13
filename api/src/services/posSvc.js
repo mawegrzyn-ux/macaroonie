@@ -15,7 +15,7 @@
 // Every query filters tenant_id itself (RLS alone isn't enough here).
 
 import crypto from 'node:crypto'
-import { withTenant } from '../config/db.js'
+import { withTenant, withSystem } from '../config/db.js'
 import { httpError } from '../middleware/error.js'
 import { loadMenuVersions } from './menuReleases.js'
 import { loadOrderFlows, withLookFor } from './orderFlowSvc.js'
@@ -26,7 +26,7 @@ import { fillReconDay, reconFields } from './reconFill.js'
 import { createSequencer } from '../../../shared/pos/sequencer.js'
 import { checkTotals, isActiveLine, lineGross } from '../../../shared/pos/pricing.js'
 import { variantRules, itemChoices, isPriced } from '../../../shared/orderPricing.js'
-import { dayFigures } from '../../../shared/pos/reports.js'
+import { dayFigures, checkBreakdowns, CHECK_BREAKDOWNS_V } from '../../../shared/pos/reports.js'
 import { normalisePermissions, normaliseApprovals, DEFAULT_POS_ROLES } from '../../../shared/pos/permissions.js'
 import { normaliseDiscount } from '../../../shared/pos/discounts.js'
 import { normaliseCharge } from '../../../shared/pos/charges.js'
@@ -556,11 +556,12 @@ async function saveCheck(tx, tenantId, venueId, c, seq) {
     await tx`
       INSERT INTO pos_check_lines (id, tenant_id, venue_id, check_id, day_id, item_id, section_id, name, qty, gross, discount, net,
                                    vat_rate, vat, tax_rate_id, revenue_stream_id, course_id, seat, status, added_by, voided_by,
-                                   void_reason, void_day_id, sent_at)
+                                   void_reason, void_day_id, sent_at, voided_at, void_approved_by, void_waste)
       VALUES (${l.id}, ${tenantId}, ${venueId}, ${c.id}, ${c.day_id}, ${l.item_id}, ${l.section_id}, ${l.name}, ${l.qty},
               ${gross}, ${lt ? lt.discount : 0}, ${lt ? lt.net : 0}, ${l.vat_rate}, ${lt ? lt.vat : 0}, ${l.tax_rate_id ?? null},
               ${l.revenue_stream_id ?? c.revenue_stream_id ?? null}, ${l.course_id}, ${l.seat}, ${l.status}, ${l.added_by},
-              ${l.voided?.by ?? null}, ${l.voided?.reason ?? null}, ${l.voided?.day_id ?? null}, ${l.sent_at})
+              ${l.voided?.by ?? null}, ${l.voided?.reason ?? null}, ${l.voided?.day_id ?? null}, ${l.sent_at},
+              ${l.voided?.at ?? null}, ${asUuid(l.voided?.approved_by)}, ${l.voided ? l.voided.waste !== false : null})
       ON CONFLICT (id) DO NOTHING
     `
   }
@@ -574,12 +575,94 @@ async function saveCheck(tx, tenantId, venueId, c, seq) {
   }
   for (const r of c.refunds || []) {
     await tx`
-      INSERT INTO pos_payments (id, tenant_id, venue_id, check_id, day_id, kind, tender, amount, tip, staff_id, voided, reason, at)
+      INSERT INTO pos_payments (id, tenant_id, venue_id, check_id, day_id, kind, tender, amount, tip, staff_id, voided, reason, at, approved_by)
       VALUES (${r.id}, ${tenantId}, ${venueId}, ${c.id}, ${r.day_id}, 'refund', ${r.tender}, ${r.amount}, 0,
-              ${r.by}, false, ${r.reason}, ${r.at})
+              ${r.by}, false, ${r.reason}, ${r.at}, ${asUuid(r.approved_by)})
       ON CONFLICT (id) DO NOTHING
     `
   }
+  await saveCheckBreakdowns(tx, tenantId, venueId, c, t)
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const asUuid = v => (typeof v === 'string' && UUID.test(v) ? v : null)
+
+/**
+ * What reports read beside a check (migration 243): its discounts, charges
+ * and VAT by rate as rows, and who cancelled it and what it was worth as
+ * columns. All from checkBreakdowns() (shared/pos/reports.js), which reads
+ * checkTotals() the way the till's own day figures do, so a report never
+ * works a till figure out again in SQL. Rewritten whole on every save.
+ */
+async function saveCheckBreakdowns(tx, tenantId, venueId, c, totals) {
+  const b = checkBreakdowns(c, totals)
+  const own = { check_id: c.id, tenant_id: tenantId, venue_id: venueId, day_id: asUuid(c.day_id) }
+  await tx`DELETE FROM pos_check_discounts WHERE tenant_id = ${tenantId} AND check_id = ${c.id}`
+  await tx`DELETE FROM pos_check_charges WHERE tenant_id = ${tenantId} AND check_id = ${c.id}`
+  await tx`DELETE FROM pos_check_vat WHERE tenant_id = ${tenantId} AND check_id = ${c.id}`
+  if (b.discounts.length) await tx`INSERT INTO pos_check_discounts ${tx(b.discounts.map(d => ({ ...own, ...d })))}`
+  if (b.charges.length) await tx`INSERT INTO pos_check_charges ${tx(b.charges.map(x => ({ ...own, ...x })))}`
+  if (b.vat.length) await tx`INSERT INTO pos_check_vat ${tx(b.vat.map(v => ({ ...own, ...v })))}`
+  const x = b.cancelled
+  await tx`
+    UPDATE pos_checks
+       SET proj_v = ${CHECK_BREAKDOWNS_V},
+           cancelled_at = ${x?.at ?? null}, cancel_reason = ${x?.reason ?? null}, cancel_value = ${x ? x.value : null},
+           cancelled_by = ${x?.by ?? null}, cancel_approved_by = ${x?.approved_by ?? null}, cancel_day_id = ${x?.day_id ?? null}
+     WHERE tenant_id = ${tenantId} AND id = ${c.id}`
+}
+
+/**
+ * Checks stored before migration 243 get their breakdowns here, once, when
+ * the API starts: a venue at a time under its sequencer's lock (so no event
+ * rewrites a check half way), a batch per transaction, one process at a
+ * time. Only the breakdowns and the void and refund details are written;
+ * the check itself isn't touched.
+ */
+export async function backfillCheckProjections(log, { batch = 200, max = 1e9 } = {}) {
+  let done = 0
+  for (;;) {
+    const n = await withSystem(async tx => {
+      const [lock] = await tx`SELECT pg_try_advisory_xact_lock(hashtext('pos:check-breakdowns')) AS ok`
+      if (!lock.ok) return -1
+      const [v] = await tx`SELECT tenant_id, venue_id FROM pos_checks WHERE proj_v < ${CHECK_BREAKDOWNS_V} LIMIT 1`
+      if (!v) return 0
+      await tx`SELECT pg_advisory_xact_lock(hashtext(${'pos:' + v.venue_id}))`
+      const rows = await tx`
+        SELECT id, state FROM pos_checks
+         WHERE tenant_id = ${v.tenant_id} AND venue_id = ${v.venue_id} AND proj_v < ${CHECK_BREAKDOWNS_V}
+         ORDER BY id LIMIT ${batch}`
+      for (const r of rows) {
+        const c = r.state
+        try {
+          await tx.savepoint(async sp => {
+            for (const l of c.lines || []) {
+              if (!l.voided) continue
+              await sp`
+                UPDATE pos_check_lines
+                   SET voided_at = ${l.voided.at ?? null}, void_approved_by = ${asUuid(l.voided.approved_by)}, void_waste = ${l.voided.waste !== false}
+                 WHERE tenant_id = ${v.tenant_id} AND id = ${l.id}`
+            }
+            for (const x of c.refunds || []) {
+              if (!asUuid(x.approved_by)) continue
+              await sp`UPDATE pos_payments SET approved_by = ${x.approved_by} WHERE tenant_id = ${v.tenant_id} AND id = ${x.id}`
+            }
+            await saveCheckBreakdowns(sp, v.tenant_id, v.venue_id, c, checkTotals(c))
+          })
+        } catch (err) {
+          // A check that can't be read is left without breakdowns and not tried again.
+          log?.warn({ err, check_id: r.id }, 'Till check breakdowns: a check was skipped')
+          await tx`UPDATE pos_checks SET proj_v = ${CHECK_BREAKDOWNS_V} WHERE tenant_id = ${v.tenant_id} AND id = ${r.id}`
+        }
+      }
+      return rows.length
+    })
+    if (n <= 0) break
+    done += n
+    if (done >= max) break
+  }
+  if (done) log?.info({ checks: done }, 'Till check breakdowns filled in for reports')
+  return done
 }
 
 /** Every check a day's figures need: opened that day, or with money or a void that day. */

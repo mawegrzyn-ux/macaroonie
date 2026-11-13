@@ -40,6 +40,7 @@ const SECTIONS = [
   { id: 'ai-assistant', label: 'Pepper (AI assistant) & MCP' },
   { id: 'ops-today', label: 'Today (the ops front door)' },
   { id: 'local-info', label: 'Local info' },
+  { id: 'reports', label: 'Reports (report builder)' },
   { id: 'store-openings', label: 'New locations (store openings)' },
   { id: 'menus',        label: 'Menus' },
   { id: 'combos',       label: 'Combos' },
@@ -8116,6 +8117,252 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               customer endpoints) or swap the provider in <Mono>captureWeather()</Mono>. Searches store what the
               model read on a page: dates can be wrong or stale, which is why every captured item keeps its source
               link and can be hidden. No push or alerting; the calendar is pull-only.
+            </InfoBox>
+          </section>
+
+          <section id="reports" data-doc="">
+            <H2>Reports (report builder)</H2>
+            <P>
+              Migration 243. The plan is <Mono>docs/REPORTS.md</Mono>; this section is what is built so far: its
+              groundwork and the engine with a first viewer (till sales, online orders and bookings). One engine
+              serves every way of making a report: a report is a JSON definition, checked by one shared function,
+              looked up in a data catalogue kept in code, turned into SQL by the server and run as the person
+              looking at it, inside their tenant, read only. Nobody writes SQL and no report holds any.
+            </P>
+
+            <H3>The definition</H3>
+            <P>
+              <Mono>shared/reports/spec.js</Mono>. <Mono>normaliseReport(raw)</Mono> returns the one known shape
+              from anything (never throws) and <Mono>reportProblems(spec)</Mono> lists what is wrong with it as
+              sentences; a definition is stored (<Mono>reports.spec</Mono>) and run only after both. Version 1:
+            </P>
+            <Code>{`{ version: 1, kind: 'list' | 'summary' | 'matrix', subject: 'till.lines',
+  params:  [{ key, type: 'period' | 'venues' | 'value', label, default }],
+  rows:    ['section.name', { field: 'date', bucket: 'week' }],   // groupings (a list's columns)
+  columns: [{ field: 'sent_at', bucket: 'hour' }],                 // a matrix's column groupings (2 at most)
+  values:  [{ measure: 'net_sales' }, { agg: 'count' }, { agg: 'sum', field: 'qty' },
+            { calc: 'net_sales / total(net_sales)', label: 'Share', format: 'percent' }],
+  filters: [{ field: 'date', op: 'in_period', param: 'period' }, { field: 'venue', op: 'in', param: 'venues' },
+            { any: [...] }, { all: [...] }, { has: 'payments', where: [...], not: false }],
+  sort:    [{ by: 'net_sales', dir: 'desc' }],
+  limit:   { top: 25, rest_as: 'Every other dish' },
+  totals:  { grand: true, subtotals: ['section.name'] },
+  compare: { with: 'previous_period' | 'last_year' },             // summaries only
+  drill:   { down: [...], rows: [...] },
+  view:    { kind: 'table' | 'bar' | 'line' | 'area' | 'combo' | 'pie' | 'ring' | 'figures' | 'heat' } }`}</Code>
+            <P>
+              The kind is worked out from the parts when it isn&apos;t given (columns: matrix; else values: summary;
+              else list), and a part that makes no sense with the rest is dropped (a list&apos;s values, a
+              summary&apos;s columns). A path walks the catalogue&apos;s links (<Mono>check.server.name</Mono>,
+              four links at most). <Mono>LIMITS</Mono> caps every list (8 row groupings, 30 list columns, 20 values,
+              30 filters three deep, 12 parameters, top 500). Beside it: <Mono>period.js</Mono> (named periods and
+              what they mean on a day: <Mono>resolvePeriod()</Mono>, Monday weeks, <Mono>comparePeriod()</Mono>,{' '}
+              <Mono>periodText()</Mono>, <Mono>todayIn(tz)</Mono>), <Mono>expr.js</Mono> (a calculation&apos;s small
+              language: <Mono>parseExpr()</Mono>, <Mono>exprProblem()</Mono>, <Mono>evalExpr()</Mono>,{' '}
+              <Mono>exprToSql()</Mono>; arithmetic, comparisons, <Mono>round</Mono>, <Mono>abs</Mono>, <Mono>min</Mono>,{' '}
+              <Mono>max</Mono>, <Mono>if</Mono>, and over a summary&apos;s rows <Mono>total</Mono>, <Mono>running</Mono>,{' '}
+              <Mono>rank</Mono>, <Mono>change</Mono>, <Mono>previous</Mono>; never SQL), <Mono>paths.js</Mono> (<Mono>resolvePath()</Mono>,{' '}
+              <Mono>pathLabel()</Mono>: a column&apos;s heading, <Mono>bucketsFor()</Mono>),{' '}
+              <Mono>format.js</Mono> (<Mono>formatValue()</Mono> for the page, <Mono>plainValue()</Mono> /{' '}
+              <Mono>plainHeading()</Mono> / <Mono>csvCell()</Mono> for files) and <Mono>drill.js</Mono>{' '}
+              (<Mono>cleanDrill()</Mono>, <Mono>drillSpec()</Mono>: the definition a drill step runs, made by the
+              server from the report&apos;s own). The admin imports them as <Mono>@shared/reports/...</Mono>.
+            </P>
+
+            <H3>The data catalogue</H3>
+            <P>
+              <Mono>api/src/reports/catalogue/</Mono>: the only place table and column names come from. A subject
+              (<Mono>subject()</Mono> in <Mono>define.js</Mono>) names its table or sub-select, the rows that count,
+              the module that may report on it, its built-in <Mono>venue</Mono> link and <Mono>date</Mono> field,
+              fields (<Mono>text</Mono>, <Mono>number</Mono>, <Mono>money</Mono>, <Mono>percent</Mono>,{' '}
+              <Mono>yesno</Mono>, <Mono>choice</Mono>, <Mono>moment</Mono>, <Mono>duration</Mono>; options{' '}
+              <Mono>pii</Mono>, <Mono>needs</Mono>, <Mono>adds</Mono>), measures (<Mono>sum</Mono>,{' '}
+              <Mono>avg</Mono>, <Mono>count</Mono>, <Mono>countDistinct</Mono>, <Mono>ratio</Mono>, each with an
+              optional <Mono>where</Mono>) and links (<Mono>one</Mono>, <Mono>many</Mono>). SQL is written as
+              templates: <Mono>{'{t}'}</Mono> the subject&apos;s row, <Mono>{'{linkname}'}</Mono> a joined row,{' '}
+              <Mono>{'{tz}'}</Mono> the row&apos;s venue&apos;s time zone. Values leave in everyday units (money in
+              pounds, a percentage as a fraction, a duration in seconds, a day as YYYY-MM-DD, a moment as the
+              venue&apos;s wall time). <Mono>index.js</Mono> puts the subjects together and checks them when the API
+              starts (a link to nothing, a template naming a link the subject lacks: the start fails, never a
+              report): <Mono>CATALOGUE</Mono>, <Mono>AREAS</Mono>, <Mono>catalogueView(levels)</Mono> (what the
+              browser gets: labels, types and links, no SQL, only what the role may see),{' '}
+              <Mono>canReportOn()</Mono>, <Mono>canSee()</Mono>, <Mono>listColumns()</Mono>.
+            </P>
+            <DataTable
+              head={['Area (module)', 'Subjects']}
+              rows={[
+                ['Till sales (pos_reports)', 'till.days (trading days), till.checks, till.lines (dishes sold), till.voids, till.cancelled, till.payments, till.discounts, till.charges, till.vat, and to group by: till.takers (staff and kiosks), till.streams, till.order_types, till.courses'],
+                ['Online orders (web_orders)', 'online.orders, online.items, online.promotions, online.sales (own orders and GloriaFood in one list, each with its tender: the rules of onlineTransactions())'],
+                ['Bookings (bookings)', 'bookings.bookings, bookings.deposits, bookings.tables, bookings.sections'],
+                ['Shared', 'venue (no module), menu.menus / menu.sections / menu.dishes (menus), guests.customers (customers)'],
+              ]}
+            />
+            <P>
+              Every table in the database has a decision (<Mono>decisions.js</Mono>): read by a subject, planned for
+              a later phase (things that happen, or things to group by), settings, or left out with a reason.{' '}
+              <Mono>coverage.js</Mono> works out what the catalogue reads; <Mono>api/test/reports-catalogue.test.mjs</Mono>{' '}
+              compares both with <Mono>information_schema</Mono> and fails on a table with no decision and on an id
+              column of a catalogue table that no field, link or <Mono>skip</Mono> entry accounts for.{' '}
+              <Mono>node api/scripts/report-catalogue.js</Mono> prints where things stand, and with a table name or{' '}
+              <Mono>--area</Mono> drafts subjects from the columns, checks and foreign keys.
+            </P>
+
+            <H3>Figures with rules in code</H3>
+            <P>
+              A report never works out again what code already decides. The till: migration 243 stores three more
+              breakdowns per check, <Mono>pos_check_discounts</Mono>, <Mono>pos_check_charges</Mono> and{' '}
+              <Mono>pos_check_vat</Mono>, written by <Mono>saveCheckBreakdowns()</Mono> (<Mono>services/posSvc.js</Mono>,
+              on every check save) from <Mono>checkBreakdowns()</Mono> in <Mono>shared/pos/reports.js</Mono>, which
+              reads <Mono>checkTotals()</Mono> the way <Mono>dayFigures()</Mono> does; plus columns for a cancelled
+              order (<Mono>cancelled_at</Mono>, <Mono>cancel_reason</Mono>, <Mono>cancel_value</Mono>,{' '}
+              <Mono>cancelled_by</Mono>, <Mono>cancel_approved_by</Mono>, <Mono>cancel_day_id</Mono>), a void
+              (<Mono>voided_at</Mono>, <Mono>void_approved_by</Mono>, <Mono>void_waste</Mono>) and a refund&apos;s
+              approver. <Mono>pos_checks.proj_v</Mono> says which checks have them;{' '}
+              <Mono>backfillCheckProjections()</Mono> fills in older checks when the API starts (a venue at a time
+              under its sequencer lock, 200 a transaction, one process at a time). Online: what counts as a sale,
+              a GloriaFood order&apos;s trading day and each order&apos;s tender are written as SQL from{' '}
+              <Mono>services/onlineSalesSvc.js</Mono>&apos;s own lists (<Mono>OWN_COUNTED</Mono>,{' '}
+              <Mono>ownTenderKey()</Mono>, <Mono>TENDERS</Mono>). Bookings: the Bookings page&apos;s rule (cancelled
+              and no-shows aren&apos;t bookings or guests). Three reconciliation tests hold the reports against the
+              pages&apos; own routes for the same days: <Mono>reports-till.test.mjs</Mono> (the Z report&apos;s
+              figures), <Mono>reports-online.test.mjs</Mono> (<Mono>/api/orders/transactions</Mono> and{' '}
+              <Mono>/api/orders/report</Mono>) and <Mono>reports-bookings.test.mjs</Mono> (<Mono>/api/bookings</Mono>).
+            </P>
+
+            <H3>The engine</H3>
+            <P>
+              <Mono>api/src/reports/compile.js</Mono> (pure): <Mono>compileReport(spec, ctx)</Mono> looks every name
+              up in the catalogue and returns the statement(s) with numbered parameters. Every value a person gave
+              is a parameter, never text in the statement; <Mono>$1</Mono> is the tenant id, on the base rows and on
+              every joined row. A list is a SELECT with a totals statement; a summary is one statement with
+              GROUPING SETS (rows, each subtotal level and the grand total, so an average or a count of different
+              things is right at every level); a matrix adds the column groupings. A figure through a{' '}
+              <Mono>one</Mono> link may only be how many different, smallest or largest (a sum would count the
+              check once per line); through a <Mono>many</Mono> link it is added up per base row in a LATERAL
+              subquery first. A list column the role can&apos;t see is left out with a note; grouping, filtering or
+              sorting by one is refused (403). <Mono>run.js</Mono>: <Mono>runReport(ctx, spec, params, opts)</Mono>{' '}
+              runs the plan through <Mono>withReport()</Mono> (<Mono>config/db.js</Mono>: the report builder&apos;s own
+              pool <Mono>reportSql</Mono>, <Mono>REPORT_POOL_SIZE</Mono> 4, a REPEATABLE READ READ ONLY transaction
+              as the tenant with a statement timeout) and <Mono>shape.js</Mono> puts the rows in order (subtotals,
+              top N with everything else, compared periods, calculations, the matrix&apos;s cells and totals).
+            </P>
+            <DataTable
+              head={['Guard', 'What happens']}
+              rows={[
+                ['The definition has problems', '422 with each problem as a sentence (problems[])'],
+                ['The role may not report on the subject, or groups / filters / sorts by something it can\'t see', '403'],
+                ['Two reports already running for the group', 'Waits up to 5 s for one of two advisory-lock slots, then 429'],
+                ['The planner\'s cost estimate is over REPORT_MAX_COST (3,000,000; ten times that for a file)', '422 "narrow the period", before anything runs (EXPLAIN)'],
+                ['20 s on screen, 120 s for a file', '422 "took too long"'],
+                ['More than 5,000 rows in a list on screen', 'The first 5,000, meta.truncated and the full count; a file holds them all'],
+                ['The same person, definition and choices within a minute', 'The kept result (per process, 200 results); fresh: true reads again'],
+              ]}
+            />
+            <P>
+              A result: <Mono>{'{ kind, subject, spec, columns, rows, totals, meta }'}</Mono>. Columns carry{' '}
+              <Mono>key</Mono>, <Mono>label</Mono>, <Mono>type</Mono>, <Mono>role</Mono> (row | value | compare |
+              change | total), a choice&apos;s <Mono>labels</Mono>, <Mono>pii</Mono>, and for a matrix{' '}
+              <Mono>group</Mono> (the heading above). Rows are <Mono>{'{ cells, kind: row | subtotal | rest, level, k }'}</Mono>;{' '}
+              <Mono>meta</Mono> has the period and its words, the compared period, currency, time zone, today at the
+              venues, <Mono>row_count</Mono>, <Mono>truncated</Mono> and <Mono>notes</Mono>. A cell is 0 where rows
+              exist but none count for the figure, and empty where there are no rows.
+            </P>
+
+            <H3>Who may do what</H3>
+            <P>
+              Module <Mono>reports</Mono> (group <Mono>reports</Mono>; View, Use and Manage; owner and admin Manage,
+              operator View, viewer none). <Mono>api/src/reports/access.js</Mono>: <Mono>reportPerson(req)</Mono>{' '}
+              (the caller&apos;s level on Reports and on every catalogue module), <Mono>rightsOn(row, person)</Mono>{' '}
+              and the same rule as SQL in <Mono>openTo()</Mono> (open: Manage, the owner, shared with everyone or
+              with the person&apos;s role, or a starter the group offers; edit: Manage, or the owner with Use; share:
+              Manage), <Mono>runsFor(subject, levels)</Mono> (<Mono>runs</Mono>, else <Mono>needs</Mono>: the area
+              the role lacks), <Mono>checkedSpec()</Mono>, <Mono>refuseOtherVenues()</Mono> (a definition or a run
+              naming another group&apos;s venue: 404, as everywhere), <Mono>recordRun()</Mono>. What data a person
+              sees is never stored on a report: every run is compiled against the runner&apos;s own module levels, so
+              a shared report shows each person only what their role may see.
+            </P>
+
+            <H3>Routes</H3>
+            <DataTable
+              head={['Route (/api/reports)', 'Level', 'What it does']}
+              rows={[
+                ['GET /catalogue', 'View', 'The subjects, fields, measures and links the person may report on'],
+                ['GET /', 'View', 'reports (saved ones the person can open), starters (each with runs / needs), areas'],
+                ['POST /', 'Use', 'Save a new report (300 per person)'],
+                ['POST /preview', 'Use', 'Run a definition that isn\'t saved (rows 1 to 5000, 200 unless given); not recorded'],
+                ['POST /export', 'Use', 'A CSV or Excel file of a definition that isn\'t saved'],
+                ['GET /:id', 'View', 'One report with its definition, runs / needs and what the person may do with it'],
+                ['PUT /:id, DELETE /:id', 'Use', 'Its owner, or Manage'],
+                ['PATCH /:id/sharing', 'Manage', 'shared private | roles | everyone, role_ids (the group\'s own), is_starter'],
+                ['POST /:id/run', 'View', 'params (the period, venues and other choices), drill (steps, 10 at most), fresh'],
+                ['POST /:id/export', 'Use', 'format csv | xlsx, params, drill'],
+                ['POST /:id/copy', 'Use', 'A copy of a report or a starter as the person\'s own'],
+                ['POST /:id/star, DELETE /:id/star', 'View', 'The person\'s own stars (report_stars)'],
+              ]}
+            />
+            <P>
+              <Mono>:id</Mono> is a saved report&apos;s id or <Mono>starter:&lt;key&gt;</Mono>. Tables{' '}
+              <Mono>reports</Mono>, <Mono>report_stars</Mono> and <Mono>report_runs</Mono> (forced RLS). A run or a
+              file is recorded in <Mono>report_runs</Mono> (who, which report, rows, milliseconds, any error) with
+              the period and venues it was run for; any other choice is kept as a number or yes / no, typed words
+              only as <Mono>{'{ set: true }'}</Mono>, and a drill as the fields it went through without their
+              values. Records go after 400 days (<Mono>cleanUpReportRuns()</Mono>, hourly with the AI clean-up).
+            </P>
+
+            <H3>Files</H3>
+            <P>
+              <Mono>api/src/reports/export/</Mono>. <Mono>table.js</Mono> turns a result into headings and plain
+              cells (<Mono>resultTable()</Mono>: Subtotal and Total labelled, everything else as its words, units in
+              the headings; <Mono>fileName()</Mono>). <Mono>csv.js</Mono>: UTF-8 with a byte order mark, CRLF, text
+              cells made safe against formulas; a list is streamed a thousand rows at a time from a cursor (up to
+              250,000 rows, the last line saying so when cut), a summary or matrix written from its result.{' '}
+              <Mono>xlsx.js</Mono> (SheetJS): real numbers, percentages and dates with formats, column widths and an
+              About sheet (report, period, venues, who and when, notes); built in memory, so 200,000 cells at most,
+              a longer list cut with a note on the About sheet. A list&apos;s file has no totals row. The admin
+              downloads with <Mono>api.postDownload(path, body, fallbackName)</Mono> (<Mono>lib/api.js</Mono>).
+            </P>
+
+            <H3>Starter reports</H3>
+            <P>
+              <Mono>api/src/reports/starters/</Mono>: 28 definitions in code (<Mono>till.js</Mono> 15,{' '}
+              <Mono>online.js</Mono> 6, <Mono>bookings.js</Mono> 7), each made with <Mono>starter()</Mono>{' '}
+              (<Mono>define.js</Mono>: adds the <Mono>period</Mono> and <Mono>venues</Mono> parameters and their
+              filters) and checked when the API starts: one that <Mono>normaliseReport()</Mono> would change, or
+              that has a problem, stops the start. They are never rows in <Mono>reports</Mono>; a copy is. A starter
+              on an area the role can&apos;t see is still listed, with <Mono>runs: false</Mono> and what it needs.
+            </P>
+
+            <H3>Admin pages</H3>
+            <P>
+              <Mono>pages/Reports.jsx</Mono> (<Mono>/reports</Mono>, Home menu after Dashboards: search, area
+              buttons, Starred / Your reports / From your team / Starter reports by area, stars) and{' '}
+              <Mono>pages/ReportView.jsx</Mono> (<Mono>/reports/:id</Mono>: the period and venues for this visit
+              only, the result, notes, Refresh, CSV and Excel with Use, Delete for a saved report). Components in{' '}
+              <Mono>components/reports/</Mono>: <Mono>ResultTable</Mono> (one drawing for list, summary and matrix;
+              sticky headings, first column and totals), <Mono>PeriodPicker</Mono> (named periods and two dates
+              from <Mono>shared/reports/period.js</Mono>), <Mono>VenuesPicker</Mono>, <Mono>shared.jsx</Mono>{' '}
+              (<Mono>StarButton</Mono>, <Mono>reportPath()</Mono>, <Mono>retryUnlessRefused</Mono>: the pages&apos;
+              queries don&apos;t try a refusal again, so no access or no such report shows at once). Someone with
+              Manage sees other people&apos;s private reports under From your team, marked Not shared. Both pages
+              load as their own chunks.
+            </P>
+
+            <InfoBox>
+              <strong>Not built yet.</strong> The builder (making and saving a report on screen), charts, drill-down
+              on the page (the routes take <Mono>drill</Mono>), inputs for value parameters, copy / rename / share
+              on the page and the print page come next; then Pepper, the other modules with stored results for
+              rota pay and tips, cash variance and H&amp;S status, layouts and PDFs with schedules and email, and
+              data links. The plan&apos;s private file store moves to the phase that first keeps files. Limits of what
+              is here: a filter naming a parameter the report doesn&apos;t have is dropped by{' '}
+              <Mono>normaliseReport()</Mono> without a word; everything else shows only when the definition gives{' '}
+              <Mono>limit.rest_as</Mono>; grouping by a link itself isn&apos;t offered; the kept results are per API
+              process (another process reads again), while the two running slots are database locks shared by
+              every process; the Bookings list route puts a booking on the
+              database&apos;s day while reports use the venue&apos;s (they differ only between midnight and 1am in
+              summer time); a named period (Today, Yesterday) is the calendar day at the venues while till
+              subjects are dated by their trading day (<Mono>pos_days.business_date</Mono>), so between midnight
+              and the trading day&apos;s start tonight&apos;s sales are under Yesterday; platform-wide starters live in
+              code, not in a table.
             </InfoBox>
           </section>
 

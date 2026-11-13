@@ -31,7 +31,7 @@ const MAX_ROWS = 20000   // per source; more sets `truncated`
 
 // One list of tenders across both sources, so "Cash" is one line whichever
 // system took it.
-const TENDERS = {
+export const TENDERS = {
   cash:         'Cash',
   card_counter: 'Card at the counter',
   card_phone:   'Card by phone',
@@ -42,12 +42,12 @@ const TENDERS = {
 
 export const SOURCES = { web: 'Online ordering', gloriafood: 'GloriaFood' }
 
-const OWN_STATUS = {
+export const OWN_STATUS = {
   placed: 'Placed', accepted: 'Accepted', preparing: 'Preparing', ready: 'Ready',
   completed: 'Collected', rejected: 'Rejected', cancelled: 'Cancelled',
 }
-const OWN_COUNTED = new Set(['placed', 'accepted', 'preparing', 'ready', 'completed'])
-const OWN_FULFILMENT = { collection: 'Collection', delivery: 'Delivery', eat_in: 'Eat in' }
+export const OWN_COUNTED = new Set(['placed', 'accepted', 'preparing', 'ready', 'completed'])
+export const OWN_FULFILMENT = { collection: 'Collection', delivery: 'Delivery', eat_in: 'Eat in' }
 
 /** Our own payment method (gateway or counter method) as a tender key. */
 export function ownTenderKey(gateway) {

@@ -41,11 +41,13 @@ export function errorResponse(err) {
 
   // Known application errors thrown as { statusCode, message }
   // (`code` / `errors` pass through when set, e.g. web ordering's
-  // 'slot_unavailable' and per-line basket errors.)
+  // 'slot_unavailable' and per-line basket errors; `problems` are a
+  // report's reasons as sentences, src/reports/compile.js ReportError.)
   if (err.statusCode) {
     const body = { error: err.message }
     if (typeof err.code === 'string') body.code = err.code
     if (Array.isArray(err.errors)) body.errors = err.errors
+    if (Array.isArray(err.problems)) body.problems = err.problems.filter(x => typeof x === 'string').slice(0, 20)
     if (err.extra) Object.assign(body, err.extra)
     return { status: err.statusCode, body }
   }

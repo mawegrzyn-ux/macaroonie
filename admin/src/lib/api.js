@@ -135,6 +135,30 @@ export function useApi() {
     return res.blob()
   }, [getAccessTokenSilently])
 
+  // postDownload: POSTs JSON and saves the file the API sends back under the
+  // name the API gave it (content-disposition), else `fallbackName`.
+  const postDownload = useCallback(async (path, body, fallbackName) => {
+    const token = await getAccessTokenSilently()
+    const res   = await fetch(`${BASE}${path}`, {
+      method: 'POST',
+      headers: authHeaders(token, { 'Content-Type': 'application/json' }),
+      body: JSON.stringify(body ?? {}),
+    })
+    if (!res.ok) throw new ApiError(res.status, await res.json().catch(() => null))
+    const named = /filename="([^"]+)"/.exec(res.headers.get('content-disposition') || '')
+    const blob  = await res.blob()
+    const url   = URL.createObjectURL(blob)
+    const a     = document.createElement('a')
+    a.href      = url
+    a.download  = named?.[1] || fallbackName || 'download'
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    // Some browsers start the save after this tick: let go of the blob later.
+    setTimeout(() => URL.revokeObjectURL(url), 30000)
+    return a.download
+  }, [getAccessTokenSilently])
+
   // stream: POSTs JSON asking for server-sent events and calls onEvent with
   // each one ({ type, ...data }). Resolves with the `done` event's data;
   // rejects with the `error` event's (an ApiError), or with status 0 and
@@ -167,6 +191,7 @@ export function useApi() {
     upload,
     blob,
     postBlob,
+    postDownload,
     stream,
   }
 }

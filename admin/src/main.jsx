@@ -57,6 +57,9 @@ import WidgetTest  from '@/pages/WidgetTest'
 // worker's precache limit (vite.config.js maximumFileSizeToCacheInBytes).
 const Docs = React.lazy(() => import('@/pages/Docs'))
 const Help = React.lazy(() => import('@/pages/Help'))
+// Reports: opened by some roles only, so kept out of the main bundle too.
+const Reports = React.lazy(() => import('@/pages/Reports'))
+const ReportView = React.lazy(() => import('@/pages/ReportView'))
 const LoadingPage = () => <div className="p-6 text-sm text-muted-foreground">Loading…</div>
 import Settings    from '@/pages/Settings'
 import Website     from '@/pages/Website'
@@ -238,6 +241,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(
               <Route element={IS_INSTALLER_HOST ? <Navigate to="/install" replace /> : IS_OPS_HOST ? <Navigate to="/mobile" replace /> : <AppShell />}>
                 <Route index          element={<Dashboard />} />
                 <Route path="dashboards" element={<Dashboards />} />
+                <Route path="reports"     element={<React.Suspense fallback={<LoadingPage />}><Reports /></React.Suspense>} />
+                <Route path="reports/:id" element={<React.Suspense fallback={<LoadingPage />}><ReportView /></React.Suspense>} />
                 <Route path="today"      element={<OpsToday />} />
                 <Route path="local-info" element={<LocalInfo />} />
                 <Route path="timeline" element={<Timeline />} />
