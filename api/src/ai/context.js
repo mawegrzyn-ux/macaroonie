@@ -52,8 +52,8 @@ export const isChat  = ctx => ctx.channel === 'staff_chat' || ctx.channel === 'g
 
 /** In-process call to one of our own routes. Throws ToolError on 4xx/5xx
  *  with the route's own message. */
-export async function callApi(ctx, method, url, { body } = {}) {
-  const headers = { [INTERNAL_CALL_HEADER]: INTERNAL_CALL_SECRET }
+export async function callApi(ctx, method, url, { body, headers: extra } = {}) {
+  const headers = { ...extra, [INTERNAL_CALL_HEADER]: INTERNAL_CALL_SECRET }
   if (body !== undefined) headers['content-type'] = 'application/json'
   if (isStaff(ctx) && ctx.auth?.authorization) {
     headers.authorization = ctx.auth.authorization
@@ -91,6 +91,7 @@ const DENIED = {
   web_orders:    { view: 'see online orders',         manage: 'change online orders' },
   pos_reports:   { view: 'see till reports',          manage: 'change till reports' },
   pos_setup:     { view: 'see till setup',            manage: 'change till setup' },
+  reports:       { view: 'see reports',               use: 'build, save, change or delete reports', manage: 'share reports or offer them to the team' },
 }
 
 // Any other module is named by its label from the module registry.

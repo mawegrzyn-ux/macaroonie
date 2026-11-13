@@ -194,7 +194,7 @@ export function rankSubjects(catalogue, request, pinned = null) {
 
 const AGG_WORDS = { sum: 'sum', avg: 'avg', min: 'min', max: 'max', count_distinct: 'count-different' }
 
-function usesText(u) {
+export function usesText(u) {
   const out = []
   if (u.values.some(v => v.measure)) out.push('figure')
   if (u.group) out.push(u.buckets.length ? 'group (' + u.buckets.join('/') + ')' : 'group')
@@ -205,7 +205,7 @@ function usesText(u) {
   return out.join(', ')
 }
 
-function typeText(catalogue, subjectKey, n) {
+export function typeText(catalogue, subjectKey, n) {
   if (n.what === 'link') return 'a thing'
   if (n.type === 'yesno') return 'yes/no'
   if (n.type === 'choice') {

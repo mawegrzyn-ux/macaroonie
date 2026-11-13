@@ -51,8 +51,8 @@ export default [
       unallocated: yesno('is_unallocated', { label: 'The Unallocated row' }),
     },
     measures: {
-      tables: count({ label: 'Tables', where: '{t}.is_active AND NOT {t}.is_unallocated' }),
-      seats: sum('max_covers', { label: 'Seats', where: '{t}.is_active AND NOT {t}.is_unallocated' }),
+      tables: count({ label: 'Tables', where: '{t}.is_active AND NOT {t}.is_unallocated', about: 'Tables in use (the Unallocated row isn\'t a table).' }),
+      seats: sum('max_covers', { label: 'Seats', where: '{t}.is_active AND NOT {t}.is_unallocated', about: 'The most guests the tables in use take.' }),
     },
     links: {
       section: one('bookings.sections', 'section_id', { label: 'Section' }),
@@ -109,15 +109,15 @@ export default [
     },
     measures: {
       bookings: count({ label: 'Bookings', where: LIVE, about: 'Not counting cancelled bookings and no-shows.' }),
-      guests: sum('covers', { label: 'Guests', where: LIVE }),
+      guests: sum('covers', { label: 'Guests', where: LIVE, about: 'Guests booked, not counting cancelled bookings and no-shows.' }),
       made: count({ label: 'Bookings made', about: 'Every booking, cancelled ones and no-shows included.' }),
-      cancelled: count({ label: 'Cancelled', where: "{t}.status = 'cancelled'" }),
-      no_shows: count({ label: 'No-shows', where: "{t}.status = 'no_show'" }),
-      expected: count({ label: 'Bookings not cancelled', where: "{t}.status <> 'cancelled'" }),
+      cancelled: count({ label: 'Cancelled', where: "{t}.status = 'cancelled'", about: 'Bookings cancelled.' }),
+      no_shows: count({ label: 'No-shows', where: "{t}.status = 'no_show'", about: 'Bookings marked as no-shows.' }),
+      expected: count({ label: 'Bookings not cancelled', where: "{t}.status <> 'cancelled'", about: 'Every booking but the cancelled ones; no-shows included.' }),
       no_show_rate: ratio('no_shows', 'expected', { type: 'percent', label: 'No-show rate', about: 'No-shows out of the bookings that weren\'t cancelled.' }),
-      cancel_rate: ratio('cancelled', 'made', { type: 'percent', label: 'Cancelled rate' }),
-      average_party: ratio('guests', 'bookings', { label: 'Average party', decimals: 1 }),
-      average_lead: avg({ sql: LEAD }, { label: 'Average days ahead', decimals: 1, where: LIVE }),
+      cancel_rate: ratio('cancelled', 'made', { type: 'percent', label: 'Cancelled rate', about: 'Cancelled bookings out of every booking made.' }),
+      average_party: ratio('guests', 'bookings', { label: 'Average party', decimals: 1, about: 'Guests divided by bookings, not counting cancelled bookings and no-shows.' }),
+      average_lead: avg({ sql: LEAD }, { label: 'Average days ahead', decimals: 1, where: LIVE, about: 'How many days before their day bookings were made, on average; cancelled bookings and no-shows left out.' }),
     },
     links: {
       table: one('bookings.tables', 'table_id', { label: 'Table' }),
@@ -153,10 +153,10 @@ export default [
       refund_hours: number('refund_hours_before', { label: 'Refunded if cancelled this many hours before', decimals: 0 }),
     },
     measures: {
-      deposits: count({ label: 'Deposits', where: PAID }),
-      taken: sum('amount', { type: 'money', unit: 'pounds', label: 'Deposits taken', where: PAID }),
-      refunded_total: sum('refunded_amount', { type: 'money', unit: 'pounds', label: 'Refunded', where: PAID }),
-      kept_total: sum({ sql: '({t}.amount - {t}.refunded_amount)' }, { type: 'money', unit: 'pounds', label: 'Kept', where: PAID }),
+      deposits: count({ label: 'Deposits', where: PAID, about: 'Deposits paid (refunded ones included).' }),
+      taken: sum('amount', { type: 'money', unit: 'pounds', label: 'Deposits taken', where: PAID, about: 'What the deposits paid came to, before refunds.' }),
+      refunded_total: sum('refunded_amount', { type: 'money', unit: 'pounds', label: 'Refunded', where: PAID, about: 'What was given back of the deposits.' }),
+      kept_total: sum({ sql: '({t}.amount - {t}.refunded_amount)' }, { type: 'money', unit: 'pounds', label: 'Kept', where: PAID, about: 'Deposits taken less what was refunded.' }),
     },
     links: {
       booking: one('bookings.bookings', 'booking_id', { label: 'Booking' }),

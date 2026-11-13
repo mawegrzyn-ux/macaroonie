@@ -27,6 +27,8 @@
 //                            ([{ id, name, timezone, is_active }]): names in
 //                            requests and plans are matched among these
 //   recordRun(person, run)   one row of report_runs (never throws)
+//   limitPepperRuns(person)  429 once Pepper has run PEPPER_RUNS_PER_MINUTE
+//                            reports for the person in the last minute
 //   cleanUpReportRuns()      hourly: run records after 400 days
 //   cleanUpPrintLinks()      hourly: print links a day after they ran out
 
@@ -172,12 +174,18 @@ const drillRecord = steps => (steps || []).map(s => ({
 
 /**
  * Record a run or a file. `run`: { kind: 'run' | 'export', format, saved (a
- * reports row) | starter, name, spec, params, drill, rows, ms, error }.
- * Never throws: a report that ran is not failed by its record.
+ * reports row) | starter, name, spec, params, drill, rows, ms, error, via }.
+ * `via` 'pepper': run by Pepper's report tools (src/ai/tools/reports.js),
+ * which limitPepperRuns() counts. Never throws: a report that ran is not
+ * failed by its record.
  */
 export async function recordRun(p, run, log) {
   try {
-    const params = { params: recordable(run.spec, run.params), ...(run.drill?.length ? { drill: drillRecord(run.drill) } : {}) }
+    const params = {
+      params: recordable(run.spec, run.params),
+      ...(run.drill?.length ? { drill: drillRecord(run.drill) } : {}),
+      ...(run.via ? { via: run.via } : {}),
+    }
     await withTenant(p.tenantId, async tx => {
       await tx`
         INSERT INTO report_runs (tenant_id, report_id, starter_key, report_name, subject, kind, format,
@@ -194,6 +202,26 @@ export async function recordRun(p, run, log) {
     })
   } catch (err) {
     log?.warn({ err }, 'A report run wasn\'t recorded')
+  }
+}
+
+// How many reports Pepper may run for one person in a minute (docs/REPORTS.md
+// 16): a chat that keeps calling run_report or ask_data stops here, not at
+// the database. Counted from report_runs, which every API process writes (a
+// count kept in memory would be each process's own).
+export const PEPPER_RUNS_PER_MINUTE = 20
+// The header Pepper's report tools send with a run (src/ai/tools/reports.js).
+// Believed only beside the internal-call secret, which never leaves the
+// server, so a browser can't mark its runs as Pepper's or dodge the limit.
+export const PEPPER_HEADER = 'x-maca-via'
+
+export async function limitPepperRuns(p) {
+  const [{ n }] = await withTenant(p.tenantId, tx => tx`
+    SELECT count(*)::int AS n FROM report_runs
+     WHERE tenant_id = ${p.tenantId} AND user_sub = ${p.sub}
+       AND created_at > now() - interval '1 minute' AND params->>'via' = 'pepper'`)
+  if (n >= PEPPER_RUNS_PER_MINUTE) {
+    throw httpError(429, 'Pepper has run ' + PEPPER_RUNS_PER_MINUTE + ' reports for you in the last minute. Wait a moment, then ask again')
   }
 }
 
