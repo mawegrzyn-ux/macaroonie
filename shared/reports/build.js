@@ -9,8 +9,9 @@
 //   dataTree()    everything a person can pick from, as the Data panel shows
 //                 it; searchTree() finds in it
 //   the edits     addRow(), addColumn(), addValue(), setKind(), setFilter(),
-//                 addDrillLevel() and the rest: each gives back a whole
-//                 definition, checked
+//                 addDrillLevel(), setView() and the rest: each gives back
+//                 a whole definition, checked
+//   viewOptions() what the Chart part offers for a report as it stands
 //   the words     rowName(), valueName(), filterWords(), filterParts(),
 //                 paramWords(): what a shelf or a choice says
 //   paramInputs() what a report asks for when it is opened
@@ -26,6 +27,7 @@ import { periodName, isYmd } from './period.js'
 import {
   normaliseReport, newReport, rowId, rankKey, OPS_BY_TYPE, BUCKET_OPS, OP_LABELS, AGG_LABELS, LIMITS,
 } from './spec.js'
+import { chartChoices, chartValues } from './chart.js'
 
 const lowerFirst = s => (s && /^[A-Z][a-z]/.test(s) ? s[0].toLowerCase() + s.slice(1) : s)
 const arr = v => (Array.isArray(v) ? v : [])
@@ -680,6 +682,90 @@ export function compareProblem(catalogue, spec) {
   const label = catalogue?.subjects?.[spec.subject]?.fields?.date?.label
   if (!label) return catalogue?.subjects?.[spec.subject]?.label + ' have no day of their own to compare by'
   return 'Comparing needs the report\'s period: add the filter "' + label + ' is in ..."'
+}
+
+// ── How it is shown: a chart above the table ─────────────────
+// docs/REPORTS.md 12. The definition's `view` says which kind of chart
+// (shared/reports/chart.js draws it) and what of the report it draws:
+//
+//   { kind, x, y: [value key], line, stacked, sideways, table_below }
+//
+// `kind: 'table'` is no chart at all, and keeps none of the rest.
+
+const sameView = (a, b) => JSON.stringify(a || null) === JSON.stringify(b || null)
+
+/**
+ * The report with its view changed: `patch` is laid over the view it has.
+ * What doesn't fit the report is dropped by the definition's own check (a
+ * value it doesn't have, a grouping that isn't one of its rows), so the
+ * view can be given back what it had before without care. The same object
+ * comes back when nothing changes.
+ */
+export function setView(spec, patch) {
+  const next = normaliseReport({ ...spec, view: { ...(spec.view || {}), ...(patch || {}) } })
+  return sameView(next.view, spec.view) ? spec : next
+}
+
+/**
+ * What the Chart part of the builder offers for a report as it stands:
+ *
+ *   { kind                 the view's kind ('table': no chart)
+ *     kinds                [{ kind, label, ok, why }] of chartChoices()
+ *     why                  why the kind chosen can't be drawn right now, or null
+ *     values               [{ key, label }] the values shown, in their order
+ *     pick                 how the values to draw are picked:
+ *                            'none'   there is nothing to pick (one value, or no chart)
+ *                            'one'    one value at a time
+ *                            'many'   any of them, at least one
+ *                            'combo'  one for the line, any of the others for the bars
+ *     ys                   the keys drawn (as bars, for 'combo'), defaults filled in
+ *     line                 the line's key ('combo')
+ *     xs                   [{ id, label }] the groupings one of which runs along the
+ *                          bottom (across the top, for a heat table); empty when
+ *                          there is no choice
+ *     x                    the one that does
+ *     xLabel               what that choice is called
+ *     stack, sideways      whether "stacked" and "sideways" mean anything here
+ *     stacked, sidewaysOn, tableBelow   the three switches as they are }
+ *
+ * Whether the values picked add up (and so can really be stacked or cut into
+ * parts of a whole) is only known once the report has run: the chart says so
+ * itself then.
+ */
+export function viewOptions(catalogue, spec) {
+  const view = spec.view || { kind: 'table' }
+  const kinds = chartChoices(spec)
+  const shown = arr(spec.values).filter(v => !v.hidden)
+  const values = shown.map(v => ({ key: v.key, label: valueName(catalogue, spec.subject, v) }))
+  const out = {
+    kind: view.kind, kinds, why: null, values, pick: 'none', ys: [], line: null, xs: [], x: null, xLabel: '',
+    stack: false, sideways: false, stacked: !!view.stacked, sidewaysOn: !!view.sideways, tableBelow: view.table_below !== false,
+  }
+  if (view.kind === 'table' || spec.kind === 'list') return out
+  const mine = kinds.find(k => k.kind === view.kind)
+  if (mine && !mine.ok) out.why = mine.why
+  const kind = view.kind
+  const matrix = spec.kind === 'matrix'
+  const n = arr(spec.rows).length
+  const keys = values.map(v => v.key)
+  // One value at a time: parts of a whole, a heat table, a table across, and
+  // anything with more than one grouping (the others become the series).
+  const single = kind !== 'figures' && (kind === 'parts' || kind === 'heat' || matrix || n > 1)
+  const picked = chartValues(kind, keys, view)
+  out.ys = single ? picked.ys.slice(0, 1) : picked.ys
+  out.line = kind === 'combo' ? picked.line : null
+  out.pick = keys.length < 2 ? 'none' : kind === 'combo' ? 'combo' : single ? 'one' : 'many'
+  if (!matrix && n > 1 && kind !== 'figures') {
+    out.xs = spec.rows.map(r => ({ id: rowId(r), label: rowName(catalogue, spec.subject, r) }))
+    // A heat table puts its second grouping across the top unless told; the others their first along the bottom.
+    out.x = out.xs.some(x => x.id === view.x) ? view.x : out.xs[kind === 'heat' ? 1 : 0].id
+    out.xLabel = kind === 'heat' ? 'Across the top' : 'Along the bottom'
+  }
+  // Bars can always be asked to stack. Areas of one value's parts stack by
+  // themselves; areas of different values only when asked (else they are lines).
+  out.stack = (kind === 'bar' && (matrix || n > 1 || out.ys.length > 1)) || (kind === 'area' && !matrix && n <= 1 && out.ys.length > 1)
+  out.sideways = kind === 'bar'
+  return out
 }
 
 /**

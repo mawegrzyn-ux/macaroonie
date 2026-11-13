@@ -580,6 +580,7 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx', loy
       await step('report run', () => post(`/api/reports/${rid}/run`, given))
       await step('report preview', () => post('/api/reports/preview', { spec, ...given }))
       await step('report file', () => post(`/api/reports/${rid}/export`, { format: 'csv', ...given }))
+      await step('report print link', () => post(`/api/reports/${rid}/print-link`, given))
       await step('report changed', () => put(`/api/reports/${rid}`, { description: mark + ' week by week', spec: { ...spec, rows: [{ field: 'date', bucket: 'week' }] } }))
       if (viewerRole) await step('report shared', () => patch(`/api/reports/${rid}/sharing`, { shared: 'roles', role_ids: [viewerRole.id] }))
       await step('report copy', () => post(`/api/reports/${rid}/copy`, { name: mark + ' Bookings by week (copy)' }))

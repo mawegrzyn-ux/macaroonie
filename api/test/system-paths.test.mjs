@@ -236,6 +236,20 @@ test('a kiosk design\'s shared preview opens by its link alone (migration 187)',
   assert.ok(res.json.items?.length || res.json.menus?.length, 'the venue\'s menu came along')
 })
 
+test('a report\'s print page opens by its link alone (migration 244)', async () => {
+  assert.ok(filled.ids.report, 'the fixtures saved a report')
+  const link = await ok(owner.post(`/api/reports/${filled.ids.report}/print-link`, {}))
+  const res = await pub('GET', link.path)
+  assert.equal(res.status, 200, res.body.slice(0, 200))
+  assert.match(res.headers['content-type'], /text\/html/)
+  assert.match(res.body, /<h1>[^<]*Bookings by day<\/h1>/)
+  assert.match(res.body, /Printed by /)
+  // A link nobody made is a page that says so, not an error.
+  const none = await pub('GET', '/api/reports/print/00000000-0000-4000-8000-000000000000')
+  assert.equal(none.status, 404)
+  assert.match(none.body, /press Print again/)
+})
+
 test('a kiosk order\'s receipt page opens by its link alone (migration 209)', async () => {
   const kiosk = await linkDevice(owner, V, { kind: 'kiosk', name: 'Receipt kiosk' })
   const auth = { authorization: `Device ${kiosk.device_id}.${kiosk.secret}` }

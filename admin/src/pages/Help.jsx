@@ -2035,8 +2035,10 @@ export default function Help() {
               <strong>Reports</strong> (main menu, under Dashboards) answers questions about your own
               figures: till sales, online orders and table bookings to begin with, with the other areas
               to follow. It comes with 28 starter reports, such as Sales by day, Payments by tender, Top
-              dishes online and No-shows and cancellations, and you can build your own. A report always
-              runs as the person looking at it, so it only ever shows what your role is allowed to see.
+              dishes online and No-shows and cancellations, and you can build your own. A report can be
+              drawn as a chart above its table, opened up row by row, downloaded and printed. A report
+              always runs as the person looking at it, so it only ever shows what your role is allowed
+              to see.
             </P>
             <H3>Finding a report</H3>
             <P>
@@ -2087,6 +2089,44 @@ export default function Help() {
               guests). A report of the top 25 of something can end with a row for everything else. A
               note under the bar tells you when a column was left out because your role can't see it.
             </P>
+            <H3>Charts</H3>
+            <P>
+              A report can have a chart above its table. Eleven of the starter reports open with one
+              (Sales by day as bars, Sales by section as parts of a whole, Guests by day and time as
+              a heat table), and you choose one for a report of your own in the builder. The chart
+              draws the same figures as the table, for the period, venues and other choices showing.{' '}
+              <strong>Hide the table</strong> under the chart leaves just the chart, and{' '}
+              <strong>Show the table</strong> brings it back. A list has no chart.
+            </P>
+            <DataTable
+              head={['Chart', 'What it shows']}
+              rows={[
+                ['Bars', 'A bar for each row. Several values, or the parts of a second grouping, sit side by side or stacked on each other. Sideways bars suit long names such as dishes.'],
+                ['Lines', 'A line for each value, or for each part of a second grouping, usually over days or weeks.'],
+                ['Area', 'Lines with the space under them filled. The parts of one value stack up to its total.'],
+                ['Bars with a line', 'One value as bars and another as a line over the same rows, such as sales with the average spend.'],
+                ['Parts of a whole', 'One bar cut into its parts, each with its share of the total: sales by section, bookings by source. More than six parts are drawn as a bar each, with their shares.'],
+                ['Figures', 'Each value\'s total as a big number, with the change when the report compares periods and a small trend line when it runs by date.'],
+                ['Heat table', 'A grid shaded by the value, darker for more: hours down the side and days of the week across.'],
+              ]}
+            />
+            <P>
+              Point at a bar, a point or a cell (or tap it) to read its figures. A tap keeps them
+              on screen, with a button to open that mark up the way a row of the table opens; tap
+              anywhere else to let go. With more than one series, the names above the chart say which
+              colour is which: tap a name to take that series off the chart and again to put it back
+              (one always stays). With a keyboard, Tab to the chart, walk its marks with the arrow
+              keys, press Enter to open one and Escape to let go.
+            </P>
+            <P>
+              Figures of different kinds never share a scale: pounds and a percentage each get a plot
+              of their own, one above the other, and every scale starts at zero. A chart draws eight
+              series at most (when the figures add up, the smallest are added together) and up to 60
+              rows, or 400 when the rows are dates or times. A note under the chart says when something was
+              left out, and the table always has everything. When a report can't be drawn as its
+              chart (nothing to draw yet, or venues in more than one currency), a line says why and
+              the table shows instead.
+            </P>
             <H3>Opening a row up</H3>
             <P>
               A row of a summary can be opened to see what is behind it. Tap the row (a line under
@@ -2096,7 +2136,8 @@ export default function Help() {
               <strong>Show the rows</strong> lists the checks, dishes sold, payments, orders or
               bookings behind it. When there is only one thing to open into, the tap goes straight
               there. In a table across, tap a figure to open just that cell, or the row's name for
-              the whole row. The Total row opens the same way, for everything in the report.
+              the whole row. The Total row opens the same way, for everything in the report. A bar,
+              point or cell of a chart opens too: tap it, then the button under its figures.
             </P>
             <P>
               A trail above the table shows where you are: <strong>All</strong>, then each row you
@@ -2138,6 +2179,24 @@ export default function Help() {
               rate (%)). The Excel file has an About sheet saying which report it is, the period, the
               venues, who made it and when. A CSV list holds up to 250,000 rows and an Excel file up to
               200,000 cells; a file that was cut short says so.
+            </P>
+            <H3>Printing a report</H3>
+            <P>
+              <strong>Print</strong> (top right of a report) opens the report in a new tab as a page
+              made for paper, and the browser's print window opens on it by itself. Choose a printer,
+              or Save as PDF for a file. The page is the report as you have it on screen: the period,
+              venues and other choices, the rows you opened up, the chart without any series you took
+              off, and the table if it is showing under the chart. It starts with your group's name
+              and logo, the report's name and what it was run for, and ends with when the figures
+              were read and who printed it.
+            </P>
+            <P>
+              The table prints upright when it fits, on its side when it is wider, in smaller text
+              when that makes it fit, and otherwise in parts, each part starting with the rows'
+              names. The headings repeat on every sheet, a row is never split across two, and Chrome
+              and Edge number the sheets. The print page works for 15 minutes: after that it says it
+              has run out, and <strong>Print</strong> on the report makes a new one. Anyone who can
+              open a report can print it, and the page shows only what your own role may see.
             </P>
             <H3>The starter reports</H3>
             <DataTable
@@ -2197,6 +2256,7 @@ export default function Help() {
                 ['Show', 'Every row, or only the top or bottom few by one of the values (the top 10 dishes), with an optional row for everything else.'],
                 ['Totals', 'A total row at the bottom. A subtotal after each group is set from the grouping itself.'],
                 ['Compare with', 'The period before, or the same dates last year: each value gets the earlier period beside it and the change.'],
+                ['Chart', 'For a summary or a table across: Table only, or a chart drawn above the table (Bars, Lines, Area, Bars with a line, Parts of a whole, Figures, Heat table). A kind the report doesn\'t fit says why when tapped and changes nothing. Then what the chart draws: the values (one, several, or the line and the bars), which grouping runs along the bottom when there are two, bars stacked or sideways, and whether the table shows under the chart to begin with.'],
                 ['Tap a row: break it down by', 'For a summary: the fields a tapped row can be broken down by, in the order they are offered (a dish, a server, the hour). Up to 8. A day or a time can be grouped by week, month, quarter, year or day of the week (a time also by hour). A field the report is grouped by already stays on the list but isn\'t offered on a tap.'],
                 ['Tap a row: show the rows', 'The columns of the list behind a tapped row. Left alone, the usual columns for that kind of row are used. Choose starts from them, and you can then add, take off and reorder columns (30 at most). Back to the usual columns undoes it.'],
               ]}
@@ -2250,7 +2310,7 @@ export default function Help() {
             <P>
               Reports is its own module on the Access page. <strong>View</strong> opens and runs the
               starter reports and any report shared with you, changes the period, venues and other
-              choices for the visit, and opens rows up. <strong>Use</strong> also builds, saves, copies, renames and
+              choices for the visit, opens rows up and prints. <strong>Use</strong> also builds, saves, copies, renames and
               deletes reports of your own and downloads files. <strong>Manage</strong> also shares
               reports, sees every report in the group, including ones other people haven't shared
               (marked <strong>Not shared</strong> under From your team), and can change or delete them.
@@ -2259,8 +2319,9 @@ export default function Help() {
               and a guest's customer record needs Customers access as well.
             </P>
             <InfoBox>
-              Still to come: charts and printing, opening the booking, order or check itself from a
-              row, then asking Pepper for a report in your own words. The builder has no undo (leaving without
+              Still to come: opening the booking, order or check itself from a row, then asking
+              Pepper for a report in your own words, and later reports sent by email as PDFs on a
+              schedule. The builder has no undo (leaving without
               saving goes back to the last save), and filters made of several parts, which a few
               starter reports use, can be taken off but not changed on screen. The Till reports page,
               the Online orders report and the Kitchen report stay where they are.

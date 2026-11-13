@@ -25,6 +25,8 @@ const PUBLIC = [
   /^\/mcp/, /^\/\.well-known\//, /^\/manage\//, /^\/reservations\//, /^\/locations\//, /^\/p\//, /^\/order\//,
   /^\/_staging\//, /^\/uploads\//, /^\/lib\//, /^\/api\/site\//, /^\/loyalty-api\//,
   /^\/api\/menus\/public\//, /^\/api\/menus\/:id\/print$/, /^\/api\/menus\/preview\//,
+  // A report's print page: its link (a random id that lasts 15 minutes) is the key.
+  /^\/api\/reports\/print\//,
 ]
 // Changes another tenant may make on purpose, with why.
 const ALLOWED_CHANGES = {

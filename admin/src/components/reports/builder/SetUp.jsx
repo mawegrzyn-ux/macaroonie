@@ -2,9 +2,10 @@
 //
 // The report builder's Set up panel (docs/REPORTS.md 9): what kind of report
 // it is, then its shelves (rows, across the top, values, filters), how it is
-// sorted, cut to a top few, totalled and compared, and what a tapped row
-// opens into (docs/REPORTS.md 8): the fields it can be broken down by, and
-// the columns of the rows behind it.
+// sorted, cut to a top few, totalled and compared, the chart drawn above its
+// table (docs/REPORTS.md 12), and what a tapped row opens into
+// (docs/REPORTS.md 8): the fields it can be broken down by, and the columns
+// of the rows behind it.
 //
 // Every change goes through an edit in shared/reports/build.js and comes
 // back as a whole definition (onChange). The shelves are drop targets of the
@@ -19,7 +20,7 @@
 //   dragNode the Data panel field being dragged (shelves that can't take it dim)
 //   overShelf the shelf the drag is over
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useDroppable } from '@dnd-kit/core'
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
@@ -27,7 +28,7 @@ import { GripVertical, X, Plus, Calculator, Undo2 } from 'lucide-react'
 import {
   rowName, valueName, valueKindText, filterParts, sortChoices, limitOf, setLimit, setSort, setTotals, setCompare,
   compareProblem, removeRow, removeColumn, removeValue, removeFilter, roomLeft, BUCKET_LABELS,
-  pathUses, drillRoom, removeDrillLevel, updateDrillLevel, setDrillRows,
+  pathUses, drillRoom, removeDrillLevel, updateDrillLevel, setDrillRows, viewOptions, setView,
 } from '@shared/reports/build.js'
 import { rowId, COMPARE_WITH, COMPARE_LABELS, LIMITS } from '@shared/reports/spec.js'
 import { resolvePath, pathLabel } from '@shared/reports/paths.js'
@@ -93,6 +94,128 @@ function Heading({ children, extra }) {
 }
 
 const addBtn = 'inline-flex items-center gap-1 h-12 px-3 rounded-lg border bg-background text-xs font-medium touch-manipulation hover:bg-muted disabled:opacity-50'
+const tick = 'flex items-center gap-3 min-h-[48px] cursor-pointer touch-manipulation'
+
+// The chart drawn above the report's table: which kind, and what it draws.
+// viewOptions() (shared/reports/build.js) says what there is to choose for
+// the report as it stands; every choice is a setView().
+function ChartPart({ catalogue, spec, onChange }) {
+  const o = viewOptions(catalogue, spec)
+  // A kind that doesn't fit the report says why when tapped, and changes nothing.
+  const [said, setSaid] = useState(null)
+  useEffect(() => { setSaid(null) }, [spec])
+  // Back to a table and on to a chart again keeps what the chart drew (while this panel is open).
+  const last = useRef(null)
+  useEffect(() => { if (spec.view && spec.view.kind !== 'table') last.current = spec.view }, [spec.view])
+
+  const pickKind = k => {
+    if (!k.ok) { setSaid(k); return }
+    setSaid(null)
+    if (k.kind === o.kind) return
+    onChange(setView(spec, k.kind === 'table' ? { kind: 'table' } : { ...(o.kind === 'table' ? last.current : null), kind: k.kind }))
+  }
+  // Values keep the report's own order however they are ticked; one always stays.
+  const order = keys => o.values.map(v => v.key).filter(k => keys.includes(k))
+  const tickValue = (key, on) => {
+    const next = order(on ? [...o.ys, key] : o.ys.filter(k => k !== key))
+    if (next.length) onChange(setView(spec, { y: next }))
+  }
+  const bars = o.values.filter(v => v.key !== o.line)
+
+  return (
+    <section className="rounded-xl border bg-muted/40 p-2 space-y-2" data-testid="setup-chart">
+      <Heading>Chart</Heading>
+      <div className="grid grid-cols-2 gap-1.5" role="group" aria-label="Shown as" data-testid="chart-kinds">
+        {o.kinds.map(k => (
+          <button key={k.kind} type="button" onClick={() => pickKind(k)} aria-pressed={k.kind === o.kind} aria-disabled={!k.ok}
+            data-testid="chart-kind" data-kind={k.kind} data-ok={k.ok ? '1' : '0'}
+            className={cn('min-h-[48px] px-2 py-1 rounded-lg border text-xs font-medium leading-tight touch-manipulation',
+              k.kind === o.kind ? 'bg-primary text-primary-foreground border-primary' : 'bg-background hover:bg-muted',
+              !k.ok && k.kind !== o.kind && 'text-muted-foreground/70')}>
+            {k.kind === 'table' ? 'Table only' : k.label}
+          </button>
+        ))}
+      </div>
+      {said && <p className="text-[11px] text-muted-foreground leading-snug" data-testid="chart-why" data-kind={said.kind}>{said.why}.</p>}
+      {o.why && <p className="text-[11px] text-amber-800 leading-snug" data-testid="chart-unfit">{o.why}. Until then the report shows its table.</p>}
+
+      {o.kind !== 'table' && !o.why && (
+        <>
+          {o.pick === 'many' && (
+            <div data-testid="chart-values">
+              <p className="text-[11px] text-muted-foreground">{o.kind === 'figures' ? 'Figures to show' : 'Values to draw'}</p>
+              {o.values.map(v => (
+                <label key={v.key} className={tick}>
+                  <input type="checkbox" checked={o.ys.includes(v.key)} disabled={o.ys.length === 1 && o.ys[0] === v.key}
+                    onChange={e => tickValue(v.key, e.target.checked)} data-testid="chart-value" data-key={v.key} className="w-5 h-5 shrink-0" />
+                  <span className="text-sm min-w-0 break-words">{v.label}</span>
+                </label>
+              ))}
+            </div>
+          )}
+          {o.pick === 'one' && (
+            <label className="block">
+              <span className="block text-[11px] text-muted-foreground mb-1">Value to draw</span>
+              <select value={o.ys[0] || ''} onChange={e => onChange(setView(spec, { y: [e.target.value] }))} data-testid="chart-value-one" className={cn(inputCls, 'h-12')}>
+                {o.values.map(v => <option key={v.key} value={v.key}>{v.label}</option>)}
+              </select>
+            </label>
+          )}
+          {o.pick === 'combo' && (
+            <>
+              <label className="block">
+                <span className="block text-[11px] text-muted-foreground mb-1">The line</span>
+                <select value={o.line || ''} onChange={e => onChange(setView(spec, { line: e.target.value, y: o.ys.filter(k => k !== e.target.value) }))}
+                  data-testid="chart-line" className={cn(inputCls, 'h-12')}>
+                  {o.values.map(v => <option key={v.key} value={v.key}>{v.label}</option>)}
+                </select>
+              </label>
+              <div data-testid="chart-values">
+                <p className="text-[11px] text-muted-foreground">The bars</p>
+                {bars.map(v => (
+                  <label key={v.key} className={tick}>
+                    <input type="checkbox" checked={o.ys.includes(v.key)} disabled={o.ys.length === 1 && o.ys[0] === v.key}
+                      onChange={e => tickValue(v.key, e.target.checked)} data-testid="chart-value" data-key={v.key} className="w-5 h-5 shrink-0" />
+                    <span className="text-sm min-w-0 break-words">{v.label}</span>
+                  </label>
+                ))}
+              </div>
+            </>
+          )}
+          {o.xs.length > 0 && (
+            <label className="block">
+              <span className="block text-[11px] text-muted-foreground mb-1">{o.xLabel}</span>
+              <select value={o.x || ''} onChange={e => onChange(setView(spec, { x: e.target.value }))} data-testid="chart-x" className={cn(inputCls, 'h-12')}>
+                {o.xs.map(x => <option key={x.id} value={x.id}>{x.label}</option>)}
+              </select>
+            </label>
+          )}
+          <div>
+            {o.stack && (
+              <label className={tick}>
+                <input type="checkbox" checked={o.stacked} onChange={e => onChange(setView(spec, { stacked: e.target.checked }))} data-testid="chart-stacked" className="w-5 h-5 shrink-0" />
+                <span className="text-sm">
+                  {o.kind === 'area' ? 'Stack the areas on each other' : 'Stack the bars on each other'}
+                  {o.kind === 'area' && <span className="block text-[11px] text-muted-foreground" data-testid="chart-stacked-hint">For values that add up to a whole. Left off, they are drawn as lines.</span>}
+                </span>
+              </label>
+            )}
+            {o.sideways && (
+              <label className={tick}>
+                <input type="checkbox" checked={o.sidewaysOn} onChange={e => onChange(setView(spec, { sideways: e.target.checked }))} data-testid="chart-sideways" className="w-5 h-5 shrink-0" />
+                <span className="text-sm">Bars go sideways (for long names)</span>
+              </label>
+            )}
+            <label className={tick}>
+              <input type="checkbox" checked={o.tableBelow} onChange={e => onChange(setView(spec, { table_below: e.target.checked }))} data-testid="chart-table-below" className="w-5 h-5 shrink-0" />
+              <span className="text-sm">Show the table under the chart</span>
+            </label>
+          </div>
+        </>
+      )}
+    </section>
+  )
+}
 
 // One entry of a shelf that has an order: a grip, the entry (opens its
 // window) and a button to take it off.
@@ -389,6 +512,8 @@ export default function SetUp({ catalogue, spec, onChange, onOpen, onAdd, onKind
           {!compareWhy && spec.compare && <p className="text-[11px] text-muted-foreground leading-snug">Each value gets the earlier period beside it and the change.</p>}
         </section>
       )}
+
+      {!list && <ChartPart catalogue={catalogue} spec={spec} onChange={onChange} />}
 
       {!list && (
         <div className="space-y-3" data-testid="setup-drill">

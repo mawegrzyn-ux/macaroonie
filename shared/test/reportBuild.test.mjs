@@ -15,6 +15,7 @@ import {
   addValue, updateValue, removeValue, moveValue, valueReaders, addFilter, setFilter, removeFilter, setParamDefault,
   setSort, setLimit, limitOf, setTotals, setCompare, compareProblem, setKind, startReport, sortChoices,
   drillRoom, addDrillLevel, removeDrillLevel, moveDrillLevel, updateDrillLevel, setDrillRows, drillLevels,
+  setView, viewOptions,
 } from '../reports/build.js'
 
 const f = (key, label, type, more = {}) => [key, { key, label, type, ...more }]
@@ -664,6 +665,112 @@ test('a summary as a list and a list as a summary', () => {
   // Something with no usual columns keeps what it was grouped by.
   const bare = { subjects: { ...CAT.subjects, checks: { ...CAT.subjects.checks, list: [] } } }
   assert.deepEqual(setKind(addRow(startReport(bare, 'checks'), 'status'), 'list', bare).rows, [{ field: 'date' }, { field: 'status' }])
+})
+
+test('a chart above the table: its kind, what it draws, and what goes when the report changes', () => {
+  const s = addValue(addValue(base(), { measure: 'net_sales' }), { measure: 'average_check' })   // by day: checks, net sales, average check
+  assert.deepEqual(s.view, { kind: 'table' })
+  const table = viewOptions(CAT, s)
+  assert.deepEqual([table.kind, table.pick, table.ys, table.xs, table.why], ['table', 'none', [], [], null])
+  assert.deepEqual(table.kinds.map(k => [k.kind, k.ok]), [
+    ['table', true], ['bar', true], ['line', true], ['area', true], ['combo', true], ['parts', true], ['figures', true], ['heat', false],
+  ])
+  assert.equal(table.kinds.find(k => k.kind === 'heat').why, 'A heat table needs two groupings, or a column across the top')
+
+  // Bars: the first value until some are picked; the table stays under the chart unless switched off.
+  const bars = setView(s, { kind: 'bar' })
+  assert.deepEqual(bars.view, { kind: 'bar', table_below: true })
+  assert.deepEqual(reportProblems(bars), [])
+  let o = viewOptions(CAT, bars)
+  assert.deepEqual([o.pick, o.ys, o.line, o.stack, o.sideways, o.tableBelow, o.stacked, o.sidewaysOn], ['many', ['checks'], null, false, true, true, false, false])
+  assert.deepEqual(o.values, [{ key: 'checks', label: 'Checks' }, { key: 'net_sales', label: 'Net sales' }, { key: 'average_check', label: 'Average check' }])
+  const two = setView(bars, { y: ['net_sales', 'checks'], stacked: true, sideways: true, table_below: false })
+  assert.deepEqual(two.view, { kind: 'bar', y: ['net_sales', 'checks'], stacked: true, sideways: true, table_below: false })
+  o = viewOptions(CAT, two)
+  assert.deepEqual([o.ys, o.stack, o.stacked, o.sidewaysOn, o.tableBelow], [['net_sales', 'checks'], true, true, true, false], 'two values drawn can be asked to stack')
+  // Nothing changes: the same object. What the report doesn't have is dropped.
+  assert.equal(setView(two, { stacked: true }), two)
+  assert.equal(setView(two, {}), two)
+  assert.deepEqual(setView(two, { y: ['nothing', 'checks', 'checks'], x: 'status', line: 'gone' }).view, { kind: 'bar', y: ['checks'], stacked: true, sideways: true, table_below: false })
+  assert.deepEqual(setView(two, { kind: 'pie' }).view, { kind: 'table' }, 'a kind there isn\'t is no chart')
+  // Off, and on again: a table keeps nothing of the chart; the view given back what it had is checked like any other.
+  const off = setView(two, { kind: 'table' })
+  assert.deepEqual(off.view, { kind: 'table' })
+  assert.deepEqual(setView(off, { ...two.view, kind: 'line' }).view, { ...two.view, kind: 'line' })
+
+  // Areas: different values are lines until they are asked to stack, so the
+  // switch is there for two or more of them (one value is just an area). A
+  // line chart has nothing to stack.
+  o = viewOptions(CAT, setView(two, { kind: 'area' }))
+  assert.deepEqual([o.kind, o.ys, o.stack, o.stacked, o.sideways], ['area', ['net_sales', 'checks'], true, true, false])
+  o = viewOptions(CAT, setView(bars, { kind: 'area' }))
+  assert.deepEqual([o.ys, o.stack, o.stacked], [['checks'], false, false])
+  o = viewOptions(CAT, setView(two, { kind: 'line' }))
+  assert.deepEqual([o.ys, o.stack], [['net_sales', 'checks'], false])
+
+  // Bars with a line: one value is the line, the others can be bars.
+  const combo = setView(s, { kind: 'combo' })
+  o = viewOptions(CAT, combo)
+  assert.deepEqual([o.pick, o.ys, o.line], ['combo', ['checks'], 'net_sales'], 'the line is the first value that isn\'t a bar')
+  o = viewOptions(CAT, setView(combo, { line: 'average_check', y: ['checks', 'net_sales'] }))
+  assert.deepEqual([o.ys, o.line], [['checks', 'net_sales'], 'average_check'])
+  o = viewOptions(CAT, setView(combo, { line: 'checks', y: ['checks'] }))
+  assert.deepEqual([o.ys, o.line], [['net_sales'], 'checks'], 'the line is never one of the bars')
+  // One value left: no line and bars to draw, and it says why.
+  const lone = removeValue(removeValue(combo, 'net_sales'), 'average_check')
+  o = viewOptions(CAT, lone)
+  assert.deepEqual([o.kind, o.why, o.pick, o.ys, o.line], ['combo', 'Bars with a line need two values: one for the bars, one for the line', 'none', [], null])
+
+  // Parts of a whole and a heat table draw one value. Figures draw them all unless some are picked.
+  o = viewOptions(CAT, setView(s, { kind: 'parts', y: ['net_sales', 'checks'] }))
+  assert.deepEqual([o.pick, o.ys, o.stack, o.sideways], ['one', ['net_sales'], false, false])
+  o = viewOptions(CAT, setView(s, { kind: 'figures' }))
+  assert.deepEqual([o.pick, o.ys, o.xs], ['many', ['checks', 'net_sales', 'average_check'], []])
+  assert.deepEqual(viewOptions(CAT, setView(s, { kind: 'figures', y: ['net_sales'] })).ys, ['net_sales'])
+
+  // Two groupings: one value, and a choice of which grouping runs along the bottom (the first, until told).
+  const by2 = addRow(bars, 'server.name')
+  o = viewOptions(CAT, by2)
+  assert.deepEqual([o.pick, o.ys, o.x, o.xLabel, o.stack], ['one', ['checks'], 'date', 'Along the bottom', true])
+  assert.deepEqual(o.xs, [{ id: 'date', label: 'Trading day' }, { id: 'server.name', label: 'Server' }])
+  // Areas of one value's parts stack by themselves: no switch for them.
+  assert.equal(viewOptions(CAT, setView(by2, { kind: 'area' })).stack, false)
+  assert.deepEqual(setView(by2, { x: 'server.name' }).view, { kind: 'bar', x: 'server.name', table_below: true })
+  assert.equal(viewOptions(CAT, setView(by2, { x: 'server.name' })).x, 'server.name')
+  // A heat table has its second grouping across the top until told.
+  o = viewOptions(CAT, setView(by2, { kind: 'heat' }))
+  assert.deepEqual([o.why, o.x, o.xLabel, o.pick], [null, 'server.name', 'Across the top', 'one'])
+  assert.equal(viewOptions(CAT, setView(by2, { kind: 'heat', x: 'date' })).x, 'date')
+  // Figures are the totals: nothing runs along the bottom, so there is no grouping to pick.
+  o = viewOptions(CAT, setView(by2, { kind: 'figures' }))
+  assert.deepEqual([o.xs, o.x, o.xLabel], [[], null, ''])
+  // The grouping the chart runs along is renamed with it, and goes with it.
+  const named = updateRow(setView(by2, { x: 'date' }), 'rows', 'date', { bucket: 'week' })
+  assert.equal(named.view.x, 'date:week')
+  assert.equal(removeRow(named, 'date:week').view.x, undefined)
+  assert.equal(viewOptions(CAT, removeRow(named, 'date:week')).xs.length, 0)
+
+  // A table across: one value, the columns are the series. No bars with a line, parts or figures.
+  const across = addColumn(removeRow(by2, 'server.name'), 'status')
+  o = viewOptions(CAT, across)
+  assert.deepEqual([across.kind, o.pick, o.ys, o.xs, o.stack], ['matrix', 'one', ['checks'], [], true])
+  assert.equal(viewOptions(CAT, setView(across, { kind: 'area' })).stack, false)
+  assert.deepEqual(o.kinds.filter(k => !k.ok).map(k => k.kind), ['combo', 'parts', 'figures'])
+  assert.equal(viewOptions(CAT, setView(across, { kind: 'parts' })).why, 'Parts of a whole are for a summary with one grouping')
+
+  // A value taken off or hidden is no longer drawn; a list has no chart.
+  const picked = setView(bars, { y: ['net_sales', 'checks'] })
+  assert.deepEqual(removeValue(picked, 'net_sales').view.y, ['checks'])
+  assert.deepEqual(viewOptions(CAT, updateValue(picked, 'net_sales', { hidden: true })).ys, ['checks'])
+  assert.deepEqual(viewOptions(CAT, updateValue(updateValue(picked, 'net_sales', { hidden: true }), 'checks', { hidden: true })).ys, ['average_check'])
+  const list = setKind(picked, 'list', CAT)
+  assert.deepEqual(list.view, { kind: 'table' })
+  assert.equal(setView(list, { kind: 'bar' }), list)
+  assert.deepEqual(viewOptions(CAT, list).kinds.filter(k => k.ok).map(k => k.kind), ['table'])
+  // Not grouped by anything: figures only.
+  const flat = removeRow(s, 'date')
+  assert.deepEqual(viewOptions(CAT, flat).kinds.filter(k => k.ok).map(k => k.kind), ['table', 'figures'])
+  assert.equal(viewOptions(CAT, setView(flat, { kind: 'bar' })).why, 'Group the report by something first')
 })
 
 test('what a tapped row opens into: the fields to break it down by and the columns of its rows', () => {

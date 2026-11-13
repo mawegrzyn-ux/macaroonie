@@ -14,11 +14,16 @@
 // the same figures by another field, or into the rows behind it. The steps
 // taken are kept here for the visit, shown as a trail, and sent with every
 // run and file, so what is downloaded is what is on screen.
+//
+// Print opens the report's print page in a new tab (api reports/export/
+// print.js): the report with these choices, the rows opened up and the chart,
+// laid out for paper. A new tab can't send the login, so the page is reached
+// by a link that works for a few minutes (POST /reports/:id/print-link).
 
 import { useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query'
-import { ChevronLeft, Download, Lock, Pencil, Copy, Share2, Trash2, MoreHorizontal, Type } from 'lucide-react'
+import { ChevronLeft, Download, Lock, Pencil, Copy, Share2, Trash2, MoreHorizontal, Type, Printer } from 'lucide-react'
 import { paramInputs } from '@shared/reports/build.js'
 import { normaliseReport, LIMITS } from '@shared/reports/spec.js'
 import { useApi } from '@/lib/api'
@@ -208,6 +213,33 @@ export default function ReportView() {
     }
   }
 
+  // ── Print: what is on screen, on a page made for paper ──
+  const tableShown = useRef(null)   // the table under a chart: showing or not (ResultCard keeps it)
+  const seriesOff = useRef([])      // the series switched off in the chart's legend (the chart keeps it)
+  const [printing, setPrinting] = useState({ busy: false, error: null })
+  const print = async () => {
+    // The tab is opened now, while the tap still counts: one opened after the
+    // wait is a pop-up most browsers block.
+    const tab = window.open('', '_blank')
+    setPrinting({ busy: true, error: null })
+    try {
+      const out = await api.post('/reports/' + ref + '/print-link', {
+        params: given,
+        // The trail's words (a row's name can be long: the page says the start of it).
+        ...(drill.length ? { drill, trail: steps.map(s => ({ label: String(s.label ?? '').slice(0, 200), by: String(s.by ?? '').slice(0, 80), ...(s.of ? { of: String(s.of).slice(0, 80) } : {}) })) } : {}),
+        ...(tableShown.current == null ? {} : { table: tableShown.current }),
+        ...(seriesOff.current?.length ? { hidden: seriesOff.current } : {}),
+      })
+      const url = out.path + '?print=1'
+      if (tab) tab.location.href = url
+      else window.location.href = url
+      setPrinting({ busy: false, error: null })
+    } catch (error) {
+      tab?.close()
+      setPrinting({ busy: false, error })
+    }
+  }
+
   // ── More: copy, rename, share, delete ──
   const [win, setWin] = useState(null)          // 'more' | 'rename' | 'share'
   const [asking, setAsking] = useState(false)   // delete: are you sure?
@@ -280,6 +312,13 @@ export default function ReportView() {
             <Pencil className="w-4 h-4" /> Customise
           </Link>
         )}
+        {report?.runs && (
+          <button type="button" onClick={print} disabled={printing.busy || !result || !!runQ.error || runQ.isPlaceholderData} data-testid="report-print" className={btn}
+            title="Open this report as a page to print, as it is shown here">
+            <Printer className="w-4 h-4" />
+            {printing.busy ? 'Opening…' : 'Print'}
+          </button>
+        )}
         {report?.runs && canUse && (
           <>
             {['csv', 'xlsx'].map(format => (
@@ -302,6 +341,7 @@ export default function ReportView() {
         <div className="p-4 sm:p-6 space-y-4">
           <Problems error={reportQ.error} />
           <Problems error={file.error} title="The file wasn't made" />
+          <Problems error={printing.error} title="The print page wasn't made" />
           <Problems error={failed?.error} title={failed?.title} />
 
           {report && (
@@ -346,7 +386,7 @@ export default function ReportView() {
                   {runQ.isLoading && !result && <p className="text-sm text-muted-foreground" data-testid="report-loading">Working it out…</p>}
 
                   {result && !runQ.error && (
-                    <ResultCard result={result} fetching={runQ.isFetching} stale={runQ.isPlaceholderData} onRefresh={refresh} onTap={onTap}
+                    <ResultCard result={result} fetching={runQ.isFetching} stale={runQ.isPlaceholderData} onRefresh={refresh} onTap={onTap} tableRef={tableShown} hiddenRef={seriesOff}
                       more={canUse ? 'Download the file for all of them.' : 'Pick a shorter period to see fewer.'} />
                   )}
                 </>

@@ -17,56 +17,16 @@
 // A list shows its rows and, under them, the sums that add up and how many
 // rows there are. A summary shows subtotals and a total. A matrix shows the
 // column values across the top, the report's values under each when it has
-// more than one.
+// more than one. What each cell says, the heading rows and which columns sit
+// on the right are shared/reports/table.js: the print page draws from the
+// same rules.
 
 import { useLayoutEffect, useRef } from 'react'
-import { formatValue, NUMERIC_TYPES } from '@shared/reports/format.js'
+import { rightAligned, tableHeadings, rowText, totalText } from '@shared/reports/table.js'
 import { tapTarget, totalTarget } from '@/components/reports/drill'
 import { cn } from '@/lib/utils'
 
 const typeOf = c => c.format || c.type
-
-// Numbers sit on the right. A grouping that happens to be a number (a party
-// of 4) stays with the other groupings on the left.
-function rightAligned(col, kind) {
-  if (!NUMERIC_TYPES.includes(typeOf(col))) return false
-  return kind === 'list' || col.role !== 'row'
-}
-
-// A change with its sign: +12.4%, -3.0%. No colours: whether more is better
-// depends on the figure (sales up, voids up).
-function changeText(v) {
-  if (typeof v !== 'number' || !Number.isFinite(v)) return ''
-  const s = (Math.abs(v) * 100).toLocaleString('en-GB', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%'
-  return (v > 0 ? '+' : v < 0 ? '−' : '') + s
-}
-
-function cellText(v, col, currency) {
-  if (col.role === 'change') return changeText(v)
-  return formatValue(v, col, { currency })
-}
-
-// The heading rows. A matrix with several values gets the column values on
-// one row and the values' names under them; with one value, just the column
-// values. Anything else is one row.
-function headings(columns) {
-  const grouped = columns.some(c => (c.role === 'value' || c.role === 'total') && c.group)
-  if (!grouped) return { rows: [columns.map((c, i) => ({ i, col: c, label: c.label, span: 1, depth: 1 }))] }
-  const perGroup = new Map()
-  for (const c of columns) if (c.group) perGroup.set(c.group, (perGroup.get(c.group) || 0) + 1)
-  const single = [...perGroup.values()].every(n => n === 1)
-  if (single) return { rows: [columns.map((c, i) => ({ i, col: c, label: c.group || c.label, span: 1, depth: 1 }))] }
-  const top = []
-  const under = []
-  columns.forEach((c, i) => {
-    if (!c.group) { top.push({ i, col: c, label: c.label, span: 1, depth: 2 }); return }
-    const last = top[top.length - 1]
-    if (last && last.group === c.group) last.span += 1
-    else top.push({ i, col: c, label: c.group, span: 1, depth: 1, group: c.group, banner: true })
-    under.push({ i, col: c, label: c.label, span: 1, depth: 1 })
-  })
-  return { rows: [top, under] }
-}
 
 // The column a tap on a row landed in. Body and total rows have one cell for
 // each column, so a cell's place in its row is the column's.
@@ -78,8 +38,7 @@ const openCls = 'underline decoration-dotted decoration-muted-foreground underli
 
 export default function ResultTable({ result, className, onTap = null }) {
   const { columns = [], rows = [], totals, kind, meta = {} } = result || {}
-  const currency = meta.currency || null
-  const head = headings(columns)
+  const head = tableHeadings(columns)
   const firstIsRow = columns[0]?.role === 'row'
   const canTap = !!onTap && !!meta.drill && kind !== 'list'
   const matrix = kind === 'matrix'
@@ -95,12 +54,7 @@ export default function ResultTable({ result, className, onTap = null }) {
 
   // What a row shows in each column: a subtotal says so in the first
   // grouping it leaves empty, "everything else" is its own words.
-  const textOf = (row, i) => {
-    const col = columns[i]
-    if (row.kind === 'subtotal' && col.role === 'row' && i === (row.level || 0)) return 'Subtotal'
-    if (row.kind === 'rest' && i === 0) return row.cells[0] == null ? '' : String(row.cells[0])
-    return cellText(row.cells[i], col, currency)
-  }
+  const textOf = (row, i) => rowText(result, row, i)
 
   // Another table (a row opened up, the way back): it starts at its top left.
   // The same table worked out again stays where it was scrolled to.
@@ -110,17 +64,6 @@ export default function ResultTable({ result, className, onTap = null }) {
     if (scroller.current) { scroller.current.scrollTop = 0; scroller.current.scrollLeft = 0 }
   }, [shape])
 
-  const count = kind === 'list' ? (totals?.count ?? meta.row_count ?? rows.length) : null
-  const totalText = i => {
-    if (!totals?.cells) return ''
-    if (kind === 'list') {
-      const v = totals.cells[i]
-      if (i === 0 && v == null) return count.toLocaleString('en-GB') + (count === 1 ? ' row' : ' rows')
-      return v == null ? '' : cellText(v, columns[i], currency)
-    }
-    if (i === 0 && firstIsRow) return 'Total'
-    return columns[i].role === 'row' ? '' : cellText(totals.cells[i], columns[i], currency)
-  }
   const showTotals = !!totals?.cells && rows.length > 0
 
   if (!columns.length) return null
@@ -204,7 +147,7 @@ export default function ResultTable({ result, className, onTap = null }) {
               onClick={canTap ? e => onTap(totalTarget(result, colAt(e))) : undefined}
               className={cn('font-semibold', canTap && 'cursor-pointer touch:h-12')}>
               {columns.map((col, i) => {
-                const text = totalText(i)
+                const text = totalText(result, i)
                 const figure = canTap && matrix && !!col.at && totals.cells[i] != null
                 return (
                   <td key={i}

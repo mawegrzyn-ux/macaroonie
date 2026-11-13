@@ -136,7 +136,7 @@ export const LEFT_OUT = {
     'platform_secrets', 'loyverse_connections', 'venue_email_settings', 'loyalty_wallet_settings', 'staging_access',
   ],
   'Tokens, codes and sessions': [
-    'pos_pairings', 'screen_pairings', 'menu_preview_links', 'loyalty_codes', 'loyalty_sessions', 'loyalty_wallet_devices',
+    'pos_pairings', 'screen_pairings', 'menu_preview_links', 'report_print_links', 'loyalty_codes', 'loyalty_sessions', 'loyalty_wallet_devices',
     'ai_access_tokens', 'ai_oauth_clients', 'ai_oauth_grants', 'ai_booking_codes', 'ai_booking_grants',
   ],
   'Conversations and files': [

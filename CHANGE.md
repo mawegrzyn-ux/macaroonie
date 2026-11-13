@@ -6,6 +6,33 @@ Migrations are listed where a database change is required.
 ---
 
 
+## [2026-11-13 — Reports: charts and printing]
+
+Migration 244 (`report_print_links`).
+
+**Added**
+- **Charts.** A report can be drawn as a chart above its table: **Bars** (side by side or stacked, upright or sideways), **Lines**, **Area**, **Bars with a line**, **Parts of a whole**, **Figures** (each value's total as a big number, with the change when the report compares periods) and a **Heat table** (a grid shaded by the value). Eleven starter reports now open with one: Sales by day, Sales by hour and weekday, Sales by dish, Sales by section, Top dishes online, time to accept and to get ready, Guests by day and time, No-shows and cancellations, How far ahead people book, Party sizes, New and returning guests.
+- **Reading a chart.** Point at a bar, a point or a cell (or tap it) for its figures. A tap keeps them on screen with a button to open that mark up, the way a row of the table opens. With more than one series, tap a name above the chart to take that series off and again to put it back. Arrow keys walk the marks, Enter opens one.
+- **Hide the table / Show the table** under a chart. The table is always one tap away, and it shows by itself whenever the chart can't be drawn.
+- **In the builder**, Set up has a **Chart** part for summaries and tables across: pick Table only or a kind of chart, the values it draws (for bars with a line, which is the line), which grouping runs along the bottom, stacked or sideways bars, and whether the table shows under the chart to begin with. A kind the report doesn't fit says why when tapped.
+- **Print.** The **Print** button on a report opens it in a new tab as a page made for paper and opens the print window: choose a printer, or Save as PDF. The page is the report as you have it on screen (the period and other choices, the rows you opened up, the chart without the series you took off, the table if it is showing), with your group's name and logo, what the report was run for, when the figures were read and who printed it. A wide table prints on its side, in smaller text, or in parts that each start with the rows' names; headings repeat on every sheet and a row is never split.
+- People who can only look at reports can print them, and the page shows only what their role may see.
+
+**Changed**
+- Two starter reports that were set to draw a pie (Sales by section, New and returning guests) draw **Parts of a whole** instead: one bar cut into its parts with each part's share written on it.
+
+**Notes**
+- **Not as the plan said, on purpose.** There is no pie or ring: a cut bar is read more exactly than a pie's angles (a pie can be added if you want one). Bars with a line never get a second scale: when the two are different kinds of figure (pounds and a percentage) each gets a plot of its own, one above the other. An area chart of different values is drawn as lines unless you tick Stack the areas and the values add up.
+- A chart draws up to 8 series (when the figures add up, the smallest are added together), 60 rows, or 400 along dates or times, and a note under it says when something was left out. Every scale starts at zero. There is no chart for a list or for venues in more than one currency.
+- A print page works for 15 minutes, then says it has run out: press Print again. During those minutes the page opens for anyone who has its address, without signing in, and shows what the person who pressed Print could see.
+- A printed list holds the rows on the page (up to 5,000); the CSV and Excel files hold them all. Charts aren't in the files.
+- PDFs made by the server (for reports sent by email on a schedule) come later, with layouts.
+- Next: opening the booking, order or check itself from a row.
+- Tested in Chromium at desktop, tablet and phone widths against test data, and printed to PDF there; not on a real printer, in Safari or in Firefox.
+
+---
+
+
 ## [2026-11-13 — Reports: tap a row to open it up]
 
 No migration.

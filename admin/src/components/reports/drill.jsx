@@ -137,6 +137,23 @@ export function totalTarget(result, colIndex = null) {
   return { at, label: col?.at ? col.group : 'Total', figures: figuresOf(result, result.totals.cells, col?.at ? colIndex : null), value: figureOf(result, col) }
 }
 
+/**
+ * What a mark of a chart stands for, as a tapped row does: `mark` is what
+ * chartMark() says of it ({ at, label, value }), `tip` what chartTip() says
+ * (its figures in words). Null for a mark that stands for nothing in
+ * particular and for a result with nothing to open.
+ */
+export function markTarget(result, mark, tip = null) {
+  if (!result?.meta?.drill || !mark?.at) return null
+  return {
+    at: mark.at.map(a => ({ field: a.field, ...(a.bucket ? { bucket: a.bucket } : {}), value: a.value ?? null })),
+    label: mark.label || 'Everything',
+    figures: (tip?.lines || []).slice(0, MAX_FIGURES).map(l => ({ label: l.label, text: l.value })),
+    // The rows behind one figure are that figure's, where the report's figures count different rows.
+    value: result.meta.drill.per_figure && mark.value?.key ? { key: mark.value.key, label: mark.value.label } : null,
+  }
+}
+
 /** The step a choice makes of a tapped row. */
 export const stepOf = (target, choice) => ({
   at: target.at, to: choice.to, label: target.label, by: choice.by,

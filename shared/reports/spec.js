@@ -22,7 +22,7 @@
 //     totals:  { grand, subtotals: [row id] },
 //     compare: { with: 'previous_period' | 'last_year' },
 //     drill:   { down: [{ field, bucket? }], rows: [field], open },
-//     view:    { kind, x, y: [value key], stacked, sideways, table_below },
+//     view:    { kind, x, y: [value key], line, stacked, sideways, table_below },     shared/reports/chart.js draws it
 //   }
 //
 // A field is a path through the catalogue's links ending in a field:
@@ -38,10 +38,10 @@ export const REPORT_KINDS = ['list', 'summary', 'matrix']
 export const KIND_LABELS = { list: 'List', summary: 'Summary', matrix: 'Matrix' }
 export const AGGS = ['sum', 'avg', 'count', 'count_distinct', 'min', 'max']
 export const AGG_LABELS = { sum: 'Total', avg: 'Average', count: 'Count', count_distinct: 'How many different', min: 'Smallest', max: 'Largest' }
-export const VIEW_KINDS = ['table', 'bar', 'line', 'area', 'combo', 'pie', 'ring', 'figures', 'heat']
+export const VIEW_KINDS = ['table', 'bar', 'line', 'area', 'combo', 'parts', 'figures', 'heat']
 export const VIEW_LABELS = {
   table: 'Table', bar: 'Bars', line: 'Lines', area: 'Area', combo: 'Bars with a line',
-  pie: 'Pie', ring: 'Ring', figures: 'Figures', heat: 'Heat table',
+  parts: 'Parts of a whole', figures: 'Figures', heat: 'Heat table',
 }
 export const COMPARE_WITH = ['previous_period', 'last_year']
 export const COMPARE_LABELS = { previous_period: 'The period before', last_year: 'The same dates last year' }

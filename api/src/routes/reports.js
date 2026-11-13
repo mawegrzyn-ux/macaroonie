@@ -17,6 +17,9 @@
 //   PATCH  /:id/sharing      who it is shared with; a starter for the team (Manage)
 //   POST   /:id/run          run it, or a drill-down of it (View)
 //   POST   /:id/export       a CSV or Excel file of it (Use)
+//   POST   /:id/print-link   a link to its print page that lasts a few minutes (View)
+//   GET    /print/:linkId    the print page (no login: the link is the key;
+//                            reportPrintRoutes, its own plugin)
 //   POST   /:id/copy         a copy of it, or of a starter, as the person's own (Use)
 //   POST   /:id/star         star it       DELETE /:id/star   take the star off
 //
@@ -24,9 +27,16 @@
 // code (src/reports/starters). A drill-down is made by the server from the
 // report's own definition (shared/reports/drill.js), so someone who may only
 // run a report can drill into it without running a definition of their own.
+//
+// Printing (docs/REPORTS.md 13): a new browser tab can't send the admin's
+// login, so Print makes a link (report_print_links, migration 244) holding
+// what is on the person's screen (the definition, their choices, the rows
+// they opened up, what their role may see), and the page it opens runs the
+// report as that person. The same way a draft menu's print preview works.
 
+import crypto from 'node:crypto'
 import { z } from 'zod'
-import { withTenant } from '../config/db.js'
+import { withTenant, systemSql } from '../config/db.js'
 import { requireAuth, requirePermission } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
 import { ownRoleIds } from '../services/roles.js'
@@ -38,14 +48,18 @@ import { reportPerson, rightsOn, openTo, runsFor, checkedSpec, recordRun, refuse
 import { csvExport } from '../reports/export/csv.js'
 import { xlsxExport } from '../reports/export/xlsx.js'
 import { fileName } from '../reports/export/table.js'
+import { printHtml, messageHtml } from '../reports/export/print.js'
+import { brandColours } from '../services/themeColours.js'
 import { normaliseReport, reportProblems, resolveParams, LIMITS } from '../../../shared/reports/spec.js'
 import { cleanDrill, drillSpec } from '../../../shared/reports/drill.js'
+import { paramInputs, paramWords } from '../../../shared/reports/build.js'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const MAX_OWN = 300        // saved reports per person
 const MAX_LIST = 1000      // saved reports listed
 const MAX_DRILL = 10       // drill steps in one request
 const PREVIEW_ROWS = 200
+const PRINT_MINUTES = 15   // how long a print link works
 const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 
 const Name = z.string().trim().min(1).max(LIMITS.name)
@@ -87,6 +101,20 @@ const Format = z.enum(['csv', 'xlsx'])
 const ExportBody = z.object({ format: Format, params: Params.optional(), drill: Drill.optional() })
 const ExportUnsaved = ExportBody.extend({ spec: Spec, name: Name.optional() })
 const CopyBody = z.object({ name: Name.optional() })
+// What is on the person's screen: their choices, the rows they opened up
+// (with the trail's words for the page's heading), whether the table is
+// showing under a chart, and the series switched off in the chart's legend.
+const PrintBody = z.object({
+  params: Params.optional(),
+  drill: Drill.optional(),
+  trail: z.array(z.object({
+    label: z.string().max(200).optional(),
+    by: z.string().max(80).optional(),
+    of: z.string().max(80).optional(),
+  })).max(MAX_DRILL).optional(),
+  table: z.boolean().optional(),
+  hidden: z.array(z.string().min(1).max(200)).max(40).optional(),
+})
 
 const cleanTags = tags => [...new Set((tags || []).map(t => t.toLowerCase()))]
 
@@ -253,6 +281,123 @@ async function sendFile(req, reply, p, target, body) {
     await record({ error: errorText(e) })
     throw e
   }
+}
+
+// ── Printing ─────────────────────────────────────────────────
+
+const lowerFirst = s => (s && /^[A-Z][a-z]/.test(s) ? s[0].toLowerCase() + s.slice(1) : s || '')
+const upperFirst = s => (s ? s[0].toUpperCase() + s.slice(1) : '')
+
+// Where the person had got to, as the trail on the page says it: "All, then
+// Mains (by dish), then Pad Thai (dishes sold behind Net sales)".
+function trailText(steps, trail) {
+  if (!steps.length) return null
+  return ['All', ...steps.map((s, i) => {
+    const t = trail[i] || {}
+    const how = s.to === 'rows' ? lowerFirst(t.by) || 'the rows' : 'by ' + (lowerFirst(t.by) || 'another field')
+    return (t.label || 'A row') + ' (' + how + (s.to === 'rows' && t.of ? ' behind ' + t.of : '') + ')'
+  })].join(', then ')
+}
+
+// What the page says the report was run for: its period, what it is
+// compared with, its venues and other choices, and the rows opened up.
+function printFacts({ base, result, levels, values, venues, steps, trail }) {
+  const meta = result.meta || {}
+  const facts = [['Period', meta.period?.text || 'Every date']]
+  if (meta.compare?.text) facts.push(['Compared with', meta.compare.text])
+  // The report's own period is said above with its dates: not again as a choice.
+  let own = !!meta.period
+  const catalogue = catalogueView(levels)
+  for (const input of paramInputs(catalogue, base)) {
+    if (own && input.type === 'period' && input.path === 'date' && !input.bucket && input.subject === base.subject) { own = false; continue }
+    const words = paramWords(catalogue, input, values[input.key], { venues, currency: meta.currency })
+    // The words are made to follow the choice's name in a sentence ("every venue"): here they stand alone.
+    if (words) facts.push([input.label, upperFirst(words)])
+  }
+  const opened = trailText(steps, trail)
+  if (opened) facts.push(['Opened up', opened])
+  const rows = meta.row_count ?? result.rows.length
+  facts.push(['Rows', rows.toLocaleString('en-GB')])
+  return facts
+}
+
+// A page nobody should keep, pass on or put in a frame, that loads nothing
+// but its own logo and runs nothing but its own print button.
+function printHeaders(reply, nonce = null) {
+  return reply
+    .header('Cache-Control', 'private, no-store')
+    .header('Referrer-Policy', 'no-referrer')
+    .header('X-Robots-Tag', 'noindex, nofollow')
+    .header('Content-Security-Policy', 'default-src \'none\'; style-src \'unsafe-inline\'; '
+      + (nonce ? 'script-src \'nonce-' + nonce + '\'; ' : '') + 'img-src \'self\' https: data:; base-uri \'none\'; form-action \'none\'; frame-ancestors \'none\'')
+    .type('text/html; charset=utf-8')
+}
+
+/**
+ * The print page: GET /api/reports/print/:linkId. Its own plugin, without
+ * the login the other report routes ask for: a new tab can't send it, so the
+ * link (a random id that works for a few minutes) is the key. The report is
+ * run as the person who pressed Print, with what their role could see then.
+ */
+export async function reportPrintRoutes(app) {
+  app.get('/print/:linkId', async (req, reply) => {
+    const say = (code, title, text) => printHeaders(reply.code(code)).send(messageHtml(title, text))
+    const gone = () => say(410, 'This print page has run out', 'A print page works for ' + PRINT_MINUTES + ' minutes. Go back to the report and press Print again.')
+    const id = String(req.params.linkId || '')
+    // System mode: the link says which group it belongs to.
+    const [link] = UUID_RE.test(id) ? await systemSql`SELECT * FROM report_print_links WHERE id = ${id}` : []
+    if (!link) return say(404, 'This print page isn\'t there', 'Go back to the report and press Print again.')
+    if (new Date(link.expires_at).getTime() <= Date.now()) return gone()
+
+    const p = {
+      tenantId: link.tenant_id, sub: link.user_sub, email: link.user_email, levels: link.levels || {},
+      ctx: { tenantId: link.tenant_id, userKey: link.user_sub, levels: link.levels || {} },
+    }
+    const started = Date.now()
+    const base = normaliseReport(link.spec)
+    const steps = Array.isArray(link.drill) ? link.drill : []
+    const given = link.params || {}
+    const values = resolveParams(base, given)
+    const record = extra => recordRun(p, {
+      kind: 'export', format: 'print', name: link.name, spec: base, drill: steps, params: values,
+      saved: UUID_RE.test(link.report_ref) ? { id: link.report_ref } : null, starter: starterOf(link.report_ref),
+      ms: Date.now() - started, ...extra,
+    }, req.log)
+    try {
+      const result = await runReport(p.ctx, drilled(base, steps, p.levels), given)
+      const about = await withTenant(p.tenantId, async tx => {
+        const [group] = await tx`
+          SELECT t.name, ts.brand_name, ts.logo_url
+            FROM tenants t LEFT JOIN tenant_site ts ON ts.tenant_id = t.id
+           WHERE t.id = ${p.tenantId}`
+        const venues = await tx`SELECT id, name FROM venues WHERE tenant_id = ${p.tenantId} ORDER BY name`
+        return { group, venues, colours: await brandColours(tx, p.tenantId) }
+      })
+      const nonce = crypto.randomBytes(16).toString('base64')
+      const html = printHtml({
+        group: about.group?.brand_name || about.group?.name || '',
+        logo: about.group?.logo_url || null,
+        brand: about.colours.primary,
+        name: link.name,
+        description: link.description,
+        facts: printFacts({ base, result, levels: p.levels, values, venues: about.venues, steps, trail: Array.isArray(link.trail) ? link.trail : [] }),
+        result,
+        table: link.show_table,
+        hidden: Array.isArray(link.hidden) ? link.hidden : [],
+        by: link.user_email,
+        expires: link.expires_at,
+        nonce,
+      })
+      await record({ rows: result.meta.row_count })
+      return printHeaders(reply, nonce).send(html)
+    } catch (e) {
+      await record({ error: errorText(e) })
+      if (e?.statusCode && e.statusCode < 500) {
+        return say(e.statusCode, 'This report can\'t be printed', (Array.isArray(e.problems) && e.problems.length ? e.problems.join(' ') : e.message) || 'Go back to the report and try again.')
+      }
+      throw e
+    }
+  })
 }
 
 // ── Routes ───────────────────────────────────────────────────
@@ -424,6 +569,35 @@ export default async function reportRoutes(app) {
     const body = ExportBody.parse(req.body)
     const p = await reportPerson(req)
     return sendFile(req, reply, p, await loadTarget(req.params.id, p), body)
+  })
+
+  // A link to the report's print page, as it is on the person's screen.
+  app.post('/:id/print-link', view, async req => {
+    const body = PrintBody.parse(req.body || {})
+    const p = await reportPerson(req)
+    const target = await loadTarget(req.params.id, p)
+    const steps = drillSteps(body.drill)
+    const given = body.params || {}
+    await refuseOtherVenues(p, target.spec, given)
+    // Refused here, in the app, not on a page in a new tab: rows that can't
+    // be opened that way, a report the person's role can't run.
+    checkedSpec(drilled(target.spec, steps, p.levels), p)
+    const trail = body.trail?.length === steps.length ? body.trail : []
+    const [link] = await withTenant(p.tenantId, async tx => {
+      // Links that ran out go: the person's own at once, anyone's after a day.
+      await tx`
+        DELETE FROM report_print_links
+         WHERE tenant_id = ${p.tenantId}
+           AND (expires_at < now() - interval '1 day' OR (user_sub = ${p.sub} AND expires_at < now()))`
+      return tx`
+        INSERT INTO report_print_links (tenant_id, report_ref, name, description, spec, params, drill, trail, show_table, hidden,
+                                        user_sub, user_email, levels, expires_at)
+        VALUES (${p.tenantId}, ${target.ref}, ${target.name}, ${target.description || null}, ${tx.json(target.spec)},
+                ${tx.json(given)}, ${tx.json(steps)}, ${tx.json(trail)}, ${body.table ?? null}, ${tx.json([...new Set(body.hidden || [])])},
+                ${p.sub}, ${p.email}, ${tx.json(p.levels)}, now() + make_interval(mins => ${PRINT_MINUTES}))
+        RETURNING id, expires_at`
+    })
+    return { path: '/api/reports/print/' + link.id, expires_at: link.expires_at }
   })
 
   app.post('/:id/copy', use, async (req, reply) => {

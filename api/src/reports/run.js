@@ -196,6 +196,8 @@ function metaOf(p, shaped, started) {
     compare: plan.compare ? { with: plan.compare.with, from: plan.compare.from, to: plan.compare.to, text: plan.compare.text } : null,
     currency: currencyColumn ? null : scope.currencies[0] || 'GBP',
     currency_column: currencyColumn,
+    // A table across: what its columns are, in words (each column says only its own value).
+    across: plan.cols?.length ? plan.cols.map(g => g.col.label) : null,
     tz: scope.tz,
     today: scope.today,
     row_count: shaped.row_count,

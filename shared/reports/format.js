@@ -163,6 +163,15 @@ export function csvCell(v) {
   return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s
 }
 
+/**
+ * A change as it is written: +12.4%, −3.0% (a real minus sign). No colours:
+ * whether more is better depends on the figure (sales up, voids up).
+ */
+export function changeText(v) {
+  if (!isNum(v)) return ''
+  return (v > 0 ? '+' : v < 0 ? '\u2212' : '') + (Math.abs(v) * 100).toLocaleString('en-GB', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%'
+}
+
 /** The change from `before` to `now` as a fraction, or null when there is nothing to compare with. */
 export function changeOf(now, before) {
   if (!isNum(now) || !isNum(before) || before === 0) return null
