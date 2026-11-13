@@ -4,12 +4,13 @@
 // person's role sees), the answer made into a definition through the
 // builder's edits and run as the person, venue names and names in the data
 // found in the group's own rows (several matches become questions with the
-// report for each choice), an answer that can't be used sent back once with
+// change each choice makes), an answer that can't be used sent back once with
 // the reasons, a subject listed in a line shown in full on the second ask,
 // changes to a report built before, files, the usage counted, and refusals.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { startFakeClaude } from './support/fake-claude.mjs'
+import { applyChange } from '../../shared/reports/choices.js'
 
 const claude = await startFakeClaude()
 const { as, ok, sql, closeApp } = await import('./support/app.mjs')
@@ -145,7 +146,7 @@ test('Pepper is shown refs, never names, and the answer runs as a report for the
   assert.equal(runs.n, 0, 'nothing recorded: a build is a preview')
 })
 
-test('venues and names in the data named loosely become questions, each choice a report ready to show', async () => {
+test('venues and names in the data named loosely become questions, each choice a change to the report', async () => {
   // Two venues start with "zqx": the first is used meanwhile, the question offers each and both.
   claude.script.push(body => {
     const checks = shown(body).get('Checks')
@@ -160,9 +161,9 @@ test('venues and names in the data named loosely become questions, each choice a
   assert.deepEqual(venueQ.choices.map(c => c.label), ['Zqx Hertford', 'Zqx Ware', 'All of them'])
   const venuesOf = spec => spec.params.find(p => p.key === 'venues').default
   assert.deepEqual(venuesOf(out.spec), [filled.ids.venue2], 'the first one meanwhile')
-  assert.deepEqual(venuesOf(venueQ.choices[1].spec), [filled.ids.venue], 'each choice is that report')
-  assert.deepEqual(venuesOf(venueQ.choices[2].spec).sort(), [filled.ids.venue, filled.ids.venue2].sort())
-  assert.match(venueQ.choices[1].about, /at Zqx Ware\.$/, 'and says so')
+  assert.deepEqual(venuesOf(applyChange(out.spec, venueQ.choices[1].change)), [filled.ids.venue], 'each choice a change to the report')
+  assert.deepEqual(venuesOf(applyChange(out.spec, venueQ.choices[2].change)).sort(), [filled.ids.venue, filled.ids.venue2].sort())
+  assert.deepEqual(Object.keys(venueQ.choices[0]).sort(), ['change', 'label'], 'a label and its change, nothing else')
 
   // Dish names are found among the dishes sold at the venue in the period.
   const dishes = (await sql`
@@ -192,14 +193,15 @@ test('venues and names in the data named loosely become questions, each choice a
   assert.equal(dishQ.choices.at(-1).label, 'All of them')
   const dishFilter = spec => spec.filters.find(f => f.field === 'name' && f.op !== 'is_not')
   assert.equal(dishFilter(out2.spec).value, named[0], 'the most sold meanwhile')
-  assert.deepEqual(dishFilter(dishQ.choices.at(-1).spec), { field: 'name', op: 'in', value: named })
+  assert.deepEqual(dishFilter(applyChange(out2.spec, dishQ.choices.at(-1).change)), { field: 'name', op: 'in', value: named })
   assert.ok(out2.couldnt.some(x => /"nothing like this" was found/.test(x)) || out2.couldnt.some(x => /nothing like this/.test(x)),
     'a name found nowhere is kept as typed, with a note: ' + JSON.stringify(out2.couldnt))
   assert.equal(out2.spec.filters.find(f => f.op === 'is_not').value, 'nothing like this')
 
-  // A choice's report runs as it is: the page shows it with a preview.
-  const chosen = await ok(owner.post('/api/reports/preview', { spec: dishQ.choices[1].spec }))
+  // A choice's report runs: the page applies the change and shows it with a preview.
+  const chosen = await ok(owner.post('/api/reports/preview', { spec: applyChange(out2.spec, dishQ.choices[1].change) }))
   assert.equal(chosen.kind, 'summary')
+  assert.deepEqual(chosen.spec.filters.find(f => f.field === 'name' && f.op !== 'is_not'), { field: 'name', op: 'is', value: named[1] })
 })
 
 test('venue names are only ever the group\'s own', async () => {

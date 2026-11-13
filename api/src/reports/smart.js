@@ -34,9 +34,10 @@
 //     venues    the group's venues [{ id, name }]
 //     today     YYYY-MM-DD at the venues
 //   -> { spec, name, about, assumed, couldnt, questions, result, problem }
-//      questions: [{ question, choices: [{ label, spec?, about? }] }]; a
-//      choice with a spec is that report, ready; one without is sent back
-//      as a change ("<question> <choice>")
+//      questions: [{ question, choices: [{ label, change? }] }]; a choice
+//      with a change is applied to the report as it is then (applyChange()
+//      in shared/reports/choices.js, so answers to two questions add up);
+//      one without is sent back as a change in words ("<question> <choice>")
 //
 //   rankSubjects(), buildSlice(), toSpec(), answerOf(), matchNames():
 //   the parts, exported for the tests.
@@ -47,7 +48,7 @@ import { ReportError } from './compile.js'
 import { checkedSpec } from './access.js'
 import { askForJson, fileBlocks, obj, str, bool, arr, oneOf, clip } from '../services/aiJson.js'
 import {
-  dataTree, treeNodes, pathUses, addRow, addColumn, addValue, addFilter, setFilter, setParamDefault,
+  dataTree, treeNodes, pathUses, addRow, addColumn, addValue, addFilter, setParamDefault,
   setSort, setLimit, setCompare, compareProblem, setView, filterOps, filterValueKind, filterShape,
   filterValueOk, storedNumber, shownNumber, valueName, usedParams,
 } from '../../../shared/reports/build.js'
@@ -58,6 +59,7 @@ import {
 import { RELATIVE_PERIODS, normalisePeriod, isYmd, dayText } from '../../../shared/reports/period.js'
 import { resolvePath, pathLabel } from '../../../shared/reports/paths.js'
 import { MOMENT_BUCKETS, WEEKDAYS_LONG } from '../../../shared/reports/format.js'
+import { applyChange } from '../../../shared/reports/choices.js'
 import { chartChoices } from '../../../shared/reports/chart.js'
 import { describeReport } from '../../../shared/reports/describe.js'
 import { ASSISTANT_NAME } from '../../../shared/assistant.js'
@@ -442,8 +444,8 @@ function filterValue(def, type, bucket, op, words) {
  * of several parts and its drill-downs are kept). Returns
  *
  *   { spec, name, assumed, couldnt, slips,
- *     questions  [{ question, choices: [{ label, apply? }] }]: apply(spec)
- *                gives that choice's report from the one finally built
+ *     questions  [{ question, choices: [{ label, change }] }]: each
+ *                change as applyChange() (shared/reports/choices.js) takes it
  *     lookups    [{ index, cond, ask, label, typed: [names] }]: names to
  *                find in the report's own rows }
  *
@@ -635,16 +637,12 @@ export function toSpec(catalogue, slice, answer, { venues = [], prev = null } = 
         const first = found[0].id
         ids.push(first)
         if (found.length > 1) {
-          const swap = withIds => s => {
-            const p = s.params.find(x => x.type === 'venues')
-            const now = Array.isArray(p?.default) ? p.default : []
-            return setParamDefault(s, p.key, [...new Set(now.flatMap(id => (id === first ? withIds : [id])))])
-          }
+          const swap = to => ({ venues: { from: first, to } })
           out.questions.push({
             question: 'Which venue did you mean by "' + typed + '"?',
             choices: [
-              ...found.slice(0, 4).map(v => ({ label: v.name, apply: swap([v.id]) })),
-              { label: 'All of them', apply: swap(found.map(v => v.id)) },
+              ...found.slice(0, 4).map(v => ({ label: v.name, change: swap([v.id]) })),
+              { label: 'All of them', change: swap(found.map(v => v.id)) },
             ],
           })
         }
@@ -737,17 +735,7 @@ async function namesIn(p, spec, field) {
 }
 
 // A filter's value with one name swapped for others (one or several).
-function swapName(lk, from, to) {
-  return s => {
-    const f = s.filters[lk.index]
-    if (!f) return s
-    const now = f.param ? s.params.find(x => x.key === f.param)?.default : f.value
-    const values = [].concat(now ?? []).flatMap(v => (v === from ? to : [v]))
-    const many = values.length > 1 || f.op === 'in' || f.op === 'not_in'
-    const op = many ? (f.op === 'is_not' || f.op === 'not_in' ? 'not_in' : 'in') : f.op
-    return setFilter(s, lk.index, { field: f.field, ...(f.bucket ? { bucket: f.bucket } : {}), op, value: many ? values : values[0] }, { ask: lk.ask, label: lk.label })
-  }
-}
+const swapName = (lk, from, to) => ({ filter: { index: lk.index, from, to } })
 
 /**
  * Names typed in filters (a dish, a server) found in the report's own rows:
@@ -769,14 +757,14 @@ async function findNames(p, catalogue, spec, lookups) {
     for (const typed of lk.typed) {
       const hits = matchNames(typed, names)
       if (!hits.length) { notes.push('No ' + label + ' "' + typed + '" was found in the report\'s period, so it is kept as typed'); continue }
-      if (hits[0] !== typed) spec = swapName(lk, typed, [hits[0]])(spec)
+      if (hits[0] !== typed) spec = applyChange(spec, swapName(lk, typed, [hits[0]]))
       if (hits.length > 1) {
         const all = lk.cond.op === 'is' || lk.cond.op === 'in'
         questions.push({
           question: 'Which ' + label + ' did you mean by "' + typed + '"?',
           choices: [
-            ...hits.slice(0, 4).map(h => ({ label: h, apply: swapName(lk, hits[0], [h]) })),
-            ...(all ? [{ label: 'All of them', apply: swapName(lk, hits[0], hits.slice(0, LIMITS.in_values)) }] : []),
+            ...hits.slice(0, 4).map(h => ({ label: h, change: swapName(lk, hits[0], [h]) })),
+            ...(all ? [{ label: 'All of them', change: swapName(lk, hits[0], hits.slice(0, LIMITS.in_values)) }] : []),
           ],
         })
       }
@@ -982,10 +970,7 @@ export async function smartBuild(p, { request, previous = null, files = [], venu
     const ctx = { venues, periodText: result.meta?.period?.text, currency: result.meta?.currency }
     const questions = [...built.questions, ...found.questions].slice(0, QUESTIONS).map(q => ({
       question: q.question,
-      choices: q.choices.map(c => {
-        const s = c.apply(spec)
-        return { label: c.label, spec: s, about: describeReport(catalogue, s, ctx) }
-      }),
+      choices: q.choices.map(c => ({ label: c.label, change: c.change })),
     }))
     return {
       spec, name: built.name, about: describeReport(catalogue, spec, ctx),
