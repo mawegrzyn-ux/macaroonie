@@ -27,6 +27,76 @@ const add = (map, key, init) => {
   return map.get(key)
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const asUuid = v => (typeof v === 'string' && UUID.test(v) ? v : null)
+const pence = v => Math.round(Number(v) || 0)
+
+/** The version of the breakdowns below a stored check carries (pos_checks.proj_v). */
+export const CHECK_BREAKDOWNS_V = 1
+
+/**
+ * A check's discounts, charges and VAT by rate as rows to store beside it
+ * (pos_check_discounts, pos_check_charges, pos_check_vat), with who
+ * cancelled it and what it was worth. All of it comes from checkTotals()
+ * and the check itself, the way dayFigures() reads them, so a report that
+ * adds the rows up gets the till's own figures (docs/REPORTS.md 5.4).
+ *
+ * A discount's kind: discount | comp | promotion | combo (an automatic meal
+ * deal) | reward (a loyalty reward). Discounts that came to nothing aren't
+ * kept; nor are charges that neither counted nor would have.
+ */
+export function checkBreakdowns(check, totals = checkTotals(check)) {
+  const own = Object.fromEntries((check.discounts || []).map(d => [d.id, d]))
+  const discounts = []
+  for (const d of totals.discounts) {
+    if (!(d.amount > 0)) continue
+    const o = d.promotion ? null : own[d.id]
+    discounts.push({
+      idx: discounts.length,
+      kind: d.promotion ? (d.combo ? 'combo' : 'promotion') : d.comp ? 'comp' : o?.loyalty_redemption_id ? 'reward' : 'discount',
+      name: String(d.name || (d.promotion ? 'Promotion' : d.comp ? 'Comp' : 'Discount')).slice(0, 200),
+      scope: d.scope === 'line' ? 'line' : 'check',
+      amount: pence(d.amount),
+      reason: o?.reason ? String(o.reason).slice(0, 300) : null,
+      applied_by: asUuid(o?.by),
+      approved_by: asUuid(o?.approved_by),
+      applied_at: o?.at ?? null,
+    })
+  }
+  const charges = []
+  totals.charges.forEach((x, i) => {
+    if (!x.amount && !x.would_be) return
+    const o = (check.charges || [])[i] || {}
+    charges.push({
+      idx: charges.length,
+      name: String(x.name || 'Charge').slice(0, 200),
+      kind: x.kind === 'amount' ? 'amount' : 'percent',
+      optional: !!x.optional,
+      amount: pence(x.amount),
+      would_be: pence(x.would_be),
+      removed: !!x.removed,
+      waiting: !!x.waiting,
+      vat_rate: Number(x.vat_rate) || 0,
+      remove_reason: x.removed && o.reason ? String(o.reason).slice(0, 300) : null,
+      removed_by: x.removed ? asUuid(o.removed_by) : null,
+      approved_by: x.removed ? asUuid(o.approved_by) : null,
+    })
+  })
+  const vat = totals.vat.map(v => ({ rate: Number(v.rate) || 0, net: pence(v.net), vat: pence(v.vat), gross: pence(v.gross) }))
+  const c = check.cancelled
+  const cancelled = c ? {
+    at: c.at ?? null,
+    reason: c.reason ? String(c.reason).slice(0, 300) : null,
+    // What it was worth when cancelled; older ones: every line left on it (as dayFigures() reads it).
+    value: pence(c.value ?? (check.lines || []).reduce((s, l) => s + lineGross(l), 0)),
+    by: asUuid(c.by),
+    approved_by: asUuid(c.approved_by),
+    day_id: asUuid(c.day_id ?? check.day_id),
+  } : null
+  return { discounts, charges, vat, cancelled }
+}
+
+
 /**
  * Figures for one trading day.
  *   checks  every check opened that day, plus any older check with a

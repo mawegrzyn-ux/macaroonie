@@ -2,7 +2,7 @@
 // Adds: WS server attachment after HTTP listen.
 
 import { buildApp }                          from './app.js'
-import { sql, systemSql }                    from './config/db.js'
+import { sql, systemSql, reportSql }         from './config/db.js'
 import { env }                               from './config/env.js'
 import { attachWss }                         from './config/ws.js'
 import { startNotificationWorker,
@@ -59,6 +59,7 @@ const shutdown = async (signal) => {
   await infoWorker.close()
   await sql.end()
   await systemSql.end()
+  await reportSql.end()
   process.exit(0)
 }
 process.on('SIGTERM', () => shutdown('SIGTERM'))
@@ -76,6 +77,10 @@ try {
   // Menus made before menu publishing get their first release (migration 165).
   const { backfillFirstReleases } = await import('./services/menuReleases.js')
   backfillFirstReleases(app.log).catch(err => app.log.warn({ err }, 'First menu releases failed'))
+  // Checks stored before the report builder get the breakdowns reports read
+  // (migration 243). Not awaited: the till works without them.
+  const { backfillCheckProjections } = await import('./services/posSvc.js')
+  backfillCheckProjections(app.log).catch(err => app.log.warn({ err }, 'Till check breakdowns failed'))
 
   // Keys saved before migration 179 are sealed now.
   sealStoredSecrets()

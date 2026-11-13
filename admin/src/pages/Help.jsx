@@ -27,6 +27,7 @@ const SECTIONS = [
   { id: 'dashboards',          label: 'Dashboards' },
   { id: 'hs-dashboard',        label: 'H&S Dashboard' },
   { id: 'cash-dashboard',      label: 'Cash Dashboard' },
+  { id: 'reports',             label: 'Reports' },
   { id: 'staff-rota',          label: 'Staff & Rota' },
   { id: 'mobile-app',          label: 'Mobile App' },
   { id: 'hs-action-log',       label: 'H&S Action Log' },
@@ -2027,6 +2028,113 @@ export default function Help() {
           </section>
 
           {/* ── STAFF & ROTA ────────────────────────────── */}
+          {/* ── REPORTS ───────────────────────────────────── */}
+          <section id="reports" data-help="">
+            <H2>Reports</H2>
+            <P>
+              <strong>Reports</strong> (main menu, under Dashboards) answers questions about your own
+              figures: till sales, online orders and table bookings to begin with, with the other areas
+              to follow. It comes with 28 starter reports, such as Sales by day, Payments by tender, Top
+              dishes online and No-shows and cancellations. A report always runs as the person looking at
+              it, so it only ever shows what your role is allowed to see.
+            </P>
+            <H3>Finding a report</H3>
+            <P>
+              The page lists <strong>Starred</strong> reports first, then <strong>Your reports</strong> and{' '}
+              <strong>From your team</strong> (once there are any), then the <strong>Starter reports</strong>{' '}
+              an area at a time: Till sales, Online orders, Bookings. Type in <strong>Find a report</strong>{' '}
+              to search names and descriptions, or tap an area button to see just that area. The star on a
+              report keeps it at the top for you only. A starter shown faded with <strong>Needs Online
+              orders</strong> (or another area) is one your role can't run; an owner or admin can give
+              access on the Access page.
+            </P>
+            <H3>Opening a report</H3>
+            <P>
+              A report opens with its usual period, for example last week. Tap <strong>Period</strong> to
+              pick another: today or yesterday, this or last week, month, quarter or year, the last 7, 14,
+              28 or 90 days (or any number of days up to yesterday), the days coming up (for bookings and
+              orders ahead), or two dates of your own. A named period moves on with the calendar; your own
+              dates stay as picked. With more than one venue, tap <strong>Venues</strong> for every venue
+              or just the ones you tick. What you change here lasts for this visit only:{' '}
+              <strong>Back to the report's usual choices</strong> puts it back, and the report itself
+              stays as it was.
+            </P>
+            <P>
+              The bar above the table says which dates the figures are for, how many rows there are and
+              the time they were read. A result is kept for a minute, so opening the same report twice
+              doesn't read everything again; <strong>Refresh</strong> reads it again straight away.
+            </P>
+            <H3>Reading the table</H3>
+            <DataTable
+              head={['Kind of report', 'What you see']}
+              rows={[
+                ['Summary', 'A row for each thing the report groups by (a day, a dish, a server), with its figures, subtotals where the report has them, and a Total row at the bottom.'],
+                ['Table across', 'Rows down the side and a column for each value of something else (each hour, each channel), with a total for every row and every column.'],
+                ['List', 'One row per check, order, booking or payment. The first 5,000 rows show on the page, with a note when there are more; the bottom row adds up the money columns and says how many rows there are in all.'],
+              ]}
+            />
+            <P>
+              The headings stay in view as you scroll down and the first column stays as you scroll
+              sideways. An empty cell means nothing happened there at all; a 0 means something did but
+              none of it counts for that figure (a time of day whose only booking was a no-show has 0
+              guests). A report of the top 25 of something can end with a row for everything else. A
+              note under the bar tells you when a column was left out because your role can't see it.
+            </P>
+            <H3>Where the figures come from</H3>
+            <P>
+              Every figure is the one its own page shows. Till sales are the till's own X and Z report
+              figures, on the trading day: sales after midnight stay on the day before until the trading
+              day starts (<strong>Trading day starts at</strong> in Store tech, Receipts and payments), so
+              in the small hours tonight's sales are under Yesterday and Today is still empty. Online
+              orders match the Online orders page's Report and
+              Transactions tabs: an order sits on the day it was for, rejected and cancelled orders are
+              listed but not counted, and a GloriaFood order sits on the trading day its Cash Recon link
+              puts it on. Bookings sit on the day they are for, at the venue's own time, and Bookings and
+              Guests leave out cancelled bookings and no-shows, as the Bookings page does. A deposit sits
+              on the day it was paid. Times are shown at the venue's own time.
+            </P>
+            <H3>Downloading a file</H3>
+            <P>
+              <strong>CSV</strong> and <strong>Excel</strong> (top right, with Use or Manage on Reports)
+              download the report for the period and venues showing. A list comes in full, not just the
+              rows on the page. Numbers stay numbers: money in pounds, percentages as percent, lengths of
+              time in seconds, with the unit in the heading (Net sales (GBP), No-show rate (%)). The
+              Excel file has an About sheet saying which report it is, the period, the venues, who made it
+              and when. A CSV list holds up to 250,000 rows and an Excel file up to 200,000 cells; a file
+              that was cut short says so.
+            </P>
+            <H3>The starter reports</H3>
+            <DataTable
+              head={['Area', 'Reports']}
+              rows={[
+                ['Till sales', 'Sales by day; Sales by hour and weekday; Sales by dish; Sales by section; Sales by server; Sales by order type and revenue stream; Payments by tender; Discounts and comps, by whom and why; Voids, by whom and why; Cancelled orders, by whom and why; Charges added and taken off; Tips, by who took the payment; Average spend per check and per guest; VAT by rate; Trading days: cash counted against expected.'],
+                ['Online orders', 'Online orders and sales by day and channel; Top dishes online; Promotions used online; Online orders: time to accept and to get ready; Online refunds; GloriaFood beside your own ordering.'],
+                ['Bookings', 'Guests by day and time; Bookings by source; No-shows and cancellations; How far ahead people book; Party sizes; Deposits taken and refunded; New and returning guests.'],
+              ]}
+            />
+            <P>
+              Starter reports come with Macaroonie and stay as they are. Each needs access to its own
+              area as well as to Reports: Till reports for till sales, Online orders for online orders,
+              Bookings for bookings.
+            </P>
+            <H3>Who can open and download reports</H3>
+            <P>
+              Reports is its own module on the Access page. <strong>View</strong> opens and runs the
+              starter reports and any report shared with you, and changes the period and venues.{' '}
+              <strong>Use</strong> also downloads files. <strong>Manage</strong> sees every report in the
+              group, including ones other people haven't shared (marked <strong>Not shared</strong> under
+              From your team), and can delete them. To begin with owners and admins have Manage, operators
+              have View and viewers have no access. Guests' names, emails and phone numbers only appear in
+              reports that list them, and a guest's customer record needs Customers access as well.
+            </P>
+            <InfoBox>
+              This is the first part of the report builder. Building and saving your own reports on
+              screen, charts, tapping a figure to see the rows behind it, and printing come next, then
+              asking Pepper for a report in your own words. The Till reports page, the Online orders
+              report and the Kitchen report stay where they are.
+            </InfoBox>
+          </section>
+
           <section id="staff-rota" data-help="">
             <H2>Staff &amp; Rota</H2>
             <P>

@@ -75,6 +75,7 @@ import documentReadRoutes    from './routes/documentRead.js'
 import navAiRoutes           from './routes/navAi.js'
 import opsRoutes             from './routes/ops.js'
 import localInfoRoutes       from './routes/localInfo.js'
+import reportRoutes          from './routes/reports.js'
 import aiApiRoutes           from './routes/aiApi.js'
 import posSite               from './routes/posSite.js'
 import posSetupRoutes        from './routes/posSetup.js'
@@ -301,6 +302,7 @@ export async function buildApp() {
   await app.register(navAiRoutes, { prefix: '/api/ai' })
   await app.register(opsRoutes,          { prefix: '/api/ops' })
   await app.register(localInfoRoutes,    { prefix: '/api/local-info' })
+  await app.register(reportRoutes,       { prefix: '/api/reports' })
   await app.register(aiApiRoutes, { prefix: '/ai-api' })
   // Till (POS): admin setup + reports, and the tills' own API (device auth).
   await app.register(posSetupRoutes, { prefix: '/api/pos' })

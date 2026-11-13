@@ -53,6 +53,31 @@ export const systemSql = postgres(env.DATABASE_URL, {
   connection:   { 'app.bypass_rls': 'on' },
 })
 
+/**
+ * The report builder's own small pool (docs/REPORTS.md 7.2), so a heavy
+ * report can't use up the connections the tills and bookings need.
+ * withReport() runs `fn(tx)` as the tenant in a read-only transaction that
+ * sees one snapshot (a report's queries agree with each other), with a time
+ * limit on every statement. Nothing but the report engine uses it.
+ */
+export const reportSql = postgres(env.DATABASE_URL, {
+  max:          env.REPORT_POOL_SIZE,
+  idle_timeout: 30,
+})
+
+export async function withReport(tenantId, { timeoutMs = 20000 } = {}, fn) {
+  if (!tenantId) {
+    const err = new Error('No tenant selected')
+    err.statusCode = 400
+    throw err
+  }
+  return reportSql.begin('isolation level repeatable read read only', async tx => {
+    await tx`SELECT set_config('app.tenant_id', ${tenantId}, true)`
+    await tx`SELECT set_config('statement_timeout', ${String(Math.max(1000, Math.round(timeoutMs)))}, true)`
+    return fn(tx)
+  })
+}
+
 /** Run `fn(tx)` in a system-mode transaction (see systemSql). */
 export async function withSystem(fn) {
   return systemSql.begin(fn)

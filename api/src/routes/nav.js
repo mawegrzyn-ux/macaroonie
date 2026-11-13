@@ -41,6 +41,7 @@ export const ROUTE_CATALOG = [
   { route: '/local-info', label: 'Local info', icon: 'CloudSun', module: 'local_info' },
   { route: '/', label: 'Overview', icon: 'LayoutDashboard', module: 'dashboard' },
   { route: '/dashboards', label: 'Dashboards', icon: 'LayoutTemplate', module: 'custom_dashboard' },
+  { route: '/reports', label: 'Reports', icon: 'FileBarChart', module: 'reports' },
   { route: '/timeline', label: 'Timeline', icon: 'CalendarDays', module: 'bookings' },
   { route: '/bookings', label: 'Bookings', icon: 'BookOpen', module: 'bookings' },
   { route: '/customers', label: 'Customers', icon: 'UserRound', module: 'customers' },

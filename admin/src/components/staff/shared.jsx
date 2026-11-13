@@ -173,17 +173,19 @@ export function TimeSelect({ value, onChange, step = 15, disabled, label, classN
 }
 
 /** Delete with an inline "Are you sure?" (design rule 6). */
-export function ConfirmDelete({ onConfirm, label = 'Delete', confirmLabel = 'Yes, delete', disabled }) {
+export function ConfirmDelete({ onConfirm, label = 'Delete', confirmLabel = 'Yes, delete', disabled, big = false }) {
   const [asking, setAsking] = useState(false)
+  // `big`: 48 px targets, for a page's own header (rows of a list keep 44).
+  const h = big ? 'h-12' : 'h-11'
   if (asking) {
     return (
       <span className="inline-flex items-center gap-1">
         <button type="button" onClick={() => { setAsking(false); onConfirm() }} disabled={disabled}
-          className="h-11 px-3 rounded-lg bg-destructive text-destructive-foreground text-xs font-medium touch-manipulation disabled:opacity-50">
+          className={cn(h, 'px-3 rounded-lg bg-destructive text-destructive-foreground text-xs font-medium touch-manipulation disabled:opacity-50')}>
           {confirmLabel}
         </button>
         <button type="button" onClick={() => setAsking(false)}
-          className="h-11 px-3 rounded-lg border text-xs touch-manipulation hover:bg-muted">
+          className={cn(h, 'px-3 rounded-lg border text-xs touch-manipulation hover:bg-muted')}>
           Cancel
         </button>
       </span>
@@ -191,7 +193,7 @@ export function ConfirmDelete({ onConfirm, label = 'Delete', confirmLabel = 'Yes
   }
   return (
     <button type="button" onClick={() => setAsking(true)} disabled={disabled} aria-label={label} title={label}
-      className="w-11 h-11 flex items-center justify-center rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 touch-manipulation disabled:opacity-50">
+      className={cn(h, big ? 'w-12' : 'w-11', 'flex items-center justify-center rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 touch-manipulation disabled:opacity-50')}>
       <Trash2 className="w-4 h-4" />
     </button>
   )

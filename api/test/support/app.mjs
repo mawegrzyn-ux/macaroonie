@@ -1,7 +1,7 @@
 // The real app (with the test login, see auth-stub.mjs), and a client per
 // person: as('u-owner-a', tenantId).get(url) -> { status, body, json }.
 import { buildApp } from '../../src/app.js'
-import { sql as appSql, systemSql } from '../../src/config/db.js'
+import { sql as appSql, systemSql, reportSql } from '../../src/config/db.js'
 import { INTERNAL_CALL_HEADER, INTERNAL_CALL_SECRET } from '../../src/middleware/auth.js'
 
 // The tests read and write across tenants: the system-mode pool (RLS lets
@@ -56,4 +56,5 @@ export async function closeApp() {
   app = null
   await appSql.end({ timeout: 2 })
   await systemSql.end({ timeout: 2 })
+  await reportSql.end({ timeout: 2 })
 }

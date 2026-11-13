@@ -115,6 +115,14 @@ export const MODULES = [
     default: { owner: 'manage', admin: 'manage', operator: 'manage', viewer: 'view' },
   },
   {
+    key:    'reports',
+    label:  'Reports',
+    group:  'reports',
+    description: 'Reports built from any data the person may see: tables, charts and drill-downs, with CSV and Excel files. A report runs as the person looking at it.',
+    use: 'Build and save your own reports, and export them. Sharing a report with roles and offering one to the team as a starter need Manage.',
+    default: { owner: 'manage', admin: 'manage', operator: 'view', viewer: 'none' },
+  },
+  {
     key:    'email_templates',
     label:  'Booking emails',
     group:  'email_templates',
@@ -418,6 +426,12 @@ export const MODULE_GROUPS = [
     label:  'Local info',
     description: 'Weather, traffic, events and incidents around each venue, captured on a schedule.',
     moduleKeys: ['local_info'],
+  },
+  {
+    key:    'reports',
+    label:  'Reports',
+    description: 'The report builder: reports over the till, online orders and bookings, run as the person looking at them.',
+    moduleKeys: ['reports'],
   },
   {
     key:    'cash_recon',

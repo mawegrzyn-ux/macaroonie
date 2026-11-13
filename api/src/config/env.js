@@ -94,6 +94,12 @@ const schema = z.object({
   STRIPE_API_URL:        z.string().url().default('https://api.stripe.com'),
   SUMUP_API_URL:         z.string().url().default('https://api.sumup.com'),
 
+  // The report builder (docs/REPORTS.md 7.2): its own connections, and the
+  // database's cost estimate above which a report is refused before it runs
+  // (on screen; exports and scheduled runs get ten times as much).
+  REPORT_POOL_SIZE:      z.coerce.number().int().min(1).max(10).default(4),
+  REPORT_MAX_COST:       z.coerce.number().positive().default(3000000),
+
   // Storage driver — 'local' writes to UPLOAD_DIR, 's3' writes to an
   // S3-compatible bucket (AWS S3, DigitalOcean Spaces, Cloudflare R2, …).
   STORAGE_DRIVER:        z.enum(['local', 's3']).default('local'),

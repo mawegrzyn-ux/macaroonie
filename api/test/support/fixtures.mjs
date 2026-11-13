@@ -19,7 +19,7 @@ function holdTime() {
   return d.toISOString().slice(0, 10) + 'T19:00:00.000Z'
 }
 
-export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx', loyalty: withLoyalty = true } = {}) {
+export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx', loyalty: withLoyalty = true, reports: withReports = true } = {}) {
   const c = as(sub, tenantId)
   const failed = []
   const ids = {}
@@ -559,6 +559,32 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx', loy
     await step('loyalty points', () => post(`/api/loyalty/members/${member.id}/adjust`, { points: 300, note: mark + ' opening' }))
     if (fiver) await step('loyalty give reward', () => post(`/api/loyalty/members/${member.id}/rewards`, { reward_id: fiver.id, note: mark + ' sorry' }))
     await step('loyalty member note', () => patch(`/api/loyalty/members/${member.id}`, { notes: mark + ' regular' }))
+  }
+
+  // ── Reports (migration 243; reports-api.test.mjs starts without them) ──
+  // A saved report that names this tenant's venue in its definition and in
+  // what it is run with, shared with a role: the sweep sends each write
+  // again as the other tenant.
+  if (withReports) {
+    const spec = {
+      subject: 'bookings.bookings',
+      params: [{ key: 'period', type: 'period', default: { relative: 'last_week' } }, { key: 'venues', type: 'venues', default: 'all' }],
+      rows: ['date'], values: [{ measure: 'bookings' }, { measure: 'guests' }],
+      filters: [{ field: 'date', op: 'in_period', param: 'period' }, { field: 'venue', op: 'in', param: 'venues' }, { field: 'venue', op: 'in', value: [V] }],
+    }
+    const given = { params: { period: { from: MONDAY, to: '2026-10-25' }, venues: [V] } }
+    const saved = await step('report', () => post('/api/reports', { name: mark + ' Bookings by day', description: mark + ' every day', spec, tags: [slug] }))
+    const rid = saved?.report?.id
+    if (rid) {
+      ids.report = rid
+      await step('report run', () => post(`/api/reports/${rid}/run`, given))
+      await step('report preview', () => post('/api/reports/preview', { spec, ...given }))
+      await step('report file', () => post(`/api/reports/${rid}/export`, { format: 'csv', ...given }))
+      await step('report changed', () => put(`/api/reports/${rid}`, { description: mark + ' week by week', spec: { ...spec, rows: [{ field: 'date', bucket: 'week' }] } }))
+      if (viewerRole) await step('report shared', () => patch(`/api/reports/${rid}/sharing`, { shared: 'roles', role_ids: [viewerRole.id] }))
+      await step('report copy', () => post(`/api/reports/${rid}/copy`, { name: mark + ' Bookings by week (copy)' }))
+      await step('report star', () => post(`/api/reports/${rid}/star`, {}))
+    }
   }
 
   // ── Pepper ──

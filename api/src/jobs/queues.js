@@ -168,6 +168,9 @@ export function startAiCleanupWorker(log) {
     // Local info items (migration 240) after 400 days.
     const { cleanUpLocalInfo } = await import('../services/localInfoSvc.js')
     await cleanUpLocalInfo()
+    // Records of report runs and files (migration 243) after 400 days.
+    const { cleanUpReportRuns } = await import('../reports/access.js')
+    await cleanUpReportRuns()
   }, { connection })
 
   worker.on('failed', (job, err) => {
