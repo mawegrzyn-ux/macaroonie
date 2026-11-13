@@ -12,6 +12,13 @@
 //     G  table of 3, eat in   3 x 500, 10% service, cash
 //     E  table of 2, eat in   1200, still open                                        (the manager)
 //
+// Both days are then put on the calendar day at the venue. The till dates a
+// sale by its trading day, which between midnight and the venue's "Trading
+// day starts at" is still the day before, while a report's "Today" is the
+// calendar day (docs/REPORTS.md 5.5). The report tests ask for "today" and
+// "this week", so without this they would find nothing in those hours (they
+// did, on CI at 00:22).
+//
 // sellTwoDays() returns the ids and each day's own figures as the till
 // reports them (GET /pos-api/reports/day: dayFigures() in shared/pos/reports.js).
 import assert from 'node:assert/strict'
@@ -21,6 +28,7 @@ import { INTERNAL_CALL_HEADER, INTERNAL_CALL_SECRET } from '../../src/middleware
 import { ulid } from '../../../shared/pos/ids.js'
 import { checkTotals } from '../../../shared/pos/pricing.js'
 import { chargesWhere } from '../../../shared/pos/charges.js'
+import { todayIn } from '../../../shared/reports/period.js'
 
 /** A call as a linked device. */
 export async function device(d, method, url, body) {
@@ -187,11 +195,16 @@ export async function sellTwoDays({ owner, tenantId, filled, mark = 'Zrp' }) {
   const dayRows = await sql`SELECT id FROM pos_days WHERE venue_id = ${V} ORDER BY opened_at`
   assert.equal(dayRows.length, 2, 'two trading days')
   const [day1, day2] = dayRows.map(r => r.id)
+  // The calendar day at the venue, whatever the hour (see the top of the file).
+  const [{ timezone }] = await sql`SELECT timezone FROM venues WHERE id = ${V}`
+  const calendarDay = todayIn(timezone || 'Europe/London')
+  await sql`UPDATE pos_days SET business_date = ${calendarDay}::date WHERE venue_id = ${V}`
   const r1 = await device(till, 'GET', '/pos-api/reports/day?day_id=' + day1)
   const r2 = await device(till, 'GET', '/pos-api/reports/day')
   assert.equal(r1.status, 200, r1.body)
   assert.equal(r2.status, 200, r2.body)
   assert.equal(r2.json.id, day2)
+  assert.equal(r1.json.business_date, calendarDay)
 
   const names = { types: {}, streams: {}, staff: {} }
   for (const t of await sql`SELECT id, name FROM order_types WHERE tenant_id = ${tenantId}`) names.types[t.id] = t.name

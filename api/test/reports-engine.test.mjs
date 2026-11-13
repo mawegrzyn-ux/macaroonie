@@ -458,6 +458,31 @@ test('a run takes the report\'s choices: venues and a period, or their defaults'
   assert.equal([...letters(await run(least, { least: 21 }))].sort().join(''), 'ac')
 })
 
+test('till sales sit on their trading day: after midnight they are still on the day before', async () => {
+  // As the till has them between midnight and the venue's "Trading day starts
+  // at": the trading day is yesterday's date, the calendar day is today's.
+  const yesterday = addDays(t.date, -1)
+  await sql`UPDATE pos_days SET business_date = ${yesterday}::date WHERE venue_id = ${t.V}`
+  try {
+    const spec = named => ({
+      subject: 'till.checks',
+      params: [{ key: 'period', type: 'period', default: { relative: named } }],
+      rows: ['date'], values: measures(['checks', 'net_sales']),
+      filters: [{ field: 'date', op: 'in_period', param: 'period' }],
+    })
+    // "Today" is the calendar day at the venue: nothing is on it yet.
+    const today = await run(spec('today'))
+    assert.deepEqual([today.meta.today, today.meta.period.from, today.meta.period.to], [t.date, t.date, t.date])
+    assert.deepEqual(cells(today), [])
+    assert.deepEqual(today.totals.cells, [null, 0, 0])
+    // Tonight's sales are under yesterday, with the rest of that trading day.
+    const before = await run(spec('yesterday'))
+    assert.deepEqual(cells(before), [[yesterday, 5, 78.8]])
+  } finally {
+    await sql`UPDATE pos_days SET business_date = ${t.date}::date WHERE venue_id = ${t.V}`
+  }
+})
+
 test('a drill-down: the rows behind a figure, or the same figures by another grouping', async () => {
   const base = normaliseReport({
     subject: 'till.checks', rows: ['order_type.name'], values: measures(['checks', 'net_sales']),
