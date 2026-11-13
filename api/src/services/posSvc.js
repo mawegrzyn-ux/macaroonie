@@ -526,17 +526,82 @@ export async function printConfig(tx, tenantId, venueId) {
 
 // ── Projections ──────────────────────────────────────────────────
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const asUuid = v => (typeof v === 'string' && UUID.test(v) ? v : null)
+
+/**
+ * The rows a check is stored as, worked out once from its state: the
+ * pos_checks row (with what reports read beside it, proj_v and the cancel
+ * columns), its lines, its payments and refunds, and its discounts, charges
+ * and VAT by rate (migration 243). The sequencer's saveCheck() and the Test
+ * data page's till sales (services/tillTestDataSvc.js) both store a check
+ * through this, so a generated check reads in every report and page exactly
+ * as a real one. `check.state` is the check itself: wrap it with tx.json().
+ * Every row of one kind has the same keys, so many checks' rows can go into
+ * one INSERT.
+ */
+export function projectionRows(c, { tenantId, venueId, seq, totals }) {
+  const t = totals || checkTotals(c)
+  const b = breakdownRows(c, t, tenantId, venueId)
+  const x = b.cancelled
+  const check = {
+    id: c.id, tenant_id: tenantId, venue_id: venueId, day_id: c.day_id ?? null,
+    number: c.number ?? null, number_code: c.number_code ?? null, order_no: c.order_no ?? null,
+    mode: c.mode, table_id: c.table_id ?? null, tab_name: c.tab_name ?? null, covers: c.covers ?? null,
+    server_id: c.server_id ?? null, revenue_stream_id: c.revenue_stream_id ?? null,
+    order_type_id: c.order_type_id ?? null, tent: c.tent ?? null,
+    status: c.status, opened_at: c.opened_at ?? null, closed_at: c.closed_at ?? null,
+    subtotal: t.subtotal, discount: t.discount, service_charge: t.service_charge, total: t.total,
+    vat: t.vat_total, paid: t.paid, tips: t.tips, refunded: t.refunded,
+    state: c, last_seq: seq, loyalty_member_id: c.loyalty?.member_id ?? null,
+    proj_v: CHECK_BREAKDOWNS_V,
+    cancelled_at: x?.at ?? null, cancel_reason: x?.reason ?? null, cancel_value: x ? x.value : null,
+    cancelled_by: x?.by ?? null, cancel_approved_by: x?.approved_by ?? null, cancel_day_id: x?.day_id ?? null,
+  }
+  const own = { tenant_id: tenantId, venue_id: venueId, check_id: c.id }
+  const byLine = new Map(t.lines.map(l => [l.id, l]))
+  const lines = (c.lines || []).map(l => {
+    const lt = byLine.get(l.id)
+    return {
+      id: l.id, ...own, day_id: c.day_id ?? null, item_id: l.item_id ?? null, section_id: l.section_id ?? null,
+      name: l.name, qty: l.qty, gross: lineGross(l), discount: lt ? lt.discount : 0, net: lt ? lt.net : 0,
+      vat_rate: l.vat_rate, vat: lt ? lt.vat : 0, tax_rate_id: l.tax_rate_id ?? null,
+      revenue_stream_id: l.revenue_stream_id ?? c.revenue_stream_id ?? null, course_id: l.course_id ?? null,
+      seat: l.seat ?? null, status: l.status, added_by: l.added_by ?? null,
+      voided_by: l.voided?.by ?? null, void_reason: l.voided?.reason ?? null, void_day_id: l.voided?.day_id ?? null,
+      sent_at: l.sent_at ?? null, voided_at: l.voided?.at ?? null, void_approved_by: asUuid(l.voided?.approved_by),
+      void_waste: l.voided ? l.voided.waste !== false : null,
+    }
+  })
+  const payments = [
+    ...(c.payments || []).map(p => ({
+      id: p.id, ...own, day_id: p.day_id ?? null, kind: 'payment', tender: p.tender, amount: p.amount, tip: p.tip || 0,
+      staff_id: p.by ?? null, voided: !!p.voided, reason: p.void_reason ?? null, at: p.at ?? null, approved_by: null,
+    })),
+    ...(c.refunds || []).map(r => ({
+      id: r.id, ...own, day_id: r.day_id ?? null, kind: 'refund', tender: r.tender, amount: r.amount, tip: 0,
+      staff_id: r.by ?? null, voided: false, reason: r.reason ?? null, at: r.at ?? null, approved_by: asUuid(r.approved_by),
+    })),
+  ]
+  return { check, lines, payments, discounts: b.discounts, charges: b.charges, vat: b.vat }
+}
+
+/** A check's discounts, charges and VAT by rate as rows, and its cancel details. */
+function breakdownRows(c, totals, tenantId, venueId) {
+  const b = checkBreakdowns(c, totals)
+  const own = { check_id: c.id, tenant_id: tenantId, venue_id: venueId, day_id: asUuid(c.day_id) }
+  return {
+    discounts: b.discounts.map(d => ({ ...own, ...d })),
+    charges: b.charges.map(x => ({ ...own, ...x })),
+    vat: b.vat.map(v => ({ ...own, ...v })),
+    cancelled: b.cancelled,
+  }
+}
+
 async function saveCheck(tx, tenantId, venueId, c, seq) {
-  const t = checkTotals(c)
+  const r = projectionRows(c, { tenantId, venueId, seq })
   await tx`
-    INSERT INTO pos_checks (id, tenant_id, venue_id, day_id, number, number_code, order_no, mode, table_id, tab_name, covers,
-                            server_id, revenue_stream_id, order_type_id, tent, status, opened_at, closed_at,
-                            subtotal, discount, service_charge, total, vat, paid, tips, refunded, state, last_seq, loyalty_member_id, updated_at)
-    VALUES (${c.id}, ${tenantId}, ${venueId}, ${c.day_id}, ${c.number}, ${c.number_code ?? null}, ${c.order_no}, ${c.mode}, ${c.table_id}, ${c.tab_name},
-            ${c.covers}, ${c.server_id}, ${c.revenue_stream_id ?? null}, ${c.order_type_id ?? null}, ${c.tent ?? null},
-            ${c.status}, ${c.opened_at}, ${c.closed_at},
-            ${t.subtotal}, ${t.discount}, ${t.service_charge}, ${t.total}, ${t.vat_total}, ${t.paid}, ${t.tips}, ${t.refunded},
-            ${tx.json(c)}, ${seq}, ${c.loyalty?.member_id ?? null}, now())
+    INSERT INTO pos_checks ${tx({ ...r.check, state: tx.json(c) })}
     ON CONFLICT (id) DO UPDATE SET
       number = EXCLUDED.number, number_code = EXCLUDED.number_code, order_no = EXCLUDED.order_no, mode = EXCLUDED.mode, table_id = EXCLUDED.table_id,
       tab_name = EXCLUDED.tab_name, covers = EXCLUDED.covers, server_id = EXCLUDED.server_id,
@@ -544,65 +609,39 @@ async function saveCheck(tx, tenantId, venueId, c, seq) {
       status = EXCLUDED.status, closed_at = EXCLUDED.closed_at,
       subtotal = EXCLUDED.subtotal, discount = EXCLUDED.discount, service_charge = EXCLUDED.service_charge,
       total = EXCLUDED.total, vat = EXCLUDED.vat, paid = EXCLUDED.paid, tips = EXCLUDED.tips, refunded = EXCLUDED.refunded,
-      state = EXCLUDED.state, last_seq = EXCLUDED.last_seq, loyalty_member_id = EXCLUDED.loyalty_member_id, updated_at = now()
+      state = EXCLUDED.state, last_seq = EXCLUDED.last_seq, loyalty_member_id = EXCLUDED.loyalty_member_id, updated_at = now(),
+      proj_v = EXCLUDED.proj_v, cancelled_at = EXCLUDED.cancelled_at, cancel_reason = EXCLUDED.cancel_reason,
+      cancel_value = EXCLUDED.cancel_value, cancelled_by = EXCLUDED.cancelled_by,
+      cancel_approved_by = EXCLUDED.cancel_approved_by, cancel_day_id = EXCLUDED.cancel_day_id
     WHERE pos_checks.tenant_id = ${tenantId}
   `
   await tx`DELETE FROM pos_check_lines WHERE tenant_id = ${tenantId} AND check_id = ${c.id}`
   await tx`DELETE FROM pos_payments WHERE tenant_id = ${tenantId} AND check_id = ${c.id}`
-  const byLine = Object.fromEntries(t.lines.map(l => [l.id, l]))
-  for (const l of c.lines) {
-    const lt = byLine[l.id]
-    const gross = lineGross(l)
-    await tx`
-      INSERT INTO pos_check_lines (id, tenant_id, venue_id, check_id, day_id, item_id, section_id, name, qty, gross, discount, net,
-                                   vat_rate, vat, tax_rate_id, revenue_stream_id, course_id, seat, status, added_by, voided_by,
-                                   void_reason, void_day_id, sent_at, voided_at, void_approved_by, void_waste)
-      VALUES (${l.id}, ${tenantId}, ${venueId}, ${c.id}, ${c.day_id}, ${l.item_id}, ${l.section_id}, ${l.name}, ${l.qty},
-              ${gross}, ${lt ? lt.discount : 0}, ${lt ? lt.net : 0}, ${l.vat_rate}, ${lt ? lt.vat : 0}, ${l.tax_rate_id ?? null},
-              ${l.revenue_stream_id ?? c.revenue_stream_id ?? null}, ${l.course_id}, ${l.seat}, ${l.status}, ${l.added_by},
-              ${l.voided?.by ?? null}, ${l.voided?.reason ?? null}, ${l.voided?.day_id ?? null}, ${l.sent_at},
-              ${l.voided?.at ?? null}, ${asUuid(l.voided?.approved_by)}, ${l.voided ? l.voided.waste !== false : null})
-      ON CONFLICT (id) DO NOTHING
-    `
-  }
-  for (const p of c.payments) {
-    await tx`
-      INSERT INTO pos_payments (id, tenant_id, venue_id, check_id, day_id, kind, tender, amount, tip, staff_id, voided, reason, at)
-      VALUES (${p.id}, ${tenantId}, ${venueId}, ${c.id}, ${p.day_id}, 'payment', ${p.tender}, ${p.amount}, ${p.tip || 0},
-              ${p.by}, ${!!p.voided}, ${p.void_reason ?? null}, ${p.at})
-      ON CONFLICT (id) DO NOTHING
-    `
-  }
-  for (const r of c.refunds || []) {
-    await tx`
-      INSERT INTO pos_payments (id, tenant_id, venue_id, check_id, day_id, kind, tender, amount, tip, staff_id, voided, reason, at, approved_by)
-      VALUES (${r.id}, ${tenantId}, ${venueId}, ${c.id}, ${r.day_id}, 'refund', ${r.tender}, ${r.amount}, 0,
-              ${r.by}, false, ${r.reason}, ${r.at}, ${asUuid(r.approved_by)})
-      ON CONFLICT (id) DO NOTHING
-    `
-  }
-  await saveCheckBreakdowns(tx, tenantId, venueId, c, t)
+  if (r.lines.length) await tx`INSERT INTO pos_check_lines ${tx(r.lines)} ON CONFLICT (id) DO NOTHING`
+  if (r.payments.length) await tx`INSERT INTO pos_payments ${tx(r.payments)} ON CONFLICT (id) DO NOTHING`
+  await writeBreakdowns(tx, tenantId, c.id, r)
 }
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-const asUuid = v => (typeof v === 'string' && UUID.test(v) ? v : null)
 
 /**
  * What reports read beside a check (migration 243): its discounts, charges
- * and VAT by rate as rows, and who cancelled it and what it was worth as
- * columns. All from checkBreakdowns() (shared/pos/reports.js), which reads
- * checkTotals() the way the till's own day figures do, so a report never
- * works a till figure out again in SQL. Rewritten whole on every save.
+ * and VAT by rate as rows. All from checkBreakdowns() (shared/pos/reports.js),
+ * which reads checkTotals() the way the till's own day figures do, so a
+ * report never works a till figure out again in SQL. Rewritten whole on
+ * every save.
  */
+async function writeBreakdowns(tx, tenantId, checkId, b) {
+  await tx`DELETE FROM pos_check_discounts WHERE tenant_id = ${tenantId} AND check_id = ${checkId}`
+  await tx`DELETE FROM pos_check_charges WHERE tenant_id = ${tenantId} AND check_id = ${checkId}`
+  await tx`DELETE FROM pos_check_vat WHERE tenant_id = ${tenantId} AND check_id = ${checkId}`
+  if (b.discounts.length) await tx`INSERT INTO pos_check_discounts ${tx(b.discounts)}`
+  if (b.charges.length) await tx`INSERT INTO pos_check_charges ${tx(b.charges)}`
+  if (b.vat.length) await tx`INSERT INTO pos_check_vat ${tx(b.vat)}`
+}
+
+/** The breakdowns and the cancel columns of a check already stored (the backfill below). */
 async function saveCheckBreakdowns(tx, tenantId, venueId, c, totals) {
-  const b = checkBreakdowns(c, totals)
-  const own = { check_id: c.id, tenant_id: tenantId, venue_id: venueId, day_id: asUuid(c.day_id) }
-  await tx`DELETE FROM pos_check_discounts WHERE tenant_id = ${tenantId} AND check_id = ${c.id}`
-  await tx`DELETE FROM pos_check_charges WHERE tenant_id = ${tenantId} AND check_id = ${c.id}`
-  await tx`DELETE FROM pos_check_vat WHERE tenant_id = ${tenantId} AND check_id = ${c.id}`
-  if (b.discounts.length) await tx`INSERT INTO pos_check_discounts ${tx(b.discounts.map(d => ({ ...own, ...d })))}`
-  if (b.charges.length) await tx`INSERT INTO pos_check_charges ${tx(b.charges.map(x => ({ ...own, ...x })))}`
-  if (b.vat.length) await tx`INSERT INTO pos_check_vat ${tx(b.vat.map(v => ({ ...own, ...v })))}`
+  const b = breakdownRows(c, totals, tenantId, venueId)
+  await writeBreakdowns(tx, tenantId, c.id, b)
   const x = b.cancelled
   await tx`
     UPDATE pos_checks
@@ -761,7 +800,8 @@ export function sequencer(tenantId, venueId, { deviceId = null, hubId = null } =
     },
     async loadChecks(ids) {
       if (!ids.length) return {}
-      const rows = await tx`SELECT id, state FROM pos_checks WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND id = ANY(${ids}::text[])`
+      // Test checks (the Test data page, migration 245) are no till's: an event naming one finds no check.
+      const rows = await tx`SELECT id, state FROM pos_checks WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND id = ANY(${ids}::text[]) AND NOT is_generated`
       return Object.fromEntries(rows.map(r => [r.id, r.state]))
     },
     async openCheckCount() {
@@ -977,9 +1017,11 @@ export function reconValues(figures, map, fields) {
 export async function fillReconFromDay(tenantId, venueId, dayId, by) {
   return withTenant(tenantId, async tx => {
     const [day] = await tx`
-      SELECT id, business_date::text AS business_date, figures, closed_at FROM pos_days
+      SELECT id, business_date::text AS business_date, figures, closed_at, is_generated FROM pos_days
        WHERE id = ${dayId} AND tenant_id = ${tenantId} AND venue_id = ${venueId}`
     if (!day) throw httpError(404, 'Trading day not found')
+    // Test days (the Test data page, migration 245) never reach Cash Recon: Clear couldn't take them back out.
+    if (day.is_generated) throw httpError(422, 'This is a test day made on the Test data page: test days don\'t go into Cash Recon', { code: 'test_day' })
     const figures = day.figures || dayFigures(await loadDayChecks(tx, tenantId, venueId, day.id), day.id)
     const settings = await ensureSettings(tx, tenantId, venueId)
     const fields = reconValues(figures, settings.recon_map || {}, await reconFields(tx, tenantId, venueId))
@@ -1000,7 +1042,7 @@ export async function fillReconFromDay(tenantId, venueId, dayId, by) {
 export async function dayReport(tx, tenantId, venueId, dayId) {
   const [day] = await tx`
     SELECT id, business_date::text AS business_date, z_number, opened_at, closed_at, closed_by, declared_cash, close_notes,
-           figures, recon_filled_at, recon_error
+           figures, recon_filled_at, recon_error, is_generated
       FROM pos_days WHERE id = ${dayId} AND tenant_id = ${tenantId} AND venue_id = ${venueId}`
   if (!day) throw httpError(404, 'Trading day not found')
   const figures = day.figures || dayFigures(await loadDayChecks(tx, tenantId, venueId, day.id), day.id)

@@ -8474,9 +8474,48 @@ export default function Help() {
             <H2>Test data (pre-prod)</H2>
             <P>
               The <strong>Test data</strong> page fills a venue with practice records while
-              Macaroonie is in testing. Pick the venue at the top. It has four parts: generate
-              dummy bookings, clear bookings, generate past health &amp; safety logs, and clear
-              generated health &amp; safety logs.
+              Macaroonie is in testing. Pick the venue at the top. It has six parts: generate
+              dummy bookings, clear bookings, generate past till sales, clear test till sales,
+              generate past health &amp; safety logs, and clear generated health &amp; safety logs.
+            </P>
+            <H3>Generate past till sales</H3>
+            <P>
+              Fills past days with till sales, as if the venue's tills and kiosks had taken them,
+              so Till reports and the report builder have something to show. Pick
+              <strong> From</strong> and <strong>To</strong> (days before today, about three years
+              back at most; between midnight and the time the trading day starts, yesterday still
+              counts as today) and how many <strong>orders a day</strong> on average, use
+              <strong> Preview</strong> to see roughly how many it will make, then
+              <strong> Generate</strong>.
+            </P>
+            <DataTable
+              head={['What', 'What it makes']}
+              rows={[
+                ['Orders', 'Tables with guests and counter orders through the day, busiest at lunch and dinner, more on Fridays and Saturdays and in December than in the summer. Each one with the venue\'s own menus, prices, order types, charges, discounts and promotions, numbered by its till, and taken by the venue\'s staff (nobody after their last working day). A table in an area with its own revenue stream sells in that stream. A party sits at a table big enough for it, and a table takes its next party a few minutes after the last one has paid. A venue with no till yet gets two stand-in tills: T1 at the counter and T2 at tables.'],
+                ['Kiosks', 'When the venue has self-order kiosks, about a third of the orders come from them, some paid at the counter.'],
+                ['Payments', 'Mostly card, some cash (with change), now and then a voucher, a split bill between guests or a tip.'],
+                ['Now and then', 'A void, a comp, a discount, an optional charge taken off, a cancelled order or a refund. When the person on the till can\'t do it, a manager approves it, as on the till.'],
+                ['The day', 'Opened and closed by the venue\'s staff, with the cash counted (usually what the till expected).'],
+              ]}
+            />
+            <P>
+              Days with real till sales are left alone, and days the venue is closed are left out
+              unless you untick <strong>Skip days the venue is closed</strong>. Making the same
+              days again replaces the test days made before. A long range goes a few weeks at a
+              time: <strong>Stop after these days</strong> stops it and keeps the days already
+              made.
+            </P>
+            <P>
+              In <strong>Till reports</strong> test days are marked <strong>Test sales</strong>,
+              have no Z number and never go into Cash Recon. Their checks aren't on any till,
+              kitchen screen or venue hub. The report builder reads them like real sales and
+              can't tell them apart, so clear them when you are done.
+            </P>
+            <H3>Clear test till sales</H3>
+            <P>
+              Deletes only the days the generator made, with their checks, for the dates you
+              choose or every test day of the venue, after you type DELETE. Real till sales are
+              never removed.
             </P>
             <H3>Generate past health &amp; safety logs</H3>
             <P>

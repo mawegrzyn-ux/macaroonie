@@ -9,6 +9,8 @@
 //     range or the whole venue. Supports dry_run to preview a count before
 //     the destructive call (the UI double-confirms + requires typed
 //     confirmation on top of this).
+//   - POST /:venueId/test-data/till/generate and /till/clear — past
+//     trading days of till sales (services/tillTestDataSvc.js, migration 245).
 //
 // Bookings are inserted directly (bypassing holds/Stripe/slot-cap checks),
 // same bypass precedent as POST /bookings/admin-override. Table assignment
@@ -25,6 +27,9 @@ import { requireOwnVenue } from '../middleware/venue.js'
 import { httpError }  from '../middleware/error.js'
 import { HS_KINDS, generateHsData, clearGenerated } from '../services/hsTestDataSvc.js'
 import { localParts } from '../services/orderSvc.js'
+import { generateTillSales, clearTillSales, tillRangeProblem, TILL_MAX_PER_DAY } from '../services/tillTestDataSvc.js'
+import { ensureSettings } from '../services/posSvc.js'
+import { businessDate } from '../../../shared/pos/reports.js'
 
 const HS_MAX_DAYS = 366
 
@@ -285,5 +290,57 @@ export default async function testDataRoutes(app) {
         dateFrom: body.date_from, dateTo: body.date_to, kinds: body.kinds, dryRun: body.dry_run,
       })
     })
+  })
+
+  // ── Till sales (migration 245) ──────────────────────────────
+
+  // POST /:venueId/test-data/till/generate  { dry_run: true } says what it would make.
+  app.post('/:venueId/test-data/till/generate', { preHandler: requirePermission('test_data', 'manage') }, async (req) => {
+    const body = z.object({
+      date_from:   z.string().regex(DATE_RE),
+      date_to:     z.string().regex(DATE_RE),
+      per_day:     z.number().int().min(1).max(TILL_MAX_PER_DAY),
+      skip_closed: z.boolean().optional().default(true),
+      seed:        z.string().max(40).optional().default(''),
+      dry_run:     z.boolean().optional().default(false),
+    }).parse(req.body)
+
+    return withTenant(req.tenantId, async tx => {
+      const [venue] = await tx`SELECT id, timezone FROM venues WHERE id = ${req.params.venueId} AND tenant_id = ${req.tenantId}`
+      if (!venue) throw httpError(404, 'Venue not found')
+      // "Today" is the trading day open now (after midnight it is still
+      // yesterday's until the day starts): a till opens its day on that date,
+      // so test sales never share a date with a real day.
+      const settings = await ensureSettings(tx, req.tenantId, venue.id)
+      const today = businessDate(new Date(), venue.timezone || 'Europe/London', settings.day_starts_at)
+      const why = tillRangeProblem(body.date_from, body.date_to, today)
+      if (why) throw httpError(422, why, { code: 'range' })
+      return generateTillSales(tx, req.tenantId, req.params.venueId, {
+        dateFrom: body.date_from, dateTo: body.date_to, perDay: body.per_day,
+        skipClosed: body.skip_closed, seed: body.seed, dryRun: body.dry_run,
+      })
+    })
+  })
+
+  // POST /:venueId/test-data/till/clear — only the trading days the generator made.
+  app.post('/:venueId/test-data/till/clear', { preHandler: requirePermission('test_data', 'manage') }, async (req) => {
+    const body = z.object({
+      date_from: z.string().regex(DATE_RE).optional(),
+      date_to:   z.string().regex(DATE_RE).optional(),
+      all:       z.boolean().optional().default(false),
+      dry_run:   z.boolean().optional().default(false),
+      confirm:   z.boolean().optional().default(false),
+    }).parse(req.body)
+    if (!body.dry_run && body.confirm !== true) {
+      throw httpError(422, 'confirm must be true to delete (or use dry_run to preview)')
+    }
+    const from = body.all ? '1900-01-01' : body.date_from
+    const to = body.all ? '2999-12-31' : body.date_to
+    if (!from || !to) throw httpError(422, 'Give date_from and date_to, or all')
+    if (to < from) throw httpError(422, 'date_to must be on or after date_from')
+
+    return withTenant(req.tenantId, tx => clearTillSales(tx, req.tenantId, req.params.venueId, {
+      dateFrom: from, dateTo: to, dryRun: body.dry_run,
+    }))
   })
 }

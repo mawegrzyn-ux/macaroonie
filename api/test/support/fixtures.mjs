@@ -543,6 +543,11 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx', loy
   const playlist = await step('screen playlist', () => post('/api/screens/playlists', { name: mark + ' Day' }))
   if (playlist && design) await step('playlist boards', () => put(`/api/screens/playlists/${playlist.id}`, { name: mark + ' Day', items: [{ design_id: design.id, duration_secs: 10 }] }))
   await step('screen wall', () => post('/api/screens/walls', { venue_id: V, name: mark + ' Wall', cols: 2, rows: 1 }))
+  // Till sales made up on the Test data page (migration 245), then cleared,
+  // so no test counts them: the sweep sends both again as the other tenant.
+  const pastDay = n => new Date(Date.now() - n * 86_400_000).toISOString().slice(0, 10)
+  await step('till test sales', () => post(`/api/venues/${V}/test-data/till/generate`, { date_from: pastDay(4), date_to: pastDay(3), per_day: 6, seed: mark }))
+  await step('till test sales cleared', () => post(`/api/venues/${V}/test-data/till/clear`, { date_from: pastDay(4), date_to: pastDay(3), confirm: true }))
 
   // ── Loyalty (migration 211; loyalty.test.mjs starts without it) ──
   const loyalty = withLoyalty ? await step('loyalty programme', () => get('/api/loyalty/programme')) : null

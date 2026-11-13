@@ -86,11 +86,16 @@ function DayDetail({ venueId, dayId, onBack, onShowChecks }) {
       <div className="flex flex-wrap items-center gap-2">
         <Btn onClick={onBack} data-testid="day-back"><ChevronLeft className="w-4 h-4" /> Days</Btn>
         <h2 className="text-base font-semibold flex-1">
-          {dayLabel(day.business_date)} · {day.live ? 'open now (X)' : 'Z ' + day.z_number}
+          {dayLabel(day.business_date)} · {day.live ? 'open now (X)' : day.is_generated ? 'test day' : 'Z ' + day.z_number}
         </h2>
         <Btn onClick={onShowChecks} data-testid="day-checks">Checks</Btn>
       </div>
       {day.live && <p className="text-sm text-muted-foreground">The day is still open: these figures are as of now. They're fixed when the day is closed on a till.</p>}
+      {day.is_generated && (
+        <p className="text-sm text-amber-800 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2" data-testid="day-test-note">
+          Test sales made on the Test data page. Its checks aren't on any till, it has no Z number and it doesn't go into Cash Recon.
+        </p>
+      )}
       <div className="grid md:grid-cols-2 gap-4">
         <Card title="Sales">
           <Rows rows={[
@@ -188,7 +193,7 @@ function DayDetail({ venueId, dayId, onBack, onShowChecks }) {
           </Card>
         )}
       </div>
-      {!day.live && (
+      {!day.live && !day.is_generated && (
         <Card title="Cash Recon">
           <div className="space-y-3 text-sm">
             {day.recon_filled_at
@@ -231,10 +236,13 @@ function DaysTab({ venueId, onShowChecks, openDay = null, onLinkDone }) {
               <div className="flex-1 min-w-[160px]">
                 <p className="text-sm font-medium">{dayLabel(d.business_date)}</p>
                 <p className="text-xs text-muted-foreground">
-                  {d.closed_at ? 'Z ' + d.z_number + ' · closed ' + time(d.closed_at) : 'Open now'} · {d.checks} checks
+                  {d.closed_at ? (d.is_generated ? 'Test day' : 'Z ' + d.z_number) + ' · closed ' + time(d.closed_at) : 'Open now'} · {d.checks} checks
                 </p>
               </div>
-              {d.closed_at && (
+              {d.is_generated && (
+                <span className="text-xs rounded-full px-2 py-0.5 border text-amber-800 border-amber-300 bg-amber-50" data-testid="day-test">Test sales</span>
+              )}
+              {d.closed_at && !d.is_generated && (
                 <span className={cn('text-xs rounded-full px-2 py-0.5 border', d.recon_filled_at ? 'text-green-700 border-green-300 bg-green-50' : d.recon_error ? 'text-amber-700 border-amber-300 bg-amber-50' : 'text-muted-foreground')}>
                   {d.recon_filled_at ? 'In Cash Recon' : d.recon_error ? 'Cash Recon not filled' : 'Cash Recon not filled'}
                 </span>

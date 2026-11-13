@@ -161,6 +161,8 @@ export default [
     },
     list: ['date', 'venue.name', 'z_number', 'cash_expected', 'cash_counted', 'cash_difference', 'closed_by.name'],
     sort: [{ by: 'date', dir: 'desc' }],
+    // Test days made on the Test data page (migration 245) are read like real ones on purpose.
+    skip: ['is_generated'],
   }),
 
   // ── Checks ─────────────────────────────────────────────────
@@ -226,7 +228,9 @@ export default [
     list: ['number', 'date', 'venue.name', 'mode', 'server.name', 'covers', 'net', 'service_charge', 'total', 'status'],
     sort: [{ by: 'opened_at', dir: 'desc' }],
     // state is the check as the till keeps it; the columns beside it are what reports read.
-    skip: ['loyalty_member_id', 'state', 'last_seq', 'proj_v', 'updated_at', 'loyalty_settled_key'],
+    // is_generated marks test sales made on the Test data page (migration 245),
+    // which reports read like real sales on purpose (the till reports do too).
+    skip: ['loyalty_member_id', 'state', 'last_seq', 'proj_v', 'updated_at', 'loyalty_settled_key', 'is_generated'],
   }),
 
   subject({
