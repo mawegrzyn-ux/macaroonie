@@ -35,7 +35,7 @@
 // compileReport() returns a plan: the statement(s) with their parameters
 // and what shape.js needs to turn the rows into a result.
 
-import { CATALOGUE, canReportOn, canSee } from './catalogue/index.js'
+import { CATALOGUE, canReportOn, canSee, ACROSS_AGGS } from './catalogue/index.js'
 import { resolvePath, pathLabel, bucketsFor } from '../../../shared/reports/paths.js'
 import { rowId, rankKey, AGG_LABELS, OPS_BY_TYPE, BUCKET_OPS } from '../../../shared/reports/spec.js'
 import { parseExpr, exprToSql, exprRefs, exprProblem, ExprError } from '../../../shared/reports/expr.js'
@@ -353,6 +353,10 @@ function conditionSql(scope, f, env) {
   }
 
   if (type === 'date' || type === 'moment') {
+    // Before the day is worked out: its time zone is a parameter of the
+    // statement, and one that nothing then uses is an error to Postgres.
+    if (op === 'empty') return e + ' IS NULL'
+    if (op === 'not_empty') return e + ' IS NOT NULL'
     // A moment is compared by its day at its venue. The column itself is
     // bounded as well (a day either side), so an index on it can be used.
     const day = type === 'moment' ? '((' + e + ' AT TIME ZONE ' + loc.scope.tzOf(loc.alias, loc.owner) + ')::date)' : e
@@ -377,8 +381,7 @@ function conditionSql(scope, f, env) {
         const [a, b] = [dayOf(v[0], label), dayOf(v[1], label)].sort()
         return bounded(day + ' BETWEEN ' + st.p(a, 'date') + ' AND ' + st.p(b, 'date'), a, b)
       }
-      case 'empty': return e + ' IS NULL'
-      default: return e + ' IS NOT NULL'
+      default: fail(label + ' can\'t be filtered that way')
     }
   }
   fail(label + ' can\'t be filtered')
@@ -587,7 +590,7 @@ function measureFigure(scope, figs, loc) {
   }
   // Through a list of rows: added up for each of our rows first.
   if (loc.hops.length > 1) fail(loc.label + ' can\'t be added up from ' + scope.subject.label + '. Start the report from ' + loc.owner.label)
-  if (m.agg === 'avg' || m.agg === 'count_distinct') {
+  if (!ACROSS_AGGS.includes(m.agg)) {
     fail(loc.label + ' can\'t be worked out from ' + scope.subject.label + ' (an average or a "how many different" doesn\'t add up across rows). Start the report from ' + loc.owner.label)
   }
   const per = { sum: 'SUM', count: 'COUNT', min: 'MIN', max: 'MAX' }[m.agg] + '(' + when(cond, expr) + ')'

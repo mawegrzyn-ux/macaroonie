@@ -1,49 +1,143 @@
 // src/pages/ReportView.jsx
 //
-// One report (/reports/:id): its period and venues, its result as a table,
-// and its file (CSV or Excel). `:id` is a saved report's id or a starter's
+// One report (/reports/:id): what it asks for (its period, its venues, any
+// filter set to "ask each time"), its result as a table, and its file (CSV
+// or Excel). `:id` is a saved report's id or a starter's
 // ("starter:till_sales_by_day").
 //
-// Changing the period or the venues here changes this visit only: the report
-// keeps its own usual choices, and nothing is saved.
+// Changing a choice here changes this visit only: the report keeps its own
+// usual choices, and nothing is saved. Changing the report itself is the
+// builder's job: Edit opens it on a report the person may change, Customise
+// starts a new report from a copy of any other.
 
-import { useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query'
-import { ChevronLeft, Download, RefreshCw, Lock, Info } from 'lucide-react'
+import { ChevronLeft, Download, Lock, Pencil, Copy, Share2, Trash2, MoreHorizontal, Type } from 'lucide-react'
+import { paramInputs } from '@shared/reports/build.js'
+import { normaliseReport, LIMITS } from '@shared/reports/spec.js'
 import { useApi } from '@/lib/api'
 import { usePermission } from '@/hooks/usePermission'
-import { useVenues, ConfirmDelete } from '@/components/staff/shared'
-import ResultTable from '@/components/reports/ResultTable'
-import PeriodPicker from '@/components/reports/PeriodPicker'
-import VenuesPicker from '@/components/reports/VenuesPicker'
-import { StarButton, retryUnlessRefused } from '@/components/reports/shared'
+import { useVenues, Modal, Field, inputCls } from '@/components/staff/shared'
+import ResultCard from '@/components/reports/ResultCard'
+import ParamInputs, { showsInputs } from '@/components/reports/ParamInputs'
+import { StarButton, Problems, retryUnlessRefused, reportPath, editPath, customisePath } from '@/components/reports/shared'
 import { cn } from '@/lib/utils'
 
-// The API's reasons for a refusal: a list (a definition's problems) or one line.
-function reasons(error) {
-  if (!error) return []
-  const list = error.body?.problems
-  if (Array.isArray(list) && list.length) return list.map(String)
-  return [error.message || 'That didn\'t work. Try again.']
-}
+const btn = 'inline-flex items-center gap-2 h-12 px-3 rounded-lg border bg-background text-sm font-medium touch-manipulation hover:bg-muted disabled:opacity-50 shrink-0'
+const primaryBtn = 'inline-flex items-center gap-2 h-12 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-medium touch-manipulation disabled:opacity-50 shrink-0'
+const rowBtn = 'w-full flex items-center gap-3 min-h-[56px] px-3 py-2 rounded-lg border bg-background text-left touch-manipulation hover:bg-muted disabled:opacity-50'
 
-function Problems({ error, title }) {
-  const lines = reasons(error)
-  if (!lines.length) return null
+// ── The report's name and what it is for ─────────────────────
+
+function RenameWindow({ report, onSaved, onClose }) {
+  const api = useApi()
+  const [name, setName] = useState(report.name)
+  const [description, setDescription] = useState(report.description || '')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState(null)
+  const save = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      const out = await api.put('/reports/' + encodeURIComponent(report.id), { name: name.trim(), description: description.trim() || null })
+      onSaved(out.report)
+    } catch (e) {
+      setError(e)
+      setBusy(false)
+    }
+  }
   return (
-    <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800" role="alert" data-testid="report-problems">
-      {title && <p className="font-medium">{title}</p>}
-      <ul className={cn(lines.length > 1 && 'list-disc pl-5', title && 'mt-1')}>
-        {lines.map((l, i) => <li key={i}>{l}</li>)}
-      </ul>
-    </div>
+    <Modal title="Name and details" onClose={onClose}
+      footer={<button type="button" onClick={save} disabled={busy || !name.trim()} data-testid="rename-save" className={primaryBtn}>{busy ? 'Saving…' : 'Save'}</button>}>
+      <Field label="Name">
+        <input type="text" value={name} onChange={e => setName(e.target.value)} maxLength={LIMITS.name} data-testid="rename-name" className={cn(inputCls, 'h-12')} />
+      </Field>
+      <Field label="What the report is for" hint="Shown under its name on the Reports page and when it is opened.">
+        <textarea value={description} onChange={e => setDescription(e.target.value)} rows={4} maxLength={1000} data-testid="rename-description"
+          className="w-full rounded-lg border bg-background px-3 py-2 text-sm touch-manipulation focus:outline-none focus:ring-2 focus:ring-primary/40" />
+      </Field>
+      <Problems error={error} title="The report wasn't saved" />
+    </Modal>
   )
 }
 
-const hhmm = iso => {
-  const d = iso ? new Date(iso) : null
-  return d && !Number.isNaN(d.getTime()) ? d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : ''
+// ── Who can open it ──────────────────────────────────────────
+
+function ShareWindow({ report, onSaved, onClose }) {
+  const api = useApi()
+  const { data: roles = [] } = useQuery({ queryKey: ['access-roles'], queryFn: () => api.get('/access/roles') })
+  const [shared, setShared] = useState(report.shared || 'private')
+  const [roleIds, setRoleIds] = useState(report.shared_role_ids || [])
+  const [starter, setStarter] = useState(!!report.is_starter)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState(null)
+  const active = roles.filter(r => r.is_active !== false)
+  const picked = roleIds.filter(id => active.some(r => r.id === id))
+  const needsRole = shared === 'roles' && !picked.length
+
+  const save = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      const out = await api.patch('/reports/' + encodeURIComponent(report.id) + '/sharing',
+        { shared, ...(shared === 'roles' ? { role_ids: picked } : {}), is_starter: starter })
+      onSaved(out.report)
+    } catch (e) {
+      setError(e)
+      setBusy(false)
+    }
+  }
+  const choice = (value, label, hint) => (
+    <button key={value} type="button" onClick={() => setShared(value)} aria-pressed={shared === value} data-testid="share-choice" data-value={value}
+      className={cn('w-full text-left min-h-[56px] px-3 py-2 rounded-lg border touch-manipulation', shared === value ? 'border-primary bg-primary/5' : 'bg-background hover:bg-muted')}>
+      <span className="block text-sm font-medium">{label}</span>
+      <span className="block text-[11px] text-muted-foreground mt-0.5">{hint}</span>
+    </button>
+  )
+  return (
+    <Modal title="Share this report" onClose={onClose}
+      footer={<button type="button" onClick={save} disabled={busy || needsRole} data-testid="share-save" className={primaryBtn}>{busy ? 'Saving…' : 'Save'}</button>}>
+      <div className="space-y-2" role="group" aria-label="Who can open it">
+        {choice('private', report.mine ? 'Only me' : 'Only the person who made it', 'People with Manage on Reports can open every report.')}
+        {choice('roles', 'Some roles', 'Everyone whose role is ticked below.')}
+        {choice('everyone', 'Everyone', 'Everyone whose role has Reports.')}
+      </div>
+
+      {shared === 'roles' && (
+        <div className="rounded-lg border divide-y" data-testid="share-roles">
+          {active.map(r => {
+            const none = r.permissions?.reports === 'none'
+            return (
+              <label key={r.id} className="flex items-center gap-3 min-h-[48px] px-3 py-1.5 cursor-pointer touch-manipulation" data-testid="share-role" data-role-id={r.id}>
+                <input type="checkbox" className="w-5 h-5 shrink-0" checked={roleIds.includes(r.id)}
+                  onChange={e => setRoleIds(ids => (e.target.checked ? [...ids, r.id] : ids.filter(x => x !== r.id)))} />
+                <span className="min-w-0">
+                  <span className="block text-sm">{r.label}</span>
+                  {none && <span className="block text-[11px] text-amber-800">This role has no access to Reports yet, so it won't see it.</span>}
+                </span>
+              </label>
+            )
+          })}
+          {!active.length && <p className="px-3 py-3 text-sm text-muted-foreground">Loading the roles…</p>}
+        </div>
+      )}
+      {needsRole && <p className="text-xs text-red-700" role="alert">Tick at least one role.</p>}
+
+      <label className="flex items-start gap-3 min-h-[48px] py-1.5 cursor-pointer touch-manipulation">
+        <input type="checkbox" className="w-5 h-5 mt-0.5 shrink-0" checked={starter} onChange={e => setStarter(e.target.checked)} data-testid="share-starter" />
+        <span>
+          <span className="block text-sm">Offer it to the team as a starter report</span>
+          <span className="block text-[11px] text-muted-foreground mt-0.5">Everyone with Reports can open it, whatever is picked above, and make their own from it.</span>
+        </span>
+      </label>
+
+      <p className="text-[11px] text-muted-foreground">
+        Sharing a report shares how it is set up, never figures: each person sees what their own role may see when they open it.
+      </p>
+      <Problems error={error} title="The sharing wasn't saved" />
+    </Modal>
+  )
 }
 
 export default function ReportView() {
@@ -57,6 +151,13 @@ export default function ReportView() {
 
   const reportQ = useQuery({ queryKey: ['report', id], queryFn: () => api.get('/reports/' + ref), retry: retryUnlessRefused })
   const report = reportQ.data?.report
+  const spec = useMemo(() => (report?.spec ? normaliseReport(report.spec) : null), [report])
+
+  // The catalogue says how a filter that asks each time is typed in; a
+  // report that only asks for its period and venues doesn't need it.
+  const asksValue = !!spec?.params.some(p => p.type === 'value')
+  const catQ = useQuery({ queryKey: ['report-catalogue'], queryFn: () => api.get('/reports/catalogue'), enabled: asksValue, staleTime: 5 * 60_000, retry: retryUnlessRefused })
+  const inputs = useMemo(() => (spec ? paramInputs(catQ.data || null, spec) : []), [spec, catQ.data])
 
   // Only what the person changed here; anything else is the report's own.
   const [given, setGiven] = useState({})
@@ -87,23 +188,56 @@ export default function ReportView() {
     }
   }
 
-  const [removing, setRemoving] = useState(null)
+  // ── More: copy, rename, share, delete ──
+  const [win, setWin] = useState(null)          // 'more' | 'rename' | 'share'
+  const [asking, setAsking] = useState(false)   // delete: are you sure?
+  const [busy, setBusy] = useState(null)
+  const [failed, setFailed] = useState(null)    // { title, error }
+  const closeWin = () => { setWin(null); setAsking(false) }
   const remove = async () => {
+    setBusy('delete')
     try {
       await api.delete('/reports/' + ref)
       qc.invalidateQueries({ queryKey: ['reports'] })
       navigate('/reports')
     } catch (error) {
-      setRemoving(error)
+      setBusy(null)
+      closeWin()
+      setFailed({ title: 'The report wasn\'t deleted', error })
     }
   }
+  const copy = async () => {
+    setBusy('copy')
+    try {
+      const out = await api.post('/reports/' + ref + '/copy', {})
+      qc.setQueryData(['report', out.report.id], { report: out.report })
+      qc.invalidateQueries({ queryKey: ['reports'] })
+      setBusy(null)
+      closeWin()
+      navigate(reportPath(out.report.id))
+    } catch (error) {
+      setBusy(null)
+      closeWin()
+      setFailed({ title: 'The copy wasn\'t made', error })
+    }
+  }
+  const changed = next => {
+    qc.setQueryData(['report', id], { report: next })
+    qc.invalidateQueries({ queryKey: ['reports'] })
+    closeWin()
+  }
 
-  const params = report?.spec?.params || []
-  const changed = Object.keys(given).length > 0
+  const saved = report?.kind === 'saved'
+  const canEdit = saved && report.can_edit && canUse
+  const canCustomise = !!report?.runs && canUse && !canEdit
+  const canCopy = saved && report.runs && canUse
+  const canShare = saved && report.can_share
+  const canDelete = saved && report.can_delete
+  const hasMore = canCopy || canEdit || canShare || canDelete
+
+  const values = Object.fromEntries((spec?.params || []).map(p => [p.key, p.key in given ? given[p.key] : p.default]))
   const set = (key, value) => setGiven(g => ({ ...g, [key]: value }))
-  const shownRows = result?.rows?.length ?? 0
-  const allRows = meta?.row_count ?? shownRows
-  const asOf = hhmm(meta?.cached_at || meta?.generated_at)
+  const picked = Object.keys(given).length > 0
 
   return (
     <div className="flex flex-col h-full overflow-hidden" data-testid="report-view">
@@ -116,33 +250,48 @@ export default function ReportView() {
           {report?.name || (reportQ.isLoading ? 'Loading…' : 'Report')}
         </h1>
         {report && <StarButton report={report} />}
+        {canEdit && (
+          <Link to={editPath(id)} data-testid="report-edit" className={btn} title="Change this report in the builder">
+            <Pencil className="w-4 h-4" /> Edit
+          </Link>
+        )}
+        {canCustomise && (
+          <Link to={customisePath(id)} data-testid="report-customise" className={btn} title="Make a report of your own that starts as this one">
+            <Pencil className="w-4 h-4" /> Customise
+          </Link>
+        )}
         {report?.runs && canUse && (
           <>
             {['csv', 'xlsx'].map(format => (
-              <button key={format} type="button" onClick={() => download(format)} disabled={!!file.busy} data-testid={'report-download-' + format}
-                className="inline-flex items-center gap-2 h-12 px-3 rounded-lg border bg-background text-sm font-medium touch-manipulation hover:bg-muted disabled:opacity-50 shrink-0">
+              <button key={format} type="button" onClick={() => download(format)} disabled={!!file.busy} data-testid={'report-download-' + format} className={btn}>
                 <Download className="w-4 h-4" />
                 {file.busy === format ? 'Making the file…' : format === 'csv' ? 'CSV' : 'Excel'}
               </button>
             ))}
           </>
         )}
-        {report?.kind === 'saved' && report.can_delete && <ConfirmDelete onConfirm={remove} label="Delete this report" big />}
+        {hasMore && (
+          <button type="button" onClick={() => setWin('more')} aria-label="More: copy, rename, share, delete" title="More" data-testid="report-more"
+            className="w-12 h-12 flex items-center justify-center rounded-lg border bg-background text-muted-foreground touch-manipulation hover:bg-muted shrink-0">
+            <MoreHorizontal className="w-5 h-5" />
+          </button>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto">
         <div className="p-4 sm:p-6 space-y-4">
           <Problems error={reportQ.error} />
           <Problems error={file.error} title="The file wasn't made" />
-          <Problems error={removing} title="The report wasn't deleted" />
+          <Problems error={failed?.error} title={failed?.title} />
 
           {report && (
             <>
               <div className="max-w-4xl">
                 {report.description && <p className="text-sm text-muted-foreground" data-testid="report-about">{report.description}</p>}
-                <p className="text-[11px] text-muted-foreground mt-1">
+                <p className="text-[11px] text-muted-foreground mt-1" data-testid="report-whose">
                   {report.kind === 'starter' ? 'Starter report. It comes with Macaroonie and stays as it is.'
                     : report.mine ? 'Your report.' : 'By ' + (report.owner_email || 'someone in your team') + '.'}
+                  {canCustomise ? ' Customise makes a report of your own from it.' : ''}
                 </p>
               </div>
 
@@ -158,19 +307,10 @@ export default function ReportView() {
 
               {report.runs && (
                 <>
-                  {params.some(p => p.type === 'period' || (p.type === 'venues' && venues.length > 1)) && (
+                  {showsInputs(inputs, venues) && (
                     <div className="flex flex-wrap items-center gap-2" data-testid="report-choices">
-                      {params.map(p => {
-                        const value = given[p.key] ?? p.default
-                        if (p.type === 'period') {
-                          return <PeriodPicker key={p.key} label={p.label || 'Period'} value={value} today={meta?.today} onChange={v => set(p.key, v)} />
-                        }
-                        if (p.type === 'venues' && venues.length > 1) {
-                          return <VenuesPicker key={p.key} label={p.label || 'Venues'} venues={venues} value={value} onChange={v => set(p.key, v)} />
-                        }
-                        return null
-                      })}
-                      {changed && (
+                      <ParamInputs catalogue={catQ.data || null} inputs={inputs} values={values} venues={venues} today={meta?.today} currency={meta?.currency} onChange={set} />
+                      {picked && (
                         <button type="button" onClick={() => setGiven({})} data-testid="report-choices-reset"
                           className="h-12 px-3 rounded-lg text-sm text-muted-foreground touch-manipulation hover:bg-muted">
                           Back to the report's usual choices
@@ -184,40 +324,8 @@ export default function ReportView() {
                   {runQ.isLoading && !result && <p className="text-sm text-muted-foreground" data-testid="report-loading">Working it out…</p>}
 
                   {result && !runQ.error && (
-                    <div className={cn('rounded-xl border bg-background', runQ.isPlaceholderData && 'opacity-60')} data-testid="report-result" aria-busy={runQ.isFetching}>
-                      <div className="px-4 py-2 section-head rounded-t-xl flex flex-wrap items-center gap-x-4 gap-y-1">
-                        <div className="flex-1 min-w-[10rem]">
-                          <p className="text-sm font-semibold leading-tight" data-testid="report-period">{meta?.period?.text || 'Every date'}</p>
-                          <p className="text-[11px] text-muted-foreground leading-tight mt-0.5" data-testid="report-count">
-                            {allRows.toLocaleString('en-GB')} {allRows === 1 ? 'row' : 'rows'}
-                            {meta?.compare?.text ? ' · compared with ' + meta.compare.text : ''}
-                            {asOf ? ' · as of ' + asOf : ''}
-                          </p>
-                        </div>
-                        <button type="button" onClick={refresh} disabled={runQ.isFetching} data-testid="report-refresh"
-                          className="inline-flex items-center gap-2 h-12 px-3 rounded-lg border bg-background text-sm touch-manipulation hover:bg-muted disabled:opacity-50">
-                          <RefreshCw className={cn('w-4 h-4', runQ.isFetching && 'animate-spin')} />
-                          Refresh
-                        </button>
-                      </div>
-
-                      {(meta?.notes?.length > 0 || (result.kind === 'list' && meta?.truncated)) && (
-                        <ul className="px-4 py-2 border-b space-y-1" data-testid="report-notes">
-                          {(meta.notes || []).map((n, i) => (
-                            <li key={i} className="flex gap-2 text-xs text-muted-foreground"><Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />{n}</li>
-                          ))}
-                          {result.kind === 'list' && meta.truncated && (
-                            <li className="flex gap-2 text-xs text-muted-foreground">
-                              <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-                              The first {shownRows.toLocaleString('en-GB')} of {allRows.toLocaleString('en-GB')} rows are shown.
-                              {canUse ? ' Download the file for all of them.' : ' Pick a shorter period to see fewer.'}
-                            </li>
-                          )}
-                        </ul>
-                      )}
-
-                      <ResultTable result={result} />
-                    </div>
+                    <ResultCard result={result} fetching={runQ.isFetching} stale={runQ.isPlaceholderData} onRefresh={refresh}
+                      more={canUse ? 'Download the file for all of them.' : 'Pick a shorter period to see fewer.'} />
                   )}
                 </>
               )}
@@ -225,6 +333,65 @@ export default function ReportView() {
           )}
         </div>
       </div>
+
+      {win === 'more' && report && (
+        <Modal title={report.name} onClose={closeWin}>
+          <div className="space-y-2" data-testid="report-more-list">
+            {canCopy && (
+              <button type="button" onClick={copy} disabled={!!busy} data-testid="more-copy" className={rowBtn}>
+                <Copy className="w-4 h-4 text-muted-foreground shrink-0" />
+                <span>
+                  <span className="block text-sm font-medium">{busy === 'copy' ? 'Making the copy…' : 'Make a copy'}</span>
+                  <span className="block text-[11px] text-muted-foreground">A report of your own, set up the same way.</span>
+                </span>
+              </button>
+            )}
+            {canEdit && (
+              <button type="button" onClick={() => { setAsking(false); setWin('rename') }} data-testid="more-rename" className={rowBtn}>
+                <Type className="w-4 h-4 text-muted-foreground shrink-0" />
+                <span>
+                  <span className="block text-sm font-medium">Name and details</span>
+                  <span className="block text-[11px] text-muted-foreground">What it is called and what it is for.</span>
+                </span>
+              </button>
+            )}
+            {canShare && (
+              <button type="button" onClick={() => { setAsking(false); setWin('share') }} data-testid="more-share" className={rowBtn}>
+                <Share2 className="w-4 h-4 text-muted-foreground shrink-0" />
+                <span>
+                  <span className="block text-sm font-medium">Share</span>
+                  <span className="block text-[11px] text-muted-foreground">
+                    {report.is_starter ? 'Offered to the team as a starter report.'
+                      : report.shared === 'everyone' ? 'Everyone with Reports can open it.'
+                        : report.shared === 'roles' ? 'Some roles can open it.'
+                          : report.mine ? 'Only you can open it.' : 'Not shared.'}
+                  </span>
+                </span>
+              </button>
+            )}
+            {canDelete && !asking && (
+              <button type="button" onClick={() => setAsking(true)} data-testid="more-delete" className={cn(rowBtn, 'text-red-700')}>
+                <Trash2 className="w-4 h-4 shrink-0" />
+                <span className="block text-sm font-medium">Delete this report</span>
+              </button>
+            )}
+            {canDelete && asking && (
+              <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-3 space-y-2" role="alert" data-testid="more-delete-ask">
+                <p className="text-sm text-red-800">Delete “{report.name}”? It goes for everyone it is shared with, and can't be brought back.</p>
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" onClick={remove} disabled={!!busy} data-testid="more-delete-yes"
+                    className="h-12 px-4 rounded-lg bg-destructive text-destructive-foreground text-sm font-medium touch-manipulation disabled:opacity-50">
+                    {busy === 'delete' ? 'Deleting…' : 'Yes, delete it'}
+                  </button>
+                  <button type="button" onClick={() => setAsking(false)} data-testid="more-delete-no" className="h-12 px-4 rounded-lg border bg-background text-sm touch-manipulation">Keep it</button>
+                </div>
+              </div>
+            )}
+          </div>
+        </Modal>
+      )}
+      {win === 'rename' && report && <RenameWindow report={report} onSaved={changed} onClose={closeWin} />}
+      {win === 'share' && report && <ShareWindow report={report} onSaved={changed} onClose={closeWin} />}
     </div>
   )
 }

@@ -42,8 +42,13 @@ export default {
     // exactly. Main use: `max-lg:notouch:pl-14` reserves room for the
     // floating hamburger, which only exists on non-touch screens below lg
     // (touch devices get a dedicated burger rail instead).
+    // `touch:` is the other half: only on touch devices. Main use:
+    // `touch:max-[700px]:bottom-[4.5rem]` lifts something pinned to the foot
+    // of a page above the floating Mobile view button, which shows on touch
+    // screens up to 700px wide (MobileViewToggle.jsx).
     plugin(({ addVariant }) => {
       addVariant('notouch', ':root:not([data-touch]) &')
+      addVariant('touch', ':root[data-touch] &')
     }),
   ],
 }
