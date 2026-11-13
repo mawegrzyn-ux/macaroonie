@@ -18,7 +18,7 @@
 // them out of the global rate limit (the outer request is counted).
 
 import { sql, systemSql, withTenant } from '../config/db.js'
-import { permissionLevel, INTERNAL_CALL_HEADER, INTERNAL_CALL_SECRET } from '../middleware/auth.js'
+import { permissionLevel, permissionLevels, INTERNAL_CALL_HEADER, INTERNAL_CALL_SECRET } from '../middleware/auth.js'
 import { MODULES, PERMISSION_RANK } from '../config/modules.js'
 
 export const CHANNELS = ['guest_mcp', 'guest_chat', 'staff_mcp', 'staff_chat']
@@ -52,8 +52,8 @@ export const isChat  = ctx => ctx.channel === 'staff_chat' || ctx.channel === 'g
 
 /** In-process call to one of our own routes. Throws ToolError on 4xx/5xx
  *  with the route's own message. */
-export async function callApi(ctx, method, url, { body } = {}) {
-  const headers = { [INTERNAL_CALL_HEADER]: INTERNAL_CALL_SECRET }
+export async function callApi(ctx, method, url, { body, headers: extra } = {}) {
+  const headers = { ...extra, [INTERNAL_CALL_HEADER]: INTERNAL_CALL_SECRET }
   if (body !== undefined) headers['content-type'] = 'application/json'
   if (isStaff(ctx) && ctx.auth?.authorization) {
     headers.authorization = ctx.auth.authorization
@@ -91,6 +91,7 @@ const DENIED = {
   web_orders:    { view: 'see online orders',         manage: 'change online orders' },
   pos_reports:   { view: 'see till reports',          manage: 'change till reports' },
   pos_setup:     { view: 'see till setup',            manage: 'change till setup' },
+  reports:       { view: 'see reports',               use: 'build, save, change or delete reports', manage: 'share reports or offer them to the team' },
 }
 
 // Any other module is named by its label from the module registry.
@@ -100,13 +101,21 @@ const MODULE_LABEL = Object.fromEntries(MODULES.map(m => [m.key, m.label]))
  *  same rule as requirePermission(). */
 export async function staffPermissionLevel(ctx, moduleKey) {
   if (!isStaff(ctx)) return 'none'
-  const req = {
-    isPlatformAdmin: !!ctx.principal?.isPlatformAdmin,
-    tenantId: ctx.tenantId,
-    user: { sub: ctx.principal?.sub },
-  }
-  return permissionLevel(req, moduleKey)
+  return permissionLevel(staffReq(ctx), moduleKey)
 }
+
+/** staffPermissionLevel() for several modules at once: { [moduleKey]: level }. */
+export async function staffPermissionLevels(ctx, moduleKeys) {
+  if (!isStaff(ctx)) return Object.fromEntries(moduleKeys.map(k => [k, 'none']))
+  return permissionLevels(staffReq(ctx), moduleKeys)
+}
+
+// The person behind a staff context, in the shape the permission checks take.
+const staffReq = ctx => ({
+  isPlatformAdmin: !!ctx.principal?.isPlatformAdmin,
+  tenantId: ctx.tenantId,
+  user: { sub: ctx.principal?.sub },
+})
 
 export const levelAtLeast = (have, level) => (PERMISSION_RANK[have] ?? 0) >= PERMISSION_RANK[level]
 

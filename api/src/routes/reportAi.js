@@ -20,12 +20,11 @@
 // (checked from their first bytes), up to 10 files and 20 MB together.
 
 import { z } from 'zod'
-import { withTenant } from '../config/db.js'
 import { requireAuth, requirePermission } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
 import { detectFile } from '../ai/attachments.js'
 import { pepperOn } from '../services/aiJson.js'
-import { reportPerson, refuseOtherVenues } from '../reports/access.js'
+import { reportPerson, refuseOtherVenues, groupVenues } from '../reports/access.js'
 import { smartBuild } from '../reports/smart.js'
 import { normaliseReport, LIMITS } from '../../../shared/reports/spec.js'
 import { todayIn } from '../../../shared/reports/period.js'
@@ -89,12 +88,8 @@ export default async function reportAiRoutes(app) {
       previous = { spec, requests: body.previous.requests, name: body.previous.name || '' }
     }
 
-    // Every venue of the group, the open ones first: a report can be about a
-    // venue that has closed. Today is the date at the first open one.
-    const venues = await withTenant(p.tenantId, tx => tx`
-      SELECT id, name, timezone, is_active FROM venues
-      WHERE tenant_id = ${p.tenantId}
-      ORDER BY is_active DESC, name, id`)
+    // Today is the date at the first open venue.
+    const venues = await groupVenues(p)
     const today = todayIn(venues[0]?.timezone || 'Europe/London')
 
     req.log.info({ files: files.length, change: !!previous }, 'smart report build')

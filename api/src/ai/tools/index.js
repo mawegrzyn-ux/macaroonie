@@ -26,8 +26,9 @@
 // orders, sold out, till and kitchen reports), tools/venue.js (customers,
 // opening times, tables, booking rules), tools/site.js (website,
 // promotions, reviews, menu screens, booking emails, support) and
-// tools/general.js (open_page, how_do_i), tools/briefing.js (day_briefing) and
-// tools/locations.js (opening a new location).
+// tools/general.js (open_page, how_do_i), tools/briefing.js (day_briefing),
+// tools/locations.js (opening a new location), tools/localInfo.js and
+// tools/reports.js (the report builder: figures from the data, saved reports).
 
 import { zodToJsonSchema } from 'zod-to-json-schema'
 import { ZodError } from 'zod'
@@ -47,6 +48,7 @@ import { generalTools } from './general.js'
 import { briefingTools } from './briefing.js'
 import { locationTools } from './locations.js'
 import { localInfoTools } from './localInfo.js'
+import { reportTools } from './reports.js'
 
 // The areas Pepper covers, in the order its prompt lists them.
 export const SECTIONS = {
@@ -63,6 +65,7 @@ export const SECTIONS = {
   purchasing: 'Purchasing: inventory, suppliers and supplier orders',
   website:    'Website, promotions, reviews, menu screens and booking emails',
   local_info: 'Local info: weather, traffic, events and incidents around the venues',
+  reports:    'Reports: figures from the data (sales, dishes, takings, voids, orders, bookings) and saved reports',
   locations:  'Opening a new location: scoping, questions, a brief, creating it',
   support:    'Reporting problems and asking for features',
 }
@@ -84,6 +87,7 @@ export const SECTION_MODULES = {
   purchasing: ['purchasing', 'purchasing_setup', 'purchasing_approve'],
   website:    ['website', 'promotions', 'screens', 'email_templates'],
   local_info: ['local_info'],
+  reports:    ['reports'],
   locations:  ['venues'],
   support:    ['issue_log', 'feature_requests'],
 }
@@ -113,6 +117,7 @@ const staffTools = [
   ...withSection(menuTools, 'menus'),
   ...rotaTools, ...cashTools, ...orderTools, ...venueTools, ...siteTools, ...locationTools,
   ...localInfoTools,
+  ...reportTools,
 ]
 const BY_AUDIENCE = { guest: guestTools, staff: staffTools }
 

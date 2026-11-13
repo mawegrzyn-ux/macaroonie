@@ -144,8 +144,8 @@ export default [
       anonymised_at: moment('anonymised_at', { label: 'Erased at' }),
     },
     measures: {
-      customers: count({ label: 'Customers', where: 'NOT {t}.is_anonymised' }),
-      subscribers: count({ label: 'On the newsletter', where: '{t}.marketing_opt_in AND NOT {t}.is_anonymised' }),
+      customers: count({ label: 'Customers', where: 'NOT {t}.is_anonymised', about: 'Customers on record; anonymised ones left out.' }),
+      subscribers: count({ label: 'On the newsletter', where: '{t}.marketing_opt_in AND NOT {t}.is_anonymised', about: 'Customers who said yes to the newsletter and haven\'t unsubscribed.' }),
     },
     links: {
       bookings: many('bookings.bookings', 'customer_id', { label: 'Bookings' }),

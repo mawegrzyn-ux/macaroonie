@@ -542,6 +542,8 @@ const TOOL_LABELS = {
   moderate_review: 'Changed a review', record_reviews: 'Recorded reviews', reload_screen: 'Reloaded a menu screen', report_issue: 'Logged an issue', request_feature: 'Requested a feature',
   create_location: 'Created a new location',
   add_local_event: 'Added a local event', run_local_capture: 'Ran a local info capture',
+  build_report: 'Saved a report', change_report: 'Changed a report', copy_report: 'Copied a report',
+  delete_report: 'Deleted a report', share_report: 'Shared a report',
 }
 
 /** What an H&S, purchasing or menu change was about, from its stored result. */
@@ -582,6 +584,11 @@ function changeDetail(r) {
     case 'record_reviews':        return [x.site, x.venue, x.recorded_new != null ? x.recorded_new + ' new' : null].filter(Boolean).join(', ')
     case 'add_local_event':       return [x.added, x.at].filter(Boolean).join(', ')
     case 'run_local_capture':     return (x.started || []).join(', ') || null
+    case 'build_report':          return x.saved || null
+    case 'change_report':         return x.changed || null
+    case 'copy_report':           return x.as || null
+    case 'delete_report':         return x.deleted || null
+    case 'share_report':          return [x.report, x.shared_with].filter(Boolean).join(', ') || null
     case 'create_menu':
     case 'update_menu':
     case 'duplicate_menu':        return x.name

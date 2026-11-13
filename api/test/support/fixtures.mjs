@@ -584,6 +584,10 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx', loy
       ids.report = rid
       await step('report run', () => post(`/api/reports/${rid}/run`, given))
       await step('report preview', () => post('/api/reports/preview', { spec, ...given }))
+      await step('report plan', () => post('/api/reports/plan', {
+        plan: { subject: 'bookings.bookings', by: [{ field: 'date' }], figures: [{ figure: 'bookings' }], venues: [mark + ' Ware'], period: { from: MONDAY, to: '2026-10-25' } },
+        report: spec,
+      }))
       await step('report file', () => post(`/api/reports/${rid}/export`, { format: 'csv', ...given }))
       await step('report print link', () => post(`/api/reports/${rid}/print-link`, given))
       await step('report changed', () => put(`/api/reports/${rid}`, { description: mark + ' week by week', spec: { ...spec, rows: [{ field: 'date', bucket: 'week' }] } }))

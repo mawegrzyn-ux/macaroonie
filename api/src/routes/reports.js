@@ -10,6 +10,10 @@
 //   GET    /                 the reports the person can open, and the starters
 //   POST   /                 save a new one (Use)
 //   POST   /preview          run a definition that isn't saved (Use; the builder)
+//   POST   /plan             a report from a plan (src/reports/plan.js: paths,
+//                            not a definition), built through the builder's
+//                            edits and run, nothing saved (Use; Pepper's
+//                            report tools)
 //   POST   /export           a file of a definition that isn't saved (Use)
 //   GET    /:id              one report with its definition
 //   PUT    /:id              change it (its owner with Use, or Manage)
@@ -37,14 +41,15 @@
 import crypto from 'node:crypto'
 import { z } from 'zod'
 import { withTenant, systemSql } from '../config/db.js'
-import { requireAuth, requirePermission } from '../middleware/auth.js'
+import { requireAuth, requirePermission, INTERNAL_CALL_HEADER, INTERNAL_CALL_SECRET } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
 import { ownRoleIds } from '../services/roles.js'
 import { AREAS, CATALOGUE, catalogueView, listColumns } from '../reports/catalogue/index.js'
 import { STARTERS, STARTER_PREFIX, starterByKey } from '../reports/starters/index.js'
 import { ReportError } from '../reports/compile.js'
 import { runReport, currencyPath } from '../reports/run.js'
-import { reportPerson, rightsOn, openTo, runsFor, checkedSpec, recordRun, refuseOtherVenues } from '../reports/access.js'
+import { reportPerson, rightsOn, openTo, runsFor, checkedSpec, recordRun, refuseOtherVenues, groupVenues, limitPepperRuns, PEPPER_HEADER } from '../reports/access.js'
+import { PLAN, planReport } from '../reports/plan.js'
 import { csvExport } from '../reports/export/csv.js'
 import { xlsxExport } from '../reports/export/xlsx.js'
 import { fileName } from '../reports/export/table.js'
@@ -97,6 +102,12 @@ const PreviewBody = RunBody.extend({
   spec: Spec,
   rows: z.number().int().min(1).max(5000).optional(),
 })
+// A plan, and the definition it changes (what a plan can't say is kept from it).
+const PlanBody = z.object({
+  plan: PLAN,
+  report: Spec.nullable().optional(),
+  rows: z.number().int().min(1).max(PREVIEW_ROWS).optional(),
+})
 const Format = z.enum(['csv', 'xlsx'])
 const ExportBody = z.object({ format: Format, params: Params.optional(), drill: Drill.optional() })
 const ExportUnsaved = ExportBody.extend({ spec: Spec, name: Name.optional() })
@@ -117,6 +128,14 @@ const PrintBody = z.object({
 })
 
 const cleanTags = tags => [...new Set((tags || []).map(t => t.toLowerCase()))]
+
+// A run asked for by Pepper's report tools (src/ai/tools/reports.js): they
+// call these routes in-process, as the person, with PEPPER_HEADER beside the
+// internal-call secret. Every in-process call carries the secret (and so does
+// every API test request), so the secret alone doesn't mean Pepper; the
+// header alone isn't believed, so a browser can't mark its runs as Pepper's.
+// Recorded as Pepper's and held to limitPepperRuns().
+const viaPepper = req => (req.headers[INTERNAL_CALL_HEADER] === INTERNAL_CALL_SECRET && req.headers[PEPPER_HEADER] === 'pepper' ? 'pepper' : null)
 
 // ── What the browser gets ────────────────────────────────────
 
@@ -466,6 +485,36 @@ export default async function reportRoutes(app) {
     return runReport(p.ctx, spec, body.params || {}, { cap: body.rows ?? PREVIEW_ROWS, fresh: !!body.fresh })
   })
 
+  app.post('/plan', use, async req => {
+    const body = PlanBody.parse(req.body)
+    const p = await reportPerson(req)
+    const via = viaPepper(req)
+    if (via) await limitPepperRuns(p)
+    let report = null
+    if (body.report) {
+      report = normaliseReport(body.report)
+      await refuseOtherVenues(p, report)
+    }
+    const venues = await groupVenues(p)
+    const started = Date.now()
+    const out = await planReport(p, {
+      plan: body.plan,
+      report,
+      venues: venues.map(v => ({ id: v.id, name: v.name })),
+      cap: body.rows ?? PREVIEW_ROWS,
+    })
+    // Like the builder's preview, a plan run is recorded only when Pepper
+    // asked for it (so limitPepperRuns() counts it); one that names nothing
+    // there ran nothing.
+    if (out.spec && via) {
+      await recordRun(p, {
+        kind: 'run', via, name: out.name || 'A report from a plan', spec: out.spec, params: resolveParams(out.spec, {}),
+        rows: out.result?.meta?.row_count, ms: Date.now() - started, error: out.result ? null : out.problem,
+      }, req.log)
+    }
+    return out
+  })
+
   app.post('/export', use, async (req, reply) => {
     const body = ExportUnsaved.parse(req.body)
     const p = await reportPerson(req)
@@ -550,11 +599,13 @@ export default async function reportRoutes(app) {
     const body = RunBody.parse(req.body || {})
     const p = await reportPerson(req)
     const target = await loadTarget(req.params.id, p)
+    const via = viaPepper(req)
+    if (via) await limitPepperRuns(p)
     const started = Date.now()
     const steps = drillSteps(body.drill)
     const given = body.params || {}
     await refuseOtherVenues(p, target.spec, given)
-    const base = { kind: 'run', saved: target.saved, starter: target.starter, name: target.name, spec: target.spec, drill: steps, params: resolveParams(target.spec, given) }
+    const base = { kind: 'run', via, saved: target.saved, starter: target.starter, name: target.name, spec: target.spec, drill: steps, params: resolveParams(target.spec, given) }
     try {
       const result = await runReport(p.ctx, drilled(target.spec, steps, p.levels), given, { fresh: !!body.fresh })
       await recordRun(p, { ...base, rows: result.meta.row_count, ms: Date.now() - started }, req.log)

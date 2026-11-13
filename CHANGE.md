@@ -6,6 +6,25 @@ Migrations are listed where a database change is required.
 ---
 
 
+## [2026-11-13 — Reports: ask Pepper about your figures]
+
+No migration.
+
+**Added**
+- **Ask Pepper about your figures** (the Ask Pepper panel, the Pepper page and apps connected to Macaroonie): "which dishes sold best last week?", "net sales by venue this month against last month", "what does Net sales count?". Pepper works out the report it needs, runs it with your access and answers from the figures, saying what it counted.
+- **Reports from the chat**: Pepper can save what it found as a report, change one ("add guests", "only Fridays", "as a line chart"), make a copy, delete one, and share one with roles or offer it to the team among the starters. Each shows a card saying what will happen, and nothing changes until you tap Save it, Change it, Copy it, Delete it or Share it.
+- **Pepper knows which report you are looking at**: on a report and in the builder the label above the box says the report and its period (About: Reports · Sales by day · 2 Nov to 8 Nov), so "why is Tuesday low?" is asked about that report. Tap the label to stop sending it.
+- What each figure counts is written down (95 of the 105 figures), for Pepper's answers.
+
+**Fixed**
+- Messages sent from a starter report's page in the Ask Pepper panel were refused with an error since reports came in. They go through now.
+- An app connected to Macaroonie that asked to change a report without saying what to change was told it had been saved. It is now told nothing changed.
+
+**Notes**
+- Needs access to Pepper and Reports: View to find and run reports and ask what a figure counts, Use to ask questions Pepper answers with a report of its own and to save, change, copy and delete reports, Manage to share them. Pepper only works with the figures your role can see.
+- Pepper runs at most 20 reports a minute for one person.
+- Next: a round of till fixes, then the other modules (cash, rota, purchasing, food safety and the rest) come into the report builder.
+
 ## [2026-11-13 — Reports: describe a report to Pepper]
 
 No migration.

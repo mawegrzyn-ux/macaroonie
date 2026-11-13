@@ -35,6 +35,7 @@ import { paramInputs } from '@shared/reports/build.js'
 import { normaliseReport, LIMITS } from '@shared/reports/spec.js'
 import { useApi } from '@/lib/api'
 import { usePermission } from '@/hooks/usePermission'
+import { usePepperPage } from '@/lib/pepperPage'
 import { useVenues, Modal, Field, inputCls } from '@/components/staff/shared'
 import ResultCard from '@/components/reports/ResultCard'
 import ParamInputs, { showsInputs } from '@/components/reports/ParamInputs'
@@ -323,6 +324,16 @@ export default function ReportView() {
   const values = Object.fromEntries((spec?.params || []).map(p => [p.key, p.key in given ? given[p.key] : p.default]))
   const set = (key, value) => setGiven(g => ({ ...g, [key]: value }))
   const picked = Object.keys(given).length > 0
+
+  // Pepper's "ask about this page": the report open here, the period the
+  // result shows and the venues picked (every venue sends none). The server
+  // names the report only when the person may open it.
+  const venuesParam = (spec?.params || []).find(p => p.type === 'venues')
+  const pickedVenues = venuesParam && Array.isArray(values[venuesParam.key]) ? values[venuesParam.key] : undefined
+  usePepperPage({
+    report: report ? { id: report.id, from: meta?.period?.from, to: meta?.period?.to, venue_ids: pickedVenues } : undefined,
+    label: report?.name,
+  })
 
   return (
     <div className="flex flex-col h-full overflow-hidden" data-testid="report-view">
