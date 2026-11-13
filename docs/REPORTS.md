@@ -1,6 +1,6 @@
 # Report builder: plan
 
-**Status: the plan, with phase 0 and the first three parts of phase 1 built: the engine, the catalogue for till sales, online orders and bookings and a viewer (migration 243), then the builder, then drill-downs on the page (down a level, and the rows behind a figure; both 13 Nov 2026).** Written 12 Nov 2026 against the schema at migration 241. The eight decisions in section 22 were answered on 12 Nov 2026: every recommended answer was accepted. What is built, how it differs from this plan and what comes next are in `CLAUDE.md` (Outstanding item 41) and the admin's Docs page (Reports (report builder)); the rest of this file is the plan as written.
+**Status: the plan, with phase 0 and the first four parts of phase 1 built: the engine, the catalogue for till sales, online orders and bookings and a viewer (migration 243), then the builder, then drill-downs on the page (down a level, and the rows behind a figure), then charts and the print page (migration 244; all three 13 Nov 2026).** Written 12 Nov 2026 against the schema at migration 241. The eight decisions in section 22 were answered on 12 Nov 2026: every recommended answer was accepted. What is built, how it differs from this plan and what comes next are in `CLAUDE.md` (Outstanding item 41) and the admin's Docs page (Reports (report builder)); the rest of this file is the plan as written.
 
 The ask (12 Nov 2026): "i need AI and traditional report builder. All data from all modules available to the tool. tradiotional interface with automatic data linked accross tables (relations), ability to build reports with drilldowns, smart builder where user enter in prompt report reqs. Ability to configure report template. Basic charts, printing templates. etc. Scheduling and manual. Export of report as API, CSV, other formats. full pepper toolkit"
 
@@ -455,6 +455,14 @@ On screen: tap for the values, tap to drill, tap the legend to hide a series. Ev
 
 The alternative, a library such as Recharts in the admin, would still need a second renderer on the server for PDFs and emails, which is the two-renderers problem again, and would add to a bundle that is 1.1 MB from its limit.
 
+**As built (13 Nov 2026): `shared/reports/chart.js`.** A result in, an SVG string out, with where each mark sits; the viewer, the builder's preview and the print page all draw with it. Three things differ from the table above, each on purpose:
+
+- **Pie and ring became "Parts of a whole"**: one bar cut into up to six parts, each with its share written on it. With more parts it is drawn as sideways bars in the report's own order, each with its share; with any part below zero, as bars without shares. A value that doesn't add up (an average, a rate) is refused with the reason. A cut bar is read more exactly than a pie's angles, and it can't be drawn for something that doesn't add up. A pie can still be added as another drawing of the same model if it is wanted.
+- **Bars with a line never get a second scale.** When the bars and the line are different kinds of figure (pounds and a percentage) each gets a plot of its own, one above the other, sharing the rows. Two scales on one plot can be made to say anything by choosing where each starts.
+- **An area chart of different values is drawn as lines** until the report says to stack them (and they add up): stacked areas of things that aren't parts of one whole read as a total that doesn't exist.
+
+Also: eight series at most (a ninth is added into "Everything else" when the value adds up, else only the eight largest are drawn and a note says so); a scale always starts at zero; one series takes the brand's main colour when it stands out on white; words are never in a series colour. A chart that can't be drawn for the report as it stands says why and the table shows instead. There is no chart for a list, or for a result in more than one currency.
+
 ## 13. Printing and PDF
 
 - **Print from the browser.** A print page drawn by the shared block renderer with the layout template: page sizes in viewport units, table headings repeated on every page, rows kept whole, page breaks where the definition says. These are the rules the menu print pages already learnt the hard way. A new browser tab cannot send the admin's login, so the page opens through a short-lived signed link, the way a draft menu's print preview does.
@@ -468,6 +476,8 @@ The alternative, a library such as Recharts in the admin, would still need a sec
 | Risk | Memory on a machine that also runs Postgres | Two layouts to keep in step, for ever |
 
   **Recommended: Chromium, in the worker process, one PDF at a time, with a time limit**, after measuring memory on the live machine. If the machine cannot spare it, fall back to plain PDFs from the extended writer (tables only) and keep the branded version for browser printing. This is decision 3 in section 22.
+
+**As built (13 Nov 2026): printing from the browser** (`api/src/reports/export/print.js`, `report_print_links`, migration 244). Print in the viewer makes a link that works for 15 minutes and opens it in a new tab; the page runs the report as the person who pressed Print, with what their role could see then, and prints what their screen showed: the period and other choices, the rows opened up, the chart with the series switched off in its legend left off, the table shown or hidden under it. Not as the first bullet has it: there are no layout templates yet (phase 4), so the page has one layout of its own; the page is sized in millimetres with `@page` naming only the way round (upright, or on its side for a wide table), and a table too wide for a page on its side is printed in parts, each starting with the row's name. **PDFs made by the server are still phase 4.**
 
 ## 14. Running: by hand and on a schedule
 

@@ -71,7 +71,7 @@ export default [
       values: [...m('qty_sold', 'gross_sales', 'discounts', 'net_sales'), share('net_sales', 'Share of net sales')],
       sort: [{ by: 'net_sales', dir: 'desc' }],
       drill: { down: ['name', 'date', 'venue.name'], rows: LINE_ROWS },
-      view: { kind: 'pie', x: 'section.name', y: ['net_sales'] },
+      view: { kind: 'parts', x: 'section.name', y: ['net_sales'] },
     },
   }),
 

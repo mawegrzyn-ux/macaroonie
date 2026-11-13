@@ -106,7 +106,7 @@ export default [
       rows: ['guest_kind'],
       values: [...m('bookings', 'guests'), share('bookings', 'Share of bookings')],
       drill: { down: ['venue.name', 'source', { field: 'date', bucket: 'week' }], rows: BOOKING_ROWS },
-      view: { kind: 'pie', x: 'guest_kind', y: ['bookings'] },
+      view: { kind: 'parts', x: 'guest_kind', y: ['bookings'] },
     },
   }),
 ]

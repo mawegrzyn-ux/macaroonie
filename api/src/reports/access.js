@@ -25,6 +25,7 @@
 //                            group's venue (the app's rule for venue ids)
 //   recordRun(person, run)   one row of report_runs (never throws)
 //   cleanUpReportRuns()      hourly: run records after 400 days
+//   cleanUpPrintLinks()      hourly: print links a day after they ran out
 
 import { withTenant, systemSql } from '../config/db.js'
 import { permissionLevels } from '../middleware/auth.js'
@@ -188,5 +189,18 @@ export async function recordRun(p, run, log) {
 export async function cleanUpReportRuns() {
   const rows = await systemSql`
     DELETE FROM report_runs WHERE created_at < now() - make_interval(days => ${KEEP_RUN_DAYS}) RETURNING 1`
+  return { removed: rows.length }
+}
+
+/**
+ * Hourly: print links (migration 244) a day after they ran out. A link holds
+ * the choices made for the visit, typed words included, so it must not
+ * outlive its use: making a new link clears a group's old ones, and this
+ * clears those of a group that never prints again. The day is so a page
+ * opened late says it has run out, not that it never was.
+ */
+export async function cleanUpPrintLinks() {
+  const rows = await systemSql`
+    DELETE FROM report_print_links WHERE expires_at < now() - interval '1 day' RETURNING 1`
   return { removed: rows.length }
 }

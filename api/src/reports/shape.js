@@ -15,10 +15,15 @@
 // A result:
 //
 //   { columns: [{ key, label, type, role: 'row' | 'value' | 'compare' |
-//                 'change' | 'total', bucket?, labels?, decimals?, group?, of?, at? }],
+//                 'change' | 'total', bucket?, labels?, decimals?, group?, of?, at?, adds? }],
 //     rows:    [{ cells, kind: 'row' | 'subtotal' | 'rest', level, k, id? }],
 //     totals:  { cells } | null,
 //     row_count, truncated, notes }
+//
+// `adds` marks a value whose rows add up to its total (a sum or a count,
+// not an average, a rate or a calculation): a chart may stack it, cut it
+// into parts of a whole, or add its smallest series into "everything else"
+// (shared/reports/chart.js).
 //
 // Cells are plain values in everyday units (money in pounds, a percentage
 // as a fraction, a day as YYYY-MM-DD); the page and the files format them
@@ -155,11 +160,23 @@ function withCalcs(plan, vals, grand, extra = {}) {
 // isn't given "Before" and "Change" columns of its own.
 const compared = v => !(v.src.calc && exprCalls(v.src.calc).some(f => f === 'change' || f === 'previous'))
 
+// A value that adds up across rows (a total, a count): only those can be
+// stacked or cut into parts of a whole (shared/reports/chart.js). An average,
+// a rate or a calculation doesn't.
+function addsUp(plan, v) {
+  if (!v.src.fig) return false
+  const f = plan.figures.find(x => x.out === v.src.fig)
+  return !!f && (f.agg === 'sum' || f.agg === 'count')
+}
+const valueCol = (plan, v) => ({
+  key: v.key, label: v.label, type: v.type, ...(v.decimals != null ? { decimals: v.decimals } : {}), ...(addsUp(plan, v) ? { adds: true } : {}),
+})
+
 function valueColumns(plan, compare) {
   const out = []
   for (const v of plan.values) {
     if (v.hidden) continue
-    const col = { key: v.key, label: v.label, type: v.type, ...(v.decimals != null ? { decimals: v.decimals } : {}), role: 'value' }
+    const col = { ...valueCol(plan, v), role: 'value' }
     out.push(col)
     if (compare && compared(v)) {
       out.push({ ...col, key: v.key + '__prev', label: 'Before', group: v.label, role: 'compare', of: v.key })
@@ -495,11 +512,11 @@ export function matrixShaper(plan, mainRows) {
     across.forEach((c, j) => {
       const at = plan.cols.map((g, i) => ({ field: g.col.field, ...(g.col.bucket ? { bucket: g.col.bucket } : {}), value: c.k[i] }))
       for (const v of shown) {
-        columns.push({ key: v.key + '|' + j, label: v.label, group: heading(c), type: v.type, ...(v.decimals != null ? { decimals: v.decimals } : {}), role: 'value', of: v.key, at })
+        columns.push({ ...valueCol(plan, v), key: v.key + '|' + j, group: heading(c), role: 'value', of: v.key, at })
       }
     })
     for (const v of shown) {
-      columns.push({ key: v.key + '|total', label: v.label, group: 'Total', type: v.type, ...(v.decimals != null ? { decimals: v.decimals } : {}), role: 'total', of: v.key })
+      columns.push({ ...valueCol(plan, v), key: v.key + '|total', group: 'Total', role: 'total', of: v.key })
     }
 
     // One row: its cells across (an empty cell where nothing was sold), then its own totals.

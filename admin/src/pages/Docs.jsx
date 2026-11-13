@@ -8123,8 +8123,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
           <section id="reports" data-doc="">
             <H2>Reports (report builder)</H2>
             <P>
-              Migration 243. The plan is <Mono>docs/REPORTS.md</Mono>; this section is what is built so far: its
-              groundwork, the engine with a viewer, the builder and drill-downs (till sales, online orders and bookings). One engine
+              Migrations 243 and 244. The plan is <Mono>docs/REPORTS.md</Mono>; this section is what is built so far: its
+              groundwork, the engine with a viewer, the builder, drill-downs, charts and the print page (till sales, online orders and bookings). One engine
               serves every way of making a report: a report is a JSON definition, checked by one shared function,
               looked up in a data catalogue kept in code, turned into SQL by the server and run as the person
               looking at it, inside their tenant, read only. Nobody writes SQL and no report holds any.
@@ -8150,7 +8150,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
   totals:  { grand: true, subtotals: ['section.name'] },
   compare: { with: 'previous_period' | 'last_year' },             // summaries only
   drill:   { down: [{ field: 'name' }, { field: 'sent_at', bucket: 'hour' }], rows: ['check.number', 'name', 'net'] },
-  view:    { kind: 'table' | 'bar' | 'line' | 'area' | 'combo' | 'pie' | 'ring' | 'figures' | 'heat' } }`}</Code>
+  view:    { kind: 'table' | 'bar' | 'line' | 'area' | 'combo' | 'parts' | 'figures' | 'heat',
+             x: 'date:week', y: ['net_sales'], line: 'average_spend', stacked, sideways, table_below } }`}</Code>
             <P>
               The kind is worked out from the parts when it isn&apos;t given (columns: matrix; else values: summary;
               else list), and a part that makes no sense with the rest is dropped (a list&apos;s values, a
@@ -8270,10 +8271,14 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <P>
               A result: <Mono>{'{ kind, subject, spec, columns, rows, totals, meta }'}</Mono>. Columns carry{' '}
               <Mono>key</Mono>, <Mono>label</Mono>, <Mono>type</Mono>, <Mono>role</Mono> (row | value | compare |
-              change | total), a choice&apos;s <Mono>labels</Mono>, <Mono>pii</Mono>, and for a matrix{' '}
-              <Mono>group</Mono> (the heading above). Rows are <Mono>{'{ cells, kind: row | subtotal | rest, level, k }'}</Mono>;{' '}
+              change | total), a choice&apos;s <Mono>labels</Mono>, <Mono>pii</Mono>, <Mono>adds</Mono> on a value
+              whose rows add up to its total (a sum or a count, not an average, a rate or a calculation: only
+              those are stacked or cut into parts by a chart), and for a matrix{' '}
+              <Mono>group</Mono> (the heading above), <Mono>of</Mono> (the value&apos;s key) and <Mono>at</Mono>{' '}
+              (the column&apos;s place across). Rows are <Mono>{'{ cells, kind: row | subtotal | rest, level, k }'}</Mono>;{' '}
               <Mono>meta</Mono> has the period and its words, the compared period, currency, time zone, today at the
-              venues, <Mono>row_count</Mono>, <Mono>truncated</Mono> and <Mono>notes</Mono>. A cell is 0 where rows
+              venues, <Mono>across</Mono> (a matrix&apos;s column groupings in words), <Mono>row_count</Mono>,{' '}
+              <Mono>truncated</Mono> and <Mono>notes</Mono>. A cell is 0 where rows
               exist but none count for the figure, and empty where there are no rows.
             </P>
 
@@ -8305,6 +8310,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['PATCH /:id/sharing', 'Manage', 'shared private | roles | everyone, role_ids (the group\'s own), is_starter'],
                 ['POST /:id/run', 'View', 'params (the period, venues and other choices), drill (steps, 10 at most), fresh'],
                 ['POST /:id/export', 'Use', 'format csv | xlsx, params, drill'],
+                ['POST /:id/print-link', 'View', 'params, drill, trail (the trail\'s words), table (shown under the chart or not), hidden (series switched off): a link to the print page that works for 15 minutes'],
+                ['GET /print/:linkId', 'No login', 'The print page (its own plugin, reportPrintRoutes): the link is the key; ?print=1 opens the print window'],
                 ['POST /:id/copy', 'Use', 'A copy of a report or a starter as the person\'s own'],
                 ['POST /:id/star, DELETE /:id/star', 'View', 'The person\'s own stars (report_stars)'],
               ]}
@@ -8550,19 +8557,153 @@ meta.drill = { down: [{ field, bucket?, label }], rows: true, of: 'Dishes sold',
               refusals) and <Mono>reports-build.test.mjs</Mono> (every level the builder offers runs).
             </P>
 
+            <H3>Charts</H3>
+            <P>
+              13 Nov 2026 (<Mono>docs/REPORTS.md</Mono> 12). <Mono>shared/reports/chart.js</Mono> is the one
+              chart renderer, with no dependency and no DOM: a result in, an SVG string out, with where each
+              mark sits. The viewer, the builder&apos;s preview and the print page all draw with it, and every
+              word that reaches the SVG is escaped there. A definition&apos;s <Mono>view</Mono> says which kind
+              and what of the report it draws; a view the report doesn&apos;t fit is kept (the page says why
+              and shows the table), and a drilled definition is always a table.
+            </P>
+            <DataTable
+              head={['Function', 'What it gives']}
+              rows={[
+                ['chartChoices(spec)', 'Which kinds a definition can be drawn as, and why not the others: [{ kind, label, ok, why }] (the builder\'s Chart part)'],
+                ['chartValues(kind, shown, view)', 'Which of the shown values a kind draws: { ys, line }. One rule for the drawing and for the builder\'s ticks'],
+                ['chartModel(result, { view })', 'What to draw: { ok: true, kind, form: plot | stack | heat | figures, ... } or { ok: false, why } (why null = nothing to draw, say nothing)'],
+                ['drawChart(model, { width, brand, hidden, legend })', '{ svg, width, height, targets: [{ x, y, w, h, cat, series? }], legend: [{ key, label, colour, mark, hidden, toggle }], label }. legend: \'inside\' draws the legend in the SVG (print)'],
+                ['renderChart(result, opts)', 'The model and the drawing together: { ok, svg, model, why }'],
+                ['chartTip(model, target, opts)', 'The words for one mark: { title, lines: [{ label, value, colour }], none? }, with Share for parts of a whole and Total for a stack'],
+                ['chartMark(model, target)', 'What a mark stands for, to open it up: { at, label, value } (null for everything else, a gap, a figure tile)'],
+              ]}
+            />
+            <P>
+              The kinds: <Mono>bar</Mono> (side by side or stacked, upright or sideways), <Mono>line</Mono>,{' '}
+              <Mono>area</Mono>, <Mono>combo</Mono> (bars with a line), <Mono>parts</Mono> (parts of a whole:
+              one bar cut into up to six parts with their shares; more parts as sideways bars with shares, any
+              below zero as bars without; a value that doesn&apos;t add up is refused), <Mono>figures</Mono>{' '}
+              (each value&apos;s total as a tile, with the change when the report compares and a trend when it
+              runs by date) and <Mono>heat</Mono> (a matrix, or a summary with two groupings, shaded on one
+              ramp). Rules the drawing keeps: figures of different kinds never share a scale (each kind gets
+              a plot of its own, one above the other, three at most); a scale starts at zero; eight series
+              at most (<Mono>MAX_SERIES</Mono>: a ninth is added into Everything else when the value{' '}
+              <Mono>adds</Mono>, else the eight largest are drawn and a note says so); 60 rows, or 400 along
+              a date or time; colours go with the series in a fixed order (<Mono>SERIES_COLOURS</Mono>,
+              checked for colour-blind separation) and never move when one is hidden; a single series takes
+              the brand&apos;s main colour when <Mono>brandColour()</Mono> says it stands out on white; words
+              are never in a series colour. An area of different values is lines until the view says{' '}
+              <Mono>stacked</Mono> and they add up. No chart for a list or for a result with a currency
+              column. Widths come from <Mono>textWidth()</Mono> (an estimate: a server has no font to measure
+              with).
+            </P>
+            <P>
+              <Mono>shared/reports/table.js</Mono> holds what a table says, for the screen and the paper:{' '}
+              <Mono>rightAligned()</Mono>, <Mono>cellText()</Mono>, <Mono>tableHeadings(columns)</Mono>,{' '}
+              <Mono>rowText()</Mono>, <Mono>totalText()</Mono> and <Mono>tableModel(result)</Mono>{' '}
+              (<Mono>{'{ head, align, rows: [{ kind, level, cells }], total, first_is_row, groupings, count }'}</Mono>).{' '}
+              <Mono>ResultTable</Mono> draws from <Mono>tableHeadings()</Mono>, <Mono>rowText()</Mono> and{' '}
+              <Mono>totalText()</Mono>, the print page from <Mono>tableModel()</Mono>, so the paper says what
+              the screen says. <Mono>changeText()</Mono> moved to <Mono>format.js</Mono>.
+            </P>
+            <P>
+              Admin: <Mono>components/reports/ReportChart.jsx</Mono> gives the drawing the room it measures
+              (<Mono>ResizeObserver</Mono>), the legend as buttons (a series switched off stays off for the
+              series there are; one always shows), the figures of the mark under the pointer, and a tap or
+              click that holds them with a button to open the mark (<Mono>markTarget()</Mono> in{' '}
+              <Mono>drill.jsx</Mono> makes the same target a tapped row does). Hovering figures take no
+              pointer events; held ones hand a tap on their words to the mark underneath; in a narrow chart
+              a column&apos;s figures hang under the chart; arrow keys walk the marks, Enter opens, Escape
+              lets go. <Mono>ResultCard</Mono> works the model out (<Mono>chartModel(result)</Mono>), shows
+              the chart above the table with Hide the table / Show the table (the report&apos;s{' '}
+              <Mono>table_below</Mono> to begin with; always open when the chart can&apos;t be drawn), and
+              keeps two refs up to date for Print: whether the table shows and which series are off. The
+              builder&apos;s Chart part (<Mono>ChartPart</Mono> in <Mono>builder/SetUp.jsx</Mono>, summaries
+              and tables across) reads <Mono>viewOptions(catalogue, spec)</Mono> and edits with{' '}
+              <Mono>setView(spec, patch)</Mono>, both in <Mono>shared/reports/build.js</Mono>.
+            </P>
+            <P>
+              Test ids: <Mono>report-chart</Mono> (<Mono>data-kind</Mono>, <Mono>data-form</Mono>),{' '}
+              <Mono>chart-none</Mono>, <Mono>chart-legend</Mono>, <Mono>chart-legend-item</Mono>{' '}
+              (<Mono>data-key</Mono>, <Mono>data-hidden</Mono>), <Mono>chart-svg</Mono>,{' '}
+              <Mono>chart-marks</Mono>, <Mono>chart-mark-on</Mono>, <Mono>chart-tip</Mono>{' '}
+              (<Mono>data-held</Mono>), <Mono>chart-tip-title</Mono>, <Mono>chart-tip-line</Mono>,{' '}
+              <Mono>chart-open</Mono>, <Mono>chart-notes</Mono>, <Mono>report-table-toggle</Mono>; in the
+              builder <Mono>setup-chart</Mono>, <Mono>chart-kinds</Mono>, <Mono>chart-kind</Mono>{' '}
+              (<Mono>data-kind</Mono>, <Mono>data-ok</Mono>), <Mono>chart-why</Mono>, <Mono>chart-unfit</Mono>,{' '}
+              <Mono>chart-values</Mono>, <Mono>chart-value</Mono>, <Mono>chart-value-one</Mono>,{' '}
+              <Mono>chart-line</Mono>, <Mono>chart-x</Mono>, <Mono>chart-stacked</Mono>,{' '}
+              <Mono>chart-sideways</Mono>, <Mono>chart-table-below</Mono>. Tests:{' '}
+              <Mono>shared/test/reportChart.test.mjs</Mono>, <Mono>reportTable.test.mjs</Mono> and the view
+              tests in <Mono>reportBuild.test.mjs</Mono>.
+            </P>
+
+            <H3>The print page</H3>
+            <P>
+              13 Nov 2026, migration 244 (<Mono>docs/REPORTS.md</Mono> 13). A new browser tab can&apos;t send
+              the admin&apos;s login, so Print makes a link and opens it, the way a draft menu&apos;s print
+              preview does. <Mono>POST /api/reports/:id/print-link</Mono> (Reports View) checks the report
+              and its steps as a run would, and stores in <Mono>report_print_links</Mono> (forced RLS) what
+              is on the person&apos;s screen: the definition, their choices, the drill steps with the
+              trail&apos;s words, whether the table shows under the chart, the series switched off, who they
+              are and their module levels. The id (a random uuid) is the key, for 15 minutes
+              (<Mono>PRINT_MINUTES</Mono>); the person&apos;s own run-out links go when they make a new one,
+              and anyone&apos;s a day after running out (when someone in the group next prints, and by{' '}
+              <Mono>cleanUpPrintLinks()</Mono> in <Mono>reports/access.js</Mono> from the hourly clean-up,
+              since a link holds the choices typed for the visit). The day is so a page opened late says
+              it has run out rather than that it never was.
+            </P>
+            <P>
+              <Mono>GET /api/reports/print/:linkId</Mono> is its own plugin with no login: it finds the link
+              in system mode, runs the report as that person with those levels through{' '}
+              <Mono>runReport()</Mono> (so the page shows what their role could see when they pressed Print,
+              and no more), records it in <Mono>report_runs</Mono> as an export with format{' '}
+              <Mono>print</Mono>, and sends HTML with <Mono>Cache-Control: private, no-store</Mono>,{' '}
+              <Mono>Referrer-Policy: no-referrer</Mono>, <Mono>X-Robots-Tag: noindex, nofollow</Mono> and a
+              Content-Security-Policy that allows inline styles, the one script by its nonce, images, and
+              no frame. An unknown link is a 404 page and a run-out one a 410 page, both saying to press
+              Print again; a report the stored levels can&apos;t run is a page with the reason. The print
+              window opens by itself only with <Mono>?print=1</Mono>, which the viewer adds.
+            </P>
+            <P>
+              <Mono>api/src/reports/export/print.js</Mono>: <Mono>printHtml(page)</Mono> writes the page (the
+              group&apos;s name and logo, the report&apos;s name and description, the facts: Period, Compared
+              with, each other choice, Opened up, Rows; the engine&apos;s notes; the chart through{' '}
+              <Mono>renderChart()</Mono> with <Mono>legend: &apos;inside&apos;</Mono> and its notes; the table
+              from <Mono>tableModel()</Mono>; Figures as of and Printed by) and{' '}
+              <Mono>messageHtml()</Mono> a page that only says something. <Mono>printLayout(model)</Mono>{' '}
+              decides how a table goes on paper from estimated widths: upright, else on its side, else in
+              smaller text, else in parts with the leading column repeated (&quot;Part 1 of 3&quot;). The
+              page learnt from the menu print pages: <Mono>@page</Mono> names only the way round and the
+              margins (the paper size is the print window&apos;s choice), the body keeps padding of its own
+              in print, backgrounds carry <Mono>print-color-adjust: exact</Mono>, headings repeat
+              (<Mono>thead</Mono>) and a row is never split, and the Total is the table&apos;s last row, not
+              a <Mono>tfoot</Mono>. On screen the paper keeps its own width (190 mm upright, 277 mm on its
+              side) inside a sheet that scrolls sideways on a phone. Chromium numbers the sheets from the{' '}
+              <Mono>@page</Mono> margin box.
+            </P>
+            <P>
+              Admin: <Mono>print()</Mono> in <Mono>pages/ReportView.jsx</Mono> opens the tab first (inside
+              the click, so the browser lets it), asks for the link, then sends the tab to it; when the link
+              can&apos;t be made the tab closes and the page says why (<Mono>report-print</Mono>,{' '}
+              <Mono>report-problems</Mono>). Tests: <Mono>api/test/reports-print.test.mjs</Mono>, the print
+              page in <Mono>system-paths.test.mjs</Mono>, and the fixtures make a link for the tenant sweep
+              (<Mono>/api/reports/print/</Mono> is in its <Mono>PUBLIC</Mono> list).
+            </P>
+
             <H3>Admin pages</H3>
             <P>
               <Mono>pages/Reports.jsx</Mono> (<Mono>/reports</Mono>, Home menu after Dashboards: search, area
               buttons, Starred / Your reports / From your team / Starter reports by area, stars, New report with
               Use) and <Mono>pages/ReportView.jsx</Mono> (<Mono>/reports/:id</Mono>: the period, venues and any
               other choice the report asks for, for this visit only, through <Mono>ParamInputs</Mono>; the
-              result, notes, Refresh; CSV and Excel with Use, for the choices showing; Edit for a report the
+              result with its chart, notes, Refresh; Print; CSV and Excel with Use, for the choices showing; Edit for a report the
               person may change, else Customise with Use; More: Make a copy (<Mono>POST /:id/copy</Mono>, then
               the copy opens), Name and details (<Mono>RenameWindow</Mono>, a <Mono>PUT</Mono> of the name and
               description), Share (<Mono>ShareWindow</Mono>, <Mono>PATCH /:id/sharing</Mono>, with Manage) and
               Delete, which asks first). Components in <Mono>components/reports/</Mono>:{' '}
               <Mono>ResultTable</Mono> (one drawing for list, summary and matrix; sticky headings, first column
-              and totals), <Mono>ResultCard</Mono>, <Mono>PeriodPicker</Mono> (named periods and two dates from{' '}
+              and totals), <Mono>ResultCard</Mono>, <Mono>ReportChart</Mono>, <Mono>PeriodPicker</Mono> (named periods and two dates from{' '}
               <Mono>shared/reports/period.js</Mono>), <Mono>VenuesPicker</Mono>, <Mono>ParamInputs</Mono>,{' '}
               <Mono>ValueInput</Mono>, <Mono>shared.jsx</Mono> (<Mono>StarButton</Mono>, <Mono>reportPath()</Mono>,{' '}
               <Mono>Problems</Mono>, <Mono>retryUnlessRefused</Mono>: the pages&apos; queries don&apos;t try a
@@ -8574,8 +8715,8 @@ meta.drill = { down: [{ field, bucket?, label }], rows: true, of: 'Dishes sold',
             </P>
 
             <InfoBox>
-              <strong>Not built yet.</strong> Charts and the print page come next, then opening the record
-              itself from a row (<Mono>drill.open</Mono> is kept by the definition and used by nothing yet); then Pepper, the other modules with
+              <strong>Not built yet.</strong> Opening the record
+              itself from a row comes next (<Mono>drill.open</Mono> is kept by the definition and used by nothing yet); then Pepper, the other modules with
               stored results for rota pay and tips, cash variance and H&amp;S status, layouts and PDFs with
               schedules and email, and data links. The plan&apos;s private file store moves to the phase that
               first keeps files. Limits of the builder: no undo; filters made of several parts (<Mono>any</Mono>,{' '}
@@ -8600,7 +8741,20 @@ meta.drill = { down: [{ field, bucket?, label }], rows: true, of: 'Dishes sold',
               and the figure tapped only where the report&apos;s figures count different rows; a figure with
               no rule of its own, or one reached through a list of other rows, lists every row; the row for
               everything else can&apos;t be opened; a share of the total in an opened row is of what is on
-              the page; chart taps come with charts.
+              the page. Limits of charts: no pie or ring (parts of a whole is a cut bar; a copy of a starter
+              made before 13 Nov 2026 that said <Mono>pie</Mono> reads as a table until a chart is picked
+              again); never two scales on one plot; colours, titles and scales aren&apos;t set per report
+              (no target lines, no forecast, no labels on every mark); with a comparison only a single
+              value gets the period before beside it; with two or more groupings one value at a time; 8
+              series, 60 rows (400 along a date or time), a heat table 40 across by 60 down, 8 figure
+              tiles; a chart isn&apos;t downloaded as a picture (print it, or save the print page as a PDF)
+              and isn&apos;t in the CSV or Excel file. Limits of printing: the page has one layout (layout
+              templates and PDFs made by the server are phase 4); the paper size and margins are the
+              browser&apos;s print window&apos;s; a list prints the rows the page holds (5,000 at most: the
+              file has them all); widths are estimates, so a table that only just fits may go on its side
+              or into parts with room to spare; sheets are numbered where the browser supports page margin
+              boxes (Chromium does); for its 15 minutes the link opens with no login for anyone who has
+              it, showing what the person who pressed Print could see then.
             </InfoBox>
           </section>
 

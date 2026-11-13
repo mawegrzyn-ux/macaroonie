@@ -140,6 +140,13 @@ test('a matrix: a cell for each row and column, with row totals, column totals a
   const byDish = Object.fromEntries(cells(res).map(r => [r[0], r.slice(1)]))
   assert.deepEqual(byDish, { [d1]: [3, 1, 4], [d2]: [5, 1, 6], [d3]: [null, 1, 1] }, 'a dish never sold that way has an empty cell')
   assert.deepEqual(res.totals.cells, [null, 8, 3, 11])
+  assert.deepEqual(res.columns.map(x => x.adds ?? null), [null, true, true, true], 'a quantity adds up, under each heading and in the row total')
+  // What the columns across the top are, in words (each column carries only its own value): a chart's label says it.
+  assert.deepEqual(res.meta.across, ['Order type'])
+  assert.equal((await run({ subject: 'till.lines', rows: ['name'], values: measures(['qty_sold']) })).meta.across, null, 'a summary has nothing across the top')
+  // Two fields across the top, in their order; a time says how it is grouped.
+  const byHour = await run({ subject: 'till.lines', rows: ['name'], columns: [{ field: 'check.opened_at', bucket: 'hour' }, 'check.order_type.name'], values: measures(['qty_sold']) })
+  assert.deepEqual(byHour.meta.across, ['Check opened (hour)', 'Order type'])
 
   const two = await run({
     subject: 'till.lines', rows: ['name'], columns: ['check.order_type.name'], values: measures(['qty_sold', 'net_sales']),
@@ -169,6 +176,8 @@ test('calculations: a share of the total, a running total, a rank, an if; hidden
   ])
   assert.deepEqual(res.totals.cells, [null, 78.8, 1, null, null, 1], 'a running total and a rank mean nothing on the total row')
   assert.deepEqual(res.columns.slice(1).map(x => [x.label, x.type]), [['Net sales', 'money'], ['Share', 'percent'], ['So far', 'money'], ['Place', 'number'], ['Over 20', 'number']])
+  // Only a plain total or count says its rows add up to its total: a chart may stack those, or cut them into parts of a whole.
+  assert.deepEqual(res.columns.map(x => x.adds ?? null), [null, true, null, null, null, null], 'a calculation never adds up, whatever it is made of')
 
   const hidden = await run({
     ...lines(),
@@ -211,6 +220,15 @@ test('ways of adding a field up: average, how many, how many different, largest,
     ['count_tab_name', 'Name on the order (how many)', 'number'],
     ['charges', 'Charges again', 'money'],
   ])
+  assert.deepEqual(res.columns.map(x => [x.key, !!x.adds]), [
+    ['avg_covers', false], ['count_distinct_server', false], ['count_distinct_server_name', false], ['max_total', false], ['min_total', false],
+    ['count', true], ['count_tab_name', true], ['charges', true],
+  ], 'an average, a "how many different", a largest and a smallest don\'t add up; a count and a sum do')
+
+  // A rate (one figure over another) doesn't either, beside the two figures it is made of. Nor does a figure
+  // counted through a check's own rows stop adding up: it is added up for each check first, then across them.
+  const rate = await run({ subject: 'till.checks', rows: ['order_type.name'], filters: [CLOSED], values: [{ measure: 'total_sales' }, { measure: 'checks' }, { measure: 'average_check' }, { agg: 'count', field: 'lines.name' }] })
+  assert.deepEqual(rate.columns.map(x => [x.key, !!x.adds]), [['order_type.name', false], ['total_sales', true], ['checks', true], ['average_check', false], ['count_lines_name', true]])
 })
 
 test('figures of the rows a check has (its dishes, its payments) are added up for each check first, never doubled', async () => {
@@ -835,6 +853,7 @@ test('one period beside the one before it: each figure now, before and the chang
       ['checks__prev', 'Checks', 'Before', 'compare'],
       ['checks__chg', 'Checks', 'Change', 'change'],
     ])
+    assert.deepEqual(res.columns.map(x => !!x.adds), [false, true, true, false, true, true, false], 'a figure and the same figure before both add up; the change between them doesn\'t')
     assert.deepEqual(cells(res), [
       ['Eat in', 15, 43.8, -0.657534, 1, 2, -0.5],
       // Nothing today: the row is there for what was sold before.
