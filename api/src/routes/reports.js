@@ -10,6 +10,10 @@
 //   GET    /                 the reports the person can open, and the starters
 //   POST   /                 save a new one (Use)
 //   POST   /preview          run a definition that isn't saved (Use; the builder)
+//   POST   /plan             a report from a plan (src/reports/plan.js: paths,
+//                            not a definition), built through the builder's
+//                            edits and run, nothing saved (Use; Pepper's
+//                            report tools)
 //   POST   /export           a file of a definition that isn't saved (Use)
 //   GET    /:id              one report with its definition
 //   PUT    /:id              change it (its owner with Use, or Manage)
@@ -44,7 +48,8 @@ import { AREAS, CATALOGUE, catalogueView, listColumns } from '../reports/catalog
 import { STARTERS, STARTER_PREFIX, starterByKey } from '../reports/starters/index.js'
 import { ReportError } from '../reports/compile.js'
 import { runReport, currencyPath } from '../reports/run.js'
-import { reportPerson, rightsOn, openTo, runsFor, checkedSpec, recordRun, refuseOtherVenues } from '../reports/access.js'
+import { reportPerson, rightsOn, openTo, runsFor, checkedSpec, recordRun, refuseOtherVenues, groupVenues } from '../reports/access.js'
+import { PLAN, planReport } from '../reports/plan.js'
 import { csvExport } from '../reports/export/csv.js'
 import { xlsxExport } from '../reports/export/xlsx.js'
 import { fileName } from '../reports/export/table.js'
@@ -96,6 +101,12 @@ const RunBody = z.object({
 const PreviewBody = RunBody.extend({
   spec: Spec,
   rows: z.number().int().min(1).max(5000).optional(),
+})
+// A plan, and the definition it changes (what a plan can't say is kept from it).
+const PlanBody = z.object({
+  plan: PLAN,
+  report: Spec.nullable().optional(),
+  rows: z.number().int().min(1).max(PREVIEW_ROWS).optional(),
 })
 const Format = z.enum(['csv', 'xlsx'])
 const ExportBody = z.object({ format: Format, params: Params.optional(), drill: Drill.optional() })
@@ -464,6 +475,23 @@ export default async function reportRoutes(app) {
     await refuseOtherVenues(p, base, body.params || {})
     const spec = drilled(base, drillSteps(body.drill), p.levels)
     return runReport(p.ctx, spec, body.params || {}, { cap: body.rows ?? PREVIEW_ROWS, fresh: !!body.fresh })
+  })
+
+  app.post('/plan', use, async req => {
+    const body = PlanBody.parse(req.body)
+    const p = await reportPerson(req)
+    let report = null
+    if (body.report) {
+      report = normaliseReport(body.report)
+      await refuseOtherVenues(p, report)
+    }
+    const venues = await groupVenues(p)
+    return planReport(p, {
+      plan: body.plan,
+      report,
+      venues: venues.map(v => ({ id: v.id, name: v.name })),
+      cap: body.rows ?? PREVIEW_ROWS,
+    })
   })
 
   app.post('/export', use, async (req, reply) => {

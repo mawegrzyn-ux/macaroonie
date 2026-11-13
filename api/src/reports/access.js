@@ -23,6 +23,9 @@
 //   refuseOtherVenues(person, spec, params)
 //                            404 when a definition or a run names another
 //                            group's venue (the app's rule for venue ids)
+//   groupVenues(person)      every venue of the group, the open ones first
+//                            ([{ id, name, timezone, is_active }]): names in
+//                            requests and plans are matched among these
 //   recordRun(person, run)   one row of report_runs (never throws)
 //   cleanUpReportRuns()      hourly: run records after 400 days
 //   cleanUpPrintLinks()      hourly: print links a day after they ran out
@@ -137,6 +140,14 @@ export async function refuseOtherVenues(p, spec, params = {}) {
   const [other] = await systemSql`
     SELECT 1 FROM venues WHERE id = ANY(${ids}::uuid[]) AND tenant_id <> ${p.tenantId} LIMIT 1`
   if (other) throw httpError(404, 'Venue not found')
+}
+
+/** Every venue of the group, the open ones first: a report can be about a venue that has closed. */
+export function groupVenues(p) {
+  return withTenant(p.tenantId, tx => tx`
+    SELECT id, name, timezone, is_active FROM venues
+     WHERE tenant_id = ${p.tenantId}
+     ORDER BY is_active DESC, name, id`)
 }
 
 // What a run's record keeps of the choices it was run with: the period and

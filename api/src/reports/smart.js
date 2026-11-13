@@ -290,6 +290,28 @@ export function buildSlice(catalogue, request, pinned = null) {
   return { text: lines.join('\n'), detailed, s, sRefOf, f, fRefOf }
 }
 
+/**
+ * A slice whose refs are the catalogue's own paths: every subject the
+ * person can build on (by its key), and everything the builder offers for
+ * `subjectKey`, two links deep (by its path). Plans written with paths
+ * (Pepper's chat tools, src/reports/plan.js) go through toSpec() and
+ * answerOf() with it, the way the smart builder's answers do with refs.
+ */
+export function pathSlice(catalogue, subjectKey) {
+  const s = new Map(), sRefOf = new Map(), f = new Map(), fRefOf = new Map()
+  for (const sub of Object.values(catalogue.subjects)) {
+    if (!sub.base) continue
+    s.set(ref(sub.key), sub.key)
+    sRefOf.set(sub.key, sub.key)
+  }
+  const tree = catalogue.subjects[subjectKey]?.base ? dataTree(catalogue, subjectKey, { depth: 2 }) : null
+  for (const n of treeNodes(tree)) {
+    f.set(ref(n.path), { subject: subjectKey, path: n.path, node: n })
+    fRefOf.set(subjectKey + '|' + n.path, n.path)
+  }
+  return { text: '', detailed: tree ? [subjectKey] : [], s, sRefOf, f, fRefOf }
+}
+
 // ── What the model answers ───────────────────────────────────
 
 const int = { type: 'integer' }
@@ -457,7 +479,7 @@ function filterValue(def, type, bucket, op, words) {
 export function toSpec(catalogue, slice, answer, { venues = [], prev = null } = {}) {
   const subjectKey = slice.s.get(ref(answer?.subject))
   const sub = catalogue.subjects[subjectKey]
-  const out = { spec: null, name: '', assumed: [], couldnt: [], slips: 0, questions: [], lookups: [] }
+  const out = { spec: null, name: '', assumed: [], couldnt: [], slips: 0, questions: [], lookups: [], keys: {} }
   if (!sub?.base) return out
   const kind = answer.kind === 'list' ? 'list' : 'summary'
   const isList = kind === 'list'
@@ -542,9 +564,15 @@ export function toSpec(catalogue, slice, answer, { venues = [], prev = null } = 
     return picked
   }
   const nameOf = v => text(v.name).toLowerCase()
+  // decimals and hidden come only from plans (src/reports/plan.js): the model's answers have neither.
   const extras = v => {
     const label = clip(v.label, LIMITS.label)
-    return { ...(label ? { label } : {}), ...(VALUE_FORMATS.includes(v.format) ? { format: v.format } : {}) }
+    return {
+      ...(label ? { label } : {}),
+      ...(VALUE_FORMATS.includes(v.format) ? { format: v.format } : {}),
+      ...(Number.isInteger(v.decimals) && v.decimals >= 0 && v.decimals <= 6 ? { decimals: v.decimals } : {}),
+      ...(v.hidden === true ? { hidden: true } : {}),
+    }
   }
   const sameValue = (a, b) => (a.measure || '') === (b.measure || '') && (a.agg || '') === (b.agg || '') && (a.field || '') === (b.field || '')
   if (!isList) {
@@ -714,6 +742,7 @@ export function toSpec(catalogue, slice, answer, { venues = [], prev = null } = 
 
   out.spec = spec
   out.name = clip(answer.name, 60) || sub.label
+  out.keys = Object.fromEntries(keyOf)
   return out
 }
 
@@ -793,8 +822,10 @@ function wordsOf(def, type, bucket, op, v) {
  * A definition written the way the model answers, with the slice's refs:
  * the report as it is now, when it is to be changed. Parts the slice has no
  * ref for are left out (the model is told the report as it can change it).
+ * `full` adds what plans say and the model's answers don't (decimals,
+ * hidden values).
  */
-export function answerOf(catalogue, slice, spec, venues = [], name = '') {
+export function answerOf(catalogue, slice, spec, venues = [], name = '', { full = false } = {}) {
   const k = spec.subject
   const fref = path => slice.fRefOf.get(k + '|' + path) || ''
   // A thing's name is listed as the thing.
@@ -803,7 +834,11 @@ export function answerOf(catalogue, slice, spec, venues = [], name = '') {
   const asName = key => names.get(key) || ''
   const row = r => ({ ref: refFor(r.field), bucket: r.bucket || '', label: r.label || '' })
   const values = spec.values.filter(v => !v.of).map(v => {
-    const base = { name: asName(v.key), ref: '', agg: '', calc: '', label: v.label || '', format: v.format || '' }
+    const base = {
+      name: asName(v.key), ref: '', agg: '', calc: '', label: v.label || '', format: v.format || '',
+      // A plan says these too (`full`); the model's answers don't.
+      ...(full && v.decimals != null ? { decimals: v.decimals } : {}), ...(full && v.hidden ? { hidden: true } : {}),
+    }
     if (v.measure) return { ...base, ref: fref(v.measure) }
     if (v.calc) return { ...base, calc: v.calc.replace(/[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*/gi, t => names.get(t) || t) }
     if (v.agg === 'count' && !v.field) return { ...base, ref: 'COUNT', agg: 'count' }
@@ -901,6 +936,44 @@ const retryText = (answer, problems) => 'Your last answer:\n' + JSON.stringify(a
 // again wouldn't help.
 const notForRetry = e => e.statusCode !== 422 || /too long|too much at once/i.test(e.message || '')
 
+/**
+ * A built definition (toSpec()'s output) checked, its names found in the
+ * data, run as the person and said in words: the part the smart builder and
+ * plans in paths share. `assumed` and `couldnt` are the notes so far.
+ *   -> { done: { spec, about, assumed, couldnt, questions, result } }
+ *   or { problems, retry, failed: { spec, about, assumed, couldnt, problem } }
+ *      (retry: asking again with the reasons could help)
+ */
+export async function runBuilt(p, catalogue, built, { venues = [], assumed = [], couldnt = [], cap = PREVIEW_ROWS } = {}) {
+  let spec = built.spec
+  let problems = spec ? reportProblems(spec) : ['Nothing could be built from this']
+  if (!problems.length) {
+    try { spec = checkedSpec(spec, p).spec } catch (e) { if (e instanceof ReportError) problems = e.problems; else throw e }
+  }
+  const words = { assumed: notes(assumed), couldnt: notes(couldnt) }
+  const failed = problem => ({ spec, about: spec ? describeReport(catalogue, spec, { venues }) : '', ...words, problem })
+  if (problems.length) return { problems, retry: true, failed: failed(problems.join('. ')) }
+
+  const found = await findNames(p, catalogue, spec, built.lookups)
+  spec = found.spec
+  words.couldnt = notes([...words.couldnt, ...found.notes])
+
+  let result
+  try {
+    result = await runReport(p.ctx, spec, {}, { cap })
+  } catch (e) {
+    if (!(e instanceof ReportError)) throw e
+    return { problems: e.problems, retry: !notForRetry(e), failed: failed(e.problems.join('. ')) }
+  }
+
+  const ctx = { venues, periodText: result.meta?.period?.text, currency: result.meta?.currency }
+  const questions = [...built.questions, ...found.questions].slice(0, QUESTIONS).map(q => ({
+    question: q.question,
+    choices: q.choices.map(c => ({ label: c.label, change: c.change })),
+  }))
+  return { done: { spec, about: describeReport(catalogue, spec, ctx), ...words, questions, result } }
+}
+
 /** Build a report from a request. See the top of this file. */
 export async function smartBuild(p, { request, previous = null, files = [], venues = [], today = null } = {}) {
   const catalogue = catalogueView(p.levels)
@@ -941,44 +1014,16 @@ export async function smartBuild(p, { request, previous = null, files = [], venu
     const built = toSpec(catalogue, slice, answer, { venues, prev })
     const couldnt = [...list(answer.couldnt), ...built.couldnt]
     if (built.slips) couldnt.push('Part of the request couldn\'t be matched to what the reports hold')
-    let spec = built.spec
-    let problems = spec ? reportProblems(spec) : ['Nothing could be built from this']
-    if (!problems.length) {
-      try { spec = checkedSpec(spec, p).spec } catch (e) { if (e instanceof ReportError) problems = e.problems; else throw e }
+    const ran = await runBuilt(p, catalogue, built, { venues, assumed: [...list(answer.assumed), ...built.assumed], couldnt })
+    if (ran.problems) {
+      if (call === 1 && ran.retry) { feedback = retryText(answer, ran.problems); continue }
+      return { ...ran.failed, name: built.name, questions: modelQuestions, result: null }
     }
-    const answerNotes = { assumed: notes([...list(answer.assumed), ...built.assumed]), couldnt: notes(couldnt) }
-    const failed = problem => ({
-      spec, name: built.name, about: spec ? describeReport(catalogue, spec, { venues }) : '',
-      ...answerNotes, questions: modelQuestions, result: null, problem,
-    })
-    if (problems.length) {
-      if (call === 1) { feedback = retryText(answer, problems); continue }
-      return failed(problems.join('. '))
-    }
-
-    const found = await findNames(p, catalogue, spec, built.lookups)
-    spec = found.spec
-    answerNotes.couldnt = notes([...answerNotes.couldnt, ...found.notes])
-
-    let result
-    try {
-      result = await runReport(p.ctx, spec, {}, { cap: PREVIEW_ROWS })
-    } catch (e) {
-      if (!(e instanceof ReportError)) throw e
-      if (call === 1 && !notForRetry(e)) { feedback = retryText(answer, e.problems); continue }
-      return failed(e.problems.join('. '))
-    }
-
-    const ctx = { venues, periodText: result.meta?.period?.text, currency: result.meta?.currency }
-    const questions = [...built.questions, ...found.questions].slice(0, QUESTIONS).map(q => ({
-      question: q.question,
-      choices: q.choices.map(c => ({ label: c.label, change: c.change })),
-    }))
+    const out = ran.done
     return {
-      spec, name: built.name, about: describeReport(catalogue, spec, ctx),
-      ...answerNotes,
-      questions: [...questions, ...modelQuestions].slice(0, QUESTIONS),
-      result, problem: null,
+      spec: out.spec, name: built.name, about: out.about, assumed: out.assumed, couldnt: out.couldnt,
+      questions: [...out.questions, ...modelQuestions].slice(0, QUESTIONS),
+      result: out.result, problem: null,
     }
   }
   // Both calls used up without a report (a subject named twice that isn't listed).
